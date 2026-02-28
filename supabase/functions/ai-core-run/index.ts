@@ -5,6 +5,8 @@ import {
 } from "../_shared/http.ts";
 import { callOpenAI } from "./providers/openai.ts";
 import { callAnthropic } from "./providers/anthropic.ts";
+import { perplexitySearch } from "./providers/perplexity.ts";
+import { firecrawlBatch } from "./providers/firecrawl.ts";
 import * as PipelineWyloni from "./pipelines/wyloni_bandi.ts";
 import * as PipelinePratica from "./pipelines/pratica_legal.ts";
 import * as PipelineKeydraft from "./pipelines/keydraft_realestate.ts";
@@ -13,6 +15,45 @@ function getPipeline(domain: string) {
   if (domain === "pratica_legal") return PipelinePratica;
   if (domain === "keydraft_realestate") return PipelineKeydraft;
   return PipelineWyloni;
+}
+
+/** Web-enhanced AI: search with Perplexity, optionally scrape with Firecrawl, then synthesize with OpenAI */
+async function runWebSearch(
+  prompt: string,
+  domain: string,
+  task: string,
+): Promise<string> {
+  const pipeline = getPipeline(domain);
+  const maxTokens = pipeline.MAX_TOKENS;
+  console.log(`[ai-core-run] webSearch domain=${domain} task=${task}`);
+
+  // Step 1: Search with Perplexity
+  const searchResult = await perplexitySearch(prompt.slice(0, 300));
+  let context = "";
+
+  if (searchResult) {
+    console.log(`[ai-core-run] Perplexity ok citations=${searchResult.citations.length}`);
+    context = searchResult.answer.slice(0, 1500);
+
+    // Step 2: Optionally scrape top URL with Firecrawl for richer data
+    if (searchResult.citations.length > 0) {
+      const topUrls = searchResult.citations.slice(0, 2).map(c => c.url);
+      const scraped = await firecrawlBatch(topUrls);
+      if (scraped.length > 0) {
+        console.log(`[ai-core-run] Firecrawl scraped ${scraped.length} pages`);
+        context += "\n\nCONTENUTO PAGINE:\n" + scraped.map(s => `${s.title}:\n${s.markdown}`).join("\n\n").slice(0, 2000);
+      }
+    }
+  } else {
+    console.warn("[ai-core-run] Perplexity unavailable — falling back to pure OpenAI");
+  }
+
+  // Step 3: Synthesize with OpenAI using gathered context
+  const enrichedPrompt = context
+    ? `${prompt}\n\nDATI AGGIORNATI DA RICERCA WEB:\n${context}`
+    : prompt;
+
+  return await runAI(enrichedPrompt, domain);
 }
 
 async function runAI(prompt: string, domain: string): Promise<string> {
@@ -171,7 +212,10 @@ ${text.slice(0, 8000)}`;
 
       if (prompt) {
         console.log(`[ai-core-run] fallback route task=${task} domain=${domain} debug_id=${debugId}`);
-        const output = await runAI(prompt, domain);
+        // Tasks che beneficiano di web search reale
+        const WEB_TASKS = ["search_grants", "find_contacts", "real_estate_deep", "ai_bandi", "find_company_contacts"];
+        const useWeb = WEB_TASKS.includes(task);
+        const output = useWeb ? await runWebSearch(prompt, domain, task) : await runAI(prompt, domain);
         console.log(`[ai-core-run] raw output preview: ${output.slice(0, 300)}`);
         let parsed: unknown = null;
         try {
