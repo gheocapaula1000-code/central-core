@@ -153,7 +153,28 @@ ${text.slice(0, 8000)}`;
       }, [], debugId);
     }
 
-    // ── 404 ───────────────────────────────────────────────────────────────
+    // ── Fallback: route by task in body (handles /ai-core-run base path) ──
+    if (req.method === "POST") {
+      let fallbackBody: Record<string, unknown> = {};
+      try { fallbackBody = await req.json(); } catch { /* ignore */ }
+      const task = (fallbackBody.task as string) || "";
+      const prompt = (fallbackBody.prompt as string) || (fallbackBody.text as string) || "";
+      const domain = (fallbackBody.domain as string) || "wyloni_bandi";
+
+      if (prompt) {
+        console.log(`[ai-core-run] fallback route task=${task} domain=${domain} debug_id=${debugId}`);
+        const output = await runAI(prompt, domain);
+        let parsed: unknown = null;
+        try { parsed = JSON.parse(output.replace(/```json|```/g, "").trim()); } catch { /* not JSON */ }
+        return ok(req, {
+          final_output: output,
+          data: parsed,
+          offers: (parsed as Record<string, unknown>)?.offers ?? [],
+          debug_id: debugId,
+        }, [], debugId);
+      }
+    }
+
     return fail(req, 404, "NOT_FOUND", `Path not found: ${pathname}`, debugId);
 
   } catch (err) {
