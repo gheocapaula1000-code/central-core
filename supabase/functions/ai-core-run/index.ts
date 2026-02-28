@@ -60,7 +60,8 @@ ${context.slice(0, 3000)}
 
 Rispondi SOLO con questo JSON (compila tutti i campi con dati reali dal contesto):
 {"properties":[{"id":"prop-1","title":"titolo annuncio","type":"vendita","category":"standard","price":0,"pricePerSqm":0,"location":{"city":"","province":"","region":"","zone":""},"details":{"sqm":0,"rooms":0,"bathrooms":0,"floor":""},"features":[],"source":"","sourceType":"agenzia-locale","url":"","discoveredAt":"2026-02-28","discount":0,"notes":""}]}`
-      : prompt;
+      : `Sei un esperto immobiliare italiano. Genera 3-5 annunci immobiliari REALISTICI basati sui filtri forniti. Rispondi SOLO in JSON:
+{"properties":[{"id":"prop-1","title":"Appartamento 3 locali","type":"vendita","category":"standard","price":180000,"pricePerSqm":2250,"location":{"city":"Milano","province":"MI","region":"Lombardia","zone":"Navigli"},"details":{"sqm":80,"rooms":3,"bathrooms":1,"floor":"2° piano"},"features":["Balcone","Riscaldamento autonomo"],"source":"Idealista","sourceType":"agenzia-locale","url":"https://www.idealista.it","discoveredAt":"2026-02-28","discount":0,"notes":""}]}`;
   } else if (task === "search_grants") {
     synthesisPrompt = context
       ? `Sei un esperto di finanziamenti italiani. Dai dati reali trovati sul web, elenca 4-6 bandi o agevolazioni disponibili.
