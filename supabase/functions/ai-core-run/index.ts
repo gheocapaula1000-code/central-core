@@ -48,12 +48,46 @@ async function runWebSearch(
     console.warn("[ai-core-run] Perplexity unavailable — falling back to pure OpenAI");
   }
 
-  // Step 3: Synthesize with OpenAI using gathered context
-  const enrichedPrompt = context
-    ? `${prompt}\n\nDATI AGGIORNATI DA RICERCA WEB:\n${context}`
-    : prompt;
+  // Step 3: Build synthesis prompt based on task
+  let synthesisPrompt: string;
 
-  return await runAI(enrichedPrompt, domain);
+  if (task === "real_estate_deep") {
+    synthesisPrompt = context
+      ? `Sei un esperto immobiliare italiano. Dai dati reali trovati sul web, estrai e formatta 3-5 annunci immobiliari in JSON.
+
+DATI WEB:
+${context.slice(0, 3000)}
+
+Rispondi SOLO con questo JSON (compila tutti i campi con dati reali dal contesto):
+{"properties":[{"id":"prop-1","title":"titolo annuncio","type":"vendita","category":"standard","price":0,"pricePerSqm":0,"location":{"city":"","province":"","region":"","zone":""},"details":{"sqm":0,"rooms":0,"bathrooms":0,"floor":""},"features":[],"source":"","sourceType":"agenzia-locale","url":"","discoveredAt":"2026-02-28","discount":0,"notes":""}]}`
+      : prompt;
+  } else if (task === "search_grants") {
+    synthesisPrompt = context
+      ? `Sei un esperto di finanziamenti italiani. Dai dati reali trovati sul web, elenca 4-6 bandi o agevolazioni disponibili.
+
+DATI WEB:
+${context.slice(0, 3000)}
+
+Rispondi SOLO con questo JSON:
+{"success":true,"results":[{"title":"nome bando","description":"descrizione dettagliata con importo e requisiti","url":"https://url-ufficiale","source":"INPS / Agenzia Entrate / ecc.","isPdf":false}]}`
+      : prompt;
+  } else if (task === "find_contacts") {
+    synthesisPrompt = context
+      ? `Dai dati trovati sul web, estrai i contatti richiesti.
+
+DATI WEB:
+${context.slice(0, 3000)}
+
+Rispondi SOLO con questo JSON:
+{"results":[{"id":"1","name":"","pec":"","email":"","phone":"","address":"","website":"","source":"","source_url":""}]}`
+      : prompt;
+  } else {
+    synthesisPrompt = context
+      ? `${prompt}\n\nDATI AGGIORNATI DA RICERCA WEB:\n${context}`
+      : prompt;
+  }
+
+  return await runAI(synthesisPrompt, domain);
 }
 
 async function runAI(prompt: string, domain: string): Promise<string> {
