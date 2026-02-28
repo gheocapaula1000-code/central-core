@@ -20,15 +20,23 @@ async function runAI(prompt: string, domain: string): Promise<string> {
   const maxTokens = pipeline.MAX_TOKENS;
   const temp = pipeline.TEMPERATURE;
 
+  const keyOAI = Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_KEY") ?? "";
+  const keyANT = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+
+  console.log(`[ai-core-run] runAI domain=${domain} maxTokens=${maxTokens} hasOAI=${!!keyOAI} hasANT=${!!keyANT}`);
+
   try {
-    const { output } = await callOpenAI(prompt, temp, maxTokens);
+    const { output, latencyMs } = await callOpenAI(prompt, temp, maxTokens);
+    console.log(`[ai-core-run] OpenAI ok latency=${latencyMs}ms output_len=${output.length}`);
     return output;
   } catch (errA) {
-    console.warn("[ai-core-run] OpenAI failed:", String(errA), "— trying Anthropic");
+    console.error("[ai-core-run] OpenAI failed:", String(errA));
     try {
-      const { output } = await callAnthropic(prompt, temp, maxTokens);
+      const { output, latencyMs } = await callAnthropic(prompt, temp, maxTokens);
+      console.log(`[ai-core-run] Anthropic ok latency=${latencyMs}ms output_len=${output.length}`);
       return output;
     } catch (errB) {
+      console.error("[ai-core-run] Anthropic failed:", String(errB));
       throw new Error(`Both models failed. OpenAI: ${String(errA)} | Anthropic: ${String(errB)}`);
     }
   }
