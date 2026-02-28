@@ -17,7 +17,7 @@ function getPipeline(domain: string) {
   return PipelineWyloni;
 }
 
-/** Web-enhanced AI: search with Perplexity, optionally scrape with Firecrawl, then synthesize with OpenAI */
+/** Web search con dati REALI. Per immobili usa Perplexity direttamente (ha web search nativo). MAI OpenAI per sintetizzare dati che devono essere reali. */
 async function runWebSearch(
   prompt: string,
   domain: string,
@@ -27,68 +27,135 @@ async function runWebSearch(
   const maxTokens = pipeline.MAX_TOKENS;
   console.log(`[ai-core-run] webSearch domain=${domain} task=${task}`);
 
-  // Step 1: Search with Perplexity
-  const searchResult = await perplexitySearch(prompt.slice(0, 300));
-  let context = "";
-
-  if (searchResult) {
-    console.log(`[ai-core-run] Perplexity ok citations=${searchResult.citations.length}`);
-    context = searchResult.answer.slice(0, 1500);
-
-    // Step 2: Optionally scrape top URL with Firecrawl for richer data
-    if (searchResult.citations.length > 0) {
-      const topUrls = searchResult.citations.slice(0, 2).map(c => c.url);
-      const scraped = await firecrawlBatch(topUrls);
-      if (scraped.length > 0) {
-        console.log(`[ai-core-run] Firecrawl scraped ${scraped.length} pages`);
-        context += "\n\nCONTENUTO PAGINE:\n" + scraped.map(s => `${s.title}:\n${s.markdown}`).join("\n\n").slice(0, 2000);
-      }
+  // Per real_estate_deep: usa Perplexity DIRETTAMENTE come LLM con web search
+  // Non passare mai per OpenAI — allucinano sempre
+  if (task === "real_estate_deep") {
+    const key = Deno.env.get("PERPLEXITY_API_KEY");
+    if (!key) {
+      console.warn("[ai-core-run] PERPLEXITY_API_KEY mancante — ritorno vuoto");
+      return `{"properties":[]}`;
     }
-  } else {
-    console.warn("[ai-core-run] Perplexity unavailable — falling back to pure OpenAI");
+
+    const filters = prompt.slice(0, 500);
+    const perplexityPrompt = `Cerca annunci immobiliari REALI su Idealista, Immobiliare.it, Casa.it, Subito.it basandoti su questi filtri: ${filters}
+
+Rispondi SOLO con un JSON valido, senza testo prima o dopo. Usa SOLO annunci che hai trovato realmente sul web. Se non trovi nulla, ritorna {"properties":[]}.
+
+Formato richiesto:
+{"properties":[{"id":"1","title":"titolo annuncio reale","type":"vendita","category":"standard","price":180000,"pricePerSqm":2250,"location":{"city":"Milano","province":"MI","region":"Lombardia","zone":""},"details":{"sqm":80,"rooms":3,"bathrooms":1,"floor":"2"},"features":["Balcone"],"source":"Idealista","sourceType":"agenzia-locale","url":"https://url-annuncio-reale","discoveredAt":"2026-02-28","discount":0,"notes":""}]}`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 25_000);
+    const started = Date.now();
+
+    try {
+      const res = await fetch("https://api.perplexity.ai/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "sonar",
+          max_tokens: maxTokens,
+          temperature: 0.0,
+          messages: [
+            {
+              role: "system",
+              content: "Sei un assistente che cerca annunci immobiliari reali sul web. Rispondi SEMPRE e SOLO in JSON valido. Se non trovi annunci reali, ritorna {\"properties\":[]}. MAI inventare annunci.",
+            },
+            { role: "user", content: perplexityPrompt },
+          ],
+          return_citations: true,
+          search_recency_filter: "month",
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timer);
+
+      if (!res.ok) {
+        console.warn(`[ai-core-run] Perplexity error ${res.status}`);
+        return `{"properties":[]}`;
+      }
+
+      const data = await res.json();
+      const output: string = data?.choices?.[0]?.message?.content ?? "";
+      console.log(`[ai-core-run] Perplexity real_estate output_len=${output.length} latency=${Date.now()-started}ms`);
+
+      if (!output || output.trim().length < 10) return `{"properties":[]}`;
+      return output;
+    } catch (err) {
+      clearTimeout(timer);
+      console.warn("[ai-core-run] Perplexity real_estate failed:", String(err));
+      return `{"properties":[]}`;
+    }
   }
 
-  // Step 3: Build synthesis prompt based on task
+  // Per search_grants, find_contacts, ai_bandi: Perplexity search + OpenAI synthesis
+  const searchResult = await perplexitySearch(prompt.slice(0, 400));
+  if (!searchResult || searchResult.answer.trim().length < 30) {
+    console.warn("[ai-core-run] Perplexity returned no data — returning empty");
+    if (task === "search_grants")  return `{"success":true,"results":[]}`;
+    if (task === "find_contacts")  return `{"results":[]}`;
+    if (task === "ai_bandi")       return `{"ok":true,"data":{"results":[]}}`;
+    return `{"ok":false,"error":"Nessun dato trovato"}`;
+  }
+
+  console.log(`[ai-core-run] Perplexity ok citations=${searchResult.citations.length}`);
+
+  let scrapedContent = "";
+  if (searchResult.citations.length > 0) {
+    const scraped = await firecrawlBatch(searchResult.citations.slice(0, 2).map(c => c.url));
+    if (scraped.length > 0) {
+      console.log(`[ai-core-run] Firecrawl scraped ${scraped.length} pages`);
+      scrapedContent = scraped.map(s => `### ${s.title}\n${s.markdown}`).join("\n\n");
+    }
+  }
+
+  const webContext = [searchResult.answer, scrapedContent].filter(Boolean).join("\n\n").slice(0, 4000);
+
   let synthesisPrompt: string;
 
-  if (task === "real_estate_deep") {
-    synthesisPrompt = context
-      ? `Sei un esperto immobiliare italiano. Dai dati reali trovati sul web, estrai e formatta 3-5 annunci immobiliari in JSON.
+  if (task === "search_grants") {
+    synthesisPrompt = `Usando SOLO i dati reali qui sotto, elenca i bandi trovati. Se non ci sono dati sufficienti, usa results:[].
 
-DATI WEB:
-${context.slice(0, 3000)}
+DATI WEB:\n${webContext}
 
-Rispondi SOLO con questo JSON (compila tutti i campi con dati reali dal contesto):
-{"properties":[{"id":"prop-1","title":"titolo annuncio","type":"vendita","category":"standard","price":0,"pricePerSqm":0,"location":{"city":"","province":"","region":"","zone":""},"details":{"sqm":0,"rooms":0,"bathrooms":0,"floor":""},"features":[],"source":"","sourceType":"agenzia-locale","url":"","discoveredAt":"2026-02-28","discount":0,"notes":""}]}`
-      : `Sei un esperto immobiliare italiano. Genera 3-5 annunci immobiliari REALISTICI basati sui filtri forniti. Rispondi SOLO in JSON:
-{"properties":[{"id":"prop-1","title":"Appartamento 3 locali","type":"vendita","category":"standard","price":180000,"pricePerSqm":2250,"location":{"city":"Milano","province":"MI","region":"Lombardia","zone":"Navigli"},"details":{"sqm":80,"rooms":3,"bathrooms":1,"floor":"2° piano"},"features":["Balcone","Riscaldamento autonomo"],"source":"Idealista","sourceType":"agenzia-locale","url":"https://www.idealista.it","discoveredAt":"2026-02-28","discount":0,"notes":""}]}`;
-  } else if (task === "search_grants") {
-    synthesisPrompt = context
-      ? `Sei un esperto di finanziamenti italiani. Dai dati reali trovati sul web, elenca 4-6 bandi o agevolazioni disponibili.
-
-DATI WEB:
-${context.slice(0, 3000)}
-
-Rispondi SOLO con questo JSON:
-{"success":true,"results":[{"title":"nome bando","description":"descrizione dettagliata con importo e requisiti","url":"https://url-ufficiale","source":"INPS / Agenzia Entrate / ecc.","isPdf":false}]}`
-      : prompt;
+Rispondi SOLO in JSON: {"success":true,"results":[{"title":"","description":"","url":"","source":"","isPdf":false}]}`;
   } else if (task === "find_contacts") {
-    synthesisPrompt = context
-      ? `Dai dati trovati sul web, estrai i contatti richiesti.
+    synthesisPrompt = `Usando SOLO i dati reali qui sotto, estrai i contatti. Se non ci sono, usa results:[].
 
-DATI WEB:
-${context.slice(0, 3000)}
+DATI WEB:\n${webContext}
 
-Rispondi SOLO con questo JSON:
-{"results":[{"id":"1","name":"","pec":"","email":"","phone":"","address":"","website":"","source":"","source_url":""}]}`
-      : prompt;
+Rispondi SOLO in JSON: {"results":[{"id":"1","name":"","pec":"","email":"","phone":"","address":"","website":"","source":"","source_url":""}]}`;
   } else {
-    synthesisPrompt = context
-      ? `${prompt}\n\nDATI AGGIORNATI DA RICERCA WEB:\n${context}`
-      : prompt;
+    synthesisPrompt = `${prompt}\n\nDATI REALI (usa SOLO questi):\n${webContext}`;
   }
 
-  return await runAI(synthesisPrompt, domain);
+  const oaiKey = Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_KEY") ?? "";
+  if (!oaiKey) throw new Error("OPENAI_API_KEY not configured");
+
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 25_000);
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${oaiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: Deno.env.get("OPENAI_MODEL") ?? "gpt-4o-mini",
+        temperature: 0.1,
+        max_tokens: maxTokens,
+        messages: [{ role: "user", content: synthesisPrompt }],
+      }),
+      signal: ctrl.signal,
+    });
+
+    if (!res.ok) throw new Error(`OpenAI error ${res.status}`);
+    const d = await res.json();
+    const out = d?.choices?.[0]?.message?.content ?? "";
+    console.log(`[ai-core-run] synthesis ok output_len=${out.length}`);
+    return out;
+  } finally {
+    clearTimeout(t);
+  }
 }
 
 async function runAI(prompt: string, domain: string): Promise<string> {
