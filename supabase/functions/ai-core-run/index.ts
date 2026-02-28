@@ -172,8 +172,24 @@ ${text.slice(0, 8000)}`;
       if (prompt) {
         console.log(`[ai-core-run] fallback route task=${task} domain=${domain} debug_id=${debugId}`);
         const output = await runAI(prompt, domain);
+        console.log(`[ai-core-run] raw output preview: ${output.slice(0, 300)}`);
         let parsed: unknown = null;
-        try { parsed = JSON.parse(output.replace(/```json|```/g, "").trim()); } catch { /* not JSON */ }
+        try {
+          const cleaned = output
+            .replace(/```json\s*/gi, "")
+            .replace(/```\s*/g, "")
+            .trim();
+          // Find first { and last } to extract JSON even if there's surrounding text
+          const firstBrace = cleaned.indexOf("{");
+          const lastBrace = cleaned.lastIndexOf("}");
+          const jsonStr = firstBrace !== -1 && lastBrace !== -1
+            ? cleaned.slice(firstBrace, lastBrace + 1)
+            : cleaned;
+          parsed = JSON.parse(jsonStr);
+          console.log(`[ai-core-run] parsed ok offers=${Array.isArray((parsed as any)?.offers) ? (parsed as any).offers.length : "not array"}`);
+        } catch (e) {
+          console.warn(`[ai-core-run] parse failed: ${String(e)}`);
+        }
         return ok(req, {
           final_output: output,
           data: parsed,
