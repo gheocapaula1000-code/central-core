@@ -1,354 +1,292 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import {
-  makeDebugId, corsHeaders, handleOptions,
-  ok, fail, requireSecret,
-} from "../_shared/http.ts";
-import { callOpenAI } from "./providers/openai.ts";
-import { callAnthropic } from "./providers/anthropic.ts";
-import { perplexitySearch } from "./providers/perplexity.ts";
-import { firecrawlBatch } from "./providers/firecrawl.ts";
-import * as PipelineWyloni from "./pipelines/wyloni_bandi.ts";
-import * as PipelinePratica from "./pipelines/pratica_legal.ts";
-import * as PipelineKeydraft from "./pipelines/keydraft_realestate.ts";
 
-function getPipeline(domain: string) {
-  if (domain === "pratica_legal") return PipelinePratica;
-  if (domain === "keydraft_realestate") return PipelineKeydraft;
-  return PipelineWyloni;
+function makeDebugId(): string {
+  return crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+}
+function withAbort(ms: number) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  return { signal: c.signal, clear: () => clearTimeout(t) };
 }
 
-/** Web search con dati REALI. Per immobili usa Perplexity direttamente (ha web search nativo). MAI OpenAI per sintetizzare dati che devono essere reali. */
-async function runWebSearch(
-  prompt: string,
-  domain: string,
-  task: string,
-): Promise<string> {
-  const pipeline = getPipeline(domain);
-  const maxTokens = pipeline.MAX_TOKENS;
-  console.log(`[ai-core-run] webSearch domain=${domain} task=${task}`);
+const LOVABLE_SUFFIXES = [".lovable.app", ".lovableproject.com", ".lovable.dev"];
+function isAllowedOrigin(origin: string): boolean {
+  if (!origin) return false;
+  const o = origin.toLowerCase();
+  if (o.startsWith("http://localhost") || o.startsWith("http://127.")) return true;
+  if (LOVABLE_SUFFIXES.some((s) => o.endsWith(s)) || o === "https://lovable.dev") return true;
+  const allowed = (Deno.env.get("CORE_ALLOWED_ORIGINS") ?? "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+  return allowed.includes("*") || allowed.includes(o);
+}
 
-  // Per real_estate_deep: usa Perplexity DIRETTAMENTE come LLM con web search
-  // Non passare mai per OpenAI — allucinano sempre
-  if (task === "real_estate_deep") {
-    const key = Deno.env.get("PERPLEXITY_API_KEY");
-    if (!key) {
-      console.warn("[ai-core-run] PERPLEXITY_API_KEY mancante — ritorno vuoto");
-      return `{"properties":[]}`;
-    }
+function corsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get("origin") ?? "";
+  return {
+    "Access-Control-Allow-Origin": isAllowedOrigin(origin) ? origin : "null",
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-internal-secret, x-app-secret, x-core-secret, x-source-app",
+    "Access-Control-Max-Age": "86400",
+    "Vary": "Origin",
+  };
+}
 
-    const filters = prompt.slice(0, 500);
-    const perplexityPrompt = `Cerca annunci immobiliari REALI su Idealista, Immobiliare.it, Casa.it, Subito.it basandoti su questi filtri: ${filters}
+function jsonResponse(req: Request, status: number, body: unknown, debugId: string): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders(req), "Content-Type": "application/json; charset=utf-8", "x-debug-id": debugId },
+  });
+}
+function okResponse(req: Request, data: unknown, debugId: string): Response {
+  return jsonResponse(req, 200, { ok: true, data, warnings: [], debug_id: debugId }, debugId);
+}
+function errResponse(req: Request, status: number, code: string, message: string, debugId: string): Response {
+  return jsonResponse(req, status, { ok: false, data: null, warnings: [], debug_id: debugId, error: { code, message } }, debugId);
+}
 
-Rispondi SOLO con un JSON valido, senza testo prima o dopo. Usa SOLO annunci che hai trovato realmente sul web. Se non trovi nulla, ritorna {"properties":[]}.
+function checkAuth(req: Request, debugId: string): Response | null {
+  const expected = Deno.env.get("AI_CORE_SECRET") ?? "";
+  if (!expected) return null;
+  const incoming =
+    req.headers.get("x-internal-secret") ??
+    req.headers.get("x-app-secret") ??
+    req.headers.get("x-core-secret") ??
+    (req.headers.get("authorization") ?? "").replace("Bearer ", "") ?? "";
+  if (!incoming) return errResponse(req, 401, "APP_SECRET_REQUIRED", "Missing x-internal-secret", debugId);
+  if (incoming.length !== expected.length) return errResponse(req, 401, "APP_SECRET_REJECTED", "Invalid secret", debugId);
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= incoming.charCodeAt(i) ^ expected.charCodeAt(i);
+  if (diff !== 0) return errResponse(req, 401, "APP_SECRET_REJECTED", "Invalid secret", debugId);
+  return null;
+}
 
-Formato richiesto:
-{"properties":[{"id":"1","title":"titolo annuncio reale","type":"vendita","category":"standard","price":180000,"pricePerSqm":2250,"location":{"city":"Milano","province":"MI","region":"Lombardia","zone":""},"details":{"sqm":80,"rooms":3,"bathrooms":1,"floor":"2"},"features":["Balcone"],"source":"Idealista","sourceType":"agenzia-locale","url":"https://url-annuncio-reale","discoveredAt":"2026-02-28","discount":0,"notes":""}]}`;
+const PIPELINES: Record<string, { maxTokens: number; temperature: number }> = {
+  wyloni_bandi:        { maxTokens: 1500, temperature: 0.3 },
+  wyloni_bonus:        { maxTokens: 1500, temperature: 0.3 },
+  pratica_legal:       { maxTokens: 1200, temperature: 0.4 },
+  keydraft_realestate: { maxTokens: 1800, temperature: 0.1 },
+};
+function getPipeline(domain: string) {
+  return PIPELINES[domain] ?? PIPELINES["wyloni_bandi"];
+}
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 25_000);
-    const started = Date.now();
+const WEB_TASKS = new Set([
+  "search_grants", "deep_search", "distress_radar", "market_glitch",
+  "deep_recovery", "find_contacts", "find_company_contacts", "real_estate_deep", "ai_bandi",
+]);
 
-    try {
-      const res = await fetch("https://api.perplexity.ai/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "sonar",
-          max_tokens: maxTokens,
-          temperature: 0.0,
-          messages: [
-            {
-              role: "system",
-              content: "Sei un assistente che cerca annunci immobiliari reali sul web. Rispondi SEMPRE e SOLO in JSON valido. Se non trovi annunci reali, ritorna {\"properties\":[]}. MAI inventare annunci.",
-            },
-            { role: "user", content: perplexityPrompt },
-          ],
-          return_citations: true,
-          search_recency_filter: "month",
-        }),
-        signal: controller.signal,
-      });
+const EMPTY_RESULTS: Record<string, string> = {
+  real_estate_deep:      `{"properties":[]}`,
+  search_grants:         `{"success":true,"results":[]}`,
+  deep_search:           `{"success":true,"newsCards":[]}`,
+  distress_radar:        `{"success":true,"signals":[]}`,
+  market_glitch:         `{"success":true,"glitches":[]}`,
+  deep_recovery:         `{"success":true,"credits":[]}`,
+  find_contacts:         `{"results":[]}`,
+  find_company_contacts: `{"success":true,"contact":null}`,
+  ai_bandi:              `{"ok":true,"data":{"results":[]}}`,
+};
 
-      clearTimeout(timer);
-
-      if (!res.ok) {
-        console.warn(`[ai-core-run] Perplexity error ${res.status}`);
-        return `{"properties":[]}`;
-      }
-
-      const data = await res.json();
-      const output: string = data?.choices?.[0]?.message?.content ?? "";
-      console.log(`[ai-core-run] Perplexity real_estate output_len=${output.length} latency=${Date.now()-started}ms`);
-
-      if (!output || output.trim().length < 10) return `{"properties":[]}`;
-      return output;
-    } catch (err) {
-      clearTimeout(timer);
-      console.warn("[ai-core-run] Perplexity real_estate failed:", String(err));
-      return `{"properties":[]}`;
-    }
-  }
-
-  // Per search_grants, find_contacts, ai_bandi: Perplexity search + OpenAI synthesis
-  const searchResult = await perplexitySearch(prompt.slice(0, 400));
-  if (!searchResult || searchResult.answer.trim().length < 30) {
-    console.warn("[ai-core-run] Perplexity returned no data — returning empty");
-    if (task === "search_grants")  return `{"success":true,"results":[]}`;
-    if (task === "find_contacts")  return `{"results":[]}`;
-    if (task === "ai_bandi")       return `{"ok":true,"data":{"results":[]}}`;
-    return `{"ok":false,"error":"Nessun dato trovato"}`;
-  }
-
-  console.log(`[ai-core-run] Perplexity ok citations=${searchResult.citations.length}`);
-
-  let scrapedContent = "";
-  if (searchResult.citations.length > 0) {
-    const scraped = await firecrawlBatch(searchResult.citations.slice(0, 2).map(c => c.url));
-    if (scraped.length > 0) {
-      console.log(`[ai-core-run] Firecrawl scraped ${scraped.length} pages`);
-      scrapedContent = scraped.map(s => `### ${s.title}\n${s.markdown}`).join("\n\n");
-    }
-  }
-
-  const webContext = [searchResult.answer, scrapedContent].filter(Boolean).join("\n\n").slice(0, 4000);
-
-  let synthesisPrompt: string;
-
-  if (task === "search_grants") {
-    synthesisPrompt = `Usando SOLO i dati reali qui sotto, elenca i bandi trovati. Se non ci sono dati sufficienti, usa results:[].
-
-DATI WEB:\n${webContext}
-
-Rispondi SOLO in JSON: {"success":true,"results":[{"title":"","description":"","url":"","source":"","isPdf":false}]}`;
-  } else if (task === "find_contacts") {
-    synthesisPrompt = `Usando SOLO i dati reali qui sotto, estrai i contatti. Se non ci sono, usa results:[].
-
-DATI WEB:\n${webContext}
-
-Rispondi SOLO in JSON: {"results":[{"id":"1","name":"","pec":"","email":"","phone":"","address":"","website":"","source":"","source_url":""}]}`;
-  } else {
-    synthesisPrompt = `${prompt}\n\nDATI REALI (usa SOLO questi):\n${webContext}`;
-  }
-
-  const oaiKey = Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_KEY") ?? "";
-  if (!oaiKey) throw new Error("OPENAI_API_KEY not configured");
-
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 25_000);
+async function callOpenAI(prompt: string, temperature: number, maxTokens: number): Promise<string> {
+  const key = Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_KEY") ?? "";
+  if (!key) throw new Error("OPENAI_API_KEY not configured");
+  const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o-mini";
+  const { signal, clear } = withAbort(28_000);
+  const t = Date.now();
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${oaiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: Deno.env.get("OPENAI_MODEL") ?? "gpt-4o-mini",
-        temperature: 0.1,
-        max_tokens: maxTokens,
-        messages: [{ role: "user", content: synthesisPrompt }],
-      }),
-      signal: ctrl.signal,
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model, temperature, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] }),
+      signal,
     });
+    if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const data = await res.json();
+    const output: string = data?.choices?.[0]?.message?.content ?? "";
+    if (!output) throw new Error("OpenAI empty output");
+    console.log(`[openai] ok latency=${Date.now()-t}ms output_len=${output.length}`);
+    return output;
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") throw new Error("OpenAI timeout");
+    throw e;
+  } finally { clear(); }
+}
 
-    if (!res.ok) throw new Error(`OpenAI error ${res.status}`);
-    const d = await res.json();
-    const out = d?.choices?.[0]?.message?.content ?? "";
-    console.log(`[ai-core-run] synthesis ok output_len=${out.length}`);
-    return out;
-  } finally {
-    clearTimeout(t);
-  }
+async function callAnthropic(prompt: string, temperature: number, maxTokens: number): Promise<string> {
+  const key = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+  if (!key) throw new Error("ANTHROPIC_API_KEY not configured");
+  const model = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-3-haiku-20240307";
+  const { signal, clear } = withAbort(28_000);
+  const t = Date.now();
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model, max_tokens: maxTokens, temperature, messages: [{ role: "user", content: prompt }] }),
+      signal,
+    });
+    if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const data = await res.json();
+    const output: string = data?.content?.[0]?.text ?? "";
+    if (!output) throw new Error("Anthropic empty output");
+    console.log(`[anthropic] ok latency=${Date.now()-t}ms output_len=${output.length}`);
+    return output;
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") throw new Error("Anthropic timeout");
+    throw e;
+  } finally { clear(); }
+}
+
+const PERPLEXITY_SYSTEM: Record<string, string> = {
+  real_estate_deep: "Sei un esperto immobiliare italiano con accesso al web. Cerca annunci REALI su Idealista, Immobiliare.it, Casa.it, Subito.it. Rispondi SEMPRE e SOLO in JSON valido senza testo prima o dopo. Se non trovi annunci reali, ritorna {\"properties\":[]}. MAI inventare annunci.",
+  search_grants: "Sei un esperto di finanziamenti italiani con accesso al web. Cerca bandi REALI da: inps.it, invitalia.it, agenziaentrate.gov.it, mise.gov.it, regioni. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"results\":[]}. MAI inventare.",
+  deep_search: "Sei un assistente di ricerca con accesso al web. Cerca notizie aggiornate da fonti affidabili. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"newsCards\":[]}.",
+  distress_radar: "Sei un esperto di opportunità in Italia con accesso al web. Cerca aste giudiziarie su: tribunale.it, asteonline.it, astegiudiziarie.it, idealista.it/aste. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"signals\":[]}. MAI inventare.",
+  market_glitch: "Sei un esperto di anomalie di prezzo con accesso al web. Cerca prodotti con prezzi insolitamente bassi su Amazon.it, eBay.it, Unieuro, MediaWorld. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"glitches\":[]}. MAI inventare.",
+  deep_recovery: "Sei un esperto di crediti dormienti italiani con accesso al web. Ricerca su INPS, Agenzia Entrate, Bankitalia, IVASS. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"credits\":[]}. MAI inventare.",
+  find_contacts: "Sei un assistente per contatti ufficiali italiani con accesso al web. Usa INI-PEC, siti istituzionali, Registro Imprese. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"results\":[]}. MAI inventare.",
+  find_company_contacts: "Sei un assistente per contatti aziendali italiani con accesso al web. Cerca su INI-PEC, Registro Imprese, sito ufficiale. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"contact\":null}. MAI inventare.",
+  ai_bandi: "Sei un esperto di bandi italiani con accesso al web. Cerca da fonti ufficiali: invitalia.it, mise.gov.it. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"ok\":true,\"data\":{\"results\":[]}}.",
+};
+
+async function callPerplexity(prompt: string, task: string, maxTokens: number): Promise<string | null> {
+  const key = Deno.env.get("PERPLEXITY_API_KEY") ?? "";
+  if (!key) { console.warn("[perplexity] PERPLEXITY_API_KEY not configured"); return null; }
+  const system = PERPLEXITY_SYSTEM[task] ?? "Rispondi SOLO in JSON valido. MAI inventare dati.";
+  const { signal, clear } = withAbort(30_000);
+  const t = Date.now();
+  try {
+    const res = await fetch("https://api.perplexity.ai/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "sonar",
+        max_tokens: maxTokens,
+        temperature: 0.0,
+        messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
+        return_citations: true,
+        search_recency_filter: "month",
+      }),
+      signal,
+    });
+    if (!res.ok) { console.warn(`[perplexity] HTTP ${res.status}`); return null; }
+    const data = await res.json();
+    const output: string = data?.choices?.[0]?.message?.content ?? "";
+    console.log(`[perplexity] ok citations=${(data?.citations??[]).length} output_len=${output.length} latency=${Date.now()-t}ms`);
+    return output.trim().length > 5 ? output : null;
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") console.warn("[perplexity] Timeout");
+    else console.warn("[perplexity] Failed:", String(e));
+    return null;
+  } finally { clear(); }
 }
 
 async function runAI(prompt: string, domain: string): Promise<string> {
-  const pipeline = getPipeline(domain);
-  const maxTokens = pipeline.MAX_TOKENS;
-  const temp = pipeline.TEMPERATURE;
-
-  const keyOAI = Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_KEY") ?? "";
-  const keyANT = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-
-  console.log(`[ai-core-run] runAI domain=${domain} maxTokens=${maxTokens} hasOAI=${!!keyOAI} hasANT=${!!keyANT}`);
-
+  const { maxTokens, temperature } = getPipeline(domain);
+  console.log(`[ai] runAI domain=${domain} maxTokens=${maxTokens}`);
   try {
-    const { output, latencyMs } = await callOpenAI(prompt, temp, maxTokens);
-    console.log(`[ai-core-run] OpenAI ok latency=${latencyMs}ms output_len=${output.length}`);
-    return output;
-  } catch (errA) {
-    console.error("[ai-core-run] OpenAI failed:", String(errA));
-    try {
-      const { output, latencyMs } = await callAnthropic(prompt, temp, maxTokens);
-      console.log(`[ai-core-run] Anthropic ok latency=${latencyMs}ms output_len=${output.length}`);
-      return output;
-    } catch (errB) {
-      console.error("[ai-core-run] Anthropic failed:", String(errB));
-      throw new Error(`Both models failed. OpenAI: ${String(errA)} | Anthropic: ${String(errB)}`);
-    }
+    return await callOpenAI(prompt, temperature, maxTokens);
+  } catch (e1) {
+    console.warn("[ai] OpenAI failed, trying Anthropic:", String(e1));
+    return await callAnthropic(prompt, temperature, maxTokens);
   }
 }
 
+async function runWebAI(prompt: string, domain: string, task: string): Promise<string> {
+  const { maxTokens } = getPipeline(domain);
+  console.log(`[ai] runWebAI domain=${domain} task=${task}`);
+  const output = await callPerplexity(prompt, task, maxTokens);
+  if (output) { console.log(`[ai] Perplexity ok task=${task} len=${output.length}`); return output; }
+  const empty = EMPTY_RESULTS[task] ?? `{"ok":false,"error":"Ricerca non disponibile"}`;
+  console.warn(`[ai] Perplexity unavailable for task=${task} — returning empty`);
+  return empty;
+}
+
+function parseOutput(raw: string): unknown | null {
+  if (!raw || raw.trim().length < 2) return null;
+  const s = raw.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+  try { return JSON.parse(s); } catch { /**/ }
+  const fb = s.indexOf("{"), lb = s.lastIndexOf("}");
+  if (fb !== -1 && lb > fb) { try { return JSON.parse(s.slice(fb, lb + 1)); } catch { /**/ } }
+  const fab = s.indexOf("["), lab = s.lastIndexOf("]");
+  if (fab !== -1 && lab > fab) { try { return JSON.parse(s.slice(fab, lab + 1)); } catch { /**/ } }
+  return null;
+}
+
 serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return handleOptions(req);
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(req) });
 
   const debugId = makeDebugId();
-  const url = new URL(req.url);
-  const pathname = url.pathname;
+  const pathname = new URL(req.url).pathname;
 
   try {
-    // ── GET /health ───────────────────────────────────────────────────────
-    if (req.method === "GET" && (
-      pathname.endsWith("/health") ||
-      pathname.endsWith("/__health")
-    )) {
-      return ok(req, {
-        status: "ok",
-        time: new Date().toISOString(),
-        version: Deno.env.get("CORE_VERSION") ?? "1.0.0",
-      }, [], debugId);
+    if (req.method === "GET" && (pathname.endsWith("/health") || pathname.endsWith("/__health") || pathname === "/")) {
+      return okResponse(req, {
+        status: "ok", version: "3.1.0", time: new Date().toISOString(),
+        providers: {
+          openai: !!Deno.env.get("OPENAI_API_KEY"),
+          anthropic: !!Deno.env.get("ANTHROPIC_API_KEY"),
+          perplexity: !!Deno.env.get("PERPLEXITY_API_KEY"),
+        },
+      }, debugId);
     }
 
-    // ── POST /ai/run ──────────────────────────────────────────────────────
-    if (req.method === "POST" && pathname.endsWith("/ai/run")) {
-      const authErr = requireSecret(req, debugId);
-      if (authErr) return authErr;
+    const authErr = checkAuth(req, debugId);
+    if (authErr) return authErr;
+    if (req.method !== "POST") return errResponse(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId);
 
-      let body: Record<string, unknown>;
-      try { body = await req.json(); }
-      catch { return fail(req, 400, "INVALID_JSON", "Invalid JSON body", debugId); }
-
-      const domain = (body.domain as string) || "wyloni_bandi";
-      const prompt = (body.prompt as string) || (body.text as string) || "";
-      if (!prompt) return fail(req, 400, "MISSING_PROMPT", "Provide prompt or text field", debugId);
-
-      console.log(`[ai-core-run] domain=${domain} prompt_len=${prompt.length} debug_id=${debugId}`);
-
-      const output = await runAI(prompt, domain);
-
-      let parsed: unknown = null;
-      try {
-        const clean = output.replace(/```json|```/g, "").trim();
-        parsed = JSON.parse(clean);
-      } catch { /* not JSON, return as text */ }
-
-      return ok(req, {
-        final_output: output,
-        data: parsed,
-        domain,
-        debug_id: debugId,
-      }, [], debugId);
+    let body: Record<string, unknown> = {};
+    try { body = await req.json(); } catch {
+      return errResponse(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId);
     }
 
-    // ── POST /tariffs/compare ─────────────────────────────────────────────
-    if (req.method === "POST" && pathname.endsWith("/tariffs/compare")) {
-      const authErr = requireSecret(req, debugId);
-      if (authErr) return authErr;
-
-      let body: Record<string, unknown>;
-      try { body = await req.json(); }
-      catch { return fail(req, 400, "INVALID_JSON", "Invalid JSON body", debugId); }
-
+    if (pathname.endsWith("/tariffs/compare")) {
       const prompt = (body.prompt as string) || (body.text as string) || "";
-      if (!prompt) return fail(req, 400, "MISSING_PROMPT", "Provide prompt or text field", debugId);
-
-      console.log(`[ai-core-run] tariffs/compare prompt_len=${prompt.length} debug_id=${debugId}`);
-
+      if (!prompt) return errResponse(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId);
+      console.log(`[ai-core-run] tariffs/compare debug_id=${debugId}`);
       const output = await runAI(prompt, "wyloni_bandi");
-
-      let parsed: unknown = null;
-      try {
-        const clean = output.replace(/```json|```/g, "").trim();
-        parsed = JSON.parse(clean);
-      } catch { /* not JSON */ }
-
-      return ok(req, {
-        final_output: output,
-        data: parsed,
-        offers: (parsed as Record<string, unknown>)?.offers ?? [],
-        debug_id: debugId,
-      }, [], debugId);
+      const parsed = parseOutput(output) as Record<string, unknown> | null;
+      return okResponse(req, { final_output: output, data: parsed, offers: parsed?.offers ?? [], debug_id: debugId }, debugId);
     }
 
-    // ── POST /documents/analyze ───────────────────────────────────────────
-    if (req.method === "POST" && pathname.endsWith("/documents/analyze")) {
-      const authErr = requireSecret(req, debugId);
-      if (authErr) return authErr;
-
-      let body: Record<string, unknown>;
-      try { body = await req.json(); }
-      catch { return fail(req, 400, "INVALID_JSON", "Invalid JSON body", debugId); }
-
-      const text = (body.text as string) || (body.pdf_text as string) || (body.prompt as string) || "";
+    if (pathname.endsWith("/documents/analyze")) {
+      const text = (body.text as string) ?? (body.pdf_text as string) ?? (body.prompt as string) ?? "";
       if (!text || text.trim().length < 20) {
-        return ok(req, {
-          status: "NOT_READABLE",
-          extracted: {},
-          quality: { gate: "NOT_READABLE", score: 0, notes: ["No text provided"] },
-        }, [], debugId);
+        return okResponse(req, { status: "NOT_READABLE", extracted: {}, quality: { gate: "NOT_READABLE", score: 0, notes: ["No text"] } }, debugId);
       }
-
-      const extractPrompt = `Estrai i dati dalla seguente bolletta italiana e rispondi SOLO in JSON con questi campi:
-{"periodo":{"from":"DD/MM/YYYY","to":"DD/MM/YYYY"},"fornitore":{"label":"nome fornitore"},"consumi":{"totale_kwh":null,"unit":"kWh"},"importi":{"totale_da_pagare_eur":null,"bonus_sociale":{"presente":false,"eur":null}}}
-
-Bolletta:
-${text.slice(0, 8000)}`;
-
+      const extractPrompt = `Estrai i dati dalla bolletta italiana e rispondi SOLO in JSON:\n{"periodo":{"from":"DD/MM/YYYY","to":"DD/MM/YYYY"},"fornitore":{"label":"nome fornitore"},"consumi":{"totale_kwh":null,"unit":"kWh"},"importi":{"totale_da_pagare_eur":null,"bonus_sociale":{"presente":false,"eur":null}}}\n\nBolletta:\n${text.slice(0, 8000)}`;
       let extracted: unknown = {};
-      try {
-        const output = await runAI(extractPrompt, "wyloni_bandi");
-        const clean = output.replace(/```json|```/g, "").trim();
-        extracted = JSON.parse(clean);
-      } catch { /* return empty */ }
-
-      return ok(req, {
-        status: "READY",
-        extracted,
-        quality: { gate: "READY", score: 80, notes: ["AI extraction"] },
-      }, [], debugId);
+      try { const out = await runAI(extractPrompt, "wyloni_bandi"); extracted = parseOutput(out) ?? {}; } catch { /**/ }
+      return okResponse(req, { status: "READY", extracted, quality: { gate: "READY", score: 80, notes: ["AI extraction"] } }, debugId);
     }
 
-    // ── Fallback: route by task in body (handles /ai-core-run base path) ──
-    if (req.method === "POST") {
-      let fallbackBody: Record<string, unknown> = {};
-      try { fallbackBody = await req.json(); } catch { /* ignore */ }
-      const task = (fallbackBody.task as string) || "";
-      const prompt = (fallbackBody.prompt as string) || (fallbackBody.text as string) || "";
-      const domain = (fallbackBody.domain as string) || "wyloni_bandi";
+    const domain = (body.domain as string) || "wyloni_bandi";
+    const task   = (body.task   as string) || "";
+    const prompt = (body.prompt as string) || (body.text as string) || "";
 
-      if (prompt) {
-        console.log(`[ai-core-run] fallback route task=${task} domain=${domain} debug_id=${debugId}`);
-        // Tasks che beneficiano di web search reale
-        const WEB_TASKS = ["search_grants", "find_contacts", "real_estate_deep", "ai_bandi", "find_company_contacts"];
-        const useWeb = WEB_TASKS.includes(task);
-        const output = useWeb ? await runWebSearch(prompt, domain, task) : await runAI(prompt, domain);
-        console.log(`[ai-core-run] raw output preview: ${output.slice(0, 300)}`);
-        let parsed: unknown = null;
-        try {
-          const cleaned = output
-            .replace(/```json\s*/gi, "")
-            .replace(/```\s*/g, "")
-            .trim();
-          // Find first { and last } to extract JSON even if there's surrounding text
-          const firstBrace = cleaned.indexOf("{");
-          const lastBrace = cleaned.lastIndexOf("}");
-          const jsonStr = firstBrace !== -1 && lastBrace !== -1
-            ? cleaned.slice(firstBrace, lastBrace + 1)
-            : cleaned;
-          parsed = JSON.parse(jsonStr);
-          console.log(`[ai-core-run] parsed ok offers=${Array.isArray((parsed as any)?.offers) ? (parsed as any).offers.length : "not array"}`);
-        } catch (e) {
-          console.warn(`[ai-core-run] parse failed: ${String(e)}`);
-        }
-        return ok(req, {
-          final_output: output,
-          data: parsed,
-          offers: (parsed as Record<string, unknown>)?.offers ?? [],
-          debug_id: debugId,
-        }, [], debugId);
-      }
-    }
+    if (!prompt) return errResponse(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId);
 
-    return fail(req, 404, "NOT_FOUND", `Path not found: ${pathname}`, debugId);
+    console.log(`[ai-core-run] domain=${domain} task=${task} prompt_len=${prompt.length} debug_id=${debugId}`);
+
+    const output = WEB_TASKS.has(task)
+      ? await runWebAI(prompt, domain, task)
+      : await runAI(prompt, domain);
+
+    const parsed = parseOutput(output);
+    const raw = parsed as Record<string, unknown> | null;
+    console.log(`[ai-core-run] output_len=${output.length}`);
+
+    return okResponse(req, {
+      final_output: output,
+      data: parsed,
+      offers:     raw?.offers     ?? [],
+      properties: raw?.properties ?? [],
+      results:    raw?.results    ?? [],
+      debug_id: debugId,
+    }, debugId);
 
   } catch (err) {
-    console.error("[ai-core-run] Unhandled error:", String(err));
-    return fail(req, 500, "INTERNAL_ERROR", String(err).slice(0, 200), debugId);
+    console.error("[ai-core-run] Error:", String(err));
+    return errResponse(req, 500, "INTERNAL_ERROR", String(err).slice(0, 300), debugId);
   }
 });
