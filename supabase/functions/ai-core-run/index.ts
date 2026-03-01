@@ -70,6 +70,14 @@ function getPipeline(domain: string) {
   return PIPELINES[domain] ?? PIPELINES["wyloni_bandi"];
 }
 
+const TASK_TOKEN_OVERRIDES: Record<string, number> = {
+  feasibility_lab: 2000,
+  alchemist: 1600,
+  viral_content_bundle: 2500,
+  ai_bandi: 2000,
+  contratto_analisi: 2000,
+};
+
 const WEB_TASKS = new Set([
   "search_grants", "deep_search", "distress_radar", "market_glitch",
   "deep_recovery", "find_contacts", "find_company_contacts", "real_estate_deep", "ai_bandi",
@@ -214,8 +222,9 @@ async function callPerplexity(prompt: string, task: string, maxTokens: number): 
   } finally { clear(); }
 }
 
-async function runAI(prompt: string, domain: string): Promise<string> {
-  const { maxTokens, temperature } = getPipeline(domain);
+async function runAI(prompt: string, domain: string, task?: string): Promise<string> {
+  const { maxTokens: baseTokens, temperature } = getPipeline(domain);
+  const maxTokens = (task && TASK_TOKEN_OVERRIDES[task]) || baseTokens;
   console.log(`[ai] runAI domain=${domain} maxTokens=${maxTokens}`);
   try {
     return await callOpenAI(prompt, temperature, maxTokens);
@@ -226,7 +235,7 @@ async function runAI(prompt: string, domain: string): Promise<string> {
 }
 
 async function runWebAI(prompt: string, domain: string, task: string): Promise<string> {
-  const { maxTokens } = getPipeline(domain);
+  const maxTokens = TASK_TOKEN_OVERRIDES[task] || getPipeline(domain).maxTokens;
   console.log(`[ai] runWebAI domain=${domain} task=${task}`);
   const output = await callPerplexity(prompt, task, maxTokens);
   if (output) { console.log(`[ai] Perplexity ok task=${task} len=${output.length}`); return output; }
@@ -319,7 +328,7 @@ serve(async (req: Request) => {
 
     const output = WEB_TASKS.has(task)
       ? await runWebAI(prompt, domain, task)
-      : await runAI(prompt, domain);
+      : await runAI(prompt, domain, task);
 
     const parsed = parseOutput(output);
 
