@@ -9,37 +9,27 @@ export function constantTimeEqual(a: string, b: string): boolean {
   return result === 0;
 }
 
-const CORS_HEADERS =
-  "authorization, apikey, content-type, x-client-info, x-internal-secret, " +
-  "x-idempotency-key, x-source-app, x-purpose";
-
-const LOVABLE_ORIGINS = [".lovable.app", ".lovableproject.com", ".lovable.dev"];
+const LOVABLE_SUFFIXES = [".lovable.app", ".lovableproject.com", ".lovable.dev"];
 
 function isOriginAllowed(origin: string): boolean {
-  const lower = origin.toLowerCase();
-  if (lower.startsWith("http://localhost")) return true;
-  if (LOVABLE_ORIGINS.some((s) => lower.endsWith(s)) || lower === "https://lovable.dev") return true;
-  const raw = Deno.env.get("CORE_ALLOWED_ORIGINS") ?? "";
-  const list = raw.split(",").map((o) => o.trim().toLowerCase()).filter(Boolean);
-  if (list.includes("*")) return true;
-  return list.includes(lower);
+  if (!origin) return false;
+  const o = origin.toLowerCase();
+  if (o.startsWith("http://localhost") || o.startsWith("http://127.")) return true;
+  if (LOVABLE_SUFFIXES.some((s) => o.endsWith(s)) || o === "https://lovable.dev") return true;
+  const allowed = (Deno.env.get("CORE_ALLOWED_ORIGINS") ?? "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+  return allowed.includes("*") || allowed.includes(o);
 }
 
 export function corsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("origin") ?? "";
-  const h: Record<string, string> = {
-    "Vary": "Origin",
+  return {
+    "Access-Control-Allow-Origin": isOriginAllowed(origin) ? origin : "null",
+    "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": CORS_HEADERS,
+    "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-internal-secret, x-app-secret, x-core-secret, x-source-app",
     "Access-Control-Max-Age": "86400",
+    "Vary": "Origin",
   };
-  if (origin && isOriginAllowed(origin)) {
-    h["Access-Control-Allow-Origin"] = origin;
-    h["Access-Control-Allow-Credentials"] = "true";
-  } else {
-    h["Access-Control-Allow-Origin"] = "null";
-  }
-  return h;
 }
 
 export function handleOptions(req: Request): Response {
