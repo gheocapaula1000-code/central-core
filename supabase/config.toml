@@ -1,1 +1,4 @@
 project_id = "jpunnzgixcghuydstdlt"
+
+[functions.ai-core-run]
+verify_jwt = false

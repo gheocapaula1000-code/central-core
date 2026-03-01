@@ -51,11 +51,12 @@ function checkAuth(req: Request, debugId: string): Response | null {
     req.headers.get("x-internal-secret") ??
     req.headers.get("x-app-secret") ??
     req.headers.get("x-core-secret") ??
-    (req.headers.get("authorization") ?? "").replace("Bearer ", "") ?? "";
+    (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/, "") ?? "";
   if (!incoming) return errResponse(req, 401, "APP_SECRET_REQUIRED", "Missing x-internal-secret", debugId);
-  if (incoming.length !== expected.length) return errResponse(req, 401, "APP_SECRET_REJECTED", "Invalid secret", debugId);
-  let diff = 0;
-  for (let i = 0; i < expected.length; i++) diff |= incoming.charCodeAt(i) ^ expected.charCodeAt(i);
+  // Constant-time comparison: always iterate max length to prevent timing leak
+  const maxLen = Math.max(incoming.length, expected.length);
+  let diff = incoming.length ^ expected.length;
+  for (let i = 0; i < maxLen; i++) diff |= (incoming.charCodeAt(i) ?? 0) ^ (expected.charCodeAt(i) ?? 0);
   if (diff !== 0) return errResponse(req, 401, "APP_SECRET_REJECTED", "Invalid secret", debugId);
   return null;
 }
@@ -230,7 +231,12 @@ async function runAI(prompt: string, domain: string, task?: string): Promise<str
     return await callOpenAI(prompt, temperature, maxTokens);
   } catch (e1) {
     console.warn("[ai] OpenAI failed, trying Anthropic:", String(e1));
-    return await callAnthropic(prompt, temperature, maxTokens);
+    try {
+      return await callAnthropic(prompt, temperature, maxTokens);
+    } catch (e2) {
+      console.error("[ai] Both OpenAI and Anthropic failed:", String(e2));
+      throw new Error(`All AI providers failed. OpenAI: ${String(e1).slice(0, 100)}. Anthropic: ${String(e2).slice(0, 100)}`);
+    }
   }
 }
 
@@ -247,11 +253,11 @@ async function runWebAI(prompt: string, domain: string, task: string): Promise<s
 function parseOutput(raw: string): unknown | null {
   if (!raw || raw.trim().length < 2) return null;
   const s = raw.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
-  try { return JSON.parse(s); } catch { /**/ }
+  try { return JSON.parse(s); } catch (e) { console.debug("[parseOutput] direct parse failed:", String(e).slice(0, 80)); }
   const fb = s.indexOf("{"), lb = s.lastIndexOf("}");
-  if (fb !== -1 && lb > fb) { try { return JSON.parse(s.slice(fb, lb + 1)); } catch { /**/ } }
+  if (fb !== -1 && lb > fb) { try { return JSON.parse(s.slice(fb, lb + 1)); } catch (e) { console.debug("[parseOutput] braces parse failed:", String(e).slice(0, 80)); } }
   const fab = s.indexOf("["), lab = s.lastIndexOf("]");
-  if (fab !== -1 && lab > fab) { try { return JSON.parse(s.slice(fab, lab + 1)); } catch { /**/ } }
+  if (fab !== -1 && lab > fab) { try { return JSON.parse(s.slice(fab, lab + 1)); } catch (e) { console.debug("[parseOutput] brackets parse failed:", String(e).slice(0, 80)); } }
   return null;
 }
 
@@ -314,7 +320,7 @@ serve(async (req: Request) => {
       }
       const extractPrompt = `Estrai i dati dalla bolletta italiana e rispondi SOLO in JSON:\n{"periodo":{"from":"DD/MM/YYYY","to":"DD/MM/YYYY"},"fornitore":{"label":"nome fornitore"},"consumi":{"totale_kwh":null,"unit":"kWh"},"importi":{"totale_da_pagare_eur":null,"bonus_sociale":{"presente":false,"eur":null}}}\n\nBolletta:\n${text.slice(0, 8000)}`;
       let extracted: unknown = {};
-      try { const out = await runAI(extractPrompt, "wyloni_bandi"); extracted = parseOutput(out) ?? {}; } catch { /**/ }
+      try { const out = await runAI(extractPrompt, "wyloni_bandi"); extracted = parseOutput(out) ?? {}; } catch (e) { console.warn("[documents/analyze] extraction failed:", String(e).slice(0, 150)); }
       return okResponse(req, { status: "READY", extracted, quality: { gate: "READY", score: 80, notes: ["AI extraction"] } }, debugId);
     }
 
@@ -358,7 +364,8 @@ serve(async (req: Request) => {
     }, debugId);
 
   } catch (err) {
-    console.error("[ai-core-run] Error:", String(err));
-    return errResponse(req, 500, "INTERNAL_ERROR", String(err).slice(0, 300), debugId);
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error("[ai-core-run] Error:", errMsg);
+    return errResponse(req, 500, "INTERNAL_ERROR", errMsg.slice(0, 300), debugId);
   }
 });
