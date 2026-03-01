@@ -139,15 +139,18 @@ async function callAnthropic(prompt: string, temperature: number, maxTokens: num
 
 const PERPLEXITY_SYSTEM: Record<string, string> = {
   real_estate_deep:
-    "Sei un esperto immobiliare italiano con accesso al web. " +
-    "REGOLA FONDAMENTALE: restituisci SOLO annunci che hai trovato realmente online con un URL verificabile e funzionante. " +
-    "Ogni annuncio DEVE avere il campo url compilato con il link diretto all'annuncio (es: https://www.idealista.it/immobile/12345678/ oppure https://www.immobiliare.it/annunci/12345/). " +
-    "Se non hai l'URL esatto dell'annuncio NON includerlo — meglio 2 annunci reali che 10 inventati. " +
-    "Fonti accettate per annunci standard: idealista.it, immobiliare.it, casa.it, subito.it, wikicasa.it. " +
-    "Fonti per aste: asteonline.it, astegiudiziarie.it, portaleaste.it. " +
-    "Fonti per luxury: sothebysrealty.it, knightfrank.it, engelvoelkers.com. " +
-    "NON inventare prezzi, indirizzi o caratteristiche. Copia i dati esattamente come li trovi sul sito. " +
-    "Rispondi SOLO in JSON valido. Se non trovi annunci con URL verificabile, ritorna {\"properties\":[]}.",
+    "Sei un agente immobiliare d'élite italiano con accesso al web. Leggi ATTENTAMENTE il campo filters della richiesta. " +
+    "HAI DUE MODALITÀ:\n\n" +
+    "MODALITÀ STANDARD (category=standard): Cerca annunci reali su Idealista.it, Immobiliare.it, Casa.it, Subito.it. Solo immobili residenziali normali. Ogni annuncio DEVE avere URL diretto verificabile.\n\n" +
+    "MODALITÀ HIDDEN OPPORTUNITIES (searchMode=hidden_opportunities, categories include luxury/asta/off-market): " +
+    "Fai una ricerca PROFONDA e NON convenzionale. NON usare i portali immobiliari standard. Cerca su:\n" +
+    "- Aste giudiziarie: asteonline.it, astegiudiziarie.it, portaleaste.it, pvp.giustizia.it, siti dei singoli tribunali italiani (es. tribunale.milano.it, tribunale.roma.it)\n" +
+    "- Luxury e off-market: sothebysrealty.it, knightfrank.it, engelvoelkers.com/it, christiesrealestate.com, gate-away.com, luxuryestate.com, resortrealestate.it, agenzie luxury locali\n" +
+    "- Vendite private e off-market: annunci su LinkedIn di privati, gruppi Facebook immobiliari locali, aste notarili, eredità e liquidazioni aziendali, fondi immobiliari in dismissione\n" +
+    "- Opportunità nascoste: immobili in aste bancarie (UniCredit, Intesa, MPS), portafogli NPL, immobili dei Comuni in vendita, beni confiscati (anbsc.it)\n" +
+    "Per ogni risultato includi: prezzo reale trovato, sconto rispetto al mercato se rilevante, fonte esatta, URL diretto all'annuncio o alla procedura.\n\n" +
+    "REGOLA ASSOLUTA per entrambe le modalità: MAI inventare annunci. Se non hai URL reale e verificabile NON includere l'annuncio. " +
+    "Rispondi SOLO in JSON valido. Se non trovi nulla ritorna {\"properties\":[]}.",
   search_grants: "Sei un esperto di finanziamenti italiani con accesso al web. Cerca bandi REALI da: inps.it, invitalia.it, agenziaentrate.gov.it, mise.gov.it, regioni. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"results\":[]}. MAI inventare.",
   deep_search: "Sei un assistente di ricerca con accesso al web. Cerca notizie aggiornate da fonti affidabili. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"newsCards\":[]}.",
   distress_radar: "Sei un esperto di opportunità in Italia con accesso al web. Cerca aste giudiziarie su: tribunale.it, asteonline.it, astegiudiziarie.it, idealista.it/aste. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"signals\":[]}. MAI inventare.",
