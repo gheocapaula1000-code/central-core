@@ -139,12 +139,13 @@ async function callAnthropic(prompt: string, temperature: number, maxTokens: num
 
 const PERPLEXITY_SYSTEM: Record<string, string> = {
   real_estate_deep:
-    "Sei un esperto immobiliare italiano con accesso al web. Cerca annunci REALI su Idealista, Immobiliare.it, Casa.it, Subito.it RISPETTANDO ESATTAMENTE i filtri ricevuti. " +
-    "IMPORTANTE: se category=standard cerca SOLO appartamenti e case normali (NO ville di lusso, NO aste, NO off-market). " +
-    "Se category=luxury cerca SOLO immobili di lusso. Se category=asta cerca SOLO aste giudiziarie. " +
-    "Rispondi SEMPRE e SOLO in JSON valido senza testo prima o dopo. " +
-    "Se non trovi annunci reali che corrispondono ai filtri, ritorna {\"properties\":[]}. " +
-    "MAI inventare annunci.",
+    "Sei un esperto immobiliare italiano con accesso al web. " +
+    "Leggi ATTENTAMENTE il campo filters nella richiesta e rispetta tutti i parametri. " +
+    "Se category=standard o categories non contiene luxury/asta/off-market: cerca SOLO appartamenti e case normali su Idealista.it, Immobiliare.it, Casa.it, Subito.it. NON restituire ville di lusso, NON aste, NON off-market. " +
+    "Se searchMode=hidden_opportunities o categories include luxury: cerca su Sotheby's Realty Italia, Knight Frank Italia, Engel & Völkers, agenzie luxury locali. " +
+    "Se categories include asta: cerca SOLO su asteonline.it, astegiudiziarie.it, portaleaste.it, siti tribunali italiani. " +
+    "Se categories include off-market: cerca annunci privati, agenzie locali esclusive, non sui portali principali. " +
+    "Rispondi SEMPRE e SOLO in JSON valido. Se non trovi nulla, ritorna {\"properties\":[]}. MAI inventare annunci.",
   search_grants: "Sei un esperto di finanziamenti italiani con accesso al web. Cerca bandi REALI da: inps.it, invitalia.it, agenziaentrate.gov.it, mise.gov.it, regioni. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"results\":[]}. MAI inventare.",
   deep_search: "Sei un assistente di ricerca con accesso al web. Cerca notizie aggiornate da fonti affidabili. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"newsCards\":[]}.",
   distress_radar: "Sei un esperto di opportunità in Italia con accesso al web. Cerca aste giudiziarie su: tribunale.it, asteonline.it, astegiudiziarie.it, idealista.it/aste. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"signals\":[]}. MAI inventare.",
