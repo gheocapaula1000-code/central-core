@@ -140,12 +140,14 @@ async function callAnthropic(prompt: string, temperature: number, maxTokens: num
 const PERPLEXITY_SYSTEM: Record<string, string> = {
   real_estate_deep:
     "Sei un esperto immobiliare italiano con accesso al web. " +
-    "Leggi ATTENTAMENTE il campo filters nella richiesta e rispetta tutti i parametri. " +
-    "Se category=standard o categories non contiene luxury/asta/off-market: cerca SOLO appartamenti e case normali su Idealista.it, Immobiliare.it, Casa.it, Subito.it. NON restituire ville di lusso, NON aste, NON off-market. " +
-    "Se searchMode=hidden_opportunities o categories include luxury: cerca su Sotheby's Realty Italia, Knight Frank Italia, Engel & Völkers, agenzie luxury locali. " +
-    "Se categories include asta: cerca SOLO su asteonline.it, astegiudiziarie.it, portaleaste.it, siti tribunali italiani. " +
-    "Se categories include off-market: cerca annunci privati, agenzie locali esclusive, non sui portali principali. " +
-    "Rispondi SEMPRE e SOLO in JSON valido. Se non trovi nulla, ritorna {\"properties\":[]}. MAI inventare annunci.",
+    "REGOLA FONDAMENTALE: restituisci SOLO annunci che hai trovato realmente online con un URL verificabile e funzionante. " +
+    "Ogni annuncio DEVE avere il campo url compilato con il link diretto all'annuncio (es: https://www.idealista.it/immobile/12345678/ oppure https://www.immobiliare.it/annunci/12345/). " +
+    "Se non hai l'URL esatto dell'annuncio NON includerlo — meglio 2 annunci reali che 10 inventati. " +
+    "Fonti accettate per annunci standard: idealista.it, immobiliare.it, casa.it, subito.it, wikicasa.it. " +
+    "Fonti per aste: asteonline.it, astegiudiziarie.it, portaleaste.it. " +
+    "Fonti per luxury: sothebysrealty.it, knightfrank.it, engelvoelkers.com. " +
+    "NON inventare prezzi, indirizzi o caratteristiche. Copia i dati esattamente come li trovi sul sito. " +
+    "Rispondi SOLO in JSON valido. Se non trovi annunci con URL verificabile, ritorna {\"properties\":[]}.",
   search_grants: "Sei un esperto di finanziamenti italiani con accesso al web. Cerca bandi REALI da: inps.it, invitalia.it, agenziaentrate.gov.it, mise.gov.it, regioni. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"results\":[]}. MAI inventare.",
   deep_search: "Sei un assistente di ricerca con accesso al web. Cerca notizie aggiornate da fonti affidabili. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"newsCards\":[]}.",
   distress_radar: "Sei un esperto di opportunità in Italia con accesso al web. Cerca aste giudiziarie su: tribunale.it, asteonline.it, astegiudiziarie.it, idealista.it/aste. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"signals\":[]}. MAI inventare.",
@@ -220,6 +222,22 @@ function parseOutput(raw: string): unknown | null {
   return null;
 }
 
+function filterValidProperties(raw: unknown): unknown[] {
+  if (!raw || typeof raw !== "object") return [];
+  const data = raw as Record<string, unknown>;
+  const props = Array.isArray(data.properties) ? data.properties : [];
+  return props.filter((p: any) => {
+    if (!p || typeof p !== "object") return false;
+    // Scarta annunci senza URL — non verificabili
+    if (!p.url || typeof p.url !== "string" || !p.url.startsWith("http")) return false;
+    // Scarta annunci con prezzo 0 o negativo
+    if (typeof p.price === "number" && p.price < 0) return false;
+    // Scarta annunci senza titolo
+    if (!p.title || typeof p.title !== "string" || p.title.trim().length < 5) return false;
+    return true;
+  });
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(req) });
 
@@ -280,6 +298,20 @@ serve(async (req: Request) => {
       : await runAI(prompt, domain);
 
     const parsed = parseOutput(output);
+
+    // Per immobili: filtra solo annunci con URL reale
+    if (task === "real_estate_deep" && parsed && typeof parsed === "object") {
+      const validProps = filterValidProperties(parsed);
+      const cleanData = { ...(parsed as Record<string, unknown>), properties: validProps };
+      console.log(`[ai-core-run] real_estate valid_properties=${validProps.length}`);
+      return okResponse(req, {
+        final_output: output,
+        data: cleanData,
+        properties: validProps,
+        debug_id: debugId,
+      }, debugId);
+    }
+
     const raw = parsed as Record<string, unknown> | null;
     console.log(`[ai-core-run] output_len=${output.length}`);
 
