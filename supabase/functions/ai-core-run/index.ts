@@ -310,6 +310,7 @@ Deno.serve(async (req: Request) => {
     if (pathname.endsWith("/tariffs/compare")) {
       const prompt = (body.prompt as string) || (body.text as string) || "";
       if (!prompt) return errResponse(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId);
+      if (prompt.length > 15_000) return errResponse(req, 400, "PROMPT_TOO_LONG", "Prompt exceeds 15000 characters", debugId);
       console.log(`[ai-core-run] tariffs/compare debug_id=${debugId}`);
       const output = await runAI(prompt, "wyloni_bandi");
       const parsed = parseOutput(output) as Record<string, unknown> | null;

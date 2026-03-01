@@ -14,7 +14,10 @@ const LOVABLE_SUFFIXES = [".lovable.app", ".lovableproject.com", ".lovable.dev"]
 function isOriginAllowed(origin: string): boolean {
   if (!origin) return false;
   const o = origin.toLowerCase();
-  if (o.startsWith("http://localhost") || o.startsWith("http://127.")) return true;
+  try {
+    const u = new URL(o);
+    if (u.hostname === "localhost" || u.hostname.startsWith("127.")) return true;
+  } catch { /* not a valid URL */ }
   if (LOVABLE_SUFFIXES.some((s) => o.endsWith(s)) || o === "https://lovable.dev") return true;
   const allowed = (Deno.env.get("CORE_ALLOWED_ORIGINS") ?? "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
   return allowed.includes("*") || allowed.includes(o);
