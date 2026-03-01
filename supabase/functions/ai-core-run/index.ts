@@ -84,7 +84,7 @@ const EMPTY_RESULTS: Record<string, string> = {
   deep_recovery:         `{"success":true,"credits":[]}`,
   find_contacts:         `{"results":[]}`,
   find_company_contacts: `{"success":true,"contact":null}`,
-  ai_bandi:              `{"ok":true,"data":{"results":[]}}`,
+  ai_bandi:              `{"ok":true,"confidence_score":0,"data":{"summary_3_lines":["Nessun dato disponibile al momento"],"checklist_documents":[],"questions_to_ask":[],"risks_and_attention":[],"next_steps":[],"sources":[],"confidence_notes":"Perplexity non disponibile"}}`,
 };
 
 async function callOpenAI(prompt: string, temperature: number, maxTokens: number): Promise<string> {
@@ -155,7 +155,20 @@ const PERPLEXITY_SYSTEM: Record<string, string> = {
   deep_recovery: "Sei un esperto di crediti dormienti italiani con accesso al web. Ricerca su INPS, Agenzia Entrate, Bankitalia, IVASS. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"credits\":[]}. MAI inventare.",
   find_contacts: "Sei un assistente per contatti ufficiali italiani con accesso al web. Usa INI-PEC, siti istituzionali, Registro Imprese. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"results\":[]}. MAI inventare.",
   find_company_contacts: "Sei un assistente per contatti aziendali italiani con accesso al web. Cerca su INI-PEC, Registro Imprese, sito ufficiale. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"contact\":null}. MAI inventare.",
-  ai_bandi: "Sei un esperto di bandi italiani con accesso al web. Cerca da fonti ufficiali: invitalia.it, mise.gov.it. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"ok\":true,\"data\":{\"results\":[]}}.",
+  ai_bandi:
+    "Sei un esperto di bandi italiani con accesso al web. " +
+    "Analizza la query ricevuta e cerca informazioni aggiornate da: invitalia.it, mise.gov.it, inps.it, gazzettaufficiale.it, regioni italiane. " +
+    "Rispondi SOLO in JSON con questa struttura: " +
+    "{\"ok\":true,\"confidence_score\":75,\"data\":{" +
+    "\"summary_3_lines\":[\"riga 1\",\"riga 2\",\"riga 3\"]," +
+    "\"checklist_documents\":[\"doc 1\",\"doc 2\"]," +
+    "\"questions_to_ask\":[\"domanda 1\"]," +
+    "\"risks_and_attention\":[\"rischio 1\"]," +
+    "\"next_steps\":[\"passo 1\"]," +
+    "\"sources\":[{\"title\":\"fonte\",\"url\":\"https://url\"}]," +
+    "\"confidence_notes\":\"\"}}. " +
+    "Se le informazioni sono incomplete abbassa confidence_score e segnalalo in confidence_notes. " +
+    "Se non trovi nulla ritorna {\"ok\":true,\"confidence_score\":0,\"data\":{\"summary_3_lines\":[\"Nessun dato trovato\"],\"checklist_documents\":[],\"questions_to_ask\":[],\"risks_and_attention\":[],\"next_steps\":[],\"sources\":[],\"confidence_notes\":\"Ricerca non disponibile al momento\"}}.",
 };
 
 async function callPerplexity(prompt: string, task: string, maxTokens: number): Promise<string | null> {
