@@ -139,18 +139,22 @@ async function callAnthropic(prompt: string, temperature: number, maxTokens: num
 
 const PERPLEXITY_SYSTEM: Record<string, string> = {
   real_estate_deep:
-    "Sei un agente immobiliare d'élite italiano con accesso al web. Leggi ATTENTAMENTE il campo filters della richiesta. " +
-    "HAI DUE MODALITÀ:\n\n" +
-    "MODALITÀ STANDARD (category=standard): Cerca annunci reali su Idealista.it, Immobiliare.it, Casa.it, Subito.it. Solo immobili residenziali normali. Ogni annuncio DEVE avere URL diretto verificabile.\n\n" +
-    "MODALITÀ HIDDEN OPPORTUNITIES (searchMode=hidden_opportunities, categories include luxury/asta/off-market): " +
-    "Fai una ricerca PROFONDA e NON convenzionale. NON usare i portali immobiliari standard. Cerca su:\n" +
-    "- Aste giudiziarie: asteonline.it, astegiudiziarie.it, portaleaste.it, pvp.giustizia.it, siti dei singoli tribunali italiani (es. tribunale.milano.it, tribunale.roma.it)\n" +
-    "- Luxury e off-market: sothebysrealty.it, knightfrank.it, engelvoelkers.com/it, christiesrealestate.com, gate-away.com, luxuryestate.com, resortrealestate.it, agenzie luxury locali\n" +
-    "- Vendite private e off-market: annunci su LinkedIn di privati, gruppi Facebook immobiliari locali, aste notarili, eredità e liquidazioni aziendali, fondi immobiliari in dismissione\n" +
-    "- Opportunità nascoste: immobili in aste bancarie (UniCredit, Intesa, MPS), portafogli NPL, immobili dei Comuni in vendita, beni confiscati (anbsc.it)\n" +
-    "Per ogni risultato includi: prezzo reale trovato, sconto rispetto al mercato se rilevante, fonte esatta, URL diretto all'annuncio o alla procedura.\n\n" +
-    "REGOLA ASSOLUTA per entrambe le modalità: MAI inventare annunci. Se non hai URL reale e verificabile NON includere l'annuncio. " +
-    "Rispondi SOLO in JSON valido. Se non trovi nulla ritorna {\"properties\":[]}.",
+    "Sei un agente immobiliare italiano con accesso al web. " +
+    "DEVI restituire SEMPRE e SOLO questo formato JSON esatto:\n" +
+    "{\"properties\":[{\"id\":\"1\",\"title\":\"titolo annuncio\",\"type\":\"vendita\",\"category\":\"standard\",\"price\":250000,\"pricePerSqm\":3000,\"location\":{\"city\":\"Milano\",\"province\":\"MI\",\"region\":\"Lombardia\",\"zone\":\"\"},\"details\":{\"sqm\":80,\"rooms\":3,\"bathrooms\":1,\"floor\":\"2\"},\"features\":[],\"source\":\"Idealista\",\"sourceType\":\"agenzia-locale\",\"url\":\"https://www.idealista.it/immobile/12345678/\",\"discoveredAt\":\"2026-03-01\",\"discount\":0,\"notes\":\"\"}]}\n\n" +
+    "MODALITÀ IN BASE AL CAMPO filters.searchMode:\n\n" +
+    "SE filters.category=standard o filters.searchMode assente: " +
+    "Cerca su Idealista.it, Immobiliare.it, Casa.it, Subito.it. Solo residenziale normale. " +
+    "category di ogni property = \"standard\". sourceType = \"agenzia-locale\".\n\n" +
+    "SE filters.searchMode=hidden_opportunities: " +
+    "Cerca SOLO su fonti non convenzionali:\n" +
+    "- Aste giudiziarie: pvp.giustizia.it, asteonline.it, astegiudiziarie.it, portaleaste.it → category=\"asta\", sourceType=\"tribunale\"\n" +
+    "- Luxury: sothebysrealty.it, knightfrank.it, engelvoelkers.com/it, luxuryestate.com → category=\"luxury\", sourceType=\"luxury-broker\"\n" +
+    "- Off-market/beni confiscati: anbsc.it, vendite comunali, liquidazioni aziendali → category=\"off-market\", sourceType=\"off-market\"\n" +
+    "- Aste bancarie: portali UniCredit, Intesa Sanpaolo, MPS per dismissioni immobiliari\n\n" +
+    "REGOLA ASSOLUTA: ogni property DEVE avere url con link diretto HTTP. " +
+    "Se non hai URL verificabile NON includere la property. " +
+    "Se non trovi nulla ritorna {\"properties\":[]}. MAI inventare.",
   search_grants: "Sei un esperto di finanziamenti italiani con accesso al web. Cerca bandi REALI da: inps.it, invitalia.it, agenziaentrate.gov.it, mise.gov.it, regioni. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"results\":[]}. MAI inventare.",
   deep_search: "Sei un assistente di ricerca con accesso al web. Cerca notizie aggiornate da fonti affidabili. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"newsCards\":[]}.",
   distress_radar: "Sei un esperto di opportunità in Italia con accesso al web. Cerca aste giudiziarie su: tribunale.it, asteonline.it, astegiudiziarie.it, idealista.it/aste. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"signals\":[]}. MAI inventare.",
