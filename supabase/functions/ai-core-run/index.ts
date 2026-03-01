@@ -1,5 +1,3 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-
 function makeDebugId(): string {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 12);
 }
@@ -13,7 +11,10 @@ const LOVABLE_SUFFIXES = [".lovable.app", ".lovableproject.com", ".lovable.dev"]
 function isAllowedOrigin(origin: string): boolean {
   if (!origin) return false;
   const o = origin.toLowerCase();
-  if (o.startsWith("http://localhost") || o.startsWith("http://127.")) return true;
+  try {
+    const u = new URL(o);
+    if (u.hostname === "localhost" || u.hostname.startsWith("127.")) return true;
+  } catch { /* not a valid URL */ }
   if (LOVABLE_SUFFIXES.some((s) => o.endsWith(s)) || o === "https://lovable.dev") return true;
   const allowed = (Deno.env.get("CORE_ALLOWED_ORIGINS") ?? "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
   return allowed.includes("*") || allowed.includes(o);
@@ -44,28 +45,31 @@ function errResponse(req: Request, status: number, code: string, message: string
   return jsonResponse(req, status, { ok: false, data: null, warnings: [], debug_id: debugId, error: { code, message } }, debugId);
 }
 
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return result === 0;
+}
+
 function checkAuth(req: Request, debugId: string): Response | null {
   const expected = Deno.env.get("AI_CORE_SECRET") ?? "";
-  if (!expected) return null;
+  if (!expected) return errResponse(req, 500, "CONFIG_ERROR", "AI_CORE_SECRET not configured", debugId);
   const incoming =
     req.headers.get("x-internal-secret") ??
     req.headers.get("x-app-secret") ??
     req.headers.get("x-core-secret") ??
     (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/, "") ?? "";
   if (!incoming) return errResponse(req, 401, "APP_SECRET_REQUIRED", "Missing x-internal-secret", debugId);
-  // Constant-time comparison: always iterate max length to prevent timing leak
-  const maxLen = Math.max(incoming.length, expected.length);
-  let diff = incoming.length ^ expected.length;
-  for (let i = 0; i < maxLen; i++) diff |= (incoming.charCodeAt(i) ?? 0) ^ (expected.charCodeAt(i) ?? 0);
-  if (diff !== 0) return errResponse(req, 401, "APP_SECRET_REJECTED", "Invalid secret", debugId);
+  if (!constantTimeEqual(incoming, expected)) return errResponse(req, 401, "APP_SECRET_REJECTED", "Invalid secret", debugId);
   return null;
 }
 
 const PIPELINES: Record<string, { maxTokens: number; temperature: number }> = {
   wyloni_bandi:        { maxTokens: 1500, temperature: 0.3 },
   wyloni_bonus:        { maxTokens: 1500, temperature: 0.3 },
-  pratica_legal:       { maxTokens: 1200, temperature: 0.4 },
-  keydraft_realestate: { maxTokens: 1800, temperature: 0.1 },
+  pratica_legal:       { maxTokens: 900,  temperature: 0.4 },
+  keydraft_realestate: { maxTokens: 1800, temperature: 0.3 },
 };
 function getPipeline(domain: string) {
   return PIPELINES[domain] ?? PIPELINES["wyloni_bandi"];
@@ -277,7 +281,7 @@ function filterValidProperties(raw: unknown): unknown[] {
   });
 }
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(req) });
 
   const debugId = makeDebugId();
@@ -287,11 +291,6 @@ serve(async (req: Request) => {
     if (req.method === "GET" && (pathname.endsWith("/health") || pathname.endsWith("/__health") || pathname === "/")) {
       return okResponse(req, {
         status: "ok", version: "3.1.0", time: new Date().toISOString(),
-        providers: {
-          openai: !!Deno.env.get("OPENAI_API_KEY"),
-          anthropic: !!Deno.env.get("ANTHROPIC_API_KEY"),
-          perplexity: !!Deno.env.get("PERPLEXITY_API_KEY"),
-        },
       }, debugId);
     }
 
@@ -299,8 +298,12 @@ serve(async (req: Request) => {
     if (authErr) return authErr;
     if (req.method !== "POST") return errResponse(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId);
 
+    const rawBody = await req.text();
+    if (rawBody.length > 100_000) {
+      return errResponse(req, 413, "PAYLOAD_TOO_LARGE", "Request body exceeds 100KB limit", debugId);
+    }
     let body: Record<string, unknown> = {};
-    try { body = await req.json(); } catch {
+    try { body = JSON.parse(rawBody); } catch {
       return errResponse(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId);
     }
 
@@ -329,8 +332,10 @@ serve(async (req: Request) => {
     const prompt = (body.prompt as string) || (body.text as string) || "";
 
     if (!prompt) return errResponse(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId);
+    if (prompt.length > 15_000) return errResponse(req, 400, "PROMPT_TOO_LONG", `Prompt exceeds 15000 characters`, debugId);
 
-    console.log(`[ai-core-run] domain=${domain} task=${task} prompt_len=${prompt.length} debug_id=${debugId}`);
+    const sourceApp = req.headers.get("x-source-app") ?? "unknown";
+    console.log(`[ai-core-run] domain=${domain} task=${task} prompt_len=${prompt.length} source_app=${sourceApp} debug_id=${debugId}`);
 
     const output = WEB_TASKS.has(task)
       ? await runWebAI(prompt, domain, task)
@@ -365,7 +370,7 @@ serve(async (req: Request) => {
 
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    console.error("[ai-core-run] Error:", errMsg);
-    return errResponse(req, 500, "INTERNAL_ERROR", errMsg.slice(0, 300), debugId);
+    console.error(`[ai-core-run] Error debug_id=${debugId}:`, errMsg);
+    return errResponse(req, 500, "INTERNAL_ERROR", "An internal error occurred. Reference: " + debugId, debugId);
   }
 });
