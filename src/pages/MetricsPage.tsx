@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity, RefreshCw, Clock, AlertTriangle, TrendingUp,
-  Zap, CheckCircle2, XCircle, Timer, BarChart3,
+  Zap, CheckCircle2, XCircle, Timer, BarChart3, Stethoscope, Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -57,6 +57,31 @@ async function fetchMetrics(secret: string): Promise<MetricsData> {
   return json.data;
 }
 
+interface DiagResult {
+  status: string;
+  latencyMs: number;
+  output?: string;
+  error?: string;
+}
+
+interface DiagnosticsData {
+  status: string;
+  providers: Record<string, DiagResult>;
+  time: string;
+}
+
+async function fetchDiagnostics(secret: string): Promise<DiagnosticsData> {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-core-run/diagnostics`, {
+    headers: { "x-internal-secret": secret },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error?.message || `HTTP ${res.status}`);
+  }
+  const json = await res.json();
+  return json.data;
+}
+
 // ── Colors ─────────────────────────────────────────────────────
 const PROVIDER_COLORS: Record<string, string> = {
   openai: "hsl(160 84% 39%)",      // emerald
@@ -88,6 +113,9 @@ export default function MetricsPage() {
   const [secret, setSecret] = useState(() => sessionStorage.getItem("core_metrics_secret") || "");
   const [inputSecret, setInputSecret] = useState("");
   const [showSecretInput, setShowSecretInput] = useState(!secret);
+  const [diagData, setDiagData] = useState<DiagnosticsData | null>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagError, setDiagError] = useState<string | null>(null);
 
   const handleUnlock = useCallback((e: React.FormEvent) => {
     e.preventDefault();
@@ -95,6 +123,20 @@ export default function MetricsPage() {
     setSecret(inputSecret);
     setShowSecretInput(false);
   }, [inputSecret]);
+
+  const runDiagnostics = useCallback(async () => {
+    setDiagLoading(true);
+    setDiagError(null);
+    setDiagData(null);
+    try {
+      const result = await fetchDiagnostics(secret);
+      setDiagData(result);
+    } catch (e) {
+      setDiagError((e as Error).message);
+    } finally {
+      setDiagLoading(false);
+    }
+  }, [secret]);
 
   const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
     queryKey: ["metrics", secret],
@@ -218,6 +260,14 @@ export default function MetricsPage() {
             </span>
           )}
           <button
+            onClick={runDiagnostics}
+            disabled={diagLoading}
+            className="flex items-center gap-1.5 rounded-md bg-primary/10 border border-primary/20 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
+          >
+            {diagLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Stethoscope className="h-3 w-3" />}
+            {diagLoading ? "Testing..." : "Diagnostica"}
+          </button>
+          <button
             onClick={() => refetch()}
             className="flex items-center gap-1.5 rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground hover:bg-secondary/80 transition-colors"
           >
@@ -225,6 +275,64 @@ export default function MetricsPage() {
           </button>
         </div>
       </div>
+
+      {/* Diagnostics results */}
+      {(diagData || diagError) && (
+        <Card className={diagData?.status === "all_providers_ok" ? "border-emerald-500/30" : "border-amber-500/30"}>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Stethoscope className="h-4 w-4" /> Diagnostica Provider
+              {diagData && (
+                <Badge variant="outline" className={diagData.status === "all_providers_ok" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-amber-500/10 text-amber-400 border-amber-500/20"}>
+                  {diagData.status === "all_providers_ok" ? "Tutti OK" : "Problemi"}
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {diagError && (
+              <div className="flex items-center gap-2 text-destructive text-sm">
+                <AlertTriangle className="h-4 w-4" /> {diagError}
+              </div>
+            )}
+            {diagData && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {Object.entries(diagData.providers).map(([name, result]) => (
+                  <div key={name} className="flex items-start gap-3 rounded-lg border p-3">
+                    <div className="mt-0.5">
+                      {result.status === "ok" ? (
+                        <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+                      ) : (
+                        <XCircle className="h-5 w-5 text-destructive" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-sm capitalize">{name}</p>
+                      {result.status === "ok" ? (
+                        <>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Latenza: <span className="font-mono text-foreground">{result.latencyMs}ms</span>
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            Output: <span className="font-mono text-foreground">{result.output}</span>
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-xs text-destructive/80 mt-0.5">{result.error}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {diagData && (
+              <p className="text-[10px] text-muted-foreground mt-3">
+                Eseguito: {new Date(diagData.time).toLocaleString("it-IT")}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Top stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
