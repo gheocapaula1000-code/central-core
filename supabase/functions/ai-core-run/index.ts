@@ -26,7 +26,7 @@ function corsHeaders(req: Request): Record<string, string> {
     "Access-Control-Allow-Origin": isAllowedOrigin(origin) ? origin : "null",
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-internal-secret, x-app-secret, x-core-secret, x-source-app",
+    "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-internal-secret, x-app-secret, x-core-secret, x-source-app, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin",
   };
