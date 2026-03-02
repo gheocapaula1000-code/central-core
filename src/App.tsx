@@ -43,7 +43,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
           value={pw}
           onChange={(e) => { setPw(e.target.value); setError(false); }}
           placeholder="Password"
-          className="w-full rounded border px-3 py-2 text-sm"
+          className="w-full px-3 py-2 border border-zinc-400 dark:border-zinc-600 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500"
           autoFocus
         />
         {error && <p className="text-sm text-red-500">Password errata</p>}
