@@ -1,3 +1,4 @@
+// v3.2.2
 // health check endpoint — Central Core v3
 
 Deno.serve(async (req) => {
