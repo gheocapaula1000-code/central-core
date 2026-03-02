@@ -66,7 +66,10 @@ export function fail(req: Request, status: number, code: string, message: string
 /** Checks all supported auth headers: x-internal-secret, x-app-secret, x-core-secret, Authorization Bearer */
 export function requireSecret(req: Request, debugId: string): Response | null {
   const expected = Deno.env.get("AI_CORE_SECRET") ?? "";
-  if (!expected) return fail(req, 500, "CONFIG_ERROR", "AI_CORE_SECRET not configured", debugId);
+  if (!expected) {
+    console.error("[requireSecret] CRITICAL: AI_CORE_SECRET env var is not set — all requests will be rejected with 500");
+    return fail(req, 500, "CONFIG_ERROR", "AI_CORE_SECRET not configured", debugId);
+  }
   const incoming =
     req.headers.get("x-internal-secret") ??
     req.headers.get("x-app-secret") ??
