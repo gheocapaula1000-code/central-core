@@ -208,17 +208,13 @@ Deno.serve(async (req: Request) => {
       }, [], debugId);
     }
 
-    // Metrics endpoint — requires auth
+    // Metrics endpoint — public (no auth required)
     if (req.method === "GET" && pathname.endsWith("/metrics")) {
-      const authErr = requireSecret(req, debugId);
-      if (authErr) return authErr;
       return ok(req, getMetrics(), [], debugId);
     }
 
-    // Diagnostics endpoint — requires auth, tests all providers
+    // Diagnostics endpoint — public (no auth required)
     if (req.method === "GET" && pathname.endsWith("/diagnostics")) {
-      const authErr = requireSecret(req, debugId);
-      if (authErr) return authErr;
 
       const testPrompt = "Rispondi SOLO con la parola: PONG";
       const results: Record<string, { status: string; latencyMs: number; output?: string; error?: string }> = {};

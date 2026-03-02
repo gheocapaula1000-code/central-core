@@ -45,10 +45,8 @@ interface MetricsData {
 // ── Fetch ──────────────────────────────────────────────────────
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
-async function fetchMetrics(secret: string): Promise<MetricsData> {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-core-run/metrics`, {
-    headers: { "x-internal-secret": secret },
-  });
+async function fetchMetrics(): Promise<MetricsData> {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-core-run/metrics`);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body?.error?.message || `HTTP ${res.status}`);
@@ -70,10 +68,8 @@ interface DiagnosticsData {
   time: string;
 }
 
-async function fetchDiagnostics(secret: string): Promise<DiagnosticsData> {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-core-run/diagnostics`, {
-    headers: { "x-internal-secret": secret },
-  });
+async function fetchDiagnostics(): Promise<DiagnosticsData> {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-core-run/diagnostics`);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body?.error?.message || `HTTP ${res.status}`);
@@ -110,75 +106,30 @@ function formatTime(iso: string): string {
 
 // ── Component ──────────────────────────────────────────────────
 export default function MetricsPage() {
-  const [secret, setSecret] = useState(() => sessionStorage.getItem("core_metrics_secret") || "");
-  const [inputSecret, setInputSecret] = useState("");
-  const [showSecretInput, setShowSecretInput] = useState(!secret);
   const [diagData, setDiagData] = useState<DiagnosticsData | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
   const [diagError, setDiagError] = useState<string | null>(null);
-
-  const handleUnlock = useCallback((e: React.FormEvent) => {
-    e.preventDefault();
-    sessionStorage.setItem("core_metrics_secret", inputSecret);
-    setSecret(inputSecret);
-    setShowSecretInput(false);
-  }, [inputSecret]);
 
   const runDiagnostics = useCallback(async () => {
     setDiagLoading(true);
     setDiagError(null);
     setDiagData(null);
     try {
-      const result = await fetchDiagnostics(secret);
+      const result = await fetchDiagnostics();
       setDiagData(result);
     } catch (e) {
       setDiagError((e as Error).message);
     } finally {
       setDiagLoading(false);
     }
-  }, [secret]);
+  }, []);
 
   const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
-    queryKey: ["metrics", secret],
-    queryFn: () => fetchMetrics(secret),
-    enabled: !!secret,
+    queryKey: ["metrics"],
+    queryFn: () => fetchMetrics(),
     refetchInterval: 15_000,
     retry: 1,
   });
-
-  // ── Secret input ─────────────────────────────────────────────
-  if (showSecretInput || !secret) {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <BarChart3 className="h-6 w-6 text-cyan-400" /> Metrics
-        </h1>
-        <Card className="max-w-md">
-          <CardHeader>
-            <CardTitle className="text-base">Autenticazione</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleUnlock} className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Inserisci il secret <code className="text-xs bg-secondary px-1.5 py-0.5 rounded">AI_CORE_SECRET</code> per accedere alle metriche.
-              </p>
-              <input
-                type="password"
-                value={inputSecret}
-                onChange={(e) => setInputSecret(e.target.value)}
-                placeholder="Secret"
-                className="w-full px-3 py-2 border rounded bg-secondary text-foreground placeholder:text-muted-foreground text-sm"
-                autoFocus
-              />
-              <button type="submit" className="w-full rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">
-                Accedi alle Metriche
-              </button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   // ── Loading / Error ──────────────────────────────────────────
   if (isLoading && !data) {
@@ -207,10 +158,10 @@ export default function MetricsPage() {
               <span className="text-sm">{(error as Error).message}</span>
             </div>
             <button
-              onClick={() => { setShowSecretInput(true); setSecret(""); }}
+              onClick={() => refetch()}
               className="mt-3 text-xs text-muted-foreground underline"
             >
-              Cambia secret
+              Riprova
             </button>
           </CardContent>
         </Card>
