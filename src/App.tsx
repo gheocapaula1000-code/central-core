@@ -11,6 +11,7 @@ import AppsPage from "@/pages/AppsPage";
 import ProvidersPage from "@/pages/ProvidersPage";
 import TasksPage from "@/pages/TasksPage";
 import SecurityPage from "@/pages/SecurityPage";
+import MetricsPage from "@/pages/MetricsPage";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -76,6 +77,7 @@ const App = () => (
                     <Route path="/providers" element={<ProvidersPage />} />
                     <Route path="/tasks" element={<TasksPage />} />
                     <Route path="/security" element={<SecurityPage />} />
+                    <Route path="/metrics" element={<MetricsPage />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </main>

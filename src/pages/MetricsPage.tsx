@@ -1,0 +1,463 @@
+import { useState, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  Activity, RefreshCw, Clock, AlertTriangle, TrendingUp,
+  Zap, CheckCircle2, XCircle, Timer, BarChart3,
+} from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell, Legend,
+} from "recharts";
+
+// ── Types ──────────────────────────────────────────────────────
+interface ProviderStats {
+  calls: number;
+  successes: number;
+  failures: number;
+  totalLatencyMs: number;
+  avgLatencyMs: number;
+  p95LatencyMs: number;
+  minLatencyMs: number;
+  maxLatencyMs: number;
+  totalOutputChars: number;
+  avgOutputChars: number;
+  successRate: number;
+  lastCallAt: string | null;
+  fallbackCount: number;
+}
+
+interface TaskStats {
+  calls: number;
+  successes: number;
+  avgLatencyMs: number;
+}
+
+interface MetricsData {
+  uptime_seconds: number;
+  total_calls: number;
+  providers: Record<string, ProviderStats>;
+  recent_errors: Array<{ provider: string; task: string; error: string; timestamp: string }>;
+  tasks: Record<string, TaskStats>;
+}
+
+// ── Fetch ──────────────────────────────────────────────────────
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+
+async function fetchMetrics(secret: string): Promise<MetricsData> {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-core-run/metrics`, {
+    headers: { "x-internal-secret": secret },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error?.message || `HTTP ${res.status}`);
+  }
+  const json = await res.json();
+  return json.data;
+}
+
+// ── Colors ─────────────────────────────────────────────────────
+const PROVIDER_COLORS: Record<string, string> = {
+  openai: "hsl(160 84% 39%)",      // emerald
+  anthropic: "hsl(263 70% 58%)",    // violet
+  perplexity: "hsl(186 72% 48%)",   // cyan
+};
+
+const PROVIDER_BG: Record<string, string> = {
+  openai: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+  anthropic: "bg-violet-500/10 text-violet-400 border-violet-500/20",
+  perplexity: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
+};
+
+// ── Helpers ────────────────────────────────────────────────────
+function formatUptime(s: number): string {
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return `${h}h ${m}m`;
+}
+
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+// ── Component ──────────────────────────────────────────────────
+export default function MetricsPage() {
+  const [secret, setSecret] = useState(() => sessionStorage.getItem("core_metrics_secret") || "");
+  const [inputSecret, setInputSecret] = useState("");
+  const [showSecretInput, setShowSecretInput] = useState(!secret);
+
+  const handleUnlock = useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    sessionStorage.setItem("core_metrics_secret", inputSecret);
+    setSecret(inputSecret);
+    setShowSecretInput(false);
+  }, [inputSecret]);
+
+  const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
+    queryKey: ["metrics", secret],
+    queryFn: () => fetchMetrics(secret),
+    enabled: !!secret,
+    refetchInterval: 15_000,
+    retry: 1,
+  });
+
+  // ── Secret input ─────────────────────────────────────────────
+  if (showSecretInput || !secret) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <BarChart3 className="h-6 w-6 text-cyan-400" /> Metrics
+        </h1>
+        <Card className="max-w-md">
+          <CardHeader>
+            <CardTitle className="text-base">Autenticazione</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleUnlock} className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Inserisci il secret <code className="text-xs bg-secondary px-1.5 py-0.5 rounded">AI_CORE_SECRET</code> per accedere alle metriche.
+              </p>
+              <input
+                type="password"
+                value={inputSecret}
+                onChange={(e) => setInputSecret(e.target.value)}
+                placeholder="Secret"
+                className="w-full px-3 py-2 border rounded bg-secondary text-foreground placeholder:text-muted-foreground text-sm"
+                autoFocus
+              />
+              <button type="submit" className="w-full rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">
+                Accedi alle Metriche
+              </button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // ── Loading / Error ──────────────────────────────────────────
+  if (isLoading && !data) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <BarChart3 className="h-6 w-6 text-cyan-400" /> Metrics
+        </h1>
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <RefreshCw className="h-4 w-4 animate-spin" /> Caricamento metriche...
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <BarChart3 className="h-6 w-6 text-cyan-400" /> Metrics
+        </h1>
+        <Card className="border-destructive/30">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <span className="text-sm">{(error as Error).message}</span>
+            </div>
+            <button
+              onClick={() => { setShowSecretInput(true); setSecret(""); }}
+              className="mt-3 text-xs text-muted-foreground underline"
+            >
+              Cambia secret
+            </button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  // ── Chart data ───────────────────────────────────────────────
+  const providerNames = Object.keys(data.providers) as string[];
+  const latencyChartData = providerNames.map((p) => ({
+    name: p.charAt(0).toUpperCase() + p.slice(1),
+    avg: data.providers[p].avgLatencyMs,
+    p95: data.providers[p].p95LatencyMs,
+    max: data.providers[p].maxLatencyMs,
+  }));
+
+  const callsChartData = providerNames
+    .filter((p) => data.providers[p].calls > 0)
+    .map((p) => ({
+      name: p.charAt(0).toUpperCase() + p.slice(1),
+      value: data.providers[p].calls,
+      fill: PROVIDER_COLORS[p] || "hsl(var(--muted-foreground))",
+    }));
+
+  const taskChartData = Object.entries(data.tasks)
+    .sort(([, a], [, b]) => b.calls - a.calls)
+    .slice(0, 12)
+    .map(([task, stats]) => ({
+      name: task.length > 16 ? task.slice(0, 14) + "…" : task,
+      calls: stats.calls,
+      avgLatency: stats.avgLatencyMs,
+    }));
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <BarChart3 className="h-6 w-6 text-cyan-400" /> Metrics
+        </h1>
+        <div className="flex items-center gap-3">
+          {dataUpdatedAt > 0 && (
+            <span className="text-xs text-muted-foreground">
+              Aggiornato: {new Date(dataUpdatedAt).toLocaleTimeString("it-IT")}
+            </span>
+          )}
+          <button
+            onClick={() => refetch()}
+            className="flex items-center gap-1.5 rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground hover:bg-secondary/80 transition-colors"
+          >
+            <RefreshCw className="h-3 w-3" /> Aggiorna
+          </button>
+        </div>
+      </div>
+
+      {/* Top stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Totale Chiamate</CardTitle>
+            <Activity className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold">{data.total_calls}</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Uptime Isolate</CardTitle>
+            <Clock className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold">{formatUptime(data.uptime_seconds)}</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Fallback Attivati</CardTitle>
+            <Zap className="h-4 w-4 text-amber-400" />
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold">{data.providers.anthropic?.fallbackCount ?? 0}</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Errori Recenti</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-destructive" />
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold">{data.recent_errors.length}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Provider cards */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {providerNames.map((p) => {
+          const s = data.providers[p];
+          return (
+            <Card key={p} className="overflow-hidden">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <span className={`inline-block h-2.5 w-2.5 rounded-full`} style={{ backgroundColor: PROVIDER_COLORS[p] }} />
+                    {p.charAt(0).toUpperCase() + p.slice(1)}
+                  </span>
+                  <Badge variant="outline" className={PROVIDER_BG[p]}>
+                    {s.successRate}%
+                  </Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-muted-foreground text-xs">Chiamate</p>
+                    <p className="font-mono font-semibold">{s.calls}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground text-xs">Successi / Errori</p>
+                    <p className="font-mono font-semibold flex items-center gap-1.5">
+                      <CheckCircle2 className="h-3 w-3 text-emerald-400" />{s.successes}
+                      <XCircle className="h-3 w-3 text-destructive ml-1" />{s.failures}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground text-xs">Latenza Media</p>
+                    <p className="font-mono font-semibold">{s.avgLatencyMs}ms</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground text-xs">Latenza P95</p>
+                    <p className="font-mono font-semibold">{s.p95LatencyMs}ms</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground text-xs">Output Medio</p>
+                    <p className="font-mono font-semibold">{s.avgOutputChars} chars</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground text-xs">Ultima Chiamata</p>
+                    <p className="font-mono font-semibold text-xs">
+                      {s.lastCallAt ? formatTime(s.lastCallAt) : "—"}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Success rate bar */}
+                <div className="h-1.5 w-full rounded-full bg-secondary overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{
+                      width: `${s.successRate}%`,
+                      backgroundColor: s.successRate >= 90 ? "hsl(160 84% 39%)" : s.successRate >= 70 ? "hsl(38 92% 50%)" : "hsl(0 84% 60%)",
+                    }}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* Charts row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Latency chart */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Timer className="h-4 w-4" /> Latenza per Provider
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {latencyChartData.some((d) => d.avg > 0) ? (
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={latencyChartData} barGap={4}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
+                  <XAxis dataKey="name" tick={{ fill: "hsl(240 5% 55%)", fontSize: 12 }} />
+                  <YAxis tick={{ fill: "hsl(240 5% 55%)", fontSize: 12 }} unit="ms" />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: "hsl(240 5% 11%)", border: "1px solid hsl(240 4% 20%)", borderRadius: 8, fontSize: 12 }}
+                    labelStyle={{ color: "hsl(0 0% 95%)" }}
+                  />
+                  <Bar dataKey="avg" name="Media" fill="hsl(186 72% 48%)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="p95" name="P95" fill="hsl(263 70% 58%)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="max" name="Max" fill="hsl(38 92% 50%)" radius={[4, 4, 0, 0]} />
+                  <Legend wrapperStyle={{ fontSize: 11, color: "hsl(240 5% 55%)" }} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-sm text-muted-foreground py-8 text-center">Nessun dato di latenza disponibile</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Calls distribution */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <TrendingUp className="h-4 w-4" /> Distribuzione Chiamate
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {callsChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                  <Pie
+                    data={callsChartData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={55}
+                    outerRadius={90}
+                    paddingAngle={3}
+                    dataKey="value"
+                    label={({ name, value }) => `${name}: ${value}`}
+                    labelLine={false}
+                  >
+                    {callsChartData.map((entry, i) => (
+                      <Cell key={i} fill={entry.fill} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ backgroundColor: "hsl(240 5% 11%)", border: "1px solid hsl(240 4% 20%)", borderRadius: 8, fontSize: 12 }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-sm text-muted-foreground py-8 text-center">Nessuna chiamata registrata</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Task breakdown */}
+      {taskChartData.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Activity className="h-4 w-4" /> Chiamate per Task
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={taskChartData} layout="vertical" margin={{ left: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
+                <XAxis type="number" tick={{ fill: "hsl(240 5% 55%)", fontSize: 11 }} />
+                <YAxis dataKey="name" type="category" width={120} tick={{ fill: "hsl(240 5% 55%)", fontSize: 11 }} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: "hsl(240 5% 11%)", border: "1px solid hsl(240 4% 20%)", borderRadius: 8, fontSize: 12 }}
+                  labelStyle={{ color: "hsl(0 0% 95%)" }}
+                />
+                <Bar dataKey="calls" name="Chiamate" fill="hsl(186 72% 48%)" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Recent errors */}
+      {data.recent_errors.length > 0 && (
+        <Card className="border-destructive/20">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-4 w-4" /> Errori Recenti
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2 max-h-64 overflow-auto">
+              {data.recent_errors.slice().reverse().map((err, i) => (
+                <div key={i} className="flex items-start gap-3 text-sm border-b border-border/50 pb-2 last:border-0">
+                  <Badge variant="outline" className={`shrink-0 text-[10px] ${PROVIDER_BG[err.provider] || ""}`}>
+                    {err.provider}
+                  </Badge>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-mono text-xs text-muted-foreground">{err.task}</p>
+                    <p className="text-xs text-destructive/80 truncate">{err.error}</p>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground shrink-0">
+                    {formatTime(err.timestamp)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
