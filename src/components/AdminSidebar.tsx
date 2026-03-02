@@ -19,7 +19,7 @@ const menuItems = [
   { title: "Providers AI", url: "/providers", icon: Bot },
   { title: "Task Registry", url: "/tasks", icon: ClipboardList },
   { title: "Chiavi & Sicurezza", url: "/security", icon: KeyRound },
-  { title: "Logs", url: "#", icon: BarChart3, disabled: true },
+  { title: "Metrics", url: "/metrics", icon: BarChart3 },
 ];
 
 export function AdminSidebar() {
@@ -44,28 +44,16 @@ export function AdminSidebar() {
             <SidebarMenu>
               {menuItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild disabled={item.disabled}>
-                    {item.disabled ? (
-                      <div className="flex items-center gap-2 px-2 py-1.5 opacity-40 cursor-not-allowed">
-                        <item.icon className="h-4 w-4 shrink-0" />
-                        {!collapsed && (
-                          <span className="flex items-center gap-2">
-                            {item.title}
-                            <span className="text-[10px] rounded bg-secondary px-1.5 py-0.5 text-muted-foreground">soon</span>
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <NavLink
-                        to={item.url}
-                        end
-                        className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-                        activeClassName="bg-sidebar-accent text-violet-400 font-medium"
-                      >
-                        <item.icon className="h-4 w-4 shrink-0" />
-                        {!collapsed && <span>{item.title}</span>}
-                      </NavLink>
-                    )}
+                  <SidebarMenuButton asChild>
+                    <NavLink
+                      to={item.url}
+                      end
+                      className="flex items-center gap-2 px-2 py-1.5 rounded-md text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+                      activeClassName="bg-sidebar-accent text-violet-400 font-medium"
+                    >
+                      <item.icon className="h-4 w-4 shrink-0" />
+                      {!collapsed && <span>{item.title}</span>}
+                    </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
