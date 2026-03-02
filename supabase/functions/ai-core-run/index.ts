@@ -215,6 +215,54 @@ Deno.serve(async (req: Request) => {
       return ok(req, getMetrics(), [], debugId);
     }
 
+    // Diagnostics endpoint — requires auth, tests all providers
+    if (req.method === "GET" && pathname.endsWith("/diagnostics")) {
+      const authErr = requireSecret(req, debugId);
+      if (authErr) return authErr;
+
+      const testPrompt = "Rispondi SOLO con la parola: PONG";
+      const results: Record<string, { status: string; latencyMs: number; output?: string; error?: string }> = {};
+
+      // Test OpenAI
+      try {
+        const t = Date.now();
+        const r = await callOpenAI(testPrompt, 0.0, 50);
+        results.openai = { status: "ok", latencyMs: r.latencyMs, output: r.output.trim().slice(0, 100) };
+      } catch (e) {
+        results.openai = { status: "error", latencyMs: 0, error: String(e).slice(0, 200) };
+      }
+
+      // Test Anthropic
+      try {
+        const t = Date.now();
+        const r = await callAnthropic(testPrompt, 0.0, 50);
+        results.anthropic = { status: "ok", latencyMs: r.latencyMs, output: r.output.trim().slice(0, 100) };
+      } catch (e) {
+        results.anthropic = { status: "error", latencyMs: 0, error: String(e).slice(0, 200) };
+      }
+
+      // Test Perplexity
+      try {
+        const t = Date.now();
+        const out = await callPerplexityWithSystem("Rispondi SOLO: PONG", "diagnostics", "diagnostics", 50);
+        if (out) {
+          results.perplexity = { status: "ok", latencyMs: Date.now() - t, output: out.trim().slice(0, 100) };
+        } else {
+          results.perplexity = { status: "error", latencyMs: Date.now() - t, error: "No output or key not configured" };
+        }
+      } catch (e) {
+        results.perplexity = { status: "error", latencyMs: 0, error: String(e).slice(0, 200) };
+      }
+
+      const allOk = Object.values(results).every((r) => r.status === "ok");
+      return ok(req, {
+        status: allOk ? "all_providers_ok" : "some_providers_failed",
+        providers: results,
+        time: new Date().toISOString(),
+        debug_id: debugId,
+      }, allOk ? [] : ["Some providers failed diagnostics"], debugId);
+    }
+
     // Auth
     const authErr = requireSecret(req, debugId);
     if (authErr) return authErr;
