@@ -1,70 +1,42 @@
-function makeDebugId(): string {
-  return crypto.randomUUID().replace(/-/g, "").slice(0, 12);
-}
-function withAbort(ms: number) {
-  const c = new AbortController();
-  const t = setTimeout(() => c.abort(), ms);
-  return { signal: c.signal, clear: () => clearTimeout(t) };
+import { makeDebugId, handleOptions, ok, fail, requireSecret, CORE_VERSION } from "../_shared/http.ts";
+import { callOpenAI } from "./providers/openai.ts";
+import { callAnthropic } from "./providers/anthropic.ts";
+
+// ═══════════════════════════════════════════════════════════════
+// Rate limiter: max 30 requests per minute per source_app
+// ═══════════════════════════════════════════════════════════════
+const RATE_WINDOW_MS = 60_000;
+const RATE_MAX = 30;
+const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function checkRateLimit(sourceApp: string): boolean {
+  const now = Date.now();
+  const bucket = rateBuckets.get(sourceApp);
+  if (!bucket || now > bucket.resetAt) {
+    rateBuckets.set(sourceApp, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return true;
+  }
+  if (bucket.count >= RATE_MAX) return false;
+  bucket.count++;
+  return true;
 }
 
-const LOVABLE_SUFFIXES = [".lovable.app", ".lovableproject.com", ".lovable.dev"];
-function isAllowedOrigin(origin: string): boolean {
-  if (!origin) return false;
-  const o = origin.toLowerCase();
-  try {
-    const u = new URL(o);
-    if (u.hostname === "localhost" || u.hostname.startsWith("127.")) return true;
-  } catch { /* not a valid URL */ }
-  if (LOVABLE_SUFFIXES.some((s) => o.endsWith(s)) || o === "https://lovable.dev") return true;
-  const allowed = (Deno.env.get("CORE_ALLOWED_ORIGINS") ?? "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
-  return allowed.includes("*") || allowed.includes(o);
-}
+// Cleanup vecchi bucket ogni 5 minuti
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of rateBuckets) {
+    if (now > val.resetAt) rateBuckets.delete(key);
+  }
+}, 300_000);
 
-function corsHeaders(req: Request): Record<string, string> {
-  const origin = req.headers.get("origin") ?? "";
-  return {
-    "Access-Control-Allow-Origin": isAllowedOrigin(origin) ? origin : "null",
-    "Access-Control-Allow-Credentials": "true",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-internal-secret, x-app-secret, x-core-secret, x-source-app, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-    "Access-Control-Max-Age": "86400",
-    "Vary": "Origin",
-  };
-}
+// ═══════════════════════════════════════════════════════════════
+// Input sanitization
+// ═══════════════════════════════════════════════════════════════
+const SAFE_ID = /^[a-z0-9_]+$/;
 
-function jsonResponse(req: Request, status: number, body: unknown, debugId: string): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders(req), "Content-Type": "application/json; charset=utf-8", "x-debug-id": debugId },
-  });
-}
-function okResponse(req: Request, data: unknown, debugId: string): Response {
-  return jsonResponse(req, 200, { ok: true, data, warnings: [], debug_id: debugId }, debugId);
-}
-function errResponse(req: Request, status: number, code: string, message: string, debugId: string): Response {
-  return jsonResponse(req, status, { ok: false, data: null, warnings: [], debug_id: debugId, error: { code, message } }, debugId);
-}
-
-function constantTimeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return result === 0;
-}
-
-function checkAuth(req: Request, debugId: string): Response | null {
-  const expected = Deno.env.get("AI_CORE_SECRET") ?? "";
-  if (!expected) return errResponse(req, 500, "CONFIG_ERROR", "AI_CORE_SECRET not configured", debugId);
-  const incoming =
-    req.headers.get("x-internal-secret") ??
-    req.headers.get("x-app-secret") ??
-    req.headers.get("x-core-secret") ??
-    (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/, "") ?? "";
-  if (!incoming) return errResponse(req, 401, "APP_SECRET_REQUIRED", "Missing x-internal-secret", debugId);
-  if (!constantTimeEqual(incoming, expected)) return errResponse(req, 401, "APP_SECRET_REJECTED", "Invalid secret", debugId);
-  return null;
-}
-
+// ═══════════════════════════════════════════════════════════════
+// Pipeline config
+// ═══════════════════════════════════════════════════════════════
 const PIPELINES: Record<string, { maxTokens: number; temperature: number }> = {
   wyloni_bandi:        { maxTokens: 1500, temperature: 0.3 },
   wyloni_bonus:        { maxTokens: 1500, temperature: 0.3 },
@@ -83,6 +55,9 @@ const TASK_TOKEN_OVERRIDES: Record<string, number> = {
   contratto_analisi: 2000,
 };
 
+// ═══════════════════════════════════════════════════════════════
+// Web tasks & empty results
+// ═══════════════════════════════════════════════════════════════
 const WEB_TASKS = new Set([
   "search_grants", "deep_search", "distress_radar", "market_glitch",
   "deep_recovery", "find_contacts", "find_company_contacts", "real_estate_deep", "ai_bandi",
@@ -100,56 +75,9 @@ const EMPTY_RESULTS: Record<string, string> = {
   ai_bandi:              `{"ok":true,"confidence_score":0,"data":{"summary_3_lines":["Nessun dato disponibile al momento"],"checklist_documents":[],"questions_to_ask":[],"risks_and_attention":[],"next_steps":[],"sources":[],"confidence_notes":"Perplexity non disponibile"}}`,
 };
 
-async function callOpenAI(prompt: string, temperature: number, maxTokens: number): Promise<string> {
-  const key = Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_KEY") ?? "";
-  if (!key) throw new Error("OPENAI_API_KEY not configured");
-  const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o-mini";
-  const { signal, clear } = withAbort(28_000);
-  const t = Date.now();
-  try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model, temperature, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] }),
-      signal,
-    });
-    if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    const data = await res.json();
-    const output: string = data?.choices?.[0]?.message?.content ?? "";
-    if (!output) throw new Error("OpenAI empty output");
-    console.log(`[openai] ok latency=${Date.now()-t}ms output_len=${output.length}`);
-    return output;
-  } catch (e) {
-    if (e instanceof Error && e.name === "AbortError") throw new Error("OpenAI timeout");
-    throw e;
-  } finally { clear(); }
-}
-
-async function callAnthropic(prompt: string, temperature: number, maxTokens: number): Promise<string> {
-  const key = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-  if (!key) throw new Error("ANTHROPIC_API_KEY not configured");
-  const model = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-3-haiku-20240307";
-  const { signal, clear } = withAbort(28_000);
-  const t = Date.now();
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model, max_tokens: maxTokens, temperature, messages: [{ role: "user", content: prompt }] }),
-      signal,
-    });
-    if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    const data = await res.json();
-    const output: string = data?.content?.[0]?.text ?? "";
-    if (!output) throw new Error("Anthropic empty output");
-    console.log(`[anthropic] ok latency=${Date.now()-t}ms output_len=${output.length}`);
-    return output;
-  } catch (e) {
-    if (e instanceof Error && e.name === "AbortError") throw new Error("Anthropic timeout");
-    throw e;
-  } finally { clear(); }
-}
-
+// ═══════════════════════════════════════════════════════════════
+// Perplexity system prompts (task-specific, with web search)
+// ═══════════════════════════════════════════════════════════════
 const PERPLEXITY_SYSTEM: Record<string, string> = {
   real_estate_deep:
     "Sei un agente immobiliare italiano con accesso al web. " +
@@ -195,7 +123,16 @@ const PERPLEXITY_SYSTEM: Record<string, string> = {
     "Se non trovi nulla ritorna {\"ok\":true,\"confidence_score\":0,\"data\":{\"summary_3_lines\":[\"Nessun dato trovato\"],\"checklist_documents\":[],\"questions_to_ask\":[],\"risks_and_attention\":[],\"next_steps\":[],\"sources\":[],\"confidence_notes\":\"Ricerca non disponibile al momento\"}}.",
 };
 
-async function callPerplexity(prompt: string, task: string, maxTokens: number): Promise<string | null> {
+// ═══════════════════════════════════════════════════════════════
+// Perplexity with system prompts (web search tasks)
+// ═══════════════════════════════════════════════════════════════
+function withAbort(ms: number) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms);
+  return { signal: c.signal, clear: () => clearTimeout(t) };
+}
+
+async function callPerplexityWithSystem(prompt: string, task: string, maxTokens: number): Promise<string | null> {
   const key = Deno.env.get("PERPLEXITY_API_KEY") ?? "";
   if (!key) { console.warn("[perplexity] PERPLEXITY_API_KEY not configured"); return null; }
   const system = PERPLEXITY_SYSTEM[task] ?? "Rispondi SOLO in JSON valido. MAI inventare dati.";
@@ -227,16 +164,23 @@ async function callPerplexity(prompt: string, task: string, maxTokens: number): 
   } finally { clear(); }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// AI orchestration (uses imported providers)
+// ═══════════════════════════════════════════════════════════════
 async function runAI(prompt: string, domain: string, task?: string): Promise<string> {
   const { maxTokens: baseTokens, temperature } = getPipeline(domain);
   const maxTokens = (task && TASK_TOKEN_OVERRIDES[task]) || baseTokens;
   console.log(`[ai] runAI domain=${domain} maxTokens=${maxTokens}`);
   try {
-    return await callOpenAI(prompt, temperature, maxTokens);
+    const result = await callOpenAI(prompt, temperature, maxTokens);
+    console.log(`[openai] ok latency=${result.latencyMs}ms output_len=${result.output.length}`);
+    return result.output;
   } catch (e1) {
     console.warn("[ai] OpenAI failed, trying Anthropic:", String(e1));
     try {
-      return await callAnthropic(prompt, temperature, maxTokens);
+      const result = await callAnthropic(prompt, temperature, maxTokens);
+      console.log(`[anthropic] ok latency=${result.latencyMs}ms output_len=${result.output.length}`);
+      return result.output;
     } catch (e2) {
       console.error("[ai] Both OpenAI and Anthropic failed:", String(e2));
       throw new Error(`All AI providers failed. OpenAI: ${String(e1).slice(0, 100)}. Anthropic: ${String(e2).slice(0, 100)}`);
@@ -247,13 +191,16 @@ async function runAI(prompt: string, domain: string, task?: string): Promise<str
 async function runWebAI(prompt: string, domain: string, task: string): Promise<string> {
   const maxTokens = TASK_TOKEN_OVERRIDES[task] || getPipeline(domain).maxTokens;
   console.log(`[ai] runWebAI domain=${domain} task=${task}`);
-  const output = await callPerplexity(prompt, task, maxTokens);
+  const output = await callPerplexityWithSystem(prompt, task, maxTokens);
   if (output) { console.log(`[ai] Perplexity ok task=${task} len=${output.length}`); return output; }
   const empty = EMPTY_RESULTS[task] ?? `{"ok":false,"error":"Ricerca non disponibile"}`;
   console.warn(`[ai] Perplexity unavailable for task=${task} — returning empty`);
   return empty;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Output parsing & filtering
+// ═══════════════════════════════════════════════════════════════
 function parseOutput(raw: string): unknown | null {
   if (!raw || raw.trim().length < 2) return null;
   const s = raw.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
@@ -281,61 +228,79 @@ function filterValidProperties(raw: unknown): unknown[] {
   });
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Main handler
+// ═══════════════════════════════════════════════════════════════
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(req) });
+  if (req.method === "OPTIONS") return handleOptions(req);
 
   const debugId = makeDebugId();
   const pathname = new URL(req.url).pathname;
 
   try {
+    // Health check — no auth required
     if (req.method === "GET" && (pathname.endsWith("/health") || pathname.endsWith("/__health") || pathname === "/")) {
-      return okResponse(req, {
-        status: "ok", version: "3.1.0", time: new Date().toISOString(),
-      }, debugId);
+      return ok(req, {
+        status: "ok", version: CORE_VERSION, time: new Date().toISOString(),
+      }, [], debugId);
     }
 
-    const authErr = checkAuth(req, debugId);
+    // Auth
+    const authErr = requireSecret(req, debugId);
     if (authErr) return authErr;
-    if (req.method !== "POST") return errResponse(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId);
+    if (req.method !== "POST") return fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId);
 
+    // Rate limiting
+    const sourceApp = req.headers.get("x-source-app") ?? "unknown";
+    if (!checkRateLimit(sourceApp)) {
+      return fail(req, 429, "RATE_LIMITED", "Too many requests. Max 30/minute per app.", debugId);
+    }
+
+    // Parse body
     const rawBody = await req.text();
     if (rawBody.length > 100_000) {
-      return errResponse(req, 413, "PAYLOAD_TOO_LARGE", "Request body exceeds 100KB limit", debugId);
+      return fail(req, 413, "PAYLOAD_TOO_LARGE", "Request body exceeds 100KB limit", debugId);
     }
     let body: Record<string, unknown> = {};
     try { body = JSON.parse(rawBody); } catch {
-      return errResponse(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId);
+      return fail(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId);
     }
 
+    // ── Tariffs compare ────────────────────────────────────────
     if (pathname.endsWith("/tariffs/compare")) {
       const prompt = (body.prompt as string) || (body.text as string) || "";
-      if (!prompt) return errResponse(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId);
-      if (prompt.length > 15_000) return errResponse(req, 400, "PROMPT_TOO_LONG", "Prompt exceeds 15000 characters", debugId);
+      if (!prompt) return fail(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId);
+      if (prompt.length > 15_000) return fail(req, 400, "PROMPT_TOO_LONG", "Prompt exceeds 15000 characters", debugId);
       console.log(`[ai-core-run] tariffs/compare debug_id=${debugId}`);
       const output = await runAI(prompt, "wyloni_bandi");
       const parsed = parseOutput(output) as Record<string, unknown> | null;
-      return okResponse(req, { final_output: output, data: parsed, offers: parsed?.offers ?? [], debug_id: debugId }, debugId);
+      return ok(req, { final_output: output, data: parsed, offers: parsed?.offers ?? [], debug_id: debugId }, [], debugId);
     }
 
+    // ── Documents analyze ──────────────────────────────────────
     if (pathname.endsWith("/documents/analyze")) {
       const text = (body.text as string) ?? (body.pdf_text as string) ?? (body.prompt as string) ?? "";
       if (!text || text.trim().length < 20) {
-        return okResponse(req, { status: "NOT_READABLE", extracted: {}, quality: { gate: "NOT_READABLE", score: 0, notes: ["No text"] } }, debugId);
+        return ok(req, { status: "NOT_READABLE", extracted: {}, quality: { gate: "NOT_READABLE", score: 0, notes: ["No text"] } }, [], debugId);
       }
       const extractPrompt = `Estrai i dati dalla bolletta italiana e rispondi SOLO in JSON:\n{"periodo":{"from":"DD/MM/YYYY","to":"DD/MM/YYYY"},"fornitore":{"label":"nome fornitore"},"consumi":{"totale_kwh":null,"unit":"kWh"},"importi":{"totale_da_pagare_eur":null,"bonus_sociale":{"presente":false,"eur":null}}}\n\nBolletta:\n${text.slice(0, 8000)}`;
       let extracted: unknown = {};
       try { const out = await runAI(extractPrompt, "wyloni_bandi"); extracted = parseOutput(out) ?? {}; } catch (e) { console.warn("[documents/analyze] extraction failed:", String(e).slice(0, 150)); }
-      return okResponse(req, { status: "READY", extracted, quality: { gate: "READY", score: 80, notes: ["AI extraction"] } }, debugId);
+      return ok(req, { status: "READY", extracted, quality: { gate: "READY", score: 80, notes: ["AI extraction"] } }, [], debugId);
     }
 
+    // ── Generic AI run ─────────────────────────────────────────
     const domain = (body.domain as string) || "wyloni_bandi";
     const task   = (body.task   as string) || "";
     const prompt = (body.prompt as string) || (body.text as string) || "";
 
-    if (!prompt) return errResponse(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId);
-    if (prompt.length > 15_000) return errResponse(req, 400, "PROMPT_TOO_LONG", `Prompt exceeds 15000 characters`, debugId);
+    // Input sanitization
+    if (domain && !SAFE_ID.test(domain)) return fail(req, 400, "INVALID_DOMAIN", "domain must match [a-z0-9_]", debugId);
+    if (task && !SAFE_ID.test(task)) return fail(req, 400, "INVALID_TASK", "task must match [a-z0-9_]", debugId);
 
-    const sourceApp = req.headers.get("x-source-app") ?? "unknown";
+    if (!prompt) return fail(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId);
+    if (prompt.length > 15_000) return fail(req, 400, "PROMPT_TOO_LONG", `Prompt exceeds 15000 characters`, debugId);
+
     console.log(`[ai-core-run] domain=${domain} task=${task} prompt_len=${prompt.length} source_app=${sourceApp} debug_id=${debugId}`);
 
     const output = WEB_TASKS.has(task)
@@ -349,29 +314,29 @@ Deno.serve(async (req: Request) => {
       const validProps = filterValidProperties(parsed);
       const cleanData = { ...(parsed as Record<string, unknown>), properties: validProps };
       console.log(`[ai-core-run] real_estate valid_properties=${validProps.length}`);
-      return okResponse(req, {
+      return ok(req, {
         final_output: output,
         data: cleanData,
         properties: validProps,
         debug_id: debugId,
-      }, debugId);
+      }, [], debugId);
     }
 
     const raw = parsed as Record<string, unknown> | null;
     console.log(`[ai-core-run] output_len=${output.length}`);
 
-    return okResponse(req, {
+    return ok(req, {
       final_output: output,
       data: parsed,
       offers:     raw?.offers     ?? [],
       properties: raw?.properties ?? [],
       results:    raw?.results    ?? [],
       debug_id: debugId,
-    }, debugId);
+    }, [], debugId);
 
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error(`[ai-core-run] Error debug_id=${debugId}:`, errMsg);
-    return errResponse(req, 500, "INTERNAL_ERROR", "An internal error occurred. Reference: " + debugId, debugId);
+    return fail(req, 500, "INTERNAL_ERROR", "An internal error occurred. Reference: " + debugId, debugId);
   }
 });

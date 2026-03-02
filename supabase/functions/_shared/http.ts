@@ -1,3 +1,5 @@
+export const CORE_VERSION = "3.2.0";
+
 export function makeDebugId(): string {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 12);
 }
@@ -11,7 +13,7 @@ export function constantTimeEqual(a: string, b: string): boolean {
 
 const LOVABLE_SUFFIXES = [".lovable.app", ".lovableproject.com", ".lovable.dev"];
 
-function isOriginAllowed(origin: string): boolean {
+export function isOriginAllowed(origin: string): boolean {
   if (!origin) return false;
   const o = origin.toLowerCase();
   try {
@@ -29,7 +31,11 @@ export function corsHeaders(req: Request): Record<string, string> {
     "Access-Control-Allow-Origin": isOriginAllowed(origin) ? origin : "null",
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-internal-secret, x-app-secret, x-core-secret, x-source-app",
+    "Access-Control-Allow-Headers":
+      "authorization, apikey, content-type, x-client-info, " +
+      "x-internal-secret, x-app-secret, x-core-secret, x-source-app, " +
+      "x-supabase-client-platform, x-supabase-client-platform-version, " +
+      "x-supabase-client-runtime, x-supabase-client-runtime-version",
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin",
   };
@@ -57,12 +63,17 @@ export function fail(req: Request, status: number, code: string, message: string
   return json(req, status, { ok: false, data: null, warnings: [], debug_id: did, error: { code, message } }, did);
 }
 
+/** Checks all supported auth headers: x-internal-secret, x-app-secret, x-core-secret, Authorization Bearer */
 export function requireSecret(req: Request, debugId: string): Response | null {
-  const secretVal = Deno.env.get("AI_CORE_SECRET") ?? "";
-  if (!secretVal) return fail(req, 500, "CONFIG_ERROR", "AI_CORE_SECRET not configured", debugId);
-  const incoming = req.headers.get("x-internal-secret") ?? "";
-  if (!incoming || !constantTimeEqual(incoming, secretVal)) {
-    return fail(req, 401, "APP_SECRET_REQUIRED", "Valid x-internal-secret required", debugId);
-  }
+  const expected = Deno.env.get("AI_CORE_SECRET") ?? "";
+  if (!expected) return fail(req, 500, "CONFIG_ERROR", "AI_CORE_SECRET not configured", debugId);
+  const incoming =
+    req.headers.get("x-internal-secret") ??
+    req.headers.get("x-app-secret") ??
+    req.headers.get("x-core-secret") ??
+    (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "") ??
+    "";
+  if (!incoming) return fail(req, 401, "APP_SECRET_REQUIRED", "Missing x-internal-secret", debugId);
+  if (!constantTimeEqual(incoming, expected)) return fail(req, 401, "APP_SECRET_REJECTED", "Invalid secret", debugId);
   return null;
 }
