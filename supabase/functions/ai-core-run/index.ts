@@ -2,6 +2,11 @@ import { makeDebugId, handleOptions, ok, fail, requireSecret, CORE_VERSION } fro
 import { callOpenAI } from "./providers/openai.ts";
 import { callAnthropic } from "./providers/anthropic.ts";
 
+import * as wyloniBandi from "./pipelines/wyloni_bandi.ts";
+import * as keydraftRealestate from "./pipelines/keydraft_realestate.ts";
+import * as praticaLegal from "./pipelines/pratica_legal.ts";
+import * as wyloniBonus from "./pipelines/wyloni_bonus.ts";
+
 // ═══════════════════════════════════════════════════════════════
 // Rate limiter: max 30 requests per minute per source_app
 // ═══════════════════════════════════════════════════════════════
@@ -21,13 +26,13 @@ function checkRateLimit(sourceApp: string): boolean {
   return true;
 }
 
-// Cleanup vecchi bucket ogni 5 minuti
-setInterval(() => {
+// Lazy cleanup: purge expired buckets before each check
+function purgeExpiredBuckets() {
   const now = Date.now();
   for (const [key, val] of rateBuckets) {
     if (now > val.resetAt) rateBuckets.delete(key);
   }
-}, 300_000);
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Input sanitization
@@ -35,13 +40,13 @@ setInterval(() => {
 const SAFE_ID = /^[a-z0-9_]+$/;
 
 // ═══════════════════════════════════════════════════════════════
-// Pipeline config
+// Pipeline config (from pipeline files)
 // ═══════════════════════════════════════════════════════════════
 const PIPELINES: Record<string, { maxTokens: number; temperature: number }> = {
-  wyloni_bandi:        { maxTokens: 1500, temperature: 0.3 },
-  wyloni_bonus:        { maxTokens: 1500, temperature: 0.3 },
-  pratica_legal:       { maxTokens: 900,  temperature: 0.4 },
-  keydraft_realestate: { maxTokens: 1800, temperature: 0.3 },
+  wyloni_bandi:        { maxTokens: wyloniBandi.MAX_TOKENS, temperature: wyloniBandi.TEMPERATURE },
+  wyloni_bonus:        { maxTokens: wyloniBonus.MAX_TOKENS, temperature: wyloniBonus.TEMPERATURE },
+  pratica_legal:       { maxTokens: praticaLegal.MAX_TOKENS, temperature: praticaLegal.TEMPERATURE },
+  keydraft_realestate: { maxTokens: keydraftRealestate.MAX_TOKENS, temperature: keydraftRealestate.TEMPERATURE },
 };
 function getPipeline(domain: string) {
   return PIPELINES[domain] ?? PIPELINES["wyloni_bandi"];
@@ -56,71 +61,23 @@ const TASK_TOKEN_OVERRIDES: Record<string, number> = {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// Web tasks & empty results
+// Web tasks & empty results (from pipeline files)
 // ═══════════════════════════════════════════════════════════════
 const WEB_TASKS = new Set([
   "search_grants", "deep_search", "distress_radar", "market_glitch",
   "deep_recovery", "find_contacts", "find_company_contacts", "real_estate_deep", "ai_bandi",
 ]);
 
+// Merge empty results from all pipeline files
 const EMPTY_RESULTS: Record<string, string> = {
-  real_estate_deep:      `{"properties":[]}`,
-  search_grants:         `{"success":true,"results":[]}`,
-  deep_search:           `{"success":true,"newsCards":[]}`,
-  distress_radar:        `{"success":true,"signals":[]}`,
-  market_glitch:         `{"success":true,"glitches":[]}`,
-  deep_recovery:         `{"success":true,"credits":[]}`,
-  find_contacts:         `{"results":[]}`,
-  find_company_contacts: `{"success":true,"contact":null}`,
-  ai_bandi:              `{"ok":true,"confidence_score":0,"data":{"summary_3_lines":["Nessun dato disponibile al momento"],"checklist_documents":[],"questions_to_ask":[],"risks_and_attention":[],"next_steps":[],"sources":[],"confidence_notes":"Perplexity non disponibile"}}`,
+  ...wyloniBandi.EMPTY_RESULTS,
+  real_estate_deep: keydraftRealestate.EMPTY_RESULT,
 };
 
-// ═══════════════════════════════════════════════════════════════
-// Perplexity system prompts (task-specific, with web search)
-// ═══════════════════════════════════════════════════════════════
+// Merge Perplexity system prompts from all pipeline files
 const PERPLEXITY_SYSTEM: Record<string, string> = {
-  real_estate_deep:
-    "Sei un agente immobiliare italiano con accesso al web. " +
-    "FORMATO RISPOSTA OBBLIGATORIO - rispondi SEMPRE e SOLO in questo JSON:\n" +
-    "{\"properties\":[{\"id\":\"1\",\"title\":\"titolo\",\"type\":\"vendita\",\"category\":\"asta\",\"price\":150000,\"pricePerSqm\":1800,\"location\":{\"city\":\"Milano\",\"province\":\"MI\",\"region\":\"Lombardia\",\"zone\":\"\"},\"details\":{\"sqm\":80,\"rooms\":3,\"bathrooms\":1,\"floor\":\"\"},\"features\":[],\"source\":\"pvp.giustizia.it\",\"sourceType\":\"tribunale\",\"url\":\"https://pvp.giustizia.it/pvp/it/detail_inserzione.page?cod_inserzione=XXX\",\"discoveredAt\":\"2026-03-01\",\"discount\":30,\"notes\":\"Asta tribunale\"}]}\n\n" +
-    "MODALITÀ STANDARD (filters.category=standard): " +
-    "Cerca su Idealista.it, Immobiliare.it, Casa.it. category=standard, sourceType=agenzia-locale.\n\n" +
-    "MODALITÀ HIDDEN OPPORTUNITIES (filters.searchMode=hidden_opportunities): " +
-    "⛔ VIETATO ASSOLUTAMENTE usare: Idealista, Immobiliare.it, Casa.it, Subito.it, Wikicasa, Tecnocasa, RE/MAX, o qualsiasi portale immobiliare standard.\n" +
-    "✅ USA SOLO queste fonti specializzate:\n" +
-    "PER ASTE (category=asta, sourceType=tribunale): " +
-    "pvp.giustizia.it (portale vendite pubbliche ufficiale), asteonline.it, astegiudiziarie.it, portaleaste.it, asteimmobili.it, siti dei singoli tribunali italiani. " +
-    "Cerca procedure esecutive immobiliari attive con numero lotto e data asta.\n" +
-    "PER LUXURY (category=luxury, sourceType=luxury-broker): " +
-    "sothebysrealty.it, knightfrank.it, engelvoelkers.com/it, luxuryestate.com, gate-away.com, christiesrealestate.com, ville-casali.com. " +
-    "Solo immobili di pregio non presenti sui portali standard.\n" +
-    "PER OFF-MARKET (category=off-market, sourceType=off-market): " +
-    "anbsc.it (beni confiscati alla mafia), agenziadelbeni.gov.it, vendite.comune.milano.it e portali comunali simili, " +
-    "portafogli NPL bancari, annunci liquidazioni aziendali.\n" +
-    "Rispetta SEMPRE i filtri region/city/type ricevuti. " +
-    "Ogni property DEVE avere url HTTP reale e verificabile. Se non hai URL diretto NON includere. " +
-    "Se non trovi nulla: {\"properties\":[]}. MAI inventare.",
-  search_grants: "Sei un esperto di finanziamenti italiani con accesso al web. Cerca bandi REALI da: inps.it, invitalia.it, agenziaentrate.gov.it, mise.gov.it, regioni. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"results\":[]}. MAI inventare.",
-  deep_search: "Sei un assistente di ricerca con accesso al web. Cerca notizie aggiornate da fonti affidabili. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"newsCards\":[]}.",
-  distress_radar: "Sei un esperto di opportunità in Italia con accesso al web. Cerca aste giudiziarie su: tribunale.it, asteonline.it, astegiudiziarie.it, idealista.it/aste. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"signals\":[]}. MAI inventare.",
-  market_glitch: "Sei un esperto di anomalie di prezzo con accesso al web. Cerca prodotti con prezzi insolitamente bassi su Amazon.it, eBay.it, Unieuro, MediaWorld. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"glitches\":[]}. MAI inventare.",
-  deep_recovery: "Sei un esperto di crediti dormienti italiani con accesso al web. Ricerca su INPS, Agenzia Entrate, Bankitalia, IVASS. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"credits\":[]}. MAI inventare.",
-  find_contacts: "Sei un assistente per contatti ufficiali italiani con accesso al web. Usa INI-PEC, siti istituzionali, Registro Imprese. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"results\":[]}. MAI inventare.",
-  find_company_contacts: "Sei un assistente per contatti aziendali italiani con accesso al web. Cerca su INI-PEC, Registro Imprese, sito ufficiale. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"contact\":null}. MAI inventare.",
-  ai_bandi:
-    "Sei un esperto di bandi italiani con accesso al web. " +
-    "Analizza la query ricevuta e cerca informazioni aggiornate da: invitalia.it, mise.gov.it, inps.it, gazzettaufficiale.it, regioni italiane. " +
-    "Rispondi SOLO in JSON con questa struttura: " +
-    "{\"ok\":true,\"confidence_score\":75,\"data\":{" +
-    "\"summary_3_lines\":[\"riga 1\",\"riga 2\",\"riga 3\"]," +
-    "\"checklist_documents\":[\"doc 1\",\"doc 2\"]," +
-    "\"questions_to_ask\":[\"domanda 1\"]," +
-    "\"risks_and_attention\":[\"rischio 1\"]," +
-    "\"next_steps\":[\"passo 1\"]," +
-    "\"sources\":[{\"title\":\"fonte\",\"url\":\"https://url\"}]," +
-    "\"confidence_notes\":\"\"}}. " +
-    "Se le informazioni sono incomplete abbassa confidence_score e segnalalo in confidence_notes. " +
-    "Se non trovi nulla ritorna {\"ok\":true,\"confidence_score\":0,\"data\":{\"summary_3_lines\":[\"Nessun dato trovato\"],\"checklist_documents\":[],\"questions_to_ask\":[],\"risks_and_attention\":[],\"next_steps\":[],\"sources\":[],\"confidence_notes\":\"Ricerca non disponibile al momento\"}}.",
+  ...wyloniBandi.PERPLEXITY_SYSTEMS,
+  real_estate_deep: keydraftRealestate.PERPLEXITY_SYSTEM,
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -218,11 +175,8 @@ function filterValidProperties(raw: unknown): unknown[] {
   const props = Array.isArray(data.properties) ? data.properties : [];
   return props.filter((p: any) => {
     if (!p || typeof p !== "object") return false;
-    // Scarta annunci senza URL — non verificabili
     if (!p.url || typeof p.url !== "string" || !p.url.startsWith("http")) return false;
-    // Scarta annunci con prezzo 0 o negativo
     if (typeof p.price === "number" && p.price < 0) return false;
-    // Scarta annunci senza titolo
     if (!p.title || typeof p.title !== "string" || p.title.trim().length < 5) return false;
     return true;
   });
@@ -251,7 +205,8 @@ Deno.serve(async (req: Request) => {
     if (authErr) return authErr;
     if (req.method !== "POST") return fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId);
 
-    // Rate limiting
+    // Rate limiting (purge expired buckets lazily)
+    purgeExpiredBuckets();
     const sourceApp = req.headers.get("x-source-app") ?? "unknown";
     if (!checkRateLimit(sourceApp)) {
       return fail(req, 429, "RATE_LIMITED", "Too many requests. Max 30/minute per app.", debugId);
@@ -299,7 +254,6 @@ Deno.serve(async (req: Request) => {
     if (domain && !SAFE_ID.test(domain)) return fail(req, 400, "INVALID_DOMAIN", "domain must match [a-z0-9_]", debugId);
     if (task && !SAFE_ID.test(task)) return fail(req, 400, "INVALID_TASK", "task must match [a-z0-9_]", debugId);
 
-    // keydraft_engine deve essere chiamato direttamente su Supabase keydraft, non via Central Core
     if (task === "keydraft_engine") {
       console.error(`[ai-core-run] ROUTING_ERROR: task=keydraft_engine routed to Central Core incorrectly. debug_id=${debugId}`);
       return fail(req, 400, "ROUTING_ERROR", "task 'keydraft_engine' must be invoked directly on keydraft Supabase functions, not via Central Core", debugId);

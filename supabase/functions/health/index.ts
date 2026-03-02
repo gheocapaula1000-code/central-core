@@ -1,25 +1,15 @@
-// v3.2.3
+// v3.3.0
 // health check endpoint — Central Core v3
+// Uses shared CORS whitelist from _shared/http.ts
+
+import { handleOptions, ok, CORE_VERSION } from "../_shared/http.ts";
 
 Deno.serve(async (req) => {
-  const origin = req.headers.get("origin") || "*";
+  if (req.method === "OPTIONS") return handleOptions(req);
 
-  const headers: Record<string, string> = {
-    "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-source-app, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-    "Access-Control-Allow-Credentials": "true",
-    "Access-Control-Max-Age": "86400",
-    "Vary": "Origin",
-    "Content-Type": "application/json",
-  };
-
-  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
-
-  const debugId = "health-" + crypto.randomUUID().slice(0, 8);
-
-  return new Response(
-    JSON.stringify({ ok: true, data: { status: "healthy", time: new Date().toISOString() }, warnings: [], debug_id: debugId }),
-    { status: 200, headers: { ...headers, "x-debug-id": debugId } },
-  );
+  return ok(req, {
+    status: "healthy",
+    version: CORE_VERSION,
+    time: new Date().toISOString(),
+  });
 });
