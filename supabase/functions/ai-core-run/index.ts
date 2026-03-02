@@ -299,6 +299,12 @@ Deno.serve(async (req: Request) => {
     if (domain && !SAFE_ID.test(domain)) return fail(req, 400, "INVALID_DOMAIN", "domain must match [a-z0-9_]", debugId);
     if (task && !SAFE_ID.test(task)) return fail(req, 400, "INVALID_TASK", "task must match [a-z0-9_]", debugId);
 
+    // keydraft_engine deve essere chiamato direttamente su Supabase keydraft, non via Central Core
+    if (task === "keydraft_engine") {
+      console.error(`[ai-core-run] ROUTING_ERROR: task=keydraft_engine routed to Central Core incorrectly. debug_id=${debugId}`);
+      return fail(req, 400, "ROUTING_ERROR", "task 'keydraft_engine' must be invoked directly on keydraft Supabase functions, not via Central Core", debugId);
+    }
+
     if (!prompt) return fail(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId);
     if (prompt.length > 15_000) return fail(req, 400, "PROMPT_TOO_LONG", `Prompt exceeds 15000 characters`, debugId);
 
