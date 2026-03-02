@@ -236,6 +236,7 @@ Deno.serve(async (req: Request) => {
 
   const debugId = makeDebugId();
   const pathname = new URL(req.url).pathname;
+  console.log(`[ai-core-run] method=${req.method} pathname=${pathname} debug_id=${debugId}`);
 
   try {
     // Health check — no auth required
