@@ -1,6 +1,7 @@
 import { makeDebugId, handleOptions, ok, fail, requireSecret, CORE_VERSION } from "../_shared/http.ts";
 import { callOpenAI } from "./providers/openai.ts";
 import { callAnthropic } from "./providers/anthropic.ts";
+import { recordCall, recordFallback, getMetrics } from "./metrics.ts";
 
 import * as wyloniBandi from "./pipelines/wyloni_bandi.ts";
 import * as keydraftRealestate from "./pipelines/keydraft_realestate.ts";
@@ -89,7 +90,7 @@ function withAbort(ms: number) {
   return { signal: c.signal, clear: () => clearTimeout(t) };
 }
 
-async function callPerplexityWithSystem(prompt: string, task: string, maxTokens: number): Promise<string | null> {
+async function callPerplexityWithSystem(prompt: string, task: string, domain: string, maxTokens: number): Promise<string | null> {
   const key = Deno.env.get("PERPLEXITY_API_KEY") ?? "";
   if (!key) { console.warn("[perplexity] PERPLEXITY_API_KEY not configured"); return null; }
   const system = PERPLEXITY_SYSTEM[task] ?? "Rispondi SOLO in JSON valido. MAI inventare dati.";
@@ -109,14 +110,21 @@ async function callPerplexityWithSystem(prompt: string, task: string, maxTokens:
       }),
       signal,
     });
-    if (!res.ok) { console.warn(`[perplexity] HTTP ${res.status}`); return null; }
+    if (!res.ok) {
+      const latencyMs = Date.now() - t;
+      recordCall({ provider: "perplexity", task, domain, latencyMs, outputLen: 0, inputLen: prompt.length, maxTokens, success: false, error: `HTTP ${res.status}` });
+      return null;
+    }
     const data = await res.json();
     const output: string = data?.choices?.[0]?.message?.content ?? "";
-    console.log(`[perplexity] ok citations=${(data?.citations??[]).length} output_len=${output.length} latency=${Date.now()-t}ms`);
-    return output.trim().length > 5 ? output : null;
+    const latencyMs = Date.now() - t;
+    const success = output.trim().length > 5;
+    recordCall({ provider: "perplexity", task, domain, latencyMs, outputLen: output.length, inputLen: prompt.length, maxTokens, success });
+    return success ? output : null;
   } catch (e) {
-    if (e instanceof Error && e.name === "AbortError") console.warn("[perplexity] Timeout");
-    else console.warn("[perplexity] Failed:", String(e));
+    const latencyMs = Date.now() - t;
+    const error = e instanceof Error && e.name === "AbortError" ? "Timeout" : String(e).slice(0, 200);
+    recordCall({ provider: "perplexity", task, domain, latencyMs, outputLen: 0, inputLen: prompt.length, maxTokens, success: false, error });
     return null;
   } finally { clear(); }
 }
@@ -127,19 +135,20 @@ async function callPerplexityWithSystem(prompt: string, task: string, maxTokens:
 async function runAI(prompt: string, domain: string, task?: string): Promise<string> {
   const { maxTokens: baseTokens, temperature } = getPipeline(domain);
   const maxTokens = (task && TASK_TOKEN_OVERRIDES[task]) || baseTokens;
-  console.log(`[ai] runAI domain=${domain} maxTokens=${maxTokens}`);
+  const taskName = task || "generic";
   try {
     const result = await callOpenAI(prompt, temperature, maxTokens);
-    console.log(`[openai] ok latency=${result.latencyMs}ms output_len=${result.output.length}`);
+    recordCall({ provider: "openai", task: taskName, domain, latencyMs: result.latencyMs, outputLen: result.output.length, inputLen: prompt.length, maxTokens, success: true });
     return result.output;
   } catch (e1) {
-    console.warn("[ai] OpenAI failed, trying Anthropic:", String(e1));
+    recordCall({ provider: "openai", task: taskName, domain, latencyMs: 0, outputLen: 0, inputLen: prompt.length, maxTokens, success: false, error: String(e1).slice(0, 200) });
+    recordFallback();
     try {
       const result = await callAnthropic(prompt, temperature, maxTokens);
-      console.log(`[anthropic] ok latency=${result.latencyMs}ms output_len=${result.output.length}`);
+      recordCall({ provider: "anthropic", task: taskName, domain, latencyMs: result.latencyMs, outputLen: result.output.length, inputLen: prompt.length, maxTokens, success: true });
       return result.output;
     } catch (e2) {
-      console.error("[ai] Both OpenAI and Anthropic failed:", String(e2));
+      recordCall({ provider: "anthropic", task: taskName, domain, latencyMs: 0, outputLen: 0, inputLen: prompt.length, maxTokens, success: false, error: String(e2).slice(0, 200) });
       throw new Error(`All AI providers failed. OpenAI: ${String(e1).slice(0, 100)}. Anthropic: ${String(e2).slice(0, 100)}`);
     }
   }
@@ -147,9 +156,8 @@ async function runAI(prompt: string, domain: string, task?: string): Promise<str
 
 async function runWebAI(prompt: string, domain: string, task: string): Promise<string> {
   const maxTokens = TASK_TOKEN_OVERRIDES[task] || getPipeline(domain).maxTokens;
-  console.log(`[ai] runWebAI domain=${domain} task=${task}`);
-  const output = await callPerplexityWithSystem(prompt, task, maxTokens);
-  if (output) { console.log(`[ai] Perplexity ok task=${task} len=${output.length}`); return output; }
+  const output = await callPerplexityWithSystem(prompt, task, domain, maxTokens);
+  if (output) return output;
   const empty = EMPTY_RESULTS[task] ?? `{"ok":false,"error":"Ricerca non disponibile"}`;
   console.warn(`[ai] Perplexity unavailable for task=${task} — returning empty`);
   return empty;
@@ -198,6 +206,13 @@ Deno.serve(async (req: Request) => {
       return ok(req, {
         status: "ok", version: CORE_VERSION, time: new Date().toISOString(),
       }, [], debugId);
+    }
+
+    // Metrics endpoint — requires auth
+    if (req.method === "GET" && pathname.endsWith("/metrics")) {
+      const authErr = requireSecret(req, debugId);
+      if (authErr) return authErr;
+      return ok(req, getMetrics(), [], debugId);
     }
 
     // Auth
