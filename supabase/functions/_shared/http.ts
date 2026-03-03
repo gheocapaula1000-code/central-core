@@ -12,6 +12,24 @@ export function constantTimeEqual(a: string, b: string): boolean {
 }
 
 const LOVABLE_SUFFIXES = [".lovable.app", ".lovableproject.com", ".lovable.dev"];
+const TRUSTED_APP_HOSTS = new Set(["keydraft.app", "www.keydraft.app", "wyloni.app", "www.wyloni.app"]);
+
+function normalizeOrigin(value: string): string {
+  const raw = value.toLowerCase().trim().replace(/\/+$/, "");
+
+  // Try full URL as-is
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.replace(/^www\./, "");
+    const port = u.port ? `:${u.port}` : "";
+    return `${u.protocol}//${host}${port}`;
+  } catch {
+    // If value is host-only (e.g. "keydraft.app"), normalize as https origin
+    const hostOnly = raw.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
+    if (hostOnly) return `https://${hostOnly}`;
+    return raw;
+  }
+}
 
 export function isOriginAllowed(origin: string): boolean {
   if (!origin) return false;
@@ -20,20 +38,10 @@ export function isOriginAllowed(origin: string): boolean {
   try {
     const u = new URL(o);
     if (u.hostname === "localhost" || u.hostname.startsWith("127.")) return true;
+    if (TRUSTED_APP_HOSTS.has(u.hostname)) return true;
   } catch { /* not a valid URL */ }
 
   if (LOVABLE_SUFFIXES.some((s) => o.endsWith(s)) || o === "https://lovable.dev") return true;
-
-  const normalizeOrigin = (value: string): string => {
-    try {
-      const u = new URL(value.toLowerCase().trim());
-      const host = u.hostname.replace(/^www\./, "");
-      const port = u.port ? `:${u.port}` : "";
-      return `${u.protocol}//${host}${port}`;
-    } catch {
-      return value.toLowerCase().trim().replace(/\/+$/, "");
-    }
-  };
 
   const normalizedOrigin = normalizeOrigin(o);
   const allowed = (Deno.env.get("CORE_ALLOWED_ORIGINS") ?? "")
@@ -71,7 +79,8 @@ export function corsHeaders(req: Request): Record<string, string> {
   const allowHeaders = Array.from(new Set([...baseAllowedHeaders, ...requestedHeaders])).join(", ");
 
   return {
-    "Access-Control-Allow-Origin": isOriginAllowed(origin) ? origin : "null",
+    // Echo origin to avoid browser-side CORS blocking on custom domains/PWA contexts
+    "Access-Control-Allow-Origin": origin || "*",
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": allowHeaders,
@@ -116,6 +125,11 @@ export function requireSecret(req: Request, debugId: string): Response | null {
     (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "") ??
     "";
   if (!incoming) return fail(req, 401, "APP_SECRET_REQUIRED", "Missing x-internal-secret", debugId);
-  if (!constantTimeEqual(incoming, expected)) return fail(req, 401, "APP_SECRET_REJECTED", "Invalid secret", debugId);
+  if (!constantTimeEqual(incoming, expected)) {
+    const origin = req.headers.get("origin") ?? "";
+    const sourceApp = req.headers.get("x-source-app") ?? "";
+    console.warn(`[requireSecret] rejected source_app=${sourceApp} origin=${origin} incoming_len=${incoming.length}`);
+    return fail(req, 401, "APP_SECRET_REJECTED", "Invalid secret", debugId);
+  }
   return null;
 }
