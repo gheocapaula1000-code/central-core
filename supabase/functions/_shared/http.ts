@@ -15,27 +15,66 @@ const LOVABLE_SUFFIXES = [".lovable.app", ".lovableproject.com", ".lovable.dev"]
 
 export function isOriginAllowed(origin: string): boolean {
   if (!origin) return false;
-  const o = origin.toLowerCase();
+  const o = origin.toLowerCase().trim();
+
   try {
     const u = new URL(o);
     if (u.hostname === "localhost" || u.hostname.startsWith("127.")) return true;
   } catch { /* not a valid URL */ }
+
   if (LOVABLE_SUFFIXES.some((s) => o.endsWith(s)) || o === "https://lovable.dev") return true;
-  const allowed = (Deno.env.get("CORE_ALLOWED_ORIGINS") ?? "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
-  return allowed.includes("*") || allowed.includes(o);
+
+  const normalizeOrigin = (value: string): string => {
+    try {
+      const u = new URL(value.toLowerCase().trim());
+      const host = u.hostname.replace(/^www\./, "");
+      const port = u.port ? `:${u.port}` : "";
+      return `${u.protocol}//${host}${port}`;
+    } catch {
+      return value.toLowerCase().trim().replace(/\/+$/, "");
+    }
+  };
+
+  const normalizedOrigin = normalizeOrigin(o);
+  const allowed = (Deno.env.get("CORE_ALLOWED_ORIGINS") ?? "")
+    .split(",")
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (allowed.includes("*")) return true;
+  return allowed.some((entry) => normalizeOrigin(entry) === normalizedOrigin);
 }
 
 export function corsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("origin") ?? "";
+  const requestedHeaders = (req.headers.get("access-control-request-headers") ?? "")
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+
+  const baseAllowedHeaders = [
+    "authorization",
+    "apikey",
+    "content-type",
+    "x-client-info",
+    "x-client-device",
+    "x-internal-secret",
+    "x-app-secret",
+    "x-core-secret",
+    "x-source-app",
+    "x-supabase-client-platform",
+    "x-supabase-client-platform-version",
+    "x-supabase-client-runtime",
+    "x-supabase-client-runtime-version",
+  ];
+
+  const allowHeaders = Array.from(new Set([...baseAllowedHeaders, ...requestedHeaders])).join(", ");
+
   return {
     "Access-Control-Allow-Origin": isOriginAllowed(origin) ? origin : "null",
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers":
-      "authorization, apikey, content-type, x-client-info, x-client-device, " +
-      "x-internal-secret, x-app-secret, x-core-secret, x-source-app, " +
-      "x-supabase-client-platform, x-supabase-client-platform-version, " +
-      "x-supabase-client-runtime, x-supabase-client-runtime-version",
+    "Access-Control-Allow-Headers": allowHeaders,
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin",
   };
