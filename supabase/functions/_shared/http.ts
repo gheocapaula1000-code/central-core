@@ -32,7 +32,7 @@ export function corsHeaders(req: Request): Record<string, string> {
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers":
-      "authorization, apikey, content-type, x-client-info, " +
+      "authorization, apikey, content-type, x-client-info, x-client-device, " +
       "x-internal-secret, x-app-secret, x-core-secret, x-source-app, " +
       "x-supabase-client-platform, x-supabase-client-platform-version, " +
       "x-supabase-client-runtime, x-supabase-client-runtime-version",
