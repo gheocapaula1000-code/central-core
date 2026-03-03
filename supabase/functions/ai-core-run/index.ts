@@ -59,6 +59,7 @@ const TASK_TOKEN_OVERRIDES: Record<string, number> = {
   viral_content_bundle: 2500,
   ai_bandi: 2000,
   contratto_analisi: 2000,
+  keydraft_engine: 2500,
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -313,9 +314,61 @@ Deno.serve(async (req: Request) => {
     if (domain && !SAFE_ID.test(domain)) return fail(req, 400, "INVALID_DOMAIN", "domain must match [a-z0-9_]", debugId);
     if (task && !SAFE_ID.test(task)) return fail(req, 400, "INVALID_TASK", "task must match [a-z0-9_]", debugId);
 
+    // ── KeyDraft Engine: photo analysis + listing generation ──
     if (task === "keydraft_engine") {
-      console.error(`[ai-core-run] ROUTING_ERROR: task=keydraft_engine routed to Central Core incorrectly. debug_id=${debugId}`);
-      return fail(req, 400, "ROUTING_ERROR", "task 'keydraft_engine' must be invoked directly on keydraft Supabase functions, not via Central Core", debugId);
+      const input = body.input as Record<string, unknown> | undefined;
+      if (!input) return fail(req, 400, "MISSING_INPUT", "Provide input object for keydraft_engine", debugId);
+
+      const imageUrls = (input.imageUrls as string[]) ?? [];
+      if (imageUrls.length === 0) return fail(req, 400, "NO_IMAGES", "Provide at least one imageUrl", debugId);
+
+      const op = (input.operation as string) || "vendita";
+      const price = input.price as number | null;
+      const province = (input.province as string) || "";
+      const comune = (input.comune as string) || "";
+      const locality = (input.locality as string) || "";
+      const enableReno = (input.enableRenovationEstimate as boolean) ?? false;
+
+      const imageList = imageUrls.map((u, i) => `Foto ${i + 1}: ${u}`).join("\n");
+
+      const enginePrompt = `Sei un esperto immobiliare italiano. Analizza le foto dell'immobile e genera un annuncio professionale.
+
+DATI IMMOBILE:
+- Operazione: ${op}
+- Prezzo: ${price ? `€${price.toLocaleString("it-IT")}` : "Non specificato"}
+- Posizione: ${comune}${province ? ` (${province})` : ""}${locality ? `, zona ${locality}` : ""}
+${enableReno ? "- Includi stima lavori di ristrutturazione se necessari" : ""}
+
+FOTO DA ANALIZZARE:
+${imageList}
+
+ISTRUZIONI:
+1. Analizza ogni foto e identifica: stanze, finiture, stato conservazione, punti di forza
+2. Genera un annuncio completo in italiano per portali immobiliari
+3. Rispondi SOLO in JSON valido con questo schema:
+{
+  "title": "titolo annuncio max 80 caratteri",
+  "description": "descrizione dettagliata 150-300 parole",
+  "highlights": ["punto di forza 1", "punto di forza 2", ...],
+  "rooms": { "identified": ["cucina", "bagno", ...], "count": numero },
+  "condition": { "value": "buono|ottimo|da_ristrutturare|nuovo", "notes": "dettagli" },
+  "features": { "flooring": "tipo pavimento", "fixtures": "stato infissi", "bathroom": { "hasShower": bool, "hasBathtub": bool }, "kitchen": "tipo cucina", "balcony": bool, "terrace": bool, "garage": bool, "garden": bool },
+  "sqm_estimate": numero_stima,
+  "renovation_estimate_eur": numero_o_null,
+  "tags": ["tag1", "tag2", ...],
+  "photo_analysis": [{ "photo_index": 1, "room": "tipo stanza", "notes": "osservazioni" }]
+}`;
+
+      console.log(`[ai-core-run] keydraft_engine photos=${imageUrls.length} comune=${comune} debug_id=${debugId}`);
+
+      const output = await runAI(enginePrompt, "keydraft_realestate", "keydraft_engine");
+      const parsed = parseOutput(output);
+
+      return ok(req, {
+        final_output: output,
+        data: parsed,
+        debug_id: debugId,
+      }, [], debugId);
     }
 
     if (!prompt) return fail(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId);
