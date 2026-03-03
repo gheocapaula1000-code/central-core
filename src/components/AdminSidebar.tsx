@@ -1,4 +1,5 @@
-import { Cpu, LayoutDashboard, Smartphone, Bot, ClipboardList, KeyRound, BarChart3 } from "lucide-react";
+import { LayoutDashboard, Smartphone, Bot, ClipboardList, KeyRound, BarChart3 } from "lucide-react";
+import coreIcon from "@/assets/core-icon.png";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import {
@@ -31,7 +32,7 @@ export function AdminSidebar() {
     <Sidebar collapsible="icon" className="border-r border-border">
       <SidebarContent>
         <div className="flex items-center gap-2 px-4 py-5">
-          <Cpu className="h-6 w-6 text-violet-400 shrink-0" />
+          <img src={coreIcon} alt="Central Core" className="h-7 w-7 rounded shrink-0" />
           {!collapsed && (
             <span className="font-bold text-lg tracking-tight text-foreground">
               Core v3
