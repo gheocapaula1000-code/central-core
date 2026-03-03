@@ -1,6 +1,7 @@
 import { makeDebugId, handleOptions, ok, fail, requireSecret, CORE_VERSION } from "../_shared/http.ts";
 import { callOpenAI } from "./providers/openai.ts";
 import { callAnthropic } from "./providers/anthropic.ts";
+import { firecrawlExtract } from "./providers/firecrawl.ts";
 import { recordCall, recordFallback, getMetrics } from "./metrics.ts";
 
 import * as wyloniBandi from "./pipelines/wyloni_bandi.ts";
@@ -264,6 +265,31 @@ Deno.serve(async (req: Request) => {
     const authErr = requireSecret(req, debugId);
     if (authErr) return authErr;
     if (req.method !== "POST") return fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId);
+
+    // ── Web Scrape (Firecrawl) ─────────────────────────────────
+    if (pathname.endsWith("/web/scrape")) {
+      const rawBody = await req.text();
+      if (rawBody.length > 100_000) return fail(req, 413, "PAYLOAD_TOO_LARGE", "Request body exceeds 100KB", debugId);
+      let body: Record<string, unknown> = {};
+      try { body = JSON.parse(rawBody); } catch {
+        return fail(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId);
+      }
+      const url = (body.url as string) ?? "";
+      if (!url || !url.startsWith("http")) return fail(req, 400, "MISSING_URL", "Provide a valid url field", debugId);
+      const format = (body.format as string) || "markdown";
+      console.log(`[ai-core-run] web/scrape url=${url.slice(0, 100)} format=${format} debug_id=${debugId}`);
+      const result = await firecrawlExtract(url);
+      if (!result) {
+        return ok(req, { success: false, content: null, error: "Scrape failed or returned empty" }, ["Firecrawl returned no content"], debugId);
+      }
+      return ok(req, {
+        success: true,
+        content: result.markdown,
+        markdown: result.markdown,
+        text: result.markdown,
+        metadata: { title: result.title, sourceUrl: result.url, scrapedAt: new Date().toISOString(), context: (body.context as string) ?? null },
+      }, [], debugId);
+    }
 
     // Rate limiting (purge expired buckets lazily)
     purgeExpiredBuckets();
