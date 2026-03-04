@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.health]
 verify_jwt = false
+
+[functions.sottra]
+verify_jwt = false
