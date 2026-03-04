@@ -83,34 +83,42 @@ function parseJSON(text: string): Record<string, unknown> | null {
   }
 }
 
-// ── Google Geocoding helper ──
+// ── Geocoding helper (OpenStreetMap Nominatim — free, no API key) ──
 
 async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
-  const key = Deno.env.get("GOOGLE_MAPS_API_KEY") ?? "";
-  if (!key) return null;
-  try {
-    const res = await fetch(
-      `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&language=it&key=${key}`
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data?.results?.[0]?.formatted_address ?? null;
-  } catch {
-    return null;
+  // Try Google first if key available, otherwise Nominatim
+  const googleKey = Deno.env.get("GOOGLE_MAPS_API_KEY") ?? "";
+  if (googleKey) {
+    try {
+      const res = await fetch(
+        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&language=it&key=${googleKey}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const addr = data?.results?.[0]?.formatted_address;
+        if (addr) return addr;
+      }
+    } catch { /* fallthrough to Nominatim */ }
   }
-}
 
-async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
-  const key = Deno.env.get("GOOGLE_MAPS_API_KEY") ?? "";
-  if (!key) return null;
+  // Fallback: OpenStreetMap Nominatim (free, rate limit 1 req/sec)
   try {
     const res = await fetch(
-      `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&language=it&key=${key}`
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=it&addressdetails=1`,
+      { headers: { "User-Agent": "Sottra/1.0 (sottra.app)" } }
     );
     if (!res.ok) return null;
     const data = await res.json();
-    const loc = data?.results?.[0]?.geometry?.location;
-    return loc ? { lat: loc.lat, lng: loc.lng } : null;
+    // Build clean Italian address from components
+    const a = data?.address;
+    if (a) {
+      const road = a.road ?? a.pedestrian ?? a.street ?? "";
+      const number = a.house_number ?? "";
+      const city = a.city ?? a.town ?? a.village ?? a.municipality ?? "";
+      const parts = [road + (number ? ` ${number}` : ""), city].filter(Boolean);
+      if (parts.length > 0) return parts.join(", ");
+    }
+    return data?.display_name ?? null;
   } catch {
     return null;
   }
