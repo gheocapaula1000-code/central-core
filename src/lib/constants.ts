@@ -2,7 +2,7 @@ export const APP_REGISTRY = [
   {
     id: "wyloni",
     name: "Wyloni",
-    description: "Assistente AI per cittadini italiani: bandi, fondi, tutela consumatori, immobiliare",
+    description: "Assistente per cittadini italiani: bandi, fondi, tutela consumatori, immobiliare",
     icon: "🇮🇹",
     status: "connected" as const,
     domains: ["wyloni_bandi", "pratica_legal"],
@@ -13,13 +13,24 @@ export const APP_REGISTRY = [
   {
     id: "keydraft",
     name: "KeyDraft",
-    description: "Scanner immobiliare AI: aste, luxury, off-market",
+    description: "Scanner immobiliare: aste, luxury, off-market",
     icon: "🏠",
     status: "connected" as const,
     domains: ["keydraft_realestate"],
     connectedAt: "2026-02-10",
     platform: "PWA Mobile",
     color: "cyan" as const,
+  },
+  {
+    id: "sottra",
+    name: "Sottra",
+    description: "Scanner edifici: dati catastali, prezzi, energia, previsioni di zona",
+    icon: "🏢",
+    status: "connected" as const,
+    domains: ["sottra"],
+    connectedAt: "2026-03-05",
+    platform: "PWA Mobile",
+    color: "amber" as const,
   },
 ];
 
