@@ -328,7 +328,7 @@ Deno.serve(async (req: Request) => {
       const extractPrompt = `Estrai i dati dalla bolletta italiana e rispondi SOLO in JSON:\n{"periodo":{"from":"DD/MM/YYYY","to":"DD/MM/YYYY"},"fornitore":{"label":"nome fornitore"},"consumi":{"totale_kwh":null,"unit":"kWh"},"importi":{"totale_da_pagare_eur":null,"bonus_sociale":{"presente":false,"eur":null}}}\n\nBolletta:\n${text.slice(0, 8000)}`;
       let extracted: unknown = {};
       try { const out = await runAI(extractPrompt, "wyloni_bandi"); extracted = parseOutput(out) ?? {}; } catch (e) { console.warn("[documents/analyze] extraction failed:", String(e).slice(0, 150)); }
-      return ok(req, { status: "READY", extracted, quality: { gate: "READY", score: 80, notes: ["AI extraction"] } }, [], debugId);
+      return ok(req, { status: "READY", extracted, quality: { gate: "READY", score: 80, notes: ["estrazione automatica"] } }, [], debugId);
     }
 
     // ── Generic AI run ─────────────────────────────────────────
