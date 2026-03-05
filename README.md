@@ -1,73 +1,36 @@
-# Welcome to your Lovable project
+# Central Core V3
 
-## Project info
+Backend condiviso (Supabase Edge Functions) per Wyloni, KeyDraft e Sottra. Gestisce orchestrazione provider, rate limiting e routing.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Edge Functions
 
-## How can I edit this code?
+| Funzione | Descrizione |
+|----------|-------------|
+| ai-core-run | Orchestratore principale: OpenAI → Anthropic fallback, Perplexity per web search |
+| sottra | 8 endpoint per scanner edifici (scan + forecast) |
+| health | Health check |
 
-There are several ways of editing your application.
-
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+## Architettura
+```
+App (Wyloni/KeyDraft/Sottra)
+  → core-proxy o chiamata diretta
+    → Central Core V3 (questo repo)
+      → ai-core-run (provider AI orchestrati)
+      → sottra (scanner edifici)
 ```
 
-**Edit a file directly in GitHub**
+## Variabili d'ambiente (Supabase Secrets)
+```
+AI_CORE_SECRET          # Secret condiviso per autenticazione
+OPENAI_API_KEY          # Provider primario
+ANTHROPIC_API_KEY       # Provider fallback
+PERPLEXITY_API_KEY      # Web search tasks
+CORE_ALLOWED_ORIGINS    # Origins CORS (es: https://wyloni.app,https://keydraft.app,https://sottra.app)
+GOOGLE_MAPS_API_KEY     # Geocoding per Sottra (opzionale, fallback su Nominatim)
+```
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## App Collegate
 
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+- **Wyloni** — Family office digitale (domini: wyloni_bandi, pratica_legal)
+- **KeyDraft** — Scanner immobiliare (domini: keydraft_realestate)
+- **Sottra** — Scanner edifici (domini: sottra)
