@@ -68,12 +68,33 @@ Rispondi SOLO in JSON valido:
   }
 }
 
-/** POST /sottra/scan/pricing — address → price/sqm data */
+/** POST /sottra/scan/pricing — address → price/sqm data (OMI real data) */
 export async function handleScanPricing(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const address = (body.address as string) ?? "";
   if (!address) return fail(req, 400, "MISSING_ADDRESS", "Provide address", debugId);
 
-  const prompt = `Sei un esperto di valutazioni immobiliari in Italia. Per l'indirizzo "${address}", fornisci una stima dei prezzi di mercato al metro quadro.
+  try {
+    const omi = await lookupOMI(address);
+
+    if (omi.found && omi.compr_min != null && omi.compr_max != null) {
+      // Real OMI data found — return actual prices
+      return ok(req, {
+        prezzoMq: omi.prezzoMedio,
+        prezzoMqMin: omi.compr_min,
+        prezzoMqMax: omi.compr_max,
+        locazioneMqMin: omi.loc_min ?? null,
+        locazioneMqMax: omi.loc_max ?? null,
+        zona: omi.zona,
+        zonaDescrizione: omi.zona_descr,
+        comune: omi.comune,
+        tipologia: omi.tipologia,
+        fonte: omi.fonte,
+        tutteZone: omi.tutteZone,
+      }, ["Prezzi ufficiali Agenzia Entrate — OMI, 1° semestre 2025"], debugId);
+    }
+
+    // Fallback: OMI data not found for this comune, use AI estimation with warning
+    const prompt = `Sei un esperto di valutazioni immobiliari in Italia. Per l'indirizzo "${address}", fornisci una stima dei prezzi di mercato al metro quadro.
 
 Rispondi SOLO in JSON valido:
 {
@@ -84,13 +105,13 @@ Rispondi SOLO in JSON valido:
   "trend5Anni": percentuale_variazione_5_anni
 }
 
-Basa le stime sulle quotazioni OMI (Osservatorio Mercato Immobiliare) più recenti per la zona. Il trend5Anni è la variazione percentuale negli ultimi 5 anni (positivo = crescita, negativo = calo).`;
+Basa le stime sulle quotazioni OMI (Osservatorio Mercato Immobiliare) più recenti per la zona.`;
 
-  try {
     const output = await callAI(prompt, 300, 0.2);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse pricing data", debugId);
-    return ok(req, data, ["Stime basate su dati OMI — non valutazione ufficiale"], debugId);
+    return ok(req, { ...data, fonte: "Stima AI — dati OMI non disponibili per questo comune" },
+      ["ATTENZIONE: prezzi stimati da AI, non da dati ufficiali OMI"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Pricing analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
