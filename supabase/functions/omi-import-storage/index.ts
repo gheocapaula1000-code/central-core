@@ -46,10 +46,12 @@ function parseNumeric(val: string, isInteger: boolean): number | null {
   return isNaN(num) ? null : num;
 }
 
-function parseCSV(csv: string, fields: string[]): Record<string, unknown>[] {
+function parseCSV(csv: string, fields: string[], offset = 0, limit = 0): Record<string, unknown>[] {
   const lines = csv.split("\n").filter((l) => l.trim());
   // Skip first 2 lines: line 1 is title, line 2 is column headers
-  const dataLines = lines.slice(2);
+  let dataLines = lines.slice(2);
+  if (offset > 0) dataLines = dataLines.slice(offset);
+  if (limit > 0) dataLines = dataLines.slice(0, limit);
   const rows: Record<string, unknown>[] = [];
 
   for (const line of dataLines) {
@@ -57,16 +59,22 @@ function parseCSV(csv: string, fields: string[]): Record<string, unknown>[] {
     if (values.length < fields.length) continue;
 
     const row: Record<string, unknown> = {};
+    let hasRequiredFields = true;
     for (let i = 0; i < fields.length; i++) {
       const field = fields[i];
       const raw = values[i] ?? "";
       if (NUMERIC_FIELDS.has(field)) {
         row[field] = parseNumeric(raw, INTEGER_FIELDS.has(field));
       } else {
-        row[field] = cleanValue(raw) || null;
+        const cleaned = cleanValue(raw) || null;
+        row[field] = cleaned;
+        // Check required non-null fields
+        if ((field === "comune_istat" || field === "comune_descrizione" || field === "provincia" || field === "zona" || field === "link_zona") && !cleaned) {
+          hasRequiredFields = false;
+        }
       }
     }
-    rows.push(row);
+    if (hasRequiredFields) rows.push(row);
   }
   return rows;
 }
@@ -84,6 +92,8 @@ Deno.serve(async (req) => {
     const table = body.table as string;
     const storagePath = body.storage_path as string;
     const clearFirst = body.clear_first as boolean ?? false;
+    const offset = (body.offset as number) ?? 0;
+    const limit = (body.limit as number) ?? 0;
 
     if (!table || !storagePath) {
       return fail(req, 400, "MISSING_FIELDS", "Provide table and storage_path", debugId);
@@ -109,8 +119,8 @@ Deno.serve(async (req) => {
     const csv = await fileData.text();
     console.log(`[omi-import-storage] CSV size: ${csv.length} chars`);
 
-    const fields = table === "omi_zone" ? ZONE_FIELDS : VALORI_FIELDS;
-    const rows = parseCSV(csv, fields);
+    const rows = parseCSV(csv, fields, offset, limit);
+    console.log(`[omi-import-storage] offset=${offset} limit=${limit}`);
 
     if (rows.length === 0) {
       return fail(req, 400, "EMPTY_CSV", "No valid rows found in CSV", debugId);
