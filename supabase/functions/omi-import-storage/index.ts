@@ -119,6 +119,7 @@ Deno.serve(async (req) => {
     const csv = await fileData.text();
     console.log(`[omi-import-storage] CSV size: ${csv.length} chars`);
 
+    const fields = table === "omi_zone" ? ZONE_FIELDS : VALORI_FIELDS;
     const rows = parseCSV(csv, fields, offset, limit);
     console.log(`[omi-import-storage] offset=${offset} limit=${limit}`);
 
