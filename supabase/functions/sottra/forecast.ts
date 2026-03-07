@@ -128,7 +128,10 @@ Rispondi SOLO in JSON valido:
   "impattoStimato": "alto" oppure "medio" oppure "basso"
 }
 
-Includi solo progetti reali e realistici per quella specifica città e zona. Considera: estensioni metro/tram, nuove piste ciclabili, riqualificazioni urbane, nuovi parchi, grandi opere stradali.`;
+Includi solo progetti reali e realistici per quella specifica città e zona. Considera: estensioni metro/tram, nuove piste ciclabili, riqualificazioni urbane, nuovi parchi, grandi opere stradali.
+
+IMPORTANTE: Includi SOLO progetti entro 3 km dal punto indicato. Non includere progetti di altre zone della città.
+La data corrente è marzo 2026. Non includere progetti già completati o con date nel passato.`;
 
   try {
     const output = await callAI(prompt, 500, 0.3);
