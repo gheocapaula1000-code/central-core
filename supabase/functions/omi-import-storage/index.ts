@@ -7,7 +7,6 @@ import {
   ok,
   fail,
   makeDebugId,
-  requireSecret,
 } from "../_shared/http.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -75,9 +74,6 @@ function parseCSV(csv: string, fields: string[]): Record<string, unknown>[] {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return handleOptions(req);
   const debugId = makeDebugId();
-
-  const authErr = requireSecret(req, debugId);
-  if (authErr) return authErr;
 
   if (req.method !== "POST") {
     return fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId);
