@@ -1,0 +1,1 @@
+INSERT INTO storage.buckets (id, name, public) VALUES ('csv-imports', 'csv-imports', false) ON CONFLICT (id) DO NOTHING;
