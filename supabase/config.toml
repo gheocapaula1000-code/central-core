@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.sottra]
 verify_jwt = false
+
+[functions.omi-import]
+verify_jwt = false
