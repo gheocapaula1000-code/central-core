@@ -6,12 +6,6 @@ export const PERPLEXITY_SYSTEMS: Record<string, string> = {
     "Sei un esperto di finanziamenti italiani con accesso al web. Cerca bandi REALI da: inps.it, invitalia.it, agenziaentrate.gov.it, mise.gov.it, regioni. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"results\":[]}. MAI inventare.",
   deep_search:
     "Sei un assistente di ricerca con accesso al web. Cerca notizie aggiornate da fonti affidabili. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"newsCards\":[]}.",
-  distress_radar:
-    "Sei un esperto di opportunità in Italia con accesso al web. Cerca aste giudiziarie su: tribunale.it, asteonline.it, astegiudiziarie.it, idealista.it/aste. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"signals\":[]}. MAI inventare.",
-  market_glitch:
-    "Sei un esperto di anomalie di prezzo con accesso al web. Cerca prodotti con prezzi insolitamente bassi su Amazon.it, eBay.it, Unieuro, MediaWorld. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"glitches\":[]}. MAI inventare.",
-  deep_recovery:
-    "Sei un esperto di crediti dormienti italiani con accesso al web. Ricerca su INPS, Agenzia Entrate, Bankitalia, IVASS. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"success\":true,\"credits\":[]}. MAI inventare.",
   find_contacts:
     "Sei un assistente per contatti ufficiali italiani con accesso al web. Usa INI-PEC, siti istituzionali, Registro Imprese. Rispondi SOLO in JSON. Se non trovi nulla, ritorna {\"results\":[]}. MAI inventare.",
   find_company_contacts:
@@ -35,9 +29,6 @@ export const PERPLEXITY_SYSTEMS: Record<string, string> = {
 export const EMPTY_RESULTS: Record<string, string> = {
   search_grants:         `{"success":true,"results":[]}`,
   deep_search:           `{"success":true,"newsCards":[]}`,
-  distress_radar:        `{"success":true,"signals":[]}`,
-  market_glitch:         `{"success":true,"glitches":[]}`,
-  deep_recovery:         `{"success":true,"credits":[]}`,
   find_contacts:         `{"results":[]}`,
   find_company_contacts: `{"success":true,"contact":null}`,
   ai_bandi:              `{"ok":true,"confidence_score":0,"data":{"summary_3_lines":["Nessun dato disponibile al momento"],"checklist_documents":[],"questions_to_ask":[],"risks_and_attention":[],"next_steps":[],"sources":[],"confidence_notes":"Perplexity non disponibile"}}`,

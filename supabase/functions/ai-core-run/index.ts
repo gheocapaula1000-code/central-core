@@ -67,20 +67,17 @@ const TASK_TOKEN_OVERRIDES: Record<string, number> = {
 // Web tasks & empty results (from pipeline files)
 // ═══════════════════════════════════════════════════════════════
 const WEB_TASKS = new Set([
-  "search_grants", "deep_search", "distress_radar", "market_glitch",
-  "deep_recovery", "find_contacts", "find_company_contacts", "real_estate_deep", "ai_bandi",
+  "search_grants", "deep_search", "find_contacts", "find_company_contacts", "ai_bandi",
 ]);
 
 // Merge empty results from all pipeline files
 const EMPTY_RESULTS: Record<string, string> = {
   ...wyloniBandi.EMPTY_RESULTS,
-  real_estate_deep: keydraftRealestate.EMPTY_RESULT,
 };
 
 // Merge Perplexity system prompts from all pipeline files
 const PERPLEXITY_SYSTEM: Record<string, string> = {
   ...wyloniBandi.PERPLEXITY_SYSTEMS,
-  real_estate_deep: keydraftRealestate.PERPLEXITY_SYSTEM,
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -179,18 +176,6 @@ function parseOutput(raw: string): unknown | null {
   return null;
 }
 
-function filterValidProperties(raw: unknown): unknown[] {
-  if (!raw || typeof raw !== "object") return [];
-  const data = raw as Record<string, unknown>;
-  const props = Array.isArray(data.properties) ? data.properties : [];
-  return props.filter((p: any) => {
-    if (!p || typeof p !== "object") return false;
-    if (!p.url || typeof p.url !== "string" || !p.url.startsWith("http")) return false;
-    if (typeof p.price === "number" && p.price < 0) return false;
-    if (!p.title || typeof p.title !== "string" || p.title.trim().length < 5) return false;
-    return true;
-  });
-}
 
 // ═══════════════════════════════════════════════════════════════
 // Main handler
@@ -407,19 +392,6 @@ ISTRUZIONI:
       : await runAI(prompt, domain, task);
 
     const parsed = parseOutput(output);
-
-    // Per immobili: filtra solo annunci con URL reale
-    if (task === "real_estate_deep" && parsed && typeof parsed === "object") {
-      const validProps = filterValidProperties(parsed);
-      const cleanData = { ...(parsed as Record<string, unknown>), properties: validProps };
-      console.log(`[ai-core-run] real_estate valid_properties=${validProps.length}`);
-      return ok(req, {
-        final_output: output,
-        data: cleanData,
-        properties: validProps,
-        debug_id: debugId,
-      }, [], debugId);
-    }
 
     const raw = parsed as Record<string, unknown> | null;
     console.log(`[ai-core-run] output_len=${output.length}`);
