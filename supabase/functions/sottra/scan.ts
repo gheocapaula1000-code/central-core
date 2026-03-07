@@ -2,6 +2,7 @@
 
 import { ok, fail } from "../_shared/http.ts";
 import { callAI, callAIVision, parseJSON, reverseGeocode } from "./shared.ts";
+import { lookupOMI } from "./omi-lookup.ts";
 
 /** POST /sottra/scan/identify — photo + GPS → address + building ID */
 export async function handleScanIdentify(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
