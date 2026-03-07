@@ -14,7 +14,153 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      omi_valori: {
+        Row: {
+          area_territoriale: string | null
+          cod_tip: number | null
+          compr_max: number | null
+          compr_min: number | null
+          comune_amm: string | null
+          comune_catastale: string | null
+          comune_descrizione: string
+          comune_istat: string
+          created_at: string | null
+          descr_tipologia: string
+          fascia: string | null
+          id: number
+          link_zona: string
+          loc_max: number | null
+          loc_min: number | null
+          provincia: string
+          regione: string | null
+          semestre: string | null
+          sezione: string | null
+          stato: string | null
+          stato_prev: string | null
+          sup_nl_compr: string | null
+          sup_nl_loc: string | null
+          zona: string
+        }
+        Insert: {
+          area_territoriale?: string | null
+          cod_tip?: number | null
+          compr_max?: number | null
+          compr_min?: number | null
+          comune_amm?: string | null
+          comune_catastale?: string | null
+          comune_descrizione: string
+          comune_istat: string
+          created_at?: string | null
+          descr_tipologia: string
+          fascia?: string | null
+          id?: number
+          link_zona: string
+          loc_max?: number | null
+          loc_min?: number | null
+          provincia: string
+          regione?: string | null
+          semestre?: string | null
+          sezione?: string | null
+          stato?: string | null
+          stato_prev?: string | null
+          sup_nl_compr?: string | null
+          sup_nl_loc?: string | null
+          zona: string
+        }
+        Update: {
+          area_territoriale?: string | null
+          cod_tip?: number | null
+          compr_max?: number | null
+          compr_min?: number | null
+          comune_amm?: string | null
+          comune_catastale?: string | null
+          comune_descrizione?: string
+          comune_istat?: string
+          created_at?: string | null
+          descr_tipologia?: string
+          fascia?: string | null
+          id?: number
+          link_zona?: string
+          loc_max?: number | null
+          loc_min?: number | null
+          provincia?: string
+          regione?: string | null
+          semestre?: string | null
+          sezione?: string | null
+          stato?: string | null
+          stato_prev?: string | null
+          sup_nl_compr?: string | null
+          sup_nl_loc?: string | null
+          zona?: string
+        }
+        Relationships: []
+      }
+      omi_zone: {
+        Row: {
+          area_territoriale: string | null
+          cod_tip_prev: number | null
+          comune_amm: string | null
+          comune_catastale: string | null
+          comune_descrizione: string
+          comune_istat: string
+          created_at: string | null
+          descr_tip_prev: string | null
+          fascia: string | null
+          id: number
+          link_zona: string
+          microzona: number | null
+          provincia: string
+          regione: string | null
+          semestre: string | null
+          sezione: string | null
+          stato_prev: string | null
+          zona: string
+          zona_descr: string | null
+        }
+        Insert: {
+          area_territoriale?: string | null
+          cod_tip_prev?: number | null
+          comune_amm?: string | null
+          comune_catastale?: string | null
+          comune_descrizione: string
+          comune_istat: string
+          created_at?: string | null
+          descr_tip_prev?: string | null
+          fascia?: string | null
+          id?: number
+          link_zona: string
+          microzona?: number | null
+          provincia: string
+          regione?: string | null
+          semestre?: string | null
+          sezione?: string | null
+          stato_prev?: string | null
+          zona: string
+          zona_descr?: string | null
+        }
+        Update: {
+          area_territoriale?: string | null
+          cod_tip_prev?: number | null
+          comune_amm?: string | null
+          comune_catastale?: string | null
+          comune_descrizione?: string
+          comune_istat?: string
+          created_at?: string | null
+          descr_tip_prev?: string | null
+          fascia?: string | null
+          id?: number
+          link_zona?: string
+          microzona?: number | null
+          provincia?: string
+          regione?: string | null
+          semestre?: string | null
+          sezione?: string | null
+          stato_prev?: string | null
+          zona?: string
+          zona_descr?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
