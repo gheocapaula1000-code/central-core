@@ -82,6 +82,8 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
         prezzoMq: omi.prezzoMedio,
         prezzoMqMin: omi.compr_min,
         prezzoMqMax: omi.compr_max,
+        mediaZona: omi.prezzoMedio,
+        trend5Anni: 0,
         locazioneMqMin: omi.loc_min ?? null,
         locazioneMqMax: omi.loc_max ?? null,
         zona: omi.zona,
