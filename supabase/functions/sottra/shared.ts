@@ -56,6 +56,89 @@ export async function callAI(prompt: string, maxTokens = 1000, temperature = 0.1
   } finally { clear(); }
 }
 
+/**
+ * Call AI with image (vision). Accepts a base64 data URL.
+ * Falls back to text-only callAI if vision fails.
+ */
+export async function callAIVision(
+  prompt: string,
+  imageBase64: string,
+  maxTokens = 1000,
+  temperature = 0.1
+): Promise<string> {
+  const match = imageBase64.match(/^data:(image\/\w+);base64,(.+)$/);
+  const mediaType = match?.[1] ?? "image/jpeg";
+  const base64Data = match?.[2] ?? imageBase64;
+
+  // Try OpenAI GPT-4o first (supports vision natively)
+  const openaiKey = Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_KEY") ?? "";
+  if (openaiKey) {
+    const { signal, clear } = withAbort(30_000);
+    try {
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-4o",
+          temperature,
+          max_tokens: maxTokens,
+          messages: [{
+            role: "user",
+            content: [
+              { type: "image_url", image_url: { url: `data:${mediaType};base64,${base64Data}`, detail: "low" } },
+              { type: "text", text: prompt },
+            ],
+          }],
+        }),
+        signal,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const output = data?.choices?.[0]?.message?.content ?? "";
+        if (output) { clear(); return output; }
+      }
+    } catch { /* fallthrough to Anthropic */ }
+    finally { clear(); }
+  }
+
+  // Fallback: Anthropic Claude (supports vision)
+  const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+  if (anthropicKey) {
+    const { signal, clear } = withAbort(30_000);
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": anthropicKey,
+          "anthropic-version": "2023-06-01",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: maxTokens,
+          temperature,
+          messages: [{
+            role: "user",
+            content: [
+              { type: "image", source: { type: "base64", media_type: mediaType, data: base64Data } },
+              { type: "text", text: prompt },
+            ],
+          }],
+        }),
+        signal,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data?.content?.[0]?.text ?? "";
+      }
+    } catch { /* fallthrough to text-only */ }
+    finally { clear(); }
+  }
+
+  // Last resort: text-only without image
+  return callAI(prompt, maxTokens, temperature);
+}
+
 export function parseJSON(text: string): Record<string, unknown> | null {
   try {
     const clean = text.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
