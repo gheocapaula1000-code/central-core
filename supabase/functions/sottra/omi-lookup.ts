@@ -40,11 +40,16 @@ function getSupabase() {
 function extractComune(address: string): string {
   // Remove CAP (5-digit postal code)
   const cleaned = address.replace(/\b\d{5}\b/g, "").trim();
-  // Take the last meaningful part after comma
   const parts = cleaned.split(",").map((p) => p.trim()).filter(Boolean);
+
+  // Remove "Italia"/"Italy" if last element
+  if (parts.length > 1 && /^ital/i.test(parts[parts.length - 1])) {
+    parts.pop();
+  }
+
   const last = parts[parts.length - 1] ?? "";
-  // Remove province abbreviation in parentheses: "Padova (PD)" → "Padova"
-  const withoutProv = last.replace(/\s*\([A-Z]{2}\)\s*$/, "").trim();
+  // Remove province abbreviation: "Padova PD" → "Padova", "Roma RM" → "Roma"
+  const withoutProv = last.replace(/\s+[A-Z]{2}$/, "").trim();
   return withoutProv.toUpperCase();
 }
 
