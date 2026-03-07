@@ -1,12 +1,13 @@
 // Sottra — Motore Scan handlers (7 endpoints)
 
 import { ok, fail } from "../_shared/http.ts";
-import { callAI, parseJSON, reverseGeocode } from "./shared.ts";
+import { callAI, callAIVision, parseJSON, reverseGeocode } from "./shared.ts";
 
 /** POST /sottra/scan/identify — photo + GPS → address + building ID */
 export async function handleScanIdentify(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const lat = body.lat as number | undefined;
   const lng = body.lng as number | undefined;
+  const photo = (body.photo as string) ?? "";
   if (lat == null || lng == null) return fail(req, 400, "MISSING_COORDS", "Provide lat and lng", debugId);
 
   const address = await reverseGeocode(lat, lng);
@@ -17,15 +18,31 @@ export async function handleScanIdentify(req: Request, body: Record<string, unkn
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   const buildingId = "IT-" + hashArray.slice(0, 4).map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase();
 
-  return ok(req, { address, buildingId, confidence: 0.85 }, [], debugId);
+  // If photo provided, analyze it for confidence and visible details
+  let confidence = 0.75;
+  if (photo && photo.startsWith("data:image")) {
+    try {
+      const output = await callAIVision(
+        `Stai guardando la foto di un edificio. L'indirizzo rilevato dal GPS è "${address}". Rispondi SOLO in JSON: { "confidence": numero_da_0_a_1 che indica quanto l'edificio nella foto corrisponde all'indirizzo indicato, "visibleFloors": numero_piani_visibili_nella_foto, "buildingType": "residenziale" o "commerciale" o "misto" o "industriale" }`,
+        photo, 150, 0.1
+      );
+      const parsed = parseJSON(output);
+      if (parsed?.confidence) confidence = parsed.confidence as number;
+    } catch { /* use default confidence */ }
+  }
+
+  return ok(req, { address, buildingId, confidence }, [], debugId);
 }
 
-/** POST /sottra/scan/cadastral — address → catasto data */
+/** POST /sottra/scan/cadastral — address + photo → catasto data */
 export async function handleScanCadastral(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const address = (body.address as string) ?? "";
+  const photo = (body.photo as string) ?? "";
   if (!address) return fail(req, 400, "MISSING_ADDRESS", "Provide address", debugId);
 
-  const prompt = `Sei un esperto catastale italiano. Per l'indirizzo "${address}", stima i dati catastali plausibili basandoti sulla zona, tipologia edilizia tipica e anno di costruzione probabile.
+  const prompt = `Sei un esperto catastale italiano. Per l'indirizzo "${address}", stima i dati catastali.
+
+IMPORTANTE: Se vedi una foto dell'edificio, conta i piani VISIBILI nella foto e usa quel numero. Non inventare.
 
 Rispondi SOLO in JSON valido:
 {
@@ -33,18 +50,18 @@ Rispondi SOLO in JSON valido:
   "particella": numero_particella,
   "subalterno": numero_subalterno,
   "anno": anno_costruzione_stimato,
-  "piani": numero_piani_stimato,
+  "piani": numero_piani_DALLA_FOTO_se_disponibile,
   "unitaImmobiliari": numero_unita_stimate,
   "renditaCatastale": rendita_catastale_stimata_euro
-}
-
-IMPORTANTE: I valori devono essere realistici per la zona indicata. Se è un centro storico, anno più vecchio e più piani. Se è periferia moderna, anno recente e meno piani.`;
+}`;
 
   try {
-    const output = await callAI(prompt, 300, 0.2);
+    const output = photo && photo.startsWith("data:image")
+      ? await callAIVision(prompt, photo, 300, 0.2)
+      : await callAI(prompt, 300, 0.2);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse cadastral data", debugId);
-    return ok(req, data, ["Dati stimati da fonti catastali — non ufficiali"], debugId);
+    return ok(req, data, ["Dati stimati da analisi visiva e fonti catastali — non ufficiali"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Cadastral analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
@@ -111,38 +128,44 @@ Genera annunci realistici per la zona: prezzi coerenti con il mercato locale, me
   }
 }
 
-/** POST /sottra/scan/energy — address → energy class */
+/** POST /sottra/scan/energy — address + photo → energy class */
 export async function handleScanEnergy(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const address = (body.address as string) ?? "";
+  const photo = (body.photo as string) ?? "";
   if (!address) return fail(req, 400, "MISSING_ADDRESS", "Provide address", debugId);
 
   const prompt = `Sei un esperto di certificazioni energetiche in Italia. Per l'indirizzo "${address}", stima la classe energetica probabile dell'edificio.
+
+IMPORTANTE: Se vedi una foto dell'edificio, osserva gli infissi (vecchi = classe bassa, moderni = classe alta), la presenza di cappotto termico (se visibile = classe alta), lo stato della facciata. Basati su ciò che vedi realmente.
 
 Rispondi SOLO in JSON valido:
 {
   "classeEnergetica": "lettera da A a G",
   "epgl": valore_epgl_kwh_mq_anno,
   "mediaZona": "lettera media della zona"
-}
-
-Basa la stima sull'anno probabile di costruzione e sulla zona: edifici vecchi in centro = D/E/F, edifici moderni = B/C, nuove costruzioni = A/B.`;
+}`;
 
   try {
-    const output = await callAI(prompt, 200, 0.2);
+    const output = photo && photo.startsWith("data:image")
+      ? await callAIVision(prompt, photo, 200, 0.2)
+      : await callAI(prompt, 200, 0.2);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse energy data", debugId);
-    return ok(req, data, ["Classe stimata da dati edilizi — non APE ufficiale"], debugId);
+    return ok(req, data, ["Classe stimata da analisi visiva e dati edilizi — non APE ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Energy analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
 }
 
-/** POST /sottra/scan/condominio — address → building/condominium details */
+/** POST /sottra/scan/condominio — address + photo → building/condominium details */
 export async function handleScanCondominio(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const address = (body.address as string) ?? "";
+  const photo = (body.photo as string) ?? "";
   if (!address) return fail(req, 400, "MISSING_ADDRESS", "Provide address", debugId);
 
   const prompt = `Sei un esperto immobiliare italiano. Per l'edificio all'indirizzo "${address}", stima le caratteristiche condominiali.
+
+IMPORTANTE: Se vedi una foto dell'edificio, basati su ciò che vedi realmente: presenza di ascensore (pulsantiera visibile), portineria, stato di conservazione della facciata, tipo di riscaldamento (radiatori visibili, caldaie esterne), giardino condominiale.
 
 Rispondi SOLO in JSON valido:
 {
@@ -153,15 +176,15 @@ Rispondi SOLO in JSON valido:
   "postiAuto": numero_stimato,
   "giardino": true oppure false,
   "portineria": true oppure false
-}
-
-Basa la stima su: anno costruzione (edifici pre-1970 = centralizzato, post-2000 = autonomo), zona (centro = portineria più probabile), tipo edificio (condominio grande = ascensore se più di 3 piani).`;
+}`;
 
   try {
-    const output = await callAI(prompt, 250, 0.2);
+    const output = photo && photo.startsWith("data:image")
+      ? await callAIVision(prompt, photo, 250, 0.2)
+      : await callAI(prompt, 250, 0.2);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse condominio data", debugId);
-    return ok(req, data, ["Dati condominiali stimati — non perizia ufficiale"], debugId);
+    return ok(req, data, ["Dati condominiali stimati da analisi visiva — non perizia ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Condominio analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
