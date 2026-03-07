@@ -6,7 +6,7 @@ export async function callOpenAI(
   const key = Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_KEY") ?? "";
   if (!key) throw new Error("OPENAI_API_KEY not configured");
 
-  const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o-mini";
+  const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-5.4";
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 25_000);
   const started = Date.now();
