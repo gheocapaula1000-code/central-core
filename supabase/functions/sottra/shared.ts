@@ -15,7 +15,7 @@ export async function callAI(prompt: string, maxTokens = 1000, temperature = 0.1
         method: "POST",
         headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: Deno.env.get("OPENAI_MODEL") ?? "gpt-4o-mini",
+          model: Deno.env.get("OPENAI_MODEL") ?? "gpt-5.4",
           temperature,
           max_tokens: maxTokens,
           messages: [{ role: "user", content: prompt }],
@@ -70,7 +70,7 @@ export async function callAIVision(
   const mediaType = match?.[1] ?? "image/jpeg";
   const base64Data = match?.[2] ?? imageBase64;
 
-  // Try OpenAI GPT-4o first (supports vision natively)
+  // Try OpenAI GPT-5.4 first (supports vision natively)
   const openaiKey = Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_KEY") ?? "";
   if (openaiKey) {
     const { signal, clear } = withAbort(30_000);
@@ -79,7 +79,7 @@ export async function callAIVision(
         method: "POST",
         headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "gpt-4o",
+          model: "gpt-5.4",
           temperature,
           max_tokens: maxTokens,
           messages: [{
