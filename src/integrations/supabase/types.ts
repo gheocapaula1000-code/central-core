@@ -14,6 +14,27 @@ export type Database = {
   }
   public: {
     Tables: {
+      classificazione_sismica: {
+        Row: {
+          codice_istat: string
+          comune: string
+          id: number
+          zona_sismica: number
+        }
+        Insert: {
+          codice_istat: string
+          comune: string
+          id?: number
+          zona_sismica: number
+        }
+        Update: {
+          codice_istat?: string
+          comune?: string
+          id?: number
+          zona_sismica?: number
+        }
+        Relationships: []
+      }
       ispra_rischio: {
         Row: {
           codice_istat: string
