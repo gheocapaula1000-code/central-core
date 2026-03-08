@@ -2,6 +2,23 @@
 
 import { ok, fail } from "../_shared/http.ts";
 import { callAI, parseJSON, reverseGeocode } from "./shared.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+function getSupabase() {
+  return createClient(
+    Deno.env.get("SUPABASE_URL") ?? "",
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+  );
+}
+
+/** Extract comune name from address (same logic as omi-lookup) */
+function extractComune(address: string): string {
+  const cleaned = address.replace(/\b\d{5}\b/g, "").trim();
+  const parts = cleaned.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length > 1 && /^ital/i.test(parts[parts.length - 1])) parts.pop();
+  const last = parts[parts.length - 1] ?? "";
+  return last.replace(/\s+[A-Z]{2}$/, "").trim();
+}
 
 /** POST /sottra/forecast/moodscore — coordinates → zone sentiment score */
 export async function handleForecastMoodScore(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
@@ -143,65 +160,110 @@ La data corrente è marzo 2026. Non includere progetti già completati o con dat
   }
 }
 
-/** POST /sottra/forecast/rischio-zona — coordinates → zone risk assessment */
+/** POST /sottra/forecast/rischio-zona — coordinates → zone risk assessment (REAL ISPRA DATA) */
 export async function handleForecastRischioZona(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const lat = body.lat as number | undefined;
   const lng = body.lng as number | undefined;
   if (lat == null || lng == null) return fail(req, 400, "MISSING_COORDS", "Provide lat and lng", debugId);
 
   const address = await reverseGeocode(lat, lng) ?? `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  const comune = extractComune(address);
+  if (!comune) return fail(req, 400, "COMUNE_NOT_FOUND", "Could not extract comune from address", debugId);
 
-  const prompt = `Sei un esperto di rischio territoriale italiano. Per la zona di "${address}" (coordinate: ${lat}, ${lng}), valuta i rischi ambientali.
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("ispra_rischio")
+    .select("*")
+    .ilike("comune", comune)
+    .limit(1)
+    .maybeSingle();
 
-Rispondi SOLO in JSON valido:
-{
-  "idrogeologico": "alto" oppure "medio" oppure "basso" oppure "nullo",
-  "sismico": "zona1" oppure "zona2" oppure "zona3" oppure "zona4",
-  "inquinamento": "alto" oppure "medio" oppure "basso",
-  "alluvionale": true oppure false,
-  "scoreRischio": numero_da_0_a_100
-}
-
-Lo scoreRischio va da 0 (massimo rischio) a 100 (zona sicurissima). Basa la valutazione su: classificazione sismica OPCM del comune, mappe ISPRA per rischio idrogeologico, dati ARPA per inquinamento, mappe alluvionali del distretto idrografico. L'Italia ha 4 zone sismiche: zona1 = massimo rischio (Calabria, Sicilia orientale), zona4 = minimo (Sardegna, parti del Nord).`;
-
-  try {
-    const output = await callAI(prompt, 250, 0.2);
-    const data = parseJSON(output);
-    if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse risk data", debugId);
-    return ok(req, data, ["Rischio stimato da dati ISPRA/OPCM — non perizia certificata"], debugId);
-  } catch (e) {
-    return fail(req, 502, "PROVIDER_ERROR", `Risk analysis failed: ${String(e).slice(0, 100)}`, debugId);
+  if (error || !data) {
+    return fail(req, 404, "DATA_NOT_FOUND", `No ISPRA data for comune "${comune}"`, debugId);
   }
+
+  // scoreRischio = 100 - (idro_p3_perc * 2 + frana_p4_perc * 3) clamped 0-100
+  const idroP3 = Number(data.idro_p3_perc) || 0;
+  const franaP4 = Number(data.frana_p4_perc) || 0;
+  const rawScore = 100 - (idroP3 * 2 + franaP4 * 3);
+  const scoreRischio = Math.round(Math.max(0, Math.min(100, rawScore)));
+
+  // Classify idrogeologico risk level
+  const idroTotal = idroP3 + (Number(data.idro_p2_perc) || 0);
+  const idrogeologico = idroTotal > 15 ? "alto" : idroTotal > 5 ? "medio" : idroTotal > 0 ? "basso" : "nullo";
+
+  // Alluvionale: true if any significant flood risk
+  const alluvionale = (Number(data.idro_p1_perc) || 0) > 10 || (Number(data.pop_idro_p1) || 0) > 100;
+
+  return ok(req, {
+    idrogeologico,
+    sismico: "dato non disponibile",
+    inquinamento: "dato non disponibile",
+    alluvionale,
+    scoreRischio,
+    dettaglioISPRA: {
+      superficie_kmq: data.superficie_kmq,
+      idro_p3_perc: data.idro_p3_perc,
+      idro_p2_perc: data.idro_p2_perc,
+      idro_p1_perc: data.idro_p1_perc,
+      pop_idro_p3: data.pop_idro_p3,
+      pop_idro_p2: data.pop_idro_p2,
+      pop_idro_p1: data.pop_idro_p1,
+      frana_p4_perc: data.frana_p4_perc,
+      frana_p3_perc: data.frana_p3_perc,
+      frana_p2_perc: data.frana_p2_perc,
+      frana_p1_perc: data.frana_p1_perc,
+      pop_frana_p3p4: data.pop_frana_p3p4,
+    },
+    fonte: "ISPRA — Dissesto idrogeologico in Italia, ed. 2021",
+  }, [], debugId);
 }
 
-/** POST /sottra/forecast/trend-demografico — coordinates → demographic trends */
+/** POST /sottra/forecast/trend-demografico — coordinates → demographic trends (REAL ISTAT DATA) */
 export async function handleForecastTrendDemografico(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const lat = body.lat as number | undefined;
   const lng = body.lng as number | undefined;
   if (lat == null || lng == null) return fail(req, 400, "MISSING_COORDS", "Provide lat and lng", debugId);
 
   const address = await reverseGeocode(lat, lng) ?? `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  const comune = extractComune(address);
+  if (!comune) return fail(req, 400, "COMUNE_NOT_FOUND", "Could not extract comune from address", debugId);
 
-  const prompt = `Sei un demografo italiano. Per la zona di "${address}" (coordinate: ${lat}, ${lng}), analizza i trend demografici.
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("istat_comuni")
+    .select("*")
+    .ilike("comune", comune)
+    .limit(1)
+    .maybeSingle();
 
-Rispondi SOLO in JSON valido:
-{
-  "etaMedia": eta_media_residenti,
-  "densitaAbitanti": abitanti_per_km_quadro,
-  "flussoResidenti12Mesi": numero_positivo_arrivi_o_negativo_partenze,
-  "percentualeFamiglie": percentuale_nuclei_familiari,
-  "percentualeGiovani": percentuale_under_35,
-  "percentualeStranieri": percentuale_residenti_stranieri
-}
-
-Basa la stima su dati ISTAT della zona: centri storici = età media alta + meno famiglie, periferie = più giovani + più famiglie, zone universitarie = alta % giovani, quartieri multietnici = alta % stranieri. Il flusso è positivo se la zona attira nuovi residenti.`;
-
-  try {
-    const output = await callAI(prompt, 250, 0.2);
-    const data = parseJSON(output);
-    if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse demographic data", debugId);
-    return ok(req, data, ["Dati demografici stimati da fonti ISTAT"], debugId);
-  } catch (e) {
-    return fail(req, 502, "PROVIDER_ERROR", `Demographic analysis failed: ${String(e).slice(0, 100)}`, debugId);
+  if (error || !data) {
+    return fail(req, 404, "DATA_NOT_FOUND", `No ISTAT data for comune "${comune}"`, debugId);
   }
+
+  // Compute density using ISPRA superficie if available
+  let densitaAbitanti: number | null = null;
+  const { data: ispra } = await supabase
+    .from("ispra_rischio")
+    .select("superficie_kmq")
+    .ilike("comune", comune)
+    .limit(1)
+    .maybeSingle();
+
+  if (ispra?.superficie_kmq && data.popolazione) {
+    densitaAbitanti = Math.round(Number(data.popolazione) / Number(ispra.superficie_kmq));
+  }
+
+  return ok(req, {
+    etaMedia: data.eta_media,
+    popolazione: data.popolazione,
+    densitaAbitanti,
+    percentualeGiovani: data.percentuale_under35,
+    percentualeUnder18: data.percentuale_under18,
+    percentualeOver65: data.percentuale_over65,
+    maschi: data.maschi,
+    femmine: data.femmine,
+    anno: data.anno,
+    fonte: "ISTAT — Popolazione residente al 1° gennaio 2025",
+  }, [], debugId);
 }
