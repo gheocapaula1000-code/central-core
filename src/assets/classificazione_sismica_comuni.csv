@@ -1,0 +1,8102 @@
+codice_istat;comune;zona_sismica
+01001001;Agliè;4
+01001002;Airasca;4
+01001003;Ala di Stura;4
+01001004;Albiano d'Ivrea;4
+01001005;Alice Superiore;4
+01001006;Almese;3
+01001007;Alpette;4
+01001008;Alpignano;4
+01001009;Andezeno;4
+01001010;Andrate;4
+01001011;Angrogna;2
+01001012;Arignano;4
+01001013;Avigliana;3
+01001014;Azeglio;4
+01001015;Bairo;4
+01001016;Balangero;4
+01001017;Baldissero Canavese;4
+01001018;Baldissero Torinese;4
+01001019;Balme;4
+01001020;Banchette;4
+01001021;Barbania;4
+01001022;Bardonecchia;3
+01001023;Barone Canavese;4
+01001024;Beinasco;4
+01001025;Bibiana;2
+01001026;Bobbio Pellice;2
+01001027;Bollengo;4
+01001028;Borgaro Torinese;4
+01001029;Borgiallo;4
+01001030;Borgofranco d'Ivrea;4
+01001031;Borgomasino;4
+01001032;Borgone Susa;3
+01001033;Bosconero;4
+01001034;Brandizzo;4
+01001035;Bricherasio;2
+01001036;Brosso;4
+01001037;Brozolo;4
+01001038;Bruino;4
+01001039;Brusasco;4
+01001040;Bruzolo;3
+01001041;Buriasco;3
+01001042;Burolo;4
+01001043;Busano;4
+01001044;Bussoleno;3
+01001045;Buttigliera Alta;3
+01001046;Cafasse;4
+01001047;Caluso;4
+01001048;Cambiano;4
+01001049;Campiglione-Fenile;2
+01001050;Candia Canavese;4
+01001051;Candiolo;4
+01001052;Canischio;4
+01001053;Cantalupa;2
+01001054;Cantoira;4
+01001055;Caprie;3
+01001056;Caravino;4
+01001057;Carema;4
+01001058;Carignano;4
+01001059;Carmagnola;4
+01001060;Casalborgone;4
+01001061;Cascinette d'Ivrea;4
+01001062;Caselette;4
+01001063;Caselle Torinese;4
+01001064;Castagneto Po;4
+01001065;Castagnole Piemonte;4
+01001066;Castellamonte;4
+01001067;Castelnuovo Nigra;4
+01001068;Castiglione Torinese;4
+01001069;Cavagnolo;4
+01001070;Cavour;3
+01001071;Cercenasco;4
+01001072;Ceres;4
+01001073;Ceresole Reale;4
+01001074;Cesana Torinese;3
+01001075;Chialamberto;4
+01001076;Chianocco;3
+01001077;Chiaverano;4
+01001078;Chieri;4
+01001079;Chiesanuova;4
+01001080;Chiomonte;3
+01001081;Chiusa di San Michele;3
+01001082;Chivasso;4
+01001083;Ciconio;4
+01001084;Cintano;4
+01001085;Cinzano;4
+01001086;Ciriè;4
+01001087;Claviere;3
+01001088;Coassolo Torinese;4
+01001089;Coazze;2
+01001090;Collegno;4
+01001091;Colleretto Castelnuovo;4
+01001092;Colleretto Giacosa;4
+01001093;Condove;3
+01001094;Corio;4
+01001095;Cossano Canavese;4
+01001096;Cuceglio;4
+01001097;Cumiana;2
+01001098;Cuorgnè;4
+01001099;Druento;4
+01001100;Exilles;3
+01001101;Favria;4
+01001102;Feletto;4
+01001103;Fenestrelle;2
+01001104;Fiano;4
+01001105;Fiorano Canavese;4
+01001106;Foglizzo;4
+01001107;Forno Canavese;4
+01001108;Frassinetto;4
+01001109;Front;4
+01001110;Frossasco;2
+01001111;Garzigliana;2
+01001112;Gassino Torinese;4
+01001113;Germagnano;4
+01001114;Giaglione;3
+01001115;Giaveno;2
+01001116;Givoletto;4
+01001117;Gravere;3
+01001118;Groscavallo;4
+01001119;Grosso;4
+01001120;Grugliasco;4
+01001121;Ingria;4
+01001122;Inverso Pinasca;2
+01001123;Isolabella;4
+01001124;Issiglio;4
+01001125;Ivrea;4
+01001126;La Cassa;4
+01001127;La Loggia;4
+01001128;Lanzo Torinese;4
+01001129;Lauriano;4
+01001130;Leini;4
+01001131;Lemie;4
+01001132;Lessolo;4
+01001133;Levone;4
+01001134;Locana;4
+01001135;Lombardore;4
+01001136;Lombriasco;4
+01001137;Loranzè;4
+01001138;Lugnacco;4
+01001139;Luserna San Giovanni;2
+01001140;Lusernetta;2
+01001141;Lusigliè;4
+01001142;Macello;2
+01001143;Maglione;4
+01001144;Marentino;4
+01001145;Massello;2
+01001146;Mathi;4
+01001147;Mattie;3
+01001148;Mazzè;4
+01001149;Meana di Susa;3
+01001150;Mercenasco;4
+01001151;Meugliano;4
+01001152;Mezzenile;4
+01001153;Mombello di Torino;4
+01001154;Mompantero;3
+01001155;Monastero di Lanzo;4
+01001156;Moncalieri;4
+01001157;Moncenisio;4
+01001158;Montaldo Torinese;4
+01001159;Montalenghe;4
+01001160;Montalto Dora;4
+01001161;Montanaro;4
+01001162;Monteu da Po;4
+01001163;Moriondo Torinese;4
+01001164;Nichelino;4
+01001165;Noasca;4
+01001166;Nole;4
+01001167;Nomaglio;4
+01001168;None;4
+01001169;Novalesa;4
+01001170;Oglianico;4
+01001171;Orbassano;4
+01001172;Orio Canavese;4
+01001173;Osasco;2
+01001174;Osasio;4
+01001175;Oulx;3
+01001176;Ozegna;4
+01001177;Palazzo Canavese;4
+01001178;Pancalieri;4
+01001179;Parella;4
+01001180;Pavarolo;4
+01001181;Pavone Canavese;4
+01001182;Pecco;4
+01001183;Pecetto Torinese;4
+01001184;Perosa Argentina;2
+01001185;Perosa Canavese;4
+01001186;Perrero;2
+01001187;Pertusio;4
+01001188;Pessinetto;4
+01001189;Pianezza;4
+01001190;Pinasca;2
+01001191;Pinerolo;2
+01001192;Pino Torinese;4
+01001193;Piobesi Torinese;4
+01001194;Piossasco;4
+01001195;Piscina;3
+01001196;Piverone;4
+01001197;Poirino;4
+01001198;Pomaretto;2
+01001199;Pont-Canavese;4
+01001200;Porte;2
+01001201;Pragelato;3
+01001202;Prali;2
+01001203;Pralormo;4
+01001204;Pramollo;2
+01001205;Prarostino;2
+01001206;Prascorsano;4
+01001207;Pratiglione;4
+01001208;Quagliuzzo;4
+01001209;Quassolo;4
+01001210;Quincinetto;4
+01001211;Reano;3
+01001212;Ribordone;4
+01001213;Rivalba;4
+01001214;Rivalta di Torino;4
+01001215;Riva presso Chieri;4
+01001216;Rivara;4
+01001217;Rivarolo Canavese;4
+01001218;Rivarossa;4
+01001219;Rivoli;4
+01001220;Robassomero;4
+01001221;Rocca Canavese;4
+01001222;Roletto;2
+01001223;Romano Canavese;4
+01001224;Ronco Canavese;4
+01001225;Rondissone;4
+01001226;Rorà;2
+01001227;Roure;2
+01001228;Rosta;4
+01001229;Rubiana;3
+01001230;Rueglio;4
+01001231;Salassa;4
+01001232;Salbertrand;3
+01001233;Salerano Canavese;4
+01001234;Salza di Pinerolo;2
+01001235;Samone;4
+01001236;San Benigno Canavese;4
+01001237;San Carlo Canavese;4
+01001238;San Colombano Belmonte;4
+01001239;San Didero;3
+01001240;San Francesco al Campo;4
+01001241;Sangano;4
+01001242;San Germano Chisone;2
+01001243;San Gillio;4
+01001244;San Giorgio Canavese;4
+01001245;San Giorio di Susa;3
+01001246;San Giusto Canavese;4
+01001247;San Martino Canavese;4
+01001248;San Maurizio Canavese;4
+01001249;San Mauro Torinese;4
+01001250;San Pietro Val Lemina;2
+01001251;San Ponso;4
+01001252;San Raffaele Cimena;4
+01001253;San Sebastiano da Po;4
+01001254;San Secondo di Pinerolo;2
+01001255;Sant'Ambrogio di Torino;3
+01001256;Sant'Antonino di Susa;2
+01001257;Santena;4
+01001258;Sauze di Cesana;3
+01001259;Sauze d'Oulx;3
+01001260;Scalenghe;4
+01001261;Scarmagno;4
+01001262;Sciolze;4
+01001263;Sestriere;3
+01001264;Settimo Rottaro;4
+01001265;Settimo Torinese;4
+01001266;Settimo Vittone;4
+01001267;Sparone;4
+01001268;Strambinello;4
+01001269;Strambino;4
+01001270;Susa;3
+01001271;Tavagnasco;4
+01001272;Torino;4
+01001273;Torrazza Piemonte;4
+01001274;Torre Canavese;4
+01001275;Torre Pellice;2
+01001276;Trana;3
+01001277;Trausella;4
+01001278;Traversella;4
+01001279;Traves;4
+01001280;Trofarello;4
+01001281;Usseaux;2
+01001282;Usseglio;4
+01001283;Vaie;3
+01001284;Val della Torre;4
+01001285;Valgioie;3
+01001286;Vallo Torinese;4
+01001287;Valperga;4
+01001288;Valprato Soana;4
+01001289;Varisella;4
+01001290;Vauda Canavese;4
+01001291;Venaus;3
+01001292;Venaria Reale;4
+01001293;Verolengo;4
+01001294;Verrua Savoia;4
+01001295;Vestignè;4
+01001296;Vialfrè;4
+01001297;Vico Canavese;4
+01001298;Vidracco;4
+01001299;Vigone;4
+01001300;Villafranca Piemonte;4
+01001301;Villanova Canavese;4
+01001302;Villarbasse;4
+01001303;Villar Dora;3
+01001304;Villareggia;4
+01001305;Villar Focchiardo;2
+01001306;Villar Pellice;2
+01001307;Villar Perosa;2
+01001308;Villastellone;4
+01001309;Vinovo;4
+01001310;Virle Piemonte;4
+01001311;Vische;4
+01001312;Vistrorio;4
+01001313;Viù;4
+01001314;Volpiano;4
+01001315;Volvera;4
+01002002;Alagna Valsesia;4
+01002003;Albano Vercellese;4
+01002004;Alice Castello;4
+01002006;Arborio;4
+01002007;Asigliano Vercellese;4
+01002008;Balmuccia;4
+01002009;Balocco;4
+01002011;Bianzè;4
+01002014;Boccioleto;4
+01002015;Borgo d'Ale;4
+01002016;Borgosesia;4
+01002017;Borgo Vercelli;4
+01002019;Breia;4
+01002021;Buronzo;4
+01002025;Campertogno;4
+01002029;Carcoforo;4
+01002030;Caresana;4
+01002031;Caresanablot;4
+01002032;Carisio;4
+01002033;Casanova Elvo;4
+01002035;San Giacomo Vercellese;4
+01002038;Cellio;4
+01002041;Cervatto;4
+01002042;Cigliano;4
+01002043;Civiasco;4
+01002045;Collobiano;4
+01002047;Costanzana;4
+01002048;Cravagliana;4
+01002049;Crescentino;4
+01002052;Crova;4
+01002054;Desana;4
+01002057;Fobello;4
+01002058;Fontanetto Po;4
+01002059;Formigliana;4
+01002061;Gattinara;4
+01002062;Ghislarengo;4
+01002065;Greggio;4
+01002066;Guardabosone;4
+01002067;Lamporo;4
+01002068;Lenta;4
+01002070;Lignana;4
+01002071;Livorno Ferraris;4
+01002072;Lozzolo;4
+01002078;Mollia;4
+01002079;Moncrivello;4
+01002082;Motta de' Conti;4
+01002088;Olcenengo;4
+01002089;Oldenico;4
+01002090;Palazzolo Vercellese;4
+01002091;Pertengo;4
+01002093;Pezzana;4
+01002096;Pila;4
+01002097;Piode;4
+01002102;Postua;4
+01002104;Prarolo;4
+01002107;Quarona;4
+01002108;Quinto Vercellese;4
+01002110;Rassa;4
+01002111;Rima San Giuseppe;4
+01002112;Rimasco;4
+01002113;Rimella;4
+01002114;Riva Valdobbia;4
+01002115;Rive;4
+01002116;Roasio;4
+01002118;Ronsecco;4
+01002121;Rossa;4
+01002122;Rovasenda;4
+01002123;Sabbia;4
+01002126;Salasco;4
+01002127;Sali Vercellese;4
+01002128;Saluggia;4
+01002131;San Germano Vercellese;4
+01002133;Santhià;4
+01002134;Scopa;4
+01002135;Scopello;4
+01002137;Serravalle Sesia;4
+01002142;Stroppiana;4
+01002147;Tricerro;4
+01002148;Trino;4
+01002150;Tronzano Vercellese;4
+01002152;Valduggia;4
+01002156;Varallo;4
+01002158;Vercelli;4
+01002163;Villarboit;4
+01002164;Villata;4
+01002166;Vocca;4
+01003001;Agrate Conturbia;4
+01003002;Ameno;4
+01003006;Armeno;4
+01003008;Arona;4
+01003012;Barengo;4
+01003016;Bellinzago Novarese;4
+01003018;Biandrate;4
+01003019;Boca;4
+01003021;Bogogno;4
+01003022;Bolzano Novarese;4
+01003023;Borgolavezzaro;4
+01003024;Borgomanero;4
+01003025;Borgo Ticino;4
+01003026;Briga Novarese;4
+01003027;Briona;4
+01003030;Caltignaga;4
+01003032;Cameri;4
+01003036;Carpignano Sesia;4
+01003037;Casalbeltrame;4
+01003039;Casaleggio Novara;4
+01003040;Casalino;4
+01003041;Casalvolone;4
+01003042;Castellazzo Novarese;4
+01003043;Castelletto sopra Ticino;4
+01003044;Cavaglietto;4
+01003045;Cavaglio d'Agogna;4
+01003047;Cavallirio;4
+01003049;Cerano;4
+01003051;Colazza;4
+01003052;Comignago;4
+01003055;Cressa;4
+01003058;Cureggio;4
+01003060;Divignano;4
+01003062;Dormelletto;4
+01003065;Fara Novarese;4
+01003066;Fontaneto d'Agogna;4
+01003068;Galliate;4
+01003069;Garbagna Novarese;4
+01003070;Gargallo;4
+01003071;Gattico;4
+01003073;Ghemme;4
+01003076;Gozzano;4
+01003077;Granozzo con Monticello;4
+01003079;Grignasco;4
+01003082;Invorio;4
+01003083;Landiona;4
+01003084;Lesa;4
+01003088;Maggiora;4
+01003090;Mandello Vitta;4
+01003091;Marano Ticino;4
+01003093;Massino Visconti;4
+01003095;Meina;4
+01003097;Mezzomerico;4
+01003098;Miasino;4
+01003100;Momo;4
+01003103;Nebbiuno;4
+01003104;Nibbiola;4
+01003106;Novara;4
+01003108;Oleggio;4
+01003109;Oleggio Castello;4
+01003112;Orta San Giulio;4
+01003114;Paruzzaro;4
+01003115;Pella;4
+01003116;Pettenasco;4
+01003119;Pisano;4
+01003120;Pogno;4
+01003121;Pombia;4
+01003122;Prato Sesia;4
+01003129;Recetto;4
+01003130;Romagnano Sesia;4
+01003131;Romentino;4
+01003133;San Maurizio d'Opaglio;4
+01003134;San Nazzaro Sesia;4
+01003135;San Pietro Mosezzo;4
+01003138;Sillavengo;4
+01003139;Sizzano;4
+01003140;Soriso;4
+01003141;Sozzago;4
+01003143;Suno;4
+01003144;Terdobbiate;4
+01003146;Tornaco;4
+01003149;Trecate;4
+01003153;Vaprio d'Agogna;4
+01003154;Varallo Pombia;4
+01003157;Veruno;4
+01003158;Vespolate;4
+01003159;Vicolungo;4
+01003164;Vinzaglio;4
+01004001;Acceglio;3
+01004002;Aisone;3
+01004003;Alba;4
+01004004;Albaretto della Torre;4
+01004005;Alto;3
+01004006;Argentera;3
+01004007;Arguello;4
+01004008;Bagnasco;4
+01004009;Bagnolo Piemonte;2
+01004010;Baldissero d'Alba;4
+01004011;Barbaresco;4
+01004012;Barge;3
+01004013;Barolo;4
+01004014;Bastia Mondovì;4
+01004015;Battifollo;4
+01004016;Beinette;4
+01004017;Bellino;3
+01004018;Belvedere Langhe;4
+01004019;Bene Vagienna;4
+01004020;Benevello;4
+01004021;Bergolo;4
+01004022;Bernezzo;3
+01004023;Bonvicino;4
+01004024;Borgomale;4
+01004025;Borgo San Dalmazzo;3
+01004026;Bosia;4
+01004027;Bossolasco;4
+01004028;Boves;3
+01004029;Bra;4
+01004030;Briaglia;4
+01004031;Briga Alta;3
+01004032;Brondello;4
+01004033;Brossasco;4
+01004034;Busca;4
+01004035;Camerana;4
+01004036;Camo;4
+01004037;Canale;4
+01004038;Canosio;3
+01004039;Caprauna;3
+01004040;Caraglio;3
+01004041;Caramagna Piemonte;4
+01004042;Cardè;4
+01004043;Carrù;4
+01004044;Cartignano;3
+01004045;Casalgrasso;4
+01004046;Castagnito;4
+01004047;Casteldelfino;3
+01004048;Castellar;4
+01004049;Castelletto Stura;4
+01004050;Castelletto Uzzone;4
+01004051;Castellinaldo;4
+01004052;Castellino Tanaro;4
+01004053;Castelmagno;3
+01004054;Castelnuovo di Ceva;4
+01004055;Castiglione Falletto;4
+01004056;Castiglione Tinella;4
+01004057;Castino;4
+01004058;Cavallerleone;4
+01004059;Cavallermaggiore;4
+01004060;Celle di Macra;3
+01004061;Centallo;4
+01004062;Ceresole Alba;4
+01004063;Cerreto Langhe;4
+01004064;Cervasca;3
+01004065;Cervere;4
+01004066;Ceva;4
+01004067;Cherasco;4
+01004068;Chiusa di Pesio;4
+01004069;Cigliè;4
+01004070;Cissone;4
+01004071;Clavesana;4
+01004072;Corneliano d'Alba;4
+01004073;Cortemilia;4
+01004074;Cossano Belbo;4
+01004075;Costigliole Saluzzo;4
+01004076;Cravanzana;4
+01004077;Crissolo;3
+01004078;Cuneo;4
+01004079;Demonte;3
+01004080;Diano d'Alba;4
+01004081;Dogliani;4
+01004082;Dronero;3
+01004083;Elva;3
+01004084;Entracque;3
+01004085;Envie;4
+01004086;Farigliano;4
+01004087;Faule;4
+01004088;Feisoglio;4
+01004089;Fossano;4
+01004090;Frabosa Soprana;4
+01004091;Frabosa Sottana;4
+01004092;Frassino;3
+01004093;Gaiola;3
+01004094;Gambasca;4
+01004095;Garessio;4
+01004096;Genola;4
+01004097;Gorzegno;4
+01004098;Gottasecca;4
+01004099;Govone;4
+01004100;Grinzane Cavour;4
+01004101;Guarene;4
+01004102;Igliano;4
+01004103;Isasca;4
+01004104;Lagnasco;4
+01004105;La Morra;4
+01004106;Lequio Berria;4
+01004107;Lequio Tanaro;4
+01004108;Lesegno;4
+01004109;Levice;4
+01004110;Limone Piemonte;3
+01004111;Lisio;4
+01004112;Macra;3
+01004113;Magliano Alfieri;4
+01004114;Magliano Alpi;4
+01004115;Mango;4
+01004116;Manta;4
+01004117;Marene;4
+01004118;Margarita;4
+01004119;Marmora;3
+01004120;Marsaglia;4
+01004121;Martiniana Po;4
+01004122;Melle;3
+01004123;Moiola;3
+01004124;Mombarcaro;4
+01004125;Mombasiglio;4
+01004126;Monastero di Vasco;4
+01004127;Monasterolo Casotto;4
+01004128;Monasterolo di Savigliano;4
+01004129;Monchiero;4
+01004130;Mondovì;4
+01004131;Monesiglio;4
+01004132;Monforte d'Alba;4
+01004133;Montà;4
+01004134;Montaldo di Mondovì;4
+01004135;Montaldo Roero;4
+01004136;Montanera;4
+01004137;Montelupo Albese;4
+01004138;Montemale di Cuneo;3
+01004139;Monterosso Grana;3
+01004140;Monteu Roero;4
+01004141;Montezemolo;4
+01004142;Monticello d'Alba;4
+01004143;Moretta;4
+01004144;Morozzo;4
+01004145;Murazzano;4
+01004146;Murello;4
+01004147;Narzole;4
+01004148;Neive;4
+01004149;Neviglie;4
+01004150;Niella Belbo;4
+01004151;Niella Tanaro;4
+01004152;Novello;4
+01004153;Nucetto;4
+01004154;Oncino;3
+01004155;Ormea;3
+01004156;Ostana;3
+01004157;Paesana;3
+01004158;Pagno;4
+01004159;Pamparato;4
+01004160;Paroldo;4
+01004161;Perletto;4
+01004162;Perlo;4
+01004163;Peveragno;4
+01004164;Pezzolo Valle Uzzone;4
+01004165;Pianfei;4
+01004166;Piasco;4
+01004167;Pietraporzio;3
+01004168;Piobesi d'Alba;4
+01004169;Piozzo;4
+01004170;Pocapaglia;4
+01004171;Polonghera;4
+01004172;Pontechianale;3
+01004173;Pradleves;3
+01004174;Prazzo;3
+01004175;Priero;4
+01004176;Priocca;4
+01004177;Priola;4
+01004178;Prunetto;4
+01004179;Racconigi;4
+01004180;Revello;4
+01004181;Rifreddo;4
+01004182;Rittana;3
+01004183;Roaschia;3
+01004184;Roascio;4
+01004185;Robilante;3
+01004186;Roburent;4
+01004187;Roccabruna;3
+01004188;Rocca Cigliè;4
+01004189;Rocca de' Baldi;4
+01004190;Roccaforte Mondovì;4
+01004191;Roccasparvera;3
+01004192;Roccavione;3
+01004193;Rocchetta Belbo;4
+01004194;Roddi;4
+01004195;Roddino;4
+01004196;Rodello;4
+01004197;Rossana;4
+01004198;Ruffia;4
+01004199;Sale delle Langhe;4
+01004200;Sale San Giovanni;4
+01004201;Saliceto;4
+01004202;Salmour;4
+01004203;Saluzzo;4
+01004204;Sambuco;3
+01004205;Sampeyre;3
+01004206;San Benedetto Belbo;4
+01004207;San Damiano Macra;3
+01004208;Sanfrè;4
+01004209;Sanfront;3
+01004210;San Michele Mondovì;4
+01004211;Sant'Albano Stura;4
+01004212;Santa Vittoria d'Alba;4
+01004213;Santo Stefano Belbo;4
+01004214;Santo Stefano Roero;4
+01004215;Savigliano;4
+01004216;Scagnello;4
+01004217;Scarnafigi;4
+01004218;Serralunga d'Alba;4
+01004219;Serravalle Langhe;4
+01004220;Sinio;4
+01004221;Somano;4
+01004222;Sommariva del Bosco;4
+01004223;Sommariva Perno;4
+01004224;Stroppo;3
+01004225;Tarantasca;4
+01004226;Torre Bormida;4
+01004227;Torre Mondovì;4
+01004228;Torre San Giorgio;4
+01004229;Torresina;4
+01004230;Treiso;4
+01004231;Trezzo Tinella;4
+01004232;Trinità;4
+01004233;Valdieri;3
+01004234;Valgrana;3
+01004235;Valloriate;3
+01004236;Valmala;3
+01004237;Venasca;4
+01004238;Verduno;4
+01004239;Vernante;3
+01004240;Verzuolo;4
+01004241;Vezza d'Alba;4
+01004242;Vicoforte;4
+01004243;Vignolo;3
+01004244;Villafalletto;4
+01004245;Villanova Mondovì;4
+01004246;Villanova Solaro;4
+01004247;Villar San Costanzo;3
+01004248;Vinadio;3
+01004249;Viola;4
+01004250;Vottignasco;4
+01005001;Agliano;4
+01005002;Albugnano;4
+01005003;Antignano;4
+01005004;Aramengo;4
+01005005;Asti;4
+01005006;Azzano d'Asti;4
+01005007;Baldichieri d'Asti;4
+01005008;Belveglio;4
+01005009;Berzano di San Pietro;4
+01005010;Bruno;4
+01005011;Bubbio;4
+01005012;Buttigliera d'Asti;4
+01005013;Calamandrana;4
+01005014;Calliano;4
+01005015;Calosso;4
+01005016;Camerano Casasco;4
+01005017;Canelli;4
+01005018;Cantarana;4
+01005019;Capriglio;4
+01005020;Casorzo;4
+01005021;Cassinasco;4
+01005022;Castagnole delle Lanze;4
+01005023;Castagnole Monferrato;4
+01005024;Castel Boglione;4
+01005025;Castell'Alfero;4
+01005026;Castellero;4
+01005027;Castelletto Molina;4
+01005028;Castello di Annone;4
+01005029;Castelnuovo Belbo;4
+01005030;Castelnuovo Calcea;4
+01005031;Castelnuovo Don Bosco;4
+01005032;Castel Rocchero;4
+01005033;Cellarengo;4
+01005034;Celle Enomondo;4
+01005035;Cerreto d'Asti;4
+01005036;Cerro Tanaro;4
+01005037;Cessole;4
+01005038;Chiusano d'Asti;4
+01005039;Cinaglio;4
+01005040;Cisterna d'Asti;4
+01005041;Coazzolo;4
+01005042;Cocconato;4
+01005044;Corsione;4
+01005045;Cortandone;4
+01005046;Cortanze;4
+01005047;Cortazzone;4
+01005048;Cortiglione;4
+01005049;Cossombrato;4
+01005050;Costigliole d'Asti;4
+01005051;Cunico;4
+01005052;Dusino San Michele;4
+01005053;Ferrere;4
+01005054;Fontanile;4
+01005055;Frinco;4
+01005056;Grana;4
+01005057;Grazzano Badoglio;4
+01005058;Incisa Scapaccino;4
+01005059;Isola d'Asti;4
+01005060;Loazzolo;4
+01005061;Maranzana;4
+01005062;Maretto;4
+01005063;Moasca;4
+01005064;Mombaldone;4
+01005065;Mombaruzzo;4
+01005066;Mombercelli;4
+01005067;Monale;4
+01005068;Monastero Bormida;4
+01005069;Moncalvo;4
+01005070;Moncucco Torinese;4
+01005071;Mongardino;4
+01005072;Montabone;4
+01005073;Montafia;4
+01005074;Montaldo Scarampi;4
+01005075;Montechiaro d'Asti;4
+01005076;Montegrosso d'Asti;4
+01005077;Montemagno;4
+01005079;Moransengo;4
+01005080;Nizza Monferrato;4
+01005081;Olmo Gentile;4
+01005082;Passerano Marmorito;4
+01005083;Penango;4
+01005084;Piea;4
+01005085;Pino d'Asti;4
+01005086;Piovà Massaia;4
+01005087;Portacomaro;4
+01005088;Quaranti;4
+01005089;Refrancore;4
+01005090;Revigliasco d'Asti;4
+01005091;Roatto;4
+01005092;Robella;4
+01005093;Rocca d'Arazzo;4
+01005094;Roccaverano;4
+01005095;Rocchetta Palafea;4
+01005096;Rocchetta Tanaro;4
+01005097;San Damiano d'Asti;4
+01005098;San Giorgio Scarampi;4
+01005099;San Martino Alfieri;4
+01005100;San Marzano Oliveto;4
+01005101;San Paolo Solbrito;4
+01005103;Scurzolengo;4
+01005104;Serole;4
+01005105;Sessame;4
+01005106;Settime;4
+01005107;Soglio;4
+01005108;Tigliole;4
+01005109;Tonco;4
+01005110;Tonengo;4
+01005111;Vaglio Serra;4
+01005112;Valfenera;4
+01005113;Vesime;4
+01005114;Viale;4
+01005115;Viarigi;4
+01005116;Vigliano d'Asti;4
+01005117;Villafranca d'Asti;4
+01005118;Villanova d'Asti;4
+01005119;Villa San Secondo;4
+01005120;Vinchio;4
+01005121;Montiglio Monferrato (1);4
+01006001;Acqui Terme;4
+01006002;Albera Ligure;3
+01006003;Alessandria;4
+01006004;Alfiano Natta;4
+01006005;Alice Bel Colle;4
+01006006;Alluvioni Cambiò;4
+01006007;Altavilla Monferrato;4
+01006008;Alzano Scrivia;4
+01006009;Arquata Scrivia;3
+01006010;Avolasca;3
+01006011;Balzola;4
+01006012;Basaluzzo;4
+01006013;Bassignana;4
+01006014;Belforte Monferrato;4
+01006015;Bergamasco;4
+01006016;Berzano di Tortona;4
+01006017;Bistagno;4
+01006018;Borghetto di Borbera;3
+01006019;Borgoratto Alessandrino;4
+01006020;Borgo San Martino;4
+01006021;Bosco Marengo;4
+01006022;Bosio;3
+01006023;Bozzole;4
+01006024;Brignano-Frascata;3
+01006025;Cabella Ligure;3
+01006026;Camagna Monferrato;4
+01006027;Camino;4
+01006028;Cantalupo Ligure;3
+01006029;Capriata d'Orba;4
+01006030;Carbonara Scrivia;4
+01006031;Carentino;4
+01006032;Carezzano;3
+01006033;Carpeneto;4
+01006034;Carrega Ligure;3
+01006035;Carrosio;3
+01006036;Cartosio;4
+01006037;Casal Cermelli;4
+01006038;Casaleggio Boiro;4
+01006039;Casale Monferrato;4
+01006040;Casalnoceto;4
+01006041;Casasco;3
+01006042;Cassano Spinola;3
+01006043;Cassine;4
+01006044;Cassinelle;4
+01006045;Castellania;3
+01006046;Castellar Guidobono;4
+01006047;Castellazzo Bormida;4
+01006048;Castelletto d'Erro;4
+01006049;Castelletto d'Orba;4
+01006050;Castelletto Merli;4
+01006051;Castelletto Monferrato;4
+01006052;Castelnuovo Bormida;4
+01006053;Castelnuovo Scrivia;4
+01006054;Castelspina;4
+01006055;Cavatore;4
+01006056;Cella Monte;4
+01006057;Cereseto;4
+01006058;Cerreto Grue;3
+01006059;Cerrina Monferrato;4
+01006060;Coniolo;4
+01006061;Conzano;4
+01006062;Costa Vescovato;3
+01006063;Cremolino;4
+01006064;Cuccaro Monferrato;4
+01006065;Denice;4
+01006066;Dernice;3
+01006067;Fabbrica Curone;3
+01006068;Felizzano;4
+01006069;Fraconalto;3
+01006070;Francavilla Bisio;4
+01006071;Frascaro;4
+01006072;Frassinello Monferrato;4
+01006073;Frassineto Po;4
+01006074;Fresonara;4
+01006075;Frugarolo;4
+01006076;Fubine;4
+01006077;Gabiano;4
+01006078;Gamalero;4
+01006079;Garbagna;3
+01006080;Gavazzana;3
+01006081;Gavi;3
+01006082;Giarole;4
+01006083;Gremiasco;3
+01006084;Grognardo;4
+01006085;Grondona;3
+01006086;Guazzora;4
+01006087;Isola Sant'Antonio;4
+01006088;Lerma;4
+01006089;Lu;4
+01006090;Malvicino;4
+01006091;Masio;4
+01006092;Melazzo;4
+01006093;Merana;4
+01006094;Mirabello Monferrato;4
+01006095;Molare;4
+01006096;Molino dei Torti;4
+01006097;Mombello Monferrato;4
+01006098;Momperone;3
+01006099;Moncestino;4
+01006100;Mongiardino Ligure;3
+01006101;Monleale;4
+01006102;Montacuto;3
+01006103;Montaldeo;4
+01006104;Montaldo Bormida;4
+01006105;Montecastello;4
+01006106;Montechiaro d'Acqui;4
+01006107;Montegioco;3
+01006108;Montemarzino;3
+01006109;Morano sul Po;4
+01006110;Morbello;4
+01006111;Mornese;3
+01006112;Morsasco;4
+01006113;Murisengo;4
+01006114;Novi Ligure;4
+01006115;Occimiano;4
+01006116;Odalengo Grande;4
+01006117;Odalengo Piccolo;4
+01006118;Olivola;4
+01006119;Orsara Bormida;4
+01006120;Ottiglio;4
+01006121;Ovada;4
+01006122;Oviglio;4
+01006123;Ozzano Monferrato;4
+01006124;Paderna;3
+01006125;Pareto;4
+01006126;Parodi Ligure;3
+01006127;Pasturana;4
+01006128;Pecetto di Valenza;4
+01006129;Pietra Marazzi;4
+01006130;Piovera;4
+01006131;Pomaro Monferrato;4
+01006132;Pontecurone;4
+01006133;Pontestura;4
+01006134;Ponti;4
+01006135;Ponzano Monferrato;4
+01006136;Ponzone;4
+01006137;Pozzol Groppo;3
+01006138;Pozzolo Formigaro;4
+01006139;Prasco;4
+01006140;Predosa;4
+01006141;Quargnento;4
+01006142;Quattordio;4
+01006143;Ricaldone;4
+01006144;Rivalta Bormida;4
+01006145;Rivarone;4
+01006146;Roccaforte Ligure;3
+01006147;Rocca Grimalda;4
+01006148;Rocchetta Ligure;3
+01006149;Rosignano Monferrato;4
+01006150;Sala Monferrato;4
+01006151;Sale;4
+01006152;San Cristoforo;3
+01006153;San Giorgio Monferrato;4
+01006154;San Salvatore Monferrato;4
+01006155;San Sebastiano Curone;3
+01006156;Sant'Agata Fossili;3
+01006157;Sardigliano;3
+01006158;Sarezzano;3
+01006159;Serralunga di Crea;4
+01006160;Serravalle Scrivia;3
+01006161;Sezzadio;4
+01006162;Silvano d'Orba;4
+01006163;Solero;4
+01006164;Solonghello;4
+01006165;Spigno Monferrato;4
+01006166;Spineto Scrivia;4
+01006167;Stazzano;3
+01006168;Strevi;4
+01006169;Tagliolo Monferrato;4
+01006170;Tassarolo;4
+01006171;Terruggia;4
+01006172;Terzo;4
+01006173;Ticineto;4
+01006174;Tortona;4
+01006175;Treville;4
+01006176;Trisobbio;4
+01006177;Valenza;4
+01006178;Valmacca;4
+01006179;Vignale Monferrato;4
+01006180;Vignole Borbera;3
+01006181;Viguzzolo;4
+01006182;Villadeati;4
+01006183;Villalvernia;3
+01006184;Villamiroglio;4
+01006185;Villanova Monferrato;4
+01006186;Villaromagnano;3
+01006187;Visone;4
+01006188;Volpedo;4
+01006189;Volpeglino;4
+01006190;Voltaggio;3
+01096001;Ailoche;4
+01096002;Andorno Micca;4
+01096003;Benna;4
+01096004;Biella;4
+01096005;Bioglio;4
+01096006;Borriana;4
+01096007;Brusnengo;4
+01096008;Callabiana;4
+01096009;Camandona;4
+01096010;Camburzano;4
+01096011;Campiglia Cervo;4
+01096012;Candelo;4
+01096013;Caprile;4
+01096014;Casapinta;4
+01096015;Castelletto Cervo;4
+01096016;Cavaglià;4
+01096017;Cerreto Castello;4
+01096018;Cerrione;4
+01096019;Coggiola;4
+01096020;Cossato;4
+01096021;Crevacuore;4
+01096022;Crosa;4
+01096023;Curino;4
+01096024;Donato;4
+01096025;Dorzano;4
+01096026;Gaglianico;4
+01096027;Gifflenga;4
+01096028;Graglia;4
+01096029;Lessona;4
+01096030;Magnano;4
+01096031;Massazza;4
+01096032;Masserano;4
+01096033;Mezzana Mortigliengo;4
+01096034;Miagliano;4
+01096035;Mongrando;4
+01096037;Mottalciata;4
+01096038;Muzzano;4
+01096039;Netro;4
+01096040;Occhieppo Inferiore;4
+01096041;Occhieppo Superiore;4
+01096042;Pettinengo;4
+01096043;Piatto;4
+01096044;Piedicavallo;4
+01096046;Pollone;4
+01096047;Ponderano;4
+01096048;Portula;4
+01096049;Pralungo;4
+01096050;Pray;4
+01096051;Quaregna;4
+01096052;Quittengo;4
+01096053;Ronco Biellese;4
+01096054;Roppolo;4
+01096055;Rosazza;4
+01096056;Sagliano Micca;4
+01096057;Sala Biellese;4
+01096058;Salussola;4
+01096059;Sandigliano;4
+01096060;San Paolo Cervo;4
+01096061;Selve Marcone;4
+01096062;Soprana;4
+01096063;Sordevolo;4
+01096064;Sostegno;4
+01096065;Strona;4
+01096066;Tavigliano;4
+01096067;Ternengo;4
+01096068;Tollegno;4
+01096069;Torrazzo;4
+01096070;Trivero;4
+01096071;Valdengo;4
+01096072;Vallanzengo;4
+01096073;Valle Mosso;4
+01096074;Valle San Nicolao;4
+01096075;Veglio;4
+01096076;Verrone;4
+01096077;Vigliano Biellese;4
+01096078;Villa del Bosco;4
+01096079;Villanova Biellese;4
+01096080;Viverone;4
+01096081;Zimone;4
+01096082;Zubiena;4
+01096083;Zumaglia;4
+01096084;Mosso (1);4
+01103001;Antrona Schieranco;3
+01103002;Anzola d'Ossola;4
+01103003;Arizzano;4
+01103004;Arola;4
+01103005;Aurano;4
+01103006;Baceno;3
+01103007;Bannio Anzino;4
+01103008;Baveno;4
+01103009;Bee;4
+01103010;Belgirate;4
+01103011;Beura-Cardezza;3
+01103012;Bognanco;3
+01103013;Brovello-Carpugnino;4
+01103014;Calasca-Castiglione;3
+01103015;Cambiasca;4
+01103016;Cannero Riviera;4
+01103017;Cannobio;4
+01103018;Caprezzo;4
+01103019;Casale Corte Cerro;4
+01103020;Cavaglio-Spoccia;4
+01103021;Ceppo Morelli;3
+01103022;Cesara;4
+01103023;Cossogno;4
+01103024;Craveggia;4
+01103025;Crevoladossola;3
+01103026;Crodo;3
+01103027;Cursolo-Orasso;4
+01103028;Domodossola;3
+01103029;Druogno;4
+01103030;Falmenta;4
+01103031;Formazza;4
+01103032;Germagno;4
+01103033;Ghiffa;4
+01103034;Gignese;4
+01103035;Gravellona Toce;4
+01103036;Gurro;4
+01103037;Intragna;4
+01103038;Loreglia;4
+01103039;Macugnaga;3
+01103040;Madonna del Sasso;4
+01103041;Malesco;4
+01103042;Masera;3
+01103043;Massiola;4
+01103044;Mergozzo;4
+01103045;Miazzina;4
+01103046;Montecrestese;3
+01103047;Montescheno;3
+01103048;Nonio;4
+01103049;Oggebbio;4
+01103050;Omegna;4
+01103051;Ornavasso;4
+01103052;Pallanzeno;3
+01103053;Piedimulera;3
+01103054;Pieve Vergonte;4
+01103055;Premeno;4
+01103056;Premia;3
+01103057;Premosello-Chiovenda;4
+01103058;Quarna Sopra;4
+01103059;Quarna Sotto;4
+01103060;Re;4
+01103061;San Bernardino Verbano;4
+01103062;Santa Maria Maggiore;4
+01103063;Seppiana;3
+01103064;Stresa;4
+01103065;Toceno;4
+01103066;Trarego Viggiona;4
+01103067;Trasquera;3
+01103068;Trontano;3
+01103069;Valstrona;4
+01103070;Vanzone con San Carlo;3
+01103071;Varzo;3
+01103072;Verbania;4
+01103073;Viganella;3
+01103074;Vignone;4
+01103075;Villadossola;3
+01103076;Villette;4
+01103077;Vogogna;4
+02007001;Allein;4
+02007002;Antey-Saint-Andrè;4
+02007003;Aosta;4
+02007004;Arnad;4
+02007005;Arvier;4
+02007006;Avise;4
+02007007;Ayas;4
+02007008;Aymavilles;4
+02007009;Bard;4
+02007010;Bionaz;4
+02007011;Brissogne;4
+02007012;Brusson;4
+02007013;Challand-Saint-Anselme;4
+02007014;Challand-Saint-Victor;4
+02007015;Chambave;4
+02007016;Chamois;4
+02007017;Champdepraz;4
+02007018;Champorcher;4
+02007019;Charvensod;4
+02007020;Chatillon;4
+02007021;Cogne;4
+02007022;Courmayeur;3
+02007023;Donnas;4
+02007024;Doues;4
+02007025;Emarese;4
+02007026;Etroubles;4
+02007027;Fenis;4
+02007028;Fontainemore;4
+02007029;Gaby;4
+02007030;Gignod;4
+02007031;Gressan;4
+02007032;Gressoney-La-Trinitè;4
+02007033;Gressoney-Saint-Jean;4
+02007034;Hone;4
+02007035;Introd;4
+02007036;Issime;4
+02007037;Issogne;4
+02007038;Jovencan;4
+02007039;La Magdeleine;4
+02007040;La Salle;4
+02007041;La Thuile;4
+02007042;Lillianes;4
+02007043;Montjovet;4
+02007044;Morgex;4
+02007045;Nus;4
+02007046;Ollomont;4
+02007047;Oyace;4
+02007048;Perloz;4
+02007049;Pollein;4
+02007050;Pontboset;4
+02007051;Pontey;4
+02007052;Pont-Saint-Martin;4
+02007053;Prè-Saint-Didier;3
+02007054;Quart;4
+02007055;Rhemes-Notre-Dame;4
+02007056;Rhemes-Saint-Georges;4
+02007057;Roisan;4
+02007058;Saint-Christophe;4
+02007059;Saint-Denis;4
+02007060;Saint-Marcel;4
+02007061;Saint-Nicolas;4
+02007062;Saint-Oyen;4
+02007063;Saint-Pierre;4
+02007064;Saint-Rhemy-en-Bosses;4
+02007065;Saint-Vincent;4
+02007066;Sarre;4
+02007067;Torgnon;4
+02007068;Valgrisenche;4
+02007069;Valpelline;4
+02007070;Valsavarenche;4
+02007071;Valtournenche;3
+02007072;Verrayes;4
+02007073;Verres;4
+02007074;Villeneuve;4
+03012001;Agra;4
+03012002;Albizzate;4
+03012003;Angera;4
+03012004;Arcisate;4
+03012005;Arsago Seprio;4
+03012006;Azzate;4
+03012007;Azzio;4
+03012008;Barasso;4
+03012009;Bardello;4
+03012010;Bedero Valcuvia;4
+03012011;Besano;4
+03012012;Besnate;4
+03012013;Besozzo;4
+03012014;Biandronno;4
+03012015;Bisuschio;4
+03012016;Bodio Lomnago;4
+03012017;Brebbia;4
+03012018;Bregano;4
+03012019;Brenta;4
+03012020;Brezzo di Bedero;4
+03012021;Brinzio;4
+03012022;Brissago-Valtravaglia;4
+03012023;Brunello;4
+03012024;Brusimpiano;4
+03012025;Buguggiate;4
+03012026;Busto Arsizio;4
+03012027;Cadegliano-Viconago;4
+03012028;Cadrezzate;4
+03012029;Cairate;4
+03012030;Cantello;4
+03012031;Caravate;4
+03012032;Cardano al Campo;4
+03012033;Carnago;4
+03012034;Caronno Pertusella;4
+03012035;Caronno Varesino;4
+03012036;Casale Litta;4
+03012037;Casalzuigno;4
+03012038;Casciago;4
+03012039;Casorate Sempione;4
+03012040;Cassano Magnago;4
+03012041;Cassano Valcuvia;4
+03012042;Castellanza;4
+03012043;Castello Cabiaglio;4
+03012044;Castelseprio;4
+03012045;Castelveccana;4
+03012046;Castiglione Olona;4
+03012047;Castronno;4
+03012048;Cavaria con Premezzo;4
+03012049;Cazzago Brabbia;4
+03012050;Cislago;4
+03012051;Cittiglio;4
+03012052;Clivio;4
+03012053;Cocquio-Trevisago;4
+03012054;Comabbio;4
+03012055;Comerio;4
+03012056;Cremenaga;4
+03012057;Crosio della Valle;4
+03012058;Cuasso al Monte;4
+03012059;Cugliate-Fabiasco;4
+03012060;Cunardo;4
+03012061;Curiglia con Monteviasco;4
+03012062;Cuveglio;4
+03012063;Cuvio;4
+03012064;Daverio;4
+03012065;Dumenza;4
+03012066;Duno;4
+03012067;Fagnano Olona;4
+03012068;Ferno;4
+03012069;Ferrera di Varese;4
+03012070;Gallarate;4
+03012071;Galliate Lombardo;4
+03012072;Gavirate;4
+03012073;Gazzada Schianno;4
+03012074;Gemonio;4
+03012075;Gerenzano;4
+03012076;Germignaga;4
+03012077;Golasecca;4
+03012078;Gorla Maggiore;4
+03012079;Gorla Minore;4
+03012080;Gornate-Olona;4
+03012081;Grantola;4
+03012082;Inarzo;4
+03012083;Induno Olona;4
+03012084;Ispra;4
+03012085;Jerago con Orago;4
+03012086;Lavena Ponte Tresa;4
+03012087;Laveno-Mombello;4
+03012088;Leggiuno;4
+03012089;Lonate Ceppino;4
+03012090;Lonate Pozzolo;4
+03012091;Lozza;4
+03012092;Luino;4
+03012093;Luvinate;4
+03012094;Maccagno;4
+03012095;Malgesso;4
+03012096;Malnate;4
+03012097;Marchirolo;4
+03012098;Marnate;4
+03012099;Marzio;4
+03012100;Masciago Primo;4
+03012101;Mercallo;4
+03012102;Mesenzana;4
+03012103;Montegrino Valtravaglia;4
+03012104;Monvalle;4
+03012105;Morazzone;4
+03012106;Mornago;4
+03012107;Oggiona con Santo Stefano;4
+03012108;Olgiate Olona;4
+03012109;Origgio;4
+03012110;Orino;4
+03012111;Osmate;4
+03012112;Pino sulla Sponda del Lago Maggiore;4
+03012113;Porto Ceresio;4
+03012114;Porto Valtravaglia;4
+03012115;Rancio Valcuvia;4
+03012116;Ranco;4
+03012117;Saltrio;4
+03012118;Samarate;4
+03012119;Saronno;4
+03012120;Sesto Calende;4
+03012121;Solbiate Arno;4
+03012122;Solbiate Olona;4
+03012123;Somma Lombardo;4
+03012124;Sumirago;4
+03012125;Taino;4
+03012126;Ternate;4
+03012127;Tradate;4
+03012128;Travedona-Monate;4
+03012129;Tronzano Lago Maggiore;4
+03012130;Uboldo;4
+03012131;Valganna;4
+03012132;Varano Borghi;4
+03012133;Varese;4
+03012134;Vedano Olona;4
+03012135;Veddasca;4
+03012136;Venegono Inferiore;4
+03012137;Venegono Superiore;4
+03012138;Vergiate;4
+03012139;Viggiù;4
+03012140;Vizzola Ticino;4
+03012141;Sangiano;4
+03013003;Albavilla;4
+03013004;Albese con Cassano;4
+03013005;Albiolo;4
+03013006;Alserio;4
+03013007;Alzate Brianza;4
+03013009;Anzano del Parco;4
+03013010;Appiano Gentile;4
+03013011;Argegno;4
+03013012;Arosio;4
+03013013;Asso;4
+03013015;Barni;4
+03013019;Bellagio;4
+03013021;Bene Lario;4
+03013022;Beregazzo con Figliaro;4
+03013023;Binago;4
+03013024;Bizzarone;4
+03013025;Blessagno;4
+03013026;Blevio;4
+03013028;Bregnano;4
+03013029;Brenna;4
+03013030;Brienno;4
+03013032;Brunate;4
+03013034;Bulgarograsso;4
+03013035;Cabiate;4
+03013036;Cadorago;4
+03013037;Caglio;4
+03013038;Cagno;4
+03013040;Campione d'Italia;4
+03013041;Cantù;4
+03013042;Canzo;4
+03013043;Capiago Intimiano;4
+03013044;Carate Urio;4
+03013045;Carbonate;4
+03013046;Carimate;4
+03013047;Carlazzo;4
+03013048;Carugo;4
+03013050;Casasco d'Intelvi;4
+03013052;Caslino d'Erba;4
+03013053;Casnate con Bernate;4
+03013055;Cassina Rizzardi;4
+03013058;Castelmarte;4
+03013059;Castelnuovo Bozzente;4
+03013060;Castiglione d'Intelvi;4
+03013061;Cavallasca;4
+03013062;Cavargna;4
+03013063;Cerano d'Intelvi;4
+03013064;Cermenate;4
+03013065;Cernobbio;4
+03013068;Cirimido;4
+03013070;Civenna;4
+03013071;Claino con Osteno;4
+03013074;Colonno;4
+03013075;Como;4
+03013076;Consiglio di Rumo;4
+03013077;Corrido;4
+03013083;Cremia;4
+03013084;Cucciago;4
+03013085;Cusino;4
+03013087;Dizzasco;4
+03013089;Domaso;4
+03013090;Dongo;4
+03013092;Dosso del Liro;4
+03013093;Drezzo;4
+03013095;Erba;4
+03013097;Eupilio;4
+03013098;Faggeto Lario;4
+03013099;Faloppio;4
+03013100;Fenegrò;4
+03013101;Figino Serenza;4
+03013102;Fino Mornasco;4
+03013106;Garzeno;4
+03013107;Gera Lario;4
+03013108;Germasino;4
+03013109;Gironico;4
+03013110;Grandate;4
+03013111;Grandola ed Uniti;4
+03013112;Gravedona;4
+03013113;Griante;4
+03013114;Guanzate;4
+03013118;Inverigo;4
+03013119;Laglio;4
+03013120;Laino;4
+03013121;Lambrugo;4
+03013122;Lanzo d'Intelvi;4
+03013123;Lasnigo;4
+03013125;Lenno;4
+03013126;Lezzeno;4
+03013128;Limido Comasco;4
+03013129;Lipomo;4
+03013130;Livo;4
+03013131;Locate Varesino;4
+03013133;Lomazzo;4
+03013134;Longone al Segrino;4
+03013135;Luisago;4
+03013136;Lurago d'Erba;4
+03013137;Lurago Marinone;4
+03013138;Lurate Caccivio;4
+03013139;Magreglio;4
+03013143;Mariano Comense;4
+03013144;Maslianico;4
+03013145;Menaggio;4
+03013147;Merone;4
+03013148;Mezzegra;4
+03013152;Moltrasio;4
+03013153;Monguzzo;4
+03013154;Montano Lucino;4
+03013155;Montemezzo;4
+03013157;Montorfano;4
+03013159;Mozzate;4
+03013160;Musso;4
+03013161;Nesso;4
+03013163;Novedrate;4
+03013165;Olgiate Comasco;4
+03013169;Oltrona di San Mamette;4
+03013170;Orsenigo;4
+03013172;Ossuccio;4
+03013175;Parè;4
+03013178;Peglio;4
+03013179;Pellio Intelvi;4
+03013183;Pianello del Lario;4
+03013184;Pigra;4
+03013185;Plesio;4
+03013186;Pognana Lario;4
+03013187;Ponna;4
+03013188;Ponte Lambro;4
+03013189;Porlezza;4
+03013192;Proserpio;4
+03013193;Pusiano;4
+03013194;Ramponio Verna;4
+03013195;Rezzago;4
+03013197;Rodero;4
+03013199;Ronago;4
+03013201;Rovellasca;4
+03013202;Rovello Porro;4
+03013203;Sala Comacina;4
+03013204;San Bartolomeo Val Cavargna;4
+03013205;San Fedele Intelvi;4
+03013206;San Fermo della Battaglia;4
+03013207;San Nazzaro Val Cavargna;4
+03013208;Sant'Abbondio;4
+03013210;Santa Maria Rezzonico;4
+03013211;Schignano;4
+03013212;Senna Comasco;4
+03013215;Solbiate;4
+03013216;Sorico;4
+03013217;Sormano;4
+03013218;Stazzona;4
+03013222;Tavernerio;4
+03013223;Torno;4
+03013225;Tremezzo;4
+03013226;Trezzone;4
+03013227;Turate;4
+03013228;Uggiate-Trevano;4
+03013229;Valbrona;4
+03013232;Valmorea;4
+03013233;Val Rezzo;4
+03013234;Valsolda;4
+03013236;Veleso;4
+03013238;Veniano;4
+03013239;Vercana;4
+03013242;Vertemate con Minoprio;4
+03013245;Villa Guardia;4
+03013246;Zelbio;4
+03014001;Albaredo per San Marco;4
+03014002;Albosaggia;4
+03014003;Andalo Valtellino;4
+03014004;Aprica;4
+03014005;Ardenno;4
+03014006;Bema;4
+03014007;Berbenno di Valtellina;4
+03014008;Bianzone;4
+03014009;Bormio;4
+03014010;Buglio in Monte;4
+03014011;Caiolo;4
+03014012;Campodolcino;4
+03014013;Caspoggio;4
+03014014;Castello dell'Acqua;4
+03014015;Castione Andevenno;4
+03014016;Cedrasco;4
+03014017;Cercino;4
+03014018;Chiavenna;4
+03014019;Chiesa in Valmalenco;4
+03014020;Chiuro;4
+03014021;Cino;4
+03014022;Civo;4
+03014023;Colorina;4
+03014024;Cosio Valtellino;4
+03014025;Dazio;4
+03014026;Delebio;4
+03014027;Dubino;4
+03014028;Faedo Valtellino;4
+03014029;Forcola;4
+03014030;Fusine;4
+03014031;Gerola Alta;4
+03014032;Gordona;4
+03014033;Grosio;4
+03014034;Grosotto;4
+03014035;Madesimo;4
+03014036;Lanzada;4
+03014037;Livigno;4
+03014038;Lovero;4
+03014039;Mantello;4
+03014040;Mazzo di Valtellina;4
+03014041;Mello;4
+03014042;Menarola;4
+03014043;Mese;4
+03014044;Montagna in Valtellina;4
+03014045;Morbegno;4
+03014046;Novate Mezzola;4
+03014047;Pedesina;4
+03014048;Piantedo;4
+03014049;Piateda;4
+03014050;Piuro;4
+03014051;Poggiridenti;4
+03014052;Ponte in Valtellina;4
+03014053;Postalesio;4
+03014054;Prata Camportaccio;4
+03014055;Rasura;4
+03014056;Rogolo;4
+03014057;Samolaco;4
+03014058;San Giacomo Filippo;4
+03014059;Sernio;4
+03014060;Sondalo;4
+03014061;Sondrio;4
+03014062;Spriana;4
+03014063;Talamona;4
+03014064;Tartano;4
+03014065;Teglio;4
+03014066;Tirano;4
+03014067;Torre di Santa Maria;4
+03014068;Tovo di Sant'Agata;4
+03014069;Traona;4
+03014070;Tresivio;4
+03014071;Valdidentro;4
+03014072;Valdisotto;4
+03014073;Valfurva;4
+03014074;Val Masino;4
+03014075;Verceia;4
+03014076;Vervio;4
+03014077;Villa di Chiavenna;4
+03014078;Villa di Tirano;4
+03015002;Abbiategrasso;4
+03015003;Agrate Brianza;4
+03015004;Aicurzio;4
+03015005;Albairate;4
+03015006;Albiate;4
+03015007;Arconate;4
+03015008;Arcore;4
+03015009;Arese;4
+03015010;Arluno;4
+03015011;Assago;4
+03015012;Bareggio;4
+03015013;Barlassina;4
+03015014;Basiano;4
+03015015;Basiglio;4
+03015016;Bellinzago Lombardo;4
+03015017;Bellusco;4
+03015018;Bernareggio;4
+03015019;Bernate Ticino;4
+03015021;Besana in Brianza;4
+03015022;Besate;4
+03015023;Biassono;4
+03015024;Binasco;4
+03015026;Boffalora sopra Ticino;4
+03015027;Bollate;4
+03015030;Bovisio-Masciago;4
+03015032;Bresso;4
+03015033;Briosco;4
+03015034;Brugherio;4
+03015035;Bubbiano;4
+03015036;Buccinasco;4
+03015037;Burago di Molgora;4
+03015038;Buscate;4
+03015039;Busnago;4
+03015040;Bussero;4
+03015041;Busto Garolfo;4
+03015042;Calvignasco;4
+03015044;Cambiago;4
+03015045;Camparada;4
+03015046;Canegrate;4
+03015047;Caponago;4
+03015048;Carate Brianza;4
+03015049;Carnate;4
+03015050;Carpiano;4
+03015051;Carugate;4
+03015055;Casarile;4
+03015058;Casorezzo;4
+03015059;Cassano d'Adda;4
+03015060;Cassina de' Pecchi;4
+03015061;Cassinetta di Lugagnano;4
+03015062;Castano Primo;4
+03015068;Cavenago di Brianza;4
+03015069;Ceriano Laghetto;4
+03015070;Cernusco sul Naviglio;4
+03015071;Cerro al Lambro;4
+03015072;Cerro Maggiore;4
+03015074;Cesano Boscone;4
+03015075;Cesano Maderno;4
+03015076;Cesate;4
+03015077;Cinisello Balsamo;4
+03015078;Cisliano;4
+03015080;Cogliate;4
+03015081;Cologno Monzese;4
+03015082;Colturano;4
+03015084;Concorezzo;4
+03015085;Corbetta;4
+03015086;Cormano;4
+03015087;Cornaredo;4
+03015088;Cornate d'Adda;4
+03015092;Correzzana;4
+03015093;Corsico;4
+03015096;Cuggiono;4
+03015097;Cusago;4
+03015098;Cusano Milanino;4
+03015099;Dairago;4
+03015100;Desio;4
+03015101;Dresano;4
+03015103;Gaggiano;4
+03015105;Garbagnate Milanese;4
+03015106;Gessate;4
+03015107;Giussano;4
+03015108;Gorgonzola;4
+03015110;Grezzago;4
+03015112;Gudo Visconti;4
+03015113;Inveruno;4
+03015114;Inzago;4
+03015115;Lacchiarella;4
+03015116;Lainate;4
+03015117;Lazzate;4
+03015118;Legnano;4
+03015119;Lentate sul Seveso;4
+03015120;Lesmo;4
+03015121;Limbiate;4
+03015122;Liscate;4
+03015123;Lissone;4
+03015125;Locate di Triulzi;4
+03015129;Macherio;4
+03015130;Magenta;4
+03015131;Magnago;4
+03015134;Marcallo con Casone;4
+03015136;Masate;4
+03015138;Meda;4
+03015139;Mediglia;4
+03015140;Melegnano;4
+03015142;Melzo;4
+03015144;Mesero;4
+03015145;Mezzago;4
+03015146;Milano;4
+03015147;Misinto;4
+03015149;Monza;4
+03015150;Morimondo;4
+03015151;Motta Visconti;4
+03015152;Muggiò;4
+03015154;Nerviano;4
+03015155;Nosate;4
+03015156;Nova Milanese;4
+03015157;Novate Milanese;4
+03015158;Noviglio;4
+03015159;Opera;4
+03015161;Ornago;4
+03015164;Ossona;4
+03015165;Ozzero;4
+03015166;Paderno Dugnano;4
+03015167;Pantigliate;4
+03015168;Parabiago;4
+03015169;Paullo;4
+03015170;Pero;4
+03015171;Peschiera Borromeo;4
+03015172;Pessano con Bornago;4
+03015173;Pieve Emanuele;4
+03015175;Pioltello;4
+03015176;Pogliano Milanese;4
+03015177;Pozzo d'Adda;4
+03015178;Pozzuolo Martesana;4
+03015179;Pregnana Milanese;4
+03015180;Renate;4
+03015181;Rescaldina;4
+03015182;Rho;4
+03015183;Robecchetto con Induno;4
+03015184;Robecco sul Naviglio;4
+03015185;Rodano;4
+03015186;Roncello;4
+03015187;Ronco Briantino;4
+03015188;Rosate;4
+03015189;Rozzano;4
+03015191;San Colombano al Lambro;4
+03015192;San Donato Milanese;4
+03015194;San Giorgio su Legnano;4
+03015195;San Giuliano Milanese;4
+03015200;Santo Stefano Ticino;4
+03015201;San Vittore Olona;4
+03015202;San Zenone al Lambro;4
+03015204;Sedriano;4
+03015205;Segrate;4
+03015206;Senago;4
+03015208;Seregno;4
+03015209;Sesto San Giovanni;4
+03015210;Settala;4
+03015211;Settimo Milanese;4
+03015212;Seveso;4
+03015213;Solaro;4
+03015216;Sovico;4
+03015217;Sulbiate;4
+03015219;Trezzano Rosa;4
+03015220;Trezzano sul Naviglio;4
+03015221;Trezzo sull'Adda;4
+03015222;Tribiano;4
+03015223;Triuggio;4
+03015224;Truccazzano;4
+03015226;Turbigo;4
+03015227;Usmate Velate;4
+03015229;Vanzago;4
+03015230;Vaprio d'Adda;4
+03015231;Varedo;4
+03015232;Vedano al Lambro;4
+03015233;Veduggio con Colzano;4
+03015234;Verano Brianza;4
+03015235;Vermezzo;4
+03015236;Vernate;4
+03015237;Vignate;4
+03015239;Villasanta;4
+03015241;Vimercate;4
+03015242;Vimodrone;4
+03015243;Vittuone;4
+03015244;Vizzolo Predabissi;4
+03015246;Zelo Surrigone;4
+03015247;Zibido San Giacomo;4
+03015248;Villa Cortese;4
+03015249;Vanzaghello;4
+03016001;Adrara San Martino;3
+03016002;Adrara San Rocco;3
+03016003;Albano Sant'Alessandro;3
+03016004;Albino;3
+03016005;Almè;4
+03016006;Almenno San Bartolomeo;4
+03016007;Almenno San Salvatore;4
+03016008;Alzano Lombardo;3
+03016009;Ambivere;4
+03016010;Antegnate;4
+03016011;Arcene;4
+03016012;Ardesio;4
+03016013;Arzago d'Adda;4
+03016014;Averara;4
+03016015;Aviatico;3
+03016016;Azzano San Paolo;3
+03016017;Azzone;4
+03016018;Bagnatica;3
+03016019;Barbata;4
+03016020;Bariano;4
+03016021;Barzana;4
+03016022;Bedulita;4
+03016023;Berbenno;4
+03016024;Bergamo;3
+03016025;Berzo San Fermo;3
+03016026;Bianzano;3
+03016027;Blello;4
+03016028;Bolgare;3
+03016029;Boltiere;4
+03016030;Bonate Sopra;4
+03016031;Bonate Sotto;4
+03016032;Borgo di Terzo;3
+03016033;Bossico;4
+03016034;Bottanuco;4
+03016035;Bracca;4
+03016036;Branzi;4
+03016037;Brembate;4
+03016038;Brembate di Sopra;4
+03016039;Brembilla;4
+03016040;Brignano Gera d'Adda;4
+03016041;Brumano;4
+03016042;Brusaporto;3
+03016043;Calcinate;3
+03016044;Calcio;2
+03016046;Calusco d'Adda;4
+03016047;Calvenzano;4
+03016048;Camerata Cornello;4
+03016049;Canonica d'Adda;4
+03016050;Capizzone;4
+03016051;Capriate San Gervasio;4
+03016052;Caprino Bergamasco;4
+03016053;Caravaggio;4
+03016055;Carobbio degli Angeli;3
+03016056;Carona;4
+03016057;Carvico;4
+03016058;Casazza;3
+03016059;Casirate d'Adda;4
+03016060;Casnigo;4
+03016061;Cassiglio;4
+03016062;Castelli Calepio;3
+03016063;Castel Rozzone;4
+03016064;Castione della Presolana;4
+03016065;Castro;3
+03016066;Cavernago;3
+03016067;Cazzano Sant'Andrea;4
+03016068;Cenate Sopra;3
+03016069;Cenate Sotto;3
+03016070;Cene;3
+03016071;Cerete;4
+03016072;Chignolo d'Isola;4
+03016073;Chiuduno;3
+03016074;Cisano Bergamasco;4
+03016075;Ciserano;4
+03016076;Cividate al Piano;3
+03016077;Clusone;4
+03016078;Colere;4
+03016079;Cologno al Serio;3
+03016080;Colzate;4
+03016081;Comun Nuovo;4
+03016082;Corna Imagna;4
+03016083;Cortenova;3
+03016084;Costa di Mezzate;3
+03016085;Costa Valle Imagna;4
+03016086;Costa Volpino;3
+03016087;Covo;4
+03016088;Credaro;3
+03016089;Curno;4
+03016090;Cusio;4
+03016091;Dalmine;4
+03016092;Dossena;4
+03016093;Endine Gaiano;3
+03016094;Entratico;3
+03016096;Fara Gera d'Adda;4
+03016097;Fara Olivana con Sola;4
+03016098;Filago;4
+03016099;Fino del Monte;4
+03016100;Fiorano al Serio;3
+03016101;Fontanella;2
+03016102;Fonteno;3
+03016103;Foppolo;4
+03016104;Foresto Sparso;3
+03016105;Fornovo San Giovanni;4
+03016106;Fuipiano Valle Imagna;4
+03016107;Gandellino;4
+03016108;Gandino;4
+03016109;Gandosso;3
+03016110;Gaverina Terme;3
+03016111;Gazzaniga;3
+03016112;Gerosa;4
+03016113;Ghisalba;3
+03016114;Gorlago;3
+03016115;Gorle;3
+03016116;Gorno;4
+03016117;Grassobbio;3
+03016118;Gromo;4
+03016119;Grone;3
+03016120;Grumello del Monte;3
+03016121;Isola di Fondra;4
+03016122;Isso;4
+03016123;Lallio;4
+03016124;Leffe;3
+03016125;Lenna;4
+03016126;Levate;4
+03016127;Locatello;4
+03016128;Lovere;3
+03016129;Lurano;4
+03016130;Luzzana;3
+03016131;Madone;4
+03016132;Mapello;4
+03016133;Martinengo;3
+03016134;Mezzoldo;4
+03016135;Misano di Gera d'Adda;4
+03016136;Moio de' Calvi;4
+03016137;Monasterolo del Castello;3
+03016139;Montello;3
+03016140;Morengo;4
+03016141;Mornico al Serio;3
+03016142;Mozzanica;4
+03016143;Mozzo;4
+03016144;Nembro;3
+03016145;Olmo al Brembo;4
+03016146;Oltre Il Colle;4
+03016147;Oltressenda Alta;4
+03016148;Oneta;4
+03016149;Onore;4
+03016150;Orio al Serio;3
+03016151;Ornica;4
+03016152;Osio Sopra;4
+03016153;Osio Sotto;4
+03016154;Pagazzano;4
+03016155;Paladina;4
+03016156;Palazzago;4
+03016157;Palosco;3
+03016158;Parre;4
+03016159;Parzanica;3
+03016160;Pedrengo;3
+03016161;Peia;3
+03016162;Pianico;3
+03016163;Piario;4
+03016164;Piazza Brembana;4
+03016165;Piazzatorre;4
+03016166;Piazzolo;4
+03016167;Pognano;4
+03016168;Ponte Nossa;4
+03016169;Ponteranica;3
+03016170;Ponte San Pietro;4
+03016171;Pontida;4
+03016172;Pontirolo Nuovo;4
+03016173;Pradalunga;3
+03016174;Predore;3
+03016175;Premolo;4
+03016176;Presezzo;4
+03016177;Pumenengo;2
+03016178;Ranica;3
+03016179;Ranzanico;3
+03016180;Riva di Solto;3
+03016182;Rogno;4
+03016183;Romano di Lombardia;4
+03016184;Roncobello;4
+03016185;Roncola;4
+03016186;Rota d'Imagna;4
+03016187;Rovetta;4
+03016188;San Giovanni Bianco;4
+03016189;San Paolo d'Argon;3
+03016190;San Pellegrino Terme;4
+03016191;Santa Brigida;4
+03016192;Sant'Omobono Imagna;4
+03016193;Sarnico;3
+03016194;Scanzorosciate;3
+03016195;Schilpario;4
+03016196;Sedrina;4
+03016197;Selvino;3
+03016198;Seriate;3
+03016199;Serina;4
+03016200;Solto Collina;3
+03016201;Songavazzo;4
+03016202;Sorisole;3
+03016203;Sotto il Monte Giovanni XXIII;4
+03016204;Sovere;4
+03016205;Spinone al Lago;3
+03016206;Spirano;4
+03016207;Stezzano;4
+03016208;Strozza;4
+03016209;Suisio;4
+03016210;Taleggio;4
+03016211;Tavernola Bergamasca;3
+03016212;Telgate;3
+03016213;Terno d'Isola;4
+03016214;Torre Boldone;3
+03016216;Torre de' Roveri;3
+03016217;Torre Pallavicina;2
+03016218;Trescore Balneario;3
+03016219;Treviglio;4
+03016220;Treviolo;4
+03016221;Ubiale Clanezzo;4
+03016222;Urgnano;3
+03016223;Valbondione;4
+03016224;Valbrembo;4
+03016225;Valgoglio;4
+03016226;Valleve;4
+03016227;Valnegra;4
+03016228;Valsecca;4
+03016229;Valtorta;4
+03016230;Vedeseta;4
+03016232;Verdellino;4
+03016233;Verdello;4
+03016234;Vertova;4
+03016235;Viadanica;3
+03016236;Vigano San Martino;3
+03016237;Vigolo;3
+03016238;Villa d'Adda;4
+03016239;Villa d'Almè;4
+03016240;Villa di Serio;3
+03016241;Villa d'Ogna;4
+03016242;Villongo;3
+03016243;Vilminore di Scalve;4
+03016244;Zandobbio;3
+03016245;Zanica;3
+03016246;Zogno;4
+03016247;Costa di Serina;4
+03016248;Algua;4
+03016249;Cornalba;4
+03016250;Medolago;4
+03016251;Solza;4
+03017001;Acquafredda;3
+03017002;Adro;3
+03017003;Agnosine;2
+03017004;Alfianello;4
+03017005;Anfo;3
+03017006;Angolo Terme;4
+03017007;Artogne;3
+03017008;Azzano Mella;3
+03017009;Bagnolo Mella;3
+03017010;Bagolino;3
+03017011;Barbariga;3
+03017012;Barghe;2
+03017013;Bassano Bresciano;4
+03017014;Bedizzole;3
+03017015;Berlingo;3
+03017016;Berzo Demo;4
+03017017;Berzo Inferiore;4
+03017018;Bienno;4
+03017019;Bione;3
+03017020;Borgo San Giacomo;4
+03017021;Borgosatollo;3
+03017022;Borno;4
+03017023;Botticino;3
+03017024;Bovegno;3
+03017025;Bovezzo;3
+03017026;Brandico;3
+03017027;Braone;4
+03017028;Breno;4
+03017029;Brescia;3
+03017030;Brione;3
+03017031;Caino;2
+03017032;Calcinato;3
+03017033;Calvagese della Riviera;3
+03017034;Calvisano;3
+03017035;Capo di Ponte;4
+03017036;Capovalle;3
+03017037;Capriano del Colle;3
+03017038;Capriolo;3
+03017039;Carpenedolo;3
+03017040;Castegnato;3
+03017041;Castelcovati;2
+03017042;Castel Mella;3
+03017043;Castenedolo;3
+03017044;Casto;3
+03017045;Castrezzato;2
+03017046;Cazzago San Martino;3
+03017047;Cedegolo;4
+03017048;Cellatica;3
+03017049;Cerveno;4
+03017050;Ceto;4
+03017051;Cevo;4
+03017052;Chiari;3
+03017053;Cigole;4
+03017054;Cimbergo;4
+03017055;Cividate Camuno;4
+03017056;Coccaglio;3
+03017057;Collebeato;3
+03017058;Collio;3
+03017059;Cologne;3
+03017060;Comezzano-Cizzago;2
+03017061;Concesio;3
+03017062;Corte Franca;3
+03017063;Corteno Golgi;4
+03017064;Corzano;3
+03017065;Darfo Boario Terme;4
+03017066;Dello;3
+03017067;Desenzano del Garda;3
+03017068;Edolo;4
+03017069;Erbusco;3
+03017070;Esine;4
+03017071;Fiesse;4
+03017072;Flero;3
+03017073;Gambara;4
+03017074;Gardone Riviera;2
+03017075;Gardone Val Trompia;3
+03017076;Gargnano;2
+03017077;Gavardo;2
+03017078;Ghedi;3
+03017079;Gianico;4
+03017080;Gottolengo;4
+03017081;Gussago;3
+03017082;Idro;3
+03017083;Incudine;4
+03017084;Irma;3
+03017085;Iseo;3
+03017086;Isorella;3
+03017087;Lavenone;3
+03017088;Leno;3
+03017089;Limone sul Garda;3
+03017090;Lodrino;3
+03017091;Lograto;3
+03017092;Lonato;3
+03017093;Longhena;3
+03017094;Losine;4
+03017095;Lozio;4
+03017096;Lumezzane;3
+03017097;Maclodio;3
+03017098;Magasa;3
+03017099;Mairano;3
+03017100;Malegno;4
+03017101;Malonno;4
+03017102;Manerba del Garda;3
+03017103;Manerbio;3
+03017104;Marcheno;3
+03017105;Marmentino;3
+03017106;Marone;3
+03017107;Mazzano;3
+03017108;Milzano;4
+03017109;Moniga del Garda;3
+03017110;Monno;4
+03017111;Monte Isola;3
+03017112;Monticelli Brusati;3
+03017113;Montichiari;3
+03017114;Montirone;3
+03017115;Mura;3
+03017116;Muscoline;3
+03017117;Nave;3
+03017118;Niardo;4
+03017119;Nuvolento;3
+03017120;Nuvolera;3
+03017121;Odolo;2
+03017122;Offlaga;3
+03017123;Ome;3
+03017124;Ono San Pietro;4
+03017125;Orzinuovi;2
+03017126;Orzivecchi;2
+03017127;Ospitaletto;3
+03017128;Ossimo;4
+03017129;Padenghe sul  Garda;3
+03017130;Paderno Franciacorta;3
+03017131;Paisco Loveno;4
+03017132;Paitone;2
+03017133;Palazzolo sull'Oglio;3
+03017134;Paratico;3
+03017135;Paspardo;4
+03017136;Passirano;3
+03017137;Pavone del Mella;4
+03017138;San Paolo;4
+03017139;Pertica Alta;3
+03017140;Pertica Bassa;3
+03017141;Pezzaze;3
+03017142;Pian Camuno;3
+03017143;Pisogne;3
+03017144;Polaveno;3
+03017145;Polpenazze del Garda;3
+03017146;Pompiano;2
+03017147;Poncarale;3
+03017148;Ponte di Legno;4
+03017149;Pontevico;4
+03017150;Pontoglio;3
+03017151;Pozzolengo;3
+03017152;Pralboino;4
+03017153;Preseglie;2
+03017154;Prestine;4
+03017155;Prevalle;2
+03017156;Provaglio d'Iseo;3
+03017157;Provaglio Val Sabbia;2
+03017158;Puegnago sul Garda;2
+03017159;Quinzano d'Oglio;4
+03017160;Remedello;4
+03017161;Rezzato;3
+03017162;Roccafranca;2
+03017163;Rodengo-Saiano;3
+03017164;Roè Volciano;2
+03017165;Roncadelle;3
+03017166;Rovato;3
+03017167;Rudiano;2
+03017168;Sabbio Chiese;2
+03017169;Sale Marasino;3
+03017170;Salò;2
+03017171;San Felice del Benaco;2
+03017172;San Gervasio Bresciano;4
+03017173;San Zeno Naviglio;3
+03017174;Sarezzo;3
+03017175;Saviore dell'Adamello;4
+03017176;Sellero;4
+03017177;Seniga;4
+03017178;Serle;2
+03017179;Sirmione;3
+03017180;Soiano del Lago;3
+03017181;Sonico;4
+03017182;Sulzano;3
+03017183;Tavernole sul Mella;3
+03017184;Temù;4
+03017185;Tignale;3
+03017186;Torbole Casaglia;3
+03017187;Toscolano-Maderno;2
+03017188;Travagliato;3
+03017189;Tremosine;3
+03017190;Trenzano;3
+03017191;Treviso Bresciano;2
+03017192;Urago d'Oglio;2
+03017193;Vallio Terme;2
+03017194;Valvestino;3
+03017195;Verolanuova;4
+03017196;Verolavecchia;4
+03017197;Vestone;2
+03017198;Vezza d'Oglio;4
+03017199;Villa Carcina;3
+03017200;Villachiara;4
+03017201;Villanuova sul Clisi;2
+03017202;Vione;4
+03017203;Visano;3
+03017204;Vobarno;2
+03017205;Zone;3
+03017206;Piancogno;4
+03018001;Alagna;4
+03018002;Albaredo Arnaboldi;4
+03018003;Albonese;4
+03018004;Albuzzano;4
+03018005;Arena Po;4
+03018006;Badia Pavese;4
+03018007;Bagnaria;3
+03018008;Barbianello;4
+03018009;Bascapè;4
+03018010;Bastida dè Dossi;4
+03018011;Bastida Pancarana;4
+03018012;Battuda;4
+03018013;Belgioioso;4
+03018014;Bereguardo;4
+03018015;Borgarello;4
+03018016;Borgo Priolo;4
+03018017;Borgoratto Mormorolo;3
+03018018;Borgo San Siro;4
+03018019;Bornasco;4
+03018020;Bosnasco;4
+03018021;Brallo di Pregola;3
+03018022;Breme;4
+03018023;Bressana Bottarone;4
+03018024;Broni;4
+03018025;Calvignano;4
+03018026;Campospinoso;4
+03018027;Candia Lomellina;4
+03018028;Canevino;4
+03018029;Canneto Pavese;4
+03018030;Carbonara al Ticino;4
+03018031;Casanova Lonati;4
+03018032;Casatisma;4
+03018033;Casei Gerola;4
+03018034;Casorate Primo;4
+03018035;Cassolnovo;4
+03018036;Castana;4
+03018037;Casteggio;4
+03018038;Castelletto di Branduzzo;4
+03018039;Castello d'Agogna;4
+03018040;Castelnovetto;4
+03018041;Cava Manara;4
+03018042;Cecima;3
+03018043;Ceranova;4
+03018044;Ceretto Lomellina;4
+03018045;Cergnago;4
+03018046;Certosa di Pavia;4
+03018047;Cervesina;4
+03018048;Chignolo Po;4
+03018049;Cigognola;4
+03018050;Cilavegna;4
+03018051;Codevilla;4
+03018052;Confienza;4
+03018053;Copiano;4
+03018054;Corana;4
+03018055;Cornale;4
+03018056;Corteolona;4
+03018057;Corvino San Quirico;4
+03018058;Costa de' Nobili;4
+03018059;Cozzo;4
+03018060;Cura Carpignano;4
+03018061;Dorno;4
+03018062;Ferrera Erbognone;4
+03018063;Filighera;4
+03018064;Fortunago;3
+03018065;Frascarolo;4
+03018066;Galliavola;4
+03018067;Gambarana;4
+03018068;Gambolò;4
+03018069;Garlasco;4
+03018070;Genzone;4
+03018071;Gerenzago;4
+03018072;Giussago;4
+03018073;Godiasco;3
+03018074;Golferenzo;4
+03018075;Gravellona Lomellina;4
+03018076;Gropello Cairoli;4
+03018077;Inverno e Monteleone;4
+03018078;Landriano;4
+03018079;Langosco;4
+03018080;Lardirago;4
+03018081;Linarolo;4
+03018082;Lirio;4
+03018083;Lomello;4
+03018084;Lungavilla;4
+03018085;Magherno;4
+03018086;Marcignago;4
+03018087;Marzano;4
+03018088;Mede;4
+03018089;Menconico;3
+03018090;Mezzana Bigli;4
+03018091;Mezzana Rabattone;4
+03018092;Mezzanino;4
+03018093;Miradolo Terme;4
+03018094;Montalto Pavese;4
+03018095;Montebello della Battaglia;4
+03018096;Montecalvo Versiggia;4
+03018097;Montescano;4
+03018098;Montesegale;3
+03018099;Monticelli Pavese;4
+03018100;Montù Beccaria;4
+03018101;Mornico Losana;4
+03018102;Mortara;4
+03018103;Nicorvo;4
+03018104;Olevano di Lomellina;4
+03018105;Oliva Gessi;4
+03018106;Ottobiano;4
+03018107;Palestro;4
+03018108;Pancarana;4
+03018109;Parona;4
+03018110;Pavia;4
+03018111;Pietra de' Giorgi;4
+03018112;Pieve Albignola;4
+03018113;Pieve del Cairo;4
+03018114;Pieve Porto Morone;4
+03018115;Pinarolo Po;4
+03018116;Pizzale;4
+03018117;Ponte Nizza;3
+03018118;Portalbera;4
+03018119;Rea;4
+03018120;Redavalle;4
+03018121;Retorbido;4
+03018122;Rivanazzano;4
+03018123;Robbio;4
+03018124;Robecco Pavese;4
+03018125;Rocca de' Giorgi;4
+03018126;Rocca Susella;3
+03018127;Rognano;4
+03018128;Romagnese;3
+03018129;Roncaro;4
+03018130;Rosasco;4
+03018131;Rovescala;4
+03018132;Ruino;3
+03018133;San Cipriano Po;4
+03018134;San Damiano al Colle;4
+03018135;San Genesio ed Uniti;4
+03018136;San Giorgio di Lomellina;4
+03018137;San Martino Siccomario;4
+03018138;Sannazzaro de' Burgondi;4
+03018139;Santa Cristina e Bissone;4
+03018140;Santa Giuletta;4
+03018141;Sant'Alessio con Vialone;4
+03018142;Santa Margherita di Staffora;3
+03018143;Santa Maria della Versa;4
+03018144;Sant'Angelo Lomellina;4
+03018145;San Zenone al Po;4
+03018146;Sartirana Lomellina;4
+03018147;Scaldasole;4
+03018148;Semiana;4
+03018149;Silvano Pietra;4
+03018150;Siziano;4
+03018151;Sommo;4
+03018152;Spessa;4
+03018153;Stradella;4
+03018154;Suardi;4
+03018155;Torrazza Coste;4
+03018156;Torre Beretti e Castellaro;4
+03018157;Torre d'Arese;4
+03018158;Torre de' Negri;4
+03018159;Torre d'Isola;4
+03018160;Torrevecchia Pia;4
+03018161;Torricella Verzate;4
+03018162;Travacò Siccomario;4
+03018163;Trivolzio;4
+03018164;Tromello;4
+03018165;Trovo;4
+03018166;Val di Nizza;3
+03018167;Valeggio;4
+03018168;Valle Lomellina;4
+03018169;Valle Salimbene;4
+03018170;Valverde;3
+03018171;Varzi;2
+03018172;Velezzo Lomellina;4
+03018173;Vellezzo Bellini;4
+03018174;Verretto;4
+03018175;Verrua Po;4
+03018176;Vidigulfo;4
+03018177;Vigevano;4
+03018178;Villa Biscossi;4
+03018179;Villanova d'Ardenghi;4
+03018180;Villanterio;4
+03018181;Vistarino;4
+03018182;Voghera;4
+03018183;Volpara;4
+03018184;Zavattarello;3
+03018185;Zeccone;4
+03018186;Zeme;4
+03018187;Zenevredo;4
+03018188;Zerbo;4
+03018189;Zerbolò;4
+03018190;Zinasco;4
+03019001;Acquanegra Cremonese;4
+03019002;Agnadello;4
+03019003;Annicco;4
+03019004;Azzanello;4
+03019005;Bagnolo Cremasco;4
+03019006;Bonemerse;4
+03019007;Bordolano;4
+03019008;Cà d'Andrea;4
+03019009;Calvatone;4
+03019010;Camisano;4
+03019011;Campagnola Cremasca;4
+03019012;Capergnanica;4
+03019013;Cappella Cantone;4
+03019014;Cappella de' Picenardi;4
+03019015;Capralba;4
+03019016;Casalbuttano ed Uniti;4
+03019017;Casale Cremasco-Vidolasco;4
+03019018;Casaletto Ceredano;4
+03019019;Casaletto di Sopra;2
+03019020;Casaletto Vaprio;4
+03019021;Casalmaggiore;4
+03019022;Casalmorano;4
+03019023;Casteldidone;4
+03019024;Castel Gabbiano;4
+03019025;Castelleone;4
+03019026;Castelverde;4
+03019027;Castelvisconti;4
+03019028;Cella Dati;4
+03019029;Chieve;4
+03019030;Cicognolo;4
+03019031;Cingia de' Botti;4
+03019032;Corte de' Cortesi con Cignone;4
+03019033;Corte de' Frati;4
+03019034;Credera Rubbiano;4
+03019035;Crema;4
+03019036;Cremona;4
+03019037;Cremosano;4
+03019038;Crotta d'Adda;4
+03019039;Cumignano sul Naviglio;4
+03019040;Derovere;4
+03019041;Dovera;4
+03019042;Drizzona;4
+03019043;Fiesco;4
+03019044;Formigara;4
+03019045;Gabbioneta-Binanuova;4
+03019046;Gadesco-Pieve Delmona;4
+03019047;Genivolta;4
+03019048;Gerre de' Caprioli;4
+03019049;Gombito;4
+03019050;Grontardo;4
+03019051;Grumello Cremonese ed Uniti;4
+03019052;Gussola;4
+03019053;Isola Dovarese;4
+03019054;Izano;4
+03019055;Madignano;4
+03019056;Malagnino;4
+03019057;Martignana di Po;4
+03019058;Monte Cremasco;4
+03019059;Montodine;4
+03019060;Moscazzano;4
+03019061;Motta Baluffi;4
+03019062;Offanengo;4
+03019063;Olmeneta;4
+03019064;Ostiano;4
+03019065;Paderno Ponchielli;4
+03019066;Palazzo Pignano;4
+03019067;Pandino;4
+03019068;Persico Dosimo;4
+03019069;Pescarolo ed Uniti;4
+03019070;Pessina Cremonese;4
+03019071;Piadena;4
+03019072;Pianengo;4
+03019073;Pieranica;4
+03019074;Pieve d'Olmi;4
+03019075;Pieve San Giacomo;4
+03019076;Pizzighettone;4
+03019077;Pozzaglio ed Uniti;4
+03019078;Quintano;4
+03019079;Ricengo;4
+03019080;Ripalta Arpina;4
+03019081;Ripalta Cremasca;4
+03019082;Ripalta Guerina;4
+03019083;Rivarolo del Re ed Uniti;4
+03019084;Rivolta d'Adda;4
+03019085;Robecco d'Oglio;4
+03019086;Romanengo;2
+03019087;Salvirola;4
+03019088;San Bassano;4
+03019089;San Daniele Po;4
+03019090;San Giovanni in Croce;4
+03019091;San Martino del Lago;4
+03019092;Scandolara Ravara;4
+03019093;Scandolara Ripa d'Oglio;4
+03019094;Sergnano;4
+03019095;Sesto ed Uniti;4
+03019096;Solarolo Rainerio;4
+03019097;Soncino;2
+03019098;Soresina;4
+03019099;Sospiro;4
+03019100;Spinadesco;4
+03019101;Spineda;4
+03019102;Spino d'Adda;4
+03019103;Stagno Lombardo;4
+03019104;Ticengo;2
+03019105;Torlino Vimercati;4
+03019106;Tornata;4
+03019107;Torre de' Picenardi;4
+03019108;Torricella del Pizzo;4
+03019109;Trescore Cremasco;4
+03019110;Trigolo;4
+03019111;Vaiano Cremasco;4
+03019112;Vailate;4
+03019113;Vescovato;4
+03019114;Volongo;4
+03019115;Voltido;4
+03020001;Acquanegra sul Chiese;4
+03020002;Asola;4
+03020003;Bagnolo San Vito;4
+03020004;Bigarello;4
+03020005;Borgoforte;4
+03020006;Borgofranco sul Po;4
+03020007;Bozzolo;4
+03020008;Canneto sull'Oglio;4
+03020009;Carbonara di Po;3
+03020010;Casalmoro;4
+03020011;Casaloldo;4
+03020012;Casalromano;4
+03020013;Castelbelforte;4
+03020014;Castel d'Ario;4
+03020015;Castel Goffredo;3
+03020016;Castellucchio;4
+03020017;Castiglione delle Stiviere;3
+03020018;Cavriana;3
+03020019;Ceresara;4
+03020020;Commessaggio;4
+03020021;Curtatone;4
+03020022;Dosolo;4
+03020023;Felonica;3
+03020024;Gazoldo degli Ippoliti;4
+03020025;Gazzuolo;4
+03020026;Goito;4
+03020027;Gonzaga;3
+03020028;Guidizzolo;3
+03020029;Magnacavallo;3
+03020030;Mantova;4
+03020031;Marcaria;4
+03020032;Mariana Mantovana;4
+03020033;Marmirolo;4
+03020034;Medole;3
+03020035;Moglia;3
+03020036;Monzambano;3
+03020037;Motteggiana;4
+03020038;Ostiglia;4
+03020039;Pegognaga;4
+03020040;Pieve di Coriano;4
+03020041;Piubega;4
+03020042;Poggio Rusco;3
+03020043;Pomponesco;4
+03020044;Ponti sul Mincio;3
+03020045;Porto Mantovano;4
+03020046;Quingentole;4
+03020047;Quistello;4
+03020048;Redondesco;4
+03020049;Revere;4
+03020050;Rivarolo Mantovano;4
+03020051;Rodigo;4
+03020052;Roncoferraro;4
+03020053;Roverbella;4
+03020054;Sabbioneta;4
+03020055;San Benedetto Po;4
+03020056;San Giacomo delle Segnate;3
+03020057;San Giorgio di Mantova;4
+03020058;San Giovanni del Dosso;3
+03020059;San Martino dall'Argine;4
+03020060;Schivenoglia;3
+03020061;Sermide;3
+03020062;Serravalle a Po;4
+03020063;Solferino;3
+03020064;Sustinente;4
+03020065;Suzzara;4
+03020066;Viadana;3
+03020067;Villa Poma;3
+03020068;Villimpenta;4
+03020069;Virgilio;4
+03020070;Volta Mantovana;3
+03097001;Abbadia Lariana;4
+03097002;Airuno;4
+03097003;Annone di Brianza;4
+03097004;Ballabio;4
+03097005;Barzago;4
+03097006;Barzanò;4
+03097007;Barzio;4
+03097008;Bellano;4
+03097009;Bosisio Parini;4
+03097010;Brivio;4
+03097011;Bulciago;4
+03097012;Calco;4
+03097013;Calolziocorte;4
+03097014;Carenno;4
+03097015;Casargo;4
+03097016;Casatenovo;4
+03097017;Cassago Brianza;4
+03097018;Cassina Valsassina;4
+03097019;Castello di Brianza;4
+03097020;Cernusco Lombardone;4
+03097021;Cesana Brianza;4
+03097022;Civate;4
+03097023;Colico;4
+03097024;Colle Brianza;4
+03097025;Cortenova;4
+03097026;Costa Masnaga;4
+03097027;Crandola Valsassina;4
+03097028;Cremella;4
+03097029;Cremeno;4
+03097030;Dervio;4
+03097031;Dolzago;4
+03097032;Dorio;4
+03097033;Ello;4
+03097034;Erve;4
+03097035;Esino Lario;4
+03097036;Galbiate;4
+03097037;Garbagnate Monastero;4
+03097038;Garlate;4
+03097039;Imbersago;4
+03097040;Introbio;4
+03097041;Introzzo;4
+03097042;Lecco;4
+03097043;Lierna;4
+03097044;Lomagna;4
+03097045;Malgrate;4
+03097046;Mandello del Lario;4
+03097047;Margno;4
+03097048;Merate;4
+03097049;Missaglia;4
+03097050;Moggio;4
+03097051;Molteno;4
+03097052;Monte Marenzo;4
+03097053;Montevecchia;4
+03097054;Monticello Brianza;4
+03097055;Morterone;4
+03097056;Nibionno;4
+03097057;Oggiono;4
+03097058;Olgiate Molgora;4
+03097059;Olginate;4
+03097060;Oliveto Lario;4
+03097061;Osnago;4
+03097062;Paderno d'Adda;4
+03097063;Pagnona;4
+03097064;Parlasco;4
+03097065;Pasturo;4
+03097066;Perego;4
+03097067;Perledo;4
+03097068;Pescate;4
+03097069;Premana;4
+03097070;Primaluna;4
+03097071;Robbiate;4
+03097072;Rogeno;4
+03097073;Rovagnate;4
+03097074;Santa Maria Hoè;4
+03097075;Sirone;4
+03097076;Sirtori;4
+03097077;Sueglio;4
+03097078;Suello;4
+03097079;Taceno;4
+03097080;Torre de' Busi;4
+03097081;Tremenico;4
+03097082;Valgreghentino;4
+03097083;Valmadrera;4
+03097084;Varenna;4
+03097085;Vendrogno;4
+03097086;Vercurago;4
+03097087;Verderio Inferiore;4
+03097088;Verderio Superiore;4
+03097089;Vestreno;4
+03097090;Viganò;4
+03098001;Abbadia Cerreto;4
+03098002;Bertonico;4
+03098003;Boffalora d'Adda;4
+03098004;Borghetto Lodigiano;4
+03098005;Borgo San Giovanni;4
+03098006;Brembio;4
+03098007;Camairago;4
+03098008;Casaletto Lodigiano;4
+03098009;Casalmaiocco;4
+03098010;Casalpusterlengo;4
+03098011;Caselle Landi;4
+03098012;Caselle Lurani;4
+03098013;Castelnuovo Bocca d'Adda;4
+03098014;Castiglione d'Adda;4
+03098015;Castiraga Vidardo;4
+03098016;Cavacurta;4
+03098017;Cavenago d'Adda;4
+03098018;Cervignano d'Adda;4
+03098019;Codogno;4
+03098020;Comazzo;4
+03098021;Cornegliano Laudense;4
+03098022;Corno Giovine;4
+03098023;Cornovecchio;4
+03098024;Corte Palasio;4
+03098025;Crespiatica;4
+03098026;Fombio;4
+03098027;Galgagnano;4
+03098028;Graffignana;4
+03098029;Guardamiglio;4
+03098030;Livraga;4
+03098031;Lodi;4
+03098032;Lodi Vecchio;4
+03098033;Maccastorna;4
+03098034;Mairago;4
+03098035;Maleo;4
+03098036;Marudo;4
+03098037;Massalengo;4
+03098038;Meleti;4
+03098039;Merlino;4
+03098040;Montanaso Lombardo;4
+03098041;Mulazzano;4
+03098042;Orio Litta;4
+03098043;Ospedaletto Lodigiano;4
+03098044;Ossago Lodigiano;4
+03098045;Pieve Fissiraga;4
+03098046;Salerano sul Lambro;4
+03098047;San Fiorano;4
+03098048;San Martino in Strada;4
+03098049;San Rocco al Porto;4
+03098050;Sant'Angelo Lodigiano;4
+03098051;Santo Stefano Lodigiano;4
+03098052;Secugnago;4
+03098053;Senna Lodigiana;4
+03098054;Somaglia;4
+03098055;Sordio;4
+03098056;Tavazzano con Villavesco;4
+03098057;Terranova dei Passerini;4
+03098058;Turano Lodigiano;4
+03098059;Valera Fratta;4
+03098060;Villanova del Sillaro;4
+03098061;Zelo Buon Persico;4
+04021001;Aldino - Aldein;4
+04021002;Andriano - Andrian;4
+04021003;Anterivo - Altrei;4
+04021004;Appiano sulla strada del vino - Eppan an der Weinstrasse;4
+04021005;Avelengo - Hafling;4
+04021006;Badia - Abtei;4
+04021007;Barbiano - Barbian;4
+04021008;Bolzano - Bozen;4
+04021009;Braies - Prags;4
+04021010;Brennero - Brenner;4
+04021011;Bressanone - Brixen;4
+04021012;Bronzolo - Branzoll;4
+04021013;Brunico - Bruneck;4
+04021014;Caines - Kuens;4
+04021015;Caldaro sulla strada del vino - Kaltern an der Weinstrasse;4
+04021016;Campo di Trens - Freienfeld;4
+04021017;Campo Tures - Sand in Taufers;4
+04021018;Castelbello-Ciardes - Kastelbell-Tschars;4
+04021019;Castelrotto - Kastelruth;4
+04021020;Cermes - Tscherms;4
+04021021;Chienes - Kiens;4
+04021022;Chiusa - Klausen;4
+04021023;Cornedo all'Isarco - Karneid;4
+04021024;Cortaccia sulla strada del vino-Kurtatsch an der Wainstrasse;4
+04021025;Cortina sulla strada del vino - Kurtinig an der Weinstrasse;4
+04021026;Corvara in Badia - Corvara;4
+04021027;Curon Venosta - Graun im Vinschgau;4
+04021028;Dobbiaco - Toblach;4
+04021029;Egna - Neumarkt;4
+04021030;Falzes - Pfalzen;4
+04021031;Fiè allo Sciliar - Voels am Schlern;4
+04021032;Fortezza - Franzensfeste;4
+04021033;Funes - Villnoess;4
+04021034;Gais - Gais;4
+04021035;Gargazzone - Gargazon;4
+04021036;Glorenza - Glurns;4
+04021037;Laces - Latsch;4
+04021038;Lagundo - Algund;4
+04021039;Laion - Lajen;4
+04021040;Laives - Leifers;4
+04021041;Lana - Lana;4
+04021042;Lasa - Laas;4
+04021043;Lauregno - Laurein;4
+04021044;Luson - Luesen;4
+04021045;Magrè sulla strada del vino - Margreid an der Weins;4
+04021046;Malles Venosta - Mals im Vinschgau;4
+04021047;Marebbe - Enneberg;4
+04021048;Marlengo - Marling;4
+04021049;Martello - Martell;4
+04021050;Meltina - Moelten;4
+04021051;Merano - Meran;4
+04021052;Monguelfo - Welsberg;4
+04021053;Montagna - Montan;4
+04021054;Moso in Passiria - Moos in Passeier;4
+04021055;Nalles - Nals;4
+04021056;Naturno - Naturns;4
+04021057;Naz-Sciaves - Natz-Schabs;4
+04021058;Nova Levante - Welschnofen;4
+04021059;Nova Ponente - Deutschnofen;4
+04021060;Ora - Auer;4
+04021061;Ortisei - St. Ulrich in Groeden;4
+04021062;Parcines - Partschins;4
+04021063;Perca - Percha;4
+04021064;Plaus - Plaus;4
+04021065;Ponte Gardena - Waidbruck;4
+04021066;Postal - Burgstall;4
+04021067;Prato allo Stelvio - Prad am Stilfser Joch;4
+04021068;Predoi - Prettau;4
+04021069;Proves - Proveis;4
+04021070;Racines - Ratschings;4
+04021071;Rasun Anterselva - Rasen Antholz;4
+04021072;Renon - Ritten;4
+04021073;Rifiano - Riffian;4
+04021074;Rio di Pusteria - Muehlbach;4
+04021075;Rodengo - Rodeneck;4
+04021076;Salorno - Salurn;4
+04021077;San Candido - Innichen;4
+04021079;San Genesio Atesino - Jenesien;4
+04021080;San Leonardo in Passiria - St. Leonhard in Passeier;4
+04021081;San Lorenzo di Sebato - St. Lorenzen;4
+04021082;San Martino in Badia - St. Martin in Thurn;4
+04021083;San Martino in Passiria - St. Martin in Passeier;4
+04021084;San Pancrazio - St. Pankraz;4
+04021085;Santa Cristina Val Gardena - St. Christina in Groede;4
+04021086;Sarentino - Sarntal;4
+04021087;Scena - Schenna;4
+04021088;Selva dei Molini - Muehlwald;4
+04021089;Selva di Val Gardena - Wolkenstein in Groeden;4
+04021091;Senales - Schnals;4
+04021092;Sesto - Sexten;4
+04021093;Silandro - Schlanders;4
+04021094;Sluderno - Schluderns;4
+04021095;Stelvio - Stilfs;4
+04021096;Terento - Terenten;4
+04021097;Terlano - Terlan;4
+04021098;Termeno sulla strada del vino - Tramin an der Weinstrasse;4
+04021099;Tesimo - Tisens;4
+04021100;Tires - Tiers;4
+04021101;Tirolo - Tirol;4
+04021102;Trodena - Truden;4
+04021103;Tubre - Taufers im Muenstertal;4
+04021104;Ultimo - Ulten;4
+04021105;Vadena - Pfatten;4
+04021106;Valdaora - Olang;4
+04021107;Val di Vizze - Pfitsch;4
+04021108;Valle Aurina - Ahrntal;4
+04021109;Valle di Casies - Gsies;4
+04021110;Vandoies - Vintl;4
+04021111;Varna - Vahrn;4
+04021112;Verano - Voeran;4
+04021113;Villabassa - Niederdorf;4
+04021114;Villandro - Villanders;4
+04021115;Vipiteno - Sterzing;4
+04021116;Velturno - Feldthurns;4
+04021117;La Valle - Wengen;4
+04021118;Senale-San Felice - Unsere Liebe Frau im Walde-St. Felix;4
+04022001;Ala;3
+04022002;Albiano;4
+04022003;Aldeno;3
+04022004;Amblar;4
+04022005;Andalo;3
+04022006;Arco;3
+04022007;Avio;3
+04022009;Baselga di Pinè;4
+04022011;Bedollo;4
+04022012;Bersone;3
+04022013;Besenello;3
+04022014;Bezzecca;3
+04022015;Bieno;3
+04022016;Bleggio Inferiore;3
+04022017;Bleggio Superiore;3
+04022018;Bocenago;3
+04022019;Bolbeno;3
+04022020;Bondo;3
+04022021;Bondone;3
+04022022;Borgo Valsugana;3
+04022023;Bosentino;3
+04022024;Breguzzo;3
+04022025;Brentonico;3
+04022026;Bresimo;4
+04022027;Brez;4
+04022028;Brione;3
+04022029;Caderzone;3
+04022030;Cagnò;4
+04022031;Calavino;3
+04022032;Calceranica al Lago;3
+04022033;Caldes;4
+04022034;Caldonazzo;3
+04022035;Calliano;3
+04022036;Campitello di Fassa;4
+04022037;Campodenno;4
+04022038;Canal San Bovo;3
+04022039;Canazei;4
+04022040;Capriana;4
+04022041;Carano;4
+04022042;Carisolo;3
+04022043;Carzano;3
+04022045;Castel Condino;3
+04022046;Castelfondo;4
+04022047;Castello-Molina di Fiemme;4
+04022048;Castello Tesino;3
+04022049;Castelnuovo;3
+04022050;Cavalese;4
+04022051;Cavareno;4
+04022052;Cavedago;4
+04022053;Cavedine;3
+04022054;Cavizzana;4
+04022055;Cembra;4
+04022056;Centa San Nicolò;3
+04022057;Cimego;3
+04022058;Cimone;3
+04022059;Cinte Tesino;3
+04022060;Cis;4
+04022061;Civezzano;3
+04022062;Cles;4
+04022063;Cloz;4
+04022064;Commezzadura;4
+04022065;Concei;3
+04022066;Condino;3
+04022067;Coredo;4
+04022068;Croviana;4
+04022069;Cunevo;4
+04022070;Daiano;4
+04022071;Dambel;4
+04022072;Daone;3
+04022073;Darè;3
+04022074;Denno;4
+04022075;Dimaro;4
+04022076;Don;4
+04022077;Dorsino;3
+04022078;Drena;3
+04022079;Dro;3
+04022080;Faedo;4
+04022081;Fai della Paganella;4
+04022082;Faver;4
+04022083;Fiavè;3
+04022084;Fiera di Primiero;3
+04022085;Fierozzo;4
+04022086;Flavon;4
+04022087;Folgaria;3
+04022088;Fondo;4
+04022089;Fornace;4
+04022090;Frassilongo;4
+04022091;Garniga;3
+04022092;Giovo;4
+04022093;Giustino;3
+04022094;Grauno;4
+04022095;Grigno;3
+04022096;Grumes;4
+04022097;Imer;3
+04022098;Isera;3
+04022099;Ivano-Fracena;3
+04022100;Lardaro;3
+04022101;Lasino;3
+04022102;Lavarone;3
+04022103;Lavis;4
+04022104;Levico Terme;3
+04022105;Lisignago;4
+04022106;Livo;4
+04022107;Lomaso;3
+04022108;Lona-Lases;4
+04022109;Luserna;3
+04022110;Malè;4
+04022111;Malosco;4
+04022112;Massimeno;3
+04022113;Mazzin;4
+04022114;Mezzana;4
+04022115;Mezzano;3
+04022116;Mezzocorona;4
+04022117;Mezzolombardo;4
+04022118;Moena;4
+04022119;Molina di Ledro;3
+04022120;Molveno;3
+04022121;Monclassico;4
+04022122;Montagne;3
+04022123;Mori;3
+04022124;Nago-Torbole;3
+04022125;Nanno;4
+04022126;Nave San Rocco;4
+04022127;Nogaredo;3
+04022128;Nomi;3
+04022129;Novaledo;3
+04022130;Ospedaletto;3
+04022131;Ossana;4
+04022132;Padergnone;3
+04022133;Palù del Fersina;4
+04022134;Panchià;4
+04022135;Ronzo-Chienis;3
+04022136;Peio;4
+04022137;Pellizzano;4
+04022138;Pelugo;3
+04022139;Pergine Valsugana;3
+04022140;Pieve di Bono;3
+04022141;Pieve di Ledro;3
+04022142;Pieve Tesino;3
+04022143;Pinzolo;3
+04022144;Pomarolo;3
+04022145;Pozza di Fassa;4
+04022146;Praso;3
+04022147;Predazzo;4
+04022148;Preore;3
+04022149;Prezzo;3
+04022150;Rabbi;4
+04022151;Ragoli;3
+04022152;Revò;4
+04022153;Riva del Garda;3
+04022154;Romallo;4
+04022155;Romeno;4
+04022156;Roncegno;3
+04022157;Ronchi Valsugana;3
+04022158;Roncone;3
+04022159;Ronzone;4
+04022160;Roverè della Luna;4
+04022161;Rovereto;3
+04022162;Ruffrè;4
+04022163;Rumo;4
+04022164;Sagron Mis;3
+04022165;Samone;3
+04022166;San Lorenzo in Banale;3
+04022167;San Michele all'Adige;4
+04022168;Sant'Orsola Terme;4
+04022169;Sanzeno;4
+04022170;Sarnonico;4
+04022171;Scurelle;3
+04022172;Segonzano;4
+04022173;Sfruz;4
+04022174;Siror;3
+04022175;Smarano;4
+04022176;Soraga;4
+04022177;Sover;4
+04022178;Spera;3
+04022179;Spiazzo;3
+04022180;Spormaggiore;4
+04022181;Sporminore;4
+04022182;Stenico;3
+04022183;Storo;3
+04022184;Strembo;3
+04022185;Strigno;3
+04022186;Taio;4
+04022187;Tassullo;4
+04022188;Telve;3
+04022189;Telve di Sopra;3
+04022190;Tenna;3
+04022191;Tenno;3
+04022192;Terlago;3
+04022193;Terragnolo;3
+04022194;Terres;4
+04022195;Terzolas;4
+04022196;Tesero;4
+04022197;Tiarno di Sopra;3
+04022198;Tiarno di Sotto;3
+04022199;Tione di Trento;3
+04022200;Ton;4
+04022201;Tonadico;3
+04022202;Torcegno;3
+04022203;Trambileno;3
+04022204;Transacqua;3
+04022205;Trento;3
+04022206;Tres;4
+04022207;Tuenno;4
+04022208;Valda;4
+04022209;Valfloriana;4
+04022210;Vallarsa;3
+04022211;Varena;4
+04022212;Vattaro;3
+04022213;Vermiglio;4
+04022214;Vervò;4
+04022215;Vezzano;3
+04022216;Vignola-Falesina;3
+04022217;Vigo di Fassa;4
+04022219;Vigolo Vattaro;3
+04022220;Vigo Rendena;3
+04022221;Villa Agnedo;3
+04022222;Villa Lagarina;3
+04022223;Villa Rendena;3
+04022224;Volano;3
+04022225;Zambana;4
+04022226;Ziano di Fiemme;4
+04022227;Zuclo;3
+05023001;Affi;3
+05023002;Albaredo d'Adige;3
+05023003;Angiari;4
+05023004;Arcole;3
+05023005;Badia Calavena;2
+05023006;Bardolino;3
+05023007;Belfiore;3
+05023008;Bevilacqua;4
+05023009;Bonavigo;4
+05023010;Boschi Sant'Anna;4
+05023011;Bosco Chiesanuova;3
+05023012;Bovolone;4
+05023013;Brentino Belluno;3
+05023014;Brenzone;2
+05023015;Bussolengo;3
+05023016;Buttapietra;3
+05023017;Caldiero;3
+05023018;Caprino Veronese;3
+05023019;Casaleone;4
+05023020;Castagnaro;4
+05023021;Castel d'Azzano;3
+05023022;Castelnuovo del Garda;3
+05023023;Cavaion Veronese;3
+05023024;Cazzano di Tramigna;3
+05023025;Cerea;4
+05023026;Cerro Veronese;3
+05023027;Cologna Veneta;3
+05023028;Colognola ai Colli;3
+05023029;Concamarise;4
+05023030;Costermano;3
+05023031;Dolcè;3
+05023032;Erbè;4
+05023033;Erbezzo;3
+05023034;Ferrara di Monte Baldo;3
+05023035;Fumane;3
+05023036;Garda;3
+05023037;Gazzo Veronese;4
+05023038;Grezzana;3
+05023039;Illasi;3
+05023040;Isola della Scala;4
+05023041;Isola Rizza;3
+05023042;Lavagno;3
+05023043;Lazise;3
+05023044;Legnago;4
+05023045;Malcesine;3
+05023046;Marano di Valpolicella;3
+05023047;Mezzane di Sotto;3
+05023048;Minerbe;4
+05023049;Montecchia di Crosara;3
+05023050;Monteforte d'Alpone;3
+05023051;Mozzecane;4
+05023052;Negrar;3
+05023053;Nogara;4
+05023054;Nogarole Rocca;4
+05023055;Oppeano;3
+05023056;Palù;3
+05023057;Pastrengo;3
+05023058;Pescantina;3
+05023059;Peschiera del Garda;3
+05023060;Povegliano Veronese;3
+05023061;Pressana;4
+05023062;Rivoli Veronese;3
+05023063;Roncà;3
+05023064;Ronco all'Adige;3
+05023065;Roverchiara;4
+05023066;Roveredo di Guà;4
+05023067;Roverè Veronese;3
+05023068;Salizzole;4
+05023069;San Bonifacio;3
+05023070;San Giovanni Ilarione;3
+05023071;San Giovanni Lupatoto;3
+05023072;Sanguinetto;4
+05023073;San Martino Buon Albergo;3
+05023074;San Mauro di Saline;2
+05023075;San Pietro di Morubio;4
+05023076;San Pietro in Cariano;3
+05023077;Sant'Ambrogio di Valpolicella;3
+05023078;Sant'Anna d'Alfaedo;3
+05023079;San Zeno di Montagna;2
+05023080;Selva di Progno;3
+05023081;Soave;3
+05023082;Sommacampagna;3
+05023083;Sona;3
+05023084;Sorgà;4
+05023085;Terrazzo;4
+05023086;Torri del Benaco;2
+05023087;Tregnago;2
+05023088;Trevenzuolo;4
+05023089;Valeggio sul Mincio;3
+05023090;Velo Veronese;3
+05023091;Verona;3
+05023092;Veronella;3
+05023093;Vestenanova;2
+05023094;Vigasio;4
+05023095;Villa Bartolomea;4
+05023096;Villafranca di Verona;3
+05023097;Zevio;3
+05023098;Zimella;3
+05024001;Agugliaro;4
+05024002;Albettone;4
+05024003;Alonte;3
+05024004;Altavilla Vicentina;3
+05024005;Altissimo;3
+05024006;Arcugnano;3
+05024007;Arsiero;3
+05024008;Arzignano;3
+05024009;Asiago;3
+05024010;Asigliano Veneto;4
+05024011;Barbarano Vicentino;3
+05024012;Bassano del Grappa;3
+05024013;Bolzano Vicentino;3
+05024014;Breganze;3
+05024015;Brendola;3
+05024016;Bressanvido;3
+05024017;Brogliano;3
+05024018;Caldogno;3
+05024019;Caltrano;3
+05024020;Calvene;3
+05024021;Camisano Vicentino;3
+05024022;Campiglia dei Berici;4
+05024023;Campolongo sul Brenta;3
+05024024;Carrè;3
+05024025;Cartigliano;3
+05024026;Cassola;3
+05024027;Castegnero;3
+05024028;Castelgomberto;3
+05024029;Chiampo;3
+05024030;Chiuppano;3
+05024031;Cismon del Grappa;3
+05024032;Cogollo del Cengio;3
+05024033;Conco;3
+05024034;Cornedo Vicentino;3
+05024035;Costabissara;3
+05024036;Creazzo;3
+05024037;Crespadoro;2
+05024038;Dueville;3
+05024039;Enego;3
+05024040;Fara Vicentino;3
+05024041;Foza;3
+05024042;Gallio;3
+05024043;Gambellara;3
+05024044;Gambugliano;3
+05024045;Grancona;3
+05024046;Grisignano di Zocco;3
+05024047;Grumolo delle Abbadesse;3
+05024048;Isola Vicentina;3
+05024049;Laghi;3
+05024050;Lastebasse;3
+05024051;Longare;3
+05024052;Lonigo;3
+05024053;Lugo di Vicenza;3
+05024054;Lusiana;3
+05024055;Malo;3
+05024056;Marano Vicentino;3
+05024057;Marostica;3
+05024058;Mason Vicentino;3
+05024059;Molvena;3
+05024060;Montebello Vicentino;3
+05024061;Montecchio Maggiore;3
+05024062;Montecchio Precalcino;3
+05024063;Monte di Malo;3
+05024064;Montegalda;3
+05024065;Montegaldella;3
+05024066;Monteviale;3
+05024067;Monticello Conte Otto;3
+05024068;Montorso Vicentino;3
+05024069;Mossano;3
+05024070;Mussolente;2
+05024071;Nanto;3
+05024072;Nogarole Vicentino;3
+05024073;Nove;3
+05024074;Noventa Vicentina;4
+05024075;Orgiano;3
+05024076;Pedemonte;3
+05024077;Pianezze;3
+05024078;Piovene Rocchette;3
+05024079;Poiana Maggiore;4
+05024080;Posina;3
+05024081;Pove del Grappa;2
+05024082;Pozzoleone;3
+05024083;Quinto Vicentino;3
+05024084;Recoaro Terme;3
+05024085;Roana;3
+05024086;Romano d'Ezzelino;2
+05024087;Rosà;3
+05024088;Rossano Veneto;3
+05024089;Rotzo;3
+05024090;Salcedo;3
+05024091;Sandrigo;3
+05024092;San Germano dei Berici;3
+05024093;San Nazario;3
+05024094;San Pietro Mussolino;3
+05024095;Santorso;3
+05024096;San Vito di Leguzzano;3
+05024097;Sarcedo;3
+05024098;Sarego;3
+05024099;Schiavon;3
+05024100;Schio;3
+05024101;Solagna;3
+05024102;Sossano;3
+05024103;Sovizzo;3
+05024104;Tezze sul Brenta;3
+05024105;Thiene;3
+05024106;Tonezza del Cimone;3
+05024107;Torrebelvicino;3
+05024108;Torri di Quartesolo;3
+05024110;Trissino;3
+05024111;Valdagno;3
+05024112;Valdastico;3
+05024113;Valli del Pasubio;3
+05024114;Valstagna;3
+05024115;Velo d'Astico;3
+05024116;Vicenza;3
+05024117;Villaga;3
+05024118;Villaverla;3
+05024119;Zanè;3
+05024120;Zermeghedo;3
+05024121;Zovencedo;3
+05024122;Zugliano;3
+05025001;Agordo;3
+05025002;Alano di Piave;2
+05025003;Alleghe;3
+05025004;Arsiè;3
+05025005;Auronzo di Cadore;3
+05025006;Belluno;2
+05025007;Borca di Cadore;3
+05025008;Calalzo di Cadore;3
+05025009;Castello Lavazzo;2
+05025010;Cencenighe Agordino;3
+05025011;Cesiomaggiore;2
+05025012;Chies d'Alpago;2
+05025013;Cibiana di Cadore;2
+05025014;Colle Santa Lucia;3
+05025015;Comelico Superiore;3
+05025016;Cortina d'Ampezzo;3
+05025017;Danta di Cadore;3
+05025018;Domegge di Cadore;3
+05025019;Falcade;3
+05025020;Farra d'Alpago;2
+05025021;Feltre;2
+05025022;Fonzaso;2
+05025023;Canale d'Agordo;3
+05025024;Forno di Zoldo;3
+05025025;Gosaldo;3
+05025026;Lamon;3
+05025027;La Valle Agordina;3
+05025028;Lentiai;2
+05025029;Limana;2
+05025030;Livinallongo del Col di Lana;4
+05025031;Longarone;2
+05025032;Lorenzago di Cadore;3
+05025033;Lozzo di Cadore;3
+05025034;Mel;2
+05025035;Ospitale di Cadore;2
+05025036;Pedavena;2
+05025037;Perarolo di Cadore;3
+05025038;Pieve d'Alpago;2
+05025039;Pieve di Cadore;3
+05025040;Ponte nelle Alpi;2
+05025041;Puos d'Alpago;2
+05025042;Quero;2
+05025043;Rivamonte Agordino;3
+05025044;Rocca Pietore;3
+05025045;San Gregorio nelle Alpi;2
+05025046;San Nicolò di Comelico;3
+05025047;San Pietro di Cadore;3
+05025048;Santa Giustina;2
+05025049;San Tomaso Agordino;3
+05025050;Santo Stefano di Cadore;3
+05025051;San Vito di Cadore;3
+05025052;Sappada;2
+05025053;Sedico;2
+05025054;Selva di Cadore;3
+05025055;Seren del Grappa;2
+05025056;Sospirolo;2
+05025057;Soverzene;2
+05025058;Sovramonte;3
+05025059;Taibon Agordino;3
+05025060;Tambre;2
+05025061;Trichiana;2
+05025062;Vallada Agordina;3
+05025063;Valle di Cadore;3
+05025064;Vas;2
+05025065;Vigo di Cadore;3
+05025066;Vodo Cadore;3
+05025067;Voltago Agordino;3
+05025068;Zoldo Alto;3
+05025069;Zoppè di Cadore;3
+05026001;Altivole;2
+05026002;Arcade;3
+05026003;Asolo;2
+05026004;Borso del Grappa;2
+05026005;Breda di Piave;3
+05026006;Caerano di San Marco;2
+05026007;Cappella Maggiore;2
+05026008;Carbonera;3
+05026009;Casale sul Sile;3
+05026010;Casier;3
+05026011;Castelcucco;2
+05026012;Castelfranco Veneto;3
+05026013;Castello di Godego;3
+05026014;Cavaso del Tomba;2
+05026015;Cessalto;3
+05026016;Chiarano;3
+05026017;Cimadolmo;3
+05026018;Cison di Valmarino;2
+05026019;Codognè;2
+05026020;Colle Umberto;2
+05026021;Conegliano;2
+05026022;Cordignano;2
+05026023;Cornuda;2
+05026024;Crespano del Grappa;2
+05026025;Crocetta del Montello;2
+05026026;Farra di Soligo;2
+05026027;Follina;2
+05026028;Fontanelle;3
+05026029;Fonte;2
+05026030;Fregona;2
+05026031;Gaiarine;2
+05026032;Giavera del Montello;3
+05026033;Godega di Sant'Urbano;2
+05026034;Gorgo al Monticano;3
+05026035;Istrana;3
+05026036;Loria;2
+05026037;Mansuè;3
+05026038;Mareno di Piave;3
+05026039;Maser;2
+05026040;Maserada sul Piave;3
+05026041;Meduna di Livenza;3
+05026042;Miane;2
+05026043;Mogliano Veneto;3
+05026044;Monastier di Treviso;3
+05026045;Monfumo;2
+05026046;Montebelluna;2
+05026047;Morgano;3
+05026048;Moriago della Battaglia;2
+05026049;Motta di Livenza;3
+05026050;Nervesa della Battaglia;2
+05026051;Oderzo;3
+05026052;Ormelle;3
+05026053;Orsago;2
+05026054;Paderno del Grappa;2
+05026055;Paese;3
+05026056;Pederobba;2
+05026057;Pieve di Soligo;2
+05026058;Ponte di Piave;3
+05026059;Ponzano Veneto;3
+05026060;Portobuffolè;3
+05026061;Possagno;2
+05026062;Povegliano;3
+05026063;Preganziol;3
+05026064;Quinto di Treviso;3
+05026065;Refrontolo;2
+05026066;Resana;3
+05026067;Revine Lago;2
+05026068;Riese Pio X;2
+05026069;Roncade;3
+05026070;Salgareda;3
+05026071;San Biagio di Callalta;3
+05026072;San Fior;2
+05026073;San Pietro di Feletto;2
+05026074;San Polo di Piave;3
+05026075;Santa Lucia di Piave;2
+05026076;San Vendemiano;2
+05026077;San Zenone degli Ezzelini;2
+05026078;Sarmede;2
+05026079;Segusino;2
+05026080;Sernaglia della Battaglia;2
+05026081;Silea;3
+05026082;Spresiano;3
+05026083;Susegana;2
+05026084;Tarzo;2
+05026085;Trevignano;3
+05026086;Treviso;3
+05026087;Valdobbiadene;2
+05026088;Vazzola;3
+05026089;Vedelago;3
+05026090;Vidor;2
+05026091;Villorba;3
+05026092;Vittorio Veneto;2
+05026093;Volpago del Montello;3
+05026094;Zenson di Piave;3
+05026095;Zero Branco;3
+05027001;Annone Veneto;3
+05027002;Campagna Lupia;4
+05027003;Campolongo Maggiore;4
+05027004;Camponogara;4
+05027005;Caorle;4
+05027006;Cavarzere;4
+05027007;Ceggia;3
+05027008;Chioggia;4
+05027009;Cinto Caomaggiore;3
+05027010;Cona;4
+05027011;Concordia Sagittaria;3
+05027012;Dolo;4
+05027013;Eraclea;4
+05027014;Fiesso d'Artico;4
+05027015;Fossalta di Piave;3
+05027016;Fossalta di Portogruaro;3
+05027017;Fossò;4
+05027018;Gruaro;3
+05027019;Iesolo;4
+05027020;Marcon;3
+05027021;Martellago;3
+05027022;Meolo;3
+05027023;Mira;4
+05027024;Mirano;4
+05027025;Musile di Piave;3
+05027026;Noale;3
+05027027;Noventa di Piave;3
+05027028;Pianiga;4
+05027029;Portogruaro;3
+05027030;Pramaggiore;3
+05027031;Quarto d'Altino;3
+05027032;Salzano;3
+05027033;San Donà di Piave;3
+05027034;San Michele al Tagliamento;3
+05027035;Santa Maria di Sala;3
+05027036;Santo Stino di Livenza;3
+05027037;Scorzè;3
+05027038;Spinea;4
+05027039;Stra;4
+05027040;Teglio Veneto;3
+05027041;Torre di Mosto;3
+05027042;Venezia;4
+05027043;Vigonovo;4
+05027044;Cavallino-Treporti (1);4
+05028001;Abano Terme;4
+05028002;Agna;4
+05028003;Albignasego;4
+05028004;Anguillara Veneta;4
+05028005;Arquà Petrarca;4
+05028006;Arre;4
+05028007;Arzergrande;4
+05028008;Bagnoli di Sopra;4
+05028009;Baone;4
+05028010;Barbona;4
+05028011;Battaglia Terme;4
+05028012;Boara Pisani;4
+05028013;Borgoricco;3
+05028014;Bovolenta;4
+05028015;Brugine;4
+05028016;Cadoneghe;4
+05028017;Campodarsego;3
+05028018;Campodoro;3
+05028019;Camposampiero;3
+05028020;Campo San Martino;3
+05028021;Candiana;4
+05028022;Carceri;4
+05028023;Carmignano di Brenta;3
+05028026;Cartura;4
+05028027;Casale di Scodosia;4
+05028028;Casalserugo;4
+05028029;Castelbaldo;4
+05028030;Cervarese Santa Croce;4
+05028031;Cinto Euganeo;4
+05028032;Cittadella;3
+05028033;Codevigo;4
+05028034;Conselve;4
+05028035;Correzzola;4
+05028036;Curtarolo;3
+05028037;Este;4
+05028038;Fontaniva;3
+05028039;Galliera Veneta;3
+05028040;Galzignano Terme;4
+05028041;Gazzo;3
+05028042;Grantorto;3
+05028043;Granze;4
+05028044;Legnaro;4
+05028045;Limena;3
+05028046;Loreggia;3
+05028047;Lozzo Atestino;4
+05028048;Maserà di Padova;4
+05028049;Masi;4
+05028050;Massanzago;3
+05028051;Megliadino San Fidenzio;4
+05028052;Megliadino San Vitale;4
+05028053;Merlara;4
+05028054;Mestrino;3
+05028055;Monselice;4
+05028056;Montagnana;4
+05028057;Montegrotto Terme;4
+05028058;Noventa Padovana;4
+05028059;Ospedaletto Euganeo;4
+05028060;Padova;4
+05028061;Pernumia;4
+05028062;Piacenza d'Adige;4
+05028063;Piazzola sul Brenta;3
+05028064;Piombino Dese;3
+05028065;Piove di Sacco;4
+05028066;Polverara;4
+05028067;Ponso;4
+05028068;Pontelongo;4
+05028069;Ponte San Nicolò;4
+05028070;Pozzonovo;4
+05028071;Rovolon;4
+05028072;Rubano;4
+05028073;Saccolongo;4
+05028074;Saletto;4
+05028075;San Giorgio delle Pertiche;3
+05028076;San Giorgio in Bosco;3
+05028077;San Martino di Lupari;3
+05028078;San Pietro in Gu;3
+05028079;San Pietro Viminario;4
+05028080;Santa Giustina in Colle;3
+05028081;Santa Margherita d'Adige;4
+05028082;Sant'Angelo di Piove di Sacco;4
+05028083;Sant'Elena;4
+05028084;Sant'Urbano;4
+05028085;Saonara;4
+05028086;Selvazzano Dentro;4
+05028087;Solesino;4
+05028088;Stanghella;4
+05028089;Teolo;4
+05028090;Terrassa Padovana;4
+05028091;Tombolo;3
+05028092;Torreglia;4
+05028093;Trebaseleghe;3
+05028094;Tribano;4
+05028095;Urbana;4
+05028096;Veggiano;3
+05028097;Vescovana;4
+05028098;Vighizzolo d'Este;4
+05028099;Vigodarzere;3
+05028100;Vigonza;4
+05028101;Villa del Conte;3
+05028102;Villa Estense;4
+05028103;Villafranca Padovana;3
+05028104;Villanova di Camposampiero;3
+05028105;Vo;4
+05028106;Due Carrare (1);4
+05029001;Adria;4
+05029002;Ariano nel Polesine;4
+05029003;Arquà Polesine;4
+05029004;Badia Polesine;4
+05029005;Bagnolo di Po;3
+05029006;Bergantino;4
+05029007;Bosaro;4
+05029008;Calto;3
+05029009;Canaro;3
+05029010;Canda;4
+05029011;Castelguglielmo;4
+05029012;Castelmassa;3
+05029013;Castelnovo Bariano;3
+05029014;Ceneselli;3
+05029015;Ceregnano;4
+05029017;Corbola;4
+05029018;Costa di Rovigo;4
+05029019;Crespino;4
+05029021;Ficarolo;3
+05029022;Fiesso Umbertiano;3
+05029023;Frassinelle Polesine;4
+05029024;Fratta Polesine;4
+05029025;Gaiba;3
+05029026;Gavello;4
+05029027;Giacciano con Baruchella;4
+05029028;Guarda Veneta;4
+05029029;Lendinara;4
+05029030;Loreo;4
+05029031;Lusia;4
+05029032;Melara;4
+05029033;Occhiobello;3
+05029034;Papozze;4
+05029035;Pettorazza Grimani;4
+05029036;Pincara;3
+05029037;Polesella;4
+05029038;Pontecchio Polesine;4
+05029039;Porto Tolle;4
+05029040;Rosolina;4
+05029041;Rovigo;4
+05029042;Salara;3
+05029043;San Bellino;4
+05029044;San Martino di Venezze;4
+05029045;Stienta;3
+05029046;Taglio di Po;4
+05029047;Trecenta;3
+05029048;Villadose;4
+05029049;Villamarzana;4
+05029050;Villanova del Ghebbo;4
+05029051;Villanova Marchesana;4
+05029052;Porto Viro (1);4
+06030001;Aiello del Friuli;3
+06030002;Amaro;1
+06030003;Ampezzo;1
+06030004;Aquileia;4
+06030005;Arta Terme;1
+06030006;Artegna;1
+06030007;Attimis;2
+06030008;Bagnaria Arsa;3
+06030009;Basiliano;2
+06030010;Bertiolo;2
+06030011;Bicinicco;3
+06030012;Bordano;1
+06030013;Buia;1
+06030014;Buttrio;2
+06030015;Camino al Tagliamento;2
+06030016;Campoformido;2
+06030017;Campolongo al Torre;3
+06030018;Carlino;3
+06030019;Cassacco;2
+06030020;Castions di Strada;3
+06030021;Cavazzo Carnico;1
+06030022;Cercivento;1
+06030023;Cervignano del Friuli;4
+06030024;Chiopris-Viscone;3
+06030025;Chiusaforte;1
+06030026;Cividale del Friuli;2
+06030027;Codroipo;2
+06030028;Colloredo di Monte Albano;2
+06030029;Comeglians;2
+06030030;Corno di Rosazzo;2
+06030031;Coseano;2
+06030032;Dignano;2
+06030033;Dogna;1
+06030034;Drenchia;2
+06030035;Enemonzo;1
+06030036;Faedis;2
+06030037;Fagagna;2
+06030038;Fiumicello;4
+06030039;Flaibano;2
+06030040;Forni Avoltri;2
+06030041;Forni di Sopra;2
+06030042;Forni di Sotto;1
+06030043;Gemona del Friuli;1
+06030044;Gonars;3
+06030045;Grimacco;2
+06030046;Latisana;3
+06030047;Lauco;1
+06030048;Lestizza;2
+06030049;Lignano Sabbiadoro;4
+06030050;Ligosullo;1
+06030051;Lusevera;1
+06030052;Magnano in Riviera;1
+06030053;Majano;1
+06030054;Malborghetto Valbruna;2
+06030055;Manzano;2
+06030056;Marano Lagunare;4
+06030057;Martignacco;2
+06030058;Mereto di Tomba;2
+06030059;Moggio Udinese;1
+06030060;Moimacco;2
+06030061;Montenars;1
+06030062;Mortegliano;2
+06030063;Moruzzo;2
+06030064;Muzzana del Turgnano;3
+06030065;Nimis;1
+06030066;Osoppo;1
+06030067;Ovaro;1
+06030068;Pagnacco;2
+06030069;Palazzolo dello Stella;3
+06030070;Palmanova;3
+06030071;Paluzza;1
+06030072;Pasian di Prato;2
+06030073;Paularo;1
+06030074;Pavia di Udine;3
+06030075;Pocenia;3
+06030076;Pontebba;1
+06030077;Porpetto;3
+06030078;Povoletto;2
+06030079;Pozzuolo del Friuli;2
+06030080;Pradamano;2
+06030081;Prato Carnico;2
+06030082;Precenicco;3
+06030083;Premariacco;2
+06030084;Preone;1
+06030085;Prepotto;2
+06030086;Pulfero;2
+06030087;Ragogna;1
+06030088;Ravascletto;2
+06030089;Raveo;1
+06030090;Reana del Roiale;2
+06030091;Remanzacco;2
+06030092;Resia;1
+06030093;Resiutta;1
+06030094;Rigolato;2
+06030095;Rive d'Arcano;2
+06030096;Rivignano;3
+06030097;Ronchis;3
+06030098;Ruda;4
+06030099;San Daniele del Friuli;2
+06030100;San Giorgio di Nogaro;3
+06030101;San Giovanni al Natisone;2
+06030102;San Leonardo;2
+06030103;San Pietro al Natisone;2
+06030104;Santa Maria la Longa;3
+06030105;San Vito al Torre;3
+06030106;San Vito di Fagagna;2
+06030107;Sauris;2
+06030108;Savogna;2
+06030109;Sedegliano;2
+06030110;Socchieve;1
+06030111;Stregna;2
+06030112;Sutrio;1
+06030113;Taipana;1
+06030114;Talmassons;2
+06030115;Tapogliano;3
+06030116;Tarcento;1
+06030117;Tarvisio;2
+06030118;Tavagnacco;2
+06030119;Teor;3
+06030120;Terzo d'Aquileia;4
+06030121;Tolmezzo;1
+06030122;Torreano;2
+06030123;Torviscosa;4
+06030124;Trasaghis;1
+06030125;Treppo Carnico;1
+06030126;Treppo Grande;1
+06030127;Tricesimo;2
+06030128;Trivignano Udinese;3
+06030129;Udine;2
+06030130;Varmo;3
+06030131;Venzone;1
+06030132;Verzegnis;1
+06030133;Villa Santina;1
+06030134;Villa Vicentina;4
+06030135;Visco;3
+06030136;Zuglio;1
+06030137;Forgaria nel Friuli;1
+06031001;Capriva del Friuli;3
+06031002;Cormons;3
+06031003;Doberdò del Lago;3
+06031004;Dolegna del Collio;2
+06031005;Farra d'Isonzo;3
+06031006;Fogliano Redipuglia;3
+06031007;Gorizia;3
+06031008;Gradisca d'Isonzo;3
+06031009;Grado;4
+06031010;Mariano del Friuli;3
+06031011;Medea;3
+06031012;Monfalcone;4
+06031013;Moraro;3
+06031014;Mossa;3
+06031015;Romans d'Isonzo;3
+06031016;Ronchi dei Legionari;4
+06031017;Sagrado;3
+06031018;San Canzian d'Isonzo;4
+06031019;San Floriano del Collio;3
+06031020;San Lorenzo Isontino;3
+06031021;San Pier d'Isonzo;4
+06031022;Savogna d'Isonzo;3
+06031023;Staranzano;4
+06031024;Turriaco;4
+06031025;Villesse;3
+06032001;Duino-Aurisina;4
+06032002;Monrupino;4
+06032003;Muggia;4
+06032004;San Dorligo della Valle;4
+06032005;Sgonico;4
+06032006;Trieste;4
+06093001;Andreis;2
+06093002;Arba;1
+06093003;Arzene;2
+06093004;Aviano;2
+06093005;Azzano Decimo;3
+06093006;Barcis;2
+06093007;Brugnera;2
+06093008;Budoia;2
+06093009;Caneva;2
+06093010;Casarsa della Delizia;2
+06093011;Castelnovo del Friuli;1
+06093012;Cavasso Nuovo;1
+06093013;Chions;3
+06093014;Cimolais;2
+06093015;Claut;2
+06093016;Clauzetto;1
+06093017;Cordenons;2
+06093018;Cordovado;3
+06093019;Erto e Casso;2
+06093020;Fanna;1
+06093021;Fiume Veneto;3
+06093022;Fontanafredda;2
+06093024;Frisanco;1
+06093025;Maniago;1
+06093026;Meduno;1
+06093027;Montereale Valcellina;2
+06093028;Morsano al Tagliamento;3
+06093029;Pasiano di Pordenone;3
+06093030;Pinzano al Tagliamento;1
+06093031;Polcenigo;2
+06093032;Porcia;2
+06093033;Pordenone;2
+06093034;Prata di Pordenone;2
+06093035;Pravisdomini;3
+06093036;Roveredo in Piano;2
+06093037;Sacile;2
+06093038;San Giorgio della Richinvelda;2
+06093039;San Martino al Tagliamento;2
+06093040;San Quirino;2
+06093041;San Vito al Tagliamento;2
+06093042;Sequals;1
+06093043;Sesto al Reghena;3
+06093044;Spilimbergo;2
+06093045;Tramonti di Sopra;1
+06093046;Tramonti di Sotto;1
+06093047;Travesio;1
+06093048;Valvasone;2
+06093049;Vito d'Asio;1
+06093050;Vivaro;2
+06093051;Zoppola;2
+06093052;Vajont;1
+07008001;Airole;3
+07008002;Apricale;3
+07008003;Aquila di Arroscia;3
+07008004;Armo;3
+07008005;Aurigo;3
+07008006;Badalucco;2
+07008007;Baiardo;3
+07008008;Bordighera;3
+07008009;Borghetto d'Arroscia;3
+07008010;Borgomaro;3
+07008011;Camporosso;3
+07008012;Caravonica;3
+07008013;Carpasio;2
+07008014;Castellaro;2
+07008015;Castel Vittorio;3
+07008016;Ceriana;2
+07008017;Cervo;3
+07008018;Cesio;3
+07008019;Chiusanico;3
+07008020;Chiusavecchia;3
+07008021;Cipressa;2
+07008022;Civezza;2
+07008023;Cosio di Arroscia;3
+07008024;Costarainera;2
+07008025;Diano Arentino;3
+07008026;Diano Castello;3
+07008027;Diano Marina;3
+07008028;Diano San Pietro;3
+07008029;Dolceacqua;3
+07008030;Dolcedo;2
+07008031;Imperia;2
+07008032;Isolabona;3
+07008033;Lucinasco;3
+07008034;Mendatica;3
+07008035;Molini di Triora;3
+07008036;Montalto Ligure;2
+07008037;Montegrosso Pian Latte;3
+07008038;Olivetta San Michele;3
+07008039;Ospedaletti;2
+07008040;Perinaldo;3
+07008041;Pietrabruna;2
+07008042;Pieve di Teco;3
+07008043;Pigna;3
+07008044;Pompeiana;2
+07008045;Pontedassio;3
+07008046;Pornassio;3
+07008047;Prelà;2
+07008048;Ranzo;3
+07008049;Rezzo;3
+07008050;Riva Ligure;2
+07008051;Rocchetta Nervina;3
+07008052;San Bartolomeo al Mare;3
+07008053;San Biagio della Cima;3
+07008054;San Lorenzo al Mare;2
+07008055;San Remo;2
+07008056;Santo Stefano al Mare;2
+07008057;Seborga;3
+07008058;Soldano;3
+07008059;Taggia;2
+07008060;Terzorio;2
+07008061;Triora;3
+07008062;Vallebona;3
+07008063;Vallecrosia;3
+07008064;Vasia;2
+07008065;Ventimiglia;3
+07008066;Vessalico;3
+07008067;Villa Faraldi;3
+07009001;Alassio;3
+07009002;Albenga;3
+07009003;Albisola Marina;4
+07009004;Albisola Superiore;4
+07009005;Altare;4
+07009006;Andora;3
+07009007;Arnasco;3
+07009008;Balestrino;3
+07009009;Bardineto;4
+07009010;Bergeggi;4
+07009011;Boissano;3
+07009012;Borghetto Santo Spirito;3
+07009013;Borgio Verezzi;3
+07009014;Bormida;4
+07009015;Cairo Montenotte;4
+07009016;Calice Ligure;4
+07009017;Calizzano;4
+07009018;Carcare;4
+07009019;Casanova Lerrone;3
+07009020;Castelbianco;3
+07009021;Castelvecchio di Rocca Barbena;3
+07009022;Celle Ligure;4
+07009023;Cengio;4
+07009024;Ceriale;3
+07009025;Cisano sul Neva;3
+07009026;Cosseria;4
+07009027;Dego;4
+07009028;Erli;3
+07009029;Finale Ligure;4
+07009030;Garlenda;3
+07009031;Giustenice;4
+07009032;Giusvalla;4
+07009033;Laigueglia;3
+07009034;Loano;3
+07009035;Magliolo;4
+07009036;Mallare;4
+07009037;Massimino;4
+07009038;Millesimo;4
+07009039;Mioglia;4
+07009040;Murialdo;4
+07009041;Nasino;3
+07009042;Noli;4
+07009043;Onzo;3
+07009044;Orco Feglino;4
+07009045;Ortovero;3
+07009046;Osiglia;4
+07009047;Pallare;4
+07009048;Piana Crixia;4
+07009049;Pietra Ligure;3
+07009050;Plodio;4
+07009051;Pontinvrea;4
+07009052;Quiliano;4
+07009053;Rialto;4
+07009054;Roccavignale;4
+07009055;Sassello;4
+07009056;Savona;4
+07009057;Spotorno;4
+07009058;Stella;4
+07009059;Stellanello;3
+07009060;Testico;3
+07009061;Toirano;3
+07009062;Tovo San Giacomo;4
+07009063;Urbe;4
+07009064;Vado Ligure;4
+07009065;Varazze;4
+07009066;Vendone;3
+07009067;Vezzi Portio;4
+07009068;Villanova d'Albenga;3
+07009069;Zuccarello;3
+07010001;Arenzano;4
+07010002;Avegno;4
+07010003;Bargagli;4
+07010004;Bogliasco;4
+07010005;Borzonasca;3
+07010006;Busalla;4
+07010007;Camogli;4
+07010008;Campo Ligure;4
+07010009;Campomorone;4
+07010010;Carasco;3
+07010011;Casarza Ligure;3
+07010012;Casella;4
+07010013;Castiglione Chiavarese;3
+07010014;Ceranesi;4
+07010015;Chiavari;4
+07010016;Cicagna;4
+07010017;Cogoleto;4
+07010018;Cogorno;3
+07010019;Coreglia Ligure;4
+07010020;Crocefieschi;3
+07010021;Davagna;4
+07010022;Fascia;4
+07010023;Favale di Malvaro;3
+07010024;Fontanigorda;3
+07010025;Genova;4
+07010026;Gorreto;3
+07010027;Isola del Cantone;3
+07010028;Lavagna;3
+07010029;Leivi;4
+07010030;Lorsica;4
+07010031;Lumarzo;4
+07010032;Masone;4
+07010033;Mele;4
+07010034;Mezzanego;3
+07010035;Mignanego;4
+07010036;Moconesi;4
+07010037;Moneglia;3
+07010038;Montebruno;4
+07010039;Montoggio;4
+07010040;Ne;3
+07010041;Neirone;4
+07010042;Orero;4
+07010043;Pieve Ligure;4
+07010044;Portofino;4
+07010045;Propata;4
+07010046;Rapallo;4
+07010047;Recco;4
+07010048;Rezzoaglio;3
+07010049;Ronco Scrivia;3
+07010050;Rondanina;4
+07010051;Rossiglione;4
+07010052;Rovegno;3
+07010053;San Colombano Certenoli;4
+07010054;Santa Margherita Ligure;4
+07010055;Sant'Olcese;4
+07010056;Santo Stefano d'Aveto;3
+07010057;Savignone;4
+07010058;Serra Riccò;4
+07010059;Sestri Levante;3
+07010060;Sori;4
+07010061;Tiglieto;4
+07010062;Torriglia;4
+07010063;Tribogna;4
+07010064;Uscio;4
+07010065;Valbrevenna;4
+07010066;Vobbia;3
+07010067;Zoagli;4
+07011001;Ameglia;3
+07011002;Arcola;2
+07011003;Beverino;3
+07011004;Bolano;2
+07011005;Bonassola;3
+07011006;Borghetto di Vara;3
+07011007;Brugnato;2
+07011008;Calice al Cornoviglio;2
+07011009;Carro;3
+07011010;Carrodano;3
+07011011;Castelnuovo Magra;2
+07011012;Deiva Marina;3
+07011013;Follo;3
+07011014;Framura;3
+07011015;La Spezia;3
+07011016;Lerici;3
+07011017;Levanto;3
+07011018;Maissana;3
+07011019;Monterosso al Mare;3
+07011020;Ortonovo;2
+07011021;Pignone;3
+07011022;Portovenere;3
+07011023;Riccò del Golfo di Spezia;3
+07011024;Riomaggiore;3
+07011025;Rocchetta di Vara;2
+07011026;Santo Stefano di Magra;2
+07011027;Sarzana;2
+07011028;Sesta Godano;3
+07011029;Varese Ligure;3
+07011030;Vernazza;3
+07011031;Vezzano Ligure;2
+07011032;Zignago;2
+08033001;Agazzano;4
+08033002;Alseno;3
+08033003;Besenzone;3
+08033004;Bettola;3
+08033005;Bobbio;3
+08033006;Borgonovo Val Tidone;4
+08033007;Cadeo;3
+08033008;Calendasco;4
+08033009;Caminata;4
+08033010;Caorso;4
+08033011;Carpaneto Piacentino;3
+08033012;Castell'Arquato;3
+08033013;Castel San Giovanni;4
+08033014;Castelvetro Piacentino;4
+08033015;Cerignale;3
+08033016;Coli;3
+08033017;Corte Brugnatella;3
+08033018;Cortemaggiore;3
+08033019;Farini;3
+08033020;Ferriere;3
+08033021;Fiorenzuola d'Arda;3
+08033022;Gazzola;4
+08033023;Gossolengo;4
+08033024;Gragnano Trebbiense;4
+08033025;Gropparello;3
+08033026;Lugagnano Val d'Arda;3
+08033027;Monticelli d'Ongina;4
+08033028;Morfasso;3
+08033029;Nibbiano;4
+08033030;Ottone;3
+08033031;Pecorara;3
+08033032;Piacenza;4
+08033033;Pianello Val Tidone;4
+08033034;Piozzano;4
+08033035;Podenzano;3
+08033036;Ponte dell'Olio;3
+08033037;Pontenure;3
+08033038;Rivergaro;3
+08033039;Rottofreno;4
+08033040;San Giorgio Piacentino;3
+08033041;San Pietro in Cerro;3
+08033042;Sarmato;4
+08033043;Travo;3
+08033044;Vernasca;3
+08033045;Vigolzone;3
+08033046;Villanova sull'Arda;3
+08033047;Zerba;3
+08033048;Ziano Piacentino;4
+08034001;Albareto;2
+08034002;Bardi;3
+08034003;Bedonia;2
+08034004;Berceto;3
+08034005;Bore;3
+08034006;Borgo Val di Taro;2
+08034007;Busseto;3
+08034008;Calestano;3
+08034009;Collecchio;3
+08034010;Colorno;3
+08034011;Compiano;2
+08034012;Corniglio;3
+08034013;Felino;3
+08034014;Fidenza;3
+08034015;Fontanellato;3
+08034016;Fontevivo;3
+08034017;Fornovo di Taro;3
+08034018;Langhirano;3
+08034019;Lesignano de' Bagni;3
+08034020;Medesano;3
+08034021;Mezzani;3
+08034022;Monchio delle Corti;2
+08034023;Montechiarugolo;3
+08034024;Neviano degli Arduini;3
+08034025;Noceto;3
+08034026;Palanzano;2
+08034027;Parma;3
+08034028;Pellegrino Parmense;3
+08034029;Polesine Parmense;3
+08034030;Roccabianca;3
+08034031;Sala Baganza;3
+08034032;Salsomaggiore Terme;3
+08034033;San Secondo Parmense;3
+08034034;Sissa;3
+08034035;Solignano;3
+08034036;Soragna;3
+08034037;Sorbolo;3
+08034038;Terenzo;3
+08034039;Tizzano Val Parma;3
+08034040;Tornolo;2
+08034041;Torrile;3
+08034042;Traversetolo;3
+08034043;Trecasali;3
+08034044;Valmozzola;3
+08034045;Varano de' Melegari;3
+08034046;Varsi;3
+08034048;Zibello;3
+08035001;Albinea;3
+08035002;Bagnolo in Piano;3
+08035003;Baiso;3
+08035004;Bibbiano;3
+08035005;Boretto;3
+08035006;Brescello;3
+08035007;Busana;2
+08035008;Cadelbosco di Sopra;3
+08035009;Campagnola Emilia;3
+08035010;Campegine;3
+08035011;Carpineti;3
+08035012;Casalgrande;2
+08035013;Casina;3
+08035014;Castellarano;2
+08035015;Castelnovo di Sotto;3
+08035016;Castelnovo ne' Monti;2
+08035017;Cavriago;3
+08035018;Ciano d'Enza;3
+08035019;Collagna;2
+08035020;Correggio;3
+08035021;Fabbrico;3
+08035022;Gattatico;3
+08035023;Gualtieri;3
+08035024;Guastalla;3
+08035025;Ligonchio;2
+08035026;Luzzara;4
+08035027;Montecchio Emilia;3
+08035028;Novellara;3
+08035029;Poviglio;3
+08035030;Quattro Castella;3
+08035031;Ramiseto;2
+08035032;Reggiolo;3
+08035033;Reggio nell'Emilia;3
+08035034;Rio Saliceto;3
+08035035;Rolo;3
+08035036;Rubiera;3
+08035037;San Martino in Rio;3
+08035038;San Polo d'Enza;3
+08035039;Sant'Ilario d'Enza;3
+08035040;Scandiano;3
+08035041;Toano;2
+08035042;Vetto;2
+08035043;Vezzano sul Crostolo;3
+08035044;Viano;2
+08035045;Villa Minozzo;2
+08036001;Bastiglia;3
+08036002;Bomporto;3
+08036003;Campogalliano;3
+08036004;Camposanto;3
+08036005;Carpi;3
+08036006;Castelfranco Emilia;3
+08036007;Castelnuovo Rangone;3
+08036008;Castelvetro di Modena;2
+08036009;Cavezzo;3
+08036010;Concordia sulla Secchia;3
+08036011;Fanano;3
+08036012;Finale Emilia;3
+08036013;Fiorano Modenese;2
+08036014;Fiumalbo;3
+08036015;Formigine;2
+08036016;Frassinoro;2
+08036017;Guiglia;3
+08036018;Lama Mocogno;3
+08036019;Maranello;2
+08036020;Marano sul Panaro;3
+08036021;Medolla;3
+08036022;Mirandola;3
+08036023;Modena;3
+08036024;Montecreto;3
+08036025;Montefiorino;3
+08036026;Montese;3
+08036027;Nonantola;3
+08036028;Novi di Modena;3
+08036029;Palagano;3
+08036030;Pavullo nel Frignano;3
+08036031;Pievepelago;2
+08036032;Polinago;3
+08036033;Prignano sulla Secchia;3
+08036034;Ravarino;3
+08036035;Riolunato;3
+08036036;San Cesario sul Panaro;3
+08036037;San Felice sul Panaro;3
+08036038;San Possidonio;3
+08036039;San Prospero;3
+08036040;Sassuolo;2
+08036041;Savignano sul Panaro;3
+08036042;Serramazzoni;3
+08036043;Sestola;3
+08036044;Soliera;3
+08036045;Spilamberto;3
+08036046;Vignola;3
+08036047;Zocca;3
+08037001;Anzola dell'Emilia;3
+08037002;Argelato;3
+08037003;Baricella;3
+08037004;Bazzano;3
+08037005;Bentivoglio;3
+08037006;Bologna;3
+08037007;Borgo Tossignano;2
+08037008;Budrio;3
+08037009;Calderara di Reno;3
+08037010;Camugnano;3
+08037011;Casalecchio di Reno;3
+08037012;Casalfiumanese;2
+08037013;Castel d'Aiano;3
+08037014;Castel del Rio;2
+08037015;Castel di Casio;3
+08037016;Castel Guelfo di Bologna;2
+08037017;Castello d'Argile;3
+08037018;Castello di Serravalle;3
+08037019;Castel Maggiore;3
+08037020;Castel San Pietro Terme;2
+08037021;Castenaso;3
+08037022;Castiglione dei Pepoli;3
+08037023;Crespellano;3
+08037024;Crevalcore;3
+08037025;Dozza;2
+08037026;Fontanelice;2
+08037027;Gaggio Montano;3
+08037028;Galliera;3
+08037029;Granaglione;3
+08037030;Granarolo dell'Emilia;3
+08037031;Grizzana Morandi;3
+08037032;Imola;2
+08037033;Lizzano in Belvedere;3
+08037034;Loiano;3
+08037035;Malalbergo;3
+08037036;Marzabotto;3
+08037037;Medicina;2
+08037038;Minerbio;3
+08037039;Molinella;3
+08037040;Monghidoro;3
+08037041;Monterenzio;2
+08037042;Monte San Pietro;3
+08037043;Monteveglio;3
+08037044;Monzuno;3
+08037045;Mordano;2
+08037046;Ozzano dell'Emilia;2
+08037047;Pianoro;3
+08037048;Pieve di Cento;3
+08037049;Porretta Terme;3
+08037050;Sala Bolognese;3
+08037051;San Benedetto Val di Sambro;3
+08037052;San Giorgio di Piano;3
+08037053;San Giovanni in Persiceto;3
+08037054;San Lazzaro di Savena;3
+08037055;San Pietro in Casale;3
+08037056;Sant'Agata Bolognese;3
+08037057;Sasso Marconi;3
+08037058;Savigno;3
+08037059;Vergato;3
+08037060;Zola Predosa;3
+08038001;Argenta;2
+08038002;Berra;4
+08038003;Bondeno;3
+08038004;Cento;3
+08038005;Codigoro;3
+08038006;Comacchio;3
+08038007;Copparo;3
+08038008;Ferrara;3
+08038009;Formignana;3
+08038010;Jolanda di Savoia;3
+08038011;Lagosanto;3
+08038012;Masi Torello;3
+08038013;Massa Fiscaglia;3
+08038014;Mesola;4
+08038015;Migliarino;3
+08038016;Mirabello;3
+08038017;Ostellato;3
+08038018;Poggio Renatico;3
+08038019;Portomaggiore;3
+08038020;Ro;3
+08038021;Sant'Agostino;3
+08038022;Vigarano Mainarda;3
+08038023;Voghiera;3
+08038024;Tresigallo;3
+08038025;Goro;4
+08038026;Migliaro;3
+08039001;Alfonsine;2
+08039002;Bagnacavallo;2
+08039003;Bagnara di Romagna;2
+08039004;Brisighella;2
+08039005;Casola Valsenio;2
+08039006;Castel Bolognese;2
+08039007;Cervia;2
+08039008;Conselice;2
+08039009;Cotignola;2
+08039010;Faenza;2
+08039011;Fusignano;2
+08039012;Lugo;2
+08039013;Massa Lombarda;2
+08039014;Ravenna;3
+08039015;Riolo Terme;2
+08039016;Russi;2
+08039017;Sant'Agata sul Santerno;2
+08039018;Solarolo;2
+08040001;Bagno di Romagna;2
+08040003;Bertinoro;2
+08040004;Borghi;2
+08040005;Castrocaro Terme e Terra del Sole;2
+08040007;Cesena;2
+08040008;Cesenatico;2
+08040009;Civitella di Romagna;2
+08040011;Dovadola;2
+08040012;Forlì;2
+08040013;Forlimpopoli;2
+08040014;Galeata;2
+08040015;Gambettola;2
+08040016;Gatteo;2
+08040018;Longiano;2
+08040019;Meldola;2
+08040020;Mercato Saraceno;2
+08040022;Modigliana;2
+08040028;Montiano;2
+08040031;Portico e San Benedetto;2
+08040032;Predappio;2
+08040033;Premilcuore;2
+08040036;Rocca San Casciano;2
+08040037;Roncofreddo;2
+08040041;San Mauro Pascoli;2
+08040043;Santa Sofia;2
+08040044;Sarsina;2
+08040045;Savignano sul Rubicone;2
+08040046;Sogliano al Rubicone;2
+08040049;Tredozio;2
+08040050;Verghereto;2
+08099001;Bellaria-Igea Marina;2
+08099002;Cattolica;2
+08099003;Coriano;2
+08099004;Gemmano;2
+08099005;Misano Adriatico;2
+08099006;Mondaino;2
+08099007;Monte Colombo;2
+08099008;Montefiore Conca;2
+08099009;Montegridolfo;2
+08099010;Montescudo;2
+08099011;Morciano di Romagna;2
+08099012;Poggio Berni;2
+08099013;Riccione;2
+08099014;Rimini;2
+08099015;Saludecio;2
+08099016;San Clemente;2
+08099017;San Giovanni in Marignano;2
+08099018;Santarcangelo di Romagna;2
+08099019;Torriana;2
+08099020;Verucchio;2
+09045001;Aulla;2
+09045002;Bagnone;2
+09045003;Carrara;2
+09045004;Casola in Lunigiana;2
+09045005;Comano;2
+09045006;Filattiera;2
+09045007;Fivizzano;2
+09045008;Fosdinovo;2
+09045009;Licciana Nardi;2
+09045010;Massa;2
+09045011;Montignoso;2
+09045012;Mulazzo;2
+09045013;Podenzana;2
+09045014;Pontremoli;2
+09045015;Tresana;2
+09045016;Villafranca in Lunigiana;2
+09045017;Zeri;2
+09046001;Altopascio;3
+09046002;Bagni di Lucca;3
+09046003;Barga;2
+09046004;Borgo a Mozzano;3
+09046005;Camaiore;3
+09046006;Camporgiano;2
+09046007;Capannori;3
+09046008;Careggine;2
+09046009;Castelnuovo di Garfagnana;2
+09046010;Castiglione di Garfagnana;2
+09046011;Coreglia Antelminelli;3
+09046012;Fabbriche di Vallico;2
+09046013;Forte dei Marmi;3
+09046014;Fosciandora;2
+09046015;Gallicano;2
+09046016;Giuncugnano;2
+09046017;Lucca;3
+09046018;Massarosa;3
+09046019;Minucciano;2
+09046020;Molazzana;2
+09046021;Montecarlo;3
+09046022;Pescaglia;3
+09046023;Piazza al Serchio;2
+09046024;Pietrasanta;3
+09046025;Pieve Fosciana;2
+09046026;Porcari;3
+09046027;San Romano in Garfagnana;2
+09046028;Seravezza;3
+09046029;Sillano;2
+09046030;Stazzema;3
+09046031;Vagli Sotto;2
+09046032;Vergemoli;2
+09046033;Viareggio;3
+09046034;Villa Basilica;3
+09046035;Villa Collemandina;2
+09047001;Abetone;3
+09047002;Agliana;2
+09047003;Buggiano;3
+09047004;Cutigliano;3
+09047005;Lamporecchio;2
+09047006;Larciano;2
+09047007;Marliana;3
+09047008;Massa e Cozzile;3
+09047009;Monsummano Terme;3
+09047010;Montale;2
+09047011;Montecatini-Terme;3
+09047012;Pescia;3
+09047013;Pieve a Nievole;3
+09047014;Pistoia;2
+09047015;Piteglio;3
+09047016;Ponte Buggianese;3
+09047017;Quarrata;2
+09047018;Sambuca Pistoiese;2
+09047019;San Marcello Pistoiese;3
+09047020;Serravalle Pistoiese;2
+09047021;Uzzano;3
+09047022;Chiesina Uzzanese;3
+09048001;Bagno a Ripoli;2
+09048002;Barberino di Mugello;2
+09048003;Barberino Val d'Elsa;2
+09048004;Borgo San Lorenzo;2
+09048005;Calenzano;2
+09048006;Campi Bisenzio;2
+09048008;Capraia e Limite;2
+09048010;Castelfiorentino;2
+09048011;Cerreto Guidi;2
+09048012;Certaldo;2
+09048013;Dicomano;2
+09048014;Empoli;2
+09048015;Fiesole;2
+09048016;Figline Valdarno;2
+09048017;Firenze;2
+09048018;Firenzuola;2
+09048019;Fucecchio;2
+09048020;Gambassi Terme;2
+09048021;Greve in Chianti;2
+09048022;Impruneta;2
+09048023;Incisa in Val d'Arno;2
+09048024;Lastra a Signa;2
+09048025;Londa;2
+09048026;Marradi;2
+09048027;Montaione;2
+09048028;Montelupo Fiorentino;2
+09048030;Montespertoli;2
+09048031;Palazzuolo sul Senio;2
+09048032;Pelago;2
+09048033;Pontassieve;2
+09048035;Reggello;2
+09048036;Rignano sull'Arno;2
+09048037;Rufina;2
+09048038;San Casciano in Val di Pesa;2
+09048039;San Godenzo;2
+09048040;San Piero a Sieve;2
+09048041;Scandicci;2
+09048042;Scarperia;2
+09048043;Sesto Fiorentino;2
+09048044;Signa;2
+09048045;Tavarnelle Val di Pesa;2
+09048046;Vaglia;2
+09048049;Vicchio;2
+09048050;Vinci;2
+09049001;Bibbona;2
+09049002;Campiglia Marittima;4
+09049003;Campo nell'Elba;4
+09049004;Capoliveri;4
+09049005;Capraia Isola;4
+09049006;Castagneto Carducci;2
+09049007;Cecina;2
+09049008;Collesalvetti;2
+09049009;Livorno;2
+09049010;Marciana;4
+09049011;Marciana Marina;4
+09049012;Piombino;4
+09049013;Porto Azzurro;4
+09049014;Portoferraio;4
+09049015;Rio Marina;4
+09049016;Rio nell'Elba;4
+09049017;Rosignano Marittimo;2
+09049018;San Vincenzo;4
+09049019;Sassetta;4
+09049020;Suvereto;4
+09050001;Bientina;2
+09050002;Buti;2
+09050003;Calci;2
+09050004;Calcinaia;2
+09050005;Capannoli;2
+09050006;Casale Marittimo;2
+09050007;Casciana Terme;2
+09050008;Cascina;2
+09050009;Castelfranco di Sotto;2
+09050010;Castellina Marittima;2
+09050011;Castelnuovo di Val di Cecina;3
+09050012;Chianni;2
+09050013;Crespina;2
+09050014;Fauglia;2
+09050015;Guardistallo;2
+09050016;Lajatico;2
+09050017;Lari;2
+09050018;Lorenzana;2
+09050019;Montecatini Val di Cecina;3
+09050020;Montescudaio;2
+09050021;Monteverdi Marittimo;3
+09050022;Montopoli in Val d'Arno;2
+09050023;Orciano Pisano;2
+09050024;Palaia;2
+09050025;Peccioli;2
+09050026;Pisa;2
+09050027;Pomarance;3
+09050028;Ponsacco;2
+09050029;Pontedera;2
+09050030;Riparbella;2
+09050031;San Giuliano Terme;3
+09050032;San Miniato;2
+09050033;Santa Croce sull'Arno;2
+09050034;Santa Luce;2
+09050035;Santa Maria a Monte;2
+09050036;Terricciola;2
+09050037;Vecchiano;3
+09050038;Vicopisano;2
+09050039;Volterra;3
+09051001;Anghiari;2
+09051002;Arezzo;2
+09051003;Badia Tedalda;2
+09051004;Bibbiena;2
+09051005;Bucine;3
+09051006;Capolona;2
+09051007;Caprese Michelangelo;2
+09051008;Castel Focognano;2
+09051009;Castelfranco di Sopra;2
+09051010;Castel San Niccolò;2
+09051011;Castiglion Fibocchi;3
+09051012;Castiglion Fiorentino;2
+09051013;Cavriglia;2
+09051014;Chitignano;2
+09051015;Chiusi della Verna;2
+09051016;Civitella in Val di Chiana;3
+09051017;Cortona;2
+09051018;Foiano della Chiana;3
+09051019;Laterina;3
+09051020;Loro Ciuffenna;3
+09051021;Lucignano;3
+09051022;Marciano della Chiana;3
+09051023;Montemignaio;2
+09051024;Monterchi;2
+09051025;Monte San Savino;3
+09051026;Montevarchi;3
+09051027;Ortignano Raggiolo;2
+09051028;Pergine Valdarno;3
+09051029;Pian di Sco;2
+09051030;Pieve Santo Stefano;2
+09051031;Poppi;2
+09051032;Pratovecchio;2
+09051033;San Giovanni Valdarno;2
+09051034;Sansepolcro;2
+09051035;Sestino;2
+09051036;Stia;2
+09051037;Subbiano;2
+09051038;Talla;3
+09051039;Terranuova Bracciolini;3
+09052001;Abbadia San Salvatore;2
+09052002;Asciano;3
+09052003;Buonconvento;3
+09052004;Casole d'Elsa;3
+09052005;Castellina in Chianti;2
+09052006;Castelnuovo Berardenga;2
+09052007;Castiglione d'Orcia;2
+09052008;Cetona;2
+09052009;Chianciano Terme;3
+09052010;Chiusdino;2
+09052011;Chiusi;2
+09052012;Colle di Val d'Elsa;2
+09052013;Gaiole in Chianti;2
+09052014;Montalcino;3
+09052015;Montepulciano;3
+09052016;Monteriggioni;2
+09052017;Monteroni d'Arbia;2
+09052018;Monticiano;2
+09052019;Murlo;2
+09052020;Piancastagnaio;2
+09052021;Pienza;3
+09052022;Poggibonsi;2
+09052023;Radda in Chianti;2
+09052024;Radicofani;2
+09052025;Radicondoli;3
+09052026;Rapolano Terme;3
+09052027;San Casciano dei Bagni;2
+09052028;San Gimignano;2
+09052029;San Giovanni d'Asso;3
+09052030;San Quirico d'Orcia;3
+09052031;Sarteano;2
+09052032;Siena;2
+09052033;Sinalunga;3
+09052034;Sovicille;2
+09052035;Torrita di Siena;3
+09052036;Trequanda;3
+09053001;Arcidosso;3
+09053002;Campagnatico;3
+09053003;Capalbio;4
+09053004;Castel del Piano;3
+09053005;Castell'Azzara;2
+09053006;Castiglione della Pescaia;4
+09053007;Cinigiano;3
+09053008;Civitella Paganico;2
+09053009;Follonica;4
+09053010;Gavorrano;4
+09053011;Grosseto;4
+09053012;Isola del Giglio;4
+09053013;Magliano in Toscana;4
+09053014;Manciano;3
+09053015;Massa Marittima;3
+09053016;Monte Argentario;4
+09053017;Montieri;3
+09053018;Orbetello;4
+09053019;Pitigliano;3
+09053020;Roccalbegna;3
+09053021;Roccastrada;2
+09053022;Santa Fiora;2
+09053023;Scansano;3
+09053024;Scarlino;4
+09053025;Seggiano;3
+09053026;Sorano;2
+09053027;Monterotondo Marittimo;3
+09053028;Semproniano;2
+09100001;Cantagallo;2
+09100002;Carmignano;2
+09100003;Montemurlo;2
+09100004;Poggio a Caiano;2
+09100005;Prato;2
+09100006;Vaiano;2
+09100007;Vernio;2
+10054001;Assisi;2
+10054002;Bastia;2
+10054003;Bettona;2
+10054004;Bevagna;2
+10054005;Campello sul Clitunno;1
+10054006;Cannara;2
+10054007;Cascia;1
+10054008;Castel Ritaldi;2
+10054009;Castiglione del Lago;2
+10054010;Cerreto di Spoleto;1
+10054011;Citerna;2
+10054012;Città della Pieve;3
+10054013;Città di Castello;2
+10054014;Collazzone;2
+10054015;Corciano;2
+10054016;Costacciaro;2
+10054017;Deruta;2
+10054018;Foligno;1
+10054019;Fossato di Vico;2
+10054020;Fratta Todina;2
+10054021;Giano dell'Umbria;2
+10054022;Gualdo Cattaneo;2
+10054023;Gualdo Tadino;2
+10054024;Gubbio;2
+10054025;Lisciano Niccone;2
+10054026;Magione;2
+10054027;Marsciano;2
+10054028;Massa Martana;2
+10054029;Monte Castello di Vibio;2
+10054030;Montefalco;2
+10054031;Monteleone di Spoleto;1
+10054032;Monte Santa Maria Tiberina;2
+10054033;Montone;2
+10054034;Nocera Umbra;2
+10054035;Norcia;1
+10054036;Paciano;2
+10054037;Panicale;2
+10054038;Passignano sul Trasimeno;2
+10054039;Perugia;2
+10054040;Piegaro;2
+10054041;Pietralunga;2
+10054042;Poggiodomo;1
+10054043;Preci;1
+10054044;San Giustino;2
+10054045;Sant'Anatolia di Narco;1
+10054046;Scheggia e Pascelupo;2
+10054047;Scheggino;1
+10054048;Sellano;1
+10054049;Sigillo;2
+10054050;Spello;2
+10054051;Spoleto;1
+10054052;Todi;3
+10054053;Torgiano;2
+10054054;Trevi;1
+10054055;Tuoro sul Trasimeno;2
+10054056;Umbertide;2
+10054057;Valfabbrica;2
+10054058;Vallo di Nera;1
+10054059;Valtopina;2
+10055001;Acquasparta;2
+10055002;Allerona;3
+10055003;Alviano;3
+10055004;Amelia;3
+10055005;Arrone;1
+10055006;Attigliano;3
+10055007;Baschi;3
+10055008;Calvi dell'Umbria;2
+10055009;Castel Giorgio;2
+10055010;Castel Viscardo;2
+10055011;Fabro;3
+10055012;Ferentillo;1
+10055013;Ficulle;3
+10055014;Giove;3
+10055015;Guardea;3
+10055016;Lugnano in Teverina;3
+10055017;Montecastrilli;3
+10055018;Montecchio;3
+10055019;Montefranco;1
+10055020;Montegabbione;3
+10055021;Monteleone d'Orvieto;3
+10055022;Narni;3
+10055023;Orvieto;3
+10055024;Otricoli;3
+10055025;Parrano;3
+10055026;Penna in Teverina;3
+10055027;Polino;1
+10055028;Porano;3
+10055029;San Gemini;2
+10055030;San Venanzo;2
+10055031;Stroncone;2
+10055032;Terni;2
+10055033;Avigliano Umbro;3
+11041001;Acqualagna;2
+11041002;Apecchio;2
+11041003;Auditore;2
+11041004;Barchi;2
+11041005;Belforte all'Isauro;2
+11041006;Borgo Pace;2
+11041007;Cagli;2
+11041008;Cantiano;2
+11041009;Carpegna;2
+11041010;Cartoceto;2
+11041011;Casteldelci;2
+11041012;Colbordolo;2
+11041013;Fano;2
+11041014;Fermignano;2
+11041015;Fossombrone;2
+11041016;Fratte Rosa;2
+11041017;Frontino;2
+11041018;Frontone;2
+11041019;Gabicce Mare;2
+11041020;Gradara;2
+11041021;Isola del Piano;2
+11041022;Lunano;2
+11041023;Macerata Feltria;2
+11041024;Maiolo;2
+11041025;Mercatello sul Metauro;2
+11041026;Mercatino Conca;2
+11041027;Mombaroccio;2
+11041028;Mondavio;2
+11041029;Mondolfo;2
+11041030;Montecalvo in Foglia;2
+11041031;Monte Cerignone;2
+11041032;Monteciccardo;2
+11041033;Montecopiolo;2
+11041034;Montefelcino;2
+11041035;Montegrimano;2
+11041036;Montelabbate;2
+11041037;Montemaggiore al Metauro;2
+11041038;Monte Porzio;2
+11041039;Novafeltria;2
+11041040;Orciano di Pesaro;2
+11041041;Peglio;2
+11041042;Pennabilli;2
+11041043;Pergola;2
+11041044;Pesaro;2
+11041045;Petriano;2
+11041046;Piagge;2
+11041047;Piandimeleto;2
+11041048;Pietrarubbia;2
+11041049;Piobbico;2
+11041050;Saltara;2
+11041051;San Costanzo;2
+11041052;San Giorgio di Pesaro;2
+11041053;San Leo;2
+11041054;San Lorenzo in Campo;2
+11041055;Sant'Agata Feltria;2
+11041056;Sant'Angelo in Lizzola;2
+11041057;Sant'Angelo in Vado;2
+11041058;Sant'Ippolito;2
+11041059;Sassocorvaro;2
+11041060;Sassofeltrio;2
+11041061;Serra Sant'Abbondio;2
+11041062;Serrungarina;2
+11041063;Talamello;2
+11041064;Tavoleto;2
+11041065;Tavullia;2
+11041066;Urbania;2
+11041067;Urbino;2
+11042001;Agugliano;2
+11042002;Ancona;2
+11042003;Arcevia;2
+11042004;Barbara;2
+11042005;Belvedere Ostrense;2
+11042006;Camerano;2
+11042007;Camerata Picena;2
+11042008;Castelbellino;2
+11042009;Castel Colonna;2
+11042010;Castelfidardo;2
+11042011;Castelleone di Suasa;2
+11042012;Castelplanio;2
+11042013;Cerreto d'Esi;2
+11042014;Chiaravalle;2
+11042015;Corinaldo;2
+11042016;Cupramontana;2
+11042017;Fabriano;2
+11042018;Falconara Marittima;2
+11042019;Filottrano;2
+11042020;Genga;2
+11042021;Jesi;2
+11042022;Loreto;2
+11042023;Maiolati Spontini;2
+11042024;Mergo;2
+11042025;Monsano;2
+11042026;Montecarotto;2
+11042027;Montemarciano;2
+11042028;Monterado;2
+11042029;Monte Roberto;2
+11042030;Monte San Vito;2
+11042031;Morro d'Alba;2
+11042032;Numana;2
+11042033;Offagna;2
+11042034;Osimo;2
+11042035;Ostra;2
+11042036;Ostra Vetere;2
+11042037;Poggio San Marcello;2
+11042038;Polverigi;2
+11042039;Ripe;2
+11042040;Rosora;2
+11042041;San Marcello;2
+11042042;San Paolo di Jesi;2
+11042043;Santa Maria Nuova;2
+11042044;Sassoferrato;2
+11042045;Senigallia;2
+11042046;Serra de' Conti;2
+11042047;Serra San Quirico;2
+11042048;Sirolo;2
+11042049;Staffolo;2
+11043001;Acquacanina;2
+11043002;Apiro;2
+11043003;Appignano;2
+11043004;Belforte del Chienti;2
+11043005;Bolognola;2
+11043006;Caldarola;2
+11043007;Camerino;2
+11043008;Camporotondo di Fiastrone;2
+11043009;Castelraimondo;2
+11043010;Castelsantangelo sul Nera;1
+11043011;Cessapalombo;2
+11043012;Cingoli;2
+11043013;Civitanova Marche;2
+11043014;Colmurano;2
+11043015;Corridonia;2
+11043016;Esanatoglia;2
+11043017;Fiastra;2
+11043018;Fiordimonte;2
+11043019;Fiuminata;2
+11043020;Gagliole;2
+11043021;Gualdo;2
+11043022;Loro Piceno;2
+11043023;Macerata;2
+11043024;Matelica;2
+11043025;Mogliano;2
+11043026;Montecassiano;2
+11043027;Monte Cavallo;1
+11043028;Montecosaro;2
+11043029;Montefano;2
+11043030;Montelupone;2
+11043031;Monte San Giusto;2
+11043032;Monte San Martino;2
+11043033;Morrovalle;2
+11043034;Muccia;1
+11043035;Penna San Giovanni;2
+11043036;Petriolo;2
+11043037;Pievebovigliana;2
+11043038;Pieve Torina;1
+11043039;Pioraco;2
+11043040;Poggio San Vicino;2
+11043041;Pollenza;2
+11043042;Porto Recanati;2
+11043043;Potenza Picena;2
+11043044;Recanati;2
+11043045;Ripe San Ginesio;2
+11043046;San Ginesio;2
+11043047;San Severino Marche;2
+11043048;Sant'Angelo in Pontano;2
+11043049;Sarnano;2
+11043050;Sefro;2
+11043051;Serrapetrona;2
+11043052;Serravalle di Chienti;1
+11043053;Tolentino;2
+11043054;Treia;2
+11043055;Urbisaglia;2
+11043056;Ussita;2
+11043057;Visso;1
+11044001;Acquasanta Terme;2
+11044002;Acquaviva Picena;3
+11044003;Altidona;3
+11044004;Amandola;2
+11044005;Appignano del Tronto;2
+11044006;Arquata del Tronto;2
+11044007;Ascoli Piceno;2
+11044008;Belmonte Piceno;2
+11044009;Campofilone;3
+11044010;Carassai;2
+11044011;Castel di Lama;2
+11044012;Castignano;2
+11044013;Castorano;2
+11044014;Colli del Tronto;2
+11044015;Comunanza;2
+11044016;Cossignano;2
+11044017;Cupra Marittima;3
+11044018;Falerone;2
+11044019;Fermo;2
+11044020;Folignano;2
+11044021;Force;2
+11044022;Francavilla d'Ete;2
+11044023;Grottammare;3
+11044024;Grottazzolina;2
+11044025;Lapedona;3
+11044026;Magliano di Tenna;2
+11044027;Maltignano;2
+11044028;Massa Fermana;2
+11044029;Massignano;3
+11044030;Monsampietro Morico;2
+11044031;Monsampolo del Tronto;2
+11044032;Montalto delle Marche;2
+11044033;Montappone;2
+11044034;Montedinove;2
+11044035;Montefalcone Appennino;2
+11044036;Montefiore dell'Aso;3
+11044037;Montefortino;2
+11044038;Montegallo;2
+11044039;Monte Giberto;2
+11044040;Montegiorgio;2
+11044041;Montegranaro;2
+11044042;Monteleone di Fermo;2
+11044043;Montelparo;2
+11044044;Montemonaco;2
+11044045;Monteprandone;2
+11044046;Monte Rinaldo;2
+11044047;Monterubbiano;2
+11044048;Monte San Pietrangeli;2
+11044049;Monte Urano;2
+11044050;Monte Vidon Combatte;2
+11044051;Monte Vidon Corrado;2
+11044052;Montottone;2
+11044053;Moresco;3
+11044054;Offida;2
+11044055;Ortezzano;2
+11044056;Palmiano;2
+11044057;Pedaso;3
+11044058;Petritoli;2
+11044059;Ponzano di Fermo;2
+11044060;Porto San Giorgio;2
+11044061;Porto Sant'Elpidio;2
+11044062;Rapagnano;2
+11044063;Ripatransone;3
+11044064;Roccafluvione;2
+11044065;Rotella;2
+11044066;San Benedetto del Tronto;3
+11044067;Santa Vittoria in Matenano;2
+11044068;Sant'Elpidio a Mare;2
+11044069;Servigliano;2
+11044070;Smerillo;2
+11044071;Spinetoli;2
+11044072;Torre San Patrizio;2
+11044073;Venarotta;2
+12056001;Acquapendente;2
+12056002;Arlena di Castro;3
+12056003;Bagnoregio;3
+12056004;Barbarano Romano;3
+12056005;Bassano Romano;3
+12056006;Bassano in Teverina;3
+12056007;Blera;3
+12056008;Bolsena;3
+12056009;Bomarzo;3
+12056010;Calcata;3
+12056011;Canepina;3
+12056012;Canino;3
+12056013;Capodimonte;3
+12056014;Capranica;3
+12056015;Caprarola;3
+12056016;Carbognano;3
+12056017;Castel Sant'Elia;3
+12056018;Castiglione in Teverina;3
+12056019;Celleno;3
+12056020;Cellere;3
+12056021;Civita Castellana;3
+12056022;Civitella d'Agliano;3
+12056023;Corchiano;3
+12056024;Fabrica di Roma;3
+12056025;Faleria;3
+12056026;Farnese;3
+12056027;Gallese;3
+12056028;Gradoli;3
+12056029;Graffignano;3
+12056030;Grotte di Castro;2
+12056031;Ischia di Castro;3
+12056032;Latera;3
+12056033;Lubriano;3
+12056034;Marta;3
+12056035;Montalto di Castro;4
+12056036;Montefiascone;3
+12056037;Monte Romano;3
+12056038;Monterosi;3
+12056039;Nepi;3
+12056040;Onano;2
+12056041;Oriolo Romano;3
+12056042;Orte;3
+12056043;Piansano;3
+12056044;Proceno;2
+12056045;Ronciglione;3
+12056046;Villa San Giovanni in Tuscia;3
+12056047;San Lorenzo Nuovo;2
+12056048;Soriano nel Cimino;3
+12056049;Sutri;3
+12056050;Tarquinia;3
+12056051;Tessennano;3
+12056052;Tuscania;3
+12056053;Valentano;3
+12056054;Vallerano;3
+12056055;Vasanello;3
+12056056;Vejano;3
+12056057;Vetralla;3
+12056058;Vignanello;3
+12056059;Viterbo;3
+12056060;Vitorchiano;3
+12057001;Accumoli;1
+12057002;Amatrice;1
+12057003;Antrodoco;1
+12057004;Ascrea;2
+12057005;Belmonte in Sabina;2
+12057006;Borbona;1
+12057007;Borgorose;1
+12057008;Borgo Velino;2
+12057009;Cantalice;2
+12057010;Cantalupo in Sabina;2
+12057011;Casaprota;2
+12057012;Casperia;2
+12057013;Castel di Tora;2
+12057014;Castelnuovo di Farfa;2
+12057015;Castel Sant'Angelo;2
+12057016;Cittaducale;2
+12057017;Cittareale;1
+12057018;Collalto Sabino;2
+12057019;Colle di Tora;2
+12057020;Collegiove;2
+12057021;Collevecchio;3
+12057022;Colli sul Velino;2
+12057023;Concerviano;2
+12057024;Configni;2
+12057025;Contigliano;2
+12057026;Cottanello;2
+12057027;Fara in Sabina;2
+12057028;Fiamignano;1
+12057029;Forano;3
+12057030;Frasso Sabino;2
+12057031;Greccio;2
+12057032;Labro;2
+12057033;Leonessa;1
+12057034;Longone Sabino;2
+12057035;Magliano Sabina;3
+12057036;Marcetelli;2
+12057037;Micigliano;1
+12057038;Mompeo;2
+12057039;Montasola;2
+12057040;Montebuono;3
+12057041;Monteleone Sabino;2
+12057042;Montenero Sabino;2
+12057043;Monte San Giovanni in Sabina;2
+12057044;Montopoli di Sabina;2
+12057045;Morro Reatino;2
+12057046;Nespolo;2
+12057047;Orvinio;2
+12057048;Paganico;2
+12057049;Pescorocchiano;1
+12057050;Petrella Salto;1
+12057051;Poggio Bustone;1
+12057052;Poggio Catino;2
+12057053;Poggio Mirteto;2
+12057054;Poggio Moiano;2
+12057055;Poggio Nativo;2
+12057056;Poggio San Lorenzo;2
+12057057;Posta;1
+12057058;Pozzaglia Sabina;2
+12057059;Rieti;2
+12057060;Rivodutri;2
+12057061;Roccantica;2
+12057062;Rocca Sinibalda;2
+12057063;Salisano;2
+12057064;Scandriglia;2
+12057065;Selci;2
+12057066;Stimigliano;3
+12057067;Tarano;3
+12057068;Toffia;2
+12057069;Torricella in Sabina;2
+12057070;Torri in Sabina;2
+12057071;Turania;2
+12057072;Vacone;2
+12057073;Varco Sabino;2
+12058001;Affile;2
+12058002;Agosta;2
+12058003;Albano Laziale;2
+12058004;Allumiere;4
+12058005;Anguillara Sabazia;3
+12058006;Anticoli Corrado;2
+12058007;Anzio;3
+12058008;Arcinazzo Romano;2
+12058009;Ariccia;2
+12058010;Arsoli;2
+12058011;Artena;2
+12058012;Bellegra;2
+12058013;Bracciano;3
+12058014;Camerata Nuova;2
+12058015;Campagnano di Roma;3
+12058016;Canale Monterano;3
+12058017;Canterano;2
+12058018;Capena;3
+12058019;Capranica Prenestina;2
+12058020;Carpineto Romano;2
+12058021;Casape;2
+12058022;Castel Gandolfo;2
+12058023;Castel Madama;2
+12058024;Castelnuovo di Porto;3
+12058025;Castel San Pietro Romano;2
+12058026;Cave;2
+12058027;Cerreto Laziale;2
+12058028;Cervara di Roma;2
+12058029;Cerveteri;3
+12058030;Ciciliano;2
+12058031;Cineto Romano;2
+12058032;Civitavecchia;4
+12058033;Civitella San Paolo;2
+12058034;Colleferro;2
+12058035;Colonna;2
+12058036;Fiano Romano;3
+12058037;Filacciano;2
+12058038;Formello;3
+12058039;Frascati;2
+12058040;Gallicano nel Lazio;2
+12058041;Gavignano;2
+12058042;Genazzano;2
+12058043;Genzano di Roma;2
+12058044;Gerano;2
+12058045;Gorga;2
+12058046;Grottaferrata;2
+12058047;Guidonia Montecelio;2
+12058048;Jenne;2
+12058049;Labico;2
+12058050;Lanuvio;2
+12058051;Licenza;2
+12058052;Magliano Romano;3
+12058053;Mandela;2
+12058054;Manziana;3
+12058055;Marano Equo;2
+12058056;Marcellina;2
+12058057;Marino;2
+12058058;Mazzano Romano;3
+12058059;Mentana;2
+12058060;Montecompatri;2
+12058061;Monteflavio;2
+12058062;Montelanico;2
+12058063;Montelibretti;2
+12058064;Monte Porzio Catone;2
+12058065;Monterotondo;2
+12058066;Montorio Romano;2
+12058067;Moricone;2
+12058068;Morlupo;3
+12058069;Nazzano;3
+12058070;Nemi;2
+12058071;Nerola;2
+12058072;Nettuno;3
+12058073;Olevano Romano;2
+12058074;Palestrina;2
+12058075;Palombara Sabina;2
+12058076;Percile;2
+12058077;Pisoniano;2
+12058078;Poli;2
+12058079;Pomezia;3
+12058080;Ponzano Romano;3
+12058081;Riano;3
+12058082;Rignano Flaminio;3
+12058083;Riofreddo;2
+12058084;Rocca Canterano;2
+12058085;Rocca di Cave;2
+12058086;Rocca di Papa;2
+12058087;Roccagiovine;2
+12058088;Rocca Priora;2
+12058089;Rocca Santo Stefano;2
+12058090;Roiate;2
+12058091;Roma;3
+12058092;Roviano;2
+12058093;Sacrofano;3
+12058094;Sambuci;2
+12058095;San Gregorio da Sassola;2
+12058096;San Polo dei Cavalieri;2
+12058097;Santa Marinella;4
+12058098;Sant'Angelo Romano;2
+12058099;Sant'Oreste;3
+12058100;San Vito Romano;2
+12058101;Saracinesco;2
+12058102;Segni;2
+12058103;Subiaco;2
+12058104;Tivoli;2
+12058105;Tolfa;3
+12058106;Torrita Tiberina;2
+12058107;Trevignano Romano;3
+12058108;Vallepietra;2
+12058109;Vallinfreda;2
+12058110;Valmontone;2
+12058111;Velletri;2
+12058112;Vicovaro;2
+12058113;Vivaro Romano;2
+12058114;Zagarolo;2
+12058115;Lariano;2
+12058116;Ladispoli;4
+12058117;Ardea;3
+12058118;Ciampino;3
+12058119;San Cesareo;2
+12058120;Fiumicino (1);3
+12058122;Fonte Nuova (1);2
+12059001;Aprilia;3
+12059002;Bassiano;2
+12059003;Campodimele;2
+12059004;Castelforte;2
+12059005;Cisterna di Latina;2
+12059006;Cori;2
+12059007;Fondi;2
+12059008;Formia;2
+12059009;Gaeta;2
+12059010;Itri;2
+12059011;Latina;3
+12059012;Lenola;2
+12059013;Maenza;2
+12059014;Minturno;2
+12059015;Monte San Biagio;2
+12059016;Norma;2
+12059017;Pontinia;2
+12059018;Ponza;4
+12059019;Priverno;2
+12059020;Prossedi;2
+12059021;Roccagorga;2
+12059022;Rocca Massima;2
+12059023;Roccasecca dei Volsci;2
+12059024;Sabaudia;3
+12059025;San Felice Circeo;3
+12059026;Santi Cosma e Damiano;2
+12059027;Sermoneta;2
+12059028;Sezze;2
+12059029;Sonnino;2
+12059030;Sperlonga;2
+12059031;Spigno Saturnia;2
+12059032;Terracina;3
+12059033;Ventotene;3
+12060001;Acquafondata;2
+12060002;Acuto;2
+12060003;Alatri;2
+12060004;Alvito;1
+12060005;Amaseno;2
+12060006;Anagni;2
+12060007;Aquino;2
+12060008;Arce;2
+12060009;Arnara;2
+12060010;Arpino;1
+12060011;Atina;1
+12060012;Ausonia;2
+12060013;Belmonte Castello;1
+12060014;Boville Ernica;2
+12060015;Broccostella;1
+12060016;Campoli Appennino;1
+12060017;Casalattico;1
+12060018;Casalvieri;1
+12060019;Cassino;2
+12060020;Castelliri;1
+12060021;Castelnuovo Parano;2
+12060022;Castrocielo;2
+12060023;Castro dei Volsci;2
+12060024;Ceccano;2
+12060025;Ceprano;2
+12060026;Cervaro;2
+12060027;Colfelice;2
+12060028;Collepardo;2
+12060029;Colle San Magno;2
+12060030;Coreno Ausonio;2
+12060031;Esperia;2
+12060032;Falvaterra;2
+12060033;Ferentino;2
+12060034;Filettino;2
+12060035;Fiuggi;2
+12060036;Fontana Liri;1
+12060037;Fontechiari;1
+12060038;Frosinone;2
+12060039;Fumone;2
+12060040;Gallinaro;1
+12060041;Giuliano di Roma;2
+12060042;Guarcino;2
+12060043;Isola del Liri;1
+12060044;Monte San Giovanni Campano;2
+12060045;Morolo;2
+12060046;Paliano;2
+12060047;Pastena;2
+12060048;Patrica;2
+12060049;Pescosolido;1
+12060050;Picinisco;1
+12060051;Pico;2
+12060052;Piedimonte San Germano;2
+12060053;Piglio;2
+12060054;Pignataro Interamna;2
+12060055;Pofi;2
+12060056;Pontecorvo;2
+12060057;Posta Fibreno;1
+12060058;Ripi;2
+12060059;Rocca d'Arce;2
+12060060;Roccasecca;2
+12060061;San Biagio Saracinisco;2
+12060062;San Donato Val di Comino;1
+12060063;San Giorgio a Liri;2
+12060064;San Giovanni Incarico;2
+12060065;Sant'Ambrogio sul Garigliano;2
+12060066;Sant'Andrea del Garigliano;2
+12060067;Sant'Apollinare;2
+12060068;Sant'Elia Fiumerapido;1
+12060069;Santopadre;2
+12060070;San Vittore del Lazio;2
+12060071;Serrone;2
+12060072;Settefrati;1
+12060073;Sgurgola;2
+12060074;Sora;1
+12060075;Strangolagalli;2
+12060076;Supino;2
+12060077;Terelle;1
+12060078;Torre Cajetani;2
+12060079;Torrice;2
+12060080;Trevi nel Lazio;2
+12060081;Trivigliano;2
+12060082;Vallecorsa;2
+12060083;Vallemaio;2
+12060084;Vallerotonda;2
+12060085;Veroli;2
+12060086;Vicalvi;1
+12060087;Vico nel Lazio;2
+12060088;Villa Latina;1
+12060089;Villa Santa Lucia;2
+12060090;Villa Santo Stefano;2
+12060091;Viticuso;2
+13066001;Acciano;2
+13066002;Aielli;1
+13066003;Alfedena;2
+13066004;Anversa degli Abruzzi;1
+13066005;Ateleta;1
+13066006;Avezzano;1
+13066007;Balsorano;1
+13066008;Barete;1
+13066009;Barisciano;2
+13066010;Barrea;2
+13066011;Bisegna;1
+13066012;Bugnara;1
+13066013;Cagnano Amiterno;1
+13066014;Calascio;2
+13066015;Campo di Giove;1
+13066016;Campotosto;2
+13066017;Canistro;1
+13066018;Cansano;1
+13066019;Capestrano;2
+13066020;Capistrello;1
+13066021;Capitignano;1
+13066022;Caporciano;2
+13066023;Cappadocia;2
+13066024;Carapelle Calvisio;2
+13066025;Carsoli;2
+13066026;Castel del Monte;2
+13066027;Castel di Ieri;1
+13066028;Castel di Sangro;1
+13066029;Castellafiume;1
+13066030;Castelvecchio Calvisio;2
+13066031;Castelvecchio Subequo;1
+13066032;Celano;1
+13066033;Cerchio;1
+13066034;Civita d'Antino;1
+13066035;Civitella Alfedena;2
+13066036;Civitella Roveto;1
+13066037;Cocullo;1
+13066038;Collarmele;1
+13066039;Collelongo;1
+13066040;Collepietro;2
+13066041;Corfinio;1
+13066042;Fagnano Alto;2
+13066043;Fontecchio;2
+13066044;Fossa;2
+13066045;Gagliano Aterno;2
+13066046;Gioia dei Marsi;1
+13066047;Goriano Sicoli;1
+13066048;Introdacqua;1
+13066049;L'Aquila;2
+13066050;Lecce nei Marsi;1
+13066051;Luco dei Marsi;1
+13066052;Lucoli;2
+13066053;Magliano de' Marsi;1
+13066054;Massa d'Albe;1
+13066055;Molina Aterno;2
+13066056;Montereale;1
+13066057;Morino;1
+13066058;Navelli;2
+13066059;Ocre;2
+13066060;Ofena;2
+13066061;Opi;2
+13066062;Oricola;2
+13066063;Ortona dei Marsi;1
+13066064;Ortucchio;1
+13066065;Ovindoli;1
+13066066;Pacentro;1
+13066067;Pereto;2
+13066068;Pescasseroli;1
+13066069;Pescina;1
+13066070;Pescocostanzo;2
+13066071;Pettorano sul Gizio;1
+13066072;Pizzoli;1
+13066073;Poggio Picenze;2
+13066074;Prata d'Ansidonia;2
+13066075;Pratola Peligna;1
+13066076;Prezza;2
+13066077;Raiano;1
+13066078;Rivisondoli;1
+13066079;Roccacasale;2
+13066080;Rocca di Botte;2
+13066081;Rocca di Cambio;2
+13066082;Rocca di Mezzo;2
+13066083;Rocca Pia;2
+13066084;Roccaraso;2
+13066085;San Benedetto dei Marsi;1
+13066086;San Benedetto in Perillis;2
+13066087;San Demetrio ne' Vestini;2
+13066088;San Pio delle Camere;2
+13066089;Sante Marie;1
+13066090;Sant'Eusanio Forconese;2
+13066091;Santo Stefano di Sessanio;2
+13066092;San Vincenzo Valle Roveto;1
+13066093;Scanno;2
+13066094;Scontrone;2
+13066095;Scoppito;2
+13066096;Scurcola Marsicana;1
+13066097;Secinaro;2
+13066098;Sulmona;1
+13066099;Tagliacozzo;2
+13066100;Tione degli Abruzzi;2
+13066101;Tornimparte;1
+13066102;Trasacco;1
+13066103;Villalago;2
+13066104;Villa Santa Lucia degli Abruzzi;2
+13066105;Villa Sant'Angelo;2
+13066106;Villavallelonga;1
+13066107;Villetta Barrea;2
+13066108;Vittorito;1
+13067001;Alba Adriatica;3
+13067002;Ancarano;2
+13067003;Arsita;2
+13067004;Atri;3
+13067005;Basciano;2
+13067006;Bellante;3
+13067007;Bisenti;2
+13067008;Campli;2
+13067009;Canzano;2
+13067010;Castel Castagna;2
+13067011;Castellalto;3
+13067012;Castelli;2
+13067013;Castiglione Messer Raimondo;2
+13067014;Castilenti;2
+13067015;Cellino Attanasio;2
+13067016;Cermignano;2
+13067017;Civitella del Tronto;2
+13067018;Colledara;2
+13067019;Colonnella;3
+13067020;Controguerra;2
+13067021;Corropoli;2
+13067022;Cortino;2
+13067023;Crognaleto;2
+13067024;Fano Adriano;2
+13067025;Giulianova;3
+13067026;Isola del Gran Sasso d'Italia;2
+13067027;Montefino;2
+13067028;Montorio al Vomano;2
+13067029;Morro d'Oro;3
+13067030;Mosciano Sant'Angelo;3
+13067031;Nereto;2
+13067032;Notaresco;3
+13067033;Penna Sant'Andrea;2
+13067034;Pietracamela;2
+13067035;Pineto;3
+13067036;Rocca Santa Maria;2
+13067037;Roseto degli Abruzzi;3
+13067038;Sant'Egidio alla Vibrata;2
+13067039;Sant'Omero;3
+13067040;Silvi;3
+13067041;Teramo;2
+13067042;Torano Nuovo;2
+13067043;Torricella Sicura;2
+13067044;Tortoreto;3
+13067045;Tossicia;2
+13067046;Valle Castellana;2
+13067047;Martinsicuro;3
+13068001;Abbateggio;1
+13068002;Alanno;2
+13068003;Bolognano;1
+13068004;Brittoli;2
+13068005;Bussi sul Tirino;2
+13068006;Cappelle sul Tavo;3
+13068007;Caramanico Terme;1
+13068008;Carpineto della Nora;2
+13068009;Castiglione a Casauria;1
+13068010;Catignano;2
+13068011;Cepagatti;2
+13068012;Città Sant'Angelo;3
+13068013;Civitaquana;2
+13068014;Civitella Casanova;2
+13068015;Collecorvino;3
+13068016;Corvara;2
+13068017;Cugnoli;2
+13068018;Elice;2
+13068019;Farindola;2
+13068020;Lettomanoppello;1
+13068021;Loreto Aprutino;2
+13068022;Manoppello;1
+13068023;Montebello di Bertona;2
+13068024;Montesilvano;3
+13068025;Moscufo;3
+13068026;Nocciano;2
+13068027;Penne;2
+13068028;Pescara;3
+13068029;Pescosansonesco;1
+13068030;Pianella;2
+13068031;Picciano;2
+13068032;Pietranico;2
+13068033;Popoli;2
+13068034;Roccamorice;1
+13068035;Rosciano;2
+13068036;Salle;1
+13068037;Sant'Eufemia a Maiella;1
+13068038;San Valentino in Abruzzo Citeriore;1
+13068039;Scafa;2
+13068040;Serramonacesca;1
+13068041;Spoltore;3
+13068042;Tocco da Casauria;1
+13068043;Torre de' Passeri;1
+13068044;Turrivalignani;2
+13068045;Vicoli;2
+13068046;Villa Celiera;2
+13069001;Altino;1
+13069002;Archi;2
+13069003;Ari;2
+13069004;Arielli;2
+13069005;Atessa;3
+13069006;Bomba;2
+13069007;Borrello;1
+13069008;Bucchianico;2
+13069009;Montebello sul Sangro;2
+13069010;Canosa Sannita;2
+13069011;Carpineto Sinello;3
+13069012;Carunchio;2
+13069013;Casacanditella;1
+13069014;Casalanguida;3
+13069015;Casalbordino;3
+13069016;Casalincontrada;2
+13069017;Casoli;1
+13069018;Castel Frentano;2
+13069019;Castelguidone;2
+13069020;Castiglione Messer Marino;2
+13069021;Celenza sul Trigno;2
+13069022;Chieti;2
+13069023;Civitaluparella;2
+13069024;Civitella Messer Raimondo;1
+13069025;Colledimacine;2
+13069026;Colledimezzo;2
+13069027;Crecchio;2
+13069028;Cupello;3
+13069029;Dogliola;3
+13069030;Fara Filiorum Petri;2
+13069031;Fara San Martino;1
+13069032;Filetto;2
+13069033;Fossacesia;3
+13069034;Fraine;2
+13069035;Francavilla al Mare;3
+13069036;Fresagrandinaria;3
+13069037;Frisa;3
+13069038;Furci;3
+13069039;Gamberale;1
+13069040;Gessopalena;1
+13069041;Gissi;3
+13069042;Giuliano Teatino;2
+13069043;Guardiagrele;1
+13069044;Guilmi;2
+13069045;Lama dei Peligni;1
+13069046;Lanciano;3
+13069047;Lentella;3
+13069048;Lettopalena;1
+13069049;Liscia;2
+13069050;Miglianico;3
+13069051;Montazzoli;2
+13069052;Monteferrante;2
+13069053;Montelapiano;2
+13069054;Montenerodomo;2
+13069055;Monteodorisio;3
+13069056;Mozzagrogna;3
+13069057;Orsogna;2
+13069058;Ortona;3
+13069059;Paglieta;3
+13069060;Palena;1
+13069061;Palmoli;2
+13069062;Palombaro;1
+13069063;Pennadomo;1
+13069064;Pennapiedimonte;1
+13069065;Perano;2
+13069066;Pizzoferrato;1
+13069067;Poggiofiorito;2
+13069068;Pollutri;3
+13069069;Pretoro;2
+13069070;Quadri;2
+13069071;Rapino;1
+13069072;Ripa Teatina;3
+13069073;Roccamontepiano;1
+13069074;Rocca San Giovanni;3
+13069075;Roccascalegna;1
+13069076;Roccaspinalveti;2
+13069077;Roio del Sangro;2
+13069078;Rosello;2
+13069079;San Buono;2
+13069080;San Giovanni Lipioni;2
+13069081;San Giovanni Teatino;3
+13069082;San Martino sulla Marrucina;1
+13069083;San Salvo;3
+13069084;Santa Maria Imbaro;3
+13069085;Sant'Eusanio del Sangro;2
+13069086;San Vito Chietino;3
+13069087;Scerni;3
+13069088;Schiavi di Abruzzo;2
+13069089;Taranta Peligna;1
+13069090;Tollo;3
+13069091;Torino di Sangro;3
+13069092;Tornareccio;2
+13069093;Torrebruna;2
+13069094;Torrevecchia Teatina;3
+13069095;Torricella Peligna;1
+13069096;Treglio;3
+13069097;Tufillo;3
+13069098;Vacri;2
+13069099;Vasto;3
+13069100;Villalfonsina;3
+13069101;Villamagna;2
+13069102;Villa Santa Maria;2
+13069103;Pietraferrazzana;2
+13069104;Fallo;2
+14070001;Acquaviva Collecroce;3
+14070002;Baranello;1
+14070003;Bojano;1
+14070004;Bonefro;2
+14070005;Busso;2
+14070006;Campobasso;2
+14070007;Campochiaro;1
+14070008;Campodipietra;2
+14070009;Campolieto;2
+14070010;Campomarino;3
+14070011;Casacalenda;2
+14070012;Casalciprano;2
+14070013;Castelbottaccio;2
+14070014;Castellino del Biferno;1
+14070015;Castelmauro;2
+14070016;Castropignano;2
+14070017;Cercemaggiore;1
+14070018;Cercepiccola;1
+14070019;Civitacampomarano;2
+14070020;Colle d'Anchise;1
+14070021;Colletorto;2
+14070022;Duronia;2
+14070023;Ferrazzano;2
+14070024;Fossalto;2
+14070025;Gambatesa;2
+14070026;Gildone;2
+14070027;Guardialfiera;2
+14070028;Guardiaregia;1
+14070029;Guglionesi;3
+14070030;Jelsi;2
+14070031;Larino;2
+14070032;Limosano;2
+14070033;Lucito;2
+14070034;Lupara;2
+14070035;Macchia Valfortore;2
+14070036;Mafalda;3
+14070037;Matrice;2
+14070038;Mirabello Sannitico;2
+14070039;Molise;2
+14070040;Monacilioni;2
+14070041;Montagano;2
+14070042;Montecilfone;3
+14070043;Montefalcone nel Sannio;3
+14070044;Montelongo;2
+14070045;Montemitro;3
+14070046;Montenero di Bisaccia;3
+14070047;Montorio nei Frentani;2
+14070048;Morrone del Sannio;2
+14070049;Oratino;2
+14070050;Palata;3
+14070051;Petacciato;3
+14070052;Petrella Tifernina;2
+14070053;Pietracatella;2
+14070054;Pietracupa;2
+14070055;Portocannone;3
+14070056;Provvidenti;2
+14070057;Riccia;2
+14070058;Ripabottoni;2
+14070059;Ripalimosani;2
+14070060;Roccavivara;2
+14070061;Rotello;2
+14070062;Salcito;2
+14070063;San Biase;2
+14070064;San Felice del Molise;3
+14070065;San Giacomo degli Schiavoni;3
+14070066;San Giovanni in Galdo;2
+14070067;San Giuliano del Sannio;1
+14070068;San Giuliano di Puglia;2
+14070069;San Martino in Pensilis;2
+14070070;San Massimo;1
+14070071;San Polomatese;1
+14070072;Santa Croce di Magliano;2
+14070073;Sant'Angelo Limosano;2
+14070074;Sant'Elia a Pianisi;2
+14070075;Sepino;1
+14070076;Spinete;1
+14070077;Tavenna;3
+14070078;Termoli;3
+14070079;Torella del Sannio;2
+14070080;Toro;2
+14070081;Trivento;2
+14070082;Tufara;2
+14070083;Ururi;2
+14070084;Vinchiaturo;1
+14094001;Acquaviva d'Isernia;2
+14094002;Agnone;2
+14094003;Bagnoli del Trigno;2
+14094004;Belmonte del Sannio;2
+14094005;Cantalupo nel Sannio;1
+14094006;Capracotta;2
+14094007;Carovilli;2
+14094008;Carpinone;1
+14094009;Castel del Giudice;1
+14094010;Castelpetroso;1
+14094011;Castelpizzuto;1
+14094012;Castel San Vincenzo;2
+14094013;Castelverrino;2
+14094014;Cerro al Volturno;2
+14094015;Chiauci;2
+14094016;Civitanova del Sannio;2
+14094017;Colli a Volturno;2
+14094018;Conca Casale;2
+14094019;Filignano;2
+14094020;Forlì del Sannio;2
+14094021;Fornelli;2
+14094022;Frosolone;1
+14094023;Isernia;2
+14094024;Longano;2
+14094025;Macchia d'Isernia;2
+14094026;Macchiagodena;1
+14094027;Miranda;2
+14094028;Montaquila;2
+14094029;Montenero Val Cocchiara;2
+14094030;Monteroduni;2
+14094031;Pesche;2
+14094032;Pescolanciano;2
+14094033;Pescopennataro;2
+14094034;Pettoranello del Molise;1
+14094035;Pietrabbondante;2
+14094036;Pizzone;2
+14094037;Poggio Sannita;2
+14094038;Pozzilli;2
+14094039;Rionero Sannitico;2
+14094040;Roccamandolfi;1
+14094041;Roccasicura;2
+14094042;Rocchetta a Volturno;2
+14094043;San Pietro Avellana;1
+14094044;Sant'Agapito;2
+14094045;Santa Maria del Molise;1
+14094046;Sant'Angelo del Pesco;2
+14094047;Sant'Elena Sannita;1
+14094048;Scapoli;2
+14094049;Sessano del Molise;2
+14094050;Sesto Campano;2
+14094051;Vastogirardi;2
+14094052;Venafro;2
+15061001;Ailano;2
+15061002;Alife;2
+15061003;Alvignano;2
+15061004;Arienzo;2
+15061005;Aversa;2
+15061006;Baia e Latina;2
+15061007;Bellona;2
+15061008;Caianello;2
+15061009;Caiazzo;2
+15061010;Calvi Risorta;2
+15061011;Camigliano;2
+15061012;Cancello ed Arnone;3
+15061013;Capodrise;2
+15061014;Capriati a Volturno;2
+15061015;Capua;2
+15061016;Carinaro;2
+15061017;Carinola;2
+15061018;Casagiove;2
+15061019;Casal di Principe;2
+15061020;Casaluce;2
+15061021;Casapulla;2
+15061022;Caserta;2
+15061023;Castel Campagnano;2
+15061024;Castel di Sasso;2
+15061025;Castello del Matese;1
+15061026;Castel Morrone;2
+15061027;Castel Volturno;3
+15061028;Cervino;2
+15061029;Cesa;2
+15061030;Ciorlano;2
+15061031;Conca della Campania;2
+15061032;Curti;2
+15061033;Dragoni;2
+15061034;Fontegreca;2
+15061035;Formicola;2
+15061036;Francolise;2
+15061037;Frignano;2
+15061038;Gallo Matese;2
+15061039;Galluccio;2
+15061040;Giano Vetusto;2
+15061041;Gioia Sannitica;1
+15061042;Grazzanise;2
+15061043;Gricignano di Aversa;2
+15061044;Letino;2
+15061045;Liberi;2
+15061046;Lusciano;2
+15061047;Macerata Campania;2
+15061048;Maddaloni;2
+15061049;Marcianise;2
+15061050;Marzano Appio;2
+15061051;Mignano Monte Lungo;2
+15061052;Mondragone;3
+15061053;Orta di Atella;2
+15061054;Parete;2
+15061055;Pastorano;2
+15061056;Piana di Monte Verna;2
+15061057;Piedimonte Matese;1
+15061058;Pietramelara;2
+15061059;Pietravairano;2
+15061060;Pignataro Maggiore;2
+15061061;Pontelatone;2
+15061062;Portico di Caserta;2
+15061063;Prata Sannita;2
+15061064;Pratella;2
+15061065;Presenzano;2
+15061066;Raviscanina;2
+15061067;Recale;2
+15061068;Riardo;2
+15061069;Rocca d'Evandro;2
+15061070;Roccamonfina;2
+15061071;Roccaromana;2
+15061072;Rocchetta e Croce;2
+15061073;Ruviano;2
+15061074;San Cipriano d'Aversa;2
+15061075;San Felice a Cancello;2
+15061076;San Gregorio Matese;1
+15061077;San Marcellino;2
+15061078;San Nicola la Strada;2
+15061079;San Pietro Infine;2
+15061080;San Potito Sannitico;1
+15061081;San Prisco;2
+15061082;Santa Maria a Vico;2
+15061083;Santa Maria Capua Vetere;2
+15061084;Santa Maria la Fossa;2
+15061085;San Tammaro;2
+15061086;Sant'Angelo d'Alife;2
+15061087;Sant'Arpino;2
+15061088;Sessa Aurunca;2
+15061089;Sparanise;2
+15061090;Succivo;2
+15061091;Teano;2
+15061092;Teverola;2
+15061093;Tora e Piccilli;2
+15061094;Trentola-Ducenta;2
+15061095;Vairano Patenora;2
+15061096;Valle Agricola;2
+15061097;Valle di Maddaloni;2
+15061098;Villa di Briano;2
+15061099;Villa Literno;2
+15061100;Vitulazio;2
+15061101;Falciano del Massico;2
+15061102;Cellole;2
+15061103;Casapesenna;2
+15061104;San Marco Evangelista;2
+15062001;Airola;2
+15062002;Amorosi;2
+15062003;Apice;1
+15062004;Apollosa;1
+15062005;Arpaia;2
+15062006;Arpaise;2
+15062007;Baselice;2
+15062008;Benevento;1
+15062009;Bonea;2
+15062010;Bucciano;2
+15062011;Buonalbergo;1
+15062012;Calvi;1
+15062013;Campolattaro;1
+15062014;Campoli del Monte Taburno;1
+15062015;Casalduni;1
+15062016;Castelfranco in Miscano;2
+15062017;Castelpagano;1
+15062018;Castelpoto;1
+15062019;Castelvenere;1
+15062020;Castelvetere in Val Fortore;2
+15062021;Cautano;1
+15062022;Ceppaloni;2
+15062023;Cerreto Sannita;1
+15062024;Circello;1
+15062025;Colle Sannita;1
+15062026;Cusano Mutri;1
+15062027;Dugenta;2
+15062028;Durazzano;2
+15062029;Faicchio;1
+15062030;Foglianise;1
+15062031;Foiano di Val Fortore;2
+15062032;Forchia;2
+15062033;Fragneto l'Abate;1
+15062034;Fragneto Monforte;1
+15062035;Frasso Telesino;2
+15062036;Ginestra degli Schiavoni;1
+15062037;Guardia Sanframondi;1
+15062038;Limatola;2
+15062039;Melizzano;2
+15062040;Moiano;2
+15062041;Molinara;1
+15062042;Montefalcone di Val Fortore;2
+15062043;Montesarchio;2
+15062044;Morcone;1
+15062045;Paduli;1
+15062046;Pago Veiano;1
+15062047;Pannarano;2
+15062048;Paolisi;2
+15062049;Paupisi;1
+15062050;Pesco Sannita;1
+15062051;Pietraroja;1
+15062052;Pietrelcina;1
+15062053;Ponte;1
+15062054;Pontelandolfo;1
+15062055;Puglianello;2
+15062056;Reino;1
+15062057;San Bartolomeo in Galdo;2
+15062058;San Giorgio del Sannio;1
+15062059;San Giorgio La Molara;1
+15062060;San Leucio del Sannio;1
+15062061;San Lorenzello;1
+15062062;San Lorenzo Maggiore;1
+15062063;San Lupo;1
+15062064;San Marco dei Cavoti;1
+15062065;San Martino Sannita;1
+15062066;San Nazzaro;1
+15062067;San Nicola Manfredi;1
+15062068;San Salvatore Telesino;2
+15062069;Santa Croce del Sannio;1
+15062070;Sant'Agata de' Goti;2
+15062071;Sant'Angelo a Cupolo;1
+15062072;Sassinoro;1
+15062073;Solopaca;2
+15062074;Telese;2
+15062075;Tocco Caudio;2
+15062076;Torrecuso;1
+15062077;Vitulano;1
+15062078;Sant'Arcangelo Trimonte;1
+15063001;Acerra;2
+15063002;Afragola;2
+15063003;Agerola;3
+15063004;Anacapri;3
+15063005;Arzano;2
+15063006;Bacoli;2
+15063007;Barano d'Ischia;2
+15063008;Boscoreale;2
+15063009;Boscotrecase;2
+15063010;Brusciano;2
+15063011;Caivano;2
+15063012;Calvizzano;2
+15063013;Camposano;2
+15063014;Capri;3
+15063015;Carbonara di Nola;2
+15063016;Cardito;2
+15063017;Casalnuovo di Napoli;2
+15063018;Casamarciano;2
+15063019;Casamicciola Terme;2
+15063020;Casandrino;2
+15063021;Casavatore;2
+15063022;Casola di Napoli;2
+15063023;Casoria;2
+15063024;Castellammare di Stabia;2
+15063025;Castello di Cisterna;2
+15063026;Cercola;2
+15063027;Cicciano;2
+15063028;Cimitile;2
+15063029;Comiziano;2
+15063030;Crispano;2
+15063031;Forio;2
+15063032;Frattamaggiore;2
+15063033;Frattaminore;2
+15063034;Giugliano in Campania;2
+15063035;Gragnano;2
+15063036;Grumo Nevano;2
+15063037;Ischia;2
+15063038;Lacco Ameno;2
+15063039;Lettere;2
+15063040;Liveri;2
+15063041;Marano di Napoli;2
+15063042;Mariglianella;2
+15063043;Marigliano;2
+15063044;Massa Lubrense;3
+15063045;Melito di Napoli;2
+15063046;Meta;3
+15063047;Monte di Procida;2
+15063048;Mugnano di Napoli;2
+15063049;Napoli;2
+15063050;Nola;2
+15063051;Ottaviano;2
+15063052;Palma Campania;2
+15063053;Piano di Sorrento;3
+15063054;Pimonte;3
+15063055;Poggiomarino;2
+15063056;Pollena Trocchia;2
+15063057;Pomigliano d'Arco;2
+15063058;Pompei;2
+15063059;Portici;2
+15063060;Pozzuoli;2
+15063061;Procida;2
+15063062;Qualiano;2
+15063063;Quarto;2
+15063064;Ercolano;2
+15063065;Roccarainola;2
+15063066;San Gennaro Vesuviano;2
+15063067;San Giorgio a Cremano;2
+15063068;San Giuseppe Vesuviano;2
+15063069;San Paolo Bel Sito;2
+15063070;San Sebastiano al Vesuvio;2
+15063071;Sant'Agnello;3
+15063072;Sant'Anastasia;2
+15063073;Sant'Antimo;2
+15063074;Sant'Antonio Abate;2
+15063075;San Vitaliano;2
+15063076;Saviano;2
+15063077;Scisciano;2
+15063078;Serrara Fontana;2
+15063079;Somma Vesuviana;2
+15063080;Sorrento;3
+15063081;Striano;2
+15063082;Terzigno;2
+15063083;Torre Annunziata;2
+15063084;Torre del Greco;2
+15063085;Tufino;2
+15063086;Vico Equense;3
+15063087;Villaricca;2
+15063088;Visciano;2
+15063089;Volla;2
+15063090;Santa Maria la Carità;2
+15063091;Trecase;2
+15063092;Massa di Somma;2
+15064001;Aiello del Sabato;2
+15064002;Altavilla Irpina;2
+15064003;Andretta;1
+15064004;Aquilonia;1
+15064005;Ariano Irpino;1
+15064006;Atripalda;2
+15064007;Avella;2
+15064008;Avellino;2
+15064009;Bagnoli Irpino;2
+15064010;Baiano;2
+15064011;Bisaccia;1
+15064012;Bonito;1
+15064013;Cairano;1
+15064014;Calabritto;1
+15064015;Calitri;1
+15064016;Candida;2
+15064017;Caposele;1
+15064018;Capriglia Irpina;2
+15064019;Carife;1
+15064020;Casalbore;1
+15064021;Cassano Irpino;2
+15064022;Castel Baronia;1
+15064023;Castelfranci;1
+15064024;Castelvetere sul Calore;2
+15064025;Cervinara;2
+15064026;Cesinali;2
+15064027;Chianche;1
+15064028;Chiusano di San Domenico;2
+15064029;Contrada;2
+15064030;Conza della Campania;1
+15064031;Domicella;2
+15064032;Flumeri;1
+15064033;Fontanarosa;1
+15064034;Forino;2
+15064035;Frigento;1
+15064036;Gesualdo;1
+15064037;Greci;2
+15064038;Grottaminarda;1
+15064039;Grottolella;2
+15064040;Guardia Lombardi;1
+15064041;Lacedonia;1
+15064042;Lapio;1
+15064043;Lauro;2
+15064044;Lioni;1
+15064045;Luogosano;1
+15064046;Manocalzati;2
+15064047;Marzano di Nola;2
+15064048;Melito Irpino;1
+15064049;Mercogliano;2
+15064050;Mirabella Eclano;1
+15064051;Montaguto;2
+15064052;Montecalvo Irpino;1
+15064053;Montefalcione;2
+15064054;Monteforte Irpino;2
+15064055;Montefredane;2
+15064056;Montefusco;1
+15064057;Montella;2
+15064058;Montemarano;2
+15064059;Montemiletto;1
+15064060;Monteverde;1
+15064061;Montoro Inferiore;2
+15064062;Montoro Superiore;2
+15064063;Morra De Sanctis;1
+15064064;Moschiano;2
+15064065;Mugnano del Cardinale;2
+15064066;Nusco;2
+15064067;Ospedaletto d'Alpinolo;2
+15064068;Pago del Vallo di Lauro;2
+15064069;Parolise;2
+15064070;Paternopoli;1
+15064071;Petruro Irpino;1
+15064072;Pietradefusi;1
+15064073;Pietrastornina;2
+15064074;Prata di Principato Ultra;2
+15064075;Pratola Serra;2
+15064076;Quadrelle;2
+15064077;Quindici;2
+15064078;Roccabascerana;2
+15064079;Rocca San Felice;1
+15064080;Rotondi;2
+15064081;Salza Irpina;2
+15064082;San Mango sul Calore;1
+15064083;San Martino Valle Caudina;2
+15064084;San Michele di Serino;2
+15064085;San Nicola Baronia;1
+15064086;San Potito Ultra;2
+15064087;San Sossio Baronia;1
+15064088;Santa Lucia di Serino;2
+15064089;Sant'Andrea di Conza;1
+15064090;Sant'Angelo all'Esca;1
+15064091;Sant'Angelo a Scala;2
+15064092;Sant'Angelo dei Lombardi;1
+15064093;Santa Paolina;1
+15064095;Santo Stefano del Sole;2
+15064096;Savignano Irpino;1
+15064097;Scampitella;1
+15064098;Senerchia;2
+15064099;Serino;2
+15064100;Sirignano;2
+15064101;Solofra;2
+15064102;Sorbo Serpico;2
+15064103;Sperone;2
+15064104;Sturno;1
+15064105;Summonte;2
+15064106;Taurano;2
+15064107;Taurasi;1
+15064108;Teora;1
+15064109;Torella dei Lombardi;1
+15064110;Torre Le Nocelle;1
+15064111;Torrioni;1
+15064112;Trevico;1
+15064113;Tufo;1
+15064114;Vallata;1
+15064115;Vallesaccarda;1
+15064116;Venticano;1
+15064117;Villamaina;1
+15064118;Villanova del Battista;1
+15064119;Volturara Irpina;2
+15064120;Zungoli;1
+15065001;Acerno;2
+15065002;Agropoli;3
+15065003;Albanella;2
+15065004;Alfano;2
+15065005;Altavilla Silentina;2
+15065006;Amalfi;3
+15065007;Angri;2
+15065008;Aquara;2
+15065009;Ascea;3
+15065010;Atena Lucana;1
+15065011;Atrani;3
+15065012;Auletta;2
+15065013;Baronissi;2
+15065014;Battipaglia;2
+15065015;Bellosguardo;2
+15065016;Bracigliano;2
+15065017;Buccino;1
+15065018;Buonabitacolo;1
+15065019;Caggiano;1
+15065020;Calvanico;2
+15065021;Camerota;3
+15065022;Campagna;2
+15065023;Campora;2
+15065024;Cannalonga;2
+15065025;Capaccio;3
+15065026;Casalbuono;2
+15065027;Casaletto Spartano;2
+15065028;Casal Velino;3
+15065029;Caselle in Pittari;2
+15065030;Castelcivita;2
+15065031;Castellabate;3
+15065032;Castelnuovo Cilento;3
+15065033;Castelnuovo di Conza;1
+15065034;Castel San Giorgio;2
+15065035;Castel San Lorenzo;2
+15065036;Castiglione del Genovesi;2
+15065037;Cava de' Tirreni;3
+15065038;Celle di Bulgheria;2
+15065039;Centola;3
+15065040;Ceraso;3
+15065041;Cetara;3
+15065042;Cicerale;3
+15065043;Colliano;1
+15065044;Conca dei Marini;3
+15065045;Controne;2
+15065046;Contursi Terme;2
+15065047;Corbara;2
+15065048;Corleto Monforte;2
+15065049;Cuccaro Vetere;2
+15065050;Eboli;2
+15065051;Felitto;2
+15065052;Fisciano;2
+15065053;Furore;3
+15065054;Futani;2
+15065055;Giffoni Sei Casali;2
+15065056;Giffoni Valle Piana;2
+15065057;Gioi;2
+15065058;Giungano;2
+15065059;Ispani;2
+15065060;Laureana Cilento;3
+15065061;Laurino;2
+15065062;Laurito;2
+15065063;Laviano;1
+15065064;Lustra;3
+15065065;Magliano Vetere;2
+15065066;Maiori;3
+15065067;Mercato San Severino;2
+15065068;Minori;3
+15065069;Moio della Civitella;2
+15065070;Montano Antilia;2
+15065071;Montecorice;3
+15065072;Montecorvino Pugliano;2
+15065073;Montecorvino Rovella;2
+15065074;Monteforte Cilento;2
+15065075;Monte San Giacomo;2
+15065076;Montesano sulla Marcellana;1
+15065077;Morigerati;2
+15065078;Nocera Inferiore;2
+15065079;Nocera Superiore;2
+15065080;Novi Velia;2
+15065081;Ogliastro Cilento;3
+15065082;Olevano sul Tusciano;2
+15065083;Oliveto Citra;2
+15065084;Omignano;3
+15065085;Orria;2
+15065086;Ottati;2
+15065087;Padula;1
+15065088;Pagani;2
+15065089;Palomonte;2
+15065090;Pellezzano;2
+15065091;Perdifumo;3
+15065092;Perito;3
+15065093;Pertosa;1
+15065094;Petina;2
+15065095;Piaggine;2
+15065096;Pisciotta;3
+15065097;Polla;1
+15065098;Pollica;3
+15065099;Pontecagnano Faiano;2
+15065100;Positano;3
+15065101;Postiglione;2
+15065102;Praiano;3
+15065103;Prignano Cilento;3
+15065104;Ravello;3
+15065105;Ricigliano;1
+15065106;Roccadaspide;2
+15065107;Roccagloriosa;2
+15065108;Roccapiemonte;2
+15065109;Rofrano;2
+15065110;Romagnano al Monte;1
+15065111;Roscigno;2
+15065112;Rutino;3
+15065113;Sacco;2
+15065114;Sala Consilina;1
+15065115;Salento;3
+15065116;Salerno;2
+15065117;Salvitelle;1
+15065118;San Cipriano Picentino;2
+15065119;San Giovanni a Piro;2
+15065120;San Gregorio Magno;1
+15065121;San Mango Piemonte;2
+15065122;San Marzano sul Sarno;2
+15065123;San Mauro Cilento;3
+15065124;San Mauro la Bruca;3
+15065125;San Pietro al Tanagro;2
+15065126;San Rufo;2
+15065127;Santa Marina;2
+15065128;Sant'Angelo a Fasanella;2
+15065129;Sant'Arsenio;2
+15065130;Sant'Egidio del Monte Albino;2
+15065131;Santomenna;1
+15065132;San Valentino Torio;2
+15065133;Sanza;2
+15065134;Sapri;2
+15065135;Sarno;2
+15065136;Sassano;2
+15065137;Scafati;2
+15065138;Scala;3
+15065139;Serramezzana;3
+15065140;Serre;2
+15065141;Sessa Cilento;3
+15065142;Siano;2
+15065143;Sicignano degli Alburni;2
+15065144;Stella Cilento;3
+15065145;Stio;2
+15065146;Teggiano;2
+15065147;Torchiara;3
+15065148;Torraca;2
+15065149;Torre Orsaia;2
+15065150;Tortorella;2
+15065151;Tramonti;3
+15065152;Trentinara;2
+15065153;Valle dell'Angelo;2
+15065154;Vallo della Lucania;2
+15065155;Valva;1
+15065156;Vibonati;2
+15065157;Vietri sul Mare;3
+15065158;Bellizzi;2
+16071001;Accadia;1
+16071002;Alberona;2
+16071003;Anzano di Puglia;1
+16071004;Apricena;2
+16071005;Ascoli Satriano;1
+16071006;Biccari;2
+16071007;Bovino;1
+16071008;Cagnano Varano;2
+16071009;Candela;1
+16071010;Carapelle;2
+16071011;Carlantino;2
+16071012;Carpino;2
+16071013;Casalnuovo Monterotaro;2
+16071014;Casalvecchio di Puglia;2
+16071015;Castelluccio dei Sauri;2
+16071016;Castelluccio Valmaggiore;2
+16071017;Castelnuovo della Daunia;2
+16071018;Celenza Valfortore;2
+16071019;Celle di San Vito;2
+16071020;Cerignola;2
+16071021;Chieuti;2
+16071022;Deliceto;1
+16071023;Faeto;2
+16071024;Foggia;2
+16071025;Ischitella;2
+16071026;Isole Tremiti;2
+16071027;Lesina;2
+16071028;Lucera;2
+16071029;Manfredonia;2
+16071030;Margherita di Savoia;2
+16071031;Mattinata;2
+16071032;Monteleone di Puglia;1
+16071033;Monte Sant'Angelo;2
+16071034;Motta Montecorvino;2
+16071035;Orsara di Puglia;2
+16071036;Orta Nova;2
+16071037;Panni;1
+16071038;Peschici;2
+16071039;Pietramontecorvino;2
+16071040;Poggio Imperiale;2
+16071041;Rignano Garganico;2
+16071042;Rocchetta Sant'Antonio;1
+16071043;Rodi Garganico;2
+16071044;Roseto Valfortore;2
+16071045;San Ferdinando di Puglia;2
+16071046;San Giovanni Rotondo;2
+16071047;San Marco in Lamis;2
+16071048;San Marco la Catola;2
+16071049;Sannicandro Garganico;2
+16071050;San Paolo di Civitate;2
+16071051;San Severo;2
+16071052;Sant'Agata di Puglia;1
+16071053;Serracapriola;2
+16071054;Stornara;2
+16071055;Stornarella;2
+16071056;Torremaggiore;2
+16071057;Trinitapoli;2
+16071058;Troia;2
+16071059;Vico del Gargano;2
+16071060;Vieste;2
+16071061;Volturara Appula;2
+16071062;Volturino;2
+16071063;Ordona;2
+16071064;Zapponeta;2
+16072001;Acquaviva delle Fonti;3
+16072002;Adelfia;3
+16072003;Alberobello;4
+16072004;Altamura;3
+16072005;Andria;3
+16072006;Bari;3
+16072007;Barletta;2
+16072008;Binetto;3
+16072009;Bisceglie;3
+16072010;Bitetto;3
+16072011;Bitonto;3
+16072012;Bitritto;3
+16072013;Canosa di Puglia;2
+16072014;Capurso;3
+16072015;Casamassima;3
+16072016;Cassano delle Murge;3
+16072017;Castellana Grotte;4
+16072018;Cellamare;3
+16072019;Conversano;4
+16072020;Corato;3
+16072021;Gioia del Colle;3
+16072022;Giovinazzo;3
+16072023;Gravina in Puglia;3
+16072024;Grumo Appula;3
+16072025;Locorotondo;4
+16072026;Minervino Murge;2
+16072027;Modugno;3
+16072028;Mola di Bari;4
+16072029;Molfetta;3
+16072030;Monopoli;4
+16072031;Noci;3
+16072032;Noicattaro;3
+16072033;Palo del Colle;3
+16072034;Poggiorsini;3
+16072035;Polignano a Mare;4
+16072036;Putignano;3
+16072037;Rutigliano;3
+16072038;Ruvo di Puglia;3
+16072039;Sammichele di Bari;3
+16072040;Sannicandro di Bari;3
+16072041;Santeramo in Colle;3
+16072042;Spinazzola;2
+16072043;Terlizzi;3
+16072044;Toritto;3
+16072045;Trani;3
+16072046;Triggiano;3
+16072047;Turi;3
+16072048;Valenzano;3
+16073001;Avetrana;4
+16073002;Carosino;4
+16073003;Castellaneta;3
+16073004;Crispiano;3
+16073005;Faggiano;4
+16073006;Fragagnano;4
+16073007;Ginosa;3
+16073008;Grottaglie;4
+16073009;Laterza;3
+16073010;Leporano;4
+16073011;Lizzano;4
+16073012;Manduria;4
+16073013;Martina Franca;4
+16073014;Maruggio;4
+16073015;Massafra;3
+16073016;Monteiasi;4
+16073017;Montemesola;4
+16073018;Monteparano;4
+16073019;Mottola;3
+16073020;Palagianello;3
+16073021;Palagiano;3
+16073022;Pulsano;4
+16073023;Roccaforzata;4
+16073024;San Giorgio Ionico;4
+16073025;San Marzano di San Giuseppe;4
+16073026;Sava;4
+16073027;Taranto;3
+16073028;Torricella;4
+16073029;Statte (1);3
+16074001;Brindisi;4
+16074002;Carovigno;4
+16074003;Ceglie Messapica;4
+16074004;Cellino San Marco;4
+16074005;Cisternino;4
+16074006;Erchie;4
+16074007;Fasano;4
+16074008;Francavilla Fontana;4
+16074009;Latiano;4
+16074010;Mesagne;4
+16074011;Oria;4
+16074012;Ostuni;4
+16074013;San Donaci;4
+16074014;San Michele Salentino;4
+16074015;San Pancrazio Salentino;4
+16074016;San Pietro Vernotico;4
+16074017;San Vito dei Normanni;4
+16074018;Torchiarolo;4
+16074019;Torre Santa Susanna;4
+16074020;Villa Castelli;4
+16075001;Acquarica del Capo;4
+16075002;Alessano;4
+16075003;Alezio;4
+16075004;Alliste;4
+16075005;Andrano;4
+16075006;Aradeo;4
+16075007;Arnesano;4
+16075008;Bagnolo del Salento;4
+16075009;Botrugno;4
+16075010;Calimera;4
+16075011;Campi Salentina;4
+16075012;Cannole;4
+16075013;Caprarica di Lecce;4
+16075014;Carmiano;4
+16075015;Carpignano Salentino;4
+16075016;Casarano;4
+16075017;Castri di Lecce;4
+16075018;Castrignano de' Greci;4
+16075019;Castrignano del Capo;4
+16075020;Cavallino;4
+16075021;Collepasso;4
+16075022;Copertino;4
+16075023;Corigliano d'Otranto;4
+16075024;Corsano;4
+16075025;Cursi;4
+16075026;Cutrofiano;4
+16075027;Diso;4
+16075028;Gagliano del Capo;4
+16075029;Galatina;4
+16075030;Galatone;4
+16075031;Gallipoli;4
+16075032;Giuggianello;4
+16075033;Giurdignano;4
+16075034;Guagnano;4
+16075035;Lecce;4
+16075036;Lequile;4
+16075037;Leverano;4
+16075038;Lizzanello;4
+16075039;Maglie;4
+16075040;Martano;4
+16075041;Martignano;4
+16075042;Matino;4
+16075043;Melendugno;4
+16075044;Melissano;4
+16075045;Melpignano;4
+16075046;Miggiano;4
+16075047;Minervino di Lecce;4
+16075048;Monteroni di Lecce;4
+16075049;Montesano Salentino;4
+16075050;Morciano di Leuca;4
+16075051;Muro Leccese;4
+16075052;Nardò;4
+16075053;Neviano;4
+16075054;Nociglia;4
+16075055;Novoli;4
+16075056;Ortelle;4
+16075057;Otranto;4
+16075058;Palmariggi;4
+16075059;Parabita;4
+16075060;Patù;4
+16075061;Poggiardo;4
+16075062;Presicce;4
+16075063;Racale;4
+16075064;Ruffano;4
+16075065;Salice Salentino;4
+16075066;Salve;4
+16075067;Sanarica;4
+16075068;San Cesario di Lecce;4
+16075069;San Donato di Lecce;4
+16075070;Sannicola;4
+16075071;San Pietro in Lama;4
+16075072;Santa Cesarea Terme;4
+16075073;Scorrano;4
+16075074;Seclì;4
+16075075;Sogliano Cavour;4
+16075076;Soleto;4
+16075077;Specchia;4
+16075078;Spongano;4
+16075079;Squinzano;4
+16075080;Sternatia;4
+16075081;Supersano;4
+16075082;Surano;4
+16075083;Surbo;4
+16075084;Taurisano;4
+16075085;Taviano;4
+16075086;Tiggiano;4
+16075087;Trepuzzi;4
+16075088;Tricase;4
+16075089;Tuglie;4
+16075090;Ugento;4
+16075091;Uggiano la Chiesa;4
+16075092;Veglie;4
+16075093;Vernole;4
+16075094;Zollino;4
+16075095;San Cassiano;4
+16075096;Castro;4
+16075097;Porto Cesareo;4
+17076001;Abriola;1
+17076002;Acerenza;2
+17076003;Albano di Lucania;2
+17076004;Anzi;1
+17076005;Armento;1
+17076006;Atella;1
+17076007;Avigliano;1
+17076008;Balvano;1
+17076009;Banzi;2
+17076010;Baragiano;1
+17076011;Barile;1
+17076012;Bella;1
+17076013;Brienza;1
+17076014;Brindisi Montagna;2
+17076015;Calvello;1
+17076016;Calvera;2
+17076017;Campomaggiore;2
+17076018;Cancellara;2
+17076019;Carbone;2
+17076020;San Paolo Albanese;2
+17076021;Castelgrande;1
+17076022;Castelluccio Inferiore;2
+17076023;Castelluccio Superiore;2
+17076024;Castelmezzano;2
+17076025;Castelsaraceno;1
+17076026;Castronuovo di Sant'Andrea;2
+17076027;Cersosimo;2
+17076028;Chiaromonte;2
+17076029;Corleto Perticara;2
+17076030;Episcopia;2
+17076031;Fardella;2
+17076032;Filiano;2
+17076033;Forenza;2
+17076034;Francavilla in Sinni;2
+17076035;Gallicchio;2
+17076036;Genzano di Lucania;2
+17076037;Grumento Nova;1
+17076038;Guardia Perticara;2
+17076039;Lagonegro;2
+17076040;Latronico;2
+17076041;Laurenzana;1
+17076042;Lauria;2
+17076043;Lavello;2
+17076044;Maratea;2
+17076045;Marsico Nuovo;1
+17076046;Marsicovetere;1
+17076047;Maschito;2
+17076048;Melfi;1
+17076049;Missanello;2
+17076050;Moliterno;1
+17076051;Montemilone;2
+17076052;Montemurro;1
+17076053;Muro Lucano;1
+17076054;Nemoli;2
+17076055;Noepoli;2
+17076056;Oppido Lucano;2
+17076057;Palazzo San Gervasio;2
+17076058;Pescopagano;1
+17076059;Picerno;1
+17076060;Pietragalla;2
+17076061;Pietrapertosa;2
+17076062;Pignola;1
+17076063;Potenza;1
+17076064;Rapolla;1
+17076065;Rapone;1
+17076066;Rionero in Vulture;1
+17076067;Ripacandida;1
+17076068;Rivello;2
+17076069;Roccanova;2
+17076070;Rotonda;2
+17076071;Ruoti;1
+17076072;Ruvo del Monte;1
+17076073;San Chirico Nuovo;2
+17076074;San Chirico Raparo;2
+17076075;San Costantino Albanese;2
+17076076;San Fele;1
+17076077;San Martino d'Agri;1
+17076078;San Severino Lucano;2
+17076079;Sant'Angelo Le Fratte;1
+17076080;Sant'Arcangelo;2
+17076081;Sarconi;1
+17076082;Sasso di Castalda;1
+17076083;Satriano di Lucania;1
+17076084;Savoia di Lucania;1
+17076085;Senise;2
+17076086;Spinoso;1
+17076087;Teana;2
+17076088;Terranova di Pollino;2
+17076089;Tito;1
+17076090;Tolve;2
+17076091;Tramutola;1
+17076092;Trecchina;2
+17076093;Trivigno;2
+17076094;Vaglio Basilicata;2
+17076095;Venosa;2
+17076096;Vietri di Potenza;1
+17076097;Viggianello;2
+17076098;Viggiano;1
+17076099;Ginestra;1
+17076100;Paterno;1
+17077001;Accettura;2
+17077002;Aliano;2
+17077003;Bernalda;3
+17077004;Calciano;2
+17077005;Cirigliano;2
+17077006;Colobraro;2
+17077007;Craco;2
+17077008;Ferrandina;2
+17077009;Garaguso;2
+17077010;Gorgoglione;2
+17077011;Grassano;2
+17077012;Grottole;3
+17077013;Irsina;2
+17077014;Matera;3
+17077015;Miglionico;3
+17077016;Montalbano Jonico;2
+17077017;Montescaglioso;3
+17077018;Nova Siri;2
+17077019;Oliveto Lucano;2
+17077020;Pisticci;3
+17077021;Policoro;3
+17077022;Pomarico;3
+17077023;Rotondella;2
+17077024;Salandra;2
+17077025;San Giorgio Lucano;2
+17077026;San Mauro Forte;2
+17077027;Stigliano;2
+17077028;Tricarico;2
+17077029;Tursi;2
+17077030;Valsinni;2
+17077031;Scanzano Jonico;3
+18078001;Acquaformosa;2
+18078002;Acquappesa;2
+18078003;Acri;2
+18078004;Aiello Calabro;1
+18078005;Aieta;2
+18078006;Albidona;2
+18078007;Alessandria del Carretto;2
+18078008;Altilia;1
+18078009;Altomonte;2
+18078010;Amantea;1
+18078011;Amendolara;2
+18078012;Aprigliano;1
+18078013;Belmonte Calabro;1
+18078014;Belsito;1
+18078015;Belvedere Marittimo;2
+18078016;Bianchi;1
+18078017;Bisignano;1
+18078018;Bocchigliero;2
+18078019;Bonifati;2
+18078020;Buonvicino;2
+18078021;Calopezzati;2
+18078022;Caloveto;2
+18078023;Campana;2
+18078024;Canna;2
+18078025;Cariati;2
+18078026;Carolei;1
+18078027;Carpanzano;1
+18078028;Casole Bruzio;1
+18078029;Cassano allo Ionio;2
+18078030;Castiglione Cosentino;1
+18078031;Castrolibero;1
+18078032;Castroregio;2
+18078033;Castrovillari;2
+18078034;Celico;1
+18078035;Cellara;1
+18078036;Cerchiara di Calabria;2
+18078037;Cerisano;1
+18078038;Cervicati;1
+18078039;Cerzeto;1
+18078040;Cetraro;2
+18078041;Civita;2
+18078042;Cleto;1
+18078043;Colosimi;1
+18078044;Corigliano Calabro;2
+18078045;Cosenza;1
+18078046;Cropalati;2
+18078047;Crosia;2
+18078048;Diamante;2
+18078049;Dipignano;1
+18078050;Domanico;1
+18078051;Fagnano Castello;2
+18078052;Falconara Albanese;1
+18078053;Figline Vegliaturo;1
+18078054;Firmo;2
+18078055;Fiumefreddo Bruzio;1
+18078056;Francavilla Marittima;2
+18078057;Frascineto;2
+18078058;Fuscaldo;2
+18078059;Grimaldi;1
+18078060;Grisolia;2
+18078061;Guardia Piemontese;2
+18078062;Lago;1
+18078063;Laino Borgo;2
+18078064;Laino Castello;2
+18078065;Lappano;1
+18078066;Lattarico;1
+18078067;Longobardi;1
+18078068;Longobucco;2
+18078069;Lungro;2
+18078070;Luzzi;1
+18078071;Maierà;2
+18078072;Malito;1
+18078073;Malvito;2
+18078074;Mandatoriccio;2
+18078075;Mangone;1
+18078076;Marano Marchesato;1
+18078077;Marano Principato;1
+18078078;Marzi;1
+18078079;Mendicino;1
+18078080;Mongrassano;1
+18078081;Montalto Uffugo;1
+18078082;Montegiordano;2
+18078083;Morano Calabro;2
+18078084;Mormanno;2
+18078085;Mottafollone;2
+18078086;Nocara;2
+18078087;Oriolo;2
+18078088;Orsomarso;2
+18078089;Paludi;2
+18078090;Panettieri;1
+18078091;Paola;2
+18078092;Papasidero;2
+18078093;Parenti;1
+18078094;Paterno Calabro;1
+18078095;Pedace;1
+18078096;Pedivigliano;1
+18078097;Piane Crati;1
+18078098;Pietrafitta;1
+18078099;Pietrapaola;2
+18078100;Plataci;2
+18078101;Praia a Mare;2
+18078102;Rende;1
+18078103;Rocca Imperiale;2
+18078104;Roggiano Gravina;2
+18078105;Rogliano;1
+18078106;Rose;1
+18078107;Roseto Capo Spulico;2
+18078108;Rossano;2
+18078109;Rota Greca;1
+18078110;Rovito;1
+18078111;San Basile;2
+18078112;San Benedetto Ullano;1
+18078113;San Cosmo Albanese;2
+18078114;San Demetrio Corone;2
+18078115;San Donato di Ninea;2
+18078116;San Fili;1
+18078117;Sangineto;2
+18078118;San Giorgio Albanese;2
+18078119;San Giovanni in Fiore;2
+18078120;San Lorenzo Bellizzi;2
+18078121;San Lorenzo del Vallo;2
+18078122;San Lucido;1
+18078123;San Marco Argentano;1
+18078124;San Martino di Finita;1
+18078125;San Nicola Arcella;2
+18078126;San Pietro in Amantea;1
+18078127;San Pietro in Guarano;1
+18078128;San Sosti;2
+18078129;Santa Caterina Albanese;2
+18078130;Santa Domenica Talao;2
+18078131;Sant'Agata di Esaro;2
+18078132;Santa Maria del Cedro;2
+18078133;Santa Sofia d'Epiro;2
+18078134;Santo Stefano di Rogliano;1
+18078135;San Vincenzo La Costa;1
+18078136;Saracena;2
+18078137;Scala Coeli;2
+18078138;Scalea;2
+18078139;Scigliano;1
+18078140;Serra d'Aiello;1
+18078141;Serra Pedace;1
+18078142;Spezzano Albanese;2
+18078143;Spezzano della Sila;1
+18078144;Spezzano Piccolo;1
+18078145;Tarsia;2
+18078146;Terranova da Sibari;2
+18078147;Terravecchia;2
+18078148;Torano Castello;1
+18078149;Tortora;2
+18078150;Trebisacce;2
+18078151;Trenta;1
+18078152;Vaccarizzo Albanese;2
+18078153;Verbicaro;2
+18078154;Villapiana;2
+18078155;Zumpano;1
+18079002;Albi;2
+18079003;Amaroni;1
+18079004;Amato;1
+18079005;Andali;2
+18079007;Argusto;1
+18079008;Badolato;2
+18079009;Belcastro;2
+18079011;Borgia;1
+18079012;Botricello;2
+18079017;Caraffa di Catanzaro;1
+18079018;Cardinale;1
+18079020;Carlopoli;1
+18079023;Catanzaro;2
+18079024;Cenadi;1
+18079025;Centrache;1
+18079027;Cerva;2
+18079029;Chiaravalle Centrale;1
+18079030;Cicala;2
+18079033;Conflenti;1
+18079034;Cortale;1
+18079036;Cropani;2
+18079039;Curinga;1
+18079042;Davoli;2
+18079043;Decollatura;1
+18079047;Falerna;1
+18079048;Feroleto Antico;1
+18079052;Fossato Serralta;2
+18079055;Gagliato;1
+18079056;Gasperina;2
+18079058;Gimigliano;2
+18079059;Girifalco;1
+18079060;Gizzeria;1
+18079061;Guardavalle;2
+18079063;Isca sullo Ionio;2
+18079065;Jacurso;1
+18079068;Magisano;2
+18079069;Maida;1
+18079071;Marcedusa;2
+18079072;Marcellinara;1
+18079073;Martirano;1
+18079074;Martirano Lombardo;1
+18079077;Miglierina;1
+18079080;Montauro;2
+18079081;Montepaone;2
+18079083;Motta Santa Lucia;1
+18079087;Nocera Tirinese;1
+18079088;Olivadi;1
+18079089;Palermiti;1
+18079092;Pentone;2
+18079094;Petrizzi;1
+18079095;Petronà;2
+18079096;Pianopoli;1
+18079099;Platania;1
+18079108;San Floro;1
+18079110;San Mango d'Aquino;1
+18079114;San Pietro a Maida;1
+18079115;San Pietro Apostolo;1
+18079116;San Sostene;2
+18079117;Santa Caterina dello Ionio;2
+18079118;Sant'Andrea Apostolo dello Ionio;2
+18079122;San Vito sullo Ionio;1
+18079123;Satriano;2
+18079126;Sellia;2
+18079127;Sellia Marina;2
+18079129;Serrastretta;1
+18079130;Sersale;2
+18079131;Settingiano;1
+18079133;Simeri Crichi;2
+18079134;Sorbo San Basile;2
+18079137;Soverato;1
+18079138;Soveria Mannelli;1
+18079139;Soveria Simeri;2
+18079142;Squillace;1
+18079143;Staletti;2
+18079146;Taverna;2
+18079147;Tiriolo;2
+18079148;Torre di Ruggiero;1
+18079151;Vallefiorita;1
+18079157;Zagarise;2
+18079160;Lamezia Terme;1
+18080001;Africo;1
+18080002;Agnana Calabra;1
+18080003;Anoia;1
+18080004;Antonimina;1
+18080005;Ardore;1
+18080006;Bagaladi;1
+18080007;Bagnara Calabra;1
+18080008;Benestare;1
+18080009;Bianco;1
+18080010;Bivongi;1
+18080011;Bova;1
+18080012;Bovalino;1
+18080013;Bova Marina;1
+18080014;Brancaleone;1
+18080015;Bruzzano Zeffirio;1
+18080016;Calanna;1
+18080017;Camini;1
+18080018;Campo Calabro;1
+18080019;Candidoni;1
+18080020;Canolo;1
+18080021;Caraffa del Bianco;1
+18080022;Cardeto;1
+18080023;Careri;1
+18080024;Casignana;1
+18080025;Caulonia;1
+18080026;Ciminà;1
+18080027;Cinquefrondi;1
+18080028;Cittanova;1
+18080029;Condofuri;1
+18080030;Cosoleto;1
+18080031;Delianuova;1
+18080032;Feroleto della Chiesa;1
+18080033;Ferruzzano;1
+18080034;Fiumara;1
+18080035;Galatro;1
+18080036;Gerace;1
+18080037;Giffone;1
+18080038;Gioia Tauro;1
+18080039;Gioiosa Ionica;1
+18080040;Grotteria;1
+18080041;Laganadi;1
+18080042;Laureana di Borrello;1
+18080043;Locri;1
+18080044;Mammola;1
+18080045;Marina di Gioiosa Ionica;1
+18080046;Maropati;1
+18080047;Martone;1
+18080048;Melicuccà;1
+18080049;Melicucco;1
+18080050;Melito di Porto Salvo;1
+18080051;Molochio;1
+18080052;Monasterace;1
+18080053;Montebello Ionico;1
+18080054;Motta San Giovanni;1
+18080055;Oppido Mamertina;1
+18080056;Palizzi;1
+18080057;Palmi;1
+18080058;Pazzano;1
+18080059;Placanica;1
+18080060;Platì;1
+18080061;Polistena;1
+18080062;Portigliola;1
+18080063;Reggio di Calabria;1
+18080064;Riace;1
+18080065;Rizziconi;1
+18080066;Roccaforte del Greco;1
+18080067;Roccella Ionica;1
+18080068;Roghudi;1
+18080069;Rosarno;1
+18080070;Samo;1
+18080071;San Giorgio Morgeto;1
+18080072;San Giovanni di Gerace;1
+18080073;San Lorenzo;1
+18080074;San Luca;1
+18080075;San Pietro di Caridà;1
+18080076;San Procopio;1
+18080077;San Roberto;1
+18080078;Santa Cristina d'Aspromonte;1
+18080079;Sant'Agata del Bianco;1
+18080080;Sant'Alessio in Aspromonte;1
+18080081;Sant'Eufemia d'Aspromonte;1
+18080082;Sant'Ilario dello Ionio;1
+18080083;Santo Stefano in Aspromonte;1
+18080084;Scido;1
+18080085;Scilla;1
+18080086;Seminara;1
+18080087;Serrata;1
+18080088;Siderno;1
+18080089;Sinopoli;1
+18080090;Staiti;1
+18080091;Stignano;1
+18080092;Stilo;1
+18080093;Taurianova;1
+18080094;Terranova Sappo Minulio;1
+18080095;Varapodio;1
+18080096;Villa San Giovanni;1
+18080097;San Ferdinando;1
+18101001;Belvedere di Spinello;2
+18101002;Caccuri;2
+18101003;Carfizzi;2
+18101004;Casabona;2
+18101005;Castelsilano;2
+18101006;Cerenzia;2
+18101007;Cirò;2
+18101008;Cirò Marina;2
+18101009;Cotronei;2
+18101010;Crotone;2
+18101011;Crucoli;2
+18101012;Cutro;2
+18101013;Isola di Capo Rizzuto;2
+18101014;Melissa;2
+18101015;Mesoraca;2
+18101016;Pallagorio;2
+18101017;Petilia Policastro;2
+18101018;Roccabernarda;2
+18101019;Rocca di Neto;2
+18101020;San Mauro Marchesato;2
+18101021;San Nicola dell'Alto;2
+18101022;Santa Severina;2
+18101023;Savelli;2
+18101024;Scandale;2
+18101025;Strongoli;2
+18101026;Umbriatico;2
+18101027;Verzino;2
+18102001;Acquaro;1
+18102002;Arena;1
+18102003;Briatico;1
+18102004;Brognaturo;1
+18102005;Capistrano;1
+18102006;Cessaniti;1
+18102007;Dasà;1
+18102008;Dinami;1
+18102009;Drapia;1
+18102010;Fabrizia;1
+18102011;Filadelfia;1
+18102012;Filandari;1
+18102013;Filogaso;1
+18102014;Francavilla Angitola;1
+18102015;Francica;1
+18102016;Gerocarne;1
+18102017;Ionadi;1
+18102018;Joppolo;1
+18102019;Limbadi;1
+18102020;Maierato;1
+18102021;Mileto;1
+18102022;Mongiana;1
+18102023;Monterosso Calabro;1
+18102024;Nardodipace;1
+18102025;Nicotera;1
+18102026;Parghelia;1
+18102027;Pizzo;1
+18102028;Pizzoni;1
+18102029;Polia;1
+18102030;Ricadi;1
+18102031;Rombiolo;1
+18102032;San Calogero;1
+18102033;San Costantino Calabro;1
+18102034;San Gregorio d'Ippona;1
+18102035;San Nicola da Crissa;1
+18102036;Sant'Onofrio;1
+18102037;Serra San Bruno;1
+18102038;Simbario;1
+18102039;Sorianello;1
+18102040;Soriano Calabro;1
+18102041;Spadola;1
+18102042;Spilinga;1
+18102043;Stefanaconi;1
+18102044;Tropea;1
+18102045;Vallelonga;1
+18102046;Vazzano;1
+18102047;Vibo Valentia;1
+18102048;Zaccanopoli;1
+18102049;Zambrone;1
+18102050;Zungri;1
+19081001;Alcamo;2
+19081002;Buseto Palizzolo;2
+19081003;Calatafimi;2
+19081004;Campobello di Mazara;2
+19081005;Castellammare del Golfo;2
+19081006;Castelvetrano;2
+19081007;Custonaci;2
+19081008;Erice;2
+19081009;Favignana;2
+19081010;Gibellina;1
+19081011;Marsala;2
+19081012;Mazara del Vallo;2
+19081013;Paceco;2
+19081014;Pantelleria;4
+19081015;Partanna;1
+19081016;Poggioreale;1
+19081017;Salaparuta;1
+19081018;Salemi;1
+19081019;Santa Ninfa;1
+19081020;San Vito Lo Capo;2
+19081021;Trapani;2
+19081022;Valderice;2
+19081023;Vita;2
+19081024;Petrosino;2
+19082001;Alia;2
+19082002;Alimena;2
+19082003;Aliminusa;2
+19082004;Altavilla Milicia;2
+19082005;Altofonte;2
+19082006;Bagheria;2
+19082007;Balestrate;2
+19082008;Baucina;2
+19082009;Belmonte Mezzagno;2
+19082010;Bisacquino;2
+19082011;Bolognetta;2
+19082012;Bompietro;2
+19082013;Borgetto;2
+19082014;Caccamo;2
+19082015;Caltavuturo;2
+19082016;Campofelice di Fitalia;2
+19082017;Campofelice di Roccella;2
+19082018;Campofiorito;2
+19082019;Camporeale;2
+19082020;Capaci;2
+19082021;Carini;2
+19082022;Castelbuono;2
+19082023;Casteldaccia;2
+19082024;Castellana Sicula;2
+19082025;Castronuovo di Sicilia;2
+19082026;Cefalà Diana;2
+19082027;Cefalù;2
+19082028;Cerda;2
+19082029;Chiusa Sclafani;2
+19082030;Ciminna;2
+19082031;Cinisi;2
+19082032;Collesano;2
+19082033;Contessa Entellina;1
+19082034;Corleone;2
+19082035;Ficarazzi;2
+19082036;Gangi;2
+19082037;Geraci Siculo;2
+19082038;Giardinello;2
+19082039;Giuliana;2
+19082040;Godrano;2
+19082041;Gratteri;2
+19082042;Isnello;2
+19082043;Isola delle Femmine;2
+19082044;Lascari;2
+19082045;Lercara Friddi;2
+19082046;Marineo;2
+19082047;Mezzojuso;2
+19082048;Misilmeri;2
+19082049;Monreale;2
+19082050;Montelepre;2
+19082051;Montemaggiore Belsito;2
+19082052;Palazzo Adriano;2
+19082053;Palermo;2
+19082054;Partinico;2
+19082055;Petralia Soprana;2
+19082056;Petralia Sottana;2
+19082057;Piana degli Albanesi;2
+19082058;Polizzi Generosa;2
+19082059;Pollina;2
+19082060;Prizzi;2
+19082061;Roccamena;2
+19082062;Roccapalumba;2
+19082063;San Cipirello;2
+19082064;San Giuseppe Jato;2
+19082065;San Mauro Castelverde;2
+19082066;Santa Cristina Gela;2
+19082067;Santa Flavia;2
+19082068;Sciara;2
+19082069;Sclafani Bagni;2
+19082070;Termini Imerese;2
+19082071;Terrasini;2
+19082072;Torretta;2
+19082073;Trabia;2
+19082074;Trappeto;2
+19082075;Ustica;2
+19082076;Valledolmo;2
+19082077;Ventimiglia di Sicilia;2
+19082078;Vicari;2
+19082079;Villabate;2
+19082080;Villafrati;2
+19082081;Scillato;2
+19082082;Blufi;2
+19083001;Alcara li Fusi;2
+19083002;Alì;1
+19083003;Alì Terme;1
+19083004;Antillo;2
+19083005;Barcellona Pozzo di Gotto;2
+19083006;Basicò;2
+19083007;Brolo;2
+19083008;Capizzi;2
+19083009;Capo d'Orlando;2
+19083010;Capri Leone;2
+19083011;Caronia;2
+19083012;Casalvecchio Siculo;2
+19083013;Castel di Lucio;2
+19083014;Castell'Umberto;2
+19083015;Castelmola;2
+19083016;Castroreale;2
+19083017;Cesarò;2
+19083018;Condrò;2
+19083019;Falcone;2
+19083020;Ficarra;2
+19083021;Fiumedinisi;1
+19083022;Floresta;2
+19083023;Fondachelli-Fantina;2
+19083024;Forza d'Agrò;2
+19083025;Francavilla di Sicilia;2
+19083026;Frazzanò;2
+19083027;Furci Siculo;1
+19083028;Furnari;2
+19083029;Gaggi;2
+19083030;Galati Mamertino;2
+19083031;Gallodoro;2
+19083032;Giardini-Naxos;2
+19083033;Gioiosa Marea;2
+19083034;Graniti;2
+19083035;Gualtieri Sicaminò;2
+19083036;Itala;1
+19083037;Leni;1
+19083038;Letojanni;2
+19083039;Librizzi;2
+19083040;Limina;2
+19083041;Lipari;2
+19083042;Longi;2
+19083043;Malfa;1
+19083044;Malvagna;2
+19083045;Mandanici;1
+19083046;Mazzarrà Sant'Andrea;2
+19083047;Merì;2
+19083048;Messina;1
+19083049;Milazzo;2
+19083050;Militello Rosmarino;2
+19083051;Mirto;2
+19083052;Mistretta;1
+19083053;Moio Alcantara;2
+19083054;Monforte San Giorgio;2
+19083055;Mongiuffi Melia;2
+19083056;Montagnareale;2
+19083057;Montalbano Elicona;2
+19083058;Motta Camastra;2
+19083059;Motta d'Affermo;2
+19083060;Naso;2
+19083061;Nizza di Sicilia;1
+19083062;Novara di Sicilia;2
+19083063;Oliveri;2
+19083064;Pace del Mela;2
+19083065;Pagliara;1
+19083066;Patti;2
+19083067;Pettineo;2
+19083068;Piraino;2
+19083069;Raccuja;2
+19083070;Reitano;2
+19083071;Roccafiorita;2
+19083072;Roccalumera;1
+19083073;Roccavaldina;2
+19083074;Roccella Valdemone;2
+19083075;Rodì Milici;2
+19083076;Rometta;1
+19083077;San Filippo del Mela;2
+19083078;San Fratello;2
+19083079;San Marco d'Alunzio;2
+19083080;San Pier Niceto;2
+19083081;San Piero Patti;2
+19083082;San Salvatore di Fitalia;2
+19083083;Santa Domenica Vittoria;2
+19083084;Sant'Agata di Militello;2
+19083085;Sant'Alessio Siculo;1
+19083086;Santa Lucia del Mela;2
+19083087;Santa Marina Salina;1
+19083088;Sant'Angelo di Brolo;2
+19083089;Santa Teresa di Riva;1
+19083090;San Teodoro;2
+19083091;Santo Stefano di Camastra;2
+19083092;Saponara;1
+19083093;Savoca;1
+19083094;Scaletta Zanclea;1
+19083095;Sinagra;2
+19083096;Spadafora;2
+19083097;Taormina;2
+19083098;Torregrotta;2
+19083099;Tortorici;2
+19083100;Tripi;2
+19083101;Tusa;2
+19083102;Ucria;2
+19083103;Valdina;2
+19083104;Venetico;2
+19083105;Villafranca Tirrena;1
+19083106;Terme Vigliatore;2
+19083107;Acquedolci;2
+19083108;Torrenova;2
+19084001;Agrigento;2
+19084002;Alessandria della Rocca;2
+19084003;Aragona;2
+19084004;Bivona;2
+19084005;Burgio;2
+19084006;Calamonaci;2
+19084007;Caltabellotta;2
+19084008;Camastra;4
+19084009;Cammarata;2
+19084010;Campobello di Licata;4
+19084011;Canicattì;4
+19084012;Casteltermini;2
+19084013;Castrofilippo;4
+19084014;Cattolica Eraclea;2
+19084015;Cianciana;2
+19084016;Comitini;4
+19084017;Favara;4
+19084018;Grotte;4
+19084019;Joppolo Giancaxio;2
+19084020;Lampedusa e Linosa;4
+19084021;Licata;4
+19084022;Lucca Sicula;2
+19084023;Menfi;1
+19084024;Montallegro;2
+19084025;Montevago;1
+19084026;Naro;4
+19084027;Palma di Montechiaro;4
+19084028;Porto Empedocle;2
+19084029;Racalmuto;4
+19084030;Raffadali;2
+19084031;Ravanusa;4
+19084032;Realmonte;2
+19084033;Ribera;2
+19084034;Sambuca di Sicilia;2
+19084035;San Biagio Platani;2
+19084036;San Giovanni Gemini;2
+19084037;Santa Elisabetta;2
+19084038;Santa Margherita di Belice;1
+19084039;Sant'Angelo Muxaro;2
+19084040;Santo Stefano Quisquina;2
+19084041;Sciacca;2
+19084042;Siculiana;2
+19084043;Villafranca Sicula;2
+19085001;Acquaviva Platani;4
+19085002;Bompensiere;4
+19085003;Butera;3
+19085004;Caltanissetta;4
+19085005;Campofranco;4
+19085006;Delia;4
+19085007;Gela;2
+19085008;Marianopoli;4
+19085009;Mazzarino;3
+19085010;Milena;4
+19085011;Montedoro;4
+19085012;Mussomeli;4
+19085013;Niscemi;2
+19085014;Resuttano;3
+19085015;Riesi;3
+19085016;San Cataldo;4
+19085017;Santa Caterina Villarmosa;3
+19085018;Serradifalco;4
+19085019;Sommatino;4
+19085020;Sutera;4
+19085021;Vallelunga Pratameno;4
+19085022;Villalba;4
+19086001;Agira;2
+19086002;Aidone;2
+19086003;Assoro;2
+19086004;Barrafranca;3
+19086005;Calascibetta;2
+19086006;Catenanuova;2
+19086007;Centuripe;2
+19086008;Cerami;1
+19086009;Enna;2
+19086010;Gagliano Castelferrato;2
+19086011;Leonforte;2
+19086012;Nicosia;2
+19086013;Nissoria;2
+19086014;Piazza Armerina;2
+19086015;Pietraperzia;3
+19086016;Regalbuto;2
+19086017;Sperlinga;1
+19086018;Troina;2
+19086019;Valguarnera Caropepe;2
+19086020;Villarosa;2
+19087001;Aci Bonaccorsi;2
+19087002;Aci Castello;2
+19087003;Aci Catena;2
+19087004;Acireale;2
+19087005;Aci Sant'Antonio;2
+19087006;Adrano;2
+19087007;Belpasso;2
+19087008;Biancavilla;2
+19087009;Bronte;2
+19087010;Calatabiano;2
+19087011;Caltagirone;2
+19087012;Camporotondo Etneo;2
+19087013;Castel di Iudica;2
+19087014;Castiglione di Sicilia;2
+19087015;Catania;2
+19087016;Fiumefreddo di Sicilia;2
+19087017;Giarre;2
+19087018;Grammichele;2
+19087019;Gravina di Catania;2
+19087020;Licodia Eubea;2
+19087021;Linguaglossa;2
+19087022;Maletto;2
+19087023;Mascali;2
+19087024;Mascalucia;2
+19087025;Militello in Val di Catania;2
+19087026;Milo;2
+19087027;Mineo;2
+19087028;Mirabella Imbaccari;2
+19087029;Misterbianco;2
+19087030;Motta Sant'Anastasia;2
+19087031;Nicolosi;2
+19087032;Palagonia;2
+19087033;Paternò;2
+19087034;Pedara;2
+19087035;Piedimonte Etneo;2
+19087036;Raddusa;2
+19087037;Ramacca;2
+19087038;Randazzo;2
+19087039;Riposto;2
+19087040;San Cono;2
+19087041;San Giovanni la Punta;2
+19087042;San Gregorio di Catania;2
+19087043;San Michele di Ganzaria;2
+19087044;San Pietro Clarenza;2
+19087045;Sant'Agata li Battiati;2
+19087046;Sant'Alfio;2
+19087047;Santa Maria di Licodia;2
+19087048;Santa Venerina;2
+19087049;Scordia;2
+19087050;Trecastagni;2
+19087051;Tremestieri Etneo;2
+19087052;Valverde;2
+19087053;Viagrande;2
+19087054;Vizzini;2
+19087055;Zafferana Etnea;2
+19087056;Mazzarrone;2
+19087057;Maniace;2
+19087058;Ragalna;2
+19088001;Acate;2
+19088002;Chiaramonte Gulfi;2
+19088003;Comiso;2
+19088004;Giarratana;2
+19088005;Ispica;2
+19088006;Modica;2
+19088007;Monterosso Almo;2
+19088008;Pozzallo;2
+19088009;Ragusa;2
+19088010;Santa Croce Camerina;2
+19088011;Scicli;2
+19088012;Vittoria;2
+19089001;Augusta;2
+19089002;Avola;2
+19089003;Buccheri;2
+19089004;Buscemi;2
+19089005;Canicattini Bagni;2
+19089006;Carlentini;2
+19089007;Cassaro;2
+19089008;Ferla;2
+19089009;Floridia;2
+19089010;Francofonte;2
+19089011;Lentini;2
+19089012;Melilli;2
+19089013;Noto;2
+19089014;Pachino;2
+19089015;Palazzolo Acreide;2
+19089016;Rosolini;2
+19089017;Siracusa;2
+19089018;Solarino;2
+19089019;Sortino;2
+19089020;Portopalo di Capo Passero;2
+19089021;Priolo Gargallo;2
+20090001;Aggius;4
+20090002;Alà dei Sardi;4
+20090003;Alghero;4
+20090004;Anela;4
+20090005;Ardara;4
+20090006;Arzachena;4
+20090007;Banari;4
+20090008;Benetutti;4
+20090009;Berchidda;4
+20090010;Bessude;4
+20090011;Bonnanaro;4
+20090012;Bono;4
+20090013;Bonorva;4
+20090014;Bortigiadas;4
+20090015;Borutta;4
+20090016;Bottidda;4
+20090017;Buddusò;4
+20090018;Bultei;4
+20090019;Bulzi;4
+20090020;Burgos;4
+20090021;Calangianus;4
+20090022;Cargeghe;4
+20090023;Castelsardo;4
+20090024;Cheremule;4
+20090025;Chiaramonti;4
+20090026;Codrongianos;4
+20090027;Cossoine;4
+20090028;Esporlatu;4
+20090029;Florinas;4
+20090030;Giave;4
+20090031;Illorai;4
+20090032;Ittireddu;4
+20090033;Ittiri;4
+20090034;Laerru;4
+20090035;La Maddalena;4
+20090036;Luogosanto;4
+20090037;Luras;4
+20090038;Mara;4
+20090039;Martis;4
+20090040;Monteleone Rocca Doria;4
+20090041;Monti;4
+20090042;Mores;4
+20090043;Muros;4
+20090044;Nughedu di San Nicolò;4
+20090045;Nule;4
+20090046;Nulvi;4
+20090047;Olbia;4
+20090048;Olmedo;4
+20090049;Oschiri;4
+20090050;Osilo;4
+20090051;Ossi;4
+20090052;Ozieri;4
+20090053;Padria;4
+20090054;Palau;4
+20090055;Pattada;4
+20090056;Perfugas;4
+20090057;Ploaghe;4
+20090058;Porto Torres;4
+20090059;Pozzomaggiore;4
+20090060;Putifigari;4
+20090061;Romana;4
+20090062;Aglientu;4
+20090063;Santa Teresa Gallura;4
+20090064;Sassari;4
+20090065;Sedini;4
+20090066;Semestene;4
+20090067;Sennori;4
+20090068;Siligo;4
+20090069;Sorso;4
+20090070;Tempio Pausania;4
+20090071;Thiesi;4
+20090072;Tissi;4
+20090073;Torralba;4
+20090074;Trinita d'Agultu e Vignola;4
+20090075;Tula;4
+20090076;Uri;4
+20090077;Usini;4
+20090078;Villanova Monteleone;4
+20090079;Valledoria;4
+20090080;Telti;4
+20090081;Badesi;4
+20090082;Viddalba;4
+20090083;Golfo Aranci;4
+20090084;Loiri Porto San Paolo;4
+20090085;Sant'Antonio di Gallura;4
+20090086;Tergu;4
+20090087;Santa Maria Coghinas;4
+20090088;Erula;4
+20090089;Stintino;4
+20090090;Padru (1);4
+20091001;Aritzo;4
+20091002;Arzana;4
+20091003;Atzara;4
+20091004;Austis;4
+20091005;Bari Sardo;4
+20091006;Baunei;4
+20091007;Belvi;4
+20091008;Birori;4
+20091009;Bitti;4
+20091010;Bolotana;4
+20091011;Borore;4
+20091012;Bortigali;4
+20091013;Bosa;4
+20091014;Budoni;4
+20091016;Desulo;4
+20091017;Dorgali;4
+20091018;Dualchi;4
+20091019;Elini;4
+20091020;Escalaplano;4
+20091021;Escolca;4
+20091022;Esterzili;4
+20091023;Flussio;4
+20091024;Fonni;4
+20091025;Gadoni;4
+20091026;Gairo;4
+20091027;Galtelli;4
+20091028;Gavoi;4
+20091029;Genoni;4
+20091030;Gergei;4
+20091031;Girasole;4
+20091032;Ilbono;4
+20091033;Irgoli;4
+20091034;Isili;4
+20091035;Jerzu;4
+20091036;Laconi;4
+20091037;Lanusei;4
+20091038;Lei;4
+20091039;Loceri;4
+20091040;Loculi;4
+20091041;Lodè;4
+20091042;Lotzorai;4
+20091043;Lula;4
+20091044;Macomer;4
+20091045;Magomadas;4
+20091046;Mamoiada;4
+20091047;Meana Sardo;4
+20091048;Modolo;4
+20091049;Montresta;4
+20091050;Noragugume;4
+20091051;Nuoro;4
+20091052;Nuragus;4
+20091053;Nurallao;4
+20091054;Nurri;4
+20091055;Oliena;4
+20091056;Ollolai;4
+20091057;Olzai;4
+20091058;Onani;4
+20091059;Onifai;4
+20091060;Oniferi;4
+20091061;Orani;4
+20091062;Orgosolo;4
+20091063;Orosei;4
+20091064;Orotelli;4
+20091065;Orroli;4
+20091066;Ortueri;4
+20091067;Orune;4
+20091068;Osidda;4
+20091069;Osini;4
+20091070;Ottana;4
+20091071;Ovodda;4
+20091072;Perdasdefogu;4
+20091073;Posada;4
+20091074;Sadali;4
+20091075;Sagama;4
+20091076;San Teodoro;4
+20091077;Sarule;4
+20091080;Serri;4
+20091081;Seui;4
+20091082;Seulo;4
+20091083;Silanus;4
+20091084;Sindia;4
+20091085;Siniscola;4
+20091086;Sorgono;4
+20091087;Suni;4
+20091088;Talana;4
+20091089;Tertenia;4
+20091090;Teti;4
+20091091;Tiana;4
+20091092;Tinnura;4
+20091093;Tonara;4
+20091094;Torpè;4
+20091095;Tortolì;4
+20091097;Triei;4
+20091098;Ulassai;4
+20091099;Urzulei;4
+20091100;Ussassai;4
+20091101;Villagrande Strisaili;4
+20091102;Villanova Tulo;4
+20091103;Cardedu;4
+20091104;Lodine;4
+20092001;Arbus;4
+20092002;Armungia;4
+20092003;Assemini;4
+20092004;Ballao;4
+20092005;Barrali;4
+20092006;Barumini;4
+20092007;Buggerru;4
+20092008;Burcei;4
+20092009;Cagliari;4
+20092010;Calasetta;4
+20092011;Capoterra;4
+20092012;Carbonia;4
+20092013;Carloforte;4
+20092014;Collinas;4
+20092015;Decimomannu;4
+20092016;Decimoputzu;4
+20092017;Dolianova;4
+20092018;Domus de Maria;4
+20092019;Domusnovas;4
+20092020;Donorì;4
+20092021;Fluminimaggiore;4
+20092022;Furtei;4
+20092023;Genuri;4
+20092024;Gesico;4
+20092025;Gesturi;4
+20092026;Giba;4
+20092027;Goni;4
+20092028;Gonnesa;4
+20092029;Gonnosfanadiga;4
+20092030;Guamaggiore;4
+20092031;Guasila;4
+20092032;Guspini;4
+20092033;Iglesias;4
+20092034;Las Plassas;4
+20092035;Lunamatrona;4
+20092036;Mandas;4
+20092037;Maracalagonis;4
+20092038;Monastir;4
+20092039;Muravera;4
+20092040;Musei;4
+20092041;Narcao;4
+20092042;Nuraminis;4
+20092043;Nuxis;4
+20092044;Ortacesus;4
+20092045;Pabillonis;4
+20092046;Pauli Arbarei;4
+20092047;Perdaxius;4
+20092048;Pimentel;4
+20092049;Portoscuso;4
+20092050;Pula;4
+20092051;Quartu Sant'Elena;4
+20092052;Samassi;4
+20092053;Samatzai;4
+20092054;San Basilio;4
+20092055;San Gavino Monreale;4
+20092056;San Giovanni Suergiu;4
+20092057;Sanluri;4
+20092058;San Nicolò Gerrei;4
+20092059;San Sperate;4
+20092060;Santadi;4
+20092061;Sant'Andrea Frius;4
+20092062;Sant'Anna Arresi;4
+20092063;Sant'Antioco;4
+20092064;San Vito;4
+20092065;Sardara;4
+20092066;Sarroch;4
+20092067;Segariu;4
+20092068;Selargius;4
+20092069;Selegas;4
+20092070;Senorbì;4
+20092071;Serdiana;4
+20092072;Serramanna;4
+20092073;Serrenti;4
+20092074;Sestu;4
+20092075;Settimo San Pietro;4
+20092076;Setzu;4
+20092077;Siddi;4
+20092078;Siliqua;4
+20092079;Silius;4
+20092080;Sinnai;4
+20092081;Siurgus Donigala;4
+20092082;Soleminis;4
+20092083;Suelli;4
+20092084;Teulada;4
+20092085;Tratalias;4
+20092086;Tuili;4
+20092087;Turri;4
+20092088;Ussana;4
+20092089;Ussaramanna;4
+20092090;Uta;4
+20092091;Vallermosa;4
+20092092;Villacidro;4
+20092093;Villamar;4
+20092094;Villamassargia;4
+20092095;Villanovaforru;4
+20092096;Villanovafranca;4
+20092097;Villaputzu;4
+20092098;Villasalto;4
+20092099;Villa San Pietro;4
+20092100;Villasimius;4
+20092101;Villasor;4
+20092102;Villaspeciosa;4
+20092103;Masainas;4
+20092104;Villaperuccio;4
+20092105;Quartucciu;4
+20092106;Castiadas;4
+20092107;Piscinas;4
+20092108;Elmas;4
+20092109;Monserrato (1);4
+20095001;Abbasanta;4
+20095002;Aidomaggiore;4
+20095003;Albagiara;4
+20095004;Ales;4
+20095005;Allai;4
+20095006;Arborea;4
+20095007;Ardauli;4
+20095008;Assolo;4
+20095009;Asuni;4
+20095010;Baradili;4
+20095011;Baratili San Pietro;4
+20095012;Baressa;4
+20095013;Bauladu;4
+20095014;Bidonì;4
+20095015;Bonarcado;4
+20095016;Boroneddu;4
+20095017;Busachi;4
+20095018;Cabras;4
+20095019;Cuglieri;4
+20095020;Fordongianus;4
+20095021;Ghilarza;4
+20095022;Gonnoscodina;4
+20095023;Gonnosnò;4
+20095024;Gonnostramatza;4
+20095025;Marrubiu;4
+20095026;Masullas;4
+20095027;Milis;4
+20095028;Mogorella;4
+20095029;Mogoro;4
+20095030;Morgongiori;4
+20095031;Narbolia;4
+20095032;Neoneli;4
+20095033;Norbello;4
+20095034;Nughedu Santa Vittoria;4
+20095035;Nurachi;4
+20095036;Nureci;4
+20095037;Ollastra Simaxis;4
+20095038;Oristano;4
+20095039;Palmas Arborea;4
+20095040;Pau;4
+20095041;Paulilatino;4
+20095042;Pompu;4
+20095043;Riola Sardo;4
+20095044;Ruinas;4
+20095045;Samugheo;4
+20095046;San Nicolò d'Arcidano;4
+20095047;Santa Giusta;4
+20095048;Villa Sant'Antonio;4
+20095049;Santu Lussurgiu;4
+20095050;San Vero Milis;4
+20095051;Scano di Montiferro;4
+20095052;Sedilo;4
+20095053;Seneghe;4
+20095054;Senis;4
+20095055;Sennariolo;4
+20095056;Siamaggiore;4
+20095057;Siamanna;4
+20095058;Simala;4
+20095059;Simaxis;4
+20095060;Sini;4
+20095061;Siris;4
+20095062;Solarussa;4
+20095063;Sorradile;4
+20095064;Tadasuni;4
+20095065;Terralba;4
+20095066;Tramatza;4
+20095067;Tresnuraghes;4
+20095068;Ulà Tirso;4
+20095069;Uras;4
+20095070;Usellus;4
+20095071;Villanova Truschedu;4
+20095072;Villaurbana;4
+20095073;Villa Verde;4
+20095074;Zeddiani;4
+20095075;Zerfaliu;4
+20095076;Siapiccia;4
+20095077;Curcuris;4
+20095078;Soddi;4
