@@ -1,5 +1,5 @@
-// ISTAT/ISPRA Import from Storage — Edge Function
-// Reads CSV from storage bucket and imports into istat_comuni or ispra_rischio tables
+// ISTAT/ISPRA/Sismica Import from Storage — Edge Function
+// Reads CSV from storage bucket and imports into istat_comuni, ispra_rischio, or classificazione_sismica
 // Separator: ;
 
 import {
@@ -12,33 +12,23 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const BATCH_SIZE = 500;
 
-const ISTAT_FIELDS = [
-  "codice_istat", "comune", "popolazione", "eta_media",
-  "percentuale_under18", "percentuale_under35", "percentuale_over65",
-  "maschi", "femmine", "anno",
-];
-
-const ISPRA_FIELDS = [
-  "codice_istat", "comune", "superficie_kmq",
-  "idro_p3_perc", "idro_p2_perc", "idro_p1_perc",
-  "pop_idro_p3", "pop_idro_p2", "pop_idro_p1",
-  "frana_p4_perc", "frana_p3_perc", "frana_p2_perc", "frana_p1_perc",
-  "pop_frana_p3p4",
-];
-
-const NUMERIC_FIELDS = new Set([
-  "popolazione", "eta_media", "percentuale_under18", "percentuale_under35",
-  "percentuale_over65", "maschi", "femmine", "anno",
-  "superficie_kmq", "idro_p3_perc", "idro_p2_perc", "idro_p1_perc",
-  "pop_idro_p3", "pop_idro_p2", "pop_idro_p1",
-  "frana_p4_perc", "frana_p3_perc", "frana_p2_perc", "frana_p1_perc",
-  "pop_frana_p3p4",
-]);
-
-const INTEGER_FIELDS = new Set([
-  "popolazione", "maschi", "femmine", "anno",
-  "pop_idro_p3", "pop_idro_p2", "pop_idro_p1", "pop_frana_p3p4",
-]);
+const TABLE_CONFIG: Record<string, { fields: string[]; numeric: Set<string>; integer: Set<string> }> = {
+  istat_comuni: {
+    fields: ["codice_istat", "comune", "popolazione", "eta_media", "percentuale_under18", "percentuale_under35", "percentuale_over65", "maschi", "femmine", "anno"],
+    numeric: new Set(["popolazione", "eta_media", "percentuale_under18", "percentuale_under35", "percentuale_over65", "maschi", "femmine", "anno"]),
+    integer: new Set(["popolazione", "maschi", "femmine", "anno"]),
+  },
+  ispra_rischio: {
+    fields: ["codice_istat", "comune", "superficie_kmq", "idro_p3_perc", "idro_p2_perc", "idro_p1_perc", "pop_idro_p3", "pop_idro_p2", "pop_idro_p1", "frana_p4_perc", "frana_p3_perc", "frana_p2_perc", "frana_p1_perc", "pop_frana_p3p4"],
+    numeric: new Set(["superficie_kmq", "idro_p3_perc", "idro_p2_perc", "idro_p1_perc", "pop_idro_p3", "pop_idro_p2", "pop_idro_p1", "frana_p4_perc", "frana_p3_perc", "frana_p2_perc", "frana_p1_perc", "pop_frana_p3p4"]),
+    integer: new Set(["pop_idro_p3", "pop_idro_p2", "pop_idro_p1", "pop_frana_p3p4"]),
+  },
+  classificazione_sismica: {
+    fields: ["codice_istat", "comune", "zona_sismica"],
+    numeric: new Set(["zona_sismica"]),
+    integer: new Set(["zona_sismica"]),
+  },
+};
 
 function cleanValue(val: string): string {
   return val.replace(/^'+|'+$/g, "").trim();
@@ -52,9 +42,8 @@ function parseNumeric(val: string, isInteger: boolean): number | null {
   return isNaN(num) ? null : num;
 }
 
-function parseCSV(csv: string, fields: string[]): Record<string, unknown>[] {
+function parseCSV(csv: string, fields: string[], numericFields: Set<string>, integerFields: Set<string>): Record<string, unknown>[] {
   const lines = csv.split("\n").filter((l) => l.trim());
-  // First line is headers
   const dataLines = lines.slice(1);
   const rows: Record<string, unknown>[] = [];
 
@@ -67,8 +56,8 @@ function parseCSV(csv: string, fields: string[]): Record<string, unknown>[] {
     for (let i = 0; i < fields.length; i++) {
       const field = fields[i];
       const raw = values[i] ?? "";
-      if (NUMERIC_FIELDS.has(field)) {
-        row[field] = parseNumeric(raw, INTEGER_FIELDS.has(field));
+      if (numericFields.has(field)) {
+        row[field] = parseNumeric(raw, integerFields.has(field));
       } else {
         const cleaned = cleanValue(raw) || null;
         row[field] = cleaned;
@@ -99,8 +88,9 @@ Deno.serve(async (req) => {
     if (!table || !storagePath) {
       return fail(req, 400, "MISSING_FIELDS", "Provide table and storage_path", debugId);
     }
-    if (table !== "istat_comuni" && table !== "ispra_rischio") {
-      return fail(req, 400, "INVALID_TABLE", "table must be istat_comuni or ispra_rischio", debugId);
+    const config = TABLE_CONFIG[table];
+    if (!config) {
+      return fail(req, 400, "INVALID_TABLE", `table must be one of: ${Object.keys(TABLE_CONFIG).join(", ")}`, debugId);
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
@@ -119,8 +109,7 @@ Deno.serve(async (req) => {
     const csv = await fileData.text();
     console.log(`[istat-ispra-import] CSV size: ${csv.length} chars`);
 
-    const fields = table === "istat_comuni" ? ISTAT_FIELDS : ISPRA_FIELDS;
-    const rows = parseCSV(csv, fields);
+    const rows = parseCSV(csv, config.fields, config.numeric, config.integer);
 
     if (rows.length === 0) {
       return fail(req, 400, "EMPTY_CSV", "No valid rows found", debugId);

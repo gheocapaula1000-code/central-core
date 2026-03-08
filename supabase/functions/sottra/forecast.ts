@@ -20,6 +20,10 @@ function extractComune(address: string): string {
   return last.replace(/\s+[A-Z]{2}$/, "").trim();
 }
 
+// ═══════════════════════════════════════════════════════════════
+// AI-BASED ENDPOINTS (with "Stima indicativa" warning)
+// ═══════════════════════════════════════════════════════════════
+
 /** POST /sottra/forecast/moodscore — coordinates → zone sentiment score */
 export async function handleForecastMoodScore(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const lat = body.lat as number | undefined;
@@ -49,7 +53,7 @@ Valuta basandoti su: densità negozi e servizi (commercio), accessibilità trasp
     const output = await callAI(prompt, 300, 0.2);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse moodscore data", debugId);
-    return ok(req, data, ["Score basato su analisi dati del quartiere"], debugId);
+    return ok(req, data, ["Stima indicativa — non dato ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `MoodScore analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
@@ -79,7 +83,7 @@ Considera: piani urbanistici comunali, nuove infrastrutture di trasporto (metro,
     const output = await callAI(prompt, 400, 0.3);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse timeview data", debugId);
-    return ok(req, data, ["Previsioni basate su dati urbanistici — non consulenza finanziaria"], debugId);
+    return ok(req, data, ["Stima indicativa — non dato ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `TimeView analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
@@ -114,7 +118,7 @@ Valuta: trend prezzi recenti, progetti infrastrutturali, demografia, attrattivit
     const output = await callAI(prompt, 300, 0.2);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse opportunity data", debugId);
-    return ok(req, data, ["Indice calcolato da analisi di mercato — non consulenza di investimento"], debugId);
+    return ok(req, data, ["Stima indicativa — non dato ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Opportunity analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
@@ -154,13 +158,17 @@ La data corrente è marzo 2026. Non includere progetti già completati o con dat
     const output = await callAI(prompt, 500, 0.3);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse infrastructure data", debugId);
-    return ok(req, data, ["Progetti basati su dati urbanistici pubblici"], debugId);
+    return ok(req, data, ["Stima indicativa — non dato ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Infrastructure analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
 }
 
-/** POST /sottra/forecast/rischio-zona — coordinates → zone risk assessment (REAL ISPRA DATA) */
+// ═══════════════════════════════════════════════════════════════
+// DATA-DRIVEN ENDPOINTS (real ISTAT / ISPRA / INGV data)
+// ═══════════════════════════════════════════════════════════════
+
+/** POST /sottra/forecast/rischio-zona — coordinates → zone risk assessment (REAL ISPRA + SISMICA DATA) */
 export async function handleForecastRischioZona(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const lat = body.lat as number | undefined;
   const lng = body.lng as number | undefined;
@@ -171,33 +179,38 @@ export async function handleForecastRischioZona(req: Request, body: Record<strin
   if (!comune) return fail(req, 400, "COMUNE_NOT_FOUND", "Could not extract comune from address", debugId);
 
   const supabase = getSupabase();
-  const { data, error } = await supabase
-    .from("ispra_rischio")
-    .select("*")
-    .ilike("comune", comune)
-    .limit(1)
-    .maybeSingle();
 
-  if (error || !data) {
+  // Parallel queries: ISPRA + Sismica
+  const [ispraResult, sismicaResult] = await Promise.all([
+    supabase.from("ispra_rischio").select("*").ilike("comune", comune).limit(1).maybeSingle(),
+    supabase.from("classificazione_sismica").select("zona_sismica").ilike("comune", comune).limit(1).maybeSingle(),
+  ]);
+
+  if (ispraResult.error || !ispraResult.data) {
     return fail(req, 404, "DATA_NOT_FOUND", `No ISPRA data for comune "${comune}"`, debugId);
   }
 
-  // scoreRischio = 100 - (idro_p3_perc * 2 + frana_p4_perc * 3) clamped 0-100
+  const data = ispraResult.data;
   const idroP3 = Number(data.idro_p3_perc) || 0;
   const franaP4 = Number(data.frana_p4_perc) || 0;
+
+  // scoreRischio = 100 - (idro_p3_perc * 2 + frana_p4_perc * 3) clamped 0-100
   const rawScore = 100 - (idroP3 * 2 + franaP4 * 3);
   const scoreRischio = Math.round(Math.max(0, Math.min(100, rawScore)));
 
-  // Classify idrogeologico risk level
-  const idroTotal = idroP3 + (Number(data.idro_p2_perc) || 0);
-  const idrogeologico = idroTotal > 15 ? "alto" : idroTotal > 5 ? "medio" : idroTotal > 0 ? "basso" : "nullo";
+  // Classify idrogeologico risk level based on idro_p3_perc
+  const idrogeologico = idroP3 > 10 ? "alto" : idroP3 >= 1 ? "medio" : idroP3 > 0 ? "basso" : "nullo";
 
-  // Alluvionale: true if any significant flood risk
-  const alluvionale = (Number(data.idro_p1_perc) || 0) > 10 || (Number(data.pop_idro_p1) || 0) > 100;
+  // Alluvionale: true if any idro_p3 > 0
+  const alluvionale = idroP3 > 0;
+
+  // Sismico from classificazione_sismica table
+  const zonaSismica = sismicaResult.data?.zona_sismica;
+  const sismico = zonaSismica != null ? `zona${zonaSismica}` : "dato non disponibile";
 
   return ok(req, {
     idrogeologico,
-    sismico: "dato non disponibile",
+    sismico,
     inquinamento: "dato non disponibile",
     alluvionale,
     scoreRischio,
@@ -215,7 +228,7 @@ export async function handleForecastRischioZona(req: Request, body: Record<strin
       frana_p1_perc: data.frana_p1_perc,
       pop_frana_p3p4: data.pop_frana_p3p4,
     },
-    fonte: "ISPRA — Dissesto idrogeologico in Italia, ed. 2021",
+    fonte: "ISPRA — IdroGEO + INGV/Protezione Civile OPCM 3519",
   }, [], debugId);
 }
 
@@ -230,40 +243,38 @@ export async function handleForecastTrendDemografico(req: Request, body: Record<
   if (!comune) return fail(req, 400, "COMUNE_NOT_FOUND", "Could not extract comune from address", debugId);
 
   const supabase = getSupabase();
-  const { data, error } = await supabase
-    .from("istat_comuni")
-    .select("*")
-    .ilike("comune", comune)
-    .limit(1)
-    .maybeSingle();
 
-  if (error || !data) {
+  // Parallel queries: ISTAT + ISPRA (for superficie/density)
+  const [istatResult, ispraResult] = await Promise.all([
+    supabase.from("istat_comuni").select("*").ilike("comune", comune).limit(1).maybeSingle(),
+    supabase.from("ispra_rischio").select("superficie_kmq").ilike("comune", comune).limit(1).maybeSingle(),
+  ]);
+
+  if (istatResult.error || !istatResult.data) {
     return fail(req, 404, "DATA_NOT_FOUND", `No ISTAT data for comune "${comune}"`, debugId);
   }
 
-  // Compute density using ISPRA superficie if available
-  let densitaAbitanti: number | null = null;
-  const { data: ispra } = await supabase
-    .from("ispra_rischio")
-    .select("superficie_kmq")
-    .ilike("comune", comune)
-    .limit(1)
-    .maybeSingle();
+  const istat = istatResult.data;
 
-  if (ispra?.superficie_kmq && data.popolazione) {
-    densitaAbitanti = Math.round(Number(data.popolazione) / Number(ispra.superficie_kmq));
+  // Compute density using ISPRA superficie
+  let densitaAbitanti: number | null = null;
+  if (ispraResult.data?.superficie_kmq && istat.popolazione) {
+    densitaAbitanti = Math.round(Number(istat.popolazione) / Number(ispraResult.data.superficie_kmq));
   }
 
   return ok(req, {
-    etaMedia: data.eta_media,
-    popolazione: data.popolazione,
+    etaMedia: istat.eta_media,
+    popolazione: istat.popolazione,
     densitaAbitanti,
-    percentualeGiovani: data.percentuale_under35,
-    percentualeUnder18: data.percentuale_under18,
-    percentualeOver65: data.percentuale_over65,
-    maschi: data.maschi,
-    femmine: data.femmine,
-    anno: data.anno,
+    flussoResidenti12Mesi: 0,
+    percentualeFamiglie: 0,
+    percentualeGiovani: istat.percentuale_under35,
+    percentualeStranieri: 0,
+    percentualeUnder18: istat.percentuale_under18,
+    percentualeOver65: istat.percentuale_over65,
+    maschi: istat.maschi,
+    femmine: istat.femmine,
+    anno: istat.anno,
     fonte: "ISTAT — Popolazione residente al 1° gennaio 2025",
   }, [], debugId);
 }

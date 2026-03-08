@@ -62,7 +62,7 @@ Rispondi SOLO in JSON valido:
       : await callAI(prompt, 300, 0.2);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse cadastral data", debugId);
-    return ok(req, data, ["Dati stimati da analisi visiva e fonti catastali — non ufficiali"], debugId);
+    return ok(req, data, ["Stima indicativa — non dato ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Cadastral analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
@@ -146,7 +146,7 @@ Genera annunci realistici per la zona: prezzi coerenti con il mercato locale, me
     const output = await callAI(prompt, 500, 0.3);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse listings data", debugId);
-    return ok(req, data, ["Annunci indicativi basati su dati di zona"], debugId);
+    return ok(req, data, ["Stima indicativa — non dato ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Listings analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
@@ -175,7 +175,7 @@ Rispondi SOLO in JSON valido:
       : await callAI(prompt, 200, 0.2);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse energy data", debugId);
-    return ok(req, data, ["Classe stimata da analisi visiva e dati edilizi — non APE ufficiale"], debugId);
+    return ok(req, data, ["Stima indicativa — non dato ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Energy analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
@@ -208,7 +208,7 @@ Rispondi SOLO in JSON valido:
       : await callAI(prompt, 250, 0.2);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse condominio data", debugId);
-    return ok(req, data, ["Dati condominiali stimati da analisi visiva — non perizia ufficiale"], debugId);
+    return ok(req, data, ["Stima indicativa — non dato ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Condominio analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
@@ -237,7 +237,7 @@ Basa la stima su: prezzi OMI della zona, tipologia edilizia, trend di mercato re
     const output = await callAI(prompt, 500, 0.3);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse transaction history", debugId);
-    return ok(req, data, ["Storico stimato da dati OMI e di mercato — non transazioni certificate"], debugId);
+    return ok(req, data, ["Stima indicativa — non dato ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Transaction history failed: ${String(e).slice(0, 100)}`, debugId);
   }
