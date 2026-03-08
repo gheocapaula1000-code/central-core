@@ -16,7 +16,7 @@ export default function CookieBanner() {
   if (!visible) return null;
 
   const accept = () => {
-    try { localStorage.setItem(STORAGE_KEY, "true"); } catch {}
+    try { localStorage.setItem(STORAGE_KEY, "true"); } catch { /* storage non disponibile */ }
     setVisible(false);
   };
 

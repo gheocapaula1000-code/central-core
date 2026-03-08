@@ -9,7 +9,7 @@ export function isOriginAllowed(origin: string, allowedOrigins: string[] = []): 
     const u = new URL(o);
     if (u.hostname === "localhost" || u.hostname.startsWith("127.")) return true;
     if (TRUSTED_APP_HOSTS.has(u.hostname)) return true;
-  } catch {}
+  } catch { /* URL non valida */ }
   if (LOVABLE_SUFFIXES.some((s) => o.endsWith(s))) return true;
   if (allowedOrigins.includes("*")) return true;
   return allowedOrigins.some((entry) => entry.toLowerCase().trim() === o);
