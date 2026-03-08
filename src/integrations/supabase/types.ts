@@ -14,6 +14,102 @@ export type Database = {
   }
   public: {
     Tables: {
+      ispra_rischio: {
+        Row: {
+          codice_istat: string
+          comune: string
+          frana_p1_perc: number | null
+          frana_p2_perc: number | null
+          frana_p3_perc: number | null
+          frana_p4_perc: number | null
+          id: number
+          idro_p1_perc: number | null
+          idro_p2_perc: number | null
+          idro_p3_perc: number | null
+          pop_frana_p3p4: number | null
+          pop_idro_p1: number | null
+          pop_idro_p2: number | null
+          pop_idro_p3: number | null
+          superficie_kmq: number | null
+        }
+        Insert: {
+          codice_istat: string
+          comune: string
+          frana_p1_perc?: number | null
+          frana_p2_perc?: number | null
+          frana_p3_perc?: number | null
+          frana_p4_perc?: number | null
+          id?: number
+          idro_p1_perc?: number | null
+          idro_p2_perc?: number | null
+          idro_p3_perc?: number | null
+          pop_frana_p3p4?: number | null
+          pop_idro_p1?: number | null
+          pop_idro_p2?: number | null
+          pop_idro_p3?: number | null
+          superficie_kmq?: number | null
+        }
+        Update: {
+          codice_istat?: string
+          comune?: string
+          frana_p1_perc?: number | null
+          frana_p2_perc?: number | null
+          frana_p3_perc?: number | null
+          frana_p4_perc?: number | null
+          id?: number
+          idro_p1_perc?: number | null
+          idro_p2_perc?: number | null
+          idro_p3_perc?: number | null
+          pop_frana_p3p4?: number | null
+          pop_idro_p1?: number | null
+          pop_idro_p2?: number | null
+          pop_idro_p3?: number | null
+          superficie_kmq?: number | null
+        }
+        Relationships: []
+      }
+      istat_comuni: {
+        Row: {
+          anno: number | null
+          codice_istat: string
+          comune: string
+          eta_media: number | null
+          femmine: number | null
+          id: number
+          maschi: number | null
+          percentuale_over65: number | null
+          percentuale_under18: number | null
+          percentuale_under35: number | null
+          popolazione: number | null
+        }
+        Insert: {
+          anno?: number | null
+          codice_istat: string
+          comune: string
+          eta_media?: number | null
+          femmine?: number | null
+          id?: number
+          maschi?: number | null
+          percentuale_over65?: number | null
+          percentuale_under18?: number | null
+          percentuale_under35?: number | null
+          popolazione?: number | null
+        }
+        Update: {
+          anno?: number | null
+          codice_istat?: string
+          comune?: string
+          eta_media?: number | null
+          femmine?: number | null
+          id?: number
+          maschi?: number | null
+          percentuale_over65?: number | null
+          percentuale_under18?: number | null
+          percentuale_under35?: number | null
+          popolazione?: number | null
+        }
+        Relationships: []
+      }
       omi_valori: {
         Row: {
           area_territoriale: string | null
