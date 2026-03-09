@@ -1,6 +1,22 @@
 // Sottra shared utilities: AI caller, JSON parser, geocoding, GPT normalization layer
 
 // ═══════════════════════════════════════════════════════════════
+// OpenAI config helpers — single source of truth
+// OPENAI_API_KEY: secret, server-side only
+// OPENAI_MODEL:   model name, default "gpt-5.4"
+// ═══════════════════════════════════════════════════════════════
+
+/** Returns the configured OpenAI API key (server-side only). Empty string if missing. */
+export function getOpenAIKey(): string {
+  return Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_KEY") ?? "";
+}
+
+/** Returns the configured OpenAI model. Defaults to gpt-5.4. */
+export function getOpenAIModel(): string {
+  return Deno.env.get("OPENAI_MODEL") ?? "gpt-5.4";
+}
+
+// ═══════════════════════════════════════════════════════════════
 // GPT-5.4 Normalization Layer — HARDENED
 // Post-collection enrichment ONLY. Never a data source.
 // Can ONLY touch: observation, driversSummary, risksSummary, bandExplanation
@@ -98,7 +114,7 @@ function validateNormalizationOutput(
  * - On any failure → { normalized: false }, caller uses deterministic fallback
  */
 export async function normalizeWithGPT(input: NormalizationInput): Promise<NormalizationResult> {
-  const key = Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_KEY") ?? "";
+  const key = getOpenAIKey();
   if (!key) {
     return { normalized: false, _debugRejectionReason: "no_api_key" };
   }
@@ -148,7 +164,7 @@ Genera SOLO i campi elencati sopra, basandoti ESCLUSIVAMENTE sui dati forniti.
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: Deno.env.get("OPENAI_MODEL") ?? "gpt-5.4",
+        model: getOpenAIModel(),
         temperature: 0.1,
         max_tokens: 300,
         messages: [
@@ -195,7 +211,7 @@ export function withAbort(ms: number) {
 }
 
 export async function callAI(prompt: string, maxTokens = 1000, temperature = 0.1): Promise<string> {
-  const openaiKey = Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_KEY") ?? "";
+  const openaiKey = getOpenAIKey();
   if (openaiKey) {
     const { signal, clear } = withAbort(20_000);
     try {
@@ -203,7 +219,7 @@ export async function callAI(prompt: string, maxTokens = 1000, temperature = 0.1
         method: "POST",
         headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: Deno.env.get("OPENAI_MODEL") ?? "gpt-5.4",
+          model: getOpenAIModel(),
           temperature,
           max_tokens: maxTokens,
           messages: [{ role: "user", content: prompt }],
@@ -259,7 +275,7 @@ export async function callAIVision(
   const base64Data = match?.[2] ?? imageBase64;
 
   // Try OpenAI GPT-5.4 first (supports vision natively)
-  const openaiKey = Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_KEY") ?? "";
+  const openaiKey = getOpenAIKey();
   if (openaiKey) {
     const { signal, clear } = withAbort(30_000);
     try {
@@ -267,7 +283,7 @@ export async function callAIVision(
         method: "POST",
         headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "gpt-5.4",
+          model: getOpenAIModel(),
           temperature,
           max_tokens: maxTokens,
           messages: [{
