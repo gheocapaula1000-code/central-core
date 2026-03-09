@@ -62,7 +62,7 @@ Rispondi SOLO in JSON valido:
       : await callAI(prompt, 300, 0.2);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse cadastral data", debugId);
-    return ok(req, data, ["Stima indicativa — non dato ufficiale"], debugId);
+    return ok(req, { ...data, sourceLabel: "Stima indicativa", sourceType: "estimate", sourcePeriod: null, confidenceReason: "Dati catastali stimati, non verificati su Catasto ufficiale", limitations: ["Non collegato a Sister/Agenzia Entrate", "Foglio, particella e subalterno non verificabili"] }, ["Stima indicativa — non dato ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Cadastral analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
@@ -157,7 +157,7 @@ Genera annunci realistici per la zona: prezzi coerenti con il mercato locale, me
     const output = await callAI(prompt, 500, 0.3);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse listings data", debugId);
-    return ok(req, data, ["Stima indicativa — non dato ufficiale"], debugId);
+    return ok(req, { ...data, sourceLabel: "Stima indicativa", sourceType: "estimate", sourcePeriod: null, confidenceReason: "Annunci generati per plausibilità, non da portali reali", limitations: ["Non collegato a portali immobiliari reali", "Prezzi e metrature indicativi"] }, ["Stima indicativa — non dato ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Listings analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
@@ -186,7 +186,7 @@ Rispondi SOLO in JSON valido:
       : await callAI(prompt, 200, 0.2);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse energy data", debugId);
-    return ok(req, data, ["Stima indicativa — non dato ufficiale"], debugId);
+    return ok(req, { ...data, sourceLabel: "Stima indicativa", sourceType: "estimate", sourcePeriod: null, confidenceReason: "Classe energetica stimata da caratteristiche visibili e zona", limitations: ["Non collegato ad APE/ENEA", "Classe reale può differire significativamente"] }, ["Stima indicativa — non dato ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Energy analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
@@ -219,7 +219,7 @@ Rispondi SOLO in JSON valido:
       : await callAI(prompt, 250, 0.2);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse condominio data", debugId);
-    return ok(req, data, ["Stima indicativa — non dato ufficiale"], debugId);
+    return ok(req, { ...data, sourceLabel: "Stima indicativa", sourceType: "estimate", sourcePeriod: null, confidenceReason: "Caratteristiche condominiali stimate, non da verbali o visure", limitations: ["Non collegato a registri condominiali", "Informazioni non verificabili"] }, ["Stima indicativa — non dato ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Condominio analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
@@ -248,7 +248,7 @@ Basa la stima su: prezzi OMI della zona, tipologia edilizia, trend di mercato re
     const output = await callAI(prompt, 500, 0.3);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse transaction history", debugId);
-    return ok(req, data, ["Stima indicativa — non dato ufficiale"], debugId);
+    return ok(req, { ...data, sourceLabel: "Stima indicativa", sourceType: "estimate", sourcePeriod: null, confidenceReason: "Storico transazioni stimato, non da atti notarili o Agenzia Entrate", limitations: ["Non collegato a banca dati transazioni reali", "Prezzi e date indicativi"] }, ["Stima indicativa — non dato ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Transaction history failed: ${String(e).slice(0, 100)}`, debugId);
   }
