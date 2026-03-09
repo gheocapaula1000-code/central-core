@@ -34,6 +34,9 @@ import {
   handleForecastTrendDemografico,
 } from "./forecast.ts";
 
+// ── Sviluppo Area handler ──
+import { handleForecastSviluppoArea } from "./sviluppo-area.ts";
+
 // ═══════════════════════════════════════════════════════════════
 // ROUTER
 // ═══════════════════════════════════════════════════════════════
@@ -47,13 +50,14 @@ const ROUTES: Record<string, (req: Request, body: Record<string, unknown>, debug
   "scan/energy":               handleScanEnergy,
   "scan/condominio":           handleScanCondominio,
   "scan/storico-transazioni":  handleScanStoricoTransazioni,
-  // Motore Forecast (6)
+  // Motore Forecast (7)
   "forecast/moodscore":        handleForecastMoodScore,
   "forecast/timeview":         handleForecastTimeView,
   "forecast/opportunity":      handleForecastOpportunity,
   "forecast/infrastrutture":   handleForecastInfrastrutture,
   "forecast/rischio-zona":     handleForecastRischioZona,
   "forecast/trend-demografico": handleForecastTrendDemografico,
+  "forecast/sviluppo-area":    handleForecastSviluppoArea,
 };
 
 Deno.serve(async (req) => {
