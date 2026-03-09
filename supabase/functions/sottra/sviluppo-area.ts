@@ -2,7 +2,7 @@
 // Aggregates real public data sources for territorial development signals
 
 import { ok, fail } from "../_shared/http.ts";
-import { reverseGeocode, withAbort } from "./shared.ts";
+import { reverseGeocode, withAbort, normalizeWithGPT } from "./shared.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ── Helpers ──
