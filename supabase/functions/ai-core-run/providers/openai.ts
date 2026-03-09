@@ -1,12 +1,22 @@
+/** Returns the configured OpenAI API key (server-side only). Empty string if missing. */
+function getOpenAIKey(): string {
+  return Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_KEY") ?? "";
+}
+
+/** Returns the configured OpenAI model. Defaults to gpt-5.4. */
+function getOpenAIModel(): string {
+  return Deno.env.get("OPENAI_MODEL") ?? "gpt-5.4";
+}
+
 export async function callOpenAI(
   prompt: string,
   temperature: number,
   maxTokens: number,
 ): Promise<{ output: string; latencyMs: number }> {
-  const key = Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_KEY") ?? "";
+  const key = getOpenAIKey();
   if (!key) throw new Error("OPENAI_API_KEY not configured");
 
-  const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-5.4";
+  const model = getOpenAIModel();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 25_000);
   const started = Date.now();
