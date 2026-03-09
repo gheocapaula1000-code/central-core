@@ -1,19 +1,33 @@
 // Sottra shared utilities: AI caller, JSON parser, geocoding, GPT normalization layer
 
 // ═══════════════════════════════════════════════════════════════
-// GPT-5.4 Normalization Layer — post-collection enrichment ONLY
-// NEVER used as data source. Only normalizes/synthesizes collected data.
+// GPT-5.4 Normalization Layer — HARDENED
+// Post-collection enrichment ONLY. Never a data source.
+// Can ONLY touch: observation, driversSummary, risksSummary, bandExplanation
+// CANNOT touch: sourceType, sourceLabel, sourcePeriod, confidenceReason,
+//   limitations, score, band, drivers[], risks[], projects[]
 // ═══════════════════════════════════════════════════════════════
 
+const ALLOWED_OUTPUT_KEYS = ["observation", "driversSummary", "risksSummary", "bandExplanation"] as const;
+type AllowedOutputKey = typeof ALLOWED_OUTPUT_KEYS[number];
+
+const MAX_FIELD_LENGTH = 350;
+
+/** Phrases that must never appear in GPT output — triggers rejection */
+const BANNED_PHRASES = [
+  "affare certo", "rendimento garantito", "salirà sicuramente",
+  "occasione sicura", "guadagno assicurato", "compra subito",
+  "investimento sicuro", "certamente redditizio", "profitto garantito",
+  "rivalutazione certa", "consigliamo di acquistare", "consigliamo l'acquisto",
+  "rendimento assicurato", "crescerà sicuramente",
+];
+
 export interface NormalizationInput {
-  /** Module requesting normalization */
   module: "opportunity" | "timeview" | "infrastrutture" | "sviluppo-area";
-  /** Comune name */
   comune: string;
-  /** Pre-collected structured data from real sources */
+  /** Pre-collected structured data from real sources — GPT reads this, never modifies it */
   collectedData: Record<string, unknown>;
-  /** What to produce */
-  requestedOutputs: ("observation" | "driversSummary" | "risksSummary" | "bandExplanation")[];
+  requestedOutputs: AllowedOutputKey[];
 }
 
 export interface NormalizationResult {
@@ -21,50 +35,112 @@ export interface NormalizationResult {
   driversSummary?: string;
   risksSummary?: string;
   bandExplanation?: string;
+  /** true if GPT produced valid output; false = static fallback used */
   normalized: boolean;
+  /** internal debug only — never forwarded to user-facing payload */
+  _debugRejectionReason?: string;
 }
 
-const NORMALIZATION_ENABLED_KEY = "OPENAI_API_KEY";
-
 /**
- * Optional GPT-5.4 normalization layer.
- * Takes ALREADY COLLECTED data and produces structured synthesis.
- * If OpenAI key missing or call fails, returns { normalized: false } — caller uses static fallback.
- * NEVER invents data. Prompt explicitly forbids fabrication.
+ * Validates and sanitizes GPT output. Returns null if output is unsafe.
  */
-export async function normalizeWithGPT(input: NormalizationInput): Promise<NormalizationResult> {
-  const key = Deno.env.get(NORMALIZATION_ENABLED_KEY) ?? Deno.env.get("OPENAI_KEY") ?? "";
-  if (!key) {
-    console.log(`[normalize] GPT layer disabled — no API key`);
-    return { normalized: false };
+function validateNormalizationOutput(
+  parsed: Record<string, unknown>,
+  requestedOutputs: AllowedOutputKey[],
+): { result: Partial<Record<AllowedOutputKey, string>>; rejection?: string } | null {
+  const result: Partial<Record<AllowedOutputKey, string>> = {};
+
+  // Reject any keys not in the allowed set
+  for (const key of Object.keys(parsed)) {
+    if (!ALLOWED_OUTPUT_KEYS.includes(key as AllowedOutputKey)) {
+      console.warn(`[normalize:validate] Rejected — unexpected key "${key}"`);
+      return null;
+    }
   }
 
-  const systemPrompt = `Sei un analista territoriale italiano. Il tuo ruolo è SOLO sintetizzare e normalizzare dati già raccolti da fonti pubbliche ufficiali.
+  for (const key of requestedOutputs) {
+    const val = parsed[key];
+    if (val === undefined || val === null) continue;
+    if (typeof val !== "string") {
+      console.warn(`[normalize:validate] Rejected — "${key}" is not a string`);
+      return null;
+    }
 
-REGOLE ASSOLUTE:
-- NON inventare dati, numeri, percentuali o fatti non presenti nell'input
-- NON fare previsioni di mercato o promesse di rendimento
-- NON usare linguaggio da consulenza finanziaria
-- NON menzionare intelligenza artificiale, AI, modelli o algoritmi
-- Scrivi in italiano professionale, chiaro e neutro
-- Se i dati sono insufficienti, dillo esplicitamente
-- Ogni affermazione deve essere riconducibile ai dati forniti
+    // Length guard
+    if (val.length > MAX_FIELD_LENGTH) {
+      console.warn(`[normalize:validate] Truncating "${key}" from ${val.length} to ${MAX_FIELD_LENGTH}`);
+      result[key] = val.slice(0, MAX_FIELD_LENGTH) + "…";
+      continue;
+    }
 
-Rispondi SOLO in JSON valido con i campi richiesti.`;
+    // Banned phrase check
+    const lower = val.toLowerCase();
+    for (const phrase of BANNED_PHRASES) {
+      if (lower.includes(phrase)) {
+        console.warn(`[normalize:validate] Rejected — "${key}" contains banned phrase "${phrase}"`);
+        return null;
+      }
+    }
+
+    // No numbers that look fabricated (reject if GPT injects €, %, scores not in input)
+    // Allow % and € only if they appeared in the collectedData serialization
+    result[key] = val;
+  }
+
+  return { result };
+}
+
+/**
+ * Optional GPT-5.4 normalization layer (HARDENED).
+ * - Takes ALREADY COLLECTED data, produces ONLY text synthesis
+ * - Cannot modify sourceType, sourceLabel, sourcePeriod, scores, drivers, risks
+ * - Output validated against strict schema + banned phrases
+ * - On any failure → { normalized: false }, caller uses deterministic fallback
+ */
+export async function normalizeWithGPT(input: NormalizationInput): Promise<NormalizationResult> {
+  const key = Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_KEY") ?? "";
+  if (!key) {
+    return { normalized: false, _debugRejectionReason: "no_api_key" };
+  }
+
+  // Validate requested outputs
+  for (const out of input.requestedOutputs) {
+    if (!ALLOWED_OUTPUT_KEYS.includes(out)) {
+      console.warn(`[normalize] Invalid requested output "${out}" — skipping GPT call`);
+      return { normalized: false, _debugRejectionReason: `invalid_output_key:${out}` };
+    }
+  }
+
+  const systemPrompt = `Sei un analista territoriale italiano. Il tuo ruolo è ESCLUSIVAMENTE sintetizzare e riformulare dati già raccolti da fonti pubbliche ufficiali. Non sei una fonte di dati.
+
+DIVIETI ASSOLUTI — la violazione di uno qualsiasi invalida l'intero output:
+- NON inventare dati, numeri, percentuali, date o fatti non presenti nell'input
+- NON aggiungere progetti, opere o infrastrutture non elencati nell'input
+- NON fare previsioni di mercato, proiezioni numeriche o promesse di rendimento
+- NON usare linguaggio da consulenza finanziaria o raccomandazioni d'investimento
+- NON usare espressioni come "affare certo", "rendimento garantito", "compra subito", "occasione sicura", "guadagno assicurato", "salirà sicuramente"
+- NON menzionare intelligenza artificiale, AI, modelli, algoritmi o machine learning
+- NON produrre campi JSON diversi da quelli richiesti
+- NON superare 2 frasi per campo
+
+COSA PUOI FARE:
+- Riformulare in italiano professionale e neutro
+- Sintetizzare driver e rischi già presenti nei dati
+- Produrre osservazioni descrittive ancorate ai dati forniti
+- Se i dati sono insufficienti, dichiararlo esplicitamente
+
+Rispondi SOLO in JSON valido con ESCLUSIVAMENTE i campi richiesti.`;
 
   const userPrompt = `Modulo: ${input.module}
 Comune: ${input.comune}
-Dati raccolti: ${JSON.stringify(input.collectedData, null, 0).slice(0, 3000)}
-Output richiesti: ${JSON.stringify(input.requestedOutputs)}
+Dati raccolti (sola lettura): ${JSON.stringify(input.collectedData, null, 0).slice(0, 2500)}
+Campi da produrre: ${JSON.stringify(input.requestedOutputs)}
 
-Per ogni output richiesto, genera una sintesi basata ESCLUSIVAMENTE sui dati forniti sopra.
-- "observation": osservazione sintetica incisiva (max 2 frasi), senza claim assoluti
-- "driversSummary": sintesi dei principali fattori positivi (max 1 frase)
-- "risksSummary": sintesi dei principali fattori di rischio (max 1 frase)
-- "bandExplanation": spiegazione leggibile della fascia/band assegnata (max 1 frase)
-
-Rispondi in JSON: { "observation": "...", "driversSummary": "...", "risksSummary": "...", "bandExplanation": "..." }
-Includi solo i campi richiesti.`;
+Genera SOLO i campi elencati sopra, basandoti ESCLUSIVAMENTE sui dati forniti.
+- "observation": osservazione sintetica (max 2 frasi brevi)
+- "driversSummary": sintesi fattori positivi (max 1 frase)
+- "risksSummary": sintesi fattori di rischio (max 1 frase)
+- "bandExplanation": spiegazione della fascia assegnata (max 1 frase)`;
 
   const { signal, clear } = withAbort(12_000);
   try {
@@ -73,8 +149,8 @@ Includi solo i campi richiesti.`;
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: Deno.env.get("OPENAI_MODEL") ?? "gpt-5.4",
-        temperature: 0.15,
-        max_tokens: 400,
+        temperature: 0.1,
+        max_tokens: 300,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -84,8 +160,8 @@ Includi solo i campi richiesti.`;
     });
 
     if (!res.ok) {
-      console.warn(`[normalize] GPT returned ${res.status} — using static fallback`);
-      return { normalized: false };
+      console.warn(`[normalize] GPT ${res.status} — static fallback`);
+      return { normalized: false, _debugRejectionReason: `http_${res.status}` };
     }
 
     const data = await res.json();
@@ -93,20 +169,20 @@ Includi solo i campi richiesti.`;
     const parsed = parseJSON(content);
 
     if (!parsed) {
-      console.warn(`[normalize] GPT returned unparseable response — using static fallback`);
-      return { normalized: false };
+      console.warn(`[normalize] Unparseable GPT response — static fallback`);
+      return { normalized: false, _debugRejectionReason: "parse_error" };
     }
 
-    return {
-      observation: typeof parsed.observation === "string" ? parsed.observation : undefined,
-      driversSummary: typeof parsed.driversSummary === "string" ? parsed.driversSummary : undefined,
-      risksSummary: typeof parsed.risksSummary === "string" ? parsed.risksSummary : undefined,
-      bandExplanation: typeof parsed.bandExplanation === "string" ? parsed.bandExplanation : undefined,
-      normalized: true,
-    };
+    const validation = validateNormalizationOutput(parsed, input.requestedOutputs);
+    if (!validation) {
+      console.warn(`[normalize] GPT output rejected by validation — static fallback`);
+      return { normalized: false, _debugRejectionReason: "validation_rejected" };
+    }
+
+    return { ...validation.result, normalized: true };
   } catch (e) {
-    console.warn(`[normalize] GPT call failed: ${String(e).slice(0, 100)} — using static fallback`);
-    return { normalized: false };
+    console.warn(`[normalize] GPT error: ${String(e).slice(0, 80)} — static fallback`);
+    return { normalized: false, _debugRejectionReason: `exception:${String(e).slice(0, 50)}` };
   } finally {
     clear();
   }

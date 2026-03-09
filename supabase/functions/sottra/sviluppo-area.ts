@@ -411,9 +411,8 @@ export async function handleForecastSviluppoArea(
     ...localResult.signals,
   ];
 
-  // GPT-5.4 normalization layer (optional)
   let enrichedNarrative = scoring.reason;
-  let normalizedBy: string | null = null;
+  // GPT-5.4 normalization layer (optional — enriches narrative only)
   if (allSignals.length >= 2) {
     try {
       const norm = await normalizeWithGPT({
@@ -424,7 +423,6 @@ export async function handleForecastSviluppoArea(
       });
       if (norm.normalized && norm.observation) {
         enrichedNarrative = norm.observation;
-        normalizedBy = "GPT-5.4";
       }
     } catch { /* static fallback */ }
   }
@@ -466,6 +464,5 @@ export async function handleForecastSviluppoArea(
     sourcePeriod: "Dati aggregati multi-fonte — consultazione marzo 2026",
     confidenceReason: scoring.reason,
     limitations,
-    ...(normalizedBy ? { enrichedBy: normalizedBy } : {}),
   }, warnings, debugId);
 }
