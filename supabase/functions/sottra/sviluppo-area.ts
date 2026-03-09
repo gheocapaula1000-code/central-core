@@ -465,5 +465,4 @@ export async function handleForecastSviluppoArea(
     confidenceReason: scoring.reason,
     limitations,
   }, warnings, debugId);
-  }, warnings, debugId);
 }
