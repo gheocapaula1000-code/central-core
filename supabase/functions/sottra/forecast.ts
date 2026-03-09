@@ -158,8 +158,8 @@ export async function handleForecastTimeView(req: Request, body: Record<string, 
 
   let scenarioBand: string;
   if (positiveDrivers >= 3 && highRisks === 0) scenarioBand = "favorevole";
-  else if (positiveDrivers > negativeDrivers && highRisks === 0) scenarioBand = "moderatamente favorevole";
-  else if (highRisks > 0 || negativeDrivers > positiveDrivers) scenarioBand = "da monitorare";
+  else if (positiveDrivers > negativeDrivers && highRisks === 0) scenarioBand = "moderatamente_favorevole";
+  else if (highRisks > 0 || negativeDrivers > positiveDrivers) scenarioBand = "da_monitorare";
   else scenarioBand = "stabile";
 
   // Narrative
@@ -169,9 +169,9 @@ export async function handleForecastTimeView(req: Request, body: Record<string, 
     narrativeObservation = "Dati insufficienti per una valutazione di scenario articolata — quadro parziale";
   } else if (scenarioBand === "favorevole") {
     narrativeObservation = "I dati pubblici disponibili delineano un contesto con fattori convergenti positivi nel breve-medio periodo";
-  } else if (scenarioBand === "moderatamente favorevole") {
+  } else if (scenarioBand === "moderatamente_favorevole") {
     narrativeObservation = "Contesto con elementi positivi prevalenti, bilanciati da fattori da approfondire";
-  } else if (scenarioBand === "da monitorare") {
+  } else if (scenarioBand === "da_monitorare") {
     narrativeObservation = "Presenza di fattori di rischio o segnali negativi — scenario che richiede attenzione";
   } else {
     narrativeObservation = "Quadro sostanzialmente stabile — nessun segnale particolarmente marcato in una direzione";
@@ -321,7 +321,7 @@ export async function handleForecastOpportunity(req: Request, body: Record<strin
 
   // Band
   let band: string;
-  if (score >= 70) band = "molto forte";
+  if (score >= 70) band = "molto_forte";
   else if (score >= 55) band = "forte";
   else if (score >= 40) band = "interessante";
   else band = "limitata";
@@ -331,7 +331,7 @@ export async function handleForecastOpportunity(req: Request, body: Record<strin
   let observation: string;
   if (dataPoints < 2) {
     observation = "Dati insufficienti per una valutazione articolata — quadro parziale da integrare";
-  } else if (band === "molto forte") {
+  } else if (band === "molto_forte") {
     observation = "Quadro favorevole con segnali convergenti da approfondire — contesto meritevole di analisi";
   } else if (band === "forte") {
     observation = "Segnali convergenti da non sottovalutare — contesto interessante da monitorare";
