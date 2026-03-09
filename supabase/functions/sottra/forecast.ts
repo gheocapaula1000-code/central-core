@@ -162,7 +162,7 @@ export async function handleForecastTimeView(req: Request, body: Record<string, 
   else if (highRisks > 0 || negativeDrivers > positiveDrivers) scenarioBand = "da_monitorare";
   else scenarioBand = "stabile";
 
-  // Narrative
+  // Static narrative fallback
   const dataPoints = sourcesUsed.length;
   let narrativeObservation: string;
   if (dataPoints < 2) {
@@ -175,6 +175,23 @@ export async function handleForecastTimeView(req: Request, body: Record<string, 
     narrativeObservation = "Presenza di fattori di rischio o segnali negativi — scenario che richiede attenzione";
   } else {
     narrativeObservation = "Quadro sostanzialmente stabile — nessun segnale particolarmente marcato in una direzione";
+  }
+
+  // GPT-5.4 normalization layer (optional)
+  let normalizedBy: string | null = null;
+  if (dataPoints >= 2) {
+    try {
+      const norm = await normalizeWithGPT({
+        module: "timeview",
+        comune,
+        collectedData: { scenarioBand, drivers, risks, sourcesUsed, omiZones: omiRows.length },
+        requestedOutputs: ["observation", "risksSummary"],
+      });
+      if (norm.normalized) {
+        if (norm.observation) narrativeObservation = norm.observation;
+        normalizedBy = "GPT-5.4";
+      }
+    } catch { /* static fallback already set */ }
   }
 
   limitations.push("Scenario basato su dati statici, non su serie storiche pluriennali");
@@ -196,8 +213,8 @@ export async function handleForecastTimeView(req: Request, body: Record<string, 
       ? "Scenario costruito su dati ufficiali ISTAT, ISPRA, OMI e classificazione sismica"
       : `Scenario parziale — disponibili solo ${dataPoints} fonti su 4`,
     limitations,
+    ...(normalizedBy ? { enrichedBy: normalizedBy } : {}),
   }, [], debugId);
-}
 
 /** POST /sottra/forecast/opportunity — coordinates → indice opportunità basato su dati reali */
 export async function handleForecastOpportunity(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
@@ -326,7 +343,7 @@ export async function handleForecastOpportunity(req: Request, body: Record<strin
   else if (score >= 40) band = "interessante";
   else band = "limitata";
 
-  // Observation
+  // Static observation fallback
   const dataPoints = sourcesUsed.length;
   let observation: string;
   if (dataPoints < 2) {
@@ -339,6 +356,23 @@ export async function handleForecastOpportunity(req: Request, body: Record<strin
     observation = "Contesto interessante ma con fattori da monitorare attentamente";
   } else {
     observation = "Potenziale presente con elementi di cautela — approfondimento consigliato";
+  }
+
+  // GPT-5.4 normalization layer (optional, enriches observation)
+  let normalizedBy: string | null = null;
+  if (dataPoints >= 2) {
+    try {
+      const norm = await normalizeWithGPT({
+        module: "opportunity",
+        comune,
+        collectedData: { score, band, drivers, omiZones: omiRows.length, sourcesUsed },
+        requestedOutputs: ["observation", "bandExplanation"],
+      });
+      if (norm.normalized) {
+        if (norm.observation) observation = norm.observation;
+        normalizedBy = "GPT-5.4";
+      }
+    } catch { /* static fallback already set */ }
   }
 
   limitations.push("Indice sintetico proprietario — non è un indicatore ufficiale di mercato");
@@ -359,6 +393,7 @@ export async function handleForecastOpportunity(req: Request, body: Record<strin
       ? "Indice costruito su dati ufficiali OMI, ISTAT, ISPRA e classificazione sismica"
       : `Indice parziale — disponibili solo ${dataPoints} fonti su 4`,
     limitations,
+    ...(normalizedBy ? { enrichedBy: normalizedBy } : {}),
   }, [], debugId);
 }
 
