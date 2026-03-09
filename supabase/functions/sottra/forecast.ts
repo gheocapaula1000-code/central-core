@@ -1,7 +1,7 @@
 // Sottra — Motore Forecast handlers (6 endpoints)
 
 import { ok, fail } from "../_shared/http.ts";
-import { callAI, parseJSON, reverseGeocode } from "./shared.ts";
+import { callAI, parseJSON, reverseGeocode, normalizeWithGPT } from "./shared.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 function getSupabase() {
