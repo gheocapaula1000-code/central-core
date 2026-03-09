@@ -62,7 +62,7 @@ Rispondi SOLO in JSON valido:
       : await callAI(prompt, 300, 0.2);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse cadastral data", debugId);
-    return ok(req, data, ["Stima indicativa — non dato ufficiale"], debugId);
+    return ok(req, { ...data, sourceLabel: "Stima indicativa", sourceType: "estimate", sourcePeriod: null, confidenceReason: "Dati catastali stimati, non verificati su Catasto ufficiale", limitations: ["Non collegato a Sister/Agenzia Entrate", "Foglio, particella e subalterno non verificabili"] }, ["Stima indicativa — non dato ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Cadastral analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
@@ -92,28 +92,39 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
         tipologia: omi.tipologia,
         fonte: omi.fonte,
         tutteZone: omi.tutteZone,
+        sourceLabel: "Agenzia delle Entrate — Osservatorio Mercato Immobiliare",
+        sourceType: "official/public-source",
+        sourcePeriod: "1° semestre 2025",
+        confidenceReason: "Prezzi ufficiali OMI per la zona identificata tramite matching indirizzo-zona",
+        limitations: [
+          "Prezzi espressi come range min/max per tipologia e stato conservativo",
+          "Matching zona basato su geocoding e identificazione automatica",
+          "Dati riferiti a valori normali di mercato (non valori di realizzo o giudiziari)",
+        ],
       }, ["Prezzi ufficiali Agenzia Entrate — OMI, 1° semestre 2025"], debugId);
     }
 
-    // Fallback: OMI data not found for this comune, use AI estimation with warning
-    const prompt = `Sei un esperto di valutazioni immobiliari in Italia. Per l'indirizzo "${address}", fornisci una stima dei prezzi di mercato al metro quadro.
-
-Rispondi SOLO in JSON valido:
-{
-  "prezzoMq": prezzo_medio_al_mq_euro,
-  "prezzoMqMin": prezzo_minimo_mq,
-  "prezzoMqMax": prezzo_massimo_mq,
-  "mediaZona": media_zona_circostante_mq,
-  "trend5Anni": percentuale_variazione_5_anni
-}
-
-Basa le stime sulle quotazioni OMI (Osservatorio Mercato Immobiliare) più recenti per la zona.`;
-
-    const output = await callAI(prompt, 300, 0.2);
-    const data = parseJSON(output);
-    if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse pricing data", debugId);
-    return ok(req, { ...data, fonte: "Stima AI — dati OMI non disponibili per questo comune" },
-      ["ATTENZIONE: prezzi stimati da AI, non da dati ufficiali OMI"], debugId);
+    // Fallback: OMI data not found — return structured "unavailable", no AI invention
+    return ok(req, {
+      prezzoMq: null,
+      prezzoMqMin: null,
+      prezzoMqMax: null,
+      mediaZona: null,
+      trend5Anni: null,
+      locazioneMqMin: null,
+      locazioneMqMax: null,
+      zona: null,
+      zonaDescrizione: null,
+      comune: omi.comune ?? null,
+      tipologia: null,
+      fonte: "Agenzia Entrate — OMI, 1° semestre 2025",
+      tutteZone: null,
+      sourceLabel: "Agenzia delle Entrate — Osservatorio Mercato Immobiliare",
+      sourceType: "unavailable",
+      sourcePeriod: "1° semestre 2025",
+      confidenceReason: `Nessun dato OMI trovato per il comune "${omi.comune ?? address}"`,
+      limitations: [`Comune non presente nel dataset OMI importato`, "Nessun fallback: il dato non è disponibile"],
+    }, [`Dati OMI non disponibili per questo indirizzo`], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Pricing analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
@@ -146,7 +157,7 @@ Genera annunci realistici per la zona: prezzi coerenti con il mercato locale, me
     const output = await callAI(prompt, 500, 0.3);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse listings data", debugId);
-    return ok(req, data, ["Stima indicativa — non dato ufficiale"], debugId);
+    return ok(req, { ...data, sourceLabel: "Stima indicativa", sourceType: "estimate", sourcePeriod: null, confidenceReason: "Annunci generati per plausibilità, non da portali reali", limitations: ["Non collegato a portali immobiliari reali", "Prezzi e metrature indicativi"] }, ["Stima indicativa — non dato ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Listings analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
@@ -175,7 +186,7 @@ Rispondi SOLO in JSON valido:
       : await callAI(prompt, 200, 0.2);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse energy data", debugId);
-    return ok(req, data, ["Stima indicativa — non dato ufficiale"], debugId);
+    return ok(req, { ...data, sourceLabel: "Stima indicativa", sourceType: "estimate", sourcePeriod: null, confidenceReason: "Classe energetica stimata da caratteristiche visibili e zona", limitations: ["Non collegato ad APE/ENEA", "Classe reale può differire significativamente"] }, ["Stima indicativa — non dato ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Energy analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
@@ -208,7 +219,7 @@ Rispondi SOLO in JSON valido:
       : await callAI(prompt, 250, 0.2);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse condominio data", debugId);
-    return ok(req, data, ["Stima indicativa — non dato ufficiale"], debugId);
+    return ok(req, { ...data, sourceLabel: "Stima indicativa", sourceType: "estimate", sourcePeriod: null, confidenceReason: "Caratteristiche condominiali stimate, non da verbali o visure", limitations: ["Non collegato a registri condominiali", "Informazioni non verificabili"] }, ["Stima indicativa — non dato ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Condominio analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
@@ -237,7 +248,7 @@ Basa la stima su: prezzi OMI della zona, tipologia edilizia, trend di mercato re
     const output = await callAI(prompt, 500, 0.3);
     const data = parseJSON(output);
     if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse transaction history", debugId);
-    return ok(req, data, ["Stima indicativa — non dato ufficiale"], debugId);
+    return ok(req, { ...data, sourceLabel: "Stima indicativa", sourceType: "estimate", sourcePeriod: null, confidenceReason: "Storico transazioni stimato, non da atti notarili o Agenzia Entrate", limitations: ["Non collegato a banca dati transazioni reali", "Prezzi e date indicativi"] }, ["Stima indicativa — non dato ufficiale"], debugId);
   } catch (e) {
     return fail(req, 502, "PROVIDER_ERROR", `Transaction history failed: ${String(e).slice(0, 100)}`, debugId);
   }
