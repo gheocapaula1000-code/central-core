@@ -635,7 +635,6 @@ export async function handleForecastInfrastrutture(req: Request, body: Record<st
         : "Nessuna fonte dati raggiungibile",
     limitations,
   }, [], debugId);
-  }, [], debugId);
 }
 
 // ═══════════════════════════════════════════════════════════════
