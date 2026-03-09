@@ -177,8 +177,7 @@ export async function handleForecastTimeView(req: Request, body: Record<string, 
     narrativeObservation = "Quadro sostanzialmente stabile — nessun segnale particolarmente marcato in una direzione";
   }
 
-  // GPT-5.4 normalization layer (optional)
-  let normalizedBy: string | null = null;
+  // GPT-5.4 normalization layer (optional — enriches narrative only)
   if (dataPoints >= 2) {
     try {
       const norm = await normalizeWithGPT({
@@ -187,9 +186,8 @@ export async function handleForecastTimeView(req: Request, body: Record<string, 
         collectedData: { scenarioBand, drivers, risks, sourcesUsed, omiZones: omiRows.length },
         requestedOutputs: ["observation", "risksSummary"],
       });
-      if (norm.normalized) {
-        if (norm.observation) narrativeObservation = norm.observation;
-        normalizedBy = "GPT-5.4";
+      if (norm.normalized && norm.observation) {
+        narrativeObservation = norm.observation;
       }
     } catch { /* static fallback already set */ }
   }
@@ -359,8 +357,7 @@ export async function handleForecastOpportunity(req: Request, body: Record<strin
     observation = "Potenziale presente con elementi di cautela — approfondimento consigliato";
   }
 
-  // GPT-5.4 normalization layer (optional, enriches observation)
-  let normalizedBy: string | null = null;
+  // GPT-5.4 normalization layer (optional — enriches observation only)
   if (dataPoints >= 2) {
     try {
       const norm = await normalizeWithGPT({
@@ -369,9 +366,8 @@ export async function handleForecastOpportunity(req: Request, body: Record<strin
         collectedData: { score, band, drivers, omiZones: omiRows.length, sourcesUsed },
         requestedOutputs: ["observation", "bandExplanation"],
       });
-      if (norm.normalized) {
-        if (norm.observation) observation = norm.observation;
-        normalizedBy = "GPT-5.4";
+      if (norm.normalized && norm.observation) {
+        observation = norm.observation;
       }
     } catch { /* static fallback already set */ }
   }
@@ -596,8 +592,7 @@ export async function handleForecastInfrastrutture(req: Request, body: Record<st
     narrativeObservation = "Scarsa evidenza di investimenti infrastrutturali pubblici nella zona";
   }
 
-  // GPT-5.4 normalization layer (optional)
-  let normalizedBy: string | null = null;
+  // GPT-5.4 normalization layer (optional — enriches narrative only)
   if (dataPoints >= 1) {
     try {
       const norm = await normalizeWithGPT({
@@ -606,9 +601,8 @@ export async function handleForecastInfrastrutture(req: Request, body: Record<st
         collectedData: { score, infrastructureBand, projectCount: infrastructureProjects.length, topDrivers, topRisks, connectivitySignals: connectivitySignals.length, mobilitySignals: mobilitySignals.length },
         requestedOutputs: ["observation", "driversSummary"],
       });
-      if (norm.normalized) {
-        if (norm.observation) narrativeObservation = norm.observation;
-        normalizedBy = "GPT-5.4";
+      if (norm.normalized && norm.observation) {
+        narrativeObservation = norm.observation;
       }
     } catch { /* static fallback already set */ }
   }
