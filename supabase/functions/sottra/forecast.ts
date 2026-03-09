@@ -215,6 +215,7 @@ export async function handleForecastTimeView(req: Request, body: Record<string, 
     limitations,
     ...(normalizedBy ? { enrichedBy: normalizedBy } : {}),
   }, [], debugId);
+}
 
 /** POST /sottra/forecast/opportunity — coordinates → indice opportunità basato su dati reali */
 export async function handleForecastOpportunity(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
