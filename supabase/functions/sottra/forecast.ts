@@ -212,7 +212,6 @@ export async function handleForecastTimeView(req: Request, body: Record<string, 
       : `Scenario parziale — disponibili solo ${dataPoints} fonti su 4`,
     limitations,
   }, [], debugId);
-  }, [], debugId);
 }
 
 /** POST /sottra/forecast/opportunity — coordinates → indice opportunità basato su dati reali */
