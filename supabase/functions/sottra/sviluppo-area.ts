@@ -466,6 +466,6 @@ export async function handleForecastSviluppoArea(
     sourcePeriod: "Dati aggregati multi-fonte — consultazione marzo 2026",
     confidenceReason: scoring.reason,
     limitations,
-    ...(normalizedBy ? { enrichedBy: normalizedBy } : {}),
+  }, warnings, debugId);
   }, warnings, debugId);
 }

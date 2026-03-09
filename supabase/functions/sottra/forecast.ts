@@ -213,7 +213,7 @@ export async function handleForecastTimeView(req: Request, body: Record<string, 
       ? "Scenario costruito su dati ufficiali ISTAT, ISPRA, OMI e classificazione sismica"
       : `Scenario parziale — disponibili solo ${dataPoints} fonti su 4`,
     limitations,
-    ...(normalizedBy ? { enrichedBy: normalizedBy } : {}),
+  }, [], debugId);
   }, [], debugId);
 }
 
@@ -642,7 +642,7 @@ export async function handleForecastInfrastrutture(req: Request, body: Record<st
         ? `Indice parziale — disponibile solo ${sourcesUsed[0]}`
         : "Nessuna fonte dati raggiungibile",
     limitations,
-    ...(normalizedBy ? { enrichedBy: normalizedBy } : {}),
+  }, [], debugId);
   }, [], debugId);
 }
 
