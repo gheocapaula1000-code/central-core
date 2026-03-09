@@ -66,83 +66,300 @@ Valuta basandoti su: densità negozi e servizi (commercio), accessibilità trasp
   }
 }
 
-/** POST /sottra/forecast/timeview — coordinates + horizon → projections */
+/** POST /sottra/forecast/timeview — coordinates → scenario medio periodo basato su dati reali */
 export async function handleForecastTimeView(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const lat = body.lat as number | undefined;
   const lng = body.lng as number | undefined;
   if (lat == null || lng == null) return fail(req, 400, "MISSING_COORDS", "Provide lat and lng", debugId);
 
   const address = await reverseGeocode(lat, lng) ?? `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  const comune = extractComune(address);
+  if (!comune) return fail(req, 400, "COMUNE_NOT_FOUND", "Could not extract comune from address", debugId);
 
-  const prompt = `Sei un analista immobiliare e urbanistico italiano. Per la zona di "${address}" (coordinate: ${lat}, ${lng}), prevedi l'evoluzione del valore immobiliare nei prossimi 5, 10 e 20 anni.
+  const supabase = getSupabase();
 
-Rispondi SOLO in JSON valido:
-{
-  "previsione5Anni": percentuale_variazione_attesa,
-  "previsione10Anni": percentuale_variazione_attesa,
-  "previsione20Anni": percentuale_variazione_attesa,
-  "progettiInArrivo": ["progetto 1 con anno", "progetto 2 con anno"]
-}
+  // Parallel queries: OMI, ISTAT, ISPRA, Sismica
+  const [omiResult, istatResult, ispraResult, sismicaResult] = await Promise.all([
+    supabase.from("omi_valori").select("compr_min, compr_max, loc_min, loc_max, descr_tipologia, zona, stato_prev").ilike("comune_descrizione", comune.toUpperCase()).eq("descr_tipologia", "Abitazioni civili").limit(10),
+    supabase.from("istat_comuni").select("*").ilike("comune", comune).limit(1).maybeSingle(),
+    supabase.from("ispra_rischio").select("idro_p3_perc, frana_p4_perc, superficie_kmq").ilike("comune", comune).limit(1).maybeSingle(),
+    supabase.from("classificazione_sismica").select("zona_sismica").ilike("comune", comune).limit(1).maybeSingle(),
+  ]);
 
-Considera: piani urbanistici comunali, nuove infrastrutture di trasporto (metro, tram, ferrovie), riqualificazioni previste, trend demografici, effetti del cambiamento climatico sulla zona. I progetti devono essere realistici per quella specifica città/zona. Le percentuali possono essere negative se la zona è in declino.`;
+  const sourcesUsed: string[] = [];
+  const limitations: string[] = [];
+  const drivers: { label: string; direction: "positivo" | "negativo" | "neutro"; source: string }[] = [];
+  const risks: { label: string; severity: "alto" | "medio" | "basso"; source: string }[] = [];
 
-  try {
-    const output = await callAI(prompt, 400, 0.3);
-    const data = parseJSON(output);
-    if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse timeview data", debugId);
-    return ok(req, {
-      ...data,
-      sourceLabel: "Stima indicativa",
-      sourceType: "estimate",
-      sourcePeriod: null,
-      confidenceReason: "Proiezione basata su conoscenza generale di mercato e urbanistica",
-      limitations: ["Non basato su modelli predittivi ufficiali", "Le previsioni a lungo termine hanno alta incertezza"],
-    }, ["Stima indicativa — non dato ufficiale"], debugId);
-  } catch (e) {
-    return fail(req, 502, "PROVIDER_ERROR", `TimeView analysis failed: ${String(e).slice(0, 100)}`, debugId);
+  // OMI market trend signals
+  const omiRows = omiResult.data ?? [];
+  const hasOMI = omiRows.length > 0;
+  if (hasOMI) {
+    sourcesUsed.push("OMI 2025/1");
+    const statoPrev = omiRows.map(r => r.stato_prev).filter(Boolean);
+    const crescita = statoPrev.filter(s => /crescita|aumento|rialzo/i.test(s ?? "")).length;
+    const calo = statoPrev.filter(s => /calo|ribasso|diminuzione|flessione/i.test(s ?? "")).length;
+    if (crescita > calo) {
+      drivers.push({ label: "Mercato OMI in fase di crescita nella zona", direction: "positivo", source: "OMI 2025/1" });
+    } else if (calo > crescita) {
+      drivers.push({ label: "Mercato OMI in fase di contrazione nella zona", direction: "negativo", source: "OMI 2025/1" });
+    } else {
+      drivers.push({ label: "Mercato OMI stabile nella zona", direction: "neutro", source: "OMI 2025/1" });
+    }
+  } else {
+    limitations.push("Dati OMI non disponibili per questo comune — scenario basato su indicatori parziali");
   }
+
+  // Demographic drivers
+  if (istatResult.data) {
+    sourcesUsed.push("ISTAT 2025");
+    const istat = istatResult.data;
+    const under35 = Number(istat.percentuale_under35 ?? 0);
+    const over65 = Number(istat.percentuale_over65 ?? 0);
+    const pop = Number(istat.popolazione ?? 0);
+
+    if (under35 > 35) {
+      drivers.push({ label: `Popolazione giovane sopra la media (under 35: ${under35.toFixed(1)}%)`, direction: "positivo", source: "ISTAT 2025" });
+    } else if (over65 > 30) {
+      drivers.push({ label: `Invecchiamento significativo (over 65: ${over65.toFixed(1)}%)`, direction: "negativo", source: "ISTAT 2025" });
+    } else {
+      drivers.push({ label: "Struttura demografica nella media nazionale", direction: "neutro", source: "ISTAT 2025" });
+    }
+    if (pop > 100_000) {
+      drivers.push({ label: `Centro urbano rilevante (${pop.toLocaleString("it-IT")} ab.)`, direction: "positivo", source: "ISTAT 2025" });
+    }
+  } else {
+    limitations.push("Dati demografici ISTAT non disponibili per questo comune");
+  }
+
+  // Risk factors
+  if (ispraResult.data) {
+    sourcesUsed.push("ISPRA 2021");
+    const idro = Number(ispraResult.data.idro_p3_perc ?? 0);
+    const frana = Number(ispraResult.data.frana_p4_perc ?? 0);
+    if (idro > 10 || frana > 10) {
+      risks.push({ label: "Rischio idrogeologico elevato nella zona", severity: "alto", source: "ISPRA 2021" });
+    } else if (idro > 1 || frana > 1) {
+      risks.push({ label: "Rischio idrogeologico moderato", severity: "medio", source: "ISPRA 2021" });
+    }
+  }
+
+  if (sismicaResult.data) {
+    sourcesUsed.push("OPCM 3519/2006");
+    const zona = sismicaResult.data.zona_sismica;
+    if (zona === 1) risks.push({ label: "Zona sismica 1 — rischio molto elevato", severity: "alto", source: "OPCM 3519" });
+    else if (zona === 2) risks.push({ label: "Zona sismica 2 — rischio rilevante", severity: "medio", source: "OPCM 3519" });
+  }
+
+  // Compute scenario band
+  const positiveDrivers = drivers.filter(d => d.direction === "positivo").length;
+  const negativeDrivers = drivers.filter(d => d.direction === "negativo").length;
+  const highRisks = risks.filter(r => r.severity === "alto").length;
+
+  let scenarioBand: string;
+  if (positiveDrivers >= 3 && highRisks === 0) scenarioBand = "favorevole";
+  else if (positiveDrivers > negativeDrivers && highRisks === 0) scenarioBand = "moderatamente favorevole";
+  else if (highRisks > 0 || negativeDrivers > positiveDrivers) scenarioBand = "da monitorare";
+  else scenarioBand = "stabile";
+
+  // Narrative
+  const dataPoints = sourcesUsed.length;
+  let narrativeObservation: string;
+  if (dataPoints < 2) {
+    narrativeObservation = "Dati insufficienti per una valutazione di scenario articolata — quadro parziale";
+  } else if (scenarioBand === "favorevole") {
+    narrativeObservation = "I dati pubblici disponibili delineano un contesto con fattori convergenti positivi nel breve-medio periodo";
+  } else if (scenarioBand === "moderatamente favorevole") {
+    narrativeObservation = "Contesto con elementi positivi prevalenti, bilanciati da fattori da approfondire";
+  } else if (scenarioBand === "da monitorare") {
+    narrativeObservation = "Presenza di fattori di rischio o segnali negativi — scenario che richiede attenzione";
+  } else {
+    narrativeObservation = "Quadro sostanzialmente stabile — nessun segnale particolarmente marcato in una direzione";
+  }
+
+  limitations.push("Scenario basato su dati statici, non su serie storiche pluriennali");
+  limitations.push("Non costituisce previsione di mercato né consulenza finanziaria");
+  limitations.push("Orizzonte limitato a 3-5 anni — proiezioni a lungo termine non supportate dai dati disponibili");
+
+  return ok(req, {
+    comune,
+    scenarioBand,
+    scenarioHorizon: "3-5 anni",
+    scenarioDrivers: drivers,
+    scenarioRisks: risks,
+    narrativeObservation,
+    omiZonesAnalyzed: omiRows.length,
+    sourceLabel: sourcesUsed.join(" + "),
+    sourceType: dataPoints >= 2 ? "elaborated" : "unavailable",
+    sourcePeriod: "Dati aggregati multi-fonte — marzo 2026",
+    confidenceReason: dataPoints >= 3
+      ? "Scenario costruito su dati ufficiali ISTAT, ISPRA, OMI e classificazione sismica"
+      : `Scenario parziale — disponibili solo ${dataPoints} fonti su 4`,
+    limitations,
+  }, [], debugId);
 }
 
-/** POST /sottra/forecast/opportunity — coordinates → opportunity index */
+/** POST /sottra/forecast/opportunity — coordinates → indice opportunità basato su dati reali */
 export async function handleForecastOpportunity(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const lat = body.lat as number | undefined;
   const lng = body.lng as number | undefined;
   if (lat == null || lng == null) return fail(req, 400, "MISSING_COORDS", "Provide lat and lng", debugId);
 
   const address = await reverseGeocode(lat, lng) ?? `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  const comune = extractComune(address);
+  if (!comune) return fail(req, 400, "COMUNE_NOT_FOUND", "Could not extract comune from address", debugId);
 
-  const prompt = `Sei un analista di opportunità immobiliari in Italia. Per la zona di "${address}" (coordinate: ${lat}, ${lng}), calcola un Indice Opportunità da 0 a 100 e assegna un quadrante.
+  const supabase = getSupabase();
 
-Rispondi SOLO in JSON valido:
-{
-  "indice": numero_da_0_a_100,
-  "quadrante": "uno tra: Stella Nascente, Diamante Grezzo, Picco Raggiunto, Allerta Rossa",
-  "raccomandazione": "frase di raccomandazione in italiano max 15 parole"
-}
+  // Parallel queries
+  const [omiResult, istatResult, ispraResult, sismicaResult] = await Promise.all([
+    supabase.from("omi_valori").select("compr_min, compr_max, loc_min, loc_max, descr_tipologia, zona, stato_prev").ilike("comune_descrizione", comune.toUpperCase()).eq("descr_tipologia", "Abitazioni civili").limit(20),
+    supabase.from("istat_comuni").select("popolazione, eta_media, percentuale_under35, percentuale_over65").ilike("comune", comune).limit(1).maybeSingle(),
+    supabase.from("ispra_rischio").select("idro_p3_perc, frana_p4_perc, superficie_kmq").ilike("comune", comune).limit(1).maybeSingle(),
+    supabase.from("classificazione_sismica").select("zona_sismica").ilike("comune", comune).limit(1).maybeSingle(),
+  ]);
 
-QUADRANTI:
-- "Stella Nascente" (indice 70-100): zona in forte crescita, ottimo momento per comprare
-- "Diamante Grezzo" (indice 50-69): zona sottovalutata con potenziale nascosto
-- "Picco Raggiunto" (indice 30-49): zona ai massimi, crescita futura limitata
-- "Allerta Rossa" (indice 0-29): zona in declino o sopravvalutata, rischio alto
+  const sourcesUsed: string[] = [];
+  const limitations: string[] = [];
+  const drivers: { label: string; impact: "positivo" | "negativo" | "neutro"; weight: number; source: string }[] = [];
+  let score = 50; // baseline
 
-Valuta: trend prezzi recenti, progetti infrastrutturali, demografia, attrattività commerciale, rapporto prezzo/qualità della zona.`;
+  // ── OMI pricing attractiveness ──
+  const omiRows = omiResult.data ?? [];
+  if (omiRows.length > 0) {
+    sourcesUsed.push("OMI 2025/1");
+    const avgPrice = omiRows.reduce((sum, r) => sum + ((Number(r.compr_min ?? 0) + Number(r.compr_max ?? 0)) / 2), 0) / omiRows.length;
+    const avgRent = omiRows.reduce((sum, r) => sum + ((Number(r.loc_min ?? 0) + Number(r.loc_max ?? 0)) / 2), 0) / omiRows.length;
 
-  try {
-    const output = await callAI(prompt, 300, 0.2);
-    const data = parseJSON(output);
-    if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse opportunity data", debugId);
-    return ok(req, {
-      ...data,
-      sourceLabel: "Stima indicativa",
-      sourceType: "estimate",
-      sourcePeriod: null,
-      confidenceReason: "Indice calcolato su base qualitativa, non su dati quantitativi ufficiali",
-      limitations: ["Non basato su dati ufficiali", "Quadrante assegnato su base soggettiva"],
-    }, ["Stima indicativa — non dato ufficiale"], debugId);
-  } catch (e) {
-    return fail(req, 502, "PROVIDER_ERROR", `Opportunity analysis failed: ${String(e).slice(0, 100)}`, debugId);
+    // Yield indicator: annual rent / price (rough)
+    const yieldPct = avgPrice > 0 && avgRent > 0 ? (avgRent * 12 / avgPrice) * 100 : 0;
+
+    if (yieldPct > 6) {
+      score += 12;
+      drivers.push({ label: `Rendimento lordo indicativo elevato (${yieldPct.toFixed(1)}%)`, impact: "positivo", weight: 12, source: "OMI 2025/1" });
+    } else if (yieldPct > 4) {
+      score += 6;
+      drivers.push({ label: `Rendimento lordo indicativo nella media (${yieldPct.toFixed(1)}%)`, impact: "positivo", weight: 6, source: "OMI 2025/1" });
+    } else if (yieldPct > 0) {
+      score -= 3;
+      drivers.push({ label: `Rendimento lordo indicativo contenuto (${yieldPct.toFixed(1)}%)`, impact: "negativo", weight: -3, source: "OMI 2025/1" });
+    }
+
+    // Market trend from stato_prev
+    const trends = omiRows.map(r => r.stato_prev).filter(Boolean);
+    const crescita = trends.filter(s => /crescita|aumento|rialzo/i.test(s ?? "")).length;
+    const calo = trends.filter(s => /calo|ribasso|diminuzione|flessione/i.test(s ?? "")).length;
+    if (crescita > calo) {
+      score += 8;
+      drivers.push({ label: "Trend di mercato OMI in crescita", impact: "positivo", weight: 8, source: "OMI 2025/1" });
+    } else if (calo > crescita) {
+      score -= 8;
+      drivers.push({ label: "Trend di mercato OMI in contrazione", impact: "negativo", weight: -8, source: "OMI 2025/1" });
+    }
+
+    // Zone diversity (more zones = more active market)
+    const uniqueZones = new Set(omiRows.map(r => r.zona)).size;
+    if (uniqueZones >= 5) {
+      score += 5;
+      drivers.push({ label: `Mercato articolato su ${uniqueZones} zone OMI`, impact: "positivo", weight: 5, source: "OMI 2025/1" });
+    }
+  } else {
+    limitations.push("Dati OMI non disponibili — indice calcolato senza indicatori di mercato");
   }
+
+  // ── Demographics ──
+  if (istatResult.data) {
+    sourcesUsed.push("ISTAT 2025");
+    const under35 = Number(istatResult.data.percentuale_under35 ?? 0);
+    const over65 = Number(istatResult.data.percentuale_over65 ?? 0);
+    const pop = Number(istatResult.data.popolazione ?? 0);
+
+    if (under35 > 35) {
+      score += 6;
+      drivers.push({ label: `Popolazione giovane sopra la media (${under35.toFixed(1)}% under 35)`, impact: "positivo", weight: 6, source: "ISTAT 2025" });
+    }
+    if (over65 > 30) {
+      score -= 4;
+      drivers.push({ label: `Invecchiamento rilevante (${over65.toFixed(1)}% over 65)`, impact: "negativo", weight: -4, source: "ISTAT 2025" });
+    }
+    if (pop > 50_000) {
+      score += 3;
+      drivers.push({ label: `Bacino urbano significativo (${pop.toLocaleString("it-IT")} ab.)`, impact: "positivo", weight: 3, source: "ISTAT 2025" });
+    }
+  } else {
+    limitations.push("Dati demografici ISTAT non disponibili");
+  }
+
+  // ── Risk factors ──
+  if (ispraResult.data) {
+    sourcesUsed.push("ISPRA 2021");
+    const idro = Number(ispraResult.data.idro_p3_perc ?? 0);
+    const frana = Number(ispraResult.data.frana_p4_perc ?? 0);
+    if (idro > 10 || frana > 10) {
+      score -= 12;
+      drivers.push({ label: "Rischio idrogeologico elevato", impact: "negativo", weight: -12, source: "ISPRA 2021" });
+    } else if (idro < 1 && frana < 1) {
+      score += 5;
+      drivers.push({ label: "Basso rischio idrogeologico", impact: "positivo", weight: 5, source: "ISPRA 2021" });
+    }
+  }
+
+  if (sismicaResult.data) {
+    sourcesUsed.push("OPCM 3519/2006");
+    const zona = sismicaResult.data.zona_sismica;
+    if (zona === 1) {
+      score -= 10;
+      drivers.push({ label: "Zona sismica 1 — rischio molto elevato", impact: "negativo", weight: -10, source: "OPCM 3519" });
+    } else if (zona === 4) {
+      score += 4;
+      drivers.push({ label: "Zona sismica 4 — rischio basso", impact: "positivo", weight: 4, source: "OPCM 3519" });
+    }
+  }
+
+  // Clamp score
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  // Band
+  let band: string;
+  if (score >= 70) band = "molto forte";
+  else if (score >= 55) band = "forte";
+  else if (score >= 40) band = "interessante";
+  else band = "limitata";
+
+  // Observation
+  const dataPoints = sourcesUsed.length;
+  let observation: string;
+  if (dataPoints < 2) {
+    observation = "Dati insufficienti per una valutazione articolata — quadro parziale da integrare";
+  } else if (band === "molto forte") {
+    observation = "Quadro favorevole con segnali convergenti da approfondire — contesto meritevole di analisi";
+  } else if (band === "forte") {
+    observation = "Segnali convergenti da non sottovalutare — contesto interessante da monitorare";
+  } else if (band === "interessante") {
+    observation = "Contesto interessante ma con fattori da monitorare attentamente";
+  } else {
+    observation = "Potenziale presente con elementi di cautela — approfondimento consigliato";
+  }
+
+  limitations.push("Indice sintetico proprietario — non è un indicatore ufficiale di mercato");
+  limitations.push("Non costituisce raccomandazione di investimento né consulenza finanziaria");
+  limitations.push("Rendimenti indicativi calcolati su valori OMI medi, non su immobili specifici");
+
+  return ok(req, {
+    comune,
+    score,
+    band,
+    drivers,
+    observation,
+    omiZonesAnalyzed: omiRows.length,
+    sourceLabel: sourcesUsed.join(" + "),
+    sourceType: dataPoints >= 2 ? "elaborated" : "unavailable",
+    sourcePeriod: "Dati aggregati multi-fonte — marzo 2026",
+    confidenceReason: dataPoints >= 3
+      ? "Indice costruito su dati ufficiali OMI, ISTAT, ISPRA e classificazione sismica"
+      : `Indice parziale — disponibili solo ${dataPoints} fonti su 4`,
+    limitations,
+  }, [], debugId);
 }
 
 /** POST /sottra/forecast/infrastrutture — coordinates → infrastructure projects */
