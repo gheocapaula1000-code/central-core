@@ -394,7 +394,6 @@ export async function handleForecastOpportunity(req: Request, body: Record<strin
       ? "Indice costruito su dati ufficiali OMI, ISTAT, ISPRA e classificazione sismica"
       : `Indice parziale — disponibili solo ${dataPoints} fonti su 4`,
     limitations,
-    ...(normalizedBy ? { enrichedBy: normalizedBy } : {}),
   }, [], debugId);
 }
 
