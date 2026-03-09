@@ -34,6 +34,9 @@ import {
   handleForecastTrendDemografico,
 } from "./forecast.ts";
 
+// ── Sviluppo Area handler ──
+import { handleForecastSviluppoArea } from "./sviluppo-area.ts";
+
 // ═══════════════════════════════════════════════════════════════
 // ROUTER
 // ═══════════════════════════════════════════════════════════════
