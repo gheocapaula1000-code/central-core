@@ -24,46 +24,32 @@ function extractComune(address: string): string {
 // AI-BASED ENDPOINTS (sourceType: "estimate")
 // ═══════════════════════════════════════════════════════════════
 
-/** POST /sottra/forecast/moodscore — coordinates → zone sentiment score */
+/** POST /sottra/forecast/moodscore — UNAVAILABLE: no real sentiment/quality data source integrated */
 export async function handleForecastMoodScore(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const lat = body.lat as number | undefined;
   const lng = body.lng as number | undefined;
   if (lat == null || lng == null) return fail(req, 400, "MISSING_COORDS", "Provide lat and lng", debugId);
 
-  const address = await reverseGeocode(lat, lng) ?? `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-
-  const prompt = `Sei un analista urbano italiano. Per la zona di "${address}" (coordinate: ${lat}, ${lng}), calcola un MoodScore da 0 a 100 che rappresenta la qualità percepita del quartiere.
-
-Rispondi SOLO in JSON valido:
-{
-  "score": numero_da_0_a_100,
-  "trend": "in crescita" oppure "stabile" oppure "in calo",
-  "categorie": {
-    "commercio": punteggio_0_100,
-    "trasporti": punteggio_0_100,
-    "verde": punteggio_0_100,
-    "sicurezza": punteggio_0_100,
-    "socialLife": punteggio_0_100
-  }
-}
-
-Valuta basandoti su: densità negozi e servizi (commercio), accessibilità trasporto pubblico e metro (trasporti), parchi e aree verdi (verde), percezione sicurezza della zona (sicurezza), vita sociale e locali (socialLife). Lo score principale è la media pesata.`;
-
-  try {
-    const output = await callAI(prompt, 300, 0.2);
-    const data = parseJSON(output);
-    if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse moodscore data", debugId);
-    return ok(req, {
-      ...data,
-      sourceLabel: "Stima indicativa",
-      sourceType: "estimate",
-      sourcePeriod: null,
-      confidenceReason: "Valutazione basata su conoscenza generale della zona",
-      limitations: ["Non basato su dati ufficiali", "Punteggi soggettivi e non verificabili"],
-    }, ["Stima indicativa — non dato ufficiale"], debugId);
-  } catch (e) {
-    return fail(req, 502, "PROVIDER_ERROR", `MoodScore analysis failed: ${String(e).slice(0, 100)}`, debugId);
-  }
+  return ok(req, {
+    score: null,
+    trend: null,
+    categorie: {
+      commercio: null,
+      trasporti: null,
+      verde: null,
+      sicurezza: null,
+      socialLife: null,
+    },
+    sourceLabel: "Indice qualità percepita (non disponibile)",
+    sourceType: "unavailable",
+    sourcePeriod: null,
+    confidenceReason: "MoodScore non disponibile — nessuna fonte dati reale per qualità percepita del quartiere",
+    limitations: [
+      "Nessuna fonte ufficiale integrata per la qualità percepita dei quartieri",
+      "Servizio predisposto per futura integrazione con dati reali (ISTAT BES, open data comunali, ecc.)",
+      "Nessun punteggio inventato o simulato viene restituito",
+    ],
+  }, ["MoodScore non disponibile — fonte reale non integrata"], debugId);
 }
 
 /** POST /sottra/forecast/timeview — coordinates → scenario medio periodo basato su dati reali */
