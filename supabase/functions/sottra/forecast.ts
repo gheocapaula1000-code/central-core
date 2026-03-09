@@ -362,51 +362,234 @@ export async function handleForecastOpportunity(req: Request, body: Record<strin
   }, [], debugId);
 }
 
-/** POST /sottra/forecast/infrastrutture — coordinates → infrastructure projects */
+/** POST /sottra/forecast/infrastrutture — coordinates → infrastructure signals from real sources */
 export async function handleForecastInfrastrutture(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const lat = body.lat as number | undefined;
   const lng = body.lng as number | undefined;
   if (lat == null || lng == null) return fail(req, 400, "MISSING_COORDS", "Provide lat and lng", debugId);
 
   const address = await reverseGeocode(lat, lng) ?? `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  const comune = extractComune(address);
+  if (!comune) return fail(req, 400, "COMUNE_NOT_FOUND", "Could not extract comune from address", debugId);
 
-  const prompt = `Sei un urbanista italiano esperto di infrastrutture. Per la zona di "${address}" (coordinate: ${lat}, ${lng}), elenca i progetti infrastrutturali in corso o approvati.
+  console.log(`[infrastrutture] comune="${comune}" lat=${lat} lng=${lng} debug_id=${debugId}`);
 
-Rispondi SOLO in JSON valido:
-{
-  "progetti": [
-    {
-      "nome": "nome del progetto",
-      "tipo": "metro" oppure "tram" oppure "ciclabile" oppure "strada" oppure "edificio_pubblico" oppure "parco" oppure "altro",
-      "stato": "approvato" oppure "in_costruzione" oppure "completato",
-      "completamentoPrevisto": "YYYY-MM",
-      "distanzaKm": distanza_dal_punto_in_km
+  const supabase = getSupabase();
+  const sourcesUsed: string[] = [];
+  const limitations: string[] = [];
+  const infrastructureProjects: {
+    title: string;
+    category: string;
+    source: string;
+    status: string;
+    area: string;
+    impactLevel: string;
+    period: string | null;
+    notes: string | null;
+  }[] = [];
+  const connectivitySignals: { label: string; source: string; status: string }[] = [];
+  const mobilitySignals: { label: string; source: string; status: string }[] = [];
+  const publicWorksSignals: { label: string; source: string; status: string }[] = [];
+  const topDrivers: { label: string; source: string }[] = [];
+  const topRisks: { label: string; source: string }[] = [];
+
+  // ── 1. DB queries: ISTAT (urbanization proxy) + ISPRA (territory) ──
+  const [istatResult, ispraResult] = await Promise.all([
+    supabase.from("istat_comuni").select("popolazione, eta_media, percentuale_under35").ilike("comune", comune).limit(1).maybeSingle(),
+    supabase.from("ispra_rischio").select("superficie_kmq").ilike("comune", comune).limit(1).maybeSingle(),
+  ]);
+
+  let popolazione = 0;
+  let densita = 0;
+  if (istatResult.data) {
+    sourcesUsed.push("ISTAT 2025");
+    popolazione = Number(istatResult.data.popolazione ?? 0);
+    const sup = Number(ispraResult.data?.superficie_kmq ?? 0);
+    if (sup > 0 && popolazione > 0) {
+      densita = Math.round(popolazione / sup);
     }
-  ],
-  "cantieriAperti": numero_cantieri_nella_zona,
-  "impattoStimato": "alto" oppure "medio" oppure "basso"
-}
-
-Includi solo progetti reali e realistici per quella specifica città e zona. Considera: estensioni metro/tram, nuove piste ciclabili, riqualificazioni urbane, nuovi parchi, grandi opere stradali.
-
-IMPORTANTE: Includi SOLO progetti entro 3 km dal punto indicato. Non includere progetti di altre zone della città.
-La data corrente è marzo 2026. Non includere progetti già completati o con date nel passato.`;
-
-  try {
-    const output = await callAI(prompt, 500, 0.3);
-    const data = parseJSON(output);
-    if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse infrastructure data", debugId);
-    return ok(req, {
-      ...data,
-      sourceLabel: "Stima indicativa",
-      sourceType: "estimate",
-      sourcePeriod: null,
-      confidenceReason: "Elenco basato su conoscenza generale di progetti pubblici noti",
-      limitations: ["Non basato su dataset ufficiale dei cantieri", "Distanze e date approssimative"],
-    }, ["Stima indicativa — non dato ufficiale"], debugId);
-  } catch (e) {
-    return fail(req, 502, "PROVIDER_ERROR", `Infrastructure analysis failed: ${String(e).slice(0, 100)}`, debugId);
   }
+
+  // ── 2. OpenCoesione API — real public investment projects ──
+  let openCoesioneOk = false;
+  try {
+    const ocUrl = `https://opencoesione.gov.it/api/progetti/?territorio_com=${encodeURIComponent(comune.toUpperCase())}&formato=json&limit=15`;
+    console.log(`[infrastrutture] querying OpenCoesione: ${ocUrl}`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const ocResp = await fetch(ocUrl, { signal: controller.signal, headers: { "Accept": "application/json" } });
+    clearTimeout(timeout);
+
+    if (ocResp.ok) {
+      const ocData = await ocResp.json();
+      const results = ocData?.results ?? ocData?.progetti ?? [];
+      if (Array.isArray(results) && results.length > 0) {
+        openCoesioneOk = true;
+        sourcesUsed.push("OpenCoesione");
+        for (const p of results.slice(0, 10)) {
+          const title = p.titolo_progetto ?? p.oc_titolo_progetto ?? p.titolo ?? "Progetto senza titolo";
+          const tema = p.oc_tema_sintetico ?? p.tema ?? "";
+          const costo = Number(p.oc_costo_pubblico ?? p.costo_pubblico ?? 0);
+          const stato = p.oc_stato_progetto ?? p.stato ?? "non disponibile";
+
+          let category = "opera_pubblica";
+          const temaLow = tema.toLowerCase();
+          if (/trasport|mobili|strada|ferrov|metro/i.test(temaLow)) category = "mobilità";
+          else if (/digital|banda|fibra|rete|telecomunicaz/i.test(temaLow)) category = "connettività";
+          else if (/ambient|energi|rinnov|verde/i.test(temaLow)) category = "ambiente_energia";
+          else if (/istruzion|scuol|universit/i.test(temaLow)) category = "istruzione";
+          else if (/sanit|salut|ospedal/i.test(temaLow)) category = "sanità";
+
+          let impactLevel = "medio";
+          if (costo > 5_000_000) impactLevel = "alto";
+          else if (costo < 500_000) impactLevel = "basso";
+
+          infrastructureProjects.push({
+            title: title.slice(0, 200),
+            category,
+            source: "OpenCoesione",
+            status: stato,
+            area: comune,
+            impactLevel,
+            period: null,
+            notes: costo > 0 ? `Costo pubblico: €${costo.toLocaleString("it-IT")}` : null,
+          });
+
+          // Classify into signal buckets
+          if (category === "connettività") {
+            connectivitySignals.push({ label: title.slice(0, 120), source: "OpenCoesione", status: stato });
+          } else if (category === "mobilità") {
+            mobilitySignals.push({ label: title.slice(0, 120), source: "OpenCoesione", status: stato });
+          } else {
+            publicWorksSignals.push({ label: title.slice(0, 120), source: "OpenCoesione", status: stato });
+          }
+        }
+      }
+    } else {
+      console.warn(`[infrastrutture] OpenCoesione returned ${ocResp.status}`);
+    }
+  } catch (e) {
+    console.warn(`[infrastrutture] OpenCoesione fetch failed: ${String(e).slice(0, 100)}`);
+    limitations.push("OpenCoesione non raggiungibile — dati progetti pubblici non disponibili in questa richiesta");
+  }
+
+  // ── 3. Infratel BUL — connectivity signals ──
+  try {
+    const bulUrl = `https://bandaultralarga.italia.it/api/search/comuni?search=${encodeURIComponent(comune)}&limit=1`;
+    console.log(`[infrastrutture] querying Infratel BUL: ${bulUrl}`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    const bulResp = await fetch(bulUrl, { signal: controller.signal, headers: { "Accept": "application/json" } });
+    clearTimeout(timeout);
+
+    if (bulResp.ok) {
+      const bulData = await bulResp.json();
+      const items = bulData?.results ?? bulData?.data ?? (Array.isArray(bulData) ? bulData : []);
+      if (items.length > 0) {
+        sourcesUsed.push("Infratel BUL");
+        const item = items[0];
+        const coperturaFTTH = item.copertura_ftth ?? item.ftth ?? null;
+        const coperturaFWA = item.copertura_fwa ?? item.fwa ?? null;
+
+        if (coperturaFTTH != null || coperturaFWA != null) {
+          connectivitySignals.push({
+            label: `Copertura BUL: FTTH ${coperturaFTTH ?? "n/d"}, FWA ${coperturaFWA ?? "n/d"}`,
+            source: "Infratel BUL",
+            status: "attivo",
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`[infrastrutture] Infratel BUL fetch failed: ${String(e).slice(0, 80)}`);
+    limitations.push("Infratel BUL non raggiungibile — dati connettività parziali");
+  }
+
+  // ── 4. Scoring ──
+  let score = 30; // baseline
+
+  // Projects volume
+  const projectCount = infrastructureProjects.length;
+  if (projectCount >= 8) { score += 25; topDrivers.push({ label: `${projectCount} progetti pubblici rilevati`, source: "OpenCoesione" }); }
+  else if (projectCount >= 4) { score += 15; topDrivers.push({ label: `${projectCount} progetti pubblici rilevati`, source: "OpenCoesione" }); }
+  else if (projectCount >= 1) { score += 8; topDrivers.push({ label: `${projectCount} progetti pubblici rilevati`, source: "OpenCoesione" }); }
+  else { topRisks.push({ label: "Nessun progetto pubblico rilevato su OpenCoesione", source: "OpenCoesione" }); }
+
+  // High-impact projects
+  const highImpact = infrastructureProjects.filter(p => p.impactLevel === "alto").length;
+  if (highImpact >= 2) { score += 10; topDrivers.push({ label: `${highImpact} progetti ad alto impatto economico`, source: "OpenCoesione" }); }
+
+  // Connectivity
+  if (connectivitySignals.length > 0) { score += 8; topDrivers.push({ label: "Segnali di connettività/banda larga presenti", source: sourcesUsed.includes("Infratel BUL") ? "Infratel BUL" : "OpenCoesione" }); }
+
+  // Mobility
+  if (mobilitySignals.length > 0) { score += 8; topDrivers.push({ label: "Investimenti in mobilità/trasporti rilevati", source: "OpenCoesione" }); }
+
+  // Urban density proxy
+  if (densita > 2000) { score += 7; topDrivers.push({ label: `Alta densità urbana (${densita} ab/km²)`, source: "ISTAT 2025" }); }
+  else if (densita > 500) { score += 3; }
+  else if (densita > 0 && densita < 100) { score -= 5; topRisks.push({ label: `Bassa densità abitativa (${densita} ab/km²)`, source: "ISTAT 2025" }); }
+
+  // Population weight
+  if (popolazione > 100_000) { score += 5; }
+  else if (popolazione > 30_000) { score += 2; }
+
+  // Data quality penalty
+  if (!openCoesioneOk) { score -= 10; topRisks.push({ label: "Dati OpenCoesione non disponibili — indice parziale", source: "sistema" }); }
+
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  // Band
+  let infrastructureBand: string;
+  if (score >= 70) infrastructureBand = "elevata";
+  else if (score >= 50) infrastructureBand = "significativa";
+  else if (score >= 30) infrastructureBand = "moderata";
+  else infrastructureBand = "limitata";
+
+  // Narrative
+  let narrativeObservation: string;
+  const dataPoints = sourcesUsed.length;
+  if (dataPoints === 0) {
+    narrativeObservation = "Dati insufficienti per una valutazione infrastrutturale — nessuna fonte raggiungibile";
+  } else if (infrastructureBand === "elevata") {
+    narrativeObservation = "Territorio con presenza significativa di investimenti pubblici e segnali infrastrutturali convergenti";
+  } else if (infrastructureBand === "significativa") {
+    narrativeObservation = "Contesto con investimenti pubblici rilevabili e segnali infrastrutturali da monitorare";
+  } else if (infrastructureBand === "moderata") {
+    narrativeObservation = "Presenza infrastrutturale nella media — pochi segnali di trasformazione in corso";
+  } else {
+    narrativeObservation = "Scarsa evidenza di investimenti infrastrutturali pubblici nella zona";
+  }
+
+  // Standard limitations
+  limitations.push("Dati OpenCoesione soggetti ad aggiornamento periodico — possibili ritardi rispetto allo stato reale");
+  limitations.push("Prossimità territoriale basata sul nome del comune, non su distanza geodetica precisa");
+  limitations.push("Non include opere private, investimenti aziendali o iniziative non finanziate con fondi pubblici");
+  if (!sourcesUsed.includes("Infratel BUL")) {
+    limitations.push("Dati Infratel BUL non disponibili — copertura banda larga non verificata");
+  }
+
+  return ok(req, {
+    comune,
+    infrastructureScore: score,
+    infrastructureBand,
+    infrastructureProjects,
+    connectivitySignals,
+    mobilitySignals,
+    publicWorksSignals,
+    topDrivers,
+    topRisks,
+    narrativeObservation,
+    sourceLabel: sourcesUsed.length > 0 ? sourcesUsed.join(" + ") : "Nessuna fonte disponibile",
+    sourceType: dataPoints >= 1 ? "elaborated" : "unavailable",
+    sourcePeriod: "Dati aggregati multi-fonte — marzo 2026",
+    confidenceReason: dataPoints >= 2
+      ? "Indice costruito su progetti OpenCoesione, segnali Infratel BUL e indicatori ISTAT"
+      : dataPoints === 1
+        ? `Indice parziale — disponibile solo ${sourcesUsed[0]}`
+        : "Nessuna fonte dati raggiungibile",
+    limitations,
+  }, [], debugId);
 }
 
 // ═══════════════════════════════════════════════════════════════
