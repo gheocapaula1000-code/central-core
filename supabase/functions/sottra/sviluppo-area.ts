@@ -411,6 +411,7 @@ export async function handleForecastSviluppoArea(
     ...localResult.signals,
   ];
 
+  let enrichedNarrative = scoring.reason;
   // GPT-5.4 normalization layer (optional — enriches narrative only)
   if (allSignals.length >= 2) {
     try {
