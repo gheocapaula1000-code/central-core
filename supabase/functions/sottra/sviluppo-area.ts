@@ -444,7 +444,7 @@ export async function handleForecastSviluppoArea(
     alboPretorio: { available: false, predisposed: true },
 
     sourceLabel: sourcesUsed.join(" + "),
-    sourceType: "derived-from-public-data",
+    sourceType: "elaborated",
     sourcePeriod: "Dati aggregati multi-fonte — consultazione marzo 2026",
     confidenceReason: scoring.reason,
     limitations,
