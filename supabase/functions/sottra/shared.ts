@@ -1,6 +1,22 @@
 // Sottra shared utilities: AI caller, JSON parser, geocoding, GPT normalization layer
 
 // ═══════════════════════════════════════════════════════════════
+// OpenAI config helpers — single source of truth
+// OPENAI_API_KEY: secret, server-side only
+// OPENAI_MODEL:   model name, default "gpt-5.4"
+// ═══════════════════════════════════════════════════════════════
+
+/** Returns the configured OpenAI API key (server-side only). Empty string if missing. */
+export function getOpenAIKey(): string {
+  return Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_KEY") ?? "";
+}
+
+/** Returns the configured OpenAI model. Defaults to gpt-5.4. */
+export function getOpenAIModel(): string {
+  return Deno.env.get("OPENAI_MODEL") ?? "gpt-5.4";
+}
+
+// ═══════════════════════════════════════════════════════════════
 // GPT-5.4 Normalization Layer — HARDENED
 // Post-collection enrichment ONLY. Never a data source.
 // Can ONLY touch: observation, driversSummary, risksSummary, bandExplanation
