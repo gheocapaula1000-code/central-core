@@ -1,4 +1,5 @@
 // Sottra — Motore Scan handlers (7 endpoints)
+// POLICY: Only real data from official sources. No AI-invented results.
 
 import { ok, fail } from "../_shared/http.ts";
 import { callAI, callAIVision, parseJSON, reverseGeocode } from "./shared.ts";
@@ -35,37 +36,29 @@ export async function handleScanIdentify(req: Request, body: Record<string, unkn
   return ok(req, { address, buildingId, confidence }, [], debugId);
 }
 
-/** POST /sottra/scan/cadastral — address + photo → catasto data */
+/** POST /sottra/scan/cadastral — UNAVAILABLE: no real cadastral data source integrated */
 export async function handleScanCadastral(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const address = (body.address as string) ?? "";
-  const photo = (body.photo as string) ?? "";
   if (!address) return fail(req, 400, "MISSING_ADDRESS", "Provide address", debugId);
 
-  const prompt = `Sei un esperto catastale italiano. Per l'indirizzo "${address}", stima i dati catastali.
-
-IMPORTANTE: Se vedi una foto dell'edificio, conta i piani VISIBILI nella foto e usa quel numero. Non inventare.
-
-Rispondi SOLO in JSON valido:
-{
-  "foglio": numero_foglio_catastale,
-  "particella": numero_particella,
-  "subalterno": numero_subalterno,
-  "anno": anno_costruzione_stimato,
-  "piani": numero_piani_DALLA_FOTO_se_disponibile,
-  "unitaImmobiliari": numero_unita_stimate,
-  "renditaCatastale": rendita_catastale_stimata_euro
-}`;
-
-  try {
-    const output = photo && photo.startsWith("data:image")
-      ? await callAIVision(prompt, photo, 300, 0.2)
-      : await callAI(prompt, 300, 0.2);
-    const data = parseJSON(output);
-    if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse cadastral data", debugId);
-    return ok(req, { ...data, sourceLabel: "Stima indicativa", sourceType: "estimate", sourcePeriod: null, confidenceReason: "Dati catastali stimati, non verificati su Catasto ufficiale", limitations: ["Non collegato a Sister/Agenzia Entrate", "Foglio, particella e subalterno non verificabili"] }, ["Stima indicativa — non dato ufficiale"], debugId);
-  } catch (e) {
-    return fail(req, 502, "PROVIDER_ERROR", `Cadastral analysis failed: ${String(e).slice(0, 100)}`, debugId);
-  }
+  return ok(req, {
+    foglio: null,
+    particella: null,
+    subalterno: null,
+    anno: null,
+    piani: null,
+    unitaImmobiliari: null,
+    renditaCatastale: null,
+    sourceLabel: "Catasto — Agenzia delle Entrate (non integrato)",
+    sourceType: "unavailable",
+    sourcePeriod: null,
+    confidenceReason: "Dati catastali non disponibili — integrazione con Sister/Agenzia Entrate non attiva",
+    limitations: [
+      "Servizio non collegato a Sister o Agenzia delle Entrate",
+      "Foglio, particella, subalterno e rendita catastale richiedono accesso ai registri ufficiali",
+      "Funzionalità predisposta per futura integrazione con fonti reali",
+    ],
+  }, ["Dati catastali non disponibili — fonte reale non integrata"], debugId);
 }
 
 /** POST /sottra/scan/pricing — address → price/sqm data (OMI real data) */
@@ -130,126 +123,89 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
   }
 }
 
-/** POST /sottra/scan/listings — address → active listings */
+/** POST /sottra/scan/listings — UNAVAILABLE: no real listings data source integrated */
 export async function handleScanListings(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const address = (body.address as string) ?? "";
   if (!address) return fail(req, 400, "MISSING_ADDRESS", "Provide address", debugId);
 
-  const prompt = `Sei un esperto immobiliare italiano. Per l'indirizzo "${address}", genera 2-4 annunci immobiliari plausibili che potrebbero essere attivi nella zona (nello stesso edificio o palazzo adiacente).
-
-Rispondi SOLO in JSON valido:
-{
-  "annunci": [
-    {
-      "tipo": "vendita" oppure "affitto",
-      "prezzo": prezzo_in_euro,
-      "mq": metri_quadri,
-      "locali": numero_locali,
-      "piano": numero_piano,
-      "link": "#"
-    }
-  ]
+  return ok(req, {
+    annunci: [],
+    sourceLabel: "Portali immobiliari (non integrato)",
+    sourceType: "unavailable",
+    sourcePeriod: null,
+    confidenceReason: "Annunci immobiliari non disponibili — nessun portale reale integrato",
+    limitations: [
+      "Servizio non collegato a portali immobiliari reali (Idealista, Immobiliare.it, ecc.)",
+      "Nessun annuncio inventato o simulato viene restituito",
+      "Funzionalità predisposta per futura integrazione con feed reali",
+    ],
+  }, ["Annunci immobiliari non disponibili — fonte reale non integrata"], debugId);
 }
 
-Genera annunci realistici per la zona: prezzi coerenti con il mercato locale, metrature tipiche per la zona, mix di vendita e affitto.`;
-
-  try {
-    const output = await callAI(prompt, 500, 0.3);
-    const data = parseJSON(output);
-    if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse listings data", debugId);
-    return ok(req, { ...data, sourceLabel: "Stima indicativa", sourceType: "estimate", sourcePeriod: null, confidenceReason: "Annunci generati per plausibilità, non da portali reali", limitations: ["Non collegato a portali immobiliari reali", "Prezzi e metrature indicativi"] }, ["Stima indicativa — non dato ufficiale"], debugId);
-  } catch (e) {
-    return fail(req, 502, "PROVIDER_ERROR", `Listings analysis failed: ${String(e).slice(0, 100)}`, debugId);
-  }
-}
-
-/** POST /sottra/scan/energy — address + photo → energy class */
+/** POST /sottra/scan/energy — UNAVAILABLE: no real APE/ENEA data source integrated */
 export async function handleScanEnergy(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const address = (body.address as string) ?? "";
-  const photo = (body.photo as string) ?? "";
   if (!address) return fail(req, 400, "MISSING_ADDRESS", "Provide address", debugId);
 
-  const prompt = `Sei un esperto di certificazioni energetiche in Italia. Per l'indirizzo "${address}", stima la classe energetica probabile dell'edificio.
-
-IMPORTANTE: Se vedi una foto dell'edificio, osserva gli infissi (vecchi = classe bassa, moderni = classe alta), la presenza di cappotto termico (se visibile = classe alta), lo stato della facciata. Basati su ciò che vedi realmente.
-
-Rispondi SOLO in JSON valido:
-{
-  "classeEnergetica": "lettera da A a G",
-  "epgl": valore_epgl_kwh_mq_anno,
-  "mediaZona": "lettera media della zona"
-}`;
-
-  try {
-    const output = photo && photo.startsWith("data:image")
-      ? await callAIVision(prompt, photo, 200, 0.2)
-      : await callAI(prompt, 200, 0.2);
-    const data = parseJSON(output);
-    if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse energy data", debugId);
-    return ok(req, { ...data, sourceLabel: "Stima indicativa", sourceType: "estimate", sourcePeriod: null, confidenceReason: "Classe energetica stimata da caratteristiche visibili e zona", limitations: ["Non collegato ad APE/ENEA", "Classe reale può differire significativamente"] }, ["Stima indicativa — non dato ufficiale"], debugId);
-  } catch (e) {
-    return fail(req, 502, "PROVIDER_ERROR", `Energy analysis failed: ${String(e).slice(0, 100)}`, debugId);
-  }
+  return ok(req, {
+    classeEnergetica: null,
+    epgl: null,
+    mediaZona: null,
+    sourceLabel: "ENEA / APE (non integrato)",
+    sourceType: "unavailable",
+    sourcePeriod: null,
+    confidenceReason: "Classe energetica non disponibile — integrazione con ENEA/SIAPE non attiva",
+    limitations: [
+      "Servizio non collegato a ENEA, SIAPE o registri APE regionali",
+      "La classe energetica reale è reperibile solo dall'Attestato di Prestazione Energetica ufficiale",
+      "Funzionalità predisposta per futura integrazione con fonti reali",
+    ],
+  }, ["Dati energetici non disponibili — fonte reale non integrata"], debugId);
 }
 
-/** POST /sottra/scan/condominio — address + photo → building/condominium details */
+/** POST /sottra/scan/condominio — UNAVAILABLE: no real condominium registry data source */
 export async function handleScanCondominio(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const address = (body.address as string) ?? "";
-  const photo = (body.photo as string) ?? "";
   if (!address) return fail(req, 400, "MISSING_ADDRESS", "Provide address", debugId);
 
-  const prompt = `Sei un esperto immobiliare italiano. Per l'edificio all'indirizzo "${address}", stima le caratteristiche condominiali.
-
-IMPORTANTE: Se vedi una foto dell'edificio, basati su ciò che vedi realmente: presenza di ascensore (pulsantiera visibile), portineria, stato di conservazione della facciata, tipo di riscaldamento (radiatori visibili, caldaie esterne), giardino condominiale.
-
-Rispondi SOLO in JSON valido:
-{
-  "tipoRiscaldamento": "centralizzato" oppure "autonomo",
-  "ascensore": true oppure false,
-  "statoConservazione": "ottimo" oppure "buono" oppure "sufficiente" oppure "mediocre",
-  "annoUltimaRistrutturazione": anno oppure null se mai ristrutturato,
-  "postiAuto": numero_stimato,
-  "giardino": true oppure false,
-  "portineria": true oppure false
-}`;
-
-  try {
-    const output = photo && photo.startsWith("data:image")
-      ? await callAIVision(prompt, photo, 250, 0.2)
-      : await callAI(prompt, 250, 0.2);
-    const data = parseJSON(output);
-    if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse condominio data", debugId);
-    return ok(req, { ...data, sourceLabel: "Stima indicativa", sourceType: "estimate", sourcePeriod: null, confidenceReason: "Caratteristiche condominiali stimate, non da verbali o visure", limitations: ["Non collegato a registri condominiali", "Informazioni non verificabili"] }, ["Stima indicativa — non dato ufficiale"], debugId);
-  } catch (e) {
-    return fail(req, 502, "PROVIDER_ERROR", `Condominio analysis failed: ${String(e).slice(0, 100)}`, debugId);
-  }
+  return ok(req, {
+    tipoRiscaldamento: null,
+    ascensore: null,
+    statoConservazione: null,
+    annoUltimaRistrutturazione: null,
+    postiAuto: null,
+    giardino: null,
+    portineria: null,
+    sourceLabel: "Registri condominiali (non integrato)",
+    sourceType: "unavailable",
+    sourcePeriod: null,
+    confidenceReason: "Dati condominiali non disponibili — nessun registro reale integrato",
+    limitations: [
+      "Servizio non collegato a registri condominiali, verbali o visure",
+      "Le informazioni condominiali reali richiedono accesso a documentazione specifica dell'edificio",
+      "Funzionalità predisposta per futura integrazione con fonti reali",
+    ],
+  }, ["Dati condominiali non disponibili — fonte reale non integrata"], debugId);
 }
 
-/** POST /sottra/scan/storico-transazioni — address → recent transaction history */
+/** POST /sottra/scan/storico-transazioni — UNAVAILABLE: no real transaction registry integrated */
 export async function handleScanStoricoTransazioni(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const address = (body.address as string) ?? "";
   if (!address) return fail(req, 400, "MISSING_ADDRESS", "Provide address", debugId);
 
-  const prompt = `Sei un analista immobiliare italiano con accesso ai dati OMI. Per la zona dell'indirizzo "${address}", stima lo storico transazioni recenti tipico.
-
-Rispondi SOLO in JSON valido:
-{
-  "transazioni": [
-    { "data": "YYYY-MM-DD", "prezzo": prezzo_in_euro, "mq": metri_quadri, "piano": numero_piano, "tipo": "vendita" oppure "affitto" },
-    ... almeno 3-4 transazioni realistiche degli ultimi 12-18 mesi
-  ],
-  "mediaZona12Mesi": prezzo_medio_mq_zona,
-  "variazione12Mesi": percentuale_variazione
-}
-
-Basa la stima su: prezzi OMI della zona, tipologia edilizia, trend di mercato recente. I prezzi devono essere realistici per quella specifica zona e città.`;
-
-  try {
-    const output = await callAI(prompt, 500, 0.3);
-    const data = parseJSON(output);
-    if (!data) return fail(req, 502, "PARSE_ERROR", "Failed to parse transaction history", debugId);
-    return ok(req, { ...data, sourceLabel: "Stima indicativa", sourceType: "estimate", sourcePeriod: null, confidenceReason: "Storico transazioni stimato, non da atti notarili o Agenzia Entrate", limitations: ["Non collegato a banca dati transazioni reali", "Prezzi e date indicativi"] }, ["Stima indicativa — non dato ufficiale"], debugId);
-  } catch (e) {
-    return fail(req, 502, "PROVIDER_ERROR", `Transaction history failed: ${String(e).slice(0, 100)}`, debugId);
-  }
+  return ok(req, {
+    transazioni: [],
+    mediaZona12Mesi: null,
+    variazione12Mesi: null,
+    sourceLabel: "Agenzia delle Entrate — Registro transazioni (non integrato)",
+    sourceType: "unavailable",
+    sourcePeriod: null,
+    confidenceReason: "Storico transazioni non disponibile — integrazione con Agenzia Entrate non attiva",
+    limitations: [
+      "Servizio non collegato alla banca dati delle transazioni immobiliari dell'Agenzia delle Entrate",
+      "Lo storico reale delle compravendite richiede accesso a atti notarili o database ufficiali",
+      "Nessuna transazione inventata o simulata viene restituita",
+      "Funzionalità predisposta per futura integrazione con fonti reali",
+    ],
+  }, ["Storico transazioni non disponibile — fonte reale non integrata"], debugId);
 }
