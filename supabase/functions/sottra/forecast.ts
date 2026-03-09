@@ -581,7 +581,7 @@ export async function handleForecastInfrastrutture(req: Request, body: Record<st
   else if (score >= 30) infrastructureBand = "moderata";
   else infrastructureBand = "limitata";
 
-  // Narrative
+  // Static narrative fallback
   let narrativeObservation: string;
   const dataPoints = sourcesUsed.length;
   if (dataPoints === 0) {
@@ -594,6 +594,23 @@ export async function handleForecastInfrastrutture(req: Request, body: Record<st
     narrativeObservation = "Presenza infrastrutturale nella media — pochi segnali di trasformazione in corso";
   } else {
     narrativeObservation = "Scarsa evidenza di investimenti infrastrutturali pubblici nella zona";
+  }
+
+  // GPT-5.4 normalization layer (optional)
+  let normalizedBy: string | null = null;
+  if (dataPoints >= 1) {
+    try {
+      const norm = await normalizeWithGPT({
+        module: "infrastrutture",
+        comune,
+        collectedData: { score, infrastructureBand, projectCount: infrastructureProjects.length, topDrivers, topRisks, connectivitySignals: connectivitySignals.length, mobilitySignals: mobilitySignals.length },
+        requestedOutputs: ["observation", "driversSummary"],
+      });
+      if (norm.normalized) {
+        if (norm.observation) narrativeObservation = norm.observation;
+        normalizedBy = "GPT-5.4";
+      }
+    } catch { /* static fallback already set */ }
   }
 
   // Standard limitations
@@ -624,6 +641,7 @@ export async function handleForecastInfrastrutture(req: Request, body: Record<st
         ? `Indice parziale — disponibile solo ${sourcesUsed[0]}`
         : "Nessuna fonte dati raggiungibile",
     limitations,
+    ...(normalizedBy ? { enrichedBy: normalizedBy } : {}),
   }, [], debugId);
 }
 
