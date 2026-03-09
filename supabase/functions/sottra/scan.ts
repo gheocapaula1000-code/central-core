@@ -93,7 +93,7 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
         fonte: omi.fonte,
         tutteZone: omi.tutteZone,
         sourceLabel: "Agenzia delle Entrate — Osservatorio Mercato Immobiliare",
-        sourceType: "official/public-source",
+        sourceType: "official",
         sourcePeriod: "1° semestre 2025",
         confidenceReason: "Prezzi ufficiali OMI per la zona identificata tramite matching indirizzo-zona",
         limitations: [

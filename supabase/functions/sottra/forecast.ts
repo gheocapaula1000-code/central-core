@@ -274,8 +274,8 @@ export async function handleForecastRischioZona(req: Request, body: Record<strin
       pop_frana_p3p4: data.pop_frana_p3p4,
     },
     sourceLabel: "ISPRA — IdroGEO + INGV/Protezione Civile OPCM 3519",
-    sourceType: "official/public-source",
-    sourcePeriod: "ISPRA ed. 2021 + OPCM 3519/2006",
+      sourceType: "official",
+      sourcePeriod: "ISPRA ed. 2021 + OPCM 3519/2006",
     confidenceReason: "Dati ufficiali ISPRA e classificazione sismica INGV/Protezione Civile importati da dataset pubblici",
     limitations,
   }, [], debugId);
@@ -348,8 +348,8 @@ export async function handleForecastTrendDemografico(req: Request, body: Record<
     femmine: istat.femmine,
     anno: istat.anno,
     sourceLabel: "ISTAT — Popolazione residente al 1° gennaio 2025",
-    sourceType: "official/public-source",
-    sourcePeriod: `Anno ${istat.anno ?? 2025}`,
+      sourceType: "official",
+      sourcePeriod: `Anno ${istat.anno ?? 2025}`,
     confidenceReason: "Dati ufficiali ISTAT importati da dataset pubblico I.Stat",
     limitations,
   }, [], debugId);
