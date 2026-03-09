@@ -2,7 +2,7 @@
 // Aggregates real public data sources for territorial development signals
 
 import { ok, fail } from "../_shared/http.ts";
-import { reverseGeocode, withAbort } from "./shared.ts";
+import { reverseGeocode, withAbort, normalizeWithGPT } from "./shared.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ── Helpers ──
@@ -411,6 +411,24 @@ export async function handleForecastSviluppoArea(
     ...localResult.signals,
   ];
 
+  // GPT-5.4 normalization layer (optional)
+  let enrichedNarrative = scoring.reason;
+  let normalizedBy: string | null = null;
+  if (allSignals.length >= 2) {
+    try {
+      const norm = await normalizeWithGPT({
+        module: "sviluppo-area",
+        comune,
+        collectedData: { score: scoring.score, band: scoring.band, signalCount: allSignals.length, sourcesUsed, sourcesUnavailable },
+        requestedOutputs: ["observation"],
+      });
+      if (norm.normalized && norm.observation) {
+        enrichedNarrative = norm.observation;
+        normalizedBy = "GPT-5.4";
+      }
+    } catch { /* static fallback */ }
+  }
+
   const warnings: string[] = [];
   if (sourcesUnavailable.length > 0) {
     warnings.push(`Fonti non disponibili: ${sourcesUnavailable.join(", ")}`);
@@ -428,7 +446,7 @@ export async function handleForecastSviluppoArea(
     ],
     areaDevelopmentScore: scoring.score,
     areaDevelopmentBand: scoring.band,
-    narrativeObservation: scoring.reason,
+    narrativeObservation: enrichedNarrative,
     sourcesQueried: {
       openCoesione: { available: ocResult.available, projectsFound: ocResult.signals.length },
       infratel: { available: infraResult.available, signalsFound: infraResult.signals.length },
@@ -448,5 +466,6 @@ export async function handleForecastSviluppoArea(
     sourcePeriod: "Dati aggregati multi-fonte — consultazione marzo 2026",
     confidenceReason: scoring.reason,
     limitations,
+    ...(normalizedBy ? { enrichedBy: normalizedBy } : {}),
   }, warnings, debugId);
 }
