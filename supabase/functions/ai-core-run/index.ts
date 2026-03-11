@@ -316,11 +316,27 @@ Deno.serve(async (req: Request) => {
       }, [], debugId);
     }
 
-    // Rate limiting (purge expired buckets lazily)
+    // Parse body first (needed for caller key construction)
+    const rawBody = await req.text();
+    if (rawBody.length > 100_000) {
+      return fail(req, 413, "PAYLOAD_TOO_LARGE", "Request body exceeds 100KB limit", debugId);
+    }
+    let body: Record<string, unknown> = {};
+    try { body = JSON.parse(rawBody); } catch {
+      return fail(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId);
+    }
+
+    // Rate limiting: caller-aware, trusted tier
     purgeExpiredBuckets();
     const sourceApp = req.headers.get("x-source-app") ?? "unknown";
-    if (!checkRateLimit(sourceApp)) {
-      return fail(req, 429, "RATE_LIMITED", "Too many requests. Max 30/minute per app.", debugId);
+    const trusted = true; // all POST traffic past requireSecret is trusted
+    const callerKey = buildCallerKey(sourceApp, req, body, trusted);
+    const rateResult = checkRateLimit(callerKey, RATE_MAX_TRUSTED);
+    if (!rateResult.allowed) {
+      console.warn(`[rate] caller=${callerKey} trusted=${trusted} route=${pathname} => 429`);
+      const res = fail(req, 429, "RATE_LIMITED", `Too many requests. Retry in ${rateResult.retryAfterSec}s.`, debugId);
+      res.headers.set("Retry-After", String(rateResult.retryAfterSec));
+      return res;
     }
 
     // Parse body
