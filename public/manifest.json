@@ -1,7 +1,7 @@
 {
-  "name": "Central Core v3",
-  "short_name": "Core v3",
-  "description": "Central Core v3 — Admin Dashboard",
+  "name": "Central Core V3",
+  "short_name": "Core V3",
+  "description": "Central Core V3 — Admin Dashboard",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f0f11",
