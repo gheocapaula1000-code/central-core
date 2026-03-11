@@ -61,6 +61,8 @@ const ROUTES: Record<string, (req: Request, body: Record<string, unknown>, debug
   "forecast/rischio-zona":     handleForecastRischioZona,
   "forecast/trend-demografico": handleForecastTrendDemografico,
   "forecast/sviluppo-area":    handleForecastSviluppoArea,
+  // Motore ICTV (1)
+  "forecast/convergenza-territoriale": handleForecastConvergenzaTerritoriale,
 };
 
 Deno.serve(async (req) => {
