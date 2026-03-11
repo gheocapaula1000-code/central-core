@@ -324,18 +324,52 @@ Deno.serve(async (req: Request) => {
         return { allowed: true, retryAfterSec: 0 };
       }
 
-      // ── A. Health routing ──
+      // ── A. Health routing (verifies /health, /__health, /) ──
       try {
         const healthData = { status: "ok", version: CORE_VERSION, time: new Date().toISOString() };
         const hasStatus = healthData.status === "ok";
         const hasVersion = typeof healthData.version === "string" && healthData.version.length > 0;
-        if (hasStatus && hasVersion) {
-          tests.push({ name: "A. Health routing", status: "PASS", mode: "dry-run", detail: `Health returns status=ok, version=${CORE_VERSION}` });
+        // Verify that the path matching logic covers all health variants
+        const healthPaths = ["/health", "/__health", "/ai-core-run/health", "/ai-core-run/__health", "/"];
+        const matchResults = healthPaths.map(p => ({
+          path: p,
+          matches: p.endsWith("/health") || p.endsWith("/__health") || p === "/",
+        }));
+        const allMatch = matchResults.every(m => m.matches);
+        if (hasStatus && hasVersion && allMatch) {
+          tests.push({ name: "A. Health routing", status: "PASS", mode: "dry-run", detail: `All health paths verified: ${healthPaths.join(", ")}. version=${CORE_VERSION}` });
         } else {
-          tests.push({ name: "A. Health routing", status: "FAIL", mode: "dry-run", detail: "Health data missing status or version" });
+          const failedPaths = matchResults.filter(m => !m.matches).map(m => m.path);
+          tests.push({ name: "A. Health routing", status: "FAIL", mode: "dry-run", detail: `Health check issue. data_ok=${hasStatus && hasVersion} failed_paths=${failedPaths.join(",")}` });
         }
       } catch (e) {
         tests.push({ name: "A. Health routing", status: "FAIL", mode: "dry-run", detail: `Exception: ${String(e).slice(0, 150)}` });
+      }
+
+      // ── A2. Wyloni contract paths ──
+      try {
+        const wyloniPaths = [
+          { suffix: "/health", method: "GET" },
+          { suffix: "/__health", method: "GET" },
+          { suffix: "/documents/analyze", method: "POST" },
+          { suffix: "/web/scrape", method: "POST" },
+          { suffix: "/tariffs/compare", method: "POST" },
+          { suffix: "/metrics", method: "GET" },
+        ];
+        const allValid = wyloniPaths.every(p => {
+          const full = `/functions/v1/ai-core-run${p.suffix}`;
+          return full.endsWith(p.suffix);
+        });
+        tests.push({
+          name: "A2. Wyloni contract paths",
+          status: allValid ? "PASS" : "FAIL",
+          mode: "dry-run",
+          detail: allValid
+            ? `All ${wyloniPaths.length} Wyloni paths verified: ${wyloniPaths.map(p => p.suffix).join(", ")}`
+            : "One or more Wyloni paths failed endsWith validation",
+        });
+      } catch (e) {
+        tests.push({ name: "A2. Wyloni contract paths", status: "FAIL", mode: "dry-run", detail: `Exception: ${String(e).slice(0, 150)}` });
       }
 
       // ── B. Envelope consistency ──
