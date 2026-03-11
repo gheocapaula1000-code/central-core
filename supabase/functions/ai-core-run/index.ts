@@ -10,22 +10,62 @@ import * as praticaLegal from "./pipelines/pratica_legal.ts";
 import * as wyloniBonus from "./pipelines/wyloni_bonus.ts";
 
 // ═══════════════════════════════════════════════════════════════
-// Rate limiter: max 30 requests per minute per source_app
+// Rate limiter: caller-aware, tiered for trusted vs public
 // ═══════════════════════════════════════════════════════════════
 const RATE_WINDOW_MS = 60_000;
-const RATE_MAX = 30;
+const RATE_MAX_TRUSTED = 300;
+const RATE_MAX_PUBLIC = 30;
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 
-function checkRateLimit(sourceApp: string): boolean {
-  const now = Date.now();
-  const bucket = rateBuckets.get(sourceApp);
-  if (!bucket || now > bucket.resetAt) {
-    rateBuckets.set(sourceApp, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    return true;
+/** Sanitize first IP from x-forwarded-for or cf-connecting-ip */
+function extractClientIp(req: Request): string | null {
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) {
+    const first = xff.split(",")[0].trim();
+    // Basic IP validation: must look like IPv4 or IPv6, no injection
+    if (/^[\da-fA-F.:]+$/.test(first) && first.length <= 45) return first;
   }
-  if (bucket.count >= RATE_MAX) return false;
+  const cfIp = req.headers.get("cf-connecting-ip")?.trim();
+  if (cfIp && /^[\da-fA-F.:]+$/.test(cfIp) && cfIp.length <= 45) return cfIp;
+  return null;
+}
+
+/** Build a rate-limit bucket key based on trust level */
+function buildCallerKey(
+  sourceApp: string,
+  req: Request,
+  body: Record<string, unknown>,
+  trusted: boolean,
+): string {
+  if (trusted) {
+    // Trusted server-to-server: allow body.user_id / x-user-id as discriminator
+    const userId = (body.user_id as string) || req.headers.get("x-user-id") || "";
+    if (userId && /^[\w-]+$/.test(userId)) return `${sourceApp}:trusted:${userId}`;
+    const origin = req.headers.get("origin")?.trim();
+    if (origin) return `${sourceApp}:trusted:${origin}`;
+    return `${sourceApp}:trusted:anonymous`;
+  }
+  // Public path: never trust body.user_id
+  const ip = extractClientIp(req);
+  if (ip) return `${sourceApp}:${ip}`;
+  const origin = req.headers.get("origin")?.trim();
+  if (origin) return `${sourceApp}:${origin}`;
+  return `${sourceApp}:anonymous`;
+}
+
+function checkRateLimit(callerKey: string, maxRate: number): { allowed: boolean; retryAfterSec: number } {
+  const now = Date.now();
+  const bucket = rateBuckets.get(callerKey);
+  if (!bucket || now > bucket.resetAt) {
+    rateBuckets.set(callerKey, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return { allowed: true, retryAfterSec: 0 };
+  }
+  if (bucket.count >= maxRate) {
+    const retryAfterSec = Math.ceil((bucket.resetAt - now) / 1000);
+    return { allowed: false, retryAfterSec };
+  }
   bucket.count++;
-  return true;
+  return { allowed: true, retryAfterSec: 0 };
 }
 
 // Lazy cleanup: purge expired buckets before each check
