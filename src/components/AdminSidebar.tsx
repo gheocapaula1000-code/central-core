@@ -1,4 +1,4 @@
-import { LayoutDashboard, Smartphone, Bot, ClipboardList, KeyRound, BarChart3 } from "lucide-react";
+import { LayoutDashboard, Smartphone, Bot, ClipboardList, KeyRound, BarChart3, ShieldCheck } from "lucide-react";
 import coreIcon from "@/assets/core-icon.png";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -21,6 +21,7 @@ const menuItems = [
   { title: "Task Registry", url: "/tasks", icon: ClipboardList },
   { title: "Chiavi & Sicurezza", url: "/security", icon: KeyRound },
   { title: "Metrics", url: "/metrics", icon: BarChart3 },
+  { title: "Self-Test", url: "/selftest", icon: ShieldCheck },
 ];
 
 export function AdminSidebar() {

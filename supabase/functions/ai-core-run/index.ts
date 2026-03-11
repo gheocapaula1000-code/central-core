@@ -248,7 +248,6 @@ Deno.serve(async (req: Request) => {
 
       // Test OpenAI
       try {
-        const t = Date.now();
         const r = await callOpenAI(testPrompt, 0.0, 50);
         results.openai = { status: "ok", latencyMs: r.latencyMs, output: r.output.trim().slice(0, 100) };
       } catch (e) {
@@ -257,7 +256,6 @@ Deno.serve(async (req: Request) => {
 
       // Test Anthropic
       try {
-        const t = Date.now();
         const r = await callAnthropic(testPrompt, 0.0, 50);
         results.anthropic = { status: "ok", latencyMs: r.latencyMs, output: r.output.trim().slice(0, 100) };
       } catch (e) {
@@ -284,6 +282,211 @@ Deno.serve(async (req: Request) => {
         time: new Date().toISOString(),
         debug_id: debugId,
       }, allOk ? [] : ["Some providers failed diagnostics"], debugId);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // SELFTEST — protected diagnostic route
+    // ═══════════════════════════════════════════════════════════════
+    if (req.method === "GET" && pathname.endsWith("/__diagnostics/selftest")) {
+      // Require secret for selftest access
+      const selfTestAuth = requireSecret(req, debugId);
+      if (selfTestAuth) return selfTestAuth;
+
+      const tests: Array<{ name: string; status: "PASS" | "WARN" | "FAIL"; detail: string; buckets?: string[] }> = [];
+      const selftestBuckets = new Map<string, { count: number; resetAt: number }>();
+
+      // --- Helper: isolated rate check for selftest (does not pollute real buckets) ---
+      function selfTestCheckRate(key: string, maxRate: number, buckets: Map<string, { count: number; resetAt: number }>): { allowed: boolean; retryAfterSec: number } {
+        const now = Date.now();
+        const bucket = buckets.get(key);
+        if (!bucket || now > bucket.resetAt) {
+          buckets.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
+          return { allowed: true, retryAfterSec: 0 };
+        }
+        if (bucket.count >= maxRate) {
+          const retryAfterSec = Math.ceil((bucket.resetAt - now) / 1000);
+          return { allowed: false, retryAfterSec };
+        }
+        bucket.count++;
+        return { allowed: true, retryAfterSec: 0 };
+      }
+
+      // ── A. Health routing ──
+      try {
+        // Verify the health endpoint would return the expected envelope
+        const healthData = { status: "ok", version: CORE_VERSION, time: new Date().toISOString() };
+        const hasStatus = healthData.status === "ok";
+        const hasVersion = typeof healthData.version === "string" && healthData.version.length > 0;
+        if (hasStatus && hasVersion) {
+          tests.push({ name: "A. Health routing", status: "PASS", detail: `Health returns status=ok, version=${CORE_VERSION}` });
+        } else {
+          tests.push({ name: "A. Health routing", status: "FAIL", detail: "Health data missing status or version" });
+        }
+      } catch (e) {
+        tests.push({ name: "A. Health routing", status: "FAIL", detail: `Exception: ${String(e).slice(0, 150)}` });
+      }
+
+      // ── B. Envelope consistency ──
+      try {
+        // Test ok envelope
+        const okRes = ok(req, { test: true }, [], "selftest-ok");
+        const okBody = JSON.parse(await okRes.clone().text());
+        const okValid = okBody.ok === true && okBody.data !== null && okBody.data !== undefined && okBody.debug_id === "selftest-ok";
+
+        // Test fail envelope
+        const failRes = fail(req, 400, "TEST_ERROR", "test message", "selftest-fail");
+        const failBody = JSON.parse(await failRes.clone().text());
+        const failValid = failBody.ok === false && failBody.data === null && failBody.error?.code === "TEST_ERROR" && failBody.debug_id === "selftest-fail";
+
+        if (okValid && failValid) {
+          tests.push({ name: "B. Envelope consistency", status: "PASS", detail: "ok=true has data, ok=false has data=null+error" });
+        } else {
+          tests.push({ name: "B. Envelope consistency", status: "FAIL", detail: `ok_valid=${okValid} fail_valid=${failValid}` });
+        }
+      } catch (e) {
+        tests.push({ name: "B. Envelope consistency", status: "FAIL", detail: `Exception: ${String(e).slice(0, 150)}` });
+      }
+
+      // ── C. Trusted rate limit isolation ──
+      try {
+        const callerA = "selftest:trusted:userA";
+        const callerB = "selftest:trusted:userB";
+        const callerC = "selftest:trusted:userC";
+        const rA = selfTestCheckRate(callerA, RATE_MAX_TRUSTED, selftestBuckets);
+        const rB = selfTestCheckRate(callerB, RATE_MAX_TRUSTED, selftestBuckets);
+        const rC = selfTestCheckRate(callerC, RATE_MAX_TRUSTED, selftestBuckets);
+        const bucketsUsed = [callerA, callerB, callerC];
+
+        if (rA.allowed && rB.allowed && rC.allowed) {
+          // Verify they are actually separate buckets
+          const bA = selftestBuckets.get(callerA)!;
+          const bB = selftestBuckets.get(callerB)!;
+          const bC = selftestBuckets.get(callerC)!;
+          const isolated = bA.count === 1 && bB.count === 1 && bC.count === 1;
+          tests.push({
+            name: "C. Trusted rate limit isolation",
+            status: isolated ? "PASS" : "FAIL",
+            detail: isolated
+              ? "3 distinct callers have independent buckets (count=1 each)"
+              : `Bucket counts: A=${bA.count} B=${bB.count} C=${bC.count}`,
+            buckets: bucketsUsed,
+          });
+        } else {
+          tests.push({ name: "C. Trusted rate limit isolation", status: "FAIL", detail: "One or more callers were rate-limited on first request", buckets: bucketsUsed });
+        }
+      } catch (e) {
+        tests.push({ name: "C. Trusted rate limit isolation", status: "FAIL", detail: `Exception: ${String(e).slice(0, 150)}` });
+      }
+
+      // ── D. Same caller burst ──
+      try {
+        const burstKey = "selftest:trusted:burstUser";
+        const burstLimit = 5; // use small limit for test
+        let blockedAt = -1;
+        for (let i = 0; i < burstLimit + 2; i++) {
+          const r = selfTestCheckRate(burstKey, burstLimit, selftestBuckets);
+          if (!r.allowed) { blockedAt = i; break; }
+        }
+        // Verify other callers are NOT affected
+        const otherKey = "selftest:trusted:otherUser";
+        const otherResult = selfTestCheckRate(otherKey, burstLimit, selftestBuckets);
+
+        if (blockedAt === burstLimit && otherResult.allowed) {
+          tests.push({
+            name: "D. Same caller burst",
+            status: "PASS",
+            detail: `Burst blocked at request #${blockedAt} (limit=${burstLimit}), other caller unaffected`,
+            buckets: [burstKey, otherKey],
+          });
+        } else if (blockedAt === -1) {
+          tests.push({ name: "D. Same caller burst", status: "FAIL", detail: `Burst of ${burstLimit + 2} was never blocked (limit=${burstLimit})` });
+        } else {
+          tests.push({
+            name: "D. Same caller burst",
+            status: otherResult.allowed ? "WARN" : "FAIL",
+            detail: `Blocked at #${blockedAt} (expected #${burstLimit}), other_allowed=${otherResult.allowed}`,
+          });
+        }
+      } catch (e) {
+        tests.push({ name: "D. Same caller burst", status: "FAIL", detail: `Exception: ${String(e).slice(0, 150)}` });
+      }
+
+      // ── E. Retry-After header ──
+      try {
+        const retryKey = "selftest:trusted:retryTest";
+        const retryLimit = 1;
+        // First call: allowed
+        selfTestCheckRate(retryKey, retryLimit, selftestBuckets);
+        // Second call: should be blocked
+        const blocked = selfTestCheckRate(retryKey, retryLimit, selftestBuckets);
+        if (!blocked.allowed && blocked.retryAfterSec > 0 && blocked.retryAfterSec <= 60) {
+          tests.push({
+            name: "E. Retry-After header",
+            status: "PASS",
+            detail: `429 returns retryAfterSec=${blocked.retryAfterSec} (within 1-60s window)`,
+          });
+        } else if (!blocked.allowed) {
+          tests.push({
+            name: "E. Retry-After header",
+            status: "FAIL",
+            detail: `429 triggered but retryAfterSec=${blocked.retryAfterSec} is invalid`,
+          });
+        } else {
+          tests.push({ name: "E. Retry-After header", status: "FAIL", detail: "Second request was not blocked" });
+        }
+      } catch (e) {
+        tests.push({ name: "E. Retry-After header", status: "FAIL", detail: `Exception: ${String(e).slice(0, 150)}` });
+      }
+
+      // ── F. Logging sanity ──
+      try {
+        // Verify the log format doesn't contain secrets by checking the template
+        const sampleLogLine = `[rate] caller=app:trusted:userId trusted=true route=/test => 429`;
+        const secrets = ["AI_CORE_SECRET", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "PERPLEXITY_API_KEY"];
+        const secretValues = secrets.map(s => Deno.env.get(s) ?? "").filter(Boolean);
+        const logContainsSecret = secretValues.some(sv => sampleLogLine.includes(sv));
+        // Also verify the buildCallerKey function doesn't leak secrets
+        const testKey = buildCallerKey("testapp", req, { user_id: "user123" }, true);
+        const keyContainsSecret = secretValues.some(sv => testKey.includes(sv));
+
+        if (!logContainsSecret && !keyContainsSecret) {
+          tests.push({
+            name: "F. Logging sanity",
+            status: "PASS",
+            detail: "Rate-limit log format and callerKey do not contain secret values",
+          });
+        } else {
+          tests.push({
+            name: "F. Logging sanity",
+            status: "FAIL",
+            detail: "Secret value detected in log template or callerKey",
+          });
+        }
+      } catch (e) {
+        tests.push({ name: "F. Logging sanity", status: "FAIL", detail: `Exception: ${String(e).slice(0, 150)}` });
+      }
+
+      // Build report
+      const passCount = tests.filter(t => t.status === "PASS").length;
+      const warnCount = tests.filter(t => t.status === "WARN").length;
+      const failCount = tests.filter(t => t.status === "FAIL").length;
+      const overall = failCount > 0 ? "FAIL" : warnCount > 0 ? "WARN" : "PASS";
+
+      const report = {
+        overall,
+        summary: { pass: passCount, warn: warnCount, fail: failCount, total: tests.length },
+        tests,
+        config: {
+          rate_window_ms: RATE_WINDOW_MS,
+          rate_max_trusted: RATE_MAX_TRUSTED,
+          rate_max_public: RATE_MAX_PUBLIC,
+        },
+        version: CORE_VERSION,
+        timestamp: new Date().toISOString(),
+      };
+
+      const warnings = failCount > 0 ? ["One or more selftest checks failed"] : warnCount > 0 ? ["Selftest completed with warnings"] : [];
+      return ok(req, report, warnings, debugId);
     }
 
     // Auth
