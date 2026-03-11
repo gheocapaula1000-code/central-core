@@ -8,6 +8,7 @@ interface SelftestResult {
   name: string;
   status: "PASS" | "WARN" | "FAIL";
   detail: string;
+  mode?: "reale" | "simulato" | "dry-run";
   buckets?: string[];
 }
 
@@ -31,6 +32,16 @@ const statusBadge = (s: "PASS" | "WARN" | "FAIL") => {
   return <Badge variant={variant}>{s}</Badge>;
 };
 
+const modeBadge = (mode?: "reale" | "simulato" | "dry-run") => {
+  if (!mode) return null;
+  const colors: Record<string, string> = {
+    reale: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+    simulato: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+    "dry-run": "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  };
+  return <Badge variant="outline" className={`text-[10px] ${colors[mode]}`}>{mode}</Badge>;
+};
+
 export default function SelftestPage() {
   const [report, setReport] = useState<SelftestReport | null>(null);
   const [loading, setLoading] = useState(false);
@@ -39,7 +50,7 @@ export default function SelftestPage() {
 
   const runSelftest = async () => {
     if (!secret.trim()) {
-      setError("Inserisci il secret diagnostico (AI_CORE_SECRET)");
+      setError("Inserisci il secret diagnostico (DIAGNOSTIC_SELFTEST_SECRET)");
       return;
     }
     setLoading(true);
@@ -83,7 +94,7 @@ export default function SelftestPage() {
           <div className="flex gap-2">
             <input
               type="password"
-              placeholder="Secret diagnostico"
+              placeholder="DIAGNOSTIC_SELFTEST_SECRET"
               value={secret}
               onChange={(e) => setSecret(e.target.value)}
               className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -135,9 +146,10 @@ export default function SelftestPage() {
                   <div className="flex items-start gap-3">
                     {statusIcon(test.status)}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium text-sm text-foreground">{test.name}</span>
                         {statusBadge(test.status)}
+                        {modeBadge(test.mode)}
                       </div>
                       <p className="text-xs text-muted-foreground mt-1 font-mono break-all">{test.detail}</p>
                       {test.buckets && (
