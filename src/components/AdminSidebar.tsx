@@ -36,7 +36,7 @@ export function AdminSidebar() {
           <img src={coreIcon} alt="Central Core" className="h-7 w-7 rounded shrink-0" />
           {!collapsed && (
             <span className="font-bold text-lg tracking-tight text-foreground">
-              Core v3
+              Core V3
             </span>
           )}
         </div>
