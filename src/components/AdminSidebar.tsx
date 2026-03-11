@@ -21,6 +21,7 @@ const menuItems = [
   { title: "Task Registry", url: "/tasks", icon: ClipboardList },
   { title: "Chiavi & Sicurezza", url: "/security", icon: KeyRound },
   { title: "Metrics", url: "/metrics", icon: BarChart3 },
+  { title: "Self-Test", url: "/selftest", icon: ShieldCheck },
 ];
 
 export function AdminSidebar() {

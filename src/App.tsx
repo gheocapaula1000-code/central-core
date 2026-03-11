@@ -37,6 +37,7 @@ const App = () => (
                   <Route path="/tasks" element={<TasksPage />} />
                   <Route path="/security" element={<SecurityPage />} />
                   <Route path="/metrics" element={<MetricsPage />} />
+                  <Route path="/selftest" element={<SelftestPage />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </main>
