@@ -245,17 +245,24 @@ describe("Sottra contract — secret headers", () => {
 
 describe("Sottra contract — health endpoint", () => {
   it("health data has status, engine, version, routes", () => {
+    const expectedRoutes = [
+      "scan/identify", "scan/cadastral", "scan/pricing", "scan/listings",
+      "scan/energy", "scan/condominio", "scan/storico-transazioni",
+      "forecast/moodscore", "forecast/timeview", "forecast/opportunity",
+      "forecast/infrastrutture", "forecast/rischio-zona", "forecast/trend-demografico",
+      "forecast/sviluppo-area", "forecast/convergenza-territoriale",
+    ];
     const data = {
       status: "healthy",
       engine: "sottra",
       version: "3.3.0",
-      routes: ["scan/identify", "scan/pricing", "forecast/convergenza-territoriale"],
+      routes: expectedRoutes,
       time: new Date().toISOString(),
     };
     expect(data.status).toBe("healthy");
     expect(data.engine).toBe("sottra");
     expect(data.version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(Array.isArray(data.routes)).toBe(true);
-    expect(data.routes.length).toBeGreaterThanOrEqual(15);
+    expect(data.routes).toHaveLength(15);
   });
 });
