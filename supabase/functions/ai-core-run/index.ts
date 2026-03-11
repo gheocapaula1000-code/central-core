@@ -305,7 +305,7 @@ Deno.serve(async (req: Request) => {
         return fail(req, 401, "DIAG_SECRET_REQUIRED", "Invalid or missing diagnostic secret", debugId);
       }
 
-      const tests: Array<{ name: string; status: "PASS" | "WARN" | "FAIL"; detail: string; buckets?: string[] }> = [];
+      const tests: Array<{ name: string; status: "PASS" | "WARN" | "FAIL"; detail: string; mode: "reale" | "simulato" | "dry-run"; buckets?: string[] }> = [];
       const selftestBuckets = new Map<string, { count: number; resetAt: number }>();
 
       // --- Helper: isolated rate check for selftest (does not pollute real buckets) ---
