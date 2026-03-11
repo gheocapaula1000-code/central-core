@@ -37,6 +37,9 @@ import {
 // ── Sviluppo Area handler ──
 import { handleForecastSviluppoArea } from "./sviluppo-area.ts";
 
+// ── ICTV Convergenza Territoriale handler ──
+import { handleForecastConvergenzaTerritoriale } from "./convergenza-territoriale.ts";
+
 // ═══════════════════════════════════════════════════════════════
 // ROUTER
 // ═══════════════════════════════════════════════════════════════
