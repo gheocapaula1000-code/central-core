@@ -37,6 +37,9 @@ import {
 // ── Sviluppo Area handler ──
 import { handleForecastSviluppoArea } from "./sviluppo-area.ts";
 
+// ── ICTV Convergenza Territoriale handler ──
+import { handleForecastConvergenzaTerritoriale } from "./convergenza-territoriale.ts";
+
 // ═══════════════════════════════════════════════════════════════
 // ROUTER
 // ═══════════════════════════════════════════════════════════════
@@ -58,6 +61,8 @@ const ROUTES: Record<string, (req: Request, body: Record<string, unknown>, debug
   "forecast/rischio-zona":     handleForecastRischioZona,
   "forecast/trend-demografico": handleForecastTrendDemografico,
   "forecast/sviluppo-area":    handleForecastSviluppoArea,
+  // Motore ICTV (1)
+  "forecast/convergenza-territoriale": handleForecastConvergenzaTerritoriale,
 };
 
 Deno.serve(async (req) => {
