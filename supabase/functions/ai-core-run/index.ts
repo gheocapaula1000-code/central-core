@@ -288,9 +288,22 @@ Deno.serve(async (req: Request) => {
     // SELFTEST — protected diagnostic route
     // ═══════════════════════════════════════════════════════════════
     if (req.method === "GET" && pathname.endsWith("/__diagnostics/selftest")) {
-      // Require secret for selftest access
-      const selfTestAuth = requireSecret(req, debugId);
-      if (selfTestAuth) return selfTestAuth;
+      // Require dedicated diagnostic secret (separate from main AI_CORE_SECRET)
+      const diagSecret = Deno.env.get("DIAGNOSTIC_SELFTEST_SECRET") ?? "";
+      if (!diagSecret) {
+        console.error("[selftest] DIAGNOSTIC_SELFTEST_SECRET not configured");
+        return fail(req, 500, "CONFIG_ERROR", "Diagnostic secret not configured", debugId);
+      }
+      const incoming =
+        req.headers.get("x-internal-secret") ??
+        req.headers.get("x-app-secret") ??
+        req.headers.get("x-core-secret") ??
+        (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "") ??
+        "";
+      if (!incoming || !constantTimeEqual(incoming, diagSecret)) {
+        console.warn(`[selftest] rejected — invalid or missing diagnostic secret`);
+        return fail(req, 401, "DIAG_SECRET_REQUIRED", "Invalid or missing diagnostic secret", debugId);
+      }
 
       const tests: Array<{ name: string; status: "PASS" | "WARN" | "FAIL"; detail: string; buckets?: string[] }> = [];
       const selftestBuckets = new Map<string, { count: number; resetAt: number }>();
