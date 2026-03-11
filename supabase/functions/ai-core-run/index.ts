@@ -339,15 +339,7 @@ Deno.serve(async (req: Request) => {
       return res;
     }
 
-    // Parse body
-    const rawBody = await req.text();
-    if (rawBody.length > 100_000) {
-      return fail(req, 413, "PAYLOAD_TOO_LARGE", "Request body exceeds 100KB limit", debugId);
-    }
-    let body: Record<string, unknown> = {};
-    try { body = JSON.parse(rawBody); } catch {
-      return fail(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId);
-    }
+
 
     // ── Tariffs compare ────────────────────────────────────────
     if (pathname.endsWith("/tariffs/compare")) {
