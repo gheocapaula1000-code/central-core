@@ -16,6 +16,10 @@ export interface OMIResult {
   tipologia?: string;
   stato?: string;
   fonte: string;
+  /** Confidence of the OMI zone match (0-1). Below 0.5 = not publishable. */
+  matchConfidence: number;
+  /** How the zone was determined */
+  matchMethod: "single_zone" | "ai_matched" | "ai_fallback" | "first_zone_fallback" | "none";
   tutteZone?: Array<{
     zona: string;
     zona_descr: string;
@@ -56,11 +60,12 @@ function extractComune(address: string): string {
 /**
  * Lookup OMI data for a given address.
  * AI is used ONLY to identify the correct OMI zone — prices come from the DB.
+ * Returns matchConfidence to let callers gate on data quality.
  */
 export async function lookupOMI(address: string, codTip = 20): Promise<OMIResult> {
   const FONTE = "Agenzia Entrate — OMI, 1° semestre 2025";
   const comuneStr = extractComune(address);
-  if (!comuneStr) return { found: false, fonte: FONTE };
+  if (!comuneStr) return { found: false, fonte: FONTE, matchConfidence: 0, matchMethod: "none" };
 
   const supabase = getSupabase();
 
@@ -71,7 +76,7 @@ export async function lookupOMI(address: string, codTip = 20): Promise<OMIResult
     .ilike("comune_descrizione", comuneStr);
 
   if (zoneErr || !zone || zone.length === 0) {
-    return { found: false, fonte: FONTE };
+    return { found: false, fonte: FONTE, matchConfidence: 0, matchMethod: "none" };
   }
 
   // 2. Get values for all zones of this comune (filtered by tipologia)
@@ -90,7 +95,7 @@ export async function lookupOMI(address: string, codTip = 20): Promise<OMIResult
       .in("link_zona", linkZone);
 
     if (!allValori || allValori.length === 0) {
-      return { found: false, fonte: FONTE };
+      return { found: false, fonte: FONTE, matchConfidence: 0, matchMethod: "none" };
     }
   }
 
@@ -111,10 +116,17 @@ export async function lookupOMI(address: string, codTip = 20): Promise<OMIResult
     };
   });
 
-  // 4. Use AI ONLY to identify the correct zone
+  // 4. Determine best zone with explicit confidence tracking
   let bestZone = zoneSummary[0];
+  let matchConfidence: number;
+  let matchMethod: OMIResult["matchMethod"];
 
-  if (zoneSummary.length > 1) {
+  if (zoneSummary.length === 1) {
+    // Single zone — high confidence
+    matchConfidence = 0.95;
+    matchMethod = "single_zone";
+  } else {
+    // Multiple zones — need AI to pick
     const zoneList = zoneSummary
       .map((z) => `- ${z.zona}: ${z.zona_descr}`)
       .join("\n");
@@ -129,9 +141,19 @@ Rispondi SOLO con il codice zona (es. "B1", "C3", "D1"). Nient'altro.`;
       const output = await callAI(prompt, 20, 0.1);
       const zonaCodice = output.trim().replace(/[^A-Za-z0-9]/g, "").toUpperCase();
       const match = zoneSummary.find((z) => (z.zona as string).toUpperCase() === zonaCodice);
-      if (match) bestZone = match;
+      if (match) {
+        bestZone = match;
+        matchConfidence = 0.70; // AI matched — decent but not certain
+        matchMethod = "ai_matched";
+      } else {
+        // AI responded but with an unrecognized zone code — low confidence
+        matchConfidence = 0.25;
+        matchMethod = "ai_fallback";
+      }
     } catch {
-      // Use first zone as fallback
+      // AI failed entirely — first zone fallback, very low confidence
+      matchConfidence = 0.20;
+      matchMethod = "first_zone_fallback";
     }
   }
 
@@ -154,6 +176,8 @@ Rispondi SOLO con il codice zona (es. "B1", "C3", "D1"). Nient'altro.`;
     tipologia: (bestZone.tipologia as string) || "Abitazioni civili",
     stato: "NORMALE",
     fonte: FONTE,
+    matchConfidence,
+    matchMethod,
     tutteZone: zoneSummary.map((z) => ({
       zona: z.zona as string,
       zona_descr: z.zona_descr as string,

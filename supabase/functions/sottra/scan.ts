@@ -1,9 +1,13 @@
 // Sottra — Motore Scan handlers (7 endpoints)
 // POLICY: Only real data from official sources. No AI-invented results.
+// DATA RIGOR: No fake mediaZona, no hardcoded trend5Anni, confidence-gated pricing.
 
 import { ok, fail } from "../_shared/http.ts";
 import { callAI, callAIVision, parseJSON, reverseGeocode } from "./shared.ts";
 import { lookupOMI } from "./omi-lookup.ts";
+
+/** Minimum OMI match confidence to publish pricing as "official" */
+const OMI_PUBLISH_THRESHOLD = 0.50;
 
 /** POST /sottra/scan/identify — photo + GPS → address + building ID */
 export async function handleScanIdentify(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
@@ -61,7 +65,7 @@ export async function handleScanCadastral(req: Request, body: Record<string, unk
   }, ["Dati catastali non disponibili — fonte reale non integrata"], debugId);
 }
 
-/** POST /sottra/scan/pricing — address → price/sqm data (OMI real data) */
+/** POST /sottra/scan/pricing — address → price/sqm data (OMI real data, confidence-gated) */
 export async function handleScanPricing(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const address = (body.address as string) ?? "";
   if (!address) return fail(req, 400, "MISSING_ADDRESS", "Provide address", debugId);
@@ -70,13 +74,46 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
     const omi = await lookupOMI(address);
 
     if (omi.found && omi.compr_min != null && omi.compr_max != null) {
-      // Real OMI data found — return actual prices
+      // Check confidence gate — refuse to publish weak matches as official
+      if (omi.matchConfidence < OMI_PUBLISH_THRESHOLD) {
+        return ok(req, {
+          prezzoMq: null,
+          prezzoMqMin: null,
+          prezzoMqMax: null,
+          mediaZona: null,
+          trend5Anni: null,
+          locazioneMqMin: omi.loc_min ?? null,
+          locazioneMqMax: omi.loc_max ?? null,
+          zona: omi.zona,
+          zonaDescrizione: omi.zona_descr,
+          comune: omi.comune,
+          tipologia: omi.tipologia,
+          fonte: omi.fonte,
+          omiMatchConfidence: omi.matchConfidence,
+          omiMatchMethod: omi.matchMethod,
+          tutteZone: omi.tutteZone,
+          sourceLabel: "Agenzia delle Entrate — Osservatorio Mercato Immobiliare",
+          sourceType: "unavailable",
+          sourcePeriod: "1° semestre 2025",
+          confidenceReason: `Match zona OMI insufficiente (confidence: ${(omi.matchConfidence * 100).toFixed(0)}%, metodo: ${omi.matchMethod}) — prezzi non pubblicabili`,
+          limitations: [
+            `Zona OMI determinata con confidenza ${(omi.matchConfidence * 100).toFixed(0)}% (soglia minima: ${(OMI_PUBLISH_THRESHOLD * 100).toFixed(0)}%)`,
+            `Metodo di match: ${omi.matchMethod} — non sufficientemente affidabile per pubblicazione`,
+            "I dati OMI esistono per il comune ma il match indirizzo→zona non è abbastanza solido",
+            "Consultare direttamente le quotazioni OMI per tutte le zone nel campo tutteZone",
+          ],
+        }, [`Match zona OMI debole (${(omi.matchConfidence * 100).toFixed(0)}%) — prezzi non pubblicati`], debugId);
+      }
+
+      // Real OMI data found with sufficient confidence — return actual prices
       return ok(req, {
         prezzoMq: omi.prezzoMedio,
         prezzoMqMin: omi.compr_min,
         prezzoMqMax: omi.compr_max,
-        mediaZona: omi.prezzoMedio,
-        trend5Anni: 0,
+        // mediaZona: null — not a distinct metric, would just duplicate prezzoMq
+        mediaZona: null,
+        // trend5Anni: null — no real multi-year calculation implemented
+        trend5Anni: null,
         locazioneMqMin: omi.loc_min ?? null,
         locazioneMqMax: omi.loc_max ?? null,
         zona: omi.zona,
@@ -84,15 +121,18 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
         comune: omi.comune,
         tipologia: omi.tipologia,
         fonte: omi.fonte,
+        omiMatchConfidence: omi.matchConfidence,
+        omiMatchMethod: omi.matchMethod,
         tutteZone: omi.tutteZone,
         sourceLabel: "Agenzia delle Entrate — Osservatorio Mercato Immobiliare",
         sourceType: "official",
         sourcePeriod: "1° semestre 2025",
-        confidenceReason: "Prezzi ufficiali OMI per la zona identificata tramite matching indirizzo-zona",
+        confidenceReason: `Prezzi ufficiali OMI — zona ${omi.zona} (${omi.zona_descr}), match confidence: ${(omi.matchConfidence * 100).toFixed(0)}%`,
         limitations: [
           "Prezzi espressi come range min/max per tipologia e stato conservativo",
-          "Matching zona basato su geocoding e identificazione automatica",
+          `Match zona basato su ${omi.matchMethod === "single_zone" ? "zona unica nel comune" : "identificazione AI dell'indirizzo"}`,
           "Dati riferiti a valori normali di mercato (non valori di realizzo o giudiziari)",
+          "mediaZona e trend5Anni non disponibili — nessuna fonte reale per queste metriche",
         ],
       }, ["Prezzi ufficiali Agenzia Entrate — OMI, 1° semestre 2025"], debugId);
     }
@@ -111,6 +151,8 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
       comune: omi.comune ?? null,
       tipologia: null,
       fonte: "Agenzia Entrate — OMI, 1° semestre 2025",
+      omiMatchConfidence: 0,
+      omiMatchMethod: omi.matchMethod,
       tutteZone: null,
       sourceLabel: "Agenzia delle Entrate — Osservatorio Mercato Immobiliare",
       sourceType: "unavailable",
