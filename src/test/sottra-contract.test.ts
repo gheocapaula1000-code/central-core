@@ -720,7 +720,7 @@ describe("Sottra contract — geo confidence merge", () => {
   it("disagreement penalty applies", () => {
     const baseConfidence = 0.70;
     const withDisagreement = baseConfidence - GEO_GATING.DISAGREEMENT_PENALTY;
-    expect(withDisagreement).toBe(0.55);
+    expect(withDisagreement).toBeCloseTo(0.55, 10);
     expect(withDisagreement).toBeLessThan(baseConfidence);
   });
 
