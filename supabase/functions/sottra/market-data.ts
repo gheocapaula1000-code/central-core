@@ -160,14 +160,121 @@ export const MARKET_DATA_POLICY = {
 
 // ── Provider Chain ────────────────────────────────────────────
 
+// ── Provider Response Parsing ─────────────────────────────────
+
+/** Flexible field extraction — handles multiple API response shapes */
+function extractListings(data: unknown): Record<string, unknown>[] {
+  if (!data || typeof data !== "object") return [];
+  const d = data as Record<string, unknown>;
+  // Support common response shapes: { listings }, { results }, { data }, { items }, { properties }
+  for (const key of ["listings", "results", "data", "items", "properties", "comparables"]) {
+    if (Array.isArray(d[key])) return d[key] as Record<string, unknown>[];
+  }
+  // Top-level array
+  if (Array.isArray(data)) return data as Record<string, unknown>[];
+  return [];
+}
+
+/** Normalize a single listing from any provider format */
+function normalizeListing(l: Record<string, unknown>, providerName: string): ComparableListing {
+  // Price extraction — try multiple field names
+  const askingPrice = numOrNull(l.price) ?? numOrNull(l.askingPrice) ?? numOrNull(l.prezzo) ?? numOrNull(l.amount);
+  const areaSqm = numOrNull(l.areaSqm) ?? numOrNull(l.area) ?? numOrNull(l.superficie) ?? numOrNull(l.sqm) ?? numOrNull(l.size);
+  let pricePerSqm = numOrNull(l.pricePerSqm) ?? numOrNull(l.prezzoMq) ?? numOrNull(l.price_per_sqm);
+  // Compute if missing
+  if (pricePerSqm == null && askingPrice != null && areaSqm != null && areaSqm > 0) {
+    pricePerSqm = Math.round(askingPrice / areaSqm);
+  }
+
+  // Listing age — try multiple field names + compute from dates
+  let listingAgeDays = numOrNull(l.listingAgeDays) ?? numOrNull(l.age_days) ?? numOrNull(l.days_on_market);
+  if (listingAgeDays == null) {
+    const dateStr = strOrNull(l.publishedAt) ?? strOrNull(l.created_at) ?? strOrNull(l.date) ?? strOrNull(l.firstSeen);
+    if (dateStr) {
+      try {
+        const diff = Date.now() - new Date(dateStr).getTime();
+        if (diff > 0) listingAgeDays = Math.floor(diff / 86400000);
+      } catch { /* skip */ }
+    }
+  }
+
+  // Status normalization
+  const rawStatus = strOrNull(l.status) ?? strOrNull(l.stato) ?? "";
+  let status: ComparableListing["status"] = "unknown";
+  if (["active", "attivo", "online", "available"].includes(rawStatus.toLowerCase())) status = "active";
+  else if (["stale", "stagnante", "expired"].includes(rawStatus.toLowerCase())) status = "stale";
+  else if (["removed", "rimosso", "sold", "venduto", "offline"].includes(rawStatus.toLowerCase())) status = "removed";
+
+  return {
+    provider: providerName,
+    listingId: strOrNull(l.id) ?? strOrNull(l.listingId) ?? strOrNull(l.listing_id) ?? null,
+    addressFragment: strOrNull(l.address) ?? strOrNull(l.indirizzo) ?? null,
+    street: strOrNull(l.street) ?? strOrNull(l.via) ?? null,
+    houseNumber: strOrNull(l.houseNumber) ?? strOrNull(l.civico) ?? strOrNull(l.house_number) ?? null,
+    city: strOrNull(l.city) ?? strOrNull(l.comune) ?? strOrNull(l.citta) ?? null,
+    lat: numOrNull(l.lat) ?? numOrNull(l.latitude) ?? null,
+    lng: numOrNull(l.lng) ?? numOrNull(l.longitude) ?? numOrNull(l.lon) ?? null,
+    propertyType: strOrNull(l.propertyType) ?? strOrNull(l.tipologia) ?? strOrNull(l.type) ?? null,
+    askingPrice,
+    pricePerSqm,
+    areaSqm,
+    rooms: numOrNull(l.rooms) ?? numOrNull(l.locali) ?? numOrNull(l.vani) ?? null,
+    floor: numOrNull(l.floor) ?? numOrNull(l.piano) ?? null,
+    condition: strOrNull(l.condition) ?? strOrNull(l.stato_conservativo) ?? null,
+    energyClass: strOrNull(l.energyClass) ?? strOrNull(l.classe_energetica) ?? strOrNull(l.energy_class) ?? null,
+    listingAgeDays,
+    lastSeenAt: strOrNull(l.lastSeenAt) ?? strOrNull(l.last_seen) ?? strOrNull(l.updated_at) ?? null,
+    status,
+    confidence: typeof l.confidence === "number" ? Math.min(1, Math.max(0, l.confidence)) : 0.5,
+    limitations: [],
+  };
+}
+
+function numOrNull(v: unknown): number | null {
+  return typeof v === "number" && isFinite(v) ? v : null;
+}
+
+function strOrNull(v: unknown): string | null {
+  return typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+}
+
+// ── Source Class Classification ──────────────────────────────
+
+/** Classify provider sourceClass based on data quality */
+function classifyProviderSourceClass(
+  comparables: ComparableListing[],
+  hasStreetLevel: boolean,
+): MarketSourceClass {
+  if (comparables.length === 0) return "unavailable";
+  // Count listings with strong pricing data
+  const withPrice = comparables.filter(c => c.pricePerSqm != null && c.pricePerSqm > 0);
+  const priceRatio = withPrice.length / comparables.length;
+  // Count listings with address-level detail
+  const withAddress = comparables.filter(c => c.street != null);
+  const addressRatio = withAddress.length / comparables.length;
+
+  if (comparables.length >= MARKET_DATA_POLICY.MIN_COMPARABLES_GOOD &&
+      priceRatio >= 0.80 && addressRatio >= 0.60 && hasStreetLevel) {
+    return "commercial_verified";
+  }
+  if (comparables.length >= MARKET_DATA_POLICY.MIN_COMPARABLES_PUBLISHABLE && priceRatio >= 0.50) {
+    return "commercial_partial";
+  }
+  return "unavailable";
+}
+
 /**
  * Generic market data provider — env-driven, named abstractly.
- * Activate by setting MARKET_PROVIDER_1_API_KEY, MARKET_PROVIDER_1_BASE_URL, etc.
+ * Activate by setting MARKET_PROVIDER_X_API_KEY, MARKET_PROVIDER_X_BASE_URL.
+ * Production-ready: retry, timeout, flexible parsing, sanitized output.
  */
 class GenericMarketProvider implements MarketDataProviderAdapter {
   readonly name: string;
   readonly priority: number;
   private readonly envKeyPrefix: string;
+  private static readonly REQUEST_TIMEOUT_MS = 15_000;
+  private static readonly MAX_RETRIES = 1;
+  private static readonly RETRY_DELAY_MS = 2_000;
 
   constructor(name: string, priority: number, envKeyPrefix: string) {
     this.name = name;
@@ -184,84 +291,132 @@ class GenericMarketProvider implements MarketDataProviderAdapter {
     const baseUrl = Deno.env.get(`${this.envKeyPrefix}_BASE_URL`);
     if (!apiKey || !baseUrl) return null;
 
-    const { signal, clear } = withAbort(15_000);
-    try {
-      const res = await fetch(`${baseUrl}/search`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          lat: input.lat,
-          lng: input.lng,
-          comune: input.comune,
-          address: input.address,
-          radiusKm: MARKET_DATA_POLICY.MAX_COMPARABLE_DISTANCE_KM,
-          propertyType: input.propertyType ?? "residenziale",
-        }),
-        signal,
-      });
+    // Build request body — support multiple API contract shapes
+    const requestBody = {
+      lat: input.lat,
+      lng: input.lng,
+      comune: input.comune,
+      address: input.address,
+      street: input.street ?? undefined,
+      houseNumber: input.houseNumber ?? undefined,
+      provincia: input.provincia ?? undefined,
+      radiusKm: MARKET_DATA_POLICY.MAX_COMPARABLE_DISTANCE_KM,
+      propertyType: input.propertyType ?? "residenziale",
+      areaSqm: input.areaSqm ?? undefined,
+      maxResults: 50,
+      maxAgeDays: MARKET_DATA_POLICY.FRESHNESS_MAX_DAYS,
+    };
 
-      if (!res.ok) {
-        return {
-          provider: this.name,
-          available: false,
-          sourceClass: "unavailable",
-          areaLevel: "city",
-          comparables: [],
-          signals: [],
-          confidence: 0,
-          limitations: [`Provider ${this.name} returned HTTP ${res.status}`],
-          error: `HTTP ${res.status}`,
-        };
+    // Attempt with retry
+    let lastError = "";
+    for (let attempt = 0; attempt <= GenericMarketProvider.MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        await new Promise(r => setTimeout(r, GenericMarketProvider.RETRY_DELAY_MS));
       }
 
-      const data = await res.json();
-      const listings = Array.isArray(data?.listings) ? data.listings : [];
+      const { signal, clear } = withAbort(GenericMarketProvider.REQUEST_TIMEOUT_MS);
+      try {
+        // Sanitize URL — strip trailing slash, append /search
+        const cleanBase = baseUrl.replace(/\/+$/, "");
+        const res = await fetch(`${cleanBase}/search`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify(requestBody),
+          signal,
+        });
 
-      const comparables: ComparableListing[] = listings.map((l: Record<string, unknown>) => ({
-        provider: this.name,
-        listingId: (l.id as string) ?? null,
-        addressFragment: (l.address as string) ?? null,
-        street: (l.street as string) ?? null,
-        houseNumber: (l.houseNumber as string) ?? null,
-        city: (l.city as string) ?? null,
-        lat: typeof l.lat === "number" ? l.lat : null,
-        lng: typeof l.lng === "number" ? l.lng : null,
-        propertyType: (l.propertyType as string) ?? null,
-        askingPrice: typeof l.price === "number" ? l.price : null,
-        pricePerSqm: typeof l.pricePerSqm === "number" ? l.pricePerSqm : null,
-        areaSqm: typeof l.areaSqm === "number" ? l.areaSqm : null,
-        rooms: typeof l.rooms === "number" ? l.rooms : null,
-        floor: typeof l.floor === "number" ? l.floor : null,
-        condition: (l.condition as string) ?? null,
-        energyClass: (l.energyClass as string) ?? null,
-        listingAgeDays: typeof l.listingAgeDays === "number" ? l.listingAgeDays : null,
-        lastSeenAt: (l.lastSeenAt as string) ?? null,
-        status: (["active", "stale", "removed"] as const).includes(l.status as "active")
-          ? (l.status as ComparableListing["status"]) : "unknown",
-        confidence: typeof l.confidence === "number" ? l.confidence : 0.5,
-        limitations: [],
-      }));
+        if (!res.ok) {
+          // Consume body to prevent resource leak
+          await res.text().catch(() => {});
+          // Retry on 5xx / 429, fail fast on 4xx
+          if (res.status >= 500 || res.status === 429) {
+            lastError = `HTTP ${res.status}`;
+            continue; // retry
+          }
+          return {
+            provider: this.name,
+            available: false,
+            sourceClass: "unavailable",
+            areaLevel: "city",
+            comparables: [],
+            signals: [],
+            confidence: 0,
+            limitations: [`Provider returned HTTP ${res.status}`],
+            error: `HTTP ${res.status}`,
+          };
+        }
 
-      return {
-        provider: this.name,
-        available: true,
-        sourceClass: comparables.length >= MARKET_DATA_POLICY.MIN_COMPARABLES_PUBLISHABLE
-          ? "commercial_verified" : "commercial_partial",
-        areaLevel: comparables.some(c => c.street) ? "microzona" : "city",
-        comparables,
-        signals: [],
-        confidence: Math.min(1, comparables.length / 10),
-        limitations: [],
-      };
-    } catch (e) {
-      console.warn(`[market:${this.name}] Error: ${String(e).slice(0, 80)}`);
-      return null;
-    } finally {
-      clear();
+        const data = await res.json();
+        const rawListings = extractListings(data);
+
+        // Normalize all listings
+        const comparables = rawListings.map(l => normalizeListing(l, this.name));
+
+        // Must have at least some price data to be useful
+        const withPrice = comparables.filter(c => c.pricePerSqm != null || c.askingPrice != null);
+        if (withPrice.length === 0 && comparables.length > 0) {
+          return {
+            provider: this.name,
+            available: false,
+            sourceClass: "unavailable",
+            areaLevel: "city",
+            comparables: [],
+            signals: [],
+            confidence: 0,
+            limitations: [`Provider returned ${comparables.length} listings but none with price data`],
+          };
+        }
+
+        // Classify quality
+        const hasStreetLevel = comparables.some(c => c.street != null);
+        const sourceClass = classifyProviderSourceClass(comparables, hasStreetLevel);
+        const areaLevel: MarketDataProviderResult["areaLevel"] =
+          hasStreetLevel && comparables.some(c => c.houseNumber != null) ? "address"
+          : hasStreetLevel ? "microzona"
+          : "city";
+
+        // Provider-level confidence: count, freshness, price coverage
+        const priceCoverage = withPrice.length / Math.max(1, comparables.length);
+        const providerConfidence = Math.min(1, (comparables.length / 15) * 0.5 + priceCoverage * 0.5);
+
+        return {
+          provider: this.name,
+          available: true,
+          sourceClass,
+          areaLevel,
+          comparables,
+          signals: [], // Signals built at merge level
+          confidence: parseFloat(providerConfidence.toFixed(2)),
+          limitations: sourceClass === "commercial_partial"
+            ? ["Dati provider parziali — copertura o dettaglio insufficienti per classificazione verificata"]
+            : [],
+        };
+      } catch (e) {
+        lastError = String(e).slice(0, 80);
+        // On timeout or network error, retry
+        continue;
+      } finally {
+        clear();
+      }
     }
+
+    // All attempts failed
+    console.warn(`[market:${this.name}] All attempts failed: ${lastError}`);
+    return {
+      provider: this.name,
+      available: false,
+      sourceClass: "unavailable",
+      areaLevel: "city",
+      comparables: [],
+      signals: [],
+      confidence: 0,
+      limitations: [`Provider non raggiungibile dopo ${GenericMarketProvider.MAX_RETRIES + 1} tentativi`],
+      error: lastError,
+    };
   }
 }
 
