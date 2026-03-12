@@ -370,7 +370,7 @@ export async function handleForecastOpportunity(req: Request, body: Record<strin
     observation,
     omiZonesAnalyzed: omiRows.length,
     sourceLabel: sourcesUsed.join(" + "),
-    sourceType: dataPoints >= 2 ? "elaborated" : "unavailable",
+    sourceType: classifyElaborated(dataPoints),
     sourcePeriod: "Dati aggregati multi-fonte — marzo 2026",
     confidenceReason: dataPoints >= 3
       ? "Indice costruito su dati ufficiali OMI, ISTAT, ISPRA e classificazione sismica"
