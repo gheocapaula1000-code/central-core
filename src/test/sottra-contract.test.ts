@@ -71,8 +71,8 @@ const SOTTRA_FORECAST_PATHS = [
 const ALL_SOTTRA_PATHS = [...SOTTRA_SCAN_PATHS, ...SOTTRA_FORECAST_PATHS];
 
 describe("Sottra contract — path registry", () => {
-  it("has 7 scan endpoints", () => {
-    expect(SOTTRA_SCAN_PATHS).toHaveLength(7);
+  it("has 8 scan endpoints", () => {
+    expect(SOTTRA_SCAN_PATHS).toHaveLength(8);
   });
 
   it("has 8 forecast endpoints", () => {
