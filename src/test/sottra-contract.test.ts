@@ -713,7 +713,7 @@ describe("Sottra contract — geo confidence merge", () => {
     // Two providers agree on same city
     const baseConfidence = 0.70;
     const withConsensus = baseConfidence + GEO_GATING.CONSENSUS_BONUS;
-    expect(withConsensus).toBe(0.80);
+    expect(withConsensus).toBeCloseTo(0.80, 10);
     expect(withConsensus).toBeGreaterThan(baseConfidence);
   });
 
