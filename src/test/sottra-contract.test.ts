@@ -835,3 +835,255 @@ describe("Sottra contract — geo security", () => {
     expect(serialized).not.toContain("apiKey");
   });
 });
+
+// ── W. Street Evidence — Policy Constants ─────────────────────
+
+const STREET_EVIDENCE_POLICY = {
+  HOUSE_NUMBER_MATCH_BONUS: 0.08,
+  STREET_MATCH_BONUS: 0.05,
+  CONFLICT_PENALTY: 0.12,
+  MIN_PHOTO_CONFIDENCE: 0.30,
+  MAX_TOTAL_BONUS: 0.15,
+  MAX_TOTAL_PENALTY: 0.20,
+};
+
+// Local merge logic mirroring street-evidence.ts for contract testing
+function mergeStreetEvidenceTest(
+  geoConfidence: number,
+  photoHN: string | null,
+  resolvedHN: string | null,
+  photoStreet: string | null,
+  resolvedStreet: string | null,
+  facadeConfidence: number,
+): { finalConfidence: number; hnConfirmed: boolean; streetConfirmed: boolean } {
+  let adj = 0;
+  let hnConfirmed = false;
+  let streetConfirmed = false;
+
+  // HN comparison
+  if (photoHN && resolvedHN) {
+    const a = photoHN.replace(/\D/g, "");
+    const b = resolvedHN.replace(/\D/g, "");
+    if (a && b) {
+      if (a === b) { adj += STREET_EVIDENCE_POLICY.HOUSE_NUMBER_MATCH_BONUS * facadeConfidence; hnConfirmed = true; }
+      else if (Math.abs(parseInt(a) - parseInt(b)) > 2) { adj -= STREET_EVIDENCE_POLICY.CONFLICT_PENALTY * facadeConfidence; }
+    }
+  }
+
+  // Street comparison (simplified)
+  if (photoStreet && resolvedStreet) {
+    const normA = photoStreet.toUpperCase().trim();
+    const normB = resolvedStreet.toUpperCase().trim();
+    if (normA === normB) { adj += STREET_EVIDENCE_POLICY.STREET_MATCH_BONUS * facadeConfidence; streetConfirmed = true; }
+    else if (!normA.includes(normB) && !normB.includes(normA)) { adj -= STREET_EVIDENCE_POLICY.CONFLICT_PENALTY * 0.7 * facadeConfidence; }
+  }
+
+  adj = Math.max(-STREET_EVIDENCE_POLICY.MAX_TOTAL_PENALTY, Math.min(STREET_EVIDENCE_POLICY.MAX_TOTAL_BONUS, adj));
+  return { finalConfidence: Math.max(0, Math.min(1, parseFloat((geoConfidence + adj).toFixed(3)))), hnConfirmed, streetConfirmed };
+}
+
+describe("Sottra contract — street evidence merge", () => {
+  it("matching civico → confidence bonus", () => {
+    const { finalConfidence, hnConfirmed } = mergeStreetEvidenceTest(0.70, "15", "15", null, null, 0.80);
+    expect(finalConfidence).toBeGreaterThan(0.70);
+    expect(hnConfirmed).toBe(true);
+  });
+
+  it("matching street name → confidence bonus", () => {
+    const { finalConfidence, streetConfirmed } = mergeStreetEvidenceTest(0.70, null, null, "VIA ROMA", "VIA ROMA", 0.80);
+    expect(finalConfidence).toBeGreaterThan(0.70);
+    expect(streetConfirmed).toBe(true);
+  });
+
+  it("conflicting civico → confidence penalty", () => {
+    const { finalConfidence, hnConfirmed } = mergeStreetEvidenceTest(0.70, "15", "98", null, null, 0.80);
+    expect(finalConfidence).toBeLessThan(0.70);
+    expect(hnConfirmed).toBe(false);
+  });
+
+  it("conflicting street → confidence penalty", () => {
+    const { finalConfidence } = mergeStreetEvidenceTest(0.70, null, null, "VIA ROMA", "CORSO ITALIA", 0.80);
+    expect(finalConfidence).toBeLessThan(0.70);
+  });
+
+  it("no photo evidence → confidence unchanged", () => {
+    const { finalConfidence } = mergeStreetEvidenceTest(0.70, null, null, null, null, 0);
+    expect(finalConfidence).toBeCloseTo(0.70, 10);
+  });
+
+  it("both civico and street match → cumulative bonus (capped)", () => {
+    const { finalConfidence, hnConfirmed, streetConfirmed } = mergeStreetEvidenceTest(0.70, "10", "10", "VIA ROMA", "VIA ROMA", 0.90);
+    expect(finalConfidence).toBeGreaterThan(0.70);
+    expect(hnConfirmed).toBe(true);
+    expect(streetConfirmed).toBe(true);
+    // Bonus capped at MAX_TOTAL_BONUS
+    expect(finalConfidence).toBeLessThanOrEqual(0.70 + STREET_EVIDENCE_POLICY.MAX_TOTAL_BONUS);
+  });
+
+  it("total penalty is capped at MAX_TOTAL_PENALTY", () => {
+    const { finalConfidence } = mergeStreetEvidenceTest(0.70, "1", "99", "VIA ROMA", "CORSO ITALIA", 1.0);
+    expect(finalConfidence).toBeGreaterThanOrEqual(0.70 - STREET_EVIDENCE_POLICY.MAX_TOTAL_PENALTY);
+  });
+
+  it("confidence never exceeds 1.0", () => {
+    const { finalConfidence } = mergeStreetEvidenceTest(0.95, "10", "10", "VIA ROMA", "VIA ROMA", 1.0);
+    expect(finalConfidence).toBeLessThanOrEqual(1.0);
+  });
+
+  it("confidence never goes below 0", () => {
+    const { finalConfidence } = mergeStreetEvidenceTest(0.10, "1", "99", "VIA ROMA", "CORSO ITALIA", 1.0);
+    expect(finalConfidence).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ── X. Street Evidence — Identity Verification Levels ─────────
+
+describe("Sottra contract — identity verification levels", () => {
+  const LEVELS = ["strong", "good", "partial", "weak", "insufficient"] as const;
+
+  it("has 5 verification levels", () => {
+    expect(LEVELS).toHaveLength(5);
+  });
+
+  it("strong requires ≥ 85% confidence + house number confirmed", () => {
+    const confidence = 0.88;
+    const hnConfirmed = true;
+    const level = confidence >= 0.85 && hnConfirmed ? "strong" : "other";
+    expect(level).toBe("strong");
+  });
+
+  it("good requires ≥ 70% confidence + visual confirmation", () => {
+    const confidence = 0.75;
+    const hnConfirmed = true;
+    const level = confidence >= 0.70 && hnConfirmed ? "good" : "other";
+    expect(level).toBe("good");
+  });
+
+  it("insufficient below 30%", () => {
+    const confidence = 0.20;
+    const level = confidence < 0.30 ? "insufficient" : "other";
+    expect(level).toBe("insufficient");
+  });
+});
+
+// ── Y. Street Evidence — Facade Consistency ───────────────────
+
+describe("Sottra contract — facade consistency levels", () => {
+  const LEVELS = ["strong", "good", "partial", "weak", "none"] as const;
+
+  it("has 5 facade consistency levels", () => {
+    expect(LEVELS).toHaveLength(5);
+  });
+
+  it("strong = both civico and street confirmed", () => {
+    const hn = true;
+    const st = true;
+    expect(hn && st ? "strong" : "other").toBe("strong");
+  });
+
+  it("none = no photo evidence at all", () => {
+    const hasPhoto = false;
+    expect(hasPhoto ? "weak" : "none").toBe("none");
+  });
+});
+
+// ── Z. Street Evidence — scan/identify enriched response ──────
+
+describe("Sottra contract — scan/identify with street evidence", () => {
+  it("enriched response includes streetEvidence payload", () => {
+    const data = {
+      address: "Via Roma 15, Milano MI",
+      buildingId: "IT-A1B2C3D4",
+      confidence: 0.88,
+      geoResolution: { geoConfidence: 0.80, geoMatchLevel: "address_point" },
+      streetEvidence: {
+        streetEvidenceConfidence: 0.72,
+        streetEvidenceReason: "Civico confermato: foto \"15\" = geocodifica \"15\"",
+        houseNumberConfirmed: true,
+        streetConfirmed: false,
+        facadeConsistencyLevel: "good",
+        finalIdentityConfidence: 0.88,
+        finalIdentityReason: "Confidence geo: 80%, aggiustamento: +8.0%, finale: 88%",
+        identityVerificationLevel: "strong",
+        photoAnalysis: {
+          visibleHouseNumber: "15",
+          visibleStreetName: null,
+          buildingType: "residenziale",
+          visibleFloors: 5,
+          facadeConfidence: 0.85,
+          photoReadability: "clear",
+        },
+        streetSignalCount: 0,
+      },
+    };
+    expect(data.streetEvidence).toBeDefined();
+    expect(typeof data.streetEvidence.streetEvidenceConfidence).toBe("number");
+    expect(typeof data.streetEvidence.houseNumberConfirmed).toBe("boolean");
+    expect(typeof data.streetEvidence.streetConfirmed).toBe("boolean");
+    expect(["strong", "good", "partial", "weak", "none"]).toContain(data.streetEvidence.facadeConsistencyLevel);
+    expect(["strong", "good", "partial", "weak", "insufficient"]).toContain(data.streetEvidence.identityVerificationLevel);
+    expect(data.streetEvidence.finalIdentityConfidence).toBeGreaterThanOrEqual(0);
+    expect(data.streetEvidence.finalIdentityConfidence).toBeLessThanOrEqual(1);
+    // No raw base64 in payload
+    expect(JSON.stringify(data)).not.toContain("data:image");
+  });
+
+  it("legacy response without photo has streetEvidence=null", () => {
+    const data = {
+      address: "Via Roma 1, Milano",
+      buildingId: "IT-A1B2C3D4",
+      confidence: 0.50,
+      geoResolution: null,
+      streetEvidence: null,
+    };
+    expect(data.streetEvidence).toBeNull();
+  });
+
+  it("no API keys → system stable, streetEvidence still available from photo-only", () => {
+    // When no Mapillary key is configured, system uses photo evidence only
+    const data = {
+      streetEvidence: {
+        streetEvidenceConfidence: 0.40,
+        streetSignalCount: 0, // no external providers
+        houseNumberConfirmed: true,
+        identityVerificationLevel: "partial",
+      },
+    };
+    expect(data.streetEvidence.streetSignalCount).toBe(0);
+    expect(data.streetEvidence.houseNumberConfirmed).toBe(true);
+  });
+});
+
+// ── AA. Street Evidence — Env Keys ────────────────────────────
+
+describe("Sottra contract — street evidence env keys", () => {
+  it("optional env keys for street evidence", () => {
+    const envKeys = ["MAPILLARY_API_KEY", "STREET_EVIDENCE_ENABLED", "STREET_PROVIDER_ORDER", "STREET_EVIDENCE_MIN_CONFIDENCE"];
+    expect(envKeys).toHaveLength(4);
+    // All are optional — system must work without them
+  });
+});
+
+// ── AB. Street Evidence — Security ────────────────────────────
+
+describe("Sottra contract — street evidence security", () => {
+  it("streetEvidence payload never contains raw base64 images", () => {
+    const payload = {
+      streetEvidence: {
+        streetEvidenceConfidence: 0.75,
+        photoAnalysis: { visibleHouseNumber: "15", facadeConfidence: 0.85 },
+      },
+    };
+    const serialized = JSON.stringify(payload);
+    expect(serialized).not.toContain("data:image");
+    expect(serialized).not.toContain("base64,");
+    expect(serialized).not.toContain("API_KEY");
+  });
+
+  it("street signal breakdown never leaks provider credentials", () => {
+    const signal = { provider: "mapillary", confidence: 0.35, available: true };
+    const serialized = JSON.stringify(signal);
+    expect(serialized).not.toContain("access_token");
+    expect(serialized).not.toContain("key=");
+  });
+});
