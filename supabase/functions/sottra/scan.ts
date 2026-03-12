@@ -7,35 +7,35 @@ import { ok, fail } from "../_shared/http.ts";
 import { callAI, callAIVision, parseJSON, reverseGeocode, classifyOMIPricing, PUBLICATION_POLICY } from "./shared.ts";
 import { lookupOMI } from "./omi-lookup.ts";
 import { resolveGeo, type GeoResolutionResult } from "./geo-resolution.ts";
+import { collectStreetEvidence, type StreetEvidenceMergeResult } from "./street-evidence.ts";
 
-/** POST /sottra/scan/identify — photo + GPS → address + building ID */
+/** POST /sottra/scan/identify — photo + GPS → address + building ID + street evidence */
 export async function handleScanIdentify(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const lat = body.lat as number | undefined;
   const lng = body.lng as number | undefined;
   const photo = (body.photo as string) ?? "";
   if (lat == null || lng == null) return fail(req, 400, "MISSING_COORDS", "Provide lat and lng", debugId);
 
-  // Phase 1: Extract photo evidence if available (civico, street name)
-  let photoEvidence: { visibleHouseNumber?: string; visibleStreetName?: string; confidence?: number } | undefined;
+  // Phase 1: Multi-provider geo resolution (with basic photo hint for civico)
+  let basicPhotoEvidence: { visibleHouseNumber?: string; visibleStreetName?: string; confidence?: number } | undefined;
   if (photo && photo.startsWith("data:image")) {
     try {
       const output = await callAIVision(
-        `Stai guardando la foto di un edificio. Rispondi SOLO in JSON: { "confidence": numero_da_0_a_1, "visibleFloors": numero_piani, "buildingType": "residenziale"|"commerciale"|"misto"|"industriale", "visibleHouseNumber": civico_visibile_o_null, "visibleStreetName": nome_via_visibile_o_null }`,
-        photo, 150, 0.1
+        `Stai guardando la foto di un edificio. Rispondi SOLO in JSON: { "confidence": numero_da_0_a_1, "visibleHouseNumber": civico_visibile_o_null, "visibleStreetName": nome_via_visibile_o_null }`,
+        photo, 100, 0.1
       );
       const parsed = parseJSON(output);
       if (parsed) {
-        photoEvidence = {
+        basicPhotoEvidence = {
           visibleHouseNumber: (parsed.visibleHouseNumber as string) ?? undefined,
           visibleStreetName: (parsed.visibleStreetName as string) ?? undefined,
           confidence: (parsed.confidence as number) ?? undefined,
         };
       }
-    } catch { /* photo analysis optional */ }
+    } catch { /* photo hint optional */ }
   }
 
-  // Phase 2: Multi-provider geo resolution
-  const geo = await resolveGeo(lat, lng, photoEvidence);
+  const geo = await resolveGeo(lat, lng, basicPhotoEvidence);
 
   if (!geo.resolvedAddress) {
     // Fallback to legacy reverseGeocode if all providers fail
@@ -52,8 +52,28 @@ export async function handleScanIdentify(req: Request, body: Record<string, unkn
       buildingId,
       confidence: 0.50,
       geoResolution: null,
+      streetEvidence: null,
     }, ["Geo resolution fallback — solo Nominatim legacy"], debugId);
   }
+
+  // Phase 2: Street Evidence — deep photo analysis + provider signals
+  let streetEvidence: StreetEvidenceMergeResult | null = null;
+  try {
+    streetEvidence = await collectStreetEvidence(
+      lat, lng,
+      photo || null,
+      geo.geoConfidence,
+      geo.geoMatchLevel,
+      geo.resolvedStreet,
+      geo.resolvedHouseNumber,
+    );
+  } catch (e) {
+    console.warn(`[scan/identify] Street evidence collection failed: ${String(e).slice(0, 80)}`);
+    // Non-fatal — continue without street evidence
+  }
+
+  // Use final identity confidence if street evidence available, otherwise geo confidence
+  const finalConfidence = streetEvidence?.finalIdentityConfidence ?? geo.geoConfidence;
 
   // Build stable buildingId from resolved address
   const encoder = new TextEncoder();
@@ -64,7 +84,7 @@ export async function handleScanIdentify(req: Request, body: Record<string, unkn
   return ok(req, {
     address: geo.resolvedAddress,
     buildingId,
-    confidence: geo.geoConfidence,
+    confidence: finalConfidence,
     // Enriched geo resolution payload (audit-ready)
     geoResolution: {
       resolvedComune: geo.resolvedComune,
@@ -82,6 +102,27 @@ export async function handleScanIdentify(req: Request, body: Record<string, unkn
       publicationEligible: geo.publicationEligible,
       eligibleModuleClasses: geo.eligibleModuleClasses,
     },
+    // Street evidence payload (audit-ready, no raw images)
+    streetEvidence: streetEvidence ? {
+      streetEvidenceConfidence: streetEvidence.streetEvidenceConfidence,
+      streetEvidenceReason: streetEvidence.streetEvidenceReason,
+      houseNumberConfirmed: streetEvidence.houseNumberConfirmed,
+      streetConfirmed: streetEvidence.streetConfirmed,
+      facadeConsistencyLevel: streetEvidence.facadeConsistencyLevel,
+      finalIdentityConfidence: streetEvidence.finalIdentityConfidence,
+      finalIdentityReason: streetEvidence.finalIdentityReason,
+      identityVerificationLevel: streetEvidence.identityVerificationLevel,
+      // Photo evidence summary (no raw base64)
+      photoAnalysis: streetEvidence.photoEvidence ? {
+        visibleHouseNumber: streetEvidence.photoEvidence.visibleHouseNumber,
+        visibleStreetName: streetEvidence.photoEvidence.visibleStreetName,
+        buildingType: streetEvidence.photoEvidence.buildingType,
+        visibleFloors: streetEvidence.photoEvidence.visibleFloors,
+        facadeConfidence: streetEvidence.photoEvidence.facadeConfidence,
+        photoReadability: streetEvidence.photoEvidence.photoReadability,
+      } : null,
+      streetSignalCount: streetEvidence.streetSignals.length,
+    } : null,
   }, [], debugId);
 }
 

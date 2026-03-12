@@ -377,35 +377,11 @@ export class NominatimProvider implements GeocodingProviderAdapter {
   }
 }
 
-// ── Future Adapter Stubs (Phase 2) ────────────────────────────
-
-/**
- * Placeholder for future street-level evidence adapter.
- * Will extract address components from building photos (visible civic number, signs).
- * NOT activated — just interface preparation.
- */
-export interface StreetEvidenceAdapter {
-  readonly name: string;
-  extractFromPhoto(photoBase64: string): Promise<{
-    visibleHouseNumber: string | null;
-    visibleStreetName: string | null;
-    confidence: number;
-  } | null>;
-}
-
-/**
- * Placeholder for future market data adapter.
- * Will provide property-level market data from commercial sources.
- * NOT activated — just interface preparation.
- */
-export interface MarketDataAdapter {
-  readonly name: string;
-  lookupByAddress(address: string, comune: string): Promise<{
-    available: boolean;
-    data: unknown;
-    source: string;
-  } | null>;
-}
+// ── Phase 2 Adapters ──────────────────────────────────────────
+// Street evidence and market data adapters are now in:
+// - street-evidence.ts (StreetEvidenceAdapter, MarketDataAdapter)
+// Re-exported for backward compatibility
+export type { StreetEvidenceAdapter, MarketDataAdapter } from "./street-evidence.ts";
 
 // ── Provider Chain ────────────────────────────────────────────
 
