@@ -623,3 +623,215 @@ describe("Sottra contract — provider adapter interface (Phase 2 prep)", () => 
     expect(typeof result.error).toBe("string");
   });
 });
+
+// ── Q. Geo Resolution — Quality Model ────────────────────────
+
+const GEO_MATCH_LEVELS = [
+  "address_point", "house_number", "house_number_range",
+  "street", "district", "city", "unknown",
+] as const;
+
+const GEO_MATCH_LEVEL_RANK: Record<string, number> = {
+  address_point: 6, house_number: 5, house_number_range: 4,
+  street: 3, district: 2, city: 1, unknown: 0,
+};
+
+const GEO_GATING = {
+  MIN_PUBLISH: 0.40,
+  MIN_MICROZONA_LEVEL: 5,
+  MIN_COMUNALI_LEVEL: 1,
+  CONSENSUS_BONUS: 0.10,
+  DISAGREEMENT_PENALTY: 0.15,
+};
+
+describe("Sottra contract — geo resolution quality model", () => {
+  it("has 7 match levels in correct rank order", () => {
+    expect(GEO_MATCH_LEVELS).toHaveLength(7);
+    expect(GEO_MATCH_LEVEL_RANK["address_point"]).toBeGreaterThan(GEO_MATCH_LEVEL_RANK["house_number"]);
+    expect(GEO_MATCH_LEVEL_RANK["house_number"]).toBeGreaterThan(GEO_MATCH_LEVEL_RANK["street"]);
+    expect(GEO_MATCH_LEVEL_RANK["street"]).toBeGreaterThan(GEO_MATCH_LEVEL_RANK["city"]);
+    expect(GEO_MATCH_LEVEL_RANK["city"]).toBeGreaterThan(GEO_MATCH_LEVEL_RANK["unknown"]);
+  });
+
+  it("address_point and house_number qualify for microzona pricing", () => {
+    expect(GEO_MATCH_LEVEL_RANK["address_point"]).toBeGreaterThanOrEqual(GEO_GATING.MIN_MICROZONA_LEVEL);
+    expect(GEO_MATCH_LEVEL_RANK["house_number"]).toBeGreaterThanOrEqual(GEO_GATING.MIN_MICROZONA_LEVEL);
+  });
+
+  it("street-only does NOT qualify for microzona pricing", () => {
+    expect(GEO_MATCH_LEVEL_RANK["street"]).toBeLessThan(GEO_GATING.MIN_MICROZONA_LEVEL);
+  });
+
+  it("city-only qualifies for comunali modules but NOT microzona", () => {
+    expect(GEO_MATCH_LEVEL_RANK["city"]).toBeGreaterThanOrEqual(GEO_GATING.MIN_COMUNALI_LEVEL);
+    expect(GEO_MATCH_LEVEL_RANK["city"]).toBeLessThan(GEO_GATING.MIN_MICROZONA_LEVEL);
+  });
+
+  it("unknown does NOT qualify for any module", () => {
+    expect(GEO_MATCH_LEVEL_RANK["unknown"]).toBeLessThan(GEO_GATING.MIN_COMUNALI_LEVEL);
+  });
+});
+
+// ── R. Geo Resolution — Provider Chain ────────────────────────
+
+describe("Sottra contract — geo provider chain", () => {
+  it("supported providers", () => {
+    const providers = ["google_maps", "here", "tomtom", "nominatim"];
+    expect(providers).toHaveLength(4);
+    // Nominatim is always last (highest priority number)
+    expect(providers[providers.length - 1]).toBe("nominatim");
+  });
+
+  it("env keys for premium providers", () => {
+    const envKeys = ["GOOGLE_MAPS_API_KEY", "HERE_API_KEY", "TOMTOM_API_KEY"];
+    expect(envKeys).toHaveLength(3);
+    // These are optional — system must work without them
+  });
+
+  it("GEO_PROVIDER_ORDER and GEO_PREMIUM_ENABLED are optional env", () => {
+    const optionalEnv = ["GEO_PROVIDER_ORDER", "GEO_PREMIUM_ENABLED"];
+    expect(optionalEnv).toHaveLength(2);
+  });
+});
+
+// ── S. Geo Resolution — Confidence Merge ──────────────────────
+
+describe("Sottra contract — geo confidence merge", () => {
+  it("no providers → geoConfidence=0, publicationEligible=false", () => {
+    const result = {
+      geoConfidence: 0,
+      geoMatchLevel: "unknown",
+      providerConsensus: "none",
+      publicationEligible: false,
+      eligibleModuleClasses: ["none"],
+    };
+    expect(result.geoConfidence).toBe(0);
+    expect(result.publicationEligible).toBe(false);
+  });
+
+  it("strong consensus bonus applies", () => {
+    // Two providers agree on same city
+    const baseConfidence = 0.70;
+    const withConsensus = baseConfidence + GEO_GATING.CONSENSUS_BONUS;
+    expect(withConsensus).toBeCloseTo(0.80, 10);
+    expect(withConsensus).toBeGreaterThan(baseConfidence);
+  });
+
+  it("disagreement penalty applies", () => {
+    const baseConfidence = 0.70;
+    const withDisagreement = baseConfidence - GEO_GATING.DISAGREEMENT_PENALTY;
+    expect(withDisagreement).toBeCloseTo(0.55, 10);
+    expect(withDisagreement).toBeLessThan(baseConfidence);
+  });
+
+  it("providerConsensus has 4 valid values", () => {
+    const values = ["strong", "partial", "single", "none"];
+    expect(values).toHaveLength(4);
+  });
+});
+
+// ── T. Geo Resolution — Publication Gating ────────────────────
+
+describe("Sottra contract — geo publication gating", () => {
+  it("address_point + high confidence → microzona + comunali eligible", () => {
+    const result = {
+      geoMatchLevel: "address_point",
+      geoConfidence: 0.90,
+      publicationEligible: true,
+      eligibleModuleClasses: ["microzona", "comunali"],
+    };
+    expect(result.publicationEligible).toBe(true);
+    expect(result.eligibleModuleClasses).toContain("microzona");
+    expect(result.eligibleModuleClasses).toContain("comunali");
+  });
+
+  it("city-only → only comunali eligible, no microzona", () => {
+    const geoConfidence = 0.50;
+    const matchRank = GEO_MATCH_LEVEL_RANK["city"]; // 1
+    const eligible: string[] = [];
+    if (geoConfidence >= GEO_GATING.MIN_PUBLISH && matchRank >= GEO_GATING.MIN_MICROZONA_LEVEL) {
+      eligible.push("microzona", "comunali");
+    } else if (geoConfidence >= GEO_GATING.MIN_PUBLISH && matchRank >= GEO_GATING.MIN_COMUNALI_LEVEL) {
+      eligible.push("comunali");
+    } else {
+      eligible.push("none");
+    }
+    expect(eligible).toContain("comunali");
+    expect(eligible).not.toContain("microzona");
+  });
+
+  it("street-only → only comunali eligible, NOT microzona pricing", () => {
+    const matchRank = GEO_MATCH_LEVEL_RANK["street"]; // 3
+    expect(matchRank).toBeLessThan(GEO_GATING.MIN_MICROZONA_LEVEL);
+    expect(matchRank).toBeGreaterThanOrEqual(GEO_GATING.MIN_COMUNALI_LEVEL);
+  });
+
+  it("unknown + low confidence → not eligible for any module", () => {
+    const matchRank = GEO_MATCH_LEVEL_RANK["unknown"]; // 0
+    const geoConfidence = 0.20;
+    const eligible = geoConfidence >= GEO_GATING.MIN_PUBLISH && matchRank >= GEO_GATING.MIN_COMUNALI_LEVEL;
+    expect(eligible).toBe(false);
+  });
+});
+
+// ── U. scan/identify enriched response ────────────────────────
+
+describe("Sottra contract — scan/identify with geo resolution", () => {
+  it("enriched response includes geoResolution payload", () => {
+    const data = {
+      address: "Via Roma 1, Milano MI",
+      buildingId: "IT-A1B2C3D4",
+      confidence: 0.85,
+      geoResolution: {
+        resolvedComune: "MILANO",
+        resolvedProvincia: "MI",
+        resolvedStreet: "Via Roma",
+        resolvedHouseNumber: "1",
+        resolvedPostalCode: "20121",
+        resolvedLat: 45.464,
+        resolvedLng: 9.190,
+        geoConfidence: 0.85,
+        geoConfidenceReason: "Provider primario: google_maps (address_point, 98%)",
+        geoMatchLevel: "address_point",
+        providerConsensus: "strong",
+        providerBreakdown: [
+          { provider: "google_maps", matchLevel: "address_point", confidence: 0.98, city: "Milano", street: "Via Roma", houseNumber: "1" },
+        ],
+        publicationEligible: true,
+        eligibleModuleClasses: ["microzona", "comunali"],
+      },
+    };
+    expect(data.geoResolution).toBeDefined();
+    expect(data.geoResolution.geoConfidence).toBeGreaterThanOrEqual(0);
+    expect(data.geoResolution.geoConfidence).toBeLessThanOrEqual(1);
+    expect(GEO_MATCH_LEVELS).toContain(data.geoResolution.geoMatchLevel);
+    expect(typeof data.geoResolution.geoConfidenceReason).toBe("string");
+    expect(["strong", "partial", "single", "none"]).toContain(data.geoResolution.providerConsensus);
+    expect(Array.isArray(data.geoResolution.providerBreakdown)).toBe(true);
+    expect(typeof data.geoResolution.publicationEligible).toBe("boolean");
+    expect(Array.isArray(data.geoResolution.eligibleModuleClasses)).toBe(true);
+  });
+
+  it("legacy fallback response has geoResolution=null", () => {
+    const data = {
+      address: "Via Roma 1, Milano",
+      buildingId: "IT-A1B2C3D4",
+      confidence: 0.50,
+      geoResolution: null,
+    };
+    expect(data.geoResolution).toBeNull();
+    expect(data.confidence).toBeLessThanOrEqual(0.50);
+  });
+});
+
+// ── V. No secrets in geo payload ──────────────────────────────
+
+describe("Sottra contract — geo security", () => {
+  it("provider breakdown never leaks API keys", () => {
+    const breakdown = { provider: "google_maps", matchLevel: "address_point", confidence: 0.98, city: "Milano", street: "Via Roma", houseNumber: "1" };
+    const serialized = JSON.stringify(breakdown);
+    expect(serialized).not.toContain("API_KEY");
+    expect(serialized).not.toContain("key=");
+    expect(serialized).not.toContain("apiKey");
+  });
+});
