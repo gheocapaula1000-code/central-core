@@ -840,4 +840,7 @@ export {
   buildMarketSignals,
   makeUnavailableResult,
   getMarketProviderChain,
+  classifyProviderSourceClass,
+  extractListings,
+  normalizeListing,
 };
