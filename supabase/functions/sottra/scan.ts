@@ -1,13 +1,11 @@
 // Sottra — Motore Scan handlers (7 endpoints)
 // POLICY: Only real data from official sources. No AI-invented results.
 // DATA RIGOR: No fake mediaZona, no hardcoded trend5Anni, confidence-gated pricing.
+// Uses unified PUBLICATION_POLICY from shared.ts.
 
 import { ok, fail } from "../_shared/http.ts";
-import { callAI, callAIVision, parseJSON, reverseGeocode } from "./shared.ts";
+import { callAI, callAIVision, parseJSON, reverseGeocode, classifyOMIPricing, PUBLICATION_POLICY } from "./shared.ts";
 import { lookupOMI } from "./omi-lookup.ts";
-
-/** Minimum OMI match confidence to publish pricing as "official" */
-const OMI_PUBLISH_THRESHOLD = 0.50;
 
 /** POST /sottra/scan/identify — photo + GPS → address + building ID */
 export async function handleScanIdentify(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
@@ -74,8 +72,11 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
     const omi = await lookupOMI(address);
 
     if (omi.found && omi.compr_min != null && omi.compr_max != null) {
-      // Check confidence gate — refuse to publish weak matches as official
-      if (omi.matchConfidence < OMI_PUBLISH_THRESHOLD) {
+      // Unified publication policy — determines sourceType from match quality
+      const sourceType = classifyOMIPricing(omi.matchConfidence, omi.matchMethod);
+
+      if (sourceType === "unavailable") {
+        // Match too weak — refuse to publish prices
         return ok(req, {
           prezzoMq: null,
           prezzoMqMin: null,
@@ -97,7 +98,7 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
           sourcePeriod: "1° semestre 2025",
           confidenceReason: `Match zona OMI insufficiente (confidence: ${(omi.matchConfidence * 100).toFixed(0)}%, metodo: ${omi.matchMethod}) — prezzi non pubblicabili`,
           limitations: [
-            `Zona OMI determinata con confidenza ${(omi.matchConfidence * 100).toFixed(0)}% (soglia minima: ${(OMI_PUBLISH_THRESHOLD * 100).toFixed(0)}%)`,
+            `Zona OMI determinata con confidenza ${(omi.matchConfidence * 100).toFixed(0)}% (soglia minima: ${(PUBLICATION_POLICY.OMI_PUBLISH_THRESHOLD * 100).toFixed(0)}%)`,
             `Metodo di match: ${omi.matchMethod} — non sufficientemente affidabile per pubblicazione`,
             "I dati OMI esistono per il comune ma il match indirizzo→zona non è abbastanza solido",
             "Consultare direttamente le quotazioni OMI per tutte le zone nel campo tutteZone",
@@ -105,14 +106,26 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
         }, [`Match zona OMI debole (${(omi.matchConfidence * 100).toFixed(0)}%) — prezzi non pubblicati`], debugId);
       }
 
-      // Real OMI data found with sufficient confidence — return actual prices
+      // Publishable — sourceType is "official" (single_zone, high confidence) or "elaborated" (ai_matched)
+      const confidenceLabel = sourceType === "official"
+        ? `Prezzi ufficiali OMI — zona ${omi.zona} (${omi.zona_descr}), match confidence: ${(omi.matchConfidence * 100).toFixed(0)}%`
+        : `Prezzi OMI elaborati — zona ${omi.zona} (${omi.zona_descr}), match AI con confidence ${(omi.matchConfidence * 100).toFixed(0)}% — non verificato manualmente`;
+
+      const limitationsBase = [
+        "Prezzi espressi come range min/max per tipologia e stato conservativo",
+        `Match zona basato su ${omi.matchMethod === "single_zone" ? "zona unica nel comune" : "identificazione AI dell'indirizzo"}`,
+        "Dati riferiti a valori normali di mercato (non valori di realizzo o giudiziari)",
+        "mediaZona e trend5Anni non disponibili — nessuna fonte reale per queste metriche",
+      ];
+      if (sourceType === "elaborated") {
+        limitationsBase.push("sourceType=elaborated: la zona OMI è stata determinata tramite AI, non con certezza assoluta");
+      }
+
       return ok(req, {
         prezzoMq: omi.prezzoMedio,
         prezzoMqMin: omi.compr_min,
         prezzoMqMax: omi.compr_max,
-        // mediaZona: null — not a distinct metric, would just duplicate prezzoMq
         mediaZona: null,
-        // trend5Anni: null — no real multi-year calculation implemented
         trend5Anni: null,
         locazioneMqMin: omi.loc_min ?? null,
         locazioneMqMax: omi.loc_max ?? null,
@@ -125,16 +138,11 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
         omiMatchMethod: omi.matchMethod,
         tutteZone: omi.tutteZone,
         sourceLabel: "Agenzia delle Entrate — Osservatorio Mercato Immobiliare",
-        sourceType: "official",
+        sourceType,
         sourcePeriod: "1° semestre 2025",
-        confidenceReason: `Prezzi ufficiali OMI — zona ${omi.zona} (${omi.zona_descr}), match confidence: ${(omi.matchConfidence * 100).toFixed(0)}%`,
-        limitations: [
-          "Prezzi espressi come range min/max per tipologia e stato conservativo",
-          `Match zona basato su ${omi.matchMethod === "single_zone" ? "zona unica nel comune" : "identificazione AI dell'indirizzo"}`,
-          "Dati riferiti a valori normali di mercato (non valori di realizzo o giudiziari)",
-          "mediaZona e trend5Anni non disponibili — nessuna fonte reale per queste metriche",
-        ],
-      }, ["Prezzi ufficiali Agenzia Entrate — OMI, 1° semestre 2025"], debugId);
+        confidenceReason: confidenceLabel,
+        limitations: limitationsBase,
+      }, [`Prezzi OMI (${sourceType}) — 1° semestre 2025`], debugId);
     }
 
     // Fallback: OMI data not found — return structured "unavailable", no AI invention
@@ -161,7 +169,9 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
       limitations: [`Comune non presente nel dataset OMI importato`, "Nessun fallback: il dato non è disponibile"],
     }, [`Dati OMI non disponibili per questo indirizzo`], debugId);
   } catch (e) {
-    return fail(req, 502, "PROVIDER_ERROR", `Pricing analysis failed: ${String(e).slice(0, 100)}`, debugId);
+    // Security: never leak stack traces — only generic message + debug_id
+    console.error(`[scan/pricing] Error debug_id=${debugId}: ${String(e).slice(0, 200)}`);
+    return fail(req, 502, "PROVIDER_ERROR", `Pricing analysis failed. Reference: ${debugId}`, debugId);
   }
 }
 

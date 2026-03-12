@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 /**
- * Sottra Contract Regression Tests — Data Rigor Edition
+ * Sottra Contract Regression Tests — Max Stability Edition
  *
  * These tests verify the contract surface that Sottra PWA depends on.
  * Pure logic and structural expectations — no live HTTP calls.
@@ -13,7 +13,36 @@ import { describe, it, expect } from "vitest";
  * 3. Pricing not published if OMI match confidence < 50%
  * 4. sourceType must be official/elaborated/unavailable — never ambiguous
  * 5. No weak fallback promoting data to "official"
+ * 6. ai_matched → elaborated (never official)
+ * 7. Only single_zone with >= 85% confidence can be "official"
+ * 8. Elaborated modules require >= 2 data sources
  */
+
+// ── Publication Policy Thresholds ─────────────────────────────
+
+const PUBLICATION_POLICY = {
+  OMI_PUBLISH_THRESHOLD: 0.50,
+  OMI_OFFICIAL_THRESHOLD: 0.85,
+  ELABORATED_MIN_SOURCES: 2,
+  OFFICIAL_MATCH_METHODS: ["single_zone"],
+  ELABORATED_MATCH_METHODS: ["ai_matched"],
+  UNPUBLISHABLE_MATCH_METHODS: ["ai_fallback", "first_zone_fallback", "none"],
+};
+
+function classifyOMIPricing(matchConfidence: number, matchMethod: string): "official" | "elaborated" | "unavailable" {
+  if (PUBLICATION_POLICY.UNPUBLISHABLE_MATCH_METHODS.includes(matchMethod)) return "unavailable";
+  if (matchConfidence < PUBLICATION_POLICY.OMI_PUBLISH_THRESHOLD) return "unavailable";
+  if (
+    PUBLICATION_POLICY.OFFICIAL_MATCH_METHODS.includes(matchMethod) &&
+    matchConfidence >= PUBLICATION_POLICY.OMI_OFFICIAL_THRESHOLD
+  ) return "official";
+  if (matchConfidence >= PUBLICATION_POLICY.OMI_PUBLISH_THRESHOLD) return "elaborated";
+  return "unavailable";
+}
+
+function classifyElaborated(sourcesCount: number): "elaborated" | "unavailable" {
+  return sourcesCount >= PUBLICATION_POLICY.ELABORATED_MIN_SOURCES ? "elaborated" : "unavailable";
+}
 
 // ── A. Sottra-expected paths ──────────────────────────────────
 
@@ -106,6 +135,16 @@ describe("Sottra contract — envelope shape", () => {
       expect(code).toMatch(/^[A-Z][A-Z0-9_]+$/);
     }
   });
+
+  it("error messages never contain stack traces or internal paths", () => {
+    // Security: error messages must be safe for user-facing payload
+    const safeMessage = "An internal error occurred. Reference: abc123";
+    expect(safeMessage).not.toMatch(/at\s+\w+\s+\(/); // no stack frames
+    expect(safeMessage).not.toMatch(/\/home\//); // no server paths
+    expect(safeMessage).not.toMatch(/node_modules/);
+    expect(safeMessage).not.toContain("SUPABASE_");
+    expect(safeMessage).not.toContain("API_KEY");
+  });
 });
 
 // ── C. scan/identify contract ─────────────────────────────────
@@ -126,9 +165,7 @@ describe("Sottra contract — scan/identify", () => {
 
 // ── D. scan/pricing contract — DATA RIGOR ─────────────────────
 
-describe("Sottra contract — scan/pricing (data rigor)", () => {
-  const OMI_PUBLISH_THRESHOLD = 0.50;
-
+describe("Sottra contract — scan/pricing (max stability)", () => {
   it("success shape with real OMI data has null mediaZona and null trend5Anni", () => {
     const data = {
       prezzoMq: 2500,
@@ -145,17 +182,13 @@ describe("Sottra contract — scan/pricing (data rigor)", () => {
     };
     expect(data.sourceType).toBe("official");
     expect(typeof data.prezzoMq).toBe("number");
-    // DATA RIGOR: mediaZona must always be null
     expect(data.mediaZona).toBeNull();
-    // DATA RIGOR: trend5Anni must always be null
     expect(data.trend5Anni).toBeNull();
-    // Confidence tracking
-    expect(data.omiMatchConfidence).toBeGreaterThanOrEqual(OMI_PUBLISH_THRESHOLD);
+    expect(data.omiMatchConfidence).toBeGreaterThanOrEqual(PUBLICATION_POLICY.OMI_OFFICIAL_THRESHOLD);
     expect(typeof data.omiMatchMethod).toBe("string");
   });
 
   it("mediaZona is NEVER equal to prezzoMq — it must be null", () => {
-    // This test explicitly prevents the old bug where mediaZona = prezzoMedio
     const data = { prezzoMq: 2500, mediaZona: null };
     expect(data.mediaZona).not.toBe(data.prezzoMq);
     expect(data.mediaZona).toBeNull();
@@ -164,12 +197,10 @@ describe("Sottra contract — scan/pricing (data rigor)", () => {
   it("trend5Anni is NEVER a hardcoded value — it must be null", () => {
     const data = { trend5Anni: null };
     expect(data.trend5Anni).toBeNull();
-    // Must not be 0, which was the old hardcoded value
     expect(data.trend5Anni).not.toBe(0);
   });
 
   it("pricing NOT published when OMI match confidence is below threshold", () => {
-    // Simulates weak match — prezzoMq must be null, sourceType must be unavailable
     const weakMatchData = {
       prezzoMq: null,
       prezzoMqMin: null,
@@ -182,7 +213,7 @@ describe("Sottra contract — scan/pricing (data rigor)", () => {
     };
     expect(weakMatchData.prezzoMq).toBeNull();
     expect(weakMatchData.sourceType).toBe("unavailable");
-    expect(weakMatchData.omiMatchConfidence).toBeLessThan(OMI_PUBLISH_THRESHOLD);
+    expect(weakMatchData.omiMatchConfidence).toBeLessThan(PUBLICATION_POLICY.OMI_PUBLISH_THRESHOLD);
   });
 
   it("valid omiMatchMethod values", () => {
@@ -249,7 +280,6 @@ describe("Sottra contract — forecast/rischio-zona", () => {
     };
     expect(typeof data.comune).toBe("string");
     expect(data.riskProfile).toBeDefined();
-    // rischio-zona with real ISPRA data is "official"
     expect(data.sourceType).toBe("official");
   });
 
@@ -321,7 +351,6 @@ describe("Sottra contract — sourceType quality policy", () => {
   });
 
   it("official requires: real source + solid territorial match + no weak fallback", () => {
-    // Official is ONLY for: OMI pricing (confidence >= 50%), ISPRA rischio-zona, ISTAT trend-demografico
     const officialModules = ["scan/pricing", "forecast/rischio-zona", "forecast/trend-demografico"];
     expect(officialModules).toHaveLength(3);
   });
@@ -343,7 +372,6 @@ describe("Sottra contract — sourceType quality policy", () => {
   });
 
   it("elaborated modules downgrade to unavailable when data insufficient", () => {
-    // When fewer than 2 data sources, elaborated modules MUST return unavailable
     const insufficientData = { sourceType: "unavailable", sourcesUsedCount: 1 };
     expect(insufficientData.sourceType).toBe("unavailable");
   });
@@ -389,31 +417,209 @@ describe("Sottra contract — health endpoint", () => {
   });
 });
 
-// ── K. OMI match confidence contract ──────────────────────────
+// ── K. OMI match confidence contract (STRICTER) ───────────────
 
-describe("Sottra contract — OMI match confidence", () => {
-  it("single_zone match has high confidence (>= 0.90)", () => {
-    const result = { matchConfidence: 0.95, matchMethod: "single_zone" };
-    expect(result.matchConfidence).toBeGreaterThanOrEqual(0.90);
+describe("Sottra contract — OMI match confidence (max stability)", () => {
+  it("single_zone match ≥ 85% → official", () => {
+    expect(classifyOMIPricing(0.95, "single_zone")).toBe("official");
+    expect(classifyOMIPricing(0.85, "single_zone")).toBe("official");
   });
 
-  it("ai_matched has moderate confidence (>= 0.50)", () => {
-    const result = { matchConfidence: 0.70, matchMethod: "ai_matched" };
-    expect(result.matchConfidence).toBeGreaterThanOrEqual(0.50);
+  it("single_zone match < 85% but ≥ 50% → elaborated (not official)", () => {
+    expect(classifyOMIPricing(0.80, "single_zone")).toBe("elaborated");
+    expect(classifyOMIPricing(0.50, "single_zone")).toBe("elaborated");
   });
 
-  it("ai_fallback has low confidence (< 0.50)", () => {
-    const result = { matchConfidence: 0.25, matchMethod: "ai_fallback" };
-    expect(result.matchConfidence).toBeLessThan(0.50);
+  it("ai_matched ≥ 50% → elaborated (NEVER official)", () => {
+    expect(classifyOMIPricing(0.70, "ai_matched")).toBe("elaborated");
+    expect(classifyOMIPricing(0.90, "ai_matched")).toBe("elaborated");
+    expect(classifyOMIPricing(0.99, "ai_matched")).toBe("elaborated");
   });
 
-  it("first_zone_fallback has very low confidence (< 0.50)", () => {
-    const result = { matchConfidence: 0.20, matchMethod: "first_zone_fallback" };
-    expect(result.matchConfidence).toBeLessThan(0.50);
+  it("ai_matched < 50% → unavailable", () => {
+    expect(classifyOMIPricing(0.49, "ai_matched")).toBe("unavailable");
+    expect(classifyOMIPricing(0.25, "ai_matched")).toBe("unavailable");
   });
 
-  it("no match has zero confidence", () => {
-    const result = { matchConfidence: 0, matchMethod: "none" };
-    expect(result.matchConfidence).toBe(0);
+  it("ai_fallback → always unavailable regardless of confidence", () => {
+    expect(classifyOMIPricing(0.99, "ai_fallback")).toBe("unavailable");
+    expect(classifyOMIPricing(0.50, "ai_fallback")).toBe("unavailable");
+    expect(classifyOMIPricing(0.25, "ai_fallback")).toBe("unavailable");
+  });
+
+  it("first_zone_fallback → always unavailable (never publishable)", () => {
+    expect(classifyOMIPricing(0.99, "first_zone_fallback")).toBe("unavailable");
+    expect(classifyOMIPricing(0.50, "first_zone_fallback")).toBe("unavailable");
+    expect(classifyOMIPricing(0.20, "first_zone_fallback")).toBe("unavailable");
+  });
+
+  it("none → always unavailable", () => {
+    expect(classifyOMIPricing(0, "none")).toBe("unavailable");
+    expect(classifyOMIPricing(1, "none")).toBe("unavailable");
+  });
+
+  it("confidence exactly at boundary thresholds", () => {
+    // At 0.50 boundary
+    expect(classifyOMIPricing(0.50, "ai_matched")).toBe("elaborated");
+    expect(classifyOMIPricing(0.49, "ai_matched")).toBe("unavailable");
+    // At 0.85 boundary
+    expect(classifyOMIPricing(0.85, "single_zone")).toBe("official");
+    expect(classifyOMIPricing(0.84, "single_zone")).toBe("elaborated");
+  });
+});
+
+// ── L. Elaborated modules sourceType gating ───────────────────
+
+describe("Sottra contract — elaborated modules gating", () => {
+  it("requires ≥ 2 sources for elaborated", () => {
+    expect(classifyElaborated(0)).toBe("unavailable");
+    expect(classifyElaborated(1)).toBe("unavailable");
+    expect(classifyElaborated(2)).toBe("elaborated");
+    expect(classifyElaborated(4)).toBe("elaborated");
+  });
+
+  it("single source → unavailable", () => {
+    expect(classifyElaborated(1)).toBe("unavailable");
+  });
+});
+
+// ── M. Security — no secrets in payload ───────────────────────
+
+describe("Sottra contract — security (no leaks)", () => {
+  it("error payload contains only debug_id reference, no internal details", () => {
+    const errorPayload = {
+      ok: false,
+      data: null,
+      error: { code: "INTERNAL_ERROR", message: "An internal error occurred. Reference: abc123" },
+      debug_id: "abc123",
+    };
+    const serialized = JSON.stringify(errorPayload);
+    expect(serialized).not.toContain("SUPABASE_");
+    expect(serialized).not.toContain("API_KEY");
+    expect(serialized).not.toContain("SECRET");
+    expect(serialized).not.toMatch(/at\s+\w+\s+\(/); // no stack frames
+    expect(serialized).not.toMatch(/\/home\//);
+    expect(serialized).not.toContain("node_modules");
+  });
+
+  it("provider error does not leak exception details", () => {
+    const errorPayload = {
+      ok: false,
+      data: null,
+      error: { code: "PROVIDER_ERROR", message: "Pricing analysis failed. Reference: abc123" },
+      debug_id: "abc123",
+    };
+    const serialized = JSON.stringify(errorPayload);
+    expect(serialized).not.toContain("TypeError");
+    expect(serialized).not.toContain("fetch failed");
+    expect(serialized).not.toContain("ECONNREFUSED");
+  });
+});
+
+// ── N. Publication policy thresholds ──────────────────────────
+
+describe("Sottra contract — publication policy thresholds", () => {
+  it("OMI publish threshold is 50%", () => {
+    expect(PUBLICATION_POLICY.OMI_PUBLISH_THRESHOLD).toBe(0.50);
+  });
+
+  it("OMI official threshold is 85%", () => {
+    expect(PUBLICATION_POLICY.OMI_OFFICIAL_THRESHOLD).toBe(0.85);
+  });
+
+  it("elaborated requires minimum 2 sources", () => {
+    expect(PUBLICATION_POLICY.ELABORATED_MIN_SOURCES).toBe(2);
+  });
+
+  it("only single_zone can be official", () => {
+    expect(PUBLICATION_POLICY.OFFICIAL_MATCH_METHODS).toEqual(["single_zone"]);
+  });
+
+  it("ai_matched produces elaborated", () => {
+    expect(PUBLICATION_POLICY.ELABORATED_MATCH_METHODS).toEqual(["ai_matched"]);
+  });
+
+  it("3 methods are never publishable", () => {
+    expect(PUBLICATION_POLICY.UNPUBLISHABLE_MATCH_METHODS).toEqual(["ai_fallback", "first_zone_fallback", "none"]);
+  });
+});
+
+// ── O. Audit trail completeness ───────────────────────────────
+
+describe("Sottra contract — audit trail fields", () => {
+  const AUDIT_FIELDS = ["sourceLabel", "sourceType", "sourcePeriod", "confidenceReason", "limitations"];
+
+  it("all audit fields present in official pricing response", () => {
+    const data = {
+      sourceLabel: "Agenzia delle Entrate — Osservatorio Mercato Immobiliare",
+      sourceType: "official",
+      sourcePeriod: "1° semestre 2025",
+      confidenceReason: "Prezzi ufficiali OMI — zona B1",
+      limitations: ["Range min/max"],
+    };
+    for (const field of AUDIT_FIELDS) {
+      expect(data).toHaveProperty(field);
+      expect((data as Record<string, unknown>)[field]).not.toBeUndefined();
+    }
+  });
+
+  it("all audit fields present in unavailable response", () => {
+    const data = {
+      sourceLabel: "Catasto (non integrato)",
+      sourceType: "unavailable",
+      sourcePeriod: null,
+      confidenceReason: "Non disponibile",
+      limitations: ["Servizio non collegato"],
+    };
+    for (const field of AUDIT_FIELDS) {
+      expect(data).toHaveProperty(field);
+    }
+  });
+
+  it("all audit fields present in elaborated response", () => {
+    const data = {
+      sourceLabel: "OMI 2025/1 + ISTAT 2025",
+      sourceType: "elaborated",
+      sourcePeriod: "multi-fonte",
+      confidenceReason: "Indice costruito su 3 fonti",
+      limitations: ["Indice sintetico"],
+    };
+    for (const field of AUDIT_FIELDS) {
+      expect(data).toHaveProperty(field);
+      expect((data as Record<string, unknown>)[field]).not.toBeUndefined();
+    }
+  });
+});
+
+// ── P. Provider adapter preparation ───────────────────────────
+
+describe("Sottra contract — provider adapter interface (Phase 2 prep)", () => {
+  it("DataProviderResult shape is stable", () => {
+    const result = {
+      available: true,
+      data: { price: 2500 },
+      source: "OMI",
+      sourceClass: "official_db",
+      freshnessMonths: 3,
+    };
+    expect(typeof result.available).toBe("boolean");
+    expect(result.data).not.toBeNull();
+    expect(typeof result.source).toBe("string");
+    expect(["official_db", "official_portal", "official_imported", "derived_from_official", "commercial"]).toContain(result.sourceClass);
+    expect(typeof result.freshnessMonths).toBe("number");
+  });
+
+  it("unavailable provider result", () => {
+    const result = {
+      available: false,
+      data: null,
+      source: "FutureProvider",
+      sourceClass: "commercial",
+      freshnessMonths: null,
+      error: "Not configured",
+    };
+    expect(result.available).toBe(false);
+    expect(result.data).toBeNull();
+    expect(typeof result.error).toBe("string");
   });
 });

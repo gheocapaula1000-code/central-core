@@ -1,7 +1,8 @@
 // Sottra — Motore Forecast handlers (6 endpoints)
+// Uses unified PUBLICATION_POLICY from shared.ts.
 
 import { ok, fail } from "../_shared/http.ts";
-import { callAI, parseJSON, reverseGeocode, normalizeWithGPT } from "./shared.ts";
+import { callAI, parseJSON, reverseGeocode, normalizeWithGPT, classifyElaborated } from "./shared.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 function getSupabase() {
@@ -191,7 +192,7 @@ export async function handleForecastTimeView(req: Request, body: Record<string, 
     narrativeObservation,
     omiZonesAnalyzed: omiRows.length,
     sourceLabel: sourcesUsed.join(" + "),
-    sourceType: dataPoints >= 2 ? "elaborated" : "unavailable",
+    sourceType: classifyElaborated(dataPoints),
     sourcePeriod: "Dati aggregati multi-fonte — marzo 2026",
     confidenceReason: dataPoints >= 3
       ? "Scenario costruito su dati ufficiali ISTAT, ISPRA, OMI e classificazione sismica"
@@ -369,7 +370,7 @@ export async function handleForecastOpportunity(req: Request, body: Record<strin
     observation,
     omiZonesAnalyzed: omiRows.length,
     sourceLabel: sourcesUsed.join(" + "),
-    sourceType: dataPoints >= 2 ? "elaborated" : "unavailable",
+    sourceType: classifyElaborated(dataPoints),
     sourcePeriod: "Dati aggregati multi-fonte — marzo 2026",
     confidenceReason: dataPoints >= 3
       ? "Indice costruito su dati ufficiali OMI, ISTAT, ISPRA e classificazione sismica"
@@ -612,7 +613,7 @@ export async function handleForecastInfrastrutture(req: Request, body: Record<st
     topRisks,
     narrativeObservation,
     sourceLabel: sourcesUsed.length > 0 ? sourcesUsed.join(" + ") : "Nessuna fonte disponibile",
-    sourceType: dataPoints >= 1 ? "elaborated" : "unavailable",
+    sourceType: classifyElaborated(dataPoints),
     sourcePeriod: "Dati aggregati multi-fonte — marzo 2026",
     confidenceReason: dataPoints >= 2
       ? "Indice costruito su progetti OpenCoesione, segnali Infratel BUL e indicatori ISTAT"

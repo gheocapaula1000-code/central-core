@@ -1,4 +1,91 @@
-// Sottra shared utilities: AI caller, JSON parser, geocoding, GPT normalization layer
+// Sottra shared utilities: AI caller, JSON parser, geocoding, GPT normalization layer,
+// unified publication policy, and provider adapter interfaces.
+
+// ═══════════════════════════════════════════════════════════════
+// PUBLICATION POLICY — Single source of truth for sourceType decisions
+// ═══════════════════════════════════════════════════════════════
+
+export type SourceType = "official" | "elaborated" | "unavailable";
+
+/**
+ * Unified thresholds for all Sottra modules.
+ * official  = real source + strong territorial match + no weak fallback
+ * elaborated = built from verified sources + explainable + sufficient coverage
+ * unavailable = weak match / insufficient coverage / not determinable
+ */
+export const PUBLICATION_POLICY = {
+  /** Minimum OMI matchConfidence to publish pricing at all */
+  OMI_PUBLISH_THRESHOLD: 0.50,
+  /** Minimum OMI matchConfidence for sourceType=official (single_zone only below this) */
+  OMI_OFFICIAL_THRESHOLD: 0.85,
+  /** Minimum data sources for elaborated modules */
+  ELABORATED_MIN_SOURCES: 2,
+  /** OMI match methods that can qualify as "official" */
+  OFFICIAL_MATCH_METHODS: ["single_zone"] as string[],
+  /** OMI match methods that produce "elaborated" (not official) */
+  ELABORATED_MATCH_METHODS: ["ai_matched"] as string[],
+  /** OMI match methods that are never publishable */
+  UNPUBLISHABLE_MATCH_METHODS: ["ai_fallback", "first_zone_fallback", "none"] as string[],
+} as const;
+
+/**
+ * Determine sourceType for OMI pricing based on match confidence and method.
+ */
+export function classifyOMIPricing(matchConfidence: number, matchMethod: string): SourceType {
+  if (PUBLICATION_POLICY.UNPUBLISHABLE_MATCH_METHODS.includes(matchMethod)) return "unavailable";
+  if (matchConfidence < PUBLICATION_POLICY.OMI_PUBLISH_THRESHOLD) return "unavailable";
+  if (
+    PUBLICATION_POLICY.OFFICIAL_MATCH_METHODS.includes(matchMethod) &&
+    matchConfidence >= PUBLICATION_POLICY.OMI_OFFICIAL_THRESHOLD
+  ) return "official";
+  if (matchConfidence >= PUBLICATION_POLICY.OMI_PUBLISH_THRESHOLD) return "elaborated";
+  return "unavailable";
+}
+
+/**
+ * Determine sourceType for elaborated modules (timeview, opportunity, etc.)
+ */
+export function classifyElaborated(sourcesCount: number): SourceType {
+  return sourcesCount >= PUBLICATION_POLICY.ELABORATED_MIN_SOURCES ? "elaborated" : "unavailable";
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PROVIDER ADAPTER — Phase 2 preparation for future data sources
+// ═══════════════════════════════════════════════════════════════
+
+export interface DataProviderResult<T = unknown> {
+  available: boolean;
+  data: T | null;
+  source: string;
+  sourceClass: "official_db" | "official_portal" | "official_imported" | "derived_from_official" | "commercial";
+  freshnessMonths: number | null;
+  error?: string;
+}
+
+/**
+ * Abstract adapter for a data source. Future providers implement this.
+ */
+export interface DataProviderAdapter<TInput = unknown, TOutput = unknown> {
+  readonly name: string;
+  readonly priority: number; // lower = higher priority
+  fetch(input: TInput): Promise<DataProviderResult<TOutput>>;
+}
+
+/**
+ * Merge results from multiple providers, preferring higher-priority ones.
+ */
+export function mergeProviderResults<T>(results: DataProviderResult<T>[]): {
+  best: DataProviderResult<T> | null;
+  allSources: string[];
+  availableCount: number;
+} {
+  const available = results.filter(r => r.available && r.data !== null);
+  return {
+    best: available[0] ?? null,
+    allSources: results.map(r => r.source),
+    availableCount: available.length,
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════
 // OpenAI config helpers — single source of truth
