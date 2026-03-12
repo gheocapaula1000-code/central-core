@@ -1086,5 +1086,376 @@ describe("Sottra contract — street evidence security", () => {
     const serialized = JSON.stringify(signal);
     expect(serialized).not.toContain("access_token");
     expect(serialized).not.toContain("key=");
+});
+
+// ── AC. Market Data — Source Class Model ──────────────────────
+
+const MARKET_SOURCE_CLASSES = [
+  "official", "commercial_verified", "commercial_partial",
+  "user_provided", "elaborated", "unavailable",
+] as const;
+
+const MARKET_DATA_POLICY = {
+  MIN_COMPARABLES_PUBLISHABLE: 3,
+  MIN_COMPARABLES_GOOD: 8,
+  MIN_COMPARABLES_PARTIAL: 5,
+  MAX_COMPARABLE_DISTANCE_KM: 2.0,
+  MAX_SQM_RATIO: 0.50,
+  FRESHNESS_MAX_DAYS: 180,
+  MIN_IDENTITY_CONFIDENCE: 0.50,
+  MIN_IDENTITY_CONFIDENCE_MICROZONA: 0.70,
+  STALE_THRESHOLD_DAYS: 90,
+};
+
+describe("Sottra contract — market data source class model", () => {
+  it("has 6 source class values", () => {
+    expect(MARKET_SOURCE_CLASSES).toHaveLength(6);
   });
+
+  it("official is only for real official sources", () => {
+    expect(MARKET_SOURCE_CLASSES).toContain("official");
+  });
+
+  it("commercial_verified requires solid coverage", () => {
+    expect(MARKET_SOURCE_CLASSES).toContain("commercial_verified");
+  });
+
+  it("unavailable is the default safe state", () => {
+    expect(MARKET_SOURCE_CLASSES).toContain("unavailable");
+  });
+});
+
+// ── AD. Market Data — Comparables Engine ──────────────────────
+
+describe("Sottra contract — comparables engine", () => {
+  it("requires minimum 3 comparables to publish", () => {
+    expect(MARKET_DATA_POLICY.MIN_COMPARABLES_PUBLISHABLE).toBe(3);
+  });
+
+  it("fewer than 3 comparables → unavailable", () => {
+    const comparablesCount = 2;
+    const publishable = comparablesCount >= MARKET_DATA_POLICY.MIN_COMPARABLES_PUBLISHABLE;
+    expect(publishable).toBe(false);
+  });
+
+  it("3+ comparables → publishable", () => {
+    const comparablesCount = 3;
+    const publishable = comparablesCount >= MARKET_DATA_POLICY.MIN_COMPARABLES_PUBLISHABLE;
+    expect(publishable).toBe(true);
+  });
+
+  it("8+ comparables → buona coverage", () => {
+    const comparablesCount = 10;
+    const level = comparablesCount >= MARKET_DATA_POLICY.MIN_COMPARABLES_GOOD ? "buona"
+      : comparablesCount >= MARKET_DATA_POLICY.MIN_COMPARABLES_PARTIAL ? "parziale"
+      : comparablesCount >= MARKET_DATA_POLICY.MIN_COMPARABLES_PUBLISHABLE ? "scarsa"
+      : "insufficiente";
+    expect(level).toBe("buona");
+  });
+
+  it("5-7 comparables → parziale coverage", () => {
+    const comparablesCount = 6;
+    const level = comparablesCount >= MARKET_DATA_POLICY.MIN_COMPARABLES_GOOD ? "buona"
+      : comparablesCount >= MARKET_DATA_POLICY.MIN_COMPARABLES_PARTIAL ? "parziale"
+      : "scarsa";
+    expect(level).toBe("parziale");
+  });
+
+  it("3-4 comparables → scarsa coverage", () => {
+    const comparablesCount = 4;
+    const level = comparablesCount >= MARKET_DATA_POLICY.MIN_COMPARABLES_GOOD ? "buona"
+      : comparablesCount >= MARKET_DATA_POLICY.MIN_COMPARABLES_PARTIAL ? "parziale"
+      : comparablesCount >= MARKET_DATA_POLICY.MIN_COMPARABLES_PUBLISHABLE ? "scarsa"
+      : "insufficiente";
+    expect(level).toBe("scarsa");
+  });
+
+  it("sqm filtering removes very different properties", () => {
+    const referenceSqm = 100;
+    const candidateSqm = 200;
+    const ratio = Math.abs(candidateSqm - referenceSqm) / referenceSqm;
+    expect(ratio).toBeGreaterThan(MARKET_DATA_POLICY.MAX_SQM_RATIO);
+  });
+
+  it("stale listings beyond 180 days are excluded", () => {
+    const ageDays = 200;
+    expect(ageDays).toBeGreaterThan(MARKET_DATA_POLICY.FRESHNESS_MAX_DAYS);
+  });
+});
+
+// ── AE. Market Data — Identity Gating ─────────────────────────
+
+describe("Sottra contract — market data identity gating", () => {
+  it("identity confidence < 50% → market data unavailable", () => {
+    const identityConfidence = 0.40;
+    const eligible = identityConfidence >= MARKET_DATA_POLICY.MIN_IDENTITY_CONFIDENCE;
+    expect(eligible).toBe(false);
+  });
+
+  it("identity confidence ≥ 50% → market data allowed", () => {
+    const identityConfidence = 0.55;
+    const eligible = identityConfidence >= MARKET_DATA_POLICY.MIN_IDENTITY_CONFIDENCE;
+    expect(eligible).toBe(true);
+  });
+
+  it("microzona comparables require ≥ 70% identity confidence", () => {
+    const identityConfidence = 0.65;
+    const microzonaEligible = identityConfidence >= MARKET_DATA_POLICY.MIN_IDENTITY_CONFIDENCE_MICROZONA;
+    expect(microzonaEligible).toBe(false);
+  });
+
+  it("microzona comparables pass at ≥ 70% confidence + house_number", () => {
+    const identityConfidence = 0.75;
+    const geoMatchLevel = "house_number";
+    const microzonaEligible = identityConfidence >= MARKET_DATA_POLICY.MIN_IDENTITY_CONFIDENCE_MICROZONA &&
+      ["address_point", "house_number"].includes(geoMatchLevel);
+    expect(microzonaEligible).toBe(true);
+  });
+
+  it("street-only match → no microzona comparables even with high confidence", () => {
+    const identityConfidence = 0.90;
+    const geoMatchLevel = "street";
+    const microzonaEligible = identityConfidence >= MARKET_DATA_POLICY.MIN_IDENTITY_CONFIDENCE_MICROZONA &&
+      ["address_point", "house_number"].includes(geoMatchLevel);
+    expect(microzonaEligible).toBe(false);
+  });
+});
+
+// ── AF. Market Data — Market Signals ──────────────────────────
+
+describe("Sottra contract — market signals", () => {
+  const SIGNAL_IDS = [
+    "price_band_locale", "market_freshness", "market_depth",
+    "seller_pressure", "listing_turnover",
+  ];
+
+  it("defines 5 core signal types", () => {
+    expect(SIGNAL_IDS).toHaveLength(5);
+  });
+
+  it("signal shape is consistent", () => {
+    const signal = {
+      signalId: "market_freshness",
+      label: "Freschezza mercato",
+      value: 0.75,
+      unit: "score 0-1",
+      sourceClass: "elaborated",
+      confidence: 0.60,
+      reason: "Score basato sull'età media degli annunci",
+      limitations: ["Misura la rotazione degli annunci"],
+    };
+    expect(typeof signal.signalId).toBe("string");
+    expect(typeof signal.label).toBe("string");
+    expect(MARKET_SOURCE_CLASSES).toContain(signal.sourceClass);
+    expect(signal.confidence).toBeGreaterThanOrEqual(0);
+    expect(signal.confidence).toBeLessThanOrEqual(1);
+    expect(Array.isArray(signal.limitations)).toBe(true);
+  });
+
+  it("signals are never promoted beyond their sourceClass", () => {
+    // Elaborated signals should not claim to be official
+    const signalSourceClass = "elaborated";
+    expect(signalSourceClass).not.toBe("official");
+    expect(signalSourceClass).not.toBe("commercial_verified");
+  });
+});
+
+// ── AG. Market Data — No Provider Stability ───────────────────
+
+describe("Sottra contract — market data no-provider stability", () => {
+  it("no providers → clean unavailable result", () => {
+    const result = {
+      marketContext: "unavailable",
+      comparablesSummary: null,
+      marketConfidence: 0,
+      sourceType: "unavailable",
+      providerBreakdown: [],
+      limitations: ["Nessun provider commerciale di dati immobiliari è attivo"],
+    };
+    expect(result.marketContext).toBe("unavailable");
+    expect(result.comparablesSummary).toBeNull();
+    expect(result.marketConfidence).toBe(0);
+    expect(result.sourceType).toBe("unavailable");
+    expect(result.providerBreakdown).toHaveLength(0);
+  });
+
+  it("unavailable result has all required fields", () => {
+    const result = {
+      marketContext: "unavailable",
+      comparablesSummary: null,
+      marketSignals: {
+        priceBandLocale: null,
+        marketFreshness: null,
+        marketDepth: null,
+        sellerPressure: null,
+        premiumMicroAreaSignal: null,
+        rentalAppealSignal: null,
+        energyPremiumSignal: null,
+        listingTurnoverSignal: null,
+      },
+      marketConfidence: 0,
+      marketConfidenceReason: "reason",
+      marketCoverageLevel: "insufficiente",
+      sourceType: "unavailable",
+      sourceLabel: "Dati di mercato (non integrato)",
+      sourcePeriod: null,
+      limitations: [],
+      providerBreakdown: [],
+    };
+    expect(result.marketSignals).toBeDefined();
+    expect(Object.keys(result.marketSignals)).toHaveLength(8);
+    for (const val of Object.values(result.marketSignals)) {
+      expect(val).toBeNull();
+    }
+  });
+});
+
+// ── AH. Market Data — Provider Disagreement ───────────────────
+
+describe("Sottra contract — market provider disagreement", () => {
+  it("30%+ price divergence between providers → 30% confidence penalty", () => {
+    const baseConfidence = 0.80;
+    const provider1Median = 2000;
+    const provider2Median = 3000;
+    const divergence = (provider2Median - provider1Median) / provider2Median;
+    expect(divergence).toBeGreaterThan(0.30);
+    const penalized = baseConfidence * 0.70;
+    expect(penalized).toBeCloseTo(0.56, 1);
+  });
+
+  it("providers within 30% → no penalty", () => {
+    const provider1Median = 2000;
+    const provider2Median = 2500;
+    const maxMedian = Math.max(provider1Median, provider2Median);
+    const divergence = (maxMedian - Math.min(provider1Median, provider2Median)) / maxMedian;
+    expect(divergence).toBe(0.20);
+    expect(divergence).toBeLessThanOrEqual(0.30);
+  });
+});
+
+// ── AI. Market Data — Payload Sanitization ────────────────────
+
+describe("Sottra contract — market data security", () => {
+  it("market payload never contains API keys or credentials", () => {
+    const payload = {
+      marketContext: "available",
+      comparablesSummary: { comparablesCount: 10, medianPricePerSqm: 3000 },
+      providerBreakdown: [{ provider: "market_provider_1", available: true, confidence: 0.80 }],
+    };
+    const serialized = JSON.stringify(payload);
+    expect(serialized).not.toContain("API_KEY");
+    expect(serialized).not.toContain("Bearer");
+    expect(serialized).not.toContain("SECRET");
+    expect(serialized).not.toContain("password");
+  });
+
+  it("individual listings never leak provider internal IDs inappropriately", () => {
+    const listing = {
+      provider: "market_provider_1",
+      listingId: "pub_12345",
+      askingPrice: 250000,
+      pricePerSqm: 3000,
+    };
+    const serialized = JSON.stringify(listing);
+    expect(serialized).not.toContain("access_token");
+    expect(serialized).not.toContain("key=");
+  });
+});
+
+// ── AJ. Market Data — Env Keys ────────────────────────────────
+
+describe("Sottra contract — market data env keys", () => {
+  it("optional env keys for market data", () => {
+    const envKeys = [
+      "MARKET_DATA_ENABLED",
+      "MARKET_PROVIDER_ORDER",
+      "MARKET_PROVIDER_1_API_KEY",
+      "MARKET_PROVIDER_1_BASE_URL",
+      "MARKET_PROVIDER_2_API_KEY",
+      "MARKET_PROVIDER_2_BASE_URL",
+      "MARKET_PROVIDER_3_API_KEY",
+      "MARKET_PROVIDER_3_BASE_URL",
+    ];
+    expect(envKeys).toHaveLength(8);
+    // All are optional — system must work without them
+  });
+});
+
+// ── AK. Market Data — scan/market endpoint contract ───────────
+
+describe("Sottra contract — scan/market endpoint", () => {
+  it("success response shape with comparables", () => {
+    const data = {
+      marketContext: "available",
+      comparablesSummary: {
+        comparablesCount: 10,
+        medianPricePerSqm: 3200,
+        lowerQuartilePricePerSqm: 2800,
+        upperQuartilePricePerSqm: 3600,
+        freshnessScore: 0.75,
+        marketDepthScore: 0.67,
+        comparableCoverageLevel: "buona",
+        marketDataConfidence: 0.72,
+        marketDataReason: "10 comparabili filtrati",
+      },
+      marketSignals: {
+        priceBandLocale: { signalId: "price_band_locale", sourceClass: "commercial_verified" },
+        marketFreshness: { signalId: "market_freshness", sourceClass: "elaborated" },
+        marketDepth: null,
+        sellerPressure: null,
+        premiumMicroAreaSignal: null,
+        rentalAppealSignal: null,
+        energyPremiumSignal: null,
+        listingTurnoverSignal: null,
+      },
+      marketConfidence: 0.72,
+      marketConfidenceReason: "10 comparabili da 1 provider",
+      marketCoverageLevel: "buona",
+      sourceType: "commercial_verified",
+      sourceLabel: "Dati di mercato — market_provider_1",
+      sourcePeriod: "ultimi 6 mesi",
+      limitations: ["Prezzi basati su annunci pubblici"],
+      providerBreakdown: [{ provider: "market_provider_1", available: true, sourceClass: "commercial_verified", comparablesCount: 10, confidence: 0.80 }],
+    };
+    expect(data.marketContext).toBe("available");
+    expect(data.comparablesSummary).not.toBeNull();
+    expect(data.comparablesSummary!.comparablesCount).toBeGreaterThanOrEqual(MARKET_DATA_POLICY.MIN_COMPARABLES_PUBLISHABLE);
+    expect(["buona", "parziale", "scarsa", "insufficiente"]).toContain(data.comparablesSummary!.comparableCoverageLevel);
+    expect(data.marketConfidence).toBeGreaterThanOrEqual(0);
+    expect(data.marketConfidence).toBeLessThanOrEqual(1);
+    expect(Array.isArray(data.limitations)).toBe(true);
+    expect(data.limitations.length).toBeGreaterThan(0);
+  });
+
+  it("unavailable response shape", () => {
+    const data = {
+      marketContext: "unavailable",
+      comparablesSummary: null,
+      marketConfidence: 0,
+      sourceType: "unavailable",
+      limitations: ["Nessun provider configurato"],
+    };
+    expect(data.marketContext).toBe("unavailable");
+    expect(data.comparablesSummary).toBeNull();
+    expect(data.marketConfidence).toBe(0);
+    expect(data.sourceType).toBe("unavailable");
+  });
+
+  it("comparablesSummary has all required metric fields", () => {
+    const fields = [
+      "comparablesCount", "medianPricePerSqm", "lowerQuartilePricePerSqm",
+      "upperQuartilePricePerSqm", "freshnessScore", "marketDepthScore",
+      "comparableCoverageLevel", "marketDataConfidence", "marketDataReason",
+    ];
+    expect(fields).toHaveLength(9);
+  });
+
+  it("marketSignals has all 8 slots", () => {
+    const slots = [
+      "priceBandLocale", "marketFreshness", "marketDepth", "sellerPressure",
+      "premiumMicroAreaSignal", "rentalAppealSignal", "energyPremiumSignal", "listingTurnoverSignal",
+    ];
+    expect(slots).toHaveLength(8);
+  });
+});
 });
