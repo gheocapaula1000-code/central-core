@@ -583,7 +583,7 @@ export async function handleForecastConvergenzaTerritoriale(
     evidenceTrace,
     narrativeObservation,
     sourceLabel: sourcesUsed.length > 0 ? sourcesUsed.join(" + ") : "Nessuna fonte disponibile",
-    sourceType: "elaborated" as const,
+    sourceType: (result.convergenceLevel === "insufficiente" ? "unavailable" : "elaborated") as const,
     sourcePeriod: "Dati aggregati multi-fonte — marzo 2026",
     confidenceReason: result.convergenceLevel === "insufficiente"
       ? "Dati insufficienti per calcolare una convergenza affidabile"
