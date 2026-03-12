@@ -147,7 +147,23 @@
 | `/forecast/sviluppo-area` | POST | Area development | ✅ Active |
 | `/forecast/convergenza-territoriale` | POST | ICTV territorial convergence | ✅ Active |
 
-### scan/market — Market Data Adapter (Phase 3)
+### scan/market — Market Data Adapter (Phase 3, Provider 1 Active)
+
+**Provider 1 is now fully active** when `MARKET_PROVIDER_1_API_KEY` and `MARKET_PROVIDER_1_BASE_URL` are configured.
+
+**Provider Contract:** POST `{BASE_URL}/search` with:
+```json
+{
+  "lat": 45.464, "lng": 9.190,
+  "comune": "MILANO", "address": "Via Roma 1, Milano",
+  "street": "Via Roma", "houseNumber": "1", "provincia": "MI",
+  "radiusKm": 2.0, "propertyType": "residenziale",
+  "areaSqm": 85, "maxResults": 50, "maxAgeDays": 180
+}
+```
+Expected response: `{ "listings": [...] }` (also accepts `results`, `data`, `items`, `properties`, `comparables` as array key). Listings can use Italian or English field names (e.g. `prezzo`/`price`, `superficie`/`areaSqm`, `via`/`street`).
+
+**Retry policy:** 1 retry on HTTP 5xx/429, fail fast on 4xx. 15s timeout per attempt.
 
 **Input:**
 ```json
@@ -183,28 +199,28 @@
   },
   "marketSignals": {
     "priceBandLocale": { "signalId": "...", "sourceClass": "..." },
-    "marketFreshness": null,
-    "marketDepth": null,
-    "sellerPressure": null,
+    "marketFreshness": { "signalId": "...", "sourceClass": "elaborated" },
+    "marketDepth": { "signalId": "...", "sourceClass": "elaborated" },
+    "sellerPressure": { "signalId": "...", "sourceClass": "elaborated" },
     "premiumMicroAreaSignal": null,
     "rentalAppealSignal": null,
     "energyPremiumSignal": null,
-    "listingTurnoverSignal": null
+    "listingTurnoverSignal": { "signalId": "...", "sourceClass": "elaborated" }
   },
   "marketConfidence": 0.72,
   "marketCoverageLevel": "buona",
-  "sourceType": "commercial_verified|elaborated|unavailable",
+  "sourceType": "commercial_verified|commercial_partial|elaborated|unavailable",
   "sourceLabel": "...",
   "sourcePeriod": "ultimi 6 mesi",
   "limitations": ["..."],
-  "providerBreakdown": [{ "provider": "...", "available": true }]
+  "providerBreakdown": [{ "provider": "...", "available": true, "sourceClass": "..." }]
 }
 ```
 
 **Source Class Model:**
-- `official` — Only real official sources
-- `commercial_verified` — Licensed commercial sources with solid coverage
-- `commercial_partial` — Partial commercial data
+- `official` — Only real official sources (OMI, ISTAT)
+- `commercial_verified` — ≥8 listings with ≥80% price coverage and ≥60% address-level detail
+- `commercial_partial` — ≥3 listings with ≥50% price coverage but insufficient for verified
 - `user_provided` — User-supplied data
 - `elaborated` — Index/calculation from verified sources
 - `unavailable` — Data not solid enough
@@ -214,6 +230,8 @@
 - `finalIdentityConfidence < 70%` or `geoMatchLevel < house_number` → no microzona comparables
 - `< 3 comparables` → unavailable
 - Provider price divergence > 30% → 30% confidence penalty
+- Listings older than 180 days → filtered out
+- SQM difference > 50% from reference → filtered out
 
 **Env (all optional):**
 - `MARKET_DATA_ENABLED` — master toggle (default: true)
