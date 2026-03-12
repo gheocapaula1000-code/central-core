@@ -1,4 +1,4 @@
-// Sottra — Motore Scan handlers (7 endpoints)
+// Sottra — Motore Scan handlers (8 endpoints)
 // POLICY: Only real data from official sources. No AI-invented results.
 // DATA RIGOR: No fake mediaZona, no hardcoded trend5Anni, confidence-gated pricing.
 // Uses unified PUBLICATION_POLICY from shared.ts.
@@ -8,6 +8,7 @@ import { callAI, callAIVision, parseJSON, reverseGeocode, classifyOMIPricing, PU
 import { lookupOMI } from "./omi-lookup.ts";
 import { resolveGeo, type GeoResolutionResult } from "./geo-resolution.ts";
 import { collectStreetEvidence, type StreetEvidenceMergeResult } from "./street-evidence.ts";
+import { collectMarketData, MARKET_DATA_POLICY, type MarketContextResult } from "./market-data.ts";
 
 /** POST /sottra/scan/identify — photo + GPS → address + building ID + street evidence */
 export async function handleScanIdentify(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
