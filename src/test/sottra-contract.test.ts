@@ -79,8 +79,8 @@ describe("Sottra contract — path registry", () => {
     expect(SOTTRA_FORECAST_PATHS).toHaveLength(8);
   });
 
-  it("total 15 endpoints", () => {
-    expect(ALL_SOTTRA_PATHS).toHaveLength(15);
+  it("total 16 endpoints", () => {
+    expect(ALL_SOTTRA_PATHS).toHaveLength(16);
   });
 
   it.each(ALL_SOTTRA_PATHS)("$path ($method) — endsWith matching works", ({ path }) => {
