@@ -22,6 +22,7 @@ import {
   handleScanEnergy,
   handleScanCondominio,
   handleScanStoricoTransazioni,
+  handleScanMarket,
 } from "./scan.ts";
 
 // ── Forecast handlers ──
