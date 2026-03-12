@@ -15,28 +15,74 @@ export async function handleScanIdentify(req: Request, body: Record<string, unkn
   const photo = (body.photo as string) ?? "";
   if (lat == null || lng == null) return fail(req, 400, "MISSING_COORDS", "Provide lat and lng", debugId);
 
-  const address = await reverseGeocode(lat, lng);
-  if (!address) return fail(req, 502, "GEOCODE_FAILED", "Could not resolve coordinates to address", debugId);
-
-  const encoder = new TextEncoder();
-  const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(address));
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const buildingId = "IT-" + hashArray.slice(0, 4).map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase();
-
-  // If photo provided, analyze it for confidence and visible details
-  let confidence = 0.75;
+  // Phase 1: Extract photo evidence if available (civico, street name)
+  let photoEvidence: { visibleHouseNumber?: string; visibleStreetName?: string; confidence?: number } | undefined;
   if (photo && photo.startsWith("data:image")) {
     try {
       const output = await callAIVision(
-        `Stai guardando la foto di un edificio. L'indirizzo rilevato dal GPS è "${address}". Rispondi SOLO in JSON: { "confidence": numero_da_0_a_1 che indica quanto l'edificio nella foto corrisponde all'indirizzo indicato, "visibleFloors": numero_piani_visibili_nella_foto, "buildingType": "residenziale" o "commerciale" o "misto" o "industriale" }`,
+        `Stai guardando la foto di un edificio. Rispondi SOLO in JSON: { "confidence": numero_da_0_a_1, "visibleFloors": numero_piani, "buildingType": "residenziale"|"commerciale"|"misto"|"industriale", "visibleHouseNumber": civico_visibile_o_null, "visibleStreetName": nome_via_visibile_o_null }`,
         photo, 150, 0.1
       );
       const parsed = parseJSON(output);
-      if (parsed?.confidence) confidence = parsed.confidence as number;
-    } catch { /* use default confidence */ }
+      if (parsed) {
+        photoEvidence = {
+          visibleHouseNumber: (parsed.visibleHouseNumber as string) ?? undefined,
+          visibleStreetName: (parsed.visibleStreetName as string) ?? undefined,
+          confidence: (parsed.confidence as number) ?? undefined,
+        };
+      }
+    } catch { /* photo analysis optional */ }
   }
 
-  return ok(req, { address, buildingId, confidence }, [], debugId);
+  // Phase 2: Multi-provider geo resolution
+  const geo = await resolveGeo(lat, lng, photoEvidence);
+
+  if (!geo.resolvedAddress) {
+    // Fallback to legacy reverseGeocode if all providers fail
+    const legacyAddress = await reverseGeocode(lat, lng);
+    if (!legacyAddress) return fail(req, 502, "GEOCODE_FAILED", "Could not resolve coordinates to address", debugId);
+
+    const encoder = new TextEncoder();
+    const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(legacyAddress));
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const buildingId = "IT-" + hashArray.slice(0, 4).map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase();
+
+    return ok(req, {
+      address: legacyAddress,
+      buildingId,
+      confidence: 0.50,
+      geoResolution: null,
+    }, ["Geo resolution fallback — solo Nominatim legacy"], debugId);
+  }
+
+  // Build stable buildingId from resolved address
+  const encoder = new TextEncoder();
+  const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(geo.resolvedAddress));
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const buildingId = "IT-" + hashArray.slice(0, 4).map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase();
+
+  return ok(req, {
+    address: geo.resolvedAddress,
+    buildingId,
+    confidence: geo.geoConfidence,
+    // Enriched geo resolution payload (audit-ready)
+    geoResolution: {
+      resolvedComune: geo.resolvedComune,
+      resolvedProvincia: geo.resolvedProvincia,
+      resolvedStreet: geo.resolvedStreet,
+      resolvedHouseNumber: geo.resolvedHouseNumber,
+      resolvedPostalCode: geo.resolvedPostalCode,
+      resolvedLat: geo.resolvedLat,
+      resolvedLng: geo.resolvedLng,
+      geoConfidence: geo.geoConfidence,
+      geoConfidenceReason: geo.geoConfidenceReason,
+      geoMatchLevel: geo.geoMatchLevel,
+      providerConsensus: geo.providerConsensus,
+      providerBreakdown: geo.providerBreakdown,
+      publicationEligible: geo.publicationEligible,
+      eligibleModuleClasses: geo.eligibleModuleClasses,
+    },
+  }, [], debugId);
 }
 
 /** POST /sottra/scan/cadastral — UNAVAILABLE: no real cadastral data source integrated */
