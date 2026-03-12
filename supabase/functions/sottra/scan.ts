@@ -350,3 +350,42 @@ export async function handleScanStoricoTransazioni(req: Request, body: Record<st
     ],
   }, ["Storico transazioni non disponibile — fonte reale non integrata"], debugId);
 }
+
+/** POST /sottra/scan/market — Market data comparables + signals (confidence-gated) */
+export async function handleScanMarket(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
+  const address = (body.address as string) ?? "";
+  const comune = (body.comune as string) ?? "";
+  const lat = body.lat as number | undefined;
+  const lng = body.lng as number | undefined;
+  const provincia = (body.provincia as string) ?? null;
+  const street = (body.street as string) ?? null;
+  const houseNumber = (body.houseNumber as string) ?? null;
+  const propertyType = (body.propertyType as string) ?? undefined;
+  const areaSqm = typeof body.areaSqm === "number" ? body.areaSqm : undefined;
+  const finalIdentityConfidence = typeof body.finalIdentityConfidence === "number" ? body.finalIdentityConfidence : 0;
+  const geoMatchLevel = (body.geoMatchLevel as string) ?? "unknown";
+
+  if (!address && !comune) return fail(req, 400, "MISSING_ADDRESS", "Provide address or comune", debugId);
+  if (lat == null || lng == null) return fail(req, 400, "MISSING_COORDS", "Provide lat and lng", debugId);
+
+  try {
+    const result = await collectMarketData(
+      { address, comune, provincia, street, houseNumber, lat, lng, propertyType, areaSqm },
+      finalIdentityConfidence,
+      geoMatchLevel,
+    );
+
+    // Sanitize: never expose raw provider API details
+    const warnings: string[] = [];
+    if (result.marketContext === "unavailable") {
+      warnings.push("Dati di mercato non disponibili");
+    } else if (result.marketContext === "partial") {
+      warnings.push("Dati di mercato parziali — copertura limitata");
+    }
+
+    return ok(req, result, warnings, debugId);
+  } catch (e) {
+    console.error(`[scan/market] Error debug_id=${debugId}: ${String(e).slice(0, 200)}`);
+    return fail(req, 502, "PROVIDER_ERROR", `Market data analysis failed. Reference: ${debugId}`, debugId);
+  }
+}

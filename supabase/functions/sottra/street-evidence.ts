@@ -503,21 +503,5 @@ export async function collectStreetEvidence(
   );
 }
 
-// ── Future Adapter Stub ───────────────────────────────────────
-
-/**
- * Placeholder for future market data adapter.
- * Will provide property-level market data from commercial sources.
- * NOT activated — just interface preparation.
- */
-export interface MarketDataAdapter {
-  readonly name: string;
-  readonly priority: number;
-  isAvailable(): boolean;
-  lookupByAddress(address: string, comune: string): Promise<{
-    available: boolean;
-    data: unknown;
-    source: string;
-    sourceClass: "commercial" | "official_portal";
-  } | null>;
-}
+// ── Market Data Adapter is now in market-data.ts ──────────────
+// See: supabase/functions/sottra/market-data.ts
