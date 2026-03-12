@@ -192,7 +192,7 @@ export async function handleForecastTimeView(req: Request, body: Record<string, 
     narrativeObservation,
     omiZonesAnalyzed: omiRows.length,
     sourceLabel: sourcesUsed.join(" + "),
-    sourceType: dataPoints >= 2 ? "elaborated" : "unavailable",
+    sourceType: classifyElaborated(dataPoints),
     sourcePeriod: "Dati aggregati multi-fonte — marzo 2026",
     confidenceReason: dataPoints >= 3
       ? "Scenario costruito su dati ufficiali ISTAT, ISPRA, OMI e classificazione sismica"
