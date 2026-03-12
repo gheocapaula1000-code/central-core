@@ -727,13 +727,25 @@ export async function collectMarketData(
   }));
 
   // ── Determine overall sourceType ──
+  // Use provider-level sourceClass as input + summary quality
   let sourceType: MarketSourceClass = "unavailable";
   let marketContext: MarketContextResult["marketContext"] = "unavailable";
 
   if (summary) {
-    if (summary.comparableCoverageLevel === "buona" && isMicrozonaEligible) {
+    // Check if any provider achieved commercial_verified
+    const anyVerified = results.some(r => r.available && r.sourceClass === "commercial_verified");
+    const anyPartial = results.some(r => r.available && (r.sourceClass === "commercial_verified" || r.sourceClass === "commercial_partial"));
+
+    if (summary.comparableCoverageLevel === "buona" && isMicrozonaEligible && anyVerified) {
       sourceType = "commercial_verified";
       marketContext = "available";
+    } else if (summary.comparableCoverageLevel === "buona" && isMicrozonaEligible && anyPartial) {
+      // Good coverage but only partial-quality data
+      sourceType = "commercial_partial";
+      marketContext = "available";
+    } else if (summary.comparableCoverageLevel !== "insufficiente" && anyPartial) {
+      sourceType = "commercial_partial";
+      marketContext = "partial";
     } else if (summary.comparableCoverageLevel !== "insufficiente") {
       sourceType = "elaborated";
       marketContext = "partial";
