@@ -22,6 +22,7 @@ import {
   handleScanEnergy,
   handleScanCondominio,
   handleScanStoricoTransazioni,
+  handleScanMarket,
 } from "./scan.ts";
 
 // ── Forecast handlers ──
@@ -53,6 +54,7 @@ const ROUTES: Record<string, (req: Request, body: Record<string, unknown>, debug
   "scan/energy":               handleScanEnergy,
   "scan/condominio":           handleScanCondominio,
   "scan/storico-transazioni":  handleScanStoricoTransazioni,
+  "scan/market":               handleScanMarket,
   // Motore Forecast (7)
   "forecast/moodscore":        handleForecastMoodScore,
   "forecast/timeview":         handleForecastTimeView,

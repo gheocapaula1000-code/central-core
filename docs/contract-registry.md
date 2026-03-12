@@ -121,7 +121,7 @@
 **Function:** `sottra` (dedicated Edge Function)
 **Test file:** `src/test/sottra-contract.test.ts`
 
-### Scan Endpoints (7)
+### Scan Endpoints (8)
 
 | Route | Method | Description | Status |
 |-------|--------|-------------|--------|
@@ -132,6 +132,7 @@
 | `/scan/energy` | POST | Energy class (APE) | ⚠️ UNAVAILABLE |
 | `/scan/condominio` | POST | Condominium data | ⚠️ UNAVAILABLE |
 | `/scan/storico-transazioni` | POST | Transaction history | ⚠️ UNAVAILABLE |
+| `/scan/market` | POST | Market comparables + signals | ✅ Active (env-gated) |
 
 ### Forecast Endpoints (8)
 
@@ -145,6 +146,81 @@
 | `/forecast/trend-demografico` | POST | Demographic trend | ✅ Active |
 | `/forecast/sviluppo-area` | POST | Area development | ✅ Active |
 | `/forecast/convergenza-territoriale` | POST | ICTV territorial convergence | ✅ Active |
+
+### scan/market — Market Data Adapter (Phase 3)
+
+**Input:**
+```json
+{
+  "address": "Via Roma 1, Milano",
+  "comune": "MILANO",
+  "lat": 45.464,
+  "lng": 9.190,
+  "provincia": "MI",
+  "street": "Via Roma",
+  "houseNumber": "1",
+  "propertyType": "residenziale",
+  "areaSqm": 85,
+  "finalIdentityConfidence": 0.85,
+  "geoMatchLevel": "house_number"
+}
+```
+
+**Output:**
+```json
+{
+  "marketContext": "available|partial|unavailable",
+  "comparablesSummary": {
+    "comparablesCount": 10,
+    "medianPricePerSqm": 3200,
+    "lowerQuartilePricePerSqm": 2800,
+    "upperQuartilePricePerSqm": 3600,
+    "freshnessScore": 0.75,
+    "marketDepthScore": 0.67,
+    "comparableCoverageLevel": "buona|parziale|scarsa|insufficiente",
+    "marketDataConfidence": 0.72,
+    "marketDataReason": "..."
+  },
+  "marketSignals": {
+    "priceBandLocale": { "signalId": "...", "sourceClass": "..." },
+    "marketFreshness": null,
+    "marketDepth": null,
+    "sellerPressure": null,
+    "premiumMicroAreaSignal": null,
+    "rentalAppealSignal": null,
+    "energyPremiumSignal": null,
+    "listingTurnoverSignal": null
+  },
+  "marketConfidence": 0.72,
+  "marketCoverageLevel": "buona",
+  "sourceType": "commercial_verified|elaborated|unavailable",
+  "sourceLabel": "...",
+  "sourcePeriod": "ultimi 6 mesi",
+  "limitations": ["..."],
+  "providerBreakdown": [{ "provider": "...", "available": true }]
+}
+```
+
+**Source Class Model:**
+- `official` — Only real official sources
+- `commercial_verified` — Licensed commercial sources with solid coverage
+- `commercial_partial` — Partial commercial data
+- `user_provided` — User-supplied data
+- `elaborated` — Index/calculation from verified sources
+- `unavailable` — Data not solid enough
+
+**Gating Rules:**
+- `finalIdentityConfidence < 50%` → market data unavailable
+- `finalIdentityConfidence < 70%` or `geoMatchLevel < house_number` → no microzona comparables
+- `< 3 comparables` → unavailable
+- Provider price divergence > 30% → 30% confidence penalty
+
+**Env (all optional):**
+- `MARKET_DATA_ENABLED` — master toggle (default: true)
+- `MARKET_PROVIDER_ORDER` — comma-separated priority
+- `MARKET_PROVIDER_1_API_KEY`, `MARKET_PROVIDER_1_BASE_URL`
+- `MARKET_PROVIDER_2_API_KEY`, `MARKET_PROVIDER_2_BASE_URL`
+- `MARKET_PROVIDER_3_API_KEY`, `MARKET_PROVIDER_3_BASE_URL`
 
 ### UNAVAILABLE Endpoints
 These endpoints are intentionally scaffolded but return `sourceType: "unavailable"` with explicit `limitations`. They do NOT invent or mock data. Future integration with real data sources will activate them.

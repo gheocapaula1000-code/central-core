@@ -377,11 +377,11 @@ export class NominatimProvider implements GeocodingProviderAdapter {
   }
 }
 
-// ── Phase 2 Adapters ──────────────────────────────────────────
-// Street evidence and market data adapters are now in:
-// - street-evidence.ts (StreetEvidenceAdapter, MarketDataAdapter)
-// Re-exported for backward compatibility
-export type { StreetEvidenceAdapter, MarketDataAdapter } from "./street-evidence.ts";
+// ── Phase 3 Adapters ──────────────────────────────────────────
+// Market data adapter is in market-data.ts
+// Street evidence adapter is in street-evidence.ts
+export type { StreetEvidenceAdapter } from "./street-evidence.ts";
+export type { MarketDataProviderAdapter } from "./market-data.ts";
 
 // ── Provider Chain ────────────────────────────────────────────
 
