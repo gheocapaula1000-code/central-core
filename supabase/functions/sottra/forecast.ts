@@ -613,7 +613,7 @@ export async function handleForecastInfrastrutture(req: Request, body: Record<st
     topRisks,
     narrativeObservation,
     sourceLabel: sourcesUsed.length > 0 ? sourcesUsed.join(" + ") : "Nessuna fonte disponibile",
-    sourceType: dataPoints >= 1 ? "elaborated" : "unavailable",
+    sourceType: classifyElaborated(dataPoints),
     sourcePeriod: "Dati aggregati multi-fonte — marzo 2026",
     confidenceReason: dataPoints >= 2
       ? "Indice costruito su progetti OpenCoesione, segnali Infratel BUL e indicatori ISTAT"

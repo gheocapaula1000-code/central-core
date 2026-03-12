@@ -113,6 +113,7 @@ Deno.serve(async (req) => {
     return fail(req, 404, "ROUTE_NOT_FOUND", `No handler for ${pathname}. Available: ${Object.keys(ROUTES).join(", ")}`, debugId);
 
   } catch (err) {
+    // Security: never leak stack traces or internal details to user-facing payload
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error(`[sottra] Error debug_id=${debugId}:`, errMsg);
     return fail(req, 500, "INTERNAL_ERROR", `An internal error occurred. Reference: ${debugId}`, debugId);
