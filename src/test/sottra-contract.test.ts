@@ -54,6 +54,7 @@ const SOTTRA_SCAN_PATHS = [
   { path: "/scan/energy",               method: "POST", description: "Energy class (UNAVAILABLE)" },
   { path: "/scan/condominio",           method: "POST", description: "Condominium data (UNAVAILABLE)" },
   { path: "/scan/storico-transazioni",  method: "POST", description: "Transaction history (UNAVAILABLE)" },
+  { path: "/scan/market",               method: "POST", description: "Market data comparables + signals" },
 ];
 
 const SOTTRA_FORECAST_PATHS = [
