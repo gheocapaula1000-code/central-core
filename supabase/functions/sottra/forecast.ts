@@ -1,7 +1,8 @@
 // Sottra — Motore Forecast handlers (6 endpoints)
+// Uses unified PUBLICATION_POLICY from shared.ts.
 
 import { ok, fail } from "../_shared/http.ts";
-import { callAI, parseJSON, reverseGeocode, normalizeWithGPT } from "./shared.ts";
+import { callAI, parseJSON, reverseGeocode, normalizeWithGPT, classifyElaborated } from "./shared.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 function getSupabase() {
