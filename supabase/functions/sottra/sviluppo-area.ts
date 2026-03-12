@@ -459,8 +459,8 @@ export async function handleForecastSviluppoArea(
     openDataComunali: { available: false, predisposed: true },
     alboPretorio: { available: false, predisposed: true },
 
-    sourceLabel: sourcesUsed.join(" + "),
-    sourceType: "elaborated",
+    sourceLabel: sourcesUsed.length > 1 ? sourcesUsed.join(" + ") : sourcesUsed[0] ?? "Nessuna fonte esterna disponibile",
+    sourceType: (ocResult.available || infraResult.available || mitResult.available) ? "elaborated" : "unavailable",
     sourcePeriod: "Dati aggregati multi-fonte — consultazione marzo 2026",
     confidenceReason: scoring.reason,
     limitations,

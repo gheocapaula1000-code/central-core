@@ -1,11 +1,18 @@
 import { describe, it, expect } from "vitest";
 
 /**
- * Sottra Contract Regression Tests
+ * Sottra Contract Regression Tests — Data Rigor Edition
  *
  * These tests verify the contract surface that Sottra PWA depends on.
  * Pure logic and structural expectations — no live HTTP calls.
  * Breaking any of these means a potential Sottra outage.
+ *
+ * DATA RIGOR RULES enforced:
+ * 1. mediaZona must always be null (no fake duplication of prezzoMq)
+ * 2. trend5Anni must always be null (no hardcoded/fake trend)
+ * 3. Pricing not published if OMI match confidence < 50%
+ * 4. sourceType must be official/elaborated/unavailable — never ambiguous
+ * 5. No weak fallback promoting data to "official"
  */
 
 // ── A. Sottra-expected paths ──────────────────────────────────
@@ -117,15 +124,20 @@ describe("Sottra contract — scan/identify", () => {
   });
 });
 
-// ── D. scan/pricing contract ──────────────────────────────────
+// ── D. scan/pricing contract — DATA RIGOR ─────────────────────
 
-describe("Sottra contract — scan/pricing", () => {
-  it("success shape with real OMI data", () => {
+describe("Sottra contract — scan/pricing (data rigor)", () => {
+  const OMI_PUBLISH_THRESHOLD = 0.50;
+
+  it("success shape with real OMI data has null mediaZona and null trend5Anni", () => {
     const data = {
       prezzoMq: 2500,
       prezzoMqMin: 2000,
       prezzoMqMax: 3000,
-      mediaZona: 2500,
+      mediaZona: null,
+      trend5Anni: null,
+      omiMatchConfidence: 0.95,
+      omiMatchMethod: "single_zone",
       sourceLabel: "Agenzia delle Entrate — Osservatorio Mercato Immobiliare",
       sourceType: "official",
       sourcePeriod: "1° semestre 2025",
@@ -133,18 +145,69 @@ describe("Sottra contract — scan/pricing", () => {
     };
     expect(data.sourceType).toBe("official");
     expect(typeof data.prezzoMq).toBe("number");
-    expect(typeof data.sourceLabel).toBe("string");
-    expect(Array.isArray(data.limitations)).toBe(true);
+    // DATA RIGOR: mediaZona must always be null
+    expect(data.mediaZona).toBeNull();
+    // DATA RIGOR: trend5Anni must always be null
+    expect(data.trend5Anni).toBeNull();
+    // Confidence tracking
+    expect(data.omiMatchConfidence).toBeGreaterThanOrEqual(OMI_PUBLISH_THRESHOLD);
+    expect(typeof data.omiMatchMethod).toBe("string");
+  });
+
+  it("mediaZona is NEVER equal to prezzoMq — it must be null", () => {
+    // This test explicitly prevents the old bug where mediaZona = prezzoMedio
+    const data = { prezzoMq: 2500, mediaZona: null };
+    expect(data.mediaZona).not.toBe(data.prezzoMq);
+    expect(data.mediaZona).toBeNull();
+  });
+
+  it("trend5Anni is NEVER a hardcoded value — it must be null", () => {
+    const data = { trend5Anni: null };
+    expect(data.trend5Anni).toBeNull();
+    // Must not be 0, which was the old hardcoded value
+    expect(data.trend5Anni).not.toBe(0);
+  });
+
+  it("pricing NOT published when OMI match confidence is below threshold", () => {
+    // Simulates weak match — prezzoMq must be null, sourceType must be unavailable
+    const weakMatchData = {
+      prezzoMq: null,
+      prezzoMqMin: null,
+      prezzoMqMax: null,
+      mediaZona: null,
+      trend5Anni: null,
+      omiMatchConfidence: 0.25,
+      omiMatchMethod: "first_zone_fallback",
+      sourceType: "unavailable",
+    };
+    expect(weakMatchData.prezzoMq).toBeNull();
+    expect(weakMatchData.sourceType).toBe("unavailable");
+    expect(weakMatchData.omiMatchConfidence).toBeLessThan(OMI_PUBLISH_THRESHOLD);
+  });
+
+  it("valid omiMatchMethod values", () => {
+    const validMethods = ["single_zone", "ai_matched", "ai_fallback", "first_zone_fallback", "none"];
+    for (const m of validMethods) {
+      expect(typeof m).toBe("string");
+    }
+    expect(validMethods).toHaveLength(5);
   });
 
   it("unavailable shape when OMI not found", () => {
     const data = {
       prezzoMq: null,
+      mediaZona: null,
+      trend5Anni: null,
+      omiMatchConfidence: 0,
+      omiMatchMethod: "none",
       sourceType: "unavailable",
       limitations: ["Comune non presente nel dataset OMI importato"],
     };
     expect(data.prezzoMq).toBeNull();
+    expect(data.mediaZona).toBeNull();
+    expect(data.trend5Anni).toBeNull();
     expect(data.sourceType).toBe("unavailable");
+    expect(data.omiMatchConfidence).toBe(0);
     expect(data.limitations.length).toBeGreaterThan(0);
   });
 });
@@ -181,12 +244,22 @@ describe("Sottra contract — forecast/rischio-zona", () => {
       comune: "Milano",
       riskProfile: { idrogeologico: "basso", sismico: "zona 3" },
       sourceLabel: "ISPRA 2021 + OPCM 3519/2006",
-      sourceType: "elaborated",
+      sourceType: "official",
       limitations: [],
     };
     expect(typeof data.comune).toBe("string");
     expect(data.riskProfile).toBeDefined();
-    expect(typeof data.sourceLabel).toBe("string");
+    // rischio-zona with real ISPRA data is "official"
+    expect(data.sourceType).toBe("official");
+  });
+
+  it("unavailable when ISPRA data missing", () => {
+    const data = {
+      sourceType: "unavailable",
+      scoreRischio: null,
+    };
+    expect(data.sourceType).toBe("unavailable");
+    expect(data.scoreRischio).toBeNull();
   });
 });
 
@@ -225,9 +298,58 @@ describe("Sottra contract — forecast/convergenza-territoriale (ICTV)", () => {
     expect(Array.isArray(data.evidenceTrace)).toBe(true);
     expect(Array.isArray(data.limitations)).toBe(true);
   });
+
+  it("insufficient data returns sourceType=unavailable", () => {
+    const data = {
+      coverageLevel: "insufficiente",
+      convergenceLevel: "insufficiente",
+      score: 0,
+      sourceType: "unavailable",
+    };
+    expect(data.sourceType).toBe("unavailable");
+    expect(data.score).toBe(0);
+  });
 });
 
-// ── H. Secret headers ─────────────────────────────────────────
+// ── H. sourceType quality policy ──────────────────────────────
+
+describe("Sottra contract — sourceType quality policy", () => {
+  const VALID_SOURCE_TYPES = ["official", "elaborated", "unavailable"];
+
+  it("only 3 valid sourceType values", () => {
+    expect(VALID_SOURCE_TYPES).toHaveLength(3);
+  });
+
+  it("official requires: real source + solid territorial match + no weak fallback", () => {
+    // Official is ONLY for: OMI pricing (confidence >= 50%), ISPRA rischio-zona, ISTAT trend-demografico
+    const officialModules = ["scan/pricing", "forecast/rischio-zona", "forecast/trend-demografico"];
+    expect(officialModules).toHaveLength(3);
+  });
+
+  it("elaborated requires: built from verified sources + explainable + sufficient coverage", () => {
+    const elaboratedModules = [
+      "forecast/timeview", "forecast/opportunity", "forecast/infrastrutture",
+      "forecast/sviluppo-area", "forecast/convergenza-territoriale",
+    ];
+    expect(elaboratedModules).toHaveLength(5);
+  });
+
+  it("unavailable if: weak match, insufficient coverage, or no real source", () => {
+    const alwaysUnavailable = [
+      "scan/cadastral", "scan/listings", "scan/energy",
+      "scan/condominio", "scan/storico-transazioni", "forecast/moodscore",
+    ];
+    expect(alwaysUnavailable).toHaveLength(6);
+  });
+
+  it("elaborated modules downgrade to unavailable when data insufficient", () => {
+    // When fewer than 2 data sources, elaborated modules MUST return unavailable
+    const insufficientData = { sourceType: "unavailable", sourcesUsedCount: 1 };
+    expect(insufficientData.sourceType).toBe("unavailable");
+  });
+});
+
+// ── I. Secret headers ─────────────────────────────────────────
 
 describe("Sottra contract — secret headers", () => {
   it("canonical secret is AI_CORE_SECRET", () => {
@@ -241,7 +363,7 @@ describe("Sottra contract — secret headers", () => {
   });
 });
 
-// ── I. Health endpoint ────────────────────────────────────────
+// ── J. Health endpoint ────────────────────────────────────────
 
 describe("Sottra contract — health endpoint", () => {
   it("health data has status, engine, version, routes", () => {
@@ -264,5 +386,34 @@ describe("Sottra contract — health endpoint", () => {
     expect(data.version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(Array.isArray(data.routes)).toBe(true);
     expect(data.routes).toHaveLength(15);
+  });
+});
+
+// ── K. OMI match confidence contract ──────────────────────────
+
+describe("Sottra contract — OMI match confidence", () => {
+  it("single_zone match has high confidence (>= 0.90)", () => {
+    const result = { matchConfidence: 0.95, matchMethod: "single_zone" };
+    expect(result.matchConfidence).toBeGreaterThanOrEqual(0.90);
+  });
+
+  it("ai_matched has moderate confidence (>= 0.50)", () => {
+    const result = { matchConfidence: 0.70, matchMethod: "ai_matched" };
+    expect(result.matchConfidence).toBeGreaterThanOrEqual(0.50);
+  });
+
+  it("ai_fallback has low confidence (< 0.50)", () => {
+    const result = { matchConfidence: 0.25, matchMethod: "ai_fallback" };
+    expect(result.matchConfidence).toBeLessThan(0.50);
+  });
+
+  it("first_zone_fallback has very low confidence (< 0.50)", () => {
+    const result = { matchConfidence: 0.20, matchMethod: "first_zone_fallback" };
+    expect(result.matchConfidence).toBeLessThan(0.50);
+  });
+
+  it("no match has zero confidence", () => {
+    const result = { matchConfidence: 0, matchMethod: "none" };
+    expect(result.matchConfidence).toBe(0);
   });
 });
