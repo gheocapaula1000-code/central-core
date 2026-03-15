@@ -217,12 +217,12 @@ describe("Sottra contract — scan/pricing (max stability)", () => {
     expect(weakMatchData.omiMatchConfidence).toBeLessThan(PUBLICATION_POLICY.OMI_PUBLISH_THRESHOLD);
   });
 
-  it("valid omiMatchMethod values", () => {
-    const validMethods = ["single_zone", "ai_matched", "ai_fallback", "first_zone_fallback", "none"];
+  it("valid omiMatchMethod values include polygon_match", () => {
+    const validMethods = ["polygon_match", "single_zone", "ai_matched", "ai_fallback", "first_zone_fallback", "none"];
     for (const m of validMethods) {
       expect(typeof m).toBe("string");
     }
-    expect(validMethods).toHaveLength(5);
+    expect(validMethods).toHaveLength(6);
   });
 
   it("unavailable shape when OMI not found", () => {
