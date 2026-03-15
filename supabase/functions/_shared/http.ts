@@ -116,6 +116,7 @@ export function corsHeaders(req: Request): Record<string, string> {
     "x-internal-secret",
     "x-app-secret",
     "x-core-secret",
+    "x-diagnostic-secret",
     "x-source-app",
     "x-supabase-client-platform",
     "x-supabase-client-platform-version",
