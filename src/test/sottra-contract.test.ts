@@ -24,7 +24,7 @@ const PUBLICATION_POLICY = {
   OMI_PUBLISH_THRESHOLD: 0.50,
   OMI_OFFICIAL_THRESHOLD: 0.85,
   ELABORATED_MIN_SOURCES: 2,
-  OFFICIAL_MATCH_METHODS: ["single_zone"],
+  OFFICIAL_MATCH_METHODS: ["single_zone", "polygon_match"],
   ELABORATED_MATCH_METHODS: ["ai_matched"],
   UNPUBLISHABLE_MATCH_METHODS: ["ai_fallback", "first_zone_fallback", "none"],
 };
