@@ -47,34 +47,16 @@ export default function SelftestPage() {
   const [report, setReport] = useState<SelftestReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [diagSecret, setDiagSecret] = useState("");
 
   const runSelftest = async () => {
-    if (!diagSecret.trim()) {
-      setError("Inserisci il secret diagnostico (DIAGNOSTIC_SELFTEST_SECRET)");
-      return;
-    }
     setLoading(true);
     setError(null);
     setReport(null);
     try {
-      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
-      const url = `https://${projectId}.supabase.co/functions/v1/ai-core-run/__diagnostics/selftest`;
-      const res = await fetch(url, {
-        method: "GET",
-        headers: {
-          "x-internal-secret": diagSecret,
-          "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-        },
-      });
-      const json = await res.json();
-      if (json.ok && json.data) {
-        setReport(json.data as SelftestReport);
-      } else {
-        setError(json.error?.message || `HTTP ${res.status}`);
-      }
+      const data = await coreAdminFetch<SelftestReport>("ai-core-run/__diagnostics/selftest");
+      setReport(data);
     } catch (e) {
-      setError(String(e));
+      setError(String((e as Error).message || e));
     } finally {
       setLoading(false);
     }
@@ -92,19 +74,10 @@ export default function SelftestPage() {
           <CardTitle className="text-sm font-medium text-muted-foreground">Esegui selftest del Core</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex gap-2">
-            <input
-              type="password"
-              placeholder="DIAGNOSTIC_SELFTEST_SECRET"
-              value={diagSecret}
-              onChange={(e) => setDiagSecret(e.target.value)}
-              className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            />
-            <Button onClick={runSelftest} disabled={loading} size="sm">
-              {loading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Play className="h-4 w-4 mr-1" />}
-              Esegui
-            </Button>
-          </div>
+          <Button onClick={runSelftest} disabled={loading} size="sm">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Play className="h-4 w-4 mr-1" />}
+            Esegui
+          </Button>
           {error && <p className="text-sm text-destructive">{error}</p>}
         </CardContent>
       </Card>
