@@ -1,6 +1,8 @@
-import { Smartphone, Bot, ClipboardList, Activity, Clock } from "lucide-react";
+import { Smartphone, Bot, ClipboardList, Activity, Clock, LogOut } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { APP_REGISTRY, TASK_REGISTRY, PROVIDERS } from "@/lib/constants";
+import { clearCoreSecret } from "@/lib/coreAdminFetch";
 
 const stats = [
   {
@@ -9,8 +11,8 @@ const stats = [
     icon: Smartphone,
   },
   {
-    label: "Providers Attivi",
-    value: `${PROVIDERS.filter((p) => p.status === "active").length}/${PROVIDERS.length}`,
+    label: "Providers Configurati",
+    value: `${PROVIDERS.length}`,
     icon: Bot,
   },
   {
@@ -26,9 +28,20 @@ const stats = [
 ];
 
 export default function Dashboard() {
+  const handleLock = () => {
+    clearCoreSecret();
+    window.location.reload();
+  };
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Dashboard</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Dashboard</h1>
+        <Button variant="ghost" size="sm" onClick={handleLock} className="text-muted-foreground">
+          <LogOut className="h-4 w-4 mr-1.5" />
+          Blocca Console
+        </Button>
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((s) => (
@@ -65,8 +78,9 @@ export default function Dashboard() {
           <div className="flex flex-wrap gap-4">
             {PROVIDERS.map((p) => (
               <div key={p.id} className="flex items-center gap-2 text-sm">
-                <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                {p.name}
+                <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground" />
+                <span>{p.name}</span>
+                <span className="text-xs text-muted-foreground">(verificabile da self-test)</span>
               </div>
             ))}
           </div>

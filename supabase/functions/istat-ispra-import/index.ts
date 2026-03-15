@@ -1,12 +1,14 @@
 // ISTAT/ISPRA/Sismica Import from Storage — Edge Function
 // Reads CSV from storage bucket and imports into istat_comuni, ispra_rischio, or classificazione_sismica
-// Separator: ;
+// Protected by AI_CORE_SECRET + origin policy
 
 import {
   handleOptions,
   ok,
   fail,
   makeDebugId,
+  requireSecret,
+  enforceOriginPolicy,
 } from "../_shared/http.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -75,6 +77,14 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return handleOptions(req);
   const debugId = makeDebugId();
 
+  // Origin policy
+  const originErr = enforceOriginPolicy(req, debugId);
+  if (originErr) return originErr;
+
+  // Auth guard — before any service-role usage
+  const authErr = requireSecret(req, debugId);
+  if (authErr) return authErr;
+
   if (req.method !== "POST") {
     return fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId);
   }
@@ -103,7 +113,7 @@ Deno.serve(async (req) => {
       .download(storagePath);
 
     if (dlError || !fileData) {
-      return fail(req, 400, "DOWNLOAD_ERROR", `Failed to download: ${dlError?.message}`, debugId);
+      return fail(req, 400, "DOWNLOAD_ERROR", "Failed to download file from storage", debugId);
     }
 
     const csv = await fileData.text();
@@ -119,7 +129,7 @@ Deno.serve(async (req) => {
 
     if (clearFirst) {
       const { error: delErr } = await supabase.from(table).delete().gte("id", 0);
-      if (delErr) console.error(`[istat-ispra-import] Clear error: ${delErr.message}`);
+      if (delErr) console.error(`[istat-ispra-import] Clear error`);
     }
 
     let inserted = 0;
@@ -129,7 +139,7 @@ Deno.serve(async (req) => {
       const batch = rows.slice(i, i + BATCH_SIZE);
       const { error } = await supabase.from(table).insert(batch);
       if (error) {
-        console.error(`[istat-ispra-import] Batch ${Math.floor(i / BATCH_SIZE)} error:`, error.message);
+        console.error(`[istat-ispra-import] Batch ${Math.floor(i / BATCH_SIZE)} error`);
         errors += batch.length;
       } else {
         inserted += batch.length;
@@ -139,6 +149,7 @@ Deno.serve(async (req) => {
     console.log(`[istat-ispra-import] Done: ${inserted} inserted, ${errors} errors`);
     return ok(req, { table, totalRows: rows.length, inserted, errors }, [], debugId);
   } catch (e) {
-    return fail(req, 500, "IMPORT_ERROR", `Import failed: ${String(e).slice(0, 500)}`, debugId);
+    console.error(`[istat-ispra-import] Import failed debug_id=${debugId}`);
+    return fail(req, 500, "IMPORT_ERROR", `Import failed. Reference: ${debugId}`, debugId);
   }
 });
