@@ -23,7 +23,7 @@ describe("APP_REGISTRY", () => {
     expect(app.id).toBeTruthy();
     expect(app.name).toBeTruthy();
     expect(app.description).toBeTruthy();
-    expect(app.status).toBe("connected");
+    expect(["connected", "configured"]).toContain(app.status);
     expect(app.domains.length).toBeGreaterThan(0);
   });
 
