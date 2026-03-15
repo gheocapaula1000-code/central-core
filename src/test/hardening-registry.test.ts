@@ -24,8 +24,9 @@ describe("Registry reality check — hardening", () => {
   it("PROVIDERS use 'configured' status, never 'active'", () => {
     for (const p of PROVIDERS) {
       expect(p.status).toBe("configured");
-      // Ensure no false 'active' claim
-      expect((p as any).status).not.toBe("active");
+      // Redundant but explicit: no provider should claim "active"
+      const status: string = p.status;
+      expect(status).not.toBe("active");
     }
   });
 
@@ -33,7 +34,6 @@ describe("Registry reality check — hardening", () => {
     const hardcodedModels = ["gpt-4", "gpt-4o", "claude-3.5-sonnet", "sonar-pro"];
     for (const p of PROVIDERS) {
       if (p.model !== "sonar") {
-        // sonar is a valid generic model name for Perplexity
         expect(p.model).toBe("Configurazione runtime");
       }
     }

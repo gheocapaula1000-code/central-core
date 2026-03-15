@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render } from "@testing-library/react";
+import { render, act } from "@testing-library/react";
 import { AdminSecretGate } from "@/components/AdminSecretGate";
 
 // Mock sessionStorage
@@ -48,8 +48,44 @@ describe("AdminSecretGate", () => {
       </AdminSecretGate>
     );
     const unlockBtn = getByText("Sblocca Console");
-    unlockBtn.click();
-    expect(queryByTestId("protected")).toBeNull();
+    act(() => {
+      unlockBtn.click();
+    });
     expect(getByText("Inserisci il secret amministrativo")).toBeTruthy();
+    expect(queryByTestId("protected")).toBeNull();
+  });
+
+  it("rejects secret shorter than 8 characters", () => {
+    const { getByText, getByPlaceholderText, queryByTestId } = render(
+      <AdminSecretGate>
+        <div data-testid="protected">Protected</div>
+      </AdminSecretGate>
+    );
+    const input = getByPlaceholderText("AI_CORE_SECRET") as HTMLInputElement;
+    act(() => {
+      // Simulate typing by setting value and dispatching input event
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype, "value"
+      )?.set;
+      nativeInputValueSetter?.call(input, "short");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    act(() => {
+      getByText("Sblocca Console").click();
+    });
+    expect(getByText("Secret troppo corto")).toBeTruthy();
+    expect(queryByTestId("protected")).toBeNull();
+  });
+
+  it("unlocks with valid secret via session pre-set", () => {
+    // Simulates the state after successful unlock by pre-setting session
+    mockStorage["core_admin_secret"] = "valid-secret-long-enough";
+    const { getByTestId } = render(
+      <AdminSecretGate>
+        <div data-testid="protected">Protected</div>
+      </AdminSecretGate>
+    );
+    expect(getByTestId("protected")).toBeTruthy();
   });
 });
