@@ -1,4 +1,4 @@
-import { makeDebugId, handleOptions, ok, fail, requireSecret, constantTimeEqual, CORE_VERSION } from "../_shared/http.ts";
+import { makeDebugId, handleOptions, ok, fail, requireSecret, constantTimeEqual, CORE_VERSION, enforceOriginPolicy } from "../_shared/http.ts";
 import { callOpenAI } from "./providers/openai.ts";
 import { callAnthropic } from "./providers/anthropic.ts";
 import { firecrawlExtract } from "./providers/firecrawl.ts";
@@ -15,6 +15,7 @@ import * as wyloniBonus from "./pipelines/wyloni_bonus.ts";
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX_TRUSTED = 300;
 const RATE_MAX_PUBLIC = 30;
+const RATE_MAX_DIAG = 10; // lightweight limit for diagnostics
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 
 /** Sanitize first IP from x-forwarded-for or cf-connecting-ip */
@@ -22,7 +23,6 @@ function extractClientIp(req: Request): string | null {
   const xff = req.headers.get("x-forwarded-for");
   if (xff) {
     const first = xff.split(",")[0].trim();
-    // Basic IP validation: must look like IPv4 or IPv6, no injection
     if (/^[\da-fA-F.:]+$/.test(first) && first.length <= 45) return first;
   }
   const cfIp = req.headers.get("cf-connecting-ip")?.trim();
@@ -38,14 +38,12 @@ function buildCallerKey(
   trusted: boolean,
 ): string {
   if (trusted) {
-    // Trusted server-to-server: allow body.user_id / x-user-id as discriminator
     const userId = (body.user_id as string) || req.headers.get("x-user-id") || "";
     if (userId && /^[\w-]+$/.test(userId)) return `${sourceApp}:trusted:${userId}`;
     const origin = req.headers.get("origin")?.trim();
     if (origin) return `${sourceApp}:trusted:${origin}`;
     return `${sourceApp}:trusted:anonymous`;
   }
-  // Public path: never trust body.user_id
   const ip = extractClientIp(req);
   if (ip) return `${sourceApp}:${ip}`;
   const origin = req.headers.get("origin")?.trim();
@@ -68,7 +66,6 @@ function checkRateLimit(callerKey: string, maxRate: number): { allowed: boolean;
   return { allowed: true, retryAfterSec: 0 };
 }
 
-// Lazy cleanup: purge expired buckets before each check
 function purgeExpiredBuckets() {
   const now = Date.now();
   for (const [key, val] of rateBuckets) {
@@ -110,12 +107,10 @@ const WEB_TASKS = new Set([
   "search_grants", "deep_search", "find_contacts", "find_company_contacts", "ai_bandi",
 ]);
 
-// Merge empty results from all pipeline files
 const EMPTY_RESULTS: Record<string, string> = {
   ...wyloniBandi.EMPTY_RESULTS,
 };
 
-// Merge Perplexity system prompts from all pipeline files
 const PERPLEXITY_SYSTEM: Record<string, string> = {
   ...wyloniBandi.PERPLEXITY_SYSTEMS,
 };
@@ -228,20 +223,42 @@ Deno.serve(async (req: Request) => {
   console.log(`[ai-core-run] method=${req.method} pathname=${pathname} debug_id=${debugId}`);
 
   try {
-    // Health check — no auth required
+    // Health check — no auth required, public
     if (req.method === "GET" && (pathname.endsWith("/health") || pathname.endsWith("/__health") || pathname === "/")) {
       return ok(req, {
         status: "ok", version: CORE_VERSION, time: new Date().toISOString(),
       }, [], debugId);
     }
 
-    // Metrics endpoint — public (no auth required)
+    // ═══════════════════════════════════════════════════════════════
+    // METRICS — protected by secret + origin + rate limit
+    // ═══════════════════════════════════════════════════════════════
     if (req.method === "GET" && pathname.endsWith("/metrics")) {
+      const originErr = enforceOriginPolicy(req, debugId);
+      if (originErr) return originErr;
+      const authErr = requireSecret(req, debugId);
+      if (authErr) return authErr;
       return ok(req, getMetrics(), [], debugId);
     }
 
-    // Diagnostics endpoint — public (no auth required)
+    // ═══════════════════════════════════════════════════════════════
+    // DIAGNOSTICS — protected by secret + origin + rate limit
+    // ═══════════════════════════════════════════════════════════════
     if (req.method === "GET" && pathname.endsWith("/diagnostics")) {
+      const originErr = enforceOriginPolicy(req, debugId);
+      if (originErr) return originErr;
+      const authErr = requireSecret(req, debugId);
+      if (authErr) return authErr;
+
+      // Rate limit for diagnostics
+      purgeExpiredBuckets();
+      const diagKey = `diag:${extractClientIp(req) || req.headers.get("origin") || "unknown"}`;
+      const diagRate = checkRateLimit(diagKey, RATE_MAX_DIAG);
+      if (!diagRate.allowed) {
+        const res = fail(req, 429, "RATE_LIMITED", `Too many diagnostic requests. Retry in ${diagRate.retryAfterSec}s.`, debugId);
+        res.headers.set("Retry-After", String(diagRate.retryAfterSec));
+        return res;
+      }
 
       const testPrompt = "Rispondi SOLO con la parola: PONG";
       const results: Record<string, { status: string; latencyMs: number; output?: string; error?: string }> = {};
@@ -285,10 +302,13 @@ Deno.serve(async (req: Request) => {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // SELFTEST — protected diagnostic route
+    // SELFTEST — protected by DIAGNOSTIC_SELFTEST_SECRET + rate limit
     // ═══════════════════════════════════════════════════════════════
     if (req.method === "GET" && pathname.endsWith("/__diagnostics/selftest")) {
-      // Require dedicated diagnostic secret (separate from main AI_CORE_SECRET)
+      const originErr = enforceOriginPolicy(req, debugId);
+      if (originErr) return originErr;
+
+      // Require dedicated diagnostic secret
       const diagSecret = Deno.env.get("DIAGNOSTIC_SELFTEST_SECRET") ?? "";
       if (!diagSecret) {
         console.error("[selftest] DIAGNOSTIC_SELFTEST_SECRET not configured");
@@ -305,10 +325,19 @@ Deno.serve(async (req: Request) => {
         return fail(req, 401, "DIAG_SECRET_REQUIRED", "Invalid or missing diagnostic secret", debugId);
       }
 
+      // Rate limit for selftest
+      purgeExpiredBuckets();
+      const selfKey = `selftest:${extractClientIp(req) || req.headers.get("origin") || "unknown"}`;
+      const selfRate = checkRateLimit(selfKey, RATE_MAX_DIAG);
+      if (!selfRate.allowed) {
+        const res = fail(req, 429, "RATE_LIMITED", `Too many selftest requests. Retry in ${selfRate.retryAfterSec}s.`, debugId);
+        res.headers.set("Retry-After", String(selfRate.retryAfterSec));
+        return res;
+      }
+
       const tests: Array<{ name: string; status: "PASS" | "WARN" | "FAIL"; detail: string; mode: "reale" | "simulato" | "dry-run"; buckets?: string[] }> = [];
       const selftestBuckets = new Map<string, { count: number; resetAt: number }>();
 
-      // --- Helper: isolated rate check for selftest (does not pollute real buckets) ---
       function selfTestCheckRate(key: string, maxRate: number, buckets: Map<string, { count: number; resetAt: number }>): { allowed: boolean; retryAfterSec: number } {
         const now = Date.now();
         const bucket = buckets.get(key);
@@ -324,12 +353,11 @@ Deno.serve(async (req: Request) => {
         return { allowed: true, retryAfterSec: 0 };
       }
 
-      // ── A. Health routing (verifies /health, /__health, /) ──
+      // ── A. Health routing ──
       try {
         const healthData = { status: "ok", version: CORE_VERSION, time: new Date().toISOString() };
         const hasStatus = healthData.status === "ok";
         const hasVersion = typeof healthData.version === "string" && healthData.version.length > 0;
-        // Verify that the path matching logic covers all health variants
         const healthPaths = ["/health", "/__health", "/ai-core-run/health", "/ai-core-run/__health", "/"];
         const matchResults = healthPaths.map(p => ({
           path: p,
@@ -547,8 +575,6 @@ Deno.serve(async (req: Request) => {
       return res;
     }
 
-
-
     // ── Tariffs compare ────────────────────────────────────────
     if (pathname.endsWith("/tariffs/compare")) {
       const prompt = (body.prompt as string) || (body.text as string) || "";
@@ -664,6 +690,6 @@ ISTRUZIONI:
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error(`[ai-core-run] Error debug_id=${debugId}:`, errMsg);
-    return fail(req, 500, "INTERNAL_ERROR", "An internal error occurred. Reference: " + debugId, debugId);
+    return fail(req, 500, "INTERNAL_ERROR", `An internal error occurred. Reference: ${debugId}`, debugId);
   }
 });
