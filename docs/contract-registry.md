@@ -2,7 +2,54 @@
 
 > Canonical reference of all PWA→Core dependencies.
 > Breaking any path, envelope, or shape listed here is a potential outage.
-> Last updated: 2026-03-11
+> Last updated: 2026-03-15
+
+---
+
+## Identity Headers (all functions)
+
+Every response from Central Core V3 functions includes these non-sensitive headers:
+
+| Header | Value | Purpose |
+|--------|-------|---------|
+| `X-Core-Version` | `3.3.1` | Core version that generated the response |
+| `X-Core-Function` | `ai-core-run` / `sottra` / `health` | Which edge function responded |
+| `X-Core-Route` | `health` / `manifest` / `scan/pricing` / etc. | Canonical route that handled the request |
+| `X-Core-Contract` | `central-core-v3` | Contract identifier |
+
+These headers help PWA clients and operators verify which function and version actually responded, reducing base-URL mismatch risks.
+
+---
+
+## Manifest Endpoint (all functions)
+
+Each function exposes `GET /manifest` — a public, non-sensitive self-description:
+
+```json
+{
+  "contract": "central-core-v3",
+  "version": "3.3.1",
+  "function": "ai-core-run",
+  "serviceKind": "ai-router",
+  "expectedBasePath": "/functions/v1/ai-core-run",
+  "routes": ["GET /health", "POST /documents/analyze", ...],
+  "domains": ["wyloni_bandi", "keydraft_realestate", ...],
+  "callingMode": "proxy",
+  "time": "ISO-8601"
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `contract` | Always `central-core-v3` |
+| `function` | Canonical edge function name |
+| `serviceKind` | `ai-router` / `sottra-service` / `global-health-probe` |
+| `expectedBasePath` | The path prefix the function expects (e.g. `/functions/v1/sottra`) |
+| `routes` | List of supported routes |
+| `domains` | AI pipeline domains (ai-core-run only) |
+| `callingMode` | `proxy` (via client app) or `direct` (called directly) |
+
+No secrets, allowlists, or infrastructure details are exposed.
 
 ---
 
