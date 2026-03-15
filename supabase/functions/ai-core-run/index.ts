@@ -298,28 +298,11 @@ Deno.serve(async (req: Request) => {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // SELFTEST — protected by DIAGNOSTIC_SELFTEST_SECRET + rate limit
+    // SELFTEST — protected by origin policy + rate limit (no secret)
     // ═══════════════════════════════════════════════════════════════
     if (req.method === "GET" && pathname.endsWith("/__diagnostics/selftest")) {
       const originErr = enforceOriginPolicy(req, debugId);
       if (originErr) return originErr;
-
-      // Require dedicated diagnostic secret
-      const diagSecret = Deno.env.get("DIAGNOSTIC_SELFTEST_SECRET") ?? "";
-      if (!diagSecret) {
-        console.error("[selftest] DIAGNOSTIC_SELFTEST_SECRET not configured");
-        return fail(req, 500, "CONFIG_ERROR", "Diagnostic secret not configured", debugId);
-      }
-      const incoming =
-        req.headers.get("x-internal-secret") ??
-        req.headers.get("x-app-secret") ??
-        req.headers.get("x-core-secret") ??
-        (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "") ??
-        "";
-      if (!incoming || !constantTimeEqual(incoming, diagSecret)) {
-        console.warn(`[selftest] rejected — invalid or missing diagnostic secret`);
-        return fail(req, 401, "DIAG_SECRET_REQUIRED", "Invalid or missing diagnostic secret", debugId);
-      }
 
       // Rate limit for selftest
       purgeExpiredBuckets();
