@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Play, CheckCircle2, AlertTriangle, XCircle, ShieldCheck } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Loader2, Play, CheckCircle2, AlertTriangle, XCircle, ShieldCheck, KeyRound } from "lucide-react";
 import { coreAdminFetch } from "@/lib/coreAdminFetch";
 
 interface SelftestResult {
@@ -44,16 +45,19 @@ const modeBadge = (mode?: "reale" | "simulato" | "dry-run") => {
 };
 
 export default function SelftestPage() {
+  // Diagnostic secret — local state only, NOT stored in localStorage
+  const [diagSecret, setDiagSecret] = useState("");
   const [report, setReport] = useState<SelftestReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const runSelftest = async () => {
+    if (!diagSecret.trim()) return;
     setLoading(true);
     setError(null);
     setReport(null);
     try {
-      const data = await coreAdminFetch<SelftestReport>("ai-core-run/__diagnostics/selftest");
+      const data = await coreAdminFetch<SelftestReport>("ai-core-run/__diagnostics/selftest", { diagnosticSecret: diagSecret });
       setReport(data);
     } catch (e) {
       setError(String((e as Error).message || e));
@@ -74,7 +78,18 @@ export default function SelftestPage() {
           <CardTitle className="text-sm font-medium text-muted-foreground">Esegui selftest del Core</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Button onClick={runSelftest} disabled={loading} size="sm">
+          <div className="flex items-center gap-2">
+            <KeyRound className="h-4 w-4 text-muted-foreground shrink-0" />
+            <Input
+              type="password"
+              placeholder="Chiave diagnostica"
+              value={diagSecret}
+              onChange={(e) => setDiagSecret(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && diagSecret.trim()) runSelftest(); }}
+              className="font-mono text-sm max-w-xs"
+            />
+          </div>
+          <Button onClick={runSelftest} disabled={loading || !diagSecret.trim()} size="sm">
             {loading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Play className="h-4 w-4 mr-1" />}
             Esegui
           </Button>
