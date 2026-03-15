@@ -1,4 +1,4 @@
-import { makeDebugId, handleOptions, ok, fail, requireSecret, constantTimeEqual, CORE_VERSION, enforceOriginPolicy } from "../_shared/http.ts";
+import { makeDebugId, handleOptions, ok, fail, requireSecret, constantTimeEqual, CORE_VERSION, CORE_CONTRACT, enforceOriginPolicy, addIdentityHeaders, buildManifest } from "../_shared/http.ts";
 import { callOpenAI } from "./providers/openai.ts";
 import { callAnthropic } from "./providers/anthropic.ts";
 import { firecrawlExtract } from "./providers/firecrawl.ts";
