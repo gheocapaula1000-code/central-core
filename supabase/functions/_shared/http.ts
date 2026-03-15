@@ -218,3 +218,19 @@ export function requireSecret(req: Request, debugId: string): Response | null {
   }
   return null;
 }
+
+/** Checks diagnostic secret header: x-diagnostic-secret */
+export function requireDiagnosticSecret(req: Request, debugId: string): Response | null {
+  const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
+  if (!expected) {
+    console.error("[requireDiagnosticSecret] DIAGNOSTIC_SECRET env var is not set");
+    return fail(req, 500, "CONFIG_ERROR", "DIAGNOSTIC_SECRET not configured", debugId);
+  }
+  const incoming = req.headers.get("x-diagnostic-secret") ?? "";
+  if (!incoming) return fail(req, 401, "DIAGNOSTIC_SECRET_REQUIRED", "Missing x-diagnostic-secret header", debugId);
+  if (!constantTimeEqual(incoming, expected)) {
+    console.warn(`[requireDiagnosticSecret] rejected debug_id=${debugId} incoming_len=${incoming.length}`);
+    return fail(req, 401, "DIAGNOSTIC_SECRET_REJECTED", "Invalid diagnostic secret", debugId);
+  }
+  return null;
+}

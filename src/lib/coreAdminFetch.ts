@@ -1,18 +1,23 @@
 /**
  * Shared fetch helper for admin console.
- * Simple wrapper — no secret injection (origin policy protects backend).
+ * Simple wrapper — no global secret injection.
+ * Diagnostic endpoints require an optional diagnosticSecret parameter.
  */
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
 export async function coreAdminFetch<T = unknown>(
   path: string,
-  options: { method?: string; body?: unknown } = {},
+  options: { method?: string; body?: unknown; diagnosticSecret?: string } = {},
 ): Promise<T> {
   const headers: Record<string, string> = {
     "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
     "Content-Type": "application/json",
   };
+
+  if (options.diagnosticSecret) {
+    headers["x-diagnostic-secret"] = options.diagnosticSecret;
+  }
 
   const res = await fetch(`${SUPABASE_URL}/functions/v1/${path}`, {
     method: options.method ?? "GET",
