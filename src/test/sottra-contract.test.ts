@@ -532,8 +532,8 @@ describe("Sottra contract — publication policy thresholds", () => {
     expect(PUBLICATION_POLICY.ELABORATED_MIN_SOURCES).toBe(2);
   });
 
-  it("only single_zone can be official", () => {
-    expect(PUBLICATION_POLICY.OFFICIAL_MATCH_METHODS).toEqual(["single_zone"]);
+  it("polygon_match and single_zone can be official", () => {
+    expect(PUBLICATION_POLICY.OFFICIAL_MATCH_METHODS).toEqual(["single_zone", "polygon_match"]);
   });
 
   it("ai_matched produces elaborated", () => {
