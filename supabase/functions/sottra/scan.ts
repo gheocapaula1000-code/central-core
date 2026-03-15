@@ -152,13 +152,31 @@ export async function handleScanCadastral(req: Request, body: Record<string, unk
   }, ["Dati catastali non disponibili — fonte reale non integrata"], debugId);
 }
 
-/** POST /sottra/scan/pricing — address → price/sqm data (OMI real data, confidence-gated) */
+/** POST /sottra/scan/pricing — coordinates-first OMI pricing (polygon match > address fallback) */
 export async function handleScanPricing(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const address = (body.address as string) ?? "";
-  if (!address) return fail(req, 400, "MISSING_ADDRESS", "Provide address", debugId);
+  const lat = body.lat as number | undefined;
+  const lng = body.lng as number | undefined;
+  if (!address && (lat == null || lng == null)) return fail(req, 400, "MISSING_ADDRESS", "Provide address or lat/lng", debugId);
 
   try {
-    const omi = await lookupOMI(address);
+    let omi: OMIResult;
+
+    // COORDINATES-FIRST: polygon match is the primary path
+    if (lat != null && lng != null) {
+      console.log(`[scan/pricing] Coordinates-first path: (${lat}, ${lng}), debug_id=${debugId}`);
+      omi = await lookupOMIByCoordinates(lat, lng);
+
+      // If polygon match failed, fallback to address-based (demoted)
+      if (!omi.found && address) {
+        console.log(`[scan/pricing] Polygon miss — fallback to address lookup, debug_id=${debugId}`);
+        omi = await lookupOMI(address);
+      }
+    } else {
+      // No coordinates — address-only fallback
+      console.log(`[scan/pricing] No coordinates — address-only path, debug_id=${debugId}`);
+      omi = await lookupOMI(address);
+    }
 
     if (omi.found && omi.compr_min != null && omi.compr_max != null) {
       // Unified publication policy — determines sourceType from match quality
@@ -181,33 +199,39 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
           fonte: omi.fonte,
           omiMatchConfidence: omi.matchConfidence,
           omiMatchMethod: omi.matchMethod,
+          polygonMatch: omi.polygonMatch,
+          omiGeoLevel: omi.omiGeoLevel,
+          pricingPrecisionLabel: omi.pricingPrecisionLabel,
+          sourceCoverageLevel: omi.sourceCoverageLevel,
           tutteZone: omi.tutteZone,
           sourceLabel: "Agenzia delle Entrate — Osservatorio Mercato Immobiliare",
           sourceType: "unavailable",
           sourcePeriod: "1° semestre 2025",
-          confidenceReason: `Match zona OMI insufficiente (confidence: ${(omi.matchConfidence * 100).toFixed(0)}%, metodo: ${omi.matchMethod}) — prezzi non pubblicabili`,
+          confidenceReason: omi.confidenceReason,
           limitations: [
+            ...omi.limitations,
             `Zona OMI determinata con confidenza ${(omi.matchConfidence * 100).toFixed(0)}% (soglia minima: ${(PUBLICATION_POLICY.OMI_PUBLISH_THRESHOLD * 100).toFixed(0)}%)`,
             `Metodo di match: ${omi.matchMethod} — non sufficientemente affidabile per pubblicazione`,
-            "I dati OMI esistono per il comune ma il match indirizzo→zona non è abbastanza solido",
-            "Consultare direttamente le quotazioni OMI per tutte le zone nel campo tutteZone",
           ],
         }, [`Match zona OMI debole (${(omi.matchConfidence * 100).toFixed(0)}%) — prezzi non pubblicati`], debugId);
       }
 
-      // Publishable — sourceType is "official" (single_zone, high confidence) or "elaborated" (ai_matched)
-      const confidenceLabel = sourceType === "official"
-        ? `Prezzi ufficiali OMI — zona ${omi.zona} (${omi.zona_descr}), match confidence: ${(omi.matchConfidence * 100).toFixed(0)}%`
-        : `Prezzi OMI elaborati — zona ${omi.zona} (${omi.zona_descr}), match AI con confidence ${(omi.matchConfidence * 100).toFixed(0)}% — non verificato manualmente`;
+      // Publishable
+      const confidenceLabel = omi.polygonMatch
+        ? `Prezzi ufficiali OMI — zona ${omi.zona} (${omi.zona_descr}), match spaziale poligono, confidence: ${(omi.matchConfidence * 100).toFixed(0)}%`
+        : sourceType === "official"
+          ? `Prezzi ufficiali OMI — zona ${omi.zona} (${omi.zona_descr}), match confidence: ${(omi.matchConfidence * 100).toFixed(0)}%`
+          : `Prezzi OMI elaborati — zona ${omi.zona} (${omi.zona_descr}), match ${omi.matchMethod} con confidence ${(omi.matchConfidence * 100).toFixed(0)}% — non verificato spazialmente`;
 
       const limitationsBase = [
+        ...omi.limitations,
         "Prezzi espressi come range min/max per tipologia e stato conservativo",
-        `Match zona basato su ${omi.matchMethod === "single_zone" ? "zona unica nel comune" : "identificazione AI dell'indirizzo"}`,
+        `Match zona basato su ${omi.polygonMatch ? "match spaziale poligono OMI" : omi.matchMethod === "single_zone" ? "zona unica nel comune" : "identificazione AI dell'indirizzo"}`,
         "Dati riferiti a valori normali di mercato (non valori di realizzo o giudiziari)",
         "mediaZona e trend5Anni non disponibili — nessuna fonte reale per queste metriche",
       ];
-      if (sourceType === "elaborated") {
-        limitationsBase.push("sourceType=elaborated: la zona OMI è stata determinata tramite AI, non con certezza assoluta");
+      if (sourceType === "elaborated" && !omi.polygonMatch) {
+        limitationsBase.push("sourceType=elaborated: la zona OMI è stata determinata tramite AI, non con match spaziale");
       }
 
       return ok(req, {
@@ -225,16 +249,20 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
         fonte: omi.fonte,
         omiMatchConfidence: omi.matchConfidence,
         omiMatchMethod: omi.matchMethod,
+        polygonMatch: omi.polygonMatch,
+        omiGeoLevel: omi.omiGeoLevel,
+        pricingPrecisionLabel: omi.pricingPrecisionLabel,
+        sourceCoverageLevel: omi.sourceCoverageLevel,
         tutteZone: omi.tutteZone,
         sourceLabel: "Agenzia delle Entrate — Osservatorio Mercato Immobiliare",
         sourceType,
         sourcePeriod: "1° semestre 2025",
         confidenceReason: confidenceLabel,
         limitations: limitationsBase,
-      }, [`Prezzi OMI (${sourceType}) — 1° semestre 2025`], debugId);
+      }, [`Prezzi OMI (${sourceType}, ${omi.matchMethod}) — 1° semestre 2025`], debugId);
     }
 
-    // Fallback: OMI data not found — return structured "unavailable", no AI invention
+    // Fallback: OMI data not found
     return ok(req, {
       prezzoMq: null,
       prezzoMqMin: null,
@@ -247,18 +275,21 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
       zonaDescrizione: null,
       comune: omi.comune ?? null,
       tipologia: null,
-      fonte: "Agenzia Entrate — OMI, 1° semestre 2025",
+      fonte: FONTE,
       omiMatchConfidence: 0,
       omiMatchMethod: omi.matchMethod,
+      polygonMatch: false,
+      omiGeoLevel: "none",
+      pricingPrecisionLabel: "Nessun dato OMI disponibile",
+      sourceCoverageLevel: "none",
       tutteZone: null,
       sourceLabel: "Agenzia delle Entrate — Osservatorio Mercato Immobiliare",
       sourceType: "unavailable",
       sourcePeriod: "1° semestre 2025",
-      confidenceReason: `Nessun dato OMI trovato per il comune "${omi.comune ?? address}"`,
-      limitations: [`Comune non presente nel dataset OMI importato`, "Nessun fallback: il dato non è disponibile"],
+      confidenceReason: omi.confidenceReason,
+      limitations: omi.limitations,
     }, [`Dati OMI non disponibili per questo indirizzo`], debugId);
   } catch (e) {
-    // Security: never leak stack traces — only generic message + debug_id
     console.error(`[scan/pricing] Error debug_id=${debugId}: ${String(e).slice(0, 200)}`);
     return fail(req, 502, "PROVIDER_ERROR", `Pricing analysis failed. Reference: ${debugId}`, debugId);
   }
