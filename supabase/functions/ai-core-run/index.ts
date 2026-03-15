@@ -266,7 +266,8 @@ Deno.serve(async (req: Request) => {
     if (req.method === "GET" && pathname.endsWith("/metrics")) {
       const originErr = enforceOriginPolicy(req, debugId);
       if (originErr) return originErr;
-      return ok(req, getMetrics(), [], debugId);
+      const res = ok(req, getMetrics(), [], debugId);
+      return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "metrics" });
     }
 
     // ═══════════════════════════════════════════════════════════════
