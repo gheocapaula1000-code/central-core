@@ -273,11 +273,13 @@ Deno.serve(async (req: Request) => {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // DIAGNOSTICS — protected by origin policy + rate limit (no secret)
+    // DIAGNOSTICS — protected by origin policy + diagnostic secret + rate limit
     // ═══════════════════════════════════════════════════════════════
     if (req.method === "GET" && pathname.endsWith("/diagnostics")) {
       const originErr = enforceOriginPolicy(req, debugId);
       if (originErr) return originErr;
+      const diagSecErr = requireDiagnosticSecret(req, debugId);
+      if (diagSecErr) return diagSecErr;
 
       // Rate limit for diagnostics
       purgeExpiredBuckets();
