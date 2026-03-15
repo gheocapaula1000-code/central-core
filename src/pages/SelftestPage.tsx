@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Play, CheckCircle2, AlertTriangle, XCircle, ShieldCheck } from "lucide-react";
+import { coreAdminFetch } from "@/lib/coreAdminFetch";
 
 interface SelftestResult {
   name: string;
@@ -46,10 +47,10 @@ export default function SelftestPage() {
   const [report, setReport] = useState<SelftestReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [secret, setSecret] = useState("");
+  const [diagSecret, setDiagSecret] = useState("");
 
   const runSelftest = async () => {
-    if (!secret.trim()) {
+    if (!diagSecret.trim()) {
       setError("Inserisci il secret diagnostico (DIAGNOSTIC_SELFTEST_SECRET)");
       return;
     }
@@ -62,7 +63,7 @@ export default function SelftestPage() {
       const res = await fetch(url, {
         method: "GET",
         headers: {
-          "x-internal-secret": secret,
+          "x-internal-secret": diagSecret,
           "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         },
       });
@@ -70,7 +71,7 @@ export default function SelftestPage() {
       if (json.ok && json.data) {
         setReport(json.data as SelftestReport);
       } else {
-        setError(json.error?.message || `HTTP ${res.status}: ${JSON.stringify(json)}`);
+        setError(json.error?.message || `HTTP ${res.status}`);
       }
     } catch (e) {
       setError(String(e));
@@ -95,8 +96,8 @@ export default function SelftestPage() {
             <input
               type="password"
               placeholder="DIAGNOSTIC_SELFTEST_SECRET"
-              value={secret}
-              onChange={(e) => setSecret(e.target.value)}
+              value={diagSecret}
+              onChange={(e) => setDiagSecret(e.target.value)}
               className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             />
             <Button onClick={runSelftest} disabled={loading} size="sm">

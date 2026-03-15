@@ -406,7 +406,7 @@ describe("Sottra contract — health endpoint", () => {
     const data = {
       status: "healthy",
       engine: "sottra",
-      version: "3.3.0",
+      version: "3.3.1",
       routes: expectedRoutes,
       time: new Date().toISOString(),
     };
@@ -1086,6 +1086,7 @@ describe("Sottra contract — street evidence security", () => {
     const serialized = JSON.stringify(signal);
     expect(serialized).not.toContain("access_token");
     expect(serialized).not.toContain("key=");
+  });
 });
 
 // ── AC. Market Data — Source Class Model ──────────────────────

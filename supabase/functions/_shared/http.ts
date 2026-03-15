@@ -1,4 +1,4 @@
-export const CORE_VERSION = "3.3.0";
+export const CORE_VERSION = "3.3.1";
 
 export function makeDebugId(): string {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 12);
@@ -17,14 +17,12 @@ const TRUSTED_APP_HOSTS = new Set(["keydraft.app", "www.keydraft.app", "wyloni.a
 function normalizeOrigin(value: string): string {
   const raw = value.toLowerCase().trim().replace(/\/+$/, "");
 
-  // Try full URL as-is
   try {
     const u = new URL(raw);
     const host = u.hostname.replace(/^www\./, "");
     const port = u.port ? `:${u.port}` : "";
     return `${u.protocol}//${host}${port}`;
   } catch {
-    // If value is host-only (e.g. "keydraft.app"), normalize as https origin
     const hostOnly = raw.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
     if (hostOnly) return `https://${hostOnly}`;
     return raw;
@@ -53,6 +51,12 @@ export function isOriginAllowed(origin: string): boolean {
   return allowed.some((entry) => normalizeOrigin(entry) === normalizedOrigin);
 }
 
+/**
+ * Build CORS headers — no blind echo.
+ * If origin is present and allowed → reflect that origin.
+ * If origin is absent (server-to-server) → use *.
+ * If origin is present but NOT allowed → do NOT reflect it (use empty string to trigger browser block).
+ */
 export function corsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("origin") ?? "";
   const requestedHeaders = (req.headers.get("access-control-request-headers") ?? "")
@@ -78,9 +82,19 @@ export function corsHeaders(req: Request): Record<string, string> {
 
   const allowHeaders = Array.from(new Set([...baseAllowedHeaders, ...requestedHeaders])).join(", ");
 
+  let allowOrigin: string;
+  if (!origin) {
+    // No origin = server-to-server, curl, cron
+    allowOrigin = "*";
+  } else if (isOriginAllowed(origin)) {
+    allowOrigin = origin;
+  } else {
+    // Origin present but not allowed — don't reflect
+    allowOrigin = "";
+  }
+
   return {
-    // Echo origin to avoid browser-side CORS blocking on custom domains/PWA contexts
-    "Access-Control-Allow-Origin": origin || "*",
+    "Access-Control-Allow-Origin": allowOrigin,
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": allowHeaders,
@@ -89,7 +103,35 @@ export function corsHeaders(req: Request): Record<string, string> {
   };
 }
 
+/**
+ * Enforce origin policy for browser requests.
+ * - No Origin header → allowed (server-to-server)
+ * - Origin present + allowed → null (proceed)
+ * - Origin present + NOT allowed → 403 Response
+ */
+export function enforceOriginPolicy(req: Request, debugId: string): Response | null {
+  const origin = req.headers.get("origin");
+  if (!origin) return null; // server-to-server, curl, cron
+  if (isOriginAllowed(origin)) return null;
+  console.warn(`[origin-policy] rejected origin=${origin} debug_id=${debugId}`);
+  return fail(req, 403, "ORIGIN_NOT_ALLOWED", "Origin not in allowlist", debugId);
+}
+
+/**
+ * Handle OPTIONS preflight — respects origin policy.
+ * If origin is not allowed → 403.
+ * If origin is allowed or absent → 204.
+ */
 export function handleOptions(req: Request): Response {
+  const origin = req.headers.get("origin");
+  if (origin && !isOriginAllowed(origin)) {
+    const debugId = makeDebugId();
+    console.warn(`[options] rejected origin=${origin}`);
+    return new Response(JSON.stringify({ ok: false, data: null, error: { code: "ORIGIN_NOT_ALLOWED", message: "Origin not in allowlist" } }), {
+      status: 403,
+      headers: { "Content-Type": "application/json; charset=utf-8", "Vary": "Origin" },
+    });
+  }
   return new Response(null, { status: 204, headers: corsHeaders(req) });
 }
 

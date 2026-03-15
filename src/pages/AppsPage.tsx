@@ -1,9 +1,6 @@
-import { Plus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { APP_REGISTRY } from "@/lib/constants";
-import { toast } from "@/hooks/use-toast";
 
 export default function AppsPage() {
   return (
@@ -18,8 +15,8 @@ export default function AppsPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <CardTitle className="text-lg">{app.name}</CardTitle>
-                  <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20">
-                    Connessa
+                  <Badge variant="outline" className="bg-secondary text-muted-foreground border-border">
+                    Registrata
                   </Badge>
                 </div>
                 <p className="text-sm text-muted-foreground mt-1">{app.description}</p>
@@ -39,22 +36,13 @@ export default function AppsPage() {
                 <span>{app.platform}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Connessa dal</span>
+                <span className="text-muted-foreground">Registrata dal</span>
                 <span className="font-mono text-xs">{app.connectedAt}</span>
               </div>
             </CardContent>
           </Card>
         ))}
       </div>
-
-      <Button
-        variant="outline"
-        className="w-full border-dashed border-2 h-14 text-muted-foreground hover:text-foreground"
-        onClick={() => toast({ title: "Collega Nuova App", description: "Usa il README per collegare una nuova app." })}
-      >
-        <Plus className="mr-2 h-4 w-4" />
-        Collega Nuova App
-      </Button>
     </div>
   );
 }

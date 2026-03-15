@@ -37,12 +37,8 @@ export const APP_REGISTRY = [
 export const TASK_REGISTRY = [
   { task: "search_grants", provider: "Perplexity", domains: ["wyloni_bandi"], maxTokens: 1500, type: "web" as const },
   { task: "deep_search", provider: "Perplexity", domains: ["wyloni_bandi"], maxTokens: 1500, type: "web" as const },
-  { task: "distress_radar", provider: "Perplexity", domains: ["wyloni_bandi"], maxTokens: 1500, type: "web" as const },
-  { task: "market_glitch", provider: "Perplexity", domains: ["wyloni_bandi"], maxTokens: 1500, type: "web" as const },
-  { task: "deep_recovery", provider: "Perplexity", domains: ["wyloni_bandi"], maxTokens: 1500, type: "web" as const },
   { task: "find_contacts", provider: "Perplexity", domains: ["pratica_legal"], maxTokens: 1200, type: "web" as const },
   { task: "find_company_contacts", provider: "Perplexity", domains: ["pratica_legal"], maxTokens: 1200, type: "web" as const },
-  { task: "real_estate_deep", provider: "Perplexity", domains: ["keydraft_realestate"], maxTokens: 1800, type: "web" as const },
   { task: "ai_bandi", provider: "Perplexity", domains: ["wyloni_bandi"], maxTokens: 2000, type: "web" as const },
   { task: "translate_objection", provider: "OpenAI → Anthropic", domains: ["pratica_legal"], maxTokens: 1200, type: "generative" as const },
   { task: "simplex", provider: "OpenAI → Anthropic", domains: ["pratica_legal"], maxTokens: 1200, type: "generative" as const },
@@ -55,14 +51,15 @@ export const TASK_REGISTRY = [
   { task: "alchemist", provider: "OpenAI → Anthropic", domains: ["pratica_legal"], maxTokens: 1600, type: "generative" as const },
   { task: "loyalty_analyze", provider: "OpenAI → Anthropic", domains: ["pratica_legal"], maxTokens: 1200, type: "generative" as const },
   { task: "batch_viral_content", provider: "OpenAI → Anthropic", domains: ["wyloni_bandi"], maxTokens: 1500, type: "generative" as const },
+  { task: "keydraft_engine", provider: "OpenAI → Anthropic", domains: ["keydraft_realestate"], maxTokens: 2500, type: "generative" as const },
 ];
 
 export const PROVIDERS = [
   {
     id: "openai",
     name: "OpenAI",
-    model: "gpt-4o-mini",
-    status: "active" as const,
+    model: "Configurazione runtime",
+    status: "configured" as const,
     description: "Usato per task generativi, fallback Anthropic",
     envVar: "OPENAI_API_KEY",
     color: "emerald" as const,
@@ -70,8 +67,8 @@ export const PROVIDERS = [
   {
     id: "anthropic",
     name: "Anthropic",
-    model: "claude-3-haiku-20240307",
-    status: "active" as const,
+    model: "Configurazione runtime",
+    status: "configured" as const,
     description: "Fallback quando OpenAI non risponde",
     envVar: "ANTHROPIC_API_KEY",
     color: "emerald" as const,
@@ -80,7 +77,7 @@ export const PROVIDERS = [
     id: "perplexity",
     name: "Perplexity",
     model: "sonar",
-    status: "active" as const,
+    status: "configured" as const,
     description: "Ricerca web reale per WEB_TASKS",
     envVar: "PERPLEXITY_API_KEY",
     color: "emerald" as const,

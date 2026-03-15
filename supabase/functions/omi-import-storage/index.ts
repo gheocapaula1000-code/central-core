@@ -1,12 +1,14 @@
 // OMI Import from Storage — Edge Function
 // Reads CSV from storage bucket and imports into omi_zone or omi_valori tables
-// Protected by AI_CORE_SECRET
+// Protected by AI_CORE_SECRET + origin policy
 
 import {
   handleOptions,
   ok,
   fail,
   makeDebugId,
+  requireSecret,
+  enforceOriginPolicy,
 } from "../_shared/http.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -48,7 +50,6 @@ function parseNumeric(val: string, isInteger: boolean): number | null {
 
 function parseCSV(csv: string, fields: string[], offset = 0, limit = 0): Record<string, unknown>[] {
   const lines = csv.split("\n").filter((l) => l.trim());
-  // Skip first 2 lines: line 1 is title, line 2 is column headers
   let dataLines = lines.slice(2);
   if (offset > 0) dataLines = dataLines.slice(offset);
   if (limit > 0) dataLines = dataLines.slice(0, limit);
@@ -68,7 +69,6 @@ function parseCSV(csv: string, fields: string[], offset = 0, limit = 0): Record<
       } else {
         const cleaned = cleanValue(raw) || null;
         row[field] = cleaned;
-        // Check required non-null fields
         if ((field === "comune_istat" || field === "comune_descrizione" || field === "provincia" || field === "zona" || field === "link_zona") && !cleaned) {
           hasRequiredFields = false;
         }
@@ -82,6 +82,14 @@ function parseCSV(csv: string, fields: string[], offset = 0, limit = 0): Record<
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return handleOptions(req);
   const debugId = makeDebugId();
+
+  // Origin policy
+  const originErr = enforceOriginPolicy(req, debugId);
+  if (originErr) return originErr;
+
+  // Auth guard — before any service-role usage
+  const authErr = requireSecret(req, debugId);
+  if (authErr) return authErr;
 
   if (req.method !== "POST") {
     return fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId);
@@ -106,14 +114,13 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Download CSV from storage
     console.log(`[omi-import-storage] Downloading ${storagePath} from csv-imports bucket`);
     const { data: fileData, error: dlError } = await supabase.storage
       .from("csv-imports")
       .download(storagePath);
 
     if (dlError || !fileData) {
-      return fail(req, 400, "DOWNLOAD_ERROR", `Failed to download: ${dlError?.message}`, debugId);
+      return fail(req, 400, "DOWNLOAD_ERROR", "Failed to download file from storage", debugId);
     }
 
     const csv = await fileData.text();
@@ -129,12 +136,11 @@ Deno.serve(async (req) => {
 
     console.log(`[omi-import-storage] Parsed ${rows.length} rows for ${table}`);
 
-    // Optionally clear existing data
     if (clearFirst) {
       console.log(`[omi-import-storage] Clearing existing data from ${table}`);
       const { error: delErr } = await supabase.from(table).delete().gte("id", 0);
       if (delErr) {
-        console.error(`[omi-import-storage] Clear error: ${delErr.message}`);
+        console.error(`[omi-import-storage] Clear error`);
       }
     }
 
@@ -145,7 +151,7 @@ Deno.serve(async (req) => {
       const batch = rows.slice(i, i + BATCH_SIZE);
       const { error } = await supabase.from(table).insert(batch);
       if (error) {
-        console.error(`[omi-import-storage] Batch ${Math.floor(i / BATCH_SIZE)} error:`, error.message);
+        console.error(`[omi-import-storage] Batch ${Math.floor(i / BATCH_SIZE)} error`);
         errors += batch.length;
       } else {
         inserted += batch.length;
@@ -158,6 +164,7 @@ Deno.serve(async (req) => {
     console.log(`[omi-import-storage] Done: table=${table} total=${rows.length} inserted=${inserted} errors=${errors}`);
     return ok(req, { table, totalRows: rows.length, inserted, errors }, [], debugId);
   } catch (e) {
-    return fail(req, 500, "IMPORT_ERROR", `Import failed: ${String(e).slice(0, 500)}`, debugId);
+    console.error(`[omi-import-storage] Import failed debug_id=${debugId}`);
+    return fail(req, 500, "IMPORT_ERROR", `Import failed. Reference: ${debugId}`, debugId);
   }
 });

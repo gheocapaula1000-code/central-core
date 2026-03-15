@@ -1,7 +1,6 @@
-// v3.3.0
+// v3.3.1
 // health check endpoint — Central Core V3
-// Uses shared CORS whitelist from _shared/http.ts
-// redeploy sottra-cors
+// Public — no auth required
 
 import { handleOptions, ok, CORE_VERSION } from "../_shared/http.ts";
 

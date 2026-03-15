@@ -10,6 +10,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from "recharts";
+import { coreAdminFetch } from "@/lib/coreAdminFetch";
 
 // ── Types ──────────────────────────────────────────────────────
 interface ProviderStats {
@@ -42,17 +43,10 @@ interface MetricsData {
   tasks: Record<string, TaskStats>;
 }
 
-// ── Fetch ──────────────────────────────────────────────────────
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+// ── Fetch (now authenticated) ─────────────────────────────────
 
 async function fetchMetrics(): Promise<MetricsData> {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-core-run/metrics`);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body?.error?.message || `HTTP ${res.status}`);
-  }
-  const json = await res.json();
-  return json.data;
+  return coreAdminFetch<MetricsData>("ai-core-run/metrics");
 }
 
 interface DiagResult {
@@ -69,20 +63,14 @@ interface DiagnosticsData {
 }
 
 async function fetchDiagnostics(): Promise<DiagnosticsData> {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-core-run/diagnostics`);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body?.error?.message || `HTTP ${res.status}`);
-  }
-  const json = await res.json();
-  return json.data;
+  return coreAdminFetch<DiagnosticsData>("ai-core-run/diagnostics");
 }
 
 // ── Colors ─────────────────────────────────────────────────────
 const PROVIDER_COLORS: Record<string, string> = {
-  openai: "hsl(160 84% 39%)",      // emerald
-  anthropic: "hsl(263 70% 58%)",    // violet
-  perplexity: "hsl(186 72% 48%)",   // cyan
+  openai: "hsl(160 84% 39%)",
+  anthropic: "hsl(263 70% 58%)",
+  perplexity: "hsl(186 72% 48%)",
 };
 
 const PROVIDER_BG: Record<string, string> = {

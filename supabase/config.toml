@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.omi-import-storage]
 verify_jwt = false
+
+[functions.istat-ispra-import]
+verify_jwt = false

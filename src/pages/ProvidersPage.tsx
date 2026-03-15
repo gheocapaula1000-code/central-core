@@ -13,8 +13,8 @@ export default function ProvidersPage() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg">{p.name}</CardTitle>
-                <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20">
-                  Attivo
+                <Badge variant="outline" className="bg-secondary text-muted-foreground border-border">
+                  Configurato
                 </Badge>
               </div>
             </CardHeader>
@@ -31,6 +31,9 @@ export default function ProvidersPage() {
                 <span className="text-muted-foreground">Env var richiesta</span>
                 <p className="font-mono text-xs mt-1 bg-secondary inline-block px-2 py-1 rounded">{p.envVar}</p>
               </div>
+              <p className="text-xs text-muted-foreground italic">
+                Disponibilità verificabile da self-test
+              </p>
             </CardContent>
           </Card>
         ))}
