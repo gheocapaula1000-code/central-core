@@ -1,4 +1,4 @@
-import { makeDebugId, handleOptions, ok, fail, requireSecret, constantTimeEqual, CORE_VERSION, enforceOriginPolicy } from "../_shared/http.ts";
+import { makeDebugId, handleOptions, ok, fail, requireSecret, constantTimeEqual, CORE_VERSION, CORE_CONTRACT, enforceOriginPolicy, addIdentityHeaders, buildManifest } from "../_shared/http.ts";
 import { callOpenAI } from "./providers/openai.ts";
 import { callAnthropic } from "./providers/anthropic.ts";
 import { firecrawlExtract } from "./providers/firecrawl.ts";
@@ -213,6 +213,19 @@ function parseOutput(raw: string): unknown | null {
 
 
 // ═══════════════════════════════════════════════════════════════
+// Constants
+// ═══════════════════════════════════════════════════════════════
+const FUNCTION_NAME = "ai-core-run";
+const EXPECTED_BASE_PATH = "/functions/v1/ai-core-run";
+const AI_CORE_ROUTES = [
+  "GET /health", "GET /__health", "GET /manifest",
+  "GET /metrics", "GET /diagnostics", "GET /__diagnostics/selftest",
+  "POST /documents/analyze", "POST /web/scrape", "POST /tariffs/compare",
+  "POST (generic AI run)",
+];
+const AI_CORE_DOMAINS = Object.keys(PIPELINES);
+
+// ═══════════════════════════════════════════════════════════════
 // Main handler
 // ═══════════════════════════════════════════════════════════════
 Deno.serve(async (req: Request) => {
@@ -223,11 +236,28 @@ Deno.serve(async (req: Request) => {
   console.log(`[ai-core-run] method=${req.method} pathname=${pathname} debug_id=${debugId}`);
 
   try {
+    // Manifest endpoint — public, no auth
+    if (req.method === "GET" && pathname.endsWith("/manifest")) {
+      const manifest = buildManifest({
+        functionName: FUNCTION_NAME,
+        serviceKind: "ai-router",
+        expectedBasePath: EXPECTED_BASE_PATH,
+        routes: AI_CORE_ROUTES,
+        domains: AI_CORE_DOMAINS,
+        callingMode: "proxy",
+      });
+      const res = ok(req, manifest, [], debugId);
+      return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "manifest" });
+    }
+
     // Health check — no auth required, public
     if (req.method === "GET" && (pathname.endsWith("/health") || pathname.endsWith("/__health") || pathname === "/")) {
-      return ok(req, {
-        status: "ok", version: CORE_VERSION, time: new Date().toISOString(),
+      const res = ok(req, {
+        status: "ok", version: CORE_VERSION, contract: CORE_CONTRACT,
+        function: FUNCTION_NAME, expectedBasePath: EXPECTED_BASE_PATH,
+        time: new Date().toISOString(),
       }, [], debugId);
+      return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "health" });
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -236,7 +266,8 @@ Deno.serve(async (req: Request) => {
     if (req.method === "GET" && pathname.endsWith("/metrics")) {
       const originErr = enforceOriginPolicy(req, debugId);
       if (originErr) return originErr;
-      return ok(req, getMetrics(), [], debugId);
+      const res = ok(req, getMetrics(), [], debugId);
+      return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "metrics" });
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -292,6 +323,8 @@ Deno.serve(async (req: Request) => {
       return ok(req, {
         status: allOk ? "all_providers_ok" : "some_providers_failed",
         providers: results,
+        function: FUNCTION_NAME,
+        contract: CORE_CONTRACT,
         time: new Date().toISOString(),
         debug_id: debugId,
       }, allOk ? [] : ["Some providers failed diagnostics"], debugId);
@@ -493,12 +526,15 @@ Deno.serve(async (req: Request) => {
           rate_max_trusted: RATE_MAX_TRUSTED,
           rate_max_public: RATE_MAX_PUBLIC,
         },
+        function: FUNCTION_NAME,
+        contract: CORE_CONTRACT,
         version: CORE_VERSION,
         timestamp: new Date().toISOString(),
       };
 
       const warnings = failCount > 0 ? ["One or more selftest checks failed"] : warnCount > 0 ? ["Selftest completed with warnings"] : [];
-      return ok(req, report, warnings, debugId);
+      const res = ok(req, report, warnings, debugId);
+      return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "__diagnostics/selftest" });
     }
 
     // Auth

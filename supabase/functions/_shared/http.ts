@@ -1,4 +1,47 @@
 export const CORE_VERSION = "3.3.1";
+export const CORE_CONTRACT = "central-core-v3";
+
+// ═══════════════════════════════════════════════════════════════
+// Identity headers — non-sensitive, diagnostic-only
+// ═══════════════════════════════════════════════════════════════
+export interface CoreIdentity {
+  function: string;
+  route: string;
+}
+
+export function addIdentityHeaders(res: Response, identity: CoreIdentity): Response {
+  res.headers.set("X-Core-Version", CORE_VERSION);
+  res.headers.set("X-Core-Function", identity.function);
+  res.headers.set("X-Core-Route", identity.route);
+  res.headers.set("X-Core-Contract", CORE_CONTRACT);
+  return res;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Manifest builder — public, non-sensitive self-description
+// ═══════════════════════════════════════════════════════════════
+export interface ManifestOptions {
+  functionName: string;
+  serviceKind: string;
+  expectedBasePath: string;
+  routes: string[];
+  domains?: string[];
+  callingMode?: "proxy" | "direct";
+}
+
+export function buildManifest(opts: ManifestOptions): Record<string, unknown> {
+  return {
+    contract: CORE_CONTRACT,
+    version: CORE_VERSION,
+    function: opts.functionName,
+    serviceKind: opts.serviceKind,
+    expectedBasePath: opts.expectedBasePath,
+    routes: opts.routes,
+    ...(opts.domains ? { domains: opts.domains } : {}),
+    callingMode: opts.callingMode ?? "proxy",
+    time: new Date().toISOString(),
+  };
+}
 
 export function makeDebugId(): string {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 12);
