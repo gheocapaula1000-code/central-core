@@ -11,6 +11,9 @@ import {
   fail,
   requireSecret,
   CORE_VERSION,
+  CORE_CONTRACT,
+  addIdentityHeaders,
+  buildManifest,
 } from "../_shared/http.ts";
 
 // ── Scan handlers ──
@@ -40,6 +43,12 @@ import { handleForecastSviluppoArea } from "./sviluppo-area.ts";
 
 // ── ICTV Convergenza Territoriale handler ──
 import { handleForecastConvergenzaTerritoriale } from "./convergenza-territoriale.ts";
+
+// ═══════════════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════════════
+const FUNCTION_NAME = "sottra";
+const EXPECTED_BASE_PATH = "/functions/v1/sottra";
 
 // ═══════════════════════════════════════════════════════════════
 // ROUTER
@@ -75,15 +84,36 @@ Deno.serve(async (req) => {
   console.log(`[sottra] method=${req.method} pathname=${pathname} debug_id=${debugId}`);
 
   try {
+    // Manifest endpoint — public, no auth
+    if (req.method === "GET" && pathname.endsWith("/manifest")) {
+      const manifest = buildManifest({
+        functionName: FUNCTION_NAME,
+        serviceKind: "sottra-service",
+        expectedBasePath: EXPECTED_BASE_PATH,
+        routes: [
+          "GET /health",
+          "GET /manifest",
+          ...Object.keys(ROUTES).map(r => `POST /${r}`),
+        ],
+        callingMode: "direct",
+      });
+      const res = ok(req, manifest, [], debugId);
+      return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "manifest" });
+    }
+
     // Health check — no auth
     if (req.method === "GET" && (pathname.endsWith("/health") || pathname === "/")) {
-      return ok(req, {
+      const res = ok(req, {
         status: "healthy",
         engine: "sottra",
         version: CORE_VERSION,
+        contract: CORE_CONTRACT,
+        function: FUNCTION_NAME,
+        expectedBasePath: EXPECTED_BASE_PATH,
         routes: Object.keys(ROUTES),
         time: new Date().toISOString(),
       }, [], debugId);
+      return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "health" });
     }
 
     // Auth
@@ -108,7 +138,8 @@ Deno.serve(async (req) => {
     for (const [route, handler] of Object.entries(ROUTES)) {
       if (pathname.endsWith(`/${route}`) || pathname.endsWith(`/${route}/`)) {
         console.log(`[sottra] route=${route} debug_id=${debugId}`);
-        return await handler(req, body, debugId);
+        const res = await handler(req, body, debugId);
+        return addIdentityHeaders(res, { function: FUNCTION_NAME, route });
       }
     }
 
