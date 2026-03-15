@@ -1,8 +1,6 @@
-import { Smartphone, Bot, ClipboardList, Activity, Clock, LogOut } from "lucide-react";
+import { Smartphone, Bot, ClipboardList, Activity, Clock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { APP_REGISTRY, TASK_REGISTRY, PROVIDERS } from "@/lib/constants";
-import { clearCoreSecret } from "@/lib/coreAdminFetch";
 
 const stats = [
   {
@@ -28,20 +26,9 @@ const stats = [
 ];
 
 export default function Dashboard() {
-  const handleLock = () => {
-    clearCoreSecret();
-    window.location.reload();
-  };
-
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <Button variant="ghost" size="sm" onClick={handleLock} className="text-muted-foreground">
-          <LogOut className="h-4 w-4 mr-1.5" />
-          Blocca Console
-        </Button>
-      </div>
+      <h1 className="text-2xl font-bold">Dashboard</h1>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((s) => (
