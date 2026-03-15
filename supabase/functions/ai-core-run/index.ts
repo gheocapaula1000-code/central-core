@@ -323,6 +323,8 @@ Deno.serve(async (req: Request) => {
       return ok(req, {
         status: allOk ? "all_providers_ok" : "some_providers_failed",
         providers: results,
+        function: FUNCTION_NAME,
+        contract: CORE_CONTRACT,
         time: new Date().toISOString(),
         debug_id: debugId,
       }, allOk ? [] : ["Some providers failed diagnostics"], debugId);
