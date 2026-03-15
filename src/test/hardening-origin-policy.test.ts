@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isOriginAllowed } from "@/lib/httpUtils";
+import { isOriginAllowed, constantTimeEqual } from "@/lib/httpUtils";
 
 /**
  * Origin policy hardening tests — mirrors _shared/http.ts logic
@@ -50,8 +50,7 @@ describe("Origin policy — hardening", () => {
     expect(isOriginAllowed("https://sottra.app.attacker.io")).toBe(false);
   });
 
-  // Server-to-server (no origin) — covered by enforceOriginPolicy returning null
-  // Here we just verify isOriginAllowed rejects empty
+  // Server-to-server (no origin)
   it("isOriginAllowed returns false for absent origin (empty string)", () => {
     expect(isOriginAllowed("")).toBe(false);
   });
@@ -65,5 +64,20 @@ describe("Origin policy — hardening", () => {
   });
   it("rejects when custom allowedOrigins does not include origin", () => {
     expect(isOriginAllowed("https://evil.com", ["https://good.com"])).toBe(false);
+  });
+});
+
+describe("constantTimeEqual — hardening", () => {
+  it("returns true for identical strings", () => {
+    expect(constantTimeEqual("abc123", "abc123")).toBe(true);
+  });
+  it("returns false for different strings same length", () => {
+    expect(constantTimeEqual("abc123", "abc124")).toBe(false);
+  });
+  it("returns false for different lengths", () => {
+    expect(constantTimeEqual("short", "longer-string")).toBe(false);
+  });
+  it("returns true for empty strings", () => {
+    expect(constantTimeEqual("", "")).toBe(true);
   });
 });

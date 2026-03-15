@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render } from "@testing-library/react";
+import { render, fireEvent, waitFor } from "@testing-library/react";
 import { AdminSecretGate } from "@/components/AdminSecretGate";
 
 // Mock sessionStorage
@@ -41,15 +41,47 @@ describe("AdminSecretGate", () => {
     expect(getByTestId("protected")).toBeTruthy();
   });
 
-  it("rejects empty secret submission", () => {
+  it("rejects empty secret submission", async () => {
     const { getByText, queryByTestId } = render(
       <AdminSecretGate>
         <div data-testid="protected">Protected</div>
       </AdminSecretGate>
     );
     const unlockBtn = getByText("Sblocca Console");
-    unlockBtn.click();
+    fireEvent.click(unlockBtn);
+    await waitFor(() => {
+      expect(getByText("Inserisci il secret amministrativo")).toBeTruthy();
+    });
     expect(queryByTestId("protected")).toBeNull();
-    expect(getByText("Inserisci il secret amministrativo")).toBeTruthy();
+  });
+
+  it("rejects secret shorter than 8 characters", async () => {
+    const { getByText, getByPlaceholderText, queryByTestId } = render(
+      <AdminSecretGate>
+        <div data-testid="protected">Protected</div>
+      </AdminSecretGate>
+    );
+    const input = getByPlaceholderText("AI_CORE_SECRET");
+    fireEvent.change(input, { target: { value: "short" } });
+    fireEvent.click(getByText("Sblocca Console"));
+    await waitFor(() => {
+      expect(getByText("Secret troppo corto")).toBeTruthy();
+    });
+    expect(queryByTestId("protected")).toBeNull();
+  });
+
+  it("unlocks with valid secret", async () => {
+    const { getByText, getByPlaceholderText, getByTestId } = render(
+      <AdminSecretGate>
+        <div data-testid="protected">Protected</div>
+      </AdminSecretGate>
+    );
+    const input = getByPlaceholderText("AI_CORE_SECRET");
+    fireEvent.change(input, { target: { value: "valid-secret-long-enough" } });
+    fireEvent.click(getByText("Sblocca Console"));
+    await waitFor(() => {
+      expect(getByTestId("protected")).toBeTruthy();
+    });
+    expect(mockStorage["core_admin_secret"]).toBe("valid-secret-long-enough");
   });
 });
