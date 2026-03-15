@@ -231,13 +231,11 @@ Deno.serve(async (req: Request) => {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // METRICS — protected by secret + origin + rate limit
+    // METRICS — protected by origin policy + rate limit (no secret)
     // ═══════════════════════════════════════════════════════════════
     if (req.method === "GET" && pathname.endsWith("/metrics")) {
       const originErr = enforceOriginPolicy(req, debugId);
       if (originErr) return originErr;
-      const authErr = requireSecret(req, debugId);
-      if (authErr) return authErr;
       return ok(req, getMetrics(), [], debugId);
     }
 
