@@ -5,7 +5,7 @@
 
 import { ok, fail } from "../_shared/http.ts";
 import { callAI, callAIVision, parseJSON, reverseGeocode, classifyOMIPricing, PUBLICATION_POLICY } from "./shared.ts";
-import { lookupOMI } from "./omi-lookup.ts";
+import { lookupOMI, lookupOMIByCoordinates, type OMIResult } from "./omi-lookup.ts";
 import { resolveGeo, type GeoResolutionResult } from "./geo-resolution.ts";
 import { collectStreetEvidence, type StreetEvidenceMergeResult } from "./street-evidence.ts";
 import { collectMarketData, MARKET_DATA_POLICY, type MarketContextResult } from "./market-data.ts";
