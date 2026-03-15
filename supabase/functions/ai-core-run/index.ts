@@ -526,12 +526,15 @@ Deno.serve(async (req: Request) => {
           rate_max_trusted: RATE_MAX_TRUSTED,
           rate_max_public: RATE_MAX_PUBLIC,
         },
+        function: FUNCTION_NAME,
+        contract: CORE_CONTRACT,
         version: CORE_VERSION,
         timestamp: new Date().toISOString(),
       };
 
       const warnings = failCount > 0 ? ["One or more selftest checks failed"] : warnCount > 0 ? ["Selftest completed with warnings"] : [];
-      return ok(req, report, warnings, debugId);
+      const res = ok(req, report, warnings, debugId);
+      return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "__diagnostics/selftest" });
     }
 
     // Auth
