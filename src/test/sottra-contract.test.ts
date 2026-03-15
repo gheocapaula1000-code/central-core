@@ -1627,4 +1627,3 @@ describe("Sottra contract — real market provider activation", () => {
     expect(signals.energyPremiumSignal).toBeNull();
   });
 });
-});
