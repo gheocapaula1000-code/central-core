@@ -21,7 +21,7 @@ export const PUBLICATION_POLICY = {
   /** Minimum data sources for elaborated modules */
   ELABORATED_MIN_SOURCES: 2,
   /** OMI match methods that can qualify as "official" */
-  OFFICIAL_MATCH_METHODS: ["single_zone"] as string[],
+  OFFICIAL_MATCH_METHODS: ["single_zone", "polygon_match"] as string[],
   /** OMI match methods that produce "elaborated" (not official) */
   ELABORATED_MATCH_METHODS: ["ai_matched"] as string[],
   /** OMI match methods that are never publishable */
@@ -30,6 +30,7 @@ export const PUBLICATION_POLICY = {
 
 /**
  * Determine sourceType for OMI pricing based on match confidence and method.
+ * Hierarchy: polygon_match > single_zone > ai_matched > fallbacks
  */
 export function classifyOMIPricing(matchConfidence: number, matchMethod: string): SourceType {
   if (PUBLICATION_POLICY.UNPUBLISHABLE_MATCH_METHODS.includes(matchMethod)) return "unavailable";
