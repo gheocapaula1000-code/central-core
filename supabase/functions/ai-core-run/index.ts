@@ -213,6 +213,19 @@ function parseOutput(raw: string): unknown | null {
 
 
 // ═══════════════════════════════════════════════════════════════
+// Constants
+// ═══════════════════════════════════════════════════════════════
+const FUNCTION_NAME = "ai-core-run";
+const EXPECTED_BASE_PATH = "/functions/v1/ai-core-run";
+const AI_CORE_ROUTES = [
+  "GET /health", "GET /__health", "GET /manifest",
+  "GET /metrics", "GET /diagnostics", "GET /__diagnostics/selftest",
+  "POST /documents/analyze", "POST /web/scrape", "POST /tariffs/compare",
+  "POST (generic AI run)",
+];
+const AI_CORE_DOMAINS = Object.keys(PIPELINES);
+
+// ═══════════════════════════════════════════════════════════════
 // Main handler
 // ═══════════════════════════════════════════════════════════════
 Deno.serve(async (req: Request) => {
@@ -223,11 +236,28 @@ Deno.serve(async (req: Request) => {
   console.log(`[ai-core-run] method=${req.method} pathname=${pathname} debug_id=${debugId}`);
 
   try {
+    // Manifest endpoint — public, no auth
+    if (req.method === "GET" && pathname.endsWith("/manifest")) {
+      const manifest = buildManifest({
+        functionName: FUNCTION_NAME,
+        serviceKind: "ai-router",
+        expectedBasePath: EXPECTED_BASE_PATH,
+        routes: AI_CORE_ROUTES,
+        domains: AI_CORE_DOMAINS,
+        callingMode: "proxy",
+      });
+      const res = ok(req, manifest, [], debugId);
+      return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "manifest" });
+    }
+
     // Health check — no auth required, public
     if (req.method === "GET" && (pathname.endsWith("/health") || pathname.endsWith("/__health") || pathname === "/")) {
-      return ok(req, {
-        status: "ok", version: CORE_VERSION, time: new Date().toISOString(),
+      const res = ok(req, {
+        status: "ok", version: CORE_VERSION, contract: CORE_CONTRACT,
+        function: FUNCTION_NAME, expectedBasePath: EXPECTED_BASE_PATH,
+        time: new Date().toISOString(),
       }, [], debugId);
+      return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "health" });
     }
 
     // ═══════════════════════════════════════════════════════════════
