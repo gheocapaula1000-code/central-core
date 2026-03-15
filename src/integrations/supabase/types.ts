@@ -278,12 +278,61 @@ export type Database = {
         }
         Relationships: []
       }
+      omi_zone_geometry: {
+        Row: {
+          comune_descrizione: string
+          comune_istat: string
+          created_at: string | null
+          geom: unknown
+          id: number
+          link_zona: string
+          provincia: string
+          semestre: string | null
+          zona: string
+          zona_descr: string | null
+        }
+        Insert: {
+          comune_descrizione: string
+          comune_istat: string
+          created_at?: string | null
+          geom: unknown
+          id?: never
+          link_zona: string
+          provincia: string
+          semestre?: string | null
+          zona: string
+          zona_descr?: string | null
+        }
+        Update: {
+          comune_descrizione?: string
+          comune_istat?: string
+          created_at?: string | null
+          geom?: unknown
+          id?: never
+          link_zona?: string
+          provincia?: string
+          semestre?: string | null
+          zona?: string
+          zona_descr?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      omi_zone_by_point: {
+        Args: { p_lat: number; p_lng: number }
+        Returns: {
+          comune_descrizione: string
+          comune_istat: string
+          link_zona: string
+          provincia: string
+          zona: string
+          zona_descr: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

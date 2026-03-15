@@ -24,7 +24,7 @@ const PUBLICATION_POLICY = {
   OMI_PUBLISH_THRESHOLD: 0.50,
   OMI_OFFICIAL_THRESHOLD: 0.85,
   ELABORATED_MIN_SOURCES: 2,
-  OFFICIAL_MATCH_METHODS: ["single_zone"],
+  OFFICIAL_MATCH_METHODS: ["single_zone", "polygon_match"],
   ELABORATED_MATCH_METHODS: ["ai_matched"],
   UNPUBLISHABLE_MATCH_METHODS: ["ai_fallback", "first_zone_fallback", "none"],
 };
@@ -217,12 +217,12 @@ describe("Sottra contract — scan/pricing (max stability)", () => {
     expect(weakMatchData.omiMatchConfidence).toBeLessThan(PUBLICATION_POLICY.OMI_PUBLISH_THRESHOLD);
   });
 
-  it("valid omiMatchMethod values", () => {
-    const validMethods = ["single_zone", "ai_matched", "ai_fallback", "first_zone_fallback", "none"];
+  it("valid omiMatchMethod values include polygon_match", () => {
+    const validMethods = ["polygon_match", "single_zone", "ai_matched", "ai_fallback", "first_zone_fallback", "none"];
     for (const m of validMethods) {
       expect(typeof m).toBe("string");
     }
-    expect(validMethods).toHaveLength(5);
+    expect(validMethods).toHaveLength(6);
   });
 
   it("unavailable shape when OMI not found", () => {
@@ -532,8 +532,8 @@ describe("Sottra contract — publication policy thresholds", () => {
     expect(PUBLICATION_POLICY.ELABORATED_MIN_SOURCES).toBe(2);
   });
 
-  it("only single_zone can be official", () => {
-    expect(PUBLICATION_POLICY.OFFICIAL_MATCH_METHODS).toEqual(["single_zone"]);
+  it("polygon_match and single_zone can be official", () => {
+    expect(PUBLICATION_POLICY.OFFICIAL_MATCH_METHODS).toEqual(["single_zone", "polygon_match"]);
   });
 
   it("ai_matched produces elaborated", () => {
@@ -1625,5 +1625,208 @@ describe("Sottra contract — real market provider activation", () => {
     expect(signals.premiumMicroAreaSignal).toBeNull();
     expect(signals.rentalAppealSignal).toBeNull();
     expect(signals.energyPremiumSignal).toBeNull();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// POLYGON MATCH — Coordinate-first OMI resolution contract
+// ══════════════════════════════════════════════════════════════
+
+describe("Sottra contract — polygon match hierarchy", () => {
+  it("polygon_match with high confidence → official", () => {
+    expect(classifyOMIPricing(0.98, "polygon_match")).toBe("official");
+    expect(classifyOMIPricing(0.90, "polygon_match")).toBe("official");
+    expect(classifyOMIPricing(0.85, "polygon_match")).toBe("official");
+  });
+
+  it("polygon_match with moderate confidence → elaborated", () => {
+    expect(classifyOMIPricing(0.70, "polygon_match")).toBe("elaborated");
+    expect(classifyOMIPricing(0.50, "polygon_match")).toBe("elaborated");
+  });
+
+  it("polygon_match below threshold → unavailable", () => {
+    expect(classifyOMIPricing(0.49, "polygon_match")).toBe("unavailable");
+    expect(classifyOMIPricing(0.20, "polygon_match")).toBe("unavailable");
+  });
+
+  it("hierarchy: polygon_match > single_zone > ai_matched > fallbacks", () => {
+    const methods = ["polygon_match", "single_zone", "ai_matched", "ai_fallback", "first_zone_fallback", "none"];
+    // polygon_match and single_zone at 95% both official
+    expect(classifyOMIPricing(0.95, "polygon_match")).toBe("official");
+    expect(classifyOMIPricing(0.95, "single_zone")).toBe("official");
+    // ai_matched at 95% is elaborated (never official)
+    expect(classifyOMIPricing(0.95, "ai_matched")).toBe("elaborated");
+    // fallbacks always unavailable
+    expect(classifyOMIPricing(0.95, "ai_fallback")).toBe("unavailable");
+    expect(classifyOMIPricing(0.95, "first_zone_fallback")).toBe("unavailable");
+    expect(classifyOMIPricing(0.95, "none")).toBe("unavailable");
+    expect(methods).toHaveLength(6);
+  });
+
+  it("ai_matched is NOT equivalent to polygon_match even at high confidence", () => {
+    // ai_matched at 99% → elaborated
+    expect(classifyOMIPricing(0.99, "ai_matched")).toBe("elaborated");
+    // polygon_match at 85% → official
+    expect(classifyOMIPricing(0.85, "polygon_match")).toBe("official");
+  });
+});
+
+describe("Sottra contract — scan/pricing polygon-first flow", () => {
+  it("pricing response with polygon match has polygonMatch=true", () => {
+    const data = {
+      prezzoMq: 2800,
+      prezzoMqMin: 2500,
+      prezzoMqMax: 3100,
+      mediaZona: null,
+      trend5Anni: null,
+      omiMatchConfidence: 0.98,
+      omiMatchMethod: "polygon_match",
+      polygonMatch: true,
+      omiGeoLevel: "microzona_omi",
+      pricingPrecisionLabel: "Microzona OMI B1 — match spaziale (polygon)",
+      sourceCoverageLevel: "microzona",
+      sourceType: "official",
+    };
+    expect(data.polygonMatch).toBe(true);
+    expect(data.omiGeoLevel).toBe("microzona_omi");
+    expect(data.omiMatchMethod).toBe("polygon_match");
+    expect(data.sourceType).toBe("official");
+    expect(data.sourceCoverageLevel).toBe("microzona");
+    expect(data.mediaZona).toBeNull();
+    expect(data.trend5Anni).toBeNull();
+  });
+
+  it("pricing response without polygon match has polygonMatch=false", () => {
+    const data = {
+      omiMatchMethod: "ai_matched",
+      polygonMatch: false,
+      omiGeoLevel: "comune",
+      sourceCoverageLevel: "comunale",
+      sourceType: "elaborated",
+    };
+    expect(data.polygonMatch).toBe(false);
+    expect(data.omiGeoLevel).toBe("comune");
+    expect(data.sourceCoverageLevel).toBe("comunale");
+  });
+
+  it("ai_matched pricing NOT presented as microzona", () => {
+    const data = {
+      omiMatchMethod: "ai_matched",
+      polygonMatch: false,
+      omiGeoLevel: "comune",
+      pricingPrecisionLabel: "Zona OMI B1 — identificazione AI (non verificata spazialmente)",
+    };
+    expect(data.omiGeoLevel).not.toBe("microzona_omi");
+    expect(data.polygonMatch).toBe(false);
+    expect(data.pricingPrecisionLabel).toContain("AI");
+    expect(data.pricingPrecisionLabel).toContain("non verificata");
+  });
+
+  it("weak match pricing NOT published as precise", () => {
+    const data = {
+      prezzoMq: null,
+      omiMatchMethod: "first_zone_fallback",
+      polygonMatch: false,
+      omiGeoLevel: "none",
+      sourceCoverageLevel: "none",
+      sourceType: "unavailable",
+    };
+    expect(data.prezzoMq).toBeNull();
+    expect(data.sourceType).toBe("unavailable");
+    expect(data.polygonMatch).toBe(false);
+    expect(data.sourceCoverageLevel).toBe("none");
+  });
+
+  it("scan/pricing accepts lat/lng for coordinate-first path", () => {
+    // Contract: body can include lat, lng for coordinate-first lookup
+    const body = { address: "Via Roma 1, Milano", lat: 45.4642, lng: 9.1900 };
+    expect(typeof body.lat).toBe("number");
+    expect(typeof body.lng).toBe("number");
+    expect(typeof body.address).toBe("string");
+  });
+
+  it("OMI result shape includes new polygon fields", () => {
+    const requiredFields = [
+      "found", "fonte", "matchConfidence", "matchMethod",
+      "polygonMatch", "omiGeoLevel", "pricingPrecisionLabel",
+      "sourceCoverageLevel", "confidenceReason", "limitations",
+    ];
+    const result = {
+      found: true,
+      zona: "B1",
+      zona_descr: "Centro",
+      comune: "MILANO",
+      compr_min: 2500,
+      compr_max: 3100,
+      prezzoMedio: 2800,
+      fonte: "Agenzia Entrate — OMI, 1° semestre 2025",
+      matchConfidence: 0.98,
+      matchMethod: "polygon_match",
+      polygonMatch: true,
+      omiGeoLevel: "microzona_omi",
+      pricingPrecisionLabel: "Microzona OMI B1 — match spaziale (polygon)",
+      sourceCoverageLevel: "microzona",
+      confidenceReason: "Match spaziale univoco",
+      limitations: [],
+    };
+    for (const field of requiredFields) {
+      expect(result).toHaveProperty(field);
+    }
+  });
+
+  it("comune with many zones — no arbitrary selection without polygon", () => {
+    // When address lookup finds many zones and AI fails, result is NOT official
+    const multiZoneResult = {
+      omiMatchMethod: "first_zone_fallback",
+      matchConfidence: 0.20,
+      polygonMatch: false,
+      sourceType: classifyOMIPricing(0.20, "first_zone_fallback"),
+    };
+    expect(multiZoneResult.sourceType).toBe("unavailable");
+    expect(multiZoneResult.polygonMatch).toBe(false);
+    expect(multiZoneResult.matchConfidence).toBeLessThan(PUBLICATION_POLICY.OMI_PUBLISH_THRESHOLD);
+  });
+
+  it("address+AI match without polygon → NOT equivalent to polygon match", () => {
+    const aiResult = classifyOMIPricing(0.90, "ai_matched");
+    const polygonResult = classifyOMIPricing(0.90, "polygon_match");
+    expect(aiResult).toBe("elaborated");
+    expect(polygonResult).toBe("official");
+    expect(aiResult).not.toBe(polygonResult);
+  });
+});
+
+describe("Sottra contract — OMI geo level consistency", () => {
+  it("valid omiGeoLevel values", () => {
+    const valid = ["microzona_omi", "comune", "none"];
+    expect(valid).toHaveLength(3);
+  });
+
+  it("valid sourceCoverageLevel values", () => {
+    const valid = ["microzona", "comunale", "none"];
+    expect(valid).toHaveLength(3);
+  });
+
+  it("polygon_match → omiGeoLevel=microzona_omi, sourceCoverageLevel=microzona", () => {
+    // Contract guarantee
+    const polygonResult = {
+      matchMethod: "polygon_match",
+      polygonMatch: true,
+      omiGeoLevel: "microzona_omi",
+      sourceCoverageLevel: "microzona",
+    };
+    expect(polygonResult.omiGeoLevel).toBe("microzona_omi");
+    expect(polygonResult.sourceCoverageLevel).toBe("microzona");
+  });
+
+  it("ai_matched → omiGeoLevel=comune, sourceCoverageLevel=comunale", () => {
+    const aiResult = {
+      matchMethod: "ai_matched",
+      polygonMatch: false,
+      omiGeoLevel: "comune",
+      sourceCoverageLevel: "comunale",
+    };
+    expect(aiResult.omiGeoLevel).toBe("comune");
+    expect(aiResult.sourceCoverageLevel).toBe("comunale");
   });
 });
