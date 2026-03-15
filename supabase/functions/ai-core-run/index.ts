@@ -261,11 +261,13 @@ Deno.serve(async (req: Request) => {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // METRICS — protected by origin policy + rate limit (no secret)
+    // METRICS — protected by origin policy + diagnostic secret + rate limit
     // ═══════════════════════════════════════════════════════════════
     if (req.method === "GET" && pathname.endsWith("/metrics")) {
       const originErr = enforceOriginPolicy(req, debugId);
       if (originErr) return originErr;
+      const diagErr = requireDiagnosticSecret(req, debugId);
+      if (diagErr) return diagErr;
       const res = ok(req, getMetrics(), [], debugId);
       return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "metrics" });
     }
