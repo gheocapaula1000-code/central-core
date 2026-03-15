@@ -1,4 +1,4 @@
-import { makeDebugId, handleOptions, ok, fail, requireSecret, constantTimeEqual, CORE_VERSION, CORE_CONTRACT, enforceOriginPolicy, addIdentityHeaders, buildManifest } from "../_shared/http.ts";
+import { makeDebugId, handleOptions, ok, fail, requireSecret, requireDiagnosticSecret, constantTimeEqual, CORE_VERSION, CORE_CONTRACT, enforceOriginPolicy, addIdentityHeaders, buildManifest } from "../_shared/http.ts";
 import { callOpenAI } from "./providers/openai.ts";
 import { callAnthropic } from "./providers/anthropic.ts";
 import { firecrawlExtract } from "./providers/firecrawl.ts";
@@ -261,21 +261,25 @@ Deno.serve(async (req: Request) => {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // METRICS — protected by origin policy + rate limit (no secret)
+    // METRICS — protected by origin policy + diagnostic secret + rate limit
     // ═══════════════════════════════════════════════════════════════
     if (req.method === "GET" && pathname.endsWith("/metrics")) {
       const originErr = enforceOriginPolicy(req, debugId);
       if (originErr) return originErr;
+      const diagErr = requireDiagnosticSecret(req, debugId);
+      if (diagErr) return diagErr;
       const res = ok(req, getMetrics(), [], debugId);
       return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "metrics" });
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // DIAGNOSTICS — protected by origin policy + rate limit (no secret)
+    // DIAGNOSTICS — protected by origin policy + diagnostic secret + rate limit
     // ═══════════════════════════════════════════════════════════════
     if (req.method === "GET" && pathname.endsWith("/diagnostics")) {
       const originErr = enforceOriginPolicy(req, debugId);
       if (originErr) return originErr;
+      const diagSecErr = requireDiagnosticSecret(req, debugId);
+      if (diagSecErr) return diagSecErr;
 
       // Rate limit for diagnostics
       purgeExpiredBuckets();
@@ -331,11 +335,13 @@ Deno.serve(async (req: Request) => {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // SELFTEST — protected by origin policy + rate limit (no secret)
+    // SELFTEST — protected by origin policy + diagnostic secret + rate limit
     // ═══════════════════════════════════════════════════════════════
     if (req.method === "GET" && pathname.endsWith("/__diagnostics/selftest")) {
       const originErr = enforceOriginPolicy(req, debugId);
       if (originErr) return originErr;
+      const diagSecErr = requireDiagnosticSecret(req, debugId);
+      if (diagSecErr) return diagSecErr;
 
       // Rate limit for selftest
       purgeExpiredBuckets();

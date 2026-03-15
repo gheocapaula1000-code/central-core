@@ -2,10 +2,12 @@ import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity, RefreshCw, Clock, AlertTriangle, TrendingUp,
-  Zap, CheckCircle2, XCircle, Timer, BarChart3, Stethoscope, Loader2,
+  Zap, CheckCircle2, XCircle, Timer, BarChart3, Stethoscope, Loader2, KeyRound,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
@@ -43,12 +45,6 @@ interface MetricsData {
   tasks: Record<string, TaskStats>;
 }
 
-// ── Fetch (now authenticated) ─────────────────────────────────
-
-async function fetchMetrics(): Promise<MetricsData> {
-  return coreAdminFetch<MetricsData>("ai-core-run/metrics");
-}
-
 interface DiagResult {
   status: string;
   latencyMs: number;
@@ -60,10 +56,6 @@ interface DiagnosticsData {
   status: string;
   providers: Record<string, DiagResult>;
   time: string;
-}
-
-async function fetchDiagnostics(): Promise<DiagnosticsData> {
-  return coreAdminFetch<DiagnosticsData>("ai-core-run/diagnostics");
 }
 
 // ── Colors ─────────────────────────────────────────────────────
@@ -94,6 +86,10 @@ function formatTime(iso: string): string {
 
 // ── Component ──────────────────────────────────────────────────
 export default function MetricsPage() {
+  // Diagnostic secret — local state only, NOT stored in localStorage
+  const [diagSecret, setDiagSecret] = useState("");
+  const [secretSubmitted, setSecretSubmitted] = useState(false);
+
   const [diagData, setDiagData] = useState<DiagnosticsData | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
   const [diagError, setDiagError] = useState<string | null>(null);
@@ -103,21 +99,64 @@ export default function MetricsPage() {
     setDiagError(null);
     setDiagData(null);
     try {
-      const result = await fetchDiagnostics();
+      const result = await coreAdminFetch<DiagnosticsData>("ai-core-run/diagnostics", { diagnosticSecret: diagSecret });
       setDiagData(result);
     } catch (e) {
       setDiagError((e as Error).message);
     } finally {
       setDiagLoading(false);
     }
-  }, []);
+  }, [diagSecret]);
+
+  const fetchMetrics = useCallback(async (): Promise<MetricsData> => {
+    return coreAdminFetch<MetricsData>("ai-core-run/metrics", { diagnosticSecret: diagSecret });
+  }, [diagSecret]);
 
   const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
-    queryKey: ["metrics"],
-    queryFn: () => fetchMetrics(),
-    refetchInterval: 15_000,
+    queryKey: ["metrics", secretSubmitted],
+    queryFn: fetchMetrics,
+    refetchInterval: secretSubmitted ? 15_000 : false,
+    enabled: secretSubmitted,
     retry: 1,
   });
+
+  // ── Secret input (local, not global gate) ────────────────────
+  if (!secretSubmitted) {
+    return (
+      <div className="space-y-6 max-w-md">
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <BarChart3 className="h-6 w-6 text-cyan-400" /> Metrics
+        </h1>
+        <Card className="border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <KeyRound className="h-4 w-4" /> Chiave diagnostica
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Gli endpoint diagnostici richiedono una chiave dedicata per l'accesso.
+            </p>
+            <Input
+              type="password"
+              placeholder="Inserisci chiave diagnostica"
+              value={diagSecret}
+              onChange={(e) => setDiagSecret(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && diagSecret.trim()) setSecretSubmitted(true); }}
+              className="font-mono text-sm"
+            />
+            <Button
+              size="sm"
+              disabled={!diagSecret.trim()}
+              onClick={() => setSecretSubmitted(true)}
+            >
+              Accedi ai dati
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // ── Loading / Error ──────────────────────────────────────────
   if (isLoading && !data) {
@@ -145,12 +184,20 @@ export default function MetricsPage() {
               <AlertTriangle className="h-4 w-4" />
               <span className="text-sm">{(error as Error).message}</span>
             </div>
-            <button
-              onClick={() => refetch()}
-              className="mt-3 text-xs text-muted-foreground underline"
-            >
-              Riprova
-            </button>
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={() => refetch()}
+                className="text-xs text-muted-foreground underline"
+              >
+                Riprova
+              </button>
+              <button
+                onClick={() => { setSecretSubmitted(false); setDiagSecret(""); }}
+                className="text-xs text-muted-foreground underline"
+              >
+                Cambia chiave
+              </button>
+            </div>
           </CardContent>
         </Card>
       </div>
