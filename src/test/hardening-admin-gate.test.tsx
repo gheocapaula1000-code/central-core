@@ -42,31 +42,14 @@ describe("AdminSecretGate", () => {
   });
 
   it("rejects empty secret submission", () => {
-    const { getByText, queryByTestId, getByPlaceholderText } = render(
+    const { getByText, queryByTestId } = render(
       <AdminSecretGate>
         <div data-testid="protected">Protected</div>
       </AdminSecretGate>
     );
-    // Click unlock with empty input
     const unlockBtn = getByText("Sblocca Console");
     unlockBtn.click();
     expect(queryByTestId("protected")).toBeNull();
     expect(getByText("Inserisci il secret amministrativo")).toBeTruthy();
-  });
-
-  it("rejects short secret", () => {
-    const { getByText, queryByTestId, getByPlaceholderText } = render(
-      <AdminSecretGate>
-        <div data-testid="protected">Protected</div>
-      </AdminSecretGate>
-    );
-    const input = getByPlaceholderText("AI_CORE_SECRET") as HTMLInputElement;
-    // Simulate typing a short secret
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'short');
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    // Use native change event
-    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
-    nativeInputValueSetter.call(input, 'short');
-    input.dispatchEvent(new Event('change', { bubbles: true }));
   });
 });
