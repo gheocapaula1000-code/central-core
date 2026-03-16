@@ -106,11 +106,15 @@ Deno.serve(async (req) => {
       let comuneIstat = findField(props, ISTAT_ALIASES) ?? "";
       if (!comuneIstat) { errors++; continue; }
 
-      // If comuneIstat looks like a catastale code (e.g. G224), resolve to real ISTAT
+      // If comuneIstat looks like a catastale/Belfiore code, resolve to real ISTAT
       const resolvedIstat = catastaleToIstat.get(comuneIstat);
       if (resolvedIstat) {
         console.log(`[trigger] Resolved catastale ${comuneIstat} -> ISTAT ${resolvedIstat}`);
         comuneIstat = resolvedIstat;
+      } else if (fallbackIstat && !comuneIstat.match(/^\d+$/)) {
+        // Non-numeric code not in catastale map — use fallback
+        console.log(`[trigger] Using fallback ISTAT ${fallbackIstat} for code ${comuneIstat}`);
+        comuneIstat = fallbackIstat;
       }
 
       const comuneDescr = (findField(props, COMUNE_ALIASES) ?? "").toUpperCase();
