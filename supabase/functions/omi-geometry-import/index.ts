@@ -642,11 +642,22 @@ Deno.serve(async (req) => {
 
       const results: Record<string, unknown>[] = [];
       for (let i = 0; i < matching.length; i++) {
-        const result = await processFile(
-          supabase, matching[i].name, semestre,
-          clearFirst && i === 0, // only clear on first file
-          comuneIstatFallback, lookup,
-        );
+        const fileName = matching[i].name;
+        const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+        let result: Record<string, unknown>;
+        if (ext === "zip") {
+          result = await processZipArchive(
+            supabase, fileName, semestre,
+            clearFirst && i === 0,
+            comuneIstatFallback, lookup,
+          );
+        } else {
+          result = await processFile(
+            supabase, fileName, semestre,
+            clearFirst && i === 0,
+            comuneIstatFallback, lookup,
+          );
+        }
         results.push(result);
       }
 
