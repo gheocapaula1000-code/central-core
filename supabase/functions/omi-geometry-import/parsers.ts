@@ -14,7 +14,7 @@ export type GeoJSONFeature = {
   geometry: { type: string; coordinates: unknown };
 };
 
-export type FileType = "geojson" | "kml" | "gml" | "kmz" | "unknown";
+export type FileType = "geojson" | "kml" | "gml" | "kmz" | "zip" | "unknown";
 
 /** Detect file type from extension and content sniffing */
 export function detectFileType(path: string, content: Uint8Array): FileType {
@@ -23,14 +23,15 @@ export function detectFileType(path: string, content: Uint8Array): FileType {
   if (ext === "kml") return "kml";
   if (ext === "gml") return "gml";
   if (ext === "kmz") return "kmz";
+  if (ext === "zip") return "zip";
 
   // Content sniffing
   const head = new TextDecoder().decode(content.slice(0, 500));
   if (head.trimStart().startsWith("{")) return "geojson";
   if (head.includes("<kml")) return "kml";
   if (head.includes("<gml:") || head.includes("ogr:FeatureCollection")) return "gml";
-  // ZIP magic bytes PK\x03\x04
-  if (content[0] === 0x50 && content[1] === 0x4B) return "kmz";
+  // ZIP magic bytes PK\x03\x04 — distinguish KMZ vs generic ZIP by extension only
+  if (content[0] === 0x50 && content[1] === 0x4B) return "zip";
 
   return "unknown";
 }
@@ -123,8 +124,8 @@ export async function extractKmlFromKmzAsync(data: Uint8Array): Promise<string> 
       if (method === 0) {
         return new TextDecoder().decode(rawData);
       } else if (method === 8) {
-        // Add raw deflate wrapper for DecompressionStream (needs zlib header)
-        const ds = new DecompressionStream("raw");
+        // Raw deflate (no zlib/gzip header) — Deno uses "deflate-raw"
+        const ds = new DecompressionStream("deflate-raw" as CompressionFormat);
         const writer = ds.writable.getWriter();
         writer.write(rawData);
         writer.close();
@@ -178,8 +179,8 @@ function parsePlacemark(block: string): GeoJSONFeature | null {
     properties[sdMatch[1]] = sdMatch[2].trim();
   }
 
-  // Extract Data elements
-  const dataRegex = /<Data name="([^"]*)">\s*<value>([\s\S]*?)<\/value>\s*<\/Data>/gi;
+  // Extract Data elements (may contain <displayName> between <Data> and <value>)
+  const dataRegex = /<Data name="([^"]*)">[^]*?<value>([\s\S]*?)<\/value>\s*<\/Data>/gi;
   let dMatch;
   while ((dMatch = dataRegex.exec(block)) !== null) {
     properties[dMatch[1]] = dMatch[2].trim();
@@ -355,4 +356,82 @@ function extractGmlRingCoords(block: string): number[][] | null {
   }
 
   return null;
+}
+
+// ── Generic ZIP extraction ──
+
+export interface ZipFileEntry {
+  name: string;
+  data: Uint8Array;
+}
+
+const IGNORED_PREFIXES = ["__MACOSX", ".DS_Store", "Thumbs.db"];
+const VALID_EXTENSIONS = new Set(["geojson", "json", "kml", "gml", "kmz"]);
+
+/** Extract all geo-relevant files from a generic ZIP archive */
+export async function extractFilesFromZip(zipData: Uint8Array): Promise<ZipFileEntry[]> {
+  const view = new DataView(zipData.buffer, zipData.byteOffset, zipData.byteLength);
+  const entries: ZipFileEntry[] = [];
+  let offset = 0;
+
+  while (offset < zipData.length - 4) {
+    const sig = view.getUint32(offset, true);
+    if (sig !== 0x04034b50) break; // local file header
+
+    const method = view.getUint16(offset + 8, true);
+    const compSize = view.getUint32(offset + 18, true);
+    const nameLen = view.getUint16(offset + 26, true);
+    const extraLen = view.getUint16(offset + 28, true);
+    const name = new TextDecoder().decode(zipData.slice(offset + 30, offset + 30 + nameLen));
+    const dataStart = offset + 30 + nameLen + extraLen;
+    const rawData = zipData.slice(dataStart, dataStart + compSize);
+
+    offset = dataStart + compSize;
+
+    // Skip directories and junk files
+    if (name.endsWith("/")) continue;
+    if (IGNORED_PREFIXES.some(p => name.startsWith(p) || name.includes("/" + p))) continue;
+
+    // Check extension
+    const ext = name.split(".").pop()?.toLowerCase() ?? "";
+    const isReadme = name.toLowerCase().includes("readme") || name.toLowerCase().includes("license");
+    if (!VALID_EXTENSIONS.has(ext) && ext !== "kmz") {
+      if (!isReadme) console.log(`[zip] Skipping non-geo file: ${name}`);
+      continue;
+    }
+
+    let fileData: Uint8Array;
+    if (method === 0) {
+      fileData = rawData;
+    } else if (method === 8) {
+      // Deflate
+      try {
+        const ds = new DecompressionStream("deflate-raw" as CompressionFormat);
+        const writer = ds.writable.getWriter();
+        writer.write(rawData);
+        writer.close();
+        const reader = ds.readable.getReader();
+        const chunks: Uint8Array[] = [];
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+        }
+        const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+        fileData = new Uint8Array(totalLen);
+        let pos = 0;
+        for (const chunk of chunks) { fileData.set(chunk, pos); pos += chunk.length; }
+      } catch (e) {
+        console.error(`[zip] Failed to decompress ${name}: ${e}`);
+        continue;
+      }
+    } else {
+      console.log(`[zip] Skipping ${name}: unsupported compression method ${method}`);
+      continue;
+    }
+
+    entries.push({ name, data: fileData });
+  }
+
+  return entries;
 }

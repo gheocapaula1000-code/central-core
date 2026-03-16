@@ -1,5 +1,5 @@
 // OMI Geometry Import — Universal Edge Function
-// Supports: GeoJSON, KML, KMZ, GML — auto-detected from file extension/content
+// Supports: GeoJSON, KML, KMZ, GML, ZIP (generic archive with geo files inside)
 // Supports batch mode: import all matching files from csv-imports bucket
 // Logs every import to omi_import_log table
 // Runs smoke test (point-in-polygon) after each import
@@ -20,7 +20,8 @@ import {
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   detectFileType, extractKmlFromKmzAsync, kmlToGeoJSON, gmlToGeoJSON,
-  type GeoJSONFeatureCollection, type FileType,
+  extractFilesFromZip,
+  type GeoJSONFeatureCollection, type FileType, type ZipFileEntry,
 } from "./parsers.ts";
 import {
   findField, ZONA_ALIASES, DESCR_ALIASES, ISTAT_ALIASES, COMUNE_ALIASES,
@@ -44,17 +45,21 @@ async function loadLinkLookup(supabase: ReturnType<typeof createClient>) {
   while (true) {
     const { data } = await supabase
       .from("omi_zone")
-      .select("comune_istat, comune_catastale, zona, link_zona")
+      .select("comune_istat, comune_catastale, comune_descrizione, zona, link_zona")
       .range(offset, offset + PAGE - 1);
     if (!data || data.length === 0) break;
     for (const z of data) {
       lookup.set(`${z.comune_istat}|${z.zona}`, z.link_zona);
       // trimmed ISTAT (no leading zeros)
       lookup.set(`${String(z.comune_istat).replace(/^0+/, "")}|${z.zona}`, z.link_zona);
-      // Belfiore/catastale code
+      // Catastale code
       if (z.comune_catastale) {
         lookup.set(`${z.comune_catastale}|${z.zona}`, z.link_zona);
         lookup.set(`${String(z.comune_catastale).toUpperCase()}|${z.zona}`, z.link_zona);
+      }
+      // Comune name (uppercase) — enables name-based resolution for Geopoi KMZ
+      if (z.comune_descrizione) {
+        lookup.set(`${z.comune_descrizione.toUpperCase()}|${z.zona}`, z.link_zona);
       }
     }
     offset += data.length;
@@ -67,10 +72,25 @@ async function loadLinkLookup(supabase: ReturnType<typeof createClient>) {
 // ── Convert any supported file to GeoJSON FeatureCollection ──
 async function toGeoJSON(
   content: Uint8Array, fileType: FileType, path: string,
-): Promise<GeoJSONFeatureCollection> {
+): Promise<GeoJSONFeatureCollection | "MULTI_KMZ_ARCHIVE"> {
   if (fileType === "kmz") {
-    const kmlStr = await extractKmlFromKmzAsync(content);
-    return kmlToGeoJSON(kmlStr);
+    try {
+      const kmlStr = await extractKmlFromKmzAsync(content);
+      const result = kmlToGeoJSON(kmlStr);
+      console.log(`[omi-geom] KMZ→KML: ${result.features.length} features`);
+      if (result.features.length > 0) return result;
+      // If 0 features, it might be a nested-KMZ archive (provincial)
+      console.log(`[omi-geom] KMZ has 0 Placemarks — checking for nested KMZ files`);
+    } catch {
+      console.log(`[omi-geom] KMZ has no .kml — checking for nested KMZ files`);
+    }
+    // Check if the KMZ contains nested KMZ files
+    const entries = await extractFilesFromZip(content);
+    if (entries.length > 0) {
+      console.log(`[omi-geom] KMZ contains ${entries.length} nested geo files — treating as multi-archive`);
+      return "MULTI_KMZ_ARCHIVE";
+    }
+    return { type: "FeatureCollection", features: [] };
   }
 
   const text = new TextDecoder().decode(content);
@@ -122,9 +142,16 @@ function parseFeatures(
     const zonaDescr = findField(props, DESCR_ALIASES);
     const comuneIstat = findField(props, ISTAT_ALIASES) ?? comuneIstatFallback;
     const catastale = findField(props, CATASTALE_ALIASES);
-    if (!comuneIstat && !catastale) { errors.push(`[${i}] missing comune_istat and catastale`); continue; }
+    
+    // Extract comune name from KML <name> field like "RUBANO - Zona OMI R1"
+    const nameField = props.name ? String(props.name) : "";
+    const comuneFromName = nameField.includes(" - Zona OMI ")
+      ? nameField.split(" - Zona OMI ")[0].trim().toUpperCase()
+      : "";
+    
+    if (!comuneIstat && !catastale && !comuneFromName) { errors.push(`[${i}] missing comune_istat and catastale`); continue; }
 
-    const comuneDescr = findField(props, COMUNE_ALIASES) ?? "";
+    const comuneDescr = findField(props, COMUNE_ALIASES) ?? comuneFromName ?? "";
     const provincia = findField(props, PROV_ALIASES) ?? "";
 
     // Resolve link_zona — try multiple code variants
@@ -133,6 +160,7 @@ function parseFeatures(
       comuneIstat, catastale, catastale?.toUpperCase(),
       comuneIstatFallback, // fallback from request body
       comuneIstat?.replace(/^0+/, ""), // trimmed leading zeros
+      comuneFromName, // name-based resolution for Geopoi KMZ
     ].filter(Boolean) as string[];
     
     for (const code of codesToTry) {
@@ -328,10 +356,16 @@ async function processFile(
     return { storagePath, error: errMsg };
   }
 
-  // 3. Convert to GeoJSON
+  // 3. Convert to GeoJSON (or detect multi-KMZ archive)
   let geojson: GeoJSONFeatureCollection;
   try {
-    geojson = await toGeoJSON(bytes, fileType, storagePath);
+    const result = await toGeoJSON(bytes, fileType, storagePath);
+    if (result === "MULTI_KMZ_ARCHIVE") {
+      // Provincial KMZ with nested KMZ files — redirect to ZIP archive processing
+      console.log(`[omi-geom] Redirecting ${storagePath} to multi-archive processor`);
+      return await processZipArchiveFromBytes(supabase, bytes, storagePath, semestre, clearFirst, comuneIstatFallback, lookup);
+    }
+    geojson = result;
   } catch (e) {
     const errMsg = `Conversion failed: ${e instanceof Error ? e.message : String(e)}`;
     await writeLog(supabase, {
@@ -414,6 +448,185 @@ async function processFile(
   };
 }
 
+// ── Process ZIP/KMZ archive from already-downloaded bytes ──
+async function processZipArchiveFromBytes(
+  supabase: ReturnType<typeof createClient>,
+  bytes: Uint8Array,
+  storagePath: string,
+  semestre: string,
+  clearFirst: boolean,
+  comuneIstatFallback: string,
+  lookup: Map<string, string>,
+): Promise<Record<string, unknown>> {
+  const startMs = Date.now();
+
+  // Extract files
+  let entries: ZipFileEntry[];
+  try {
+    entries = await extractFilesFromZip(bytes);
+  } catch (e) {
+    const errMsg = `ZIP extraction failed: ${e instanceof Error ? e.message : String(e)}`;
+    await writeLog(supabase, {
+      storage_path: storagePath, file_type: "zip", semestre,
+      features_read: 0, features_imported: 0, features_skipped: 0,
+      errors: [errMsg], comuni: [], status: "failed",
+      smoke_test_passed: null, smoke_test_details: null,
+      duration_ms: Date.now() - startMs,
+    });
+    return { storagePath, error: errMsg };
+  }
+
+  console.log(`[omi-geom] Archive contains ${entries.length} valid geo files`);
+
+  if (entries.length === 0) {
+    const errMsg = "Archive contains no valid geo files (.geojson/.kml/.gml/.kmz)";
+    await writeLog(supabase, {
+      storage_path: storagePath, file_type: "zip", semestre,
+      features_read: 0, features_imported: 0, features_skipped: 0,
+      errors: [errMsg], comuni: [], status: "failed",
+      smoke_test_passed: null, smoke_test_details: null,
+      duration_ms: Date.now() - startMs,
+    });
+    return { storagePath, error: errMsg };
+  }
+
+  // Clear once if requested
+  if (clearFirst) {
+    console.log(`[omi-geom] Clearing omi_zone_geometry before archive import`);
+    await supabase.rpc("clear_omi_geometry");
+  }
+
+  // Process each file inside the archive
+  const fileResults: Record<string, unknown>[] = [];
+  let totalInserted = 0;
+  let totalRead = 0;
+  let totalSkipped = 0;
+  const allComuni: string[] = [];
+  const allErrors: string[] = [];
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const entryType = detectFileType(entry.name, entry.data);
+    console.log(`[omi-geom] Archive[${i + 1}/${entries.length}] ${entry.name} → ${entryType}`);
+
+    if (entryType === "unknown" || entryType === "zip") {
+      fileResults.push({ name: entry.name, status: "skipped", reason: `unsupported type: ${entryType}` });
+      continue;
+    }
+
+    let geojson: GeoJSONFeatureCollection;
+    try {
+      const result = await toGeoJSON(entry.data, entryType, entry.name);
+      if (result === "MULTI_KMZ_ARCHIVE") {
+        // Nested multi-KMZ — recursively process
+        console.log(`[omi-geom] Nested multi-archive: ${entry.name}`);
+        const nestedResult = await processZipArchiveFromBytes(
+          supabase, entry.data, `${storagePath}/${entry.name}`, semestre, false, comuneIstatFallback, lookup,
+        );
+        fileResults.push({ name: entry.name, type: "nested-archive", ...nestedResult });
+        totalInserted += (nestedResult.totalInserted as number) ?? 0;
+        totalRead += (nestedResult.totalFeaturesRead as number) ?? 0;
+        continue;
+      }
+      geojson = result;
+    } catch (e) {
+      const errMsg = `Conversion failed: ${e instanceof Error ? e.message : String(e)}`;
+      allErrors.push(`${entry.name}: ${errMsg}`);
+      fileResults.push({ name: entry.name, type: entryType, status: "failed", error: errMsg });
+      continue;
+    }
+
+    const featuresRead = geojson.features?.length ?? 0;
+    totalRead += featuresRead;
+
+    const { parsed, errors: parseErrors } = parseFeatures(geojson, lookup, comuneIstatFallback);
+    totalSkipped += parseErrors.length;
+
+    if (parsed.length === 0) {
+      allErrors.push(`${entry.name}: 0 valid features (${parseErrors.length} errors)`);
+      fileResults.push({
+        name: entry.name, type: entryType, status: "failed",
+        featuresRead, errors: parseErrors.slice(0, 5),
+      });
+      continue;
+    }
+
+    const { inserted, insertErrors, failedZones } = await importFeatures(supabase, parsed, semestre);
+    totalInserted += inserted;
+    totalSkipped += insertErrors;
+
+    const comuni = [...new Set(parsed.map(f => f.comune_descrizione).filter(Boolean))];
+    allComuni.push(...comuni);
+
+    if (failedZones.length > 0) allErrors.push(...failedZones.slice(0, 5).map(z => `${entry.name}: ${z}`));
+
+    fileResults.push({
+      name: entry.name,
+      type: entryType,
+      status: insertErrors === 0 ? "success" : inserted > 0 ? "partial" : "failed",
+      featuresRead,
+      validFeatures: parsed.length,
+      inserted,
+      insertErrors,
+      comuni,
+    });
+  }
+
+  // Final count & smoke test
+  const { count } = await supabase.from("omi_zone_geometry").select("*", { count: "exact", head: true });
+  const smoke = await smokeTest(supabase);
+  const overallStatus = totalInserted === 0 ? "failed" : allErrors.length > 0 ? "partial" : "success";
+
+  await writeLog(supabase, {
+    storage_path: storagePath, file_type: "zip/kmz-archive", semestre,
+    features_read: totalRead, features_imported: totalInserted, features_skipped: totalSkipped,
+    errors: allErrors.slice(0, 50),
+    comuni: [...new Set(allComuni)],
+    status: overallStatus,
+    smoke_test_passed: smoke.passed, smoke_test_details: smoke.details,
+    duration_ms: Date.now() - startMs,
+  });
+
+  return {
+    storagePath,
+    fileType: "zip/kmz-archive",
+    semestre,
+    totalFilesInZip: entries.length,
+    fileResults,
+    totalFeaturesRead: totalRead,
+    totalInserted,
+    totalSkipped,
+    totalRowsInTable: count,
+    comuni: [...new Set(allComuni)],
+    status: overallStatus,
+    smokeTest: smoke,
+    durationMs: Date.now() - startMs,
+  };
+}
+
+// ── Process a ZIP archive (download + extract) ──
+async function processZipArchive(
+  supabase: ReturnType<typeof createClient>,
+  storagePath: string,
+  semestre: string,
+  clearFirst: boolean,
+  comuneIstatFallback: string,
+  lookup: Map<string, string>,
+): Promise<Record<string, unknown>> {
+  console.log(`[omi-geom] Downloading ZIP: ${storagePath}`);
+  const { data: fileData, error: dlError } = await supabase.storage
+    .from("csv-imports")
+    .download(storagePath);
+
+  if (dlError || !fileData) {
+    return { storagePath, error: `Download failed: ${dlError?.message ?? "unknown"}` };
+  }
+
+  const bytes = new Uint8Array(await fileData.arrayBuffer());
+  console.log(`[omi-geom] ZIP size: ${bytes.length} bytes`);
+  return processZipArchiveFromBytes(supabase, bytes, storagePath, semestre, clearFirst, comuneIstatFallback, lookup);
+}
+
 // ── Main handler ──
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return handleOptions(req);
@@ -460,7 +673,7 @@ Deno.serve(async (req) => {
         return fail(req, 500, "STORAGE_LIST_ERROR", `Cannot list bucket: ${listErr?.message}`, debugId);
       }
 
-      const validExts = new Set(["geojson", "json", "kml", "gml", "kmz"]);
+      const validExts = new Set(["geojson", "json", "kml", "gml", "kmz", "zip"]);
       const matching = files.filter(f => {
         const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
         return validExts.has(ext) && f.name.toLowerCase().includes(pattern.toLowerCase());
@@ -474,11 +687,22 @@ Deno.serve(async (req) => {
 
       const results: Record<string, unknown>[] = [];
       for (let i = 0; i < matching.length; i++) {
-        const result = await processFile(
-          supabase, matching[i].name, semestre,
-          clearFirst && i === 0, // only clear on first file
-          comuneIstatFallback, lookup,
-        );
+        const fileName = matching[i].name;
+        const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+        let result: Record<string, unknown>;
+        if (ext === "zip") {
+          result = await processZipArchive(
+            supabase, fileName, semestre,
+            clearFirst && i === 0,
+            comuneIstatFallback, lookup,
+          );
+        } else {
+          result = await processFile(
+            supabase, fileName, semestre,
+            clearFirst && i === 0,
+            comuneIstatFallback, lookup,
+          );
+        }
         results.push(result);
       }
 
@@ -498,6 +722,18 @@ Deno.serve(async (req) => {
     // ── Single file mode ──
     if (!storagePath) {
       return fail(req, 400, "MISSING_FIELDS", "Provide storage_path or batch=true", debugId);
+    }
+
+    // Detect if it's a ZIP → use ZIP handler
+    const ext = storagePath.split(".").pop()?.toLowerCase() ?? "";
+    if (ext === "zip") {
+      const result = await processZipArchive(
+        supabase, storagePath, semestre, clearFirst, comuneIstatFallback, lookup,
+      );
+      if (result.error) {
+        return fail(req, 400, "IMPORT_ERROR", result.error as string, debugId);
+      }
+      return ok(req, result, [], debugId);
     }
 
     const result = await processFile(
