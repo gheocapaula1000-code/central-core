@@ -28,6 +28,7 @@ import {
   PROV_ALIASES, LINK_ALIASES, CATASTALE_ALIASES, type ParsedFeature,
 } from "./fields.ts";
 import { streamZipEntries, type StreamZipEntry } from "./stream-zip.ts";
+import { comuneNameVariants, istatCodeVariants, normalizeIncomingName } from "./normalizer.ts";
 
 const PAGE = 1000;
 
@@ -50,17 +51,26 @@ async function loadLinkLookup(supabase: ReturnType<typeof createClient>) {
       .range(offset, offset + PAGE - 1);
     if (!data || data.length === 0) break;
     for (const z of data) {
-      lookup.set(`${z.comune_istat}|${z.zona}`, z.link_zona);
-      // trimmed ISTAT (no leading zeros)
-      lookup.set(`${String(z.comune_istat).replace(/^0+/, "")}|${z.zona}`, z.link_zona);
-      // Catastale code
-      if (z.comune_catastale) {
-        lookup.set(`${z.comune_catastale}|${z.zona}`, z.link_zona);
-        lookup.set(`${String(z.comune_catastale).toUpperCase()}|${z.zona}`, z.link_zona);
+      const zona = z.zona;
+      const linkZona = z.link_zona;
+
+      // ISTAT code variants (7-digit → 6-digit → 5-digit → trimmed)
+      for (const istat of istatCodeVariants(String(z.comune_istat))) {
+        lookup.set(`${istat}|${zona}`, linkZona);
       }
-      // Comune name (uppercase) — enables name-based resolution for Geopoi KMZ
+
+      // Catastale code variants
+      if (z.comune_catastale) {
+        lookup.set(`${z.comune_catastale}|${zona}`, linkZona);
+        lookup.set(`${String(z.comune_catastale).toUpperCase()}|${zona}`, linkZona);
+        lookup.set(`${String(z.comune_catastale).toLowerCase()}|${zona}`, linkZona);
+      }
+
+      // Comune name variants (bilingual, apostrophe normalization)
       if (z.comune_descrizione) {
-        lookup.set(`${z.comune_descrizione.toUpperCase()}|${z.zona}`, z.link_zona);
+        for (const nameVar of comuneNameVariants(z.comune_descrizione)) {
+          lookup.set(`${nameVar}|${zona}`, linkZona);
+        }
       }
     }
     offset += data.length;
@@ -157,12 +167,27 @@ function parseFeatures(
 
     // Resolve link_zona — try multiple code variants
     let linkZona = findField(props, LINK_ALIASES);
-    const codesToTry = [
-      comuneIstat, catastale, catastale?.toUpperCase(),
-      comuneIstatFallback, // fallback from request body
-      comuneIstat?.replace(/^0+/, ""), // trimmed leading zeros
-      comuneFromName, // name-based resolution for Geopoi KMZ
-    ].filter(Boolean) as string[];
+    
+    // Build all code variants to try (ISTAT, catastale, name-based)
+    const codesToTry: string[] = [];
+    if (comuneIstat) {
+      for (const v of istatCodeVariants(comuneIstat)) codesToTry.push(v);
+    }
+    if (catastale) {
+      codesToTry.push(catastale, catastale.toUpperCase(), catastale.toLowerCase());
+    }
+    if (comuneIstatFallback) {
+      for (const v of istatCodeVariants(comuneIstatFallback)) codesToTry.push(v);
+    }
+    // Name-based resolution — try all normalized variants
+    if (comuneFromName) {
+      for (const nameVar of normalizeIncomingName(comuneFromName)) codesToTry.push(nameVar);
+    }
+    // Also try the comune description field with normalization
+    const comuneDescrField = findField(props, COMUNE_ALIASES);
+    if (comuneDescrField) {
+      for (const nameVar of normalizeIncomingName(comuneDescrField)) codesToTry.push(nameVar);
+    }
     
     for (const code of codesToTry) {
       if (linkZona) break;
@@ -726,7 +751,7 @@ async function processLargeZipStream(
   jobId?: number,
 ): Promise<Record<string, unknown>> {
   const startMs = Date.now();
-  const TIME_BUDGET_MS = 40_000; // 40s — leave headroom for finalization + self-reinvoke before CPU kill
+  const TIME_BUDGET_MS = 25_000; // 25s — reduced for larger lookup table (141K entries)
 
   // 1. Get signed URL for streaming download
   const { data: urlData, error: urlError } = await supabase.storage
