@@ -71,7 +71,10 @@ async function toGeoJSON(
 ): Promise<GeoJSONFeatureCollection> {
   if (fileType === "kmz") {
     const kmlStr = await extractKmlFromKmzAsync(content);
-    return kmlToGeoJSON(kmlStr);
+    console.log(`[omi-geom] KMZ→KML length: ${kmlStr.length}, first 500 chars: ${kmlStr.slice(0, 500)}`);
+    const result = kmlToGeoJSON(kmlStr);
+    console.log(`[omi-geom] KML→GeoJSON features: ${result.features.length}`);
+    return result;
   }
 
   const text = new TextDecoder().decode(content);
