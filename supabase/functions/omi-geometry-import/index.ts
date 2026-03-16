@@ -20,7 +20,8 @@ import {
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   detectFileType, extractKmlFromKmzAsync, kmlToGeoJSON, gmlToGeoJSON,
-  type GeoJSONFeatureCollection, type FileType,
+  extractFilesFromZip,
+  type GeoJSONFeatureCollection, type FileType, type ZipFileEntry,
 } from "./parsers.ts";
 import {
   findField, ZONA_ALIASES, DESCR_ALIASES, ISTAT_ALIASES, COMUNE_ALIASES,
