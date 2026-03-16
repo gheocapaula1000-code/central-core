@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.istat-ispra-import]
 verify_jwt = false
+
+[functions.omi-geometry-import]
+verify_jwt = false
