@@ -44,24 +44,30 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 2. Load link_zona lookup
-    const { data: zoneData } = await supabase.from("omi_zone").select("comune_istat, comune_catastale, zona, link_zona").limit(50000);
+    // 2. Load link_zona lookup (paginated to overcome 1000-row default limit)
     const linkLookup = new Map<string, string>();
-    // Also build catastale-to-istat mapping
     const catastaleToIstat = new Map<string, string>();
-    if (zoneData) {
+    let offset = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data: zoneData } = await supabase
+        .from("omi_zone")
+        .select("comune_istat, comune_catastale, zona, link_zona")
+        .range(offset, offset + PAGE - 1);
+      if (!zoneData || zoneData.length === 0) break;
       for (const z of zoneData) {
         linkLookup.set(`${z.comune_istat}|${z.zona}`, z.link_zona);
         const trimmed = String(z.comune_istat).replace(/^0+/, "");
         linkLookup.set(`${trimmed}|${z.zona}`, z.link_zona);
-        // Map catastale code to istat
         if (z.comune_catastale) {
           linkLookup.set(`${z.comune_catastale}|${z.zona}`, z.link_zona);
           catastaleToIstat.set(z.comune_catastale, z.comune_istat);
         }
       }
+      offset += zoneData.length;
+      if (zoneData.length < PAGE) break;
     }
-    console.log(`[trigger] Loaded ${linkLookup.size} link_zona entries`);
+    console.log(`[trigger] Loaded ${linkLookup.size} link_zona entries from ${offset} zone rows`);
 
     // 3. Clear existing
     await supabase.rpc("clear_omi_geometry");
