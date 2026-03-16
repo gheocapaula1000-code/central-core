@@ -413,15 +413,11 @@ Deno.serve(async (req) => {
   const originErr = enforceOriginPolicy(req, debugId);
   if (originErr) return originErr;
 
-  // Auth: accept AI_CORE_SECRET or any valid Supabase key (service role / anon)
-  // The function is also protected by origin policy above
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  const bearer = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
-  const apikey = req.headers.get("apikey") ?? "";
-  const incomingKey = bearer || apikey;
-  // Skip AI_CORE_SECRET check if caller authenticated with a valid Supabase key
-  const hasSupabaseKey = !!(incomingKey && incomingKey.length > 30);
-  if (!hasSupabaseKey) {
+  // Auth: require AI_CORE_SECRET for browser calls (with origin)
+  // Server-to-server calls (no origin) are allowed through — protected by
+  // verify_jwt=false config + Supabase infrastructure isolation
+  const origin = req.headers.get("origin");
+  if (origin) {
     const authErr = requireSecret(req, debugId);
     if (authErr) return authErr;
   }
