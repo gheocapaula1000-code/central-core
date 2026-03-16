@@ -406,7 +406,7 @@ export async function extractFilesFromZip(zipData: Uint8Array): Promise<ZipFileE
     } else if (method === 8) {
       // Deflate
       try {
-        const ds = new DecompressionStream("raw");
+        const ds = new DecompressionStream("deflate-raw" as CompressionFormat);
         const writer = ds.writable.getWriter();
         writer.write(rawData);
         writer.close();
