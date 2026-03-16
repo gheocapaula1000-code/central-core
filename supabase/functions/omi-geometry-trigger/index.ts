@@ -42,13 +42,20 @@ Deno.serve(async (req) => {
     }
 
     // 2. Load link_zona lookup
-    const { data: zoneData } = await supabase.from("omi_zone").select("comune_istat, zona, link_zona").limit(50000);
+    const { data: zoneData } = await supabase.from("omi_zone").select("comune_istat, comune_catastale, zona, link_zona").limit(50000);
     const linkLookup = new Map<string, string>();
+    // Also build catastale-to-istat mapping
+    const catastaleToIstat = new Map<string, string>();
     if (zoneData) {
       for (const z of zoneData) {
         linkLookup.set(`${z.comune_istat}|${z.zona}`, z.link_zona);
         const trimmed = String(z.comune_istat).replace(/^0+/, "");
         linkLookup.set(`${trimmed}|${z.zona}`, z.link_zona);
+        // Map catastale code to istat
+        if (z.comune_catastale) {
+          linkLookup.set(`${z.comune_catastale}|${z.zona}`, z.link_zona);
+          catastaleToIstat.set(z.comune_catastale, z.comune_istat);
+        }
       }
     }
     console.log(`[trigger] Loaded ${linkLookup.size} link_zona entries`);
