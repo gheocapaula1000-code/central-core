@@ -159,10 +159,6 @@ function parseFeatures(
       provincia: provincia.toUpperCase(),
       geojson: JSON.stringify(normalizedGeom),
     });
-      comune_descrizione: comuneDescr.toUpperCase(),
-      provincia: provincia.toUpperCase(),
-      geojson: JSON.stringify(normalizedGeom),
-    });
   }
 
   return { parsed, errors };
