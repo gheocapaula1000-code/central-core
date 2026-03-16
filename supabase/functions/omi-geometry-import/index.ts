@@ -134,9 +134,16 @@ function parseFeatures(
     const zonaDescr = findField(props, DESCR_ALIASES);
     const comuneIstat = findField(props, ISTAT_ALIASES) ?? comuneIstatFallback;
     const catastale = findField(props, CATASTALE_ALIASES);
-    if (!comuneIstat && !catastale) { errors.push(`[${i}] missing comune_istat and catastale`); continue; }
+    
+    // Extract comune name from KML <name> field like "RUBANO - Zona OMI R1"
+    const nameField = props.name ? String(props.name) : "";
+    const comuneFromName = nameField.includes(" - Zona OMI ")
+      ? nameField.split(" - Zona OMI ")[0].trim().toUpperCase()
+      : "";
+    
+    if (!comuneIstat && !catastale && !comuneFromName) { errors.push(`[${i}] missing comune_istat and catastale`); continue; }
 
-    const comuneDescr = findField(props, COMUNE_ALIASES) ?? "";
+    const comuneDescr = findField(props, COMUNE_ALIASES) ?? comuneFromName ?? "";
     const provincia = findField(props, PROV_ALIASES) ?? "";
 
     // Resolve link_zona — try multiple code variants
@@ -145,6 +152,7 @@ function parseFeatures(
       comuneIstat, catastale, catastale?.toUpperCase(),
       comuneIstatFallback, // fallback from request body
       comuneIstat?.replace(/^0+/, ""), // trimmed leading zeros
+      comuneFromName, // name-based resolution for Geopoi KMZ
     ].filter(Boolean) as string[];
     
     for (const code of codesToTry) {
