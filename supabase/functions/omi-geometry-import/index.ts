@@ -45,17 +45,21 @@ async function loadLinkLookup(supabase: ReturnType<typeof createClient>) {
   while (true) {
     const { data } = await supabase
       .from("omi_zone")
-      .select("comune_istat, comune_catastale, zona, link_zona")
+      .select("comune_istat, comune_catastale, comune_descrizione, zona, link_zona")
       .range(offset, offset + PAGE - 1);
     if (!data || data.length === 0) break;
     for (const z of data) {
       lookup.set(`${z.comune_istat}|${z.zona}`, z.link_zona);
       // trimmed ISTAT (no leading zeros)
       lookup.set(`${String(z.comune_istat).replace(/^0+/, "")}|${z.zona}`, z.link_zona);
-      // Belfiore/catastale code
+      // Catastale code
       if (z.comune_catastale) {
         lookup.set(`${z.comune_catastale}|${z.zona}`, z.link_zona);
         lookup.set(`${String(z.comune_catastale).toUpperCase()}|${z.zona}`, z.link_zona);
+      }
+      // Comune name (uppercase) — enables name-based resolution for Geopoi KMZ
+      if (z.comune_descrizione) {
+        lookup.set(`${z.comune_descrizione.toUpperCase()}|${z.zona}`, z.link_zona);
       }
     }
     offset += data.length;
