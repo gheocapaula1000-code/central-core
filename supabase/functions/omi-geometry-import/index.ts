@@ -122,20 +122,26 @@ Deno.serve(async (req) => {
       return fail(req, 400, "INVALID_GEOJSON", `Expected FeatureCollection, got ${geojson.type}`, debugId);
     }
 
-    // 2. Load link_zona lookup from omi_zone
+    // 2. Load link_zona lookup from omi_zone (paginated)
     console.log(`[omi-geometry-import] Loading link_zona lookup from omi_zone`);
-    const { data: zoneData } = await supabase.from("omi_zone").select("comune_istat, zona, link_zona").limit(50000);
-
     const linkLookup = new Map<string, string>();
-    if (zoneData) {
+    let zoneOffset = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data: zoneData } = await supabase
+        .from("omi_zone")
+        .select("comune_istat, zona, link_zona")
+        .range(zoneOffset, zoneOffset + PAGE - 1);
+      if (!zoneData || zoneData.length === 0) break;
       for (const z of zoneData) {
         linkLookup.set(`${z.comune_istat}|${z.zona}`, z.link_zona);
-        // Also with trimmed leading zeros
         const trimmed = String(z.comune_istat).replace(/^0+/, "");
         linkLookup.set(`${trimmed}|${z.zona}`, z.link_zona);
       }
+      zoneOffset += zoneData.length;
+      if (zoneData.length < PAGE) break;
     }
-    console.log(`[omi-geometry-import] Loaded ${linkLookup.size} link_zona entries`);
+    console.log(`[omi-geometry-import] Loaded ${linkLookup.size} link_zona entries from ${zoneOffset} rows`);
 
     // 3. Parse features
     const rawFeatures = geojson.features as Array<Record<string, unknown>>;
