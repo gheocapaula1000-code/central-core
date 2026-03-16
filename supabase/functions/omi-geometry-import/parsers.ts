@@ -179,8 +179,8 @@ function parsePlacemark(block: string): GeoJSONFeature | null {
     properties[sdMatch[1]] = sdMatch[2].trim();
   }
 
-  // Extract Data elements
-  const dataRegex = /<Data name="([^"]*)">\s*<value>([\s\S]*?)<\/value>\s*<\/Data>/gi;
+  // Extract Data elements (may contain <displayName> between <Data> and <value>)
+  const dataRegex = /<Data name="([^"]*)">[^]*?<value>([\s\S]*?)<\/value>\s*<\/Data>/gi;
   let dMatch;
   while ((dMatch = dataRegex.exec(block)) !== null) {
     properties[dMatch[1]] = dMatch[2].trim();
