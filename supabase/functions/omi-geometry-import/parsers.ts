@@ -357,3 +357,81 @@ function extractGmlRingCoords(block: string): number[][] | null {
 
   return null;
 }
+
+// ── Generic ZIP extraction ──
+
+export interface ZipFileEntry {
+  name: string;
+  data: Uint8Array;
+}
+
+const IGNORED_PREFIXES = ["__MACOSX", ".DS_Store", "Thumbs.db"];
+const VALID_EXTENSIONS = new Set(["geojson", "json", "kml", "gml", "kmz"]);
+
+/** Extract all geo-relevant files from a generic ZIP archive */
+export async function extractFilesFromZip(zipData: Uint8Array): Promise<ZipFileEntry[]> {
+  const view = new DataView(zipData.buffer, zipData.byteOffset, zipData.byteLength);
+  const entries: ZipFileEntry[] = [];
+  let offset = 0;
+
+  while (offset < zipData.length - 4) {
+    const sig = view.getUint32(offset, true);
+    if (sig !== 0x04034b50) break; // local file header
+
+    const method = view.getUint16(offset + 8, true);
+    const compSize = view.getUint32(offset + 18, true);
+    const nameLen = view.getUint16(offset + 26, true);
+    const extraLen = view.getUint16(offset + 28, true);
+    const name = new TextDecoder().decode(zipData.slice(offset + 30, offset + 30 + nameLen));
+    const dataStart = offset + 30 + nameLen + extraLen;
+    const rawData = zipData.slice(dataStart, dataStart + compSize);
+
+    offset = dataStart + compSize;
+
+    // Skip directories and junk files
+    if (name.endsWith("/")) continue;
+    if (IGNORED_PREFIXES.some(p => name.startsWith(p) || name.includes("/" + p))) continue;
+
+    // Check extension
+    const ext = name.split(".").pop()?.toLowerCase() ?? "";
+    const isReadme = name.toLowerCase().includes("readme") || name.toLowerCase().includes("license");
+    if (!VALID_EXTENSIONS.has(ext) && ext !== "kmz") {
+      if (!isReadme) console.log(`[zip] Skipping non-geo file: ${name}`);
+      continue;
+    }
+
+    let fileData: Uint8Array;
+    if (method === 0) {
+      fileData = rawData;
+    } else if (method === 8) {
+      // Deflate
+      try {
+        const ds = new DecompressionStream("raw");
+        const writer = ds.writable.getWriter();
+        writer.write(rawData);
+        writer.close();
+        const reader = ds.readable.getReader();
+        const chunks: Uint8Array[] = [];
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+        }
+        const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+        fileData = new Uint8Array(totalLen);
+        let pos = 0;
+        for (const chunk of chunks) { fileData.set(chunk, pos); pos += chunk.length; }
+      } catch (e) {
+        console.error(`[zip] Failed to decompress ${name}: ${e}`);
+        continue;
+      }
+    } else {
+      console.log(`[zip] Skipping ${name}: unsupported compression method ${method}`);
+      continue;
+    }
+
+    entries.push({ name, data: fileData });
+  }
+
+  return entries;
+}
