@@ -28,6 +28,7 @@ import {
   PROV_ALIASES, LINK_ALIASES, CATASTALE_ALIASES, type ParsedFeature,
 } from "./fields.ts";
 import { streamZipEntries, type StreamZipEntry } from "./stream-zip.ts";
+import { comuneNameVariants, istatCodeVariants, normalizeIncomingName } from "./normalizer.ts";
 
 const PAGE = 1000;
 
