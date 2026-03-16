@@ -413,11 +413,15 @@ Deno.serve(async (req) => {
   const originErr = enforceOriginPolicy(req, debugId);
   if (originErr) return originErr;
 
-  // Auth: accept AI_CORE_SECRET or SUPABASE_SERVICE_ROLE_KEY
+  // Auth: accept AI_CORE_SECRET, SUPABASE_SERVICE_ROLE_KEY, or SUPABASE_ANON_KEY
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
   const bearer = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
-  const isServiceRole = serviceKey && bearer && constantTimeEqual(bearer, serviceKey);
-  if (!isServiceRole) {
+  const isInternalCaller = bearer && (
+    (serviceKey && constantTimeEqual(bearer, serviceKey)) ||
+    (anonKey && constantTimeEqual(bearer, anonKey))
+  );
+  if (!isInternalCaller) {
     const authErr = requireSecret(req, debugId);
     if (authErr) return authErr;
   }
