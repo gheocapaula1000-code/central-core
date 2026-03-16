@@ -72,17 +72,26 @@ async function loadLinkLookup(supabase: ReturnType<typeof createClient>) {
 // ── Convert any supported file to GeoJSON FeatureCollection ──
 async function toGeoJSON(
   content: Uint8Array, fileType: FileType, path: string,
-): Promise<GeoJSONFeatureCollection> {
+): Promise<GeoJSONFeatureCollection | "MULTI_KMZ_ARCHIVE"> {
   if (fileType === "kmz") {
-    const kmlStr = await extractKmlFromKmzAsync(content);
-    console.log(`[omi-geom] KMZ→KML length: ${kmlStr.length}`);
-    // Debug: log first Placemark raw to understand property format
-    const firstPm = kmlStr.match(/<Placemark[\s>]([\s\S]*?)<\/Placemark>/i);
-    if (firstPm) console.log(`[omi-geom] First Placemark sample: ${firstPm[1].slice(0, 1000)}`);
-    const result = kmlToGeoJSON(kmlStr);
-    console.log(`[omi-geom] KML→GeoJSON features: ${result.features.length}`);
-    if (result.features.length === 0) console.log(`[omi-geom] KML content (no features found): ${kmlStr.slice(0, 2000)}`);
-    return result;
+    try {
+      const kmlStr = await extractKmlFromKmzAsync(content);
+      console.log(`[omi-geom] KMZ→KML length: ${kmlStr.length}`);
+      const result = kmlToGeoJSON(kmlStr);
+      console.log(`[omi-geom] KML→GeoJSON features: ${result.features.length}`);
+      if (result.features.length > 0) return result;
+      // If 0 features, it might be a nested-KMZ archive (provincial)
+      console.log(`[omi-geom] KMZ has 0 Placemarks — checking for nested KMZ files`);
+    } catch {
+      console.log(`[omi-geom] KMZ has no .kml — checking for nested KMZ files`);
+    }
+    // Check if the KMZ contains nested KMZ files
+    const entries = await extractFilesFromZip(content);
+    if (entries.length > 0) {
+      console.log(`[omi-geom] KMZ contains ${entries.length} nested geo files — treating as multi-archive`);
+      return "MULTI_KMZ_ARCHIVE";
+    }
+    return { type: "FeatureCollection", features: [] };
   }
 
   const text = new TextDecoder().decode(content);
