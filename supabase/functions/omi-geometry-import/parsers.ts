@@ -23,14 +23,15 @@ export function detectFileType(path: string, content: Uint8Array): FileType {
   if (ext === "kml") return "kml";
   if (ext === "gml") return "gml";
   if (ext === "kmz") return "kmz";
+  if (ext === "zip") return "zip";
 
   // Content sniffing
   const head = new TextDecoder().decode(content.slice(0, 500));
   if (head.trimStart().startsWith("{")) return "geojson";
   if (head.includes("<kml")) return "kml";
   if (head.includes("<gml:") || head.includes("ogr:FeatureCollection")) return "gml";
-  // ZIP magic bytes PK\x03\x04
-  if (content[0] === 0x50 && content[1] === 0x4B) return "kmz";
+  // ZIP magic bytes PK\x03\x04 — distinguish KMZ vs generic ZIP by extension only
+  if (content[0] === 0x50 && content[1] === 0x4B) return "zip";
 
   return "unknown";
 }
