@@ -726,7 +726,7 @@ async function processLargeZipStream(
   jobId?: number,
 ): Promise<Record<string, unknown>> {
   const startMs = Date.now();
-  const TIME_BUDGET_MS = 120_000; // 2 min budget (conservative for CPU limits)
+  const TIME_BUDGET_MS = 40_000; // 40s — leave headroom for finalization + self-reinvoke before CPU kill
 
   // 1. Get signed URL for streaming download
   const { data: urlData, error: urlError } = await supabase.storage
@@ -961,6 +961,7 @@ Deno.serve(async (req) => {
     const storagePath = body.storage_path as string;
     const autoResume = body.auto_resume as boolean ?? false;
     const batchSize = (body.batch_size as number) ?? 300;
+    const runToCompletion = body.run_to_completion as boolean ?? false;
 
     const supabase = makeSupa();
 
@@ -993,12 +994,40 @@ Deno.serve(async (req) => {
         existingZones, job.id,
       );
 
+      // Self-reinvoke for run_to_completion mode
+      if (runToCompletion && result.hasMore) {
+        const selfUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/omi-geometry-import`;
+        const nextPayload = {
+          storage_path: storagePath,
+          semestre,
+          clear_first: false,
+          batch_size: batchSize,
+          auto_resume: true,
+          run_to_completion: true,
+        };
+        console.log(`[omi-geom] run_to_completion: self-reinvoking for next batch from offset ${result.nextOffset}`);
+        // Fire-and-forget: don't await the full response
+        fetch(selfUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify(nextPayload),
+        }).then(r => r.text().catch(() => "")).catch(e =>
+          console.error(`[omi-geom] Self-reinvoke failed: ${e}`)
+        );
+      }
+
       return ok(req, {
         mode: "job",
         jobId: job.id,
+        runToCompletion,
         ...result,
         instructions: (result.hasMore)
-          ? "Re-invoke with the same payload to continue. The job will auto-resume from the saved offset."
+          ? runToCompletion
+            ? "Next batch has been auto-triggered. The job will continue until completion."
+            : "Re-invoke with the same payload to continue. The job will auto-resume from the saved offset."
           : "Import complete. No more batches needed.",
       }, [], debugId);
     }
