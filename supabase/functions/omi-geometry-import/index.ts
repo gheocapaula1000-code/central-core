@@ -167,12 +167,27 @@ function parseFeatures(
 
     // Resolve link_zona — try multiple code variants
     let linkZona = findField(props, LINK_ALIASES);
-    const codesToTry = [
-      comuneIstat, catastale, catastale?.toUpperCase(),
-      comuneIstatFallback, // fallback from request body
-      comuneIstat?.replace(/^0+/, ""), // trimmed leading zeros
-      comuneFromName, // name-based resolution for Geopoi KMZ
-    ].filter(Boolean) as string[];
+    
+    // Build all code variants to try (ISTAT, catastale, name-based)
+    const codesToTry: string[] = [];
+    if (comuneIstat) {
+      for (const v of istatCodeVariants(comuneIstat)) codesToTry.push(v);
+    }
+    if (catastale) {
+      codesToTry.push(catastale, catastale.toUpperCase(), catastale.toLowerCase());
+    }
+    if (comuneIstatFallback) {
+      for (const v of istatCodeVariants(comuneIstatFallback)) codesToTry.push(v);
+    }
+    // Name-based resolution — try all normalized variants
+    if (comuneFromName) {
+      for (const nameVar of normalizeIncomingName(comuneFromName)) codesToTry.push(nameVar);
+    }
+    // Also try the comune description field with normalization
+    const comuneDescrField = findField(props, COMUNE_ALIASES);
+    if (comuneDescrField) {
+      for (const nameVar of normalizeIncomingName(comuneDescrField)) codesToTry.push(nameVar);
+    }
     
     for (const code of codesToTry) {
       if (linkZona) break;
