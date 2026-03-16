@@ -413,8 +413,14 @@ Deno.serve(async (req) => {
   const originErr = enforceOriginPolicy(req, debugId);
   if (originErr) return originErr;
 
-  const authErr = requireSecret(req, debugId);
-  if (authErr) return authErr;
+  // Auth: accept AI_CORE_SECRET or SUPABASE_SERVICE_ROLE_KEY
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const bearer = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
+  const isServiceRole = serviceKey && bearer && constantTimeEqual(bearer, serviceKey);
+  if (!isServiceRole) {
+    const authErr = requireSecret(req, debugId);
+    if (authErr) return authErr;
+  }
 
   if (req.method !== "POST") {
     return fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId);
