@@ -131,6 +131,57 @@ export type Database = {
         }
         Relationships: []
       }
+      omi_import_log: {
+        Row: {
+          comuni: string[] | null
+          created_at: string
+          duration_ms: number | null
+          errors: Json | null
+          features_imported: number
+          features_read: number
+          features_skipped: number
+          file_type: string
+          id: number
+          semestre: string | null
+          smoke_test_details: Json | null
+          smoke_test_passed: boolean | null
+          status: string
+          storage_path: string
+        }
+        Insert: {
+          comuni?: string[] | null
+          created_at?: string
+          duration_ms?: number | null
+          errors?: Json | null
+          features_imported?: number
+          features_read?: number
+          features_skipped?: number
+          file_type?: string
+          id?: never
+          semestre?: string | null
+          smoke_test_details?: Json | null
+          smoke_test_passed?: boolean | null
+          status?: string
+          storage_path: string
+        }
+        Update: {
+          comuni?: string[] | null
+          created_at?: string
+          duration_ms?: number | null
+          errors?: Json | null
+          features_imported?: number
+          features_read?: number
+          features_skipped?: number
+          file_type?: string
+          id?: never
+          semestre?: string | null
+          smoke_test_details?: Json | null
+          smoke_test_passed?: boolean | null
+          status?: string
+          storage_path?: string
+        }
+        Relationships: []
+      }
       omi_valori: {
         Row: {
           area_territoriale: string | null
