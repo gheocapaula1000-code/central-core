@@ -76,9 +76,8 @@ async function toGeoJSON(
   if (fileType === "kmz") {
     try {
       const kmlStr = await extractKmlFromKmzAsync(content);
-      console.log(`[omi-geom] KMZ→KML length: ${kmlStr.length}`);
       const result = kmlToGeoJSON(kmlStr);
-      console.log(`[omi-geom] KML→GeoJSON features: ${result.features.length}`);
+      console.log(`[omi-geom] KMZ→KML: ${result.features.length} features`);
       if (result.features.length > 0) return result;
       // If 0 features, it might be a nested-KMZ archive (provincial)
       console.log(`[omi-geom] KMZ has 0 Placemarks — checking for nested KMZ files`);
