@@ -15,6 +15,9 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const body = await req.json().catch(() => ({}));
+    const fallbackIstat = (body as Record<string, string>).fallback_istat ?? "";
+    
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
     const supabase = createClient(supabaseUrl, serviceKey);
