@@ -14,7 +14,7 @@ export type GeoJSONFeature = {
   geometry: { type: string; coordinates: unknown };
 };
 
-export type FileType = "geojson" | "kml" | "gml" | "kmz" | "unknown";
+export type FileType = "geojson" | "kml" | "gml" | "kmz" | "zip" | "unknown";
 
 /** Detect file type from extension and content sniffing */
 export function detectFileType(path: string, content: Uint8Array): FileType {
