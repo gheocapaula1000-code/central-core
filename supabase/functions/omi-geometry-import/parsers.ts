@@ -124,8 +124,8 @@ export async function extractKmlFromKmzAsync(data: Uint8Array): Promise<string> 
       if (method === 0) {
         return new TextDecoder().decode(rawData);
       } else if (method === 8) {
-        // Add raw deflate wrapper for DecompressionStream (needs zlib header)
-        const ds = new DecompressionStream("raw");
+        // Raw deflate (no zlib/gzip header) — Deno uses "deflate-raw"
+        const ds = new DecompressionStream("deflate-raw" as CompressionFormat);
         const writer = ds.writable.getWriter();
         writer.write(rawData);
         writer.close();
