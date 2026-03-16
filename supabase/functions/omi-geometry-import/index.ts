@@ -1,5 +1,5 @@
 // OMI Geometry Import — Universal Edge Function
-// Supports: GeoJSON, KML, KMZ, GML — auto-detected from file extension/content
+// Supports: GeoJSON, KML, KMZ, GML, ZIP (generic archive with geo files inside)
 // Supports batch mode: import all matching files from csv-imports bucket
 // Logs every import to omi_import_log table
 // Runs smoke test (point-in-polygon) after each import
