@@ -131,6 +131,66 @@ export type Database = {
         }
         Relationships: []
       }
+      omi_import_jobs: {
+        Row: {
+          batch_size: number
+          clear_first: boolean
+          completed_at: string | null
+          comune_istat_fallback: string | null
+          current_offset: number
+          has_more: boolean
+          id: number
+          last_error: string | null
+          semestre: string
+          started_at: string
+          status: string
+          storage_path: string
+          total_errors: number
+          total_files_processed: number
+          total_files_seen: number
+          total_geometries_imported: number
+          updated_at: string
+        }
+        Insert: {
+          batch_size?: number
+          clear_first?: boolean
+          completed_at?: string | null
+          comune_istat_fallback?: string | null
+          current_offset?: number
+          has_more?: boolean
+          id?: never
+          last_error?: string | null
+          semestre?: string
+          started_at?: string
+          status?: string
+          storage_path: string
+          total_errors?: number
+          total_files_processed?: number
+          total_files_seen?: number
+          total_geometries_imported?: number
+          updated_at?: string
+        }
+        Update: {
+          batch_size?: number
+          clear_first?: boolean
+          completed_at?: string | null
+          comune_istat_fallback?: string | null
+          current_offset?: number
+          has_more?: boolean
+          id?: never
+          last_error?: string | null
+          semestre?: string
+          started_at?: string
+          status?: string
+          storage_path?: string
+          total_errors?: number
+          total_files_processed?: number
+          total_files_seen?: number
+          total_geometries_imported?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       omi_import_log: {
         Row: {
           comuni: string[] | null

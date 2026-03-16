@@ -628,6 +628,90 @@ async function processZipArchive(
   return processZipArchiveFromBytes(supabase, bytes, storagePath, semestre, clearFirst, comuneIstatFallback, lookup);
 }
 
+// ── Job management helpers ──
+async function findOrCreateJob(
+  supabase: ReturnType<typeof createClient>,
+  storagePath: string,
+  semestre: string,
+  batchSize: number,
+  clearFirst: boolean,
+  comuneIstatFallback: string,
+): Promise<{ id: number; current_offset: number; status: string; isNew: boolean }> {
+  // Try to find existing job
+  const { data: existing } = await supabase
+    .from("omi_import_jobs")
+    .select("*")
+    .eq("storage_path", storagePath)
+    .eq("semestre", semestre)
+    .single();
+
+  if (existing && existing.status !== "completed") {
+    // Resume existing job
+    console.log(`[omi-geom] Resuming job ${existing.id} at offset ${existing.current_offset}`);
+    await supabase.from("omi_import_jobs").update({
+      status: "running",
+      updated_at: new Date().toISOString(),
+    }).eq("id", existing.id);
+    return { id: existing.id, current_offset: existing.current_offset, status: existing.status, isNew: false };
+  }
+
+  if (existing && existing.status === "completed") {
+    // Already completed — return as-is
+    return { id: existing.id, current_offset: existing.current_offset, status: "completed", isNew: false };
+  }
+
+  // Create new job
+  const { data: newJob, error } = await supabase
+    .from("omi_import_jobs")
+    .insert({
+      storage_path: storagePath,
+      semestre,
+      batch_size: batchSize,
+      clear_first: clearFirst,
+      comune_istat_fallback: comuneIstatFallback,
+      status: "running",
+    })
+    .select("id")
+    .single();
+
+  if (error || !newJob) throw new Error(`Failed to create job: ${error?.message}`);
+  console.log(`[omi-geom] Created new job ${newJob.id}`);
+  return { id: newJob.id, current_offset: 0, status: "pending", isNew: true };
+}
+
+async function updateJob(
+  supabase: ReturnType<typeof createClient>,
+  jobId: number,
+  update: Record<string, unknown>,
+) {
+  await supabase.from("omi_import_jobs").update({
+    ...update,
+    updated_at: new Date().toISOString(),
+  }).eq("id", jobId);
+}
+
+// ── Collect already-imported link_zona set for dedup ──
+async function loadExistingLinkZone(
+  supabase: ReturnType<typeof createClient>,
+  semestre: string,
+): Promise<Set<string>> {
+  const existing = new Set<string>();
+  let offset = 0;
+  while (true) {
+    const { data } = await supabase
+      .from("omi_zone_geometry")
+      .select("link_zona")
+      .eq("semestre", semestre)
+      .range(offset, offset + PAGE - 1);
+    if (!data || data.length === 0) break;
+    for (const r of data) existing.add(r.link_zona);
+    offset += data.length;
+    if (data.length < PAGE) break;
+  }
+  console.log(`[omi-geom] Loaded ${existing.size} existing link_zona for dedup`);
+  return existing;
+}
+
 // ── Process large ZIP via streaming (no full file in memory) ──
 async function processLargeZipStream(
   supabase: ReturnType<typeof createClient>,
@@ -638,9 +722,11 @@ async function processLargeZipStream(
   lookup: Map<string, string>,
   offset: number,
   limit: number,
+  existingZones: Set<string>,
+  jobId?: number,
 ): Promise<Record<string, unknown>> {
   const startMs = Date.now();
-  const TIME_BUDGET_MS = 240_000; // 4 min budget
+  const TIME_BUDGET_MS = 120_000; // 2 min budget (conservative for CPU limits)
 
   // 1. Get signed URL for streaming download
   const { data: urlData, error: urlError } = await supabase.storage
@@ -648,13 +734,17 @@ async function processLargeZipStream(
     .createSignedUrl(storagePath, 3600);
 
   if (urlError || !urlData?.signedUrl) {
-    return { storagePath, error: `Signed URL failed: ${urlError?.message ?? "unknown"}` };
+    const err = `Signed URL failed: ${urlError?.message ?? "unknown"}`;
+    if (jobId) await updateJob(supabase, jobId, { status: "failed", last_error: err });
+    return { storagePath, error: err };
   }
 
   // 2. Fetch as stream — NOT buffered into memory
   const response = await fetch(urlData.signedUrl);
   if (!response.ok || !response.body) {
-    return { storagePath, error: `Fetch failed: ${response.status}` };
+    const err = `Fetch failed: ${response.status}`;
+    if (jobId) await updateJob(supabase, jobId, { status: "failed", last_error: err });
+    return { storagePath, error: err };
   }
 
   // 3. Clear if needed (only on first batch)
@@ -668,6 +758,7 @@ async function processLargeZipStream(
   let totalInserted = 0;
   let totalRead = 0;
   let totalSkipped = 0;
+  let totalDeduplicated = 0;
   const allComuni: string[] = [];
   const allErrors: string[] = [];
   let entriesProcessed = 0;
@@ -696,7 +787,6 @@ async function processLargeZipStream(
     try {
       const result = await toGeoJSON(entry.data, entryType, entry.name);
       if (result === "MULTI_KMZ_ARCHIVE") {
-        // Nested multi-KMZ — process as sub-archive from bytes
         const subResult = await processZipArchiveFromBytes(
           supabase, entry.data, `${storagePath}/${entry.name}`,
           semestre, false, comuneIstatFallback, lookup,
@@ -726,11 +816,27 @@ async function processLargeZipStream(
       continue;
     }
 
-    const { inserted, insertErrors, failedZones } = await importFeatures(supabase, parsed, semestre);
+    // Dedup: skip features whose link_zona already exists
+    const dedupParsed = parsed.filter(f => !existingZones.has(f.link_zona));
+    const dedupSkipped = parsed.length - dedupParsed.length;
+    totalDeduplicated += dedupSkipped;
+
+    if (dedupParsed.length === 0) {
+      fileResults.push({
+        name: entry.name, type: entryType, status: "skipped_dedup",
+        featuresRead, dedupSkipped,
+      });
+      continue;
+    }
+
+    const { inserted, insertErrors, failedZones } = await importFeatures(supabase, dedupParsed, semestre);
     totalInserted += inserted;
     totalSkipped += insertErrors;
 
-    const comuni = [...new Set(parsed.map(f => f.comune_descrizione).filter(Boolean))];
+    // Track newly inserted zones for dedup within this batch
+    for (const f of dedupParsed) existingZones.add(f.link_zona);
+
+    const comuni = [...new Set(dedupParsed.map(f => f.comune_descrizione).filter(Boolean))];
     allComuni.push(...comuni);
 
     if (failedZones.length > 0) {
@@ -742,22 +848,49 @@ async function processLargeZipStream(
       type: entryType,
       status: insertErrors === 0 ? "success" : inserted > 0 ? "partial" : "failed",
       inserted,
+      dedupSkipped,
       comuni,
     });
 
     // Log progress every 50 entries
     if (entriesProcessed % 50 === 0) {
       console.log(`[omi-geom] Stream progress: ${entriesProcessed} entries, ${totalInserted} inserted`);
+      // Update job state periodically
+      if (jobId) {
+        await updateJob(supabase, jobId, {
+          current_offset: offset + entriesProcessed,
+          total_files_processed: entriesProcessed,
+          total_geometries_imported: totalInserted,
+          total_errors: allErrors.length,
+          has_more: true,
+        });
+      }
     }
   }
 
   // 5. Final count & smoke test
   const { count } = await supabase.from("omi_zone_geometry").select("*", { count: "exact", head: true });
   const smoke = await smokeTest(supabase);
-  const overallStatus = totalInserted === 0 ? "failed" : allErrors.length > 0 ? "partial" : "success";
+  const overallStatus = totalInserted === 0 && entriesProcessed > 0 ? "failed" : allErrors.length > 0 ? "partial" : "success";
   const nextOffset = offset + entriesProcessed;
+  const hasMore = timeBudgetExceeded || entriesProcessed === limit;
 
-  // 6. Log
+  // 6. Update job state
+  if (jobId) {
+    await updateJob(supabase, jobId, {
+      current_offset: nextOffset,
+      total_files_seen: nextOffset,
+      total_files_processed: entriesProcessed,
+      total_geometries_imported: totalInserted,
+      total_errors: allErrors.length,
+      has_more: hasMore,
+      last_error: allErrors.length > 0 ? allErrors[allErrors.length - 1] : null,
+      status: hasMore ? "partial" : "completed",
+      completed_at: hasMore ? null : new Date().toISOString(),
+    });
+  }
+
+  // 7. Log
   await writeLog(supabase, {
     storage_path: storagePath,
     file_type: "zip-stream",
@@ -777,11 +910,13 @@ async function processLargeZipStream(
     storagePath,
     fileType: "zip-stream",
     semestre,
+    jobId: jobId ?? null,
     batchOffset: offset,
     batchLimit: limit,
     entriesProcessed,
-    hasMore: timeBudgetExceeded,
-    nextOffset: timeBudgetExceeded ? nextOffset : null,
+    hasMore,
+    nextOffset: hasMore ? nextOffset : null,
+    totalDeduplicated,
     fileResults: fileResults.length > 100
       ? [...fileResults.slice(0, 50), { note: `... ${fileResults.length - 100} more ...` }, ...fileResults.slice(-50)]
       : fileResults,
@@ -824,13 +959,49 @@ Deno.serve(async (req) => {
     const batchMode = body.batch as boolean ?? false;
     const pattern = (body.pattern as string) ?? "_zone_omi";
     const storagePath = body.storage_path as string;
-    const offset = (body.offset as number) ?? 0;
-    const limit = (body.limit as number) ?? 500;
+    const autoResume = body.auto_resume as boolean ?? false;
+    const batchSize = (body.batch_size as number) ?? 300;
 
     const supabase = makeSupa();
 
     // Load lookup once
     const lookup = await loadLinkLookup(supabase);
+
+    // ── Job-based streaming mode for ZIP files ──
+    if (storagePath && storagePath.toLowerCase().endsWith(".zip") && autoResume) {
+      const job = await findOrCreateJob(supabase, storagePath, semestre, batchSize, clearFirst, comuneIstatFallback);
+
+      if (job.status === "completed") {
+        // Already done
+        const { data: jobData } = await supabase.from("omi_import_jobs").select("*").eq("id", job.id).single();
+        return ok(req, {
+          mode: "job",
+          jobId: job.id,
+          status: "completed",
+          message: "Import already completed. Use a different semestre or delete the job to re-run.",
+          job: jobData,
+        }, [], debugId);
+      }
+
+      // Load existing zones for dedup
+      const existingZones = await loadExistingLinkZone(supabase, semestre);
+
+      const result = await processLargeZipStream(
+        supabase, storagePath, semestre,
+        clearFirst && job.isNew, comuneIstatFallback, lookup,
+        job.current_offset, batchSize,
+        existingZones, job.id,
+      );
+
+      return ok(req, {
+        mode: "job",
+        jobId: job.id,
+        ...result,
+        instructions: (result.hasMore)
+          ? "Re-invoke with the same payload to continue. The job will auto-resume from the saved offset."
+          : "Import complete. No more batches needed.",
+      }, [], debugId);
+    }
 
     if (batchMode) {
       // ── Batch mode: find all matching files ──
@@ -853,6 +1024,7 @@ Deno.serve(async (req) => {
         return fail(req, 400, "NO_FILES_MATCH", `No files match pattern "${pattern}" in csv-imports`, debugId);
       }
 
+      const existingZones = await loadExistingLinkZone(supabase, semestre);
       const results: Record<string, unknown>[] = [];
       for (let i = 0; i < matching.length; i++) {
         const fileName = matching[i].name;
@@ -861,7 +1033,8 @@ Deno.serve(async (req) => {
         if (ext === "zip") {
           result = await processLargeZipStream(
             supabase, fileName, semestre,
-            clearFirst && i === 0, comuneIstatFallback, lookup, offset, limit,
+            clearFirst && i === 0, comuneIstatFallback, lookup, 0, batchSize,
+            existingZones,
           );
         } else {
           result = await processFile(
@@ -884,8 +1057,12 @@ Deno.serve(async (req) => {
     // ZIP → streaming processor
     const ext = storagePath.split(".").pop()?.toLowerCase() ?? "";
     if (ext === "zip") {
+      const offset = (body.offset as number) ?? 0;
+      const limit = (body.limit as number) ?? 500;
+      const existingZones = await loadExistingLinkZone(supabase, semestre);
       const result = await processLargeZipStream(
         supabase, storagePath, semestre, clearFirst, comuneIstatFallback, lookup, offset, limit,
+        existingZones,
       );
       if (result.error) {
         return fail(req, 400, "IMPORT_ERROR", result.error as string, debugId);
