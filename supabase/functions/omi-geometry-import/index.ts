@@ -51,17 +51,26 @@ async function loadLinkLookup(supabase: ReturnType<typeof createClient>) {
       .range(offset, offset + PAGE - 1);
     if (!data || data.length === 0) break;
     for (const z of data) {
-      lookup.set(`${z.comune_istat}|${z.zona}`, z.link_zona);
-      // trimmed ISTAT (no leading zeros)
-      lookup.set(`${String(z.comune_istat).replace(/^0+/, "")}|${z.zona}`, z.link_zona);
-      // Catastale code
-      if (z.comune_catastale) {
-        lookup.set(`${z.comune_catastale}|${z.zona}`, z.link_zona);
-        lookup.set(`${String(z.comune_catastale).toUpperCase()}|${z.zona}`, z.link_zona);
+      const zona = z.zona;
+      const linkZona = z.link_zona;
+
+      // ISTAT code variants (7-digit → 6-digit → 5-digit → trimmed)
+      for (const istat of istatCodeVariants(String(z.comune_istat))) {
+        lookup.set(`${istat}|${zona}`, linkZona);
       }
-      // Comune name (uppercase) — enables name-based resolution for Geopoi KMZ
+
+      // Catastale code variants
+      if (z.comune_catastale) {
+        lookup.set(`${z.comune_catastale}|${zona}`, linkZona);
+        lookup.set(`${String(z.comune_catastale).toUpperCase()}|${zona}`, linkZona);
+        lookup.set(`${String(z.comune_catastale).toLowerCase()}|${zona}`, linkZona);
+      }
+
+      // Comune name variants (bilingual, apostrophe normalization)
       if (z.comune_descrizione) {
-        lookup.set(`${z.comune_descrizione.toUpperCase()}|${z.zona}`, z.link_zona);
+        for (const nameVar of comuneNameVariants(z.comune_descrizione)) {
+          lookup.set(`${nameVar}|${zona}`, linkZona);
+        }
       }
     }
     offset += data.length;
