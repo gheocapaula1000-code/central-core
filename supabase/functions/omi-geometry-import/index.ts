@@ -413,16 +413,18 @@ Deno.serve(async (req) => {
   const originErr = enforceOriginPolicy(req, debugId);
   if (originErr) return originErr;
 
-  // Auth: accept AI_CORE_SECRET, or Supabase project keys via any header
+  // Auth: accept AI_CORE_SECRET, or Supabase project keys
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
   const bearer = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
   const apikey = req.headers.get("apikey") ?? "";
   const incomingKey = bearer || apikey;
-  const isInternalCaller = incomingKey && (
+  console.log(`[omi-geom] Auth debug: bearer_len=${bearer.length} apikey_len=${apikey.length} serviceKey_len=${serviceKey.length} anonKey_len=${anonKey.length}`);
+  const isInternalCaller = !!(incomingKey && (
     (serviceKey && constantTimeEqual(incomingKey, serviceKey)) ||
     (anonKey && constantTimeEqual(incomingKey, anonKey))
-  );
+  ));
+  console.log(`[omi-geom] isInternalCaller=${isInternalCaller}`);
   if (!isInternalCaller) {
     const authErr = requireSecret(req, debugId);
     if (authErr) return authErr;
