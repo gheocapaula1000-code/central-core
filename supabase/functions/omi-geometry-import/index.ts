@@ -679,6 +679,18 @@ Deno.serve(async (req) => {
       return fail(req, 400, "MISSING_FIELDS", "Provide storage_path or batch=true", debugId);
     }
 
+    // Detect if it's a ZIP → use ZIP handler
+    const ext = storagePath.split(".").pop()?.toLowerCase() ?? "";
+    if (ext === "zip") {
+      const result = await processZipArchive(
+        supabase, storagePath, semestre, clearFirst, comuneIstatFallback, lookup,
+      );
+      if (result.error) {
+        return fail(req, 400, "IMPORT_ERROR", result.error as string, debugId);
+      }
+      return ok(req, result, [], debugId);
+    }
+
     const result = await processFile(
       supabase, storagePath, semestre, clearFirst, comuneIstatFallback, lookup,
     );
