@@ -415,6 +415,173 @@ async function processFile(
   };
 }
 
+// ── Process a ZIP archive containing multiple geo files ──
+async function processZipArchive(
+  supabase: ReturnType<typeof createClient>,
+  storagePath: string,
+  semestre: string,
+  clearFirst: boolean,
+  comuneIstatFallback: string,
+  lookup: Map<string, string>,
+): Promise<Record<string, unknown>> {
+  const startMs = Date.now();
+
+  // 1. Download ZIP
+  console.log(`[omi-geom] Downloading ZIP: ${storagePath}`);
+  const { data: fileData, error: dlError } = await supabase.storage
+    .from("csv-imports")
+    .download(storagePath);
+
+  if (dlError || !fileData) {
+    const errMsg = `Download failed: ${dlError?.message ?? "unknown"}`;
+    await writeLog(supabase, {
+      storage_path: storagePath, file_type: "zip", semestre,
+      features_read: 0, features_imported: 0, features_skipped: 0,
+      errors: [errMsg], comuni: [], status: "failed",
+      smoke_test_passed: null, smoke_test_details: null,
+      duration_ms: Date.now() - startMs,
+    });
+    return { storagePath, error: errMsg };
+  }
+
+  const bytes = new Uint8Array(await fileData.arrayBuffer());
+  console.log(`[omi-geom] ZIP size: ${bytes.length} bytes`);
+
+  // 2. Extract files
+  let entries: ZipFileEntry[];
+  try {
+    entries = await extractFilesFromZip(bytes);
+  } catch (e) {
+    const errMsg = `ZIP extraction failed: ${e instanceof Error ? e.message : String(e)}`;
+    await writeLog(supabase, {
+      storage_path: storagePath, file_type: "zip", semestre,
+      features_read: 0, features_imported: 0, features_skipped: 0,
+      errors: [errMsg], comuni: [], status: "failed",
+      smoke_test_passed: null, smoke_test_details: null,
+      duration_ms: Date.now() - startMs,
+    });
+    return { storagePath, error: errMsg };
+  }
+
+  console.log(`[omi-geom] ZIP contains ${entries.length} valid geo files`);
+
+  if (entries.length === 0) {
+    const errMsg = "ZIP contains no valid geo files (.geojson/.kml/.gml/.kmz)";
+    await writeLog(supabase, {
+      storage_path: storagePath, file_type: "zip", semestre,
+      features_read: 0, features_imported: 0, features_skipped: 0,
+      errors: [errMsg], comuni: [], status: "failed",
+      smoke_test_passed: null, smoke_test_details: null,
+      duration_ms: Date.now() - startMs,
+    });
+    return { storagePath, error: errMsg };
+  }
+
+  // 3. Clear once if requested
+  if (clearFirst) {
+    console.log(`[omi-geom] Clearing omi_zone_geometry before ZIP import`);
+    await supabase.rpc("clear_omi_geometry");
+  }
+
+  // 4. Process each file inside the ZIP
+  const fileResults: Record<string, unknown>[] = [];
+  let totalInserted = 0;
+  let totalRead = 0;
+  let totalSkipped = 0;
+  const allComuni: string[] = [];
+  const allErrors: string[] = [];
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const entryType = detectFileType(entry.name, entry.data);
+    console.log(`[omi-geom] ZIP[${i + 1}/${entries.length}] ${entry.name} → ${entryType}`);
+
+    if (entryType === "unknown" || entryType === "zip") {
+      fileResults.push({ name: entry.name, status: "skipped", reason: `unsupported type: ${entryType}` });
+      continue;
+    }
+
+    // If it's a KMZ inside the ZIP, handle recursively
+    let geojson: GeoJSONFeatureCollection;
+    try {
+      geojson = await toGeoJSON(entry.data, entryType, entry.name);
+    } catch (e) {
+      const errMsg = `Conversion failed: ${e instanceof Error ? e.message : String(e)}`;
+      allErrors.push(`${entry.name}: ${errMsg}`);
+      fileResults.push({ name: entry.name, type: entryType, status: "failed", error: errMsg });
+      continue;
+    }
+
+    const featuresRead = geojson.features?.length ?? 0;
+    totalRead += featuresRead;
+
+    const { parsed, errors: parseErrors } = parseFeatures(geojson, lookup, comuneIstatFallback);
+    totalSkipped += parseErrors.length;
+
+    if (parsed.length === 0) {
+      allErrors.push(`${entry.name}: 0 valid features (${parseErrors.length} errors)`);
+      fileResults.push({
+        name: entry.name, type: entryType, status: "failed",
+        featuresRead, errors: parseErrors.slice(0, 5),
+      });
+      continue;
+    }
+
+    const { inserted, insertErrors, failedZones } = await importFeatures(supabase, parsed, semestre);
+    totalInserted += inserted;
+    totalSkipped += insertErrors;
+
+    const comuni = [...new Set(parsed.map(f => f.comune_descrizione).filter(Boolean))];
+    allComuni.push(...comuni);
+
+    if (failedZones.length > 0) allErrors.push(...failedZones.slice(0, 5).map(z => `${entry.name}: ${z}`));
+
+    fileResults.push({
+      name: entry.name,
+      type: entryType,
+      status: insertErrors === 0 ? "success" : inserted > 0 ? "partial" : "failed",
+      featuresRead,
+      validFeatures: parsed.length,
+      inserted,
+      insertErrors,
+      comuni,
+    });
+  }
+
+  // 5. Final count & smoke test
+  const { count } = await supabase.from("omi_zone_geometry").select("*", { count: "exact", head: true });
+  const smoke = await smokeTest(supabase);
+
+  const overallStatus = totalInserted === 0 ? "failed" : allErrors.length > 0 ? "partial" : "success";
+
+  // 6. Log
+  await writeLog(supabase, {
+    storage_path: storagePath, file_type: "zip", semestre,
+    features_read: totalRead, features_imported: totalInserted, features_skipped: totalSkipped,
+    errors: allErrors.slice(0, 50),
+    comuni: [...new Set(allComuni)],
+    status: overallStatus,
+    smoke_test_passed: smoke.passed, smoke_test_details: smoke.details,
+    duration_ms: Date.now() - startMs,
+  });
+
+  return {
+    storagePath,
+    fileType: "zip",
+    semestre,
+    totalFilesInZip: entries.length,
+    fileResults,
+    totalFeaturesRead: totalRead,
+    totalInserted,
+    totalSkipped,
+    totalRowsInTable: count,
+    comuni: [...new Set(allComuni)],
+    status: overallStatus,
+    smokeTest: smoke,
+    durationMs: Date.now() - startMs,
+  };
+}
+
 // ── Main handler ──
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return handleOptions(req);
