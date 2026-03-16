@@ -322,6 +322,20 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      clear_omi_geometry: { Args: never; Returns: undefined }
+      insert_omi_geometry: {
+        Args: {
+          p_comune_descrizione: string
+          p_comune_istat: string
+          p_geojson: string
+          p_link_zona: string
+          p_provincia: string
+          p_semestre?: string
+          p_zona: string
+          p_zona_descr: string
+        }
+        Returns: number
+      }
       omi_zone_by_point: {
         Args: { p_lat: number; p_lng: number }
         Returns: {
