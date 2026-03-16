@@ -81,7 +81,7 @@ async function toGeoJSON(
     if (firstPm) console.log(`[omi-geom] First Placemark sample: ${firstPm[1].slice(0, 1000)}`);
     const result = kmlToGeoJSON(kmlStr);
     console.log(`[omi-geom] KML→GeoJSON features: ${result.features.length}`);
-    if (result.features.length > 0) console.log(`[omi-geom] First feature props: ${JSON.stringify(result.features[0].properties)}`);
+    if (result.features.length === 0) console.log(`[omi-geom] KML content (no features found): ${kmlStr.slice(0, 2000)}`);
     return result;
   }
 
