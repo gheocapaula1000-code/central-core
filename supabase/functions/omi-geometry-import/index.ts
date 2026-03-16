@@ -726,7 +726,7 @@ async function processLargeZipStream(
   jobId?: number,
 ): Promise<Record<string, unknown>> {
   const startMs = Date.now();
-  const TIME_BUDGET_MS = 240_000; // 4 min budget
+  const TIME_BUDGET_MS = 120_000; // 2 min budget (conservative for CPU limits)
 
   // 1. Get signed URL for streaming download
   const { data: urlData, error: urlError } = await supabase.storage
