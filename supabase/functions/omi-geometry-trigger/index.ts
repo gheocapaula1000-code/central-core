@@ -100,8 +100,15 @@ Deno.serve(async (req) => {
       if (!zona) { errors++; continue; }
 
       const zonaDescr = findField(props, DESCR_ALIASES) ?? "";
-      const comuneIstat = findField(props, ISTAT_ALIASES) ?? "";
+      let comuneIstat = findField(props, ISTAT_ALIASES) ?? "";
       if (!comuneIstat) { errors++; continue; }
+
+      // If comuneIstat looks like a catastale code (e.g. G224), resolve to real ISTAT
+      const resolvedIstat = catastaleToIstat.get(comuneIstat);
+      if (resolvedIstat) {
+        console.log(`[trigger] Resolved catastale ${comuneIstat} -> ISTAT ${resolvedIstat}`);
+        comuneIstat = resolvedIstat;
+      }
 
       const comuneDescr = (findField(props, COMUNE_ALIASES) ?? "").toUpperCase();
       const provincia = (findField(props, PROV_ALIASES) ?? "").toUpperCase();
