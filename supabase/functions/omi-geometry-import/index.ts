@@ -628,7 +628,7 @@ Deno.serve(async (req) => {
         return fail(req, 500, "STORAGE_LIST_ERROR", `Cannot list bucket: ${listErr?.message}`, debugId);
       }
 
-      const validExts = new Set(["geojson", "json", "kml", "gml", "kmz"]);
+      const validExts = new Set(["geojson", "json", "kml", "gml", "kmz", "zip"]);
       const matching = files.filter(f => {
         const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
         return validExts.has(ext) && f.name.toLowerCase().includes(pattern.toLowerCase());
