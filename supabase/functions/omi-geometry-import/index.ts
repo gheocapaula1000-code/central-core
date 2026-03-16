@@ -154,7 +154,11 @@ function parseFeatures(
       link_zona: linkZona,
       zona,
       zona_descr: zonaDescr,
-      comune_istat: comuneIstat || "",
+      comune_istat: resolvedIstat,
+      comune_descrizione: comuneDescr.toUpperCase(),
+      provincia: provincia.toUpperCase(),
+      geojson: JSON.stringify(normalizedGeom),
+    });
       comune_descrizione: comuneDescr.toUpperCase(),
       provincia: provincia.toUpperCase(),
       geojson: JSON.stringify(normalizedGeom),
