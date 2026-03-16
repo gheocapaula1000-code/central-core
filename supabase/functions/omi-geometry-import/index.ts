@@ -71,9 +71,13 @@ async function toGeoJSON(
 ): Promise<GeoJSONFeatureCollection> {
   if (fileType === "kmz") {
     const kmlStr = await extractKmlFromKmzAsync(content);
-    console.log(`[omi-geom] KMZ→KML length: ${kmlStr.length}, first 500 chars: ${kmlStr.slice(0, 500)}`);
+    console.log(`[omi-geom] KMZ→KML length: ${kmlStr.length}`);
+    // Debug: log first Placemark raw to understand property format
+    const firstPm = kmlStr.match(/<Placemark[\s>]([\s\S]*?)<\/Placemark>/i);
+    if (firstPm) console.log(`[omi-geom] First Placemark sample: ${firstPm[1].slice(0, 1000)}`);
     const result = kmlToGeoJSON(kmlStr);
     console.log(`[omi-geom] KML→GeoJSON features: ${result.features.length}`);
+    if (result.features.length > 0) console.log(`[omi-geom] First feature props: ${JSON.stringify(result.features[0].properties)}`);
     return result;
   }
 
