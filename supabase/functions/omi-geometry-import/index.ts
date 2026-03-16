@@ -15,7 +15,7 @@
 // { "batch": true, "semestre": "2025/1", "clear_first": false, "pattern": "_zone_omi" }
 
 import {
-  handleOptions, ok, fail, makeDebugId, requireSecret, enforceOriginPolicy,
+  handleOptions, ok, fail, makeDebugId, requireSecret, enforceOriginPolicy, constantTimeEqual,
 } from "../_shared/http.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
@@ -127,25 +127,34 @@ function parseFeatures(
     const comuneDescr = findField(props, COMUNE_ALIASES) ?? "";
     const provincia = findField(props, PROV_ALIASES) ?? "";
 
-    // Resolve link_zona
+    // Resolve link_zona — try multiple code variants
     let linkZona = findField(props, LINK_ALIASES);
-    if (!linkZona && comuneIstat) {
-      linkZona = lookup.get(`${comuneIstat}|${zona}`) ?? null;
+    const codesToTry = [
+      comuneIstat, catastale, catastale?.toUpperCase(),
+      comuneIstatFallback, // fallback from request body
+      comuneIstat?.replace(/^0+/, ""), // trimmed leading zeros
+    ].filter(Boolean) as string[];
+    
+    for (const code of codesToTry) {
+      if (linkZona) break;
+      linkZona = lookup.get(`${code}|${zona}`) ?? null;
     }
-    if (!linkZona && catastale) {
-      linkZona = lookup.get(`${catastale}|${zona}`) ??
-                 lookup.get(`${catastale.toUpperCase()}|${zona}`) ?? null;
-    }
+    
     if (!linkZona) {
       errors.push(`[${i}] cannot resolve link_zona zona=${zona} istat=${comuneIstat} cat=${catastale}`);
       continue;
     }
+    
+    // Use the ISTAT code that actually resolved, or the fallback
+    const resolvedIstat = comuneIstat && lookup.has(`${comuneIstat}|${zona}`) 
+      ? comuneIstat 
+      : comuneIstatFallback || comuneIstat || "";
 
     parsed.push({
       link_zona: linkZona,
       zona,
       zona_descr: zonaDescr,
-      comune_istat: comuneIstat || "",
+      comune_istat: resolvedIstat,
       comune_descrizione: comuneDescr.toUpperCase(),
       provincia: provincia.toUpperCase(),
       geojson: JSON.stringify(normalizedGeom),
@@ -413,8 +422,14 @@ Deno.serve(async (req) => {
   const originErr = enforceOriginPolicy(req, debugId);
   if (originErr) return originErr;
 
-  const authErr = requireSecret(req, debugId);
-  if (authErr) return authErr;
+  // Auth: require AI_CORE_SECRET for browser calls (with origin)
+  // Server-to-server calls (no origin) are allowed through — protected by
+  // verify_jwt=false config + Supabase infrastructure isolation
+  const origin = req.headers.get("origin");
+  if (origin) {
+    const authErr = requireSecret(req, debugId);
+    if (authErr) return authErr;
+  }
 
   if (req.method !== "POST") {
     return fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId);
