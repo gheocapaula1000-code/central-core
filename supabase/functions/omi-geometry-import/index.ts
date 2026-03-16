@@ -27,6 +27,7 @@ import {
   findField, ZONA_ALIASES, DESCR_ALIASES, ISTAT_ALIASES, COMUNE_ALIASES,
   PROV_ALIASES, LINK_ALIASES, CATASTALE_ALIASES, type ParsedFeature,
 } from "./fields.ts";
+import { streamZipEntries, type StreamZipEntry } from "./stream-zip.ts";
 
 const PAGE = 1000;
 
@@ -627,6 +628,176 @@ async function processZipArchive(
   return processZipArchiveFromBytes(supabase, bytes, storagePath, semestre, clearFirst, comuneIstatFallback, lookup);
 }
 
+// ── Process large ZIP via streaming (no full file in memory) ──
+async function processLargeZipStream(
+  supabase: ReturnType<typeof createClient>,
+  storagePath: string,
+  semestre: string,
+  clearFirst: boolean,
+  comuneIstatFallback: string,
+  lookup: Map<string, string>,
+  offset: number,
+  limit: number,
+): Promise<Record<string, unknown>> {
+  const startMs = Date.now();
+  const TIME_BUDGET_MS = 240_000; // 4 min budget
+
+  // 1. Get signed URL for streaming download
+  const { data: urlData, error: urlError } = await supabase.storage
+    .from("csv-imports")
+    .createSignedUrl(storagePath, 3600);
+
+  if (urlError || !urlData?.signedUrl) {
+    return { storagePath, error: `Signed URL failed: ${urlError?.message ?? "unknown"}` };
+  }
+
+  // 2. Fetch as stream — NOT buffered into memory
+  const response = await fetch(urlData.signedUrl);
+  if (!response.ok || !response.body) {
+    return { storagePath, error: `Fetch failed: ${response.status}` };
+  }
+
+  // 3. Clear if needed (only on first batch)
+  if (clearFirst && offset === 0) {
+    console.log(`[omi-geom] Clearing omi_zone_geometry before streamed import`);
+    await supabase.rpc("clear_omi_geometry");
+  }
+
+  // 4. Stream through entries
+  const fileResults: Record<string, unknown>[] = [];
+  let totalInserted = 0;
+  let totalRead = 0;
+  let totalSkipped = 0;
+  const allComuni: string[] = [];
+  const allErrors: string[] = [];
+  let entriesProcessed = 0;
+  let timeBudgetExceeded = false;
+
+  console.log(`[omi-geom] Streaming ZIP: ${storagePath} offset=${offset} limit=${limit}`);
+
+  for await (const entry of streamZipEntries(response.body, { offset, limit })) {
+    // Time budget check
+    if (Date.now() - startMs > TIME_BUDGET_MS) {
+      console.log(`[omi-geom] Time budget exceeded after ${entriesProcessed} entries`);
+      timeBudgetExceeded = true;
+      break;
+    }
+
+    entriesProcessed++;
+    const entryType = detectFileType(entry.name, entry.data);
+
+    if (entryType === "unknown" || entryType === "zip") {
+      fileResults.push({ name: entry.name, status: "skipped", reason: `type: ${entryType}` });
+      continue;
+    }
+
+    // Convert to GeoJSON
+    let geojson: GeoJSONFeatureCollection;
+    try {
+      const result = await toGeoJSON(entry.data, entryType, entry.name);
+      if (result === "MULTI_KMZ_ARCHIVE") {
+        // Nested multi-KMZ — process as sub-archive from bytes
+        const subResult = await processZipArchiveFromBytes(
+          supabase, entry.data, `${storagePath}/${entry.name}`,
+          semestre, false, comuneIstatFallback, lookup,
+        );
+        totalInserted += (subResult.totalInserted as number) ?? 0;
+        totalRead += (subResult.totalFeaturesRead as number) ?? 0;
+        fileResults.push({ name: entry.name, type: "nested-archive", ...subResult });
+        continue;
+      }
+      geojson = result;
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      allErrors.push(`${entry.name}: ${errMsg}`);
+      fileResults.push({ name: entry.name, type: entryType, status: "failed" });
+      continue;
+    }
+
+    const featuresRead = geojson.features?.length ?? 0;
+    totalRead += featuresRead;
+
+    const { parsed, errors: parseErrors } = parseFeatures(geojson, lookup, comuneIstatFallback);
+    totalSkipped += parseErrors.length;
+
+    if (parsed.length === 0) {
+      allErrors.push(`${entry.name}: 0 valid (${parseErrors.length} errors)`);
+      fileResults.push({ name: entry.name, type: entryType, status: "failed", featuresRead });
+      continue;
+    }
+
+    const { inserted, insertErrors, failedZones } = await importFeatures(supabase, parsed, semestre);
+    totalInserted += inserted;
+    totalSkipped += insertErrors;
+
+    const comuni = [...new Set(parsed.map(f => f.comune_descrizione).filter(Boolean))];
+    allComuni.push(...comuni);
+
+    if (failedZones.length > 0) {
+      allErrors.push(...failedZones.slice(0, 3).map(z => `${entry.name}: ${z}`));
+    }
+
+    fileResults.push({
+      name: entry.name,
+      type: entryType,
+      status: insertErrors === 0 ? "success" : inserted > 0 ? "partial" : "failed",
+      inserted,
+      comuni,
+    });
+
+    // Log progress every 50 entries
+    if (entriesProcessed % 50 === 0) {
+      console.log(`[omi-geom] Stream progress: ${entriesProcessed} entries, ${totalInserted} inserted`);
+    }
+  }
+
+  // 5. Final count & smoke test
+  const { count } = await supabase.from("omi_zone_geometry").select("*", { count: "exact", head: true });
+  const smoke = await smokeTest(supabase);
+  const overallStatus = totalInserted === 0 ? "failed" : allErrors.length > 0 ? "partial" : "success";
+  const nextOffset = offset + entriesProcessed;
+
+  // 6. Log
+  await writeLog(supabase, {
+    storage_path: storagePath,
+    file_type: "zip-stream",
+    semestre,
+    features_read: totalRead,
+    features_imported: totalInserted,
+    features_skipped: totalSkipped,
+    errors: allErrors.slice(0, 50),
+    comuni: [...new Set(allComuni)],
+    status: overallStatus,
+    smoke_test_passed: smoke.passed,
+    smoke_test_details: smoke.details,
+    duration_ms: Date.now() - startMs,
+  });
+
+  return {
+    storagePath,
+    fileType: "zip-stream",
+    semestre,
+    batchOffset: offset,
+    batchLimit: limit,
+    entriesProcessed,
+    hasMore: timeBudgetExceeded,
+    nextOffset: timeBudgetExceeded ? nextOffset : null,
+    fileResults: fileResults.length > 100
+      ? [...fileResults.slice(0, 50), { note: `... ${fileResults.length - 100} more ...` }, ...fileResults.slice(-50)]
+      : fileResults,
+    totalFeaturesRead: totalRead,
+    totalInserted,
+    totalSkipped,
+    totalErrors: allErrors.length,
+    sampleErrors: allErrors.slice(0, 20),
+    totalRowsInTable: count,
+    comuni: [...new Set(allComuni)].slice(0, 100),
+    status: overallStatus,
+    smokeTest: smoke,
+    durationMs: Date.now() - startMs,
+  };
+}
+
 // ── Main handler ──
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return handleOptions(req);
@@ -635,9 +806,6 @@ Deno.serve(async (req) => {
   const originErr = enforceOriginPolicy(req, debugId);
   if (originErr) return originErr;
 
-  // Auth: require AI_CORE_SECRET for browser calls (with origin)
-  // Server-to-server calls (no origin) are allowed through — protected by
-  // verify_jwt=false config + Supabase infrastructure isolation
   const origin = req.headers.get("origin");
   if (origin) {
     const authErr = requireSecret(req, debugId);
@@ -656,6 +824,8 @@ Deno.serve(async (req) => {
     const batchMode = body.batch as boolean ?? false;
     const pattern = (body.pattern as string) ?? "_zone_omi";
     const storagePath = body.storage_path as string;
+    const offset = (body.offset as number) ?? 0;
+    const limit = (body.limit as number) ?? 500;
 
     const supabase = makeSupa();
 
@@ -683,40 +853,27 @@ Deno.serve(async (req) => {
         return fail(req, 400, "NO_FILES_MATCH", `No files match pattern "${pattern}" in csv-imports`, debugId);
       }
 
-      console.log(`[omi-geom] Found ${matching.length} files to process`);
-
       const results: Record<string, unknown>[] = [];
       for (let i = 0; i < matching.length; i++) {
         const fileName = matching[i].name;
         const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
         let result: Record<string, unknown>;
         if (ext === "zip") {
-          result = await processZipArchive(
+          result = await processLargeZipStream(
             supabase, fileName, semestre,
-            clearFirst && i === 0,
-            comuneIstatFallback, lookup,
+            clearFirst && i === 0, comuneIstatFallback, lookup, offset, limit,
           );
         } else {
           result = await processFile(
             supabase, fileName, semestre,
-            clearFirst && i === 0,
-            comuneIstatFallback, lookup,
+            clearFirst && i === 0, comuneIstatFallback, lookup,
           );
         }
         results.push(result);
       }
 
-      const totalInserted = results.reduce((s, r) => s + ((r.inserted as number) ?? 0), 0);
-      const totalErrors = results.reduce((s, r) => s + ((r.insertErrors as number) ?? 0), 0);
-
-      return ok(req, {
-        mode: "batch",
-        pattern,
-        filesProcessed: results.length,
-        totalInserted,
-        totalErrors,
-        results,
-      }, totalErrors > 0 ? [`${totalErrors} total insert errors across batch`] : [], debugId);
+      const totalInserted = results.reduce((s, r) => s + ((r.inserted as number) ?? (r.totalInserted as number) ?? 0), 0);
+      return ok(req, { mode: "batch", pattern, filesProcessed: results.length, totalInserted, results }, [], debugId);
     }
 
     // ── Single file mode ──
@@ -724,11 +881,11 @@ Deno.serve(async (req) => {
       return fail(req, 400, "MISSING_FIELDS", "Provide storage_path or batch=true", debugId);
     }
 
-    // Detect if it's a ZIP → use ZIP handler
+    // ZIP → streaming processor
     const ext = storagePath.split(".").pop()?.toLowerCase() ?? "";
     if (ext === "zip") {
-      const result = await processZipArchive(
-        supabase, storagePath, semestre, clearFirst, comuneIstatFallback, lookup,
+      const result = await processLargeZipStream(
+        supabase, storagePath, semestre, clearFirst, comuneIstatFallback, lookup, offset, limit,
       );
       if (result.error) {
         return fail(req, 400, "IMPORT_ERROR", result.error as string, debugId);
