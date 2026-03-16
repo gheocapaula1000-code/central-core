@@ -357,10 +357,16 @@ async function processFile(
     return { storagePath, error: errMsg };
   }
 
-  // 3. Convert to GeoJSON
+  // 3. Convert to GeoJSON (or detect multi-KMZ archive)
   let geojson: GeoJSONFeatureCollection;
   try {
-    geojson = await toGeoJSON(bytes, fileType, storagePath);
+    const result = await toGeoJSON(bytes, fileType, storagePath);
+    if (result === "MULTI_KMZ_ARCHIVE") {
+      // Provincial KMZ with nested KMZ files — redirect to ZIP archive processing
+      console.log(`[omi-geom] Redirecting ${storagePath} to multi-archive processor`);
+      return await processZipArchiveFromBytes(supabase, bytes, storagePath, semestre, clearFirst, comuneIstatFallback, lookup);
+    }
+    geojson = result;
   } catch (e) {
     const errMsg = `Conversion failed: ${e instanceof Error ? e.message : String(e)}`;
     await writeLog(supabase, {
