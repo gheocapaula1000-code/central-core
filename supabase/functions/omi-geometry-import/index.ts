@@ -127,19 +127,28 @@ function parseFeatures(
     const comuneDescr = findField(props, COMUNE_ALIASES) ?? "";
     const provincia = findField(props, PROV_ALIASES) ?? "";
 
-    // Resolve link_zona
+    // Resolve link_zona — try multiple code variants
     let linkZona = findField(props, LINK_ALIASES);
-    if (!linkZona && comuneIstat) {
-      linkZona = lookup.get(`${comuneIstat}|${zona}`) ?? null;
+    const codesToTry = [
+      comuneIstat, catastale, catastale?.toUpperCase(),
+      comuneIstatFallback, // fallback from request body
+      comuneIstat?.replace(/^0+/, ""), // trimmed leading zeros
+    ].filter(Boolean) as string[];
+    
+    for (const code of codesToTry) {
+      if (linkZona) break;
+      linkZona = lookup.get(`${code}|${zona}`) ?? null;
     }
-    if (!linkZona && catastale) {
-      linkZona = lookup.get(`${catastale}|${zona}`) ??
-                 lookup.get(`${catastale.toUpperCase()}|${zona}`) ?? null;
-    }
+    
     if (!linkZona) {
       errors.push(`[${i}] cannot resolve link_zona zona=${zona} istat=${comuneIstat} cat=${catastale}`);
       continue;
     }
+    
+    // Use the ISTAT code that actually resolved, or the fallback
+    const resolvedIstat = comuneIstat && lookup.has(`${comuneIstat}|${zona}`) 
+      ? comuneIstat 
+      : comuneIstatFallback || comuneIstat || "";
 
     parsed.push({
       link_zona: linkZona,
