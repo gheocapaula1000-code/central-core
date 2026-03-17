@@ -2,7 +2,7 @@
 
 > Canonical reference of all PWA→Core dependencies.
 > Breaking any path, envelope, or shape listed here is a potential outage.
-> Last updated: 2026-03-15
+> Last updated: 2026-03-17
 
 ---
 
