@@ -328,6 +328,63 @@ These endpoints are intentionally scaffolded but return `sourceType: "unavailabl
 
 ---
 
+## EcoSystem Gateway
+
+**Function:** `ecosystem-gateway` (dedicated Edge Function)
+**Test file:** `src/test/ecosystem-gateway-contract.test.ts`
+**Base path:** `/functions/v1/ecosystem-gateway`
+**Service kind:** `ecosystem-orchestrator`
+**Calling mode:** `direct`
+
+> **Additive, optional orchestrator.** Does NOT modify existing PWA flows. Does NOT create mandatory dependencies. If any internal module fails, returns partial results with warnings.
+
+### Public Routes (no auth)
+
+| Route | Method | Description | Status |
+|-------|--------|-------------|--------|
+| `/` | GET | Health (alias) | ✅ Active |
+| `/health` | GET | Health probe | ✅ Active |
+| `/__health` | GET | Alt health probe | ✅ Active |
+| `/manifest` | GET | Self-description | ✅ Active |
+| `/capabilities` | GET | Module catalog | ✅ Active |
+
+### Protected Routes (AI_CORE_SECRET)
+
+| Route | Method | Description | Status |
+|-------|--------|-------------|--------|
+| `/listing-enrichment` | POST | Enrich property data via Sottra (best-effort) | ✅ Active |
+| `/service-pack` | POST | Suggest Wyloni services (static catalog) | ✅ Active |
+| `/unified-report` | POST | Compose unified report from sections | ✅ Active |
+
+### listing-enrichment
+
+**Input:** `{ source_app?, property: { address, comune, provincia, lat, lng, ... }, snapshot?, options? }`
+**Best-effort deps:** `sottra/scan/market`, `sottra/forecast/sviluppo-area`
+**Output:** `{ enrichment_status: "available|partial|unavailable", partial, property_snapshot, sottra_market, sottra_area_development, availability, source_apps, warnings_detail }`
+**Errors:** `MISSING_PROPERTY` (400)
+
+### service-pack
+
+**Input:** `{ source_app?, context: { operation?, hasUtilitiesDocs?, hasContracts?, wantsArchive?, ... } }`
+**Catalog:** Static Wyloni route keys only (`archivio`, `scanner`, `carica-file`, `bollette`, `dalla-tua-parte`, `controlla-contratto`, `simplex`, `money`, `guida-spid`, `autocertificazioni`)
+**Output:** `{ recommended_services: [{ service_key, target_app, title, route, reason, priority, availability, deeplink }], count }`
+
+### unified-report
+
+**Input:** `{ keydraft?, enrichment?, servicePack?, options?: { includeExecutiveSummary? } }`
+**Output:** `{ executive_summary?, technical_sheet?, territorial_context?, service_pack?, availability_flags, partial }`
+**Behavior:** Normalizes and merges available sections. Missing sections are omitted or marked unavailable — never invented.
+
+### Fail-Safe Design
+
+- Internal Sottra calls use 12s timeout
+- If Sottra is unreachable, returns `partial: true` with explicit warnings
+- If internal base URL cannot be determined, returns partial with warning
+- No global failure for individual module unavailability
+- No new secrets required (reuses `AI_CORE_SECRET`)
+
+---
+
 ## Standalone Health Function
 
 **Function:** `health`
