@@ -672,6 +672,32 @@ function buildMarketSignals(
   return empty;
 }
 
+/** Build flat marketSignalsList from keyed MarketSignals */
+function buildMarketSignalsList(signals: MarketSignals): MarketSignalFlat[] {
+  const list: MarketSignalFlat[] = [];
+  const entries: [string, MarketEvidenceSignal | null][] = [
+    ["priceBandLocale", signals.priceBandLocale],
+    ["marketFreshness", signals.marketFreshness],
+    ["marketDepth", signals.marketDepth],
+    ["sellerPressure", signals.sellerPressure],
+    ["premiumMicroAreaSignal", signals.premiumMicroAreaSignal],
+    ["rentalAppealSignal", signals.rentalAppealSignal],
+    ["energyPremiumSignal", signals.energyPremiumSignal],
+    ["listingTurnoverSignal", signals.listingTurnoverSignal],
+  ];
+  for (const [key, sig] of entries) {
+    if (sig) {
+      list.push({
+        key,
+        label: sig.label,
+        value: sig.value,
+        detail: sig.reason,
+      });
+    }
+  }
+  return list;
+}
+
 // ── Main Entry Point ──────────────────────────────────────────
 
 /**
