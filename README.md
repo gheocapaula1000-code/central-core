@@ -8,6 +8,7 @@ Backend condiviso (Supabase Edge Functions) per Wyloni, KeyDraft e Sottra. Gesti
 |----------|-------------|
 | ai-core-run | Orchestratore principale: OpenAI → Anthropic fallback, Perplexity per web search |
 | sottra | 8 endpoint per scanner edifici (scan + forecast) |
+| ecosystem-gateway | Orchestratore opzionale cross-app: enrichment, service-pack, report unificato |
 | health | Health check |
 
 ## Architettura
@@ -17,6 +18,10 @@ App (Wyloni/KeyDraft/Sottra)
     → Central Core V3 (questo repo)
       → ai-core-run (provider AI orchestrati)
       → sottra (scanner edifici)
+      → ecosystem-gateway (layer additivo, opzionale, fail-safe)
+         ↳ best-effort: sottra internals
+         ↳ catalogo statico: servizi Wyloni
+         ↳ NON chiama KeyDraft/Wyloni direttamente
 ```
 
 ## Variabili d'ambiente (Supabase Secrets)
