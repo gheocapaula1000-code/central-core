@@ -601,12 +601,28 @@ export async function handleForecastInfrastrutture(req: Request, body: Record<st
     limitations.push("Dati Infratel BUL non disponibili — copertura banda larga non verificata");
   }
 
+  // ── Build connectivityContext with explicit precision ──
+  const hasInfratel = sourcesUsed.includes("Infratel BUL");
+  const connectivityContext = {
+    connectivityAvailable: hasInfratel && connectivitySignals.length > 0,
+    connectivityLabel: hasInfratel && connectivitySignals.length > 0
+      ? connectivitySignals[0].label
+      : "Dati connettività non disponibili",
+    connectivityPrecision: "comune" as "civico" | "strada" | "comune",
+    connectivitySource: hasInfratel ? "Infratel/BUL — Piano Banda Ultralarga" : null,
+    limitations: [
+      "Dato di copertura a livello comunale, non puntuale al civico",
+      "La copertura effettiva al civico richiede verifica su portale operatore",
+    ],
+  };
+
   return ok(req, {
     comune,
     infrastructureScore: score,
     infrastructureBand,
     infrastructureProjects,
     connectivitySignals,
+    connectivityContext,
     mobilitySignals,
     publicWorksSignals,
     topDrivers,
