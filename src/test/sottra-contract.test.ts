@@ -72,16 +72,16 @@ const SOTTRA_FORECAST_PATHS = [
 const ALL_SOTTRA_PATHS = [...SOTTRA_SCAN_PATHS, ...SOTTRA_FORECAST_PATHS];
 
 describe("Sottra contract — path registry", () => {
-  it("has 8 scan endpoints", () => {
-    expect(SOTTRA_SCAN_PATHS).toHaveLength(8);
+  it("has 9 scan endpoints (including market-context alias)", () => {
+    expect(SOTTRA_SCAN_PATHS).toHaveLength(9);
   });
 
   it("has 8 forecast endpoints", () => {
     expect(SOTTRA_FORECAST_PATHS).toHaveLength(8);
   });
 
-  it("total 16 endpoints", () => {
-    expect(ALL_SOTTRA_PATHS).toHaveLength(16);
+  it("total 17 endpoints", () => {
+    expect(ALL_SOTTRA_PATHS).toHaveLength(17);
   });
 
   it.each(ALL_SOTTRA_PATHS)("$path ($method) — endsWith matching works", ({ path }) => {
