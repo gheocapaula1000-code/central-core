@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.omi-geometry-import]
 verify_jwt = false
+
+[functions.ecosystem-gateway]
+verify_jwt = false
