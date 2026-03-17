@@ -400,6 +400,7 @@ describe("Sottra contract — health endpoint", () => {
     const expectedRoutes = [
       "scan/identify", "scan/cadastral", "scan/pricing", "scan/listings",
       "scan/energy", "scan/condominio", "scan/storico-transazioni", "scan/market",
+      "scan/market-context",
       "forecast/moodscore", "forecast/timeview", "forecast/opportunity",
       "forecast/infrastrutture", "forecast/rischio-zona", "forecast/trend-demografico",
       "forecast/sviluppo-area", "forecast/convergenza-territoriale",
@@ -415,7 +416,7 @@ describe("Sottra contract — health endpoint", () => {
     expect(data.engine).toBe("sottra");
     expect(data.version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(Array.isArray(data.routes)).toBe(true);
-    expect(data.routes).toHaveLength(16);
+    expect(data.routes).toHaveLength(17);
   });
 });
 
