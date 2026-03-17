@@ -64,6 +64,7 @@ const ROUTES: Record<string, (req: Request, body: Record<string, unknown>, debug
   "scan/condominio":           handleScanCondominio,
   "scan/storico-transazioni":  handleScanStoricoTransazioni,
   "scan/market":               handleScanMarket,
+  "scan/market-context":       handleScanMarket, // backward-compat alias
   // Motore Forecast (7)
   "forecast/moodscore":        handleForecastMoodScore,
   "forecast/timeview":         handleForecastTimeView,

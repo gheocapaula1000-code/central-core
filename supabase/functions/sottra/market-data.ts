@@ -102,6 +102,12 @@ export interface ComparablesSummary {
   comparableCoverageLevel: "buona" | "parziale" | "scarsa" | "insufficiente";
   marketDataConfidence: number;
   marketDataReason: string;
+  // ── Additive backward-compatible aliases (Phase 1) ──
+  count: number;                             // = comparablesCount
+  q1PricePerSqm: number | null;             // = lowerQuartilePricePerSqm
+  q3PricePerSqm: number | null;             // = upperQuartilePricePerSqm
+  marketDepth: "profondo" | "sufficiente" | "limitato";
+  marketFreshnessLabel: "recente" | "moderata" | "datata";
 }
 
 export interface MarketSignals {
@@ -115,10 +121,18 @@ export interface MarketSignals {
   listingTurnoverSignal: MarketEvidenceSignal | null;
 }
 
+export interface MarketSignalFlat {
+  key: string;
+  label: string;
+  value: number | string | null;
+  detail: string;
+}
+
 export interface MarketContextResult {
   marketContext: "available" | "partial" | "unavailable";
   comparablesSummary: ComparablesSummary | null;
   marketSignals: MarketSignals;
+  marketSignalsList: MarketSignalFlat[];  // flat additive alias
   marketConfidence: number;
   marketConfidenceReason: string;
   marketCoverageLevel: "buona" | "parziale" | "scarsa" | "insufficiente";
@@ -523,6 +537,12 @@ function buildComparablesSummary(
     depthScore * 0.4 + freshnessScore * 0.3 + (1 - spreadPenalty) * 0.3
   ));
 
+  // Derive additive labels
+  const marketDepthLabel: ComparablesSummary["marketDepth"] =
+    depthScore >= 0.60 ? "profondo" : depthScore >= 0.30 ? "sufficiente" : "limitato";
+  const marketFreshnessLabelVal: ComparablesSummary["marketFreshnessLabel"] =
+    freshnessScore >= 0.70 ? "recente" : freshnessScore >= 0.40 ? "moderata" : "datata";
+
   return {
     comparablesCount: comparables.length,
     medianPricePerSqm: medianPrice ? Math.round(medianPrice) : null,
@@ -536,6 +556,12 @@ function buildComparablesSummary(
       `prezzo mediano €${medianPrice ? Math.round(medianPrice) : "n/d"}/mq, ` +
       `freshness ${(freshnessScore * 100).toFixed(0)}%, ` +
       `copertura ${coverageLevel}`,
+    // Additive backward-compatible aliases
+    count: comparables.length,
+    q1PricePerSqm: q1 ? Math.round(q1) : null,
+    q3PricePerSqm: q3 ? Math.round(q3) : null,
+    marketDepth: marketDepthLabel,
+    marketFreshnessLabel: marketFreshnessLabelVal,
   };
 }
 
@@ -644,6 +670,32 @@ function buildMarketSignals(
   }
 
   return empty;
+}
+
+/** Build flat marketSignalsList from keyed MarketSignals */
+function buildMarketSignalsList(signals: MarketSignals): MarketSignalFlat[] {
+  const list: MarketSignalFlat[] = [];
+  const entries: [string, MarketEvidenceSignal | null][] = [
+    ["priceBandLocale", signals.priceBandLocale],
+    ["marketFreshness", signals.marketFreshness],
+    ["marketDepth", signals.marketDepth],
+    ["sellerPressure", signals.sellerPressure],
+    ["premiumMicroAreaSignal", signals.premiumMicroAreaSignal],
+    ["rentalAppealSignal", signals.rentalAppealSignal],
+    ["energyPremiumSignal", signals.energyPremiumSignal],
+    ["listingTurnoverSignal", signals.listingTurnoverSignal],
+  ];
+  for (const [key, sig] of entries) {
+    if (sig) {
+      list.push({
+        key,
+        label: sig.label,
+        value: sig.value,
+        detail: sig.reason,
+      });
+    }
+  }
+  return list;
 }
 
 // ── Main Entry Point ──────────────────────────────────────────
@@ -789,6 +841,7 @@ export async function collectMarketData(
     marketContext,
     comparablesSummary: summary,
     marketSignals: signals,
+    marketSignalsList: buildMarketSignalsList(signals),
     marketConfidence: parseFloat(confidence.toFixed(2)),
     marketConfidenceReason: summary
       ? `${summary.comparablesCount} comparabili da ${results.filter(r => r.available).length} provider, ` +
@@ -821,6 +874,7 @@ function makeUnavailableResult(reason: string, limitations: string[]): MarketCon
       energyPremiumSignal: null,
       listingTurnoverSignal: null,
     },
+    marketSignalsList: [],
     marketConfidence: 0,
     marketConfidenceReason: reason,
     marketCoverageLevel: "insufficiente",

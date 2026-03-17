@@ -354,12 +354,14 @@ export async function handleForecastSviluppoArea(
 
   console.log(`[sviluppo-area] comune=${comune} provincia=${provincia} debug_id=${debugId}`);
 
-  // Parallel fetch all sources
-  const [ocResult, infraResult, mitResult, localResult] = await Promise.all([
+  // Parallel fetch all sources (including school data)
+  const supabase = getSupabase();
+  const [ocResult, infraResult, mitResult, localResult, schoolResult] = await Promise.all([
     fetchOpenCoesione(comune, lat, lng),
     fetchInfratel(comune),
     fetchMITCantieri(comune, provincia),
     fetchLocalDBSignals(comune),
+    supabase.from("mim_schools").select("denominazione, grado, indirizzo, tipologia, lat, lng").ilike("comune", comune).limit(100),
   ]);
 
   // Compute score
@@ -432,6 +434,51 @@ export async function handleForecastSviluppoArea(
     warnings.push(`Fonti non disponibili: ${sourcesUnavailable.join(", ")}`);
   }
 
+  // ── Build schoolContext from mim_schools data ──
+  const schools = schoolResult.data ?? [];
+  const schoolsByGrado: Record<string, number> = {};
+  for (const s of schools) {
+    const g = s.grado ?? "altro";
+    schoolsByGrado[g] = (schoolsByGrado[g] ?? 0) + 1;
+  }
+  const schoolContext = schools.length > 0
+    ? {
+        available: true,
+        totalSchools: schools.length,
+        byGrado: schoolsByGrado,
+        gradiPresenti: Object.keys(schoolsByGrado),
+        nearestSchools: schools.slice(0, 5).map(s => ({
+          denominazione: s.denominazione,
+          grado: s.grado,
+          indirizzo: s.indirizzo,
+        })),
+        precision: "comune" as const,
+        source: "MIM — Ministero Istruzione e Merito (Open Data)",
+        limitations: [
+          "Conteggio a livello comunale, non per raggio dal civico",
+          "Dataset soggetto ad aggiornamento annuale",
+        ],
+      }
+    : {
+        available: false,
+        totalSchools: 0,
+        byGrado: {},
+        gradiPresenti: [],
+        nearestSchools: [],
+        precision: "comune" as const,
+        source: null,
+        limitations: [
+          `Nessuna scuola trovata nel dataset MIM per il comune "${comune}"`,
+          "Il dataset potrebbe non essere ancora importato per questo territorio",
+        ],
+      };
+
+  if (schools.length > 0) {
+    sourcesUsed.push("MIM — Open Data Scuole");
+    // Schools boost score slightly
+    if (schools.length >= 10) scoring.score = Math.min(100, scoring.score + 3);
+  }
+
   return ok(req, {
     comune,
     address,
@@ -445,10 +492,12 @@ export async function handleForecastSviluppoArea(
     areaDevelopmentScore: scoring.score,
     areaDevelopmentBand: scoring.band,
     narrativeObservation: enrichedNarrative,
+    schoolContext,
     sourcesQueried: {
       openCoesione: { available: ocResult.available, projectsFound: ocResult.signals.length },
       infratel: { available: infraResult.available, signalsFound: infraResult.signals.length },
       mitAnac: { available: mitResult.available, signalsFound: mitResult.signals.length },
+      mim: { available: schools.length > 0, schoolsFound: schools.length },
       localDB: {
         istat: localResult.demographics != null,
         ispra: localResult.risk != null,

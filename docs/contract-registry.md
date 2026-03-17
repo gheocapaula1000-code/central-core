@@ -2,7 +2,7 @@
 
 > Canonical reference of all PWA→Core dependencies.
 > Breaking any path, envelope, or shape listed here is a potential outage.
-> Last updated: 2026-03-15
+> Last updated: 2026-03-17
 
 ---
 
@@ -168,7 +168,7 @@ No secrets, allowlists, or infrastructure details are exposed.
 **Function:** `sottra` (dedicated Edge Function)
 **Test file:** `src/test/sottra-contract.test.ts`
 
-### Scan Endpoints (8)
+### Scan Endpoints (9)
 
 | Route | Method | Description | Status |
 |-------|--------|-------------|--------|
@@ -180,6 +180,7 @@ No secrets, allowlists, or infrastructure details are exposed.
 | `/scan/condominio` | POST | Condominium data | ⚠️ UNAVAILABLE |
 | `/scan/storico-transazioni` | POST | Transaction history | ⚠️ UNAVAILABLE |
 | `/scan/market` | POST | Market comparables + signals | ✅ Active (env-gated) |
+| `/scan/market-context` | POST | Alias backward-compat → same handler as scan/market | ✅ Active |
 
 ### Forecast Endpoints (8)
 
@@ -242,7 +243,12 @@ Expected response: `{ "listings": [...] }` (also accepts `results`, `data`, `ite
     "marketDepthScore": 0.67,
     "comparableCoverageLevel": "buona|parziale|scarsa|insufficiente",
     "marketDataConfidence": 0.72,
-    "marketDataReason": "..."
+    "marketDataReason": "...",
+    "count": 10,
+    "q1PricePerSqm": 2800,
+    "q3PricePerSqm": 3600,
+    "marketDepth": "profondo|sufficiente|limitato",
+    "marketFreshnessLabel": "recente|moderata|datata"
   },
   "marketSignals": {
     "priceBandLocale": { "signalId": "...", "sourceClass": "..." },
@@ -254,6 +260,9 @@ Expected response: `{ "listings": [...] }` (also accepts `results`, `data`, `ite
     "energyPremiumSignal": null,
     "listingTurnoverSignal": { "signalId": "...", "sourceClass": "elaborated" }
   },
+  "marketSignalsList": [
+    { "key": "priceBandLocale", "label": "Fascia prezzo locale", "value": "€2800-3600/mq", "detail": "..." }
+  ],
   "marketConfidence": 0.72,
   "marketCoverageLevel": "buona",
   "sourceType": "commercial_verified|commercial_partial|elaborated|unavailable",
@@ -263,6 +272,14 @@ Expected response: `{ "listings": [...] }` (also accepts `results`, `data`, `ite
   "providerBreakdown": [{ "provider": "...", "available": true, "sourceClass": "..." }]
 }
 ```
+
+**Additive backward-compat fields (v3.3.1+):**
+- `comparablesSummary.count` = alias of `comparablesCount`
+- `comparablesSummary.q1PricePerSqm` = alias of `lowerQuartilePricePerSqm`
+- `comparablesSummary.q3PricePerSqm` = alias of `upperQuartilePricePerSqm`
+- `comparablesSummary.marketDepth` = `profondo` (≥60% depth) | `sufficiente` (≥30%) | `limitato`
+- `comparablesSummary.marketFreshnessLabel` = `recente` (≥70% fresh) | `moderata` (≥40%) | `datata`
+- `marketSignalsList` = flat array version of `marketSignals` keyed object
 
 **Source Class Model:**
 - `official` — Only real official sources (OMI, ISTAT)
@@ -286,6 +303,14 @@ Expected response: `{ "listings": [...] }` (also accepts `results`, `data`, `ite
 - `MARKET_PROVIDER_1_API_KEY`, `MARKET_PROVIDER_1_BASE_URL`
 - `MARKET_PROVIDER_2_API_KEY`, `MARKET_PROVIDER_2_BASE_URL`
 - `MARKET_PROVIDER_3_API_KEY`, `MARKET_PROVIDER_3_BASE_URL`
+
+### connectivityContext (forecast/infrastrutture, v3.3.1+)
+
+Explicit precision marking for connectivity data. Precision: `comune` (current), `civico`/`strada` (future).
+
+### schoolContext (forecast/sviluppo-area, v3.3.1+)
+
+School data from MIM Open Data (`mim_schools` table). Precision: `comune`. Returns `available: false` when empty.
 
 ### UNAVAILABLE Endpoints
 These endpoints are intentionally scaffolded but return `sourceType: "unavailable"` with explicit `limitations`. They do NOT invent or mock data. Future integration with real data sources will activate them.
