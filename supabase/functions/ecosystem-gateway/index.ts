@@ -225,7 +225,7 @@ Deno.serve(async (req) => {
     }
 
     const authErr = requireSecret(req, debugId);
-    if (authErr) return authErr;
+    if (authErr) return withIdentity(authErr, "auth-rejected");
 
     // Parse body
     const rawBody = await req.text();
