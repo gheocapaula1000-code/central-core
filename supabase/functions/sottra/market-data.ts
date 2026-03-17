@@ -102,6 +102,12 @@ export interface ComparablesSummary {
   comparableCoverageLevel: "buona" | "parziale" | "scarsa" | "insufficiente";
   marketDataConfidence: number;
   marketDataReason: string;
+  // ── Additive backward-compatible aliases (Phase 1) ──
+  count: number;                             // = comparablesCount
+  q1PricePerSqm: number | null;             // = lowerQuartilePricePerSqm
+  q3PricePerSqm: number | null;             // = upperQuartilePricePerSqm
+  marketDepth: "profondo" | "sufficiente" | "limitato";
+  marketFreshnessLabel: "recente" | "moderata" | "datata";
 }
 
 export interface MarketSignals {
