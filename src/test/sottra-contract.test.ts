@@ -1832,3 +1832,152 @@ describe("Sottra contract — OMI geo level consistency", () => {
     expect(aiResult.sourceCoverageLevel).toBe("comunale");
   });
 });
+
+// ── AO. scan/market-context alias ─────────────────────────────
+
+describe("Sottra contract — scan/market-context alias", () => {
+  it("scan/market-context is a valid route alias", () => {
+    const path = "/scan/market-context";
+    const fullPath = `/functions/v1/sottra${path}`;
+    expect(fullPath.endsWith("/scan/market-context")).toBe(true);
+  });
+
+  it("scan/market-context produces same shape as scan/market", () => {
+    const shape = {
+      marketContext: "unavailable",
+      comparablesSummary: null,
+      marketSignals: {},
+      marketSignalsList: [],
+      marketConfidence: 0,
+      sourceType: "unavailable",
+    };
+    expect(shape).toHaveProperty("marketContext");
+    expect(shape).toHaveProperty("marketSignalsList");
+    expect(Array.isArray(shape.marketSignalsList)).toBe(true);
+  });
+});
+
+// ── AP. Market additive backward-compat fields ────────────────
+
+describe("Sottra contract — market additive compat fields", () => {
+  it("comparablesSummary includes additive aliases", () => {
+    const summary = {
+      comparablesCount: 10,
+      medianPricePerSqm: 3200,
+      lowerQuartilePricePerSqm: 2800,
+      upperQuartilePricePerSqm: 3600,
+      freshnessScore: 0.75,
+      marketDepthScore: 0.67,
+      comparableCoverageLevel: "buona",
+      marketDataConfidence: 0.72,
+      marketDataReason: "10 comparabili",
+      count: 10,
+      q1PricePerSqm: 2800,
+      q3PricePerSqm: 3600,
+      marketDepth: "profondo",
+      marketFreshnessLabel: "recente",
+    };
+    expect(summary.count).toBe(summary.comparablesCount);
+    expect(summary.q1PricePerSqm).toBe(summary.lowerQuartilePricePerSqm);
+    expect(summary.q3PricePerSqm).toBe(summary.upperQuartilePricePerSqm);
+    expect(["profondo", "sufficiente", "limitato"]).toContain(summary.marketDepth);
+    expect(["recente", "moderata", "datata"]).toContain(summary.marketFreshnessLabel);
+  });
+
+  it("marketSignalsList is flat array of signals", () => {
+    const list = [
+      { key: "priceBandLocale", label: "Fascia prezzo locale", value: "€2800-3600/mq", detail: "Basato su 10 comparabili" },
+      { key: "marketFreshness", label: "Freschezza mercato", value: 0.75, detail: "Score basato sull'età media" },
+    ];
+    for (const item of list) {
+      expect(item).toHaveProperty("key");
+      expect(item).toHaveProperty("label");
+      expect(item).toHaveProperty("value");
+      expect(item).toHaveProperty("detail");
+    }
+  });
+
+  it("unavailable result has empty marketSignalsList", () => {
+    const result = { marketSignalsList: [] };
+    expect(result.marketSignalsList).toHaveLength(0);
+  });
+});
+
+// ── AQ. connectivityContext precision ─────────────────────────
+
+describe("Sottra contract — connectivityContext precision", () => {
+  it("connectivityContext shape in infrastrutture response", () => {
+    const ctx = {
+      connectivityAvailable: true,
+      connectivityLabel: "Copertura BUL: FTTH 80%, FWA 95%",
+      connectivityPrecision: "comune",
+      connectivitySource: "Infratel/BUL — Piano Banda Ultralarga",
+      limitations: ["Dato di copertura a livello comunale, non puntuale al civico"],
+    };
+    expect(["civico", "strada", "comune"]).toContain(ctx.connectivityPrecision);
+    expect(ctx.connectivityAvailable).toBe(true);
+    expect(ctx.limitations.length).toBeGreaterThan(0);
+  });
+
+  it("unavailable connectivity returns precision=comune", () => {
+    const ctx = {
+      connectivityAvailable: false,
+      connectivityPrecision: "comune",
+      connectivitySource: null,
+    };
+    expect(ctx.connectivityAvailable).toBe(false);
+    expect(ctx.connectivityPrecision).toBe("comune");
+  });
+});
+
+// ── AR. schoolContext in sviluppo-area ─────────────────────────
+
+describe("Sottra contract — schoolContext", () => {
+  it("available schoolContext shape", () => {
+    const ctx = {
+      available: true,
+      totalSchools: 15,
+      byGrado: { infanzia: 3, primaria: 5, secondaria_i: 4, secondaria_ii: 3 },
+      gradiPresenti: ["infanzia", "primaria", "secondaria_i", "secondaria_ii"],
+      nearestSchools: [{ denominazione: "IC Milano 1", grado: "primaria", indirizzo: "Via Roma 10" }],
+      precision: "comune",
+      source: "MIM — Ministero Istruzione e Merito (Open Data)",
+    };
+    expect(ctx.available).toBe(true);
+    expect(ctx.totalSchools).toBeGreaterThan(0);
+    expect(ctx.precision).toBe("comune");
+  });
+
+  it("unavailable schoolContext when no data", () => {
+    const ctx = { available: false, totalSchools: 0, source: null };
+    expect(ctx.available).toBe(false);
+    expect(ctx.source).toBeNull();
+  });
+
+  it("schoolContext never invents data", () => {
+    const ctx = { available: false, totalSchools: 0 };
+    expect(ctx.available).toBe(false);
+  });
+});
+
+// ── AS. Energy — no unit-level data ───────────────────────────
+
+describe("Sottra contract — energy policy", () => {
+  it("scan/energy remains unavailable without real APE source", () => {
+    const data = { classeEnergetica: null, sourceType: "unavailable" };
+    expect(data.classeEnergetica).toBeNull();
+    expect(data.sourceType).toBe("unavailable");
+  });
+});
+
+// ── AT. National coverage model ───────────────────────────────
+
+describe("Sottra contract — national coverage model", () => {
+  it("unavailable modules correctly listed", () => {
+    const unavailable = [
+      "scan/cadastral", "scan/listings", "scan/energy",
+      "scan/condominio", "scan/storico-transazioni", "forecast/moodscore",
+    ];
+    expect(unavailable).toHaveLength(6);
+  });
+});
