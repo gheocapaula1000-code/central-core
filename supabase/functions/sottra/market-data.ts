@@ -841,6 +841,7 @@ export async function collectMarketData(
     marketContext,
     comparablesSummary: summary,
     marketSignals: signals,
+    marketSignalsList: buildMarketSignalsList(signals),
     marketConfidence: parseFloat(confidence.toFixed(2)),
     marketConfidenceReason: summary
       ? `${summary.comparablesCount} comparabili da ${results.filter(r => r.available).length} provider, ` +
