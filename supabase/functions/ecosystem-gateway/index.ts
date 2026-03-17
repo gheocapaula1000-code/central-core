@@ -207,7 +207,7 @@ Deno.serve(async (req) => {
   try {
     // Origin policy
     const originBlock = enforceOriginPolicy(req, debugId);
-    if (originBlock) return originBlock;
+    if (originBlock) return withIdentity(originBlock, "origin-blocked");
 
     // ── GET routes (public, no auth) ──
     if (req.method === "GET") {
