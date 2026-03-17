@@ -55,6 +55,7 @@ const SOTTRA_SCAN_PATHS = [
   { path: "/scan/condominio",           method: "POST", description: "Condominium data (UNAVAILABLE)" },
   { path: "/scan/storico-transazioni",  method: "POST", description: "Transaction history (UNAVAILABLE)" },
   { path: "/scan/market",               method: "POST", description: "Market data comparables + signals" },
+  { path: "/scan/market-context",       method: "POST", description: "Market data (backward-compat alias)" },
 ];
 
 const SOTTRA_FORECAST_PATHS = [
