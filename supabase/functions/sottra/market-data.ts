@@ -874,6 +874,7 @@ function makeUnavailableResult(reason: string, limitations: string[]): MarketCon
       energyPremiumSignal: null,
       listingTurnoverSignal: null,
     },
+    marketSignalsList: [],
     marketConfidence: 0,
     marketConfidenceReason: reason,
     marketCoverageLevel: "insufficiente",
