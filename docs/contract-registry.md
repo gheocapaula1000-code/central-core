@@ -243,7 +243,12 @@ Expected response: `{ "listings": [...] }` (also accepts `results`, `data`, `ite
     "marketDepthScore": 0.67,
     "comparableCoverageLevel": "buona|parziale|scarsa|insufficiente",
     "marketDataConfidence": 0.72,
-    "marketDataReason": "..."
+    "marketDataReason": "...",
+    "count": 10,
+    "q1PricePerSqm": 2800,
+    "q3PricePerSqm": 3600,
+    "marketDepth": "profondo|sufficiente|limitato",
+    "marketFreshnessLabel": "recente|moderata|datata"
   },
   "marketSignals": {
     "priceBandLocale": { "signalId": "...", "sourceClass": "..." },
@@ -255,6 +260,9 @@ Expected response: `{ "listings": [...] }` (also accepts `results`, `data`, `ite
     "energyPremiumSignal": null,
     "listingTurnoverSignal": { "signalId": "...", "sourceClass": "elaborated" }
   },
+  "marketSignalsList": [
+    { "key": "priceBandLocale", "label": "Fascia prezzo locale", "value": "€2800-3600/mq", "detail": "..." }
+  ],
   "marketConfidence": 0.72,
   "marketCoverageLevel": "buona",
   "sourceType": "commercial_verified|commercial_partial|elaborated|unavailable",
@@ -264,6 +272,14 @@ Expected response: `{ "listings": [...] }` (also accepts `results`, `data`, `ite
   "providerBreakdown": [{ "provider": "...", "available": true, "sourceClass": "..." }]
 }
 ```
+
+**Additive backward-compat fields (v3.3.1+):**
+- `comparablesSummary.count` = alias of `comparablesCount`
+- `comparablesSummary.q1PricePerSqm` = alias of `lowerQuartilePricePerSqm`
+- `comparablesSummary.q3PricePerSqm` = alias of `upperQuartilePricePerSqm`
+- `comparablesSummary.marketDepth` = `profondo` (≥60% depth) | `sufficiente` (≥30%) | `limitato`
+- `comparablesSummary.marketFreshnessLabel` = `recente` (≥70% fresh) | `moderata` (≥40%) | `datata`
+- `marketSignalsList` = flat array version of `marketSignals` keyed object
 
 **Source Class Model:**
 - `official` — Only real official sources (OMI, ISTAT)
