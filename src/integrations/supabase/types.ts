@@ -131,6 +131,57 @@ export type Database = {
         }
         Relationships: []
       }
+      mim_schools: {
+        Row: {
+          cap: string | null
+          codice_istat: string | null
+          codice_meccanografico: string
+          comune: string
+          created_at: string | null
+          denominazione: string
+          grado: string
+          id: number
+          indirizzo: string | null
+          lat: number | null
+          lng: number | null
+          provincia: string
+          regione: string | null
+          tipologia: string | null
+        }
+        Insert: {
+          cap?: string | null
+          codice_istat?: string | null
+          codice_meccanografico: string
+          comune: string
+          created_at?: string | null
+          denominazione: string
+          grado: string
+          id?: never
+          indirizzo?: string | null
+          lat?: number | null
+          lng?: number | null
+          provincia: string
+          regione?: string | null
+          tipologia?: string | null
+        }
+        Update: {
+          cap?: string | null
+          codice_istat?: string | null
+          codice_meccanografico?: string
+          comune?: string
+          created_at?: string | null
+          denominazione?: string
+          grado?: string
+          id?: never
+          indirizzo?: string | null
+          lat?: number | null
+          lng?: number | null
+          provincia?: string
+          regione?: string | null
+          tipologia?: string | null
+        }
+        Relationships: []
+      }
       omi_import_jobs: {
         Row: {
           batch_size: number
