@@ -354,12 +354,14 @@ export async function handleForecastSviluppoArea(
 
   console.log(`[sviluppo-area] comune=${comune} provincia=${provincia} debug_id=${debugId}`);
 
-  // Parallel fetch all sources
-  const [ocResult, infraResult, mitResult, localResult] = await Promise.all([
+  // Parallel fetch all sources (including school data)
+  const supabase = getSupabase();
+  const [ocResult, infraResult, mitResult, localResult, schoolResult] = await Promise.all([
     fetchOpenCoesione(comune, lat, lng),
     fetchInfratel(comune),
     fetchMITCantieri(comune, provincia),
     fetchLocalDBSignals(comune),
+    supabase.from("mim_schools").select("denominazione, grado, indirizzo, tipologia, lat, lng").ilike("comune", comune).limit(100),
   ]);
 
   // Compute score
