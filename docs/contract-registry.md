@@ -304,6 +304,14 @@ Expected response: `{ "listings": [...] }` (also accepts `results`, `data`, `ite
 - `MARKET_PROVIDER_2_API_KEY`, `MARKET_PROVIDER_2_BASE_URL`
 - `MARKET_PROVIDER_3_API_KEY`, `MARKET_PROVIDER_3_BASE_URL`
 
+### connectivityContext (forecast/infrastrutture, v3.3.1+)
+
+Explicit precision marking for connectivity data. Precision: `comune` (current), `civico`/`strada` (future).
+
+### schoolContext (forecast/sviluppo-area, v3.3.1+)
+
+School data from MIM Open Data (`mim_schools` table). Precision: `comune`. Returns `available: false` when empty.
+
 ### UNAVAILABLE Endpoints
 These endpoints are intentionally scaffolded but return `sourceType: "unavailable"` with explicit `limitations`. They do NOT invent or mock data. Future integration with real data sources will activate them.
 
