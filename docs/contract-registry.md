@@ -168,7 +168,7 @@ No secrets, allowlists, or infrastructure details are exposed.
 **Function:** `sottra` (dedicated Edge Function)
 **Test file:** `src/test/sottra-contract.test.ts`
 
-### Scan Endpoints (8)
+### Scan Endpoints (9)
 
 | Route | Method | Description | Status |
 |-------|--------|-------------|--------|
@@ -180,6 +180,7 @@ No secrets, allowlists, or infrastructure details are exposed.
 | `/scan/condominio` | POST | Condominium data | ⚠️ UNAVAILABLE |
 | `/scan/storico-transazioni` | POST | Transaction history | ⚠️ UNAVAILABLE |
 | `/scan/market` | POST | Market comparables + signals | ✅ Active (env-gated) |
+| `/scan/market-context` | POST | Alias backward-compat → same handler as scan/market | ✅ Active |
 
 ### Forecast Endpoints (8)
 
