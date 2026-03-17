@@ -121,10 +121,18 @@ export interface MarketSignals {
   listingTurnoverSignal: MarketEvidenceSignal | null;
 }
 
+export interface MarketSignalFlat {
+  key: string;
+  label: string;
+  value: number | string | null;
+  detail: string;
+}
+
 export interface MarketContextResult {
   marketContext: "available" | "partial" | "unavailable";
   comparablesSummary: ComparablesSummary | null;
   marketSignals: MarketSignals;
+  marketSignalsList: MarketSignalFlat[];  // flat additive alias
   marketConfidence: number;
   marketConfidenceReason: string;
   marketCoverageLevel: "buona" | "parziale" | "scarsa" | "insufficiente";
