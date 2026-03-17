@@ -537,6 +537,12 @@ function buildComparablesSummary(
     depthScore * 0.4 + freshnessScore * 0.3 + (1 - spreadPenalty) * 0.3
   ));
 
+  // Derive additive labels
+  const marketDepthLabel: ComparablesSummary["marketDepth"] =
+    depthScore >= 0.60 ? "profondo" : depthScore >= 0.30 ? "sufficiente" : "limitato";
+  const marketFreshnessLabelVal: ComparablesSummary["marketFreshnessLabel"] =
+    freshnessScore >= 0.70 ? "recente" : freshnessScore >= 0.40 ? "moderata" : "datata";
+
   return {
     comparablesCount: comparables.length,
     medianPricePerSqm: medianPrice ? Math.round(medianPrice) : null,
@@ -550,6 +556,12 @@ function buildComparablesSummary(
       `prezzo mediano €${medianPrice ? Math.round(medianPrice) : "n/d"}/mq, ` +
       `freshness ${(freshnessScore * 100).toFixed(0)}%, ` +
       `copertura ${coverageLevel}`,
+    // Additive backward-compatible aliases
+    count: comparables.length,
+    q1PricePerSqm: q1 ? Math.round(q1) : null,
+    q3PricePerSqm: q3 ? Math.round(q3) : null,
+    marketDepth: marketDepthLabel,
+    marketFreshnessLabel: marketFreshnessLabelVal,
   };
 }
 
