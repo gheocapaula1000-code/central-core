@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.ecosystem-gateway]
 verify_jwt = false
+
+[functions.viral-core]
+verify_jwt = false

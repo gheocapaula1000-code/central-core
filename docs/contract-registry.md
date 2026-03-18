@@ -395,7 +395,70 @@ These endpoints are intentionally scaffolded but return `sourceType: "unavailabl
 
 ---
 
-## Error Codes (shared across all PWAs)
+## Viral Core
+
+**Function:** `viral-core` (dedicated Edge Function)
+**Test file:** `src/test/viral-core-contract.test.ts`
+**Base path:** `/functions/v1/viral-core`
+**Service kind:** `viral-content-engine`
+**Calling mode:** `proxy`
+
+> **Private content generation engine for Viral Lab.** Centralizes multi-platform content generation, policy checking, and media brief building. Accessed only via core-proxy. No direct social media publishing, no social login, no scraping.
+
+### Public Routes (no auth)
+
+| Route | Method | Description | Status |
+|-------|--------|-------------|--------|
+| `/` | GET | Health (alias) | ✅ Active |
+| `/health` | GET | Health probe | ✅ Active |
+| `/__health` | GET | Alt health probe | ✅ Active |
+| `/manifest` | GET | Self-description | ✅ Active |
+| `/capabilities` | GET | Module catalog | ✅ Active |
+
+### Protected Routes (AI_CORE_SECRET)
+
+| Route | Method | Description | Status |
+|-------|--------|-------------|--------|
+| `/generate-bundle` | POST | Multi-platform content bundle (4 platforms) | ✅ Active |
+| `/generate-single` | POST | Single-platform content generation | ✅ Active |
+| `/policy-check` | POST | Deterministic anti-ban/anti-spam policy | ✅ Active |
+| `/build-media-brief` | POST | Media brief for downstream image generation | ✅ Active |
+
+### generate-bundle
+
+**Input:** `{ source_app?, argomento, obiettivo?, tono?, formato?, brandProfile?, options?: { includeGoogleAdsPack?, includeVideoScript15s?, includePolicyCheck? }, historyHints? }`
+**Output:** `{ contents: { tiktok, instagram, facebook, linkedin }, mediaSuggestions: { ... }, videoScript15s?, googleAdsPack?, policy: { riskLevel, publishModeRecommendation, riskFlags, notes } }`
+**Errors:** `MISSING_ARGOMENTO` (400)
+
+### generate-single
+
+**Input:** `{ source_app?, platform, argomento, obiettivo?, tono?, formato?, brandProfile?, historyHints? }`
+**Output:** `{ content, mediaSuggestion, policy: { riskLevel, publishModeRecommendation, riskFlags } }`
+**Errors:** `MISSING_ARGOMENTO` (400), `INVALID_PLATFORM` (400)
+
+### policy-check
+
+**Input:** `{ source_app?, contents: { tiktok?, instagram?, facebook?, linkedin? }, historyHints?, scheduleHints? }`
+**Output:** `{ riskLevel, publishModeRecommendation, riskFlags, normalizedSuggestions?, notes }`
+**Errors:** `MISSING_CONTENTS` (400), `INVALID_PLATFORM` (400)
+
+**Deterministic checks:** cross-platform copy similarity (Jaccard), hashtag repetition, history overlap, CTA overuse, same-day cross-post risk.
+
+### build-media-brief
+
+**Input:** `{ source_app?, platform, content, mediaSuggestion?, formato?, brandProfile? }`
+**Output:** `{ mediaBrief: { visualConcept, style, subject, colors, mood, composition, safeRenderPrompt }, policy: { riskLevel, notes } }`
+**Errors:** `MISSING_CONTENT` (400), `INVALID_PLATFORM` (400)
+
+### Non-Goals
+
+- No social media publishing or login
+- No browser automation or scraping
+- No direct PWA coupling
+- No new secrets required (reuses `AI_CORE_SECRET` + `OPENAI_API_KEY`)
+
+---
+
 
 | Code | HTTP | Description |
 |------|------|-------------|

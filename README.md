@@ -9,6 +9,7 @@ Backend condiviso (Supabase Edge Functions) per Wyloni, KeyDraft e Sottra. Gesti
 | ai-core-run | Orchestratore principale: OpenAI → Anthropic fallback, Perplexity per web search |
 | sottra | 8 endpoint per scanner edifici (scan + forecast) |
 | ecosystem-gateway | Orchestratore opzionale cross-app: enrichment, service-pack, report unificato |
+| viral-core | Motore privato per Viral Lab: generazione contenuti multicanale, policy check, media brief |
 | health | Health check |
 
 ## Architettura
@@ -22,6 +23,11 @@ App (Wyloni/KeyDraft/Sottra)
          ↳ best-effort: sottra internals
          ↳ catalogo statico: servizi Wyloni
          ↳ NON chiama KeyDraft/Wyloni direttamente
+      → viral-core (motore contenuti privato, via core-proxy)
+         ↳ generazione multicanale (TikTok, Instagram, Facebook, LinkedIn)
+         ↳ policy anti-ban/anti-spam deterministica
+         ↳ media brief per generazione immagini
+         ↳ NON pubblica sui social, NON fa scraping
 ```
 
 ## Variabili d'ambiente (Supabase Secrets)
