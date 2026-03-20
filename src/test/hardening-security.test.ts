@@ -28,7 +28,7 @@ const SENSITIVE_HEADER_NAMES = [
 describe("Security — Diagnostics never leak secrets", () => {
   const sampleHealthResponse = {
     status: "ok",
-    version: "3.3.2",
+    version: "3.3.3",
     contract: "central-core-v3",
     function: "ai-core-run",
     expectedBasePath: "/functions/v1/ai-core-run",
@@ -51,7 +51,7 @@ describe("Security — Diagnostics never leak secrets", () => {
 
   const sampleManifest = {
     contract: "central-core-v3",
-    version: "3.3.2",
+    version: "3.3.3",
     function: "ai-core-run",
     serviceKind: "ai-router",
     expectedBasePath: "/functions/v1/ai-core-run",
@@ -202,8 +202,8 @@ describe("Security — redactSensitive contract", () => {
   });
 
   it("preserves non-sensitive content", () => {
-    const result = redactSensitive("status=ok version=3.3.2 debug_id=abc");
-    expect(result).toBe("status=ok version=3.3.2 debug_id=abc");
+    const result = redactSensitive("status=ok version=3.3.3 debug_id=abc");
+    expect(result).toBe("status=ok version=3.3.3 debug_id=abc");
   });
 
   it("handles empty string", () => {
