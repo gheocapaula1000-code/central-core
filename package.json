@@ -11,7 +11,10 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "npm run lint && npm run test && npm run build"
+    "verify": "npm run lint && npm run test && npm run build",
+    "verify:secrets": "bash scripts/verify-secrets.sh",
+    "verify:package": "bash scripts/verify-package.sh",
+    "audit:release": "bash scripts/audit-release.sh"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
