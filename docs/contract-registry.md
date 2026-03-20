@@ -4,7 +4,7 @@
 > Breaking any path, envelope, or shape listed here is a potential outage.
 > Last updated: 2026-03-20
 >
-> See also: [API Versioning](./api-versioning.md) | [Client Integration Guide](./client-integration-guide.md) | [Proxy Contract](./proxy-contract.md) | [Operational Checklist](./operational-checklist.md) | [Changelog](./changelog.md) | [Release Pipeline](./release-pipeline.md) | [OpenAPI Summary](./openapi-summary.yaml)
+> See also: [API Versioning](./api-versioning.md) | [Client Integration Guide](./client-integration-guide.md) | [Proxy Contract](./proxy-contract.md) | [Operational Checklist](./operational-checklist.md) | [Client Compatibility Matrix](./client-compatibility-matrix.md) | [Secrets & Rotation](./secrets-and-rotation.md) | [Incident Response](./incident-response.md) | [Changelog](./changelog.md) | [Release Pipeline](./release-pipeline.md) | [OpenAPI Summary](./openapi-summary.yaml)
 
 ---
 
