@@ -256,8 +256,7 @@ Deno.serve(async (req: Request) => {
         domains: AI_CORE_DOMAINS,
         callingMode: "proxy",
       });
-      const res = ok(req, manifest, [], debugId);
-      return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "manifest" });
+      return withIdentity(ok(req, manifest, [], debugId), "manifest");
     }
 
     // Health check — no auth required, public
