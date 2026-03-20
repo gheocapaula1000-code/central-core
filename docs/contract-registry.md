@@ -495,3 +495,50 @@ These endpoints are intentionally scaffolded but return `sourceType: "unavailabl
 | `MISSING_CONTENTS` | 400 | viral-core: missing contents |
 | `MISSING_CONTENT` | 400 | viral-core: missing content |
 | `MISSING_PROPERTY` | 400 | gateway: missing property |
+
+---
+
+## Regiads
+
+**Function:** `viral-core` · **Tier:** stable
+**Test file:** `src/test/regiads-contract.test.ts`
+**Base path:** `/functions/v1/viral-core`
+**Domain:** —
+**Calling mode:** `proxy`
+
+> **Content generation client for Regiads.** Uses viral-core for multi-platform content, policy checking, and media brief building. Accessed exclusively via core-proxy.
+
+| Route | Method | Description | Status |
+|-------|--------|-------------|--------|
+| `/health` | GET | Health probe | ✅ Active |
+| `/__health` | GET | Alt health probe | ✅ Active |
+| `/manifest` | GET | Self-description | ✅ Active |
+| `/capabilities` | GET | Module catalog | ✅ Active |
+| `/generate-bundle` | POST | Multi-platform content bundle | ✅ Active |
+| `/generate-single` | POST | Single-platform content | ✅ Active |
+| `/policy-check` | POST | Anti-ban policy check | ✅ Active |
+| `/build-media-brief` | POST | Media brief builder | ✅ Active |
+
+### Proxy Requirements
+- `ALLOWED_PATHS` must include `/viral-core`
+- `x-internal-secret` must inject `AI_CORE_SECRET`
+- `x-source-app: regiads`
+- Timeout: 60s for generate-bundle, 45s for generate-single, 20s for policy-check and build-media-brief
+
+---
+
+## Cross-Reference: Documents
+
+| Document | Purpose |
+|----------|---------|
+| [API Versioning](./api-versioning.md) | SemVer policy, deprecation rules |
+| [Client Integration Guide](./client-integration-guide.md) | Auth, headers, envelope standard |
+| [Proxy Contract](./proxy-contract.md) | Canonical core-proxy implementation |
+| [Operational Checklist](./operational-checklist.md) | Deploy, smoke test, upgrade process |
+| [Client Compatibility Matrix](./client-compatibility-matrix.md) | Client → endpoint dependency mapping |
+| [Secrets & Rotation](./secrets-and-rotation.md) | Secret inventory and rotation procedures |
+| [Incident Response](./incident-response.md) | Incident runbook |
+| [Backup & Restore](./backup-restore-checklist.md) | Recovery procedures |
+| [Release Acceptance](./release-acceptance-checklist.md) | Pre/post-release gate checklist |
+| [Changelog](./changelog.md) | Version history |
+| [OpenAPI Summary](./openapi-summary.yaml) | API surface summary |
