@@ -14,6 +14,7 @@ import {
   CORE_CONTRACT,
   addIdentityHeaders,
   buildManifest,
+  enforceOriginPolicy,
 } from "../_shared/http.ts";
 
 // ── Scan handlers ──
