@@ -52,6 +52,13 @@ const FUNCTION_NAME = "sottra";
 const EXPECTED_BASE_PATH = "/functions/v1/sottra";
 
 // ═══════════════════════════════════════════════════════════════
+// IDENTITY HELPER — consistent with ecosystem-gateway, viral-core
+// ═══════════════════════════════════════════════════════════════
+function withIdentity(res: Response, route: string): Response {
+  return addIdentityHeaders(res, { function: FUNCTION_NAME, route });
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ROUTER
 // ═══════════════════════════════════════════════════════════════
 
