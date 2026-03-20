@@ -327,14 +327,14 @@ Deno.serve(async (req: Request) => {
       }
 
       const allOk = Object.values(results).every((r) => r.status === "ok");
-      return ok(req, {
+      return withIdentity(ok(req, {
         status: allOk ? "all_providers_ok" : "some_providers_failed",
         providers: results,
         function: FUNCTION_NAME,
         contract: CORE_CONTRACT,
         time: new Date().toISOString(),
         debug_id: debugId,
-      }, allOk ? [] : ["Some providers failed diagnostics"], debugId);
+      }, allOk ? [] : ["Some providers failed diagnostics"], debugId), "diagnostics");
     }
 
     // ═══════════════════════════════════════════════════════════════
