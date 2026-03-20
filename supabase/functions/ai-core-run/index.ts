@@ -551,26 +551,26 @@ Deno.serve(async (req: Request) => {
     // ── Web Scrape (Firecrawl) ─────────────────────────────────
     if (pathname.endsWith("/web/scrape")) {
       const rawBody = await req.text();
-      if (rawBody.length > 100_000) return fail(req, 413, "PAYLOAD_TOO_LARGE", "Request body exceeds 100KB", debugId);
+      if (rawBody.length > 100_000) return withIdentity(fail(req, 413, "PAYLOAD_TOO_LARGE", "Request body exceeds 100KB", debugId), "web/scrape");
       let body: Record<string, unknown> = {};
       try { body = JSON.parse(rawBody); } catch {
-        return fail(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId);
+        return withIdentity(fail(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId), "web/scrape");
       }
       const url = (body.url as string) ?? "";
-      if (!url || !url.startsWith("http")) return fail(req, 400, "MISSING_URL", "Provide a valid url field", debugId);
+      if (!url || !url.startsWith("http")) return withIdentity(fail(req, 400, "MISSING_URL", "Provide a valid url field", debugId), "web/scrape");
       const format = (body.format as string) || "markdown";
       console.log(`[ai-core-run] web/scrape url=${url.slice(0, 100)} format=${format} debug_id=${debugId}`);
       const result = await firecrawlExtract(url);
       if (!result) {
-        return ok(req, { success: false, content: null, error: "Scrape failed or returned empty" }, ["Firecrawl returned no content"], debugId);
+        return withIdentity(ok(req, { success: false, content: null, error: "Scrape failed or returned empty" }, ["Firecrawl returned no content"], debugId), "web/scrape");
       }
-      return ok(req, {
+      return withIdentity(ok(req, {
         success: true,
         content: result.markdown,
         markdown: result.markdown,
         text: result.markdown,
         metadata: { title: result.title, sourceUrl: result.url, scrapedAt: new Date().toISOString(), context: (body.context as string) ?? null },
-      }, [], debugId);
+      }, [], debugId), "web/scrape");
     }
 
     // Parse body first (needed for caller key construction)
