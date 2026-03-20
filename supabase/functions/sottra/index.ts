@@ -93,6 +93,10 @@ Deno.serve(async (req) => {
   console.log(`[sottra] method=${req.method} pathname=${pathname} debug_id=${debugId}`);
 
   try {
+    // Origin policy — consistent with ecosystem-gateway, viral-core
+    const originBlock = enforceOriginPolicy(req, debugId);
+    if (originBlock) return withIdentity(originBlock, "origin-blocked");
+
     // Manifest endpoint — public, no auth
     if (req.method === "GET" && pathname.endsWith("/manifest")) {
       const manifest = buildManifest({
@@ -106,13 +110,12 @@ Deno.serve(async (req) => {
         ],
         callingMode: "direct",
       });
-      const res = ok(req, manifest, [], debugId);
-      return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "manifest" });
+      return withIdentity(ok(req, manifest, [], debugId), "manifest");
     }
 
     // Health check — no auth
     if (req.method === "GET" && (pathname.endsWith("/health") || pathname === "/")) {
-      const res = ok(req, {
+      return withIdentity(ok(req, {
         status: "healthy",
         engine: "sottra",
         version: CORE_VERSION,
@@ -121,26 +124,25 @@ Deno.serve(async (req) => {
         expectedBasePath: EXPECTED_BASE_PATH,
         routes: Object.keys(ROUTES),
         time: new Date().toISOString(),
-      }, [], debugId);
-      return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "health" });
+      }, [], debugId), "health");
     }
 
     // Auth
     const authErr = requireSecret(req, debugId);
-    if (authErr) return authErr;
+    if (authErr) return withIdentity(authErr, "auth-rejected");
 
     if (req.method !== "POST") {
-      return fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId);
+      return withIdentity(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), "error");
     }
 
     // Parse body
     const rawBody = await req.text();
     if (rawBody.length > 500_000) {
-      return fail(req, 413, "PAYLOAD_TOO_LARGE", "Request body exceeds 500KB", debugId);
+      return withIdentity(fail(req, 413, "PAYLOAD_TOO_LARGE", "Request body exceeds 500KB", debugId), "error");
     }
     let body: Record<string, unknown> = {};
     try { body = JSON.parse(rawBody); } catch {
-      return fail(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId);
+      return withIdentity(fail(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId), "error");
     }
 
     // Route matching: find the matching suffix
@@ -152,12 +154,12 @@ Deno.serve(async (req) => {
       }
     }
 
-    return fail(req, 404, "ROUTE_NOT_FOUND", `No handler for ${pathname}. Available: ${Object.keys(ROUTES).join(", ")}`, debugId);
+    return withIdentity(fail(req, 404, "ROUTE_NOT_FOUND", `No handler for ${pathname}. Available: ${Object.keys(ROUTES).join(", ")}`, debugId), "error");
 
   } catch (err) {
     // Security: never leak stack traces or internal details to user-facing payload
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error(`[sottra] Error debug_id=${debugId}:`, errMsg);
-    return fail(req, 500, "INTERNAL_ERROR", `An internal error occurred. Reference: ${debugId}`, debugId);
+    return withIdentity(fail(req, 500, "INTERNAL_ERROR", `An internal error occurred. Reference: ${debugId}`, debugId), "error");
   }
 });

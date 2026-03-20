@@ -711,6 +711,6 @@ ISTRUZIONI:
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error(`[ai-core-run] Error debug_id=${debugId}:`, errMsg);
-    return fail(req, 500, "INTERNAL_ERROR", `An internal error occurred. Reference: ${debugId}`, debugId);
+    return addIdentityHeaders(fail(req, 500, "INTERNAL_ERROR", `An internal error occurred. Reference: ${debugId}`, debugId), { function: FUNCTION_NAME, route: "error" });
   }
 });
