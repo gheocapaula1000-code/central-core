@@ -540,8 +540,7 @@ Deno.serve(async (req: Request) => {
       };
 
       const warnings = failCount > 0 ? ["One or more selftest checks failed"] : warnCount > 0 ? ["Selftest completed with warnings"] : [];
-      const res = ok(req, report, warnings, debugId);
-      return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "__diagnostics/selftest" });
+      return withIdentity(ok(req, report, warnings, debugId), "__diagnostics/selftest");
     }
 
     // Auth
