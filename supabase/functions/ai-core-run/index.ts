@@ -685,8 +685,8 @@ ISTRUZIONI:
       }, [], debugId), "keydraft_engine");
     }
 
-    if (!prompt) return fail(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId);
-    if (prompt.length > 15_000) return fail(req, 400, "PROMPT_TOO_LONG", `Prompt exceeds 15000 characters`, debugId);
+    if (!prompt) return withIdentity(fail(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId), "run");
+    if (prompt.length > 15_000) return withIdentity(fail(req, 400, "PROMPT_TOO_LONG", `Prompt exceeds 15000 characters`, debugId), "run");
 
     console.log(`[ai-core-run] domain=${domain} task=${task} prompt_len=${prompt.length} source_app=${sourceApp} debug_id=${debugId}`);
 
@@ -699,14 +699,14 @@ ISTRUZIONI:
     const raw = parsed as Record<string, unknown> | null;
     console.log(`[ai-core-run] output_len=${output.length}`);
 
-    return ok(req, {
+    return withIdentity(ok(req, {
       final_output: output,
       data: parsed,
       offers:     raw?.offers     ?? [],
       properties: raw?.properties ?? [],
       results:    raw?.results    ?? [],
       debug_id: debugId,
-    }, [], debugId);
+    }, [], debugId), "run");
 
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
