@@ -182,7 +182,7 @@ describe("Security — redactSensitive contract", () => {
     let result = value;
     for (const val of Object.values(secrets)) {
       if (val && val.length > 3 && result.includes(val)) {
-        result = result.replaceAll(val, "[REDACTED]");
+        result = result.split(val).join("[REDACTED]");
       }
     }
     result = result.replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]");
