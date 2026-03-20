@@ -678,11 +678,11 @@ ISTRUZIONI:
       const output = await runAI(enginePrompt, "keydraft_realestate", "keydraft_engine");
       const parsed = parseOutput(output);
 
-      return ok(req, {
+      return withIdentity(ok(req, {
         final_output: output,
         data: parsed,
         debug_id: debugId,
-      }, [], debugId);
+      }, [], debugId), "keydraft_engine");
     }
 
     if (!prompt) return fail(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId);
