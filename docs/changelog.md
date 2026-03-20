@@ -5,6 +5,24 @@
 
 ---
 
+## [3.3.2] — 2026-03-20
+
+### Hardened
+- **sottra**: Added `enforceOriginPolicy` — consistent with ecosystem-gateway, viral-core, ai-core-run
+- **sottra**: Error responses (auth, method, JSON, 404, 500) now include identity headers via `withIdentity`
+- **ai-core-run**: Auth rejection and catch-all error responses now include identity headers
+- All functions now uniformly wrap error responses with `X-Core-Version`, `X-Core-Function`, `X-Core-Route`, `X-Core-Contract`
+
+### Added
+- Infrastructure consistency test suite (`hardening-infra-consistency.test.ts`)
+- Cross-function validation: identity headers, error codes, origin policy, health status, manifest contract, body limits
+
+### No Breaking Changes
+- `ai-core-run` health status remains `"ok"` (not `"healthy"`) for backward compat with Wyloni, KeyDraft, PRATICA
+- All existing paths, envelope shapes, and error codes unchanged
+
+---
+
 ## [3.3.1] — 2026-03-17
 
 ### Added
