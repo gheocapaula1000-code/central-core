@@ -281,10 +281,8 @@ Deno.serve(async (req: Request) => {
     // DIAGNOSTICS — protected by origin policy + diagnostic secret + rate limit
     // ═══════════════════════════════════════════════════════════════
     if (req.method === "GET" && pathname.endsWith("/diagnostics")) {
-      const originErr = enforceOriginPolicy(req, debugId);
-      if (originErr) return originErr;
       const diagSecErr = requireDiagnosticSecret(req, debugId);
-      if (diagSecErr) return diagSecErr;
+      if (diagSecErr) return withIdentity(diagSecErr, "diagnostics");
 
       // Rate limit for diagnostics
       purgeExpiredBuckets();
@@ -293,7 +291,7 @@ Deno.serve(async (req: Request) => {
       if (!diagRate.allowed) {
         const res = fail(req, 429, "RATE_LIMITED", `Too many diagnostic requests. Retry in ${diagRate.retryAfterSec}s.`, debugId);
         res.headers.set("Retry-After", String(diagRate.retryAfterSec));
-        return res;
+        return withIdentity(res, "diagnostics");
       }
 
       const testPrompt = "Rispondi SOLO con la parola: PONG";
