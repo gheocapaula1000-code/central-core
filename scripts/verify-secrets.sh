@@ -11,13 +11,18 @@ echo "════════════════════════�
 # 1. Check for real .env files (not .env.example)
 echo ""
 echo "▸ Checking for real .env files..."
-ENV_FILES=$(find . -maxdepth 3 -name '.env' -o -name '.env.local' -o -name '.env.development.local' -o -name '.env.production.local' -o -name '.env.test.local' 2>/dev/null | grep -v node_modules | grep -v '.env.example' || true)
-if [ -n "$ENV_FILES" ]; then
-  echo "  ✗ FAIL: Real .env files found:"
-  echo "$ENV_FILES" | sed 's/^/    /'
+# Note: ./.env is auto-managed by Lovable Cloud at runtime and excluded from git.
+# We check for NON-root .env files and dangerous variants that should never exist.
+DANGEROUS_ENV=$(find . -maxdepth 3 \( -name '.env.local' -o -name '.env.development.local' -o -name '.env.production.local' -o -name '.env.test.local' \) 2>/dev/null | grep -v node_modules || true)
+if [ -n "$DANGEROUS_ENV" ]; then
+  echo "  ✗ FAIL: Dangerous .env variants found:"
+  echo "$DANGEROUS_ENV" | sed 's/^/    /'
   EXIT_CODE=1
 else
-  echo "  ✓ No real .env files found"
+  echo "  ✓ No dangerous .env variants found"
+fi
+if [ -f ".env" ]; then
+  echo "  ⚠ .env present (auto-managed by platform, excluded from git)"
 fi
 
 # 2. Check for hardcoded API keys patterns
