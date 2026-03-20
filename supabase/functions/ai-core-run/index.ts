@@ -625,8 +625,8 @@ Deno.serve(async (req: Request) => {
     const prompt = (body.prompt as string) || (body.text as string) || "";
 
     // Input sanitization
-    if (domain && !SAFE_ID.test(domain)) return fail(req, 400, "INVALID_DOMAIN", "domain must match [a-z0-9_]", debugId);
-    if (task && !SAFE_ID.test(task)) return fail(req, 400, "INVALID_TASK", "task must match [a-z0-9_]", debugId);
+    if (domain && !SAFE_ID.test(domain)) return withIdentity(fail(req, 400, "INVALID_DOMAIN", "domain must match [a-z0-9_]", debugId), "error");
+    if (task && !SAFE_ID.test(task)) return withIdentity(fail(req, 400, "INVALID_TASK", "task must match [a-z0-9_]", debugId), "error");
 
     // ── KeyDraft Engine: photo analysis + listing generation ──
     if (task === "keydraft_engine") {
