@@ -47,6 +47,49 @@ export function makeDebugId(): string {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 12);
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Sensitive data redaction — used by diagnostics, logging, error payloads
+// ═══════════════════════════════════════════════════════════════
+const REDACT_PATTERNS = [
+  /API[_-]?KEY/i,
+  /SECRET/i,
+  /PASSWORD/i,
+  /TOKEN/i,
+  /SERVICE[_-]?ROLE/i,
+  /AUTHORIZATION/i,
+  /ALLOWED[_-]?ORIGINS/i,
+  /ADMIN[_-]?EMAILS/i,
+];
+
+/**
+ * Redact sensitive values from a string.
+ * Replaces env var values and patterns that look like secrets with [REDACTED].
+ * Safe to use in logs, diagnostics, and error messages.
+ */
+export function redactSensitive(value: string): string {
+  if (!value) return value;
+  let result = value;
+
+  // Redact known secret env var values
+  const secretNames = [
+    "AI_CORE_SECRET", "DIAGNOSTIC_SECRET", "DIAGNOSTIC_SELFTEST_SECRET",
+    "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "PERPLEXITY_API_KEY",
+    "FIRECRAWL_API_KEY", "GOOGLE_MAPS_API_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY", "CORE_ALLOWED_ORIGINS", "AI_CORE_ADMIN_EMAILS",
+  ];
+  for (const name of secretNames) {
+    const val = Deno.env.get(name);
+    if (val && val.length > 3 && result.includes(val)) {
+      result = result.replaceAll(val, "[REDACTED]");
+    }
+  }
+
+  // Redact Bearer tokens
+  result = result.replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]");
+
+  return result;
+}
+
 export function constantTimeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let result = 0;
