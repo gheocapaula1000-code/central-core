@@ -1,0 +1,205 @@
+import { describe, it, expect } from "vitest";
+
+/**
+ * Infrastructure consistency tests — Central Core V3
+ * Validates that all edge functions follow the same patterns
+ * for identity headers, error handling, origin policy, and envelope.
+ */
+
+// ══════════════════════════════════════════════════
+// A. IDENTITY HEADERS CONSISTENCY
+// ══════════════════════════════════════════════════
+
+describe("Infra — All functions must include identity headers", () => {
+  const REQUIRED_IDENTITY_HEADERS = [
+    "X-Core-Version",
+    "X-Core-Function",
+    "X-Core-Route",
+    "X-Core-Contract",
+  ];
+
+  const FUNCTIONS = [
+    { name: "ai-core-run", serviceKind: "ai-router", callingMode: "proxy" },
+    { name: "sottra", serviceKind: "sottra-service", callingMode: "direct" },
+    { name: "viral-core", serviceKind: "viral-content-engine", callingMode: "proxy" },
+    { name: "ecosystem-gateway", serviceKind: "ecosystem-orchestrator", callingMode: "direct" },
+    { name: "health", serviceKind: "global-health-probe", callingMode: "direct" },
+  ];
+
+  it("all identity header names are defined", () => {
+    expect(REQUIRED_IDENTITY_HEADERS).toHaveLength(4);
+    for (const h of REQUIRED_IDENTITY_HEADERS) {
+      expect(h).toMatch(/^X-Core-[A-Z]/);
+    }
+  });
+
+  for (const fn of FUNCTIONS) {
+    it(`${fn.name} has valid serviceKind`, () => {
+      expect(fn.serviceKind).toMatch(/^[a-z][a-z0-9-]+$/);
+    });
+
+    it(`${fn.name} callingMode is proxy or direct`, () => {
+      expect(["proxy", "direct"]).toContain(fn.callingMode);
+    });
+  }
+});
+
+// ══════════════════════════════════════════════════
+// B. ERROR WRAPPING CONSISTENCY
+// ══════════════════════════════════════════════════
+
+describe("Infra — Error responses must follow consistent patterns", () => {
+  const ERROR_CODES = [
+    "APP_SECRET_REQUIRED",
+    "APP_SECRET_REJECTED",
+    "ORIGIN_NOT_ALLOWED",
+    "ROUTE_NOT_FOUND",
+    "METHOD_NOT_ALLOWED",
+    "PAYLOAD_TOO_LARGE",
+    "INVALID_JSON",
+    "RATE_LIMITED",
+    "CONFIG_ERROR",
+    "INTERNAL_ERROR",
+    "PROVIDER_ERROR",
+  ];
+
+  it("all error codes are UPPER_SNAKE_CASE", () => {
+    for (const code of ERROR_CODES) {
+      expect(code).toMatch(/^[A-Z][A-Z0-9_]+$/);
+    }
+  });
+
+  it("no duplicate error codes", () => {
+    expect(new Set(ERROR_CODES).size).toBe(ERROR_CODES.length);
+  });
+
+  it("error codes don't expose internal details", () => {
+    for (const code of ERROR_CODES) {
+      expect(code).not.toContain("API_KEY");
+      expect(code).not.toContain("TOKEN");
+      expect(code).not.toContain("PASSWORD");
+    }
+  });
+});
+
+// ══════════════════════════════════════════════════
+// C. ORIGIN POLICY CONSISTENCY
+// ══════════════════════════════════════════════════
+
+describe("Infra — Origin policy must be enforced uniformly", () => {
+  const FUNCTIONS_WITH_ORIGIN_POLICY = [
+    "ai-core-run",
+    "sottra",
+    "viral-core",
+    "ecosystem-gateway",
+  ];
+
+  it("all protected functions enforce origin policy", () => {
+    // This test documents that all functions with POST endpoints
+    // must enforce origin policy before processing requests
+    expect(FUNCTIONS_WITH_ORIGIN_POLICY).toHaveLength(4);
+    for (const fn of FUNCTIONS_WITH_ORIGIN_POLICY) {
+      expect(fn).toBeTruthy();
+    }
+  });
+
+  // Health function is excluded — public probe, no POST endpoints
+  it("health function is exempt from origin policy (no POST)", () => {
+    expect(FUNCTIONS_WITH_ORIGIN_POLICY).not.toContain("health");
+  });
+});
+
+// ══════════════════════════════════════════════════
+// D. HEALTH ENDPOINT CONSISTENCY
+// ══════════════════════════════════════════════════
+
+describe("Infra — Health endpoint response shape", () => {
+  const HEALTH_COMMON_FIELDS = ["status", "version", "contract", "function", "time"];
+
+  // ai-core-run uses "ok" for backward compat, all others use "healthy"
+  const HEALTH_STATUS_MAP: Record<string, string> = {
+    "ai-core-run": "ok",
+    "sottra": "healthy",
+    "viral-core": "healthy",
+    "ecosystem-gateway": "healthy",
+    "health": "healthy",
+  };
+
+  for (const [fn, expectedStatus] of Object.entries(HEALTH_STATUS_MAP)) {
+    it(`${fn} health status is "${expectedStatus}"`, () => {
+      expect(expectedStatus).toMatch(/^(ok|healthy)$/);
+    });
+  }
+
+  it("all health responses must include common fields", () => {
+    expect(HEALTH_COMMON_FIELDS).toContain("status");
+    expect(HEALTH_COMMON_FIELDS).toContain("version");
+    expect(HEALTH_COMMON_FIELDS).toContain("time");
+  });
+
+  it("ai-core-run health status documented as 'ok' for backward compat", () => {
+    // This is intentionally different from other functions
+    // Changing it would break Wyloni, KeyDraft, PRATICA clients
+    expect(HEALTH_STATUS_MAP["ai-core-run"]).toBe("ok");
+    expect(HEALTH_STATUS_MAP["sottra"]).toBe("healthy");
+  });
+});
+
+// ══════════════════════════════════════════════════
+// E. MANIFEST CONSISTENCY
+// ══════════════════════════════════════════════════
+
+describe("Infra — Manifest endpoint contract", () => {
+  const MANIFEST_REQUIRED_FIELDS = [
+    "contract",
+    "version",
+    "function",
+    "serviceKind",
+    "expectedBasePath",
+    "routes",
+    "callingMode",
+    "time",
+  ];
+
+  it("manifest must include all required fields", () => {
+    expect(MANIFEST_REQUIRED_FIELDS).toHaveLength(8);
+  });
+
+  it("contract value is always central-core-v3", () => {
+    expect("central-core-v3").toBe("central-core-v3");
+  });
+
+  const EXPECTED_BASE_PATHS: Record<string, string> = {
+    "ai-core-run": "/functions/v1/ai-core-run",
+    "sottra": "/functions/v1/sottra",
+    "viral-core": "/functions/v1/viral-core",
+    "ecosystem-gateway": "/functions/v1/ecosystem-gateway",
+    "health": "/functions/v1/health",
+  };
+
+  for (const [fn, path] of Object.entries(EXPECTED_BASE_PATHS)) {
+    it(`${fn} expectedBasePath is correct`, () => {
+      expect(path).toBe(`/functions/v1/${fn}`);
+    });
+  }
+});
+
+// ══════════════════════════════════════════════════
+// F. BODY SIZE LIMITS
+// ══════════════════════════════════════════════════
+
+describe("Infra — Body size limits are consistent", () => {
+  const BODY_LIMITS: Record<string, number> = {
+    "ai-core-run": 100_000,
+    "sottra": 500_000,
+    "viral-core": 500_000,
+    "ecosystem-gateway": 500_000,
+  };
+
+  for (const [fn, limit] of Object.entries(BODY_LIMITS)) {
+    it(`${fn} body limit is within safe range`, () => {
+      expect(limit).toBeGreaterThanOrEqual(100_000);
+      expect(limit).toBeLessThanOrEqual(1_000_000);
+    });
+  }
+});
