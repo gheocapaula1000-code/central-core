@@ -5,6 +5,25 @@
 
 ---
 
+## [3.3.3] — 2026-03-20
+
+### Hardened
+- **ai-core-run**: Added `enforceOriginPolicy` at top level — now consistent with all other protected functions
+- **ai-core-run**: All responses (POST success, POST errors, rate-limit 429, diagnostics) now include identity headers via `withIdentity`
+- **ai-core-run**: Removed redundant per-section `enforceOriginPolicy` calls (metrics, diagnostics, selftest) — origin policy is now enforced once at the top
+- All 5 functions now use identical `withIdentity(res, route)` pattern for every response path
+
+### Added
+- Infrastructure consistency tests: origin policy ordering (G), intentional asymmetries documentation (H)
+- 14 new structural assertions documenting the `withIdentity` wrapping invariant and intentional differences
+
+### No Breaking Changes
+- `ai-core-run` health status remains `"ok"` (backward compat with Wyloni, KeyDraft, PRATICA)
+- All existing paths, envelope shapes, and error codes unchanged
+- `ai-core-run` body limit remains 100KB (others 500KB) — intentional, documented
+
+---
+
 ## [3.3.2] — 2026-03-20
 
 ### Hardened

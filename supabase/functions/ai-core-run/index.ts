@@ -228,6 +228,13 @@ const AI_CORE_DOMAINS = Object.keys(PIPELINES);
 // ═══════════════════════════════════════════════════════════════
 // Main handler
 // ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// IDENTITY HELPER — consistent with sottra, viral-core, ecosystem-gateway
+// ═══════════════════════════════════════════════════════════════
+function withIdentity(res: Response, route: string): Response {
+  return addIdentityHeaders(res, { function: FUNCTION_NAME, route });
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return handleOptions(req);
 
@@ -236,6 +243,9 @@ Deno.serve(async (req: Request) => {
   console.log(`[ai-core-run] method=${req.method} pathname=${pathname} debug_id=${debugId}`);
 
   try {
+    // Origin policy — consistent with sottra, viral-core, ecosystem-gateway
+    const originBlock = enforceOriginPolicy(req, debugId);
+    if (originBlock) return withIdentity(originBlock, "origin-blocked");
     // Manifest endpoint — public, no auth
     if (req.method === "GET" && pathname.endsWith("/manifest")) {
       const manifest = buildManifest({
@@ -246,40 +256,33 @@ Deno.serve(async (req: Request) => {
         domains: AI_CORE_DOMAINS,
         callingMode: "proxy",
       });
-      const res = ok(req, manifest, [], debugId);
-      return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "manifest" });
+      return withIdentity(ok(req, manifest, [], debugId), "manifest");
     }
 
     // Health check — no auth required, public
     if (req.method === "GET" && (pathname.endsWith("/health") || pathname.endsWith("/__health") || pathname === "/")) {
-      const res = ok(req, {
+      return withIdentity(ok(req, {
         status: "ok", version: CORE_VERSION, contract: CORE_CONTRACT,
         function: FUNCTION_NAME, expectedBasePath: EXPECTED_BASE_PATH,
         time: new Date().toISOString(),
-      }, [], debugId);
-      return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "health" });
+      }, [], debugId), "health");
     }
 
     // ═══════════════════════════════════════════════════════════════
     // METRICS — protected by origin policy + diagnostic secret + rate limit
     // ═══════════════════════════════════════════════════════════════
     if (req.method === "GET" && pathname.endsWith("/metrics")) {
-      const originErr = enforceOriginPolicy(req, debugId);
-      if (originErr) return originErr;
       const diagErr = requireDiagnosticSecret(req, debugId);
-      if (diagErr) return diagErr;
-      const res = ok(req, getMetrics(), [], debugId);
-      return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "metrics" });
+      if (diagErr) return withIdentity(diagErr, "metrics");
+      return withIdentity(ok(req, getMetrics(), [], debugId), "metrics");
     }
 
     // ═══════════════════════════════════════════════════════════════
     // DIAGNOSTICS — protected by origin policy + diagnostic secret + rate limit
     // ═══════════════════════════════════════════════════════════════
     if (req.method === "GET" && pathname.endsWith("/diagnostics")) {
-      const originErr = enforceOriginPolicy(req, debugId);
-      if (originErr) return originErr;
       const diagSecErr = requireDiagnosticSecret(req, debugId);
-      if (diagSecErr) return diagSecErr;
+      if (diagSecErr) return withIdentity(diagSecErr, "diagnostics");
 
       // Rate limit for diagnostics
       purgeExpiredBuckets();
@@ -288,7 +291,7 @@ Deno.serve(async (req: Request) => {
       if (!diagRate.allowed) {
         const res = fail(req, 429, "RATE_LIMITED", `Too many diagnostic requests. Retry in ${diagRate.retryAfterSec}s.`, debugId);
         res.headers.set("Retry-After", String(diagRate.retryAfterSec));
-        return res;
+        return withIdentity(res, "diagnostics");
       }
 
       const testPrompt = "Rispondi SOLO con la parola: PONG";
@@ -324,24 +327,22 @@ Deno.serve(async (req: Request) => {
       }
 
       const allOk = Object.values(results).every((r) => r.status === "ok");
-      return ok(req, {
+      return withIdentity(ok(req, {
         status: allOk ? "all_providers_ok" : "some_providers_failed",
         providers: results,
         function: FUNCTION_NAME,
         contract: CORE_CONTRACT,
         time: new Date().toISOString(),
         debug_id: debugId,
-      }, allOk ? [] : ["Some providers failed diagnostics"], debugId);
+      }, allOk ? [] : ["Some providers failed diagnostics"], debugId), "diagnostics");
     }
 
     // ═══════════════════════════════════════════════════════════════
     // SELFTEST — protected by origin policy + diagnostic secret + rate limit
     // ═══════════════════════════════════════════════════════════════
     if (req.method === "GET" && pathname.endsWith("/__diagnostics/selftest")) {
-      const originErr = enforceOriginPolicy(req, debugId);
-      if (originErr) return originErr;
       const diagSecErr = requireDiagnosticSecret(req, debugId);
-      if (diagSecErr) return diagSecErr;
+      if (diagSecErr) return withIdentity(diagSecErr, "__diagnostics/selftest");
 
       // Rate limit for selftest
       purgeExpiredBuckets();
@@ -350,7 +351,7 @@ Deno.serve(async (req: Request) => {
       if (!selfRate.allowed) {
         const res = fail(req, 429, "RATE_LIMITED", `Too many selftest requests. Retry in ${selfRate.retryAfterSec}s.`, debugId);
         res.headers.set("Retry-After", String(selfRate.retryAfterSec));
-        return res;
+        return withIdentity(res, "__diagnostics/selftest");
       }
 
       const tests: Array<{ name: string; status: "PASS" | "WARN" | "FAIL"; detail: string; mode: "reale" | "simulato" | "dry-run"; buckets?: string[] }> = [];
@@ -539,48 +540,47 @@ Deno.serve(async (req: Request) => {
       };
 
       const warnings = failCount > 0 ? ["One or more selftest checks failed"] : warnCount > 0 ? ["Selftest completed with warnings"] : [];
-      const res = ok(req, report, warnings, debugId);
-      return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "__diagnostics/selftest" });
+      return withIdentity(ok(req, report, warnings, debugId), "__diagnostics/selftest");
     }
 
     // Auth
     const authErr = requireSecret(req, debugId);
-    if (authErr) return addIdentityHeaders(authErr, { function: FUNCTION_NAME, route: "auth-rejected" });
-    if (req.method !== "POST") return addIdentityHeaders(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), { function: FUNCTION_NAME, route: "error" });
+    if (authErr) return withIdentity(authErr, "auth-rejected");
+    if (req.method !== "POST") return withIdentity(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), "error");
 
     // ── Web Scrape (Firecrawl) ─────────────────────────────────
     if (pathname.endsWith("/web/scrape")) {
       const rawBody = await req.text();
-      if (rawBody.length > 100_000) return fail(req, 413, "PAYLOAD_TOO_LARGE", "Request body exceeds 100KB", debugId);
+      if (rawBody.length > 100_000) return withIdentity(fail(req, 413, "PAYLOAD_TOO_LARGE", "Request body exceeds 100KB", debugId), "web/scrape");
       let body: Record<string, unknown> = {};
       try { body = JSON.parse(rawBody); } catch {
-        return fail(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId);
+        return withIdentity(fail(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId), "web/scrape");
       }
       const url = (body.url as string) ?? "";
-      if (!url || !url.startsWith("http")) return fail(req, 400, "MISSING_URL", "Provide a valid url field", debugId);
+      if (!url || !url.startsWith("http")) return withIdentity(fail(req, 400, "MISSING_URL", "Provide a valid url field", debugId), "web/scrape");
       const format = (body.format as string) || "markdown";
       console.log(`[ai-core-run] web/scrape url=${url.slice(0, 100)} format=${format} debug_id=${debugId}`);
       const result = await firecrawlExtract(url);
       if (!result) {
-        return ok(req, { success: false, content: null, error: "Scrape failed or returned empty" }, ["Firecrawl returned no content"], debugId);
+        return withIdentity(ok(req, { success: false, content: null, error: "Scrape failed or returned empty" }, ["Firecrawl returned no content"], debugId), "web/scrape");
       }
-      return ok(req, {
+      return withIdentity(ok(req, {
         success: true,
         content: result.markdown,
         markdown: result.markdown,
         text: result.markdown,
         metadata: { title: result.title, sourceUrl: result.url, scrapedAt: new Date().toISOString(), context: (body.context as string) ?? null },
-      }, [], debugId);
+      }, [], debugId), "web/scrape");
     }
 
     // Parse body first (needed for caller key construction)
     const rawBody = await req.text();
     if (rawBody.length > 100_000) {
-      return fail(req, 413, "PAYLOAD_TOO_LARGE", "Request body exceeds 100KB limit", debugId);
+      return withIdentity(fail(req, 413, "PAYLOAD_TOO_LARGE", "Request body exceeds 100KB limit", debugId), "error");
     }
     let body: Record<string, unknown> = {};
     try { body = JSON.parse(rawBody); } catch {
-      return fail(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId);
+      return withIdentity(fail(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId), "error");
     }
 
     // Rate limiting: caller-aware, trusted tier
@@ -593,30 +593,30 @@ Deno.serve(async (req: Request) => {
       console.warn(`[rate] caller=${callerKey} trusted=${trusted} route=${pathname} => 429`);
       const res = fail(req, 429, "RATE_LIMITED", `Too many requests. Retry in ${rateResult.retryAfterSec}s.`, debugId);
       res.headers.set("Retry-After", String(rateResult.retryAfterSec));
-      return res;
+      return withIdentity(res, "error");
     }
 
     // ── Tariffs compare ────────────────────────────────────────
     if (pathname.endsWith("/tariffs/compare")) {
       const prompt = (body.prompt as string) || (body.text as string) || "";
-      if (!prompt) return fail(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId);
-      if (prompt.length > 15_000) return fail(req, 400, "PROMPT_TOO_LONG", "Prompt exceeds 15000 characters", debugId);
+      if (!prompt) return withIdentity(fail(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId), "tariffs/compare");
+      if (prompt.length > 15_000) return withIdentity(fail(req, 400, "PROMPT_TOO_LONG", "Prompt exceeds 15000 characters", debugId), "tariffs/compare");
       console.log(`[ai-core-run] tariffs/compare debug_id=${debugId}`);
       const output = await runAI(prompt, "wyloni_bandi");
       const parsed = parseOutput(output) as Record<string, unknown> | null;
-      return ok(req, { final_output: output, data: parsed, offers: parsed?.offers ?? [], debug_id: debugId }, [], debugId);
+      return withIdentity(ok(req, { final_output: output, data: parsed, offers: parsed?.offers ?? [], debug_id: debugId }, [], debugId), "tariffs/compare");
     }
 
     // ── Documents analyze ──────────────────────────────────────
     if (pathname.endsWith("/documents/analyze")) {
       const text = (body.text as string) ?? (body.pdf_text as string) ?? (body.prompt as string) ?? "";
       if (!text || text.trim().length < 20) {
-        return ok(req, { status: "NOT_READABLE", extracted: {}, quality: { gate: "NOT_READABLE", score: 0, notes: ["No text"] } }, [], debugId);
+        return withIdentity(ok(req, { status: "NOT_READABLE", extracted: {}, quality: { gate: "NOT_READABLE", score: 0, notes: ["No text"] } }, [], debugId), "documents/analyze");
       }
       const extractPrompt = `Estrai i dati dalla bolletta italiana e rispondi SOLO in JSON:\n{"periodo":{"from":"DD/MM/YYYY","to":"DD/MM/YYYY"},"fornitore":{"label":"nome fornitore"},"consumi":{"totale_kwh":null,"unit":"kWh"},"importi":{"totale_da_pagare_eur":null,"bonus_sociale":{"presente":false,"eur":null}}}\n\nBolletta:\n${text.slice(0, 8000)}`;
       let extracted: unknown = {};
       try { const out = await runAI(extractPrompt, "wyloni_bandi"); extracted = parseOutput(out) ?? {}; } catch (e) { console.warn("[documents/analyze] extraction failed:", String(e).slice(0, 150)); }
-      return ok(req, { status: "READY", extracted, quality: { gate: "READY", score: 80, notes: ["estrazione automatica"] } }, [], debugId);
+      return withIdentity(ok(req, { status: "READY", extracted, quality: { gate: "READY", score: 80, notes: ["estrazione automatica"] } }, [], debugId), "documents/analyze");
     }
 
     // ── Generic AI run ─────────────────────────────────────────
@@ -625,16 +625,16 @@ Deno.serve(async (req: Request) => {
     const prompt = (body.prompt as string) || (body.text as string) || "";
 
     // Input sanitization
-    if (domain && !SAFE_ID.test(domain)) return fail(req, 400, "INVALID_DOMAIN", "domain must match [a-z0-9_]", debugId);
-    if (task && !SAFE_ID.test(task)) return fail(req, 400, "INVALID_TASK", "task must match [a-z0-9_]", debugId);
+    if (domain && !SAFE_ID.test(domain)) return withIdentity(fail(req, 400, "INVALID_DOMAIN", "domain must match [a-z0-9_]", debugId), "error");
+    if (task && !SAFE_ID.test(task)) return withIdentity(fail(req, 400, "INVALID_TASK", "task must match [a-z0-9_]", debugId), "error");
 
     // ── KeyDraft Engine: photo analysis + listing generation ──
     if (task === "keydraft_engine") {
       const input = body.input as Record<string, unknown> | undefined;
-      if (!input) return fail(req, 400, "MISSING_INPUT", "Provide input object for keydraft_engine", debugId);
+      if (!input) return withIdentity(fail(req, 400, "MISSING_INPUT", "Provide input object for keydraft_engine", debugId), "keydraft_engine");
 
       const imageUrls = (input.imageUrls as string[]) ?? [];
-      if (imageUrls.length === 0) return fail(req, 400, "NO_IMAGES", "Provide at least one imageUrl", debugId);
+      if (imageUrls.length === 0) return withIdentity(fail(req, 400, "NO_IMAGES", "Provide at least one imageUrl", debugId), "keydraft_engine");
 
       const op = (input.operation as string) || "vendita";
       const price = input.price as number | null;
@@ -678,15 +678,15 @@ ISTRUZIONI:
       const output = await runAI(enginePrompt, "keydraft_realestate", "keydraft_engine");
       const parsed = parseOutput(output);
 
-      return ok(req, {
+      return withIdentity(ok(req, {
         final_output: output,
         data: parsed,
         debug_id: debugId,
-      }, [], debugId);
+      }, [], debugId), "keydraft_engine");
     }
 
-    if (!prompt) return fail(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId);
-    if (prompt.length > 15_000) return fail(req, 400, "PROMPT_TOO_LONG", `Prompt exceeds 15000 characters`, debugId);
+    if (!prompt) return withIdentity(fail(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId), "run");
+    if (prompt.length > 15_000) return withIdentity(fail(req, 400, "PROMPT_TOO_LONG", `Prompt exceeds 15000 characters`, debugId), "run");
 
     console.log(`[ai-core-run] domain=${domain} task=${task} prompt_len=${prompt.length} source_app=${sourceApp} debug_id=${debugId}`);
 
@@ -699,18 +699,18 @@ ISTRUZIONI:
     const raw = parsed as Record<string, unknown> | null;
     console.log(`[ai-core-run] output_len=${output.length}`);
 
-    return ok(req, {
+    return withIdentity(ok(req, {
       final_output: output,
       data: parsed,
       offers:     raw?.offers     ?? [],
       properties: raw?.properties ?? [],
       results:    raw?.results    ?? [],
       debug_id: debugId,
-    }, [], debugId);
+    }, [], debugId), "run");
 
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error(`[ai-core-run] Error debug_id=${debugId}:`, errMsg);
-    return addIdentityHeaders(fail(req, 500, "INTERNAL_ERROR", `An internal error occurred. Reference: ${debugId}`, debugId), { function: FUNCTION_NAME, route: "error" });
+    return withIdentity(fail(req, 500, "INTERNAL_ERROR", `An internal error occurred. Reference: ${debugId}`, debugId), "error");
   }
 });
