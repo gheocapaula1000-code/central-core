@@ -9,6 +9,8 @@ Backend condiviso (Supabase Edge Functions) per Wyloni, KeyDraft e Sottra. Gesti
 | [Contract Registry](docs/contract-registry.md) | Contratti API per tutte le PWA |
 | [API Versioning](docs/api-versioning.md) | Versioning, stability tiers, deprecation policy |
 | [Client Integration Guide](docs/client-integration-guide.md) | Come chiamare il Core, header, errori, retry |
+| [Proxy Contract](docs/proxy-contract.md) | Standard per core-proxy nelle PWA client |
+| [Operational Checklist](docs/operational-checklist.md) | Deploy, smoke test, upgrade coordinato |
 | [Changelog](docs/changelog.md) | Storico modifiche API |
 | [Release Pipeline](docs/release-pipeline.md) | CI/CD, smoke test, rollback |
 | [OpenAPI Summary](docs/openapi-summary.yaml) | Specifica OpenAPI leggera |
