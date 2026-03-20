@@ -2,7 +2,9 @@
 
 > Canonical reference of all PWA→Core dependencies.
 > Breaking any path, envelope, or shape listed here is a potential outage.
-> Last updated: 2026-03-17
+> Last updated: 2026-03-20
+>
+> See also: [API Versioning](./api-versioning.md) | [Client Integration Guide](./client-integration-guide.md) | [Changelog](./changelog.md) | [Release Pipeline](./release-pipeline.md) | [OpenAPI Summary](./openapi-summary.yaml)
 
 ---
 
@@ -94,9 +96,21 @@ No secrets, allowlists, or infrastructure details are exposed.
 
 ---
 
+## Stability Tiers
+
+> See [API Versioning](./api-versioning.md) for full policy.
+
+| Tier | Meaning |
+|------|---------|
+| **stable** | Production PWA contract. Never broken without MAJOR bump + 30-day notice. |
+| **internal** | Core-to-Core only. May change with MINOR bump. |
+| **experimental** | Under evaluation. May change/remove with any release. |
+
+---
+
 ## Wyloni
 
-**Function:** `ai-core-run`
+**Function:** `ai-core-run` · **Tier:** stable
 **Domain:** `wyloni_bandi`
 **Test file:** `src/test/wyloni-contract.test.ts`
 
@@ -120,7 +134,7 @@ No secrets, allowlists, or infrastructure details are exposed.
 
 ## KeyDraft
 
-**Function:** `ai-core-run`
+**Function:** `ai-core-run` · **Tier:** stable
 **Domain:** `keydraft_realestate`
 **Test file:** `src/test/keydraft-contract.test.ts`
 
@@ -143,7 +157,7 @@ No secrets, allowlists, or infrastructure details are exposed.
 
 ## PRATICA
 
-**Function:** `ai-core-run`
+**Function:** `ai-core-run` · **Tier:** stable
 **Domain:** `pratica_legal`
 **Test file:** `src/test/pratica-contract.test.ts`
 
@@ -165,7 +179,7 @@ No secrets, allowlists, or infrastructure details are exposed.
 
 ## Sottra
 
-**Function:** `sottra` (dedicated Edge Function)
+**Function:** `sottra` (dedicated Edge Function) · **Tier:** stable
 **Test file:** `src/test/sottra-contract.test.ts`
 
 ### Scan Endpoints (9)
@@ -250,16 +264,7 @@ Expected response: `{ "listings": [...] }` (also accepts `results`, `data`, `ite
     "marketDepth": "profondo|sufficiente|limitato",
     "marketFreshnessLabel": "recente|moderata|datata"
   },
-  "marketSignals": {
-    "priceBandLocale": { "signalId": "...", "sourceClass": "..." },
-    "marketFreshness": { "signalId": "...", "sourceClass": "elaborated" },
-    "marketDepth": { "signalId": "...", "sourceClass": "elaborated" },
-    "sellerPressure": { "signalId": "...", "sourceClass": "elaborated" },
-    "premiumMicroAreaSignal": null,
-    "rentalAppealSignal": null,
-    "energyPremiumSignal": null,
-    "listingTurnoverSignal": { "signalId": "...", "sourceClass": "elaborated" }
-  },
+  "marketSignals": { "..." },
   "marketSignalsList": [
     { "key": "priceBandLocale", "label": "Fascia prezzo locale", "value": "€2800-3600/mq", "detail": "..." }
   ],
@@ -330,7 +335,7 @@ These endpoints are intentionally scaffolded but return `sourceType: "unavailabl
 
 ## EcoSystem Gateway
 
-**Function:** `ecosystem-gateway` (dedicated Edge Function)
+**Function:** `ecosystem-gateway` (dedicated Edge Function) · **Tier:** experimental
 **Test file:** `src/test/ecosystem-gateway-contract.test.ts`
 **Base path:** `/functions/v1/ecosystem-gateway`
 **Service kind:** `ecosystem-orchestrator`
@@ -387,7 +392,7 @@ These endpoints are intentionally scaffolded but return `sourceType: "unavailabl
 
 ## Standalone Health Function
 
-**Function:** `health`
+**Function:** `health` · **Tier:** stable
 
 | Route | Method | Description | Status |
 |-------|--------|-------------|--------|
@@ -397,7 +402,7 @@ These endpoints are intentionally scaffolded but return `sourceType: "unavailabl
 
 ## Viral Core
 
-**Function:** `viral-core` (dedicated Edge Function)
+**Function:** `viral-core` (dedicated Edge Function) · **Tier:** stable
 **Test file:** `src/test/viral-core-contract.test.ts`
 **Base path:** `/functions/v1/viral-core`
 **Service kind:** `viral-content-engine`
@@ -459,6 +464,7 @@ These endpoints are intentionally scaffolded but return `sourceType: "unavailabl
 
 ---
 
+## Error Codes (all functions)
 
 | Code | HTTP | Description |
 |------|------|-------------|
@@ -479,7 +485,13 @@ These endpoints are intentionally scaffolded but return `sourceType: "unavailabl
 | `RATE_LIMITED` | 429 | Too many requests |
 | `APP_SECRET_REQUIRED` | 401 | Missing auth header |
 | `APP_SECRET_REJECTED` | 401 | Invalid secret |
+| `ORIGIN_NOT_ALLOWED` | 403 | Browser origin not in allowlist |
 | `CONFIG_ERROR` | 500 | Server misconfiguration |
 | `METHOD_NOT_ALLOWED` | 405 | Wrong HTTP method |
-| `ROUTE_NOT_FOUND` | 404 | Sottra: no matching route |
+| `ROUTE_NOT_FOUND` | 404 | No matching route |
 | `INTERNAL_ERROR` | 500 | Unhandled server error |
+| `MISSING_ARGOMENTO` | 400 | viral-core: missing argomento |
+| `INVALID_PLATFORM` | 400 | viral-core: invalid platform |
+| `MISSING_CONTENTS` | 400 | viral-core: missing contents |
+| `MISSING_CONTENT` | 400 | viral-core: missing content |
+| `MISSING_PROPERTY` | 400 | gateway: missing property |
