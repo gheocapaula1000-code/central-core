@@ -545,8 +545,8 @@ Deno.serve(async (req: Request) => {
 
     // Auth
     const authErr = requireSecret(req, debugId);
-    if (authErr) return addIdentityHeaders(authErr, { function: FUNCTION_NAME, route: "auth-rejected" });
-    if (req.method !== "POST") return addIdentityHeaders(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), { function: FUNCTION_NAME, route: "error" });
+    if (authErr) return withIdentity(authErr, "auth-rejected");
+    if (req.method !== "POST") return withIdentity(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), "error");
 
     // ── Web Scrape (Firecrawl) ─────────────────────────────────
     if (pathname.endsWith("/web/scrape")) {
