@@ -599,12 +599,12 @@ Deno.serve(async (req: Request) => {
     // ── Tariffs compare ────────────────────────────────────────
     if (pathname.endsWith("/tariffs/compare")) {
       const prompt = (body.prompt as string) || (body.text as string) || "";
-      if (!prompt) return fail(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId);
-      if (prompt.length > 15_000) return fail(req, 400, "PROMPT_TOO_LONG", "Prompt exceeds 15000 characters", debugId);
+      if (!prompt) return withIdentity(fail(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId), "tariffs/compare");
+      if (prompt.length > 15_000) return withIdentity(fail(req, 400, "PROMPT_TOO_LONG", "Prompt exceeds 15000 characters", debugId), "tariffs/compare");
       console.log(`[ai-core-run] tariffs/compare debug_id=${debugId}`);
       const output = await runAI(prompt, "wyloni_bandi");
       const parsed = parseOutput(output) as Record<string, unknown> | null;
-      return ok(req, { final_output: output, data: parsed, offers: parsed?.offers ?? [], debug_id: debugId }, [], debugId);
+      return withIdentity(ok(req, { final_output: output, data: parsed, offers: parsed?.offers ?? [], debug_id: debugId }, [], debugId), "tariffs/compare");
     }
 
     // ── Documents analyze ──────────────────────────────────────
