@@ -631,10 +631,10 @@ Deno.serve(async (req: Request) => {
     // ── KeyDraft Engine: photo analysis + listing generation ──
     if (task === "keydraft_engine") {
       const input = body.input as Record<string, unknown> | undefined;
-      if (!input) return fail(req, 400, "MISSING_INPUT", "Provide input object for keydraft_engine", debugId);
+      if (!input) return withIdentity(fail(req, 400, "MISSING_INPUT", "Provide input object for keydraft_engine", debugId), "keydraft_engine");
 
       const imageUrls = (input.imageUrls as string[]) ?? [];
-      if (imageUrls.length === 0) return fail(req, 400, "NO_IMAGES", "Provide at least one imageUrl", debugId);
+      if (imageUrls.length === 0) return withIdentity(fail(req, 400, "NO_IMAGES", "Provide at least one imageUrl", debugId), "keydraft_engine");
 
       const op = (input.operation as string) || "vendita";
       const price = input.price as number | null;
