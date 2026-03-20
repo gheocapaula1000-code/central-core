@@ -341,10 +341,8 @@ Deno.serve(async (req: Request) => {
     // SELFTEST — protected by origin policy + diagnostic secret + rate limit
     // ═══════════════════════════════════════════════════════════════
     if (req.method === "GET" && pathname.endsWith("/__diagnostics/selftest")) {
-      const originErr = enforceOriginPolicy(req, debugId);
-      if (originErr) return originErr;
       const diagSecErr = requireDiagnosticSecret(req, debugId);
-      if (diagSecErr) return diagSecErr;
+      if (diagSecErr) return withIdentity(diagSecErr, "__diagnostics/selftest");
 
       // Rate limit for selftest
       purgeExpiredBuckets();
@@ -353,7 +351,7 @@ Deno.serve(async (req: Request) => {
       if (!selfRate.allowed) {
         const res = fail(req, 429, "RATE_LIMITED", `Too many selftest requests. Retry in ${selfRate.retryAfterSec}s.`, debugId);
         res.headers.set("Retry-After", String(selfRate.retryAfterSec));
-        return res;
+        return withIdentity(res, "__diagnostics/selftest");
       }
 
       const tests: Array<{ name: string; status: "PASS" | "WARN" | "FAIL"; detail: string; mode: "reale" | "simulato" | "dry-run"; buckets?: string[] }> = [];
