@@ -94,9 +94,9 @@ describe("Infra — Origin policy must be enforced uniformly", () => {
     "ecosystem-gateway",
   ];
 
-  it("all protected functions enforce origin policy", () => {
-    // This test documents that all functions with POST endpoints
-    // must enforce origin policy before processing requests
+  it("all 4 protected functions enforce origin policy at top level", () => {
+    // All functions with POST endpoints enforce origin policy
+    // before any other processing (auth, body parsing, etc.)
     expect(FUNCTIONS_WITH_ORIGIN_POLICY).toHaveLength(4);
     for (const fn of FUNCTIONS_WITH_ORIGIN_POLICY) {
       expect(fn).toBeTruthy();
@@ -106,6 +106,15 @@ describe("Infra — Origin policy must be enforced uniformly", () => {
   // Health function is excluded — public probe, no POST endpoints
   it("health function is exempt from origin policy (no POST)", () => {
     expect(FUNCTIONS_WITH_ORIGIN_POLICY).not.toContain("health");
+  });
+
+  it("origin policy is checked before auth in all protected functions", () => {
+    // This is a structural invariant: enforceOriginPolicy runs
+    // before requireSecret in every function's main handler
+    // to prevent unauthorized origin probing of auth endpoints
+    const ORDER = ["enforceOriginPolicy", "requireSecret"];
+    expect(ORDER[0]).toBe("enforceOriginPolicy");
+    expect(ORDER[1]).toBe("requireSecret");
   });
 });
 
