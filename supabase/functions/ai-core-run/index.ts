@@ -228,6 +228,13 @@ const AI_CORE_DOMAINS = Object.keys(PIPELINES);
 // ═══════════════════════════════════════════════════════════════
 // Main handler
 // ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// IDENTITY HELPER — consistent with sottra, viral-core, ecosystem-gateway
+// ═══════════════════════════════════════════════════════════════
+function withIdentity(res: Response, route: string): Response {
+  return addIdentityHeaders(res, { function: FUNCTION_NAME, route });
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return handleOptions(req);
 
@@ -236,6 +243,9 @@ Deno.serve(async (req: Request) => {
   console.log(`[ai-core-run] method=${req.method} pathname=${pathname} debug_id=${debugId}`);
 
   try {
+    // Origin policy — consistent with sottra, viral-core, ecosystem-gateway
+    const originBlock = enforceOriginPolicy(req, debugId);
+    if (originBlock) return withIdentity(originBlock, "origin-blocked");
     // Manifest endpoint — public, no auth
     if (req.method === "GET" && pathname.endsWith("/manifest")) {
       const manifest = buildManifest({
