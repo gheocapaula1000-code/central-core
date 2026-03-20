@@ -2,15 +2,26 @@
 
 Backend condiviso (Supabase Edge Functions) per Wyloni, KeyDraft e Sottra. Gestisce orchestrazione provider, rate limiting e routing.
 
+## Documentazione
+
+| Documento | Contenuto |
+|-----------|-----------|
+| [Contract Registry](docs/contract-registry.md) | Contratti API per tutte le PWA |
+| [API Versioning](docs/api-versioning.md) | Versioning, stability tiers, deprecation policy |
+| [Client Integration Guide](docs/client-integration-guide.md) | Come chiamare il Core, header, errori, retry |
+| [Changelog](docs/changelog.md) | Storico modifiche API |
+| [Release Pipeline](docs/release-pipeline.md) | CI/CD, smoke test, rollback |
+| [OpenAPI Summary](docs/openapi-summary.yaml) | Specifica OpenAPI leggera |
+
 ## Edge Functions
 
-| Funzione | Descrizione |
-|----------|-------------|
-| ai-core-run | Orchestratore principale: OpenAI → Anthropic fallback, Perplexity per web search |
-| sottra | 8 endpoint per scanner edifici (scan + forecast) |
-| ecosystem-gateway | Orchestratore opzionale cross-app: enrichment, service-pack, report unificato |
-| viral-core | Motore privato per Viral Lab: generazione contenuti multicanale, policy check, media brief |
-| health | Health check |
+| Funzione | Descrizione | Stabilità |
+|----------|-------------|-----------|
+| ai-core-run | Orchestratore principale: OpenAI → Anthropic fallback, Perplexity per web search | stable |
+| sottra | 17 endpoint per scanner edifici (scan + forecast) | stable |
+| viral-core | Motore privato per Viral Lab: generazione contenuti multicanale, policy check, media brief | stable |
+| ecosystem-gateway | Orchestratore opzionale cross-app: enrichment, service-pack, report unificato | experimental |
+| health | Health check | stable |
 
 ## Architettura
 ```
