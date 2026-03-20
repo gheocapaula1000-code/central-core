@@ -1,0 +1,263 @@
+# Central Core V3 — OpenAPI Summary (v3.3.1)
+# This is a lightweight spec for documentation and contract validation.
+# Not intended for code generation — use contract-registry.md for full details.
+
+openapi: "3.1.0"
+info:
+  title: Central Core V3
+  version: "3.3.1"
+  description: |
+    Shared backend for Wyloni, KeyDraft, Sottra ecosystem.
+    Edge Functions hosted on Supabase.
+  contact:
+    name: Central Core Team
+
+servers:
+  - url: "{baseUrl}/functions/v1"
+    description: Supabase Edge Functions
+    variables:
+      baseUrl:
+        default: https://YOUR_PROJECT.supabase.co
+
+# ═══════════════════════════════════════════════
+# COMMON COMPONENTS
+# ═══════════════════════════════════════════════
+components:
+  securitySchemes:
+    CoreSecret:
+      type: apiKey
+      in: header
+      name: x-internal-secret
+      description: AI_CORE_SECRET shared across ecosystem
+    DiagnosticSecret:
+      type: apiKey
+      in: header
+      name: x-diagnostic-secret
+      description: DIAGNOSTIC_SECRET for metrics/diagnostics
+    SupabaseAnon:
+      type: apiKey
+      in: header
+      name: apikey
+      description: Supabase anon key for gateway routing
+
+  schemas:
+    SuccessEnvelope:
+      type: object
+      required: [ok, data, warnings, debug_id]
+      properties:
+        ok: { type: boolean, const: true }
+        data: { type: object }
+        warnings: { type: array, items: { type: string } }
+        debug_id: { type: string }
+
+    ErrorEnvelope:
+      type: object
+      required: [ok, data, debug_id, error]
+      properties:
+        ok: { type: boolean, const: false }
+        data: { type: "null" }
+        warnings: { type: array, items: { type: string } }
+        debug_id: { type: string }
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, pattern: "^[A-Z][A-Z0-9_]+$" }
+            message: { type: string }
+
+    HealthResponse:
+      type: object
+      properties:
+        status: { type: string }
+        version: { type: string }
+        contract: { type: string, const: central-core-v3 }
+        function: { type: string }
+        time: { type: string, format: date-time }
+
+  headers:
+    X-Core-Version:
+      schema: { type: string, example: "3.3.1" }
+      description: Core version
+    X-Core-Function:
+      schema: { type: string }
+      description: Edge function name
+    X-Core-Route:
+      schema: { type: string }
+      description: Route that handled the request
+    X-Core-Contract:
+      schema: { type: string, const: central-core-v3 }
+      description: Contract identifier
+
+# ═══════════════════════════════════════════════
+# PATHS (summary — see contract-registry.md for full shapes)
+# ═══════════════════════════════════════════════
+paths:
+  # ── Health ──
+  /health:
+    get:
+      summary: Global health check
+      tags: [health]
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+
+  # ── AI Core Run ──
+  /ai-core-run/health:
+    get:
+      summary: AI router health
+      tags: [ai-core-run]
+      responses:
+        "200": { description: Healthy }
+
+  /ai-core-run/manifest:
+    get:
+      summary: AI router self-description
+      tags: [ai-core-run]
+      responses:
+        "200": { description: Manifest }
+
+  /ai-core-run:
+    post:
+      summary: Generic AI task execution
+      tags: [ai-core-run]
+      security: [{ CoreSecret: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prompt]
+              properties:
+                domain: { type: string, pattern: "^[a-z0-9_]+$" }
+                task: { type: string, pattern: "^[a-z0-9_]+$" }
+                prompt: { type: string }
+                input: { type: object }
+      responses:
+        "200": { description: AI result }
+        "400": { description: Validation error }
+        "401": { description: Auth error }
+
+  /ai-core-run/documents/analyze:
+    post:
+      summary: Document/bill analysis
+      tags: [ai-core-run]
+      security: [{ CoreSecret: [] }]
+      responses:
+        "200": { description: Analysis result }
+
+  /ai-core-run/web/scrape:
+    post:
+      summary: Web scraping via Firecrawl
+      tags: [ai-core-run]
+      security: [{ CoreSecret: [] }]
+      responses:
+        "200": { description: Scraped content }
+
+  # ── Sottra ──
+  /sottra/health:
+    get:
+      summary: Sottra health
+      tags: [sottra]
+      responses:
+        "200": { description: Healthy }
+
+  /sottra/scan/identify:
+    post:
+      summary: Building identification
+      tags: [sottra]
+      security: [{ CoreSecret: [] }]
+      responses:
+        "200": { description: Identification result }
+
+  /sottra/scan/pricing:
+    post:
+      summary: OMI pricing data
+      tags: [sottra]
+      security: [{ CoreSecret: [] }]
+      responses:
+        "200": { description: Pricing result }
+
+  /sottra/scan/market:
+    post:
+      summary: Market comparables
+      tags: [sottra]
+      security: [{ CoreSecret: [] }]
+      responses:
+        "200": { description: Market data }
+
+  # ── Viral Core ──
+  /viral-core/health:
+    get:
+      summary: Viral Core health
+      tags: [viral-core]
+      responses:
+        "200": { description: Healthy }
+
+  /viral-core/generate-bundle:
+    post:
+      summary: Multi-platform content bundle
+      tags: [viral-core]
+      security: [{ CoreSecret: [] }]
+      responses:
+        "200": { description: Content bundle }
+        "400": { description: Missing argomento }
+
+  /viral-core/generate-single:
+    post:
+      summary: Single-platform content
+      tags: [viral-core]
+      security: [{ CoreSecret: [] }]
+      responses:
+        "200": { description: Single content }
+
+  /viral-core/policy-check:
+    post:
+      summary: Anti-ban/anti-spam policy check
+      tags: [viral-core]
+      security: [{ CoreSecret: [] }]
+      responses:
+        "200": { description: Policy result }
+
+  /viral-core/build-media-brief:
+    post:
+      summary: Media brief for image generation
+      tags: [viral-core]
+      security: [{ CoreSecret: [] }]
+      responses:
+        "200": { description: Media brief }
+
+  # ── Ecosystem Gateway ──
+  /ecosystem-gateway/health:
+    get:
+      summary: Gateway health
+      tags: [ecosystem-gateway]
+      responses:
+        "200": { description: Healthy }
+
+  /ecosystem-gateway/listing-enrichment:
+    post:
+      summary: Property data enrichment (best-effort)
+      tags: [ecosystem-gateway]
+      security: [{ CoreSecret: [] }]
+      responses:
+        "200": { description: Enrichment result (may be partial) }
+
+  /ecosystem-gateway/service-pack:
+    post:
+      summary: Wyloni service suggestions
+      tags: [ecosystem-gateway]
+      security: [{ CoreSecret: [] }]
+      responses:
+        "200": { description: Service recommendations }
+
+  /ecosystem-gateway/unified-report:
+    post:
+      summary: Unified cross-app report
+      tags: [ecosystem-gateway]
+      security: [{ CoreSecret: [] }]
+      responses:
+        "200": { description: Unified report (may be partial) }
