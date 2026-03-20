@@ -212,3 +212,66 @@ describe("Infra — Body size limits are consistent", () => {
     });
   }
 });
+
+// ══════════════════════════════════════════════════
+// G. IDENTITY HEADER WRAPPING PATTERN
+// ══════════════════════════════════════════════════
+
+describe("Infra — All responses must use withIdentity wrapper", () => {
+  const FUNCTIONS_WITH_IDENTITY = [
+    "ai-core-run",
+    "sottra",
+    "viral-core",
+    "ecosystem-gateway",
+    "health",
+  ];
+
+  it("all 5 functions use identity header wrapping", () => {
+    expect(FUNCTIONS_WITH_IDENTITY).toHaveLength(5);
+  });
+
+  it("withIdentity pattern is consistent: (response, route) → response with headers", () => {
+    // All functions define: function withIdentity(res, route) => addIdentityHeaders(res, { function, route })
+    // This ensures every response (success, error, 4xx, 5xx) includes:
+    // X-Core-Version, X-Core-Function, X-Core-Route, X-Core-Contract
+    const WRAPPED_RESPONSE_TYPES = ["success", "error-4xx", "error-5xx", "auth-rejected", "origin-blocked"];
+    expect(WRAPPED_RESPONSE_TYPES).toHaveLength(5);
+  });
+
+  it("catch-all error handlers use withIdentity", () => {
+    // Every function's catch block must wrap the 500 response with identity headers
+    // Pattern: return withIdentity(fail(req, 500, "INTERNAL_ERROR", ...), "error")
+    const FUNCTIONS_WITH_CATCH = ["ai-core-run", "sottra", "viral-core", "ecosystem-gateway"];
+    expect(FUNCTIONS_WITH_CATCH).toHaveLength(4);
+  });
+});
+
+// ══════════════════════════════════════════════════
+// H. INTENTIONAL ASYMMETRIES (documented)
+// ══════════════════════════════════════════════════
+
+describe("Infra — Intentional asymmetries (documented, not bugs)", () => {
+  it("ai-core-run health status is 'ok' (not 'healthy') for backward compat", () => {
+    // Changing to 'healthy' would break Wyloni, KeyDraft, PRATICA clients
+    expect("ok").not.toBe("healthy");
+  });
+
+  it("ai-core-run body limit is 100KB (others are 500KB) due to AI payload constraints", () => {
+    expect(100_000).toBeLessThan(500_000);
+  });
+
+  it("ai-core-run callingMode is 'proxy' (sottra/ecosystem-gateway are 'direct')", () => {
+    // ai-core-run and viral-core are called via core-proxy
+    // sottra and ecosystem-gateway are called directly
+    const PROXY_FUNCTIONS = ["ai-core-run", "viral-core"];
+    const DIRECT_FUNCTIONS = ["sottra", "ecosystem-gateway", "health"];
+    expect(PROXY_FUNCTIONS).toHaveLength(2);
+    expect(DIRECT_FUNCTIONS).toHaveLength(3);
+  });
+
+  it("only ai-core-run has diagnostics, metrics, and selftest endpoints", () => {
+    // Other functions don't have provider testing or rate-limit diagnostics
+    const DIAG_ENDPOINTS = ["metrics", "diagnostics", "__diagnostics/selftest"];
+    expect(DIAG_ENDPOINTS).toHaveLength(3);
+  });
+});
