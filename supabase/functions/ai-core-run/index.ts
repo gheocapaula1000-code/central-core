@@ -576,11 +576,11 @@ Deno.serve(async (req: Request) => {
     // Parse body first (needed for caller key construction)
     const rawBody = await req.text();
     if (rawBody.length > 100_000) {
-      return fail(req, 413, "PAYLOAD_TOO_LARGE", "Request body exceeds 100KB limit", debugId);
+      return withIdentity(fail(req, 413, "PAYLOAD_TOO_LARGE", "Request body exceeds 100KB limit", debugId), "error");
     }
     let body: Record<string, unknown> = {};
     try { body = JSON.parse(rawBody); } catch {
-      return fail(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId);
+      return withIdentity(fail(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId), "error");
     }
 
     // Rate limiting: caller-aware, trusted tier
@@ -593,7 +593,7 @@ Deno.serve(async (req: Request) => {
       console.warn(`[rate] caller=${callerKey} trusted=${trusted} route=${pathname} => 429`);
       const res = fail(req, 429, "RATE_LIMITED", `Too many requests. Retry in ${rateResult.retryAfterSec}s.`, debugId);
       res.headers.set("Retry-After", String(rateResult.retryAfterSec));
-      return res;
+      return withIdentity(res, "error");
     }
 
     // ── Tariffs compare ────────────────────────────────────────
