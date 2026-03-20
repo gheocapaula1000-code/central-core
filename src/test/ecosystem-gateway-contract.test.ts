@@ -33,7 +33,7 @@ const REAL_WYLONI_ROUTES = [
 // Helper: simulate identity headers that the gateway should always set
 function makeIdentityHeaders(route: string) {
   return {
-    "X-Core-Version": "3.3.1",
+    "X-Core-Version": "3.3.2",
     "X-Core-Function": FUNCTION_NAME,
     "X-Core-Route": route,
     "X-Core-Contract": CORE_CONTRACT,
