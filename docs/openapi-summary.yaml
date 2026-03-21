@@ -76,7 +76,7 @@ components:
 
   headers:
     X-Core-Version:
-      schema: { type: string, example: "3.3.1" }
+      schema: { type: string, example: "3.3.5" }
       description: Core version
     X-Core-Function:
       schema: { type: string }

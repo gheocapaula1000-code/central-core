@@ -1,7 +1,7 @@
 {
   "name": "central-core-v3",
   "private": true,
-  "version": "3.3.1",
+  "version": "3.3.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
