@@ -185,6 +185,7 @@ describe("Infra — Manifest endpoint contract", () => {
     "viral-core": "/functions/v1/viral-core",
     "ecosystem-gateway": "/functions/v1/ecosystem-gateway",
     "health": "/functions/v1/health",
+    "listing-bridge": "/functions/v1/listing-bridge",
   };
 
   for (const [fn, path] of Object.entries(EXPECTED_BASE_PATHS)) {
