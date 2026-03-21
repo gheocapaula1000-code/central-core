@@ -6,17 +6,28 @@ import { describe, it, expect } from "vitest";
  * follow exact-match rules with zero false positives.
  *
  * NOTE: These test the contract specification. The actual Deno runtime
- * implementation lives in supabase/functions/_shared/http.ts.
- * We mirror the logic here to enforce the contract in CI.
+ * implementation lives in supabase/functions/_shared/http.ts and reads
+ * from AI_CORE_ADMIN_EMAILS env var. We mirror the parsing + matching
+ * logic here to enforce the contract in CI.
  */
 
 const CORE_VERSION = "3.3.5";
 
-// ── Mirror of the production logic (contract spec) ──
-const ADMIN_BYPASS_EMAILS = new Set([
-  "gheocapaula1000@gmail.com",
-  "massimilianogalli75@gmail.com",
-]);
+// ── Mirror of the production parsing logic (contract spec) ──
+// Simulates AI_CORE_ADMIN_EMAILS env var value
+const AI_CORE_ADMIN_EMAILS_RAW =
+  "gheocapaula1000@gmail.com, massimilianogalli75@gmail.com";
+
+function parseAdminEmails(raw: string): ReadonlySet<string> {
+  return new Set(
+    raw
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => e.length > 0 && e.includes("@")),
+  );
+}
+
+const ADMIN_BYPASS_EMAILS = parseAdminEmails(AI_CORE_ADMIN_EMAILS_RAW);
 
 function normalizeEmail(email: string | null | undefined): string {
   if (!email || typeof email !== "string") return "";
@@ -42,6 +53,27 @@ describe("Admin bypass — normalizeEmail", () => {
 
   it("handles non-string gracefully", () => {
     expect(normalizeEmail(42 as unknown as string)).toBe("");
+  });
+});
+
+describe("Admin bypass — parseAdminEmails", () => {
+  it("parses comma-separated emails with trim+lowercase", () => {
+    const set = parseAdminEmails("  A@B.com , c@D.com  ");
+    expect(set.size).toBe(2);
+    expect(set.has("a@b.com")).toBe(true);
+    expect(set.has("c@d.com")).toBe(true);
+  });
+
+  it("drops empty entries and non-email strings", () => {
+    const set = parseAdminEmails("a@b.com, , ,not-email, c@d.com");
+    expect(set.size).toBe(2);
+    expect(set.has("a@b.com")).toBe(true);
+    expect(set.has("c@d.com")).toBe(true);
+  });
+
+  it("returns empty set for empty/blank input", () => {
+    expect(parseAdminEmails("").size).toBe(0);
+    expect(parseAdminEmails("   ").size).toBe(0);
   });
 });
 
@@ -83,7 +115,7 @@ describe("Admin bypass — isAdminBypassEmail", () => {
     expect(isAdminBypassEmail("*@gmail.com")).toBe(false);
   });
 
-  it("exactly 2 admin emails, no more", () => {
+  it("exactly 2 admin emails from env config", () => {
     expect(ADMIN_BYPASS_EMAILS.size).toBe(2);
   });
 });
