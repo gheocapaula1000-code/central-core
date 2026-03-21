@@ -131,6 +131,66 @@ export type Database = {
         }
         Relationships: []
       }
+      listing_bridge_jobs: {
+        Row: {
+          created_at: string
+          delivered_at: string | null
+          error_message: string | null
+          id: string
+          listing_id: string
+          payload: Json
+          retry_count: number
+          run_id: string
+          schema_version: string
+          sottra_payload: Json | null
+          sottra_response: Json | null
+          source_app: string
+          source_environment: string | null
+          status: string
+          trace_id: string
+          updated_at: string
+          warnings: string[] | null
+        }
+        Insert: {
+          created_at?: string
+          delivered_at?: string | null
+          error_message?: string | null
+          id?: string
+          listing_id: string
+          payload: Json
+          retry_count?: number
+          run_id: string
+          schema_version?: string
+          sottra_payload?: Json | null
+          sottra_response?: Json | null
+          source_app?: string
+          source_environment?: string | null
+          status?: string
+          trace_id: string
+          updated_at?: string
+          warnings?: string[] | null
+        }
+        Update: {
+          created_at?: string
+          delivered_at?: string | null
+          error_message?: string | null
+          id?: string
+          listing_id?: string
+          payload?: Json
+          retry_count?: number
+          run_id?: string
+          schema_version?: string
+          sottra_payload?: Json | null
+          sottra_response?: Json | null
+          source_app?: string
+          source_environment?: string | null
+          status?: string
+          trace_id?: string
+          updated_at?: string
+          warnings?: string[] | null
+        }
+        Relationships: []
+      }
       mim_schools: {
         Row: {
           cap: string | null
