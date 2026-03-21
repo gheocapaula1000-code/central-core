@@ -14,7 +14,7 @@ Central Core uses **semantic versioning** (`MAJOR.MINOR.PATCH`):
 | MINOR | Additive features, new routes, new optional fields | `3.4.0` |
 | PATCH | Bug fixes, performance, internal refactors | `3.3.2` |
 
-Current version: **3.3.1** (exposed via `X-Core-Version` header and `/health` responses).
+Current version: **3.3.5** (exposed via `X-Core-Version` header and `/health` responses).
 
 ---
 
@@ -92,5 +92,5 @@ if (warnings?.length) console.warn("[core] warnings:", warnings);
 Every function exposes its version via:
 
 1. **`X-Core-Version` header** — on every response
-2. **`GET /health`** — `{ version: "3.3.1" }`
-3. **`GET /manifest`** — `{ version: "3.3.1", contract: "central-core-v3" }`
+2. **`GET /health`** — `{ version: "3.3.5" }`
+3. **`GET /manifest`** — `{ version: "3.3.5", contract: "central-core-v3" }`

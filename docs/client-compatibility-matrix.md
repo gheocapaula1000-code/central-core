@@ -10,10 +10,10 @@
 
 | Client | Core Function(s) | Domain | Min Version | Proxy Required | Last Verified |
 |--------|------------------|--------|-------------|----------------|---------------|
-| **Wyloni** | ai-core-run, viral-core | wyloni_bandi, pratica_legal | 3.3.1 | Yes (core-proxy) | 2026-03-20 |
-| **KeyDraft** | ai-core-run | keydraft_realestate | 3.0.0 | Yes (core-proxy) | 2026-03-20 |
-| **Sottra** | sottra | — | 3.3.1 | Yes (core-proxy) | 2026-03-20 |
-| **PRATICA** | ai-core-run | pratica_legal | 3.0.0 | Yes (core-proxy) | 2026-03-20 |
+| **Wyloni** | ai-core-run, viral-core | wyloni_bandi, pratica_legal | 3.3.1 | Yes (core-proxy) | 2026-03-21 |
+| **KeyDraft** | ai-core-run, listing-bridge | keydraft_realestate | 3.0.0 | Yes (core-proxy) | 2026-03-21 |
+| **Sottra** | sottra | — | 3.3.1 | Yes (core-proxy) | 2026-03-21 |
+| **PRATICA** | ai-core-run | pratica_legal | 3.0.0 | Yes (core-proxy) | 2026-03-21 |
 | **Regiads** | viral-core | — | 3.3.1 | Yes (core-proxy) | Pending |
 
 ---

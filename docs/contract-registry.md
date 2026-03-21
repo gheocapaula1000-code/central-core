@@ -2,7 +2,7 @@
 
 > Canonical reference of all PWA→Core dependencies.
 > Breaking any path, envelope, or shape listed here is a potential outage.
-> Last updated: 2026-03-20
+> Last updated: 2026-03-21
 >
 > See also: [API Versioning](./api-versioning.md) | [Client Integration Guide](./client-integration-guide.md) | [Proxy Contract](./proxy-contract.md) | [Operational Checklist](./operational-checklist.md) | [Client Compatibility Matrix](./client-compatibility-matrix.md) | [Secrets & Rotation](./secrets-and-rotation.md) | [Incident Response](./incident-response.md) | [Changelog](./changelog.md) | [Release Pipeline](./release-pipeline.md) | [OpenAPI Summary](./openapi-summary.yaml)
 
@@ -14,7 +14,7 @@ Every response from Central Core V3 functions includes these non-sensitive heade
 
 | Header | Value | Purpose |
 |--------|-------|---------|
-| `X-Core-Version` | `3.3.1` | Core version that generated the response |
+| `X-Core-Version` | `3.3.5` | Core version that generated the response |
 | `X-Core-Function` | `ai-core-run` / `sottra` / `health` | Which edge function responded |
 | `X-Core-Route` | `health` / `manifest` / `scan/pricing` / etc. | Canonical route that handled the request |
 | `X-Core-Contract` | `central-core-v3` | Contract identifier |
@@ -30,7 +30,7 @@ Each function exposes `GET /manifest` — a public, non-sensitive self-descripti
 ```json
 {
   "contract": "central-core-v3",
-  "version": "3.3.1",
+  "version": "3.3.5",
   "function": "ai-core-run",
   "serviceKind": "ai-router",
   "expectedBasePath": "/functions/v1/ai-core-run",
@@ -495,6 +495,14 @@ These endpoints are intentionally scaffolded but return `sourceType: "unavailabl
 | `MISSING_CONTENTS` | 400 | viral-core: missing contents |
 | `MISSING_CONTENT` | 400 | viral-core: missing content |
 | `MISSING_PROPERTY` | 400 | gateway: missing property |
+| `VALIDATION_FAILED` | 400 | listing-bridge: payload validation failed |
+| `DELIVERY_FAILED` | 502 | listing-bridge: Sottra delivery failed |
+| `RETRY_DELIVERY_FAILED` | 502 | listing-bridge: retry delivery failed |
+| `MISSING_TRACE_ID` | 400 | listing-bridge: missing trace_id param |
+| `JOB_NOT_FOUND` | 404 | listing-bridge: no job for trace_id |
+| `JOB_NOT_RETRYABLE` | 409 | listing-bridge: job not in failed state |
+| `MAX_RETRIES_EXCEEDED` | 429 | listing-bridge: max retries reached |
+| `DB_ERROR` | 500 | listing-bridge: database query failed |
 
 ---
 

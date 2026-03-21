@@ -124,7 +124,7 @@ x-source-app: wyloni
 
 | Header | Example | Purpose |
 |--------|---------|---------|
-| `X-Core-Version` | `3.3.1` | Core version |
+| `X-Core-Version` | `3.3.5` | Core version |
 | `X-Core-Function` | `ai-core-run` | Which function responded |
 | `X-Core-Route` | `health` | Which route handled the request |
 | `X-Core-Contract` | `central-core-v3` | Contract identifier |

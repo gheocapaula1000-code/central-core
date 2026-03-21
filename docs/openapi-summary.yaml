@@ -1,11 +1,11 @@
-# Central Core V3 — OpenAPI Summary (v3.3.1)
+# Central Core V3 — OpenAPI Summary (v3.3.5)
 # This is a lightweight spec for documentation and contract validation.
 # Not intended for code generation — use contract-registry.md for full details.
 
 openapi: "3.1.0"
 info:
   title: Central Core V3
-  version: "3.3.1"
+  version: "3.3.5"
   description: |
     Shared backend for Wyloni, KeyDraft, Sottra ecosystem.
     Edge Functions hosted on Supabase.
@@ -76,7 +76,7 @@ components:
 
   headers:
     X-Core-Version:
-      schema: { type: string, example: "3.3.1" }
+      schema: { type: string, example: "3.3.5" }
       description: Core version
     X-Core-Function:
       schema: { type: string }
@@ -261,3 +261,46 @@ paths:
       security: [{ CoreSecret: [] }]
       responses:
         "200": { description: Unified report (may be partial) }
+
+  # ── Listing Bridge ──
+  /listing-bridge/health:
+    get:
+      summary: Listing Bridge health
+      tags: [listing-bridge]
+      responses:
+        "200": { description: Healthy }
+
+  /listing-bridge/manifest:
+    get:
+      summary: Listing Bridge self-description
+      tags: [listing-bridge]
+      responses:
+        "200": { description: Manifest }
+
+  /listing-bridge/ingest:
+    post:
+      summary: Ingest listing payload from KeyDraft
+      tags: [listing-bridge]
+      security: [{ CoreSecret: [] }]
+      responses:
+        "200": { description: Job created/updated }
+        "400": { description: Validation error }
+
+  /listing-bridge/status/{trace_id}:
+    get:
+      summary: Check job status by trace_id
+      tags: [listing-bridge]
+      security: [{ CoreSecret: [] }]
+      responses:
+        "200": { description: Job status }
+        "404": { description: Job not found }
+
+  /listing-bridge/retry/{trace_id}:
+    post:
+      summary: Retry a failed job
+      tags: [listing-bridge]
+      security: [{ CoreSecret: [] }]
+      responses:
+        "200": { description: Retry successful }
+        "409": { description: Job not retryable }
+        "429": { description: Max retries exceeded }

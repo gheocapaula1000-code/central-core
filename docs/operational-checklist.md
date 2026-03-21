@@ -40,7 +40,7 @@ curl -s -H "x-diagnostic-secret: $DIAGNOSTIC_SECRET" \
 
 ```bash
 curl -s "$CORE_URL/functions/v1/ai-core-run/manifest" | jq .data.version
-# Must match expected version (e.g. "3.3.1")
+# Must match expected version (e.g. "3.3.5")
 ```
 
 ### Auth verification
@@ -83,7 +83,7 @@ Run the PWA's existing integration/e2e tests. At minimum:
 
 ## Coordinated Upgrade Process
 
-### PATCH release (e.g. 3.3.1 → 3.3.2)
+### PATCH release (e.g. 3.3.4 → 3.3.5)
 
 1. Core deploys automatically
 2. No PWA changes needed
@@ -141,10 +141,10 @@ Run the PWA's existing integration/e2e tests. At minimum:
 
 | PWA | Functions Used | Min Core Version | Last Verified |
 |-----|---------------|-----------------|---------------|
-| Wyloni | ai-core-run, viral-core | 3.3.1 | 2026-03-20 |
-| KeyDraft | ai-core-run | 3.0.0 | 2026-03-20 |
-| Sottra | sottra | 3.3.1 | 2026-03-20 |
-| PRATICA | ai-core-run | 3.0.0 | 2026-03-20 |
+| Wyloni | ai-core-run, viral-core | 3.3.1 | 2026-03-21 |
+| KeyDraft | ai-core-run, listing-bridge | 3.0.0 | 2026-03-21 |
+| Sottra | sottra | 3.3.1 | 2026-03-21 |
+| PRATICA | ai-core-run | 3.0.0 | 2026-03-21 |
 
 Update this table when adding new PWA integrations or verifying after upgrades.
 

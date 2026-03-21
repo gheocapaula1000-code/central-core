@@ -156,26 +156,50 @@ function validatePayload(body: unknown): ValidationResult {
 
 // ═══════════════════════════════════════════════════════════════
 // TRANSFORM: canonical → Sottra import payload
+// Carries ALL useful fields — no silent data loss.
 // ═══════════════════════════════════════════════════════════════
 function transformToSottraPayload(payload: BridgePayloadV1): Record<string, unknown> {
   return {
+    // ── Identity & Tracing ──
     bridge_trace_id: payload.source.bridge_trace_id,
     source_app: payload.source.app,
+    source_environment: payload.source.environment ?? null,
+    exported_at: payload.source.exported_at,
+    schema_version: payload.schema_version,
+
+    // ── Listing core ──
     listing_id: payload.listing.listing_id,
     run_id: payload.listing.run_id,
+    listing_status: payload.listing.status,
+
+    // ── Property ──
     property_type: payload.property?.property_type ?? null,
     rooms: payload.property?.rooms_estimated ?? null,
     bathrooms: payload.property?.bathrooms_estimated ?? null,
     photo_count: payload.property?.photo_count ?? null,
+
+    // ── Photo-derived intelligence ──
     materials_detected: payload.photo_derived?.materials_detected ?? [],
     features_detected: payload.photo_derived?.features_detected ?? [],
+    confidence_flags: payload.photo_derived?.confidence_flags ?? [],
+
+    // ── Agent-supplied data ──
     structured_features: payload.agent_supplied?.structured_features ?? {},
+    freeform_notes: payload.agent_supplied?.freeform_notes ?? null,
+
+    // ── Generated text (complete) ──
     primary_text: payload.generated_text.primary_listing_text,
     text_long: payload.generated_text.listing_text_long ?? null,
     text_short: payload.generated_text.listing_text_short ?? null,
     social_variants: payload.generated_text.listing_social_variants ?? [],
+
+    // ── Sharing ──
     whatsapp_summary: payload.sharing?.whatsapp_ready_summary ?? null,
-    schema_version: payload.schema_version,
+
+    // ── Data origin traceability ──
+    origin_map: payload.origin_map ?? null,
+
+    // ── Bridge metadata ──
     imported_at: new Date().toISOString(),
   };
 }
@@ -230,16 +254,18 @@ async function updateJobStatus(
 }
 
 // ═══════════════════════════════════════════════════════════════
-// SOTTRA DELIVERY (internal call)
+// SOTTRA DELIVERY (internal call → scan/import)
+// Target: dedicated import endpoint, NOT scan/identify.
+// scan/identify is for building identification from photos/GPS.
+// scan/import receives pre-processed listing data from the bridge.
 // ═══════════════════════════════════════════════════════════════
 async function deliverToSottra(
   req: Request,
   sottraPayload: Record<string, unknown>,
   debugId: string,
 ): Promise<{ success: boolean; status: number; body: unknown }> {
-  // Derive Sottra URL from current request URL (same Supabase project)
   const baseUrl = new URL(req.url);
-  const sottraUrl = `${baseUrl.protocol}//${baseUrl.host}/functions/v1/sottra/scan/identify`;
+  const sottraUrl = `${baseUrl.protocol}//${baseUrl.host}/functions/v1/sottra/scan/import`;
 
   const secret = Deno.env.get("AI_CORE_SECRET") ?? "";
   if (!secret) {
@@ -253,6 +279,7 @@ async function deliverToSottra(
         "Content-Type": "application/json",
         "x-internal-secret": secret,
         "x-source-app": "listing-bridge",
+        "x-bridge-trace-id": String(sottraPayload.bridge_trace_id ?? ""),
       },
       body: JSON.stringify(sottraPayload),
     });
