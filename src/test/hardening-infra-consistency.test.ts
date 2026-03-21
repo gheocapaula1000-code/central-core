@@ -245,8 +245,8 @@ describe("Infra — All responses must use withIdentity wrapper", () => {
   it("catch-all error handlers use withIdentity", () => {
     // Every function's catch block must wrap the 500 response with identity headers
     // Pattern: return withIdentity(fail(req, 500, "INTERNAL_ERROR", ...), "error")
-    const FUNCTIONS_WITH_CATCH = ["ai-core-run", "sottra", "viral-core", "ecosystem-gateway"];
-    expect(FUNCTIONS_WITH_CATCH).toHaveLength(4);
+    const FUNCTIONS_WITH_CATCH = ["ai-core-run", "sottra", "viral-core", "ecosystem-gateway", "listing-bridge"];
+    expect(FUNCTIONS_WITH_CATCH).toHaveLength(5);
   });
 });
 
