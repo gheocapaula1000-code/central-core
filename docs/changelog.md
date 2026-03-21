@@ -14,8 +14,16 @@
 - Idempotency via `trace_id` unique constraint and `listing_id + run_id` deduplication
 - Retry endpoint with configurable max retries (3)
 - `listing_bridge_jobs` table with RLS (service_role only)
-- Contract test suite: `listing-bridge-contract.test.ts` (25+ assertions)
+- Contract test suite: `listing-bridge-contract.test.ts` (36 assertions)
 - Documentation: `docs/listing-bridge.md`
+- Listing-bridge paths added to OpenAPI summary
+- Listing-bridge error codes added to contract registry
+
+### Changed
+- **listing-bridge**: Delivery target corrected from `sottra/scan/identify` to `sottra/scan/import` (semantically correct receiver)
+- **listing-bridge**: Transform now carries ALL useful fields: `confidence_flags`, `freeform_notes`, `origin_map`, `source_environment`, `exported_at`, `listing_status`
+- **listing-bridge**: Delivery includes `x-bridge-trace-id` header for end-to-end tracing
+- **Versioning**: Aligned `package.json`, all docs, OpenAPI spec, contract registry, and operational docs to v3.3.5
 
 ### Notes
 - KeyDraft and Sottra remain fully independent — no direct coupling
