@@ -254,16 +254,18 @@ async function updateJobStatus(
 }
 
 // ═══════════════════════════════════════════════════════════════
-// SOTTRA DELIVERY (internal call)
+// SOTTRA DELIVERY (internal call → scan/import)
+// Target: dedicated import endpoint, NOT scan/identify.
+// scan/identify is for building identification from photos/GPS.
+// scan/import receives pre-processed listing data from the bridge.
 // ═══════════════════════════════════════════════════════════════
 async function deliverToSottra(
   req: Request,
   sottraPayload: Record<string, unknown>,
   debugId: string,
 ): Promise<{ success: boolean; status: number; body: unknown }> {
-  // Derive Sottra URL from current request URL (same Supabase project)
   const baseUrl = new URL(req.url);
-  const sottraUrl = `${baseUrl.protocol}//${baseUrl.host}/functions/v1/sottra/scan/identify`;
+  const sottraUrl = `${baseUrl.protocol}//${baseUrl.host}/functions/v1/sottra/scan/import`;
 
   const secret = Deno.env.get("AI_CORE_SECRET") ?? "";
   if (!secret) {
@@ -277,6 +279,7 @@ async function deliverToSottra(
         "Content-Type": "application/json",
         "x-internal-secret": secret,
         "x-source-app": "listing-bridge",
+        "x-bridge-trace-id": String(sottraPayload.bridge_trace_id ?? ""),
       },
       body: JSON.stringify(sottraPayload),
     });
