@@ -205,6 +205,7 @@ describe("Infra — Body size limits are consistent", () => {
     "sottra": 500_000,
     "viral-core": 500_000,
     "ecosystem-gateway": 500_000,
+    "listing-bridge": 500_000,
   };
 
   for (const [fn, limit] of Object.entries(BODY_LIMITS)) {
