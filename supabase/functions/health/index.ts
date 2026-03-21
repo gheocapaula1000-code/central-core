@@ -1,4 +1,4 @@
-// v3.3.3
+// v3.3.4
 // health check endpoint — Central Core V3
 // Public — no auth required
 

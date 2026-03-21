@@ -1,5 +1,61 @@
-export const CORE_VERSION = "3.3.3";
+export const CORE_VERSION = "3.3.4";
 export const CORE_CONTRACT = "central-core-v3";
+
+// ═══════════════════════════════════════════════════════════════
+// Admin Bypass — exact-match allowlist for infrastructure admins
+// These accounts are never blocked by centralized subscription,
+// entitlement, or policy gates. Match is email-only, normalized.
+// ═══════════════════════════════════════════════════════════════
+
+const ADMIN_BYPASS_EMAILS: ReadonlySet<string> = new Set([
+  "gheocapaula1000@gmail.com",
+  "massimilianogalli75@gmail.com",
+]);
+
+/** Normalize email: trim + lowercase. No domain wildcard. */
+export function normalizeEmail(email: string | null | undefined): string {
+  if (!email || typeof email !== "string") return "";
+  return email.trim().toLowerCase();
+}
+
+/** Returns true only for exact admin bypass emails after normalization. */
+export function isAdminBypassEmail(email: string | null | undefined): boolean {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return false;
+  return ADMIN_BYPASS_EMAILS.has(normalized);
+}
+
+/**
+ * Check admin bypass from request headers or body.
+ * Looks for email in: x-user-email header, body.email, body.user_email.
+ * Returns { bypass: true, email } if matched, { bypass: false } otherwise.
+ * Log-safe: never logs the full email, only a masked version.
+ */
+export function checkAdminBypass(
+  req: Request,
+  body?: Record<string, unknown>,
+): { bypass: boolean; email?: string; _masked?: string } {
+  const candidates: string[] = [];
+
+  const headerEmail = req.headers.get("x-user-email");
+  if (headerEmail) candidates.push(headerEmail);
+
+  if (body) {
+    if (typeof body.email === "string") candidates.push(body.email);
+    if (typeof body.user_email === "string") candidates.push(body.user_email);
+  }
+
+  for (const raw of candidates) {
+    const normalized = normalizeEmail(raw);
+    if (isAdminBypassEmail(normalized)) {
+      const [local, domain] = normalized.split("@");
+      const masked = `${local.slice(0, 3)}***@${domain}`;
+      return { bypass: true, email: normalized, _masked: masked };
+    }
+  }
+
+  return { bypass: false };
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Identity headers — non-sensitive, diagnostic-only

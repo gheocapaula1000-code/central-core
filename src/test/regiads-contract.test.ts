@@ -6,7 +6,7 @@ import { describe, it, expect } from "vitest";
  * Regiads is the newest client, using viral-core for content generation.
  */
 
-const CORE_VERSION = "3.3.3";
+const CORE_VERSION = "3.3.4";
 const CORE_CONTRACT = "central-core-v3";
 
 // ══════════════════════════════════════════════════
