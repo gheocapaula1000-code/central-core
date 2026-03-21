@@ -40,7 +40,7 @@ curl -s -H "x-diagnostic-secret: $DIAGNOSTIC_SECRET" \
 
 ```bash
 curl -s "$CORE_URL/functions/v1/ai-core-run/manifest" | jq .data.version
-# Must match expected version (e.g. "3.3.1")
+# Must match expected version (e.g. "3.3.5")
 ```
 
 ### Auth verification
