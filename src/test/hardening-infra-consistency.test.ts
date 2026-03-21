@@ -227,10 +227,11 @@ describe("Infra — All responses must use withIdentity wrapper", () => {
     "viral-core",
     "ecosystem-gateway",
     "health",
+    "listing-bridge",
   ];
 
-  it("all 5 functions use identity header wrapping", () => {
-    expect(FUNCTIONS_WITH_IDENTITY).toHaveLength(5);
+  it("all 6 functions use identity header wrapping", () => {
+    expect(FUNCTIONS_WITH_IDENTITY).toHaveLength(6);
   });
 
   it("withIdentity pattern is consistent: (response, route) → response with headers", () => {
