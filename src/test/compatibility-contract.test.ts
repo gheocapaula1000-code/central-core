@@ -8,7 +8,7 @@ import { describe, it, expect } from "vitest";
  * Runs as dry-run / structural checks (no live HTTP required).
  */
 
-const CORE_VERSION = "3.3.4";
+const CORE_VERSION = "3.3.5";
 const CORE_CONTRACT = "central-core-v3";
 
 // ── Shared constants ──
@@ -52,7 +52,7 @@ function buildTestManifest(functionName: string, serviceKind: string, basePath: 
 
 describe("Compatibility contract — Identity headers", () => {
   it("X-Core-Version matches CORE_VERSION constant", () => {
-    expect(CORE_VERSION).toBe("3.3.4");
+    expect(CORE_VERSION).toBe("3.3.5");
   });
 
   it("X-Core-Contract is central-core-v3", () => {
@@ -496,7 +496,7 @@ describe("Compatibility contract — Cross-function consistency", () => {
 
   it("all functions use the same CORE_VERSION", () => {
     // structural — the constant is shared via _shared/http.ts
-    expect(CORE_VERSION).toBe("3.3.4");
+    expect(CORE_VERSION).toBe("3.3.5");
   });
 
   it("all functions use the same CORE_CONTRACT", () => {
