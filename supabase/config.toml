@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.viral-core]
 verify_jwt = false
+
+[functions.listing-bridge]
+verify_jwt = false
