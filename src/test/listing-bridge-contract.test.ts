@@ -183,21 +183,27 @@ describe("Listing Bridge — transformation to Sottra payload", () => {
     return {
       bridge_trace_id: p.source.bridge_trace_id,
       source_app: p.source.app,
+      source_environment: p.source.environment ?? null,
+      exported_at: p.source.exported_at,
+      schema_version: p.schema_version,
       listing_id: p.listing.listing_id,
       run_id: p.listing.run_id,
+      listing_status: p.listing.status,
       property_type: p.property?.property_type ?? null,
       rooms: p.property?.rooms_estimated ?? null,
       bathrooms: p.property?.bathrooms_estimated ?? null,
       photo_count: p.property?.photo_count ?? null,
       materials_detected: p.photo_derived?.materials_detected ?? [],
       features_detected: p.photo_derived?.features_detected ?? [],
+      confidence_flags: p.photo_derived?.confidence_flags ?? [],
       structured_features: p.agent_supplied?.structured_features ?? {},
+      freeform_notes: p.agent_supplied?.freeform_notes ?? null,
       primary_text: p.generated_text.primary_listing_text,
       text_long: p.generated_text.listing_text_long ?? null,
       text_short: p.generated_text.listing_text_short ?? null,
       social_variants: p.generated_text.listing_social_variants ?? [],
       whatsapp_summary: p.sharing?.whatsapp_ready_summary ?? null,
-      schema_version: p.schema_version,
+      origin_map: p.origin_map ?? null,
       imported_at: expect.any(String),
     };
   }
@@ -212,26 +218,68 @@ describe("Listing Bridge — transformation to Sottra payload", () => {
     expect(result.rooms).toBe(3);
   });
 
+  it("carries confidence_flags faithfully", () => {
+    const payload = buildValidPayload();
+    const result = transformToSottraPayload(payload);
+    expect(result.confidence_flags).toEqual(["high_confidence"]);
+  });
+
+  it("carries freeform_notes faithfully", () => {
+    const payload = buildValidPayload();
+    const result = transformToSottraPayload(payload);
+    expect(result.freeform_notes).toBe("Appartamento ristrutturato");
+  });
+
+  it("carries origin_map faithfully", () => {
+    const payload = buildValidPayload({
+      origin_map: { primary_listing_text: { from: ["photo_derived", "agent_supplied"] } },
+    });
+    const result = transformToSottraPayload(payload);
+    expect(result.origin_map).toEqual({ primary_listing_text: { from: ["photo_derived", "agent_supplied"] } });
+  });
+
+  it("carries social_variants faithfully", () => {
+    const payload = buildValidPayload();
+    const result = transformToSottraPayload(payload);
+    expect(result.social_variants).toEqual(["Post 1", "Post 2", "Post 3"]);
+  });
+
+  it("carries whatsapp_summary faithfully", () => {
+    const payload = buildValidPayload();
+    const result = transformToSottraPayload(payload);
+    expect(result.whatsapp_summary).toBe("Appartamento 3 locali, ristrutturato");
+  });
+
+  it("carries source_environment and exported_at", () => {
+    const payload = buildValidPayload();
+    const result = transformToSottraPayload(payload);
+    expect(result.source_environment).toBe("production");
+    expect(result.exported_at).toBe("2026-03-21T10:00:00Z");
+  });
+
+  it("carries listing_status", () => {
+    const payload = buildValidPayload();
+    const result = transformToSottraPayload(payload);
+    expect(result.listing_status).toBe("ready_for_export");
+  });
+
   it("handles missing optional fields with safe defaults", () => {
     const payload = buildValidPayload({
       property: undefined,
       photo_derived: undefined,
       agent_supplied: undefined,
       sharing: undefined,
+      origin_map: undefined,
     });
-    const p = payload as any;
-    const result = {
-      property_type: p.property?.property_type ?? null,
-      rooms: p.property?.rooms_estimated ?? null,
-      materials_detected: p.photo_derived?.materials_detected ?? [],
-      structured_features: p.agent_supplied?.structured_features ?? {},
-      whatsapp_summary: p.sharing?.whatsapp_ready_summary ?? null,
-    };
+    const result = transformToSottraPayload(payload);
     expect(result.property_type).toBeNull();
     expect(result.rooms).toBeNull();
     expect(result.materials_detected).toEqual([]);
+    expect(result.confidence_flags).toEqual([]);
     expect(result.structured_features).toEqual({});
+    expect(result.freeform_notes).toBeNull();
     expect(result.whatsapp_summary).toBeNull();
+    expect(result.origin_map).toBeNull();
   });
 });
 
