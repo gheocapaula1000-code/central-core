@@ -5,6 +5,20 @@
 
 ---
 
+## [3.3.4] — 2026-03-21
+
+### Added
+- **Admin bypass utility** in `_shared/http.ts`: `normalizeEmail`, `isAdminBypassEmail`, `checkAdminBypass`
+- Exact-match allowlist for 2 infrastructure admin accounts — no wildcard, no domain match
+- `checkAdminBypass` reads `x-user-email` header and body fields, returns masked email for safe logging
+- 12 new contract tests in `hardening-admin-bypass.test.ts` covering exact match, false positives, edge cases
+
+### Notes
+- Current auth model is secret-based (`requireSecret`). The bypass utility is available for any future subscription/entitlement gate.
+- No existing contract, envelope, path, or error code was changed.
+
+---
+
 ## [3.3.3] — 2026-03-20
 
 ### Hardened
