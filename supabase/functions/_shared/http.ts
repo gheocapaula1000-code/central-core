@@ -28,7 +28,7 @@ export function normalizeEmail(email: string | null | undefined): string {
 export function isAdminBypassEmail(email: string | null | undefined): boolean {
   const normalized = normalizeEmail(email);
   if (!normalized) return false;
-  return ADMIN_BYPASS_EMAILS.has(normalized);
+  return parseAdminEmails().has(normalized);
 }
 
 /**
