@@ -92,5 +92,5 @@ if (warnings?.length) console.warn("[core] warnings:", warnings);
 Every function exposes its version via:
 
 1. **`X-Core-Version` header** — on every response
-2. **`GET /health`** — `{ version: "3.3.1" }`
-3. **`GET /manifest`** — `{ version: "3.3.1", contract: "central-core-v3" }`
+2. **`GET /health`** — `{ version: "3.3.5" }`
+3. **`GET /manifest`** — `{ version: "3.3.5", contract: "central-core-v3" }`

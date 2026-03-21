@@ -141,10 +141,10 @@ Run the PWA's existing integration/e2e tests. At minimum:
 
 | PWA | Functions Used | Min Core Version | Last Verified |
 |-----|---------------|-----------------|---------------|
-| Wyloni | ai-core-run, viral-core | 3.3.1 | 2026-03-20 |
-| KeyDraft | ai-core-run | 3.0.0 | 2026-03-20 |
-| Sottra | sottra | 3.3.1 | 2026-03-20 |
-| PRATICA | ai-core-run | 3.0.0 | 2026-03-20 |
+| Wyloni | ai-core-run, viral-core | 3.3.1 | 2026-03-21 |
+| KeyDraft | ai-core-run, listing-bridge | 3.0.0 | 2026-03-21 |
+| Sottra | sottra | 3.3.1 | 2026-03-21 |
+| PRATICA | ai-core-run | 3.0.0 | 2026-03-21 |
 
 Update this table when adding new PWA integrations or verifying after upgrades.
 
