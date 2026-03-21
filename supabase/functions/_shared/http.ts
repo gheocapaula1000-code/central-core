@@ -5,12 +5,18 @@ export const CORE_CONTRACT = "central-core-v3";
 // Admin Bypass — exact-match allowlist for infrastructure admins
 // These accounts are never blocked by centralized subscription,
 // entitlement, or policy gates. Match is email-only, normalized.
+// Configured via AI_CORE_ADMIN_EMAILS env var (comma-separated).
 // ═══════════════════════════════════════════════════════════════
 
-const ADMIN_BYPASS_EMAILS: ReadonlySet<string> = new Set([
-  "gheocapaula1000@gmail.com",
-  "massimilianogalli75@gmail.com",
-]);
+/** Parse comma-separated email list from env. Trim, lowercase, drop empty. */
+function parseAdminEmails(): ReadonlySet<string> {
+  const raw = (typeof Deno !== "undefined" ? Deno.env.get("AI_CORE_ADMIN_EMAILS") : "") ?? "";
+  const emails = raw
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => e.length > 0 && e.includes("@"));
+  return new Set(emails);
+}
 
 /** Normalize email: trim + lowercase. No domain wildcard. */
 export function normalizeEmail(email: string | null | undefined): string {
