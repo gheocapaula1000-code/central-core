@@ -24,6 +24,7 @@ describe("Infra — All functions must include identity headers", () => {
     { name: "viral-core", serviceKind: "viral-content-engine", callingMode: "proxy" },
     { name: "ecosystem-gateway", serviceKind: "ecosystem-orchestrator", callingMode: "direct" },
     { name: "health", serviceKind: "global-health-probe", callingMode: "direct" },
+    { name: "listing-bridge", serviceKind: "listing-bridge", callingMode: "direct" },
   ];
 
   it("all identity header names are defined", () => {
