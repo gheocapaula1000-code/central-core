@@ -14,7 +14,7 @@ Every response from Central Core V3 functions includes these non-sensitive heade
 
 | Header | Value | Purpose |
 |--------|-------|---------|
-| `X-Core-Version` | `3.3.1` | Core version that generated the response |
+| `X-Core-Version` | `3.3.5` | Core version that generated the response |
 | `X-Core-Function` | `ai-core-run` / `sottra` / `health` | Which edge function responded |
 | `X-Core-Route` | `health` / `manifest` / `scan/pricing` / etc. | Canonical route that handled the request |
 | `X-Core-Contract` | `central-core-v3` | Contract identifier |
