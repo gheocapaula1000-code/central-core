@@ -67,7 +67,7 @@ export function AdminSidebar() {
       <SidebarFooter className="px-4 pb-4">
         {!collapsed && (
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span className="font-mono">v3.3.4</span>
+            <span className="font-mono">v3.3.5</span>
           </div>
         )}
       </SidebarFooter>

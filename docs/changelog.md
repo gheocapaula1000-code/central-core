@@ -5,6 +5,26 @@
 
 ---
 
+## [3.3.5] — 2026-03-21
+
+### Added
+- **listing-bridge** Edge Function: isolated bridge module for KeyDraft→Sottra data transport
+- Canonical schema v1.0 with versioning, validation, normalization, and transformation
+- Job state machine: received → validated → transformed → delivered → imported | failed
+- Idempotency via `trace_id` unique constraint and `listing_id + run_id` deduplication
+- Retry endpoint with configurable max retries (3)
+- `listing_bridge_jobs` table with RLS (service_role only)
+- Contract test suite: `listing-bridge-contract.test.ts` (25+ assertions)
+- Documentation: `docs/listing-bridge.md`
+
+### Notes
+- KeyDraft and Sottra remain fully independent — no direct coupling
+- Bridge is isolated: separate function, table, tests, and docs
+- No existing contract, envelope, path, or error code was changed
+- All shared infrastructure patterns (origin policy, identity headers, auth, envelope) reused consistently
+
+---
+
 ## [3.3.4] — 2026-03-21
 
 ### Added

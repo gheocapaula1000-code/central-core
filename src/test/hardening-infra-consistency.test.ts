@@ -24,6 +24,7 @@ describe("Infra — All functions must include identity headers", () => {
     { name: "viral-core", serviceKind: "viral-content-engine", callingMode: "proxy" },
     { name: "ecosystem-gateway", serviceKind: "ecosystem-orchestrator", callingMode: "direct" },
     { name: "health", serviceKind: "global-health-probe", callingMode: "direct" },
+    { name: "listing-bridge", serviceKind: "listing-bridge", callingMode: "direct" },
   ];
 
   it("all identity header names are defined", () => {
@@ -92,12 +93,11 @@ describe("Infra — Origin policy must be enforced uniformly", () => {
     "sottra",
     "viral-core",
     "ecosystem-gateway",
+    "listing-bridge",
   ];
 
-  it("all 4 protected functions enforce origin policy at top level", () => {
-    // All functions with POST endpoints enforce origin policy
-    // before any other processing (auth, body parsing, etc.)
-    expect(FUNCTIONS_WITH_ORIGIN_POLICY).toHaveLength(4);
+  it("all 5 protected functions enforce origin policy at top level", () => {
+    expect(FUNCTIONS_WITH_ORIGIN_POLICY).toHaveLength(5);
     for (const fn of FUNCTIONS_WITH_ORIGIN_POLICY) {
       expect(fn).toBeTruthy();
     }
@@ -132,6 +132,7 @@ describe("Infra — Health endpoint response shape", () => {
     "viral-core": "healthy",
     "ecosystem-gateway": "healthy",
     "health": "healthy",
+    "listing-bridge": "healthy",
   };
 
   for (const [fn, expectedStatus] of Object.entries(HEALTH_STATUS_MAP)) {
@@ -184,6 +185,7 @@ describe("Infra — Manifest endpoint contract", () => {
     "viral-core": "/functions/v1/viral-core",
     "ecosystem-gateway": "/functions/v1/ecosystem-gateway",
     "health": "/functions/v1/health",
+    "listing-bridge": "/functions/v1/listing-bridge",
   };
 
   for (const [fn, path] of Object.entries(EXPECTED_BASE_PATHS)) {
@@ -203,6 +205,7 @@ describe("Infra — Body size limits are consistent", () => {
     "sottra": 500_000,
     "viral-core": 500_000,
     "ecosystem-gateway": 500_000,
+    "listing-bridge": 500_000,
   };
 
   for (const [fn, limit] of Object.entries(BODY_LIMITS)) {
@@ -224,10 +227,11 @@ describe("Infra — All responses must use withIdentity wrapper", () => {
     "viral-core",
     "ecosystem-gateway",
     "health",
+    "listing-bridge",
   ];
 
-  it("all 5 functions use identity header wrapping", () => {
-    expect(FUNCTIONS_WITH_IDENTITY).toHaveLength(5);
+  it("all 6 functions use identity header wrapping", () => {
+    expect(FUNCTIONS_WITH_IDENTITY).toHaveLength(6);
   });
 
   it("withIdentity pattern is consistent: (response, route) → response with headers", () => {
@@ -241,8 +245,8 @@ describe("Infra — All responses must use withIdentity wrapper", () => {
   it("catch-all error handlers use withIdentity", () => {
     // Every function's catch block must wrap the 500 response with identity headers
     // Pattern: return withIdentity(fail(req, 500, "INTERNAL_ERROR", ...), "error")
-    const FUNCTIONS_WITH_CATCH = ["ai-core-run", "sottra", "viral-core", "ecosystem-gateway"];
-    expect(FUNCTIONS_WITH_CATCH).toHaveLength(4);
+    const FUNCTIONS_WITH_CATCH = ["ai-core-run", "sottra", "viral-core", "ecosystem-gateway", "listing-bridge"];
+    expect(FUNCTIONS_WITH_CATCH).toHaveLength(5);
   });
 });
 

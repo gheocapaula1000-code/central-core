@@ -408,7 +408,7 @@ describe("Sottra contract — health endpoint", () => {
     const data = {
       status: "healthy",
       engine: "sottra",
-      version: "3.3.4",
+      version: "3.3.5",
       routes: expectedRoutes,
       time: new Date().toISOString(),
     };

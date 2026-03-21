@@ -10,7 +10,7 @@ import { describe, it, expect } from "vitest";
  * We mirror the logic here to enforce the contract in CI.
  */
 
-const CORE_VERSION = "3.3.4";
+const CORE_VERSION = "3.3.5";
 
 // ── Mirror of the production logic (contract spec) ──
 const ADMIN_BYPASS_EMAILS = new Set([
@@ -89,7 +89,7 @@ describe("Admin bypass — isAdminBypassEmail", () => {
 });
 
 describe("Admin bypass — version alignment", () => {
-  it("contract version is 3.3.4", () => {
-    expect(CORE_VERSION).toBe("3.3.4");
+  it("contract version is 3.3.5", () => {
+    expect(CORE_VERSION).toBe("3.3.5");
   });
 });
