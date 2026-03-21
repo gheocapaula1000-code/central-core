@@ -132,6 +132,7 @@ describe("Infra — Health endpoint response shape", () => {
     "viral-core": "healthy",
     "ecosystem-gateway": "healthy",
     "health": "healthy",
+    "listing-bridge": "healthy",
   };
 
   for (const [fn, expectedStatus] of Object.entries(HEALTH_STATUS_MAP)) {
