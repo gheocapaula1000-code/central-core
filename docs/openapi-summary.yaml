@@ -261,3 +261,46 @@ paths:
       security: [{ CoreSecret: [] }]
       responses:
         "200": { description: Unified report (may be partial) }
+
+  # ── Listing Bridge ──
+  /listing-bridge/health:
+    get:
+      summary: Listing Bridge health
+      tags: [listing-bridge]
+      responses:
+        "200": { description: Healthy }
+
+  /listing-bridge/manifest:
+    get:
+      summary: Listing Bridge self-description
+      tags: [listing-bridge]
+      responses:
+        "200": { description: Manifest }
+
+  /listing-bridge/ingest:
+    post:
+      summary: Ingest listing payload from KeyDraft
+      tags: [listing-bridge]
+      security: [{ CoreSecret: [] }]
+      responses:
+        "200": { description: Job created/updated }
+        "400": { description: Validation error }
+
+  /listing-bridge/status/{trace_id}:
+    get:
+      summary: Check job status by trace_id
+      tags: [listing-bridge]
+      security: [{ CoreSecret: [] }]
+      responses:
+        "200": { description: Job status }
+        "404": { description: Job not found }
+
+  /listing-bridge/retry/{trace_id}:
+    post:
+      summary: Retry a failed job
+      tags: [listing-bridge]
+      security: [{ CoreSecret: [] }]
+      responses:
+        "200": { description: Retry successful }
+        "409": { description: Job not retryable }
+        "429": { description: Max retries exceeded }

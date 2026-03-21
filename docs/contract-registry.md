@@ -495,6 +495,14 @@ These endpoints are intentionally scaffolded but return `sourceType: "unavailabl
 | `MISSING_CONTENTS` | 400 | viral-core: missing contents |
 | `MISSING_CONTENT` | 400 | viral-core: missing content |
 | `MISSING_PROPERTY` | 400 | gateway: missing property |
+| `VALIDATION_FAILED` | 400 | listing-bridge: payload validation failed |
+| `DELIVERY_FAILED` | 502 | listing-bridge: Sottra delivery failed |
+| `RETRY_DELIVERY_FAILED` | 502 | listing-bridge: retry delivery failed |
+| `MISSING_TRACE_ID` | 400 | listing-bridge: missing trace_id param |
+| `JOB_NOT_FOUND` | 404 | listing-bridge: no job for trace_id |
+| `JOB_NOT_RETRYABLE` | 409 | listing-bridge: job not in failed state |
+| `MAX_RETRIES_EXCEEDED` | 429 | listing-bridge: max retries reached |
+| `DB_ERROR` | 500 | listing-bridge: database query failed |
 
 ---
 

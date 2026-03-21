@@ -5,7 +5,7 @@
 Modulo bridge isolato che trasporta dati di listing da **KeyDraft** a **Sottra** attraverso Central Core V3, senza creare dipendenze dirette tra le due PWA.
 
 ```
-KeyDraft → [export] → listing-bridge/ingest → [validate → normalize → transform] → Sottra/scan/identify
+KeyDraft → [export] → listing-bridge/ingest → [validate → normalize → transform] → Sottra/scan/import
 ```
 
 ## Principi
