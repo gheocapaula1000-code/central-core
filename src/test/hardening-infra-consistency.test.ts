@@ -93,12 +93,11 @@ describe("Infra — Origin policy must be enforced uniformly", () => {
     "sottra",
     "viral-core",
     "ecosystem-gateway",
+    "listing-bridge",
   ];
 
-  it("all 4 protected functions enforce origin policy at top level", () => {
-    // All functions with POST endpoints enforce origin policy
-    // before any other processing (auth, body parsing, etc.)
-    expect(FUNCTIONS_WITH_ORIGIN_POLICY).toHaveLength(4);
+  it("all 5 protected functions enforce origin policy at top level", () => {
+    expect(FUNCTIONS_WITH_ORIGIN_POLICY).toHaveLength(5);
     for (const fn of FUNCTIONS_WITH_ORIGIN_POLICY) {
       expect(fn).toBeTruthy();
     }
