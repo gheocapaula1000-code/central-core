@@ -10,6 +10,7 @@ import {
   ok,
   fail,
   requireSecret,
+  resolveInternalSecret,
   CORE_VERSION,
   CORE_CONTRACT,
   addIdentityHeaders,
