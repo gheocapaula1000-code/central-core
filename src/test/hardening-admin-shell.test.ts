@@ -5,13 +5,16 @@
  * deploy headers artifact, and admin route registration.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync, existsSync } from "fs";
-import { resolve } from "path";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ── index.html security baseline ──
 
 describe("Admin Shell — index.html security meta", () => {
-  const html = readFileSync(resolve(__dirname, "../../index.html"), "utf-8");
+  const html = fs.readFileSync(path.resolve(__dirname, "../../index.html"), "utf-8");
 
   it("contains Content-Security-Policy meta", () => {
     expect(html).toContain('http-equiv="Content-Security-Policy"');
@@ -57,14 +60,14 @@ describe("Admin Shell — index.html security meta", () => {
 // ── Deploy headers artifact ──
 
 describe("Admin Shell — _headers deploy artifact", () => {
-  const headersPath = resolve(__dirname, "../../public/_headers");
+  const headersPath = path.resolve(__dirname, "../../public/_headers");
 
   it("public/_headers file exists", () => {
-    expect(existsSync(headersPath)).toBe(true);
+    expect(fs.existsSync(headersPath)).toBe(true);
   });
 
-  const headers = existsSync(headersPath)
-    ? readFileSync(headersPath, "utf-8")
+  const headers = fs.existsSync(headersPath)
+    ? fs.readFileSync(headersPath, "utf-8")
     : "";
 
   it("includes X-Content-Type-Options", () => {
@@ -97,31 +100,17 @@ describe("Admin Shell — _headers deploy artifact", () => {
 // ── Admin route registration ──
 
 describe("Admin Shell — route registration", () => {
-  const ADMIN_ROUTES = [
-    "/",
-    "/apps",
-    "/providers",
-    "/tasks",
-    "/security",
-    "/metrics",
-    "/selftest",
-  ];
+  const ADMIN_ROUTES = ["/", "/apps", "/providers", "/tasks", "/security", "/metrics", "/selftest"];
 
-  it("App.tsx registers all expected admin routes", async () => {
-    const appSource = readFileSync(
-      resolve(__dirname, "../App.tsx"),
-      "utf-8",
-    );
+  it("App.tsx registers all expected admin routes", () => {
+    const appSource = fs.readFileSync(path.resolve(__dirname, "../App.tsx"), "utf-8");
     for (const route of ADMIN_ROUTES) {
-      expect(appSource).toContain(`path="${route === "/" ? "/" : route}"`);
+      expect(appSource).toContain(`path="${route}"`);
     }
   });
 
-  it("App.tsx has a catch-all NotFound route", async () => {
-    const appSource = readFileSync(
-      resolve(__dirname, "../App.tsx"),
-      "utf-8",
-    );
+  it("App.tsx has a catch-all NotFound route", () => {
+    const appSource = fs.readFileSync(path.resolve(__dirname, "../App.tsx"), "utf-8");
     expect(appSource).toContain('path="*"');
     expect(appSource).toContain("NotFound");
   });
@@ -131,10 +120,7 @@ describe("Admin Shell — route registration", () => {
 
 describe("Admin Shell — robots.txt", () => {
   it("robots.txt disallows all crawling", () => {
-    const robots = readFileSync(
-      resolve(__dirname, "../../public/robots.txt"),
-      "utf-8",
-    );
+    const robots = fs.readFileSync(path.resolve(__dirname, "../../public/robots.txt"), "utf-8");
     expect(robots).toContain("Disallow: /");
   });
 });
