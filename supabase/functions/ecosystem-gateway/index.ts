@@ -9,7 +9,6 @@ import {
   ok,
   fail,
   requireSecret,
-  CORE_VERSION,
   CORE_CONTRACT,
   addIdentityHeaders,
   buildManifest,
