@@ -262,7 +262,7 @@ async function updateJobStatus(
 async function deliverToSottra(
   req: Request,
   sottraPayload: Record<string, unknown>,
-  debugId: string,
+  _debugId: string,
 ): Promise<{ success: boolean; status: number; body: unknown }> {
   const baseUrl = new URL(req.url);
   const sottraUrl = `${baseUrl.protocol}//${baseUrl.host}/functions/v1/sottra/scan/import`;
