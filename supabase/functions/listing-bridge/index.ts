@@ -268,9 +268,13 @@ async function deliverToSottra(
   const baseUrl = new URL(req.url);
   const sottraUrl = `${baseUrl.protocol}//${baseUrl.host}/functions/v1/sottra/scan/import`;
 
-  const secret = Deno.env.get("AI_CORE_SECRET") ?? "";
+  // Use per-app secret resolution: prefer AI_CORE_SECRET_SOTTRA, fallback to legacy
+  const { secret, mode, envName } = resolveInternalSecret("sottra");
   if (!secret) {
-    return { success: false, status: 500, body: { error: "AI_CORE_SECRET not configured for Sottra delivery" } };
+    return { success: false, status: 500, body: { error: `No secret configured for Sottra delivery (tried ${envName} and AI_CORE_SECRET)` } };
+  }
+  if (mode === "legacy") {
+    console.warn(`[listing-bridge] Sottra delivery using legacy AI_CORE_SECRET — configure ${envName}`);
   }
 
   try {
