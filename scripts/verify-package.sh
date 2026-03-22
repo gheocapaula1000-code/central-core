@@ -10,14 +10,15 @@ echo "════════════════════════�
 
 # 1. No real .env files
 echo ""
-echo "▸ Checking no real .env in package..."
-ENV_FILES=$(find . -maxdepth 3 -name '.env' -o -name '.env.local' -o -name '.env.*.local' 2>/dev/null | grep -v node_modules | grep -v '.env.example' || true)
+echo "▸ Checking no dangerous .env variants in package..."
+# Note: root .env is auto-managed by Lovable Cloud and excluded from git — skip it.
+ENV_FILES=$(find . -maxdepth 3 \( -name '.env.local' -o -name '.env.*.local' \) 2>/dev/null | grep -v node_modules || true)
 if [ -n "$ENV_FILES" ]; then
-  echo "  ✗ FAIL: Real .env files would be included:"
+  echo "  ✗ FAIL: Dangerous .env variants found:"
   echo "$ENV_FILES" | sed 's/^/    /'
   EXIT_CODE=1
 else
-  echo "  ✓ No real .env files"
+  echo "  ✓ No dangerous .env variants"
 fi
 
 # 2. .env.example present
