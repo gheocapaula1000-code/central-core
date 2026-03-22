@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import type { PropertyInput } from "./types.ts";
+import { resolveInternalSecret } from "../_shared/http.ts";
 
 const INTERNAL_TIMEOUT_MS = 12_000;
 
