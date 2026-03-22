@@ -39,7 +39,7 @@ interface DevelopmentSignal {
 }
 
 /** OpenCoesione — public cohesion projects API */
-async function fetchOpenCoesione(comune: string, lat: number, lng: number): Promise<{
+async function fetchOpenCoesione(comune: string, _lat: number, _lng: number): Promise<{
   signals: DevelopmentSignal[];
   raw: unknown;
   available: boolean;
