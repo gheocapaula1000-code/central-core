@@ -8,7 +8,7 @@ import { callAIVision, parseJSON, reverseGeocode, classifyOMIPricing, PUBLICATIO
 import { lookupOMI, lookupOMIByCoordinates, type OMIResult } from "./omi-lookup.ts";
 import { resolveGeo } from "./geo-resolution.ts";
 import { collectStreetEvidence, type StreetEvidenceMergeResult } from "./street-evidence.ts";
-import { collectMarketData, MARKET_DATA_POLICY, type MarketContextResult } from "./market-data.ts";
+import { collectMarketData } from "./market-data.ts";
 
 /** POST /sottra/scan/identify — photo + GPS → address + building ID + street evidence */
 export async function handleScanIdentify(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {

@@ -118,7 +118,7 @@ async function callOpenAI(prompt: string, maxTokens: number): Promise<{ text: st
     });
 
     if (!res.ok) {
-      const errText = await res.text();
+      const _errText = await res.text();
       console.error(`[viral-core] OpenAI error status=${res.status}`);
       return { text: "", ok: false, error: `OpenAI ${res.status}` };
     }

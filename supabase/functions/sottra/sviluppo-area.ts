@@ -149,7 +149,7 @@ async function fetchInfratel(comune: string): Promise<{
 }
 
 /** MIT Cantieri — Osserva Cantieri (best effort, may not be queryable) */
-async function fetchMITCantieri(comune: string, provincia: string): Promise<{
+async function fetchMITCantieri(comune: string, _provincia: string): Promise<{
   signals: DevelopmentSignal[];
   available: boolean;
   error?: string;
