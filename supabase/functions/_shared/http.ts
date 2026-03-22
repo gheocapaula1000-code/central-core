@@ -42,7 +42,7 @@ export function checkAdminBypass(
 // Falls back to legacy AI_CORE_SECRET with a warning.
 // ═══════════════════════════════════════════════════════════════
 
-const APP_SECRET_MAP: Record<string, string> = {
+export const APP_SECRET_MAP: Record<string, string> = {
   wyloni: "AI_CORE_SECRET_WYLONI",
   keydraft: "AI_CORE_SECRET_KEYDRAFT",
   sottra: "AI_CORE_SECRET_SOTTRA",
@@ -74,11 +74,36 @@ function resolveExpectedSecret(sourceApp: string): { secret: string; mode: "per-
   if (legacy) {
     if (KNOWN_APPS.has(normalized)) {
       console.warn(`[requireSecret] DEPRECATION: source_app=${normalized} using legacy AI_CORE_SECRET — configure ${envName} for segmented auth`);
+    } else if (!normalized) {
+      console.warn(`[requireSecret] DEPRECATION: empty x-source-app using legacy AI_CORE_SECRET — x-source-app will become mandatory`);
     }
     return { secret: legacy, mode: "legacy" };
   }
 
   return { secret: "", mode: "missing" };
+}
+
+/**
+ * Resolve secret for internal Core→Core calls (e.g. listing-bridge → sottra).
+ * Uses the per-app secret for the TARGET service, falling back to legacy.
+ * This is the canonical helper for all internal edge-function-to-edge-function calls.
+ */
+export function resolveInternalSecret(targetApp: string): { secret: string; mode: "per-app" | "legacy" | "missing"; envName: string } {
+  const normalized = targetApp.toLowerCase().trim();
+  const envName = APP_SECRET_MAP[normalized] ?? `AI_CORE_SECRET_${normalized.toUpperCase()}`;
+
+  // Try per-app secret for the target
+  const perAppVal = Deno.env.get(envName) ?? "";
+  if (perAppVal) return { secret: perAppVal, mode: "per-app", envName };
+
+  // Fallback to legacy shared secret
+  const legacy = Deno.env.get("AI_CORE_SECRET") ?? "";
+  if (legacy) {
+    console.warn(`[resolveInternalSecret] DEPRECATION: target=${normalized} using legacy AI_CORE_SECRET — configure ${envName} for segmented auth`);
+    return { secret: legacy, mode: "legacy", envName };
+  }
+
+  return { secret: "", mode: "missing", envName };
 }
 
 // ═══════════════════════════════════════════════════════════════

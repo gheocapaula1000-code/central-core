@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import type { PropertyInput } from "./types.ts";
+import { resolveInternalSecret } from "../_shared/http.ts";
 
 const INTERNAL_TIMEOUT_MS = 12_000;
 
@@ -131,10 +132,14 @@ export async function enrichFromSottra(
     return result;
   }
 
-  const secret = Deno.env.get("AI_CORE_SECRET") ?? "";
+  // Use per-app secret resolution: prefer AI_CORE_SECRET_SOTTRA, fallback to legacy
+  const { secret, mode, envName } = resolveInternalSecret("sottra");
   if (!secret) {
-    result.warnings.push("AI_CORE_SECRET not available for internal calls");
+    result.warnings.push(`No secret configured for Sottra internal calls (tried ${envName} and AI_CORE_SECRET)`);
     return result;
+  }
+  if (mode === "legacy") {
+    console.warn(`[ecosystem-gateway] Sottra internal calls using legacy AI_CORE_SECRET — configure ${envName}`);
   }
 
   // Check minimum data for Sottra calls

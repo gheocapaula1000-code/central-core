@@ -38,24 +38,34 @@ The Central Core base URL is configured as `CENTRAL_CORE_BASE_URL` in each PWA's
 
 ## Authentication
 
-### Required Header
+### Per-App Secrets (recommended)
 
-All POST routes require one of these headers (checked in order):
+Each PWA should use its own dedicated secret for reduced blast radius:
+
+| PWA | Secret Name | Vault Location |
+|-----|-------------|----------------|
+| Wyloni | `AI_CORE_SECRET_WYLONI` | PWA vault |
+| KeyDraft | `AI_CORE_SECRET_KEYDRAFT` | PWA vault |
+| Sottra | `AI_CORE_SECRET_SOTTRA` | PWA vault |
+| Regiads | `AI_CORE_SECRET_REGIADS` / `INTERNAL_CORE_API_KEY` | PWA vault |
+| PRATICA | `AI_CORE_SECRET_PRATICA` | PWA vault |
+
+The legacy shared `AI_CORE_SECRET` is still accepted as a **transitional fallback** but will be deprecated. Migrate to per-app secrets as soon as possible.
+
+### Required Headers
+
+All POST routes require authentication via one of these headers (checked in order):
 
 | Priority | Header | Notes |
 |----------|--------|-------|
-| 1 | `x-internal-secret: <AI_CORE_SECRET>` | **Preferred** — used by core-proxy |
-| 2 | `x-app-secret: <AI_CORE_SECRET>` | Legacy alias |
-| 3 | `x-core-secret: <AI_CORE_SECRET>` | Legacy alias |
-| 4 | `Authorization: Bearer <AI_CORE_SECRET>` | Bearer prefix stripped |
+| 1 | `x-internal-secret: <SECRET>` | **Preferred** — used by core-proxy |
+| 2 | `x-app-secret: <SECRET>` | Legacy alias |
+| 3 | `x-core-secret: <SECRET>` | Legacy alias |
+| 4 | `Authorization: Bearer <SECRET>` | Bearer prefix stripped |
 
-### Secret Sync
+### Required: `x-source-app`
 
-`AI_CORE_SECRET` must be identical across:
-- Central Core (Supabase secrets)
-- Each PWA project (Supabase secrets)
-
-If the secret is rotated, update ALL projects simultaneously.
+The `x-source-app` header is **required** for per-app secret resolution and will become **mandatory** in a future release. Set it to your app identifier (e.g., `wyloni`, `keydraft`, `sottra`, `regiads`, `pratica`).
 
 ### No Auth Required
 
@@ -86,9 +96,9 @@ x-source-app: wyloni
 | Header | Required | Purpose |
 |--------|----------|---------|
 | `Content-Type: application/json` | Yes | Always JSON |
-| `x-internal-secret` | Yes (POST) | Authentication |
+| `x-internal-secret` | Yes (POST) | Authentication (per-app or legacy secret) |
 | `apikey` | Yes | Supabase gateway routing |
-| `x-source-app` | Recommended | Tracing — identifies calling PWA |
+| `x-source-app` | **Required** | Identifies calling PWA for per-app secret resolution |
 
 ---
 
@@ -209,7 +219,8 @@ Exception: legacy Wyloni paths may remap `/ai/run` → `/ai-core-run`.
 | Secret | Purpose |
 |--------|---------|
 | `CENTRAL_CORE_BASE_URL` | Central Core Supabase URL |
-| `AI_CORE_SECRET` | Shared authentication secret |
+| `AI_CORE_SECRET_<APP>` | **Per-app secret** (e.g., `AI_CORE_SECRET_WYLONI`) |
+| `AI_CORE_SECRET` | Legacy shared secret (**transitional** — migrate to per-app) |
 
 ---
 
