@@ -2,7 +2,7 @@
 // v3.4: Coordinate-first (polygon match) with address fallback
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callAI, parseJSON } from "./shared.ts";
+import { callAI } from "./shared.ts";
 
 // ── Match Method Hierarchy (strongest → weakest) ──────────────
 // polygon_match > single_zone > ai_matched > ai_fallback > first_zone_fallback > none

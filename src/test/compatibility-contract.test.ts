@@ -16,9 +16,9 @@ const MANIFEST_REQUIRED_KEYS = ["contract", "version", "function", "serviceKind"
 const SENSITIVE_PATTERNS = [/API_KEY/i, /SECRET/i, /password/i, /token/i, /service.role/i, /allowlist/i, /allowed.origins/i];
 const IDENTITY_HEADERS = ["X-Core-Version", "X-Core-Function", "X-Core-Route", "X-Core-Contract"];
 const AUTH_HEADERS_PRIORITY = ["x-internal-secret", "x-app-secret", "x-core-secret", "Authorization"];
-const VALID_RISK_LEVELS = ["low", "medium", "high"];
-const VALID_PUBLISH_MODES = ["manual_review", "draft_only", "eligible_manual_publish"];
-const VALID_PLATFORMS = ["tiktok", "instagram", "facebook", "linkedin"];
+const _VALID_RISK_LEVELS = ["low", "medium", "high"];
+const _VALID_PUBLISH_MODES = ["manual_review", "draft_only", "eligible_manual_publish"];
+const _VALID_PLATFORMS = ["tiktok", "instagram", "facebook", "linkedin"];
 
 interface ManifestData {
   contract: string;

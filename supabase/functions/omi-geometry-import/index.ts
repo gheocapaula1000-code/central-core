@@ -15,7 +15,7 @@
 // { "batch": true, "semestre": "2025/1", "clear_first": false, "pattern": "_zone_omi" }
 
 import {
-  handleOptions, ok, fail, makeDebugId, requireSecret, enforceOriginPolicy, constantTimeEqual,
+  handleOptions, ok, fail, makeDebugId, requireSecret, enforceOriginPolicy,
 } from "../_shared/http.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
@@ -27,7 +27,7 @@ import {
   findField, ZONA_ALIASES, DESCR_ALIASES, ISTAT_ALIASES, COMUNE_ALIASES,
   PROV_ALIASES, LINK_ALIASES, CATASTALE_ALIASES, type ParsedFeature,
 } from "./fields.ts";
-import { streamZipEntries, type StreamZipEntry } from "./stream-zip.ts";
+import { streamZipEntries } from "./stream-zip.ts";
 import { comuneNameVariants, istatCodeVariants, normalizeIncomingName } from "./normalizer.ts";
 
 const PAGE = 1000;
@@ -631,6 +631,7 @@ async function processZipArchiveFromBytes(
 }
 
 // ── Process a ZIP archive (download + extract) ──
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- reserved for future batch ZIP processing
 async function processZipArchive(
   supabase: ReturnType<typeof createClient>,
   storagePath: string,

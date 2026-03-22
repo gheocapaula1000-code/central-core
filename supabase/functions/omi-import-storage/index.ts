@@ -163,7 +163,7 @@ Deno.serve(async (req) => {
 
     console.log(`[omi-import-storage] Done: table=${table} total=${rows.length} inserted=${inserted} errors=${errors}`);
     return ok(req, { table, totalRows: rows.length, inserted, errors }, [], debugId);
-  } catch (e) {
+  } catch (_e) {
     console.error(`[omi-import-storage] Import failed debug_id=${debugId}`);
     return fail(req, 500, "IMPORT_ERROR", `Import failed. Reference: ${debugId}`, debugId);
   }

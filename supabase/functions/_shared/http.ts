@@ -112,7 +112,7 @@ export function makeDebugId(): string {
 // ═══════════════════════════════════════════════════════════════
 // Sensitive data redaction — used by diagnostics, logging, error payloads
 // ═══════════════════════════════════════════════════════════════
-const REDACT_PATTERNS = [
+const _REDACT_PATTERNS = [
   /API[_-]?KEY/i,
   /SECRET/i,
   /PASSWORD/i,
@@ -274,7 +274,7 @@ export function enforceOriginPolicy(req: Request, debugId: string): Response | n
 export function handleOptions(req: Request): Response {
   const origin = req.headers.get("origin");
   if (origin && !isOriginAllowed(origin)) {
-    const debugId = makeDebugId();
+    const _debugId = makeDebugId();
     console.warn(`[options] rejected origin=${origin}`);
     return new Response(JSON.stringify({ ok: false, data: null, error: { code: "ORIGIN_NOT_ALLOWED", message: "Origin not in allowlist" } }), {
       status: 403,

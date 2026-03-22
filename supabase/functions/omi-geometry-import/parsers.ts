@@ -93,7 +93,7 @@ function parseZipEntries(zip: Uint8Array): ZipEntry[] {
   return entries;
 }
 
-function decompressDeflateSync(data: Uint8Array, _expectedSize: number): Uint8Array {
+function decompressDeflateSync(_data: Uint8Array, _expectedSize: number): Uint8Array {
   // In Deno, we can use DecompressionStream but it's async.
   // For edge functions, use a raw inflate approach.
   // We'll wrap in a sync-compatible way using the Deno built-in.

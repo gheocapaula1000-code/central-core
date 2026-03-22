@@ -179,7 +179,7 @@ function handleUnifiedReport(req: Request, body: UnifiedReportRequest, debugId: 
   if (!territorialContext) warnings.push("enrichment/territorial section unavailable");
   if (!servicePack) warnings.push("service_pack section unavailable");
 
-  const hasSomething = technicalSheet || territorialContext || servicePack;
+  const _hasSomething = technicalSheet || territorialContext || servicePack;
 
   const data: Record<string, unknown> = {
     availability_flags: availabilityFlags,

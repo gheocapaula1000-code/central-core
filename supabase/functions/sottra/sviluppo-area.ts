@@ -39,7 +39,7 @@ interface DevelopmentSignal {
 }
 
 /** OpenCoesione — public cohesion projects API */
-async function fetchOpenCoesione(comune: string, lat: number, lng: number): Promise<{
+async function fetchOpenCoesione(comune: string, _lat: number, _lng: number): Promise<{
   signals: DevelopmentSignal[];
   raw: unknown;
   available: boolean;
@@ -149,7 +149,7 @@ async function fetchInfratel(comune: string): Promise<{
 }
 
 /** MIT Cantieri — Osserva Cantieri (best effort, may not be queryable) */
-async function fetchMITCantieri(comune: string, provincia: string): Promise<{
+async function fetchMITCantieri(comune: string, _provincia: string): Promise<{
   signals: DevelopmentSignal[];
   available: boolean;
   error?: string;

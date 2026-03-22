@@ -148,7 +148,7 @@ Deno.serve(async (req) => {
 
     console.log(`[istat-ispra-import] Done: ${inserted} inserted, ${errors} errors`);
     return ok(req, { table, totalRows: rows.length, inserted, errors }, [], debugId);
-  } catch (e) {
+  } catch (_e) {
     console.error(`[istat-ispra-import] Import failed debug_id=${debugId}`);
     return fail(req, 500, "IMPORT_ERROR", `Import failed. Reference: ${debugId}`, debugId);
   }

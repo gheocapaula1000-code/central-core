@@ -169,8 +169,8 @@ export class MapillaryProvider implements StreetEvidenceAdapter {
   async extractEvidence(
     lat: number,
     lng: number,
-    resolvedStreet: string | null,
-    resolvedHouseNumber: string | null,
+    _resolvedStreet: string | null,
+    _resolvedHouseNumber: string | null,
   ): Promise<StreetEvidenceSignal | null> {
     const key = Deno.env.get("MAPILLARY_API_KEY");
     if (!key) return null;

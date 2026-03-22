@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   verify:
-    name: Lint → Build → Test
+    name: Lint → Typecheck → Build → Test
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -31,8 +31,17 @@ jobs:
       - name: Lint
         run: npx eslint . --max-warnings 0
 
+      - name: Typecheck
+        run: npx tsc --noEmit
+
       - name: Build
         run: npx vite build
 
       - name: Test
         run: npx vitest run
+
+      - name: Verify secrets
+        run: bash scripts/verify-secrets.sh
+
+      - name: Verify package
+        run: bash scripts/verify-package.sh

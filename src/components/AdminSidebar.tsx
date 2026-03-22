@@ -27,7 +27,7 @@ const menuItems = [
 export function AdminSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
-  const location = useLocation();
+  const _location = useLocation();
 
   return (
     <Sidebar collapsible="icon" className="border-r border-border">
