@@ -2,7 +2,7 @@
 
 > Gate checklist before any release goes live.
 > Every item must pass. No exceptions for MAJOR/MINOR releases.
-> Last updated: 2026-03-20
+> Last updated: 2026-03-22
 
 ---
 

@@ -84,6 +84,22 @@ else
   EXIT_CODE=1
 fi
 
+# 6. Check for localhost URLs in build output
+echo ""
+echo "▸ Checking for localhost URLs in dist/..."
+if [ -d "dist" ]; then
+  LOCALHOST_HITS=$(grep -rn --include='*.js' --include='*.html' -E 'https?://localhost[:/]' dist/ 2>/dev/null | grep -v '//# sourceMappingURL' || true)
+  if [ -n "$LOCALHOST_HITS" ]; then
+    echo "  ✗ FAIL: localhost URLs found in build output:"
+    echo "$LOCALHOST_HITS" | head -5 | sed 's/^/    /'
+    EXIT_CODE=1
+  else
+    echo "  ✓ No localhost URLs in dist/"
+  fi
+else
+  echo "  ⚠ dist/ not found — skipping localhost check"
+fi
+
 echo ""
 echo "═══════════════════════════════════════════════"
 if [ $EXIT_CODE -eq 0 ]; then
