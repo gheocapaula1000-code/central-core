@@ -219,7 +219,8 @@ Exception: legacy Wyloni paths may remap `/ai/run` → `/ai-core-run`.
 | Secret | Purpose |
 |--------|---------|
 | `CENTRAL_CORE_BASE_URL` | Central Core Supabase URL |
-| `AI_CORE_SECRET` | Shared authentication secret |
+| `AI_CORE_SECRET_<APP>` | **Per-app secret** (e.g., `AI_CORE_SECRET_WYLONI`) |
+| `AI_CORE_SECRET` | Legacy shared secret (**transitional** — migrate to per-app) |
 
 ---
 
