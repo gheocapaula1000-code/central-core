@@ -27,7 +27,7 @@ import {
   findField, ZONA_ALIASES, DESCR_ALIASES, ISTAT_ALIASES, COMUNE_ALIASES,
   PROV_ALIASES, LINK_ALIASES, CATASTALE_ALIASES, type ParsedFeature,
 } from "./fields.ts";
-import { streamZipEntries, type StreamZipEntry } from "./stream-zip.ts";
+import { streamZipEntries } from "./stream-zip.ts";
 import { comuneNameVariants, istatCodeVariants, normalizeIncomingName } from "./normalizer.ts";
 
 const PAGE = 1000;
