@@ -631,6 +631,7 @@ async function processZipArchiveFromBytes(
 }
 
 // ── Process a ZIP archive (download + extract) ──
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- reserved for future batch ZIP processing
 async function processZipArchive(
   supabase: ReturnType<typeof createClient>,
   storagePath: string,
