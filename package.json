@@ -18,6 +18,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build",
     "verify:secrets": "bash scripts/verify-secrets.sh",
     "verify:package": "bash scripts/verify-package.sh",
