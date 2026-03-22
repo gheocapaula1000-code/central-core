@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   verify:
-    name: Lint → Typecheck → Build → Test
+    name: Lint → Typecheck → Test → Build → Verify
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -34,14 +34,22 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      - name: Test with coverage
+        run: npx vitest run --coverage
+
       - name: Build
         run: npx vite build
-
-      - name: Test
-        run: npx vitest run
 
       - name: Verify secrets
         run: bash scripts/verify-secrets.sh
 
       - name: Verify package
         run: bash scripts/verify-package.sh
+
+      - name: Verify no .env in dist
+        run: |
+          if find dist -name '.env*' 2>/dev/null | grep -q .; then
+            echo "FAIL: .env found in build output"
+            exit 1
+          fi
+          echo "OK: no .env in dist/"
