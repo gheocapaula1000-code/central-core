@@ -45,14 +45,26 @@ App (Wyloni/KeyDraft/Sottra)
 
 ## Variabili d'ambiente (Supabase Secrets)
 ```
-AI_CORE_SECRET          # Secret condiviso per autenticazione
+# Per-app secrets (segmented — one per PWA, reduces blast radius)
+AI_CORE_SECRET_WYLONI   # Secret per Wyloni
+AI_CORE_SECRET_KEYDRAFT # Secret per KeyDraft
+AI_CORE_SECRET_SOTTRA   # Secret per Sottra
+AI_CORE_SECRET_REGIADS  # Secret per Regiads
+AI_CORE_SECRET_PRATICA  # Secret per PRATICA
+
+# Legacy (transitional fallback — will be deprecated)
+AI_CORE_SECRET          # Secret condiviso legacy, usato se il per-app non è configurato
+
+# Provider keys
 OPENAI_API_KEY          # Provider primario
 ANTHROPIC_API_KEY       # Provider fallback
 PERPLEXITY_API_KEY      # Web search tasks
-CORE_ALLOWED_ORIGINS    # Origins CORS (es: https://wyloni.app,https://keydraft.app,https://sottra.app)
-GOOGLE_MAPS_API_KEY     # Geocoding per Sottra (opzionale, fallback su Nominatim)
-DIAGNOSTIC_SECRET       # Accesso endpoint diagnostici/metriche
 FIRECRAWL_API_KEY       # Web scraping (opzionale)
+
+# Infrastructure
+CORE_ALLOWED_ORIGINS    # Origins CORS (es: https://wyloni.app,https://keydraft.app)
+GOOGLE_MAPS_API_KEY     # Geocoding per Sottra (opzionale)
+DIAGNOSTIC_SECRET       # Accesso endpoint diagnostici/metriche
 ```
 
 ## Gestione segreti e `.env`
