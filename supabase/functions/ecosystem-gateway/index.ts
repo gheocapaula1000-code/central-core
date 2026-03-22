@@ -77,35 +77,7 @@ function handleCapabilities(req: Request, debugId: string): Response {
     ok(req, {
       status: "ok",
       function: FUNCTION_NAME,
-      version: CORE_VERSION,
-      modules: [
-        {
-          id: "listing-enrichment",
-          enabled: true,
-          requiresPwaChanges: false,
-          hardDependencies: [],
-          bestEffortDependencies: ["sottra/scan/market", "sottra/forecast/sviluppo-area"],
-        },
-        {
-          id: "service-pack",
-          enabled: true,
-          requiresPwaChanges: false,
-          hardDependencies: [],
-          bestEffortDependencies: [],
-        },
-        {
-          id: "unified-report",
-          enabled: true,
-          requiresPwaChanges: false,
-          hardDependencies: [],
-          bestEffortDependencies: [],
-        },
-      ],
-      nonGoals: [
-        "no direct PWA coupling",
-        "no DB sharing across apps",
-        "no blocking of KeyDraft fast path",
-      ],
+      modules: ["listing-enrichment", "service-pack", "unified-report"],
     }, [], debugId),
     "capabilities",
   );
