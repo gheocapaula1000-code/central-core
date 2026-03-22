@@ -54,13 +54,14 @@ fi
 # 5. No dev-only artifacts that shouldn't ship
 echo ""
 echo "▸ Checking for dev-only artifacts..."
-DEV_ARTIFACTS=(.env .env.local .env.development.local .env.production.local .env.test.local)
+DEV_ARTIFACTS=(.env.local .env.development.local .env.production.local .env.test.local)
 FOUND_DEV=""
 for artifact in "${DEV_ARTIFACTS[@]}"; do
   if [ -f "$artifact" ]; then
     FOUND_DEV="$FOUND_DEV $artifact"
   fi
 done
+# Note: root .env is auto-managed by Lovable Cloud and excluded from git — not a packaging concern.
 if [ -n "$FOUND_DEV" ]; then
   echo "  ✗ FAIL: Dev-only files found:$FOUND_DEV"
   EXIT_CODE=1

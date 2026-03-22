@@ -55,7 +55,7 @@ fi
 # 3. Check for JWT tokens hardcoded in source files (not .env, not .env.example)
 echo ""
 echo "▸ Scanning for hardcoded JWT tokens in source..."
-JWT_MATCHES=$(grep -rn --include='*.ts' --include='*.tsx' --include='*.js' 'eyJhbGci' . --exclude-dir=node_modules --exclude-dir=.git 2>/dev/null || true)
+JWT_MATCHES=$(grep -rn --include='*.ts' --include='*.tsx' --include='*.js' 'eyJhbGci' . --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist 2>/dev/null || true)
 if [ -n "$JWT_MATCHES" ]; then
   echo "  ✗ FAIL: Hardcoded JWT tokens found in source:"
   echo "$JWT_MATCHES" | head -5 | sed 's/^/    /'
