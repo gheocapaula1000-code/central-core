@@ -97,6 +97,39 @@ else
   echo "  ⚠ package-lock.json missing — run npm install"
 fi
 
+# 8. Operational docs presence
+echo ""
+echo "▸ Checking operational docs..."
+REQUIRED_DOCS=("docs/changelog.md" "docs/release-acceptance-checklist.md" "docs/release-pipeline.md" "docs/contract-registry.md" "docs/operational-checklist.md")
+MISSING_DOCS=""
+for doc in "${REQUIRED_DOCS[@]}"; do
+  if [ ! -f "$doc" ]; then
+    MISSING_DOCS="$MISSING_DOCS $doc"
+  fi
+done
+if [ -n "$MISSING_DOCS" ]; then
+  echo "  ✗ FAIL: Required operational docs missing:$MISSING_DOCS"
+  EXIT_CODE=1
+else
+  echo "  ✓ All required operational docs present (${#REQUIRED_DOCS[@]})"
+fi
+
+# 9. No localhost in build output
+echo ""
+echo "▸ Checking for localhost in build output..."
+if [ -d "dist" ]; then
+  LOCALHOST_IN_DIST=$(grep -rn --include='*.js' --include='*.html' -E 'https?://localhost[:/]' dist/ 2>/dev/null | grep -v '//# sourceMappingURL' || true)
+  if [ -n "$LOCALHOST_IN_DIST" ]; then
+    echo "  ✗ FAIL: localhost URLs found in dist/:"
+    echo "$LOCALHOST_IN_DIST" | head -3 | sed 's/^/    /'
+    EXIT_CODE=1
+  else
+    echo "  ✓ No localhost URLs in dist/"
+  fi
+else
+  echo "  ⚠ dist/ not found — skipping"
+fi
+
 echo ""
 echo "═══════════════════════════════════════════════"
 if [ $EXIT_CODE -eq 0 ]; then
