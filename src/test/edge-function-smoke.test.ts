@@ -32,8 +32,8 @@ describe("edge-function-smoke: health function structure", () => {
   });
 
   it("health function responds with expected fields", () => {
-    // Contract: health response must include these keys
-    const expectedKeys = ["status", "version", "contract", "function", "time"];
+    // Contract: health response must include these minimal keys (no version/time leak)
+    const expectedKeys = ["status", "contract", "function"];
     expectedKeys.forEach((key) => {
       expect(typeof key).toBe("string");
     });

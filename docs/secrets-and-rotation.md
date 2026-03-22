@@ -11,7 +11,12 @@
 
 | Secret | Purpose | Shared With | Rotation Impact |
 |--------|---------|-------------|-----------------|
-| `AI_CORE_SECRET` | Auth for all protected POST endpoints | All PWAs | All PWAs must update simultaneously |
+| `AI_CORE_SECRET_WYLONI` | Auth for Wyloni calls | Wyloni only | Wyloni-only update |
+| `AI_CORE_SECRET_KEYDRAFT` | Auth for KeyDraft calls | KeyDraft only | KeyDraft-only update |
+| `AI_CORE_SECRET_SOTTRA` | Auth for Sottra calls | Sottra only | Sottra-only update |
+| `AI_CORE_SECRET_REGIADS` | Auth for Regiads calls | Regiads only | Regiads-only update |
+| `AI_CORE_SECRET_PRATICA` | Auth for PRATICA calls | PRATICA only | PRATICA-only update |
+| `AI_CORE_SECRET` | **Legacy** shared fallback (transitional) | All PWAs (if per-app not set) | All PWAs must update simultaneously |
 | `DIAGNOSTIC_SECRET` | Auth for /metrics, /diagnostics, /selftest | Core admin only | Core-only update |
 | `DIAGNOSTIC_SELFTEST_SECRET` | Legacy alias for diagnostic auth | Core admin only | Core-only update |
 
