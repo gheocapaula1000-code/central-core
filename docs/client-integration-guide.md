@@ -96,9 +96,9 @@ x-source-app: wyloni
 | Header | Required | Purpose |
 |--------|----------|---------|
 | `Content-Type: application/json` | Yes | Always JSON |
-| `x-internal-secret` | Yes (POST) | Authentication |
+| `x-internal-secret` | Yes (POST) | Authentication (per-app or legacy secret) |
 | `apikey` | Yes | Supabase gateway routing |
-| `x-source-app` | Recommended | Tracing — identifies calling PWA |
+| `x-source-app` | **Required** | Identifies calling PWA for per-app secret resolution |
 
 ---
 
