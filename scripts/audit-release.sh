@@ -26,6 +26,7 @@ run_step() {
 run_step "Secret scan"     "bash scripts/verify-secrets.sh"
 run_step "Package check"   "bash scripts/verify-package.sh"
 run_step "Lint"            "npx eslint . --max-warnings 0"
+run_step "Typecheck"       "npx tsc --noEmit"
 run_step "Tests"           "npx vitest run"
 run_step "Build"           "npx vite build"
 
