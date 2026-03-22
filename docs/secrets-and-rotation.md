@@ -11,7 +11,12 @@
 
 | Secret | Purpose | Shared With | Rotation Impact |
 |--------|---------|-------------|-----------------|
-| `AI_CORE_SECRET` | Auth for all protected POST endpoints | All PWAs | All PWAs must update simultaneously |
+| `AI_CORE_SECRET_WYLONI` | Auth for Wyloni calls | Wyloni only | Wyloni-only update |
+| `AI_CORE_SECRET_KEYDRAFT` | Auth for KeyDraft calls | KeyDraft only | KeyDraft-only update |
+| `AI_CORE_SECRET_SOTTRA` | Auth for Sottra calls | Sottra only | Sottra-only update |
+| `AI_CORE_SECRET_REGIADS` | Auth for Regiads calls | Regiads only | Regiads-only update |
+| `AI_CORE_SECRET_PRATICA` | Auth for PRATICA calls | PRATICA only | PRATICA-only update |
+| `AI_CORE_SECRET` | **Legacy** shared fallback (transitional) | All PWAs (if per-app not set) | All PWAs must update simultaneously |
 | `DIAGNOSTIC_SECRET` | Auth for /metrics, /diagnostics, /selftest | Core admin only | Core-only update |
 | `DIAGNOSTIC_SELFTEST_SECRET` | Legacy alias for diagnostic auth | Core admin only | Core-only update |
 
@@ -49,9 +54,24 @@
 
 ## Rotation Procedures
 
-### AI_CORE_SECRET (Critical — coordinated rotation)
+### Per-App Secrets (Recommended — reduced blast radius)
 
-**This is the most sensitive rotation because ALL PWAs share this secret.**
+Each PWA has its own secret (`AI_CORE_SECRET_WYLONI`, etc.). Rotation affects only the single PWA.
+
+1. **Generate** new secret value (min 32 chars, alphanumeric + symbols)
+2. **Update Central Core** — Set new value for `AI_CORE_SECRET_<APP>` in Lovable Cloud vault
+3. **Update the specific PWA** — Set new value in the PWA's Lovable Cloud vault
+4. **Verify** — Run auth smoke test from the updated PWA:
+   ```bash
+   curl -s -X POST "$PWA_URL/functions/v1/core-proxy/ai-core-run/health" | jq .data.status
+   ```
+5. **Confirm** old secret no longer works
+
+**Recommended cadence:** Quarterly
+
+### AI_CORE_SECRET (Legacy — coordinated rotation)
+
+**This is the legacy shared secret. Migrate to per-app secrets to avoid coordinated rotation.**
 
 1. **Generate** new secret value (min 32 chars, alphanumeric + symbols)
 2. **Communicate** rotation window to all PWA teams
@@ -62,10 +82,7 @@
    - Sottra
    - PRATICA
    - Regiads (when active)
-5. **Verify** — Run auth smoke test from each PWA:
-   ```bash
-   curl -s -X POST "$PWA_URL/functions/v1/core-proxy/ai-core-run/health" | jq .data.status
-   ```
+5. **Verify** — Run auth smoke test from each PWA
 6. **Confirm** old secret no longer works (immediate, no grace period)
 
 **Recommended cadence:** Quarterly

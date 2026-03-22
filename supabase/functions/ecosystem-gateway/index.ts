@@ -9,7 +9,6 @@ import {
   ok,
   fail,
   requireSecret,
-  CORE_VERSION,
   CORE_CONTRACT,
   addIdentityHeaders,
   buildManifest,
@@ -55,10 +54,7 @@ function handleHealth(req: Request, debugId: string): Response {
     ok(req, {
       status: "healthy",
       function: FUNCTION_NAME,
-      version: CORE_VERSION,
       contract: CORE_CONTRACT,
-      expectedBasePath: EXPECTED_BASE_PATH,
-      time: new Date().toISOString(),
     }, [], debugId),
     "health",
   );
@@ -80,35 +76,7 @@ function handleCapabilities(req: Request, debugId: string): Response {
     ok(req, {
       status: "ok",
       function: FUNCTION_NAME,
-      version: CORE_VERSION,
-      modules: [
-        {
-          id: "listing-enrichment",
-          enabled: true,
-          requiresPwaChanges: false,
-          hardDependencies: [],
-          bestEffortDependencies: ["sottra/scan/market", "sottra/forecast/sviluppo-area"],
-        },
-        {
-          id: "service-pack",
-          enabled: true,
-          requiresPwaChanges: false,
-          hardDependencies: [],
-          bestEffortDependencies: [],
-        },
-        {
-          id: "unified-report",
-          enabled: true,
-          requiresPwaChanges: false,
-          hardDependencies: [],
-          bestEffortDependencies: [],
-        },
-      ],
-      nonGoals: [
-        "no direct PWA coupling",
-        "no DB sharing across apps",
-        "no blocking of KeyDraft fast path",
-      ],
+      modules: ["listing-enrichment", "service-pack", "unified-report"],
     }, [], debugId),
     "capabilities",
   );

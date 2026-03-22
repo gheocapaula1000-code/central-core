@@ -45,24 +45,36 @@ App (Wyloni/KeyDraft/Sottra)
 
 ## Variabili d'ambiente (Supabase Secrets)
 ```
-AI_CORE_SECRET          # Secret condiviso per autenticazione
+# Per-app secrets (segmented — one per PWA, reduces blast radius)
+AI_CORE_SECRET_WYLONI   # Secret per Wyloni
+AI_CORE_SECRET_KEYDRAFT # Secret per KeyDraft
+AI_CORE_SECRET_SOTTRA   # Secret per Sottra
+AI_CORE_SECRET_REGIADS  # Secret per Regiads
+AI_CORE_SECRET_PRATICA  # Secret per PRATICA
+
+# Legacy (transitional fallback — will be deprecated)
+AI_CORE_SECRET          # Secret condiviso legacy, usato se il per-app non è configurato
+
+# Provider keys
 OPENAI_API_KEY          # Provider primario
 ANTHROPIC_API_KEY       # Provider fallback
 PERPLEXITY_API_KEY      # Web search tasks
-CORE_ALLOWED_ORIGINS    # Origins CORS (es: https://wyloni.app,https://keydraft.app,https://sottra.app)
-GOOGLE_MAPS_API_KEY     # Geocoding per Sottra (opzionale, fallback su Nominatim)
-DIAGNOSTIC_SECRET       # Accesso endpoint diagnostici/metriche
 FIRECRAWL_API_KEY       # Web scraping (opzionale)
+
+# Infrastructure
+CORE_ALLOWED_ORIGINS    # Origins CORS (es: https://wyloni.app,https://keydraft.app)
+GOOGLE_MAPS_API_KEY     # Geocoding per Sottra (opzionale)
+DIAGNOSTIC_SECRET       # Accesso endpoint diagnostici/metriche
 ```
 
 ## Gestione segreti e `.env`
 
 - **Non versionare `.env`**: il file `.gitignore` esclude `.env` e `.env.*` dal repository.
-- **`.env.example`**: contiene solo lo schema delle variabili (nomi senza valori reali). Serve come riferimento.
-- **Segreti runtime**: vanno configurati esclusivamente tramite Lovable Cloud (Secrets) o Supabase Dashboard → Settings → Edge Functions → Secrets.
+- **`.env.example`**: contiene solo lo schema delle variabili (nomi senza valori reali).
+- **Segreti runtime**: vanno configurati esclusivamente tramite Lovable Cloud (Secrets).
 - **Mai stampare segreti nei log** o includerli in risposte API.
-- **Sincronizzazione**: `AI_CORE_SECRET` deve essere identico in tutti i progetti dell'ecosistema (Central Core, Wyloni, KeyDraft, Sottra).
-
+- **Per-app secrets**: ogni PWA deve avere il proprio `AI_CORE_SECRET_<APP>`. Il legacy `AI_CORE_SECRET` condiviso è supportato come fallback transitorio ma sarà deprecato.
+- **Admin bypass eliminato**: nessun bypass basato su email da header/body non verificati. Operazioni privilegiate richiedono JWT verificato o secret server-to-server.
 ## App Collegate
 
 - **Wyloni** — Family office digitale (domini: wyloni_bandi, pratica_legal)

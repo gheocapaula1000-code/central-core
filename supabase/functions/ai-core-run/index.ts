@@ -262,9 +262,8 @@ Deno.serve(async (req: Request) => {
     // Health check — no auth required, public
     if (req.method === "GET" && (pathname.endsWith("/health") || pathname.endsWith("/__health") || pathname === "/")) {
       return withIdentity(ok(req, {
-        status: "ok", version: CORE_VERSION, contract: CORE_CONTRACT,
-        function: FUNCTION_NAME, expectedBasePath: EXPECTED_BASE_PATH,
-        time: new Date().toISOString(),
+        status: "ok", contract: CORE_CONTRACT,
+        function: FUNCTION_NAME,
       }, [], debugId), "health");
     }
 
