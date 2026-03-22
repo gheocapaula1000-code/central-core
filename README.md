@@ -70,11 +70,11 @@ DIAGNOSTIC_SECRET       # Accesso endpoint diagnostici/metriche
 ## Gestione segreti e `.env`
 
 - **Non versionare `.env`**: il file `.gitignore` esclude `.env` e `.env.*` dal repository.
-- **`.env.example`**: contiene solo lo schema delle variabili (nomi senza valori reali). Serve come riferimento.
-- **Segreti runtime**: vanno configurati esclusivamente tramite Lovable Cloud (Secrets) o Supabase Dashboard → Settings → Edge Functions → Secrets.
+- **`.env.example`**: contiene solo lo schema delle variabili (nomi senza valori reali).
+- **Segreti runtime**: vanno configurati esclusivamente tramite Lovable Cloud (Secrets).
 - **Mai stampare segreti nei log** o includerli in risposte API.
-- **Sincronizzazione**: `AI_CORE_SECRET` deve essere identico in tutti i progetti dell'ecosistema (Central Core, Wyloni, KeyDraft, Sottra).
-
+- **Per-app secrets**: ogni PWA deve avere il proprio `AI_CORE_SECRET_<APP>`. Il legacy `AI_CORE_SECRET` condiviso è supportato come fallback transitorio ma sarà deprecato.
+- **Admin bypass eliminato**: nessun bypass basato su email da header/body non verificati. Operazioni privilegiate richiedono JWT verificato o secret server-to-server.
 ## App Collegate
 
 - **Wyloni** — Family office digitale (domini: wyloni_bandi, pratica_legal)

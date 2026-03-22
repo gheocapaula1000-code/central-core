@@ -28,11 +28,8 @@ const SENSITIVE_HEADER_NAMES = [
 describe("Security — Diagnostics never leak secrets", () => {
   const sampleHealthResponse = {
     status: "ok",
-    version: "3.3.5",
     contract: "central-core-v3",
     function: "ai-core-run",
-    expectedBasePath: "/functions/v1/ai-core-run",
-    time: "2026-03-20T00:00:00.000Z",
   };
 
   it("health response contains no secret env var names", () => {
@@ -49,15 +46,20 @@ describe("Security — Diagnostics never leak secrets", () => {
     }
   });
 
+  it("health response does not expose version or time", () => {
+    const json = JSON.stringify(sampleHealthResponse);
+    expect(json).not.toContain("version");
+    expect(json).not.toContain("time");
+    expect(json).not.toContain("expectedBasePath");
+  });
+
   const sampleManifest = {
     contract: "central-core-v3",
-    version: "3.3.5",
     function: "ai-core-run",
     serviceKind: "ai-router",
     expectedBasePath: "/functions/v1/ai-core-run",
     routes: ["GET /health", "POST /documents/analyze"],
     callingMode: "proxy",
-    time: "2026-03-20T00:00:00.000Z",
   };
 
   it("manifest response contains no secret env var names", () => {
@@ -65,6 +67,12 @@ describe("Security — Diagnostics never leak secrets", () => {
     for (const name of SENSITIVE_ENV_NAMES) {
       expect(json).not.toContain(name);
     }
+  });
+
+  it("manifest response does not expose version or time", () => {
+    const json = JSON.stringify(sampleManifest);
+    expect(json).not.toContain('"version"');
+    expect(json).not.toContain('"time"');
   });
 
   it("manifest response contains no host allowlist or admin emails", () => {
