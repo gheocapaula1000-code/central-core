@@ -135,7 +135,7 @@ If multiple clients fail:
 - Secret name: `INTERNAL_CORE_API_KEY`
 - Headers injected: `Authorization: Bearer`, `X-Request-Source: regiads-proxy`
 - ⚠️ Does NOT inject `x-internal-secret` — relies on Bearer auth
-- **TODO:** Align to standard header injection pattern (see `docs/proxy-contract.md`)
+- **Note:** Regiads uses Bearer auth via `INTERNAL_CORE_API_KEY` instead of `x-internal-secret`. This is intentional — see `docs/proxy-contract.md` for the supported auth header variants.
 
 ### Sottra / KeyDraft / PRATICA
 - Follow standard pattern from `docs/proxy-contract.md`

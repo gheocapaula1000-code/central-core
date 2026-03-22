@@ -114,6 +114,38 @@ else
   echo "  ✓ All required operational docs present (${#REQUIRED_DOCS[@]})"
 fi
 
+# 8b. Deploy headers artifact
+echo ""
+echo "▸ Checking deploy headers artifact..."
+if [ -f "public/_headers" ]; then
+  echo "  ✓ public/_headers present"
+else
+  echo "  ✗ FAIL: public/_headers missing"
+  EXIT_CODE=1
+fi
+
+# 8c. index.html security meta baseline
+echo ""
+echo "▸ Checking index.html security meta..."
+INDEX_FAIL=0
+if ! grep -q 'Content-Security-Policy' index.html 2>/dev/null; then
+  echo "  ✗ FAIL: index.html missing Content-Security-Policy"
+  INDEX_FAIL=1
+fi
+if ! grep -q 'nosniff' index.html 2>/dev/null; then
+  echo "  ✗ FAIL: index.html missing X-Content-Type-Options nosniff"
+  INDEX_FAIL=1
+fi
+if ! grep -q 'noindex' index.html 2>/dev/null; then
+  echo "  ✗ FAIL: index.html missing noindex"
+  INDEX_FAIL=1
+fi
+if [ $INDEX_FAIL -eq 0 ]; then
+  echo "  ✓ index.html security meta baseline OK"
+else
+  EXIT_CODE=1
+fi
+
 # 9. No localhost in build output
 echo ""
 echo "▸ Checking for localhost in build output..."
