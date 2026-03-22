@@ -112,7 +112,7 @@ export function makeDebugId(): string {
 // ═══════════════════════════════════════════════════════════════
 // Sensitive data redaction — used by diagnostics, logging, error payloads
 // ═══════════════════════════════════════════════════════════════
-const REDACT_PATTERNS = [
+const _REDACT_PATTERNS = [
   /API[_-]?KEY/i,
   /SECRET/i,
   /PASSWORD/i,

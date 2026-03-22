@@ -31,7 +31,7 @@ describe("Registry reality check — hardening", () => {
   });
 
   it("PROVIDERS don't claim hardcoded model versions", () => {
-    const hardcodedModels = ["gpt-4", "gpt-4o", "claude-3.5-sonnet", "sonar-pro"];
+    const _hardcodedModels = ["gpt-4", "gpt-4o", "claude-3.5-sonnet", "sonar-pro"];
     for (const p of PROVIDERS) {
       if (p.model !== "sonar") {
         expect(p.model).toBe("Configurazione runtime");

@@ -15,7 +15,7 @@
 // { "batch": true, "semestre": "2025/1", "clear_first": false, "pattern": "_zone_omi" }
 
 import {
-  handleOptions, ok, fail, makeDebugId, requireSecret, enforceOriginPolicy, constantTimeEqual,
+  handleOptions, ok, fail, makeDebugId, requireSecret, enforceOriginPolicy,
 } from "../_shared/http.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {

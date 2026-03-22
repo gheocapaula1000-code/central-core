@@ -179,7 +179,7 @@ describe("Listing Bridge — schema validation", () => {
 
 describe("Listing Bridge — transformation to Sottra payload", () => {
   function transformToSottraPayload(payload: Record<string, unknown>): Record<string, unknown> {
-    const p = payload as any;
+    const p = payload as Record<string, Record<string, unknown>>;
     return {
       bridge_trace_id: p.source.bridge_trace_id,
       source_app: p.source.app,
