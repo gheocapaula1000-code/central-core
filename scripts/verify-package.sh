@@ -75,8 +75,26 @@ echo ""
 echo "▸ Checking build output..."
 if [ -d "dist" ]; then
   echo "  ✓ dist/ present"
+  # 6b. Ensure no .env leaked into dist
+  ENV_IN_DIST=$(find dist -name '.env*' 2>/dev/null || true)
+  if [ -n "$ENV_IN_DIST" ]; then
+    echo "  ✗ FAIL: .env files found in dist/:"
+    echo "$ENV_IN_DIST" | sed 's/^/    /'
+    EXIT_CODE=1
+  else
+    echo "  ✓ No .env in dist/"
+  fi
 else
   echo "  ⚠ dist/ not found — run build first if packaging"
+fi
+
+# 7. Lockfile consistency
+echo ""
+echo "▸ Checking lockfile..."
+if [ -f "package-lock.json" ]; then
+  echo "  ✓ package-lock.json present (canonical: npm)"
+else
+  echo "  ⚠ package-lock.json missing — run npm install"
 fi
 
 echo ""
