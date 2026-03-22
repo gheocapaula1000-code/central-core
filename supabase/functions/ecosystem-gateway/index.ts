@@ -55,10 +55,7 @@ function handleHealth(req: Request, debugId: string): Response {
     ok(req, {
       status: "healthy",
       function: FUNCTION_NAME,
-      version: CORE_VERSION,
       contract: CORE_CONTRACT,
-      expectedBasePath: EXPECTED_BASE_PATH,
-      time: new Date().toISOString(),
     }, [], debugId),
     "health",
   );
