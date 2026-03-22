@@ -1,46 +1,33 @@
 import { describe, it, expect } from "vitest";
 
 /**
- * Admin bypass contract tests.
- * Verifies that the normalizeEmail / isAdminBypassEmail utilities
- * follow exact-match rules with zero false positives.
+ * Admin bypass contract tests — Central Core V3
  *
- * NOTE: These test the contract specification. The actual Deno runtime
- * implementation lives in supabase/functions/_shared/http.ts and reads
- * from AI_CORE_ADMIN_EMAILS env var. We mirror the parsing + matching
- * logic here to enforce the contract in CI.
+ * Validates that admin bypass from unverified client input
+ * has been completely eliminated. The functions normalizeEmail
+ * and isAdminBypassEmail are kept as no-ops for import compat.
  */
 
 const CORE_VERSION = "3.3.5";
 
-// ── Mirror of the production parsing logic (contract spec) ──
-// Simulates AI_CORE_ADMIN_EMAILS env var value
-const AI_CORE_ADMIN_EMAILS_RAW =
-  "gheocapaula1000@gmail.com, massimilianogalli75@gmail.com";
-
-function parseAdminEmails(raw: string): ReadonlySet<string> {
-  return new Set(
-    raw
-      .split(",")
-      .map((e) => e.trim().toLowerCase())
-      .filter((e) => e.length > 0 && e.includes("@")),
-  );
-}
-
-const ADMIN_BYPASS_EMAILS = parseAdminEmails(AI_CORE_ADMIN_EMAILS_RAW);
+// ── Mirror of the production no-op implementations ──
 
 function normalizeEmail(email: string | null | undefined): string {
   if (!email || typeof email !== "string") return "";
   return email.trim().toLowerCase();
 }
 
-function isAdminBypassEmail(email: string | null | undefined): boolean {
-  const normalized = normalizeEmail(email);
-  if (!normalized) return false;
-  return ADMIN_BYPASS_EMAILS.has(normalized);
+/** Always returns false — bypass eliminated */
+function isAdminBypassEmail(_email: string | null | undefined): boolean {
+  return false;
 }
 
-describe("Admin bypass — normalizeEmail", () => {
+/** Always returns { bypass: false } — bypass eliminated */
+function checkAdminBypass(): { bypass: boolean; email?: string; _masked?: string } {
+  return { bypass: false };
+}
+
+describe("Admin bypass — normalizeEmail (utility kept)", () => {
   it("trims and lowercases", () => {
     expect(normalizeEmail("  Foo@Bar.COM  ")).toBe("foo@bar.com");
   });
@@ -56,67 +43,34 @@ describe("Admin bypass — normalizeEmail", () => {
   });
 });
 
-describe("Admin bypass — parseAdminEmails", () => {
-  it("parses comma-separated emails with trim+lowercase", () => {
-    const set = parseAdminEmails("  A@B.com , c@D.com  ");
-    expect(set.size).toBe(2);
-    expect(set.has("a@b.com")).toBe(true);
-    expect(set.has("c@d.com")).toBe(true);
+describe("Admin bypass — ELIMINATED", () => {
+  it("isAdminBypassEmail always returns false for any email", () => {
+    expect(isAdminBypassEmail("gheocapaula1000@gmail.com")).toBe(false);
+    expect(isAdminBypassEmail("massimilianogalli75@gmail.com")).toBe(false);
+    expect(isAdminBypassEmail("admin@company.com")).toBe(false);
+    expect(isAdminBypassEmail("root@evil.com")).toBe(false);
   });
 
-  it("drops empty entries and non-email strings", () => {
-    const set = parseAdminEmails("a@b.com, , ,not-email, c@d.com");
-    expect(set.size).toBe(2);
-    expect(set.has("a@b.com")).toBe(true);
-    expect(set.has("c@d.com")).toBe(true);
-  });
-
-  it("returns empty set for empty/blank input", () => {
-    expect(parseAdminEmails("").size).toBe(0);
-    expect(parseAdminEmails("   ").size).toBe(0);
-  });
-});
-
-describe("Admin bypass — isAdminBypassEmail", () => {
-  it("passes gheocapaula1000@gmail.com", () => {
-    expect(isAdminBypassEmail("gheocapaula1000@gmail.com")).toBe(true);
-  });
-
-  it("passes massimilianogalli75@gmail.com", () => {
-    expect(isAdminBypassEmail("massimilianogalli75@gmail.com")).toBe(true);
-  });
-
-  it("passes with whitespace and mixed case", () => {
-    expect(isAdminBypassEmail("  GheoCAPaula1000@Gmail.COM  ")).toBe(true);
-    expect(isAdminBypassEmail(" MassimilianoGalli75@Gmail.com ")).toBe(true);
-  });
-
-  it("rejects normal users", () => {
-    expect(isAdminBypassEmail("user@example.com")).toBe(false);
-    expect(isAdminBypassEmail("admin@gmail.com")).toBe(false);
-  });
-
-  it("rejects similar-looking emails (no false positives)", () => {
-    expect(isAdminBypassEmail("gheocapaula1000@gmail.co")).toBe(false);
-    expect(isAdminBypassEmail("gheocapaula10001@gmail.com")).toBe(false);
-    expect(isAdminBypassEmail("xgheocapaula1000@gmail.com")).toBe(false);
-    expect(isAdminBypassEmail("massimilianogalli75@gmail.com.evil.com")).toBe(false);
-    expect(isAdminBypassEmail("massimilianogalli75@hotmail.com")).toBe(false);
-  });
-
-  it("rejects empty/null/undefined", () => {
+  it("isAdminBypassEmail returns false for null/undefined/empty", () => {
     expect(isAdminBypassEmail("")).toBe(false);
     expect(isAdminBypassEmail(null)).toBe(false);
     expect(isAdminBypassEmail(undefined)).toBe(false);
   });
 
-  it("rejects domain wildcards", () => {
-    expect(isAdminBypassEmail("@gmail.com")).toBe(false);
-    expect(isAdminBypassEmail("*@gmail.com")).toBe(false);
+  it("checkAdminBypass always returns bypass: false", () => {
+    expect(checkAdminBypass().bypass).toBe(false);
+    expect(checkAdminBypass().email).toBeUndefined();
   });
 
-  it("exactly 2 admin emails from env config", () => {
-    expect(ADMIN_BYPASS_EMAILS.size).toBe(2);
+  it("no admin email list exists in source code", () => {
+    // The production code no longer parses AI_CORE_ADMIN_EMAILS for bypass
+    // The function is a hard-coded no-op returning false
+    expect(isAdminBypassEmail("any@email.com")).toBe(false);
+  });
+
+  it("x-user-email header cannot produce bypass", () => {
+    // Even a valid-looking admin email produces no bypass
+    expect(checkAdminBypass().bypass).toBe(false);
   });
 });
 

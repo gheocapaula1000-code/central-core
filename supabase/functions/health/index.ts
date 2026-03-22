@@ -1,8 +1,8 @@
-// v3.3.4
+// v3.3.5
 // health check endpoint — Central Core V3
-// Public — no auth required
+// Public — no auth required. Minimal response, no version leak.
 
-import { handleOptions, ok, CORE_VERSION, CORE_CONTRACT, addIdentityHeaders, buildManifest } from "../_shared/http.ts";
+import { handleOptions, ok, CORE_CONTRACT, addIdentityHeaders, buildManifest } from "../_shared/http.ts";
 
 const FUNCTION_NAME = "health";
 const EXPECTED_BASE_PATH = "/functions/v1/health";
@@ -27,11 +27,8 @@ Deno.serve(async (req) => {
 
   const res = ok(req, {
     status: "healthy",
-    version: CORE_VERSION,
     contract: CORE_CONTRACT,
     function: FUNCTION_NAME,
-    expectedBasePath: EXPECTED_BASE_PATH,
-    time: new Date().toISOString(),
   });
   return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "health" });
 });

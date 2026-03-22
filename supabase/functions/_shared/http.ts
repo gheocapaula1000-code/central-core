@@ -2,65 +2,83 @@ export const CORE_VERSION = "3.3.5";
 export const CORE_CONTRACT = "central-core-v3";
 
 // ═══════════════════════════════════════════════════════════════
-// Admin Bypass — exact-match allowlist for infrastructure admins
-// These accounts are never blocked by centralized subscription,
-// entitlement, or policy gates. Match is email-only, normalized.
-// Configured via AI_CORE_ADMIN_EMAILS env var (comma-separated).
+// Admin Bypass — REMOVED
+// Admin bypass based on unverified client headers/body has been
+// eliminated. Any privileged operation must use a verified JWT
+// or server-to-server secret. The functions normalizeEmail and
+// isAdminBypassEmail are kept as no-ops for import compatibility
+// but always return safe defaults.
 // ═══════════════════════════════════════════════════════════════
 
-/** Parse comma-separated email list from env. Trim, lowercase, drop empty. */
-function parseAdminEmails(): ReadonlySet<string> {
-  const raw = (typeof Deno !== "undefined" ? Deno.env.get("AI_CORE_ADMIN_EMAILS") : "") ?? "";
-  const emails = raw
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter((e) => e.length > 0 && e.includes("@"));
-  return new Set(emails);
-}
-
-/** Normalize email: trim + lowercase. No domain wildcard. */
+/** Normalize email: trim + lowercase. Kept for import compat. */
 export function normalizeEmail(email: string | null | undefined): string {
   if (!email || typeof email !== "string") return "";
   return email.trim().toLowerCase();
 }
 
-/** Returns true only for exact admin bypass emails after normalization. */
-export function isAdminBypassEmail(email: string | null | undefined): boolean {
-  const normalized = normalizeEmail(email);
-  if (!normalized) return false;
-  return parseAdminEmails().has(normalized);
+/**
+ * DEPRECATED — always returns false.
+ * Admin bypass from unverified input has been removed.
+ * Use verified JWT or server-to-server auth instead.
+ */
+export function isAdminBypassEmail(_email: string | null | undefined): boolean {
+  return false;
 }
 
 /**
- * Check admin bypass from request headers or body.
- * Looks for email in: x-user-email header, body.email, body.user_email.
- * Returns { bypass: true, email } if matched, { bypass: false } otherwise.
- * Log-safe: never logs the full email, only a masked version.
+ * DEPRECATED — always returns { bypass: false }.
+ * Admin bypass from unverified headers/body has been removed.
  */
 export function checkAdminBypass(
-  req: Request,
-  body?: Record<string, unknown>,
+  _req: Request,
+  _body?: Record<string, unknown>,
 ): { bypass: boolean; email?: string; _masked?: string } {
-  const candidates: string[] = [];
-
-  const headerEmail = req.headers.get("x-user-email");
-  if (headerEmail) candidates.push(headerEmail);
-
-  if (body) {
-    if (typeof body.email === "string") candidates.push(body.email);
-    if (typeof body.user_email === "string") candidates.push(body.user_email);
-  }
-
-  for (const raw of candidates) {
-    const normalized = normalizeEmail(raw);
-    if (isAdminBypassEmail(normalized)) {
-      const [local, domain] = normalized.split("@");
-      const masked = `${local.slice(0, 3)}***@${domain}`;
-      return { bypass: true, email: normalized, _masked: masked };
-    }
-  }
-
   return { bypass: false };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Per-App Secret Resolution
+// Reduces blast radius: each PWA uses its own secret.
+// Falls back to legacy AI_CORE_SECRET with a warning.
+// ═══════════════════════════════════════════════════════════════
+
+const APP_SECRET_MAP: Record<string, string> = {
+  wyloni: "AI_CORE_SECRET_WYLONI",
+  keydraft: "AI_CORE_SECRET_KEYDRAFT",
+  sottra: "AI_CORE_SECRET_SOTTRA",
+  regiads: "AI_CORE_SECRET_REGIADS",
+  pratica: "AI_CORE_SECRET_PRATICA",
+};
+
+const KNOWN_APPS = new Set(Object.keys(APP_SECRET_MAP));
+
+/**
+ * Resolve the expected secret for a given source app.
+ * Priority:
+ *   1. Per-app secret (AI_CORE_SECRET_WYLONI, etc.) if configured
+ *   2. Legacy shared AI_CORE_SECRET (transitional fallback, with warning)
+ *   3. Empty string → will cause auth rejection
+ */
+function resolveExpectedSecret(sourceApp: string): { secret: string; mode: "per-app" | "legacy" | "missing" } {
+  const normalized = sourceApp.toLowerCase().trim();
+
+  // Try per-app secret first
+  const envName = APP_SECRET_MAP[normalized];
+  if (envName) {
+    const perAppVal = Deno.env.get(envName) ?? "";
+    if (perAppVal) return { secret: perAppVal, mode: "per-app" };
+  }
+
+  // Fallback to legacy shared secret
+  const legacy = Deno.env.get("AI_CORE_SECRET") ?? "";
+  if (legacy) {
+    if (KNOWN_APPS.has(normalized)) {
+      console.warn(`[requireSecret] DEPRECATION: source_app=${normalized} using legacy AI_CORE_SECRET — configure ${envName} for segmented auth`);
+    }
+    return { secret: legacy, mode: "legacy" };
+  }
+
+  return { secret: "", mode: "missing" };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -94,14 +112,12 @@ export interface ManifestOptions {
 export function buildManifest(opts: ManifestOptions): Record<string, unknown> {
   return {
     contract: CORE_CONTRACT,
-    version: CORE_VERSION,
     function: opts.functionName,
     serviceKind: opts.serviceKind,
     expectedBasePath: opts.expectedBasePath,
     routes: opts.routes,
     ...(opts.domains ? { domains: opts.domains } : {}),
     callingMode: opts.callingMode ?? "proxy",
-    time: new Date().toISOString(),
   };
 }
 
@@ -132,9 +148,11 @@ export function redactSensitive(value: string): string {
   if (!value) return value;
   let result = value;
 
-  // Redact known secret env var values
+  // Redact known secret env var values (including per-app secrets)
   const secretNames = [
-    "AI_CORE_SECRET", "DIAGNOSTIC_SECRET", "DIAGNOSTIC_SELFTEST_SECRET",
+    "AI_CORE_SECRET", "AI_CORE_SECRET_WYLONI", "AI_CORE_SECRET_KEYDRAFT",
+    "AI_CORE_SECRET_SOTTRA", "AI_CORE_SECRET_REGIADS", "AI_CORE_SECRET_PRATICA",
+    "DIAGNOSTIC_SECRET", "DIAGNOSTIC_SELFTEST_SECRET",
     "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "PERPLEXITY_API_KEY",
     "FIRECRAWL_API_KEY", "GOOGLE_MAPS_API_KEY",
     "SUPABASE_SERVICE_ROLE_KEY", "CORE_ALLOWED_ORIGINS", "AI_CORE_ADMIN_EMAILS",
@@ -201,9 +219,6 @@ export function isOriginAllowed(origin: string): boolean {
 
 /**
  * Build CORS headers — no blind echo.
- * If origin is present and allowed → reflect that origin.
- * If origin is absent (server-to-server) → use *.
- * If origin is present but NOT allowed → do NOT reflect it (use empty string to trigger browser block).
  */
 export function corsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("origin") ?? "";
@@ -233,12 +248,10 @@ export function corsHeaders(req: Request): Record<string, string> {
 
   let allowOrigin: string;
   if (!origin) {
-    // No origin = server-to-server, curl, cron
     allowOrigin = "*";
   } else if (isOriginAllowed(origin)) {
     allowOrigin = origin;
   } else {
-    // Origin present but not allowed — don't reflect
     allowOrigin = "";
   }
 
@@ -252,29 +265,17 @@ export function corsHeaders(req: Request): Record<string, string> {
   };
 }
 
-/**
- * Enforce origin policy for browser requests.
- * - No Origin header → allowed (server-to-server)
- * - Origin present + allowed → null (proceed)
- * - Origin present + NOT allowed → 403 Response
- */
 export function enforceOriginPolicy(req: Request, debugId: string): Response | null {
   const origin = req.headers.get("origin");
-  if (!origin) return null; // server-to-server, curl, cron
+  if (!origin) return null;
   if (isOriginAllowed(origin)) return null;
   console.warn(`[origin-policy] rejected origin=${origin} debug_id=${debugId}`);
   return fail(req, 403, "ORIGIN_NOT_ALLOWED", "Origin not in allowlist", debugId);
 }
 
-/**
- * Handle OPTIONS preflight — respects origin policy.
- * If origin is not allowed → 403.
- * If origin is allowed or absent → 204.
- */
 export function handleOptions(req: Request): Response {
   const origin = req.headers.get("origin");
   if (origin && !isOriginAllowed(origin)) {
-    const _debugId = makeDebugId();
     console.warn(`[options] rejected origin=${origin}`);
     return new Response(JSON.stringify({ ok: false, data: null, error: { code: "ORIGIN_NOT_ALLOWED", message: "Origin not in allowlist" } }), {
       status: 403,
@@ -302,13 +303,23 @@ export function fail(req: Request, status: number, code: string, message: string
   return json(req, status, { ok: false, data: null, warnings: [], debug_id: did, error: { code, message } }, did);
 }
 
-/** Checks all supported auth headers: x-internal-secret, x-app-secret, x-core-secret, Authorization Bearer */
+/**
+ * Per-app secret authentication.
+ * Resolves the correct secret based on x-source-app header:
+ *   1. Per-app secret (AI_CORE_SECRET_WYLONI, etc.)
+ *   2. Legacy AI_CORE_SECRET fallback (with deprecation warning)
+ * Checks all supported auth headers: x-internal-secret, x-app-secret, x-core-secret, Authorization Bearer.
+ */
 export function requireSecret(req: Request, debugId: string): Response | null {
-  const expected = Deno.env.get("AI_CORE_SECRET") ?? "";
+  const sourceApp = (req.headers.get("x-source-app") ?? "").toLowerCase().trim();
+
+  const { secret: expected, mode } = resolveExpectedSecret(sourceApp);
   if (!expected) {
-    console.error("[requireSecret] CRITICAL: AI_CORE_SECRET env var is not set — all requests will be rejected with 500");
-    return fail(req, 500, "CONFIG_ERROR", "AI_CORE_SECRET not configured", debugId);
+    const detail = mode === "missing" ? "No secret configured" : "Secret resolution failed";
+    console.error(`[requireSecret] CRITICAL: ${detail} for source_app=${sourceApp || "(empty)"} — rejecting with 500`);
+    return fail(req, 500, "CONFIG_ERROR", "Authentication not configured", debugId);
   }
+
   const incoming =
     req.headers.get("x-internal-secret") ??
     req.headers.get("x-app-secret") ??
@@ -318,8 +329,7 @@ export function requireSecret(req: Request, debugId: string): Response | null {
   if (!incoming) return fail(req, 401, "APP_SECRET_REQUIRED", "Missing x-internal-secret", debugId);
   if (!constantTimeEqual(incoming, expected)) {
     const origin = req.headers.get("origin") ?? "";
-    const sourceApp = req.headers.get("x-source-app") ?? "";
-    console.warn(`[requireSecret] rejected source_app=${sourceApp} origin=${origin} incoming_len=${incoming.length}`);
+    console.warn(`[requireSecret] rejected source_app=${sourceApp || "(empty)"} origin=${origin} incoming_len=${incoming.length} mode=${mode}`);
     return fail(req, 401, "APP_SECRET_REJECTED", "Invalid secret", debugId);
   }
   return null;
