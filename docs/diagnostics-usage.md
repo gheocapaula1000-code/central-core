@@ -99,13 +99,21 @@ Returns: contract, version, routes, serviceKind, callingMode, expectedBasePath.
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `AI_CORE_SECRET` | Yes | Auth for POST endpoints |
+| `AI_CORE_SECRET_WYLONI` | Yes* | Per-app auth for Wyloni |
+| `AI_CORE_SECRET_KEYDRAFT` | Yes* | Per-app auth for KeyDraft |
+| `AI_CORE_SECRET_SOTTRA` | Yes* | Per-app auth for Sottra |
+| `AI_CORE_SECRET_REGIADS` | Yes* | Per-app auth for Regiads |
+| `AI_CORE_SECRET_PRATICA` | Yes* | Per-app auth for PRATICA |
+| `AI_CORE_SECRET` | Transitional | Legacy shared fallback (deprecated) |
 | `DIAGNOSTIC_SECRET` | Yes | Auth for diagnostic endpoints |
 | `OPENAI_API_KEY` | Yes | Primary AI provider |
 | `ANTHROPIC_API_KEY` | Yes | Fallback AI provider |
 | `PERPLEXITY_API_KEY` | Yes | Web search provider |
 | `CORE_ALLOWED_ORIGINS` | No | Additional allowed origins (comma-separated) |
-| `AI_CORE_ADMIN_EMAILS` | No | Admin bypass emails (comma-separated) |
+| `CORE_ADMIN_BOOTSTRAP_EMAILS` | No | Server-side admin/owner allowlist (JWT-verified) |
 | `MARKET_DATA_ENABLED` | No | Enable/disable market data in Sottra |
 
+*Per-app secrets are required. If not set, falls back to legacy `AI_CORE_SECRET` with deprecation warning.
+
 **Note**: All secrets are managed via the platform vault. Never hardcode values.
+**Admin access**: Admin privileges are derived exclusively from verified JWT + `CORE_ADMIN_BOOTSTRAP_EMAILS`. No client-side input can grant admin status.

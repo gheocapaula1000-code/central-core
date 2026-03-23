@@ -6,9 +6,13 @@ import { describe, it, expect } from "vitest";
  * Validates that admin bypass from unverified client input
  * has been completely eliminated. The functions normalizeEmail
  * and isAdminBypassEmail are kept as no-ops for import compat.
+ *
+ * NOTE: Server-side admin bootstrap (v3.3.6+) is tested separately
+ * in hardening-admin-bootstrap.test.ts. That system uses verified
+ * JWT + CORE_ADMIN_BOOTSTRAP_EMAILS, not client headers/body.
  */
 
-const CORE_VERSION = "3.3.5";
+const CORE_VERSION = "3.3.6";
 
 // ── Mirror of the production no-op implementations ──
 
@@ -63,19 +67,16 @@ describe("Admin bypass — ELIMINATED", () => {
   });
 
   it("no admin email list exists in source code", () => {
-    // The production code no longer parses AI_CORE_ADMIN_EMAILS for bypass
-    // The function is a hard-coded no-op returning false
     expect(isAdminBypassEmail("any@email.com")).toBe(false);
   });
 
   it("x-user-email header cannot produce bypass", () => {
-    // Even a valid-looking admin email produces no bypass
     expect(checkAdminBypass().bypass).toBe(false);
   });
 });
 
 describe("Admin bypass — version alignment", () => {
-  it("contract version is 3.3.5", () => {
-    expect(CORE_VERSION).toBe("3.3.5");
+  it("contract version is 3.3.6", () => {
+    expect(CORE_VERSION).toBe("3.3.6");
   });
 });
