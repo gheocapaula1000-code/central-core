@@ -14,7 +14,7 @@ describe("edge-function-smoke: _shared/http exports", () => {
     // We test the constant value used by ALL edge functions
     const SEMVER = /^\d+\.\d+\.\d+$/;
     // Hardcoded here so test breaks if version drifts from expected format
-    expect("3.3.5").toMatch(SEMVER);
+    expect("3.3.6").toMatch(SEMVER);
   });
 
   it("CORE_CONTRACT is 'central-core-v3'", () => {

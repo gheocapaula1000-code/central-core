@@ -210,8 +210,8 @@ describe("Security — redactSensitive contract", () => {
   });
 
   it("preserves non-sensitive content", () => {
-    const result = redactSensitive("status=ok version=3.3.5 debug_id=abc");
-    expect(result).toBe("status=ok version=3.3.5 debug_id=abc");
+    const result = redactSensitive("status=ok version=3.3.6 debug_id=abc");
+    expect(result).toBe("status=ok version=3.3.6 debug_id=abc");
   });
 
   it("handles empty string", () => {
