@@ -546,6 +546,8 @@ Deno.serve(async (req: Request) => {
     const authErr = requireSecret(req, debugId);
     if (authErr) return withIdentity(authErr, "auth-rejected");
     if (req.method !== "POST") return withIdentity(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), "error");
+    const sourceApp = (req.headers.get("x-source-app") ?? "unknown").toLowerCase().trim();
+    const trusted = true; // all POST traffic past requireSecret is trusted
 
     // ── Web Scrape (Firecrawl) ─────────────────────────────────
     if (pathname.endsWith("/web/scrape")) {
