@@ -1,7 +1,7 @@
 # Central Core V3 — Secrets & Rotation
 
 > Inventory and rotation procedures for all secrets in the ecosystem.
-> Last updated: 2026-03-20
+> Last updated: 2026-03-23
 
 ---
 
@@ -18,7 +18,16 @@
 | `AI_CORE_SECRET_PRATICA` | Auth for PRATICA calls | PRATICA only | PRATICA-only update |
 | `AI_CORE_SECRET` | **Legacy** shared fallback (transitional) | All PWAs (if per-app not set) | All PWAs must update simultaneously |
 | `DIAGNOSTIC_SECRET` | Auth for /metrics, /diagnostics, /selftest | Core admin only | Core-only update |
-| `DIAGNOSTIC_SELFTEST_SECRET` | Legacy alias for diagnostic auth | Core admin only | Core-only update |
+
+### Access Model Secrets
+
+| Secret | Purpose | Format |
+|--------|---------|--------|
+| `CORE_ADMIN_BOOTSTRAP_EMAILS` | Owner/admin allowlist (JWT-verified, server-side only) | Single email: `gheocapaula1000@gmail.com` |
+| `CORE_USER_BYPASS_EMAILS` | Non-paying users with cross-app bypass (no admin) | Comma-separated emails |
+| `CORE_WYLONI_BYPASS_EMAILS` | Non-paying users with Wyloni-only bypass (no admin) | Comma-separated emails |
+
+**Deprecated**: `AI_CORE_ADMIN_EMAILS` — replaced by `CORE_ADMIN_BOOTSTRAP_EMAILS`
 
 ### Provider API Keys
 
@@ -44,12 +53,24 @@
 | Secret | Purpose | Format |
 |--------|---------|--------|
 | `CORE_ALLOWED_ORIGINS` | CORS allowlist | Comma-separated URLs or `*` |
-| `CORE_ADMIN_BOOTSTRAP_EMAILS` | Server-side admin/owner allowlist (JWT-verified) | Comma-separated emails |
-| `AI_CORE_ADMIN_EMAILS` | **Deprecated** — replaced by `CORE_ADMIN_BOOTSTRAP_EMAILS` | Comma-separated emails |
 | `OPENAI_MODEL` | Model override | Model name (default: gpt-5.4) |
 | `MARKET_DATA_ENABLED` | Market data toggle | `true`/`false` |
 | `GEO_PROVIDER_ORDER` | Geocoding priority | Comma-separated provider names |
 | `STREET_EVIDENCE_ENABLED` | Street evidence toggle | `true`/`false` |
+
+---
+
+## Access Model (v3.4.0)
+
+Three-tier server-side access model. No client input can grant privileges.
+
+| Tier | Secret | Scope | Admin? |
+|------|--------|-------|--------|
+| Owner/Admin | `CORE_ADMIN_BOOTSTRAP_EMAILS` | Full access, all routes, bypass everything | Yes |
+| User bypass (cross-app) | `CORE_USER_BYPASS_EMAILS` | Bypass trial/plan/quota/paywall for all PWAs | No |
+| Wyloni-only bypass | `CORE_WYLONI_BYPASS_EMAILS` | Bypass only when `x-source-app=wyloni` | No |
+
+**Only `gheocapaula1000@gmail.com` is owner/admin.** No other account can be promoted via bootstrap.
 
 ---
 
@@ -62,10 +83,7 @@ Each PWA has its own secret (`AI_CORE_SECRET_WYLONI`, etc.). Rotation affects on
 1. **Generate** new secret value (min 32 chars, alphanumeric + symbols)
 2. **Update Central Core** — Set new value for `AI_CORE_SECRET_<APP>` in Lovable Cloud vault
 3. **Update the specific PWA** — Set new value in the PWA's Lovable Cloud vault
-4. **Verify** — Run auth smoke test from the updated PWA:
-   ```bash
-   curl -s -X POST "$PWA_URL/functions/v1/core-proxy/ai-core-run/health" | jq .data.status
-   ```
+4. **Verify** — Run auth smoke test from the updated PWA
 5. **Confirm** old secret no longer works
 
 **Recommended cadence:** Quarterly
@@ -77,14 +95,8 @@ Each PWA has its own secret (`AI_CORE_SECRET_WYLONI`, etc.). Rotation affects on
 1. **Generate** new secret value (min 32 chars, alphanumeric + symbols)
 2. **Communicate** rotation window to all PWA teams
 3. **Update Core** — Set new value in Lovable Cloud vault
-4. **Update all PWAs simultaneously:**
-   - Wyloni
-   - KeyDraft
-   - Sottra
-   - PRATICA
-   - Regiads (when active)
+4. **Update all PWAs simultaneously**
 5. **Verify** — Run auth smoke test from each PWA
-6. **Confirm** old secret no longer works (immediate, no grace period)
 
 **Recommended cadence:** Quarterly
 
@@ -92,19 +104,9 @@ Each PWA has its own secret (`AI_CORE_SECRET_WYLONI`, etc.). Rotation affects on
 
 1. Generate new value
 2. Update in Core Lovable Cloud vault
-3. Update admin dashboard configuration if stored
-4. Verify: `curl -H "x-diagnostic-secret: $NEW_SECRET" .../ai-core-run/metrics`
+3. Verify: `curl -H "x-diagnostic-secret: $NEW_SECRET" .../ai-core-run/metrics`
 
 **Recommended cadence:** Quarterly
-
-### Provider API Keys (Core-only)
-
-1. Generate new key from provider dashboard (OpenAI, Anthropic, etc.)
-2. Update in Core Lovable Cloud vault
-3. Verify via diagnostics endpoint
-4. No PWA notification needed
-
-**Recommended cadence:** Annually or on compromise
 
 ---
 
@@ -113,9 +115,9 @@ Each PWA has its own secret (`AI_CORE_SECRET_WYLONI`, etc.). Rotation affects on
 1. **Never** store secret values in code, git, or client-side storage
 2. **Never** log secret values — use `redactSensitive()` for any logged string
 3. **Never** include secrets in error messages or API responses
-4. **Never** expose `CORE_ALLOWED_ORIGINS` or `CORE_ADMIN_BOOTSTRAP_EMAILS` in public responses
+4. **Never** expose `CORE_ALLOWED_ORIGINS` or access model secrets in public responses
 5. **Always** use constant-time comparison (`constantTimeEqual`) for secret validation
 6. **Always** use `.env.example` with placeholder names, never real values
-7. Secrets are stored **exclusively** in Lovable Cloud vault or Supabase secrets
-8. **Admin identity** is derived only from verified JWT + `CORE_ADMIN_BOOTSTRAP_EMAILS` — never from client headers or body
+7. Secrets are stored **exclusively** in Lovable Cloud vault
+8. **Admin identity** is derived only from verified JWT + `CORE_ADMIN_BOOTSTRAP_EMAILS`
 9. `AI_CORE_ADMIN_EMAILS` is deprecated and must not be used for access control

@@ -8,7 +8,7 @@ import { describe, it, expect } from "vitest";
 // ═══════════════════════════════════════════════════════════════
 // Constants mirroring viral-core
 // ═══════════════════════════════════════════════════════════════
-const CORE_VERSION = "3.3.6";
+const CORE_VERSION = "3.4.0";
 const CORE_CONTRACT = "central-core-v3";
 const FUNCTION_NAME = "viral-core";
 const EXPECTED_BASE_PATH = "/functions/v1/viral-core";
@@ -110,7 +110,7 @@ describe("viral-core: manifest contract", () => {
   };
 
   it("manifest has correct contract", () => expect(manifest.contract).toBe("central-core-v3"));
-  it("manifest has correct version", () => expect(manifest.version).toBe("3.3.6"));
+  it("manifest has correct version", () => expect(manifest.version).toBe("3.4.0"));
   it("manifest has correct function name", () => expect(manifest.function).toBe("viral-core"));
   it("manifest has correct serviceKind", () => expect(manifest.serviceKind).toBe("viral-content-engine"));
   it("manifest has callingMode proxy", () => expect(manifest.callingMode).toBe("proxy"));

@@ -65,21 +65,34 @@ FIRECRAWL_API_KEY       # Web scraping (opzionale)
 CORE_ALLOWED_ORIGINS    # Origins CORS (es: https://wyloni.app,https://keydraft.app)
 GOOGLE_MAPS_API_KEY     # Geocoding per Sottra (opzionale)
 DIAGNOSTIC_SECRET       # Accesso endpoint diagnostici/metriche
-
-# Admin bootstrap (server-side only)
-CORE_ADMIN_BOOTSTRAP_EMAILS  # Allowlist admin/owner (comma-separated, JWT-verified)
 ```
 
-## Modello di accesso admin
+## Modello di accesso (v3.4.0)
 
-L'accesso admin/owner è regolato esclusivamente lato server:
+L'accesso è regolato esclusivamente lato server con tre livelli:
 
-1. **Identità**: derivata da JWT Supabase verificato (`extractVerifiedEmail`)
-2. **Allowlist**: `CORE_ADMIN_BOOTSTRAP_EMAILS` nel vault (mai nel codice)
-3. **Privilegi**: bypass rate limit, nessun bypass autenticazione
-4. **Sicurezza**: nessun header, body, query string o localStorage può concedere privilegi admin
-5. **Legacy**: `isAdminBypassEmail` e `checkAdminBypass` sono no-op permanenti — il vecchio bypass da input non verificato è stato eliminato
-6. **Stripe**: non è una dipendenza del Core
+### 1. Owner/Admin — `CORE_ADMIN_BOOTSTRAP_EMAILS`
+- **Unico owner/admin**: `gheocapaula1000@gmail.com`
+- Accesso completo a core admin, diagnostics, route protette, funzioni server-side
+- Bypass completo di rate limit, quote, trial, piano, paywall
+- Identità derivata da JWT Supabase verificato (`extractVerifiedEmail`)
+- Nessun altro account può diventare admin tramite bootstrap
+
+### 2. Utenti non paganti cross-app — `CORE_USER_BYPASS_EMAILS`
+- Bypass di trial/piano/quote/paywall per tutti i servizi user-facing di tutte le PWA
+- **Nessun accesso admin**, nessun pannello owner, nessuna capability amministrativa
+- Esempio: `matteo.ippolito@gmail.com`
+
+### 3. Utenti non paganti Wyloni-only — `CORE_WYLONI_BYPASS_EMAILS`
+- Bypass di trial/piano/quote/paywall **solo** quando `x-source-app=wyloni`
+- Nessun bypass globale cross-app, nessun accesso admin
+- Il Core verifica `x-source-app` come segnale di routing (già autenticato via secret)
+- Esempio: `massimilianogalli75@gmail.com`
+
+### Sicurezza
+- Nessun header, body, query string o localStorage può concedere privilegi admin
+- Legacy `isAdminBypassEmail` e `checkAdminBypass` sono no-op permanenti
+- Stripe non è una dipendenza del Core
 
 ## Gestione segreti e `.env`
 
@@ -88,7 +101,7 @@ L'accesso admin/owner è regolato esclusivamente lato server:
 - **Segreti runtime**: vanno configurati esclusivamente tramite Lovable Cloud (Secrets).
 - **Mai stampare segreti nei log** o includerli in risposte API.
 - **Per-app secrets**: ogni PWA deve avere il proprio `AI_CORE_SECRET_<APP>`. Il legacy `AI_CORE_SECRET` condiviso è supportato come fallback transitorio ma sarà deprecato.
-- **Admin bypass eliminato**: nessun bypass basato su email da header/body non verificati. Operazioni privilegiate richiedono JWT verificato o secret server-to-server.
+
 ## App Collegate
 
 - **Wyloni** — Family office digitale (domini: wyloni_bandi, pratica_legal)
