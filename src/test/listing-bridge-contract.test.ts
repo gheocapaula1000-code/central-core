@@ -7,7 +7,7 @@ import { describe, it, expect } from "vitest";
  * Pure logic — no live HTTP calls.
  */
 
-const CORE_VERSION = "3.3.5";
+const CORE_VERSION = "3.3.6";
 const SUPPORTED_SCHEMA_VERSIONS = ["1.0"];
 
 // ── Mirror of production validation logic ──
@@ -403,6 +403,6 @@ describe("Listing Bridge — isolation from core", () => {
   });
 
   it("version aligned with core", () => {
-    expect(CORE_VERSION).toBe("3.3.5");
+    expect(CORE_VERSION).toBe("3.3.6");
   });
 });

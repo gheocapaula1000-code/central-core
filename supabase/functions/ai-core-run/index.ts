@@ -1,4 +1,4 @@
-import { makeDebugId, handleOptions, ok, fail, requireSecret, requireDiagnosticSecret, CORE_VERSION, CORE_CONTRACT, enforceOriginPolicy, addIdentityHeaders, buildManifest } from "../_shared/http.ts";
+import { makeDebugId, handleOptions, ok, fail, requireSecret, requireDiagnosticSecret, CORE_VERSION, CORE_CONTRACT, enforceOriginPolicy, addIdentityHeaders, buildManifest, checkBootstrapAdmin } from "../_shared/http.ts";
 import { callOpenAI } from "./providers/openai.ts";
 import { callAnthropic } from "./providers/anthropic.ts";
 import { firecrawlExtract } from "./providers/firecrawl.ts";
@@ -582,13 +582,21 @@ Deno.serve(async (req: Request) => {
       return withIdentity(fail(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId), "error");
     }
 
-    // Rate limiting: caller-aware, trusted tier
+    // Bootstrap admin check (server-side, JWT-verified — bypasses rate limits)
+    let isAdmin = false;
+    try {
+      const adminCheck = await checkBootstrapAdmin(req);
+      isAdmin = adminCheck.isAdmin;
+      if (isAdmin) console.log(`[ai-core-run] bootstrap-admin verified debug_id=${debugId}`);
+    } catch { /* best-effort, non-blocking */ }
+
+    // Rate limiting: caller-aware, trusted tier (bypassed for bootstrap admins)
     purgeExpiredBuckets();
     const sourceApp = req.headers.get("x-source-app") ?? "unknown";
     const trusted = true; // all POST traffic past requireSecret is trusted
     const callerKey = buildCallerKey(sourceApp, req, body, trusted);
     const rateResult = checkRateLimit(callerKey, RATE_MAX_TRUSTED);
-    if (!rateResult.allowed) {
+    if (!rateResult.allowed && !isAdmin) {
       console.warn(`[rate] caller=${callerKey} trusted=${trusted} route=${pathname} => 429`);
       const res = fail(req, 429, "RATE_LIMITED", `Too many requests. Retry in ${rateResult.retryAfterSec}s.`, debugId);
       res.headers.set("Retry-After", String(rateResult.retryAfterSec));

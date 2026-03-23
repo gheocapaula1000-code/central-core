@@ -44,7 +44,8 @@
 | Secret | Purpose | Format |
 |--------|---------|--------|
 | `CORE_ALLOWED_ORIGINS` | CORS allowlist | Comma-separated URLs or `*` |
-| `AI_CORE_ADMIN_EMAILS` | Admin access list | Comma-separated emails |
+| `CORE_ADMIN_BOOTSTRAP_EMAILS` | Server-side admin/owner allowlist (JWT-verified) | Comma-separated emails |
+| `AI_CORE_ADMIN_EMAILS` | **Deprecated** — replaced by `CORE_ADMIN_BOOTSTRAP_EMAILS` | Comma-separated emails |
 | `OPENAI_MODEL` | Model override | Model name (default: gpt-5.4) |
 | `MARKET_DATA_ENABLED` | Market data toggle | `true`/`false` |
 | `GEO_PROVIDER_ORDER` | Geocoding priority | Comma-separated provider names |
@@ -112,7 +113,9 @@ Each PWA has its own secret (`AI_CORE_SECRET_WYLONI`, etc.). Rotation affects on
 1. **Never** store secret values in code, git, or client-side storage
 2. **Never** log secret values — use `redactSensitive()` for any logged string
 3. **Never** include secrets in error messages or API responses
-4. **Never** expose `CORE_ALLOWED_ORIGINS` or `AI_CORE_ADMIN_EMAILS` in public responses
+4. **Never** expose `CORE_ALLOWED_ORIGINS` or `CORE_ADMIN_BOOTSTRAP_EMAILS` in public responses
 5. **Always** use constant-time comparison (`constantTimeEqual`) for secret validation
 6. **Always** use `.env.example` with placeholder names, never real values
 7. Secrets are stored **exclusively** in Lovable Cloud vault or Supabase secrets
+8. **Admin identity** is derived only from verified JWT + `CORE_ADMIN_BOOTSTRAP_EMAILS` — never from client headers or body
+9. `AI_CORE_ADMIN_EMAILS` is deprecated and must not be used for access control

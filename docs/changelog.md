@@ -5,6 +5,31 @@
 
 ---
 
+## [3.3.6] — 2026-03-23
+
+### Added
+- **Bootstrap admin model**: server-side admin/owner identity via `CORE_ADMIN_BOOTSTRAP_EMAILS` secret
+- `isBootstrapAdmin(verifiedEmail)` — checks verified email against server-side allowlist
+- `extractVerifiedEmail(req)` — extracts email from verified Supabase JWT (never from client headers)
+- `checkBootstrapAdmin(req)` — combined JWT extraction + admin check helper
+- Rate limit bypass for verified bootstrap admins in `ai-core-run`
+- `CORE_ADMIN_BOOTSTRAP_EMAILS` added to `redactSensitive` protection list
+- 28+ new tests in `hardening-admin-bootstrap.test.ts`
+
+### Security
+- Admin identity derived exclusively from verified JWT + server-side secret allowlist
+- No client header, body, query string, localStorage, or unverified input can grant admin privileges
+- Legacy `isAdminBypassEmail` and `checkAdminBypass` remain permanent no-ops
+- `AI_CORE_ADMIN_EMAILS` is deprecated — replaced by `CORE_ADMIN_BOOTSTRAP_EMAILS`
+
+### No Breaking Changes
+- All existing contracts, envelopes, paths, and error codes unchanged
+- Legacy bypass no-ops preserved for import compatibility
+- Rate limit bypass is additive — non-admin callers unaffected
+- All PWA integrations (Wyloni, KeyDraft, Sottra, PRATICA, Regiads) fully compatible
+
+---
+
 ## [3.3.5] — 2026-03-21
 
 ### Added

@@ -65,7 +65,21 @@ FIRECRAWL_API_KEY       # Web scraping (opzionale)
 CORE_ALLOWED_ORIGINS    # Origins CORS (es: https://wyloni.app,https://keydraft.app)
 GOOGLE_MAPS_API_KEY     # Geocoding per Sottra (opzionale)
 DIAGNOSTIC_SECRET       # Accesso endpoint diagnostici/metriche
+
+# Admin bootstrap (server-side only)
+CORE_ADMIN_BOOTSTRAP_EMAILS  # Allowlist admin/owner (comma-separated, JWT-verified)
 ```
+
+## Modello di accesso admin
+
+L'accesso admin/owner è regolato esclusivamente lato server:
+
+1. **Identità**: derivata da JWT Supabase verificato (`extractVerifiedEmail`)
+2. **Allowlist**: `CORE_ADMIN_BOOTSTRAP_EMAILS` nel vault (mai nel codice)
+3. **Privilegi**: bypass rate limit, nessun bypass autenticazione
+4. **Sicurezza**: nessun header, body, query string o localStorage può concedere privilegi admin
+5. **Legacy**: `isAdminBypassEmail` e `checkAdminBypass` sono no-op permanenti — il vecchio bypass da input non verificato è stato eliminato
+6. **Stripe**: non è una dipendenza del Core
 
 ## Gestione segreti e `.env`
 

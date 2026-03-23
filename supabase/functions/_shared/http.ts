@@ -1,4 +1,4 @@
-export const CORE_VERSION = "3.3.5";
+export const CORE_VERSION = "3.3.6";
 export const CORE_CONTRACT = "central-core-v3";
 
 // ═══════════════════════════════════════════════════════════════
@@ -107,6 +107,79 @@ export function resolveInternalSecret(targetApp: string): { secret: string; mode
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Bootstrap Admin — server-side only, verified-JWT identity
+// No client header/body/query can grant admin privileges.
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Check if a verified email belongs to a bootstrap admin/owner.
+ * The email MUST come from a verified source (JWT or server-side).
+ * NEVER pass emails from client headers, body, or query strings.
+ *
+ * Reads CORE_ADMIN_BOOTSTRAP_EMAILS from env (comma-separated).
+ * Returns false if the env var is not set or empty.
+ */
+export function isBootstrapAdmin(verifiedEmail: string): boolean {
+  if (!verifiedEmail || typeof verifiedEmail !== "string") return false;
+  const normalized = verifiedEmail.trim().toLowerCase();
+  if (!normalized || !normalized.includes("@")) return false;
+
+  const raw = Deno.env.get("CORE_ADMIN_BOOTSTRAP_EMAILS") ?? "";
+  if (!raw.trim()) return false;
+
+  const allowlist = raw
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+
+  return allowlist.includes(normalized);
+}
+
+/**
+ * Extract verified email from Supabase JWT (Authorization: Bearer <jwt>).
+ * Returns null if no valid JWT, verification fails, or no Supabase config.
+ * This is the ONLY approved method to obtain user identity for admin checks.
+ */
+export async function extractVerifiedEmail(req: Request): Promise<string | null> {
+  const authHeader = req.headers.get("authorization") ?? "";
+  if (!authHeader.toLowerCase().startsWith("bearer ")) return null;
+  const token = authHeader.slice(7).trim();
+  // JWTs start with eyJ — skip non-JWT tokens (e.g. app secrets)
+  if (!token.startsWith("eyJ")) return null;
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
+  if (!supabaseUrl || !supabaseKey) return null;
+
+  try {
+    const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user?.email) return null;
+    return user.email;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Combined check: extract verified JWT email + check bootstrap admin.
+ * Returns { isAdmin: true, email } for verified bootstrap admins.
+ * Returns { isAdmin: false } for everyone else.
+ * Best-effort: failures default to non-admin (safe default).
+ */
+export async function checkBootstrapAdmin(req: Request): Promise<{ isAdmin: boolean; email?: string }> {
+  try {
+    const email = await extractVerifiedEmail(req);
+    if (!email) return { isAdmin: false };
+    if (isBootstrapAdmin(email)) return { isAdmin: true, email: normalizeEmail(email) };
+    return { isAdmin: false };
+  } catch {
+    return { isAdmin: false };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Identity headers — non-sensitive, diagnostic-only
 // ═══════════════════════════════════════════════════════════════
 export interface CoreIdentity {
@@ -180,7 +253,8 @@ export function redactSensitive(value: string): string {
     "DIAGNOSTIC_SECRET", "DIAGNOSTIC_SELFTEST_SECRET",
     "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "PERPLEXITY_API_KEY",
     "FIRECRAWL_API_KEY", "GOOGLE_MAPS_API_KEY",
-    "SUPABASE_SERVICE_ROLE_KEY", "CORE_ALLOWED_ORIGINS", "AI_CORE_ADMIN_EMAILS",
+    "SUPABASE_SERVICE_ROLE_KEY", "CORE_ALLOWED_ORIGINS",
+    "AI_CORE_ADMIN_EMAILS", "CORE_ADMIN_BOOTSTRAP_EMAILS",
   ];
   for (const name of secretNames) {
     const val = Deno.env.get(name);
