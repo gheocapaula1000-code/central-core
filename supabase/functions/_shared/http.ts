@@ -253,7 +253,8 @@ export function redactSensitive(value: string): string {
     "DIAGNOSTIC_SECRET", "DIAGNOSTIC_SELFTEST_SECRET",
     "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "PERPLEXITY_API_KEY",
     "FIRECRAWL_API_KEY", "GOOGLE_MAPS_API_KEY",
-    "SUPABASE_SERVICE_ROLE_KEY", "CORE_ALLOWED_ORIGINS", "AI_CORE_ADMIN_EMAILS",
+    "SUPABASE_SERVICE_ROLE_KEY", "CORE_ALLOWED_ORIGINS",
+    "AI_CORE_ADMIN_EMAILS", "CORE_ADMIN_BOOTSTRAP_EMAILS",
   ];
   for (const name of secretNames) {
     const val = Deno.env.get(name);
