@@ -306,6 +306,7 @@ export function redactSensitive(value: string): string {
     "FIRECRAWL_API_KEY", "GOOGLE_MAPS_API_KEY",
     "SUPABASE_SERVICE_ROLE_KEY", "CORE_ALLOWED_ORIGINS",
     "AI_CORE_ADMIN_EMAILS", "CORE_ADMIN_BOOTSTRAP_EMAILS",
+    "CORE_USER_BYPASS_EMAILS", "CORE_WYLONI_BYPASS_EMAILS",
   ];
   for (const name of secretNames) {
     const val = Deno.env.get(name);
