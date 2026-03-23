@@ -44,7 +44,8 @@
 | Secret | Purpose | Format |
 |--------|---------|--------|
 | `CORE_ALLOWED_ORIGINS` | CORS allowlist | Comma-separated URLs or `*` |
-| `AI_CORE_ADMIN_EMAILS` | Admin access list | Comma-separated emails |
+| `CORE_ADMIN_BOOTSTRAP_EMAILS` | Server-side admin/owner allowlist (JWT-verified) | Comma-separated emails |
+| `AI_CORE_ADMIN_EMAILS` | **Deprecated** — replaced by `CORE_ADMIN_BOOTSTRAP_EMAILS` | Comma-separated emails |
 | `OPENAI_MODEL` | Model override | Model name (default: gpt-5.4) |
 | `MARKET_DATA_ENABLED` | Market data toggle | `true`/`false` |
 | `GEO_PROVIDER_ORDER` | Geocoding priority | Comma-separated provider names |
