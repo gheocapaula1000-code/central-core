@@ -546,6 +546,8 @@ Deno.serve(async (req: Request) => {
     const authErr = requireSecret(req, debugId);
     if (authErr) return withIdentity(authErr, "auth-rejected");
     if (req.method !== "POST") return withIdentity(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), "error");
+    const sourceApp = (req.headers.get("x-source-app") ?? "unknown").toLowerCase().trim();
+    const trusted = true; // all POST traffic past requireSecret is trusted
 
     // ── Web Scrape (Firecrawl) ─────────────────────────────────
     if (pathname.endsWith("/web/scrape")) {
@@ -582,21 +584,22 @@ Deno.serve(async (req: Request) => {
       return withIdentity(fail(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId), "error");
     }
 
-    // Bootstrap admin check (server-side, JWT-verified — bypasses rate limits)
+    // Bootstrap admin/bypass check (server-side, JWT-verified)
     let isAdmin = false;
+    let isBypass = false;
     try {
-      const adminCheck = await checkBootstrapAdmin(req);
+      const adminCheck = await checkBootstrapAdmin(req, sourceApp);
       isAdmin = adminCheck.isAdmin;
+      isBypass = adminCheck.isBypass;
       if (isAdmin) console.log(`[ai-core-run] bootstrap-admin verified debug_id=${debugId}`);
+      else if (isBypass) console.log(`[ai-core-run] service-bypass verified source_app=${sourceApp} debug_id=${debugId}`);
     } catch { /* best-effort, non-blocking */ }
 
-    // Rate limiting: caller-aware, trusted tier (bypassed for bootstrap admins)
+    // Rate limiting: caller-aware, trusted tier (bypassed for admin and bypass users)
     purgeExpiredBuckets();
-    const sourceApp = req.headers.get("x-source-app") ?? "unknown";
-    const trusted = true; // all POST traffic past requireSecret is trusted
     const callerKey = buildCallerKey(sourceApp, req, body, trusted);
     const rateResult = checkRateLimit(callerKey, RATE_MAX_TRUSTED);
-    if (!rateResult.allowed && !isAdmin) {
+    if (!rateResult.allowed && !isAdmin && !isBypass) {
       console.warn(`[rate] caller=${callerKey} trusted=${trusted} route=${pathname} => 429`);
       const res = fail(req, 429, "RATE_LIMITED", `Too many requests. Retry in ${rateResult.retryAfterSec}s.`, debugId);
       res.headers.set("Retry-After", String(rateResult.retryAfterSec));

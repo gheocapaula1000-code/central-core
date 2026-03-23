@@ -7,12 +7,12 @@ import { describe, it, expect } from "vitest";
  * has been completely eliminated. The functions normalizeEmail
  * and isAdminBypassEmail are kept as no-ops for import compat.
  *
- * NOTE: Server-side admin bootstrap (v3.3.6+) is tested separately
+ * NOTE: Server-side admin bootstrap (v3.4.0+) is tested separately
  * in hardening-admin-bootstrap.test.ts. That system uses verified
  * JWT + CORE_ADMIN_BOOTSTRAP_EMAILS, not client headers/body.
  */
 
-const CORE_VERSION = "3.3.6";
+const CORE_VERSION = "3.4.0";
 
 // ── Mirror of the production no-op implementations ──
 
@@ -76,7 +76,7 @@ describe("Admin bypass — ELIMINATED", () => {
 });
 
 describe("Admin bypass — version alignment", () => {
-  it("contract version is 3.3.6", () => {
-    expect(CORE_VERSION).toBe("3.3.6");
+  it("contract version is 3.4.0", () => {
+    expect(CORE_VERSION).toBe("3.4.0");
   });
 });

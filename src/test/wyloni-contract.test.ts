@@ -222,7 +222,7 @@ describe("Wyloni contract — health endpoint", () => {
   it("health data includes status, version, time", () => {
     const healthData = {
       status: "ok",
-      version: "3.3.6",
+      version: "3.4.0",
       time: new Date().toISOString(),
     };
     expect(healthData.status).toBe("ok");

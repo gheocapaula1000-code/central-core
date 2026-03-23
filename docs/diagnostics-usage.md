@@ -110,10 +110,12 @@ Returns: contract, version, routes, serviceKind, callingMode, expectedBasePath.
 | `ANTHROPIC_API_KEY` | Yes | Fallback AI provider |
 | `PERPLEXITY_API_KEY` | Yes | Web search provider |
 | `CORE_ALLOWED_ORIGINS` | No | Additional allowed origins (comma-separated) |
-| `CORE_ADMIN_BOOTSTRAP_EMAILS` | No | Server-side admin/owner allowlist (JWT-verified) |
+| `CORE_ADMIN_BOOTSTRAP_EMAILS` | No | Owner/admin allowlist (JWT-verified, single owner only) |
+| `CORE_USER_BYPASS_EMAILS` | No | Cross-app non-paying user bypass (no admin) |
+| `CORE_WYLONI_BYPASS_EMAILS` | No | Wyloni-only non-paying user bypass (no admin) |
 | `MARKET_DATA_ENABLED` | No | Enable/disable market data in Sottra |
 
 *Per-app secrets are required. If not set, falls back to legacy `AI_CORE_SECRET` with deprecation warning.
 
 **Note**: All secrets are managed via the platform vault. Never hardcode values.
-**Admin access**: Admin privileges are derived exclusively from verified JWT + `CORE_ADMIN_BOOTSTRAP_EMAILS`. No client-side input can grant admin status.
+**Access model**: Owner/admin = only `gheocapaula1000@gmail.com` (verified JWT). Non-paying users get service bypass only, never admin.
