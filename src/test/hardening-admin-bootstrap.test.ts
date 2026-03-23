@@ -53,7 +53,7 @@ function isServiceBypassUser(
   return false;
 }
 
-function normalizeEmail(email: string | null | undefined): string {
+function _normalizeEmail(email: string | null | undefined): string {
   if (!email || typeof email !== "string") return "";
   return email.trim().toLowerCase();
 }
