@@ -5,6 +5,32 @@
 
 ---
 
+## [3.4.0] — 2026-03-23
+
+### Changed
+- **Access model**: three-tier server-side governance replaces single admin allowlist
+  - Tier 1 (Owner/Admin): `CORE_ADMIN_BOOTSTRAP_EMAILS` — only `gheocapaula1000@gmail.com`
+  - Tier 2 (Cross-app bypass): `CORE_USER_BYPASS_EMAILS` — non-paying users, no admin
+  - Tier 3 (Wyloni-only bypass): `CORE_WYLONI_BYPASS_EMAILS` — scoped to `x-source-app=wyloni`, no admin
+- `massimilianogalli75@gmail.com` removed from admin allowlist (was never intended as owner)
+- `checkBootstrapAdmin` now returns `{ isAdmin, isBypass, email }` (additive field, non-breaking)
+- New export: `isServiceBypassUser(verifiedEmail, sourceApp)` in `_shared/http.ts`
+- `CORE_USER_BYPASS_EMAILS` and `CORE_WYLONI_BYPASS_EMAILS` added to `redactSensitive` list
+
+### Security
+- Only `gheocapaula1000@gmail.com` can be owner/admin — no other account can be promoted
+- Bypass users get rate-limit/quota bypass but zero admin capabilities
+- Wyloni-only bypass requires verified `x-source-app=wyloni` (already auth'd via secret)
+- No client-side input can elevate privileges
+
+### No Breaking Changes
+- All existing contracts, envelopes, paths, and error codes unchanged
+- Legacy bypass no-ops preserved for import compatibility
+- Rate limit bypass is additive — non-admin/non-bypass callers unaffected
+- All PWA integrations (Wyloni, KeyDraft, Sottra, PRATICA, Regiads) fully compatible
+
+---
+
 ## [3.3.6] — 2026-03-23
 
 ### Added
@@ -14,19 +40,14 @@
 - `checkBootstrapAdmin(req)` — combined JWT extraction + admin check helper
 - Rate limit bypass for verified bootstrap admins in `ai-core-run`
 - `CORE_ADMIN_BOOTSTRAP_EMAILS` added to `redactSensitive` protection list
-- 28+ new tests in `hardening-admin-bootstrap.test.ts`
 
 ### Security
 - Admin identity derived exclusively from verified JWT + server-side secret allowlist
 - No client header, body, query string, localStorage, or unverified input can grant admin privileges
 - Legacy `isAdminBypassEmail` and `checkAdminBypass` remain permanent no-ops
-- `AI_CORE_ADMIN_EMAILS` is deprecated — replaced by `CORE_ADMIN_BOOTSTRAP_EMAILS`
 
 ### No Breaking Changes
 - All existing contracts, envelopes, paths, and error codes unchanged
-- Legacy bypass no-ops preserved for import compatibility
-- Rate limit bypass is additive — non-admin callers unaffected
-- All PWA integrations (Wyloni, KeyDraft, Sottra, PRATICA, Regiads) fully compatible
 
 ---
 
