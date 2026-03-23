@@ -109,7 +109,30 @@ export function resolveInternalSecret(targetApp: string): { secret: string; mode
 // ═══════════════════════════════════════════════════════════════
 // Bootstrap Admin — server-side only, verified-JWT identity
 // No client header/body/query can grant admin privileges.
+//
+// Access tiers:
+//   1. Owner/Admin: CORE_ADMIN_BOOTSTRAP_EMAILS (only gheocapaula1000@gmail.com)
+//      → Full admin, diagnostics, rate-limit bypass, all routes
+//   2. User bypass (cross-app): CORE_USER_BYPASS_EMAILS
+//      → Non-paying user with full user-facing access, NO admin
+//   3. Wyloni-only bypass: CORE_WYLONI_BYPASS_EMAILS
+//      → Non-paying user bypass ONLY when x-source-app=wyloni, NO admin
 // ═══════════════════════════════════════════════════════════════
+
+/** Parse a comma-separated email allowlist from an env var */
+function parseEmailAllowlist(envName: string): string[] {
+  const raw = Deno.env.get(envName) ?? "";
+  if (!raw.trim()) return [];
+  return raw.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+}
+
+/** Validate and normalize an email for comparison */
+function normalizeVerifiedEmail(email: string | null | undefined): string {
+  if (!email || typeof email !== "string") return "";
+  const normalized = email.trim().toLowerCase();
+  if (!normalized || !normalized.includes("@")) return "";
+  return normalized;
+}
 
 /**
  * Check if a verified email belongs to a bootstrap admin/owner.
@@ -120,25 +143,46 @@ export function resolveInternalSecret(targetApp: string): { secret: string; mode
  * Returns false if the env var is not set or empty.
  */
 export function isBootstrapAdmin(verifiedEmail: string): boolean {
-  if (!verifiedEmail || typeof verifiedEmail !== "string") return false;
-  const normalized = verifiedEmail.trim().toLowerCase();
-  if (!normalized || !normalized.includes("@")) return false;
-
-  const raw = Deno.env.get("CORE_ADMIN_BOOTSTRAP_EMAILS") ?? "";
-  if (!raw.trim()) return false;
-
-  const allowlist = raw
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-
+  const normalized = normalizeVerifiedEmail(verifiedEmail);
+  if (!normalized) return false;
+  const allowlist = parseEmailAllowlist("CORE_ADMIN_BOOTSTRAP_EMAILS");
   return allowlist.includes(normalized);
+}
+
+/**
+ * Check if a verified email has user-facing service bypass (non-paying user).
+ * This does NOT grant admin privileges — only bypasses trial/plan/quota/paywall.
+ *
+ * Cross-app bypass: CORE_USER_BYPASS_EMAILS (e.g. matteo.ippolito@gmail.com)
+ * Wyloni-only bypass: CORE_WYLONI_BYPASS_EMAILS (only when sourceApp is "wyloni")
+ *
+ * Admin emails always get bypass too (superset).
+ */
+export function isServiceBypassUser(verifiedEmail: string, sourceApp?: string): boolean {
+  const normalized = normalizeVerifiedEmail(verifiedEmail);
+  if (!normalized) return false;
+
+  // Admins always bypass
+  if (isBootstrapAdmin(verifiedEmail)) return true;
+
+  // Cross-app bypass users
+  const crossAppList = parseEmailAllowlist("CORE_USER_BYPASS_EMAILS");
+  if (crossAppList.includes(normalized)) return true;
+
+  // Wyloni-only bypass users (only if sourceApp is verifiably "wyloni")
+  const app = (sourceApp ?? "").toLowerCase().trim();
+  if (app === "wyloni") {
+    const wyloniList = parseEmailAllowlist("CORE_WYLONI_BYPASS_EMAILS");
+    if (wyloniList.includes(normalized)) return true;
+  }
+
+  return false;
 }
 
 /**
  * Extract verified email from Supabase JWT (Authorization: Bearer <jwt>).
  * Returns null if no valid JWT, verification fails, or no Supabase config.
- * This is the ONLY approved method to obtain user identity for admin checks.
+ * This is the ONLY approved method to obtain user identity for admin/bypass checks.
  */
 export async function extractVerifiedEmail(req: Request): Promise<string | null> {
   const authHeader = req.headers.get("authorization") ?? "";
@@ -164,18 +208,25 @@ export async function extractVerifiedEmail(req: Request): Promise<string | null>
 
 /**
  * Combined check: extract verified JWT email + check bootstrap admin.
- * Returns { isAdmin: true, email } for verified bootstrap admins.
- * Returns { isAdmin: false } for everyone else.
- * Best-effort: failures default to non-admin (safe default).
+ * Returns { isAdmin, isBypass, email } with the verified privilege level.
+ * Best-effort: failures default to non-admin, non-bypass (safe default).
  */
-export async function checkBootstrapAdmin(req: Request): Promise<{ isAdmin: boolean; email?: string }> {
+export async function checkBootstrapAdmin(req: Request, sourceApp?: string): Promise<{
+  isAdmin: boolean;
+  isBypass: boolean;
+  email?: string;
+}> {
   try {
     const email = await extractVerifiedEmail(req);
-    if (!email) return { isAdmin: false };
-    if (isBootstrapAdmin(email)) return { isAdmin: true, email: normalizeEmail(email) };
-    return { isAdmin: false };
+    if (!email) return { isAdmin: false, isBypass: false };
+    const norm = normalizeEmail(email);
+    const isAdmin = isBootstrapAdmin(email);
+    const isBypass = isServiceBypassUser(email, sourceApp);
+    if (isAdmin) console.log(`[bootstrap] admin verified debug_source=checkBootstrapAdmin`);
+    else if (isBypass) console.log(`[bootstrap] service-bypass verified source_app=${sourceApp ?? "unknown"}`);
+    return { isAdmin, isBypass, email: norm };
   } catch {
-    return { isAdmin: false };
+    return { isAdmin: false, isBypass: false };
   }
 }
 
