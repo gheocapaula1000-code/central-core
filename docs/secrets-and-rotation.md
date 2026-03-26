@@ -29,6 +29,30 @@
 
 **Deprecated**: `AI_CORE_ADMIN_EMAILS` — replaced by `CORE_ADMIN_BOOTSTRAP_EMAILS`
 
+### Browser Security Headers (deploy-time)
+
+Applied via `public/_headers` and `index.html` meta (coherent):
+
+| Header | Value | Purpose |
+|--------|-------|---------|
+| `Strict-Transport-Security` | `max-age=63072000; includeSubDomains; preload` | HSTS — force HTTPS for 2 years |
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self'; ...` | Restrict resource loading |
+| `X-Frame-Options` | `DENY` | Prevent embedding |
+| `X-Content-Type-Options` | `nosniff` | Prevent MIME sniffing |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Limit referrer leakage |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=(), payment=(), usb=()...` | Disable unused APIs |
+| `Cross-Origin-Opener-Policy` | `same-origin` | Isolate browsing context |
+| `Cross-Origin-Resource-Policy` | `same-origin` | Block cross-origin reads |
+| `Cross-Origin-Embedder-Policy` | `require-corp` | Require CORP on subresources |
+| `Cache-Control` | `no-store` (default), `immutable` for `/assets/*` | Prevent stale cache |
+
+### Admin Shell Recovery
+
+`src/main.tsx` implements safe boot:
+- Catches mount failures and chunk-mismatch errors
+- Shows static recovery UI with reload button
+- No external dependencies in the fallback path
+
 ### Provider API Keys
 
 | Secret | Purpose | Shared With | Rotation Impact |

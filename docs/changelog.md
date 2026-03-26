@@ -5,6 +5,21 @@
 
 ---
 
+## [3.4.1] — 2026-03-26
+
+### Hardened
+- `public/_headers`: added HSTS (2-year, includeSubDomains, preload), COOP, CORP, COEP, default `no-store` cache, immutable cache for `/assets/*`, expanded Permissions-Policy
+- `index.html`: added `<noscript>` fallback, removed `author` meta (not needed for admin shell), deduplicated meta tags
+- `src/main.tsx`: safe boot with chunk-mismatch detection, static recovery fallback with reload button, structured error logging
+- CSP coherence enforced between `index.html` meta and `public/_headers`
+- Tests added: HSTS, COOP/CORP, cache rules, boot safety, CSP coherence, noscript
+
+### Documentation
+- Updated `docs/secrets-and-rotation.md` with security headers reference
+- Updated `docs/changelog.md`
+
+---
+
 ## [3.4.0] — 2026-03-23
 
 ### Changed
