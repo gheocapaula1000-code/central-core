@@ -5,11 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Central Core V3 — Admin</title>
     <meta name="description" content="Central Core V3 Admin Dashboard" />
-    <meta name="author" content="Central Core" />
-    <meta name="theme-color" content="#7c3aed" />
     <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#7c3aed" />
 
-    <!-- Security hardening -->
+    <!-- Security meta -->
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
@@ -21,6 +20,9 @@
     <!-- Admin dashboard — no PWA manifest, no public SEO -->
   </head>
   <body>
+    <noscript>
+      <p style="padding:2rem;font-family:system-ui;color:#b91c1c">Central Core V3 requires JavaScript.</p>
+    </noscript>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
