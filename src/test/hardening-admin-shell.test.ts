@@ -2,8 +2,8 @@
  * Admin Shell Hardening Tests — Central Core V3
  *
  * Validates index.html security meta, noindex compliance,
- * deploy headers artifact, admin route registration,
- * boot safety, and header hardening.
+ * deploy headers artifact (single CSP source), admin route registration,
+ * boot safety (CSP-safe), and header hardening.
  */
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
@@ -17,16 +17,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 describe("Admin Shell — index.html security meta", () => {
   const html = fs.readFileSync(path.resolve(__dirname, "../../index.html"), "utf-8");
 
-  it("contains Content-Security-Policy meta", () => {
-    expect(html).toContain('http-equiv="Content-Security-Policy"');
-  });
-
-  it("CSP blocks object-src", () => {
-    expect(html).toMatch(/object-src\s+'none'/);
-  });
-
-  it("CSP blocks frame-ancestors", () => {
-    expect(html).toMatch(/frame-ancestors\s+'none'/);
+  it("does NOT contain CSP meta (enforced via _headers only)", () => {
+    expect(html).not.toContain('http-equiv="Content-Security-Policy"');
   });
 
   it("contains X-Content-Type-Options nosniff", () => {
@@ -60,15 +52,9 @@ describe("Admin Shell — index.html security meta", () => {
   it("has noscript fallback", () => {
     expect(html).toContain("<noscript>");
   });
-
-  it("does not duplicate meta tags", () => {
-    const cspCount = (html.match(/Content-Security-Policy/g) || []).length;
-    // one meta tag = one occurrence of the directive name in content + one in http-equiv attr
-    expect(cspCount).toBeLessThanOrEqual(2);
-  });
 });
 
-// ── Deploy headers artifact ──
+// ── Deploy headers artifact (single authoritative CSP source) ──
 
 describe("Admin Shell — _headers deploy artifact", () => {
   const headersPath = path.resolve(__dirname, "../../public/_headers");
@@ -105,6 +91,14 @@ describe("Admin Shell — _headers deploy artifact", () => {
 
   it("includes Content-Security-Policy", () => {
     expect(headers).toContain("Content-Security-Policy:");
+  });
+
+  it("CSP blocks object-src", () => {
+    expect(headers).toMatch(/object-src\s+'none'/);
+  });
+
+  it("CSP blocks frame-ancestors", () => {
+    expect(headers).toMatch(/frame-ancestors\s+'none'/);
   });
 
   it("includes HSTS with long max-age", () => {
@@ -157,7 +151,7 @@ describe("Admin Shell — robots.txt", () => {
   });
 });
 
-// ── Boot safety ──
+// ── Boot safety (CSP-safe) ──
 
 describe("Admin Shell — boot safety (main.tsx)", () => {
   const main = fs.readFileSync(path.resolve(__dirname, "../main.tsx"), "utf-8");
@@ -171,38 +165,13 @@ describe("Admin Shell — boot safety (main.tsx)", () => {
     expect(main).toMatch(/chunk|import/i);
   });
 
-  it("provides a reload recovery button", () => {
-    expect(main).toContain("location.reload()");
+  it("uses addEventListener for reload (CSP-safe, no inline handlers)", () => {
+    expect(main).toContain("addEventListener");
+    expect(main).not.toContain("onclick=");
+    expect(main).not.toContain("innerHTML");
   });
 
   it("checks for #root element existence", () => {
     expect(main).toContain('getElementById("root")');
-  });
-});
-
-// ── CSP coherence between index.html and _headers ──
-
-describe("Admin Shell — CSP coherence", () => {
-  const html = fs.readFileSync(path.resolve(__dirname, "../../index.html"), "utf-8");
-  const headers = fs.readFileSync(path.resolve(__dirname, "../../public/_headers"), "utf-8");
-
-  const extractDirectives = (csp: string) => {
-    const directives = new Set<string>();
-    for (const part of csp.split(";")) {
-      const name = part.trim().split(/\s+/)[0];
-      if (name) directives.add(name);
-    }
-    return directives;
-  };
-
-  it("both sources define the same CSP directives", () => {
-    const htmlCspMatch = html.match(/content="(default-src[^"]+)"/);
-    const headerCspMatch = headers.match(/Content-Security-Policy:\s*(.+)/);
-    expect(htmlCspMatch).toBeTruthy();
-    expect(headerCspMatch).toBeTruthy();
-    const htmlDirectives = extractDirectives(htmlCspMatch![1]);
-    const headerDirectives = extractDirectives(headerCspMatch![1]);
-    // Both should have the same directive names
-    expect([...htmlDirectives].sort()).toEqual([...headerDirectives].sort());
   });
 });
