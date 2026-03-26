@@ -128,16 +128,22 @@ fi
 echo ""
 echo "▸ Checking index.html security meta..."
 INDEX_FAIL=0
-if ! grep -q 'Content-Security-Policy' index.html 2>/dev/null; then
-  echo "  ✗ FAIL: index.html missing Content-Security-Policy"
+# Security headers are enforced via public/_headers (single authoritative source)
+# index.html should NOT contain http-equiv CSP or X-Content-Type-Options
+if grep -q 'http-equiv="Content-Security-Policy"' index.html 2>/dev/null; then
+  echo "  ✗ FAIL: index.html contains redundant CSP meta (must be in _headers only)"
   INDEX_FAIL=1
 fi
-if ! grep -q 'nosniff' index.html 2>/dev/null; then
-  echo "  ✗ FAIL: index.html missing X-Content-Type-Options nosniff"
+if grep -q 'http-equiv="X-Content-Type-Options"' index.html 2>/dev/null; then
+  echo "  ✗ FAIL: index.html contains redundant X-Content-Type-Options meta (must be in _headers only)"
   INDEX_FAIL=1
 fi
 if ! grep -q 'noindex' index.html 2>/dev/null; then
   echo "  ✗ FAIL: index.html missing noindex"
+  INDEX_FAIL=1
+fi
+if ! grep -q '_headers' index.html 2>/dev/null; then
+  echo "  ✗ FAIL: index.html missing reference to _headers as authoritative source"
   INDEX_FAIL=1
 fi
 if [ $INDEX_FAIL -eq 0 ]; then

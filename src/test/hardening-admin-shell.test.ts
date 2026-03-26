@@ -21,8 +21,8 @@ describe("Admin Shell — index.html security meta", () => {
     expect(html).not.toContain('http-equiv="Content-Security-Policy"');
   });
 
-  it("contains X-Content-Type-Options nosniff", () => {
-    expect(html).toContain('content="nosniff"');
+  it("does NOT contain X-Content-Type-Options meta (enforced via _headers only)", () => {
+    expect(html).not.toContain('http-equiv="X-Content-Type-Options"');
   });
 
   it("contains Referrer-Policy", () => {
@@ -113,6 +113,10 @@ describe("Admin Shell — _headers deploy artifact", () => {
     expect(headers).toContain("Cross-Origin-Resource-Policy: same-origin");
   });
 
+  it("includes Cross-Origin-Embedder-Policy require-corp (same-origin assets only)", () => {
+    expect(headers).toContain("Cross-Origin-Embedder-Policy: require-corp");
+  });
+
   it("default cache is no-store", () => {
     expect(headers).toContain("no-store");
   });
@@ -173,5 +177,40 @@ describe("Admin Shell — boot safety (main.tsx)", () => {
 
   it("checks for #root element existence", () => {
     expect(main).toContain('getElementById("root")');
+  });
+});
+
+// ── COEP same-origin asset compliance ──
+
+describe("Admin Shell — COEP same-origin asset compliance", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "../../index.html"), "utf-8");
+
+  it("script src is same-origin", () => {
+    const scripts = html.match(/<script[^>]+src=["']([^"']+)["']/g) || [];
+    for (const tag of scripts) {
+      const src = tag.match(/src=["']([^"']+)["']/)?.[1] ?? "";
+      expect(src).not.toMatch(/^https?:\/\//);
+    }
+  });
+
+  it("link href is same-origin (no cross-origin stylesheets or icons)", () => {
+    const links = html.match(/<link[^>]+href=["']([^"']+)["']/g) || [];
+    for (const tag of links) {
+      const href = tag.match(/href=["']([^"']+)["']/)?.[1] ?? "";
+      expect(href).not.toMatch(/^https?:\/\//);
+    }
+  });
+
+  it("no cross-origin img tags in shell HTML", () => {
+    const imgs = html.match(/<img[^>]+src=["']([^"']+)["']/g) || [];
+    for (const tag of imgs) {
+      const src = tag.match(/src=["']([^"']+)["']/)?.[1] ?? "";
+      expect(src).not.toMatch(/^https?:\/\//);
+    }
+  });
+
+  it("_headers enforces COEP require-corp", () => {
+    const headers = fs.readFileSync(path.resolve(__dirname, "../../public/_headers"), "utf-8");
+    expect(headers).toContain("Cross-Origin-Embedder-Policy: require-corp");
   });
 });
