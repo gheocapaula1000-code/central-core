@@ -8,6 +8,7 @@ import {
   fail,
   makeDebugId,
   requireSecret,
+  enforceOriginPolicy,
 } from "../_shared/http.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
