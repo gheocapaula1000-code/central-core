@@ -30,7 +30,7 @@ Each function exposes `GET /manifest` — a public, non-sensitive self-descripti
 ```json
 {
   "contract": "central-core-v3",
-  "version": "3.3.5",
+  "version": "3.4.2",
   "function": "ai-core-run",
   "serviceKind": "ai-router",
   "expectedBasePath": "/functions/v1/ai-core-run",
