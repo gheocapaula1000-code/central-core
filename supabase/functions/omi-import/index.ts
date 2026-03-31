@@ -84,6 +84,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return handleOptions(req);
   const debugId = makeDebugId();
 
+  // Origin policy — consistent with all other functions
+  const originErr = enforceOriginPolicy(req, debugId);
+  if (originErr) return originErr;
+
   const authErr = requireSecret(req, debugId);
   if (authErr) return authErr;
 
