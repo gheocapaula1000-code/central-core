@@ -2,9 +2,9 @@
 
 > Canonical reference of all PWA→Core dependencies.
 > Breaking any path, envelope, or shape listed here is a potential outage.
-> Last updated: 2026-03-21
+> Last updated: 2026-03-31
 >
-> See also: [API Versioning](./api-versioning.md) | [Client Integration Guide](./client-integration-guide.md) | [Proxy Contract](./proxy-contract.md) | [Operational Checklist](./operational-checklist.md) | [Client Compatibility Matrix](./client-compatibility-matrix.md) | [Secrets & Rotation](./secrets-and-rotation.md) | [Incident Response](./incident-response.md) | [Changelog](./changelog.md) | [Release Pipeline](./release-pipeline.md) | [OpenAPI Summary](./openapi-summary.yaml)
+> See also: [API Versioning](./api-versioning.md) | [Client Integration Guide](./client-integration-guide.md) | [Proxy Contract](./proxy-contract.md) | [Operational Checklist](./operational-checklist.md) | [Client Compatibility Matrix](./client-compatibility-matrix.md) | [Secrets & Rotation](./secrets-and-rotation.md) | [Incident Response](./incident-response.md) | [Changelog](./changelog.md) | [Release Pipeline](./release-pipeline.md) | [OpenAPI Summary](./openapi-summary.yaml) | [Edge Function Auth Matrix](./edge-function-auth-matrix.md)
 
 ---
 
@@ -14,7 +14,7 @@ Every response from Central Core V3 functions includes these non-sensitive heade
 
 | Header | Value | Purpose |
 |--------|-------|---------|
-| `X-Core-Version` | `3.3.5` | Core version that generated the response |
+| `X-Core-Version` | `3.4.2` | Core version that generated the response |
 | `X-Core-Function` | `ai-core-run` / `sottra` / `health` | Which edge function responded |
 | `X-Core-Route` | `health` / `manifest` / `scan/pricing` / etc. | Canonical route that handled the request |
 | `X-Core-Contract` | `central-core-v3` | Contract identifier |
@@ -30,7 +30,7 @@ Each function exposes `GET /manifest` — a public, non-sensitive self-descripti
 ```json
 {
   "contract": "central-core-v3",
-  "version": "3.3.5",
+  "version": "3.4.2",
   "function": "ai-core-run",
   "serviceKind": "ai-router",
   "expectedBasePath": "/functions/v1/ai-core-run",

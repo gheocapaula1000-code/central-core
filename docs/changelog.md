@@ -5,6 +5,27 @@
 
 ---
 
+## [3.4.2] — 2026-03-31
+
+### Hardened
+- **omi-import**: added missing `enforceOriginPolicy` (was the only function without origin check)
+- **Release acceptance checklist**: rewritten with BLOCKER/CRITICAL/IMPORTANT/IMPROVEMENT severity levels and explicit PASS/FAIL verdict
+- **verify-package.sh**: now checks for junk files (*.dump, *.bak, *.tmp, etc.) and requires `edge-function-auth-matrix.md`
+- **Edge function auth matrix**: new `docs/edge-function-auth-matrix.md` documenting security posture, required secrets, and allowed callers for all 10 functions
+
+### Documentation
+- Updated `docs/contract-registry.md` version refs from 3.3.5 to 3.4.2, added auth matrix cross-reference
+- Updated `CORE_VERSION` in `_shared/http.ts` to 3.4.2
+
+### Tests
+- Added `src/test/hardening-release-grade.test.ts`: origin policy consistency across all functions, constant-time comparison verification, envelope contract stability, artifact hygiene, config.toml consistency, version alignment, secret safety
+
+### No Breaking Changes
+- All existing contracts, envelopes, paths, and error codes unchanged
+- `omi-import` origin policy is additive security (operator calls already pass origin check)
+
+---
+
 ## [3.4.1] — 2026-03-26
 
 ### Hardened

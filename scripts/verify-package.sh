@@ -70,6 +70,18 @@ else
   echo "  ✓ No dev-only artifacts"
 fi
 
+# 5b. No dump/cache/temp files in tracked repo
+echo ""
+echo "▸ Checking for dump/cache/temp files..."
+JUNK_FILES=$(find . -maxdepth 3 \( -name '*.dump' -o -name '*.bak' -o -name '*.tmp' -o -name '*.log' -o -name '*.cache' -o -name '.DS_Store' -o -name 'Thumbs.db' -o -name '*.swp' -o -name '*.swo' \) -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/dist/*' 2>/dev/null || true)
+if [ -n "$JUNK_FILES" ]; then
+  echo "  ✗ FAIL: Junk files found:"
+  echo "$JUNK_FILES" | sed 's/^/    /'
+  EXIT_CODE=1
+else
+  echo "  ✓ No junk files"
+fi
+
 # 6. Build output exists (if post-build)
 echo ""
 echo "▸ Checking build output..."
@@ -100,7 +112,7 @@ fi
 # 8. Operational docs presence
 echo ""
 echo "▸ Checking operational docs..."
-REQUIRED_DOCS=("docs/changelog.md" "docs/release-acceptance-checklist.md" "docs/release-pipeline.md" "docs/contract-registry.md" "docs/operational-checklist.md")
+REQUIRED_DOCS=("docs/changelog.md" "docs/release-acceptance-checklist.md" "docs/release-pipeline.md" "docs/contract-registry.md" "docs/operational-checklist.md" "docs/edge-function-auth-matrix.md")
 MISSING_DOCS=""
 for doc in "${REQUIRED_DOCS[@]}"; do
   if [ ! -f "$doc" ]; then
