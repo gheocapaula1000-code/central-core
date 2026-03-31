@@ -112,7 +112,7 @@ fi
 # 8. Operational docs presence
 echo ""
 echo "▸ Checking operational docs..."
-REQUIRED_DOCS=("docs/changelog.md" "docs/release-acceptance-checklist.md" "docs/release-pipeline.md" "docs/contract-registry.md" "docs/operational-checklist.md")
+REQUIRED_DOCS=("docs/changelog.md" "docs/release-acceptance-checklist.md" "docs/release-pipeline.md" "docs/contract-registry.md" "docs/operational-checklist.md" "docs/edge-function-auth-matrix.md")
 MISSING_DOCS=""
 for doc in "${REQUIRED_DOCS[@]}"; do
   if [ ! -f "$doc" ]; then
