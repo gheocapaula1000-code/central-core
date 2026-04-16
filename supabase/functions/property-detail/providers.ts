@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 // Property Detail — Providers (Phase 1)
-// Identity: real resolution via DB (geo + OMI)
+// Identity: real resolution via DB (OMI zone) + Nominatim
 // Valuation/Territory/Signals: honest unavailable stubs
 // ═══════════════════════════════════════════════════════════════
 
@@ -23,18 +23,16 @@ function getSupabase() {
   return createClient(url, key);
 }
 
+// ── Confidence Mapping ────────────────────────────────────────
+
+function confidenceLabel(level: string): string {
+  if (level === "house_number") return "alta";
+  if (level === "street") return "media";
+  return "bassa";
+}
+
 // ── Identity Provider (REAL) ──────────────────────────────────
 
-/**
- * Resolve identity for Veneto coordinates.
- * Uses real DB data:
- *   1. omi_zone_by_point RPC for spatial zone match
- *   2. Nominatim reverse geocode for address components
- *   3. Builds stable buildingId from resolved address
- *
- * Returns unavailable if no zone match in Veneto.
- * Returns failed on unexpected errors.
- */
 export async function resolveIdentity(
   lat: number,
   lng: number,
@@ -46,7 +44,7 @@ export async function resolveIdentity(
   try {
     const supabase = getSupabase();
 
-    // Step 1: Spatial zone lookup — confirms the point is in a known OMI zone (Veneto)
+    // Step 1: Spatial zone lookup — confirms point is in a known OMI zone (Veneto)
     const { data: zones, error: rpcErr } = await supabase
       .rpc("omi_zone_by_point", { p_lat: lat, p_lng: lng });
 
@@ -68,7 +66,6 @@ export async function resolveIdentity(
     let street: string | null = null;
     let houseNumber: string | null = null;
     let postalCode: string | null = null;
-    let formattedAddress = `${comune}, ${provincia}, Veneto`;
     let geoMatchLevel = "city";
 
     try {
@@ -88,14 +85,6 @@ export async function resolveIdentity(
           postalCode = a.postcode ?? null;
           const rank = geo.address_rank ?? 0;
           geoMatchLevel = rank >= 30 && houseNumber ? "house_number" : rank >= 26 ? "street" : "city";
-
-          const parts = [
-            street ? (houseNumber ? `${street} ${houseNumber}` : street) : null,
-            postalCode,
-            comune,
-            provincia,
-          ].filter(Boolean);
-          formattedAddress = parts.join(", ");
         }
       }
     } catch (e) {
@@ -103,37 +92,33 @@ export async function resolveIdentity(
       // Non-fatal — we already have comune/provincia from OMI zone
     }
 
-    // Step 3: Build deterministic buildingId
-    const encoder = new TextEncoder();
-    const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(formattedAddress));
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const buildingId = "VE-" + hashArray.slice(0, 4).map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase();
-
-    const confidence = geoMatchLevel === "house_number" ? 0.92 : geoMatchLevel === "street" ? 0.75 : 0.55;
-
     const provenance: BlockProvenance = {
       source: "omi_zone_geometry+nominatim",
-      confidence,
-      updatedAt: new Date().toISOString(),
+      confidence: confidenceLabel(geoMatchLevel),
+      updatedAt: new Date().toISOString().slice(0, 10), // date only
     };
 
     const durationMs = Date.now() - startMs;
-    console.log(`[property-detail:identity] resolved comune=${comune} match=${geoMatchLevel} confidence=${confidence} duration_ms=${durationMs} debug_id=${debugId}`);
+    console.log(`[property-detail:identity] resolved comune=${comune} match=${geoMatchLevel} confidence=${provenance.confidence} duration_ms=${durationMs} debug_id=${debugId}`);
 
+    // Map to frontend contract shape — only real resolved data, no fabrication
     return {
       outcome: "resolved",
       data: {
-        address: formattedAddress,
+        indirizzo: street,
+        civico: houseNumber,
         comune,
         provincia,
-        region: "Veneto",
-        street,
-        houseNumber,
-        postalCode,
-        lat,
-        lng,
-        geoMatchLevel,
-        buildingId,
+        cap: postalCode,
+        coordinate: { lat, lng },
+        // These fields are not available from geocoding — honest nulls
+        tipologia: null,
+        stato: null,
+        superficieMq: null,
+        locali: null,
+        piano: null,
+        annoCostruzione: null,
+        classeEnergetica: null,
         provenance,
       },
       provenance,

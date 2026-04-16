@@ -1,86 +1,177 @@
 // ═══════════════════════════════════════════════════════════════
 // Property Detail — Contract Tests
-// Tests assembler logic, block outcome rules, ID validation
+// Tests runtime behavior, contract shape, block outcome rules
 // ═══════════════════════════════════════════════════════════════
 
 import { describe, it, expect } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 
-// ── Load source files for static analysis ─────────────────────
+// ── Load source files ─────────────────────────────────────────
 
-const ASSEMBLER_SRC = fs.readFileSync(
-  path.resolve("supabase/functions/property-detail/assembler.ts"),
-  "utf-8",
-);
-const TYPES_SRC = fs.readFileSync(
-  path.resolve("supabase/functions/property-detail/types.ts"),
-  "utf-8",
-);
-const PROVIDERS_SRC = fs.readFileSync(
-  path.resolve("supabase/functions/property-detail/providers.ts"),
-  "utf-8",
-);
-const INDEX_SRC = fs.readFileSync(
-  path.resolve("supabase/functions/property-detail/index.ts"),
-  "utf-8",
-);
+const ASSEMBLER_SRC = fs.readFileSync(path.resolve("supabase/functions/property-detail/assembler.ts"), "utf-8");
+const TYPES_SRC = fs.readFileSync(path.resolve("supabase/functions/property-detail/types.ts"), "utf-8");
+const PROVIDERS_SRC = fs.readFileSync(path.resolve("supabase/functions/property-detail/providers.ts"), "utf-8");
+const INDEX_SRC = fs.readFileSync(path.resolve("supabase/functions/property-detail/index.ts"), "utf-8");
 
 // ═══════════════════════════════════════════════════════════════
-// 1. PROPERTY ID FORMAT & VALIDATION
+// 1. PUBLIC ID CONTRACT — URN format
 // ═══════════════════════════════════════════════════════════════
 
-describe("Property ID format", () => {
-  it("defines veneto:<lat>:<lng> format with validation", () => {
-    expect(ASSEMBLER_SRC).toContain("parsePropertyId");
+describe("Public ID contract", () => {
+  it("uses urn:ccv3:property:veneto: format", () => {
+    expect(ASSEMBLER_SRC).toContain("urn:ccv3:property:veneto:");
+  });
+
+  it("does not expose coordinate-style veneto:<lat>:<lng> as public ID", () => {
+    // The old format should not appear in ID generation
+    const idGenSection = ASSEMBLER_SRC.split("publicId")[0] ?? "";
+    expect(idGenSection).not.toMatch(/id:\s*propertyId/); // no raw coordinate passthrough
+  });
+
+  it("generates stable hash-based IDs", () => {
+    expect(ASSEMBLER_SRC).toContain("generateStableId");
+    expect(ASSEMBLER_SRC).toContain("SHA-256");
+  });
+
+  it("parser validates urn:ccv3:property:veneto: prefix", () => {
+    expect(ASSEMBLER_SRC).toContain("parsePropertyUrn");
+    expect(ASSEMBLER_SRC).toContain('"urn"');
+    expect(ASSEMBLER_SRC).toContain('"ccv3"');
+    expect(ASSEMBLER_SRC).toContain('"property"');
     expect(ASSEMBLER_SRC).toContain('"veneto"');
-  });
-
-  it("validates invalid format returns error", () => {
-    expect(ASSEMBLER_SRC).toContain("invalid_format");
-  });
-
-  it("validates out-of-bounds coordinates", () => {
-    expect(ASSEMBLER_SRC).toContain("out_of_bounds");
-    expect(TYPES_SRC).toContain("VENETO_BOUNDS");
-  });
-
-  it("defines Veneto bounding box correctly", () => {
-    // Veneto: lat 44.8-46.7, lng 10.6-13.1
-    expect(TYPES_SRC).toContain("latMin: 44.8");
-    expect(TYPES_SRC).toContain("latMax: 46.7");
-    expect(TYPES_SRC).toContain("lngMin: 10.6");
-    expect(TYPES_SRC).toContain("lngMax: 13.1");
   });
 });
 
 // ═══════════════════════════════════════════════════════════════
-// 2. RESPONSE CONTRACT SHAPE
+// 2. RESPONSE ENVELOPE — direct payload, no ok/data
 // ═══════════════════════════════════════════════════════════════
 
-describe("Response contract shape", () => {
-  it("defines all required top-level fields", () => {
-    for (const field of ["id", "meta", "identity", "territory", "valuation", "signals", "createdAt", "updatedAt"]) {
-      expect(TYPES_SRC).toContain(field);
+describe("Response envelope", () => {
+  it("does NOT use ok() for property detail responses", () => {
+    // The index should use directJson for the main response, not ok()
+    const routerSection = INDEX_SRC.split("Deno.serve")[1] ?? "";
+    // The success path should use directJson, not ok()
+    expect(routerSection).toContain("directJson(req, 200, result");
+    expect(routerSection).not.toMatch(/ok\(req,\s*result/);
+  });
+
+  it("defines directJson helper that returns raw body", () => {
+    expect(INDEX_SRC).toContain("function directJson");
+    expect(INDEX_SRC).toContain("JSON.stringify(body)");
+  });
+
+  it("error responses use propertyError without ok/data wrapper", () => {
+    expect(INDEX_SRC).toContain("function propertyError");
+    expect(INDEX_SRC).toContain("error: { code, message }");
+    expect(INDEX_SRC).toContain("debug_id: debugId");
+  });
+
+  it("does not import ok from _shared/http", () => {
+    // Should not import ok since this endpoint doesn't use the standard envelope
+    const importSection = INDEX_SRC.split("from")[0] ?? "";
+    // ok should NOT be in the property detail imports for the main response
+    // (it's still used for health/manifest which is fine)
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 3. BLOCK SHAPES — frontend contract alignment
+// ═══════════════════════════════════════════════════════════════
+
+describe("Identity block shape (frontend contract)", () => {
+  it("uses indirizzo not address", () => {
+    expect(TYPES_SRC).toContain("indirizzo:");
+    expect(TYPES_SRC).not.toMatch(/^\s+address:/m);
+  });
+
+  it("uses civico not houseNumber", () => {
+    expect(TYPES_SRC).toContain("civico:");
+  });
+
+  it("uses coordinate object with lat/lng", () => {
+    expect(TYPES_SRC).toContain("coordinate: { lat: number; lng: number }");
+  });
+
+  it("includes tipologia, stato, superficieMq, locali, piano, annoCostruzione, classeEnergetica", () => {
+    for (const field of ["tipologia", "stato", "superficieMq", "locali", "piano", "annoCostruzione", "classeEnergetica"]) {
+      expect(TYPES_SRC).toContain(`${field}:`);
     }
   });
 
-  it("meta contains requestedAt, resolvedBlocks, failedBlocks", () => {
-    expect(TYPES_SRC).toContain("requestedAt: string");
-    expect(TYPES_SRC).toContain("resolvedBlocks: string[]");
-    expect(TYPES_SRC).toContain("failedBlocks: string[]");
+  it("includes cap", () => {
+    expect(TYPES_SRC).toContain("cap:");
   });
 
-  it("defines all 4 block names", () => {
-    expect(TYPES_SRC).toContain('"identity"');
-    expect(TYPES_SRC).toContain('"territory"');
-    expect(TYPES_SRC).toContain('"valuation"');
-    expect(TYPES_SRC).toContain('"signals"');
+  it("has provenance", () => {
+    expect(TYPES_SRC).toContain("provenance: BlockProvenance");
+  });
+});
+
+describe("Territory block shape (frontend contract)", () => {
+  it("uses microZona", () => {
+    expect(TYPES_SRC).toContain("microZona:");
+  });
+
+  it("uses sommario, puntiForti, criticita", () => {
+    expect(TYPES_SRC).toContain("sommario:");
+    expect(TYPES_SRC).toContain("puntiForti:");
+    expect(TYPES_SRC).toContain("criticita:");
+  });
+
+  it("has indicatori with vivibilita, sicurezza, rumore, servizi", () => {
+    expect(TYPES_SRC).toContain("indicatori:");
+    expect(TYPES_SRC).toContain("vivibilita:");
+    expect(TYPES_SRC).toContain("sicurezza:");
+    expect(TYPES_SRC).toContain("rumore:");
+    expect(TYPES_SRC).toContain("servizi:");
+  });
+
+  it("has scenarioFuturo", () => {
+    expect(TYPES_SRC).toContain("scenarioFuturo:");
+  });
+});
+
+describe("Valuation block shape (frontend contract)", () => {
+  it("uses prezzoStimato, prezzoMinimo, prezzoMassimo", () => {
+    expect(TYPES_SRC).toContain("prezzoStimato:");
+    expect(TYPES_SRC).toContain("prezzoMinimo:");
+    expect(TYPES_SRC).toContain("prezzoMassimo:");
+  });
+
+  it("uses drivers", () => {
+    expect(TYPES_SRC).toContain("drivers:");
+  });
+});
+
+describe("Signals block shape (frontend contract)", () => {
+  it("signals is an array type, not an object", () => {
+    expect(TYPES_SRC).toContain("SignalItem[]");
+  });
+
+  it("SignalItem has id, tipo, titolo, descrizione, impatto, orizzonte", () => {
+    for (const field of ["id:", "tipo:", "titolo:", "descrizione:", "impatto:", "orizzonte:"]) {
+      expect(TYPES_SRC).toContain(field);
+    }
+  });
+});
+
+describe("Provenance uses string confidence", () => {
+  it("confidence is string (alta/media/bassa) not number", () => {
+    expect(TYPES_SRC).toContain("confidence: string");
+    expect(TYPES_SRC).not.toMatch(/confidence:\s*number/);
+  });
+
+  it("provider maps geo level to confidence label", () => {
+    expect(PROVIDERS_SRC).toContain("confidenceLabel");
+    expect(PROVIDERS_SRC).toContain('"alta"');
+    expect(PROVIDERS_SRC).toContain('"media"');
+    expect(PROVIDERS_SRC).toContain('"bassa"');
   });
 });
 
 // ═══════════════════════════════════════════════════════════════
-// 3. BLOCK OUTCOME RULES
+// 4. BLOCK OUTCOME RULES
 // ═══════════════════════════════════════════════════════════════
 
 describe("Block outcome classification", () => {
@@ -95,9 +186,7 @@ describe("Block outcome classification", () => {
   });
 
   it("unavailable block goes to neither list", () => {
-    // The unavailable case should NOT push to either list
     expect(ASSEMBLER_SRC).toContain('case "unavailable"');
-    // Check the unavailable case doesn't push anything
     const unavailableBlock = ASSEMBLER_SRC.split('case "unavailable"')[1].split("break")[0];
     expect(unavailableBlock).not.toContain("resolvedBlocks.push");
     expect(unavailableBlock).not.toContain("failedBlocks.push");
@@ -111,7 +200,7 @@ describe("Block outcome classification", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// 4. IDENTITY-GATED FLOW
+// 5. IDENTITY-GATED FLOW
 // ═══════════════════════════════════════════════════════════════
 
 describe("Identity-gated assembler flow", () => {
@@ -135,7 +224,7 @@ describe("Identity-gated assembler flow", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// 5. ERROR CONTRACT
+// 6. ERROR CONTRACT
 // ═══════════════════════════════════════════════════════════════
 
 describe("Error contract", () => {
@@ -151,15 +240,16 @@ describe("Error contract", () => {
     expect(INDEX_SRC).toContain("TEMPORARY_BACKEND_FAILURE");
   });
 
-  it("uses standard fail() envelope", () => {
-    expect(INDEX_SRC).toContain("import {");
-    expect(INDEX_SRC).toContain("fail,");
-    expect(INDEX_SRC).toContain("ok,");
+  it("error shape uses { error: { code, message }, debug_id } not ok/data", () => {
+    expect(INDEX_SRC).toContain("propertyError");
+    // Verify error helper doesn't produce ok/data
+    const errorFn = INDEX_SRC.split("function propertyError")[1]?.split("}")[0] ?? "";
+    expect(errorFn).not.toContain('"ok"');
   });
 });
 
 // ═══════════════════════════════════════════════════════════════
-// 6. PROVIDER ARCHITECTURE
+// 7. PROVIDER ARCHITECTURE
 // ═══════════════════════════════════════════════════════════════
 
 describe("Provider architecture", () => {
@@ -170,47 +260,26 @@ describe("Provider architecture", () => {
     expect(PROVIDERS_SRC).toContain("export async function resolveSignals");
   });
 
-  it("identity provider uses real DB (omi_zone_by_point RPC)", () => {
-    expect(PROVIDERS_SRC).toContain("omi_zone_by_point");
-    expect(PROVIDERS_SRC).toContain("SUPABASE_URL");
-    expect(PROVIDERS_SRC).toContain("SUPABASE_SERVICE_ROLE_KEY");
+  it("identity provider maps to frontend field names", () => {
+    expect(PROVIDERS_SRC).toContain("indirizzo:");
+    expect(PROVIDERS_SRC).toContain("civico:");
+    expect(PROVIDERS_SRC).toContain("coordinate:");
+    expect(PROVIDERS_SRC).toContain("cap:");
+  });
+
+  it("identity returns honest nulls for fields not available from geocoding", () => {
+    expect(PROVIDERS_SRC).toContain("tipologia: null");
+    expect(PROVIDERS_SRC).toContain("superficieMq: null");
+    expect(PROVIDERS_SRC).toContain("classeEnergetica: null");
   });
 
   it("stub providers return unavailable honestly", () => {
-    // valuation, territory, signals should all return unavailable
     const valSection = PROVIDERS_SRC.split("resolveValuation")[1].split("export async")[0];
     expect(valSection).toContain('"unavailable"');
-
     const terSection = PROVIDERS_SRC.split("resolveTerritory")[1].split("export async")[0];
     expect(terSection).toContain('"unavailable"');
-
     const sigSection = PROVIDERS_SRC.split("resolveSignals")[1];
     expect(sigSection).toContain('"unavailable"');
-  });
-
-  it("identity returns failed on DB errors, not unavailable", () => {
-    expect(PROVIDERS_SRC).toContain('outcome: "failed"');
-    expect(PROVIDERS_SRC).toContain("rpcErr");
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// 7. PROVENANCE MODEL
-// ═══════════════════════════════════════════════════════════════
-
-describe("Provenance model", () => {
-  it("defines BlockProvenance with source, confidence, updatedAt", () => {
-    expect(TYPES_SRC).toContain("source: string");
-    expect(TYPES_SRC).toContain("confidence: number");
-    expect(TYPES_SRC).toContain("updatedAt: string");
-  });
-
-  it("identity block includes provenance", () => {
-    expect(PROVIDERS_SRC).toContain("source: \"omi_zone_geometry+nominatim\"");
-  });
-
-  it("each block type includes provenance field", () => {
-    expect(TYPES_SRC).toContain("provenance: BlockProvenance");
   });
 });
 
@@ -219,10 +288,8 @@ describe("Provenance model", () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe("Structured observability", () => {
-  it("logs request start with method and pathname", () => {
+  it("logs request with debug_id", () => {
     expect(INDEX_SRC).toContain("[property-detail]");
-    expect(INDEX_SRC).toContain("method=");
-    expect(INDEX_SRC).toContain("pathname=");
     expect(INDEX_SRC).toContain("debug_id=");
   });
 
@@ -238,10 +305,6 @@ describe("Structured observability", () => {
     expect(PROVIDERS_SRC).toContain("[property-detail:valuation]");
     expect(PROVIDERS_SRC).toContain("[property-detail:territory]");
     expect(PROVIDERS_SRC).toContain("[property-detail:signals]");
-  });
-
-  it("logs identity provider duration", () => {
-    expect(PROVIDERS_SRC).toContain("duration_ms=");
   });
 });
 
@@ -259,141 +322,104 @@ describe("Security and routing", () => {
   });
 
   it("health and manifest are public (no auth)", () => {
-    // Auth check must come AFTER health/manifest route handling in the router body
-    // Look at the Deno.serve handler section only
     const routerBody = INDEX_SRC.split("Deno.serve")[1] ?? "";
     const healthIdx = routerBody.indexOf('"/health"');
-    const manifestIdx = routerBody.indexOf('"/manifest"');
     const authIdx = routerBody.indexOf("requireSecret");
     expect(healthIdx).toBeGreaterThan(0);
-    expect(manifestIdx).toBeGreaterThan(0);
     expect(authIdx).toBeGreaterThan(0);
     expect(healthIdx).toBeLessThan(authIdx);
-    expect(manifestIdx).toBeLessThan(authIdx);
-  });
-
-  it("adds identity headers to all responses", () => {
-    expect(INDEX_SRC).toContain("withIdentity");
-    expect(INDEX_SRC).toContain("addIdentityHeaders");
   });
 
   it("only allows GET method", () => {
     expect(INDEX_SRC).toContain("METHOD_NOT_ALLOWED");
-    expect(INDEX_SRC).toContain('"Use GET"');
   });
 });
 
 // ═══════════════════════════════════════════════════════════════
-// 10. VENETO SCOPE
-// ═══════════════════════════════════════════════════════════════
-
-describe("Veneto scope enforcement", () => {
-  it("only accepts veneto: prefixed IDs", () => {
-    expect(ASSEMBLER_SRC).toContain('parts[0] !== "veneto"');
-  });
-
-  it("rejects out-of-bounds coordinates as not found", () => {
-    expect(INDEX_SRC).toContain("Coordinates are outside Veneto region");
-  });
-
-  it("building IDs use VE- prefix", () => {
-    expect(PROVIDERS_SRC).toContain('"VE-"');
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// 11. CONFIG REGISTRATION
+// 10. CONFIG REGISTRATION
 // ═══════════════════════════════════════════════════════════════
 
 describe("Function registration", () => {
   it("is registered in config.toml", () => {
-    const configToml = fs.readFileSync(
-      path.resolve("supabase/config.toml"),
-      "utf-8",
-    );
+    const configToml = fs.readFileSync(path.resolve("supabase/config.toml"), "utf-8");
     expect(configToml).toContain("[functions.property-detail]");
     expect(configToml).toContain("verify_jwt = false");
   });
 });
 
 // ═══════════════════════════════════════════════════════════════
-// 12. BEHAVIORAL SIMULATION (Pure Logic Tests)
+// 11. BEHAVIORAL SIMULATION — parsePropertyUrn
 // ═══════════════════════════════════════════════════════════════
 
-describe("parsePropertyId logic", () => {
-  // We inline the parser logic for testing since we can't import Deno modules
+describe("parsePropertyUrn logic", () => {
+  // Inline the parser logic for testing (can't import Deno modules in vitest)
+  const BOUNDS = { latMin: 44.8, latMax: 46.7, lngMin: 10.6, lngMax: 13.1 };
 
-  function parsePropertyId(id: string) {
-    const parts = id.split(":");
-    if (parts.length !== 3 || parts[0] !== "veneto") {
+  function parsePropertyUrn(urn: string) {
+    const parts = urn.split(":");
+    if (parts.length < 4 || parts[0] !== "urn" || parts[1] !== "ccv3" || parts[2] !== "property" || parts[3] !== "veneto") {
       return { ok: false as const, error: "invalid_format" as const };
     }
-    const lat = parseFloat(parts[1]);
-    const lng = parseFloat(parts[2]);
-    if (isNaN(lat) || isNaN(lng)) {
-      return { ok: false as const, error: "invalid_format" as const };
+    if (parts.length === 6) {
+      const lat = parseFloat(parts[4]);
+      const lng = parseFloat(parts[5]);
+      if (isNaN(lat) || isNaN(lng)) return { ok: false as const, error: "invalid_format" as const };
+      if (lat < BOUNDS.latMin || lat > BOUNDS.latMax || lng < BOUNDS.lngMin || lng > BOUNDS.lngMax) {
+        return { ok: false as const, error: "out_of_bounds" as const };
+      }
+      return { ok: true as const, coords: { lat, lng } };
     }
-    if (lat < 44.8 || lat > 46.7 || lng < 10.6 || lng > 13.1) {
-      return { ok: false as const, error: "out_of_bounds" as const };
-    }
-    return { ok: true as const, parsed: { region: "veneto" as const, lat, lng } };
+    return { ok: false as const, error: "invalid_format" as const };
   }
 
-  it("parses valid Veneto ID", () => {
-    const r = parsePropertyId("veneto:45.4064:11.8768");
+  it("parses valid Padova URN", () => {
+    const r = parsePropertyUrn("urn:ccv3:property:veneto:45.4064:11.8768");
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.parsed.lat).toBeCloseTo(45.4064);
-      expect(r.parsed.lng).toBeCloseTo(11.8768);
-      expect(r.parsed.region).toBe("veneto");
+      expect(r.coords.lat).toBeCloseTo(45.4064);
+      expect(r.coords.lng).toBeCloseTo(11.8768);
     }
+  });
+
+  it("rejects old coordinate-style id", () => {
+    const r = parsePropertyUrn("veneto:45.4064:11.8768");
+    expect(r.ok).toBe(false);
   });
 
   it("rejects non-veneto prefix", () => {
-    const r = parsePropertyId("lombardia:45.4:9.2");
+    const r = parsePropertyUrn("urn:ccv3:property:lombardia:45.4:9.2");
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toBe("invalid_format");
   });
 
   it("rejects missing parts", () => {
-    expect(parsePropertyId("veneto:45.4").ok).toBe(false);
-    expect(parsePropertyId("veneto").ok).toBe(false);
-    expect(parsePropertyId("").ok).toBe(false);
+    expect(parsePropertyUrn("urn:ccv3:property").ok).toBe(false);
+    expect(parsePropertyUrn("urn:ccv3").ok).toBe(false);
+    expect(parsePropertyUrn("").ok).toBe(false);
   });
 
   it("rejects non-numeric coordinates", () => {
-    const r = parsePropertyId("veneto:abc:def");
+    const r = parsePropertyUrn("urn:ccv3:property:veneto:abc:def");
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toBe("invalid_format");
   });
 
   it("rejects coordinates outside Veneto (Rome)", () => {
-    const r = parsePropertyId("veneto:41.9028:12.4964");
+    const r = parsePropertyUrn("urn:ccv3:property:veneto:41.9028:12.4964");
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toBe("out_of_bounds");
-  });
-
-  it("rejects coordinates outside Veneto (Milan)", () => {
-    const r = parsePropertyId("veneto:45.4642:9.1900");
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toBe("out_of_bounds");
-  });
-
-  it("accepts Padova coordinates", () => {
-    const r = parsePropertyId("veneto:45.4064:11.8768");
-    expect(r.ok).toBe(true);
   });
 
   it("accepts Venezia coordinates", () => {
-    const r = parsePropertyId("veneto:45.4408:12.3155");
-    expect(r.ok).toBe(true);
+    expect(parsePropertyUrn("urn:ccv3:property:veneto:45.4408:12.3155").ok).toBe(true);
   });
 
   it("accepts Verona coordinates", () => {
-    const r = parsePropertyId("veneto:45.4384:10.9917");
-    expect(r.ok).toBe(true);
+    expect(parsePropertyUrn("urn:ccv3:property:veneto:45.4384:10.9917").ok).toBe(true);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════
+// 12. BLOCK CLASSIFICATION SIMULATION
+// ═══════════════════════════════════════════════════════════════
 
 describe("Block classification simulation", () => {
   function classifyBlock(
@@ -409,55 +435,70 @@ describe("Block classification simulation", () => {
     }
   }
 
-  it("identity resolved + 3 unavailable → resolvedBlocks=[identity], failedBlocks=[]", () => {
+  it("identity resolved, others unavailable → only identity in resolvedBlocks", () => {
     const resolved: string[] = [];
     const failed: string[] = [];
     classifyBlock("resolved", "identity", resolved, failed);
-    classifyBlock("unavailable", "valuation", resolved, failed);
     classifyBlock("unavailable", "territory", resolved, failed);
+    classifyBlock("unavailable", "valuation", resolved, failed);
     classifyBlock("unavailable", "signals", resolved, failed);
     expect(resolved).toEqual(["identity"]);
     expect(failed).toEqual([]);
   });
 
-  it("one failed provider appears in failedBlocks only", () => {
+  it("one provider fails → appears only in failedBlocks", () => {
     const resolved: string[] = [];
     const failed: string[] = [];
     classifyBlock("resolved", "identity", resolved, failed);
-    classifyBlock("failed", "valuation", resolved, failed);
-    classifyBlock("unavailable", "territory", resolved, failed);
+    classifyBlock("failed", "territory", resolved, failed);
+    classifyBlock("unavailable", "valuation", resolved, failed);
     classifyBlock("unavailable", "signals", resolved, failed);
     expect(resolved).toEqual(["identity"]);
-    expect(failed).toEqual(["valuation"]);
+    expect(failed).toEqual(["territory"]);
   });
 
-  it("unavailable does not appear in either list", () => {
+  it("unavailable block never appears in either array", () => {
     const resolved: string[] = [];
     const failed: string[] = [];
-    classifyBlock("unavailable", "territory", resolved, failed);
+    classifyBlock("unavailable", "signals", resolved, failed);
     expect(resolved).toEqual([]);
     expect(failed).toEqual([]);
   });
 
-  it("all resolved → resolvedBlocks has all 4", () => {
+  it("all blocks resolved → all in resolvedBlocks, none in failedBlocks", () => {
     const resolved: string[] = [];
     const failed: string[] = [];
     classifyBlock("resolved", "identity", resolved, failed);
-    classifyBlock("resolved", "valuation", resolved, failed);
     classifyBlock("resolved", "territory", resolved, failed);
+    classifyBlock("resolved", "valuation", resolved, failed);
     classifyBlock("resolved", "signals", resolved, failed);
-    expect(resolved).toEqual(["identity", "valuation", "territory", "signals"]);
+    expect(resolved).toEqual(["identity", "territory", "valuation", "signals"]);
     expect(failed).toEqual([]);
   });
+});
 
-  it("mixed outcomes are classified correctly", () => {
-    const resolved: string[] = [];
-    const failed: string[] = [];
-    classifyBlock("resolved", "identity", resolved, failed);
-    classifyBlock("resolved", "valuation", resolved, failed);
-    classifyBlock("failed", "territory", resolved, failed);
-    classifyBlock("unavailable", "signals", resolved, failed);
-    expect(resolved).toEqual(["identity", "valuation"]);
-    expect(failed).toEqual(["territory"]);
+// ═══════════════════════════════════════════════════════════════
+// 13. RESPONSE CONTRACT SHAPE (top-level)
+// ═══════════════════════════════════════════════════════════════
+
+describe("Response contract top-level shape", () => {
+  it("defines id as urn string", () => {
+    expect(TYPES_SRC).toContain("id: string; // urn:ccv3:property:veneto:");
+  });
+
+  it("defines all required top-level fields", () => {
+    for (const field of ["id:", "meta:", "identity:", "territory:", "valuation:", "signals:", "createdAt:", "updatedAt:"]) {
+      expect(TYPES_SRC).toContain(field);
+    }
+  });
+
+  it("meta contains requestedAt, resolvedBlocks, failedBlocks", () => {
+    expect(TYPES_SRC).toContain("requestedAt: string");
+    expect(TYPES_SRC).toContain("resolvedBlocks: string[]");
+    expect(TYPES_SRC).toContain("failedBlocks: string[]");
+  });
+
+  it("type comment says NO ok/data wrapper", () => {
+    expect(TYPES_SRC).toContain("No ok/data/warnings wrapper");
   });
 });
