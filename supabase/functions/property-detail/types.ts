@@ -1,18 +1,17 @@
 // ═══════════════════════════════════════════════════════════════
 // Property Detail — Domain Types (Phase 1)
 // Veneto-scoped property detail assembly
+// Aligned to the agreed frontend Property Detail contract
 // ═══════════════════════════════════════════════════════════════
 
-// ── Property ID ───────────────────────────────────────────────
+// ── Public Property ID ────────────────────────────────────────
 
 /**
- * Property ID format: veneto:<lat>:<lng>
- * Example: veneto:45.4064:11.8768
- * Lat range (Veneto): 44.8 – 46.7
- * Lng range (Veneto): 10.6 – 13.1
+ * Public property ID format: urn:ccv3:property:veneto:<stable-id>
+ * The stable-id is a deterministic hash derived from resolved location data.
+ * Internal coordinate lookup is kept separate from the public ID contract.
  */
-export interface ParsedPropertyId {
-  region: "veneto";
+export interface InternalCoordinates {
   lat: number;
   lng: number;
 }
@@ -21,8 +20,8 @@ export interface ParsedPropertyId {
 
 export interface BlockProvenance {
   source: string;
-  confidence: number;
-  updatedAt: string; // ISO 8601
+  confidence: string; // "alta" | "media" | "bassa" — human-readable
+  updatedAt: string;  // ISO 8601 date or date-time
 }
 
 // ── Provider Outcome ──────────────────────────────────────────
@@ -36,49 +35,60 @@ export interface ProviderResult<T> {
   error?: string; // only when outcome=failed, internal only
 }
 
-// ── Block Shapes ──────────────────────────────────────────────
+// ── Block Shapes (Frontend Contract) ──────────────────────────
 
 export interface IdentityBlock {
-  address: string;
+  indirizzo: string | null;
+  civico: string | null;
   comune: string;
   provincia: string;
-  region: string;
-  street: string | null;
-  houseNumber: string | null;
-  postalCode: string | null;
-  lat: number;
-  lng: number;
-  geoMatchLevel: string;
-  buildingId: string;
-  provenance: BlockProvenance;
-}
-
-export interface ValuationBlock {
-  prezzoMqMin: number | null;
-  prezzoMqMax: number | null;
-  prezzoMedio: number | null;
-  zona: string | null;
-  zonaDescrizione: string | null;
+  cap: string | null;
+  coordinate: { lat: number; lng: number };
   tipologia: string | null;
-  fonte: string | null;
-  matchMethod: string | null;
-  matchConfidence: number | null;
+  stato: string | null;
+  superficieMq: number | null;
+  locali: number | null;
+  piano: string | null;
+  annoCostruzione: number | null;
+  classeEnergetica: string | null;
   provenance: BlockProvenance;
 }
 
 export interface TerritoryBlock {
-  popolazione: number | null;
-  etaMedia: number | null;
-  zonaSismica: number | null;
-  rischioIdrogeologico: string | null;
+  microZona: string | null;
+  sommario: string | null;
+  puntiForti: string[] | null;
+  criticita: string[] | null;
+  indicatori: {
+    vivibilita: string | null;
+    sicurezza: string | null;
+    rumore: string | null;
+    servizi: string | null;
+  } | null;
+  scenarioFuturo: string | null;
   provenance: BlockProvenance;
 }
 
-export interface SignalsBlock {
-  scuoleVicine: number | null;
-  trendDemografico: string | null;
+export interface ValuationBlock {
+  prezzoStimato: number | null;
+  prezzoMinimo: number | null;
+  prezzoMassimo: number | null;
+  drivers: string | null;
   provenance: BlockProvenance;
 }
+
+export interface SignalItem {
+  id: string;
+  tipo: string;
+  titolo: string;
+  descrizione: string;
+  impatto: string;
+  orizzonte: string;
+  provenance: BlockProvenance;
+}
+
+// signals block is an array of SignalItem (or null if unavailable/failed)
+export type SignalsBlock = SignalItem[];
 
 // ── Response Contract ─────────────────────────────────────────
 
@@ -88,8 +98,12 @@ export interface PropertyDetailMeta {
   failedBlocks: string[];
 }
 
+/**
+ * The endpoint returns this shape DIRECTLY as the HTTP response body.
+ * No ok/data/warnings wrapper.
+ */
 export interface PropertyDetailResponse {
-  id: string;
+  id: string; // urn:ccv3:property:veneto:<stable-id>
   meta: PropertyDetailMeta;
   identity: IdentityBlock | null;
   territory: TerritoryBlock | null;
@@ -111,4 +125,4 @@ export const VENETO_BOUNDS = {
 // ── Block Names ───────────────────────────────────────────────
 
 export const BLOCK_NAMES = ["identity", "territory", "valuation", "signals"] as const;
-export type BlockName = typeof BLOCK_NAMES[number];
+export type BlockName = (typeof BLOCK_NAMES)[number];

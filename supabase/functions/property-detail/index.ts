@@ -2,12 +2,13 @@
 // Property Detail — Edge Function (Central Core V3)
 // GET /api/v3/properties/{id}
 // Veneto-scoped, identity-gated, honest partial responses
+// Returns PropertyDetailResponse directly — NO ok/data wrapper
 // ═══════════════════════════════════════════════════════════════
 
 import {
   makeDebugId,
   handleOptions,
-  ok,
+  json,
   fail,
   requireSecret,
   CORE_VERSION,
@@ -17,8 +18,7 @@ import {
   enforceOriginPolicy,
 } from "../_shared/http.ts";
 
-import { parsePropertyId } from "./assembler.ts";
-import { assemblePropertyDetail } from "./assembler.ts";
+import { parsePropertyUrn, assemblePropertyDetail } from "./assembler.ts";
 
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -40,19 +40,41 @@ function withIdentity(res: Response, route: string): Response {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// DIRECT JSON (no ok/data wrapper) — for property detail responses
+// ═══════════════════════════════════════════════════════════════
+function directJson(req: Request, status: number, body: unknown, debugId: string): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Access-Control-Allow-Origin": "*",
+      "x-debug-id": debugId,
+    },
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ERROR RESPONSES (property-detail specific, no ok/data wrapper)
+// ═══════════════════════════════════════════════════════════════
+function propertyError(req: Request, status: number, code: string, message: string, debugId: string): Response {
+  return directJson(req, status, { error: { code, message }, debug_id: debugId }, debugId);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ROUTE HELPERS
 // ═══════════════════════════════════════════════════════════════
 
 function handleHealth(req: Request, debugId: string): Response {
+  // Health uses standard envelope (not property-detail contract)
   return withIdentity(
-    ok(req, {
+    json(req, 200, {
       status: "healthy",
       function: FUNCTION_NAME,
       version: CORE_VERSION,
       contract: CORE_CONTRACT,
       expectedBasePath: EXPECTED_BASE_PATH,
       time: new Date().toISOString(),
-    }, [], debugId),
+    }, debugId),
     "health",
   );
 }
@@ -65,7 +87,7 @@ function handleManifest(req: Request, debugId: string): Response {
     routes: ALL_ROUTES,
     callingMode: "direct",
   });
-  return withIdentity(ok(req, manifest, [], debugId), "manifest");
+  return withIdentity(json(req, 200, manifest, debugId), "manifest");
 }
 
 /**
@@ -73,8 +95,7 @@ function handleManifest(req: Request, debugId: string): Response {
  * Supports: .../properties/{id} where id is URL-encoded
  */
 function extractPropertyId(pathname: string): string | null {
-  // Match /properties/{id} at the end of the path
-  const match = pathname.match(/\/properties\/([^/]+)\/?$/);
+  const match = pathname.match(/\/properties\/(.+?)\/?$/);
   if (!match) return null;
   try {
     return decodeURIComponent(match[1]);
@@ -122,57 +143,48 @@ Deno.serve(async (req) => {
       return withIdentity(fail(req, 404, "ROUTE_NOT_FOUND", `GET ${pathname} not found`, debugId), "error");
     }
 
-    // Validate property ID
-    const parseResult = parsePropertyId(propertyId);
+    // Validate property URN
+    const parseResult = parsePropertyUrn(propertyId);
     if (!parseResult.ok) {
       if (parseResult.error === "invalid_format") {
         return withIdentity(
-          fail(req, 400, "VALIDATION_ERROR", `Invalid property id format. Expected: veneto:<lat>:<lng>`, debugId),
+          propertyError(req, 400, "VALIDATION_ERROR", `Invalid property id format. Expected: urn:ccv3:property:veneto:<lat>:<lng>`, debugId),
           "properties",
         );
       }
-      // out_of_bounds → coordinates outside Veneto
+      // out_of_bounds
       return withIdentity(
-        fail(req, 404, "PROPERTY_NOT_FOUND", `Coordinates are outside Veneto region`, debugId),
+        propertyError(req, 404, "PROPERTY_NOT_FOUND", `Coordinates are outside Veneto region`, debugId),
         "properties",
       );
     }
 
     // Assemble property detail
-    const result = await assemblePropertyDetail(propertyId, parseResult.parsed, debugId);
+    const result = await assemblePropertyDetail(parseResult.coords, debugId);
 
-    // If identity failed/unavailable after assembly, it means property not found in our data
+    // If identity failed/unavailable, property not found
     if (!result.identity) {
       const isFailure = result.meta.failedBlocks.includes("identity");
       if (isFailure) {
         return withIdentity(
-          fail(req, 502, "TEMPORARY_BACKEND_FAILURE", `Identity resolution failed. Reference: ${debugId}`, debugId),
+          propertyError(req, 502, "TEMPORARY_BACKEND_FAILURE", `Identity resolution failed. Reference: ${debugId}`, debugId),
           "properties",
         );
       }
       return withIdentity(
-        fail(req, 404, "PROPERTY_NOT_FOUND", `No property data found for this location in Veneto`, debugId),
+        propertyError(req, 404, "PROPERTY_NOT_FOUND", `No property data found for this location in Veneto`, debugId),
         "properties",
       );
     }
 
-    // Determine warnings from unavailable/failed blocks
-    const warnings: string[] = [];
-    for (const block of ["valuation", "territory", "signals"] as const) {
-      if (result.meta.failedBlocks.includes(block)) {
-        warnings.push(`${block} block failed`);
-      } else if (!result.meta.resolvedBlocks.includes(block)) {
-        warnings.push(`${block} block unavailable`);
-      }
-    }
-
-    return withIdentity(ok(req, result, warnings, debugId), "properties");
+    // Return PropertyDetailResponse DIRECTLY — no ok/data wrapper
+    return withIdentity(directJson(req, 200, result, debugId), "properties");
 
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error(`[property-detail] Error debug_id=${debugId}: ${errMsg}`);
     return withIdentity(
-      fail(req, 500, "INTERNAL_ERROR", `An internal error occurred. Reference: ${debugId}`, debugId),
+      propertyError(req, 500, "INTERNAL_ERROR", `An internal error occurred. Reference: ${debugId}`, debugId),
       "error",
     );
   }
