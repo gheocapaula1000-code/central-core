@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.listing-bridge]
 verify_jwt = false
+
+[functions.property-detail]
+verify_jwt = false
