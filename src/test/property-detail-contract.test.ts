@@ -259,10 +259,15 @@ describe("Security and routing", () => {
   });
 
   it("health and manifest are public (no auth)", () => {
-    // Auth check must come AFTER health/manifest routes
-    const healthIdx = INDEX_SRC.indexOf('"/health"');
-    const manifestIdx = INDEX_SRC.indexOf('"/manifest"');
-    const authIdx = INDEX_SRC.indexOf("requireSecret");
+    // Auth check must come AFTER health/manifest route handling in the router body
+    // Look at the Deno.serve handler section only
+    const routerBody = INDEX_SRC.split("Deno.serve")[1] ?? "";
+    const healthIdx = routerBody.indexOf('"/health"');
+    const manifestIdx = routerBody.indexOf('"/manifest"');
+    const authIdx = routerBody.indexOf("requireSecret");
+    expect(healthIdx).toBeGreaterThan(0);
+    expect(manifestIdx).toBeGreaterThan(0);
+    expect(authIdx).toBeGreaterThan(0);
     expect(healthIdx).toBeLessThan(authIdx);
     expect(manifestIdx).toBeLessThan(authIdx);
   });
