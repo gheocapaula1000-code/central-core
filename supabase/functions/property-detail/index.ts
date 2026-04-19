@@ -20,6 +20,7 @@ import {
 
 import { assemblePropertyDetail } from "./assembler.ts";
 import { handlePropertyDetailLookup } from "./handler.ts";
+import { createSupabasePropertyIdRegistry } from "./registry.ts";
 
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -117,7 +118,8 @@ Deno.serve(async (req) => {
       return withIdentity(fail(req, 404, "ROUTE_NOT_FOUND", `GET ${pathname} not found`, debugId), "error");
     }
 
-    const response = await handlePropertyDetailLookup(propertyId, debugId, assemblePropertyDetail);
+    const registry = createSupabasePropertyIdRegistry();
+    const response = await handlePropertyDetailLookup(propertyId, debugId, assemblePropertyDetail, registry);
     return withIdentity(response, "properties");
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);

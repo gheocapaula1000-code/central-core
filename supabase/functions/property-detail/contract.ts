@@ -1,6 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
 // Property Detail — Public contract helpers
-// Reusable public ID encoding/decoding + response assembly
+// Opaque public ID encoding + response assembly
+// The public ID is NOT derivable from coordinates.
 // ═══════════════════════════════════════════════════════════════
 
 import type {
@@ -14,19 +15,23 @@ import type {
   ValuationBlock,
 } from "./types.ts";
 import { VENETO_BOUNDS } from "./types.ts";
+import {
+  OPAQUE_TOKEN_PATTERN,
+  type PropertyIdRegistry,
+} from "./registry.ts";
+
+const PROPERTY_URN_PREFIX = "urn:ccv3:property:veneto:";
+
+export type ParseError = "invalid_format" | "unknown_id" | "out_of_bounds";
 
 export type ParseResult =
   | {
     ok: true;
     coords: InternalCoordinates;
     publicId: string;
-    inputKind: "public_id" | "legacy_coordinates";
+    inputKind: "opaque_id" | "legacy_coordinates";
   }
-  | { ok: false; error: "invalid_format" | "out_of_bounds" };
-
-const PROPERTY_URN_PREFIX = "urn:ccv3:property:veneto:";
-const STABLE_ID_VERSION = "v1";
-const COORDINATE_SCALE = 100000;
+  | { ok: false; error: ParseError };
 
 function isWithinVeneto(coords: InternalCoordinates): boolean {
   return coords.lat >= VENETO_BOUNDS.latMin &&
@@ -35,95 +40,77 @@ function isWithinVeneto(coords: InternalCoordinates): boolean {
     coords.lng <= VENETO_BOUNDS.lngMax;
 }
 
-function checksumFor(latScaled: number, lngScaled: number): string {
-  const input = `${STABLE_ID_VERSION}:${latScaled}:${lngScaled}`;
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash.toString(36).padStart(7, "0").slice(0, 7);
+function buildPublicUrn(opaqueId: string): string {
+  return `${PROPERTY_URN_PREFIX}${opaqueId}`;
 }
 
-function encodeStableTail(coords: InternalCoordinates): string {
-  const latScaled = Math.round(coords.lat * COORDINATE_SCALE);
-  const lngScaled = Math.round(coords.lng * COORDINATE_SCALE);
-  const checksum = checksumFor(latScaled, lngScaled);
-  return `${STABLE_ID_VERSION}_${latScaled.toString(36)}_${lngScaled.toString(36)}_${checksum}`;
-}
-
-function decodeStableTail(stableTail: string): ParseResult {
-  const match = /^v1_([0-9a-z]+)_([0-9a-z]+)_([0-9a-z]+)$/i.exec(stableTail);
-  if (!match) return { ok: false, error: "invalid_format" };
-
-  const latScaled = Number.parseInt(match[1], 36);
-  const lngScaled = Number.parseInt(match[2], 36);
-  const checksum = match[3].toLowerCase();
-  if (!Number.isFinite(latScaled) || !Number.isFinite(lngScaled)) {
-    return { ok: false, error: "invalid_format" };
-  }
-
-  if (checksumFor(latScaled, lngScaled) != checksum) {
-    return { ok: false, error: "invalid_format" };
-  }
-
-  const coords = {
-    lat: latScaled / COORDINATE_SCALE,
-    lng: lngScaled / COORDINATE_SCALE,
-  };
-
-  if (!isWithinVeneto(coords)) {
-    return { ok: false, error: "out_of_bounds" };
-  }
-
-  return {
-    ok: true,
-    coords,
-    publicId: encodePublicPropertyId(coords),
-    inputKind: "public_id",
-  };
-}
-
-function parseLegacyCoordinateUrn(parts: string[]): ParseResult {
-  if (parts.length !== 6) return { ok: false, error: "invalid_format" };
-
-  const lat = Number.parseFloat(parts[4]);
-  const lng = Number.parseFloat(parts[5]);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-    return { ok: false, error: "invalid_format" };
-  }
-
-  const coords = { lat, lng };
-  if (!isWithinVeneto(coords)) {
-    return { ok: false, error: "out_of_bounds" };
-  }
-
-  return {
-    ok: true,
-    coords,
-    publicId: encodePublicPropertyId(coords),
-    inputKind: "legacy_coordinates",
-  };
-}
-
-export function encodePublicPropertyId(coords: InternalCoordinates): string {
+/**
+ * Mint or look up the opaque public URN for a coordinate pair.
+ * Coordinates must be inside Veneto bounds.
+ */
+export async function encodePublicPropertyId(
+  coords: InternalCoordinates,
+  registry: PropertyIdRegistry,
+): Promise<string> {
   if (!isWithinVeneto(coords)) {
     throw new Error("Cannot encode property id outside Veneto bounds");
   }
-  return `${PROPERTY_URN_PREFIX}${encodeStableTail(coords)}`;
+  const opaqueId = await registry.getOrCreateOpaqueId(coords);
+  return buildPublicUrn(opaqueId);
 }
 
-export function parsePropertyUrn(urn: string): ParseResult {
+/**
+ * Parse a property URN.
+ * Primary contract: opaque token (`urn:ccv3:property:veneto:<16-char-token>`).
+ * Compatibility-only: legacy coordinate URN (`urn:ccv3:property:veneto:<lat>:<lng>`).
+ */
+export async function parsePropertyUrn(
+  urn: string,
+  registry: PropertyIdRegistry,
+): Promise<ParseResult> {
   const parts = urn.split(":");
-  if (parts.length < 5 || parts[0] !== "urn" || parts[1] !== "ccv3" || parts[2] !== "property" || parts[3] !== "veneto") {
+  if (
+    parts.length < 5 ||
+    parts[0] !== "urn" ||
+    parts[1] !== "ccv3" ||
+    parts[2] !== "property" ||
+    parts[3] !== "veneto"
+  ) {
     return { ok: false, error: "invalid_format" };
   }
 
+  // Opaque public ID — primary contract.
   if (parts.length === 5) {
-    return decodeStableTail(parts[4]);
+    const token = parts[4];
+    if (!OPAQUE_TOKEN_PATTERN.test(token)) {
+      return { ok: false, error: "invalid_format" };
+    }
+    const coords = await registry.resolveOpaqueId(token);
+    if (!coords) return { ok: false, error: "unknown_id" };
+    if (!isWithinVeneto(coords)) return { ok: false, error: "out_of_bounds" };
+    return {
+      ok: true,
+      coords,
+      publicId: buildPublicUrn(token),
+      inputKind: "opaque_id",
+    };
   }
 
-  return parseLegacyCoordinateUrn(parts);
+  // Legacy coordinate URN — compatibility-only input path.
+  // Public output is still the opaque URN (minted from coordinates).
+  if (parts.length === 6) {
+    const lat = Number.parseFloat(parts[4]);
+    const lng = Number.parseFloat(parts[5]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return { ok: false, error: "invalid_format" };
+    }
+    const coords = { lat, lng };
+    if (!isWithinVeneto(coords)) return { ok: false, error: "out_of_bounds" };
+    const publicId = await encodePublicPropertyId(coords, registry);
+    return { ok: true, coords, publicId, inputKind: "legacy_coordinates" };
+  }
+
+  return { ok: false, error: "invalid_format" };
 }
 
 function classifyBlock(
@@ -145,7 +132,7 @@ function classifyBlock(
 }
 
 export function buildPropertyDetailResponse(params: {
-  coords: InternalCoordinates;
+  publicId: string;
   requestedAt: string;
   emittedAt?: string;
   identityResult: ProviderResult<IdentityBlock>;
@@ -164,7 +151,7 @@ export function buildPropertyDetailResponse(params: {
   const emittedAt = params.emittedAt ?? new Date().toISOString();
 
   return {
-    id: encodePublicPropertyId(params.coords),
+    id: params.publicId,
     meta: {
       requestedAt: params.requestedAt,
       resolvedBlocks,
