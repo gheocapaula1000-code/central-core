@@ -1,504 +1,278 @@
-// ═══════════════════════════════════════════════════════════════
-// Property Detail — Contract Tests
-// Tests runtime behavior, contract shape, block outcome rules
-// ═══════════════════════════════════════════════════════════════
+import { describe, expect, it, vi } from "vitest";
+import type {
+  IdentityBlock,
+  ProviderResult,
+  SignalsBlock,
+  TerritoryBlock,
+  ValuationBlock,
+} from "../../supabase/functions/property-detail/types.ts";
+import {
+  buildPropertyDetailResponse,
+  encodePublicPropertyId,
+  parsePropertyUrn,
+} from "../../supabase/functions/property-detail/contract.ts";
+import { handlePropertyDetailLookup } from "../../supabase/functions/property-detail/handler.ts";
 
-import { describe, it, expect } from "vitest";
-import * as fs from "fs";
-import * as path from "path";
+const padovaCoords = { lat: 45.4064, lng: 11.8768 };
+const debugId = "dbg-property-detail";
 
-// ── Load source files ─────────────────────────────────────────
+const resolvedIdentity: IdentityBlock = {
+  indirizzo: "Via Roma",
+  civico: "42",
+  comune: "Padova",
+  provincia: "Padova",
+  cap: "35121",
+  coordinate: padovaCoords,
+  tipologia: null,
+  stato: null,
+  superficieMq: null,
+  locali: null,
+  piano: null,
+  annoCostruzione: null,
+  classeEnergetica: null,
+  provenance: {
+    source: "omi_zone_geometry+nominatim",
+    confidence: "alta",
+    updatedAt: "2026-04-19",
+  },
+};
 
-const ASSEMBLER_SRC = fs.readFileSync(path.resolve("supabase/functions/property-detail/assembler.ts"), "utf-8");
-const TYPES_SRC = fs.readFileSync(path.resolve("supabase/functions/property-detail/types.ts"), "utf-8");
-const PROVIDERS_SRC = fs.readFileSync(path.resolve("supabase/functions/property-detail/providers.ts"), "utf-8");
-const INDEX_SRC = fs.readFileSync(path.resolve("supabase/functions/property-detail/index.ts"), "utf-8");
+function resolved<T>(data: T): ProviderResult<T> {
+  const provenance = data && typeof data === "object" && "provenance" in (data as Record<string, unknown>)
+    ? ((data as Record<string, unknown>).provenance as ProviderResult<T>["provenance"])
+    : null;
+  return { outcome: "resolved", data, provenance };
+}
 
-// ═══════════════════════════════════════════════════════════════
-// 1. PUBLIC ID CONTRACT — URN format
-// ═══════════════════════════════════════════════════════════════
+function unavailable<T>(): ProviderResult<T> {
+  return { outcome: "unavailable", data: null, provenance: null };
+}
 
-describe("Public ID contract", () => {
-  it("uses urn:ccv3:property:veneto: format", () => {
-    expect(ASSEMBLER_SRC).toContain("urn:ccv3:property:veneto:");
-  });
+function failed<T>(error = "timeout"): ProviderResult<T> {
+  return { outcome: "failed", data: null, provenance: null, error };
+}
 
-  it("does not expose coordinate-style veneto:<lat>:<lng> as public ID", () => {
-    // The old format should not appear in ID generation
-    const idGenSection = ASSEMBLER_SRC.split("publicId")[0] ?? "";
-    expect(idGenSection).not.toMatch(/id:\s*propertyId/); // no raw coordinate passthrough
-  });
+async function readJson(response: Response) {
+  return await response.json() as Record<string, unknown>;
+}
 
-  it("generates stable hash-based IDs", () => {
-    expect(ASSEMBLER_SRC).toContain("generateStableId");
-    expect(ASSEMBLER_SRC).toContain("SHA-256");
-  });
+describe("property-detail public ID round-trip", () => {
+  it("encodes a reusable public URN and decodes it back to Veneto coordinates", () => {
+    const publicId = encodePublicPropertyId(padovaCoords);
+    expect(publicId).toMatch(/^urn:ccv3:property:veneto:v1_[0-9a-z]+_[0-9a-z]+_[0-9a-z]+$/i);
 
-  it("parser validates urn:ccv3:property:veneto: prefix", () => {
-    expect(ASSEMBLER_SRC).toContain("parsePropertyUrn");
-    expect(ASSEMBLER_SRC).toContain('"urn"');
-    expect(ASSEMBLER_SRC).toContain('"ccv3"');
-    expect(ASSEMBLER_SRC).toContain('"property"');
-    expect(ASSEMBLER_SRC).toContain('"veneto"');
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// 2. RESPONSE ENVELOPE — direct payload, no ok/data
-// ═══════════════════════════════════════════════════════════════
-
-describe("Response envelope", () => {
-  it("does NOT use ok() for property detail responses", () => {
-    // The index should use directJson for the main response, not ok()
-    const routerSection = INDEX_SRC.split("Deno.serve")[1] ?? "";
-    // The success path should use directJson, not ok()
-    expect(routerSection).toContain("directJson(req, 200, result");
-    expect(routerSection).not.toMatch(/ok\(req,\s*result/);
-  });
-
-  it("defines directJson helper that returns raw body", () => {
-    expect(INDEX_SRC).toContain("function directJson");
-    expect(INDEX_SRC).toContain("JSON.stringify(body)");
-  });
-
-  it("error responses use propertyError without ok/data wrapper", () => {
-    expect(INDEX_SRC).toContain("function propertyError");
-    expect(INDEX_SRC).toContain("error: { code, message }");
-    expect(INDEX_SRC).toContain("debug_id: debugId");
-  });
-
-  it("does not import ok from _shared/http", () => {
-    // Should not import ok since this endpoint doesn't use the standard envelope
-    const importSection = INDEX_SRC.split("from")[0] ?? "";
-    // ok should NOT be in the property detail imports for the main response
-    // (it's still used for health/manifest which is fine)
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// 3. BLOCK SHAPES — frontend contract alignment
-// ═══════════════════════════════════════════════════════════════
-
-describe("Identity block shape (frontend contract)", () => {
-  it("uses indirizzo not address", () => {
-    expect(TYPES_SRC).toContain("indirizzo:");
-    expect(TYPES_SRC).not.toMatch(/^\s+address:/m);
-  });
-
-  it("uses civico not houseNumber", () => {
-    expect(TYPES_SRC).toContain("civico:");
-  });
-
-  it("uses coordinate object with lat/lng", () => {
-    expect(TYPES_SRC).toContain("coordinate: { lat: number; lng: number }");
-  });
-
-  it("includes tipologia, stato, superficieMq, locali, piano, annoCostruzione, classeEnergetica", () => {
-    for (const field of ["tipologia", "stato", "superficieMq", "locali", "piano", "annoCostruzione", "classeEnergetica"]) {
-      expect(TYPES_SRC).toContain(`${field}:`);
+    const parsed = parsePropertyUrn(publicId);
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.inputKind).toBe("public_id");
+      expect(parsed.publicId).toBe(publicId);
+      expect(parsed.coords).toEqual(padovaCoords);
     }
   });
 
-  it("includes cap", () => {
-    expect(TYPES_SRC).toContain("cap:");
-  });
-
-  it("has provenance", () => {
-    expect(TYPES_SRC).toContain("provenance: BlockProvenance");
-  });
-});
-
-describe("Territory block shape (frontend contract)", () => {
-  it("uses microZona", () => {
-    expect(TYPES_SRC).toContain("microZona:");
-  });
-
-  it("uses sommario, puntiForti, criticita", () => {
-    expect(TYPES_SRC).toContain("sommario:");
-    expect(TYPES_SRC).toContain("puntiForti:");
-    expect(TYPES_SRC).toContain("criticita:");
-  });
-
-  it("has indicatori with vivibilita, sicurezza, rumore, servizi", () => {
-    expect(TYPES_SRC).toContain("indicatori:");
-    expect(TYPES_SRC).toContain("vivibilita:");
-    expect(TYPES_SRC).toContain("sicurezza:");
-    expect(TYPES_SRC).toContain("rumore:");
-    expect(TYPES_SRC).toContain("servizi:");
-  });
-
-  it("has scenarioFuturo", () => {
-    expect(TYPES_SRC).toContain("scenarioFuturo:");
-  });
-});
-
-describe("Valuation block shape (frontend contract)", () => {
-  it("uses prezzoStimato, prezzoMinimo, prezzoMassimo", () => {
-    expect(TYPES_SRC).toContain("prezzoStimato:");
-    expect(TYPES_SRC).toContain("prezzoMinimo:");
-    expect(TYPES_SRC).toContain("prezzoMassimo:");
-  });
-
-  it("uses drivers", () => {
-    expect(TYPES_SRC).toContain("drivers:");
-  });
-});
-
-describe("Signals block shape (frontend contract)", () => {
-  it("signals is an array type, not an object", () => {
-    expect(TYPES_SRC).toContain("SignalItem[]");
-  });
-
-  it("SignalItem has id, tipo, titolo, descrizione, impatto, orizzonte", () => {
-    for (const field of ["id:", "tipo:", "titolo:", "descrizione:", "impatto:", "orizzonte:"]) {
-      expect(TYPES_SRC).toContain(field);
-    }
-  });
-});
-
-describe("Provenance uses string confidence", () => {
-  it("confidence is string (alta/media/bassa) not number", () => {
-    expect(TYPES_SRC).toContain("confidence: string");
-    expect(TYPES_SRC).not.toMatch(/confidence:\s*number/);
-  });
-
-  it("provider maps geo level to confidence label", () => {
-    expect(PROVIDERS_SRC).toContain("confidenceLabel");
-    expect(PROVIDERS_SRC).toContain('"alta"');
-    expect(PROVIDERS_SRC).toContain('"media"');
-    expect(PROVIDERS_SRC).toContain('"bassa"');
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// 4. BLOCK OUTCOME RULES
-// ═══════════════════════════════════════════════════════════════
-
-describe("Block outcome classification", () => {
-  it("resolved block pushes to resolvedBlocks", () => {
-    expect(ASSEMBLER_SRC).toContain('case "resolved"');
-    expect(ASSEMBLER_SRC).toContain("resolvedBlocks.push(name)");
-  });
-
-  it("failed block pushes to failedBlocks", () => {
-    expect(ASSEMBLER_SRC).toContain('case "failed"');
-    expect(ASSEMBLER_SRC).toContain("failedBlocks.push(name)");
-  });
-
-  it("unavailable block goes to neither list", () => {
-    expect(ASSEMBLER_SRC).toContain('case "unavailable"');
-    const unavailableBlock = ASSEMBLER_SRC.split('case "unavailable"')[1].split("break")[0];
-    expect(unavailableBlock).not.toContain("resolvedBlocks.push");
-    expect(unavailableBlock).not.toContain("failedBlocks.push");
-  });
-
-  it("defines three possible outcomes: resolved, unavailable, failed", () => {
-    expect(TYPES_SRC).toContain('"resolved"');
-    expect(TYPES_SRC).toContain('"unavailable"');
-    expect(TYPES_SRC).toContain('"failed"');
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// 5. IDENTITY-GATED FLOW
-// ═══════════════════════════════════════════════════════════════
-
-describe("Identity-gated assembler flow", () => {
-  it("resolves identity first before fan-out", () => {
-    const identityIdx = ASSEMBLER_SRC.indexOf("resolveIdentity");
-    const fanOutIdx = ASSEMBLER_SRC.indexOf("Promise.all");
-    expect(identityIdx).toBeLessThan(fanOutIdx);
-  });
-
-  it("returns immediately if identity not resolved", () => {
-    expect(ASSEMBLER_SRC).toContain("no fan-out");
-    expect(ASSEMBLER_SRC).toContain('identityResult.outcome !== "resolved"');
-  });
-
-  it("fans out valuation, territory, signals in parallel", () => {
-    expect(ASSEMBLER_SRC).toContain("Promise.all");
-    expect(ASSEMBLER_SRC).toContain("resolveValuation");
-    expect(ASSEMBLER_SRC).toContain("resolveTerritory");
-    expect(ASSEMBLER_SRC).toContain("resolveSignals");
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// 6. ERROR CONTRACT
-// ═══════════════════════════════════════════════════════════════
-
-describe("Error contract", () => {
-  it("returns VALIDATION_ERROR for invalid property id", () => {
-    expect(INDEX_SRC).toContain("VALIDATION_ERROR");
-  });
-
-  it("returns PROPERTY_NOT_FOUND for unknown/non-Veneto property", () => {
-    expect(INDEX_SRC).toContain("PROPERTY_NOT_FOUND");
-  });
-
-  it("returns TEMPORARY_BACKEND_FAILURE for identity failures", () => {
-    expect(INDEX_SRC).toContain("TEMPORARY_BACKEND_FAILURE");
-  });
-
-  it("error shape uses { error: { code, message }, debug_id } not ok/data", () => {
-    expect(INDEX_SRC).toContain("propertyError");
-    // Verify error helper doesn't produce ok/data
-    const errorFn = INDEX_SRC.split("function propertyError")[1]?.split("}")[0] ?? "";
-    expect(errorFn).not.toContain('"ok"');
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// 7. PROVIDER ARCHITECTURE
-// ═══════════════════════════════════════════════════════════════
-
-describe("Provider architecture", () => {
-  it("has all 4 provider functions", () => {
-    expect(PROVIDERS_SRC).toContain("export async function resolveIdentity");
-    expect(PROVIDERS_SRC).toContain("export async function resolveValuation");
-    expect(PROVIDERS_SRC).toContain("export async function resolveTerritory");
-    expect(PROVIDERS_SRC).toContain("export async function resolveSignals");
-  });
-
-  it("identity provider maps to frontend field names", () => {
-    expect(PROVIDERS_SRC).toContain("indirizzo:");
-    expect(PROVIDERS_SRC).toContain("civico:");
-    expect(PROVIDERS_SRC).toContain("coordinate:");
-    expect(PROVIDERS_SRC).toContain("cap:");
-  });
-
-  it("identity returns honest nulls for fields not available from geocoding", () => {
-    expect(PROVIDERS_SRC).toContain("tipologia: null");
-    expect(PROVIDERS_SRC).toContain("superficieMq: null");
-    expect(PROVIDERS_SRC).toContain("classeEnergetica: null");
-  });
-
-  it("stub providers return unavailable honestly", () => {
-    const valSection = PROVIDERS_SRC.split("resolveValuation")[1].split("export async")[0];
-    expect(valSection).toContain('"unavailable"');
-    const terSection = PROVIDERS_SRC.split("resolveTerritory")[1].split("export async")[0];
-    expect(terSection).toContain('"unavailable"');
-    const sigSection = PROVIDERS_SRC.split("resolveSignals")[1];
-    expect(sigSection).toContain('"unavailable"');
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// 8. OBSERVABILITY
-// ═══════════════════════════════════════════════════════════════
-
-describe("Structured observability", () => {
-  it("logs request with debug_id", () => {
-    expect(INDEX_SRC).toContain("[property-detail]");
-    expect(INDEX_SRC).toContain("debug_id=");
-  });
-
-  it("logs assembler start/end with block outcomes", () => {
-    expect(ASSEMBLER_SRC).toContain("[property-detail:assembler] start");
-    expect(ASSEMBLER_SRC).toContain("[property-detail:assembler] done");
-    expect(ASSEMBLER_SRC).toContain("resolved=");
-    expect(ASSEMBLER_SRC).toContain("failed=");
-  });
-
-  it("logs each provider invocation", () => {
-    expect(PROVIDERS_SRC).toContain("[property-detail:identity]");
-    expect(PROVIDERS_SRC).toContain("[property-detail:valuation]");
-    expect(PROVIDERS_SRC).toContain("[property-detail:territory]");
-    expect(PROVIDERS_SRC).toContain("[property-detail:signals]");
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// 9. SECURITY & ROUTING
-// ═══════════════════════════════════════════════════════════════
-
-describe("Security and routing", () => {
-  it("enforces origin policy", () => {
-    expect(INDEX_SRC).toContain("enforceOriginPolicy");
-  });
-
-  it("requires secret for property routes", () => {
-    expect(INDEX_SRC).toContain("requireSecret");
-  });
-
-  it("health and manifest are public (no auth)", () => {
-    const routerBody = INDEX_SRC.split("Deno.serve")[1] ?? "";
-    const healthIdx = routerBody.indexOf('"/health"');
-    const authIdx = routerBody.indexOf("requireSecret");
-    expect(healthIdx).toBeGreaterThan(0);
-    expect(authIdx).toBeGreaterThan(0);
-    expect(healthIdx).toBeLessThan(authIdx);
-  });
-
-  it("only allows GET method", () => {
-    expect(INDEX_SRC).toContain("METHOD_NOT_ALLOWED");
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// 10. CONFIG REGISTRATION
-// ═══════════════════════════════════════════════════════════════
-
-describe("Function registration", () => {
-  it("is registered in config.toml", () => {
-    const configToml = fs.readFileSync(path.resolve("supabase/config.toml"), "utf-8");
-    expect(configToml).toContain("[functions.property-detail]");
-    expect(configToml).toContain("verify_jwt = false");
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// 11. BEHAVIORAL SIMULATION — parsePropertyUrn
-// ═══════════════════════════════════════════════════════════════
-
-describe("parsePropertyUrn logic", () => {
-  // Inline the parser logic for testing (can't import Deno modules in vitest)
-  const BOUNDS = { latMin: 44.8, latMax: 46.7, lngMin: 10.6, lngMax: 13.1 };
-
-  function parsePropertyUrn(urn: string) {
-    const parts = urn.split(":");
-    if (parts.length < 4 || parts[0] !== "urn" || parts[1] !== "ccv3" || parts[2] !== "property" || parts[3] !== "veneto") {
-      return { ok: false as const, error: "invalid_format" as const };
-    }
-    if (parts.length === 6) {
-      const lat = parseFloat(parts[4]);
-      const lng = parseFloat(parts[5]);
-      if (isNaN(lat) || isNaN(lng)) return { ok: false as const, error: "invalid_format" as const };
-      if (lat < BOUNDS.latMin || lat > BOUNDS.latMax || lng < BOUNDS.lngMin || lng > BOUNDS.lngMax) {
-        return { ok: false as const, error: "out_of_bounds" as const };
-      }
-      return { ok: true as const, coords: { lat, lng } };
-    }
-    return { ok: false as const, error: "invalid_format" as const };
-  }
-
-  it("parses valid Padova URN", () => {
-    const r = parsePropertyUrn("urn:ccv3:property:veneto:45.4064:11.8768");
-    expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(r.coords.lat).toBeCloseTo(45.4064);
-      expect(r.coords.lng).toBeCloseTo(11.8768);
+  it("still accepts legacy coordinate URNs but canonicalizes them to the public URN", () => {
+    const parsed = parsePropertyUrn("urn:ccv3:property:veneto:45.4064:11.8768");
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.inputKind).toBe("legacy_coordinates");
+      expect(parsed.publicId).toBe(encodePublicPropertyId(padovaCoords));
     }
   });
 
-  it("rejects old coordinate-style id", () => {
-    const r = parsePropertyUrn("veneto:45.4064:11.8768");
-    expect(r.ok).toBe(false);
-  });
-
-  it("rejects non-veneto prefix", () => {
-    const r = parsePropertyUrn("urn:ccv3:property:lombardia:45.4:9.2");
-    expect(r.ok).toBe(false);
-  });
-
-  it("rejects missing parts", () => {
-    expect(parsePropertyUrn("urn:ccv3:property").ok).toBe(false);
-    expect(parsePropertyUrn("urn:ccv3").ok).toBe(false);
-    expect(parsePropertyUrn("").ok).toBe(false);
-  });
-
-  it("rejects non-numeric coordinates", () => {
-    const r = parsePropertyUrn("urn:ccv3:property:veneto:abc:def");
-    expect(r.ok).toBe(false);
-  });
-
-  it("rejects coordinates outside Veneto (Rome)", () => {
-    const r = parsePropertyUrn("urn:ccv3:property:veneto:41.9028:12.4964");
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toBe("out_of_bounds");
-  });
-
-  it("accepts Venezia coordinates", () => {
-    expect(parsePropertyUrn("urn:ccv3:property:veneto:45.4408:12.3155").ok).toBe(true);
-  });
-
-  it("accepts Verona coordinates", () => {
-    expect(parsePropertyUrn("urn:ccv3:property:veneto:45.4384:10.9917").ok).toBe(true);
+  it("rejects malformed ids with validation semantics", () => {
+    expect(parsePropertyUrn("urn:ccv3:property:veneto:not-a-real-id")).toEqual({
+      ok: false,
+      error: "invalid_format",
+    });
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// 12. BLOCK CLASSIFICATION SIMULATION
-// ═══════════════════════════════════════════════════════════════
+describe("property-detail block outcome semantics", () => {
+  it("keeps unavailable blocks null and absent from resolvedBlocks/failedBlocks", () => {
+    const response = buildPropertyDetailResponse({
+      coords: padovaCoords,
+      requestedAt: "2026-04-19T10:00:00.000Z",
+      emittedAt: "2026-04-19T10:00:00.000Z",
+      identityResult: resolved(resolvedIdentity),
+      territoryResult: unavailable<TerritoryBlock>(),
+      valuationResult: unavailable<ValuationBlock>(),
+      signalsResult: unavailable<SignalsBlock>(),
+    });
 
-describe("Block classification simulation", () => {
-  function classifyBlock(
-    outcome: "resolved" | "unavailable" | "failed",
-    name: string,
-    resolvedBlocks: string[],
-    failedBlocks: string[],
-  ) {
-    switch (outcome) {
-      case "resolved": resolvedBlocks.push(name); break;
-      case "failed": failedBlocks.push(name); break;
-      case "unavailable": break;
-    }
-  }
-
-  it("identity resolved, others unavailable → only identity in resolvedBlocks", () => {
-    const resolved: string[] = [];
-    const failed: string[] = [];
-    classifyBlock("resolved", "identity", resolved, failed);
-    classifyBlock("unavailable", "territory", resolved, failed);
-    classifyBlock("unavailable", "valuation", resolved, failed);
-    classifyBlock("unavailable", "signals", resolved, failed);
-    expect(resolved).toEqual(["identity"]);
-    expect(failed).toEqual([]);
+    expect(response.identity).toEqual(resolvedIdentity);
+    expect(response.territory).toBeNull();
+    expect(response.valuation).toBeNull();
+    expect(response.signals).toBeNull();
+    expect(response.meta.resolvedBlocks).toEqual(["identity"]);
+    expect(response.meta.failedBlocks).toEqual([]);
   });
 
-  it("one provider fails → appears only in failedBlocks", () => {
-    const resolved: string[] = [];
-    const failed: string[] = [];
-    classifyBlock("resolved", "identity", resolved, failed);
-    classifyBlock("failed", "territory", resolved, failed);
-    classifyBlock("unavailable", "valuation", resolved, failed);
-    classifyBlock("unavailable", "signals", resolved, failed);
-    expect(resolved).toEqual(["identity"]);
-    expect(failed).toEqual(["territory"]);
+  it("keeps failed blocks null and only in failedBlocks", () => {
+    const response = buildPropertyDetailResponse({
+      coords: padovaCoords,
+      requestedAt: "2026-04-19T10:00:00.000Z",
+      emittedAt: "2026-04-19T10:00:00.000Z",
+      identityResult: resolved(resolvedIdentity),
+      territoryResult: unavailable<TerritoryBlock>(),
+      valuationResult: failed<ValuationBlock>(),
+      signalsResult: unavailable<SignalsBlock>(),
+    });
+
+    expect(response.valuation).toBeNull();
+    expect(response.meta.resolvedBlocks).toEqual(["identity"]);
+    expect(response.meta.failedBlocks).toEqual(["valuation"]);
   });
 
-  it("unavailable block never appears in either array", () => {
-    const resolved: string[] = [];
-    const failed: string[] = [];
-    classifyBlock("unavailable", "signals", resolved, failed);
-    expect(resolved).toEqual([]);
-    expect(failed).toEqual([]);
-  });
+  it("adds resolved non-identity blocks only to resolvedBlocks", () => {
+    const signals: SignalsBlock = [{
+      id: "sig-001",
+      tipo: "infrastruttura",
+      titolo: "Nuova linea tram",
+      descrizione: "Collegamento previsto entro 2028",
+      impatto: "positivo",
+      orizzonte: "2028",
+      provenance: {
+        source: "ufficiale",
+        confidence: "alta",
+        updatedAt: "2026-03-01",
+      },
+    }];
 
-  it("all blocks resolved → all in resolvedBlocks, none in failedBlocks", () => {
-    const resolved: string[] = [];
-    const failed: string[] = [];
-    classifyBlock("resolved", "identity", resolved, failed);
-    classifyBlock("resolved", "territory", resolved, failed);
-    classifyBlock("resolved", "valuation", resolved, failed);
-    classifyBlock("resolved", "signals", resolved, failed);
-    expect(resolved).toEqual(["identity", "territory", "valuation", "signals"]);
-    expect(failed).toEqual([]);
+    const response = buildPropertyDetailResponse({
+      coords: padovaCoords,
+      requestedAt: "2026-04-19T10:00:00.000Z",
+      emittedAt: "2026-04-19T10:00:00.000Z",
+      identityResult: resolved(resolvedIdentity),
+      territoryResult: unavailable<TerritoryBlock>(),
+      valuationResult: unavailable<ValuationBlock>(),
+      signalsResult: resolved(signals),
+    });
+
+    expect(response.signals).toEqual(signals);
+    expect(response.meta.resolvedBlocks).toEqual(["identity", "signals"]);
+    expect(response.meta.failedBlocks).toEqual([]);
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// 13. RESPONSE CONTRACT SHAPE (top-level)
-// ═══════════════════════════════════════════════════════════════
+describe("property-detail runtime handler contract", () => {
+  it("returns a direct success payload with no ok/data wrapper", async () => {
+    const publicId = encodePublicPropertyId(padovaCoords);
+    const assemble = vi.fn().mockResolvedValue(buildPropertyDetailResponse({
+      coords: padovaCoords,
+      requestedAt: "2026-04-19T10:00:00.000Z",
+      emittedAt: "2026-04-19T10:00:00.000Z",
+      identityResult: resolved(resolvedIdentity),
+      territoryResult: unavailable<TerritoryBlock>(),
+      valuationResult: unavailable<ValuationBlock>(),
+      signalsResult: unavailable<SignalsBlock>(),
+    }));
 
-describe("Response contract top-level shape", () => {
-  it("defines id as urn string", () => {
-    expect(TYPES_SRC).toContain("id: string; // urn:ccv3:property:veneto:");
+    const response = await handlePropertyDetailLookup(publicId, debugId, assemble);
+    const body = await readJson(response);
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBeUndefined();
+    expect(body.data).toBeUndefined();
+    expect(body.id).toBe(publicId);
+    expect(body.meta).toEqual({
+      requestedAt: "2026-04-19T10:00:00.000Z",
+      resolvedBlocks: ["identity"],
+      failedBlocks: [],
+    });
+    expect(body.identity).toEqual(resolvedIdentity);
+    expect(body.territory).toBeNull();
+    expect(body.valuation).toBeNull();
+    expect(body.signals).toBeNull();
+    expect(assemble).toHaveBeenCalledWith(padovaCoords, debugId);
   });
 
-  it("defines all required top-level fields", () => {
-    for (const field of ["id:", "meta:", "identity:", "territory:", "valuation:", "signals:", "createdAt:", "updatedAt:"]) {
-      expect(TYPES_SRC).toContain(field);
-    }
+  it("accepts a returned public id again as input for the same endpoint flow", async () => {
+    const publicId = encodePublicPropertyId(padovaCoords);
+    const assemble = vi.fn().mockResolvedValue(buildPropertyDetailResponse({
+      coords: padovaCoords,
+      requestedAt: "2026-04-19T10:00:00.000Z",
+      emittedAt: "2026-04-19T10:00:00.000Z",
+      identityResult: resolved(resolvedIdentity),
+      territoryResult: unavailable<TerritoryBlock>(),
+      valuationResult: unavailable<ValuationBlock>(),
+      signalsResult: unavailable<SignalsBlock>(),
+    }));
+
+    const first = await handlePropertyDetailLookup(publicId, debugId, assemble);
+    const firstBody = await readJson(first);
+    const second = await handlePropertyDetailLookup(String(firstBody.id), `${debugId}-2`, assemble);
+    const secondBody = await readJson(second);
+
+    expect(second.status).toBe(200);
+    expect(secondBody.id).toBe(publicId);
+    expect(assemble).toHaveBeenNthCalledWith(1, padovaCoords, debugId);
+    expect(assemble).toHaveBeenNthCalledWith(2, padovaCoords, `${debugId}-2`);
   });
 
-  it("meta contains requestedAt, resolvedBlocks, failedBlocks", () => {
-    expect(TYPES_SRC).toContain("requestedAt: string");
-    expect(TYPES_SRC).toContain("resolvedBlocks: string[]");
-    expect(TYPES_SRC).toContain("failedBlocks: string[]");
+  it("returns validation_error for invalid ids with explicit error contract", async () => {
+    const assemble = vi.fn();
+    const response = await handlePropertyDetailLookup("urn:ccv3:property:veneto:broken", debugId, assemble);
+    const body = await readJson(response);
+
+    expect(response.status).toBe(400);
+    expect(body).toEqual({
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Invalid property id format. Expected: urn:ccv3:property:veneto:<stable-id>",
+      },
+      debug_id: debugId,
+    });
+    expect(assemble).not.toHaveBeenCalled();
   });
 
-  it("type comment says NO ok/data wrapper", () => {
-    expect(TYPES_SRC).toContain("No ok/data/warnings wrapper");
+  it("returns property_not_found for unknown but valid-shaped public ids", async () => {
+    const unknownCoords = { lat: 45.5701, lng: 12.3101 };
+    const publicId = encodePublicPropertyId(unknownCoords);
+    const assemble = vi.fn().mockResolvedValue(buildPropertyDetailResponse({
+      coords: unknownCoords,
+      requestedAt: "2026-04-19T10:00:00.000Z",
+      emittedAt: "2026-04-19T10:00:00.000Z",
+      identityResult: unavailable<IdentityBlock>(),
+      territoryResult: unavailable<TerritoryBlock>(),
+      valuationResult: unavailable<ValuationBlock>(),
+      signalsResult: unavailable<SignalsBlock>(),
+    }));
+
+    const response = await handlePropertyDetailLookup(publicId, debugId, assemble);
+    const body = await readJson(response);
+
+    expect(response.status).toBe(404);
+    expect(body).toEqual({
+      error: {
+        code: "PROPERTY_NOT_FOUND",
+        message: "No property data found for this location in Veneto",
+      },
+      debug_id: debugId,
+    });
+  });
+
+  it("returns temporary_backend_failure when identity resolution fails", async () => {
+    const publicId = encodePublicPropertyId(padovaCoords);
+    const assemble = vi.fn().mockResolvedValue(buildPropertyDetailResponse({
+      coords: padovaCoords,
+      requestedAt: "2026-04-19T10:00:00.000Z",
+      emittedAt: "2026-04-19T10:00:00.000Z",
+      identityResult: failed<IdentityBlock>(),
+      territoryResult: unavailable<TerritoryBlock>(),
+      valuationResult: unavailable<ValuationBlock>(),
+      signalsResult: unavailable<SignalsBlock>(),
+    }));
+
+    const response = await handlePropertyDetailLookup(publicId, debugId, assemble);
+    const body = await readJson(response);
+
+    expect(response.status).toBe(502);
+    expect(body).toEqual({
+      error: {
+        code: "TEMPORARY_BACKEND_FAILURE",
+        message: `Identity resolution failed. Reference: ${debugId}`,
+      },
+      debug_id: debugId,
+    });
   });
 });
