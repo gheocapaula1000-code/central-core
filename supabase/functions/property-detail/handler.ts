@@ -5,7 +5,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import type { InternalCoordinates, PropertyDetailResponse } from "./types.ts";
-import { parsePropertyUrn, type ParseResult } from "./contract.ts";
+import { parsePropertyUrn } from "./contract.ts";
 import type { PropertyIdRegistry } from "./registry.ts";
 
 export type PropertyDetailAssembler = (
@@ -35,7 +35,7 @@ export async function handlePropertyDetailLookup(
   assemblePropertyDetail: PropertyDetailAssembler,
   registry: PropertyIdRegistry,
 ): Promise<Response> {
-  const parseResult: ParseResult = await parsePropertyUrn(propertyId, registry);
+  const parseResult = await parsePropertyUrn(propertyId, registry);
   if (!parseResult.ok) {
     if (parseResult.error === "invalid_format") {
       return propertyError(

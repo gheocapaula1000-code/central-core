@@ -14,6 +14,13 @@ type SupabaseClient = {
 // @ts-ignore Deno global (only present at runtime in the edge function)
 declare const Deno: { env: { get: (k: string) => string | undefined } };
 
+// Dynamic import — only loaded inside Deno runtime; tsc/vitest never executes getServiceClient().
+async function loadCreateClient(): Promise<(url: string, key: string, opts?: unknown) => SupabaseClient> {
+  // @ts-ignore remote ESM URL resolved at Deno runtime
+  const mod = await import("https://esm.sh/@supabase/supabase-js@2");
+  return mod.createClient as (url: string, key: string, opts?: unknown) => SupabaseClient;
+}
+
 const COORDINATE_SCALE = 100000; // 5 decimals ≈ ~1m
 
 // Crockford-base32 alphabet (no I, L, O, U) — opaque, URL-safe, case-insensitive.
@@ -49,13 +56,14 @@ export interface PropertyIdRegistry {
 
 let cachedClient: SupabaseClient | null = null;
 
-function getServiceClient(): SupabaseClient {
+async function getServiceClient(): Promise<SupabaseClient> {
   if (cachedClient) return cachedClient;
   const url = Deno.env.get("SUPABASE_URL");
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !key) {
     throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");
   }
+  const createClient = await loadCreateClient();
   cachedClient = createClient(url, key, { auth: { persistSession: false } });
   return cachedClient;
 }
