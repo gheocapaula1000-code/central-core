@@ -61,10 +61,11 @@ function getServiceClient(): SupabaseClient {
 }
 
 export function createSupabasePropertyIdRegistry(
-  client: SupabaseClient = getServiceClient(),
+  clientFactory: () => Promise<SupabaseClient> = getServiceClient,
 ): PropertyIdRegistry {
   return {
     async getOrCreateOpaqueId(coords) {
+      const client = await clientFactory();
       const latScaled = Math.round(coords.lat * COORDINATE_SCALE);
       const lngScaled = Math.round(coords.lng * COORDINATE_SCALE);
       const candidate = generateOpaqueToken();
@@ -79,6 +80,7 @@ export function createSupabasePropertyIdRegistry(
 
     async resolveOpaqueId(opaqueId) {
       if (!OPAQUE_TOKEN_PATTERN.test(opaqueId)) return null;
+      const client = await clientFactory();
       const { data, error } = await client.rpc("property_registry_lookup", {
         p_opaque_id: opaqueId,
       });
