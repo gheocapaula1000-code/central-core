@@ -4,8 +4,17 @@
 // The opaque token is NOT derivable from coordinates.
 // ═══════════════════════════════════════════════════════════════
 
-import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+// @ts-ignore Deno remote import (typecheck under Node tsc)
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import type { InternalCoordinates } from "./types.ts";
+
+// Minimal structural type — avoids depending on remote type declarations under tsc.
+type SupabaseClient = {
+  rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
+};
+
+// @ts-ignore Deno global
+declare const Deno: { env: { get: (k: string) => string | undefined } };
 
 const COORDINATE_SCALE = 100000; // 5 decimals ≈ ~1m
 
