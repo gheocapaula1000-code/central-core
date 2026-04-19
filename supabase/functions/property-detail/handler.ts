@@ -1,13 +1,16 @@
 // ═══════════════════════════════════════════════════════════════
 // Property Detail — Route handler (endpoint-specific contract)
 // Wrapper-free success payload + explicit endpoint error contract
+// Public ID is opaque; resolution goes through the registry.
 // ═══════════════════════════════════════════════════════════════
 
 import type { InternalCoordinates, PropertyDetailResponse } from "./types.ts";
 import { parsePropertyUrn } from "./contract.ts";
+import type { PropertyIdRegistry } from "./registry.ts";
 
 export type PropertyDetailAssembler = (
   coords: InternalCoordinates,
+  publicId: string,
   debugId: string,
 ) => Promise<PropertyDetailResponse>;
 
@@ -30,18 +33,26 @@ export async function handlePropertyDetailLookup(
   propertyId: string,
   debugId: string,
   assemblePropertyDetail: PropertyDetailAssembler,
+  registry: PropertyIdRegistry,
 ): Promise<Response> {
-  const parseResult = parsePropertyUrn(propertyId);
+  const parseResult = await parsePropertyUrn(propertyId, registry);
   if (!parseResult.ok) {
     if (parseResult.error === "invalid_format") {
       return propertyError(
         400,
         "VALIDATION_ERROR",
-        "Invalid property id format. Expected: urn:ccv3:property:veneto:<stable-id>",
+        "Invalid property id format. Expected: urn:ccv3:property:veneto:<opaque-id>",
         debugId,
       );
     }
-
+    if (parseResult.error === "unknown_id") {
+      return propertyError(
+        404,
+        "PROPERTY_NOT_FOUND",
+        "Unknown property id",
+        debugId,
+      );
+    }
     return propertyError(
       404,
       "PROPERTY_NOT_FOUND",
@@ -50,7 +61,7 @@ export async function handlePropertyDetailLookup(
     );
   }
 
-  const result = await assemblePropertyDetail(parseResult.coords, debugId);
+  const result = await assemblePropertyDetail(parseResult.coords, parseResult.publicId, debugId);
 
   if (!result.identity) {
     const isFailure = result.meta.failedBlocks.includes("identity");
@@ -62,7 +73,6 @@ export async function handlePropertyDetailLookup(
         debugId,
       );
     }
-
     return propertyError(
       404,
       "PROPERTY_NOT_FOUND",
