@@ -1,15 +1,14 @@
 // ═══════════════════════════════════════════════════════════════
 // Property Detail — Assembler / Orchestrator
-// Identity-gated fan-out with honest partial response assembly
-// Public ID: urn:ccv3:property:veneto:<stable-id>
-// Response: direct payload, no ok/data wrapper
+// Identity-gated fan-out with honest partial response assembly.
+// Receives the already-resolved opaque public ID from the handler.
+// Response: direct payload, no ok/data wrapper.
 // ═══════════════════════════════════════════════════════════════
 
-import type { InternalCoordinates } from "./types.ts";
+import type { InternalCoordinates, PropertyDetailResponse } from "./types.ts";
 import {
   buildPropertyDetailResponse,
   makeUnavailableResult,
-  parsePropertyUrn,
 } from "./contract.ts";
 import {
   resolveIdentity,
@@ -20,25 +19,21 @@ import {
 
 export { parsePropertyUrn } from "./contract.ts";
 
-// ── Main Assembler ────────────────────────────────────────────
-
 export async function assemblePropertyDetail(
   coords: InternalCoordinates,
+  publicId: string,
   debugId: string,
-) {
+): Promise<PropertyDetailResponse> {
   const requestedAt = new Date().toISOString();
 
-  console.log(`[property-detail:assembler] start lat=${coords.lat} lng=${coords.lng} debug_id=${debugId}`);
+  console.log(`[property-detail:assembler] start id=${publicId} debug_id=${debugId}`);
 
-  // ── Step 1: Identity is the gate ────────────────────────────
   const identityResult = await resolveIdentity(coords.lat, coords.lng, debugId);
 
-  // If identity is not resolved, return immediately — no fan-out
   if (identityResult.outcome !== "resolved" || !identityResult.data) {
     console.log(`[property-detail:assembler] identity ${identityResult.outcome} — no fan-out debug_id=${debugId}`);
-
     const response = buildPropertyDetailResponse({
-      coords,
+      publicId,
       requestedAt,
       emittedAt: requestedAt,
       identityResult,
@@ -46,17 +41,14 @@ export async function assemblePropertyDetail(
       valuationResult: makeUnavailableResult(),
       signalsResult: makeUnavailableResult(),
     });
-
     console.log(
       `[property-detail:assembler] done resolved=[${response.meta.resolvedBlocks.join(",")}] failed=[${response.meta.failedBlocks.join(",")}] debug_id=${debugId}`,
     );
-
     return response;
   }
 
   const { comune } = identityResult.data;
 
-  // ── Step 2: Fan-out for remaining blocks (parallel) ─────────
   const [valuationResult, territoryResult, signalsResult] = await Promise.all([
     resolveValuation(coords.lat, coords.lng, comune, debugId),
     resolveTerritory(coords.lat, coords.lng, comune, debugId),
@@ -64,7 +56,7 @@ export async function assemblePropertyDetail(
   ]);
 
   const response = buildPropertyDetailResponse({
-    coords,
+    publicId,
     requestedAt,
     identityResult,
     territoryResult,
