@@ -539,6 +539,33 @@ export type Database = {
         }
         Relationships: []
       }
+      property_id_registry: {
+        Row: {
+          created_at: string
+          id: number
+          last_seen_at: string
+          lat_scaled: number
+          lng_scaled: number
+          opaque_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          last_seen_at?: string
+          lat_scaled: number
+          lng_scaled: number
+          opaque_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          last_seen_at?: string
+          lat_scaled?: number
+          lng_scaled?: number
+          opaque_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -568,6 +595,21 @@ export type Database = {
           zona: string
           zona_descr: string
         }[]
+      }
+      property_registry_lookup: {
+        Args: { p_opaque_id: string }
+        Returns: {
+          lat_scaled: number
+          lng_scaled: number
+        }[]
+      }
+      property_registry_upsert: {
+        Args: {
+          p_lat_scaled: number
+          p_lng_scaled: number
+          p_opaque_id: string
+        }
+        Returns: string
       }
     }
     Enums: {
