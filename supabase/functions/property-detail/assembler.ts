@@ -28,9 +28,9 @@ export async function assemblePropertyDetail(
 
   console.log(`[property-detail:assembler] start id=${publicId} debug_id=${debugId}`);
 
-  const identityResult = await resolveIdentity(coords.lat, coords.lng, debugId);
+  const { result: identityResult, context: identityContext } = await resolveIdentity(coords.lat, coords.lng, debugId);
 
-  if (identityResult.outcome !== "resolved" || !identityResult.data) {
+  if (identityResult.outcome !== "resolved" || !identityContext) {
     console.log(`[property-detail:assembler] identity ${identityResult.outcome} — no fan-out debug_id=${debugId}`);
     const response = buildPropertyDetailResponse({
       publicId,
@@ -47,12 +47,10 @@ export async function assemblePropertyDetail(
     return response;
   }
 
-  const { comune } = identityResult.data;
-
   const [valuationResult, territoryResult, signalsResult] = await Promise.all([
-    resolveValuation(coords.lat, coords.lng, comune, debugId),
-    resolveTerritory(coords.lat, coords.lng, comune, debugId),
-    resolveSignals(coords.lat, coords.lng, comune, debugId),
+    resolveValuation(identityContext, debugId),
+    resolveTerritory(identityContext, debugId),
+    resolveSignals(identityContext, debugId),
   ]);
 
   const response = buildPropertyDetailResponse({
