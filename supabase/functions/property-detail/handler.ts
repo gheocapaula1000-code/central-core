@@ -77,7 +77,7 @@ export async function handlePropertyDetailLookup(
     return propertyError(
       404,
       "PROPERTY_NOT_FOUND",
-      "No property data found for this location in Veneto",
+      "No property data found for this location in Comune di Padova",
       debugId,
     );
   }

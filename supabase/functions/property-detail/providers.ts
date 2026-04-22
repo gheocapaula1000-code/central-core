@@ -20,6 +20,23 @@ import type {
   PrecisionLevel,
 } from "./types.ts";
 import { makeProvenance } from "./contract.ts";
+import { boundingBox, haversineMeters, smallestContainingRadius, radiusToSpatialScope } from "./geo.ts";
+
+// ── Padova Comune scope (V1 territorial limit) ─────────────────
+// Canonical OMI keys for Comune di Padova.
+const PADOVA_COMUNE_ISTAT_LONG = "5028060";
+const PADOVA_COMUNE_ISTAT_SHORT = "028060";
+const PADOVA_COMUNE_DESCR = "PADOVA";
+
+function isPadovaZone(zone: { comune_istat?: string | null; comune_descrizione?: string | null }): boolean {
+  const istat = (zone.comune_istat ?? "").trim();
+  const descr = (zone.comune_descrizione ?? "").trim().toUpperCase();
+  return (
+    istat === PADOVA_COMUNE_ISTAT_LONG ||
+    istat === PADOVA_COMUNE_ISTAT_SHORT ||
+    descr === PADOVA_COMUNE_DESCR
+  );
+}
 
 // ── Supabase Client ───────────────────────────────────────────
 
@@ -90,6 +107,16 @@ export async function resolveIdentity(
     }
 
     const primaryZone = zones[0];
+
+    // ── Padova-only territorial scope ──
+    if (!isPadovaZone(primaryZone)) {
+      console.log(
+        `[property-detail:identity] outside Padova Comune (zone_comune=${primaryZone.comune_descrizione ?? "?"} istat=${primaryZone.comune_istat ?? "?"}) → property_not_found debug_id=${debugId}`,
+      );
+      return { result: { outcome: "unavailable", data: null, provenance: null }, context: null };
+    }
+    console.log(`[property-detail:identity] Padova boundary OK istat=${primaryZone.comune_istat} debug_id=${debugId}`);
+
     const comune: string = primaryZone.comune_descrizione;
     const provincia: string = primaryZone.provincia;
     const comuneIstat: string = primaryZone.comune_istat;
@@ -391,7 +418,56 @@ export async function resolveTerritory(
       rumoreProxy: null,
     };
     const indicatorsResolvedNames: string[] = [];
-    const indicatorsUnavailableNames = ["serviziProssimita", "verdeProssimita", "accessibilita", "pressioneTraffico", "rumoreProxy"];
+    const indicatorsUnavailableNames: string[] = ["verdeProssimita", "accessibilita", "pressioneTraffico", "rumoreProxy"];
+
+    // ── Real short-range services indicator (mim_schools, Padova-bounded) ──
+    // Honest: derived from a real geocoded dataset; null if no rows in radius.
+    try {
+      const bbox500 = boundingBox(context.coords, 500);
+      const { data: schoolRows, error: schoolErr } = await supabase
+        .from("mim_schools")
+        .select("lat, lng, grado")
+        .eq("comune", "Padova")
+        .not("lat", "is", null)
+        .not("lng", "is", null)
+        .gte("lat", bbox500.latMin)
+        .lte("lat", bbox500.latMax)
+        .gte("lng", bbox500.lngMin)
+        .lte("lng", bbox500.lngMax)
+        .limit(200);
+      if (schoolErr) {
+        console.warn(`[property-detail:territory] mim_schools query failed: ${schoolErr.message} debug_id=${debugId}`);
+        indicatorsUnavailableNames.push("serviziProssimita");
+      } else {
+        const within = (schoolRows ?? [])
+          .map((r) => ({ ...r, distance: haversineMeters(context.coords, { lat: r.lat as number, lng: r.lng as number }) }))
+          .filter((r) => r.distance <= 500);
+        if (within.length === 0) {
+          console.log(`[property-detail:territory] services_proximity unavailable (0 schools ≤500m) debug_id=${debugId}`);
+          indicatorsUnavailableNames.push("serviziProssimita");
+        } else {
+          const minDist = Math.min(...within.map((r) => r.distance));
+          const radius = smallestContainingRadius(minDist) ?? 500;
+          const band = within.length >= 5 ? "alta" : within.length >= 2 ? "media" : "bassa";
+          indicatori.serviziProssimita = {
+            value: band,
+            kind: "service_proximity",
+            provenance: makeProvenance({
+              source: "mim_schools",
+              confidence: "alta",
+              precisionLevel: "neighborhood",
+              spatialScope: radiusToSpatialScope(radius),
+              radiusMeters: radius,
+            }),
+          };
+          indicatorsResolvedNames.push("serviziProssimita");
+          console.log(`[property-detail:territory] services_proximity resolved count=${within.length} nearest_m=${Math.round(minDist)} radius=${radius} debug_id=${debugId}`);
+        }
+      }
+    } catch (e) {
+      console.warn(`[property-detail:territory] services_proximity error: ${String(e).slice(0, 80)} debug_id=${debugId}`);
+      indicatorsUnavailableNames.push("serviziProssimita");
+    }
 
     if (sismica || ispra) {
       let safetyScore = 100;
