@@ -179,6 +179,74 @@ describe("property-detail block outcome semantics", () => {
     expect(response.meta.resolvedBlocks).toEqual(["identity", "signals"]);
     expect(response.meta.failedBlocks).toEqual([]);
   });
+
+  it("isolates failure per block: a single failed block must not affect others", () => {
+    const valuation: ValuationBlock = {
+      prezzoStimato: 2900,
+      prezzoMinimo: 2400,
+      prezzoMassimo: 3400,
+      drivers: "Valori OMI Abitazioni civili — zona B1, stato NORMALE, 1 fascia di prezzo €/m².",
+      provenance: { source: "omi_valori (zona)", confidence: "alta", updatedAt: "2026-04-19" },
+    };
+    const response = buildPropertyDetailResponse({
+      publicId,
+      requestedAt: "2026-04-19T10:00:00.000Z",
+      emittedAt: "2026-04-19T10:00:00.000Z",
+      identityResult: resolved(resolvedIdentity),
+      territoryResult: failed<TerritoryBlock>("ispra timeout"),
+      valuationResult: resolved(valuation),
+      signalsResult: unavailable<SignalsBlock>(),
+    });
+
+    expect(response.identity).toEqual(resolvedIdentity);
+    expect(response.valuation).toEqual(valuation);
+    expect(response.territory).toBeNull();
+    expect(response.signals).toBeNull();
+    expect(response.meta.resolvedBlocks).toEqual(["identity", "valuation"]);
+    expect(response.meta.failedBlocks).toEqual(["territory"]);
+  });
+
+  it("supports the typical V1 Veneto pilot response: identity+valuation+territory resolved, signals honestly unavailable", () => {
+    const valuation: ValuationBlock = {
+      prezzoStimato: 2900,
+      prezzoMinimo: 2100,
+      prezzoMassimo: 4700,
+      drivers: "Valori OMI Abitazioni civili — media comunale PADOVA, stato misto (NORMALE, OTTIMO), 3 fasce €/m².",
+      provenance: { source: "omi_valori (comune)", confidence: "media", updatedAt: "2026-04-19" },
+    };
+    const territory: TerritoryBlock = {
+      microZona: "Zona OMI B1 — ZONA ENTRO RIVIERE-VIA XX SETTEMBRE",
+      sommario: "Padova: 207.412 abitanti, età media 47.5 anni.",
+      puntiForti: ["Rischio sismico molto basso (zona 4)", "Rischio frana trascurabile"],
+      criticita: ["Rischio idraulico significativo (25.1% del territorio in P3)"],
+      indicatori: { vivibilita: null, sicurezza: "media", rumore: null, servizi: null },
+      scenarioFuturo: null,
+      provenance: { source: "omi_zone+istat_comuni+ispra_rischio+classificazione_sismica", confidence: "alta", updatedAt: "2026-04-19" },
+    };
+    const response = buildPropertyDetailResponse({
+      publicId,
+      requestedAt: "2026-04-19T10:00:00.000Z",
+      emittedAt: "2026-04-19T10:00:00.000Z",
+      identityResult: resolved(resolvedIdentity),
+      territoryResult: resolved(territory),
+      valuationResult: resolved(valuation),
+      signalsResult: unavailable<SignalsBlock>(),
+    });
+
+    expect(response.meta.resolvedBlocks).toEqual(["identity", "territory", "valuation"]);
+    expect(response.meta.failedBlocks).toEqual([]);
+    expect(response.signals).toBeNull(); // honest unavailable, not fabricated
+    expect(response.valuation?.prezzoStimato).toBeGreaterThan(0);
+    expect(response.valuation!.prezzoMinimo!).toBeLessThanOrEqual(response.valuation!.prezzoMassimo!);
+    expect(response.territory?.microZona).toContain("Zona OMI");
+    // Provenance present on every resolved block
+    expect(response.valuation?.provenance.source).toBeTruthy();
+    expect(response.territory?.provenance.source).toBeTruthy();
+    // Indicatori may have honest nulls — only sicurezza is derivable from real data in V1
+    expect(response.territory?.indicatori?.vivibilita).toBeNull();
+    expect(response.territory?.indicatori?.rumore).toBeNull();
+    expect(response.territory?.indicatori?.servizi).toBeNull();
+  });
 });
 
 describe("property-detail runtime handler contract", () => {
