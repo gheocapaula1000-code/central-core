@@ -36,8 +36,9 @@ export async function handlePropertyDetailLookup(
   registry: PropertyIdRegistry,
 ): Promise<Response> {
   const parseResult = await parsePropertyUrn(propertyId, registry);
-  if (!parseResult.ok) {
-    if (parseResult.error === "invalid_format") {
+  if (parseResult.ok !== true) {
+    const err = parseResult.error;
+    if (err === "invalid_format") {
       return propertyError(
         400,
         "VALIDATION_ERROR",
@@ -45,7 +46,7 @@ export async function handlePropertyDetailLookup(
         debugId,
       );
     }
-    if (parseResult.error === "unknown_id") {
+    if (err === "unknown_id") {
       return propertyError(
         404,
         "PROPERTY_NOT_FOUND",
