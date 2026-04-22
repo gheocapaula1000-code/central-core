@@ -20,6 +20,23 @@ import type {
   PrecisionLevel,
 } from "./types.ts";
 import { makeProvenance } from "./contract.ts";
+import { boundingBox, haversineMeters, smallestContainingRadius, radiusToSpatialScope } from "./geo.ts";
+
+// ── Padova Comune scope (V1 territorial limit) ─────────────────
+// Canonical OMI keys for Comune di Padova.
+const PADOVA_COMUNE_ISTAT_LONG = "5028060";
+const PADOVA_COMUNE_ISTAT_SHORT = "028060";
+const PADOVA_COMUNE_DESCR = "PADOVA";
+
+function isPadovaZone(zone: { comune_istat?: string | null; comune_descrizione?: string | null }): boolean {
+  const istat = (zone.comune_istat ?? "").trim();
+  const descr = (zone.comune_descrizione ?? "").trim().toUpperCase();
+  return (
+    istat === PADOVA_COMUNE_ISTAT_LONG ||
+    istat === PADOVA_COMUNE_ISTAT_SHORT ||
+    descr === PADOVA_COMUNE_DESCR
+  );
+}
 
 // ── Supabase Client ───────────────────────────────────────────
 
