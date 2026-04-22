@@ -592,3 +592,75 @@ describe("property-detail runtime handler contract", () => {
     });
   });
 });
+
+// ════════════════════════════════════════════════════════════════
+// Padova Comune territorial scope (V1)
+// ════════════════════════════════════════════════════════════════
+
+describe("property-detail Padova Comune scope", () => {
+  it("returns property_not_found when identity is unavailable (e.g. coordinate outside Padova Comune)", async () => {
+    const registry = createInMemoryPropertyIdRegistry();
+    // Coordinates inside Veneto bounds but outside Padova Comune (e.g. Verona).
+    const outsidePadova = { lat: 45.4384, lng: 10.9916 };
+    const publicId = await encodePublicPropertyId(outsidePadova, registry);
+
+    const assemble = vi.fn(async (_coords, id, _dbg) => buildPropertyDetailResponse({
+      publicId: id,
+      requestedAt: "2026-04-22T10:00:00.000Z",
+      emittedAt: "2026-04-22T10:00:00.000Z",
+      // Provider returned unavailable (out-of-Padova guard inside identity).
+      identityResult: unavailable<IdentityBlock>(),
+      territoryResult: unavailable<TerritoryBlock>(),
+      valuationResult: unavailable<ValuationBlock>(),
+      signalsResult: unavailable<SignalsBlock>(),
+    }));
+
+    const response = await handlePropertyDetailLookup(publicId, debugId, assemble, registry);
+    const body = await readJson(response);
+
+    expect(response.status).toBe(404);
+    expect(body).toEqual({
+      error: {
+        code: "PROPERTY_NOT_FOUND",
+        message: "No property data found for this location in Comune di Padova",
+      },
+      debug_id: debugId,
+    });
+  });
+
+  it("services_proximity indicator carries radius-based spatial scope and neighborhood precision when resolved", () => {
+    const proximityProv = makeProvenance({
+      source: "mim_schools",
+      confidence: "alta",
+      updatedAt: "2026-04-22",
+      precisionLevel: "neighborhood",
+      spatialScope: "buffer_250m",
+      radiusMeters: 250,
+    });
+    const indicator = {
+      value: "media",
+      kind: "service_proximity" as const,
+      provenance: proximityProv,
+    };
+    expect(indicator.kind).toBe("service_proximity");
+    expect(indicator.provenance.precisionLevel).toBe("neighborhood");
+    expect(indicator.provenance.spatialScope).toBe("buffer_250m");
+    expect(indicator.provenance.radiusMeters).toBe(250);
+  });
+
+  it("services_proximity remains honestly null when no real source rows are within radius", () => {
+    const indicators: TerritoryIndicators = {
+      sicurezzaAmbientale: null,
+      rischioIdrogeologico: null,
+      profiloDemografico: null,
+      residenzialita: null,
+      serviziProssimita: null,
+      verdeProssimita: null,
+      accessibilita: null,
+      pressioneTraffico: null,
+      rumoreProxy: null,
+    };
+    // Honest unavailable — no fabricated proximity claim.
+    expect(indicators.serviziProssimita).toBeNull();
+  });
+});
