@@ -107,6 +107,16 @@ export async function resolveIdentity(
     }
 
     const primaryZone = zones[0];
+
+    // ── Padova-only territorial scope ──
+    if (!isPadovaZone(primaryZone)) {
+      console.log(
+        `[property-detail:identity] outside Padova Comune (zone_comune=${primaryZone.comune_descrizione ?? "?"} istat=${primaryZone.comune_istat ?? "?"}) → property_not_found debug_id=${debugId}`,
+      );
+      return { result: { outcome: "unavailable", data: null, provenance: null }, context: null };
+    }
+    console.log(`[property-detail:identity] Padova boundary OK istat=${primaryZone.comune_istat} debug_id=${debugId}`);
+
     const comune: string = primaryZone.comune_descrizione;
     const provincia: string = primaryZone.provincia;
     const comuneIstat: string = primaryZone.comune_istat;
