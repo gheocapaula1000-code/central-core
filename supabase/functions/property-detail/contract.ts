@@ -169,3 +169,24 @@ export function buildPropertyDetailResponse(params: {
 export function makeUnavailableResult<T>(): ProviderResult<T> {
   return { outcome: "unavailable", data: null, provenance: null };
 }
+
+/**
+ * Convenience builder for a fully-typed BlockProvenance.
+ */
+export function makeProvenance(params: {
+  source: string;
+  confidence: "alta" | "media" | "bassa";
+  updatedAt?: string;
+  precisionLevel: import("./types.ts").PrecisionLevel;
+  spatialScope: import("./types.ts").SpatialScope;
+  radiusMeters?: number | null;
+}): import("./types.ts").BlockProvenance {
+  return {
+    source: params.source,
+    confidence: params.confidence,
+    updatedAt: params.updatedAt ?? new Date().toISOString().slice(0, 10),
+    precisionLevel: params.precisionLevel,
+    spatialScope: params.spatialScope,
+    radiusMeters: params.radiusMeters ?? null,
+  };
+}
