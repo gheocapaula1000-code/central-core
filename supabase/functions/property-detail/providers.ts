@@ -1,8 +1,9 @@
 // ═══════════════════════════════════════════════════════════════
-// Property Detail — Providers (Phase 2 — Real)
-// Identity:   real (OMI zone geometry + Nominatim)
-// Valuation:  real (OMI valori per comune + zona)
-// Territory:  real (OMI zone + ISTAT demographics + ISPRA + sismica)
+// Property Detail — Providers (Phase 3 — Real micro-area)
+// Identity:   real (OMI zone geometry + Nominatim) — exposes precisionLevel
+// Valuation:  real (OMI valori per comune + zona) — sqm only, NO fake totals
+// Territory:  real (OMI zone + ISTAT + ISPRA + sismica) with per-indicator
+//             provenance and honest spatial scope
 // Signals:    honest unavailable (no real signal source wired in V1)
 // ═══════════════════════════════════════════════════════════════
 
@@ -12,9 +13,13 @@ import type {
   IdentityBlock,
   ValuationBlock,
   TerritoryBlock,
+  TerritoryIndicator,
+  TerritoryIndicators,
   SignalsBlock,
   BlockProvenance,
+  PrecisionLevel,
 } from "./types.ts";
+import { makeProvenance } from "./contract.ts";
 
 // ── Supabase Client ───────────────────────────────────────────
 
@@ -25,30 +30,36 @@ function getSupabase() {
   return createClient(url, key);
 }
 
-// ── Confidence Mapping ────────────────────────────────────────
-
-function confidenceLabel(level: string): string {
-  if (level === "house_number") return "alta";
-  if (level === "street") return "media";
-  return "bassa";
-}
-
 const TODAY = () => new Date().toISOString().slice(0, 10);
 
 // ── Identity Provider (REAL) ──────────────────────────────────
 
 export interface IdentityContext {
-  comune: string;          // e.g. "PADOVA" (from OMI zone)
-  comuneIstat: string;     // 6/8-digit ISTAT code
+  comune: string;
+  comuneIstat: string;
   provincia: string;
-  linkZona: string | null; // e.g. "PD00000015"
-  zona: string | null;     // e.g. "B1"
+  linkZona: string | null;
+  zona: string | null;
   zonaDescr: string | null;
+  precisionLevel: PrecisionLevel;
+  coords: { lat: number; lng: number };
 }
 
 export interface IdentityProviderResult {
   result: ProviderResult<IdentityBlock>;
   context: IdentityContext | null;
+}
+
+function geoMatchToPrecision(rank: number, hasHouseNumber: boolean, hasStreet: boolean): PrecisionLevel {
+  if (rank >= 30 && hasHouseNumber) return "civic";
+  if (rank >= 26 && hasStreet) return "street";
+  return "comune";
+}
+
+function precisionToConfidence(p: PrecisionLevel): "alta" | "media" | "bassa" {
+  if (p === "building" || p === "civic") return "alta";
+  if (p === "street" || p === "microzone") return "media";
+  return "bassa";
 }
 
 export async function resolveIdentity(
@@ -75,10 +86,7 @@ export async function resolveIdentity(
 
     if (!zones || zones.length === 0) {
       console.log(`[property-detail:identity] no OMI zone for (${lat}, ${lng}) debug_id=${debugId}`);
-      return {
-        result: { outcome: "unavailable", data: null, provenance: null },
-        context: null,
-      };
+      return { result: { outcome: "unavailable", data: null, provenance: null }, context: null };
     }
 
     const primaryZone = zones[0];
@@ -89,11 +97,10 @@ export async function resolveIdentity(
     const zona: string | null = primaryZone.zona ?? null;
     const zonaDescr: string | null = primaryZone.zona_descr ?? null;
 
-    // Reverse geocode via Nominatim for address detail
     let street: string | null = null;
     let houseNumber: string | null = null;
     let postalCode: string | null = null;
-    let geoMatchLevel = "city";
+    let precision: PrecisionLevel = linkZona ? "microzone" : "comune";
 
     try {
       const nominatimRes = await fetch(
@@ -110,22 +117,29 @@ export async function resolveIdentity(
           street = a.road ?? a.pedestrian ?? a.street ?? null;
           houseNumber = a.house_number ?? null;
           postalCode = a.postcode ?? null;
-          const rank = geo.address_rank ?? 0;
-          geoMatchLevel = rank >= 30 && houseNumber ? "house_number" : rank >= 26 ? "street" : "city";
+          const rank = Number(geo.address_rank ?? 0);
+          const geoPrecision = geoMatchToPrecision(rank, !!houseNumber, !!street);
+          // Take the more precise of the two signals.
+          if (geoPrecision === "civic" || geoPrecision === "street") {
+            precision = geoPrecision;
+          }
         }
       }
     } catch (e) {
       console.warn(`[property-detail:identity] nominatim fallback: ${String(e).slice(0, 80)} debug_id=${debugId}`);
     }
 
-    const provenance: BlockProvenance = {
+    const microZona = zonaDescr ? `Zona OMI ${zona ?? ""} — ${zonaDescr}`.trim() : null;
+
+    const provenance: BlockProvenance = makeProvenance({
       source: "omi_zone_geometry+nominatim",
-      confidence: confidenceLabel(geoMatchLevel),
-      updatedAt: TODAY(),
-    };
+      confidence: precisionToConfidence(precision),
+      precisionLevel: precision,
+      spatialScope: precision === "civic" || precision === "street" ? "point" : (linkZona ? "microzone" : "comune"),
+    });
 
     const durationMs = Date.now() - startMs;
-    console.log(`[property-detail:identity] resolved comune=${comune} zona=${zona} match=${geoMatchLevel} duration_ms=${durationMs} debug_id=${debugId}`);
+    console.log(`[property-detail:identity] resolved comune=${comune} zona=${zona} precision=${precision} duration_ms=${durationMs} debug_id=${debugId}`);
 
     return {
       result: {
@@ -137,6 +151,9 @@ export async function resolveIdentity(
           provincia,
           cap: postalCode,
           coordinate: { lat, lng },
+          precisionLevel: precision,
+          microZona,
+          zonaOmi: zona,
           tipologia: null,
           stato: null,
           superficieMq: null,
@@ -148,27 +165,16 @@ export async function resolveIdentity(
         },
         provenance,
       },
-      context: { comune, comuneIstat, provincia, linkZona, zona, zonaDescr },
+      context: { comune, comuneIstat, provincia, linkZona, zona, zonaDescr, precisionLevel: precision, coords: { lat, lng } },
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error(`[property-detail:identity] unexpected error: ${msg.slice(0, 120)} debug_id=${debugId}`);
-    return {
-      result: { outcome: "failed", data: null, provenance: null, error: msg.slice(0, 120) },
-      context: null,
-    };
+    return { result: { outcome: "failed", data: null, provenance: null, error: msg.slice(0, 120) }, context: null };
   }
 }
 
-// ── Valuation Provider (REAL) ─────────────────────────────────
-// Strategy:
-//   1. Filter omi_valori by comune_descrizione
-//   2. Prefer zone match via link_zona (point-in-polygon result)
-//   3. Restrict to "Abitazioni civili" residential typology
-//   4. Prefer stato "NORMALE" → fall back to OTTIMO
-//   5. Use compr_min/compr_max as the price range (€/m²)
-//   6. Median of midpoints as prezzoStimato
-//   7. Confidence: alta if zone match, media if comune-only, bassa if missing typology
+// ── Valuation Provider (REAL — sqm semantics, NO fake totals) ─────
 
 export async function resolveValuation(
   context: IdentityContext,
@@ -180,7 +186,6 @@ export async function resolveValuation(
   try {
     const supabase = getSupabase();
 
-    // Step 1: try zone-precise lookup
     let rows: Array<{ compr_min: number | null; compr_max: number | null; stato: string | null; descr_tipologia: string | null; link_zona: string | null }> = [];
     let matchScope: "zone" | "comune" = "zone";
 
@@ -198,7 +203,6 @@ export async function resolveValuation(
       rows = (data ?? []) as typeof rows;
     }
 
-    // Step 2: fallback to comune-wide if zone empty
     if (rows.length === 0) {
       matchScope = "comune";
       const { data, error } = await supabase
@@ -218,11 +222,13 @@ export async function resolveValuation(
       return { outcome: "unavailable", data: null, provenance: null };
     }
 
-    // Prefer NORMALE; fall back to all
     const normale = rows.filter((r) => r.stato === "NORMALE");
     const usable = normale.length > 0 ? normale : rows;
 
-    const valid = usable.filter((r) => Number.isFinite(r.compr_min) && Number.isFinite(r.compr_max) && (r.compr_min as number) > 0 && (r.compr_max as number) > 0);
+    const valid = usable.filter((r) =>
+      Number.isFinite(r.compr_min) && Number.isFinite(r.compr_max) &&
+      (r.compr_min as number) > 0 && (r.compr_max as number) > 0
+    );
     if (valid.length === 0) {
       console.log(`[property-detail:valuation] no valid price ranges debug_id=${debugId}`);
       return { outcome: "unavailable", data: null, provenance: null };
@@ -230,31 +236,37 @@ export async function resolveValuation(
 
     const mins = valid.map((r) => r.compr_min as number);
     const maxs = valid.map((r) => r.compr_max as number);
-    const prezzoMinimo = Math.round(Math.min(...mins));
-    const prezzoMassimo = Math.round(Math.max(...maxs));
+    const prezzoMqMinimo = Math.round(Math.min(...mins));
+    const prezzoMqMassimo = Math.round(Math.max(...maxs));
     const midpoints = valid.map((r) => ((r.compr_min as number) + (r.compr_max as number)) / 2).sort((a, b) => a - b);
-    const prezzoStimato = Math.round(midpoints[Math.floor(midpoints.length / 2)]);
+    const prezzoMqStimato = Math.round(midpoints[Math.floor(midpoints.length / 2)]);
 
-    const stateNote = normale.length > 0 ? "stato NORMALE" : `stato misto (${[...new Set(rows.map((r) => r.stato).filter(Boolean))].join(", ")})`;
+    const stateNote = normale.length > 0
+      ? "stato NORMALE"
+      : `stato misto (${[...new Set(rows.map((r) => r.stato).filter(Boolean))].join(", ")})`;
     const drivers = `Valori OMI Abitazioni civili — ${matchScope === "zone" ? `zona ${context.zona ?? context.linkZona}` : `media comunale ${context.comune}`}, ${stateNote}, ${valid.length} fasc${valid.length === 1 ? "ia" : "e"} di prezzo €/m².`;
 
-    const confidence = matchScope === "zone" ? "alta" : "media";
-
-    const provenance: BlockProvenance = {
+    const provenance: BlockProvenance = makeProvenance({
       source: matchScope === "zone" ? "omi_valori (zona)" : "omi_valori (comune)",
-      confidence,
-      updatedAt: TODAY(),
-    };
+      confidence: matchScope === "zone" ? "alta" : "media",
+      precisionLevel: matchScope === "zone" ? "microzone" : "comune",
+      spatialScope: matchScope === "zone" ? "microzone" : "comune",
+    });
 
     const durationMs = Date.now() - startMs;
-    console.log(`[property-detail:valuation] resolved scope=${matchScope} stimato=${prezzoStimato} range=${prezzoMinimo}-${prezzoMassimo} duration_ms=${durationMs} debug_id=${debugId}`);
+    console.log(`[property-detail:valuation] resolved scope=${matchScope} mq_stimato=${prezzoMqStimato} range=${prezzoMqMinimo}-${prezzoMqMassimo} totals=null(no_real_inputs) duration_ms=${durationMs} debug_id=${debugId}`);
 
     return {
       outcome: "resolved",
       data: {
-        prezzoStimato,
-        prezzoMinimo,
-        prezzoMassimo,
+        prezzoMqStimato,
+        prezzoMqMinimo,
+        prezzoMqMassimo,
+        // Honest: no real surface/state inputs → no fabricated totals.
+        prezzoTotaleStimato: null,
+        prezzoTotaleMinimo: null,
+        prezzoTotaleMassimo: null,
+        unita: "EUR_per_mq",
         drivers,
         provenance,
       },
@@ -268,19 +280,10 @@ export async function resolveValuation(
 }
 
 // ── Territory Provider (REAL) ─────────────────────────────────
-// Sources:
-//   - omi_zone_by_point (zone description, fascia, microzona) → already in context
-//   - istat_comuni (demographics)
-//   - ispra_rischio (hydraulic + landslide risk)
-//   - classificazione_sismica (seismic zone)
-// Outputs are honest: only fields that resolve from data are populated.
 
 function normalizeIstatCode(code: string): { short: string; long: string } {
-  // ISTAT uses 6 digits at comune level; classificazione_sismica often uses 8 digits (region+comune).
   const digits = code.replace(/[^0-9]/g, "");
-  if (digits.length >= 6) {
-    return { short: digits.slice(-6), long: digits.padStart(8, "0") };
-  }
+  if (digits.length >= 6) return { short: digits.slice(-6), long: digits.padStart(8, "0") };
   return { short: digits, long: digits };
 }
 
@@ -289,7 +292,6 @@ function clamp(n: number, lo: number, hi: number): number {
 }
 
 function bandLabel(score: number): string {
-  // score in 0..100
   if (score >= 75) return "alta";
   if (score >= 50) return "media";
   if (score >= 25) return "bassa";
@@ -329,34 +331,30 @@ export async function resolveTerritory(
     const ispra = ispraRes.data as { frana_p3_perc?: number; frana_p4_perc?: number; idro_p3_perc?: number; pop_idro_p3?: number; pop_frana_p3p4?: number } | null;
     const sismica = sismicaRes.data as { zona_sismica?: number } | null;
 
-    // If all enrichment sources are empty AND no OMI zone description, we have nothing real to say.
     const hasZone = !!context.zonaDescr;
     if (!istat && !ispra && !sismica && !hasZone) {
       console.log(`[property-detail:territory] no enrichment data debug_id=${debugId}`);
       return { outcome: "unavailable", data: null, provenance: null };
     }
 
-    // Compose microZona from real OMI data
     const microZona = context.zonaDescr
       ? `Zona OMI ${context.zona ?? ""} — ${context.zonaDescr}`.trim()
       : null;
 
-    // Sommario from demographics (only when istat present)
     let sommario: string | null = null;
     if (istat) {
-      const pop = istat.popolazione ?? null;
-      const eta = istat.eta_media ?? null;
       const parts: string[] = [];
-      if (pop !== null) parts.push(`${pop.toLocaleString("it-IT")} abitanti`);
-      if (eta !== null) parts.push(`età media ${eta.toFixed(1)} anni`);
-      if (parts.length > 0) sommario = `${context.comune.charAt(0) + context.comune.slice(1).toLowerCase()}: ${parts.join(", ")}.`;
+      if (istat.popolazione != null) parts.push(`${istat.popolazione.toLocaleString("it-IT")} abitanti`);
+      if (istat.eta_media != null) parts.push(`età media ${istat.eta_media.toFixed(1)} anni`);
+      if (parts.length > 0) {
+        sommario = `${context.comune.charAt(0) + context.comune.slice(1).toLowerCase()}: ${parts.join(", ")}.`;
+      }
     }
 
-    // Honest puntiForti / criticita from data thresholds
     const puntiForti: string[] = [];
     const criticita: string[] = [];
 
-    if (sismica?.zona_sismica !== undefined && sismica.zona_sismica !== null) {
+    if (sismica?.zona_sismica != null) {
       const z = sismica.zona_sismica;
       if (z >= 4) puntiForti.push("Rischio sismico molto basso (zona 4)");
       else if (z === 3) puntiForti.push("Rischio sismico basso (zona 3)");
@@ -373,51 +371,122 @@ export async function resolveTerritory(
       else if (fraP34 < 1) puntiForti.push("Rischio frana trascurabile");
     }
 
-    if (istat?.percentuale_over65 !== undefined && istat.percentuale_over65 !== null) {
+    if (istat?.percentuale_over65 != null) {
       const o65 = istat.percentuale_over65;
       if (o65 >= 28) criticita.push(`Popolazione anziana elevata (${o65.toFixed(1)}% over 65)`);
       else if (o65 <= 20) puntiForti.push(`Popolazione mediamente giovane (${o65.toFixed(1)}% over 65)`);
     }
 
-    // Indicatori — honest derivation, only when supportable
-    let indicatori: TerritoryBlock["indicatori"] = null;
-    if (ispra || sismica) {
-      // sicurezza: invert combined natural risk
-      let sicurezzaScore = 100;
-      if (sismica?.zona_sismica !== undefined && sismica.zona_sismica !== null) {
-        // zona 1=alto rischio, 4=basso → score 25/50/75/100
-        sicurezzaScore = clamp(sismica.zona_sismica * 25, 25, 100);
+    // ── Per-indicator structured derivation ────────────────────
+    const indicatori: TerritoryIndicators = {
+      sicurezzaAmbientale: null,
+      rischioIdrogeologico: null,
+      profiloDemografico: null,
+      residenzialita: null,
+      // Honest unavailable: no real datasets wired for these in V1.
+      serviziProssimita: null,
+      verdeProssimita: null,
+      accessibilita: null,
+      pressioneTraffico: null,
+      rumoreProxy: null,
+    };
+    const indicatorsResolvedNames: string[] = [];
+    const indicatorsUnavailableNames = ["serviziProssimita", "verdeProssimita", "accessibilita", "pressioneTraffico", "rumoreProxy"];
+
+    if (sismica || ispra) {
+      let safetyScore = 100;
+      if (sismica?.zona_sismica != null) {
+        safetyScore = clamp(sismica.zona_sismica * 25, 25, 100);
       }
       if (ispra) {
         const idroP3 = ispra.idro_p3_perc ?? 0;
         const fraP34 = (ispra.frana_p3_perc ?? 0) + (ispra.frana_p4_perc ?? 0);
-        sicurezzaScore = clamp(sicurezzaScore - idroP3 * 1.5 - fraP34 * 2, 0, 100);
+        safetyScore = clamp(safetyScore - idroP3 * 1.5 - fraP34 * 2, 0, 100);
       }
-      indicatori = {
-        vivibilita: null, // honest: no robust dataset for general livability
-        sicurezza: bandLabel(sicurezzaScore),
-        rumore: null,     // honest: no real noise dataset wired
-        servizi: null,    // honest: schools dataset is empty
+      const safetyProv = makeProvenance({
+        source: [sismica ? "classificazione_sismica" : null, ispra ? "ispra_rischio" : null].filter(Boolean).join("+"),
+        confidence: sismica && ispra ? "alta" : "media",
+        precisionLevel: "comune",
+        spatialScope: "comune",
+      });
+      indicatori.sicurezzaAmbientale = {
+        value: bandLabel(safetyScore),
+        kind: "environmental_risk_inverse",
+        provenance: safetyProv,
       };
+      indicatorsResolvedNames.push("sicurezzaAmbientale");
     }
 
-    const sources = [
+    if (ispra) {
+      const idroP3 = ispra.idro_p3_perc ?? 0;
+      const fraP34 = (ispra.frana_p3_perc ?? 0) + (ispra.frana_p4_perc ?? 0);
+      const hydroScore = clamp(idroP3 * 2 + fraP34 * 2, 0, 100);
+      indicatori.rischioIdrogeologico = {
+        value: bandLabel(hydroScore),
+        kind: "environmental_risk_inverse",
+        provenance: makeProvenance({
+          source: "ispra_rischio",
+          confidence: "alta",
+          precisionLevel: "comune",
+          spatialScope: "comune",
+        }),
+      };
+      indicatorsResolvedNames.push("rischioIdrogeologico");
+    }
+
+    if (istat?.eta_media != null || istat?.percentuale_over65 != null) {
+      const o65 = istat?.percentuale_over65 ?? null;
+      const profile = o65 == null
+        ? `età media ${istat!.eta_media!.toFixed(1)}`
+        : (o65 >= 28 ? "anziana" : o65 <= 20 ? "giovane" : "equilibrata");
+      indicatori.profiloDemografico = {
+        value: profile,
+        kind: "demographic_age_profile",
+        provenance: makeProvenance({
+          source: "istat_comuni",
+          confidence: "alta",
+          precisionLevel: "comune",
+          spatialScope: "comune",
+        }),
+      };
+      indicatorsResolvedNames.push("profiloDemografico");
+    }
+
+    if (context.zonaDescr) {
+      indicatori.residenzialita = {
+        value: context.zonaDescr.toLowerCase().includes("centr") ? "centrale" : "residenziale",
+        kind: "residential_density",
+        provenance: makeProvenance({
+          source: "omi_zone",
+          confidence: "media",
+          precisionLevel: "microzone",
+          spatialScope: "microzone",
+        }),
+      };
+      indicatorsResolvedNames.push("residenzialita");
+    }
+
+    const blockSources = [
       "omi_zone",
       istat ? "istat_comuni" : null,
       ispra ? "ispra_rischio" : null,
       sismica ? "classificazione_sismica" : null,
     ].filter(Boolean).join("+");
 
-    const confidence = (istat && ispra && sismica) ? "alta" : (istat || ispra) ? "media" : "bassa";
+    const blockConfidence: "alta" | "media" | "bassa" =
+      (istat && ispra && sismica) ? "alta" : (istat || ispra) ? "media" : "bassa";
 
-    const provenance: BlockProvenance = {
-      source: sources,
-      confidence,
-      updatedAt: TODAY(),
-    };
+    const provenance: BlockProvenance = makeProvenance({
+      source: blockSources,
+      confidence: blockConfidence,
+      precisionLevel: hasZone ? "microzone" : "comune",
+      spatialScope: hasZone ? "microzone" : "comune",
+    });
 
     const durationMs = Date.now() - startMs;
-    console.log(`[property-detail:territory] resolved sources=${sources} duration_ms=${durationMs} debug_id=${debugId}`);
+    console.log(
+      `[property-detail:territory] resolved sources=${blockSources} indicators_resolved=[${indicatorsResolvedNames.join(",")}] indicators_unavailable=[${indicatorsUnavailableNames.join(",")}] duration_ms=${durationMs} debug_id=${debugId}`,
+    );
 
     return {
       outcome: "resolved",
@@ -427,7 +496,7 @@ export async function resolveTerritory(
         puntiForti: puntiForti.length > 0 ? puntiForti : null,
         criticita: criticita.length > 0 ? criticita : null,
         indicatori,
-        scenarioFuturo: null, // honest: no real scenario projection wired
+        scenarioFuturo: null, // honest: no real area-development source wired
         provenance,
       },
       provenance,
@@ -441,9 +510,8 @@ export async function resolveTerritory(
 
 // ── Signals Provider (HONEST UNAVAILABLE) ─────────────────────
 // V1 has no real signal source dataset (urbanism plans, infrastructure
-// announcements, etc.) wired in. Returning fabricated signals would
-// violate the data integrity policy. This stays unavailable until a
-// real provider is integrated.
+// announcements, transformation maps) wired in. Returning fabricated
+// signals would violate the data integrity policy.
 
 export async function resolveSignals(
   _context: IdentityContext,
@@ -452,3 +520,6 @@ export async function resolveSignals(
   console.log(`[property-detail:signals] unavailable (no real signal source wired) debug_id=${debugId}`);
   return { outcome: "unavailable", data: null, provenance: null };
 }
+
+// Re-export for tests / callers that previously imported from here.
+export type { TerritoryIndicator };
