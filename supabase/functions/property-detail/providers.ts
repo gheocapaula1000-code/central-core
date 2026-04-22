@@ -418,7 +418,56 @@ export async function resolveTerritory(
       rumoreProxy: null,
     };
     const indicatorsResolvedNames: string[] = [];
-    const indicatorsUnavailableNames = ["serviziProssimita", "verdeProssimita", "accessibilita", "pressioneTraffico", "rumoreProxy"];
+    const indicatorsUnavailableNames: string[] = ["verdeProssimita", "accessibilita", "pressioneTraffico", "rumoreProxy"];
+
+    // ── Real short-range services indicator (mim_schools, Padova-bounded) ──
+    // Honest: derived from a real geocoded dataset; null if no rows in radius.
+    try {
+      const bbox500 = boundingBox(context.coords, 500);
+      const { data: schoolRows, error: schoolErr } = await supabase
+        .from("mim_schools")
+        .select("lat, lng, grado")
+        .eq("comune", "Padova")
+        .not("lat", "is", null)
+        .not("lng", "is", null)
+        .gte("lat", bbox500.latMin)
+        .lte("lat", bbox500.latMax)
+        .gte("lng", bbox500.lngMin)
+        .lte("lng", bbox500.lngMax)
+        .limit(200);
+      if (schoolErr) {
+        console.warn(`[property-detail:territory] mim_schools query failed: ${schoolErr.message} debug_id=${debugId}`);
+        indicatorsUnavailableNames.push("serviziProssimita");
+      } else {
+        const within = (schoolRows ?? [])
+          .map((r) => ({ ...r, distance: haversineMeters(context.coords, { lat: r.lat as number, lng: r.lng as number }) }))
+          .filter((r) => r.distance <= 500);
+        if (within.length === 0) {
+          console.log(`[property-detail:territory] services_proximity unavailable (0 schools ≤500m) debug_id=${debugId}`);
+          indicatorsUnavailableNames.push("serviziProssimita");
+        } else {
+          const minDist = Math.min(...within.map((r) => r.distance));
+          const radius = smallestContainingRadius(minDist) ?? 500;
+          const band = within.length >= 5 ? "alta" : within.length >= 2 ? "media" : "bassa";
+          indicatori.serviziProssimita = {
+            value: band,
+            kind: "service_proximity",
+            provenance: makeProvenance({
+              source: "mim_schools",
+              confidence: "alta",
+              precisionLevel: "neighborhood",
+              spatialScope: radiusToSpatialScope(radius),
+              radiusMeters: radius,
+            }),
+          };
+          indicatorsResolvedNames.push("serviziProssimita");
+          console.log(`[property-detail:territory] services_proximity resolved count=${within.length} nearest_m=${Math.round(minDist)} radius=${radius} debug_id=${debugId}`);
+        }
+      }
+    } catch (e) {
+      console.warn(`[property-detail:territory] services_proximity error: ${String(e).slice(0, 80)} debug_id=${debugId}`);
+      indicatorsUnavailableNames.push("serviziProssimita");
+    }
 
     if (sismica || ispra) {
       let safetyScore = 100;
