@@ -673,11 +673,14 @@ function handleManifest(req: Request, debugId: string): Response {
 }
 
 function isProfileRoute(pathname: string): boolean {
+  const p = pathname.replace(/\/+$/, "");
   return (
-    pathname.endsWith("/civiko/property-source-profile") ||
-    pathname.endsWith("/property-source-profile") ||
-    pathname === EXPECTED_BASE_PATH ||
-    pathname === EXPECTED_BASE_PATH + "/"
+    p.endsWith("/civiko/property-source-profile") ||
+    p.endsWith("/property-source-profile") ||
+    p.endsWith("/civiko-property-source-profile") ||
+    p === EXPECTED_BASE_PATH ||
+    p === "" ||
+    p === "/"
   );
 }
 
