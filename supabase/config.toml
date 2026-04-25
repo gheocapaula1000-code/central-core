@@ -32,3 +32,6 @@ verify_jwt = false
 
 [functions.property-detail]
 verify_jwt = false
+
+[functions.civiko-property-source-profile]
+verify_jwt = false
