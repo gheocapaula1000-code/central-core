@@ -22,7 +22,7 @@ const FORBIDDEN_RE = new RegExp(
   "(?<![\\p{L}\\p{N}])(" +
     FORBIDDEN_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") +
     ")(?![\\p{L}\\p{N}])",
-  "giu",
+  "iu",
 );
 
 describe("Civiko hyperlocal — forbidden vocabulary", () => {
