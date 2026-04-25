@@ -14,6 +14,66 @@ export type Database = {
   }
   public: {
     Tables: {
+      agency_property_outcomes: {
+        Row: {
+          agency_id: string
+          created_at: string
+          days_on_market: number | null
+          fee_generated: number | null
+          final_sale_price: number | null
+          id: number
+          initial_asking_price: number | null
+          mandate_status: string | null
+          municipality: string | null
+          neighborhood: string | null
+          notes: string | null
+          offers_count: number | null
+          owner_objections: Json | null
+          property_id: string | null
+          property_type: string | null
+          updated_at: string
+          visits_count: number | null
+        }
+        Insert: {
+          agency_id: string
+          created_at?: string
+          days_on_market?: number | null
+          fee_generated?: number | null
+          final_sale_price?: number | null
+          id?: number
+          initial_asking_price?: number | null
+          mandate_status?: string | null
+          municipality?: string | null
+          neighborhood?: string | null
+          notes?: string | null
+          offers_count?: number | null
+          owner_objections?: Json | null
+          property_id?: string | null
+          property_type?: string | null
+          updated_at?: string
+          visits_count?: number | null
+        }
+        Update: {
+          agency_id?: string
+          created_at?: string
+          days_on_market?: number | null
+          fee_generated?: number | null
+          final_sale_price?: number | null
+          id?: number
+          initial_asking_price?: number | null
+          mandate_status?: string | null
+          municipality?: string | null
+          neighborhood?: string | null
+          notes?: string | null
+          offers_count?: number | null
+          owner_objections?: Json | null
+          property_id?: string | null
+          property_type?: string | null
+          updated_at?: string
+          visits_count?: number | null
+        }
+        Relationships: []
+      }
       classificazione_sismica: {
         Row: {
           codice_istat: string
@@ -188,6 +248,143 @@ export type Database = {
           trace_id?: string
           updated_at?: string
           warnings?: string[] | null
+        }
+        Relationships: []
+      }
+      local_signals: {
+        Row: {
+          category: string | null
+          commercial_use: string | null
+          confidence: string
+          created_at: string
+          detected_at: string
+          evidence_url: string | null
+          expires_at: string | null
+          id: number
+          is_active: boolean
+          lat: number | null
+          lng: number | null
+          location_text: string | null
+          municipality: string | null
+          neighborhood: string | null
+          published_at: string | null
+          radius_meters: number | null
+          signal_tone: string
+          source_id: number | null
+          source_level: number
+          summary: string | null
+          title: string
+          updated_at: string
+          use_in_report: boolean
+        }
+        Insert: {
+          category?: string | null
+          commercial_use?: string | null
+          confidence?: string
+          created_at?: string
+          detected_at?: string
+          evidence_url?: string | null
+          expires_at?: string | null
+          id?: number
+          is_active?: boolean
+          lat?: number | null
+          lng?: number | null
+          location_text?: string | null
+          municipality?: string | null
+          neighborhood?: string | null
+          published_at?: string | null
+          radius_meters?: number | null
+          signal_tone?: string
+          source_id?: number | null
+          source_level?: number
+          summary?: string | null
+          title: string
+          updated_at?: string
+          use_in_report?: boolean
+        }
+        Update: {
+          category?: string | null
+          commercial_use?: string | null
+          confidence?: string
+          created_at?: string
+          detected_at?: string
+          evidence_url?: string | null
+          expires_at?: string | null
+          id?: number
+          is_active?: boolean
+          lat?: number | null
+          lng?: number | null
+          location_text?: string | null
+          municipality?: string | null
+          neighborhood?: string | null
+          published_at?: string | null
+          radius_meters?: number | null
+          signal_tone?: string
+          source_id?: number | null
+          source_level?: number
+          summary?: string | null
+          title?: string
+          updated_at?: string
+          use_in_report?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "local_signals_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "local_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      local_sources: {
+        Row: {
+          allowed_usage: string | null
+          created_at: string
+          id: number
+          is_active: boolean
+          last_checked_at: string | null
+          level: number
+          municipality: string | null
+          name: string
+          refresh_frequency: string | null
+          reliability_score: number | null
+          source_owner: string | null
+          type: string
+          updated_at: string
+          url: string | null
+        }
+        Insert: {
+          allowed_usage?: string | null
+          created_at?: string
+          id?: number
+          is_active?: boolean
+          last_checked_at?: string | null
+          level: number
+          municipality?: string | null
+          name: string
+          refresh_frequency?: string | null
+          reliability_score?: number | null
+          source_owner?: string | null
+          type: string
+          updated_at?: string
+          url?: string | null
+        }
+        Update: {
+          allowed_usage?: string | null
+          created_at?: string
+          id?: number
+          is_active?: boolean
+          last_checked_at?: string | null
+          level?: number
+          municipality?: string | null
+          name?: string
+          refresh_frequency?: string | null
+          reliability_score?: number | null
+          source_owner?: string | null
+          type?: string
+          updated_at?: string
+          url?: string | null
         }
         Relationships: []
       }
@@ -539,6 +736,45 @@ export type Database = {
         }
         Relationships: []
       }
+      owner_objection_patterns: {
+        Row: {
+          agency_id: string
+          created_at: string
+          id: number
+          municipality: string | null
+          neighborhood: string | null
+          objection_text: string | null
+          objection_type: string
+          source: string
+          suggested_response: string | null
+          updated_at: string
+        }
+        Insert: {
+          agency_id: string
+          created_at?: string
+          id?: number
+          municipality?: string | null
+          neighborhood?: string | null
+          objection_text?: string | null
+          objection_type: string
+          source?: string
+          suggested_response?: string | null
+          updated_at?: string
+        }
+        Update: {
+          agency_id?: string
+          created_at?: string
+          id?: number
+          municipality?: string | null
+          neighborhood?: string | null
+          objection_text?: string | null
+          objection_type?: string
+          source?: string
+          suggested_response?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       property_id_registry: {
         Row: {
           created_at: string
@@ -565,6 +801,50 @@ export type Database = {
           opaque_id?: string
         }
         Relationships: []
+      }
+      property_signal_matches: {
+        Row: {
+          created_at: string
+          distance_meters: number | null
+          id: number
+          match_reason: string | null
+          property_id: string
+          recommended_use: string | null
+          relevance_score: number | null
+          signal_id: number
+          visible_in_owner_report: boolean
+        }
+        Insert: {
+          created_at?: string
+          distance_meters?: number | null
+          id?: number
+          match_reason?: string | null
+          property_id: string
+          recommended_use?: string | null
+          relevance_score?: number | null
+          signal_id: number
+          visible_in_owner_report?: boolean
+        }
+        Update: {
+          created_at?: string
+          distance_meters?: number | null
+          id?: number
+          match_reason?: string | null
+          property_id?: string
+          recommended_use?: string | null
+          relevance_score?: number | null
+          signal_id?: number
+          visible_in_owner_report?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "property_signal_matches_signal_id_fkey"
+            columns: ["signal_id"]
+            isOneToOne: false
+            referencedRelation: "local_signals"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {

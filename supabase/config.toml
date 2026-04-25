@@ -35,3 +35,18 @@ verify_jwt = false
 
 [functions.civiko-property-source-profile]
 verify_jwt = false
+
+[functions.civiko-property-hyperlocal-signals]
+verify_jwt = false
+
+[functions.civiko-property-zona-in-movimento]
+verify_jwt = false
+
+[functions.civiko-property-piano-esclusiva]
+verify_jwt = false
+
+[functions.civiko-property-owner-report]
+verify_jwt = false
+
+[functions.civiko-property-objection-plan]
+verify_jwt = false
