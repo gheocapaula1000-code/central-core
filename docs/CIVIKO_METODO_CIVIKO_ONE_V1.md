@@ -14,16 +14,41 @@ già renderizza**.
 Civiko One PWA
    │
    ▼
-POST /civiko/property-from-photo   ← unico endpoint per la PWA
+POST /civiko-property-from-photo  ← unico endpoint per la PWA
    │
    ▼ (server-side fan-out, mai esposto alla PWA)
    civiko-property-source-profile
    civiko-property-hyperlocal-signals
    civiko-property-zona-in-movimento
    civiko-property-piano-esclusiva
+   ─── runInternalSottraContext() ───
+       sottra/scan/identify
+       sottra/scan/pricing
+       sottra/scan/market
+       sottra/forecast/infrastrutture
+       sottra/forecast/rischio-zona
+       sottra/forecast/trend-demografico
+       sottra/forecast/sviluppo-area
+       sottra/forecast/convergenza-territoriale
 ```
 
-La PWA non vede mai Sottra, OMI raw, ISPRA raw, scraping logic o API key.
+La PWA non vede mai il nome **Sottra**, OMI raw, ISPRA raw, scraping logic, payload upstream, secrets o API key.
+
+## Internal Sottra step (`runInternalSottraContext`)
+
+Il modulo `sottraInternal.ts` è chiamato server-side e:
+
+- usa `resolveInternalSecret("sottra")` per il segreto per-app (fallback legacy con warning);
+- chiama in parallelo le rotte Sottra disponibili con timeout 8s;
+- mappa gli output in strutture **Civiko-friendly** (mai parole vietate, mai marker tecnici come `matchMethod`/`polygon_match`);
+- popola:
+    - `immobileReale` (address/zone/confidence) **solo** se mancanti dalla PWA;
+    - `fontiDaCollegare[id=omi].displayItems` **solo** se OMI ha restituito dati reali;
+    - `zonaInMovimento.segnaliForti / puntiAttenzione / leveNarrative / talkingPointsProprietario` **solo** quando i moduli Civiko nativi non hanno già prodotto contenuto;
+    - una frase aggiuntiva nel `pianoEsclusiva.frasiDaUsare` quando esiste un quadro di **convergenza territoriale**.
+
+Se Sottra non è raggiungibile (segreto mancante, rete giù, tutte le rotte ko), l'orchestratore aggiunge un warning umano (`"Contesto interno non disponibile in questo momento."`) e prosegue con i defaults Civiko. Il payload PWA resta sempre completo e ben formato.
+
 
 ## Request shape (PWA → backend)
 

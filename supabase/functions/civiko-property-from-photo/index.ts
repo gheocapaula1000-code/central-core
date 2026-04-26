@@ -24,6 +24,9 @@ import {
 import {
   sanitizeOutgoing, isPadovaMunicipality, isPadovaText, isPadovaCoord,
 } from "../_shared/civiko.ts";
+import {
+  runInternalSottraContext, type SottraContext, type SottraSignalHint,
+} from "./sottraInternal.ts";
 
 const FUNCTION_NAME = "civiko-property-from-photo";
 const EXPECTED_BASE_PATH = "/functions/v1/civiko-property-from-photo";
@@ -260,29 +263,45 @@ const FONTI_DEFAULT: Array<Omit<FonteOut, "displayItems"> & { displayItems: Disp
   { id: "zone_signals",         title: "Segnali di Zona",       status: "da_collegare", purpose: "Temi ricorrenti e segnali pubblici della zona.",            sourceOwner: "Fonti Locali",                           displayItems: [] },
 ];
 
-function mapFonti(sourceProfile: Record<string, unknown> | null): FonteOut[] {
+function mapFonti(
+  sourceProfile: Record<string, unknown> | null,
+  sottra: SottraContext | null,
+): FonteOut[] {
   const base: FonteOut[] = FONTI_DEFAULT.map((f) => ({ ...f, displayItems: [] }));
-  if (!sourceProfile) return base;
-  const areas = Array.isArray(sourceProfile.sourceAreas) ? sourceProfile.sourceAreas as Array<Record<string, unknown>> : [];
-  if (areas.length === 0) return base;
-
-  const byId = new Map(base.map((f, i) => [f.id, i]));
-  for (const a of areas) {
-    const id = safeStr(a.id);
-    const idx = byId.get(id);
-    if (idx == null) continue;
-    const status = safeStr(a.status) as FonteStatus;
-    const validStatuses: FonteStatus[] = ["da_collegare", "da_consultare", "collegata", "da_rivedere", "non_disponibile"];
-    base[idx].status = validStatuses.includes(status) ? status : "da_collegare";
-    if (a.title) base[idx].title = safeStr(a.title) || base[idx].title;
-    if (a.purpose) base[idx].purpose = safeStr(a.purpose) || base[idx].purpose;
-    if (a.sourceOwner) base[idx].sourceOwner = safeStr(a.sourceOwner) || base[idx].sourceOwner;
-    const items = Array.isArray(a.displayItems) ? a.displayItems as Array<Record<string, unknown>> : [];
-    base[idx].displayItems = items
-      .filter((x) => x && typeof x === "object")
-      .map((x) => ({ label: safeStr(x.label), value: safeStr(x.value) }))
-      .filter((x) => x.label && x.value);
+  if (sourceProfile) {
+    const areas = Array.isArray(sourceProfile.sourceAreas) ? sourceProfile.sourceAreas as Array<Record<string, unknown>> : [];
+    if (areas.length > 0) {
+      const byId = new Map(base.map((f, i) => [f.id, i]));
+      for (const a of areas) {
+        const id = safeStr(a.id);
+        const idx = byId.get(id);
+        if (idx == null) continue;
+        const status = safeStr(a.status) as FonteStatus;
+        const validStatuses: FonteStatus[] = ["da_collegare", "da_consultare", "collegata", "da_rivedere", "non_disponibile"];
+        base[idx].status = validStatuses.includes(status) ? status : "da_collegare";
+        if (a.title) base[idx].title = safeStr(a.title) || base[idx].title;
+        if (a.purpose) base[idx].purpose = safeStr(a.purpose) || base[idx].purpose;
+        if (a.sourceOwner) base[idx].sourceOwner = safeStr(a.sourceOwner) || base[idx].sourceOwner;
+        const items = Array.isArray(a.displayItems) ? a.displayItems as Array<Record<string, unknown>> : [];
+        base[idx].displayItems = items
+          .filter((x) => x && typeof x === "object")
+          .map((x) => ({ label: safeStr(x.label), value: safeStr(x.value) }))
+          .filter((x) => x.label && x.value);
+      }
+    }
   }
+
+  // Internal context enrichment — only if real data was returned upstream.
+  // Never invents displayItems; only fills the OMI area when Sottra returned
+  // verifiable references.
+  if (sottra?.omi?.available && sottra.omi.displayItems.length > 0) {
+    const omiIdx = base.findIndex((f) => f.id === "omi");
+    if (omiIdx >= 0 && base[omiIdx].displayItems.length === 0) {
+      base[omiIdx].status = sottra.omi.status;
+      base[omiIdx].displayItems = sottra.omi.displayItems;
+    }
+  }
+
   return base;
 }
 
@@ -322,6 +341,47 @@ function mapZonaInMovimento(zim: Record<string, unknown> | null): {
   const talkingPointsProprietario = ownerHooks.map((x) => safeStr(x)).filter(Boolean).slice(0, 6);
 
   return { segnaliForti, puntiAttenzione, leveNarrative, talkingPointsProprietario };
+}
+
+// ── merge internal Sottra context into Zona in Movimento ──────
+function mergeSottraIntoZona(
+  zim: { segnaliForti: SegnaleOut[]; puntiAttenzione: SegnaleOut[]; leveNarrative: string[]; talkingPointsProprietario: string[] },
+  sottra: SottraContext,
+): void {
+  if (!sottra.used) return;
+  const strongPool: SottraSignalHint[] = [...sottra.infrastrutture, ...sottra.developmentHints];
+  if (zim.segnaliForti.length === 0) {
+    zim.segnaliForti = strongPool.slice(0, 6).map((s, i) => ({
+      id: `int_strong_${i}`,
+      label: s.title,
+      ...(s.detail ? { detail: s.detail } : {}),
+    }));
+  }
+  if (zim.puntiAttenzione.length === 0 && sottra.riskFlags.length > 0) {
+    zim.puntiAttenzione = sottra.riskFlags.slice(0, 6).map((s, i) => ({
+      id: `int_att_${i}`,
+      label: s.title,
+      ...(s.detail ? { detail: s.detail } : {}),
+    }));
+  }
+  if (zim.leveNarrative.length === 0) {
+    const leve: string[] = [];
+    for (const s of strongPool.slice(0, 3)) {
+      leve.push(s.source
+        ? `Usare "${s.title}" (${s.source}) come leva narrativa documentabile.`
+        : `Usare "${s.title}" come leva narrativa documentabile.`);
+    }
+    if (sottra.convergenceSummary) {
+      leve.push(`Inquadrare il quartiere con il quadro di zona: ${sottra.convergenceSummary}.`);
+    }
+    zim.leveNarrative = leve;
+  }
+  if (zim.talkingPointsProprietario.length === 0) {
+    const tp: string[] = [];
+    for (const s of sottra.demographicHints.slice(0, 2)) tp.push(`Quadro di quartiere: ${s.title}.`);
+    for (const s of sottra.marketHints.slice(0, 2)) tp.push(`Riferimento di Mercato: ${s.title}.`);
+    zim.talkingPointsProprietario = tp.slice(0, 4);
+  }
 }
 
 // ── piano esclusiva mapping ───────────────────────────────────
@@ -511,10 +571,23 @@ async function orchestrate(body: RequestBody, debugId: string) {
     municipality,
   };
 
-  const [spRes, hlRes, zmRes] = await Promise.all([
+  // Internal Sottra context (server-side, never exposed to PWA).
+  // Runs in parallel with sibling Civiko endpoints.
+  const sottraInputCtx = {
+    coords: ctx.coords,
+    manualAddress: ctx.manualAddress,
+    zone: safeStr(facts.zona),
+    propertyType: safeStr(facts.tipologia),
+    sizeSqm: safeStr(facts.metratura),
+    rooms: safeStr(facts.locali),
+    askingPrice: safeStr(facts.prezzoRichiesto),
+  };
+
+  const [spRes, hlRes, zmRes, sottraCtx] = await Promise.all([
     callSibling("civiko-property-source-profile", sourceProfilePayload, debugId),
     callSibling("civiko-property-hyperlocal-signals", hyperlocalPayload, debugId),
     callSibling("civiko-property-zona-in-movimento", hyperlocalPayload, debugId),
+    runInternalSottraContext(sottraInputCtx, debugId),
   ]);
 
   const sourceProfile = spRes.data;
@@ -527,10 +600,34 @@ async function orchestrate(body: RequestBody, debugId: string) {
     sourceProfile, hyperlocalSignals,
   }, debugId);
 
+  // Enrich Immobile Reale with internal identity hints (only if upstream
+  // didn't already supply confidence and identity hint is meaningful).
+  if (sottraCtx.identity) {
+    if (!immobile.address && sottraCtx.identity.address) immobile.address = sottraCtx.identity.address;
+    if (!immobile.zone && sottraCtx.identity.zone) immobile.zone = sottraCtx.identity.zone;
+    if ((immobile.confidence === "non_definita" || immobile.confidence === "bassa") && sottraCtx.identity.confidenceLevel) {
+      immobile.confidence = sottraCtx.identity.confidenceLevel;
+    }
+    if (immobile.address || immobile.zone) immobile.needsManualAddress = false;
+  }
+
   // Map all to PWA contract.
-  const fontiDaCollegare = mapFonti(sourceProfile);
+  const fontiDaCollegare = mapFonti(sourceProfile, sottraCtx);
   const zonaInMovimento = mapZonaInMovimento(zonaPayload);
+
+  // Merge internal context signals into Zona in Movimento — only when the
+  // hyperlocal/zona module did not already produce content.
+  mergeSottraIntoZona(zonaInMovimento, sottraCtx);
+
   const pianoEsclusiva = mapPianoEsclusiva(peRes.data, facts, fontiDaCollegare);
+  if (sottraCtx.convergenceSummary && !pianoEsclusiva.posizioneNegoziale.includes(sottraCtx.convergenceSummary)) {
+    // Add convergence narrative as an additional commercial cue.
+    pianoEsclusiva.frasiDaUsare = [
+      `Porta nella Presentazione Proprietario il quadro di zona: ${sottraCtx.convergenceSummary}.`,
+      ...pianoEsclusiva.frasiDaUsare,
+    ].slice(0, 8);
+  }
+
   const presentazioneProprietario = buildPresentazione(immobile, fontiDaCollegare, zonaInMovimento, pianoEsclusiva);
 
   // Status / warnings
@@ -538,11 +635,12 @@ async function orchestrate(body: RequestBody, debugId: string) {
   const failed = moduleResults.filter((r) => r.status !== 0 && !r.ok).length;
   const skipped = moduleResults.filter((r) => r.status === 0).length;
   if (failed > 0) warnings.push("Alcune fonti interne non hanno risposto: alcune sezioni potrebbero essere parziali.");
-  if (skipped === moduleResults.length) warnings.push("Fonti interne non configurate in questo ambiente: risposta limitata.");
+  if (skipped === moduleResults.length && !sottraCtx.used) warnings.push("Fonti interne non configurate in questo ambiente: risposta limitata.");
+  for (const w of sottraCtx.warnings) warnings.push(w);
 
   let configured = true;
   let message: string | undefined;
-  if (skipped === moduleResults.length) {
+  if (skipped === moduleResults.length && !sottraCtx.used) {
     configured = false;
     message = "Risposta scaffolded: i moduli interni non sono ancora configurati in questo ambiente.";
   }
