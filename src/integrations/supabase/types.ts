@@ -74,6 +74,174 @@ export type Database = {
         }
         Relationships: []
       }
+      billing_customers: {
+        Row: {
+          agency_id: string
+          app_id: string
+          created_at: string
+          email: string | null
+          id: number
+          stripe_customer_id: string
+          updated_at: string
+        }
+        Insert: {
+          agency_id: string
+          app_id?: string
+          created_at?: string
+          email?: string | null
+          id?: number
+          stripe_customer_id: string
+          updated_at?: string
+        }
+        Update: {
+          agency_id?: string
+          app_id?: string
+          created_at?: string
+          email?: string | null
+          id?: number
+          stripe_customer_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      billing_entitlements: {
+        Row: {
+          allow_hyperlocal_signals: boolean
+          allow_local_buzz: boolean
+          allow_pdf_export: boolean
+          allow_white_label: boolean
+          app_id: string
+          created_at: string
+          id: number
+          monthly_owner_reports: number | null
+          monthly_piano_esclusiva: number | null
+          monthly_scans: number | null
+          plan_key: string
+          team_seats: number | null
+          updated_at: string
+        }
+        Insert: {
+          allow_hyperlocal_signals?: boolean
+          allow_local_buzz?: boolean
+          allow_pdf_export?: boolean
+          allow_white_label?: boolean
+          app_id?: string
+          created_at?: string
+          id?: number
+          monthly_owner_reports?: number | null
+          monthly_piano_esclusiva?: number | null
+          monthly_scans?: number | null
+          plan_key: string
+          team_seats?: number | null
+          updated_at?: string
+        }
+        Update: {
+          allow_hyperlocal_signals?: boolean
+          allow_local_buzz?: boolean
+          allow_pdf_export?: boolean
+          allow_white_label?: boolean
+          app_id?: string
+          created_at?: string
+          id?: number
+          monthly_owner_reports?: number | null
+          monthly_piano_esclusiva?: number | null
+          monthly_scans?: number | null
+          plan_key?: string
+          team_seats?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      billing_subscriptions: {
+        Row: {
+          agency_id: string
+          app_id: string
+          cancel_at_period_end: boolean
+          created_at: string
+          current_period_end: string | null
+          id: number
+          plan_key: string | null
+          price_id: string | null
+          status: string
+          stripe_customer_id: string
+          stripe_subscription_id: string
+          trial_end: string | null
+          updated_at: string
+        }
+        Insert: {
+          agency_id: string
+          app_id?: string
+          cancel_at_period_end?: boolean
+          created_at?: string
+          current_period_end?: string | null
+          id?: number
+          plan_key?: string | null
+          price_id?: string | null
+          status: string
+          stripe_customer_id: string
+          stripe_subscription_id: string
+          trial_end?: string | null
+          updated_at?: string
+        }
+        Update: {
+          agency_id?: string
+          app_id?: string
+          cancel_at_period_end?: boolean
+          created_at?: string
+          current_period_end?: string | null
+          id?: number
+          plan_key?: string | null
+          price_id?: string | null
+          status?: string
+          stripe_customer_id?: string
+          stripe_subscription_id?: string
+          trial_end?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      billing_usage: {
+        Row: {
+          agency_id: string
+          app_id: string
+          created_at: string
+          hyperlocal_signals_used: number
+          id: number
+          owner_reports_used: number
+          period_key: string
+          piano_esclusiva_used: number
+          scans_used: number
+          updated_at: string
+          zona_in_movimento_used: number
+        }
+        Insert: {
+          agency_id: string
+          app_id?: string
+          created_at?: string
+          hyperlocal_signals_used?: number
+          id?: number
+          owner_reports_used?: number
+          period_key: string
+          piano_esclusiva_used?: number
+          scans_used?: number
+          updated_at?: string
+          zona_in_movimento_used?: number
+        }
+        Update: {
+          agency_id?: string
+          app_id?: string
+          created_at?: string
+          hyperlocal_signals_used?: number
+          id?: number
+          owner_reports_used?: number
+          period_key?: string
+          piano_esclusiva_used?: number
+          scans_used?: number
+          updated_at?: string
+          zona_in_movimento_used?: number
+        }
+        Relationships: []
+      }
       classificazione_sismica: {
         Row: {
           codice_istat: string
