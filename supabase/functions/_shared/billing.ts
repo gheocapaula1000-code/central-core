@@ -248,12 +248,13 @@ export async function recordUsage(
     .eq("period_key", periodKey)
     .maybeSingle();
 
-  if (existing) {
-    const cur = (existing as Record<string, unknown>)[col] as number | null | undefined;
+  const existingRow = existing as unknown as Record<string, unknown> | null;
+  if (existingRow && typeof existingRow.id === "number") {
+    const cur = existingRow[col] as number | null | undefined;
     await sb
       .from("billing_usage")
       .update({ [col]: (cur ?? 0) + count })
-      .eq("id", (existing as { id: number }).id);
+      .eq("id", existingRow.id as number);
   } else {
     await sb.from("billing_usage").insert({
       agency_id: agencyId,
