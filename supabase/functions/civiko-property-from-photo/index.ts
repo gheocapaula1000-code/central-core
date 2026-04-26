@@ -372,11 +372,13 @@ function mapPianoEsclusiva(
   }
 
   const positioning = (pe.positioning ?? {}) as Record<string, unknown>;
-  const mainLeverage = Array.isArray(pe.mainLeverage) ? (pe.mainLeverage as unknown[]).map(safeStr).filter(Boolean) : [];
-  const exclusiveArgument = Array.isArray(pe.exclusiveArgument) ? (pe.exclusiveArgument as unknown[]).map(safeStr).filter(Boolean) : [];
-  const riskIfNoExclusive = Array.isArray(pe.riskIfNoExclusive) ? (pe.riskIfNoExclusive as unknown[]).map(safeStr).filter(Boolean) : [];
-  const phrasesToUse = Array.isArray(pe.phrasesToUse) ? (pe.phrasesToUse as unknown[]).map(safeStr).filter(Boolean) : [];
-  const nextActions = Array.isArray(pe.nextActions) ? (pe.nextActions as unknown[]).map(safeStr).filter(Boolean) : [];
+  const toStrList = (v: unknown): string[] =>
+    Array.isArray(v) ? (v as unknown[]).map((x) => safeStr(x)).filter((s) => s.length > 0) : [];
+  const mainLeverage = toStrList(pe.mainLeverage);
+  const exclusiveArgument = toStrList(pe.exclusiveArgument);
+  const riskIfNoExclusive = toStrList(pe.riskIfNoExclusive);
+  const phrasesToUse = toStrList(pe.phrasesToUse);
+  const nextActions = toStrList(pe.nextActions);
 
   return {
     posizioneNegoziale: safeStr(positioning.summary) || "Costruire la Posizione Negoziale sui Riferimenti di Mercato e sul Servizio Completo.",
