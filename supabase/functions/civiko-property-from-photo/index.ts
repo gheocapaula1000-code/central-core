@@ -24,6 +24,9 @@ import {
 import {
   sanitizeOutgoing, isPadovaMunicipality, isPadovaText, isPadovaCoord,
 } from "../_shared/civiko.ts";
+import {
+  runInternalSottraContext, type SottraContext, type SottraSignalHint,
+} from "./sottraInternal.ts";
 
 const FUNCTION_NAME = "civiko-property-from-photo";
 const EXPECTED_BASE_PATH = "/functions/v1/civiko-property-from-photo";
