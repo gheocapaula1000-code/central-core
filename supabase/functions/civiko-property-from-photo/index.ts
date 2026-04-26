@@ -343,6 +343,47 @@ function mapZonaInMovimento(zim: Record<string, unknown> | null): {
   return { segnaliForti, puntiAttenzione, leveNarrative, talkingPointsProprietario };
 }
 
+// ── merge internal Sottra context into Zona in Movimento ──────
+function mergeSottraIntoZona(
+  zim: { segnaliForti: SegnaleOut[]; puntiAttenzione: SegnaleOut[]; leveNarrative: string[]; talkingPointsProprietario: string[] },
+  sottra: SottraContext,
+): void {
+  if (!sottra.used) return;
+  const strongPool: SottraSignalHint[] = [...sottra.infrastrutture, ...sottra.developmentHints];
+  if (zim.segnaliForti.length === 0) {
+    zim.segnaliForti = strongPool.slice(0, 6).map((s, i) => ({
+      id: `int_strong_${i}`,
+      label: s.title,
+      ...(s.detail ? { detail: s.detail } : {}),
+    }));
+  }
+  if (zim.puntiAttenzione.length === 0 && sottra.riskFlags.length > 0) {
+    zim.puntiAttenzione = sottra.riskFlags.slice(0, 6).map((s, i) => ({
+      id: `int_att_${i}`,
+      label: s.title,
+      ...(s.detail ? { detail: s.detail } : {}),
+    }));
+  }
+  if (zim.leveNarrative.length === 0) {
+    const leve: string[] = [];
+    for (const s of strongPool.slice(0, 3)) {
+      leve.push(s.source
+        ? `Usare "${s.title}" (${s.source}) come leva narrativa documentabile.`
+        : `Usare "${s.title}" come leva narrativa documentabile.`);
+    }
+    if (sottra.convergenceSummary) {
+      leve.push(`Inquadrare il quartiere con il quadro di zona: ${sottra.convergenceSummary}.`);
+    }
+    zim.leveNarrative = leve;
+  }
+  if (zim.talkingPointsProprietario.length === 0) {
+    const tp: string[] = [];
+    for (const s of sottra.demographicHints.slice(0, 2)) tp.push(`Quadro di quartiere: ${s.title}.`);
+    for (const s of sottra.marketHints.slice(0, 2)) tp.push(`Riferimento di Mercato: ${s.title}.`);
+    zim.talkingPointsProprietario = tp.slice(0, 4);
+  }
+}
+
 // ── piano esclusiva mapping ───────────────────────────────────
 
 function mapPianoEsclusiva(
