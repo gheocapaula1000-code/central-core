@@ -1,23 +1,19 @@
 // ═══════════════════════════════════════════════════════════════
-// Civiko One — Metodo Sottra: Foto + Geolocalizzazione → Piano Esclusiva
+// Civiko One — Metodo Civiko One: Foto + Geolocalizzazione + Dati Rapidi
 //
 // POST /civiko/property-from-photo
 // Alias: POST /civiko/metodo-civiko-one
 //
-// Orchestrates the existing Civiko One endpoints server-side:
-//   - civiko-property-source-profile
-//   - civiko-property-hyperlocal-signals
-//   - civiko-property-zona-in-movimento
-//   - civiko-property-piano-esclusiva
-//   - civiko-property-owner-report
+// Orchestrates internal Civiko endpoints and shapes the response in
+// the EXACT contract the Civiko One PWA Scansione page already
+// renders. The PWA never sees raw Sottra/OMI/ISPRA payloads, secrets
+// or scraping logic.
 //
 // HARD RULES:
-//   - Photo never persisted by default.
-//   - Photo binary never echoed back.
+//   - Photo never persisted, never echoed back, EXIF never exposed.
 //   - Forbidden vocabulary stripped from every outgoing string.
-//   - All facts come from already-validated Civiko endpoints.
-//   - No Stripe secret leakage; if billing not configured, returns
-//     billingGate.billingReady=false but still serves the response.
+//   - No invented facts: missing data → da_collegare / da_preparare.
+//   - Never crashes the PWA: failures degrade to status="partial".
 // ═══════════════════════════════════════════════════════════════
 
 import {
@@ -28,7 +24,6 @@ import {
 import {
   sanitizeOutgoing, isPadovaMunicipality, isPadovaText, isPadovaCoord,
 } from "../_shared/civiko.ts";
-import { evaluateBillingGate, recordUsage, readStripeEnv } from "../_shared/billing.ts";
 
 const FUNCTION_NAME = "civiko-property-from-photo";
 const EXPECTED_BASE_PATH = "/functions/v1/civiko-property-from-photo";
@@ -41,140 +36,73 @@ const ROUTES = [
 
 const MAX_PHOTO_BYTES = 8 * 1024 * 1024; // 8 MB
 
-interface CapturePayload {
-  photoBase64?: string;
+// ── PWA contract (request) ────────────────────────────────────
+
+interface PwaPhoto {
+  dataUrl?: string;
   mimeType?: string;
-  fileSizeBytes?: number;
-  capturedAt?: string;
-  device?: string;
+  width?: number;
+  height?: number;
+  sizeKb?: number;
 }
-interface GeoPayload {
-  lat?: number;
-  lng?: number;
-  accuracyMeters?: number;
-  source?: "gps" | "manual" | "exif" | "unknown";
+interface PwaGeo {
+  latitude?: number;
+  longitude?: number;
+  accuracy?: number;
+  manualAddress?: string;
+  source?: "device" | "manual" | "missing";
 }
-interface PropertyDraft {
-  title?: string;
-  address?: string;
-  zone?: string;
-  propertyType?: string;
-  sizeSqm?: number | string;
-  rooms?: number | string;
-  floor?: string;
-  hasElevator?: boolean;
-  hasGarage?: boolean;
-  hasTerrace?: boolean;
-  hasGarden?: boolean;
-  condition?: string;
-  askingPrice?: number | string;
-  energyClass?: string;
-  internalNotes?: string;
-  ownerGoal?: string;
-  ownerTiming?: string;
-  ownerPriority?: string;
-  strengths?: string;
-  knownIssues?: string;
-  ownerQuestions?: string;
-  mainObjection?: string;
-  targetBuyer?: string;
+interface PwaQuickFacts {
+  titoloInterno?: string;
+  zona?: string;
+  tipologia?: string;
+  metratura?: string;
+  locali?: string;
+  prezzoRichiesto?: string;
+  obiettivoProprietario?: string;
+  obiezionePrincipale?: string;
+  urgenza?: string;
+  targetAcquirente?: string;
 }
 interface RequestBody {
   agencyId?: string;
-  capture?: CapturePayload;
-  geo?: GeoPayload;
-  propertyDraft?: PropertyDraft;
-  requestedOutputs?: string[];
+  photo?: PwaPhoto;
+  geo?: PwaGeo;
+  quickFacts?: PwaQuickFacts;
+  // Legacy fields tolerated but not required.
+  capture?: unknown;
+  propertyDraft?: unknown;
 }
 
-const DEFAULT_OUTPUTS = [
-  "source_profile",
-  "hyperlocal_signals",
-  "zona_in_movimento",
-  "piano_esclusiva",
-  "owner_report",
-];
+// ── PWA contract (response) ───────────────────────────────────
+
+type FonteStatus = "da_collegare" | "da_consultare" | "collegata" | "da_rivedere" | "non_disponibile";
+type SezioneStatus = "da_preparare" | "da_validare" | "pronta" | "da_collegare";
+type IdentityConfidence = "alta" | "media" | "bassa" | "non_definita";
+type InputLevel = "minimo" | "parziale" | "buono" | "completo";
+
+interface DisplayItem { label: string; value: string }
+interface FonteOut {
+  id: string;
+  title: string;
+  status: FonteStatus;
+  purpose: string;
+  sourceOwner: string;
+  displayItems: DisplayItem[];
+}
+interface SegnaleOut { id: string; label: string; detail?: string }
+interface PresentazioneSezione {
+  id: string;
+  title: string;
+  status: SezioneStatus;
+  bullets: string[];
+}
+
+// ── helpers ───────────────────────────────────────────────────
 
 function withIdentity(res: Response, route: string) {
   return addIdentityHeaders(res, { function: FUNCTION_NAME, route });
 }
-
-// ── input validation ──────────────────────────────────────────
-
-interface ValidationOutcome {
-  inputQuality: {
-    photoAccepted: boolean;
-    geoAccepted: boolean;
-    geoAccuracyMeters: number | null;
-    needsManualAddress: boolean;
-    needsBetterPhoto: boolean;
-    needsLocation: boolean;
-    notes: string[];
-  };
-  warnings: string[];
-}
-
-function validateInputs(body: RequestBody): ValidationOutcome {
-  const notes: string[] = [];
-  const warnings: string[] = [];
-  const cap = body.capture ?? {};
-  const geo = body.geo ?? {};
-  const draft = body.propertyDraft ?? {};
-
-  let photoAccepted = false;
-  let needsBetterPhoto = false;
-  if (cap.photoBase64 && typeof cap.photoBase64 === "string" && cap.photoBase64.length > 200) {
-    const approxBytes = cap.fileSizeBytes ?? Math.floor(cap.photoBase64.length * 0.75);
-    if (approxBytes > MAX_PHOTO_BYTES) {
-      needsBetterPhoto = true;
-      notes.push("La foto supera la dimensione consentita: caricarne una più leggera.");
-    } else if (cap.mimeType && !["image/jpeg", "image/webp", "image/png"].includes(cap.mimeType)) {
-      needsBetterPhoto = true;
-      notes.push("Formato foto non supportato: usare JPG, PNG o WebP.");
-    } else {
-      photoAccepted = true;
-    }
-  } else {
-    needsBetterPhoto = true;
-    notes.push("Nessuna foto fornita: il contesto verrà costruito solo sui dati inseriti.");
-  }
-
-  let geoAccepted = false;
-  let needsLocation = false;
-  let geoAccuracyMeters: number | null = null;
-  if (typeof geo.lat === "number" && typeof geo.lng === "number" &&
-      Math.abs(geo.lat) <= 90 && Math.abs(geo.lng) <= 180) {
-    geoAccepted = true;
-    geoAccuracyMeters = typeof geo.accuracyMeters === "number" ? geo.accuracyMeters : null;
-    if (geoAccuracyMeters != null && geoAccuracyMeters > 200) {
-      notes.push("Precisione della posizione bassa: l'identificazione potrebbe richiedere conferma manuale.");
-    }
-  } else {
-    needsLocation = true;
-    notes.push("Geolocalizzazione mancante: usare un indirizzo manuale per consentire l'identificazione.");
-  }
-
-  const needsManualAddress = !geoAccepted && !draft.address;
-
-  // Cross-check Padova
-  const isPadova =
-    isPadovaMunicipality(draft.zone || draft.address || "") ||
-    isPadovaText(draft.address, draft.zone) ||
-    (geoAccepted && isPadovaCoord(geo.lat, geo.lng));
-  if (!isPadova) {
-    warnings.push("Pilot V1 limitato al Comune di Padova: il contesto sarà incompleto fuori area.");
-  }
-
-  return {
-    inputQuality: {
-      photoAccepted, geoAccepted, geoAccuracyMeters,
-      needsManualAddress, needsBetterPhoto, needsLocation, notes,
-    },
-    warnings,
-  };
-}
-
-// ── internal HTTP fan-out to sibling Civiko functions ─────────
 
 function projectBaseUrl(): string | null {
   const url = Deno.env.get("SUPABASE_URL");
@@ -186,7 +114,7 @@ async function callSibling(
   fnName: string,
   payload: unknown,
   debugId: string,
-): Promise<{ ok: boolean; status: number; data: unknown }> {
+): Promise<{ ok: boolean; status: number; data: Record<string, unknown> | null }> {
   const base = projectBaseUrl();
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   if (!base || !serviceKey) return { ok: false, status: 0, data: null };
@@ -201,11 +129,12 @@ async function callSibling(
       body: JSON.stringify(payload),
     });
     const text = await res.text();
-    let parsed: unknown = null;
-    try { parsed = JSON.parse(text); } catch { /* keep null */ }
-    if (!res.ok) {
-      console.warn(`[${FUNCTION_NAME}] sibling ${fnName} status=${res.status} debug_id=${debugId}`);
-    }
+    let parsed: Record<string, unknown> | null = null;
+    try {
+      const j = JSON.parse(text);
+      if (j && typeof j === "object" && !Array.isArray(j)) parsed = j as Record<string, unknown>;
+    } catch { /* keep null */ }
+    if (!res.ok) console.warn(`[${FUNCTION_NAME}] sibling ${fnName} status=${res.status} debug_id=${debugId}`);
     return { ok: res.ok, status: res.status, data: parsed };
   } catch (e) {
     console.error(`[${FUNCTION_NAME}] sibling ${fnName} fetch failed: ${e instanceof Error ? e.message : String(e)} debug_id=${debugId}`);
@@ -213,180 +142,424 @@ async function callSibling(
   }
 }
 
-// Civiko sibling endpoints return the payload as the response body
-// directly (no { ok, data } envelope). The wire format is whatever
-// `json(req, 200, payload, debugId)` writes, which IS the payload.
-function unwrap(d: unknown): Record<string, unknown> | null {
-  if (d == null || typeof d !== "object") return null;
-  return d as Record<string, unknown>;
+function safeStr(v: unknown, fallback = ""): string {
+  if (v == null) return fallback;
+  if (typeof v === "string") return v.trim();
+  return String(v).trim();
 }
 
-// ── identity assembly ────────────────────────────────────────-
+// ── input quality ─────────────────────────────────────────────
 
-function buildIdentity(body: RequestBody, vq: ValidationOutcome) {
-  const draft = body.propertyDraft ?? {};
+function evaluateInput(body: RequestBody): {
+  inputQuality: {
+    hasPhoto: boolean;
+    hasGeo: boolean;
+    hasManualAddress: boolean;
+    level: InputLevel;
+  };
+  warnings: string[];
+  hasUsablePhoto: boolean;
+  coords: { lat: number; lng: number } | null;
+  manualAddress: string;
+} {
+  const warnings: string[] = [];
+  const photo = body.photo ?? {};
   const geo = body.geo ?? {};
-  const isPadova =
-    isPadovaMunicipality(draft.zone || draft.address || "") ||
-    isPadovaText(draft.address, draft.zone) ||
-    (vq.inputQuality.geoAccepted && isPadovaCoord(geo.lat, geo.lng));
+  const facts = body.quickFacts ?? {};
 
-  let confidence: "high" | "medium" | "low" = "low";
-  if (vq.inputQuality.geoAccepted && draft.address) confidence = "high";
-  else if (vq.inputQuality.geoAccepted || draft.address) confidence = "medium";
+  // photo
+  let hasPhoto = false;
+  let hasUsablePhoto = false;
+  if (photo.dataUrl && typeof photo.dataUrl === "string" && photo.dataUrl.length > 64) {
+    hasPhoto = true;
+    const sizeBytes = (typeof photo.sizeKb === "number" ? photo.sizeKb * 1024 : photo.dataUrl.length * 0.75);
+    const mime = (photo.mimeType ?? "").toLowerCase();
+    if (sizeBytes > MAX_PHOTO_BYTES) {
+      warnings.push("La foto supera la dimensione consentita: caricarne una più leggera.");
+    } else if (mime && !["image/jpeg", "image/jpg", "image/webp", "image/png"].includes(mime)) {
+      warnings.push("Formato foto non supportato: usare JPG, PNG o WebP.");
+    } else {
+      hasUsablePhoto = true;
+    }
+  }
 
-  let source: "gps" | "photo_context" | "manual" | "mixed" = "manual";
-  if (vq.inputQuality.geoAccepted && draft.address) source = "mixed";
-  else if (vq.inputQuality.geoAccepted) source = "gps";
-  else if (vq.inputQuality.photoAccepted) source = "photo_context";
+  // geo
+  const hasDeviceGeo =
+    geo.source === "device" &&
+    typeof geo.latitude === "number" && typeof geo.longitude === "number" &&
+    Math.abs(geo.latitude) <= 90 && Math.abs(geo.longitude) <= 180;
+  const coords = hasDeviceGeo ? { lat: geo.latitude!, lng: geo.longitude! } : null;
+  const manualAddress = safeStr(geo.manualAddress);
+  const hasManualAddress = manualAddress.length > 0;
+
+  // input level
+  const factCount = [
+    facts.titoloInterno, facts.zona, facts.tipologia, facts.metratura, facts.locali,
+    facts.prezzoRichiesto, facts.obiettivoProprietario, facts.obiezionePrincipale,
+    facts.urgenza, facts.targetAcquirente,
+  ].filter((v) => safeStr(v).length > 0).length;
+
+  let level: InputLevel = "minimo";
+  if (hasUsablePhoto && hasDeviceGeo && factCount >= 5) level = "completo";
+  else if ((hasUsablePhoto && hasDeviceGeo) || (hasManualAddress && factCount >= 3)) level = "buono";
+  else if (hasUsablePhoto || hasDeviceGeo || hasManualAddress) level = "parziale";
+
+  // Padova scope warning
+  const padova =
+    isPadovaMunicipality(facts.zona || manualAddress) ||
+    isPadovaText(manualAddress, facts.zona) ||
+    (coords ? isPadovaCoord(coords.lat, coords.lng) : false);
+  if (!padova) warnings.push("Pilot V1 limitato al Comune di Padova: il contesto sarà incompleto fuori area.");
 
   return {
-    title: draft.title ?? "Immobile Reale",
-    address: draft.address ?? "",
-    zone: draft.zone ?? "",
-    municipality: isPadova ? "Padova" : (draft.zone ?? ""),
-    lat: vq.inputQuality.geoAccepted ? (geo.lat ?? null) : null,
-    lng: vq.inputQuality.geoAccepted ? (geo.lng ?? null) : null,
-    confidence,
-    source,
+    inputQuality: {
+      hasPhoto,
+      hasGeo: hasDeviceGeo,
+      hasManualAddress,
+      level,
+    },
+    warnings,
+    hasUsablePhoto,
+    coords,
+    manualAddress,
   };
 }
 
-// ── main orchestration ────────────────────────────────────────
+// ── identity (Immobile Reale) ─────────────────────────────────
 
-async function orchestrate(body: RequestBody, debugId: string) {
-  const validation = validateInputs(body);
-  const identity = buildIdentity(body, validation);
-  const requested = new Set(body.requestedOutputs && body.requestedOutputs.length ? body.requestedOutputs : DEFAULT_OUTPUTS);
+function buildImmobileReale(
+  body: RequestBody,
+  ctx: ReturnType<typeof evaluateInput>,
+): {
+  title: string; address: string; zone: string;
+  confidence: IdentityConfidence; needsManualAddress: boolean;
+} {
+  const facts = body.quickFacts ?? {};
+  const title = safeStr(facts.titoloInterno) || "Immobile Reale";
+  const zone = safeStr(facts.zona);
+  const address = ctx.manualAddress;
 
-  const draft = body.propertyDraft ?? {};
-  const coords = validation.inputQuality.geoAccepted
-    ? { lat: body.geo!.lat!, lng: body.geo!.lng! }
-    : null;
-  const municipality = identity.municipality;
+  let confidence: IdentityConfidence = "non_definita";
+  if (ctx.coords && address) confidence = "alta";
+  else if (ctx.coords || (address && zone)) confidence = "media";
+  else if (address || zone) confidence = "bassa";
 
-  // Billing gate: scan-level
-  const gate = await evaluateBillingGate(body.agencyId ?? null, "scan");
-  if (gate.billingReady && !gate.allowed) {
-    return sanitizeOutgoing({
-      runId: debugId,
-      status: "unavailable",
-      inputQuality: validation.inputQuality,
-      propertyIdentity: identity,
-      sourceProfile: null,
-      hyperlocalSignals: null,
-      zonaInMovimento: null,
-      pianoEsclusiva: null,
-      ownerReport: null,
-      materialsToValidate: [],
-      billingGate: {
-        allowed: false, billingReady: true, plan: gate.plan, status: gate.status,
-        usage: gate.usage, limits: gate.limits,
-        upgradeRequired: gate.upgradeRequired, reason: gate.reason,
-      },
-      warnings: validation.warnings.concat(["Limite del piano raggiunto: aggiornare l'abbonamento per continuare."]),
-      updatedAt: new Date().toISOString(),
-    });
+  const needsManualAddress = !ctx.coords && !address;
+  return { title, address, zone, confidence, needsManualAddress };
+}
+
+// ── default fonti scaffold (always 7 areas, honest defaults) ──
+
+const FONTI_DEFAULT: Array<Omit<FonteOut, "displayItems"> & { displayItems: DisplayItem[] }> = [
+  { id: "omi",                  title: "Riferimenti OMI",       status: "da_collegare", purpose: "Riferimenti di Mercato della zona OMI quando disponibili.", sourceOwner: "Agenzia delle Entrate",                 displayItems: [] },
+  { id: "padova_municipality",  title: "Comune di Padova",      status: "da_collegare", purpose: "Cartografia comunale ed Elementi di Zona.",                 sourceOwner: "Comune di Padova",                       displayItems: [] },
+  { id: "neighborhood_context", title: "Contesto di Quartiere", status: "da_collegare", purpose: "Quadro di contesto del quartiere.",                         sourceOwner: "Comune di Padova / ISTAT",               displayItems: [] },
+  { id: "territorial_data",     title: "Dati Territoriali",     status: "da_collegare", purpose: "Verifica di Supporto Territoriale.",                        sourceOwner: "Fonti territoriali",                     displayItems: [] },
+  { id: "cadastral_checks",     title: "Verifiche Catastali",   status: "da_collegare", purpose: "Documentazione catastale da raccogliere e verificare.",     sourceOwner: "Documentazione Agenzia",                 displayItems: [] },
+  { id: "schools_services",     title: "Scuole e Servizi",      status: "da_collegare", purpose: "Elementi di Zona su scuole e servizi.",                     sourceOwner: "MIM / Fonti disponibili",                displayItems: [] },
+  { id: "zone_signals",         title: "Segnali di Zona",       status: "da_collegare", purpose: "Temi ricorrenti e segnali pubblici della zona.",            sourceOwner: "Fonti Locali",                           displayItems: [] },
+];
+
+function mapFonti(sourceProfile: Record<string, unknown> | null): FonteOut[] {
+  const base: FonteOut[] = FONTI_DEFAULT.map((f) => ({ ...f, displayItems: [] }));
+  if (!sourceProfile) return base;
+  const areas = Array.isArray(sourceProfile.sourceAreas) ? sourceProfile.sourceAreas as Array<Record<string, unknown>> : [];
+  if (areas.length === 0) return base;
+
+  const byId = new Map(base.map((f, i) => [f.id, i]));
+  for (const a of areas) {
+    const id = safeStr(a.id);
+    const idx = byId.get(id);
+    if (idx == null) continue;
+    const status = safeStr(a.status) as FonteStatus;
+    const validStatuses: FonteStatus[] = ["da_collegare", "da_consultare", "collegata", "da_rivedere", "non_disponibile"];
+    base[idx].status = validStatuses.includes(status) ? status : "da_collegare";
+    if (a.title) base[idx].title = safeStr(a.title) || base[idx].title;
+    if (a.purpose) base[idx].purpose = safeStr(a.purpose) || base[idx].purpose;
+    if (a.sourceOwner) base[idx].sourceOwner = safeStr(a.sourceOwner) || base[idx].sourceOwner;
+    const items = Array.isArray(a.displayItems) ? a.displayItems as Array<Record<string, unknown>> : [];
+    base[idx].displayItems = items
+      .filter((x) => x && typeof x === "object")
+      .map((x) => ({ label: safeStr(x.label), value: safeStr(x.value) }))
+      .filter((x) => x.label && x.value);
   }
+  return base;
+}
 
-  // Fan out — independent calls in parallel
-  const sourceProfilePayload = { agencyId: body.agencyId, propertyDraft: draft };
-  const hyperlocalPayload = {
-    agencyId: body.agencyId, propertyDraft: { address: draft.address, zone: draft.zone, title: draft.title, propertyType: draft.propertyType },
-    coordinates: coords, municipality,
-  };
-  const zonaPayload = { ...hyperlocalPayload };
+// ── zona in movimento mapping ─────────────────────────────────
 
-  const [spRes, hlRes, zmRes] = await Promise.all([
-    requested.has("source_profile") ? callSibling("civiko-property-source-profile", sourceProfilePayload, debugId) : Promise.resolve({ ok: true, status: 0, data: null }),
-    requested.has("hyperlocal_signals") ? callSibling("civiko-property-hyperlocal-signals", hyperlocalPayload, debugId) : Promise.resolve({ ok: true, status: 0, data: null }),
-    requested.has("zona_in_movimento") ? callSibling("civiko-property-zona-in-movimento", zonaPayload, debugId) : Promise.resolve({ ok: true, status: 0, data: null }),
-  ]);
+interface ZimSignalIn {
+  id?: number; fact?: { title?: string; summary?: string; source?: string };
+}
+function toSegnale(sig: ZimSignalIn, fallbackPrefix: string, idx: number): SegnaleOut {
+  const id = sig.id != null ? `s_${sig.id}` : `${fallbackPrefix}_${idx}`;
+  const label = safeStr(sig.fact?.title) || "Segnale di Zona";
+  const detail = safeStr(sig.fact?.summary) || safeStr(sig.fact?.source) || undefined;
+  return detail ? { id, label, detail } : { id, label };
+}
 
-  const sourceProfile = unwrap(spRes.data);
-  const hyperlocalSignals = unwrap(hlRes.data);
-  const zonaInMovimento = unwrap(zmRes.data);
-
-  // Piano Esclusiva needs upstream context, run after fan-out.
-  let pianoEsclusiva: Record<string, unknown> | null = null;
-  if (requested.has("piano_esclusiva")) {
-    const peRes = await callSibling("civiko-property-piano-esclusiva", {
-      agencyId: body.agencyId, propertyDraft: draft,
-      sourceProfile, hyperlocalSignals,
-    }, debugId);
-    pianoEsclusiva = unwrap(peRes.data);
+function mapZonaInMovimento(zim: Record<string, unknown> | null): {
+  segnaliForti: SegnaleOut[]; puntiAttenzione: SegnaleOut[];
+  leveNarrative: string[]; talkingPointsProprietario: string[];
+} {
+  if (!zim) {
+    return { segnaliForti: [], puntiAttenzione: [], leveNarrative: [], talkingPointsProprietario: [] };
   }
+  const strong = Array.isArray(zim.strongSignals) ? zim.strongSignals as ZimSignalIn[] : [];
+  const future = Array.isArray(zim.futureNarrative) ? zim.futureNarrative as ZimSignalIn[] : [];
+  const attention = Array.isArray(zim.attentionSignals) ? zim.attentionSignals as ZimSignalIn[] : [];
 
-  // Owner report aggregates everything.
-  let ownerReport: Record<string, unknown> | null = null;
-  if (requested.has("owner_report")) {
-    const orRes = await callSibling("civiko-property-owner-report", {
-      agencyId: body.agencyId, propertyDraft: draft,
-      sourceProfile, hyperlocalSignals, pianoEsclusiva,
-    }, debugId);
-    ownerReport = unwrap(orRes.data);
+  const segnaliForti = [...strong, ...future].slice(0, 8).map((s, i) => toSegnale(s, "forti", i));
+  const puntiAttenzione = attention.slice(0, 8).map((s, i) => toSegnale(s, "att", i));
+
+  const leveNarrative: string[] = [];
+  for (const s of [...strong, ...future].slice(0, 4)) {
+    const t = safeStr(s.fact?.title);
+    const src = safeStr(s.fact?.source);
+    if (t) leveNarrative.push(src ? `Usare "${t}" (${src}) come leva narrativa documentabile.` : `Usare "${t}" come leva narrativa documentabile.`);
   }
+  const ownerHooks = Array.isArray(zim.ownerTalkingPoints) ? zim.ownerTalkingPoints as unknown[] : [];
+  const talkingPointsProprietario = ownerHooks.map((x) => safeStr(x)).filter(Boolean).slice(0, 6);
 
-  // Status assessment
-  const successes = [spRes, hlRes, zmRes].filter((r) => r.status === 0 || r.ok).length;
-  const total = [spRes, hlRes, zmRes].filter((r) => r.status !== 0).length;
-  const status: "ok" | "partial" | "unavailable" =
-    total === 0 ? "ok"
-      : successes === total ? "ok"
-      : successes > 0 ? "partial"
-      : "unavailable";
+  return { segnaliForti, puntiAttenzione, leveNarrative, talkingPointsProprietario };
+}
 
-  const moduleStatuses = {
-    sourceProfile: spRes.status === 0 ? "skipped" : (spRes.ok ? "ok" : "failed"),
-    hyperlocalSignals: hlRes.status === 0 ? "skipped" : (hlRes.ok ? "ok" : "failed"),
-    zonaInMovimento: zmRes.status === 0 ? "skipped" : (zmRes.ok ? "ok" : "failed"),
-    pianoEsclusiva: pianoEsclusiva ? "ok" : (requested.has("piano_esclusiva") ? "failed" : "skipped"),
-    ownerReport: ownerReport ? "ok" : (requested.has("owner_report") ? "failed" : "skipped"),
-  };
+// ── piano esclusiva mapping ───────────────────────────────────
 
-  // Materials to validate (always present as agency checklist).
-  const materialsToValidate = [
-    { label: "Documentazione catastale e di conformità", status: "da_verificare" },
-    { label: "Riferimenti di Mercato della zona OMI", status: "da_verificare" },
-    { label: "Verifiche di Supporto Territoriale", status: "da_verificare" },
-    { label: "Eventuali Segnali di Zona da rivedere prima della pubblicazione", status: "da_verificare" },
+function mapPianoEsclusiva(
+  pe: Record<string, unknown> | null,
+  facts: PwaQuickFacts,
+  fonti: FonteOut[],
+): {
+  posizioneNegoziale: string; levaPrincipale: string; argomentoEsclusiva: string;
+  rischioSenzaEsclusiva: string; frasiDaUsare: string[]; prossimeAzioni: string[];
+} {
+  // Default commercially-strong text (used when sibling unavailable).
+  const collegate = fonti.filter((f) => f.status === "collegata").map((f) => f.title);
+  const daCollegare = fonti.filter((f) => f.status === "da_collegare" || f.status === "da_consultare").map((f) => f.title);
+
+  const defaultFrasi = [
+    "Apri il Primo Appuntamento mostrando il Metodo Civiko One.",
+    "Non partire dalla provvigione: parti dal Servizio Completo.",
+    "Mostra prima la Presentazione Proprietario costruita sui dati reali.",
+    "Usa i primi giorni di pubblicazione come argomento centrale.",
+    "Porta il Proprietario a vedere preparazione, materiali e gestione.",
+  ];
+  const defaultAzioni = [
+    "Confermare il Primo Appuntamento e portare la Presentazione Proprietario.",
+    "Preparare il Dossier Venditore con le Fonti da Collegare segnalate.",
+    daCollegare.length > 0 ? `Collegare prima del Primo Appuntamento: ${daCollegare.slice(0, 4).join(", ")}.` : "Verificare che le fonti previste risultino collegate o pianificate.",
+    "Pianificare il follow-up entro 48 ore dal Primo Appuntamento.",
   ];
 
-  // Record usage if billing is configured and we actually produced output.
-  if (gate.billingReady && body.agencyId && status !== "unavailable") {
-    try { await recordUsage(body.agencyId, "scan", 1); } catch { /* swallow */ }
-    if (ownerReport && body.agencyId) {
-      try { await recordUsage(body.agencyId, "owner_report", 1); } catch { /* swallow */ }
-    }
-    if (pianoEsclusiva && body.agencyId) {
-      try { await recordUsage(body.agencyId, "piano_esclusiva", 1); } catch { /* swallow */ }
-    }
+  if (!pe) {
+    const obiezione = safeStr(facts.obiezionePrincipale);
+    const obiettivo = safeStr(facts.obiettivoProprietario);
+    return {
+      posizioneNegoziale: obiettivo
+        ? `Costruire la Posizione Negoziale intorno all'obiettivo del Proprietario: ${obiettivo}.`
+        : "Costruire la Posizione Negoziale a partire dai Riferimenti di Mercato e dal Servizio Completo.",
+      levaPrincipale: collegate.length > 0
+        ? `Sfruttare le Verifiche di Supporto disponibili: ${collegate.slice(0, 3).join(", ")}.`
+        : "Costruire la leva narrativa con i Riferimenti di Zona disponibili al Primo Appuntamento.",
+      argomentoEsclusiva: "Presentare il Metodo Civiko One e il Servizio Completo come standard che protegge il Valore Percepito dell'immobile.",
+      rischioSenzaEsclusiva: obiezione
+        ? `Senza Incarico in Esclusiva il punto critico "${obiezione}" resta non gestito e disperso tra più agenzie.`
+        : "Senza Incarico in Esclusiva il posizionamento iniziale viene disperso tra più agenzie e perde coerenza.",
+      frasiDaUsare: defaultFrasi,
+      prossimeAzioni: defaultAzioni,
+    };
   }
 
-  return sanitizeOutgoing({
-    runId: debugId,
-    status,
-    inputQuality: validation.inputQuality,
-    propertyIdentity: identity,
-    sourceProfile,
-    hyperlocalSignals,
+  const positioning = (pe.positioning ?? {}) as Record<string, unknown>;
+  const mainLeverage = Array.isArray(pe.mainLeverage) ? (pe.mainLeverage as unknown[]).map(safeStr).filter(Boolean) : [];
+  const exclusiveArgument = Array.isArray(pe.exclusiveArgument) ? (pe.exclusiveArgument as unknown[]).map(safeStr).filter(Boolean) : [];
+  const riskIfNoExclusive = Array.isArray(pe.riskIfNoExclusive) ? (pe.riskIfNoExclusive as unknown[]).map(safeStr).filter(Boolean) : [];
+  const phrasesToUse = Array.isArray(pe.phrasesToUse) ? (pe.phrasesToUse as unknown[]).map(safeStr).filter(Boolean) : [];
+  const nextActions = Array.isArray(pe.nextActions) ? (pe.nextActions as unknown[]).map(safeStr).filter(Boolean) : [];
+
+  return {
+    posizioneNegoziale: safeStr(positioning.summary) || "Costruire la Posizione Negoziale sui Riferimenti di Mercato e sul Servizio Completo.",
+    levaPrincipale: mainLeverage[0] ?? "Costruire la leva narrativa con i Riferimenti di Zona disponibili al Primo Appuntamento.",
+    argomentoEsclusiva: exclusiveArgument[0] ?? "Presentare il Metodo Civiko One come standard del Servizio Completo.",
+    rischioSenzaEsclusiva: riskIfNoExclusive[0] ?? "Senza Incarico in Esclusiva il posizionamento iniziale viene disperso tra più agenzie.",
+    frasiDaUsare: phrasesToUse.length > 0 ? phrasesToUse : defaultFrasi,
+    prossimeAzioni: nextActions.length > 0 ? nextActions : defaultAzioni,
+  };
+}
+
+// ── presentazione proprietario ────────────────────────────────
+
+function buildPresentazione(
+  immobile: ReturnType<typeof buildImmobileReale>,
+  fonti: FonteOut[],
+  zim: ReturnType<typeof mapZonaInMovimento>,
+  piano: ReturnType<typeof mapPianoEsclusiva>,
+): { sections: PresentazioneSezione[]; materialiDaValidare: string[] } {
+  const collegate = fonti.filter((f) => f.status === "collegata");
+  const fontiSezioneStatus: SezioneStatus = collegate.length >= 3 ? "pronta" : collegate.length > 0 ? "da_validare" : "da_collegare";
+
+  const sections: PresentazioneSezione[] = [
+    {
+      id: "metodo_civiko_one",
+      title: "Metodo Civiko One",
+      status: "pronta",
+      bullets: [
+        "Servizio Completo a supporto del Proprietario.",
+        "Presentazione Proprietario costruita sui dati reali.",
+        "Materiali da Validare prima della pubblicazione.",
+      ],
+    },
+    {
+      id: "immobile_reale",
+      title: "Immobile Reale",
+      status: immobile.confidence === "alta" || immobile.confidence === "media" ? "pronta" : "da_preparare",
+      bullets: [
+        immobile.title ? `Titolo interno: ${immobile.title}.` : "Titolo interno da definire con l'agenzia.",
+        immobile.address ? `Indirizzo: ${immobile.address}.` : "Indirizzo da confermare con il Proprietario.",
+        immobile.zone ? `Zona: ${immobile.zone}.` : "Zona da definire con il Proprietario.",
+      ],
+    },
+    {
+      id: "fonti_da_collegare",
+      title: "Fonti da Collegare",
+      status: fontiSezioneStatus,
+      bullets: fonti.slice(0, 6).map((f) => `${f.title}: ${labelForStatus(f.status)}.`),
+    },
+    {
+      id: "zona_in_movimento",
+      title: "Zona in Movimento",
+      status: zim.segnaliForti.length > 0 ? "da_validare" : "da_collegare",
+      bullets: zim.segnaliForti.length > 0
+        ? zim.segnaliForti.slice(0, 5).map((s) => s.detail ? `${s.label} — ${s.detail}` : s.label)
+        : ["Segnali di Zona da collegare prima del Primo Appuntamento."],
+    },
+    {
+      id: "piano_esclusiva",
+      title: "Piano Esclusiva",
+      status: "pronta",
+      bullets: [
+        piano.posizioneNegoziale,
+        piano.levaPrincipale,
+        piano.argomentoEsclusiva,
+        piano.rischioSenzaEsclusiva,
+      ],
+    },
+    {
+      id: "materiali_da_validare",
+      title: "Materiali da Validare",
+      status: "da_validare",
+      bullets: [
+        "Documentazione catastale e di conformità.",
+        "Riferimenti di Mercato della zona OMI.",
+        "Verifiche di Supporto Territoriale.",
+        "Eventuali Segnali di Zona da rivedere prima della pubblicazione.",
+      ],
+    },
+  ];
+
+  const materialiDaValidare = [
+    "Documentazione catastale e di conformità.",
+    "Riferimenti di Mercato della zona OMI.",
+    "Verifiche di Supporto Territoriale.",
+    "Segnali di Zona prima della pubblicazione.",
+  ];
+  return { sections, materialiDaValidare };
+}
+
+function labelForStatus(s: FonteStatus): string {
+  switch (s) {
+    case "collegata": return "Collegata";
+    case "da_consultare": return "Verifica di Supporto";
+    case "da_rivedere": return "Da Rivedere";
+    case "non_disponibile": return "Non Disponibile";
+    default: return "Fonte da Collegare";
+  }
+}
+
+// ── orchestration ─────────────────────────────────────────────
+
+async function orchestrate(body: RequestBody, debugId: string) {
+  const ctx = evaluateInput(body);
+  const facts = body.quickFacts ?? {};
+  const immobile = buildImmobileReale(body, ctx);
+  const warnings = [...ctx.warnings];
+
+  // Build a propertyDraft compatible with existing siblings.
+  const propertyDraft = {
+    title: safeStr(facts.titoloInterno) || undefined,
+    address: ctx.manualAddress || undefined,
+    zone: safeStr(facts.zona) || undefined,
+    propertyType: safeStr(facts.tipologia) || undefined,
+    sizeSqm: safeStr(facts.metratura) || undefined,
+    rooms: safeStr(facts.locali) || undefined,
+    askingPrice: safeStr(facts.prezzoRichiesto) || undefined,
+    ownerGoal: safeStr(facts.obiettivoProprietario) || undefined,
+    ownerPriority: safeStr(facts.urgenza) || undefined,
+    mainObjection: safeStr(facts.obiezionePrincipale) || undefined,
+    targetBuyer: safeStr(facts.targetAcquirente) || undefined,
+  };
+  const municipality = "Padova";
+
+  const sourceProfilePayload = { agencyId: body.agencyId, propertyDraft };
+  const hyperlocalPayload = {
+    agencyId: body.agencyId,
+    propertyDraft: { address: propertyDraft.address, zone: propertyDraft.zone, title: propertyDraft.title, propertyType: propertyDraft.propertyType },
+    coordinates: ctx.coords,
+    municipality,
+  };
+
+  const [spRes, hlRes, zmRes] = await Promise.all([
+    callSibling("civiko-property-source-profile", sourceProfilePayload, debugId),
+    callSibling("civiko-property-hyperlocal-signals", hyperlocalPayload, debugId),
+    callSibling("civiko-property-zona-in-movimento", hyperlocalPayload, debugId),
+  ]);
+
+  const sourceProfile = spRes.data;
+  const hyperlocalSignals = hlRes.data;
+  const zonaPayload = zmRes.data;
+
+  // Piano needs upstream context.
+  const peRes = await callSibling("civiko-property-piano-esclusiva", {
+    agencyId: body.agencyId, propertyDraft,
+    sourceProfile, hyperlocalSignals,
+  }, debugId);
+
+  // Map all to PWA contract.
+  const fontiDaCollegare = mapFonti(sourceProfile);
+  const zonaInMovimento = mapZonaInMovimento(zonaPayload);
+  const pianoEsclusiva = mapPianoEsclusiva(peRes.data, facts, fontiDaCollegare);
+  const presentazioneProprietario = buildPresentazione(immobile, fontiDaCollegare, zonaInMovimento, pianoEsclusiva);
+
+  // Status / warnings
+  const moduleResults = [spRes, hlRes, zmRes, peRes];
+  const failed = moduleResults.filter((r) => r.status !== 0 && !r.ok).length;
+  const skipped = moduleResults.filter((r) => r.status === 0).length;
+  if (failed > 0) warnings.push("Alcune fonti interne non hanno risposto: alcune sezioni potrebbero essere parziali.");
+  if (skipped === moduleResults.length) warnings.push("Fonti interne non configurate in questo ambiente: risposta limitata.");
+
+  let configured = true;
+  let message: string | undefined;
+  if (skipped === moduleResults.length) {
+    configured = false;
+    message = "Risposta scaffolded: i moduli interni non sono ancora configurati in questo ambiente.";
+  }
+
+  const payload = {
+    configured,
+    ...(message ? { message } : {}),
+    warnings,
+    updatedAt: new Date().toISOString(),
+    inputQuality: ctx.inputQuality,
+    immobileReale: immobile,
+    fontiDaCollegare,
     zonaInMovimento,
     pianoEsclusiva,
-    ownerReport,
-    materialsToValidate,
-    moduleStatuses,
-    billingGate: {
-      allowed: gate.allowed,
-      billingReady: gate.billingReady,
-      plan: gate.plan,
-      status: gate.status,
-      usage: gate.usage,
-      limits: gate.limits,
-      upgradeRequired: gate.upgradeRequired,
-    },
-    warnings: validation.warnings,
-    updatedAt: new Date().toISOString(),
-  });
+    presentazioneProprietario,
+    kitMarketing: { available: false, items: [] as unknown[] },
+  };
+
+  return sanitizeOutgoing(payload);
 }
 
 // ── server ────────────────────────────────────────────────────
@@ -406,12 +579,11 @@ Deno.serve(async (req) => {
         return withIdentity(json(req, 200, {
           status: "healthy", function: FUNCTION_NAME, version: CORE_VERSION,
           contract: CORE_CONTRACT, expectedBasePath: EXPECTED_BASE_PATH, time: new Date().toISOString(),
-          billingReady: readStripeEnv().configured,
         }, debugId), "health");
       }
       if (pathname.endsWith("/manifest")) {
         return withIdentity(json(req, 200, buildManifest({
-          functionName: FUNCTION_NAME, serviceKind: "civiko-metodo-sottra",
+          functionName: FUNCTION_NAME, serviceKind: "civiko-metodo-civiko-one",
           expectedBasePath: EXPECTED_BASE_PATH, routes: ROUTES, callingMode: "direct",
         }), debugId), "manifest");
       }
@@ -429,9 +601,27 @@ Deno.serve(async (req) => {
     return withIdentity(json(req, 200, out, debugId), "property-from-photo");
   } catch (err) {
     console.error(`[${FUNCTION_NAME}] error debug_id=${debugId}: ${err instanceof Error ? err.message : String(err)}`);
-    return withIdentity(json(req, 500, {
-      error: { code: "INTERNAL_ERROR", message: `An internal error occurred. Reference: ${debugId}` },
-      debug_id: debugId,
-    }, debugId), "error");
+    // Never crash the PWA — return a safe shaped fallback.
+    const fallback = sanitizeOutgoing({
+      configured: false,
+      message: "Errore interno: risposta limitata.",
+      warnings: ["Errore interno temporaneo durante l'elaborazione."],
+      updatedAt: new Date().toISOString(),
+      inputQuality: { hasPhoto: false, hasGeo: false, hasManualAddress: false, level: "minimo" },
+      immobileReale: { title: "Immobile Reale", address: "", zone: "", confidence: "non_definita", needsManualAddress: true },
+      fontiDaCollegare: FONTI_DEFAULT.map((f) => ({ ...f, displayItems: [] })),
+      zonaInMovimento: { segnaliForti: [], puntiAttenzione: [], leveNarrative: [], talkingPointsProprietario: [] },
+      pianoEsclusiva: {
+        posizioneNegoziale: "Costruire la Posizione Negoziale al Primo Appuntamento sui dati disponibili.",
+        levaPrincipale: "Costruire la leva narrativa con i Riferimenti di Zona disponibili.",
+        argomentoEsclusiva: "Presentare il Metodo Civiko One e il Servizio Completo.",
+        rischioSenzaEsclusiva: "Senza Incarico in Esclusiva il posizionamento iniziale viene disperso tra più agenzie.",
+        frasiDaUsare: [],
+        prossimeAzioni: [],
+      },
+      presentazioneProprietario: { sections: [], materialiDaValidare: [] },
+      kitMarketing: { available: false, items: [] },
+    });
+    return withIdentity(json(req, 200, fallback, debugId), "property-from-photo");
   }
 });
