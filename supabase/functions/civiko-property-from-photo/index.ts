@@ -530,10 +530,23 @@ async function orchestrate(body: RequestBody, debugId: string) {
     municipality,
   };
 
-  const [spRes, hlRes, zmRes] = await Promise.all([
+  // Internal Sottra context (server-side, never exposed to PWA).
+  // Runs in parallel with sibling Civiko endpoints.
+  const sottraInputCtx = {
+    coords: ctx.coords,
+    manualAddress: ctx.manualAddress,
+    zone: safeStr(facts.zona),
+    propertyType: safeStr(facts.tipologia),
+    sizeSqm: safeStr(facts.metratura),
+    rooms: safeStr(facts.locali),
+    askingPrice: safeStr(facts.prezzoRichiesto),
+  };
+
+  const [spRes, hlRes, zmRes, sottraCtx] = await Promise.all([
     callSibling("civiko-property-source-profile", sourceProfilePayload, debugId),
     callSibling("civiko-property-hyperlocal-signals", hyperlocalPayload, debugId),
     callSibling("civiko-property-zona-in-movimento", hyperlocalPayload, debugId),
+    runInternalSottraContext(sottraInputCtx, debugId),
   ]);
 
   const sourceProfile = spRes.data;
@@ -546,10 +559,34 @@ async function orchestrate(body: RequestBody, debugId: string) {
     sourceProfile, hyperlocalSignals,
   }, debugId);
 
+  // Enrich Immobile Reale with internal identity hints (only if upstream
+  // didn't already supply confidence and identity hint is meaningful).
+  if (sottraCtx.identity) {
+    if (!immobile.address && sottraCtx.identity.address) immobile.address = sottraCtx.identity.address;
+    if (!immobile.zone && sottraCtx.identity.zone) immobile.zone = sottraCtx.identity.zone;
+    if ((immobile.confidence === "non_definita" || immobile.confidence === "bassa") && sottraCtx.identity.confidenceLevel) {
+      immobile.confidence = sottraCtx.identity.confidenceLevel;
+    }
+    if (immobile.address || immobile.zone) immobile.needsManualAddress = false;
+  }
+
   // Map all to PWA contract.
-  const fontiDaCollegare = mapFonti(sourceProfile);
+  const fontiDaCollegare = mapFonti(sourceProfile, sottraCtx);
   const zonaInMovimento = mapZonaInMovimento(zonaPayload);
+
+  // Merge internal context signals into Zona in Movimento — only when the
+  // hyperlocal/zona module did not already produce content.
+  mergeSottraIntoZona(zonaInMovimento, sottraCtx);
+
   const pianoEsclusiva = mapPianoEsclusiva(peRes.data, facts, fontiDaCollegare);
+  if (sottraCtx.convergenceSummary && !pianoEsclusiva.posizioneNegoziale.includes(sottraCtx.convergenceSummary)) {
+    // Add convergence narrative as an additional commercial cue.
+    pianoEsclusiva.frasiDaUsare = [
+      `Porta nella Presentazione Proprietario il quadro di zona: ${sottraCtx.convergenceSummary}.`,
+      ...pianoEsclusiva.frasiDaUsare,
+    ].slice(0, 8);
+  }
+
   const presentazioneProprietario = buildPresentazione(immobile, fontiDaCollegare, zonaInMovimento, pianoEsclusiva);
 
   // Status / warnings
@@ -557,11 +594,12 @@ async function orchestrate(body: RequestBody, debugId: string) {
   const failed = moduleResults.filter((r) => r.status !== 0 && !r.ok).length;
   const skipped = moduleResults.filter((r) => r.status === 0).length;
   if (failed > 0) warnings.push("Alcune fonti interne non hanno risposto: alcune sezioni potrebbero essere parziali.");
-  if (skipped === moduleResults.length) warnings.push("Fonti interne non configurate in questo ambiente: risposta limitata.");
+  if (skipped === moduleResults.length && !sottraCtx.used) warnings.push("Fonti interne non configurate in questo ambiente: risposta limitata.");
+  for (const w of sottraCtx.warnings) warnings.push(w);
 
   let configured = true;
   let message: string | undefined;
-  if (skipped === moduleResults.length) {
+  if (skipped === moduleResults.length && !sottraCtx.used) {
     configured = false;
     message = "Risposta scaffolded: i moduli interni non sono ancora configurati in questo ambiente.";
   }
