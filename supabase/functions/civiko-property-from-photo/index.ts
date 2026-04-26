@@ -263,29 +263,45 @@ const FONTI_DEFAULT: Array<Omit<FonteOut, "displayItems"> & { displayItems: Disp
   { id: "zone_signals",         title: "Segnali di Zona",       status: "da_collegare", purpose: "Temi ricorrenti e segnali pubblici della zona.",            sourceOwner: "Fonti Locali",                           displayItems: [] },
 ];
 
-function mapFonti(sourceProfile: Record<string, unknown> | null): FonteOut[] {
+function mapFonti(
+  sourceProfile: Record<string, unknown> | null,
+  sottra: SottraContext | null,
+): FonteOut[] {
   const base: FonteOut[] = FONTI_DEFAULT.map((f) => ({ ...f, displayItems: [] }));
-  if (!sourceProfile) return base;
-  const areas = Array.isArray(sourceProfile.sourceAreas) ? sourceProfile.sourceAreas as Array<Record<string, unknown>> : [];
-  if (areas.length === 0) return base;
-
-  const byId = new Map(base.map((f, i) => [f.id, i]));
-  for (const a of areas) {
-    const id = safeStr(a.id);
-    const idx = byId.get(id);
-    if (idx == null) continue;
-    const status = safeStr(a.status) as FonteStatus;
-    const validStatuses: FonteStatus[] = ["da_collegare", "da_consultare", "collegata", "da_rivedere", "non_disponibile"];
-    base[idx].status = validStatuses.includes(status) ? status : "da_collegare";
-    if (a.title) base[idx].title = safeStr(a.title) || base[idx].title;
-    if (a.purpose) base[idx].purpose = safeStr(a.purpose) || base[idx].purpose;
-    if (a.sourceOwner) base[idx].sourceOwner = safeStr(a.sourceOwner) || base[idx].sourceOwner;
-    const items = Array.isArray(a.displayItems) ? a.displayItems as Array<Record<string, unknown>> : [];
-    base[idx].displayItems = items
-      .filter((x) => x && typeof x === "object")
-      .map((x) => ({ label: safeStr(x.label), value: safeStr(x.value) }))
-      .filter((x) => x.label && x.value);
+  if (sourceProfile) {
+    const areas = Array.isArray(sourceProfile.sourceAreas) ? sourceProfile.sourceAreas as Array<Record<string, unknown>> : [];
+    if (areas.length > 0) {
+      const byId = new Map(base.map((f, i) => [f.id, i]));
+      for (const a of areas) {
+        const id = safeStr(a.id);
+        const idx = byId.get(id);
+        if (idx == null) continue;
+        const status = safeStr(a.status) as FonteStatus;
+        const validStatuses: FonteStatus[] = ["da_collegare", "da_consultare", "collegata", "da_rivedere", "non_disponibile"];
+        base[idx].status = validStatuses.includes(status) ? status : "da_collegare";
+        if (a.title) base[idx].title = safeStr(a.title) || base[idx].title;
+        if (a.purpose) base[idx].purpose = safeStr(a.purpose) || base[idx].purpose;
+        if (a.sourceOwner) base[idx].sourceOwner = safeStr(a.sourceOwner) || base[idx].sourceOwner;
+        const items = Array.isArray(a.displayItems) ? a.displayItems as Array<Record<string, unknown>> : [];
+        base[idx].displayItems = items
+          .filter((x) => x && typeof x === "object")
+          .map((x) => ({ label: safeStr(x.label), value: safeStr(x.value) }))
+          .filter((x) => x.label && x.value);
+      }
+    }
   }
+
+  // Internal context enrichment — only if real data was returned upstream.
+  // Never invents displayItems; only fills the OMI area when Sottra returned
+  // verifiable references.
+  if (sottra?.omi?.available && sottra.omi.displayItems.length > 0) {
+    const omiIdx = base.findIndex((f) => f.id === "omi");
+    if (omiIdx >= 0 && base[omiIdx].displayItems.length === 0) {
+      base[omiIdx].status = sottra.omi.status;
+      base[omiIdx].displayItems = sottra.omi.displayItems;
+    }
+  }
+
   return base;
 }
 
