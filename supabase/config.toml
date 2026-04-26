@@ -50,3 +50,9 @@ verify_jwt = false
 
 [functions.civiko-property-objection-plan]
 verify_jwt = false
+
+[functions.civiko-property-from-photo]
+verify_jwt = false
+
+[functions.civiko-billing]
+verify_jwt = false
