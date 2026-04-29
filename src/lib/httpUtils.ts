@@ -1,6 +1,6 @@
 // Copia pura di isOriginAllowed per test lato client
 const LOVABLE_SUFFIXES = [".lovable.app", ".lovableproject.com", ".lovable.dev"];
-const TRUSTED_APP_HOSTS = new Set(["keydraft.app", "www.keydraft.app", "wyloni.app", "www.wyloni.app", "sottra.app", "www.sottra.app"]);
+const TRUSTED_APP_HOSTS = new Set(["keydraft.app", "www.keydraft.app", "wyloni.app", "www.wyloni.app", "sottra.app", "www.sottra.app", "civikoone.com", "www.civikoone.com"]);
 
 export function isOriginAllowed(origin: string, allowedOrigins: string[] = []): boolean {
   if (!origin) return false;
