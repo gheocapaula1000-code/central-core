@@ -329,7 +329,7 @@ export function constantTimeEqual(a: string, b: string): boolean {
 }
 
 const LOVABLE_SUFFIXES = [".lovable.app", ".lovableproject.com", ".lovable.dev"];
-const TRUSTED_APP_HOSTS = new Set(["keydraft.app", "www.keydraft.app", "wyloni.app", "www.wyloni.app", "sottra.app", "www.sottra.app"]);
+const TRUSTED_APP_HOSTS = new Set(["keydraft.app", "www.keydraft.app", "wyloni.app", "www.wyloni.app", "sottra.app", "www.sottra.app", "civikoone.com", "www.civikoone.com"]);
 
 function normalizeOrigin(value: string): string {
   const raw = value.toLowerCase().trim().replace(/\/+$/, "");
