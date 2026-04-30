@@ -253,7 +253,7 @@ export async function runInternalSottraContext(
     used: false, identity: null, omi: null,
     marketHints: [], infrastrutture: [], riskFlags: [],
     demographicHints: [], developmentHints: [],
-    convergenceSummary: null, warnings: [],
+    convergenceSummary: null, poiHints: null, warnings: [],
   };
 
   const baseUrl = projectBaseUrl();
