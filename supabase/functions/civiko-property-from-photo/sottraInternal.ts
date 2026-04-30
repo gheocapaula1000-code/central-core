@@ -327,6 +327,24 @@ export async function runInternalSottraContext(
       ["title", "name", "label"], ["summary", "detail", "description"], "Segnali di Zona",
     ),
     convergenceSummary: pickStr(results.convergenzaTerritoriale ?? null, "summary", "narrative", "label"),
+    poiHints: (() => {
+      const pd = (results.infrastrutture as Record<string, unknown> | null | undefined)?.poiData;
+      if (!pd || typeof pd !== "object") return null;
+      const o = pd as Record<string, unknown>;
+      const n = (k: string) => {
+        const v = o[k];
+        return typeof v === "number" && Number.isFinite(v) ? v : 0;
+      };
+      const hint = {
+        supermercati: n("supermercati"),
+        farmacie: n("farmacie"),
+        scuole: n("scuole"),
+        parchi: n("parchi"),
+        fermateBus: n("fermateBus"),
+      };
+      const total = hint.supermercati + hint.farmacie + hint.scuole + hint.parchi + hint.fermateBus;
+      return total > 0 ? hint : null;
+    })(),
     warnings: [],
   };
 
