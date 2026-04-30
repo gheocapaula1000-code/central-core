@@ -658,6 +658,7 @@ async function orchestrate(body: RequestBody, debugId: string) {
     inputQuality: ctx.inputQuality,
     immobileReale: immobile,
     fontiDaCollegare,
+    poiHints: sottraCtx.poiHints,
     zonaInMovimento,
     pianoEsclusiva,
     presentazioneProprietario,
