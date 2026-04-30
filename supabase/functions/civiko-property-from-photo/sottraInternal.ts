@@ -88,11 +88,25 @@ function projectBaseUrl(): string | null {
   return `${url.replace(/\/$/, "")}/functions/v1`;
 }
 
+function deriveComuneProvincia(address: string): { comune: string; provincia: string } {
+  const raw = (address || "").trim();
+  if (!raw) return { comune: "", provincia: "" };
+  const cleaned = raw.replace(/\b\d{5}\b/g, "").trim();
+  const parts = cleaned.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length > 1 && /^ital/i.test(parts[parts.length - 1])) parts.pop();
+  const last = parts[parts.length - 1] ?? "";
+  const provMatch = last.match(/\s+([A-Z]{2})$/);
+  const provincia = provMatch ? provMatch[1] : "";
+  const comune = last.replace(/\s+[A-Z]{2}$/, "").trim();
+  return { comune, provincia };
+}
+
 function buildSottraBody(ctx: SottraInputContext): Record<string, unknown> {
+  const { comune, provincia } = deriveComuneProvincia(ctx.manualAddress);
   return {
     address: ctx.manualAddress || "",
-    comune: "Padova",
-    provincia: "PD",
+    comune: comune || undefined,
+    provincia: provincia || undefined,
     lat: ctx.coords?.lat ?? 0,
     lng: ctx.coords?.lng ?? 0,
     zone: ctx.zone || undefined,
