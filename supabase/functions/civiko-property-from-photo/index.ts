@@ -22,7 +22,7 @@ import {
   buildManifest, enforceOriginPolicy,
 } from "../_shared/http.ts";
 import {
-  sanitizeOutgoing, isPadovaMunicipality, isPadovaText, isPadovaCoord,
+  sanitizeOutgoing,
 } from "../_shared/civiko.ts";
 import {
   runInternalSottraContext, type SottraContext, type SottraSignalHint,
@@ -207,12 +207,8 @@ function evaluateInput(body: RequestBody): {
   else if ((hasUsablePhoto && hasDeviceGeo) || (hasManualAddress && factCount >= 3)) level = "buono";
   else if (hasUsablePhoto || hasDeviceGeo || hasManualAddress) level = "parziale";
 
-  // Padova scope warning
-  const padova =
-    isPadovaMunicipality(facts.zona || manualAddress) ||
-    isPadovaText(manualAddress, facts.zona) ||
-    (coords ? isPadovaCoord(coords.lat, coords.lng) : false);
-  if (!padova) warnings.push("Pilot V1 limitato al Comune di Padova: il contesto sarà incompleto fuori area.");
+  // Radar nazionale: nessuna restrizione geografica. Le verifiche di
+  // contesto vengono comunque marcate come "da_collegare" se mancano dati.
 
   return {
     inputQuality: {
@@ -255,8 +251,8 @@ function buildImmobileReale(
 
 const FONTI_DEFAULT: Array<Omit<FonteOut, "displayItems"> & { displayItems: DisplayItem[] }> = [
   { id: "omi",                  title: "Riferimenti OMI",       status: "da_collegare", purpose: "Riferimenti di Mercato della zona OMI quando disponibili.", sourceOwner: "Agenzia delle Entrate",                 displayItems: [] },
-  { id: "padova_municipality",  title: "Comune di Padova",      status: "da_collegare", purpose: "Cartografia comunale ed Elementi di Zona.",                 sourceOwner: "Comune di Padova",                       displayItems: [] },
-  { id: "neighborhood_context", title: "Contesto di Quartiere", status: "da_collegare", purpose: "Quadro di contesto del quartiere.",                         sourceOwner: "Comune di Padova / ISTAT",               displayItems: [] },
+  { id: "padova_municipality",  title: "Comune",                status: "da_collegare", purpose: "Cartografia comunale ed Elementi di Zona.",                 sourceOwner: "Comune / ISTAT",                         displayItems: [] },
+  { id: "neighborhood_context", title: "Contesto di Quartiere", status: "da_collegare", purpose: "Quadro di contesto del quartiere.",                         sourceOwner: "Comune / ISTAT",                         displayItems: [] },
   { id: "territorial_data",     title: "Dati Territoriali",     status: "da_collegare", purpose: "Verifica di Supporto Territoriale.",                        sourceOwner: "Fonti territoriali",                     displayItems: [] },
   { id: "cadastral_checks",     title: "Verifiche Catastali",   status: "da_collegare", purpose: "Documentazione catastale da raccogliere e verificare.",     sourceOwner: "Documentazione Agenzia",                 displayItems: [] },
   { id: "schools_services",     title: "Scuole e Servizi",      status: "da_collegare", purpose: "Elementi di Zona su scuole e servizi.",                     sourceOwner: "MIM / Fonti disponibili",                displayItems: [] },
@@ -561,7 +557,16 @@ async function orchestrate(body: RequestBody, debugId: string) {
     mainObjection: safeStr(facts.obiezionePrincipale) || undefined,
     targetBuyer: safeStr(facts.targetAcquirente) || undefined,
   };
-  const municipality = "Padova";
+  // Derive municipality from the manual address (last meaningful segment).
+  const municipality = (() => {
+    const raw = ctx.manualAddress.trim();
+    if (!raw) return "";
+    const cleaned = raw.replace(/\b\d{5}\b/g, "").trim();
+    const parts = cleaned.split(",").map((p) => p.trim()).filter(Boolean);
+    if (parts.length > 1 && /^ital/i.test(parts[parts.length - 1])) parts.pop();
+    const last = parts[parts.length - 1] ?? "";
+    return last.replace(/\s+[A-Z]{2}$/, "").trim();
+  })();
 
   const sourceProfilePayload = { agencyId: body.agencyId, propertyDraft };
   const hyperlocalPayload = {

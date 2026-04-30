@@ -391,6 +391,45 @@ export async function handleForecastInfrastrutture(req: Request, body: Record<st
 
   console.log(`[infrastrutture] comune="${comune}" lat=${lat} lng=${lng} debug_id=${debugId}`);
 
+  // ── Overpass API: POI nel raggio di 500m ──
+  const poiData = { supermercati: 0, farmacie: 0, scuole: 0, parchi: 0, fermateBus: 0 };
+  try {
+    const overpassQuery = `[out:json][timeout:8];(
+      node(around:500,${lat},${lng})[amenity=pharmacy];
+      node(around:500,${lat},${lng})[shop=supermarket];
+      node(around:500,${lat},${lng})[amenity=school];
+      node(around:500,${lat},${lng})[leisure=park];
+      way(around:500,${lat},${lng})[leisure=park];
+      node(around:500,${lat},${lng})[highway=bus_stop];
+    );out tags;`;
+    const ctrl = new AbortController();
+    const tmr = setTimeout(() => ctrl.abort(), 9000);
+    const opResp = await fetch("https://overpass-api.de/api/interpreter", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "data=" + encodeURIComponent(overpassQuery),
+      signal: ctrl.signal,
+    });
+    clearTimeout(tmr);
+    if (opResp.ok) {
+      const opData = await opResp.json();
+      const elements = Array.isArray(opData?.elements) ? opData.elements : [];
+      for (const el of elements) {
+        const tags = el?.tags ?? {};
+        if (tags.amenity === "pharmacy") poiData.farmacie++;
+        else if (tags.shop === "supermarket") poiData.supermercati++;
+        else if (tags.amenity === "school") poiData.scuole++;
+        else if (tags.leisure === "park") poiData.parchi++;
+        else if (tags.highway === "bus_stop") poiData.fermateBus++;
+      }
+      console.log(`[infrastrutture] Overpass POI: ${JSON.stringify(poiData)}`);
+    } else {
+      console.warn(`[infrastrutture] Overpass returned ${opResp.status}`);
+    }
+  } catch (e) {
+    console.warn(`[infrastrutture] Overpass fetch failed: ${String(e).slice(0, 100)}`);
+  }
+
   const supabase = getSupabase();
   const sourcesUsed: string[] = [];
   const limitations: string[] = [];
@@ -619,6 +658,7 @@ export async function handleForecastInfrastrutture(req: Request, body: Record<st
   return ok(req, {
     comune,
     infrastructureScore: score,
+    poiData,
     infrastructureBand,
     infrastructureProjects,
     connectivitySignals,

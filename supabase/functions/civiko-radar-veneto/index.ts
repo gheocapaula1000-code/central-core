@@ -32,11 +32,6 @@ const ROUTES = [
   "POST /civiko/radar-veneto",
 ];
 
-const VENETO_PROVINCES = new Set([
-  "padova", "venezia", "verona", "vicenza", "treviso", "rovigo", "belluno",
-  "pd", "ve", "vr", "vi", "tv", "ro", "bl",
-]);
-
 interface RequestBody {
   address?: string;
   latitude?: number;
@@ -72,7 +67,7 @@ interface RegionalBando {
 interface RadarResponse {
   configured: boolean;
   status: "ok" | "partial" | "unavailable";
-  scope: { comune: string; provincia: string; inVeneto: boolean };
+  scope: { comune: string; provincia: string };
   segnaliDiZona: {
     sentiment: ZoneSignal;
     sicurezza: ZoneSignal;
@@ -93,11 +88,11 @@ function emptySignal(label: string): ZoneSignal {
   return { label, livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare" };
 }
 
-function defaultRadar(comune: string, provincia: string, inVeneto: boolean): RadarResponse {
+function defaultRadar(comune: string, provincia: string): RadarResponse {
   return {
     configured: false,
     status: "unavailable",
-    scope: { comune, provincia, inVeneto },
+    scope: { comune, provincia },
     segnaliDiZona: {
       sentiment: emptySignal("Sentiment di Zona"),
       sicurezza: emptySignal("Sicurezza Percepita"),
@@ -252,11 +247,11 @@ async function buildOffMarket(comune: string, provincia: string): Promise<OffMar
   return out.slice(0, 12);
 }
 
-async function buildBandiVeneto(comune: string): Promise<RegionalBando[]> {
-  const items = await firecrawlSearch(`bandi attivi Regione Veneto casa abitazione ${comune}`, 6);
+async function buildBandiNazionali(comune: string, provincia: string): Promise<RegionalBando[]> {
+  const items = await firecrawlSearch(`bandi attivi casa abitazione ${comune} ${provincia} regione comune`, 6);
   return items.map((it) => ({
-    titolo: it.title.slice(0, 200) || "Bando regionale",
-    ente: "Regione Veneto",
+    titolo: it.title.slice(0, 200) || "Bando attivo",
+    ente: "Ente pubblico",
     scadenza: null,
     descrizione: (it.description || "").slice(0, 320),
     evidenceUrl: it.url || null,
@@ -268,18 +263,12 @@ async function buildBandiVeneto(comune: string): Promise<RegionalBando[]> {
 async function orchestrate(body: RequestBody): Promise<RadarResponse> {
   const comune = (body.comune ?? "").trim();
   const provincia = (body.provincia ?? "").trim();
-  const inVeneto = VENETO_PROVINCES.has(provincia.toLowerCase());
 
-  const base = defaultRadar(comune || "—", provincia || "—", inVeneto);
+  const base = defaultRadar(comune || "—", provincia || "—");
   const warnings: string[] = [];
 
   if (!comune) {
     warnings.push("Comune non indicato: risultato limitato.");
-    base.warnings = warnings;
-    return sanitizeOutgoing(base);
-  }
-  if (!inVeneto) {
-    warnings.push("Radar Territoriale disponibile solo per i comuni del Veneto.");
     base.warnings = warnings;
     return sanitizeOutgoing(base);
   }
@@ -292,7 +281,7 @@ async function orchestrate(body: RequestBody): Promise<RadarResponse> {
   const [segnali, off, bandi] = await Promise.all([
     hasFirecrawl ? buildSentimentSignals(comune) : Promise.resolve(base.segnaliDiZona),
     hasFirecrawl ? buildOffMarket(comune, provincia) : Promise.resolve([]),
-    hasFirecrawl ? buildBandiVeneto(comune) : Promise.resolve([]),
+    hasFirecrawl ? buildBandiNazionali(comune, provincia) : Promise.resolve([]),
   ]);
 
   const anySignal = Object.values(segnali).some((s) => s.livello !== "non_disponibile");
@@ -301,7 +290,7 @@ async function orchestrate(body: RequestBody): Promise<RadarResponse> {
   const out: RadarResponse = {
     configured: hasFirecrawl,
     status,
-    scope: { comune, provincia, inVeneto },
+    scope: { comune, provincia },
     segnaliDiZona: segnali,
     opportunitaOffMarket: off,
     bandiRegionali: bandi,
@@ -360,7 +349,7 @@ Deno.serve(async (req) => {
     console.error(`[${FUNCTION_NAME}] error debug_id=${debugId}: ${err instanceof Error ? err.message : String(err)}`);
     const fallback = sanitizeOutgoing({
       configured: false, status: "unavailable",
-      scope: { comune: "—", provincia: "—", inVeneto: false },
+      scope: { comune: "—", provincia: "—" },
       segnaliDiZona: {
         sentiment: { label: "Sentiment di Zona", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare" },
         sicurezza: { label: "Sicurezza Percepita", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare" },
