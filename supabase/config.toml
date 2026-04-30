@@ -56,3 +56,9 @@ verify_jwt = false
 
 [functions.civiko-billing]
 verify_jwt = false
+
+[functions.civiko-radar-veneto]
+verify_jwt = false
+
+[functions.civiko-content-studio]
+verify_jwt = false
