@@ -60,6 +60,14 @@ export interface SottraSignalHint {
   source?: string;
 }
 
+export interface PoiHint {
+  supermercati: number;
+  farmacie: number;
+  scuole: number;
+  parchi: number;
+  fermateBus: number;
+}
+
 export interface SottraContext {
   used: boolean;
   identity: SottraIdentityHint | null;
@@ -70,6 +78,7 @@ export interface SottraContext {
   demographicHints: SottraSignalHint[];
   developmentHints: SottraSignalHint[];
   convergenceSummary: string | null;
+  poiHints: PoiHint | null;
   warnings: string[];
 }
 
