@@ -27,6 +27,7 @@ import {
 import {
   runInternalSottraContext, type SottraContext, type SottraSignalHint,
 } from "./sottraInternal.ts";
+import { buildZonaIntelligence } from "./zonaIntelligence.ts";
 
 const FUNCTION_NAME = "civiko-property-from-photo";
 const EXPECTED_BASE_PATH = "/functions/v1/civiko-property-from-photo";
@@ -588,11 +589,12 @@ async function orchestrate(body: RequestBody, debugId: string) {
     askingPrice: safeStr(facts.prezzoRichiesto),
   };
 
-  const [spRes, hlRes, zmRes, sottraCtx] = await Promise.all([
+  const [spRes, hlRes, zmRes, sottraCtx, intelligenceZona] = await Promise.all([
     callSibling("civiko-property-source-profile", sourceProfilePayload, debugId),
     callSibling("civiko-property-hyperlocal-signals", hyperlocalPayload, debugId),
     callSibling("civiko-property-zona-in-movimento", hyperlocalPayload, debugId),
     runInternalSottraContext(sottraInputCtx, debugId),
+    buildZonaIntelligence(ctx.manualAddress, municipality, ctx.coords),
   ]);
 
   const sourceProfile = spRes.data;
@@ -663,6 +665,7 @@ async function orchestrate(body: RequestBody, debugId: string) {
     pianoEsclusiva,
     presentazioneProprietario,
     kitMarketing: { available: false, items: [] as unknown[] },
+    intelligenceZona,
   };
 
   return sanitizeOutgoing(payload);
