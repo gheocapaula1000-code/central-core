@@ -86,7 +86,7 @@ Per ogni opportunità trovata, includi URL diretto alla fonte. Rispondi SOLO in 
           { role: "user", content: prompt },
         ],
         return_citations: true,
-        search_recency_filter: "month",
+        search_recency_filter: "year",
       }),
       signal,
     });
