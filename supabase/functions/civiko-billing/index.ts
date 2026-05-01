@@ -76,7 +76,8 @@ async function handleCreateCheckout(req: Request, body: Record<string, unknown>,
 
   const agencyId = String(body.agencyId ?? "");
   const planKey = String(body.planKey ?? "") as CivikoPlanKey;
-  const interval = String(body.interval ?? "monthly");
+  const intervalRaw = String(body.interval ?? "month");
+  const interval = (intervalRaw === "year" || intervalRaw === "annual") ? "annual" : "monthly";
   const successUrl = String(body.successUrl ?? "");
   const cancelUrl = String(body.cancelUrl ?? "");
   const email = body.email ? String(body.email) : null;
@@ -194,7 +195,7 @@ async function handleCheckSubscription(req: Request, body: Record<string, unknow
 async function handleRecordUsage(req: Request, body: Record<string, unknown>, debugId: string) {
   const agencyId = String(body.agencyId ?? "");
   const usageType = String(body.usageType ?? "") as UsageType;
-  const validTypes: UsageType[] = ["scan", "owner_report", "piano_esclusiva", "zona_in_movimento", "hyperlocal_signals"];
+  const validTypes: UsageType[] = ["scan", "owner_report", "piano_esclusiva", "zona_in_movimento", "hyperlocal_signals", "radar"];
   if (!agencyId) return withIdentity(fail(req, 400, "INVALID_BODY", "agencyId is required.", debugId), "error");
   if (!validTypes.includes(usageType)) return withIdentity(fail(req, 400, "INVALID_BODY", "usageType not recognized.", debugId), "error");
 
