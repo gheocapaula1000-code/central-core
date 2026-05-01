@@ -23,6 +23,7 @@ import {
 } from "../_shared/http.ts";
 import { sanitizeOutgoing } from "../_shared/civiko.ts";
 import { rateLimit } from "../_shared/rate-limit.ts";
+import { buildOpportunitaOffMarket } from "./radarOpportunita.ts";
 
 const FUNCTION_NAME = "civiko-radar-veneto";
 const EXPECTED_BASE_PATH = "/functions/v1/civiko-radar-veneto";
@@ -48,12 +49,17 @@ interface ZoneSignal {
 }
 
 interface OffMarketOpportunity {
-  tipo: "asta" | "ribasso" | "eredita";
+  tipo: "asta" | "ribasso" | "eredita" | "successione" | "luxury" | "terreno" | "commerciale" | "divorzio" | "confisca";
   titolo: string;
   descrizione: string;
+  prezzoIndicativo?: string | null;
+  scontoStimato?: string | null;
+  localita?: string;
   fonte: string;
   evidenceUrl?: string | null;
   publishedAt?: string | null;
+  categoria?: "residenziale" | "commerciale" | "terreno" | "luxury" | "altro";
+  urgenza?: "alta" | "media" | "bassa";
 }
 
 interface RegionalBando {
@@ -225,6 +231,22 @@ async function buildSentimentSignals(comune: string): Promise<RadarResponse["seg
 }
 
 async function buildOffMarket(comune: string, provincia: string): Promise<OffMarketOpportunity[]> {
+  const perplexityResults = await buildOpportunitaOffMarket(comune, provincia);
+  if (perplexityResults.length > 0) {
+    return perplexityResults.map((p) => ({
+      tipo: p.tipo as OffMarketOpportunity["tipo"],
+      titolo: p.titolo,
+      descrizione: p.descrizione,
+      prezzoIndicativo: p.prezzoIndicativo,
+      scontoStimato: p.scontoStimato,
+      localita: p.localita,
+      fonte: p.fonte,
+      evidenceUrl: p.evidenceUrl,
+      publishedAt: null,
+      categoria: p.categoria,
+      urgenza: p.urgenza,
+    }));
+  }
   const queries: Array<{ tipo: OffMarketOpportunity["tipo"]; q: string }> = [
     { tipo: "asta", q: `aste immobiliari ${comune} ${provincia} tribunale` },
     { tipo: "ribasso", q: `aste immobiliari ribassate ${comune} ${provincia}` },
