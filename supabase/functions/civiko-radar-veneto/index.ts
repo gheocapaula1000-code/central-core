@@ -309,13 +309,39 @@ async function orchestrate(body: RequestBody): Promise<RadarResponse> {
   const anySignal = Object.values(segnali).some((s) => s.livello !== "non_disponibile");
   const status: RadarResponse["status"] = (anySignal || off.length || bandi.length) ? (anySignal && off.length && bandi.length ? "ok" : "partial") : "unavailable";
 
-  const out: RadarResponse = {
+  const out: any = {
     configured: hasFirecrawl,
     status,
     scope: { comune, provincia },
     segnaliDiZona: segnali,
-    opportunitaOffMarket: off,
-    bandiRegionali: bandi,
+    opportunita: off.map((o, i) => ({
+      id: `opp-${i}`,
+      title: o.titolo,
+      zone: comune || "Veneto",
+      comune: comune,
+      provincia: provincia,
+      type: o.tipo,
+      detail: o.descrizione,
+      sourceAnchor: o.fonte,
+      evidenceUrl: o.evidenceUrl,
+      prezzoIndicativo: o.prezzoIndicativo,
+      scontoStimato: o.scontoStimato,
+      localita: o.localita,
+      categoria: o.categoria,
+      urgenza: o.urgenza,
+    })),
+    bandi: bandi.map((b, i) => ({
+      id: `bando-${i}`,
+      title: b.titolo,
+      ente: b.ente,
+      status: "attivo",
+      ambito: "altro",
+      detail: b.descrizione,
+      sourceAnchor: b.evidenceUrl || "Regione Veneto",
+    })),
+    segnaliForti: [],
+    puntiAttenzione: [],
+    movimentiRecenti: [],
     warnings,
     updatedAt: new Date().toISOString(),
   };
