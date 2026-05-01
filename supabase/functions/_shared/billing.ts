@@ -18,7 +18,8 @@ export type UsageType =
   | "owner_report"
   | "piano_esclusiva"
   | "zona_in_movimento"
-  | "hyperlocal_signals";
+  | "hyperlocal_signals"
+  | "radar";
 
 export const USAGE_COLUMN: Record<UsageType, string> = {
   scan: "scans_used",
@@ -26,12 +27,14 @@ export const USAGE_COLUMN: Record<UsageType, string> = {
   piano_esclusiva: "piano_esclusiva_used",
   zona_in_movimento: "zona_in_movimento_used",
   hyperlocal_signals: "hyperlocal_signals_used",
+  radar: "radar_used",
 };
 
 export const USAGE_LIMIT_COLUMN: Partial<Record<UsageType, string>> = {
   scan: "monthly_scans",
   owner_report: "monthly_owner_reports",
   piano_esclusiva: "monthly_piano_esclusiva",
+  radar: "monthly_radar",
 };
 
 export interface StripeEnv {
@@ -45,12 +48,12 @@ export function readStripeEnv(): StripeEnv {
   const secretKey = Deno.env.get("STRIPE_SECRET_KEY") ?? null;
   const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET") ?? null;
   const prices: Record<string, string | null> = {
-    civiko_studio_monthly: Deno.env.get("CIVIKO_STRIPE_PRICE_STUDIO_MONTHLY") ?? null,
-    civiko_pro_monthly: Deno.env.get("CIVIKO_STRIPE_PRICE_PRO_MONTHLY") ?? null,
-    civiko_elite_monthly: Deno.env.get("CIVIKO_STRIPE_PRICE_ELITE_MONTHLY") ?? null,
-    civiko_studio_annual: Deno.env.get("CIVIKO_STRIPE_PRICE_STUDIO_ANNUAL") ?? null,
-    civiko_pro_annual: Deno.env.get("CIVIKO_STRIPE_PRICE_PRO_ANNUAL") ?? null,
-    civiko_elite_annual: Deno.env.get("CIVIKO_STRIPE_PRICE_ELITE_ANNUAL") ?? null,
+    civiko_studio_monthly: Deno.env.get("CIVIKO_STRIPE_PRICE_STUDIO_MONTHLY") ?? "price_1TSCBeGWMFww3yH4pLiIxCpf",
+    civiko_pro_monthly: Deno.env.get("CIVIKO_STRIPE_PRICE_PRO_MONTHLY") ?? "price_1TSCN0GWMFww3yH4DCdGytEF",
+    civiko_elite_monthly: Deno.env.get("CIVIKO_STRIPE_PRICE_ELITE_MONTHLY") ?? "price_1TSCWjGWMFww3yH4HLoyXrtq",
+    civiko_studio_annual: Deno.env.get("CIVIKO_STRIPE_PRICE_STUDIO_ANNUAL") ?? "price_1TSCGlGWMFww3yH45P9luJ52",
+    civiko_pro_annual: Deno.env.get("CIVIKO_STRIPE_PRICE_PRO_ANNUAL") ?? "price_1TSCTwGWMFww3yH4GRTVU5jX",
+    civiko_elite_annual: Deno.env.get("CIVIKO_STRIPE_PRICE_ELITE_ANNUAL") ?? "price_1TSCZBGWMFww3yH4Uj2Ci5mF",
   };
   return {
     secretKey,
