@@ -115,6 +115,7 @@ export type Database = {
           id: number
           monthly_owner_reports: number | null
           monthly_piano_esclusiva: number | null
+          monthly_radar: number | null
           monthly_scans: number | null
           plan_key: string
           team_seats: number | null
@@ -130,6 +131,7 @@ export type Database = {
           id?: number
           monthly_owner_reports?: number | null
           monthly_piano_esclusiva?: number | null
+          monthly_radar?: number | null
           monthly_scans?: number | null
           plan_key: string
           team_seats?: number | null
@@ -145,6 +147,7 @@ export type Database = {
           id?: number
           monthly_owner_reports?: number | null
           monthly_piano_esclusiva?: number | null
+          monthly_radar?: number | null
           monthly_scans?: number | null
           plan_key?: string
           team_seats?: number | null
@@ -210,6 +213,7 @@ export type Database = {
           owner_reports_used: number
           period_key: string
           piano_esclusiva_used: number
+          radar_used: number
           scans_used: number
           updated_at: string
           zona_in_movimento_used: number
@@ -223,6 +227,7 @@ export type Database = {
           owner_reports_used?: number
           period_key: string
           piano_esclusiva_used?: number
+          radar_used?: number
           scans_used?: number
           updated_at?: string
           zona_in_movimento_used?: number
@@ -236,6 +241,7 @@ export type Database = {
           owner_reports_used?: number
           period_key?: string
           piano_esclusiva_used?: number
+          radar_used?: number
           scans_used?: number
           updated_at?: string
           zona_in_movimento_used?: number
