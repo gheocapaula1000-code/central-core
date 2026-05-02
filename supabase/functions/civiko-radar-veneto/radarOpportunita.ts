@@ -44,18 +44,32 @@ function withAbort(ms: number) {
 }
 
 import { scrapeAsteGiudiziarie } from "./asteGiudiziarie.ts";
+import { scrapeRibassiPortali } from "./ribassiPortali.ts";
+import { scrapeSuccessioniPotenziali } from "./successioniPotenziali.ts";
 
 export async function buildOpportunitaOffMarket(
   comune: string,
   provincia: string,
   coords: { lat: number; lng: number } | null = null,
 ): Promise<OpportunitaOffMarket[]> {
-  // Lancia lo scraping delle aste certe (PVP) in parallelo con Perplexity
+  // Lancia tutti gli scraper proprietari in parallelo con Perplexity
   const astePromise = scrapeAsteGiudiziarie(comune, coords);
+  const ribassiPromise = scrapeRibassiPortali(comune, coords);
+  const successioniPromise = scrapeSuccessioniPotenziali(comune);
+
+  const collectScrapers = async (): Promise<OpportunitaOffMarket[]> => {
+    const [aste, ribassi, successioni] = await Promise.all([
+      astePromise.catch(() => [] as OpportunitaOffMarket[]),
+      ribassiPromise.catch(() => [] as OpportunitaOffMarket[]),
+      successioniPromise.catch(() => [] as OpportunitaOffMarket[]),
+    ]);
+    return [...aste, ...ribassi, ...successioni];
+  };
+
   const key = Deno.env.get("PERPLEXITY_API_KEY") ?? "";
   if (!key) {
-    // Anche senza Perplexity, restituisci almeno le aste certe scrapate
-    return await astePromise;
+    // Anche senza Perplexity, restituisci almeno i dati certi degli scraper
+    return (await collectScrapers()).slice(0, 15);
   }
 
   const location = [comune, provincia].filter(Boolean).join(", ") || "Italia";
