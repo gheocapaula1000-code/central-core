@@ -697,11 +697,10 @@ async function orchestrate(body: RequestBody, debugId: string) {
       }
     }
   }
-  // Se non abbiamo né un prezzo stimato né i dati OMI con metratura,
-  // non possiamo calcolare comparabili realistici.
   const basePrice = prezzoStimato || omiBasePrice || 0;
   let vendutoRecente: any[] = [];
   if (basePrice > 0) {
+    // Caso 1: abbiamo un prezzo base realistico — calcoliamo i comparabili normalmente
     vendutoRecente = [
       {
         indirizzo: "Stessa zona (entro 500m)",
@@ -729,17 +728,37 @@ async function orchestrate(body: RequestBody, debugId: string) {
       },
     ];
   } else {
-    // Fallback onesto: chiediamo all'agente di inserire i dati mancanti
-    vendutoRecente = [
-      {
-        indirizzo: "Dati insufficienti per il calcolo",
-        prezzoRichiesto: 0,
-        prezzoVendita: 0,
-        giorniMercato: 0,
-        sconto: "N/A",
-        dataVendita: "Inserire metratura o prezzo",
-      },
-    ];
+    // Caso 2: nessun prezzo disponibile — mostriamo i dati OMI grezzi come riferimento utile
+    const minItem = sottraCtx.omi?.displayItems?.find((i: any) => i.label === "Riferimento minimo");
+    const maxItem = sottraCtx.omi?.displayItems?.find((i: any) => i.label === "Riferimento massimo");
+    const omiMin = minItem?.value ?? null;
+    const omiMax = maxItem?.value ?? null;
+
+    if (omiMin && omiMax) {
+      // Abbiamo i dati OMI ma manca la superficie — mostriamo €/m² e chiediamo i mq
+      vendutoRecente = [
+        {
+          indirizzo: "Stima basata su valori OMI di zona",
+          prezzoRichiesto: 0,
+          prezzoVendita: 0,
+          giorniMercato: 0,
+          sconto: `${omiMin} – ${omiMax} €/m²`,
+          dataVendita: "Inserire superficie (mq) per calcolo preciso",
+        },
+      ];
+    } else {
+      // Nessun dato disponibile — messaggio onesto
+      vendutoRecente = [
+        {
+          indirizzo: "Dati insufficienti per il calcolo",
+          prezzoRichiesto: 0,
+          prezzoVendita: 0,
+          giorniMercato: 0,
+          sconto: "N/A",
+          dataVendita: "Inserire prezzo richiesto o superficie per attivare il confronto",
+        },
+      ];
+    }
   }
 
   // Static neighborhood heatmap (Mapbox Static API)
