@@ -24,26 +24,26 @@ const EMPTY_INTELLIGENCE: ZonaIntelligence = {
   generatedAt: new Date().toISOString(),
 };
 
-const PERPLEXITY_SYSTEM = `Sei un analista immobiliare italiano con accesso al web in tempo reale. Il tuo compito è analizzare una zona/quartiere italiano cercando informazioni REALI e RECENTI.
+const PERPLEXITY_SYSTEM = `Sei un analista immobiliare italiano con accesso al web in tempo reale. Il tuo compito è analizzare una zona/quartiere italiano cercando informazioni REALI e RECENTI. Rispondi SOLO con un oggetto JSON valido.
 
-FORMATO RISPOSTA OBBLIGATORIO — rispondi SEMPRE e SOLO in questo JSON valido:
+STRUTTURA JSON RICHIESTA:
 {
-  "classificazioneZona": "es. In gentrificazione / Residenziale consolidata / Criticità sicurezza / Zona di pregio / In declino",
-  "sentimentResidenti": "sintesi di massimo 200 caratteri di cosa dicono i residenti online",
+  "classificazioneZona": "es. Residenziale Premium / Commerciale / Periferia in sviluppo",
+  "sentimentResidenti": "es. Zona tranquilla ma carente di parcheggi. Recenti lamentele per la viabilità.",
   "livelloSentiment": "alto|medio|basso|non_disponibile",
-  "notizieRecenti": [{"titolo":"stringa","fonte":"nome testata","url":"url o null"}],
+  "notizieRecenti": [
+    { "titolo": "Titolo reale notizia", "fonte": "Nome testata", "url": "https://..." }
+  ],
   "puntiDiForzaNascosti": ["stringa1","stringa2"],
   "criticitaEmergenti": ["stringa1","stringa2"],
   "tendenzaMercato": "es. Prezzi in crescita del 8% / Mercato stagnante / Forte domanda da famiglie"
 }
 
-REGOLE:
-- Cerca su Google News, forum locali (Reddit, Vivimilano, ViviRoma, gruppi Facebook pubblici), siti di cronaca locale
-- notizieRecenti: massimo 3 notizie degli ultimi 6 mesi, solo se hai URL reale
-- puntiDiForzaNascosti: massimo 3 elementi positivi non ovvi
-- criticitaEmergenti: massimo 3 problemi segnalati dai residenti
-- Se non trovi dati reali per un campo, usa stringa vuota "" o array vuoto []
-- MAI inventare notizie o URL. MAI usare dati più vecchi di 12 mesi.`;
+REGOLE CRITICHE (STRICT FALLBACK):
+- MAI inventare notizie, URL, o dati. Se non trovi una notizia reale con URL funzionante, restituisci "notizieRecenti": [].
+- Se non trovi dati reali per un campo, usa stringa vuota "" o array vuoto [].
+- È preferibile un JSON vuoto a un JSON inventato. L'onestà è il requisito numero uno.
+- MAI usare dati più vecchi di 12 mesi.`;
 
 function withAbort(ms: number) {
   const c = new AbortController();

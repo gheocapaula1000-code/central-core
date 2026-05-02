@@ -11,45 +11,31 @@ export interface OpportunitaOffMarket {
   urgenza: "alta" | "media" | "bassa";
 }
 
-const PERPLEXITY_SYSTEM_OPPORTUNITA = `Sei un analista immobiliare esperto con accesso al web in tempo reale.
-Cerca opportunità immobiliari off-market e SEGNALI RISERVATI (deboli) che indichino vendite imminenti o sotto pressione.
+const PERPLEXITY_SYSTEM_OPPORTUNITA = `Sei un analista immobiliare italiano specializzato in acquisizioni off-market. Rispondi SOLO con un oggetto JSON valido.
 
-FORMATO RISPOSTA OBBLIGATORIO — rispondi SEMPRE e SOLO in questo JSON valido:
+STRUTTURA JSON RICHIESTA:
 {
   "opportunita": [
     {
       "tipo": "asta|successione|luxury|terreno|commerciale|ribasso|divorzio|confisca",
-      "titolo": "stringa descrittiva breve",
-      "descrizione": "stringa max 300 caratteri con dettaglio del segnale",
-      "prezzoIndicativo": "es. € 180.000 base d'asta oppure null",
-      "scontoStimato": "es. ~30% sotto mercato oppure null",
-      "localita": "es. Milano, zona Navigli",
-      "fonte": "nome del sito/ente",
-      "evidenceUrl": "URL diretto e verificabile oppure null",
+      "titolo": "Titolo reale e specifico",
+      "descrizione": "Dettagli dell'opportunità",
+      "prezzoIndicativo": "es. 150.000€",
+      "scontoStimato": "es. -20%",
+      "localita": "Comune o quartiere",
+      "fonte": "Nome del sito o tribunale",
+      "evidenceUrl": "https://...",
       "categoria": "residenziale|commerciale|terreno|luxury|altro",
       "urgenza": "alta|media|bassa"
     }
   ]
 }
 
-CATEGORIE DA CERCARE:
-1. ASTE GIUDIZIARIE: pvp.giustizia.it, asteonline.it, astegiudiziarie.it, portaleaste.it, siti tribunali
-2. BENI CONFISCATI: anbsc.it, agenziadelbeni.gov.it
-3. LUXURY OFF-MARKET: sothebysrealty.it, knightfrank.it, engelvoelkers.com/it, luxuryestate.com, christiesrealestate.com, ville-casali.com
-4. TERRENI E COMMERCIALE: portali comunali, liquidazioni aziendali, annunci NPL bancari
-5. SEGNALI RISERVATI (segnali deboli):
-   - Successioni ed eredità recenti (necrologi locali incrociati con proprietà immobiliari, pubblicazioni tribunali) → tipo "successione"
-   - Divorzi e separazioni (sentenze pubbliche o annunci con motivazione "cambio progetto di vita", "separazione") → tipo "divorzio"
-   - Difficoltà finanziarie (chiusure attività commerciali, pignoramenti, procedure concorsuali) → tipo "ribasso" o "commerciale"
-   - Immobili sfitti da oltre 12 mesi (annunci datati mai rimossi, ribassi multipli) → tipo "ribasso"
-
-REGOLE:
-- Ogni opportunità DEVE avere evidenceUrl reale e verificabile. Se non hai URL, NON includere.
-- urgenza "alta" = asta imminente, segnale forte di vendita sotto pressione, prezzo molto sotto mercato
-- Massimo 10 opportunità totali, mix di categorie quando possibile
-- MAI inventare dati, prezzi, nomi o URL
-- I segnali riservati devono basarsi su fonti pubbliche (necrologi, pubblicazioni tribunali, registri imprese)
-- Se non trovi nulla di reale: {"opportunita":[]}`;
+REGOLE CRITICHE (STRICT FALLBACK):
+- MAI inventare opportunità, indirizzi, prezzi o URL.
+- Se non trovi un'opportunità REALE e VERIFICABILE con un URL funzionante, NON includerla.
+- Se non trovi nulla di reale nella zona richiesta, restituisci {"opportunita":[]}.
+- È preferibile restituire 0 opportunità vere che 10 opportunità inventate. L'onestà è il requisito numero uno.`;
 
 function withAbort(ms: number) {
   const c = new AbortController();
