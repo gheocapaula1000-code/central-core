@@ -589,13 +589,17 @@ async function orchestrate(body: RequestBody, debugId: string) {
     askingPrice: safeStr(facts.prezzoRichiesto),
   };
 
-  const [spRes, hlRes, zmRes, sottraCtx, intelligenceZona] = await Promise.all([
+  const [spRes, hlRes, zmRes, sottraCtx] = await Promise.all([
     callSibling("civiko-property-source-profile", sourceProfilePayload, debugId),
     callSibling("civiko-property-hyperlocal-signals", hyperlocalPayload, debugId),
     callSibling("civiko-property-zona-in-movimento", hyperlocalPayload, debugId),
     runInternalSottraContext(sottraInputCtx, debugId),
-    buildZonaIntelligence(ctx.manualAddress, municipality, ctx.coords),
   ]);
+
+  // Usa l'indirizzo risolto da Sottra se quello manuale è vuoto (flusso one-shot)
+  const resolvedAddress = ctx.manualAddress || (sottraCtx.identity?.address ?? "");
+  const resolvedMunicipality = municipality || (sottraCtx.identity?.municipality ?? "");
+  const intelligenceZona = await buildZonaIntelligence(resolvedAddress, resolvedMunicipality, ctx.coords);
 
   const sourceProfile = spRes.data;
   const hyperlocalSignals = hlRes.data;
