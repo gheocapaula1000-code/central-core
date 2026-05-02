@@ -11,8 +11,8 @@ export interface OpportunitaOffMarket {
   urgenza: "alta" | "media" | "bassa";
 }
 
-const PERPLEXITY_SYSTEM_OPPORTUNITA = `Sei un cacciatore di opportunità immobiliari italiano con accesso al web in tempo reale.
-Il tuo compito è trovare immobili e terreni in vendita che NON sono sui portali standard (Idealista, Immobiliare.it, Casa.it).
+const PERPLEXITY_SYSTEM_OPPORTUNITA = `Sei un analista immobiliare esperto con accesso al web in tempo reale.
+Cerca opportunità immobiliari off-market e SEGNALI RISERVATI (deboli) che indichino vendite imminenti o sotto pressione.
 
 FORMATO RISPOSTA OBBLIGATORIO — rispondi SEMPRE e SOLO in questo JSON valido:
 {
@@ -20,7 +20,7 @@ FORMATO RISPOSTA OBBLIGATORIO — rispondi SEMPRE e SOLO in questo JSON valido:
     {
       "tipo": "asta|successione|luxury|terreno|commerciale|ribasso|divorzio|confisca",
       "titolo": "stringa descrittiva breve",
-      "descrizione": "stringa max 300 caratteri",
+      "descrizione": "stringa max 300 caratteri con dettaglio del segnale",
       "prezzoIndicativo": "es. € 180.000 base d'asta oppure null",
       "scontoStimato": "es. ~30% sotto mercato oppure null",
       "localita": "es. Milano, zona Navigli",
@@ -32,18 +32,23 @@ FORMATO RISPOSTA OBBLIGATORIO — rispondi SEMPRE e SOLO in questo JSON valido:
   ]
 }
 
-FONTI DA CERCARE (in ordine di priorità):
-1. ASTE GIUDIZIARIE: pvp.giustizia.it, asteonline.it, astegiudiziarie.it, portaleaste.it, siti tribunali italiani
+CATEGORIE DA CERCARE:
+1. ASTE GIUDIZIARIE: pvp.giustizia.it, asteonline.it, astegiudiziarie.it, portaleaste.it, siti tribunali
 2. BENI CONFISCATI: anbsc.it, agenziadelbeni.gov.it
 3. LUXURY OFF-MARKET: sothebysrealty.it, knightfrank.it, engelvoelkers.com/it, luxuryestate.com, christiesrealestate.com, ville-casali.com
 4. TERRENI E COMMERCIALE: portali comunali, liquidazioni aziendali, annunci NPL bancari
-5. SUCCESSIONI: pubblicazioni tribunali, annunci liquidatori
+5. SEGNALI RISERVATI (segnali deboli):
+   - Successioni ed eredità recenti (necrologi locali incrociati con proprietà immobiliari, pubblicazioni tribunali) → tipo "successione"
+   - Divorzi e separazioni (sentenze pubbliche o annunci con motivazione "cambio progetto di vita", "separazione") → tipo "divorzio"
+   - Difficoltà finanziarie (chiusure attività commerciali, pignoramenti, procedure concorsuali) → tipo "ribasso" o "commerciale"
+   - Immobili sfitti da oltre 12 mesi (annunci datati mai rimossi, ribassi multipli) → tipo "ribasso"
 
 REGOLE:
-- Ogni opportunità DEVE avere evidenceUrl reale. Se non hai URL, NON includere.
-- urgenza "alta" = asta imminente o prezzo molto sotto mercato
-- Massimo 10 opportunità totali
-- MAI inventare dati, prezzi o URL
+- Ogni opportunità DEVE avere evidenceUrl reale e verificabile. Se non hai URL, NON includere.
+- urgenza "alta" = asta imminente, segnale forte di vendita sotto pressione, prezzo molto sotto mercato
+- Massimo 10 opportunità totali, mix di categorie quando possibile
+- MAI inventare dati, prezzi, nomi o URL
+- I segnali riservati devono basarsi su fonti pubbliche (necrologi, pubblicazioni tribunali, registri imprese)
 - Se non trovi nulla di reale: {"opportunita":[]}`;
 
 function withAbort(ms: number) {
@@ -61,16 +66,20 @@ export async function buildOpportunitaOffMarket(
 
   const location = [comune, provincia].filter(Boolean).join(", ") || "Italia";
 
-  const prompt = `Cerca opportunità immobiliari off-market nella zona di: ${location}
+  const prompt = `Cerca opportunità immobiliari off-market e segnali riservati nella zona di: ${location}
 
 Cerca in parallelo:
 1. ASTE GIUDIZIARIE attive: immobili residenziali, commerciali e terreni all'asta nei tribunali di ${provincia || "Italia"}. Cerca su pvp.giustizia.it e portali aste.
 2. LUXURY E VILLE: immobili di pregio (ville, attici, casali) non presenti su Immobiliare.it. Cerca su Sotheby's, Knight Frank, Engel & Völkers per la zona ${comune || "Italia"}.
 3. TERRENI EDIFICABILI: lotti edificabili o agricoli con cambio destinazione d'uso a prezzo ribassato in ${comune || "Italia"} e dintorni.
-4. SUCCESSIONI E LIQUIDAZIONI: immobili in vendita per successione, divorzio o liquidazione aziendale in ${comune || "Italia"}.
-5. BENI CONFISCATI: immobili dell'ANBSC o Agenzia del Demanio disponibili in ${provincia || "Italia"}.
+4. BENI CONFISCATI: immobili dell'ANBSC o Agenzia del Demanio disponibili in ${provincia || "Italia"}.
+5. SEGNALI RISERVATI (segnali deboli) in ${comune || "Italia"}:
+   - Successioni ed eredità: necrologi locali recenti incrociati con proprietà immobiliari, pubblicazioni tribunali su eredità giacenti
+   - Divorzi e separazioni: annunci con motivazione "cambio progetto di vita", "separazione", sentenze pubbliche
+   - Difficoltà finanziarie: chiusure attività commerciali, pignoramenti, procedure concorsuali, NPL bancari
+   - Immobili sfitti da oltre 12 mesi: annunci datati con ribassi multipli, mai rimossi dai portali
 
-Per ogni opportunità trovata, includi URL diretto alla fonte. Rispondi SOLO in JSON.`;
+Per ogni opportunità trovata, includi URL diretto alla fonte verificabile. Rispondi SOLO in JSON.`;
 
   const { signal, clear } = withAbort(40_000);
   try {
