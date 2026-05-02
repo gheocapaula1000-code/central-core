@@ -43,10 +43,15 @@ function withAbort(ms: number) {
   return { signal: c.signal, clear: () => clearTimeout(t) };
 }
 
+import { scrapeAsteGiudiziarie } from "./asteGiudiziarie.ts";
+
 export async function buildOpportunitaOffMarket(
   comune: string,
   provincia: string,
+  coords: { lat: number; lng: number } | null = null,
 ): Promise<OpportunitaOffMarket[]> {
+  // Lancia lo scraping delle aste certe (PVP) in parallelo con Perplexity
+  const astePromise = scrapeAsteGiudiziarie(comune, coords);
   const key = Deno.env.get("PERPLEXITY_API_KEY") ?? "";
   if (!key) return [];
 
