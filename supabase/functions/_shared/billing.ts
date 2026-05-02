@@ -183,13 +183,32 @@ export async function evaluateBillingGate(
 
   const sub = await getActiveSubscription(sb, agencyId);
   if (!sub || !sub.planKey || !["active", "trialing", "past_due"].includes(sub.status)) {
+    const usage = await getCurrentUsage(sb, agencyId);
+    const usageCol = USAGE_COLUMN[usageType];
+    const used = usage[usageCol] ?? 0;
+    const trialLimits = {
+      monthly_scans: 3 as number | null,
+      monthly_owner_reports: 0 as number | null,
+      monthly_piano_esclusiva: 0 as number | null,
+    };
+    if (usageType === "scan" && used < 3) {
+      return {
+        allowed: true,
+        billingReady: true,
+        plan: "free_trial" as unknown as CivikoPlanKey,
+        status: "trialing",
+        usage,
+        limits: trialLimits,
+        upgradeRequired: false,
+      };
+    }
     return {
       allowed: false,
       billingReady: true,
-      plan: sub?.planKey ?? null,
-      status: sub?.status ?? null,
-      usage: {},
-      limits: {},
+      plan: null,
+      status: null,
+      usage,
+      limits: trialLimits,
       upgradeRequired: true,
       reason: "no_active_subscription",
     };
