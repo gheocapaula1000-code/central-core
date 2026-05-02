@@ -697,33 +697,50 @@ async function orchestrate(body: RequestBody, debugId: string) {
       }
     }
   }
-  const basePrice = prezzoStimato || omiBasePrice || 200000;
-  const vendutoRecente = [
-    {
-      indirizzo: "Stessa zona (entro 500m)",
-      prezzoRichiesto: Math.round(basePrice * 1.08),
-      prezzoVendita: Math.round(basePrice * 1.02),
-      giorniMercato: 45,
-      sconto: "-5.5%",
-      dataVendita: "Mese scorso",
-    },
-    {
-      indirizzo: "Via adiacente",
-      prezzoRichiesto: Math.round(basePrice * 1.15),
-      prezzoVendita: Math.round(basePrice * 0.98),
-      giorniMercato: 120,
-      sconto: "-14.7%",
-      dataVendita: "3 mesi fa",
-    },
-    {
-      indirizzo: "Stesso quartiere",
-      prezzoRichiesto: Math.round(basePrice * 1.05),
-      prezzoVendita: Math.round(basePrice * 1.01),
-      giorniMercato: 30,
-      sconto: "-3.8%",
-      dataVendita: "2 mesi fa",
-    },
-  ];
+  // Se non abbiamo né un prezzo stimato né i dati OMI con metratura,
+  // non possiamo calcolare comparabili realistici.
+  const basePrice = prezzoStimato || omiBasePrice || 0;
+  let vendutoRecente: any[] = [];
+  if (basePrice > 0) {
+    vendutoRecente = [
+      {
+        indirizzo: "Stessa zona (entro 500m)",
+        prezzoRichiesto: Math.round(basePrice * 1.08),
+        prezzoVendita: Math.round(basePrice * 1.02),
+        giorniMercato: 45,
+        sconto: "-5.5%",
+        dataVendita: "Mese scorso",
+      },
+      {
+        indirizzo: "Via adiacente",
+        prezzoRichiesto: Math.round(basePrice * 1.15),
+        prezzoVendita: Math.round(basePrice * 0.98),
+        giorniMercato: 120,
+        sconto: "-14.7%",
+        dataVendita: "3 mesi fa",
+      },
+      {
+        indirizzo: "Stesso quartiere",
+        prezzoRichiesto: Math.round(basePrice * 1.05),
+        prezzoVendita: Math.round(basePrice * 1.01),
+        giorniMercato: 30,
+        sconto: "-3.8%",
+        dataVendita: "2 mesi fa",
+      },
+    ];
+  } else {
+    // Fallback onesto: chiediamo all'agente di inserire i dati mancanti
+    vendutoRecente = [
+      {
+        indirizzo: "Dati insufficienti per il calcolo",
+        prezzoRichiesto: 0,
+        prezzoVendita: 0,
+        giorniMercato: 0,
+        sconto: "N/A",
+        dataVendita: "Inserire metratura o prezzo",
+      },
+    ];
+  }
 
   // Static neighborhood heatmap (Mapbox Static API)
   const lat = ctx.coords?.lat ?? 45.4064;
