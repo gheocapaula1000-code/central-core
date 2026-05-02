@@ -681,7 +681,23 @@ async function orchestrate(body: RequestBody, debugId: string) {
   // Confronto con Venduto Recente
   const parsedAsking = Number(String(facts.prezzoRichiesto ?? "").replace(/[^\d]/g, ""));
   const prezzoStimato = Number.isFinite(parsedAsking) && parsedAsking > 0 ? parsedAsking : 0;
-  const basePrice = prezzoStimato || 200000;
+  // Calcola un prezzo base realistico dai dati OMI se disponibili
+  let omiBasePrice = 0;
+  if (sottraCtx.omi?.available && sottraCtx.omi.displayItems) {
+    const minItem = sottraCtx.omi.displayItems.find((i) => i.label === "Riferimento minimo");
+    const maxItem = sottraCtx.omi.displayItems.find((i) => i.label === "Riferimento massimo");
+    if (minItem && maxItem) {
+      const minSqm = Number(String(minItem.value).replace(/[^\d]/g, ""));
+      const maxSqm = Number(String(maxItem.value).replace(/[^\d]/g, ""));
+      if (minSqm > 0 && maxSqm > 0) {
+        const avgSqm = (minSqm + maxSqm) / 2;
+        const parsedSqm = Number(String(facts.metratura ?? "").replace(/[^\d]/g, ""));
+        const sizeSqm = Number.isFinite(parsedSqm) && parsedSqm > 0 ? parsedSqm : 100;
+        omiBasePrice = avgSqm * sizeSqm;
+      }
+    }
+  }
+  const basePrice = prezzoStimato || omiBasePrice || 200000;
   const vendutoRecente = [
     {
       indirizzo: "Stessa zona (entro 500m)",
