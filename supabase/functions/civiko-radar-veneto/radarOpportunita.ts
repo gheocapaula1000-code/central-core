@@ -53,7 +53,10 @@ export async function buildOpportunitaOffMarket(
   // Lancia lo scraping delle aste certe (PVP) in parallelo con Perplexity
   const astePromise = scrapeAsteGiudiziarie(comune, coords);
   const key = Deno.env.get("PERPLEXITY_API_KEY") ?? "";
-  if (!key) return [];
+  if (!key) {
+    // Anche senza Perplexity, restituisci almeno le aste certe scrapate
+    return await astePromise;
+  }
 
   const location = [comune, provincia].filter(Boolean).join(", ") || "Italia";
 
