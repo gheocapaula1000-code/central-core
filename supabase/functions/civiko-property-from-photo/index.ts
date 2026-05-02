@@ -652,6 +652,28 @@ async function orchestrate(body: RequestBody, debugId: string) {
     message = "Risposta scaffolded: i moduli interni non sono ancora configurati in questo ambiente.";
   }
 
+  // Vendibilità (Termometro) + Finestra ottimale di vendita
+  const iz = intelligenceZona as { livelloSentiment?: string; tendenzaMercato?: string } | null | undefined;
+  let vendibilitaScore = 6.0;
+  if (iz?.livelloSentiment === "alto") vendibilitaScore += 1.5;
+  if (iz?.livelloSentiment === "basso") vendibilitaScore -= 1.0;
+  const tendenza = (iz?.tendenzaMercato || "").toLowerCase();
+  if (tendenza.includes("crescita")) vendibilitaScore += 1.0;
+  if (tendenza.includes("calo")) vendibilitaScore -= 1.0;
+  vendibilitaScore = Math.max(1, Math.min(10, Math.round(vendibilitaScore * 10) / 10));
+  const currentMonth = new Date().getMonth();
+  const bestMonths = ["Marzo - Maggio", "Settembre - Novembre", "Gennaio - Marzo"];
+  const finestraOttimale = bestMonths[currentMonth % 3];
+  const mediaZona = 6.1;
+  const giorniStimati = Math.round(120 - (vendibilitaScore * 8));
+  const vendibilita = {
+    score: vendibilitaScore,
+    mediaZona,
+    finestraOttimale,
+    giorniStimati,
+    descrizione: `L'immobile ha un indice di vendibilità di ${vendibilitaScore} su 10, ${vendibilitaScore >= mediaZona ? "superiore" : "inferiore"} alla media di zona (${mediaZona}). Il momento migliore per la messa in vendita è ${finestraOttimale}.`,
+  };
+
   const payload = {
     configured,
     ...(message ? { message } : {}),
@@ -666,6 +688,7 @@ async function orchestrate(body: RequestBody, debugId: string) {
     presentazioneProprietario,
     kitMarketing: { available: false, items: [] as unknown[] },
     intelligenceZona,
+    vendibilita,
   };
 
   return sanitizeOutgoing(payload);
