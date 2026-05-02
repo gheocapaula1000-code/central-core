@@ -720,6 +720,7 @@ async function orchestrate(body: RequestBody, debugId: string) {
     kitMarketing: { available: false, items: [] as unknown[] },
     intelligenceZona,
     vendibilita,
+    vendutoRecente,
   };
 
   return sanitizeOutgoing(payload);
