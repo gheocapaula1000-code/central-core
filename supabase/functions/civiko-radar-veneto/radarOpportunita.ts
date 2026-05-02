@@ -44,18 +44,32 @@ function withAbort(ms: number) {
 }
 
 import { scrapeAsteGiudiziarie } from "./asteGiudiziarie.ts";
+import { scrapeRibassiPortali } from "./ribassiPortali.ts";
+import { scrapeSuccessioniPotenziali } from "./successioniPotenziali.ts";
 
 export async function buildOpportunitaOffMarket(
   comune: string,
   provincia: string,
   coords: { lat: number; lng: number } | null = null,
 ): Promise<OpportunitaOffMarket[]> {
-  // Lancia lo scraping delle aste certe (PVP) in parallelo con Perplexity
+  // Lancia tutti gli scraper proprietari in parallelo con Perplexity
   const astePromise = scrapeAsteGiudiziarie(comune, coords);
+  const ribassiPromise = scrapeRibassiPortali(comune, coords);
+  const successioniPromise = scrapeSuccessioniPotenziali(comune);
+
+  const collectScrapers = async (): Promise<OpportunitaOffMarket[]> => {
+    const [aste, ribassi, successioni] = await Promise.all([
+      astePromise.catch(() => [] as OpportunitaOffMarket[]),
+      ribassiPromise.catch(() => [] as OpportunitaOffMarket[]),
+      successioniPromise.catch(() => [] as OpportunitaOffMarket[]),
+    ]);
+    return [...aste, ...ribassi, ...successioni];
+  };
+
   const key = Deno.env.get("PERPLEXITY_API_KEY") ?? "";
   if (!key) {
-    // Anche senza Perplexity, restituisci almeno le aste certe scrapate
-    return await astePromise;
+    // Anche senza Perplexity, restituisci almeno i dati certi degli scraper
+    return (await collectScrapers()).slice(0, 15);
   }
 
   const location = [comune, provincia].filter(Boolean).join(", ") || "Italia";
@@ -93,17 +107,17 @@ Per ogni opportunità trovata, includi URL diretto alla fonte verificabile. Risp
       }),
       signal,
     });
-    if (!res.ok) return await astePromise;
+    if (!res.ok) return (await collectScrapers()).slice(0, 15);
     const data = await res.json();
     const raw: string = data?.choices?.[0]?.message?.content ?? "";
-    if (!raw || raw.trim().length < 10) return await astePromise;
+    if (!raw || raw.trim().length < 10) return (await collectScrapers()).slice(0, 15);
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return await astePromise;
+    if (!jsonMatch) return (await collectScrapers()).slice(0, 15);
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(jsonMatch[0]);
     } catch {
-      return await astePromise;
+      return (await collectScrapers()).slice(0, 15);
     }
     const rawList = Array.isArray(parsed.opportunita) ? parsed.opportunita : [];
     const VALID_TIPI = ["asta", "successione", "luxury", "terreno", "commerciale", "ribasso", "divorzio", "confisca"];
@@ -139,14 +153,28 @@ Per ogni opportunità trovata, includi URL diretto alla fonte verificabile. Risp
       })
       .filter((o) => o.titolo.length > 3 && o.evidenceUrl !== null);
 
-    // Aste certe dallo scraper PVP (prioritarie); filtra le aste di Perplexity per evitare duplicati
-    const asteCerte = await astePromise;
+    // Dati certi dagli scraper proprietari (prioritari); filtra duplicati da Perplexity
+    const [asteCerte, ribassiCerti, successioniPotenziali] = await Promise.all([
+      astePromise.catch(() => [] as OpportunitaOffMarket[]),
+      ribassiPromise.catch(() => [] as OpportunitaOffMarket[]),
+      successioniPromise.catch(() => [] as OpportunitaOffMarket[]),
+    ]);
     const opportunitaFiltrate = opportunitaPerplexity.filter(
-      (o) => o.tipo !== "asta" && typeof o.evidenceUrl === "string" && o.evidenceUrl.startsWith("http"),
+      (o) =>
+        o.tipo !== "asta" &&
+        o.tipo !== "ribasso" &&
+        o.tipo !== "successione" &&
+        typeof o.evidenceUrl === "string" &&
+        o.evidenceUrl.startsWith("http"),
     );
-    return [...asteCerte, ...opportunitaFiltrate].slice(0, 15);
+    return [
+      ...asteCerte,
+      ...ribassiCerti,
+      ...successioniPotenziali,
+      ...opportunitaFiltrate,
+    ].slice(0, 15);
   } catch {
-    return await astePromise;
+    return (await collectScrapers()).slice(0, 15);
   } finally {
     clear();
   }
