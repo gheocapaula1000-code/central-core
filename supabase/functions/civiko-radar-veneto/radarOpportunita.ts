@@ -107,17 +107,17 @@ Per ogni opportunità trovata, includi URL diretto alla fonte verificabile. Risp
       }),
       signal,
     });
-    if (!res.ok) return await astePromise;
+    if (!res.ok) return (await collectScrapers()).slice(0, 15);
     const data = await res.json();
     const raw: string = data?.choices?.[0]?.message?.content ?? "";
-    if (!raw || raw.trim().length < 10) return await astePromise;
+    if (!raw || raw.trim().length < 10) return (await collectScrapers()).slice(0, 15);
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return await astePromise;
+    if (!jsonMatch) return (await collectScrapers()).slice(0, 15);
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(jsonMatch[0]);
     } catch {
-      return await astePromise;
+      return (await collectScrapers()).slice(0, 15);
     }
     const rawList = Array.isArray(parsed.opportunita) ? parsed.opportunita : [];
     const VALID_TIPI = ["asta", "successione", "luxury", "terreno", "commerciale", "ribasso", "divorzio", "confisca"];
@@ -153,14 +153,28 @@ Per ogni opportunità trovata, includi URL diretto alla fonte verificabile. Risp
       })
       .filter((o) => o.titolo.length > 3 && o.evidenceUrl !== null);
 
-    // Aste certe dallo scraper PVP (prioritarie); filtra le aste di Perplexity per evitare duplicati
-    const asteCerte = await astePromise;
+    // Dati certi dagli scraper proprietari (prioritari); filtra duplicati da Perplexity
+    const [asteCerte, ribassiCerti, successioniPotenziali] = await Promise.all([
+      astePromise.catch(() => [] as OpportunitaOffMarket[]),
+      ribassiPromise.catch(() => [] as OpportunitaOffMarket[]),
+      successioniPromise.catch(() => [] as OpportunitaOffMarket[]),
+    ]);
     const opportunitaFiltrate = opportunitaPerplexity.filter(
-      (o) => o.tipo !== "asta" && typeof o.evidenceUrl === "string" && o.evidenceUrl.startsWith("http"),
+      (o) =>
+        o.tipo !== "asta" &&
+        o.tipo !== "ribasso" &&
+        o.tipo !== "successione" &&
+        typeof o.evidenceUrl === "string" &&
+        o.evidenceUrl.startsWith("http"),
     );
-    return [...asteCerte, ...opportunitaFiltrate].slice(0, 15);
+    return [
+      ...asteCerte,
+      ...ribassiCerti,
+      ...successioniPotenziali,
+      ...opportunitaFiltrate,
+    ].slice(0, 15);
   } catch {
-    return await astePromise;
+    return (await collectScrapers()).slice(0, 15);
   } finally {
     clear();
   }
