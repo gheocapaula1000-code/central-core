@@ -62,3 +62,6 @@ verify_jwt = false
 
 [functions.civiko-content-studio]
 verify_jwt = false
+
+[functions.civiko-admin-secrets]
+verify_jwt = false
