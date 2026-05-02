@@ -66,16 +66,20 @@ export async function buildOpportunitaOffMarket(
 
   const location = [comune, provincia].filter(Boolean).join(", ") || "Italia";
 
-  const prompt = `Cerca opportunità immobiliari off-market nella zona di: ${location}
+  const prompt = `Cerca opportunità immobiliari off-market e segnali riservati nella zona di: ${location}
 
 Cerca in parallelo:
 1. ASTE GIUDIZIARIE attive: immobili residenziali, commerciali e terreni all'asta nei tribunali di ${provincia || "Italia"}. Cerca su pvp.giustizia.it e portali aste.
 2. LUXURY E VILLE: immobili di pregio (ville, attici, casali) non presenti su Immobiliare.it. Cerca su Sotheby's, Knight Frank, Engel & Völkers per la zona ${comune || "Italia"}.
 3. TERRENI EDIFICABILI: lotti edificabili o agricoli con cambio destinazione d'uso a prezzo ribassato in ${comune || "Italia"} e dintorni.
-4. SUCCESSIONI E LIQUIDAZIONI: immobili in vendita per successione, divorzio o liquidazione aziendale in ${comune || "Italia"}.
-5. BENI CONFISCATI: immobili dell'ANBSC o Agenzia del Demanio disponibili in ${provincia || "Italia"}.
+4. BENI CONFISCATI: immobili dell'ANBSC o Agenzia del Demanio disponibili in ${provincia || "Italia"}.
+5. SEGNALI RISERVATI (segnali deboli) in ${comune || "Italia"}:
+   - Successioni ed eredità: necrologi locali recenti incrociati con proprietà immobiliari, pubblicazioni tribunali su eredità giacenti
+   - Divorzi e separazioni: annunci con motivazione "cambio progetto di vita", "separazione", sentenze pubbliche
+   - Difficoltà finanziarie: chiusure attività commerciali, pignoramenti, procedure concorsuali, NPL bancari
+   - Immobili sfitti da oltre 12 mesi: annunci datati con ribassi multipli, mai rimossi dai portali
 
-Per ogni opportunità trovata, includi URL diretto alla fonte. Rispondi SOLO in JSON.`;
+Per ogni opportunità trovata, includi URL diretto alla fonte verificabile. Rispondi SOLO in JSON.`;
 
   const { signal, clear } = withAbort(40_000);
   try {
