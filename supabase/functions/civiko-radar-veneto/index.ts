@@ -230,8 +230,8 @@ async function buildSentimentSignals(comune: string): Promise<RadarResponse["seg
   };
 }
 
-async function buildOffMarket(comune: string, provincia: string): Promise<OffMarketOpportunity[]> {
-  const perplexityResults = await buildOpportunitaOffMarket(comune, provincia);
+async function buildOffMarket(comune: string, provincia: string, coords: { lat: number; lng: number } | null): Promise<OffMarketOpportunity[]> {
+  const perplexityResults = await buildOpportunitaOffMarket(comune, provincia, coords);
   if (perplexityResults.length > 0) {
     return perplexityResults.map((p) => ({
       tipo: p.tipo as OffMarketOpportunity["tipo"],
@@ -300,9 +300,14 @@ async function orchestrate(body: RequestBody): Promise<RadarResponse> {
   if (!hasFirecrawl) warnings.push("Fonte di rassegna pubblica non configurata: risposta limitata.");
   if (!hasAi) warnings.push("Modulo di classificazione sentiment non configurato: indicatori limitati.");
 
+  const coords =
+    typeof body.latitude === "number" && typeof body.longitude === "number"
+      ? { lat: body.latitude, lng: body.longitude }
+      : null;
+
   const [segnali, off, bandi] = await Promise.all([
     hasFirecrawl ? buildSentimentSignals(comune) : Promise.resolve(base.segnaliDiZona),
-    hasFirecrawl ? buildOffMarket(comune, provincia) : Promise.resolve([]),
+    hasFirecrawl ? buildOffMarket(comune, provincia, coords) : Promise.resolve([]),
     hasFirecrawl ? buildBandiNazionali(comune, provincia) : Promise.resolve([]),
   ]);
 
