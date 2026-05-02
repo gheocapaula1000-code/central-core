@@ -675,7 +675,7 @@ async function orchestrate(body: RequestBody, debugId: string) {
   };
 
   // Confronto con Venduto Recente
-  const parsedAsking = Number(String(ctx.facts?.prezzoRichiesto ?? "").replace(/[^\d]/g, ""));
+  const parsedAsking = Number(String(facts.prezzoRichiesto ?? "").replace(/[^\d]/g, ""));
   const prezzoStimato = Number.isFinite(parsedAsking) && parsedAsking > 0 ? parsedAsking : 0;
   const basePrice = prezzoStimato || 200000;
   const vendutoRecente = [
