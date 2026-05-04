@@ -94,16 +94,20 @@ function svc(): SupabaseClient | null {
 // ═══════════════════════════════════════════════════════════════
 const LEGAL_PATTERNS: Array<{ rx: RegExp; type: string }> = [
   { rx: /\bpignoramento\s+immobiliare\b/i, type: "pignoramento" },
-  { rx: /\bvendita\s+(giudiziaria|forzata)\b/i, type: "vendita_giudiziaria" },
-  { rx: /\basta\s+(immobiliare|telematica|giudiziaria)\b/i, type: "asta" },
+  { rx: /\bvendita\s+(giudiziaria|forzata|senza\s+incanto|con\s+incanto|telematica)\b/i, type: "vendita_giudiziaria" },
+  { rx: /\basta\s+(immobiliare|telematica|giudiziaria|pubblica)\b/i, type: "asta" },
   { rx: /\bavviso\s+di\s+vendita\b/i, type: "asta" },
+  { rx: /\bdelegato\s+alla\s+vendita\b/i, type: "asta" },
   { rx: /\bliquidazione\s+(giudiziale|controllata)\b/i, type: "liquidazione_giudiziale" },
   { rx: /\bfallimento\b/i, type: "fallimento" },
   { rx: /\bconcordato\s+preventivo\b/i, type: "concordato" },
-  { rx: /\bprocedura\s+concorsuale\b/i, type: "procedura_concorsuale" },
-  { rx: /\balienazione\s+immobile\b/i, type: "asta" },
+  { rx: /\bprocedura\s+(concorsuale|esecutiva\s+immobiliare)\b/i, type: "procedura_concorsuale" },
+  { rx: /\balienazione\s+(immobile|immobiliare|patrimoniale)\b/i, type: "alienazione_pubblica" },
+  { rx: /\bvendita\s+beni\s+immobili\b/i, type: "alienazione_pubblica" },
+  { rx: /\bdismissione\s+(patrimoniale|immobiliare)\b/i, type: "alienazione_pubblica" },
+  { rx: /\bbando\s+(?:di\s+)?alienazione\b/i, type: "alienazione_pubblica" },
 ];
-const PRICE_RX = /(?:prezzo\s+(?:base|minimo|d['’]?asta)|offerta\s+minima)\s*:?\s*€?\s*([\d.\s]{4,15})/i;
+const PRICE_RX = /(?:prezzo\s+(?:base|minimo|d['’]?asta)|offerta\s+minima|valore\s+a\s+base\s+d['’]?asta)\s*:?\s*€?\s*([\d.\s]{4,15})/i;
 const SALE_DATE_RX = /(?:data\s+(?:vendita|asta|udienza)|fissat[ao]\s+per\s+il)\s*:?\s*(\d{1,2}[\/\.\-]\d{1,2}[\/\.\-]\d{2,4})/i;
 const COURT_RX = /\btribunale\s+di\s+([A-ZÀ-Ü][a-zà-ü\s]{3,30})/i;
 const COMUNE_RX = /\b(?:comune|sito\s+in|ubicat[oa]\s+in)\s+([A-ZÀ-Ü][A-Za-zÀ-ü'\s]{2,40})/i;
