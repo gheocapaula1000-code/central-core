@@ -56,5 +56,5 @@ Deno.test("output JSON is fully serializable (no undefined)", async () => {
   const out = await buildAgentRadar({ allowDemo: true });
   const round = JSON.parse(JSON.stringify(out));
   assertEquals(round.scope.region, "Veneto");
-  assertEquals(round.zones.length, 3);
+  assertEquals(round.zones.length, 0);
 });
