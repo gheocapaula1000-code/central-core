@@ -182,13 +182,13 @@ async function buildAreaScores(supa: SupabaseClient, warnings: string[]) {
     }
   } catch (e) { warnings.push(`radar_signals: ${e instanceof Error ? e.message : String(e)}`); }
 
-  // Build score (usa real + demo per scoring; quality riflette mix)
+  // Build score — POLICY PRODUZIONE: solo conteggi reali contribuiscono.
   const rows: Array<{ provincia: string; comune: string; score: number; temperature: string; components: Record<string, number|string|null>; quality: string; data_basis: string }> = [];
   for (const a of map.values()) {
-    const snapsTot = a.snaps + a.snapsDemo;
-    const motivTot = a.motivati + a.motivatiDemo;
-    const anomTot = a.anomalie + a.anomalieDemo;
-    const asteTot = a.aste + a.asteDemo;
+    const snapsTot = a.snaps;       // solo reali
+    const motivTot = a.motivati;
+    const anomTot = a.anomalie;
+    const asteTot = a.aste;
     let score = 0;
     const omiAvg = a.omiVals.length ? Math.round(a.omiVals.reduce((x,y)=>x+y,0)/a.omiVals.length) : null;
     if (omiAvg !== null) score += 8;
@@ -210,24 +210,13 @@ async function buildAreaScores(supa: SupabaseClient, warnings: string[]) {
     if (anomTot > 0) basis.push("market_anomalies");
     if (asteTot > 0) basis.push("radar_signals");
 
-    // Quality: peggior fonte vince
-    const realCommercial = a.snaps + a.motivati + a.anomalie + a.aste;
-    const demoCommercial = a.snapsDemo + a.motivatiDemo + a.anomalieDemo + a.asteDemo;
+    // Quality: solo reale o parziale (mai demo, demo è già escluso a monte)
+    const realCommercial = snapsTot + motivTot + anomTot + asteTot;
     let quality: string;
-    if (demoCommercial > 0 && realCommercial === 0) {
-      // segnali commerciali tutti demo: AOS è demo (anche se OMI è reale)
-      quality = a.omiCount > 0 ? "demo_with_omi" : "demo";
-      // Manteniamo enum standard:
-      quality = "demo";
-    } else if (realCommercial > 0 && demoCommercial > 0) {
-      quality = "parziale";
-    } else if (realCommercial > 0 && a.omiCount > 0) {
-      quality = "reale";
-    } else if (a.omiCount > 0) {
-      quality = "parziale"; // OMI-only: parziale (non basta a dichiarare opportunità reale)
-    } else {
-      quality = "stimato";
-    }
+    if (realCommercial > 0 && a.omiCount > 0) quality = "reale";
+    else if (a.omiCount > 0) quality = "parziale"; // OMI-only
+    else if (realCommercial > 0) quality = "parziale";
+    else quality = "stimato";
 
     rows.push({
       provincia: a.prov,
