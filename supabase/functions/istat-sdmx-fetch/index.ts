@@ -141,18 +141,22 @@ function parseEta(code: string): number | "TOTAL" | null {
   return null;
 }
 
-// Build chiavi SDMX alternative (l'API ISTAT è instabile su query larghe → tentativi multipli).
-// Chiave 22_289 DCIS_POPRES1: <FREQ>.<ITTER107>.<SEXISTAT1>.<ETA1>.<STATCIV2>.<TIME_PERIOD>
+// Build chiavi SDMX alternative (l'API ISTAT è instabile su query larghe → tentativi multipli + dataflow alternativi).
+// 22_289 = DCIS_POPRES1 (popolazione residente al 1° gennaio per età)
+// 115_333 = DCIS_POPSTRBIL1 (popolazione residente per sesso, anno - più stabile)
+// La chiave SDMX dipende dal dataflow; usiamo wildcard ampia e filtriamo lato parser.
 function buildSdmxUrlVariants(territorioITH: string, anno: number): string[] {
   const variants: string[] = [];
-  // 1) FREQ esplicita "A" (annuale) + sesso totale 9 + stato civile 99 → query più snella → meno rischio HTTP 500
-  variants.push(`${SDMX_BASE}/${DATAFLOW}/A.${territorioITH}.9..99.${anno}?format=csvdata&dimensionAtObservation=AllDimensions`);
-  // 2) Stessa chiave senza filtri stato civile/sesso (legacy fallback)
-  variants.push(`${SDMX_BASE}/${DATAFLOW}/A.${territorioITH}.....${anno}?format=csvdata&dimensionAtObservation=AllDimensions`);
-  // 3) FREQ wildcard (originale) — tipico errore su nuovi NSI
-  variants.push(`${SDMX_BASE}/${DATAFLOW}/.${territorioITH}.....${anno}?format=csvdata&dimensionAtObservation=AllDimensions`);
-  // 4) Senza query 'format' → SDMX-CSV via Accept (gestito in fetch)
-  variants.push(`${SDMX_BASE}/${DATAFLOW}/A.${territorioITH}.9..99.${anno}?dimensionAtObservation=AllDimensions`);
+  // 1) DCIS_POPRES1 con FREQ esplicita "A" + sesso totale 9 + stato civile 99
+  variants.push(`${SDMX_BASE}/22_289/A.${territorioITH}.9..99.${anno}?format=csvdata&dimensionAtObservation=AllDimensions`);
+  // 2) DCIS_POPRES1 senza filtri stato civile/sesso
+  variants.push(`${SDMX_BASE}/22_289/A.${territorioITH}.....${anno}?format=csvdata&dimensionAtObservation=AllDimensions`);
+  // 3) DCIS_POPRES1 SDMX-CSV via Accept
+  variants.push(`${SDMX_BASE}/22_289/A.${territorioITH}.9..99.${anno}?dimensionAtObservation=AllDimensions`);
+  // 4) DCIS_POPSTRBIL1 fallback (struttura popolazione, dataset alternativo più stabile)
+  variants.push(`${SDMX_BASE}/115_333/A.${territorioITH}.9..${anno}?format=csvdata&dimensionAtObservation=AllDimensions`);
+  // 5) DCIS_POPSTRBIL1 chiave più snella
+  variants.push(`${SDMX_BASE}/115_333/.${territorioITH}....${anno}?format=csvdata&dimensionAtObservation=AllDimensions`);
   return variants;
 }
 

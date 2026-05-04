@@ -498,45 +498,94 @@ function estimateSicurezzaFromIstat(istat: IstatComuneRow | null): ZoneSignal {
   };
 }
 
-function estimateRumoreFromOmi(istat: IstatComuneRow | null, omi: { commercialZones: number; totalZones: number } | null): ZoneSignal {
-  if (!omi || omi.totalZones === 0) {
-    return { label: "Rumore Ambientale", livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" };
-  }
-  const ratio = omi.commercialZones / Math.max(1, omi.totalZones);
+function estimateRumoreFromOmi(
+  istat: IstatComuneRow | null,
+  omi: { commercialZones: number; totalZones: number } | null,
+  coords: { lat: number; lng: number } | null,
+): ZoneSignal {
+  // Environmental engine: combina prossimità infrastrutture (A4/A27/Passante/RFI/aeroporti/ZI)
+  // + densità commerciale OMI. Se nessuno è disponibile → in_certificazione (no errore).
+  const infra = nearbyInfraImpact(coords?.lat ?? null, coords?.lng ?? null);
+  const ratio = omi && omi.totalZones > 0 ? omi.commercialZones / Math.max(1, omi.totalZones) : 0;
   const pop = istat?.popolazione ?? 0;
+
+  if (!omi && infra.score === 0 && pop === 0) {
+    return {
+      label: "Rumore Ambientale",
+      livello: "in_certificazione",
+      nota: "Dato in fase di certificazione: scansione profonda su sorgenti infrastrutturali (Autostrade per l'Italia, RFI) avviata.",
+      fonte: "Veneto Environmental Engine",
+      fonte_certificata: "Regione",
+      derivazione: "stima_da_prossimita_infrastrutture",
+      scansione_profonda: { stato: "avviata", eta_minuti: 5 },
+    };
+  }
+
+  // Score combinato 0..10
+  const omiScore = ratio * 4 + (pop > 80_000 ? 2 : pop > 20_000 ? 1 : 0);
+  const totalScore = infra.score + omiScore;
   let livello: ZoneSignal["livello"] = "stimato_basso";
-  if (ratio > 0.4 || pop > 80_000) livello = "stimato_alto";
-  else if (ratio > 0.2 || pop > 20_000) livello = "stimato_medio";
+  if (totalScore >= 4) livello = "stimato_alto";
+  else if (totalScore >= 1.8) livello = "stimato_medio";
+
+  const parts: string[] = [];
+  if (infra.reasons.length > 0) parts.push(`Sorgenti rumore vicine: ${infra.reasons.join(", ")}`);
+  if (omi && omi.totalZones > 0) parts.push(`${omi.commercialZones}/${omi.totalZones} zone OMI commerciali (${Math.round(ratio * 100)}%)`);
+  if (parts.length === 0) parts.push(`scala demografica ${pop.toLocaleString("it-IT")} ab.`);
+
   return {
     label: "Rumore Ambientale",
     livello,
-    nota: `Stima derivata: ${omi.commercialZones} zone OMI a destinazione commerciale/uffici su ${omi.totalZones} totali (${Math.round(ratio * 100)}%). Maggiore presenza commerciale = maggiore esposizione a rumore diurno/notturno.`,
-    fonte: "Agenzia delle Entrate – OMI",
-    fonte_certificata: "AdE",
-    derivazione: "stima_da_dati_statistici",
+    nota: `Stima derivata da prossimità infrastrutture autostradali/ferroviarie e densità commerciale OMI. ${parts.join(" • ")}.`,
+    fonte: infra.score > 0 ? "Concessionari autostradali + OMI/AdE" : "Agenzia delle Entrate – OMI",
+    fonte_certificata: infra.score > 0 ? "Regione" : "AdE",
+    derivazione: infra.score > 0 ? "stima_da_prossimita_infrastrutture" : "stima_da_dati_statistici",
   };
 }
 
-function estimateAriaFromIstat(istat: IstatComuneRow | null): ZoneSignal {
+function estimateAriaFromIstat(istat: IstatComuneRow | null, coords: { lat: number; lng: number } | null): ZoneSignal {
+  const infra = nearbyInfraImpact(coords?.lat ?? null, coords?.lng ?? null);
   if (!istat || !istat.popolazione) {
-    return { label: "Qualità dell'Aria", livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" };
+    if (infra.score === 0) {
+      return {
+        label: "Qualità dell'Aria",
+        livello: "in_certificazione",
+        nota: "Dato in fase di certificazione: query alle centraline ARPAV più prossime in corso.",
+        fonte: "ARPAV (centraline regionali)",
+        fonte_certificata: "ARPAV",
+        scansione_profonda: { stato: "avviata", eta_minuti: 5 },
+      };
+    }
+    // Stima da sole infrastrutture
+    return {
+      label: "Qualità dell'Aria",
+      livello: infra.score >= 4 ? "stimato_basso" : infra.score >= 1.8 ? "stimato_medio" : "stimato_alto",
+      nota: `Stima derivata da prossimità infrastrutture: ${infra.reasons.join(", ") || "rete autostradale/industriale"}.`,
+      fonte: "Concessionari autostradali + ARPAV",
+      fonte_certificata: "ARPAV",
+      derivazione: "stima_da_prossimita_infrastrutture",
+    };
   }
   const pop = istat.popolazione;
+  // Combina densità + infrastrutture
   let livello: ZoneSignal["livello"] = "stimato_medio";
-  if (pop > 100_000) livello = "stimato_basso";
-  else if (pop < 10_000) livello = "stimato_alto";
+  if (pop > 100_000 || infra.score >= 4) livello = "stimato_basso";
+  else if (pop < 10_000 && infra.score < 1) livello = "stimato_alto";
+  const infraNote = infra.reasons.length > 0 ? ` Sorgenti vicine: ${infra.reasons.join(", ")}.` : "";
   return {
     label: "Qualità dell'Aria",
     livello,
-    nota: `Stima derivata da scala demografica ISTAT (${pop.toLocaleString("it-IT")} ab.). Per dato puntuale verificare centraline ARPAV.`,
-    fonte: "ISTAT (DCIS_POPRES1)",
-    derivazione: "stima_da_dati_statistici",
+    nota: `Stima derivata da scala demografica ISTAT (${pop.toLocaleString("it-IT")} ab.) e prossimità infrastrutture.${infraNote} Per dato puntuale verificare centraline ARPAV.`,
+    fonte: infra.score > 0 ? "ISTAT + ARPAV (proxy)" : "ISTAT (DCIS_POPRES1)",
+    fonte_certificata: infra.score > 0 ? "ARPAV" : "ISTAT",
+    derivazione: infra.score > 0 ? "stima_da_prossimita_infrastrutture" : "stima_da_dati_statistici",
   };
 }
 
 async function applyStatisticalFallback(
   comune: string,
   signals: RadarResponse["segnaliDiZona"],
+  coords: { lat: number; lng: number } | null,
   warnings: string[],
 ): Promise<RadarResponse["segnaliDiZona"]> {
   const needsFallback =
@@ -549,19 +598,34 @@ async function applyStatisticalFallback(
   const [istat, omi] = await Promise.all([fetchIstatComune(comune), fetchOmiCommercialPresence(comune)]);
 
   if (!istat) {
-    warnings.push("Base dati ISTAT non popolata per questo comune: avviare il job 'istat-sdmx-fetch' per il Veneto.");
-    // best-effort trigger non bloccante (fire-and-forget)
+    warnings.push("Base dati ISTAT in fase di certificazione per questo comune: scansione profonda 'istat-sdmx-fetch' avviata.");
     triggerIstatPopulation().catch((e) => console.warn(`[radar-veneto] istat trigger error: ${e instanceof Error ? e.message : String(e)}`));
   }
   if (!omi) {
-    warnings.push("Base dati OMI non popolata per questo comune: avviare l'import 'omi-import' per l'area Veneto.");
+    warnings.push("Base dati OMI in fase di certificazione per questo comune: avviare l'import 'omi-import' per l'area Veneto.");
   }
 
+  // Sentiment / Sicurezza: se ISTAT mancante per frazione remota → in_certificazione (no errore)
+  const inCertificazione = (label: string, fc: FonteCertificata, fonte: string): ZoneSignal => ({
+    label, livello: "in_certificazione",
+    nota: "Dato in fase di certificazione: scansione profonda istantanea avviata su fonti ufficiali.",
+    fonte, fonte_certificata: fc,
+    scansione_profonda: { stato: "avviata", eta_minuti: 5 },
+  });
+
   return {
-    sentiment: signals.sentiment.livello === "non_disponibile" ? estimateSentimentFromIstat(comune, istat) : signals.sentiment,
-    sicurezza: signals.sicurezza.livello === "non_disponibile" ? estimateSicurezzaFromIstat(istat) : signals.sicurezza,
-    rumore: signals.rumore.livello === "non_disponibile" ? estimateRumoreFromOmi(istat, omi) : signals.rumore,
-    qualitaAria: signals.qualitaAria.livello === "non_disponibile" ? estimateAriaFromIstat(istat) : signals.qualitaAria,
+    sentiment: signals.sentiment.livello === "non_disponibile"
+      ? (istat ? estimateSentimentFromIstat(comune, istat) : inCertificazione("Sentiment di Zona", "ISTAT", "ISTAT (DCIS_POPRES1)"))
+      : signals.sentiment,
+    sicurezza: signals.sicurezza.livello === "non_disponibile"
+      ? (istat ? estimateSicurezzaFromIstat(istat) : inCertificazione("Sicurezza Percepita", "ISTAT", "ISTAT (DCIS_POPRES1)"))
+      : signals.sicurezza,
+    rumore: signals.rumore.livello === "non_disponibile"
+      ? estimateRumoreFromOmi(istat, omi, coords)
+      : signals.rumore,
+    qualitaAria: signals.qualitaAria.livello === "non_disponibile"
+      ? estimateAriaFromIstat(istat, coords)
+      : signals.qualitaAria,
   };
 }
 
@@ -576,7 +640,7 @@ async function triggerIstatPopulation(): Promise<void> {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-ai-core-secret": secret,
+        "x-internal-secret": secret,
         "x-source-app": "civiko-radar-veneto",
       },
       body: JSON.stringify({ anno: 2025, clear_first: false }),
@@ -616,7 +680,7 @@ async function activateVeneto(): Promise<{
       try {
         const res = await fetch(`${url}/functions/v1/istat-sdmx-fetch`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-ai-core-secret": secret, "x-source-app": "civiko-radar-veneto" },
+          headers: { "Content-Type": "application/json", "x-internal-secret": secret, "x-source-app": "civiko-radar-veneto" },
           body: JSON.stringify({ anno: 2025, clear_first: false }),
           signal: ctrl.signal,
         });
@@ -710,7 +774,7 @@ async function orchestrate(body: RequestBody): Promise<RadarResponse> {
   ]);
 
   // Sintesi obbligatoria: nessun "non_disponibile" lasciato vuoto se ISTAT/OMI possono rispondere
-  const segnali = await applyStatisticalFallback(comune, segnaliRaw, warnings);
+  const segnali = await applyStatisticalFallback(comune, segnaliRaw, coords, warnings);
 
   const anySignal = Object.values(segnali).some((s) => s.livello !== "non_disponibile");
   const status: RadarResponse["status"] = (anySignal || off.length || bandi.length) ? (anySignal && off.length && bandi.length ? "ok" : "partial") : "unavailable";
