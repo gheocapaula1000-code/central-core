@@ -62,11 +62,27 @@ interface RequestBody {
   provincia?: string;
 }
 
+type FonteCertificata = "AdE" | "ISTAT" | "ARPAV" | "Portali" | "Tribunale" | "Regione" | "non_certificata";
+
+// Mappa stringhe descrittive → tag fonte_certificata blindato
+function certifySource(fonte: string | null | undefined): FonteCertificata {
+  const f = (fonte ?? "").toLowerCase();
+  if (!f) return "non_certificata";
+  if (f.includes("omi") || f.includes("agenzia delle entrate") || f.includes("catasto") || f.includes("ade")) return "AdE";
+  if (f.includes("istat") || f.includes("dcis_popres")) return "ISTAT";
+  if (f.includes("arpav") || f.includes("arpa veneto") || f.includes("centraline")) return "ARPAV";
+  if (f.includes("immobiliare") || f.includes("idealista") || f.includes("casa.it") || f.includes("portale") || f.includes("monitoraggio") || f.includes("anomalia") || f.includes("lead caldissimo")) return "Portali";
+  if (f.includes("tribunale") || f.includes("pvp") || f.includes("asta")) return "Tribunale";
+  if (f.includes("regione") || f.includes("comune") || f.includes("ente")) return "Regione";
+  return "non_certificata";
+}
+
 interface ZoneSignal {
   label: string;
   livello: "alto" | "medio" | "basso" | "stimato_alto" | "stimato_medio" | "stimato_basso" | "non_disponibile";
   nota: string;
   fonte: string;
+  fonte_certificata: FonteCertificata;
   derivazione?: "diretta" | "stima_da_dati_statistici";
 }
 
@@ -78,6 +94,7 @@ interface OffMarketOpportunity {
   scontoStimato?: string | null;
   localita?: string;
   fonte: string;
+  fonte_certificata: FonteCertificata;
   evidenceUrl?: string | null;
   publishedAt?: string | null;
   categoria?: "residenziale" | "commerciale" | "terreno" | "luxury" | "altro";
