@@ -1069,7 +1069,7 @@ Deno.serve(async (req) => {
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "build-veneto-intelligence-from-research", ...r }, debugId), "job-vir");
           }
           if (matched === "/jobs/apify-run-veneto-source") {
-            const r = await runApifyForVenetoSource({
+            const r = await runApifyForVenetoSourceV2({
               source_name: String(body?.source_name ?? ""),
               actor_id: String(body?.actor_id ?? ""),
               input: body?.input ?? {},
