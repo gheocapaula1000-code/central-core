@@ -64,6 +64,7 @@ const ROUTES = [
   "POST /jobs/build-civiko-veneto-data-engine",
   "POST /jobs/import-veneto-auctions",
   "POST /jobs/firecrawl-deep-veneto",
+  "POST /jobs/firecrawl-microzone-opportunity-signals",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
