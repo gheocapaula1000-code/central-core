@@ -74,6 +74,19 @@ export interface RadarClusterDossier {
   warnings: string[];
 }
 
+// ── Hook engagement (Notizia Peggiore vs Migliore) ────────
+export type HookKind = "notizia_peggiore" | "notizia_migliore" | "neutro";
+export interface EngagementHook {
+  kind: HookKind;
+  headline: string;            // titolo d'impatto (≤90 char)
+  body: string;                // corpo del gancio (≤320 char)
+  perditaImmaginePct: number | null;  // 0..100
+  visibilityIndex: number | null;     // 0..100 (100 = max visibilità)
+  fonti: Array<"OMI" | "ISTAT" | "Portali" | "PVP_Ministero_Giustizia" | "Necrologi" | "snapshot_storico">;
+  evidenze: string[];          // dati factual a supporto
+  whatsappMessage: string;     // versione formattata WhatsApp pronta all'invio
+}
+
 function getServiceClient() {
   const url = Deno.env.get("SUPABASE_URL");
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
