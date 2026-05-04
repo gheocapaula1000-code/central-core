@@ -27,6 +27,7 @@ import { buildOpportunitaOffMarket } from "./radarOpportunita.ts";
 import { recomputeSuccessionHeatmap } from "./successioniHeatmap.ts";
 import { computePriceResistanceIndex } from "./priceResistance.ts";
 import { buildRadarClusterDossier, generateHook, buildHookContextForMarker, type DossierMarker } from "./clusterDossier.ts";
+import { scrapeRibassiPortali } from "./ribassiPortali.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // Certificazione ufficiale del dato (tutela legale dell'agenzia)
@@ -52,6 +53,18 @@ const ROUTES = [
   "POST /generate-hook",
   "POST /jobs/recompute-succession-heatmap",
   "POST /jobs/recompute-price-resistance",
+  "POST /jobs/activate-veneto",
+];
+
+// Capoluoghi Veneto per attivazione massiva monitoraggio portali
+const VENETO_CAPOLUOGHI: Array<{ comune: string; provincia: string }> = [
+  { comune: "Venezia", provincia: "VE" },
+  { comune: "Verona", provincia: "VR" },
+  { comune: "Padova", provincia: "PD" },
+  { comune: "Vicenza", provincia: "VI" },
+  { comune: "Treviso", provincia: "TV" },
+  { comune: "Rovigo", provincia: "RO" },
+  { comune: "Belluno", provincia: "BL" },
 ];
 
 interface RequestBody {
