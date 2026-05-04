@@ -1081,6 +1081,7 @@ Deno.serve(async (req) => {
       }
     }
 
+    if (pathname.endsWith("/jobs/recompute-succession-heatmap") || pathname.endsWith("/jobs/recompute-price-resistance")) {
       const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
       const provided = req.headers.get("x-job-secret") ?? "";
       if (!expected || provided !== expected) {
