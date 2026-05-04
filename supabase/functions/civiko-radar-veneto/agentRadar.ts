@@ -548,11 +548,17 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   // ── Scoring + build zones ───────────────────────────────────
   const zones: AgentRadarZone[] = [];
   for (const a of aggMap.values()) {
+    // Metrics effettive: somma reale + demo (se demo è stato ammesso)
+    const annunciTot = a.annunciAttivi + a.annunciAttiviDemo;
+    const ribassiTot = a.ribassi30gg + a.ribassi30ggDemo;
+    const asteTot = a.aste + a.asteDemo;
+    const motivTot = a.venditoriMotivati + a.venditoriMotivatiDemo;
+
     let score = 0;
-    score += Math.min(20, a.ribassi30gg * 5);
-    score += Math.min(20, a.venditoriMotivati * 4);
-    score += Math.min(15, a.aste * 5);
-    score += Math.min(15, Math.log10(1 + a.annunciAttivi) * 10);
+    score += Math.min(20, ribassiTot * 5);
+    score += Math.min(20, motivTot * 4);
+    score += Math.min(15, asteTot * 5);
+    score += Math.min(15, Math.log10(1 + annunciTot) * 10);
     const askingMed = median(a.prezziPerSqm);
     let omiGapPct: number | null = null;
     if (askingMed && a.omiValoreMedio) {
@@ -562,7 +568,6 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     const giorniMedi = median(a.daysOnline);
     if (giorniMedi && giorniMedi > 120) score += 10;
 
-    // OMI baseline: garantisce ranking utile per zone OMI-only (capoluoghi pesano di più)
     if (a.omiQuality === "reale") {
       score += 8;
       const CAPOLUOGHI: Record<string, number> = {
@@ -573,28 +578,24 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       score += CAPOLUOGHI[aggKey(a.comune, a.provincia)] ?? 0;
     }
 
-    // Boost da area_opportunity_scores (priorità Civiko Data Engine)
     const aosHit = aosBoost.get(aggKey(a.comune, a.provincia));
-    if (aosHit) {
-      score = Math.max(score, aosHit.score);
-    }
-
+    if (aosHit) score = Math.max(score, aosHit.score);
     score = Math.round(Math.min(100, score));
 
     let signalType: AgentRadarZone["signalType"] = "misto";
-    const flags: number[] = [a.ribassi30gg, a.aste, a.venditoriMotivati, a.annunciAttivi, omiGapPct ? 1 : 0];
-    if (a.aste >= Math.max(...flags)) signalType = "asta";
-    else if (a.ribassi30gg > 0 && a.ribassi30gg >= a.venditoriMotivati) signalType = "ribasso";
-    else if (a.venditoriMotivati > 0) signalType = "motivato";
+    const flags: number[] = [ribassiTot, asteTot, motivTot, annunciTot, omiGapPct ? 1 : 0];
+    if (asteTot > 0 && asteTot >= Math.max(...flags)) signalType = "asta";
+    else if (ribassiTot > 0 && ribassiTot >= motivTot) signalType = "ribasso";
+    else if (motivTot > 0) signalType = "motivato";
     else if (omiGapPct && omiGapPct > 5) signalType = "omi_gap";
-    else if (a.annunciAttivi > 20) signalType = "stock";
+    else if (annunciTot > 20) signalType = "stock";
 
     const reasons: string[] = [];
-    if (a.ribassi30gg) reasons.push(`${a.ribassi30gg} ribassi recenti`);
-    if (a.venditoriMotivati) reasons.push(`${a.venditoriMotivati} venditori motivati`);
-    if (a.aste) reasons.push(`${a.aste} aste attive`);
+    if (ribassiTot) reasons.push(`${ribassiTot} ribassi recenti`);
+    if (motivTot) reasons.push(`${motivTot} venditori motivati`);
+    if (asteTot) reasons.push(`${asteTot} aste attive`);
     if (omiGapPct !== null) reasons.push(`gap OMI ${omiGapPct > 0 ? "+" : ""}${omiGapPct.toFixed(0)}%`);
-    if (a.annunciAttivi) reasons.push(`${a.annunciAttivi} annunci attivi`);
+    if (annunciTot) reasons.push(`${annunciTot} annunci attivi`);
 
     const action = signalType === "asta" ? "Verifica fascicoli PVP e contatta i creditori procedenti."
       : signalType === "ribasso" ? "Apri mandati su immobili con ribasso >10% e prezzo target sotto OMI max."
@@ -603,9 +604,25 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       : signalType === "stock" ? "Audit stock zona e selezione immobili da rinegoziare."
       : "Mappatura segnali combinati: priorità a contatti caldi.";
 
-    const allReal = a.omiQuality === "reale" && a.annunciAttivi > 0;
-    const someReal = a.omiQuality === "reale" || a.annunciAttivi > 0 || a.venditoriMotivati > 0 || a.aste > 0 || a.ribassi30gg > 0;
-    const quality: AgentRadarZone["quality"] = allReal ? "reale" : someReal ? "parziale" : "stimato";
+    // ── Quality della zona: peggior fonte vince ──
+    // Se i segnali commerciali sono tutti demo → demo (anche se OMI è reale, i segnali commerciali non lo sono).
+    const commercialSignalsReal = a.annunciAttivi + a.ribassi30gg + a.aste + a.venditoriMotivati;
+    const commercialSignalsDemo = a.annunciAttiviDemo + a.ribassi30ggDemo + a.asteDemo + a.venditoriMotivatiDemo;
+    let quality: AgentRadarZone["quality"];
+    if (commercialSignalsDemo > 0 && commercialSignalsReal === 0) {
+      quality = a.omiQuality === "reale" ? "parziale" : "demo";
+      // Se la zona deve la propria opportunità a segnali demo, marcala come demo
+      if (commercialSignalsDemo > 0) quality = "demo";
+    } else if (commercialSignalsReal > 0 && a.omiQuality === "reale") {
+      quality = commercialSignalsDemo > 0 ? "parziale" : "reale";
+    } else if (a.omiQuality === "reale") {
+      // OMI-only: parziale (OMI da solo non basta a dichiarare opportunità reale)
+      quality = "parziale";
+    } else if (commercialSignalsReal > 0 || commercialSignalsDemo > 0) {
+      quality = commercialSignalsDemo > 0 ? "demo" : "parziale";
+    } else {
+      quality = "stimato";
+    }
 
     zones.push({
       id: `${a.provincia}-${a.comune.toLowerCase().replace(/\s+/g, "-")}`,
@@ -627,10 +644,10 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         quality: a.omiQuality,
       },
       metrics: {
-        annunciAttivi: a.annunciAttivi || null,
-        ribassi30gg: a.ribassi30gg || null,
-        aste: a.aste || null,
-        venditoriMotivati: a.venditoriMotivati || null,
+        annunciAttivi: annunciTot || null,
+        ribassi30gg: ribassiTot || null,
+        aste: asteTot || null,
+        venditoriMotivati: motivTot || null,
         giorniMediMercato: giorniMedi ? Math.round(giorniMedi) : null,
       },
       quality,
@@ -672,16 +689,32 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     });
 
   // ── Dataset status & summary ────────────────────────────────
-  const totalRows = (snaps?.length ?? 0) + (motivated?.length ?? 0) + (anomalies?.length ?? 0) + (signals?.length ?? 0) + (omiRows?.length ?? 0);
-  let datasetStatus: "complete" | "partial" | "empty" = "empty";
-  if (totalRows === 0) datasetStatus = "empty";
-  else if (real.length >= 4) datasetStatus = "complete";
-  else datasetStatus = "partial";
+  // Conteggi REALI (post-filtro demo), non grezzi
+  const realCommercialRows = snapsReal + motivatedReal + anomaliesReal + signalsReal + auctionsReal;
+  const demoCommercialRows = snapsDemo + motivatedDemo + anomaliesDemo + signalsDemo + auctionsDemo;
+  const omiAvailable = (omiRows?.length ?? 0) > 0;
+  const provincesCovered = new Set(
+    zones.filter((z) => z.quality !== "demo").map((z) => z.provincia)
+  ).size;
 
-  if (datasetStatus === "partial" && missing.length > 0) partial.push(...real);
+  let datasetStatus: "complete" | "partial" | "empty" = "empty";
+  if (!omiAvailable && realCommercialRows === 0 && demoCommercialRows === 0) {
+    datasetStatus = "empty";
+  } else if (
+    omiAvailable &&
+    realCommercialRows >= 50 &&
+    snapsReal >= 20 &&
+    provincesCovered >= 4 &&
+    demoCommercialRows === 0 // nessuna dipendenza significativa da seed demo
+  ) {
+    datasetStatus = "complete";
+  } else {
+    datasetStatus = "partial";
+  }
 
   let finalZones = topZones;
-  let dataQualityOverall: AgentRadarResponse["summary"]["dataQuality"] = "reale";
+  let dataQualityOverall: AgentRadarResponse["summary"]["dataQuality"];
+
   if (datasetStatus === "empty") {
     if (allowDemo) {
       finalZones = buildDemoZones(filterProv).slice(0, 3);
@@ -691,26 +724,44 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       finalZones = [];
       dataQualityOverall = "mancante";
     }
-  } else if (datasetStatus === "partial") {
-    dataQualityOverall = "parziale";
   } else {
-    dataQualityOverall = "reale";
+    // Calcolo summary.dataQuality basato su rapporto reale/demo dei segnali operativi
+    if (allowDemo && demoCommercialRows > realCommercialRows) {
+      dataQualityOverall = "demo";
+    } else if (realCommercialRows === 0 && omiAvailable) {
+      // solo OMI reale, niente segnali commerciali → parziale
+      dataQualityOverall = "parziale";
+    } else if (datasetStatus === "complete") {
+      dataQualityOverall = "reale";
+    } else {
+      dataQualityOverall = "parziale";
+    }
   }
 
   const summary = {
-    totalSignals: (anomalies?.length ?? 0) + (signals?.length ?? 0) + (motivated?.length ?? 0),
+    totalSignals: (anomaliesReal + signalsReal + motivatedReal) + (allowDemo ? (anomaliesDemo + signalsDemo + motivatedDemo) : 0),
     hotZones: finalZones.filter((z) => z.temperature === "calda" || z.temperature === "molto_calda").length,
-    priceDrops: (anomalies ?? []).filter((a) => ((a as { anomaly_type: string|null }).anomaly_type ?? "").toLowerCase().includes("ribass")).length,
-    auctions: (signals ?? []).filter((s) => ((s as { signal_type: string|null }).signal_type ?? "").toLowerCase().includes("asta")).length,
-    motivatedSellers: motivated?.length ?? 0,
+    priceDrops: (anomalies ?? []).filter((a) => {
+      const x = a as { anomaly_type: string|null };
+      const isDemo = isRecordDemo(a as never);
+      if (isDemo && !allowDemo) return false;
+      return (x.anomaly_type ?? "").toLowerCase().includes("ribass");
+    }).length,
+    auctions: ((auctions ?? []).filter((s) => (!isRecordDemo(s as never) || allowDemo)).length)
+      + ((signals ?? []).filter((s) => {
+        const x = s as { signal_type: string|null };
+        if (isRecordDemo(s as never) && !allowDemo) return false;
+        return (x.signal_type ?? "").toLowerCase().includes("asta");
+      }).length),
+    motivatedSellers: motivatedReal + (allowDemo ? motivatedDemo : 0),
     dataQuality: dataQualityOverall,
   };
 
   const message =
     datasetStatus === "empty" && !allowDemo ? "Nessun dato Veneto disponibile. Popolare omi-import, scraping portali e job radar."
     : datasetStatus === "empty" && allowDemo ? "Nessun dato reale: restituite 3 zone DEMO Veneto a scopo dimostrativo."
-    : datasetStatus === "partial" ? "Dataset parziale: alcune fonti non popolate, segnali calcolati su dati disponibili."
-    : "Dataset Veneto popolato: zone e opportunità calcolate su dati reali.";
+    : datasetStatus === "partial" ? "Dataset parziale: OMI reale presente, segnali commerciali incompleti o misti con demo."
+    : "Dataset Veneto completo: OMI reale + listing reali + copertura multi-provincia, nessuna dipendenza da seed demo.";
 
   return {
     configured: !!supa,
@@ -718,7 +769,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     summary,
     zones: finalZones,
     opportunities: datasetStatus === "empty" ? [] : opportunities,
-    dataQuality: { real, partial, missing, warnings },
+    dataQuality: { real, partial, demo, missing, warnings },
   };
 }
 
