@@ -865,14 +865,30 @@ export function generateHook(marker: DossierMarker, ctx: HookContext = {}): Enga
   const drops = Number(marker.payload.drops_count ?? 0);
   const totalDropPct = Number(marker.payload.total_drop_pct ?? 0);
   const daysOnline = Number(marker.payload.days_online ?? 0);
+  const recentDrops60d = Number(marker.payload.recent_drops_60d ?? marker.payload.drops_in_60d ?? 0);
   const initialPrice = Number(marker.payload.initial_price_eur ?? 0);
   const lastPrice = Number(marker.payload.last_price_eur ?? 0);
   const fatigue = String(marker.payload.fatigue_label ?? "");
   const asteCount = ctx.asteImminentiCount ?? 0;
   const domandaScore = ctx.domandaPickIstatScore ?? null;
 
-  const visibility = computeVisibilityIndex(daysOnline, drops);
-  const perdita = computePerditaImmaginePct(daysOnline, drops);
+  const breakdown = computeVisibilityBreakdown(daysOnline, drops, recentDrops60d);
+  const visibility = breakdown ? breakdown.visibilityIndex : null;
+  const perdita = breakdown ? breakdown.perditaImmaginePct : null;
+
+  // ── Capitale a Rischio (validazione OMI) ──
+  // Best-effort: usa ctx.capitaleARischio se già pre-calcolato, altrimenti tenta
+  // di calcolarlo on-the-fly da surface (payload) + OMI (ctx) + lastPrice.
+  let capitale = ctx.capitaleARischio ?? null;
+  if (!capitale) {
+    const surface = Number(ctx.surfaceMq ?? marker.payload.surface_mq ?? marker.payload.superficie_mq ?? 0);
+    capitale = computeCapitaleARischio({
+      askingPriceEur: lastPrice || initialPrice,
+      surfaceMq: surface,
+      omiMaxEurPerMq: ctx.omiCompromaxEur ?? null,
+      omiSemestre: ctx.omiSemestre ?? null,
+    });
+  }
 
   // ── Score "Notizia Peggiore" ──
   let badScore = 0;
@@ -881,19 +897,23 @@ export function generateHook(marker: DossierMarker, ctx: HookContext = {}): Enga
   else if (perdita !== null && perdita >= 20) badScore += 1;
   if (drops >= 3) badScore += 2;
   else if (drops >= 2) badScore += 1;
+  if (recentDrops60d >= 2) badScore += 2;
+  else if (recentDrops60d >= 1) badScore += 1;
   if (totalDropPct >= 15) badScore += 2;
   else if (totalDropPct >= 8) badScore += 1;
   if (asteCount >= 1) badScore += 2;
   if (fatigue === "caldissimo") badScore += 2;
   else if (fatigue === "caldo") badScore += 1;
   if (marker.kind === "agency_swap") badScore += 2;
+  if (capitale && capitale.classificazione === "critico") badScore += 3;
+  else if (capitale && capitale.classificazione === "elevato") badScore += 2;
+  else if (capitale && capitale.classificazione === "moderato") badScore += 1;
 
   // ── Score "Notizia Migliore" ──
   let goodScore = 0;
   if (domandaScore !== null && domandaScore >= 70) goodScore += 3;
   else if (domandaScore !== null && domandaScore >= 50) goodScore += 2;
   else if (domandaScore !== null && domandaScore >= 30) goodScore += 1;
-  // Successioni dense in zona = potere d'acquisto in arrivo (positivo per chi vende ORA)
   if (marker.kind === "successione_densa") goodScore += 1;
 
   let kind: HookKind = "neutro";
@@ -902,21 +922,36 @@ export function generateHook(marker: DossierMarker, ctx: HookContext = {}): Enga
 
   if (badScore >= 3 && badScore >= goodScore) {
     kind = "notizia_peggiore";
-    // Priorità all'asta vicina come notizia esclusiva
-    if (asteCount >= 1) {
+    // Priorità 1: Capitale a Rischio CRITICO (gancio monetario di massimo impatto)
+    if (capitale && capitale.classificazione === "critico" && capitale.euroAtRisk > 0) {
+      headline = `${formatEuro(capitale.euroAtRisk)} di capitale esposto sopra il valore OMI`;
+      body =
+        `Confrontando il prezzo richiesto (${formatEuro(capitale.askingPriceEur)}) con il valore OMI massimo della zona ` +
+        `(${formatEuro(capitale.omiMaxEurPerMq)}/mq × ${capitale.surfaceMq} mq = ${formatEuro(capitale.expectedOmiValueEur)}), ` +
+        `risultano ${formatEuro(capitale.euroAtRisk)} di "capitale a rischio" (+${capitale.gapVsOmiPct.toFixed(1)}% sopra OMI). ` +
+        `Ogni mese di permanenza online erode questo margine.`;
+      fonti.push("OMI", "Portali");
+      evidenze.push(`Capitale a Rischio: ${formatEuro(capitale.euroAtRisk)} (+${capitale.gapVsOmiPct.toFixed(1)}% vs OMI max) — fonte: OMI ${capitale.omiSemestre ?? ""}`.trim());
+    } else if (asteCount >= 1) {
       headline = `Un'asta giudiziaria è stata aperta vicino al suo immobile`;
       body =
         `Nella zona di ${marker.municipality ?? "riferimento"} è attiva un'asta pubblica del Tribunale che influenzerà i prezzi richiesti del mercato libero per i prossimi 6 mesi. ` +
         `Vale la pena rivedere insieme la sua strategia prima che l'effetto sui valori si consolidi.`;
       fonti.push("PVP_Ministero_Giustizia");
-      evidenze.push(`Aste attive nel comune: ${asteCount}${ctx.asteEvidenceUrl ? ` (PVP: ${ctx.asteEvidenceUrl})` : ""}`);
+      evidenze.push(`Aste attive nel comune: ${asteCount}${ctx.asteEvidenceUrl ? ` (PVP: ${ctx.asteEvidenceUrl})` : ""} — fonte: PVP Ministero Giustizia`);
     } else if (drops >= 2 && perdita !== null && perdita >= 30) {
-      headline = `Il suo annuncio sta perdendo visibilità: ~${perdita.toFixed(0)}% in meno rispetto al lancio`;
+      const recentNote = recentDrops60d >= 2
+        ? ` (+${recentDrops60d} ribassi solo negli ultimi 60gg → -${(breakdown?.penaltyRibassiRecentiPct ?? 0).toFixed(0)}% sulla visibilità)`
+        : "";
+      headline = `Il suo annuncio ha perso ~${perdita.toFixed(0)}% di visibilità rispetto al lancio`;
       body =
-        `Dopo ${Math.max(1, Math.round(daysOnline / 30))} mesi e ${drops} ribassi, l'indice di visibilità del suo immobile è sceso a ${visibility?.toFixed(0)}/100. ` +
+        `Dopo ${Math.max(1, Math.round(daysOnline / 30))} mesi e ${drops} ribassi${recentNote}, l'indice di visibilità è sceso a ${visibility?.toFixed(0)}/100. ` +
         `Il mercato lo classifica come "annuncio bruciato": serve un cambio di approccio per riportarlo in evidenza.`;
       fonti.push("snapshot_storico", "Portali");
-      evidenze.push(`Online ${Math.round(daysOnline)}gg, ${drops} ribassi (-${totalDropPct.toFixed(1)}%)`);
+      evidenze.push(`Online ${Math.round(daysOnline)}gg, ${drops} ribassi (-${totalDropPct.toFixed(1)}%) — fonte: snapshot portali`);
+      if (breakdown) {
+        evidenze.push(`Formula visibilità: ${breakdown.formula} = ${breakdown.visibilityIndex.toFixed(0)}/100 — fonte: modello calibrato Lovable Core`);
+      }
     } else if (totalDropPct >= 8) {
       const deltaAbs = initialPrice && lastPrice ? Math.round(initialPrice - lastPrice) : null;
       headline = `Il suo immobile ha già perso ${totalDropPct.toFixed(1)}% di valore richiesto`;
@@ -925,12 +960,12 @@ export function generateHook(marker: DossierMarker, ctx: HookContext = {}): Enga
         (deltaAbs ? ` (-${formatEuro(deltaAbs)} in valore assoluto)` : "") +
         `. Ogni settimana ulteriore di permanenza online riduce la sua leva negoziale.`;
       fonti.push("Portali", "snapshot_storico");
-      evidenze.push(`Ribassi: ${drops} | Perdita richiesta: ${totalDropPct.toFixed(1)}%`);
+      evidenze.push(`Ribassi: ${drops} | Perdita richiesta: ${totalDropPct.toFixed(1)}% — fonte: snapshot portali`);
     } else {
       headline = `Segnali di stanchezza sul suo annuncio`;
       body = `L'immobile è online da ${Math.round(daysOnline)} giorni e mostra segnali di affaticamento del mercato. Possiamo rivedere insieme la strategia prima che l'effetto si consolidi.`;
       fonti.push("snapshot_storico");
-      evidenze.push(`days_online=${daysOnline}; fatigue=${fatigue || "n/d"}`);
+      evidenze.push(`days_online=${daysOnline}; fatigue=${fatigue || "n/d"} — fonte: snapshot portali`);
     }
   } else if (goodScore >= 2 && goodScore > badScore) {
     kind = "notizia_migliore";
@@ -941,7 +976,7 @@ export function generateHook(marker: DossierMarker, ctx: HookContext = {}): Enga
         (ctx.domandaPickIstatNota ? `${ctx.domandaPickIstatNota} ` : "") +
         `È una finestra favorevole per posizionare il suo immobile con la giusta strategia.`;
       fonti.push("ISTAT");
-      evidenze.push(`Indice domanda ISTAT: ${domandaScore.toFixed(0)}/100`);
+      evidenze.push(`Indice domanda ISTAT: ${domandaScore.toFixed(0)}/100 — fonte: ISTAT demografia comunale`);
     } else {
       headline = `Movimento favorevole di mercato in zona`;
       body = `I segnali demografici e di rotazione patrimoniale in zona stanno generando opportunità per chi vende nei prossimi mesi.`;
@@ -953,27 +988,39 @@ export function generateHook(marker: DossierMarker, ctx: HookContext = {}): Enga
     body = `Al momento non emergono segnali di forte urgenza né di picco di domanda: situazione stabile, monitoriamo.`;
   }
 
-  // Aggiungi sempre OMI come ancora di autorità se disponibile
+  // Aggiungi sempre OMI come ancora di autorità se disponibile (anche se non headline)
   if (ctx.omiCompromaxEur || ctx.omiCompromInEur) {
     fonti.push("OMI");
     if (ctx.omiCompromInEur && ctx.omiCompromaxEur) {
-      evidenze.push(`OMI ${ctx.omiSemestre ?? ""} €/mq: ${formatEuro(ctx.omiCompromInEur)}–${formatEuro(ctx.omiCompromaxEur)}`);
+      evidenze.push(`OMI ${ctx.omiSemestre ?? ""} €/mq: ${formatEuro(ctx.omiCompromInEur)}–${formatEuro(ctx.omiCompromaxEur)} — fonte: Agenzia Entrate`);
     }
   }
+  // Capitale a Rischio sempre come evidenza se calcolato (anche se non era il gancio principale)
+  if (capitale && capitale.euroAtRisk > 0 && !evidenze.some((e) => e.startsWith("Capitale a Rischio"))) {
+    evidenze.push(`Capitale a Rischio: ${formatEuro(capitale.euroAtRisk)} (+${capitale.gapVsOmiPct.toFixed(1)}% vs OMI max) — fonte: OMI ${capitale.omiSemestre ?? ""}`.trim());
+    if (!fonti.includes("OMI")) fonti.push("OMI");
+  }
+
+  // Inietta capitale calcolato nel context per il WhatsApp builder
+  const ctxWithCapitale: HookContext = { ...ctx, capitaleARischio: capitale };
 
   const whatsappMessage = buildWhatsAppMessage(
     marker,
-    { headline, body, perditaImmaginePct: perdita, visibilityIndex: visibility },
-    ctx,
+    { headline, body, perditaImmaginePct: perdita, visibilityIndex: visibility, breakdown },
+    ctxWithCapitale,
     evidenze,
+    fonti,
   );
 
   return {
     kind,
-    headline: headline.slice(0, 120),
-    body: body.slice(0, 480),
+    headline: headline.slice(0, 140),
+    body: body.slice(0, 520),
     perditaImmaginePct: perdita,
     visibilityIndex: visibility,
+    visibilityBreakdown: breakdown,
+    capitaleARischioEur: capitale ? capitale.euroAtRisk : null,
+    capitaleARischio: capitale,
     fonti: Array.from(new Set(fonti)),
     evidenze,
     whatsappMessage,
