@@ -28,6 +28,7 @@ import { recomputeSuccessionHeatmap } from "./successioniHeatmap.ts";
 import { computePriceResistanceIndex } from "./priceResistance.ts";
 import { buildRadarClusterDossier, generateHook, buildHookContextForMarker, type DossierMarker } from "./clusterDossier.ts";
 import { scrapeRibassiPortali } from "./ribassiPortali.ts";
+import { buildAgentRadar, type AgentRadarRequest } from "./agentRadar.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // Certificazione ufficiale del dato (tutela legale dell'agenzia)
