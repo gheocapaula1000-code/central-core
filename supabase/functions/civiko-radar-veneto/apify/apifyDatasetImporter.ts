@@ -43,14 +43,18 @@ export async function importApifyRecords(
 
       const { error } = await supa.from("source_documents").insert({
         source_url: rec.source_url,
+        url: rec.source_url,
         title: rec.title,
-        content: rec.content,
+        markdown: rec.content,
+        text_excerpt: rec.content ? rec.content.slice(0, 1000) : null,
         source_name: binding.source_name,
         source_type: binding.source_type,
-        ingestion_method: "apify",
         data_basis: rec.data_basis,
         import_reason: "apify_ingest",
+        importability: true,
         content_hash: rec.hash,
+        raw_hash: rec.hash,
+        metadata: { ingestion_method: "apify", actor_id: binding.actor_id },
       });
       if (error) {
         result.errors.push(`insert:${error.message.slice(0, 120)}`);
