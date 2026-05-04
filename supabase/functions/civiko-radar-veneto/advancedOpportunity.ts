@@ -31,6 +31,8 @@ export interface AdvancedJobRequest {
   maxPagesPerSource?: number;
   maxDepth?: number;
   import?: boolean;
+  batchByProvince?: boolean;
+  batchProvinces?: string[]; // sottoinsieme di province da processare in questa run
 }
 
 export interface AdvancedJobReport {
@@ -39,10 +41,15 @@ export interface AdvancedJobReport {
   ended_at: string;
   duration_ms: number;
   firecrawl_available: boolean;
+  registry_total: number;
+  registry_by_type: Record<string, number>;
   firecrawl_pages_seen: number;
+  firecrawl_pages_classified: number;
   firecrawl_documents_saved: number;
   legal_candidates: number;
   legal_imported: number;
+  legal_needs_review: number;
+  public_asset_signals: number;
   velocity_candidates: number;
   velocity_imported: number;
   pricing_candidates: number;
@@ -52,6 +59,8 @@ export interface AdvancedJobReport {
   radar_signals_added: number;
   rejected_demo: number;
   rejected_invalid: number;
+  provinces_processed: string[];
+  provinces_remaining: string[];
   warnings: string[];
   next_actions: string[];
   samples: {
