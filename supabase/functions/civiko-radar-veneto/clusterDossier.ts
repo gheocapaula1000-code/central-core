@@ -1333,6 +1333,87 @@ function buildScomodiBlock(provinceBars: GapOmiChartBar[], markerBars: GapOmiCha
   };
 }
 
+// ── "Immobili Bruciati" — competitor in zona aggregati per provincia ──
+// Genera urgenza nel proprietario: "guarda quanti immobili come il tuo sono fermi
+// da mesi nella tua zona". Fonte: snapshot pubblici portali (motivated_sellers).
+function severityFromBurnedCount(count: number): BurnedCompetitorBar["severity"] {
+  if (count >= 50) return "critico";
+  if (count >= 20) return "elevato";
+  if (count >= 5) return "moderato";
+  return "verde";
+}
+
+async function fetchBurnedCompetitorsBars(
+  supabase: ReturnType<typeof getServiceClient>,
+  scope: { province?: string | null; municipality?: string | null },
+): Promise<BurnedCompetitorBar[]> {
+  if (!supabase) return [];
+  let q = supabase
+    .from("motivated_sellers")
+    .select("province, days_online, drops_count, total_drop_pct, fatigue_label")
+    .eq("is_active", true)
+    .or("fatigue_label.eq.caldissimo,and(drops_count.gte.2,days_online.gte.120)")
+    .range(0, 4999);
+  if (scope.province) q = q.ilike("province", scope.province);
+  if (scope.municipality) q = q.ilike("municipality", scope.municipality);
+
+  const { data, error } = await q;
+  if (error || !data) return [];
+
+  const grouped = new Map<string, { count: number; days: number[]; drops: number[]; pct: number[] }>();
+  for (const r of data as Array<{
+    province: string | null; days_online: number | null;
+    drops_count: number | null; total_drop_pct: number | null; fatigue_label: string | null;
+  }>) {
+    if (!r.province) continue;
+    const k = r.province;
+    if (!grouped.has(k)) grouped.set(k, { count: 0, days: [], drops: [], pct: [] });
+    const g = grouped.get(k)!;
+    g.count++;
+    if (Number.isFinite(r.days_online)) g.days.push(Number(r.days_online));
+    if (Number.isFinite(r.drops_count)) g.drops.push(Number(r.drops_count));
+    if (Number.isFinite(r.total_drop_pct)) g.pct.push(Number(r.total_drop_pct));
+  }
+
+  const avg = (xs: number[]) => xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10 : null;
+
+  const bars: BurnedCompetitorBar[] = [];
+  for (const [province, g] of grouped.entries()) {
+    bars.push({
+      label: province,
+      province,
+      count: g.count,
+      avgDaysOnline: avg(g.days),
+      avgDropsCount: avg(g.drops),
+      avgTotalDropPct: avg(g.pct),
+      severity: severityFromBurnedCount(g.count),
+      fonte: "Snapshot Portali Immobiliari",
+    });
+  }
+  bars.sort((a, b) => b.count - a.count);
+  return bars;
+}
+
+function buildBurnedCompetitorsBlock(bars: BurnedCompetitorBar[]): BurnedCompetitorsBlock {
+  const totalActive = bars.reduce((sum, b) => sum + b.count, 0);
+  const topHotspot = bars[0] ?? null;
+  return {
+    title: "Immobili Bruciati in zona — pressione competitiva attiva",
+    description:
+      "Numero di immobili residenziali attualmente \"bruciati\" sui portali (online da >120gg con ≥2 ribassi, " +
+      "oppure classificati 'caldissimo'). Sono i suoi competitor diretti: ogni nuovo annuncio entra in coda a questi.",
+    fonte: "Snapshot Portali Immobiliari",
+    bars,
+    totalActive,
+    topHotspot,
+    methodologyNote:
+      "Aggregazione per provincia degli annunci attivi nella tabella motivated_sellers " +
+      "(fatigue_label='caldissimo' OR drops_count≥2 AND days_online≥120). " +
+      "Soglie urgenza: ≥50 critico · ≥20 elevato · ≥5 moderato · <5 verde. " +
+      "Fonte: snapshot pubblici portali immobiliari (Immobiliare.it, Idealista, Casa.it).",
+  };
+}
+
 export async function buildRadarClusterDossier(
   scope: { province?: string | null; municipality?: string | null } = {},
 ): Promise<RadarClusterDossier> {
