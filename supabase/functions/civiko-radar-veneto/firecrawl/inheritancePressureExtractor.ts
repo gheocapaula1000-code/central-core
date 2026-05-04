@@ -60,10 +60,10 @@ export async function extractInheritancePressure(
     ? new Set(opts.comuni.map((c) => c.toLowerCase())) : null;
 
   const warnings: string[] = [];
-  // 1) ISTAT (solo Veneto)
+  // 1) ISTAT (regione/provincia spesso NULL → carica tutto, mappa via OMI)
   const istatQ = await supa.from("istat_comuni")
     .select("codice_istat,comune,provincia,popolazione,percentuale_over65,percentuale_75_84,percentuale_over85,indice_vecchiaia,eta_media")
-    .ilike("regione","%veneto%").limit(1000);
+    .limit(2000);
   if (istatQ.error) warnings.push(`istat: ${istatQ.error.message}`);
   let istat = (istatQ.data ?? []) as IstatRow[];
   istat = istat.filter((r) => r.provincia && provFilter.includes(r.provincia.toUpperCase()));
