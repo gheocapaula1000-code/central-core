@@ -67,6 +67,11 @@ const ROUTES = [
   "POST /jobs/firecrawl-deep-veneto",
   "POST /jobs/firecrawl-microzone-opportunity-signals",
   "POST /jobs/build-advanced-veneto-opportunities",
+  "POST /jobs/import-veneto-open-data",
+  "POST /jobs/import-veneto-geo-environment",
+  "POST /jobs/import-omi-territorial-notes",
+  "POST /jobs/build-veneto-intelligence-from-research",
+  "POST /jobs/apify-run-veneto-source",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
