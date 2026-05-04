@@ -1748,30 +1748,87 @@ export type Database = {
       }
       source_documents: {
         Row: {
+          classification: string | null
+          comune: string | null
+          confidence_score: number | null
           content_hash: string | null
+          created_at: string
+          data_basis: string | null
           doc_type: string | null
+          extracted_entities: Json | null
           fetched_at: string
+          freshness_score: number | null
           id: number
+          import_reason: string | null
+          importability: boolean | null
+          markdown: string | null
           metadata: Json | null
+          provincia: string | null
+          published_at: string | null
+          quality: string | null
+          raw_hash: string | null
+          relevance_score: number | null
           source_name: string
+          source_type: string | null
+          source_url: string | null
+          text_excerpt: string | null
+          title: string | null
           url: string | null
         }
         Insert: {
+          classification?: string | null
+          comune?: string | null
+          confidence_score?: number | null
           content_hash?: string | null
+          created_at?: string
+          data_basis?: string | null
           doc_type?: string | null
+          extracted_entities?: Json | null
           fetched_at?: string
+          freshness_score?: number | null
           id?: number
+          import_reason?: string | null
+          importability?: boolean | null
+          markdown?: string | null
           metadata?: Json | null
+          provincia?: string | null
+          published_at?: string | null
+          quality?: string | null
+          raw_hash?: string | null
+          relevance_score?: number | null
           source_name: string
+          source_type?: string | null
+          source_url?: string | null
+          text_excerpt?: string | null
+          title?: string | null
           url?: string | null
         }
         Update: {
+          classification?: string | null
+          comune?: string | null
+          confidence_score?: number | null
           content_hash?: string | null
+          created_at?: string
+          data_basis?: string | null
           doc_type?: string | null
+          extracted_entities?: Json | null
           fetched_at?: string
+          freshness_score?: number | null
           id?: number
+          import_reason?: string | null
+          importability?: boolean | null
+          markdown?: string | null
           metadata?: Json | null
+          provincia?: string | null
+          published_at?: string | null
+          quality?: string | null
+          raw_hash?: string | null
+          relevance_score?: number | null
           source_name?: string
+          source_type?: string | null
+          source_url?: string | null
+          text_excerpt?: string | null
+          title?: string | null
           url?: string | null
         }
         Relationships: []
