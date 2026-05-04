@@ -564,6 +564,7 @@ async function orchestrate(body: RequestBody): Promise<RadarResponse> {
       type: o.tipo,
       detail: o.descrizione,
       sourceAnchor: o.fonte,
+      fonte_certificata: o.fonte_certificata,
       evidenceUrl: o.evidenceUrl,
       prezzoIndicativo: o.prezzoIndicativo,
       scontoStimato: o.scontoStimato,
