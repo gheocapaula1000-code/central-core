@@ -50,6 +50,7 @@ const ROUTES = [
   "GET  /health",
   "GET  /manifest",
   "POST /civiko/radar-veneto",
+  "POST /agent-radar",
   "POST /cluster-dossier",
   "POST /generate-hook",
   "POST /jobs/recompute-succession-heatmap",
