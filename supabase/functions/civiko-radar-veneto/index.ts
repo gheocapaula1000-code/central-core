@@ -24,6 +24,8 @@ import {
 import { sanitizeOutgoing } from "../_shared/civiko.ts";
 import { rateLimit } from "../_shared/rate-limit.ts";
 import { buildOpportunitaOffMarket } from "./radarOpportunita.ts";
+import { recomputeSuccessionHeatmap } from "./successioniHeatmap.ts";
+import { computePriceResistanceIndex } from "./priceResistance.ts";
 
 const FUNCTION_NAME = "civiko-radar-veneto";
 const EXPECTED_BASE_PATH = "/functions/v1/civiko-radar-veneto";
@@ -31,6 +33,8 @@ const ROUTES = [
   "GET  /health",
   "GET  /manifest",
   "POST /civiko/radar-veneto",
+  "POST /jobs/recompute-succession-heatmap",
+  "POST /jobs/recompute-price-resistance",
 ];
 
 interface RequestBody {
