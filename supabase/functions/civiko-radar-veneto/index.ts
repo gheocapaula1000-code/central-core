@@ -525,6 +525,97 @@ async function triggerIstatPopulation(): Promise<void> {
   }
 }
 
+// ── Activate Veneto: ISTAT massivo + monitoraggio portali 7 capoluoghi ──
+//
+// Esegue in modo controllato:
+//   1) Fetch ISTAT SDMX (DCIS_POPRES1) per popolare istat_comuni del Veneto
+//   2) Scraping portali (Immobiliare/Idealista/Casa.it) sui 7 capoluoghi
+//      → alimenta listing_price_snapshots, motivated_sellers (Immobili Bruciati),
+//        market_anomalies, e identifica ribassi >10%.
+//
+// Output: report sintetico con counts per tag fonte_certificata.
+async function activateVeneto(): Promise<{
+  istat: { triggered: boolean; status: string };
+  portali: Array<{ comune: string; provincia: string; opportunita: number; bruciati: number; ribassi: number }>;
+  totals: { opportunita: number; bruciati: number; ribassi: number };
+  fonte_certificata_summary: Record<string, number>;
+  warnings: string[];
+}> {
+  const warnings: string[] = [];
+
+  // 1) ISTAT trigger (non bloccante per il response, ma attendiamo lo start)
+  let istatStatus = "skipped";
+  try {
+    const url = Deno.env.get("SUPABASE_URL") ?? "";
+    const secret = Deno.env.get("AI_CORE_SECRET") ?? "";
+    if (url && secret) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8_000);
+      try {
+        const res = await fetch(`${url}/functions/v1/istat-sdmx-fetch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-ai-core-secret": secret, "x-source-app": "civiko-radar-veneto" },
+          body: JSON.stringify({ anno: 2025, clear_first: false }),
+          signal: ctrl.signal,
+        });
+        istatStatus = res.ok ? "triggered" : `http_${res.status}`;
+      } finally {
+        clearTimeout(timer);
+      }
+    } else {
+      warnings.push("AI_CORE_SECRET o SUPABASE_URL mancanti: ISTAT non avviato.");
+    }
+  } catch (e) {
+    warnings.push(`ISTAT trigger error: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // 2) Scraping massivo portali — sequenziale per non saturare Firecrawl
+  const portaliResults: Array<{ comune: string; provincia: string; opportunita: number; bruciati: number; ribassi: number }> = [];
+  const supa = getServiceClient();
+
+  for (const cap of VENETO_CAPOLUOGHI) {
+    try {
+      const opps = await scrapeRibassiPortali(cap.comune, null, cap.provincia);
+      let bruciati = 0;
+      let ribassi = 0;
+      if (supa) {
+        const { count: bCount } = await supa
+          .from("motivated_sellers")
+          .select("id", { count: "exact", head: true })
+          .eq("province", cap.provincia)
+          .eq("is_active", true)
+          .gte("days_online", 120);
+        bruciati = bCount ?? 0;
+      }
+      for (const o of opps) {
+        if ((o.scontoStimato ?? "").includes("-") && /\d/.test(o.scontoStimato ?? "")) ribassi++;
+      }
+      portaliResults.push({ comune: cap.comune, provincia: cap.provincia, opportunita: opps.length, bruciati, ribassi });
+    } catch (e) {
+      warnings.push(`${cap.comune}: ${e instanceof Error ? e.message : String(e)}`);
+      portaliResults.push({ comune: cap.comune, provincia: cap.provincia, opportunita: 0, bruciati: 0, ribassi: 0 });
+    }
+  }
+
+  const totals = portaliResults.reduce(
+    (acc, r) => ({ opportunita: acc.opportunita + r.opportunita, bruciati: acc.bruciati + r.bruciati, ribassi: acc.ribassi + r.ribassi }),
+    { opportunita: 0, bruciati: 0, ribassi: 0 },
+  );
+
+  return {
+    istat: { triggered: istatStatus === "triggered", status: istatStatus },
+    portali: portaliResults,
+    totals,
+    fonte_certificata_summary: {
+      "ISTAT": istatStatus === "triggered" ? 1 : 0,
+      "Portali": totals.opportunita,
+      "AdE": 0,
+      "Tribunale": 0,
+    },
+    warnings,
+  };
+}
+
 // ── Orchestrator ─────────────────────────────────────────────
 
 async function orchestrate(body: RequestBody): Promise<RadarResponse> {
