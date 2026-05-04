@@ -947,6 +947,22 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Microzone Opportunity Signals — segnali aggregati pressione successoria
+    if (pathname.endsWith("/jobs/firecrawl-microzone-opportunity-signals")) {
+      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
+      const provided = req.headers.get("x-job-secret") ?? "";
+      if (!expected || provided !== expected) {
+        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
+      }
+      try {
+        const body = await req.json().catch(() => ({}));
+        const r = await runMicrozoneOpportunitySignals(body);
+        return withIdentity(json(req, r.ok ? 200 : 207, { job: "firecrawl-microzone-opportunity-signals", ...r }, debugId), "job-microzone-opp");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] microzone-opp error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Microzone opportunity signals failed", debugId), "job-error");
+      }
+    }
     if (pathname.endsWith("/jobs/recompute-succession-heatmap") || pathname.endsWith("/jobs/recompute-price-resistance")) {
       const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
       const provided = req.headers.get("x-job-secret") ?? "";
