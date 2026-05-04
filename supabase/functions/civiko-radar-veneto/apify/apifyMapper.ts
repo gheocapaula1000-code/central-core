@@ -43,7 +43,7 @@ export async function mapApifyDataset(items: unknown[], _binding: ApifySourceBin
     if (!raw || typeof raw !== "object") { reasons.set("not_object", (reasons.get("not_object") ?? 0) + 1); continue; }
     const r = raw as Record<string, unknown>;
     const source_url = String(r.url ?? r.source_url ?? r.loadedUrl ?? "").trim();
-    const title = (r.title ?? r.metadata && (r.metadata as any)?.title ?? null) as string | null;
+    const title = (r.title ?? (r.metadata && (r.metadata as any)?.title) ?? null) as string | null;
     const content = (r.markdown ?? r.text ?? r.html ?? null) as string | null;
 
     if (!source_url || !/^https?:\/\//i.test(source_url)) {
