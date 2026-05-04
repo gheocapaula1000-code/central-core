@@ -131,7 +131,7 @@ function withIdentity(res: Response, route: string): Response {
 }
 
 function emptySignal(label: string): ZoneSignal {
-  return { label, livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare" };
+  return { label, livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" };
 }
 
 function defaultRadar(comune: string, provincia: string): RadarResponse {
@@ -262,11 +262,14 @@ async function buildSentimentSignals(comune: string): Promise<RadarResponse["seg
   ]);
 
   const fonte = (n: number) => n > 0 ? "Rassegna pubblica" : "Fonte da Collegare";
+  const mk = (label: string, r: { livello: ZoneSignal["livello"]; nota: string }, n: number, certificata: FonteCertificata): ZoneSignal => ({
+    label, livello: r.livello, nota: r.nota, fonte: fonte(n), fonte_certificata: n > 0 ? certificata : "non_certificata",
+  });
   return {
-    sentiment: { label: "Sentiment di Zona", livello: sent.livello, nota: sent.nota, fonte: fonte(s1.length) },
-    sicurezza: { label: "Sicurezza Percepita", livello: sec.livello, nota: sec.nota, fonte: fonte(s2.length) },
-    rumore: { label: "Rumore Ambientale", livello: noise.livello, nota: noise.nota, fonte: fonte(s3.length) },
-    qualitaAria: { label: "Qualità dell'Aria", livello: air.livello, nota: air.nota, fonte: fonte(s4.length) },
+    sentiment: mk("Sentiment di Zona", sent, s1.length, "non_certificata"),
+    sicurezza: mk("Sicurezza Percepita", sec, s2.length, "non_certificata"),
+    rumore: mk("Rumore Ambientale", noise, s3.length, "non_certificata"),
+    qualitaAria: { label: "Qualità dell'Aria", livello: air.livello, nota: air.nota, fonte: fonte(s4.length), fonte_certificata: s4.length > 0 ? "ARPAV" : "non_certificata" },
   };
 }
 
