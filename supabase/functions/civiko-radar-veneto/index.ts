@@ -31,6 +31,7 @@ import { scrapeRibassiPortali } from "./ribassiPortali.ts";
 import { buildAgentRadar, type AgentRadarRequest } from "./agentRadar.ts";
 import { deriveAllSignals } from "./deriveSignals.ts";
 import { buildVenetoDataEngine } from "./dataEngine.ts";
+import { importVenetoAuctions } from "./auctionImport.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // Certificazione ufficiale del dato (tutela legale dell'agenzia)
@@ -59,6 +60,7 @@ const ROUTES = [
   "POST /jobs/recompute-price-resistance",
   "POST /jobs/activate-veneto",
   "POST /jobs/build-civiko-veneto-data-engine",
+  "POST /jobs/import-veneto-auctions",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
@@ -904,6 +906,23 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] data-engine error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Data Engine Veneto failed", debugId), "job-error");
+      }
+    }
+
+    // Import aste Veneto (CSV/JSON tracciato, no demo)
+    if (pathname.endsWith("/jobs/import-veneto-auctions")) {
+      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
+      const provided = req.headers.get("x-job-secret") ?? "";
+      if (!expected || provided !== expected) {
+        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
+      }
+      try {
+        const body = await req.json().catch(() => ({}));
+        const r = await importVenetoAuctions(body);
+        return withIdentity(json(req, r.ok ? 200 : 400, { job: "import-veneto-auctions", ...r }, debugId), "job-import-auctions");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] import-auctions error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Auction import failed", debugId), "job-error");
       }
     }
 
