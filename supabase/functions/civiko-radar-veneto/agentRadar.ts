@@ -758,15 +758,45 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     : datasetStatus === "partial" ? "Dataset parziale: dati reali/parziali insufficienti per dichiarare copertura completa."
     : "Dataset Veneto completo: OMI reale + listing reali + copertura multi-provincia.";
 
+  // Additive: micro-zone aggregated signals (no personal data)
+  let inheritancePressureZones = 0;
+  let estateTurnoverZones = 0;
+  let territorialSignalsCount = 0;
+  let publicAssetSignalsCount = 0;
+  let privacyRejectedCount = 0;
+  try {
+    const [{ count: ipc }, { count: etzc }, { count: tsc }, { count: pac }, { count: prc }] = await Promise.all([
+      supa.from("inheritance_pressure_signals").select("id", { count: "exact", head: true }).eq("is_active", true),
+      supa.from("estate_turnover_zones").select("id", { count: "exact", head: true }).eq("is_active", true),
+      supa.from("territorial_signals").select("id", { count: "exact", head: true }).eq("is_active", true),
+      supa.from("source_documents").select("id", { count: "exact", head: true }).eq("classification", "public_asset"),
+      supa.from("inheritance_safe_source_documents").select("id", { count: "exact", head: true }).eq("contains_personal_data", true),
+    ]);
+    inheritancePressureZones = ipc ?? 0;
+    estateTurnoverZones = etzc ?? 0;
+    territorialSignalsCount = tsc ?? 0;
+    publicAssetSignalsCount = pac ?? 0;
+    privacyRejectedCount = prc ?? 0;
+  } catch (_e) { /* additive, mai bloccante */ }
+
+  const summaryExt = {
+    ...summary,
+    inheritancePressureZones,
+    estateTurnoverZones,
+    territorialSignals: territorialSignalsCount,
+    auctionSignals: summary.auctions,
+    publicAssetSignals: publicAssetSignalsCount,
+  };
+
   // POLICY PRODUZIONE: nessun record demo restituito al client. Mantieni demo:[] per retro-compat.
   return {
     configured: !!supa,
     scope: { region: "Veneto", province: VENETO_PROVINCES, datasetStatus, message },
-    summary,
+    summary: summaryExt,
     zones: finalZones.filter((z) => z.quality !== "demo"),
     opportunities: datasetStatus === "empty" ? [] : opportunities.filter((o) => true),
-    dataQuality: { real, partial, demo: [], missing, warnings },
-  };
+    dataQuality: { real, partial, demo: [], missing, warnings, privacyRejectedCount },
+  } as AgentRadarResponse;
 }
 
 function fullProvName(p: ProvCode): string {
