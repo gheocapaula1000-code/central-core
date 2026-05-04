@@ -302,6 +302,189 @@ async function buildBandiNazionali(comune: string, provincia: string): Promise<R
   })).slice(0, 8);
 }
 
+// ── Stime statistiche da ISTAT/OMI (fallback "no data") ──────
+
+interface IstatComuneRow {
+  popolazione: number | null;
+  indice_vecchiaia: number | null;
+  percentuale_over65: number | null;
+  eta_media: number | null;
+}
+
+function getServiceClient() {
+  const url = Deno.env.get("SUPABASE_URL") ?? "";
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
+
+async function fetchIstatComune(comune: string): Promise<IstatComuneRow | null> {
+  const supa = getServiceClient();
+  if (!supa) return null;
+  const { data } = await supa
+    .from("istat_comuni")
+    .select("popolazione, indice_vecchiaia, percentuale_over65, eta_media")
+    .ilike("comune", comune)
+    .ilike("regione", "Veneto")
+    .limit(1)
+    .maybeSingle();
+  return (data as IstatComuneRow) ?? null;
+}
+
+async function fetchOmiCommercialPresence(comune: string): Promise<{ commercialZones: number; totalZones: number } | null> {
+  const supa = getServiceClient();
+  if (!supa) return null;
+  const { data } = await supa
+    .from("omi_valori")
+    .select("zona, descr_tipologia")
+    .ilike("comune_descrizione", comune)
+    .limit(1000);
+  if (!data || data.length === 0) return null;
+  const zones = new Set<string>();
+  const commercialZones = new Set<string>();
+  for (const r of data as Array<{ zona: string; descr_tipologia: string | null }>) {
+    if (!r.zona) continue;
+    zones.add(r.zona);
+    const tip = (r.descr_tipologia || "").toLowerCase();
+    if (tip.includes("negoz") || tip.includes("uffic") || tip.includes("commerc") || tip.includes("magazz")) {
+      commercialZones.add(r.zona);
+    }
+  }
+  return { commercialZones: commercialZones.size, totalZones: zones.size };
+}
+
+function estimateSentimentFromIstat(comune: string, istat: IstatComuneRow | null): ZoneSignal {
+  if (!istat || !istat.popolazione) {
+    return {
+      label: "Sentiment di Zona",
+      livello: "non_disponibile",
+      nota: "Riscontro non disponibile in questo momento.",
+      fonte: "Fonte da Collegare",
+    };
+  }
+  const pop = istat.popolazione;
+  const iv = istat.indice_vecchiaia ?? 150;
+  // Densità + indice vecchiaia → proxy di vivacità sociale
+  let livello: ZoneSignal["livello"] = "stimato_medio";
+  let nota = `Stima derivata: popolazione ${pop.toLocaleString("it-IT")} ab., indice di vecchiaia ${iv}. Tessuto sociale ${iv > 200 ? "maturo, dinamiche residenziali consolidate" : iv < 130 ? "giovane, alta dinamicità" : "equilibrato"}.`;
+  if (pop > 50_000 && iv < 180) livello = "stimato_alto";
+  else if (pop < 5_000 || iv > 250) livello = "stimato_basso";
+  return {
+    label: "Sentiment di Zona",
+    livello,
+    nota,
+    fonte: "ISTAT (DCIS_POPRES1)",
+    derivazione: "stima_da_dati_statistici",
+  };
+}
+
+function estimateSicurezzaFromIstat(istat: IstatComuneRow | null): ZoneSignal {
+  if (!istat || !istat.popolazione) {
+    return { label: "Sicurezza Percepita", livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare" };
+  }
+  // Comuni piccoli e con anzianità alta → percezione sicurezza generalmente più alta
+  const pop = istat.popolazione;
+  const iv = istat.indice_vecchiaia ?? 150;
+  let livello: ZoneSignal["livello"] = "stimato_medio";
+  if (pop < 15_000 && iv > 160) livello = "stimato_alto";
+  else if (pop > 100_000) livello = "stimato_medio";
+  return {
+    label: "Sicurezza Percepita",
+    livello,
+    nota: `Stima derivata da densità abitativa (${pop.toLocaleString("it-IT")} ab.) e profilo demografico ISTAT. Indicatore non sostituisce dati di cronaca diretti.`,
+    fonte: "ISTAT (DCIS_POPRES1)",
+    derivazione: "stima_da_dati_statistici",
+  };
+}
+
+function estimateRumoreFromOmi(istat: IstatComuneRow | null, omi: { commercialZones: number; totalZones: number } | null): ZoneSignal {
+  if (!omi || omi.totalZones === 0) {
+    return { label: "Rumore Ambientale", livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare" };
+  }
+  const ratio = omi.commercialZones / Math.max(1, omi.totalZones);
+  const pop = istat?.popolazione ?? 0;
+  let livello: ZoneSignal["livello"] = "stimato_basso";
+  if (ratio > 0.4 || pop > 80_000) livello = "stimato_alto";
+  else if (ratio > 0.2 || pop > 20_000) livello = "stimato_medio";
+  return {
+    label: "Rumore Ambientale",
+    livello,
+    nota: `Stima derivata: ${omi.commercialZones} zone OMI a destinazione commerciale/uffici su ${omi.totalZones} totali (${Math.round(ratio * 100)}%). Maggiore presenza commerciale = maggiore esposizione a rumore diurno/notturno.`,
+    fonte: "Agenzia delle Entrate – OMI",
+    derivazione: "stima_da_dati_statistici",
+  };
+}
+
+function estimateAriaFromIstat(istat: IstatComuneRow | null): ZoneSignal {
+  if (!istat || !istat.popolazione) {
+    return { label: "Qualità dell'Aria", livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare" };
+  }
+  const pop = istat.popolazione;
+  let livello: ZoneSignal["livello"] = "stimato_medio";
+  if (pop > 100_000) livello = "stimato_basso";
+  else if (pop < 10_000) livello = "stimato_alto";
+  return {
+    label: "Qualità dell'Aria",
+    livello,
+    nota: `Stima derivata da scala demografica ISTAT (${pop.toLocaleString("it-IT")} ab.). Per dato puntuale verificare centraline ARPAV.`,
+    fonte: "ISTAT (DCIS_POPRES1)",
+    derivazione: "stima_da_dati_statistici",
+  };
+}
+
+async function applyStatisticalFallback(
+  comune: string,
+  signals: RadarResponse["segnaliDiZona"],
+  warnings: string[],
+): Promise<RadarResponse["segnaliDiZona"]> {
+  const needsFallback =
+    signals.sentiment.livello === "non_disponibile" ||
+    signals.sicurezza.livello === "non_disponibile" ||
+    signals.rumore.livello === "non_disponibile" ||
+    signals.qualitaAria.livello === "non_disponibile";
+  if (!needsFallback) return signals;
+
+  const [istat, omi] = await Promise.all([fetchIstatComune(comune), fetchOmiCommercialPresence(comune)]);
+
+  if (!istat) {
+    warnings.push("Base dati ISTAT non popolata per questo comune: avviare il job 'istat-sdmx-fetch' per il Veneto.");
+    // best-effort trigger non bloccante (fire-and-forget)
+    triggerIstatPopulation().catch((e) => console.warn(`[radar-veneto] istat trigger error: ${e instanceof Error ? e.message : String(e)}`));
+  }
+  if (!omi) {
+    warnings.push("Base dati OMI non popolata per questo comune: avviare l'import 'omi-import' per l'area Veneto.");
+  }
+
+  return {
+    sentiment: signals.sentiment.livello === "non_disponibile" ? estimateSentimentFromIstat(comune, istat) : signals.sentiment,
+    sicurezza: signals.sicurezza.livello === "non_disponibile" ? estimateSicurezzaFromIstat(istat) : signals.sicurezza,
+    rumore: signals.rumore.livello === "non_disponibile" ? estimateRumoreFromOmi(istat, omi) : signals.rumore,
+    qualitaAria: signals.qualitaAria.livello === "non_disponibile" ? estimateAriaFromIstat(istat) : signals.qualitaAria,
+  };
+}
+
+async function triggerIstatPopulation(): Promise<void> {
+  const url = Deno.env.get("SUPABASE_URL") ?? "";
+  const secret = Deno.env.get("AI_CORE_SECRET") ?? "";
+  if (!url || !secret) return;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 5_000);
+  try {
+    await fetch(`${url}/functions/v1/istat-sdmx-fetch`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-ai-core-secret": secret,
+        "x-source-app": "civiko-radar-veneto",
+      },
+      body: JSON.stringify({ anno: 2025, clear_first: false }),
+      signal: ctrl.signal,
+    }).catch(() => {});
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ── Orchestrator ─────────────────────────────────────────────
 
 async function orchestrate(body: RequestBody): Promise<RadarResponse> {
