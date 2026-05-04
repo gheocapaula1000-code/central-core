@@ -38,6 +38,8 @@ import { runAdvancedVenetoOpportunities } from "./advancedOpportunity.ts";
 import { buildVenetoIntelligenceFromResearch } from "./intelligence/orchestrator.ts";
 import { runVenetoOpenDataImport } from "./openData/ckanImporter.ts";
 import { runApifyForVenetoSource } from "./apify/apifyAdapter.ts";
+import { runApifyForVenetoSourceV2, apifyDiagnostics } from "./apify/apifyOrchestrator.ts";
+import { APIFY_VENETO_REGISTRY } from "./apify/apifySourceRegistry.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // Certificazione ufficiale del dato (tutela legale dell'agenzia)
@@ -75,6 +77,8 @@ const ROUTES = [
   "POST /jobs/import-omi-territorial-notes",
   "POST /jobs/build-veneto-intelligence-from-research",
   "POST /jobs/apify-run-veneto-source",
+  "POST /jobs/apify-diagnostics",
+  "GET  /jobs/apify-registry",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
@@ -1013,12 +1017,34 @@ Deno.serve(async (req) => {
 
     // ── New Perplexity-derived intelligence jobs ─────────────
     {
+      // GET /jobs/apify-registry — protected, returns registry metadata only (no token).
+      if (req.method === "GET" && pathname.endsWith("/jobs/apify-registry")) {
+        const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
+        const provided = req.headers.get("x-job-secret") ?? "";
+        if (!expected || provided !== expected) {
+          return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
+        }
+        return withIdentity(json(req, 200, {
+          job: "apify-registry",
+          count: APIFY_VENETO_REGISTRY.length,
+          sources: APIFY_VENETO_REGISTRY.map((s) => ({
+            source_name: s.source_name,
+            source_type: s.source_type,
+            actor_id: s.actor_id,
+            import_target: s.import_target,
+            allowed_use: s.allowed_use,
+            compliance_notes: s.compliance_notes,
+          })),
+        }, debugId), "job-apify-registry");
+      }
+
       const newJobs = [
         "/jobs/import-veneto-open-data",
         "/jobs/import-veneto-geo-environment",
         "/jobs/import-omi-territorial-notes",
         "/jobs/build-veneto-intelligence-from-research",
         "/jobs/apify-run-veneto-source",
+        "/jobs/apify-diagnostics",
       ];
       const matched = newJobs.find((p) => pathname.endsWith(p));
       if (matched) {
@@ -1064,8 +1090,12 @@ Deno.serve(async (req) => {
             });
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "build-veneto-intelligence-from-research", ...r }, debugId), "job-vir");
           }
+          if (matched === "/jobs/apify-diagnostics") {
+            const r = await apifyDiagnostics();
+            return withIdentity(json(req, r.ok ? 200 : 207, { job: "apify-diagnostics", ...r }, debugId), "job-apify-diag");
+          }
           if (matched === "/jobs/apify-run-veneto-source") {
-            const r = await runApifyForVenetoSource({
+            const r = await runApifyForVenetoSourceV2({
               source_name: String(body?.source_name ?? ""),
               actor_id: String(body?.actor_id ?? ""),
               input: body?.input ?? {},
