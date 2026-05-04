@@ -14,6 +14,15 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { scrapeAsteGiudiziarie } from "./asteGiudiziarie.ts";
+
+// ── Gancio d'Apertura — types ──────────────────────────────
+export interface GancioApertura {
+  tipo: "perdita_immagine" | "asta_vicina" | "ribasso_consecutivo" | "agency_swap_local";
+  testo: string;          // frase pronta per l'agente
+  evidenza: string;       // dato factual a supporto (numerico o URL)
+  fonte: "OMI" | "Portali" | "Necrologi" | "PVP_Ministero_Giustizia" | "snapshot_storico";
+}
 
 export type MarkerColor = "rosso" | "viola" | "ambra" | "verde";
 export type MarkerKind =
