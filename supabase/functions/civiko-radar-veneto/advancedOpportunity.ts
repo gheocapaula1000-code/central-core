@@ -363,11 +363,11 @@ async function runPricingEngine(supa: SupabaseClient, velocity: VelocityCandidat
   // Cache OMI per comune (residenziale)
   const comuni = Array.from(new Set(velocity.map((v) => v.comune).filter(Boolean) as string[]));
   if (!comuni.length) return out;
+  const comuniUpper = comuni.map((c) => c.toUpperCase());
 
   const omiCache = new Map<string, { min: number; max: number; avg: number }>();
-  // Range loop respecting 1k limit
-  for (let i = 0; i < comuni.length; i += 200) {
-    const slice = comuni.slice(i, i + 200);
+  for (let i = 0; i < comuniUpper.length; i += 200) {
+    const slice = comuniUpper.slice(i, i + 200);
     const { data, error } = await supa.from("omi_valori")
       .select("comune_descrizione, compr_min, compr_max, descr_tipologia")
       .in("comune_descrizione", slice)
