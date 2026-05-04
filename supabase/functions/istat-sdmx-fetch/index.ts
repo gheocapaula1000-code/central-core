@@ -141,40 +141,56 @@ function parseEta(code: string): number | "TOTAL" | null {
   return null;
 }
 
-function buildSdmxUrl(territorioITH: string, anno: number): string {
-  // Chiave SDMX: <FREQ>.<ITTER107>.<SEXISTAT1>.<ETA1>.<STATCIV2>.<TIME_PERIOD>
-  // Wildcard = vuoto. Filtriamo: tutte le età, M+F+T, stato civile totale.
-  // ITTER107: per ricavare i comuni di una provincia ITH usiamo "ALL" e poi filtriamo lato parser.
-  // Alternativa più robusta: passare il codice di area ITH al posto del comune e ISTAT espande.
-  const key = `.${territorioITH}.....${anno}`;
-  return `${SDMX_BASE}/${DATAFLOW}/${key}?format=csvdata&dimensionAtObservation=AllDimensions`;
+// Build chiavi SDMX alternative (l'API ISTAT è instabile su query larghe → tentativi multipli).
+// Chiave 22_289 DCIS_POPRES1: <FREQ>.<ITTER107>.<SEXISTAT1>.<ETA1>.<STATCIV2>.<TIME_PERIOD>
+function buildSdmxUrlVariants(territorioITH: string, anno: number): string[] {
+  const variants: string[] = [];
+  // 1) FREQ esplicita "A" (annuale) + sesso totale 9 + stato civile 99 → query più snella → meno rischio HTTP 500
+  variants.push(`${SDMX_BASE}/${DATAFLOW}/A.${territorioITH}.9..99.${anno}?format=csvdata&dimensionAtObservation=AllDimensions`);
+  // 2) Stessa chiave senza filtri stato civile/sesso (legacy fallback)
+  variants.push(`${SDMX_BASE}/${DATAFLOW}/A.${territorioITH}.....${anno}?format=csvdata&dimensionAtObservation=AllDimensions`);
+  // 3) FREQ wildcard (originale) — tipico errore su nuovi NSI
+  variants.push(`${SDMX_BASE}/${DATAFLOW}/.${territorioITH}.....${anno}?format=csvdata&dimensionAtObservation=AllDimensions`);
+  // 4) Senza query 'format' → SDMX-CSV via Accept (gestito in fetch)
+  variants.push(`${SDMX_BASE}/${DATAFLOW}/A.${territorioITH}.9..99.${anno}?dimensionAtObservation=AllDimensions`);
+  return variants;
 }
 
 async function fetchSdmxProvincia(
   ith: string,
   anno: number,
 ): Promise<RawObservation[]> {
-  const url = buildSdmxUrl(ith, anno);
-  console.log(`[istat-sdmx] GET ${url}`);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 60_000);
-  try {
-    const res = await fetch(url, {
-      headers: { Accept: "text/csv,application/csv;q=0.9,*/*;q=0.5" },
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      console.warn(`[istat-sdmx] ${ith}: HTTP ${res.status}`);
-      return [];
+  const variants = buildSdmxUrlVariants(ith, anno);
+  for (let i = 0; i < variants.length; i++) {
+    const url = variants[i];
+    const useAcceptCsv = !url.includes("format=csvdata"); // ultimo tentativo
+    const accept = useAcceptCsv
+      ? "application/vnd.sdmx.data+csv;version=1.0.0,text/csv;q=0.9,*/*;q=0.5"
+      : "text/csv,application/csv;q=0.9,*/*;q=0.5";
+    console.log(`[istat-sdmx] ${ith} try#${i + 1} GET ${url}`);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 45_000);
+    try {
+      const res = await fetch(url, { headers: { Accept: accept }, signal: controller.signal });
+      if (!res.ok) {
+        console.warn(`[istat-sdmx] ${ith} try#${i + 1}: HTTP ${res.status}`);
+        clearTimeout(timer);
+        continue;
+      }
+      const csv = await res.text();
+      clearTimeout(timer);
+      const parsed = parseSdmxCsv(csv);
+      if (parsed.length > 0) {
+        console.log(`[istat-sdmx] ${ith}: ${parsed.length} osservazioni (variant #${i + 1})`);
+        return parsed;
+      }
+      console.warn(`[istat-sdmx] ${ith} try#${i + 1}: 0 obs nel CSV (header=${csv.split(/\r?\n/)[0]?.slice(0, 200)})`);
+    } catch (e) {
+      clearTimeout(timer);
+      console.warn(`[istat-sdmx] ${ith} try#${i + 1} error:`, e instanceof Error ? e.message : String(e));
     }
-    const csv = await res.text();
-    return parseSdmxCsv(csv);
-  } catch (e) {
-    console.warn(`[istat-sdmx] ${ith} fetch error:`, e instanceof Error ? e.message : String(e));
-    return [];
-  } finally {
-    clearTimeout(timer);
   }
+  return [];
 }
 
 // Aggrega RawObservation per comune e calcola percentuali

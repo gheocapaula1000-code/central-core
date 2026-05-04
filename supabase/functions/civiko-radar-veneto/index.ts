@@ -92,11 +92,73 @@ function certifySource(fonte: string | null | undefined): FonteCertificata {
 
 interface ZoneSignal {
   label: string;
-  livello: "alto" | "medio" | "basso" | "stimato_alto" | "stimato_medio" | "stimato_basso" | "non_disponibile";
+  livello:
+    | "alto" | "medio" | "basso"
+    | "stimato_alto" | "stimato_medio" | "stimato_basso"
+    | "in_certificazione"            // NEW: dato non ancora disponibile, scansione profonda in corso
+    | "non_disponibile";              // legacy: usato solo in errore hard
   nota: string;
   fonte: string;
   fonte_certificata: FonteCertificata;
-  derivazione?: "diretta" | "stima_da_dati_statistici";
+  derivazione?: "diretta" | "stima_da_dati_statistici" | "stima_da_prossimita_infrastrutture";
+  scansione_profonda?: { stato: "avviata" | "in_corso" | "non_attivata"; eta_minuti?: number };
+}
+
+// ── Veneto infrastructure proxies (per environmental engine) ────
+// Bbox approssimati delle principali assi autostradali e nodi rumorosi.
+// Usati solo come PROXY ufficiali (Concessionari Autostrade per l'Italia, RFI).
+// Distanza euclidea su coordinate decimali (sufficiente per livello qualitativo).
+interface InfraPoint { name: string; lat: number; lng: number; tipo: "autostrada" | "stazione" | "industriale" | "aeroporto"; }
+const VENETO_INFRA_POINTS: InfraPoint[] = [
+  // A4 Milano-Venezia (passaggi chiave)
+  { name: "A4 casello Verona Est", lat: 45.4380, lng: 11.0640, tipo: "autostrada" },
+  { name: "A4 casello Vicenza Est", lat: 45.5350, lng: 11.6280, tipo: "autostrada" },
+  { name: "A4 casello Padova Ovest", lat: 45.4180, lng: 11.7920, tipo: "autostrada" },
+  { name: "A4 casello Padova Est", lat: 45.4050, lng: 11.9620, tipo: "autostrada" },
+  { name: "A4 casello Mestre", lat: 45.4790, lng: 12.2380, tipo: "autostrada" },
+  // A27 Venezia-Belluno
+  { name: "A27 casello Treviso Sud", lat: 45.6420, lng: 12.2360, tipo: "autostrada" },
+  { name: "A27 casello Conegliano", lat: 45.8740, lng: 12.3050, tipo: "autostrada" },
+  { name: "A27 casello Belluno", lat: 46.1320, lng: 12.2080, tipo: "autostrada" },
+  // Stazioni RFI nodi (rumore notturno merci)
+  { name: "Stazione Mestre", lat: 45.4820, lng: 12.2330, tipo: "stazione" },
+  { name: "Stazione Padova FS", lat: 45.4160, lng: 11.8800, tipo: "stazione" },
+  { name: "Stazione Verona Porta Nuova", lat: 45.4280, lng: 10.9820, tipo: "stazione" },
+  // Aree industriali storiche
+  { name: "Area industriale Marghera", lat: 45.4640, lng: 12.2230, tipo: "industriale" },
+  { name: "ZI Padova Est", lat: 45.4070, lng: 11.9300, tipo: "industriale" },
+  { name: "ZI Montebello Vicentino", lat: 45.4500, lng: 11.3850, tipo: "industriale" },
+  // Aeroporti
+  { name: "Aeroporto Venezia Marco Polo", lat: 45.5060, lng: 12.3520, tipo: "aeroporto" },
+  { name: "Aeroporto Verona Catullo", lat: 45.3950, lng: 10.8860, tipo: "aeroporto" },
+];
+
+function distanceKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(bLat - aLat);
+  const dLng = toRad(bLng - aLng);
+  const lat1 = toRad(aLat);
+  const lat2 = toRad(bLat);
+  const h = Math.sin(dLat / 2) ** 2 + Math.sin(dLng / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function nearbyInfraImpact(lat: number | null, lng: number | null): { score: number; reasons: string[] } {
+  if (typeof lat !== "number" || typeof lng !== "number") return { score: 0, reasons: [] };
+  const reasons: string[] = [];
+  let score = 0;
+  for (const p of VENETO_INFRA_POINTS) {
+    const d = distanceKm(lat, lng, p.lat, p.lng);
+    if (d > 5) continue;
+    // peso per tipo
+    const w = p.tipo === "autostrada" ? 3 : p.tipo === "aeroporto" ? 4 : p.tipo === "stazione" ? 2 : 1.5;
+    const proximity = Math.max(0, 1 - d / 5); // 1=adiacente, 0=5km
+    const contrib = w * proximity;
+    score += contrib;
+    if (d <= 2) reasons.push(`${p.name} a ${d.toFixed(1)} km`);
+  }
+  return { score, reasons: reasons.slice(0, 3) };
 }
 
 interface OffMarketOpportunity {
