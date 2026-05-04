@@ -78,7 +78,10 @@ async function buildAreaScores(supa: SupabaseClient, warnings: string[]) {
   type Aggregate = {
     prov: Prov; comune: string;
     omiVals: number[]; omiCount: number;
-    snaps: number; motivati: number; anomalie: number; aste: number;
+    snaps: number; snapsDemo: number;
+    motivati: number; motivatiDemo: number;
+    anomalie: number; anomalieDemo: number;
+    aste: number; asteDemo: number;
   };
   const map = new Map<string, Aggregate>();
   const k = (p: Prov, c: string) => `${p}:${c.toLowerCase().trim()}`;
@@ -86,11 +89,16 @@ async function buildAreaScores(supa: SupabaseClient, warnings: string[]) {
     const key = k(p, c);
     let a = map.get(key);
     if (!a) {
-      a = { prov: p, comune: c, omiVals: [], omiCount: 0, snaps: 0, motivati: 0, anomalie: 0, aste: 0 };
+      a = { prov: p, comune: c, omiVals: [], omiCount: 0,
+        snaps: 0, snapsDemo: 0, motivati: 0, motivatiDemo: 0,
+        anomalie: 0, anomalieDemo: 0, aste: 0, asteDemo: 0 };
       map.set(key, a);
     }
     return a;
   };
+
+  const DEMO_MARKERS = ["seed_demo","demo","mock","fixture","sample"];
+  const isDemo = (...vals: unknown[]) => vals.some((v) => v != null && DEMO_MARKERS.some((m) => String(v).toLowerCase().includes(m)));
 
   // OMI (paginazione obbligatoria)
   let offset = 0; const PAGE = 1000;
@@ -113,48 +121,77 @@ async function buildAreaScores(supa: SupabaseClient, warnings: string[]) {
     offset += PAGE;
   }
 
-  const augment = async (table: string, field: keyof Aggregate, filter?: Record<string, unknown>) => {
-    try {
-      let q = supa.from(table).select("province,municipality");
-      if (filter) for (const [k,v] of Object.entries(filter)) q = q.eq(k, v);
-      const { data, error } = await q.range(0, 4999);
-      if (error) { warnings.push(`${table}: ${error.message}`); return; }
-      for (const r of data ?? []) {
-        const row = r as { province: string|null; municipality: string|null };
-        const p = normProv(row.province); if (!p || !row.municipality) continue;
-        const a = ensure(p, row.municipality);
-        (a[field] as number)++;
-      }
-    } catch (e) { warnings.push(`${table}: ${e instanceof Error ? e.message : String(e)}`); }
-  };
+  // Snaps con source split
+  try {
+    const { data, error } = await supa.from("listing_price_snapshots")
+      .select("province,municipality,source").range(0, 4999);
+    if (error) warnings.push(`snaps: ${error.message}`);
+    for (const r of data ?? []) {
+      const row = r as { province: string|null; municipality: string|null; source: string|null };
+      const p = normProv(row.province); if (!p || !row.municipality) continue;
+      const a = ensure(p, row.municipality);
+      if (isDemo(row.source)) a.snapsDemo++; else a.snaps++;
+    }
+  } catch (e) { warnings.push(`snaps: ${e instanceof Error ? e.message : String(e)}`); }
 
-  await augment("listing_price_snapshots", "snaps");
-  await augment("motivated_sellers", "motivati", { is_active: true });
-  await augment("market_anomalies", "anomalie", { is_active: true });
-  // Aste: radar_signals signal_type ilike asta — fallback semplice
+  // Motivated sellers con source/payload split
+  try {
+    const { data, error } = await supa.from("motivated_sellers")
+      .select("province,municipality,source,payload").eq("is_active", true).range(0, 4999);
+    if (error) warnings.push(`motivated: ${error.message}`);
+    for (const r of data ?? []) {
+      const row = r as { province: string|null; municipality: string|null; source: string|null; payload: Record<string, unknown>|null };
+      const p = normProv(row.province); if (!p || !row.municipality) continue;
+      const a = ensure(p, row.municipality);
+      const pd = (row.payload ?? {}) as Record<string, unknown>;
+      if (isDemo(row.source, pd?.source, pd?.quality, pd?.data_basis)) a.motivatiDemo++; else a.motivati++;
+    }
+  } catch (e) { warnings.push(`motivated: ${e instanceof Error ? e.message : String(e)}`); }
+
+  // Market anomalies con payload split
+  try {
+    const { data, error } = await supa.from("market_anomalies")
+      .select("province,municipality,payload").eq("is_active", true).range(0, 4999);
+    if (error) warnings.push(`anomalies: ${error.message}`);
+    for (const r of data ?? []) {
+      const row = r as { province: string|null; municipality: string|null; payload: Record<string, unknown>|null };
+      const p = normProv(row.province); if (!p || !row.municipality) continue;
+      const a = ensure(p, row.municipality);
+      const pd = (row.payload ?? {}) as Record<string, unknown>;
+      if (isDemo(pd?.source, pd?.quality, pd?.data_basis)) a.anomalieDemo++; else a.anomalie++;
+    }
+  } catch (e) { warnings.push(`anomalies: ${e instanceof Error ? e.message : String(e)}`); }
+
+  // Aste (radar_signals con signal_type=asta)
   try {
     const { data, error } = await supa.from("radar_signals")
-      .select("province,municipality,signal_type").eq("is_active", true).range(0, 4999);
+      .select("province,municipality,signal_type,source,payload").eq("is_active", true).range(0, 4999);
     if (error) warnings.push(`radar_signals: ${error.message}`);
     for (const r of data ?? []) {
-      const row = r as { province: string|null; municipality: string|null; signal_type: string|null };
+      const row = r as { province: string|null; municipality: string|null; signal_type: string|null; source: string|null; payload: Record<string, unknown>|null };
       const p = normProv(row.province); if (!p || !row.municipality) continue;
       const t = (row.signal_type ?? "").toLowerCase();
-      if (t.includes("asta")) ensure(p, row.municipality).aste++;
+      if (!t.includes("asta")) continue;
+      const pd = (row.payload ?? {}) as Record<string, unknown>;
+      const a = ensure(p, row.municipality);
+      if (isDemo(row.source, pd?.source, pd?.quality, pd?.data_basis)) a.asteDemo++; else a.aste++;
     }
   } catch (e) { warnings.push(`radar_signals: ${e instanceof Error ? e.message : String(e)}`); }
 
-  // Build score
+  // Build score (usa real + demo per scoring; quality riflette mix)
   const rows: Array<{ provincia: string; comune: string; score: number; temperature: string; components: Record<string, number|string|null>; quality: string; data_basis: string }> = [];
   for (const a of map.values()) {
+    const snapsTot = a.snaps + a.snapsDemo;
+    const motivTot = a.motivati + a.motivatiDemo;
+    const anomTot = a.anomalie + a.anomalieDemo;
+    const asteTot = a.aste + a.asteDemo;
     let score = 0;
     const omiAvg = a.omiVals.length ? Math.round(a.omiVals.reduce((x,y)=>x+y,0)/a.omiVals.length) : null;
     if (omiAvg !== null) score += 8;
-    score += Math.min(20, a.snaps * 0.5);
-    score += Math.min(25, a.motivati * 4);
-    score += Math.min(20, a.anomalie * 4);
-    score += Math.min(15, a.aste * 5);
-    // Capoluoghi bonus
+    score += Math.min(20, snapsTot * 0.5);
+    score += Math.min(25, motivTot * 4);
+    score += Math.min(20, anomTot * 4);
+    score += Math.min(15, asteTot * 5);
     const CAPS: Record<string, number> = {
       "VE:venezia":12,"VE:mestre":10,"VR:verona":12,"VI:vicenza":12,
       "PD:padova":12,"TV:treviso":12,"BL:belluno":10,"RO:rovigo":10,
@@ -164,13 +201,29 @@ async function buildAreaScores(supa: SupabaseClient, warnings: string[]) {
 
     const basis: string[] = [];
     if (a.omiCount > 0) basis.push("omi_valori");
-    if (a.snaps > 0) basis.push("listing_price_snapshots");
-    if (a.motivati > 0) basis.push("motivated_sellers");
-    if (a.anomalie > 0) basis.push("market_anomalies");
-    if (a.aste > 0) basis.push("radar_signals");
+    if (snapsTot > 0) basis.push("listing_price_snapshots");
+    if (motivTot > 0) basis.push("motivated_sellers");
+    if (anomTot > 0) basis.push("market_anomalies");
+    if (asteTot > 0) basis.push("radar_signals");
 
-    const isReal = a.omiCount > 0 && (a.snaps + a.motivati + a.anomalie + a.aste > 0);
-    const quality = isReal ? "reale" : a.omiCount > 0 ? "parziale" : "stimato";
+    // Quality: peggior fonte vince
+    const realCommercial = a.snaps + a.motivati + a.anomalie + a.aste;
+    const demoCommercial = a.snapsDemo + a.motivatiDemo + a.anomalieDemo + a.asteDemo;
+    let quality: string;
+    if (demoCommercial > 0 && realCommercial === 0) {
+      // segnali commerciali tutti demo: AOS è demo (anche se OMI è reale)
+      quality = a.omiCount > 0 ? "demo_with_omi" : "demo";
+      // Manteniamo enum standard:
+      quality = "demo";
+    } else if (realCommercial > 0 && demoCommercial > 0) {
+      quality = "parziale";
+    } else if (realCommercial > 0 && a.omiCount > 0) {
+      quality = "reale";
+    } else if (a.omiCount > 0) {
+      quality = "parziale"; // OMI-only: parziale (non basta a dichiarare opportunità reale)
+    } else {
+      quality = "stimato";
+    }
 
     rows.push({
       provincia: a.prov,
@@ -179,10 +232,14 @@ async function buildAreaScores(supa: SupabaseClient, warnings: string[]) {
       temperature: tempFromScore(score),
       components: {
         omi_avg_eur: omiAvg,
-        listing_snapshots: a.snaps,
-        motivated_sellers: a.motivati,
-        market_anomalies: a.anomalie,
-        auctions: a.aste,
+        listing_snapshots_real: a.snaps,
+        listing_snapshots_demo: a.snapsDemo,
+        motivated_sellers_real: a.motivati,
+        motivated_sellers_demo: a.motivatiDemo,
+        market_anomalies_real: a.anomalie,
+        market_anomalies_demo: a.anomalieDemo,
+        auctions_real: a.aste,
+        auctions_demo: a.asteDemo,
       },
       quality,
       data_basis: basis.join("+") || "omi_valori",
