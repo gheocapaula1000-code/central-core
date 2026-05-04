@@ -775,24 +775,34 @@ export async function runAdvancedVenetoOpportunities(req: AdvancedJobRequest): P
   const warnings: string[] = [];
   const dryRun = req.dryRun !== false;
   const doImport = req.import === true && !dryRun;
-  const province = (req.province ?? ["VE", "VR", "VI", "PD", "TV", "BL", "RO"]).map((p) => p.toUpperCase()).filter((p) => VENETO_PROV.has(p));
+  const allProvinces = (req.province ?? ["VE","VR","VI","PD","TV","BL","RO"]).map((p) => p.toUpperCase()).filter((p) => VENETO_PROV.has(p));
+  const province = req.batchProvinces && req.batchProvinces.length
+    ? req.batchProvinces.map((p) => p.toUpperCase()).filter((p) => allProvinces.includes(p))
+    : allProvinces;
+  const provincesRemaining = allProvinces.filter((p) => !province.includes(p));
   const comuni = req.comuni ?? [];
+  const stats = registryStats();
 
   const supa = svc();
   if (!supa) {
-    return baseReport(startedAt, t0, false, warnings, ["service_role_missing"]);
+    return baseReport(startedAt, t0, false, warnings, ["service_role_missing"], stats, allProvinces);
   }
 
   let legalCands: LegalCandidate[] = [];
-  let pagesSeen = 0, docsSaved = 0;
+  let legalReview: LegalCandidate[] = [];
+  let publicAssets: LegalCandidate[] = [];
+  let pagesSeen = 0, pagesClassified = 0, docsSaved = 0;
   if (req.runFirecrawl !== false && req.runLegal !== false) {
     const legal = await runLegalFirecrawl({
       province, comuni,
       maxPages: req.maxPagesPerSource ?? 30,
       maxDepth: req.maxDepth ?? 1,
-    }, warnings);
+    }, warnings, supa);
     legalCands = legal.candidates;
+    legalReview = legal.needs_review;
+    publicAssets = legal.public_assets;
     pagesSeen = legal.pages;
+    pagesClassified = legal.pages_classified;
     docsSaved = legal.documents_saved;
   }
 
@@ -823,7 +833,6 @@ export async function runAdvancedVenetoOpportunities(req: AdvancedJobRequest): P
     motivCreated = await refreshMotivatedSellers(supa, velocity, pricing, false, warnings);
   }
 
-  // Log run
   if (doImport) {
     await supa.from("ingestion_runs").insert({
       job_name: "build-advanced-veneto-opportunities",
@@ -836,30 +845,40 @@ export async function runAdvancedVenetoOpportunities(req: AdvancedJobRequest): P
       rows_out: legalImported + velImp + priImp + urgImp,
       warnings, errors: [],
       report: {
-        legal: legalImported, velocity: velImp, pricing: priImp, urgent: urgImp,
+        legal: legalImported, legal_needs_review: legalReview.length,
+        public_assets: publicAssets.length,
+        velocity: velImp, pricing: priImp, urgent: urgImp,
         motivated_sellers: motivCreated, radar_signals: radarAdded,
+        provinces_processed: province, provinces_remaining: provincesRemaining,
       },
     }).select().maybeSingle();
   }
 
   const next: string[] = [];
   if (!firecrawlAvailable()) next.push("Configurare FIRECRAWL_API_KEY per estrazione legale.");
-  if (legalCands.length === 0) next.push("Aggiungere fonti legali pubbliche (IVG/PVP locali) alla source registry.");
+  if (legalCands.length === 0 && legalReview.length === 0) next.push("Aggiungere fonti legali pubbliche (IVG/PVP locali) alla source registry.");
   if (velocity.length === 0) next.push("Popolare listing_price_snapshots con osservazioni reali via portali autorizzati.");
   if (pricing.length === 0 && velocity.length > 0) next.push("Estendere copertura OMI per i comuni con velocity signals.");
+  if (provincesRemaining.length > 0) next.push(`Rilanciare con batchProvinces=[${provincesRemaining.map((p) => `"${p}"`).join(",")}] per completare le province restanti.`);
 
   return {
     ok: true, started_at: startedAt, ended_at: new Date().toISOString(),
     duration_ms: Date.now() - t0,
     firecrawl_available: firecrawlAvailable(),
-    firecrawl_pages_seen: pagesSeen, firecrawl_documents_saved: docsSaved,
+    registry_total: stats.total, registry_by_type: stats.by_type,
+    firecrawl_pages_seen: pagesSeen,
+    firecrawl_pages_classified: pagesClassified,
+    firecrawl_documents_saved: docsSaved,
     legal_candidates: legalCands.length, legal_imported: legalImported,
+    legal_needs_review: legalReview.length,
+    public_asset_signals: publicAssets.length,
     velocity_candidates: velocity.length, velocity_imported: velImp,
     pricing_candidates: pricing.length, pricing_imported: priImp,
     motivated_sellers_created: motivCreated,
     urgent_opportunities_created: urgent.length,
     radar_signals_added: radarAdded,
     rejected_demo: 0, rejected_invalid: 0,
+    provinces_processed: province, provinces_remaining: provincesRemaining,
     warnings, next_actions: next,
     samples: {
       legal: legalCands.slice(0, 3),
@@ -870,16 +889,19 @@ export async function runAdvancedVenetoOpportunities(req: AdvancedJobRequest): P
   };
 }
 
-function baseReport(startedAt: string, t0: number, fc: boolean, warnings: string[], errors: string[]): AdvancedJobReport {
+function baseReport(startedAt: string, t0: number, fc: boolean, warnings: string[], errors: string[], stats: { total: number; by_type: Record<string, number> }, allProvinces: string[]): AdvancedJobReport {
   return {
     ok: false, started_at: startedAt, ended_at: new Date().toISOString(),
     duration_ms: Date.now() - t0, firecrawl_available: fc,
-    firecrawl_pages_seen: 0, firecrawl_documents_saved: 0,
-    legal_candidates: 0, legal_imported: 0,
+    registry_total: stats.total, registry_by_type: stats.by_type,
+    firecrawl_pages_seen: 0, firecrawl_pages_classified: 0, firecrawl_documents_saved: 0,
+    legal_candidates: 0, legal_imported: 0, legal_needs_review: 0,
+    public_asset_signals: 0,
     velocity_candidates: 0, velocity_imported: 0,
     pricing_candidates: 0, pricing_imported: 0,
     motivated_sellers_created: 0, urgent_opportunities_created: 0,
     radar_signals_added: 0, rejected_demo: 0, rejected_invalid: 0,
+    provinces_processed: [], provinces_remaining: allProvinces,
     warnings: [...warnings, ...errors], next_actions: [],
     samples: { legal: [], velocity: [], pricing: [], urgent: [] },
   };
