@@ -350,19 +350,25 @@ export async function scrapeSuccessioniPotenziali(
         ? new Date(ob.death_date).toLocaleDateString("it-IT")
         : "data non specificata";
 
+      // Scoring densità ville: zone con alta % villini → segnale più forte (immobile singolo, eredità tipica)
+      const villaShareTxt = omi.villa_share !== null && omi.residential_count > 0
+        ? ` Densità ville/villini in zona: ${(omi.villa_share * 100).toFixed(0)}% (${omi.residential_count} tipologie residenziali OMI).`
+        : "";
+      const urgenza: "bassa" | "media" = (omi.villa_share ?? 0) >= 0.3 ? "media" : "bassa";
+
       opportunita.push({
         tipo: "successione",
         titolo: `Possibile successione famiglia ${ob.surname} — zona ${omi.zona_descr}`,
         descrizione:
-          `Decesso registrato (${dataFmt}). Zona OMI residenziale (${omi.tipologia}), comune con indice di vecchiaia ${Number(istat.indice).toFixed(0)}. Possibile incarico di vendita nei prossimi 6-18 mesi.`
-            .slice(0, 300),
+          `Decesso registrato (${dataFmt}). Zona OMI residenziale (${omi.tipologia}), comune con indice di vecchiaia ${Number(istat.indice).toFixed(0)}.${villaShareTxt} Possibile incarico di vendita nei prossimi 6-18 mesi.`
+            .slice(0, 350),
         prezzoIndicativo: null,
         scontoStimato: "Trattativa privata",
         localita: `${omi.zona_descr}, ${municipality}`,
         fonte: source.name,
         evidenceUrl: ob.source_url,
         categoria: "residenziale",
-        urgenza: "bassa",
+        urgenza,
       });
 
       if (opportunita.length >= MAX_SIGNALS) break;
