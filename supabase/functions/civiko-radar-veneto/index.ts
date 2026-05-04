@@ -64,9 +64,10 @@ interface RequestBody {
 
 interface ZoneSignal {
   label: string;
-  livello: "alto" | "medio" | "basso" | "non_disponibile";
+  livello: "alto" | "medio" | "basso" | "stimato_alto" | "stimato_medio" | "stimato_basso" | "non_disponibile";
   nota: string;
   fonte: string;
+  derivazione?: "diretta" | "stima_da_dati_statistici";
 }
 
 interface OffMarketOpportunity {
