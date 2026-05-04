@@ -206,52 +206,96 @@ function extractLegalFromText(txt: string, sourceUrl: string, sourceName: string
   };
 }
 
+interface LegalRunResult {
+  candidates: LegalCandidate[];
+  needs_review: LegalCandidate[];
+  public_assets: LegalCandidate[];
+  pages: number;
+  pages_classified: number;
+  documents_saved: number;
+}
+
 async function runLegalFirecrawl(opts: {
   province: string[]; comuni: string[]; maxPages: number; maxDepth: number;
-}, warnings: string[]): Promise<{ candidates: LegalCandidate[]; pages: number; documents_saved: number }> {
+}, warnings: string[], supa: SupabaseClient | null): Promise<LegalRunResult> {
   const out: LegalCandidate[] = [];
+  const review: LegalCandidate[] = [];
+  const publicAssets: LegalCandidate[] = [];
   let pages = 0;
+  let classified = 0;
   let saved = 0;
-  if (!firecrawlAvailable()) { warnings.push("firecrawl_unavailable"); return { candidates: out, pages, documents_saved: saved }; }
+  if (!firecrawlAvailable()) {
+    warnings.push("firecrawl_unavailable");
+    return { candidates: out, needs_review: review, public_assets: publicAssets, pages, pages_classified: classified, documents_saved: saved };
+  }
 
   const sources = filterSources({
     province: opts.province,
     comuni: opts.comuni,
-    sourceTypes: ["auctions", "ivg", "municipal_notices"],
-  }).slice(0, 8);
+    sourceTypes: ["auctions", "ivg", "pvp", "municipal_notices"],
+  });
 
   for (const src of sources) {
     if (isForbiddenPage(src.base_url)) { warnings.push(`forbidden:${src.source_name}`); continue; }
-    const targets: string[] = [src.base_url];
-    if (src.crawl_depth >= 1) {
-      const m = await fcMap(src.base_url, { search: "asta vendita pignoramento", limit: Math.min(opts.maxPages, src.max_pages) });
-      if (m.ok) {
-        for (const raw of m.links) {
-          if (targets.length >= opts.maxPages) break;
-          const l = typeof raw === "string" ? raw : (raw as { url?: string })?.url;
-          if (!l || typeof l !== "string") continue;
-          if (isForbiddenPage(l)) continue;
-          if (!/asta|vendita|pignoramento|alienazion|liquidazion/i.test(l)) continue;
-          targets.push(l);
-        }
-      }
-    }
+    const maxForSource = Math.min(opts.maxPages, src.max_pages);
+    const targets = await planCrawlUrls(src, {
+      maxUrls: maxForSource,
+      useFirecrawlMap: src.crawl_depth >= 1,
+      mapSearch: "asta vendita pignoramento alienazione bando avviso urbanistica",
+    });
 
-    for (const url of targets.slice(0, opts.maxPages)) {
+    for (const url of targets) {
       const r = await fcScrape(url, { timeoutMs: 18_000, formats: ["markdown"] });
       pages++;
       if (!r.ok || !r.markdown) continue;
       if (isDemoText(r.markdown)) continue;
+      if (isForbiddenPage(r.markdown)) continue;
+      classified++;
       const provHint = src.province[0] ?? null;
       const comuneHint = src.comuni?.[0] ?? null;
       const cand = extractLegalFromText(r.markdown, url, src.source_name, comuneHint, provHint);
-      if (cand && cand.confidence >= 70 && cand.comune) {
+      if (!cand || !cand.comune) continue;
+
+      if (cand.signal_type === "alienazione_pubblica") {
+        publicAssets.push(cand);
+      }
+
+      if (cand.confidence >= 70) {
         out.push(cand);
         saved++;
+      } else if (cand.confidence >= 50) {
+        review.push(cand);
+        // Persist as needs_review document for audit
+        if (supa) {
+          const hash = await sha1Hex(`${cand.source_url}|${cand.signal_type}`);
+          await supa.from("source_documents").upsert({
+            source_name: cand.source_name,
+            source_type: "auctions",
+            source_url: cand.source_url,
+            url: cand.source_url,
+            title: r.title ?? null,
+            text_excerpt: (r.markdown ?? "").slice(0, 600),
+            raw_hash: hash,
+            content_hash: hash,
+            fetched_at: new Date().toISOString(),
+            comune: cand.comune,
+            provincia: cand.provincia,
+            classification: cand.signal_type,
+            extracted_entities: { ...cand, snippet: undefined },
+            relevance_score: cand.confidence,
+            confidence_score: cand.confidence,
+            freshness_score: 50,
+            importability: false,
+            import_reason: "needs_review",
+            quality: "parziale",
+            data_basis: cand.data_basis.join(","),
+            doc_type: cand.signal_type,
+          }, { onConflict: "source_url" }).then(() => {/*silent*/});
+        }
       }
     }
   }
-  return { candidates: out, pages, documents_saved: saved };
+  return { candidates: out, needs_review: review, public_assets: publicAssets, pages, pages_classified: classified, documents_saved: saved };
 }
 
 // ═══════════════════════════════════════════════════════════════
