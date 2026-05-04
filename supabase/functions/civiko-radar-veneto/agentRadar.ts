@@ -750,10 +750,9 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   };
 
   const message =
-    datasetStatus === "empty" && !allowDemo ? "Nessun dato Veneto disponibile. Popolare omi-import, scraping portali e job radar."
-    : datasetStatus === "empty" && allowDemo ? "Nessun dato reale: restituite 3 zone DEMO Veneto a scopo dimostrativo."
-    : datasetStatus === "partial" ? "Dataset parziale: OMI reale presente, segnali commerciali incompleti o misti con demo."
-    : "Dataset Veneto completo: OMI reale + listing reali + copertura multi-provincia, nessuna dipendenza da seed demo.";
+    datasetStatus === "empty" ? "Nessun dato Veneto reale disponibile. Popolare omi-import, scraping portali e job radar."
+    : datasetStatus === "partial" ? "Dataset parziale: dati reali/parziali insufficienti per dichiarare copertura completa."
+    : "Dataset Veneto completo: OMI reale + listing reali + copertura multi-provincia.";
 
   // POLICY PRODUZIONE: nessun record demo restituito al client. Mantieni demo:[] per retro-compat.
   return {
