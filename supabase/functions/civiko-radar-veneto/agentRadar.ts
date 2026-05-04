@@ -261,38 +261,7 @@ function buildDemoZones(filter: ProvCode | null): AgentRadarZone[] {
   const filtered = filter ? demos.filter((d) => d.provincia === filter) : demos;
   return (filtered.length ? filtered : demos).map((d) => ({ ...d, quality: "demo" as const }));
 }
-  const demos: Array<Omit<AgentRadarZone, "quality">> = [
-    {
-      id: "demo-pd-1", comune: "Padova", provincia: "PD",
-      lat: 45.4064, lng: 11.8768, score: 72, temperature: "calda", signalType: "misto",
-      title: "Padova centro — pressione su trilocali",
-      reason: "Esempio operativo: stock alto in zona Portello, OMI in fascia media, segnali di ribasso ricorrenti.",
-      agentAction: "Aprire mandati su trilocali 70-90mq con prezzo allineato a OMI medio.",
-      omi: { available: true, valoreMedio: 2400, fascia: "centrale", microzona: "B1", quality: "stimato" },
-      metrics: { annunciAttivi: 38, ribassi30gg: 6, aste: 1, venditoriMotivati: 4, giorniMediMercato: 110 },
-    },
-    {
-      id: "demo-vr-1", comune: "Verona", provincia: "VR",
-      lat: 45.4384, lng: 10.9916, score: 58, temperature: "calda", signalType: "ribasso",
-      title: "Verona Borgo Trento — ribassi accelerati",
-      reason: "Esempio operativo: ribassi >10% su 4 immobili negli ultimi 30gg.",
-      agentAction: "Contatto su venditori motivati con offerta strutturata sotto OMI massimo.",
-      omi: { available: true, valoreMedio: 2900, fascia: "semicentrale", microzona: "C2", quality: "stimato" },
-      metrics: { annunciAttivi: 22, ribassi30gg: 4, aste: 0, venditoriMotivati: 3, giorniMediMercato: 145 },
-    },
-    {
-      id: "demo-ve-1", comune: "Mestre", provincia: "VE",
-      lat: 45.4937, lng: 12.2426, score: 44, temperature: "tiepida", signalType: "stock",
-      title: "Mestre — stock in crescita",
-      reason: "Esempio operativo: stock in aumento, gap OMI/asking moderato.",
-      agentAction: "Selezione su immobili con giacenza >120gg per rinegoziazione mandato.",
-      omi: { available: true, valoreMedio: 2100, fascia: "periferica", microzona: "D3", quality: "stimato" },
-      metrics: { annunciAttivi: 51, ribassi30gg: 3, aste: 1, venditoriMotivati: 5, giorniMediMercato: 160 },
-    },
-  ];
-  const filtered = filter ? demos.filter((d) => d.provincia === filter) : demos;
-  return (filtered.length ? filtered : demos).map((d) => ({ ...d, quality: "demo" as const }));
-}
+
 
 export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRadarResponse> {
   const warnings: string[] = [];
