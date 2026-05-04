@@ -761,75 +761,101 @@ function formatEuro(n: number | null | undefined): string {
 
 function buildWhatsAppMessage(
   marker: DossierMarker,
-  hook: { headline: string; body: string; perditaImmaginePct: number | null; visibilityIndex: number | null },
+  hook: {
+    headline: string;
+    body: string;
+    perditaImmaginePct: number | null;
+    visibilityIndex: number | null;
+    breakdown?: VisibilityBreakdown | null;
+  },
   ctx: HookContext,
   evidenze: string[],
+  fonti: EngagementHook["fonti"],
 ): string {
   // Formato leggibile, senza markdown pesante (WhatsApp non rende tabelle).
-  // Usa interruzioni di riga e bullet * per rendere scannable.
+  // Usa interruzioni di riga, bullet • e *bold* per rendere scannable.
+  // Ogni blocco riporta esplicitamente la fonte (No Lies → blindare l'autorità).
   const lines: string[] = [];
   lines.push(`*${hook.headline}*`);
   lines.push("");
   lines.push(hook.body);
   lines.push("");
 
-  // Storico ribassi
+  // ── Storico annuncio + perdita visibilità ──
   const drops = Number(marker.payload.drops_count ?? 0);
   const totalDropPct = Number(marker.payload.total_drop_pct ?? 0);
   const daysOnline = Number(marker.payload.days_online ?? 0);
   const initialPrice = Number(marker.payload.initial_price_eur ?? 0);
   const lastPrice = Number(marker.payload.last_price_eur ?? 0);
   if (daysOnline > 0 || drops > 0) {
-    lines.push("📉 *Storico annuncio*");
+    lines.push("📉 *Storico annuncio* _(fonte: snapshot portali)_");
     if (daysOnline > 0) lines.push(`• Online da: ${Math.round(daysOnline)} giorni (~${Math.max(1, Math.round(daysOnline / 30))} mesi)`);
     if (drops > 0) lines.push(`• Ribassi applicati: ${drops}${totalDropPct > 0 ? ` (-${totalDropPct.toFixed(1)}%)` : ""}`);
     if (initialPrice > 0 && lastPrice > 0 && initialPrice > lastPrice) {
       lines.push(`• Prezzo: da ${formatEuro(initialPrice)} a ${formatEuro(lastPrice)}`);
     }
     if (hook.perditaImmaginePct !== null) {
-      lines.push(`• Perdita di immagine stimata: *${hook.perditaImmaginePct.toFixed(1)}%*`);
+      lines.push(`• Perdita di immagine stimata: *-${hook.perditaImmaginePct.toFixed(0)}%*`);
     }
     if (hook.visibilityIndex !== null) {
-      lines.push(`• Indice di visibilità residuo: ${hook.visibilityIndex.toFixed(0)}/100`);
+      lines.push(`• Indice visibilità residuo: ${hook.visibilityIndex.toFixed(0)}/100`);
+    }
+    if (hook.breakdown && hook.breakdown.recentDropsIn60d > 0) {
+      lines.push(`• Ribassi negli ultimi 60gg: ${hook.breakdown.recentDropsIn60d} (impatto -${hook.breakdown.penaltyRibassiRecentiPct.toFixed(0)}% sulla visibilità)`);
     }
     lines.push("");
   }
 
-  // Riferimento OMI
-  if (ctx.omiCompromaxEur || ctx.omiCompromInEur) {
-    lines.push("📊 *Valori OMI di zona*");
+  // ── Capitale a Rischio (validazione OMI) ──
+  if (ctx.capitaleARischio && ctx.capitaleARischio.euroAtRisk > 0) {
+    const cr = ctx.capitaleARischio;
+    const sevEmoji =
+      cr.classificazione === "critico" ? "🚨" :
+      cr.classificazione === "elevato" ? "⚠️" :
+      cr.classificazione === "moderato" ? "🟡" : "🟢";
+    lines.push(`${sevEmoji} *Capitale a Rischio* _(fonte: Agenzia Entrate – OMI ${cr.omiSemestre ?? ""})_`.trim());
+    lines.push(`• Prezzo richiesto: ${formatEuro(cr.askingPriceEur)} (${cr.surfaceMq} mq)`);
+    lines.push(`• Valore OMI massimo atteso: ${formatEuro(cr.expectedOmiValueEur)} (${formatEuro(cr.omiMaxEurPerMq)}/mq × ${cr.surfaceMq} mq)`);
+    lines.push(`• *Capitale esposto: ${formatEuro(cr.euroAtRisk)} (+${cr.gapVsOmiPct.toFixed(1)}% sopra OMI max)*`);
+    lines.push(`• Classificazione: ${cr.classificazione.toUpperCase()}`);
+    lines.push("");
+  } else if (ctx.omiCompromaxEur || ctx.omiCompromInEur) {
+    lines.push(`📊 *Valori OMI di zona* _(fonte: Agenzia Entrate – OMI ${ctx.omiSemestre ?? ""})_`.trim());
     if (ctx.omiCompromInEur && ctx.omiCompromaxEur) {
       lines.push(`• Range €/mq: ${formatEuro(ctx.omiCompromInEur)} – ${formatEuro(ctx.omiCompromaxEur)}`);
     } else if (ctx.omiCompromaxEur) {
       lines.push(`• OMI max €/mq: ${formatEuro(ctx.omiCompromaxEur)}`);
     }
-    if (ctx.omiSemestre) lines.push(`• Fonte: Agenzia delle Entrate - OMI ${ctx.omiSemestre}`);
     lines.push("");
   }
 
-  // Asta vicina
+  // ── Asta vicina ──
   if ((ctx.asteImminentiCount ?? 0) > 0) {
-    lines.push("⚖️ *Aste in zona*");
-    lines.push(`• ${ctx.asteImminentiCount} asta/e attiva/e nel comune`);
-    if (ctx.asteEvidenceUrl) lines.push(`• Fonte: ${ctx.asteEvidenceUrl}`);
+    lines.push("⚖️ *Aste in zona* _(fonte: PVP – Ministero della Giustizia)_");
+    lines.push(`• ${ctx.asteImminentiCount} asta/e attiva/e nel comune di ${marker.municipality ?? "riferimento"}`);
+    if (ctx.asteEvidenceUrl) lines.push(`• Verifica: ${ctx.asteEvidenceUrl}`);
     lines.push("");
   }
 
-  // Picco domanda
+  // ── Picco domanda (ISTAT) ──
   if (ctx.domandaPickIstatScore !== null && ctx.domandaPickIstatScore !== undefined && ctx.domandaPickIstatScore > 0) {
-    lines.push("📈 *Domanda di zona*");
+    lines.push("📈 *Domanda di zona* _(fonte: ISTAT – demografia comunale)_");
     lines.push(`• Indice ISTAT: ${ctx.domandaPickIstatScore.toFixed(0)}/100`);
     if (ctx.domandaPickIstatNota) lines.push(`• ${ctx.domandaPickIstatNota}`);
     lines.push("");
   }
 
-  // Footer evidenze
+  // ── Footer evidenze + fonti consolidate ──
   if (evidenze.length > 0) {
     lines.push("🔎 *Evidenze*");
-    for (const e of evidenze.slice(0, 4)) lines.push(`• ${e}`);
+    for (const e of evidenze.slice(0, 5)) lines.push(`• ${e}`);
+    lines.push("");
+  }
+  if (fonti.length > 0) {
+    lines.push(`_Fonti: ${Array.from(new Set(fonti)).join(" · ")}_`);
   }
 
-  return lines.join("\n").slice(0, 1500);
+  return lines.join("\n").slice(0, 1600);
 }
 
 export function generateHook(marker: DossierMarker, ctx: HookContext = {}): EngagementHook {
