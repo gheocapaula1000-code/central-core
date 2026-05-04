@@ -16,7 +16,7 @@
 import {
   makeDebugId, handleOptions, json, fail,
   CORE_VERSION, CORE_CONTRACT, addIdentityHeaders,
-  buildManifest, enforceOriginPolicy,
+  buildManifest, enforceOriginPolicy, requireSecret, extractVerifiedEmail,
 } from "../_shared/http.ts";
 import { sanitizeOutgoing, getServiceSupabase } from "../_shared/civiko.ts";
 import {
@@ -30,6 +30,9 @@ const EXPECTED_BASE_PATH = "/functions/v1/civiko-billing";
 const ROUTES = [
   "GET  /health",
   "GET  /manifest",
+  "GET  /subscription",
+  "POST /checkout",
+  "POST /portal",
   "POST /civiko/billing/create-checkout",
   "POST /civiko/billing/customer-portal",
   "POST /civiko/billing/check-subscription",
@@ -39,6 +42,39 @@ const ROUTES = [
 
 function withIdentity(res: Response, route: string) {
   return addIdentityHeaders(res, { function: FUNCTION_NAME, route });
+}
+
+// ── Dual-mode auth: accept either a valid Supabase JWT or app-secret.
+// Returns { userId, email } when authenticated via JWT, or {} when via secret.
+// Returns a Response on rejection.
+async function authenticateDual(
+  req: Request,
+  debugId: string,
+): Promise<{ ok: true; userId: string | null; email: string | null } | { ok: false; res: Response }> {
+  const authHeader = req.headers.get("authorization") ?? "";
+  const bearer = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
+  const looksLikeJwt = bearer.startsWith("eyJ");
+
+  // Try JWT first when the Bearer token is shaped like a JWT
+  if (looksLikeJwt) {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
+    if (supabaseUrl && supabaseKey) {
+      try {
+        const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+        const sb = createClient(supabaseUrl, supabaseKey);
+        const { data: { user }, error } = await sb.auth.getUser(bearer);
+        if (!error && user?.id) {
+          return { ok: true, userId: user.id, email: user.email ?? null };
+        }
+      } catch (_) { /* fall through to app-secret */ }
+    }
+  }
+
+  // Fall back to app-secret (legacy proxy pattern)
+  const secretRes = requireSecret(req, debugId);
+  if (secretRes) return { ok: false, res: withIdentity(secretRes, "auth-rejected") };
+  return { ok: true, userId: null, email: null };
 }
 
 // ── Stripe minimal helpers (form-encoded REST, no SDK) ────────
