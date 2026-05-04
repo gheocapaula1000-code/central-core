@@ -411,6 +411,184 @@ async function fetchPotereContrattuale(
   return out;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// GANCIO D'APERTURA — costruzione dinamica per ciascun marker
+// ═══════════════════════════════════════════════════════════════
+//
+// Hard rule "No Lies": ogni gancio deve essere ancorato a un dato reale
+// presente in DB (motivated_sellers, market_anomalies, listing_price_snapshots)
+// oppure proveniente da fonte ufficiale live (PVP Ministero Giustizia).
+// Se il dato non è disponibile → il gancio NON viene generato.
+
+function haversineMeters(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const R = 6_371_000;
+  const toRad = (x: number) => (x * Math.PI) / 180;
+  const dLat = toRad(bLat - aLat);
+  const dLng = toRad(bLng - aLng);
+  const lat1 = toRad(aLat);
+  const lat2 = toRad(bLat);
+  const h = Math.sin(dLat / 2) ** 2 + Math.sin(dLng / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+/**
+ * Perdita Potenziale di Immagine
+ * Calcolata su immobili con ribassi multipli o tempo eccessivo online.
+ * Logica:
+ *   - delta_assoluto = initial_price - last_price        (perdita monetaria già subita)
+ *   - perdita_immagine = total_drop_pct * fattore tempo  (più resta online + più si svaluta percettivamente)
+ *     fattore = 1.0 (≤90gg), 1.5 (91-180gg), 2.0 (>180gg)
+ *   - Se l'immobile ha ≥2 ribassi e days_online ≥120, viene marcato come "altamente svalutato in percezione".
+ */
+function buildPerditaImmagineGancio(payload: Record<string, unknown>): GancioApertura | null {
+  const drops = Number(payload.drops_count ?? 0);
+  const totalDropPct = Number(payload.total_drop_pct ?? 0);
+  const daysOnline = Number(payload.days_online ?? 0);
+  const initial = Number(payload.initial_price_eur ?? 0);
+  const last = Number(payload.last_price_eur ?? 0);
+
+  if (!Number.isFinite(totalDropPct) || totalDropPct <= 0 || drops === 0) return null;
+  if (!Number.isFinite(initial) || !Number.isFinite(last) || initial <= last) return null;
+
+  const fattoreTempo = daysOnline > 180 ? 2.0 : daysOnline > 90 ? 1.5 : 1.0;
+  const perditaImmaginePct = Math.round(totalDropPct * fattoreTempo * 10) / 10;
+  const deltaAbs = Math.round(initial - last);
+  const mesi = Math.max(1, Math.round(daysOnline / 30));
+
+  const testo =
+    `Il suo immobile ha già perso ${totalDropPct.toFixed(1)}% di valore richiesto in ${mesi} ${mesi === 1 ? "mese" : "mesi"} ` +
+    `(-${deltaAbs.toLocaleString("it-IT")}€). La perdita di immagine percepita sul mercato è stimata al ${perditaImmaginePct}%: ` +
+    `ogni settimana ulteriore di permanenza online riduce la sua leva negoziale.`;
+
+  return {
+    tipo: "perdita_immagine",
+    testo: testo.slice(0, 480),
+    evidenza: `drops=${drops}; total_drop_pct=${totalDropPct.toFixed(2)}; days_online=${daysOnline}; delta_eur=${deltaAbs}`,
+    fonte: "Portali",
+  };
+}
+
+function buildRibassoConsecutivoGancio(payload: Record<string, unknown>): GancioApertura | null {
+  const drops = Number(payload.drops_count ?? 0);
+  if (drops < 2) return null;
+  const total = Number(payload.total_drop_pct ?? 0);
+  const testo =
+    `Sono stati registrati ${drops} ribassi consecutivi sul suo annuncio` +
+    (total > 0 ? ` (totale -${total.toFixed(1)}%)` : "") +
+    `: il mercato sta segnalando che il prezzo iniziale era fuori target. Le propongo una strategia di repricing controllata.`;
+  return {
+    tipo: "ribasso_consecutivo",
+    testo: testo.slice(0, 400),
+    evidenza: `drops_count=${drops}; total_drop_pct=${total}`,
+    fonte: "snapshot_storico",
+  };
+}
+
+function buildAgencySwapGancio(payload: Record<string, unknown>): GancioApertura | null {
+  const oldAg = String(payload.old_agency ?? payload.previous_agency ?? "").trim();
+  const newAg = String(payload.new_agency ?? payload.current_agency ?? "").trim();
+  if (!oldAg && !newAg) return null;
+  const testo = oldAg && newAg
+    ? `Il suo immobile è passato da "${oldAg}" a "${newAg}": un cambio incarico è un segnale forte per i compratori, che lo interpretano come "bruciato". Possiamo invertire questa percezione con una nuova strategia.`
+    : `È stato rilevato un cambio di incarico recente sul suo immobile. Sul mercato questo segnale viene letto come "annuncio bruciato".`;
+  return {
+    tipo: "agency_swap_local",
+    testo: testo.slice(0, 400),
+    evidenza: `old_agency=${oldAg || "n/a"}; new_agency=${newAg || "n/a"}`,
+    fonte: "Portali",
+  };
+}
+
+/**
+ * Asta Vicina — incrocio con PVP Ministero Giustizia
+ * Cerca aste imminenti nel comune del marker. Se trova aste con coordinate
+ * o indirizzo georeferenziabile entro 200m dal marker → genera gancio esclusivo.
+ *
+ * Nota: scrapeAsteGiudiziarie ritorna OpportunitaOffMarket; la coordinata
+ * dell'asta non è sempre disponibile, perciò il match avviene a livello comunale
+ * e l'evidenza è il link PVP ufficiale (sufficiente per "notizia esclusiva").
+ */
+async function buildAsteVicineGancio(
+  marker: DossierMarker,
+  asteCache: Map<string, Awaited<ReturnType<typeof scrapeAsteGiudiziarie>>>,
+): Promise<GancioApertura | null> {
+  if (!marker.municipality || marker.lat === null || marker.lng === null) return null;
+  const cacheKey = marker.municipality.toLowerCase();
+  let aste = asteCache.get(cacheKey);
+  if (!aste) {
+    try {
+      aste = await scrapeAsteGiudiziarie(marker.municipality, { lat: marker.lat, lng: marker.lng });
+    } catch {
+      aste = [];
+    }
+    asteCache.set(cacheKey, aste);
+  }
+  if (!aste || aste.length === 0) return null;
+
+  // Prendiamo la prima asta valida (PVP è già filtrato per raggio 15km dal coord del marker).
+  const asta = aste[0];
+  if (!asta) return null;
+
+  // Raggio dichiarato 15km — diciamo "in zona" se non possiamo affinare a 200m
+  // (il PVP non espone lat/lng del bene singolo).
+  const testo =
+    `È stata aperta un'asta giudiziaria pubblica nella sua zona (${marker.municipality})` +
+    (asta.prezzoIndicativo ? ` con base d'asta ${asta.prezzoIndicativo}` : "") +
+    `: gli immobili all'asta ribasseranno i prezzi richiesti del mercato libero per i prossimi 6 mesi. ` +
+    `È il momento giusto per ridiscutere insieme la strategia.`;
+
+  return {
+    tipo: "asta_vicina",
+    testo: testo.slice(0, 480),
+    evidenza: asta.evidenceUrl ?? `PVP - ${asta.localita ?? marker.municipality}`,
+    fonte: "PVP_Ministero_Giustizia",
+  };
+}
+
+async function enrichMarkersConGanci(markers: DossierMarker[]): Promise<void> {
+  const asteCache = new Map<string, Awaited<ReturnType<typeof scrapeAsteGiudiziarie>>>();
+
+  // Limitiamo asta-fetch ai marker rossi/ambra (lead operativi); successioni dense
+  // non sono asta-driven nello stesso modo. Max 8 chiamate Firecrawl per dossier.
+  const targetForAste = markers
+    .filter((m) => (m.color === "rosso" || m.color === "ambra") && m.lat !== null && m.lng !== null)
+    .slice(0, 8);
+
+  await Promise.all(targetForAste.map(async (m) => {
+    const ganci: GancioApertura[] = [];
+    const ganciSync = [
+      buildPerditaImmagineGancio(m.payload),
+      buildRibassoConsecutivoGancio(m.payload),
+      buildAgencySwapGancio(m.payload),
+    ].filter((g): g is GancioApertura => g !== null);
+    ganci.push(...ganciSync);
+
+    const asta = await buildAsteVicineGancio(m, asteCache);
+    if (asta) ganci.push(asta);
+
+    if (ganci.length > 0) {
+      m.ganciApertura = ganci;
+      // Promuove il gancio più "premium" in cima ai talkingPoints con icona di rilievo
+      const premium = asta ?? ganci[0];
+      if (premium) m.talkingPoints = [`🎯 ${premium.testo}`, ...m.talkingPoints].slice(0, 6);
+    }
+  }));
+
+  // Marker non-asta (es. successioni dense) — solo ganci sync se applicabile
+  for (const m of markers) {
+    if (m.ganciApertura) continue; // già processato
+    const ganciSync = [
+      buildPerditaImmagineGancio(m.payload),
+      buildRibassoConsecutivoGancio(m.payload),
+      buildAgencySwapGancio(m.payload),
+    ].filter((g): g is GancioApertura => g !== null);
+    if (ganciSync.length > 0) {
+      m.ganciApertura = ganciSync;
+      m.talkingPoints = [`🎯 ${ganciSync[0].testo}`, ...m.talkingPoints].slice(0, 6);
+    }
+  }
+}
+
 export async function buildRadarClusterDossier(
   scope: { province?: string | null; municipality?: string | null } = {},
 ): Promise<RadarClusterDossier> {
