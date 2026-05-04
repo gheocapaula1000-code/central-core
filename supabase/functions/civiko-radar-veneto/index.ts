@@ -975,6 +975,26 @@ Deno.serve(async (req) => {
       }
       try {
         const body = await req.json().catch(() => ({}));
+        const background = body?.background === true || body?.async === true;
+        if (background) {
+          const startedAt = new Date().toISOString();
+          // @ts-ignore EdgeRuntime is available in Deno Deploy
+          const ert = (globalThis as any).EdgeRuntime;
+          const task = (async () => {
+            try {
+              await runAdvancedVenetoOpportunities(body);
+            } catch (e) {
+              console.error("[advanced-opp bg] error:", e instanceof Error ? e.message : String(e));
+            }
+          })();
+          if (ert?.waitUntil) ert.waitUntil(task); else task.catch(() => {});
+          return withIdentity(json(req, 202, {
+            job: "build-advanced-veneto-opportunities",
+            mode: "background",
+            started_at: startedAt,
+            note: "Polling: SELECT * FROM ingestion_runs WHERE job_name='build-advanced-veneto-opportunities' ORDER BY id DESC LIMIT 1",
+          }, debugId), "job-advanced-opp-bg");
+        }
         const r = await runAdvancedVenetoOpportunities(body);
         return withIdentity(json(req, r.ok ? 200 : 207, { job: "build-advanced-veneto-opportunities", ...r }, debugId), "job-advanced-opp");
       } catch (e) {
