@@ -1,0 +1,203 @@
+// ═══════════════════════════════════════════════════════════════
+// Successioni Heatmap CAP — aggregazione probabilità per CAP veneto
+// ═══════════════════════════════════════════════════════════════
+//
+// Per ogni CAP popolato in obituaries_seen (region veneto, ultimi 90gg):
+//   - conta necrologi (proxy stress demografico)
+//   - calcola indice_vecchiaia medio dei comuni associati (ISTAT)
+//   - calcola % zone OMI residenziali nel comune principale
+//   - score combinato → probability_label
+//
+// "Meglio assente che fragile":
+//   - se obituaries_seen[cap] < 3 in 90gg → skip (dato troppo debole)
+//   - se mancano sia ISTAT che OMI → skip
+// ═══════════════════════════════════════════════════════════════
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+
+const WINDOW_DAYS = 90;
+const MIN_OBITUARIES = 3;
+
+const RESIDENTIAL_TIPOLOGIE = [
+  "abitazioni civili",
+  "abitazioni economiche",
+  "abitazioni signorili",
+  "abitazioni di tipo economico",
+  "ville e villini",
+];
+
+function getServiceClient() {
+  const url = Deno.env.get("SUPABASE_URL");
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !key) return null;
+  return createClient(url, key, { auth: { persistSession: false } });
+}
+
+interface CapAggregation {
+  cap: string;
+  obituaries: number;
+  municipalities: Set<string>;
+  province: string | null;
+}
+
+export interface HeatmapResult {
+  cap: string;
+  province: string | null;
+  municipality_main: string | null;
+  obituaries_90d: number;
+  indice_vecchiaia_avg: number | null;
+  pct_residential_omi: number | null;
+  probability_score: number;
+  probability_label: "molto_alta" | "alta" | "media" | "bassa";
+}
+
+function labelFromScore(score: number): HeatmapResult["probability_label"] {
+  if (score >= 75) return "molto_alta";
+  if (score >= 55) return "alta";
+  if (score >= 35) return "media";
+  return "bassa";
+}
+
+export async function recomputeSuccessionHeatmap(): Promise<{
+  computed: number;
+  skipped: number;
+  errors: number;
+  results: HeatmapResult[];
+}> {
+  const supabase = getServiceClient();
+  if (!supabase) return { computed: 0, skipped: 0, errors: 1, results: [] };
+
+  const sinceISO = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString();
+
+  // Carica necrologi recenti col CAP popolato
+  const { data: obs, error: obsErr } = await supabase
+    .from("obituaries_seen")
+    .select("cap, municipality, province")
+    .gte("captured_at", sinceISO)
+    .not("cap", "is", null)
+    .range(0, 9999);
+
+  if (obsErr) {
+    console.error("[successioniHeatmap] obs query:", obsErr.message);
+    return { computed: 0, skipped: 0, errors: 1, results: [] };
+  }
+  if (!obs || obs.length === 0) return { computed: 0, skipped: 0, errors: 0, results: [] };
+
+  // Aggregazione per CAP
+  const byCap = new Map<string, CapAggregation>();
+  for (const r of obs as Array<{ cap: string | null; municipality: string; province: string | null }>) {
+    if (!r.cap) continue;
+    const agg = byCap.get(r.cap) ?? {
+      cap: r.cap,
+      obituaries: 0,
+      municipalities: new Set<string>(),
+      province: r.province ?? null,
+    };
+    agg.obituaries++;
+    if (r.municipality) agg.municipalities.add(r.municipality);
+    if (!agg.province && r.province) agg.province = r.province;
+    byCap.set(r.cap, agg);
+  }
+
+  const results: HeatmapResult[] = [];
+  let skipped = 0;
+  let errors = 0;
+  const computedAt = new Date().toISOString();
+
+  for (const agg of byCap.values()) {
+    if (agg.obituaries < MIN_OBITUARIES) {
+      skipped++;
+      continue;
+    }
+    const municipalities = [...agg.municipalities];
+    const municipality_main = municipalities[0] ?? null;
+
+    // ISTAT — indice di vecchiaia medio dei comuni del CAP
+    let indice_vecchiaia_avg: number | null = null;
+    if (municipalities.length > 0) {
+      const { data: istat } = await supabase
+        .from("istat_comuni")
+        .select("indice_vecchiaia")
+        .in("comune", municipalities)
+        .eq("regione", "Veneto");
+      if (istat && istat.length > 0) {
+        const vals = istat
+          .map((r) => Number((r as { indice_vecchiaia: number | null }).indice_vecchiaia))
+          .filter((v) => Number.isFinite(v) && v > 0);
+        if (vals.length > 0) indice_vecchiaia_avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+      }
+    }
+
+    // OMI — % zone residenziali nel comune principale
+    let pct_residential_omi: number | null = null;
+    if (municipality_main) {
+      const { data: zones } = await supabase
+        .from("omi_zone")
+        .select("descr_tip_prev")
+        .ilike("comune_descrizione", municipality_main)
+        .range(0, 999);
+      if (zones && zones.length > 0) {
+        const total = zones.length;
+        const residential = zones.filter((z) => {
+          const d = ((z as { descr_tip_prev: string | null }).descr_tip_prev ?? "").toLowerCase();
+          return RESIDENTIAL_TIPOLOGIE.some((t) => d.includes(t));
+        }).length;
+        pct_residential_omi = (residential / total) * 100;
+      }
+    }
+
+    if (indice_vecchiaia_avg === null && pct_residential_omi === null) {
+      skipped++;
+      continue;
+    }
+
+    // Score 0-100
+    // - obituaries: 40 pts max (sat a 30+ in 90gg)
+    // - vecchiaia: 30 pts (1.0 se >=200, 0 se <100)
+    // - residential: 30 pts (1.0 se >=70%, 0 se <20%)
+    const obScore = Math.min(40, (agg.obituaries / 30) * 40);
+    const vScore =
+      indice_vecchiaia_avg !== null
+        ? Math.max(0, Math.min(30, ((indice_vecchiaia_avg - 100) / 100) * 30))
+        : 10;
+    const rScore =
+      pct_residential_omi !== null
+        ? Math.max(0, Math.min(30, ((pct_residential_omi - 20) / 50) * 30))
+        : 10;
+    const probability_score = Math.round((obScore + vScore + rScore) * 10) / 10;
+    const probability_label = labelFromScore(probability_score);
+
+    const row: HeatmapResult = {
+      cap: agg.cap,
+      province: agg.province,
+      municipality_main,
+      obituaries_90d: agg.obituaries,
+      indice_vecchiaia_avg: indice_vecchiaia_avg !== null ? Math.round(indice_vecchiaia_avg * 10) / 10 : null,
+      pct_residential_omi: pct_residential_omi !== null ? Math.round(pct_residential_omi * 10) / 10 : null,
+      probability_score,
+      probability_label,
+    };
+
+    const { error: insErr } = await supabase.from("succession_heatmap_cap").insert({
+      cap: row.cap,
+      region: "veneto",
+      province: row.province,
+      municipality_main: row.municipality_main,
+      computed_at: computedAt,
+      obituaries_90d: row.obituaries_90d,
+      indice_vecchiaia_avg: row.indice_vecchiaia_avg,
+      pct_residential_omi: row.pct_residential_omi,
+      probability_score: row.probability_score,
+      probability_label: row.probability_label,
+      payload: { municipalities },
+    });
+    if (insErr) {
+      console.error("[successioniHeatmap] insert:", insErr.message);
+      errors++;
+      continue;
+    }
+    results.push(row);
+  }
+
+  return { computed: results.length, skipped, errors, results };
+}
