@@ -180,10 +180,12 @@ function extractLegalFromText(txt: string, sourceUrl: string, sourceName: string
 
   let propertyType: string | null = null;
   if (/\bappartament|trilocal|bilocal|monolocal/i.test(lower)) propertyType = "appartamento";
-  else if (/\bvilla\b|villetta/i.test(lower)) propertyType = "villa";
-  else if (/\bcapannone|magazzin|laboratorio/i.test(lower)) propertyType = "industriale";
+  else if (/\bvilla\b|villetta|bifamiliar|schiera/i.test(lower)) propertyType = "villa";
+  else if (/\bcapannone|magazzin|laboratorio|opificio/i.test(lower)) propertyType = "industriale";
   else if (/\bnegozio|locale\s+commerciale|ufficio/i.test(lower)) propertyType = "commerciale";
-  else if (/\bterreno|fondo\s+rustico/i.test(lower)) propertyType = "terreno";
+  else if (/\bterreno|fondo\s+rustico|edificabile|agricolo/i.test(lower)) propertyType = "terreno";
+  else if (/\bautorimessa|box\s+auto|garage\b/i.test(lower)) propertyType = "autorimessa";
+  else if (/\bfabbricato\b/i.test(lower)) propertyType = "fabbricato";
 
   let confidence = 50;
   if (basePrice) confidence += 15;
