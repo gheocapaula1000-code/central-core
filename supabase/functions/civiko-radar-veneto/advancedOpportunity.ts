@@ -833,26 +833,29 @@ export async function runAdvancedVenetoOpportunities(req: AdvancedJobRequest): P
     motivCreated = await refreshMotivatedSellers(supa, velocity, pricing, false, warnings);
   }
 
-  if (doImport) {
-    await supa.from("ingestion_runs").insert({
-      job_name: "build-advanced-veneto-opportunities",
-      source_name: "internal",
-      status: "completed",
-      started_at: startedAt,
-      completed_at: new Date().toISOString(),
-      duration_ms: Date.now() - t0,
-      rows_in: pagesSeen,
-      rows_out: legalImported + velImp + priImp + urgImp,
-      warnings, errors: [],
-      report: {
-        legal: legalImported, legal_needs_review: legalReview.length,
-        public_assets: publicAssets.length,
-        velocity: velImp, pricing: priImp, urgent: urgImp,
-        motivated_sellers: motivCreated, radar_signals: radarAdded,
-        provinces_processed: province, provinces_remaining: provincesRemaining,
-      },
-    }).select().maybeSingle();
-  }
+  await supa.from("ingestion_runs").insert({
+    job_name: "build-advanced-veneto-opportunities",
+    source_name: "internal",
+    status: "completed",
+    started_at: startedAt,
+    completed_at: new Date().toISOString(),
+    duration_ms: Date.now() - t0,
+    rows_in: pagesSeen,
+    rows_out: legalImported + velImp + priImp + urgImp,
+    warnings, errors: [],
+    report: {
+      mode: doImport ? "import" : "dryRun",
+      pages_seen: pagesSeen, pages_classified: pagesClassified, documents_saved: docsSaved,
+      legal_candidates: legalCands.length, legal_imported: legalImported,
+      legal_needs_review: legalReview.length,
+      public_assets: publicAssets.length,
+      velocity_candidates: velocity.length, velocity_imported: velImp,
+      pricing_candidates: pricing.length, pricing_imported: priImp,
+      urgent: urgent.length, urgent_imported: urgImp,
+      motivated_sellers: motivCreated, radar_signals: radarAdded,
+      provinces_processed: province, provinces_remaining: provincesRemaining,
+    },
+  }).select().maybeSingle();
 
   const next: string[] = [];
   if (!firecrawlAvailable()) next.push("Configurare FIRECRAWL_API_KEY per estrazione legale.");
