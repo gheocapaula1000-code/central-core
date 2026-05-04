@@ -367,8 +367,20 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     if (row.compr_min) o.vals.push(Number(row.compr_min));
   }
   for (const [k, o] of omiByComune.entries()) {
-    const a = aggMap.get(k);
-    if (!a) continue;
+    let a = aggMap.get(k);
+    if (!a) {
+      // ── Crea zona OMI-only per Veneto: dati reali OMI senza altri segnali ──
+      const [prov, comuneLower] = k.split(":");
+      // Recover original casing from omiRows
+      const orig = (omiRows ?? []).find((r) => {
+        const row = r as { provincia: string|null; comune_descrizione: string|null };
+        const p = isVenetoRow(row.provincia);
+        return p === prov && (row.comune_descrizione ?? "").toLowerCase().trim() === comuneLower;
+      }) as { comune_descrizione: string } | undefined;
+      const comune = orig?.comune_descrizione ?? comuneLower;
+      a = emptyAgg({ comune, provincia: prov as ProvCode });
+      aggMap.set(k, a);
+    }
     if (o.vals.length > 0) {
       a.omiValoreMedio = Math.round(o.vals.reduce((x, y) => x + y, 0) / o.vals.length);
       a.omiFascia = o.fascia;
@@ -393,6 +405,17 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     }
     const giorniMedi = median(a.daysOnline);
     if (giorniMedi && giorniMedi > 120) score += 10;
+
+    // OMI baseline: garantisce ranking utile per zone OMI-only (capoluoghi pesano di più)
+    if (a.omiQuality === "reale") {
+      score += 8;
+      const CAPOLUOGHI: Record<string, number> = {
+        "VE:venezia": 12, "VE:mestre": 10,
+        "VR:verona": 12, "VI:vicenza": 12, "PD:padova": 12,
+        "TV:treviso": 12, "BL:belluno": 10, "RO:rovigo": 10,
+      };
+      score += CAPOLUOGHI[aggKey(a.comune, a.provincia)] ?? 0;
+    }
 
     score = Math.round(Math.min(100, score));
 
