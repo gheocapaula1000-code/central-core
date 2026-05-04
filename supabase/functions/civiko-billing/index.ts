@@ -223,15 +223,21 @@ async function handleCustomerPortal(
   }), debugId), route);
 }
 
-async function handleCheckSubscription(req: Request, body: Record<string, unknown>, debugId: string) {
+async function handleCheckSubscription(
+  req: Request,
+  body: Record<string, unknown>,
+  debugId: string,
+  ctx: { agencyOverride?: string | null; route?: string } = {},
+) {
+  const route = ctx.route ?? "check-subscription";
   const env = readStripeEnv();
-  const agencyId = String(body.agencyId ?? "");
+  const agencyId = String(body.agencyId ?? ctx.agencyOverride ?? "");
   if (!agencyId) return withIdentity(fail(req, 400, "INVALID_BODY", "agencyId is required.", debugId), "error");
 
-  if (!env.configured) return unconfiguredResponse(req, debugId, "check-subscription");
+  if (!env.configured) return unconfiguredResponse(req, debugId, route);
 
   const sb = getServiceSupabase();
-  if (!sb) return unconfiguredResponse(req, debugId, "check-subscription");
+  if (!sb) return unconfiguredResponse(req, debugId, route);
 
   const sub = await getActiveSubscription(sb, agencyId);
   const usage = await getCurrentUsage(sb, agencyId);
@@ -254,7 +260,7 @@ async function handleCheckSubscription(req: Request, body: Record<string, unknow
       allow_pdf_export: !!ent.allow_pdf_export,
       allow_white_label: !!ent.allow_white_label,
     } : null,
-  }), debugId), "check-subscription");
+  }), debugId), route);
 }
 
 async function handleRecordUsage(req: Request, body: Record<string, unknown>, debugId: string) {
