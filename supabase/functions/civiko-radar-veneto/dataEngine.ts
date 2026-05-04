@@ -31,7 +31,9 @@ function svc(): SupabaseClient | null {
 function normProv(p: string | null | undefined): Prov | null {
   if (!p) return null;
   const k = p.trim().toLowerCase();
-  return PROV_NORM[k] ?? (VENETO as readonly string[]).includes(p.toUpperCase()) ? (p.toUpperCase() as Prov) : null;
+  if (PROV_NORM[k]) return PROV_NORM[k];
+  const up = p.toUpperCase();
+  return (VENETO as readonly string[]).includes(up) ? (up as Prov) : null;
 }
 
 export interface DataEngineReport {
