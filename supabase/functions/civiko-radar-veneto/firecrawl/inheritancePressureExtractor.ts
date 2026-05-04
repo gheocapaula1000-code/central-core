@@ -60,17 +60,9 @@ export async function extractInheritancePressure(
     ? new Set(opts.comuni.map((c) => c.toLowerCase())) : null;
 
   const warnings: string[] = [];
-  // 1) ISTAT (regione/provincia spesso NULL → carica tutto, mappa via OMI)
-  const istatQ = await supa.from("istat_comuni")
-    .select("codice_istat,comune,provincia,popolazione,percentuale_over65,percentuale_75_84,percentuale_over85,indice_vecchiaia,eta_media")
-    .limit(2000);
-  if (istatQ.error) warnings.push(`istat: ${istatQ.error.message}`);
-  let istat = (istatQ.data ?? []) as IstatRow[];
-  istat = istat.filter((r) => r.provincia && provFilter.includes(r.provincia.toUpperCase()));
-  if (comuniFilter) istat = istat.filter((r) => comuniFilter.has(r.comune.toLowerCase()));
-
-  // 2) OMI aggregati per comune (media compr_max)
+  // 1) OMI aggregati per comune (media compr_max) — anche per derivare la provincia
   const omiByComune = new Map<string, { sum: number; n: number; prov: string }>();
+  const comuneToProv = new Map<string, string>();
   let from = 0; const PAGE = 1000;
   while (true) {
     const q = await supa.from("omi_valori")
@@ -80,9 +72,12 @@ export async function extractInheritancePressure(
     if (q.error) { warnings.push(`omi: ${q.error.message}`); break; }
     const rows = (q.data ?? []) as OmiAgg[];
     for (const r of rows) {
+      const prov = r.provincia.toUpperCase();
+      const comuneLower = r.comune_descrizione.toLowerCase();
+      comuneToProv.set(comuneLower, prov);
       if (typeof r.compr_max !== "number") continue;
-      const key = `${r.provincia.toUpperCase()}|${r.comune_descrizione.toLowerCase()}`;
-      const cur = omiByComune.get(key) ?? { sum: 0, n: 0, prov: r.provincia.toUpperCase() };
+      const key = `${prov}|${comuneLower}`;
+      const cur = omiByComune.get(key) ?? { sum: 0, n: 0, prov };
       cur.sum += r.compr_max; cur.n++;
       omiByComune.set(key, cur);
     }
@@ -90,6 +85,18 @@ export async function extractInheritancePressure(
     from += PAGE;
     if (from > 50000) { warnings.push("omi: cap pagination 50k"); break; }
   }
+
+  // 2) ISTAT: provincia spesso NULL → derivala dalla mappa OMI
+  const istatQ = await supa.from("istat_comuni")
+    .select("codice_istat,comune,provincia,popolazione,percentuale_over65,percentuale_75_84,percentuale_over85,indice_vecchiaia,eta_media")
+    .limit(2000);
+  if (istatQ.error) warnings.push(`istat: ${istatQ.error.message}`);
+  let istat = (istatQ.data ?? []) as IstatRow[];
+  istat = istat.map((r) => {
+    const prov = (r.provincia ?? "").toUpperCase() || (comuneToProv.get(r.comune.toLowerCase()) ?? "");
+    return { ...r, provincia: prov || null };
+  }).filter((r) => r.provincia && provFilter.includes(r.provincia.toUpperCase()));
+  if (comuniFilter) istat = istat.filter((r) => comuniFilter.has(r.comune.toLowerCase()));
 
   // 3) Aste aggregate
   const auctQ = await supa.from("auction_signals")
