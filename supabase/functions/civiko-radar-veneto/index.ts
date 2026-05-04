@@ -77,6 +77,8 @@ const ROUTES = [
   "POST /jobs/import-omi-territorial-notes",
   "POST /jobs/build-veneto-intelligence-from-research",
   "POST /jobs/apify-run-veneto-source",
+  "POST /jobs/apify-diagnostics",
+  "GET  /jobs/apify-registry",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
