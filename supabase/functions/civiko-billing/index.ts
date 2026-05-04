@@ -106,28 +106,41 @@ function unconfiguredResponse(req: Request, debugId: string, route: string) {
 
 // ── handlers ──────────────────────────────────────────────────
 
-async function handleCreateCheckout(req: Request, body: Record<string, unknown>, debugId: string) {
+async function handleCreateCheckout(
+  req: Request,
+  body: Record<string, unknown>,
+  debugId: string,
+  ctx: { agencyOverride?: string | null; route?: string } = {},
+) {
+  const route = ctx.route ?? "create-checkout";
   const env = readStripeEnv();
-  if (!env.configured || !env.secretKey) return unconfiguredResponse(req, debugId, "create-checkout");
+  if (!env.configured || !env.secretKey) return unconfiguredResponse(req, debugId, route);
 
-  const agencyId = String(body.agencyId ?? "");
+  const agencyId = String(body.agencyId ?? ctx.agencyOverride ?? "");
   const planKey = String(body.planKey ?? "") as CivikoPlanKey;
   const intervalRaw = String(body.interval ?? "month");
   const interval = (intervalRaw === "year" || intervalRaw === "annual") ? "annual" : "monthly";
-  const successUrl = String(body.successUrl ?? "");
-  const cancelUrl = String(body.cancelUrl ?? "");
+  const successUrl = String(body.successUrl ?? body.returnUrl ?? "");
+  const cancelUrl = String(body.cancelUrl ?? body.returnUrl ?? "");
   const email = body.email ? String(body.email) : null;
+  const uiModeRaw = String(body.uiMode ?? "hosted").toLowerCase();
+  const uiMode: "embedded" | "hosted" = uiModeRaw === "embedded" ? "embedded" : "hosted";
 
   if (!agencyId) return withIdentity(fail(req, 400, "INVALID_BODY", "agencyId is required.", debugId), "error");
   if (!CIVIKO_PLANS.includes(planKey)) return withIdentity(fail(req, 400, "INVALID_BODY", "planKey not recognized.", debugId), "error");
-  if (!successUrl || !cancelUrl) return withIdentity(fail(req, 400, "INVALID_BODY", "successUrl and cancelUrl are required.", debugId), "error");
+  if (uiMode === "hosted" && (!successUrl || !cancelUrl)) {
+    return withIdentity(fail(req, 400, "INVALID_BODY", "successUrl and cancelUrl are required for hosted mode.", debugId), "error");
+  }
+  if (uiMode === "embedded" && !successUrl) {
+    return withIdentity(fail(req, 400, "INVALID_BODY", "returnUrl (or successUrl) is required for embedded mode.", debugId), "error");
+  }
 
   const priceKey = `${planKey}_${interval}`;
   const priceId = env.prices[priceKey];
   if (!priceId) return withIdentity(json(req, 200, sanitizeOutgoing({
     billingReady: false, reason: "price_not_configured",
     message: "Variante di abbonamento non configurata.",
-  }), debugId), "create-checkout");
+  }), debugId), route);
 
   // Reuse customer if exists
   const sb = getServiceSupabase();
@@ -143,13 +156,18 @@ async function handleCreateCheckout(req: Request, body: Record<string, unknown>,
     "mode": "subscription",
     "line_items[0][price]": priceId,
     "line_items[0][quantity]": "1",
-    "success_url": successUrl,
-    "cancel_url": cancelUrl,
     "client_reference_id": agencyId,
     "metadata[agency_id]": agencyId,
     "metadata[app_id]": CIVIKO_APP_ID,
     "metadata[plan_key]": planKey,
   };
+  if (uiMode === "embedded") {
+    form["ui_mode"] = "embedded";
+    form["return_url"] = successUrl;
+  } else {
+    form["success_url"] = successUrl;
+    form["cancel_url"] = cancelUrl;
+  }
   if (stripeCustomerId) form["customer"] = stripeCustomerId;
   else if (email) form["customer_email"] = email;
 
@@ -159,16 +177,26 @@ async function handleCreateCheckout(req: Request, body: Record<string, unknown>,
     return withIdentity(fail(req, 502, "STRIPE_ERROR", `Checkout non disponibile. Riferimento: ${debugId}`, debugId), "error");
   }
   const url = (r.data?.url as string) ?? null;
+  const clientSecret = (r.data?.client_secret as string) ?? null;
   return withIdentity(json(req, 200, sanitizeOutgoing({
-    billingReady: true, checkoutUrl: url, planKey, interval,
-  }), debugId), "create-checkout");
+    billingReady: true,
+    uiMode,
+    ...(uiMode === "embedded" ? { clientSecret } : { checkoutUrl: url, url }),
+    planKey, interval,
+  }), debugId), route);
 }
 
-async function handleCustomerPortal(req: Request, body: Record<string, unknown>, debugId: string) {
+async function handleCustomerPortal(
+  req: Request,
+  body: Record<string, unknown>,
+  debugId: string,
+  ctx: { agencyOverride?: string | null; route?: string } = {},
+) {
+  const route = ctx.route ?? "customer-portal";
   const env = readStripeEnv();
-  if (!env.configured || !env.secretKey) return unconfiguredResponse(req, debugId, "customer-portal");
+  if (!env.configured || !env.secretKey) return unconfiguredResponse(req, debugId, route);
 
-  const agencyId = String(body.agencyId ?? "");
+  const agencyId = String(body.agencyId ?? ctx.agencyOverride ?? "");
   const returnUrl = String(body.returnUrl ?? "");
   if (!agencyId || !returnUrl) return withIdentity(fail(req, 400, "INVALID_BODY", "agencyId and returnUrl are required.", debugId), "error");
 
@@ -179,7 +207,7 @@ async function handleCustomerPortal(req: Request, body: Record<string, unknown>,
     .eq("agency_id", agencyId).eq("app_id", CIVIKO_APP_ID).maybeSingle();
   if (!data?.stripe_customer_id) return withIdentity(json(req, 200, sanitizeOutgoing({
     billingReady: true, available: false, reason: "no_customer",
-  }), debugId), "customer-portal");
+  }), debugId), route);
 
   const r = await stripeForm(env.secretKey, "billing_portal/sessions", {
     customer: data.stripe_customer_id,
@@ -189,9 +217,10 @@ async function handleCustomerPortal(req: Request, body: Record<string, unknown>,
     console.error(`[${FUNCTION_NAME}] portal.create failed status=${r.status} debug_id=${debugId}`);
     return withIdentity(fail(req, 502, "STRIPE_ERROR", `Portale non disponibile. Riferimento: ${debugId}`, debugId), "error");
   }
+  const url = (r.data?.url as string) ?? null;
   return withIdentity(json(req, 200, sanitizeOutgoing({
-    billingReady: true, portalUrl: (r.data?.url as string) ?? null,
-  }), debugId), "customer-portal");
+    billingReady: true, portalUrl: url, url,
+  }), debugId), route);
 }
 
 async function handleCheckSubscription(req: Request, body: Record<string, unknown>, debugId: string) {
