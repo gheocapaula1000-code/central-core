@@ -115,12 +115,16 @@ export interface AgentRadarResponse {
 }
 
 // ── Quality classification (centralizzata) ────────────────────────
-const DEMO_MARKERS = ["seed_demo", "demo", "mock", "fixture", "sample"];
+// PRODUCTION-SAFE: applicato SOLO a campi fonte/qualità/id (mai a testi commerciali).
+const DEMO_MARKERS = ["seed_demo", "seed", "demo", "mock", "fixture", "sample", "fake", "stub", "test_"];
 export function isDemoSource(...vals: Array<unknown>): boolean {
   for (const v of vals) {
     if (v == null) continue;
-    const s = String(v).toLowerCase();
+    const s = String(v).toLowerCase().trim();
+    if (!s) continue;
     if (DEMO_MARKERS.some((m) => s.includes(m))) return true;
+    // exact "test" token (evita match accidentali su testo libero)
+    if (s === "test" || s.startsWith("test:") || s.endsWith(":test")) return true;
   }
   return false;
 }
