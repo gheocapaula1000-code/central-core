@@ -10,10 +10,11 @@
 //   - Signals only when sufficient evidence is present.
 // ═══════════════════════════════════════════════════════════════
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { fcScrape, fcMap, firecrawlAvailable } from "./firecrawl/firecrawlClient.ts";
-import { filterSources } from "./firecrawl/sourceRegistry.ts";
+import { fcScrape, firecrawlAvailable } from "./firecrawl/firecrawlClient.ts";
+import { filterSources, registryStats } from "./firecrawl/sourceRegistry.ts";
 import { isForbiddenPage, isDemoText, isVenetoProvince } from "./firecrawl/complianceGuards.ts";
 import { sha1Hex } from "./firecrawl/dedupe.ts";
+import { planCrawlUrls } from "./firecrawl/crawlPlanner.ts";
 
 // ─────────────────────────────────────────────────────────────
 // Public API
@@ -30,6 +31,8 @@ export interface AdvancedJobRequest {
   maxPagesPerSource?: number;
   maxDepth?: number;
   import?: boolean;
+  batchByProvince?: boolean;
+  batchProvinces?: string[]; // sottoinsieme di province da processare in questa run
 }
 
 export interface AdvancedJobReport {
@@ -38,10 +41,15 @@ export interface AdvancedJobReport {
   ended_at: string;
   duration_ms: number;
   firecrawl_available: boolean;
+  registry_total: number;
+  registry_by_type: Record<string, number>;
   firecrawl_pages_seen: number;
+  firecrawl_pages_classified: number;
   firecrawl_documents_saved: number;
   legal_candidates: number;
   legal_imported: number;
+  legal_needs_review: number;
+  public_asset_signals: number;
   velocity_candidates: number;
   velocity_imported: number;
   pricing_candidates: number;
@@ -51,6 +59,8 @@ export interface AdvancedJobReport {
   radar_signals_added: number;
   rejected_demo: number;
   rejected_invalid: number;
+  provinces_processed: string[];
+  provinces_remaining: string[];
   warnings: string[];
   next_actions: string[];
   samples: {
@@ -84,16 +94,20 @@ function svc(): SupabaseClient | null {
 // ═══════════════════════════════════════════════════════════════
 const LEGAL_PATTERNS: Array<{ rx: RegExp; type: string }> = [
   { rx: /\bpignoramento\s+immobiliare\b/i, type: "pignoramento" },
-  { rx: /\bvendita\s+(giudiziaria|forzata)\b/i, type: "vendita_giudiziaria" },
-  { rx: /\basta\s+(immobiliare|telematica|giudiziaria)\b/i, type: "asta" },
+  { rx: /\bvendita\s+(giudiziaria|forzata|senza\s+incanto|con\s+incanto|telematica)\b/i, type: "vendita_giudiziaria" },
+  { rx: /\basta\s+(immobiliare|telematica|giudiziaria|pubblica)\b/i, type: "asta" },
   { rx: /\bavviso\s+di\s+vendita\b/i, type: "asta" },
+  { rx: /\bdelegato\s+alla\s+vendita\b/i, type: "asta" },
   { rx: /\bliquidazione\s+(giudiziale|controllata)\b/i, type: "liquidazione_giudiziale" },
   { rx: /\bfallimento\b/i, type: "fallimento" },
   { rx: /\bconcordato\s+preventivo\b/i, type: "concordato" },
-  { rx: /\bprocedura\s+concorsuale\b/i, type: "procedura_concorsuale" },
-  { rx: /\balienazione\s+immobile\b/i, type: "asta" },
+  { rx: /\bprocedura\s+(concorsuale|esecutiva\s+immobiliare)\b/i, type: "procedura_concorsuale" },
+  { rx: /\balienazione\s+(immobile|immobiliare|patrimoniale)\b/i, type: "alienazione_pubblica" },
+  { rx: /\bvendita\s+beni\s+immobili\b/i, type: "alienazione_pubblica" },
+  { rx: /\bdismissione\s+(patrimoniale|immobiliare)\b/i, type: "alienazione_pubblica" },
+  { rx: /\bbando\s+(?:di\s+)?alienazione\b/i, type: "alienazione_pubblica" },
 ];
-const PRICE_RX = /(?:prezzo\s+(?:base|minimo|d['’]?asta)|offerta\s+minima)\s*:?\s*€?\s*([\d.\s]{4,15})/i;
+const PRICE_RX = /(?:prezzo\s+(?:base|minimo|d['’]?asta)|offerta\s+minima|valore\s+a\s+base\s+d['’]?asta)\s*:?\s*€?\s*([\d.\s]{4,15})/i;
 const SALE_DATE_RX = /(?:data\s+(?:vendita|asta|udienza)|fissat[ao]\s+per\s+il)\s*:?\s*(\d{1,2}[\/\.\-]\d{1,2}[\/\.\-]\d{2,4})/i;
 const COURT_RX = /\btribunale\s+di\s+([A-ZÀ-Ü][a-zà-ü\s]{3,30})/i;
 const COMUNE_RX = /\b(?:comune|sito\s+in|ubicat[oa]\s+in)\s+([A-ZÀ-Ü][A-Za-zÀ-ü'\s]{2,40})/i;
@@ -166,10 +180,12 @@ function extractLegalFromText(txt: string, sourceUrl: string, sourceName: string
 
   let propertyType: string | null = null;
   if (/\bappartament|trilocal|bilocal|monolocal/i.test(lower)) propertyType = "appartamento";
-  else if (/\bvilla\b|villetta/i.test(lower)) propertyType = "villa";
-  else if (/\bcapannone|magazzin|laboratorio/i.test(lower)) propertyType = "industriale";
+  else if (/\bvilla\b|villetta|bifamiliar|schiera/i.test(lower)) propertyType = "villa";
+  else if (/\bcapannone|magazzin|laboratorio|opificio/i.test(lower)) propertyType = "industriale";
   else if (/\bnegozio|locale\s+commerciale|ufficio/i.test(lower)) propertyType = "commerciale";
-  else if (/\bterreno|fondo\s+rustico/i.test(lower)) propertyType = "terreno";
+  else if (/\bterreno|fondo\s+rustico|edificabile|agricolo/i.test(lower)) propertyType = "terreno";
+  else if (/\bautorimessa|box\s+auto|garage\b/i.test(lower)) propertyType = "autorimessa";
+  else if (/\bfabbricato\b/i.test(lower)) propertyType = "fabbricato";
 
   let confidence = 50;
   if (basePrice) confidence += 15;
@@ -190,52 +206,96 @@ function extractLegalFromText(txt: string, sourceUrl: string, sourceName: string
   };
 }
 
+interface LegalRunResult {
+  candidates: LegalCandidate[];
+  needs_review: LegalCandidate[];
+  public_assets: LegalCandidate[];
+  pages: number;
+  pages_classified: number;
+  documents_saved: number;
+}
+
 async function runLegalFirecrawl(opts: {
   province: string[]; comuni: string[]; maxPages: number; maxDepth: number;
-}, warnings: string[]): Promise<{ candidates: LegalCandidate[]; pages: number; documents_saved: number }> {
+}, warnings: string[], supa: SupabaseClient | null): Promise<LegalRunResult> {
   const out: LegalCandidate[] = [];
+  const review: LegalCandidate[] = [];
+  const publicAssets: LegalCandidate[] = [];
   let pages = 0;
+  let classified = 0;
   let saved = 0;
-  if (!firecrawlAvailable()) { warnings.push("firecrawl_unavailable"); return { candidates: out, pages, documents_saved: saved }; }
+  if (!firecrawlAvailable()) {
+    warnings.push("firecrawl_unavailable");
+    return { candidates: out, needs_review: review, public_assets: publicAssets, pages, pages_classified: classified, documents_saved: saved };
+  }
 
   const sources = filterSources({
     province: opts.province,
     comuni: opts.comuni,
-    sourceTypes: ["auctions", "ivg", "municipal_notices"],
-  }).slice(0, 8);
+    sourceTypes: ["auctions", "ivg", "pvp", "municipal_notices"],
+  });
 
   for (const src of sources) {
     if (isForbiddenPage(src.base_url)) { warnings.push(`forbidden:${src.source_name}`); continue; }
-    const targets: string[] = [src.base_url];
-    if (src.crawl_depth >= 1) {
-      const m = await fcMap(src.base_url, { search: "asta vendita pignoramento", limit: Math.min(opts.maxPages, src.max_pages) });
-      if (m.ok) {
-        for (const raw of m.links) {
-          if (targets.length >= opts.maxPages) break;
-          const l = typeof raw === "string" ? raw : (raw as { url?: string })?.url;
-          if (!l || typeof l !== "string") continue;
-          if (isForbiddenPage(l)) continue;
-          if (!/asta|vendita|pignoramento|alienazion|liquidazion/i.test(l)) continue;
-          targets.push(l);
-        }
-      }
-    }
+    const maxForSource = Math.min(opts.maxPages, src.max_pages);
+    const targets = await planCrawlUrls(src, {
+      maxUrls: maxForSource,
+      useFirecrawlMap: src.crawl_depth >= 1,
+      mapSearch: "asta vendita pignoramento alienazione bando avviso urbanistica",
+    });
 
-    for (const url of targets.slice(0, opts.maxPages)) {
+    for (const url of targets) {
       const r = await fcScrape(url, { timeoutMs: 18_000, formats: ["markdown"] });
       pages++;
       if (!r.ok || !r.markdown) continue;
       if (isDemoText(r.markdown)) continue;
+      if (isForbiddenPage(r.markdown)) continue;
+      classified++;
       const provHint = src.province[0] ?? null;
       const comuneHint = src.comuni?.[0] ?? null;
       const cand = extractLegalFromText(r.markdown, url, src.source_name, comuneHint, provHint);
-      if (cand && cand.confidence >= 70 && cand.comune) {
+      if (!cand || !cand.comune) continue;
+
+      if (cand.signal_type === "alienazione_pubblica") {
+        publicAssets.push(cand);
+      }
+
+      if (cand.confidence >= 70) {
         out.push(cand);
         saved++;
+      } else if (cand.confidence >= 50) {
+        review.push(cand);
+        // Persist as needs_review document for audit
+        if (supa) {
+          const hash = await sha1Hex(`${cand.source_url}|${cand.signal_type}`);
+          await supa.from("source_documents").upsert({
+            source_name: cand.source_name,
+            source_type: "auctions",
+            source_url: cand.source_url,
+            url: cand.source_url,
+            title: r.title ?? null,
+            text_excerpt: (r.markdown ?? "").slice(0, 600),
+            raw_hash: hash,
+            content_hash: hash,
+            fetched_at: new Date().toISOString(),
+            comune: cand.comune,
+            provincia: cand.provincia,
+            classification: cand.signal_type,
+            extracted_entities: { ...cand, snippet: undefined },
+            relevance_score: cand.confidence,
+            confidence_score: cand.confidence,
+            freshness_score: 50,
+            importability: false,
+            import_reason: "needs_review",
+            quality: "parziale",
+            data_basis: cand.data_basis.join(","),
+            doc_type: cand.signal_type,
+          }, { onConflict: "source_url" }).then(() => {/*silent*/});
+        }
       }
     }
   }
-  return { candidates: out, pages, documents_saved: saved };
+  return { candidates: out, needs_review: review, public_assets: publicAssets, pages, pages_classified: classified, documents_saved: saved };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -715,24 +775,34 @@ export async function runAdvancedVenetoOpportunities(req: AdvancedJobRequest): P
   const warnings: string[] = [];
   const dryRun = req.dryRun !== false;
   const doImport = req.import === true && !dryRun;
-  const province = (req.province ?? ["VE", "VR", "VI", "PD", "TV", "BL", "RO"]).map((p) => p.toUpperCase()).filter((p) => VENETO_PROV.has(p));
+  const allProvinces = (req.province ?? ["VE","VR","VI","PD","TV","BL","RO"]).map((p) => p.toUpperCase()).filter((p) => VENETO_PROV.has(p));
+  const province = req.batchProvinces && req.batchProvinces.length
+    ? req.batchProvinces.map((p) => p.toUpperCase()).filter((p) => allProvinces.includes(p))
+    : allProvinces;
+  const provincesRemaining = allProvinces.filter((p) => !province.includes(p));
   const comuni = req.comuni ?? [];
+  const stats = registryStats();
 
   const supa = svc();
   if (!supa) {
-    return baseReport(startedAt, t0, false, warnings, ["service_role_missing"]);
+    return baseReport(startedAt, t0, false, warnings, ["service_role_missing"], stats, allProvinces);
   }
 
   let legalCands: LegalCandidate[] = [];
-  let pagesSeen = 0, docsSaved = 0;
+  let legalReview: LegalCandidate[] = [];
+  let publicAssets: LegalCandidate[] = [];
+  let pagesSeen = 0, pagesClassified = 0, docsSaved = 0;
   if (req.runFirecrawl !== false && req.runLegal !== false) {
     const legal = await runLegalFirecrawl({
       province, comuni,
       maxPages: req.maxPagesPerSource ?? 30,
       maxDepth: req.maxDepth ?? 1,
-    }, warnings);
+    }, warnings, supa);
     legalCands = legal.candidates;
+    legalReview = legal.needs_review;
+    publicAssets = legal.public_assets;
     pagesSeen = legal.pages;
+    pagesClassified = legal.pages_classified;
     docsSaved = legal.documents_saved;
   }
 
@@ -763,7 +833,6 @@ export async function runAdvancedVenetoOpportunities(req: AdvancedJobRequest): P
     motivCreated = await refreshMotivatedSellers(supa, velocity, pricing, false, warnings);
   }
 
-  // Log run
   if (doImport) {
     await supa.from("ingestion_runs").insert({
       job_name: "build-advanced-veneto-opportunities",
@@ -776,30 +845,40 @@ export async function runAdvancedVenetoOpportunities(req: AdvancedJobRequest): P
       rows_out: legalImported + velImp + priImp + urgImp,
       warnings, errors: [],
       report: {
-        legal: legalImported, velocity: velImp, pricing: priImp, urgent: urgImp,
+        legal: legalImported, legal_needs_review: legalReview.length,
+        public_assets: publicAssets.length,
+        velocity: velImp, pricing: priImp, urgent: urgImp,
         motivated_sellers: motivCreated, radar_signals: radarAdded,
+        provinces_processed: province, provinces_remaining: provincesRemaining,
       },
     }).select().maybeSingle();
   }
 
   const next: string[] = [];
   if (!firecrawlAvailable()) next.push("Configurare FIRECRAWL_API_KEY per estrazione legale.");
-  if (legalCands.length === 0) next.push("Aggiungere fonti legali pubbliche (IVG/PVP locali) alla source registry.");
+  if (legalCands.length === 0 && legalReview.length === 0) next.push("Aggiungere fonti legali pubbliche (IVG/PVP locali) alla source registry.");
   if (velocity.length === 0) next.push("Popolare listing_price_snapshots con osservazioni reali via portali autorizzati.");
   if (pricing.length === 0 && velocity.length > 0) next.push("Estendere copertura OMI per i comuni con velocity signals.");
+  if (provincesRemaining.length > 0) next.push(`Rilanciare con batchProvinces=[${provincesRemaining.map((p) => `"${p}"`).join(",")}] per completare le province restanti.`);
 
   return {
     ok: true, started_at: startedAt, ended_at: new Date().toISOString(),
     duration_ms: Date.now() - t0,
     firecrawl_available: firecrawlAvailable(),
-    firecrawl_pages_seen: pagesSeen, firecrawl_documents_saved: docsSaved,
+    registry_total: stats.total, registry_by_type: stats.by_type,
+    firecrawl_pages_seen: pagesSeen,
+    firecrawl_pages_classified: pagesClassified,
+    firecrawl_documents_saved: docsSaved,
     legal_candidates: legalCands.length, legal_imported: legalImported,
+    legal_needs_review: legalReview.length,
+    public_asset_signals: publicAssets.length,
     velocity_candidates: velocity.length, velocity_imported: velImp,
     pricing_candidates: pricing.length, pricing_imported: priImp,
     motivated_sellers_created: motivCreated,
     urgent_opportunities_created: urgent.length,
     radar_signals_added: radarAdded,
     rejected_demo: 0, rejected_invalid: 0,
+    provinces_processed: province, provinces_remaining: provincesRemaining,
     warnings, next_actions: next,
     samples: {
       legal: legalCands.slice(0, 3),
@@ -810,16 +889,19 @@ export async function runAdvancedVenetoOpportunities(req: AdvancedJobRequest): P
   };
 }
 
-function baseReport(startedAt: string, t0: number, fc: boolean, warnings: string[], errors: string[]): AdvancedJobReport {
+function baseReport(startedAt: string, t0: number, fc: boolean, warnings: string[], errors: string[], stats: { total: number; by_type: Record<string, number> }, allProvinces: string[]): AdvancedJobReport {
   return {
     ok: false, started_at: startedAt, ended_at: new Date().toISOString(),
     duration_ms: Date.now() - t0, firecrawl_available: fc,
-    firecrawl_pages_seen: 0, firecrawl_documents_saved: 0,
-    legal_candidates: 0, legal_imported: 0,
+    registry_total: stats.total, registry_by_type: stats.by_type,
+    firecrawl_pages_seen: 0, firecrawl_pages_classified: 0, firecrawl_documents_saved: 0,
+    legal_candidates: 0, legal_imported: 0, legal_needs_review: 0,
+    public_asset_signals: 0,
     velocity_candidates: 0, velocity_imported: 0,
     pricing_candidates: 0, pricing_imported: 0,
     motivated_sellers_created: 0, urgent_opportunities_created: 0,
     radar_signals_added: 0, rejected_demo: 0, rejected_invalid: 0,
+    provinces_processed: [], provinces_remaining: allProvinces,
     warnings: [...warnings, ...errors], next_actions: [],
     samples: { legal: [], velocity: [], pricing: [], urgent: [] },
   };
