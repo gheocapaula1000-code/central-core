@@ -459,6 +459,12 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       score += CAPOLUOGHI[aggKey(a.comune, a.provincia)] ?? 0;
     }
 
+    // Boost da area_opportunity_scores (priorità Civiko Data Engine)
+    const aosHit = aosBoost.get(aggKey(a.comune, a.provincia));
+    if (aosHit) {
+      score = Math.max(score, aosHit.score);
+    }
+
     score = Math.round(Math.min(100, score));
 
     let signalType: AgentRadarZone["signalType"] = "misto";
