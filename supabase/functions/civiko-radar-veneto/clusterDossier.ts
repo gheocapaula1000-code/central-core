@@ -1082,6 +1082,32 @@ export async function buildHookContextForMarker(marker: DossierMarker): Promise<
     }
   } catch (_) { /* best effort */ }
 
+  // ── Validazione OMI: Capitale a Rischio ──
+  // Calcola il gap monetario tra prezzo richiesto e tetto OMI massimo della zona.
+  // Richiede: surface_mq nel payload + OMI compr_max disponibile + askingPrice.
+  try {
+    const surfaceMq = Number(
+      marker.payload.surface_mq ??
+      marker.payload.superficie_mq ??
+      marker.payload.mq ??
+      0,
+    );
+    const askingPrice = Number(
+      marker.payload.last_price_eur ??
+      marker.payload.initial_price_eur ??
+      0,
+    );
+    if (surfaceMq > 0 && askingPrice > 0 && ctx.omiCompromaxEur && ctx.omiCompromaxEur > 0) {
+      ctx.surfaceMq = surfaceMq;
+      ctx.capitaleARischio = computeCapitaleARischio({
+        askingPriceEur: askingPrice,
+        surfaceMq,
+        omiMaxEurPerMq: ctx.omiCompromaxEur,
+        omiSemestre: ctx.omiSemestre,
+      });
+    }
+  } catch (_) { /* best effort */ }
+
   return ctx;
 }
 
