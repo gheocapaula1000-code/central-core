@@ -331,11 +331,16 @@ export type Database = {
           eta_media: number | null
           femmine: number | null
           id: number
+          indice_vecchiaia: number | null
           maschi: number | null
+          percentuale_75_84: number | null
           percentuale_over65: number | null
+          percentuale_over85: number | null
           percentuale_under18: number | null
           percentuale_under35: number | null
           popolazione: number | null
+          provincia: string | null
+          regione: string | null
         }
         Insert: {
           anno?: number | null
@@ -344,11 +349,16 @@ export type Database = {
           eta_media?: number | null
           femmine?: number | null
           id?: number
+          indice_vecchiaia?: number | null
           maschi?: number | null
+          percentuale_75_84?: number | null
           percentuale_over65?: number | null
+          percentuale_over85?: number | null
           percentuale_under18?: number | null
           percentuale_under35?: number | null
           popolazione?: number | null
+          provincia?: string | null
+          regione?: string | null
         }
         Update: {
           anno?: number | null
@@ -357,11 +367,16 @@ export type Database = {
           eta_media?: number | null
           femmine?: number | null
           id?: number
+          indice_vecchiaia?: number | null
           maschi?: number | null
+          percentuale_75_84?: number | null
           percentuale_over65?: number | null
+          percentuale_over85?: number | null
           percentuale_under18?: number | null
           percentuale_under35?: number | null
           popolazione?: number | null
+          provincia?: string | null
+          regione?: string | null
         }
         Relationships: []
       }
@@ -422,6 +437,54 @@ export type Database = {
           trace_id?: string
           updated_at?: string
           warnings?: string[] | null
+        }
+        Relationships: []
+      }
+      listing_price_snapshots: {
+        Row: {
+          captured_at: string
+          created_at: string
+          id: number
+          lat: number | null
+          listing_id: string
+          lng: number | null
+          municipality: string | null
+          price_eur: number | null
+          province: string | null
+          raw_address: string | null
+          raw_title: string | null
+          source: string
+          url: string
+        }
+        Insert: {
+          captured_at?: string
+          created_at?: string
+          id?: number
+          lat?: number | null
+          listing_id: string
+          lng?: number | null
+          municipality?: string | null
+          price_eur?: number | null
+          province?: string | null
+          raw_address?: string | null
+          raw_title?: string | null
+          source: string
+          url: string
+        }
+        Update: {
+          captured_at?: string
+          created_at?: string
+          id?: number
+          lat?: number | null
+          listing_id?: string
+          lng?: number | null
+          municipality?: string | null
+          price_eur?: number | null
+          province?: string | null
+          raw_address?: string | null
+          raw_title?: string | null
+          source?: string
+          url?: string
         }
         Relationships: []
       }
@@ -610,6 +673,96 @@ export type Database = {
           provincia?: string
           regione?: string | null
           tipologia?: string | null
+        }
+        Relationships: []
+      }
+      obituaries_seen: {
+        Row: {
+          captured_at: string
+          death_date: string | null
+          fingerprint: string
+          id: number
+          lat: number | null
+          lng: number | null
+          municipality: string
+          omi_link_zona: string | null
+          omi_tipologia: string | null
+          omi_zona_descr: string | null
+          province: string | null
+          source_id: number | null
+          source_url: string | null
+          surname: string
+        }
+        Insert: {
+          captured_at?: string
+          death_date?: string | null
+          fingerprint: string
+          id?: number
+          lat?: number | null
+          lng?: number | null
+          municipality: string
+          omi_link_zona?: string | null
+          omi_tipologia?: string | null
+          omi_zona_descr?: string | null
+          province?: string | null
+          source_id?: number | null
+          source_url?: string | null
+          surname: string
+        }
+        Update: {
+          captured_at?: string
+          death_date?: string | null
+          fingerprint?: string
+          id?: number
+          lat?: number | null
+          lng?: number | null
+          municipality?: string
+          omi_link_zona?: string | null
+          omi_tipologia?: string | null
+          omi_zona_descr?: string | null
+          province?: string | null
+          source_id?: number | null
+          source_url?: string | null
+          surname?: string
+        }
+        Relationships: []
+      }
+      obituaries_sources: {
+        Row: {
+          base_url: string
+          created_at: string
+          id: number
+          is_active: boolean
+          last_used_at: string | null
+          name: string
+          region: string | null
+          reliability_score: number | null
+          search_url_template: string
+          source_type: string
+        }
+        Insert: {
+          base_url: string
+          created_at?: string
+          id?: number
+          is_active?: boolean
+          last_used_at?: string | null
+          name: string
+          region?: string | null
+          reliability_score?: number | null
+          search_url_template: string
+          source_type?: string
+        }
+        Update: {
+          base_url?: string
+          created_at?: string
+          id?: number
+          is_active?: boolean
+          last_used_at?: string | null
+          name?: string
+          region?: string | null
+          reliability_score?: number | null
+          search_url_template?: string
+          source_type?: string
         }
         Relationships: []
       }
@@ -1019,6 +1172,114 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      radar_run_log: {
+        Row: {
+          agency_id: string | null
+          completed_at: string | null
+          duration_ms: number | null
+          error_message: string | null
+          id: number
+          module: string
+          municipality: string | null
+          region: string
+          results_count: number
+          started_at: string
+          status: string
+          warnings: Json | null
+        }
+        Insert: {
+          agency_id?: string | null
+          completed_at?: string | null
+          duration_ms?: number | null
+          error_message?: string | null
+          id?: number
+          module: string
+          municipality?: string | null
+          region?: string
+          results_count?: number
+          started_at?: string
+          status: string
+          warnings?: Json | null
+        }
+        Update: {
+          agency_id?: string | null
+          completed_at?: string | null
+          duration_ms?: number | null
+          error_message?: string | null
+          id?: number
+          module?: string
+          municipality?: string | null
+          region?: string
+          results_count?: number
+          started_at?: string
+          status?: string
+          warnings?: Json | null
+        }
+        Relationships: []
+      }
+      radar_signals: {
+        Row: {
+          agency_id: string | null
+          confidence: string
+          description: string | null
+          detected_at: string
+          evidence_url: string | null
+          expires_at: string | null
+          fingerprint: string
+          id: number
+          is_active: boolean
+          lat: number | null
+          lng: number | null
+          municipality: string | null
+          payload: Json | null
+          province: string | null
+          signal_type: string
+          source: string | null
+          title: string
+          urgency: string
+        }
+        Insert: {
+          agency_id?: string | null
+          confidence?: string
+          description?: string | null
+          detected_at?: string
+          evidence_url?: string | null
+          expires_at?: string | null
+          fingerprint: string
+          id?: number
+          is_active?: boolean
+          lat?: number | null
+          lng?: number | null
+          municipality?: string | null
+          payload?: Json | null
+          province?: string | null
+          signal_type: string
+          source?: string | null
+          title: string
+          urgency?: string
+        }
+        Update: {
+          agency_id?: string | null
+          confidence?: string
+          description?: string | null
+          detected_at?: string
+          evidence_url?: string | null
+          expires_at?: string | null
+          fingerprint?: string
+          id?: number
+          is_active?: boolean
+          lat?: number | null
+          lng?: number | null
+          municipality?: string | null
+          payload?: Json | null
+          province?: string | null
+          signal_type?: string
+          source?: string | null
+          title?: string
+          urgency?: string
+        }
+        Relationships: []
       }
     }
     Views: {

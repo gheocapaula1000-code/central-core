@@ -55,7 +55,7 @@ export async function buildOpportunitaOffMarket(
   // Lancia tutti gli scraper proprietari in parallelo con Perplexity
   const astePromise = scrapeAsteGiudiziarie(comune, coords);
   const ribassiPromise = scrapeRibassiPortali(comune, coords);
-  const successioniPromise = scrapeSuccessioniPotenziali(comune);
+  const successioniPromise = scrapeSuccessioniPotenziali(comune, provincia);
 
   const collectScrapers = async (): Promise<OpportunitaOffMarket[]> => {
     const [aste, ribassi, successioni] = await Promise.all([
