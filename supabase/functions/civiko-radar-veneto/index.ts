@@ -96,6 +96,7 @@ interface RadarResponse {
   configured: boolean;
   status: "ok" | "partial" | "unavailable";
   scope: { comune: string; provincia: string };
+  data_source_verification?: typeof DATA_SOURCE_VERIFICATION;
   segnaliDiZona: {
     sentiment: ZoneSignal;
     sicurezza: ZoneSignal;
