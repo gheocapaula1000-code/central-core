@@ -121,7 +121,7 @@ async function buildAreaScores(supa: SupabaseClient, warnings: string[]) {
     offset += PAGE;
   }
 
-  // Snaps con source split
+  // Snaps — POLICY PRODUZIONE: scarta demo/mock/seed alla fonte
   try {
     const { data, error } = await supa.from("listing_price_snapshots")
       .select("province,municipality,source").range(0, 4999);
@@ -129,12 +129,13 @@ async function buildAreaScores(supa: SupabaseClient, warnings: string[]) {
     for (const r of data ?? []) {
       const row = r as { province: string|null; municipality: string|null; source: string|null };
       const p = normProv(row.province); if (!p || !row.municipality) continue;
+      if (isDemo(row.source)) { const a = ensure(p, row.municipality); a.snapsDemo++; continue; }
       const a = ensure(p, row.municipality);
-      if (isDemo(row.source)) a.snapsDemo++; else a.snaps++;
+      a.snaps++;
     }
   } catch (e) { warnings.push(`snaps: ${e instanceof Error ? e.message : String(e)}`); }
 
-  // Motivated sellers con source/payload split
+  // Motivated sellers — scarta demo/mock/seed
   try {
     const { data, error } = await supa.from("motivated_sellers")
       .select("province,municipality,source,payload").eq("is_active", true).range(0, 4999);
@@ -142,13 +143,14 @@ async function buildAreaScores(supa: SupabaseClient, warnings: string[]) {
     for (const r of data ?? []) {
       const row = r as { province: string|null; municipality: string|null; source: string|null; payload: Record<string, unknown>|null };
       const p = normProv(row.province); if (!p || !row.municipality) continue;
-      const a = ensure(p, row.municipality);
       const pd = (row.payload ?? {}) as Record<string, unknown>;
-      if (isDemo(row.source, pd?.source, pd?.quality, pd?.data_basis)) a.motivatiDemo++; else a.motivati++;
+      if (isDemo(row.source, pd?.source, pd?.quality, pd?.data_basis)) { const a = ensure(p, row.municipality); a.motivatiDemo++; continue; }
+      const a = ensure(p, row.municipality);
+      a.motivati++;
     }
   } catch (e) { warnings.push(`motivated: ${e instanceof Error ? e.message : String(e)}`); }
 
-  // Market anomalies con payload split
+  // Market anomalies — scarta demo
   try {
     const { data, error } = await supa.from("market_anomalies")
       .select("province,municipality,payload").eq("is_active", true).range(0, 4999);
@@ -156,13 +158,14 @@ async function buildAreaScores(supa: SupabaseClient, warnings: string[]) {
     for (const r of data ?? []) {
       const row = r as { province: string|null; municipality: string|null; payload: Record<string, unknown>|null };
       const p = normProv(row.province); if (!p || !row.municipality) continue;
-      const a = ensure(p, row.municipality);
       const pd = (row.payload ?? {}) as Record<string, unknown>;
-      if (isDemo(pd?.source, pd?.quality, pd?.data_basis)) a.anomalieDemo++; else a.anomalie++;
+      if (isDemo(pd?.source, pd?.quality, pd?.data_basis)) { const a = ensure(p, row.municipality); a.anomalieDemo++; continue; }
+      const a = ensure(p, row.municipality);
+      a.anomalie++;
     }
   } catch (e) { warnings.push(`anomalies: ${e instanceof Error ? e.message : String(e)}`); }
 
-  // Aste (radar_signals con signal_type=asta)
+  // Aste — scarta demo
   try {
     const { data, error } = await supa.from("radar_signals")
       .select("province,municipality,signal_type,source,payload").eq("is_active", true).range(0, 4999);
@@ -173,8 +176,9 @@ async function buildAreaScores(supa: SupabaseClient, warnings: string[]) {
       const t = (row.signal_type ?? "").toLowerCase();
       if (!t.includes("asta")) continue;
       const pd = (row.payload ?? {}) as Record<string, unknown>;
+      if (isDemo(row.source, pd?.source, pd?.quality, pd?.data_basis)) { const a = ensure(p, row.municipality); a.asteDemo++; continue; }
       const a = ensure(p, row.municipality);
-      if (isDemo(row.source, pd?.source, pd?.quality, pd?.data_basis)) a.asteDemo++; else a.aste++;
+      a.aste++;
     }
   } catch (e) { warnings.push(`radar_signals: ${e instanceof Error ? e.message : String(e)}`); }
 
