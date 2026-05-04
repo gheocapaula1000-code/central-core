@@ -27,6 +27,7 @@ import { buildOpportunitaOffMarket } from "./radarOpportunita.ts";
 import { recomputeSuccessionHeatmap } from "./successioniHeatmap.ts";
 import { computePriceResistanceIndex } from "./priceResistance.ts";
 import { buildRadarClusterDossier, generateHook, buildHookContextForMarker, type DossierMarker } from "./clusterDossier.ts";
+import { scrapeRibassiPortali } from "./ribassiPortali.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // Certificazione ufficiale del dato (tutela legale dell'agenzia)
@@ -52,6 +53,18 @@ const ROUTES = [
   "POST /generate-hook",
   "POST /jobs/recompute-succession-heatmap",
   "POST /jobs/recompute-price-resistance",
+  "POST /jobs/activate-veneto",
+];
+
+// Capoluoghi Veneto per attivazione massiva monitoraggio portali
+const VENETO_CAPOLUOGHI: Array<{ comune: string; provincia: string }> = [
+  { comune: "Venezia", provincia: "VE" },
+  { comune: "Verona", provincia: "VR" },
+  { comune: "Padova", provincia: "PD" },
+  { comune: "Vicenza", provincia: "VI" },
+  { comune: "Treviso", provincia: "TV" },
+  { comune: "Rovigo", provincia: "RO" },
+  { comune: "Belluno", provincia: "BL" },
 ];
 
 interface RequestBody {
@@ -62,11 +75,27 @@ interface RequestBody {
   provincia?: string;
 }
 
+type FonteCertificata = "AdE" | "ISTAT" | "ARPAV" | "Portali" | "Tribunale" | "Regione" | "non_certificata";
+
+// Mappa stringhe descrittive → tag fonte_certificata blindato
+function certifySource(fonte: string | null | undefined): FonteCertificata {
+  const f = (fonte ?? "").toLowerCase();
+  if (!f) return "non_certificata";
+  if (f.includes("omi") || f.includes("agenzia delle entrate") || f.includes("catasto") || f.includes("ade")) return "AdE";
+  if (f.includes("istat") || f.includes("dcis_popres")) return "ISTAT";
+  if (f.includes("arpav") || f.includes("arpa veneto") || f.includes("centraline")) return "ARPAV";
+  if (f.includes("immobiliare") || f.includes("idealista") || f.includes("casa.it") || f.includes("portale") || f.includes("monitoraggio") || f.includes("anomalia") || f.includes("lead caldissimo")) return "Portali";
+  if (f.includes("tribunale") || f.includes("pvp") || f.includes("asta")) return "Tribunale";
+  if (f.includes("regione") || f.includes("comune") || f.includes("ente")) return "Regione";
+  return "non_certificata";
+}
+
 interface ZoneSignal {
   label: string;
   livello: "alto" | "medio" | "basso" | "stimato_alto" | "stimato_medio" | "stimato_basso" | "non_disponibile";
   nota: string;
   fonte: string;
+  fonte_certificata: FonteCertificata;
   derivazione?: "diretta" | "stima_da_dati_statistici";
 }
 
@@ -78,6 +107,7 @@ interface OffMarketOpportunity {
   scontoStimato?: string | null;
   localita?: string;
   fonte: string;
+  fonte_certificata: FonteCertificata;
   evidenceUrl?: string | null;
   publishedAt?: string | null;
   categoria?: "residenziale" | "commerciale" | "terreno" | "luxury" | "altro";
@@ -114,7 +144,7 @@ function withIdentity(res: Response, route: string): Response {
 }
 
 function emptySignal(label: string): ZoneSignal {
-  return { label, livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare" };
+  return { label, livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" };
 }
 
 function defaultRadar(comune: string, provincia: string): RadarResponse {
@@ -245,11 +275,14 @@ async function buildSentimentSignals(comune: string): Promise<RadarResponse["seg
   ]);
 
   const fonte = (n: number) => n > 0 ? "Rassegna pubblica" : "Fonte da Collegare";
+  const mk = (label: string, r: { livello: ZoneSignal["livello"]; nota: string }, n: number, certificata: FonteCertificata): ZoneSignal => ({
+    label, livello: r.livello, nota: r.nota, fonte: fonte(n), fonte_certificata: n > 0 ? certificata : "non_certificata",
+  });
   return {
-    sentiment: { label: "Sentiment di Zona", livello: sent.livello, nota: sent.nota, fonte: fonte(s1.length) },
-    sicurezza: { label: "Sicurezza Percepita", livello: sec.livello, nota: sec.nota, fonte: fonte(s2.length) },
-    rumore: { label: "Rumore Ambientale", livello: noise.livello, nota: noise.nota, fonte: fonte(s3.length) },
-    qualitaAria: { label: "Qualità dell'Aria", livello: air.livello, nota: air.nota, fonte: fonte(s4.length) },
+    sentiment: mk("Sentiment di Zona", sent, s1.length, "non_certificata"),
+    sicurezza: mk("Sicurezza Percepita", sec, s2.length, "non_certificata"),
+    rumore: mk("Rumore Ambientale", noise, s3.length, "non_certificata"),
+    qualitaAria: { label: "Qualità dell'Aria", livello: air.livello, nota: air.nota, fonte: fonte(s4.length), fonte_certificata: s4.length > 0 ? "ARPAV" : "non_certificata" },
   };
 }
 
@@ -264,6 +297,7 @@ async function buildOffMarket(comune: string, provincia: string, coords: { lat: 
       scontoStimato: p.scontoStimato,
       localita: p.localita,
       fonte: p.fonte,
+      fonte_certificata: certifySource(p.fonte),
       evidenceUrl: p.evidenceUrl,
       publishedAt: null,
       categoria: p.categoria,
@@ -279,11 +313,13 @@ async function buildOffMarket(comune: string, provincia: string, coords: { lat: 
   const out: OffMarketOpportunity[] = [];
   for (const block of results) {
     for (const it of block.items) {
+      const f = block.tipo === "asta" ? "Tribunale (PVP)" : block.tipo === "ribasso" ? "Monitoraggio Portali" : "Rassegna pubblica";
       out.push({
         tipo: block.tipo,
         titolo: it.title.slice(0, 200) || "Opportunità pubblica",
         descrizione: (it.description || "").slice(0, 320),
-        fonte: "Rassegna pubblica",
+        fonte: f,
+        fonte_certificata: certifySource(f),
         evidenceUrl: it.url || null,
         publishedAt: null,
       });
@@ -361,6 +397,7 @@ function estimateSentimentFromIstat(comune: string, istat: IstatComuneRow | null
       livello: "non_disponibile",
       nota: "Riscontro non disponibile in questo momento.",
       fonte: "Fonte da Collegare",
+      fonte_certificata: "non_certificata",
     };
   }
   const pop = istat.popolazione;
@@ -375,13 +412,14 @@ function estimateSentimentFromIstat(comune: string, istat: IstatComuneRow | null
     livello,
     nota,
     fonte: "ISTAT (DCIS_POPRES1)",
+    fonte_certificata: "ISTAT",
     derivazione: "stima_da_dati_statistici",
   };
 }
 
 function estimateSicurezzaFromIstat(istat: IstatComuneRow | null): ZoneSignal {
   if (!istat || !istat.popolazione) {
-    return { label: "Sicurezza Percepita", livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare" };
+    return { label: "Sicurezza Percepita", livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" };
   }
   // Comuni piccoli e con anzianità alta → percezione sicurezza generalmente più alta
   const pop = istat.popolazione;
@@ -400,7 +438,7 @@ function estimateSicurezzaFromIstat(istat: IstatComuneRow | null): ZoneSignal {
 
 function estimateRumoreFromOmi(istat: IstatComuneRow | null, omi: { commercialZones: number; totalZones: number } | null): ZoneSignal {
   if (!omi || omi.totalZones === 0) {
-    return { label: "Rumore Ambientale", livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare" };
+    return { label: "Rumore Ambientale", livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" };
   }
   const ratio = omi.commercialZones / Math.max(1, omi.totalZones);
   const pop = istat?.popolazione ?? 0;
@@ -412,13 +450,14 @@ function estimateRumoreFromOmi(istat: IstatComuneRow | null, omi: { commercialZo
     livello,
     nota: `Stima derivata: ${omi.commercialZones} zone OMI a destinazione commerciale/uffici su ${omi.totalZones} totali (${Math.round(ratio * 100)}%). Maggiore presenza commerciale = maggiore esposizione a rumore diurno/notturno.`,
     fonte: "Agenzia delle Entrate – OMI",
+    fonte_certificata: "AdE",
     derivazione: "stima_da_dati_statistici",
   };
 }
 
 function estimateAriaFromIstat(istat: IstatComuneRow | null): ZoneSignal {
   if (!istat || !istat.popolazione) {
-    return { label: "Qualità dell'Aria", livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare" };
+    return { label: "Qualità dell'Aria", livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" };
   }
   const pop = istat.popolazione;
   let livello: ZoneSignal["livello"] = "stimato_medio";
@@ -486,6 +525,97 @@ async function triggerIstatPopulation(): Promise<void> {
   }
 }
 
+// ── Activate Veneto: ISTAT massivo + monitoraggio portali 7 capoluoghi ──
+//
+// Esegue in modo controllato:
+//   1) Fetch ISTAT SDMX (DCIS_POPRES1) per popolare istat_comuni del Veneto
+//   2) Scraping portali (Immobiliare/Idealista/Casa.it) sui 7 capoluoghi
+//      → alimenta listing_price_snapshots, motivated_sellers (Immobili Bruciati),
+//        market_anomalies, e identifica ribassi >10%.
+//
+// Output: report sintetico con counts per tag fonte_certificata.
+async function activateVeneto(): Promise<{
+  istat: { triggered: boolean; status: string };
+  portali: Array<{ comune: string; provincia: string; opportunita: number; bruciati: number; ribassi: number }>;
+  totals: { opportunita: number; bruciati: number; ribassi: number };
+  fonte_certificata_summary: Record<string, number>;
+  warnings: string[];
+}> {
+  const warnings: string[] = [];
+
+  // 1) ISTAT trigger (non bloccante per il response, ma attendiamo lo start)
+  let istatStatus = "skipped";
+  try {
+    const url = Deno.env.get("SUPABASE_URL") ?? "";
+    const secret = Deno.env.get("AI_CORE_SECRET") ?? "";
+    if (url && secret) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8_000);
+      try {
+        const res = await fetch(`${url}/functions/v1/istat-sdmx-fetch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-ai-core-secret": secret, "x-source-app": "civiko-radar-veneto" },
+          body: JSON.stringify({ anno: 2025, clear_first: false }),
+          signal: ctrl.signal,
+        });
+        istatStatus = res.ok ? "triggered" : `http_${res.status}`;
+      } finally {
+        clearTimeout(timer);
+      }
+    } else {
+      warnings.push("AI_CORE_SECRET o SUPABASE_URL mancanti: ISTAT non avviato.");
+    }
+  } catch (e) {
+    warnings.push(`ISTAT trigger error: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // 2) Scraping massivo portali — sequenziale per non saturare Firecrawl
+  const portaliResults: Array<{ comune: string; provincia: string; opportunita: number; bruciati: number; ribassi: number }> = [];
+  const supa = getServiceClient();
+
+  for (const cap of VENETO_CAPOLUOGHI) {
+    try {
+      const opps = await scrapeRibassiPortali(cap.comune, null, cap.provincia);
+      let bruciati = 0;
+      let ribassi = 0;
+      if (supa) {
+        const { count: bCount } = await supa
+          .from("motivated_sellers")
+          .select("id", { count: "exact", head: true })
+          .eq("province", cap.provincia)
+          .eq("is_active", true)
+          .gte("days_online", 120);
+        bruciati = bCount ?? 0;
+      }
+      for (const o of opps) {
+        if ((o.scontoStimato ?? "").includes("-") && /\d/.test(o.scontoStimato ?? "")) ribassi++;
+      }
+      portaliResults.push({ comune: cap.comune, provincia: cap.provincia, opportunita: opps.length, bruciati, ribassi });
+    } catch (e) {
+      warnings.push(`${cap.comune}: ${e instanceof Error ? e.message : String(e)}`);
+      portaliResults.push({ comune: cap.comune, provincia: cap.provincia, opportunita: 0, bruciati: 0, ribassi: 0 });
+    }
+  }
+
+  const totals = portaliResults.reduce(
+    (acc, r) => ({ opportunita: acc.opportunita + r.opportunita, bruciati: acc.bruciati + r.bruciati, ribassi: acc.ribassi + r.ribassi }),
+    { opportunita: 0, bruciati: 0, ribassi: 0 },
+  );
+
+  return {
+    istat: { triggered: istatStatus === "triggered", status: istatStatus },
+    portali: portaliResults,
+    totals,
+    fonte_certificata_summary: {
+      "ISTAT": istatStatus === "triggered" ? 1 : 0,
+      "Portali": totals.opportunita,
+      "AdE": 0,
+      "Tribunale": 0,
+    },
+    warnings,
+  };
+}
+
 // ── Orchestrator ─────────────────────────────────────────────
 
 async function orchestrate(body: RequestBody): Promise<RadarResponse> {
@@ -538,6 +668,7 @@ async function orchestrate(body: RequestBody): Promise<RadarResponse> {
       type: o.tipo,
       detail: o.descrizione,
       sourceAnchor: o.fonte,
+      fonte_certificata: o.fonte_certificata,
       evidenceUrl: o.evidenceUrl,
       prezzoIndicativo: o.prezzoIndicativo,
       scontoStimato: o.scontoStimato,
@@ -593,6 +724,25 @@ Deno.serve(async (req) => {
     if (req.method !== "POST") return withIdentity(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), "error");
 
     // Job endpoints (cron-driven, protetti da DIAGNOSTIC_SECRET)
+    if (pathname.endsWith("/jobs/activate-veneto")) {
+      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
+      const provided = req.headers.get("x-job-secret") ?? "";
+      if (!expected || provided !== expected) {
+        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
+      }
+      try {
+        const r = await activateVeneto();
+        return withIdentity(json(req, 200, {
+          job: "activate-veneto",
+          data_source_verification: DATA_SOURCE_VERIFICATION,
+          ...r,
+        }, debugId), "job-activate-veneto");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] activate-veneto error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Activate Veneto failed", debugId), "job-error");
+      }
+    }
+
     if (pathname.endsWith("/jobs/recompute-succession-heatmap") || pathname.endsWith("/jobs/recompute-price-resistance")) {
       const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
       const provided = req.headers.get("x-job-secret") ?? "";
@@ -692,10 +842,10 @@ Deno.serve(async (req) => {
       scope: { comune: "—", provincia: "—" },
       data_source_verification: DATA_SOURCE_VERIFICATION,
       segnaliDiZona: {
-        sentiment: { label: "Sentiment di Zona", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare" },
-        sicurezza: { label: "Sicurezza Percepita", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare" },
-        rumore: { label: "Rumore Ambientale", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare" },
-        qualitaAria: { label: "Qualità dell'Aria", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare" },
+        sentiment: { label: "Sentiment di Zona", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" },
+        sicurezza: { label: "Sicurezza Percepita", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" },
+        rumore: { label: "Rumore Ambientale", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" },
+        qualitaAria: { label: "Qualità dell'Aria", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" },
       },
       opportunitaOffMarket: [], bandiRegionali: [],
       warnings: ["Errore interno temporaneo durante l'elaborazione."],
