@@ -82,8 +82,11 @@ export interface EngagementHook {
   body: string;                // corpo del gancio (≤320 char)
   perditaImmaginePct: number | null;  // 0..100
   visibilityIndex: number | null;     // 0..100 (100 = max visibilità)
+  visibilityBreakdown?: VisibilityBreakdown | null; // dettaglio formula
+  capitaleARischioEur?: number | null; // Capitale a Rischio in € vs OMI max
+  capitaleARischio?: CapitaleARischio | null;
   fonti: Array<"OMI" | "ISTAT" | "Portali" | "PVP_Ministero_Giustizia" | "Necrologi" | "snapshot_storico">;
-  evidenze: string[];          // dati factual a supporto
+  evidenze: string[];          // dati factual a supporto (ognuna include la fonte)
   whatsappMessage: string;     // versione formattata WhatsApp pronta all'invio
 }
 
