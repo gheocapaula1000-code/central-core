@@ -720,26 +720,14 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   let dataQualityOverall: AgentRadarResponse["summary"]["dataQuality"];
 
   if (datasetStatus === "empty") {
-    if (allowDemo) {
-      finalZones = buildDemoZones(filterProv).slice(0, 3);
-      dataQualityOverall = "demo";
-      warnings.push("Dataset vuoto: zone restituite sono DEMO marcate quality='demo'.");
-    } else {
-      finalZones = [];
-      dataQualityOverall = "mancante";
-    }
+    finalZones = [];
+    dataQualityOverall = "mancante";
+  } else if (realCommercialRows === 0 && omiAvailable) {
+    dataQualityOverall = "parziale";
+  } else if (datasetStatus === "complete") {
+    dataQualityOverall = "reale";
   } else {
-    // Calcolo summary.dataQuality basato su rapporto reale/demo dei segnali operativi
-    if (allowDemo && demoCommercialRows > realCommercialRows) {
-      dataQualityOverall = "demo";
-    } else if (realCommercialRows === 0 && omiAvailable) {
-      // solo OMI reale, niente segnali commerciali → parziale
-      dataQualityOverall = "parziale";
-    } else if (datasetStatus === "complete") {
-      dataQualityOverall = "reale";
-    } else {
-      dataQualityOverall = "parziale";
-    }
+    dataQualityOverall = "parziale";
   }
 
   const summary = {
