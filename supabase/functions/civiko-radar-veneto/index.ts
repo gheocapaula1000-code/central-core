@@ -33,6 +33,7 @@ import { deriveAllSignals } from "./deriveSignals.ts";
 import { buildVenetoDataEngine } from "./dataEngine.ts";
 import { importVenetoAuctions } from "./auctionImport.ts";
 import { runFirecrawlDeepVeneto } from "./firecrawl/crawlRunner.ts";
+import { runMicrozoneOpportunitySignals } from "./firecrawl/microzoneOpportunityRunner.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // Certificazione ufficiale del dato (tutela legale dell'agenzia)
