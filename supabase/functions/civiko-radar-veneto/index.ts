@@ -35,6 +35,7 @@ const ROUTES = [
   "GET  /manifest",
   "POST /civiko/radar-veneto",
   "POST /cluster-dossier",
+  "POST /generate-hook",
   "POST /jobs/recompute-succession-heatmap",
   "POST /jobs/recompute-price-resistance",
 ];
