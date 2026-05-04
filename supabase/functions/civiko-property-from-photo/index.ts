@@ -28,6 +28,7 @@ import {
   runInternalSottraContext, type SottraContext, type SottraSignalHint,
 } from "./sottraInternal.ts";
 import { buildZonaIntelligence } from "./zonaIntelligence.ts";
+import { buildVenetoEnrichment } from "./venetoEnrichment.ts";
 
 const FUNCTION_NAME = "civiko-property-from-photo";
 const EXPECTED_BASE_PATH = "/functions/v1/civiko-property-from-photo";
@@ -771,23 +772,84 @@ async function orchestrate(body: RequestBody, debugId: string) {
   const marker = `pin-l-star+d4af37(${lng},${lat})`;
   const mappaCaloreUrl = `https://api.mapbox.com/styles/v1/mapbox/dark-v11/static/${marker}/${lng},${lat},${zoom},0/${width}x${height}?access_token=${mapboxToken}`;
 
+  // Veneto enrichment (additive — non rompe il contratto legacy).
+  const venetoBundle = await buildVenetoEnrichment({
+    coords: ctx.coords,
+    manualAddress: ctx.manualAddress,
+    hasUsablePhoto: ctx.hasUsablePhoto,
+    facts: {
+      tipologia: safeStr(facts.tipologia),
+      metratura: safeStr(facts.metratura),
+      locali: safeStr(facts.locali),
+      zona: safeStr(facts.zona),
+      titoloInterno: safeStr(facts.titoloInterno),
+      prezzoRichiesto: safeStr(facts.prezzoRichiesto),
+    },
+  }).catch(() => null);
+
+  // Inject extras into immobileReale and pianoEsclusiva senza rimuovere campi.
+  const immobileOut: Record<string, unknown> = { ...immobile };
+  if (venetoBundle) {
+    immobileOut.tipologiaPresunta = venetoBundle.immobileExtras.tipologiaPresunta;
+    immobileOut.statoApparente = venetoBundle.immobileExtras.statoApparente;
+    immobileOut.puntiForti = venetoBundle.immobileExtras.puntiForti;
+    immobileOut.criticitaVisibili = venetoBundle.immobileExtras.criticitaVisibili;
+    immobileOut.provincia = venetoBundle.immobileExtras.provincia;
+    immobileOut.comune = venetoBundle.immobileExtras.comune;
+  } else {
+    immobileOut.tipologiaPresunta = "sconosciuto";
+    immobileOut.statoApparente = "sconosciuto";
+    immobileOut.puntiForti = [];
+    immobileOut.criticitaVisibili = [];
+    immobileOut.provincia = null;
+    immobileOut.comune = null;
+  }
+
+  const pianoEnriched: Record<string, unknown> = { ...pianoEsclusiva };
+  if (venetoBundle) {
+    pianoEnriched.argomentoEsclusiva = venetoBundle.esclusivaExtras.argomento;
+    pianoEnriched.motivi = venetoBundle.esclusivaExtras.motivi;
+    pianoEnriched.obiezioni = venetoBundle.esclusivaExtras.obiezioni;
+  } else {
+    pianoEnriched.motivi = pianoEnriched.motivi ?? [];
+    pianoEnriched.obiezioni = pianoEnriched.obiezioni ?? [];
+  }
+
   const payload = {
     configured,
     ...(message ? { message } : {}),
     warnings,
     updatedAt: new Date().toISOString(),
     inputQuality: ctx.inputQuality,
-    immobileReale: immobile,
+    immobileReale: immobileOut,
     fontiDaCollegare,
     poiHints: sottraCtx.poiHints,
     zonaInMovimento,
-    pianoEsclusiva,
+    pianoEsclusiva: pianoEnriched,
     presentazioneProprietario,
     kitMarketing: { available: false, items: [] as unknown[] },
     intelligenceZona,
     vendibilita,
     vendutoRecente,
     mappaCaloreUrl,
+    venetoScope: venetoBundle?.venetoScope ?? {
+      isInVeneto: false, comune: null, provincia: null,
+      confidence: 0, reason: "Enrichment non disponibile.",
+    },
+    omiZona: venetoBundle?.omiZona ?? {
+      available: false, comune: null, provincia: null, microzona: null, fascia: null,
+      valoreMin: null, valoreMax: null, valoreMedio: null,
+      sourceAnchor: null, quality: "mancante",
+    },
+    competizioneAttiva: venetoBundle?.competizioneAttiva ?? {
+      available: false, annunciAttiviStimati: null, ribassiUltimoMese: null,
+      asteVicine: null, pressioneCompetitiva: "sconosciuta",
+      note: "Enrichment non disponibile.",
+    },
+    dataQuality: venetoBundle?.dataQuality ?? {
+      real: [], estimated: [], missing: ["venetoScope", "omiZona", "competizioneAttiva"],
+      warnings: ["Enrichment Veneto non eseguito."],
+    },
   };
 
   return sanitizeOutgoing(payload);
