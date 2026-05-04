@@ -108,9 +108,42 @@ export interface AgentRadarResponse {
   dataQuality: {
     real: string[];
     partial: string[];
+    demo: string[];
     missing: string[];
     warnings: string[];
   };
+}
+
+// ── Quality classification (centralizzata) ────────────────────────
+const DEMO_MARKERS = ["seed_demo", "demo", "mock", "fixture", "sample"];
+export function isDemoSource(...vals: Array<unknown>): boolean {
+  for (const v of vals) {
+    if (v == null) continue;
+    const s = String(v).toLowerCase();
+    if (DEMO_MARKERS.some((m) => s.includes(m))) return true;
+  }
+  return false;
+}
+
+export type QualityTag = "reale" | "parziale" | "demo" | "stimato" | "mancante";
+
+export function classifyDataQuality(input: {
+  source?: unknown;
+  sourceBasis?: unknown;
+  payloadQuality?: unknown;
+  payloadSource?: unknown;
+  derivedFromDemo?: boolean;
+  hasReal?: boolean;
+  isOmiOnly?: boolean;
+}): QualityTag {
+  if (isDemoSource(input.source, input.sourceBasis, input.payloadSource) || input.derivedFromDemo) return "demo";
+  const pq = typeof input.payloadQuality === "string" ? input.payloadQuality.toLowerCase() : "";
+  if (pq === "demo") return "demo";
+  if (pq === "reale" && input.hasReal) return "reale";
+  if (pq === "parziale") return "parziale";
+  if (input.isOmiOnly) return "parziale"; // OMI da solo non basta a dichiarare opportunità reale
+  if (input.hasReal) return "reale";
+  return "parziale";
 }
 
 function getServiceClient(): SupabaseClient | null {
