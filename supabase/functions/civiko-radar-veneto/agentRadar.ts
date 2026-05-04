@@ -764,19 +764,45 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   let territorialSignalsCount = 0;
   let publicAssetSignalsCount = 0;
   let privacyRejectedCount = 0;
+  let urgentOpportunities = 0;
+  let freshListings1h = 0;
+  let freshListings24h = 0;
+  let staleListings = 0;
+  let priceDropsAdv = 0;
+  let underpricedCount = 0;
+  let overpricedStale = 0;
+  let legalSignals = 0;
   try {
-    const [{ count: ipc }, { count: etzc }, { count: tsc }, { count: pac }, { count: prc }] = await Promise.all([
+    const [{ count: ipc }, { count: etzc }, { count: tsc }, { count: pac }, { count: prc },
+      { count: uoc }, { count: f1h }, { count: f24h }, { count: stale }, { count: drops },
+      { count: under }, { count: overS }, { count: legal }] = await Promise.all([
       supa.from("inheritance_pressure_signals").select("id", { count: "exact", head: true }).eq("is_active", true),
       supa.from("estate_turnover_zones").select("id", { count: "exact", head: true }).eq("is_active", true),
       supa.from("territorial_signals").select("id", { count: "exact", head: true }).eq("is_active", true),
       supa.from("source_documents").select("id", { count: "exact", head: true }).eq("classification", "public_asset"),
       supa.from("inheritance_safe_source_documents").select("id", { count: "exact", head: true }).eq("contains_personal_data", true),
+      supa.from("urgent_opportunity_signals").select("id", { count: "exact", head: true }).eq("is_active", true),
+      supa.from("listing_velocity_signals").select("id", { count: "exact", head: true }).eq("velocity_type", "new_under_1h").eq("is_active", true),
+      supa.from("listing_velocity_signals").select("id", { count: "exact", head: true }).eq("velocity_type", "new_under_24h").eq("is_active", true),
+      supa.from("listing_velocity_signals").select("id", { count: "exact", head: true }).in("velocity_type", ["stale_90d", "stale_120d"]).eq("is_active", true),
+      supa.from("listing_velocity_signals").select("id", { count: "exact", head: true }).eq("velocity_type", "price_drop").eq("is_active", true),
+      supa.from("pricing_error_signals").select("id", { count: "exact", head: true }).in("pricing_error_type", ["underpriced", "under_omi_fast_action"]).eq("is_active", true),
+      supa.from("pricing_error_signals").select("id", { count: "exact", head: true }).eq("pricing_error_type", "over_omi_stale").eq("is_active", true),
+      supa.from("legal_property_signals").select("id", { count: "exact", head: true }).eq("is_active", true),
     ]);
     inheritancePressureZones = ipc ?? 0;
     estateTurnoverZones = etzc ?? 0;
     territorialSignalsCount = tsc ?? 0;
     publicAssetSignalsCount = pac ?? 0;
     privacyRejectedCount = prc ?? 0;
+    urgentOpportunities = uoc ?? 0;
+    freshListings1h = f1h ?? 0;
+    freshListings24h = f24h ?? 0;
+    staleListings = stale ?? 0;
+    priceDropsAdv = drops ?? 0;
+    underpricedCount = under ?? 0;
+    overpricedStale = overS ?? 0;
+    legalSignals = legal ?? 0;
   } catch (_e) { /* additive, mai bloccante */ }
 
   const summaryExt = {
@@ -786,6 +812,14 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     territorialSignals: territorialSignalsCount,
     auctionSignals: summary.auctions,
     publicAssetSignals: publicAssetSignalsCount,
+    urgentOpportunities,
+    freshListings1h,
+    freshListings24h,
+    staleListings,
+    priceDropsAdvanced: priceDropsAdv,
+    underpriced: underpricedCount,
+    overpricedStale,
+    legalSignals,
   };
 
   // POLICY PRODUZIONE: nessun record demo restituito al client. Mantieni demo:[] per retro-compat.

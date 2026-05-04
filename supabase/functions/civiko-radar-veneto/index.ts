@@ -34,6 +34,7 @@ import { buildVenetoDataEngine } from "./dataEngine.ts";
 import { importVenetoAuctions } from "./auctionImport.ts";
 import { runFirecrawlDeepVeneto } from "./firecrawl/crawlRunner.ts";
 import { runMicrozoneOpportunitySignals } from "./firecrawl/microzoneOpportunityRunner.ts";
+import { runAdvancedVenetoOpportunities } from "./advancedOpportunity.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // Certificazione ufficiale del dato (tutela legale dell'agenzia)
@@ -65,6 +66,7 @@ const ROUTES = [
   "POST /jobs/import-veneto-auctions",
   "POST /jobs/firecrawl-deep-veneto",
   "POST /jobs/firecrawl-microzone-opportunity-signals",
+  "POST /jobs/build-advanced-veneto-opportunities",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
@@ -961,6 +963,23 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] microzone-opp error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Microzone opportunity signals failed", debugId), "job-error");
+      }
+    }
+
+    // Advanced Opportunity Engine — orchestratore segnali avanzati
+    if (pathname.endsWith("/jobs/build-advanced-veneto-opportunities")) {
+      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
+      const provided = req.headers.get("x-job-secret") ?? "";
+      if (!expected || provided !== expected) {
+        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
+      }
+      try {
+        const body = await req.json().catch(() => ({}));
+        const r = await runAdvancedVenetoOpportunities(body);
+        return withIdentity(json(req, r.ok ? 200 : 207, { job: "build-advanced-veneto-opportunities", ...r }, debugId), "job-advanced-opp");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] advanced-opp error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Advanced opportunity engine failed", debugId), "job-error");
       }
     }
     if (pathname.endsWith("/jobs/recompute-succession-heatmap") || pathname.endsWith("/jobs/recompute-price-resistance")) {
