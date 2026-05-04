@@ -1428,6 +1428,7 @@ export async function buildRadarClusterDossier(
       generatedAt,
       reportHeader,
       scomodi: buildScomodiBlock([], []),
+      immobiliBruciati: buildBurnedCompetitorsBlock([]),
       scope: { province: scope.province ?? undefined, municipality: scope.municipality ?? undefined },
       totals: { markers_rossi: 0, markers_viola: 0, markers_lead_caldo: 0 },
       markers: [],
@@ -1439,11 +1440,12 @@ export async function buildRadarClusterDossier(
   const province = scope.province?.trim() ? scope.province.trim() : null;
   const municipality = scope.municipality?.trim() ? scope.municipality.trim() : null;
 
-  const [bruciati, successioni, potere, scomodiBars] = await Promise.all([
+  const [bruciati, successioni, potere, scomodiBars, burnedBars] = await Promise.all([
     fetchMarkersBruciati(supabase, province, municipality).catch((e) => { warnings.push(`bruciati: ${e instanceof Error ? e.message : String(e)}`); return [] as DossierMarker[]; }),
     fetchMarkersSuccessioniDense(supabase, province, municipality).catch((e) => { warnings.push(`successioni: ${e instanceof Error ? e.message : String(e)}`); return [] as DossierMarker[]; }),
     fetchPotereContrattuale(supabase, province).catch((e) => { warnings.push(`potere: ${e instanceof Error ? e.message : String(e)}`); return [] as ProvinceContractualPower[]; }),
     fetchScomodiBars(supabase, { province, municipality }).catch((e) => { warnings.push(`scomodi_provincia: ${e instanceof Error ? e.message : String(e)}`); return [] as GapOmiChartBar[]; }),
+    fetchBurnedCompetitorsBars(supabase, { province, municipality }).catch((e) => { warnings.push(`immobili_bruciati: ${e instanceof Error ? e.message : String(e)}`); return [] as BurnedCompetitorBar[]; }),
   ]);
 
   const markers = [...bruciati, ...successioni];
@@ -1458,6 +1460,7 @@ export async function buildRadarClusterDossier(
   // Costruisce le bars per-marker DOPO l'enrichment (così include capitaleARischio).
   const markerBars = buildMarkerBars(markers);
   const scomodi = buildScomodiBlock(scomodiBars, markerBars);
+  const immobiliBruciati = buildBurnedCompetitorsBlock(burnedBars);
 
   const totals = {
     markers_rossi: markers.filter((m) => m.color === "rosso").length,
@@ -1471,12 +1474,16 @@ export async function buildRadarClusterDossier(
   if (scomodi.bars.length === 0) {
     warnings.push("Grafico gap OMI vuoto: il job price-resistance-index non ha ancora prodotto dati per lo scope richiesto.");
   }
+  if (immobiliBruciati.bars.length === 0) {
+    warnings.push("Grafico Immobili Bruciati vuoto: nessun competitor 'bruciato' nei dati attivi per lo scope richiesto.");
+  }
 
   return {
     region: "veneto",
     generatedAt,
     reportHeader,
     scomodi,
+    immobiliBruciati,
     scope: { province: province ?? undefined, municipality: municipality ?? undefined },
     totals,
     markers,
