@@ -28,6 +28,7 @@ import {
   runInternalSottraContext, type SottraContext, type SottraSignalHint,
 } from "./sottraInternal.ts";
 import { buildZonaIntelligence } from "./zonaIntelligence.ts";
+import { buildVenetoEnrichment } from "./venetoEnrichment.ts";
 
 const FUNCTION_NAME = "civiko-property-from-photo";
 const EXPECTED_BASE_PATH = "/functions/v1/civiko-property-from-photo";
