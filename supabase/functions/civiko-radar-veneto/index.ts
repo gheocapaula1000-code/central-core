@@ -667,6 +667,7 @@ async function activateVeneto(): Promise<{
   istat: { triggered: boolean; status: string };
   portali: Array<{ comune: string; provincia: string; opportunita: number; bruciati: number; ribassi: number }>;
   totals: { opportunita: number; bruciati: number; ribassi: number };
+  derive: Awaited<ReturnType<typeof deriveAllSignals>>;
   fonte_certificata_summary: Record<string, number>;
   warnings: string[];
 }> {
