@@ -440,50 +440,122 @@ export type Database = {
         }
         Relationships: []
       }
+      listing_identity: {
+        Row: {
+          agencies_seen: string[]
+          first_seen_at: string
+          id: number
+          identity_hash: string
+          last_seen_at: string
+          lat_rounded: number | null
+          listing_ids_seen: string[]
+          lng_rounded: number | null
+          municipality: string | null
+          observation_count: number
+          property_type: string | null
+          province: string | null
+          rooms: number | null
+          sources_seen: string[]
+          surface_sqm: number | null
+        }
+        Insert: {
+          agencies_seen?: string[]
+          first_seen_at?: string
+          id?: number
+          identity_hash: string
+          last_seen_at?: string
+          lat_rounded?: number | null
+          listing_ids_seen?: string[]
+          lng_rounded?: number | null
+          municipality?: string | null
+          observation_count?: number
+          property_type?: string | null
+          province?: string | null
+          rooms?: number | null
+          sources_seen?: string[]
+          surface_sqm?: number | null
+        }
+        Update: {
+          agencies_seen?: string[]
+          first_seen_at?: string
+          id?: number
+          identity_hash?: string
+          last_seen_at?: string
+          lat_rounded?: number | null
+          listing_ids_seen?: string[]
+          lng_rounded?: number | null
+          municipality?: string | null
+          observation_count?: number
+          property_type?: string | null
+          province?: string | null
+          rooms?: number | null
+          sources_seen?: string[]
+          surface_sqm?: number | null
+        }
+        Relationships: []
+      }
       listing_price_snapshots: {
         Row: {
+          agency_name: string | null
           captured_at: string
           created_at: string
+          first_seen_at: string | null
           id: number
+          identity_hash: string | null
           lat: number | null
           listing_id: string
           lng: number | null
           municipality: string | null
           price_eur: number | null
+          property_type: string | null
           province: string | null
           raw_address: string | null
           raw_title: string | null
+          rooms: number | null
           source: string
+          surface_sqm: number | null
           url: string
         }
         Insert: {
+          agency_name?: string | null
           captured_at?: string
           created_at?: string
+          first_seen_at?: string | null
           id?: number
+          identity_hash?: string | null
           lat?: number | null
           listing_id: string
           lng?: number | null
           municipality?: string | null
           price_eur?: number | null
+          property_type?: string | null
           province?: string | null
           raw_address?: string | null
           raw_title?: string | null
+          rooms?: number | null
           source: string
+          surface_sqm?: number | null
           url: string
         }
         Update: {
+          agency_name?: string | null
           captured_at?: string
           created_at?: string
+          first_seen_at?: string | null
           id?: number
+          identity_hash?: string | null
           lat?: number | null
           listing_id?: string
           lng?: number | null
           municipality?: string | null
           price_eur?: number | null
+          property_type?: string | null
           province?: string | null
           raw_address?: string | null
           raw_title?: string | null
+          rooms?: number | null
           source?: string
+          surface_sqm?: number | null
           url?: string
         }
         Relationships: []
@@ -625,6 +697,45 @@ export type Database = {
         }
         Relationships: []
       }
+      market_anomalies: {
+        Row: {
+          anomaly_type: string
+          confidence: string
+          detected_at: string
+          expires_at: string | null
+          id: number
+          identity_hash: string
+          is_active: boolean
+          municipality: string | null
+          payload: Json
+          province: string | null
+        }
+        Insert: {
+          anomaly_type: string
+          confidence?: string
+          detected_at?: string
+          expires_at?: string | null
+          id?: number
+          identity_hash: string
+          is_active?: boolean
+          municipality?: string | null
+          payload?: Json
+          province?: string | null
+        }
+        Update: {
+          anomaly_type?: string
+          confidence?: string
+          detected_at?: string
+          expires_at?: string | null
+          id?: number
+          identity_hash?: string
+          is_active?: boolean
+          municipality?: string | null
+          payload?: Json
+          province?: string | null
+        }
+        Relationships: []
+      }
       mim_schools: {
         Row: {
           cap: string | null
@@ -676,8 +787,72 @@ export type Database = {
         }
         Relationships: []
       }
+      motivated_sellers: {
+        Row: {
+          days_online: number
+          detected_at: string
+          drops_count: number
+          fatigue_label: string
+          fatigue_score: number
+          first_seen_at: string
+          id: number
+          identity_hash: string
+          initial_price_eur: number | null
+          is_active: boolean
+          last_price_eur: number | null
+          listing_id: string | null
+          municipality: string | null
+          payload: Json
+          province: string | null
+          source: string | null
+          total_drop_pct: number | null
+          url: string | null
+        }
+        Insert: {
+          days_online?: number
+          detected_at?: string
+          drops_count?: number
+          fatigue_label: string
+          fatigue_score?: number
+          first_seen_at: string
+          id?: number
+          identity_hash: string
+          initial_price_eur?: number | null
+          is_active?: boolean
+          last_price_eur?: number | null
+          listing_id?: string | null
+          municipality?: string | null
+          payload?: Json
+          province?: string | null
+          source?: string | null
+          total_drop_pct?: number | null
+          url?: string | null
+        }
+        Update: {
+          days_online?: number
+          detected_at?: string
+          drops_count?: number
+          fatigue_label?: string
+          fatigue_score?: number
+          first_seen_at?: string
+          id?: number
+          identity_hash?: string
+          initial_price_eur?: number | null
+          is_active?: boolean
+          last_price_eur?: number | null
+          listing_id?: string | null
+          municipality?: string | null
+          payload?: Json
+          province?: string | null
+          source?: string | null
+          total_drop_pct?: number | null
+          url?: string | null
+        }
+        Relationships: []
+      }
       obituaries_seen: {
         Row: {
+          cap: string | null
           captured_at: string
           death_date: string | null
           fingerprint: string
@@ -694,6 +869,7 @@ export type Database = {
           surname: string
         }
         Insert: {
+          cap?: string | null
           captured_at?: string
           death_date?: string | null
           fingerprint: string
@@ -710,6 +886,7 @@ export type Database = {
           surname: string
         }
         Update: {
+          cap?: string | null
           captured_at?: string
           death_date?: string | null
           fingerprint?: string
@@ -1102,6 +1279,45 @@ export type Database = {
         }
         Relationships: []
       }
+      price_resistance_index: {
+        Row: {
+          avg_asking_price_eur: number | null
+          avg_gap_pct: number | null
+          avg_omi_compr_max_eur: number | null
+          computed_at: string
+          id: number
+          methodology_note: string
+          province: string
+          region: string
+          resistance_label: string | null
+          sample_size: number
+        }
+        Insert: {
+          avg_asking_price_eur?: number | null
+          avg_gap_pct?: number | null
+          avg_omi_compr_max_eur?: number | null
+          computed_at?: string
+          id?: number
+          methodology_note: string
+          province: string
+          region?: string
+          resistance_label?: string | null
+          sample_size: number
+        }
+        Update: {
+          avg_asking_price_eur?: number | null
+          avg_gap_pct?: number | null
+          avg_omi_compr_max_eur?: number | null
+          computed_at?: string
+          id?: number
+          methodology_note?: string
+          province?: string
+          region?: string
+          resistance_label?: string | null
+          sample_size?: number
+        }
+        Relationships: []
+      }
       property_id_registry: {
         Row: {
           created_at: string
@@ -1278,6 +1494,51 @@ export type Database = {
           source?: string | null
           title?: string
           urgency?: string
+        }
+        Relationships: []
+      }
+      succession_heatmap_cap: {
+        Row: {
+          cap: string
+          computed_at: string
+          id: number
+          indice_vecchiaia_avg: number | null
+          municipality_main: string | null
+          obituaries_90d: number
+          payload: Json
+          pct_residential_omi: number | null
+          probability_label: string
+          probability_score: number
+          province: string | null
+          region: string
+        }
+        Insert: {
+          cap: string
+          computed_at?: string
+          id?: number
+          indice_vecchiaia_avg?: number | null
+          municipality_main?: string | null
+          obituaries_90d?: number
+          payload?: Json
+          pct_residential_omi?: number | null
+          probability_label: string
+          probability_score: number
+          province?: string | null
+          region?: string
+        }
+        Update: {
+          cap?: string
+          computed_at?: string
+          id?: number
+          indice_vecchiaia_avg?: number | null
+          municipality_main?: string | null
+          obituaries_90d?: number
+          payload?: Json
+          pct_residential_omi?: number | null
+          probability_label?: string
+          probability_score?: number
+          province?: string | null
+          region?: string
         }
         Relationships: []
       }
