@@ -272,7 +272,11 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   const filterProv = normalizeProvincia(req.provincia);
   const filterComune = (req.comune ?? "").trim().toLowerCase();
   const maxZones = Math.max(1, Math.min(50, req.maxZones ?? 12));
-  const allowDemo = req.allowDemo === true;
+  // POLICY PRODUZIONE: demo/mock/seed sempre esclusi. allowDemo ignorato per retro-compat.
+  const allowDemo = false;
+  if (req.allowDemo === true) {
+    warnings.push("allowDemo=true ignorato: produzione esclude sempre demo/mock/seed.");
+  }
 
   const supa = getServiceClient();
   if (!supa) {
