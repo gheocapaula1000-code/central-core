@@ -510,11 +510,14 @@ async function orchestrate(body: RequestBody): Promise<RadarResponse> {
       ? { lat: body.latitude, lng: body.longitude }
       : null;
 
-  const [segnali, off, bandi] = await Promise.all([
+  const [segnaliRaw, off, bandi] = await Promise.all([
     hasFirecrawl ? buildSentimentSignals(comune) : Promise.resolve(base.segnaliDiZona),
     hasFirecrawl ? buildOffMarket(comune, provincia, coords) : Promise.resolve([]),
     hasFirecrawl ? buildBandiNazionali(comune, provincia) : Promise.resolve([]),
   ]);
+
+  // Sintesi obbligatoria: nessun "non_disponibile" lasciato vuoto se ISTAT/OMI possono rispondere
+  const segnali = await applyStatisticalFallback(comune, segnaliRaw, warnings);
 
   const anySignal = Object.values(segnali).some((s) => s.livello !== "non_disponibile");
   const status: RadarResponse["status"] = (anySignal || off.length || bandi.length) ? (anySignal && off.length && bandi.length ? "ok" : "partial") : "unavailable";
@@ -523,6 +526,7 @@ async function orchestrate(body: RequestBody): Promise<RadarResponse> {
     configured: hasFirecrawl,
     status,
     scope: { comune, provincia },
+    data_source_verification: DATA_SOURCE_VERIFICATION,
     segnaliDiZona: segnali,
     opportunita: off.map((o, i) => ({
       id: `opp-${i}`,
