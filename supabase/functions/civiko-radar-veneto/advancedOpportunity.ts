@@ -10,10 +10,11 @@
 //   - Signals only when sufficient evidence is present.
 // ═══════════════════════════════════════════════════════════════
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { fcScrape, fcMap, firecrawlAvailable } from "./firecrawl/firecrawlClient.ts";
-import { filterSources } from "./firecrawl/sourceRegistry.ts";
+import { fcScrape, firecrawlAvailable } from "./firecrawl/firecrawlClient.ts";
+import { filterSources, registryStats } from "./firecrawl/sourceRegistry.ts";
 import { isForbiddenPage, isDemoText, isVenetoProvince } from "./firecrawl/complianceGuards.ts";
 import { sha1Hex } from "./firecrawl/dedupe.ts";
+import { planCrawlUrls } from "./firecrawl/crawlPlanner.ts";
 
 // ─────────────────────────────────────────────────────────────
 // Public API
