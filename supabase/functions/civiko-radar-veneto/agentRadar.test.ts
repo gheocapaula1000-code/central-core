@@ -39,26 +39,16 @@ Deno.test("buildAgentRadar returns stable empty shape when backend missing", asy
   assert(out.dataQuality.missing.includes("supabase"));
 });
 
-Deno.test("buildAgentRadar with allowDemo returns 3 demo zones marked correctly", async () => {
+Deno.test("buildAgentRadar production-safe: allowDemo=true non restituisce mai zone demo", async () => {
   const out = await buildAgentRadar({ allowDemo: true });
-  assertEquals(out.zones.length, 3);
-  for (const z of out.zones) {
-    assertEquals(z.quality, "demo");
-    assert(VENETO_PROVINCES.includes(z.provincia as never));
-  }
-  assertEquals(out.summary.dataQuality, "demo");
+  assertEquals(out.zones.length, 0);
+  assertEquals(out.dataQuality.demo.length, 0);
+  assertEquals(out.summary.dataQuality, "mancante");
 });
 
-Deno.test("buildAgentRadar demo respects provincia filter", async () => {
-  const out = await buildAgentRadar({ allowDemo: true, provincia: "VR" });
-  assert(out.zones.length >= 1);
-  for (const z of out.zones) assertEquals(z.provincia, "VR");
-});
-
-Deno.test("buildAgentRadar ignores out-of-Veneto provincia (filterProv null)", async () => {
+Deno.test("buildAgentRadar ignora provincia fuori Veneto", async () => {
   const out = await buildAgentRadar({ provincia: "Milano", allowDemo: true });
-  // demo set returns full 3 since filter is null
-  assertEquals(out.zones.length, 3);
+  assertEquals(out.zones.length, 0);
   for (const z of out.zones) assert(VENETO_PROVINCES.includes(z.provincia as never));
 });
 
@@ -66,5 +56,5 @@ Deno.test("output JSON is fully serializable (no undefined)", async () => {
   const out = await buildAgentRadar({ allowDemo: true });
   const round = JSON.parse(JSON.stringify(out));
   assertEquals(round.scope.region, "Veneto");
-  assertEquals(round.zones.length, 3);
+  assertEquals(round.zones.length, 0);
 });

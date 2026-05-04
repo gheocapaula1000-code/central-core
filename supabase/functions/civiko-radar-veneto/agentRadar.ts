@@ -115,12 +115,16 @@ export interface AgentRadarResponse {
 }
 
 // ── Quality classification (centralizzata) ────────────────────────
-const DEMO_MARKERS = ["seed_demo", "demo", "mock", "fixture", "sample"];
+// PRODUCTION-SAFE: applicato SOLO a campi fonte/qualità/id (mai a testi commerciali).
+const DEMO_MARKERS = ["seed_demo", "seed", "demo", "mock", "fixture", "sample", "fake", "stub", "test_"];
 export function isDemoSource(...vals: Array<unknown>): boolean {
   for (const v of vals) {
     if (v == null) continue;
-    const s = String(v).toLowerCase();
+    const s = String(v).toLowerCase().trim();
+    if (!s) continue;
     if (DEMO_MARKERS.some((m) => s.includes(m))) return true;
+    // exact "test" token (evita match accidentali su testo libero)
+    if (s === "test" || s.startsWith("test:") || s.endsWith(":test")) return true;
   }
   return false;
 }
@@ -284,7 +288,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       configured: false,
       scope: { region: "Veneto", province: VENETO_PROVINCES, datasetStatus: "empty", message: "Backend non configurato (SUPABASE_SERVICE_ROLE_KEY mancante)." },
       summary: { totalSignals: 0, hotZones: 0, priceDrops: 0, auctions: 0, motivatedSellers: 0, dataQuality: "mancante" },
-      zones: allowDemo ? buildDemoZones(filterProv).slice(0, 3) : [],
+      zones: [], // PRODUCTION-SAFE: mai zone demo, anche senza backend
       opportunities: [],
       dataQuality: { real: [], partial: [], demo: [], missing: ["supabase"], warnings: ["Service role mancante."] },
     };
