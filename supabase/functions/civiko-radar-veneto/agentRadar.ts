@@ -365,6 +365,26 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     if ((row.anomaly_type ?? "").toLowerCase().includes("ribass")) a.ribassi30gg++;
   }
 
+  // auction_signals → conta come aste aggiuntive
+  for (const r of auctions ?? []) {
+    const row = r as { province: string|null; municipality: string|null };
+    const prov = isVenetoRow(row.province);
+    if (!prov || !row.municipality) continue;
+    if (filterComune && row.municipality.toLowerCase() !== filterComune) continue;
+    ensure(row.municipality, prov).aste++;
+  }
+
+  // area_opportunity_scores → boost zone già scorate da Civiko Data Engine
+  const aosBoost = new Map<string, { score: number; quality: string }>();
+  for (const r of aosRows ?? []) {
+    const row = r as { province: string|null; municipality: string|null; score: number|null; quality: string|null };
+    const prov = isVenetoRow(row.province);
+    if (!prov || !row.municipality || row.score == null) continue;
+    aosBoost.set(aggKey(row.municipality, prov), { score: Number(row.score), quality: row.quality ?? "parziale" });
+    // Crea zona se non esiste
+    ensure(row.municipality, prov);
+  }
+
   for (const r of signals ?? []) {
     const row = r as { province: string|null; municipality: string|null; signal_type: string|null; lat: number|null; lng: number|null };
     const prov = isVenetoRow(row.province);
