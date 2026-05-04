@@ -1017,12 +1017,34 @@ Deno.serve(async (req) => {
 
     // ── New Perplexity-derived intelligence jobs ─────────────
     {
+      // GET /jobs/apify-registry — protected, returns registry metadata only (no token).
+      if (req.method === "GET" && pathname.endsWith("/jobs/apify-registry")) {
+        const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
+        const provided = req.headers.get("x-job-secret") ?? "";
+        if (!expected || provided !== expected) {
+          return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
+        }
+        return withIdentity(json(req, 200, {
+          job: "apify-registry",
+          count: APIFY_VENETO_REGISTRY.length,
+          sources: APIFY_VENETO_REGISTRY.map((s) => ({
+            source_name: s.source_name,
+            source_type: s.source_type,
+            actor_id: s.actor_id,
+            import_target: s.import_target,
+            allowed_use: s.allowed_use,
+            compliance_notes: s.compliance_notes,
+          })),
+        }, debugId), "job-apify-registry");
+      }
+
       const newJobs = [
         "/jobs/import-veneto-open-data",
         "/jobs/import-veneto-geo-environment",
         "/jobs/import-omi-territorial-notes",
         "/jobs/build-veneto-intelligence-from-research",
         "/jobs/apify-run-veneto-source",
+        "/jobs/apify-diagnostics",
       ];
       const matched = newJobs.find((p) => pathname.endsWith(p));
       if (matched) {
