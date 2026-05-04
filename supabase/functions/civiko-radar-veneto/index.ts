@@ -26,6 +26,7 @@ import { rateLimit } from "../_shared/rate-limit.ts";
 import { buildOpportunitaOffMarket } from "./radarOpportunita.ts";
 import { recomputeSuccessionHeatmap } from "./successioniHeatmap.ts";
 import { computePriceResistanceIndex } from "./priceResistance.ts";
+import { buildRadarClusterDossier } from "./clusterDossier.ts";
 
 const FUNCTION_NAME = "civiko-radar-veneto";
 const EXPECTED_BASE_PATH = "/functions/v1/civiko-radar-veneto";
@@ -33,6 +34,7 @@ const ROUTES = [
   "GET  /health",
   "GET  /manifest",
   "POST /civiko/radar-veneto",
+  "POST /cluster-dossier",
   "POST /jobs/recompute-succession-heatmap",
   "POST /jobs/recompute-price-resistance",
 ];
@@ -404,6 +406,31 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] job error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Job execution failed", debugId), "job-error");
+      }
+    }
+
+    // Cluster dossier — output operativo per agente (marker + talking points + potere contrattuale)
+    if (pathname.endsWith("/cluster-dossier")) {
+      const rlD = rateLimit(req, `${FUNCTION_NAME}:dossier`, { windowMs: 60_000, max: 60 });
+      if (!rlD.ok) {
+        const r = fail(req, 429, "RATE_LIMITED", "Troppe richieste, riprovare a breve.", debugId);
+        r.headers.set("Retry-After", String(rlD.retryAfter));
+        return withIdentity(r, "rate-limited");
+      }
+      let scope: { province?: string; municipality?: string } = {};
+      try {
+        const body = await req.json();
+        if (body && typeof body === "object") {
+          if (typeof (body as { province?: unknown }).province === "string") scope.province = (body as { province: string }).province;
+          if (typeof (body as { municipality?: unknown }).municipality === "string") scope.municipality = (body as { municipality: string }).municipality;
+        }
+      } catch { /* body opzionale */ }
+      try {
+        const dossier = await buildRadarClusterDossier(scope);
+        return withIdentity(json(req, 200, dossier, debugId), "cluster-dossier");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] cluster-dossier error: ${e instanceof Error ? e.message : String(e)}`);
+        return withIdentity(fail(req, 500, "DOSSIER_FAILED", "Cluster dossier failed", debugId), "error");
       }
     }
 
