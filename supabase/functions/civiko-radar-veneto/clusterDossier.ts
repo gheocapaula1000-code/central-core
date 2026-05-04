@@ -102,11 +102,34 @@ export interface ScomodiBlock {
   methodologyNote: string;
 }
 
+// ── "Immobili Bruciati" (competitor in zona) — genera urgenza nel proprietario ──
+export interface BurnedCompetitorBar {
+  label: string;                    // es. "Padova" o "Treviso"
+  province: string;
+  count: number;                    // numero immobili bruciati attivi
+  avgDaysOnline: number | null;     // giacenza media
+  avgDropsCount: number | null;     // ribassi medi
+  avgTotalDropPct: number | null;   // % perdita prezzo media
+  severity: "verde" | "moderato" | "elevato" | "critico";
+  fonte: "Snapshot Portali Immobiliari";
+}
+
+export interface BurnedCompetitorsBlock {
+  title: string;                    // "Immobili Bruciati in zona (competitor)"
+  description: string;
+  fonte: "Snapshot Portali Immobiliari";
+  bars: BurnedCompetitorBar[];
+  totalActive: number;
+  topHotspot: BurnedCompetitorBar | null;
+  methodologyNote: string;
+}
+
 export interface RadarClusterDossier {
   region: "veneto";
   generatedAt: string;
   reportHeader: ReportHeader;        // intestazione tecnica + loghi/fonti ufficiali
   scomodi: ScomodiBlock;             // grafico gap OMI in apertura
+  immobiliBruciati: BurnedCompetitorsBlock; // grafico competitor "bruciati" in zona
   scope: { province?: string; municipality?: string };
   totals: {
     markers_rossi: number;
@@ -1191,8 +1214,8 @@ function buildReportHeader(
 ): ReportHeader {
   const scopeLabel = [scope.municipality, scope.province, "Veneto"].filter(Boolean).join(" · ");
   return {
-    title: "REPORT DI AUDIT TERRITORIALE - VENETO",
-    subtitle: `Audit di mercato e segnali predatori — ${scopeLabel || "Regione Veneto"}`,
+    title: "AUDIT TECNICO TERRITORIALE - ANALISI OGGETTIVA DEL VALORE",
+    subtitle: `Analisi oggettiva del valore di mercato e dei segnali competitivi — ${scopeLabel || "Regione Veneto"}`,
     documentType: "audit_territoriale",
     region: "VENETO",
     generatedAt,
@@ -1203,7 +1226,7 @@ function buildReportHeader(
     officialSources: OFFICIAL_SOURCES,
     disclaimer:
       "Tutti i dati riportati provengono esclusivamente da fonti ufficiali e pubbliche " +
-      "(ISTAT, Agenzia delle Entrate – OMI, PVP – Ministero della Giustizia). " +
+      "(ISTAT, Agenzia delle Entrate – OMI, PVP – Ministero della Giustizia) e da snapshot pubblici dei portali immobiliari. " +
       "Nessun dato è stimato in assenza di evidenza: i campi non disponibili sono indicati esplicitamente.",
   };
 }
@@ -1310,6 +1333,87 @@ function buildScomodiBlock(provinceBars: GapOmiChartBar[], markerBars: GapOmiCha
   };
 }
 
+// ── "Immobili Bruciati" — competitor in zona aggregati per provincia ──
+// Genera urgenza nel proprietario: "guarda quanti immobili come il tuo sono fermi
+// da mesi nella tua zona". Fonte: snapshot pubblici portali (motivated_sellers).
+function severityFromBurnedCount(count: number): BurnedCompetitorBar["severity"] {
+  if (count >= 50) return "critico";
+  if (count >= 20) return "elevato";
+  if (count >= 5) return "moderato";
+  return "verde";
+}
+
+async function fetchBurnedCompetitorsBars(
+  supabase: ReturnType<typeof getServiceClient>,
+  scope: { province?: string | null; municipality?: string | null },
+): Promise<BurnedCompetitorBar[]> {
+  if (!supabase) return [];
+  let q = supabase
+    .from("motivated_sellers")
+    .select("province, days_online, drops_count, total_drop_pct, fatigue_label")
+    .eq("is_active", true)
+    .or("fatigue_label.eq.caldissimo,and(drops_count.gte.2,days_online.gte.120)")
+    .range(0, 4999);
+  if (scope.province) q = q.ilike("province", scope.province);
+  if (scope.municipality) q = q.ilike("municipality", scope.municipality);
+
+  const { data, error } = await q;
+  if (error || !data) return [];
+
+  const grouped = new Map<string, { count: number; days: number[]; drops: number[]; pct: number[] }>();
+  for (const r of data as Array<{
+    province: string | null; days_online: number | null;
+    drops_count: number | null; total_drop_pct: number | null; fatigue_label: string | null;
+  }>) {
+    if (!r.province) continue;
+    const k = r.province;
+    if (!grouped.has(k)) grouped.set(k, { count: 0, days: [], drops: [], pct: [] });
+    const g = grouped.get(k)!;
+    g.count++;
+    if (Number.isFinite(r.days_online)) g.days.push(Number(r.days_online));
+    if (Number.isFinite(r.drops_count)) g.drops.push(Number(r.drops_count));
+    if (Number.isFinite(r.total_drop_pct)) g.pct.push(Number(r.total_drop_pct));
+  }
+
+  const avg = (xs: number[]) => xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10 : null;
+
+  const bars: BurnedCompetitorBar[] = [];
+  for (const [province, g] of grouped.entries()) {
+    bars.push({
+      label: province,
+      province,
+      count: g.count,
+      avgDaysOnline: avg(g.days),
+      avgDropsCount: avg(g.drops),
+      avgTotalDropPct: avg(g.pct),
+      severity: severityFromBurnedCount(g.count),
+      fonte: "Snapshot Portali Immobiliari",
+    });
+  }
+  bars.sort((a, b) => b.count - a.count);
+  return bars;
+}
+
+function buildBurnedCompetitorsBlock(bars: BurnedCompetitorBar[]): BurnedCompetitorsBlock {
+  const totalActive = bars.reduce((sum, b) => sum + b.count, 0);
+  const topHotspot = bars[0] ?? null;
+  return {
+    title: "Immobili Bruciati in zona — pressione competitiva attiva",
+    description:
+      "Numero di immobili residenziali attualmente \"bruciati\" sui portali (online da >120gg con ≥2 ribassi, " +
+      "oppure classificati 'caldissimo'). Sono i suoi competitor diretti: ogni nuovo annuncio entra in coda a questi.",
+    fonte: "Snapshot Portali Immobiliari",
+    bars,
+    totalActive,
+    topHotspot,
+    methodologyNote:
+      "Aggregazione per provincia degli annunci attivi nella tabella motivated_sellers " +
+      "(fatigue_label='caldissimo' OR drops_count≥2 AND days_online≥120). " +
+      "Soglie urgenza: ≥50 critico · ≥20 elevato · ≥5 moderato · <5 verde. " +
+      "Fonte: snapshot pubblici portali immobiliari (Immobiliare.it, Idealista, Casa.it).",
+  };
+}
+
 export async function buildRadarClusterDossier(
   scope: { province?: string | null; municipality?: string | null } = {},
 ): Promise<RadarClusterDossier> {
@@ -1324,6 +1428,7 @@ export async function buildRadarClusterDossier(
       generatedAt,
       reportHeader,
       scomodi: buildScomodiBlock([], []),
+      immobiliBruciati: buildBurnedCompetitorsBlock([]),
       scope: { province: scope.province ?? undefined, municipality: scope.municipality ?? undefined },
       totals: { markers_rossi: 0, markers_viola: 0, markers_lead_caldo: 0 },
       markers: [],
@@ -1335,11 +1440,12 @@ export async function buildRadarClusterDossier(
   const province = scope.province?.trim() ? scope.province.trim() : null;
   const municipality = scope.municipality?.trim() ? scope.municipality.trim() : null;
 
-  const [bruciati, successioni, potere, scomodiBars] = await Promise.all([
+  const [bruciati, successioni, potere, scomodiBars, burnedBars] = await Promise.all([
     fetchMarkersBruciati(supabase, province, municipality).catch((e) => { warnings.push(`bruciati: ${e instanceof Error ? e.message : String(e)}`); return [] as DossierMarker[]; }),
     fetchMarkersSuccessioniDense(supabase, province, municipality).catch((e) => { warnings.push(`successioni: ${e instanceof Error ? e.message : String(e)}`); return [] as DossierMarker[]; }),
     fetchPotereContrattuale(supabase, province).catch((e) => { warnings.push(`potere: ${e instanceof Error ? e.message : String(e)}`); return [] as ProvinceContractualPower[]; }),
     fetchScomodiBars(supabase, { province, municipality }).catch((e) => { warnings.push(`scomodi_provincia: ${e instanceof Error ? e.message : String(e)}`); return [] as GapOmiChartBar[]; }),
+    fetchBurnedCompetitorsBars(supabase, { province, municipality }).catch((e) => { warnings.push(`immobili_bruciati: ${e instanceof Error ? e.message : String(e)}`); return [] as BurnedCompetitorBar[]; }),
   ]);
 
   const markers = [...bruciati, ...successioni];
@@ -1354,6 +1460,7 @@ export async function buildRadarClusterDossier(
   // Costruisce le bars per-marker DOPO l'enrichment (così include capitaleARischio).
   const markerBars = buildMarkerBars(markers);
   const scomodi = buildScomodiBlock(scomodiBars, markerBars);
+  const immobiliBruciati = buildBurnedCompetitorsBlock(burnedBars);
 
   const totals = {
     markers_rossi: markers.filter((m) => m.color === "rosso").length,
@@ -1367,12 +1474,16 @@ export async function buildRadarClusterDossier(
   if (scomodi.bars.length === 0) {
     warnings.push("Grafico gap OMI vuoto: il job price-resistance-index non ha ancora prodotto dati per lo scope richiesto.");
   }
+  if (immobiliBruciati.bars.length === 0) {
+    warnings.push("Grafico Immobili Bruciati vuoto: nessun competitor 'bruciato' nei dati attivi per lo scope richiesto.");
+  }
 
   return {
     region: "veneto",
     generatedAt,
     reportHeader,
     scomodi,
+    immobiliBruciati,
     scope: { province: province ?? undefined, municipality: municipality ?? undefined },
     totals,
     markers,
