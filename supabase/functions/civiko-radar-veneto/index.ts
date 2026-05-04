@@ -732,10 +732,22 @@ async function activateVeneto(): Promise<{
     { opportunita: 0, bruciati: 0, ribassi: 0 },
   );
 
+  // 3) Derivazione automatica motivated_sellers + market_anomalies + radar_signals
+  //    da snapshot esistenti (reali e seed_demo) + OMI reale.
+  let derive: Awaited<ReturnType<typeof deriveAllSignals>>;
+  try {
+    derive = await deriveAllSignals();
+    if (derive.warnings.length) warnings.push(...derive.warnings.map((w) => `derive: ${w}`));
+  } catch (e) {
+    warnings.push(`derive error: ${e instanceof Error ? e.message : String(e)}`);
+    derive = { motivated_sellers_inserted: 0, market_anomalies_inserted: 0, radar_signals_inserted: 0, warnings: [] };
+  }
+
   return {
     istat: { triggered: istatStatus === "triggered", status: istatStatus },
     portali: portaliResults,
     totals,
+    derive,
     fonte_certificata_summary: {
       "ISTAT": istatStatus === "triggered" ? 1 : 0,
       "Portali": totals.opportunita,
