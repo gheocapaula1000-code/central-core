@@ -30,6 +30,7 @@ import { buildRadarClusterDossier, generateHook, buildHookContextForMarker, type
 import { scrapeRibassiPortali } from "./ribassiPortali.ts";
 import { buildAgentRadar, type AgentRadarRequest } from "./agentRadar.ts";
 import { deriveAllSignals } from "./deriveSignals.ts";
+import { buildVenetoDataEngine } from "./dataEngine.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // Certificazione ufficiale del dato (tutela legale dell'agenzia)
