@@ -199,21 +199,53 @@ async function lookupOmiTipologia(
   supabase: NonNullable<ReturnType<typeof getServiceClient>>,
   lat: number,
   lng: number,
-): Promise<{ link_zona: string; zona_descr: string; tipologia: string | null } | null> {
+): Promise<{
+  link_zona: string;
+  zona_descr: string;
+  tipologia: string | null;
+  villa_share: number | null;     // 0..1 = quota tipologie "ville/villini" sul totale residenziale della zona
+  residential_count: number;       // numero di tipologie residenziali censite nella zona
+} | null> {
   const { data: zoneData, error: zoneErr } = await supabase
     .rpc("omi_zone_by_point", { p_lat: lat, p_lng: lng });
   if (zoneErr || !zoneData || zoneData.length === 0) return null;
   const zone = zoneData[0] as { link_zona: string; zona_descr: string };
 
+  // Tipologia prevalente OMI per la zona
   const { data: omi, error: omiErr } = await supabase
     .from("omi_zone")
     .select("descr_tip_prev")
     .eq("link_zona", zone.link_zona)
     .limit(1);
   if (omiErr) return null;
-
   const tipologia = (omi?.[0] as { descr_tip_prev?: string } | undefined)?.descr_tip_prev ?? null;
-  return { link_zona: zone.link_zona, zona_descr: zone.zona_descr, tipologia };
+
+  // Densità "ville/villini" nella stessa microzona (segnale: zona con immobili singoli = più probabile incarico in successione)
+  const { data: valori, error: valErr } = await supabase
+    .from("omi_valori")
+    .select("descr_tipologia")
+    .eq("link_zona", zone.link_zona);
+
+  let villa_share: number | null = null;
+  let residential_count = 0;
+  if (!valErr && Array.isArray(valori) && valori.length > 0) {
+    const RES_RE = /abitazion|ville|villin/i;
+    const VILLA_RE = /ville|villin/i;
+    const residenziali = valori.filter((r) => RES_RE.test(String((r as { descr_tipologia?: string }).descr_tipologia ?? "")));
+    residential_count = residenziali.length;
+    if (residential_count > 0) {
+      const ville = residenziali.filter((r) => VILLA_RE.test(String((r as { descr_tipologia?: string }).descr_tipologia ?? "")));
+      villa_share = ville.length / residential_count;
+    }
+  }
+
+  return {
+    link_zona: zone.link_zona,
+    zona_descr: zone.zona_descr,
+    tipologia,
+    villa_share,
+    residential_count,
+  };
 }
 
 async function fetchIstatVecchiaia(
@@ -318,19 +350,25 @@ export async function scrapeSuccessioniPotenziali(
         ? new Date(ob.death_date).toLocaleDateString("it-IT")
         : "data non specificata";
 
+      // Scoring densità ville: zone con alta % villini → segnale più forte (immobile singolo, eredità tipica)
+      const villaShareTxt = omi.villa_share !== null && omi.residential_count > 0
+        ? ` Densità ville/villini in zona: ${(omi.villa_share * 100).toFixed(0)}% (${omi.residential_count} tipologie residenziali OMI).`
+        : "";
+      const urgenza: "bassa" | "media" = (omi.villa_share ?? 0) >= 0.3 ? "media" : "bassa";
+
       opportunita.push({
         tipo: "successione",
         titolo: `Possibile successione famiglia ${ob.surname} — zona ${omi.zona_descr}`,
         descrizione:
-          `Decesso registrato (${dataFmt}). Zona OMI residenziale (${omi.tipologia}), comune con indice di vecchiaia ${Number(istat.indice).toFixed(0)}. Possibile incarico di vendita nei prossimi 6-18 mesi.`
-            .slice(0, 300),
+          `Decesso registrato (${dataFmt}). Zona OMI residenziale (${omi.tipologia}), comune con indice di vecchiaia ${Number(istat.indice).toFixed(0)}.${villaShareTxt} Possibile incarico di vendita nei prossimi 6-18 mesi.`
+            .slice(0, 350),
         prezzoIndicativo: null,
         scontoStimato: "Trattativa privata",
         localita: `${omi.zona_descr}, ${municipality}`,
         fonte: source.name,
         evidenceUrl: ob.source_url,
         categoria: "residenziale",
-        urgenza: "bassa",
+        urgenza,
       });
 
       if (opportunita.length >= MAX_SIGNALS) break;
