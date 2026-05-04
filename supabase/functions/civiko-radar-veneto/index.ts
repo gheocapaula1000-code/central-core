@@ -35,6 +35,9 @@ import { importVenetoAuctions } from "./auctionImport.ts";
 import { runFirecrawlDeepVeneto } from "./firecrawl/crawlRunner.ts";
 import { runMicrozoneOpportunitySignals } from "./firecrawl/microzoneOpportunityRunner.ts";
 import { runAdvancedVenetoOpportunities } from "./advancedOpportunity.ts";
+import { buildVenetoIntelligenceFromResearch } from "./intelligence/orchestrator.ts";
+import { runVenetoOpenDataImport } from "./openData/ckanImporter.ts";
+import { runApifyForVenetoSource } from "./apify/apifyAdapter.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // Certificazione ufficiale del dato (tutela legale dell'agenzia)
