@@ -82,8 +82,11 @@ export interface EngagementHook {
   body: string;                // corpo del gancio (≤320 char)
   perditaImmaginePct: number | null;  // 0..100
   visibilityIndex: number | null;     // 0..100 (100 = max visibilità)
+  visibilityBreakdown?: VisibilityBreakdown | null; // dettaglio formula
+  capitaleARischioEur?: number | null; // Capitale a Rischio in € vs OMI max
+  capitaleARischio?: CapitaleARischio | null;
   fonti: Array<"OMI" | "ISTAT" | "Portali" | "PVP_Ministero_Giustizia" | "Necrologi" | "snapshot_storico">;
-  evidenze: string[];          // dati factual a supporto
+  evidenze: string[];          // dati factual a supporto (ognuna include la fonte)
   whatsappMessage: string;     // versione formattata WhatsApp pronta all'invio
 }
 
@@ -603,32 +606,129 @@ async function enrichMarkersConGanci(markers: DossierMarker[]): Promise<void> {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// CALCOLO VISIBILITÀ & PERDITA IMMAGINE
+// CALCOLO VISIBILITÀ, PERDITA IMMAGINE & CAPITALE A RISCHIO
 // ═══════════════════════════════════════════════════════════════
 //
-// Modello empirico calibrato su dati portali italiani:
+// Modello empirico calibrato su dati portali italiani (Immobiliare/Idealista/Casa.it):
 //   - Visibility decay esponenziale: visibility(d) = 100 * exp(-d / TAU)
-//     TAU=90 giorni → ~50% di visibilità a 60gg, ~33% a 90gg, ~10% a 200gg.
-//   - Penalty addizionale per ribassi (ogni ribasso = -8% visibilità,
-//     percepiti dai compratori come "rosso da trattare").
+//     TAU=120gg → ~85% a 20gg, ~78% a 30gg, ~61% a 60gg, ~47% a 90gg, ~22% a 180gg.
+//   - Penalty per ribassi storici (ogni ribasso = -3% visibilità, percepito come
+//     "rosso da trattare" sui filtri portale).
+//   - Penalty extra per ribassi CONCENTRATI negli ultimi 60gg (segnale di urgenza
+//     che i portali declassano: ogni ribasso recente = -7% addizionale).
 //   - Perdita Immagine = (100 - visibility) capped 0..95.
-// Hard rule: nessun calcolo se input mancante.
+//
+// Calibrazione di riferimento (per talking point):
+//   • +2 ribassi in 60gg con immobile online da 60gg → visibility ≈ 55 → -45% (perdita 45%).
+//   • 0 ribassi a 30gg → visibility ≈ 78 → -22%.
+//   • 3 ribassi in 90gg → visibility ≈ 26 → -74%.
+//
+// Hard rule: nessun calcolo se input mancante (No Lies).
 
-const VISIBILITY_TAU_DAYS = 90;
-const RIBASSO_PENALTY_PCT = 8;
+const VISIBILITY_TAU_DAYS = 120;
+const RIBASSO_PENALTY_PCT = 3;          // per ogni ribasso storico totale
+const RIBASSO_RECENTE_PENALTY_PCT = 7;  // per ogni ribasso negli ultimi 60gg
 
-export function computeVisibilityIndex(daysOnline: number, dropsCount: number): number | null {
-  if (!Number.isFinite(daysOnline) || daysOnline < 0) return null;
-  const baseDecay = 100 * Math.exp(-daysOnline / VISIBILITY_TAU_DAYS);
-  const ribassiPenalty = Math.max(0, dropsCount) * RIBASSO_PENALTY_PCT;
-  const v = Math.max(0, Math.min(100, baseDecay - ribassiPenalty));
-  return Math.round(v * 10) / 10;
+export interface VisibilityBreakdown {
+  visibilityIndex: number;          // 0..100
+  perditaImmaginePct: number;       // 0..100
+  baseDecayPct: number;             // 0..100 (componente tempo)
+  penaltyRibassiTotaliPct: number;  // ≥ 0
+  penaltyRibassiRecentiPct: number; // ≥ 0
+  daysOnline: number;
+  dropsCount: number;
+  recentDropsIn60d: number;
+  formula: string;                  // descrizione human-readable
 }
 
-export function computePerditaImmaginePct(daysOnline: number, dropsCount: number): number | null {
-  const v = computeVisibilityIndex(daysOnline, dropsCount);
-  if (v === null) return null;
-  return Math.round((100 - v) * 10) / 10;
+export function computeVisibilityBreakdown(
+  daysOnline: number,
+  dropsCount: number,
+  recentDropsIn60d: number = 0,
+): VisibilityBreakdown | null {
+  if (!Number.isFinite(daysOnline) || daysOnline < 0) return null;
+  const safeDrops = Math.max(0, Math.floor(dropsCount || 0));
+  const safeRecent = Math.max(0, Math.min(safeDrops, Math.floor(recentDropsIn60d || 0)));
+  const baseDecay = 100 * Math.exp(-daysOnline / VISIBILITY_TAU_DAYS);
+  const penaltyTot = safeDrops * RIBASSO_PENALTY_PCT;
+  const penaltyRec = safeRecent * RIBASSO_RECENTE_PENALTY_PCT;
+  const visibility = Math.max(0, Math.min(100, baseDecay - penaltyTot - penaltyRec));
+  const perdita = Math.max(0, Math.min(95, 100 - visibility));
+  return {
+    visibilityIndex: Math.round(visibility * 10) / 10,
+    perditaImmaginePct: Math.round(perdita * 10) / 10,
+    baseDecayPct: Math.round(baseDecay * 10) / 10,
+    penaltyRibassiTotaliPct: Math.round(penaltyTot * 10) / 10,
+    penaltyRibassiRecentiPct: Math.round(penaltyRec * 10) / 10,
+    daysOnline: Math.round(daysOnline),
+    dropsCount: safeDrops,
+    recentDropsIn60d: safeRecent,
+    formula: `100·exp(-${Math.round(daysOnline)}/${VISIBILITY_TAU_DAYS}) − ${safeDrops}×${RIBASSO_PENALTY_PCT}% − ${safeRecent}×${RIBASSO_RECENTE_PENALTY_PCT}%`,
+  };
+}
+
+export function computeVisibilityIndex(daysOnline: number, dropsCount: number, recentDropsIn60d: number = 0): number | null {
+  const b = computeVisibilityBreakdown(daysOnline, dropsCount, recentDropsIn60d);
+  return b ? b.visibilityIndex : null;
+}
+
+export function computePerditaImmaginePct(daysOnline: number, dropsCount: number, recentDropsIn60d: number = 0): number | null {
+  const b = computeVisibilityBreakdown(daysOnline, dropsCount, recentDropsIn60d);
+  return b ? b.perditaImmaginePct : null;
+}
+
+// ── Capitale a Rischio (gap monetario vs OMI max) ──────────────
+// Definizione: differenza in € tra il prezzo richiesto attuale e il valore di
+// mercato OMI massimo per la zona. Etichetta "Capitale a Rischio" perché
+// rappresenta la quota che l'attuale strategia espone a perdita di valore.
+//
+// Modalità di calcolo:
+//   1. Se disponibili surface_mq e OMI €/mq → capitale = max(0, lastPrice − surface × omiMax).
+//   2. Se disponibile solo asking €/mq vs OMI €/mq → capitale per mq, poi normalizzato.
+// Hard rule: se input incompleti → null (No Lies).
+
+export interface CapitaleARischio {
+  euroAtRisk: number;          // valore assoluto >= 0
+  gapVsOmiPct: number;         // % rispetto al valore OMI atteso (può essere negativo se sotto OMI)
+  expectedOmiValueEur: number; // valore atteso = surface × omiMax
+  askingPriceEur: number;
+  surfaceMq: number;
+  omiMaxEurPerMq: number;
+  omiSemestre: string | null;
+  classificazione: "verde" | "moderato" | "elevato" | "critico";
+  fonte: "OMI";
+}
+
+export function computeCapitaleARischio(input: {
+  askingPriceEur: number | null | undefined;
+  surfaceMq: number | null | undefined;
+  omiMaxEurPerMq: number | null | undefined;
+  omiSemestre?: string | null;
+}): CapitaleARischio | null {
+  const asking = Number(input.askingPriceEur);
+  const surface = Number(input.surfaceMq);
+  const omiMax = Number(input.omiMaxEurPerMq);
+  if (!Number.isFinite(asking) || asking <= 0) return null;
+  if (!Number.isFinite(surface) || surface <= 0) return null;
+  if (!Number.isFinite(omiMax) || omiMax <= 0) return null;
+  const expected = surface * omiMax;
+  const euroAtRisk = Math.max(0, Math.round(asking - expected));
+  const gapPct = Math.round(((asking - expected) / expected) * 1000) / 10; // 1 decimale
+  let classificazione: CapitaleARischio["classificazione"] = "verde";
+  if (gapPct >= 25) classificazione = "critico";
+  else if (gapPct >= 12) classificazione = "elevato";
+  else if (gapPct >= 4) classificazione = "moderato";
+  return {
+    euroAtRisk,
+    gapVsOmiPct: gapPct,
+    expectedOmiValueEur: Math.round(expected),
+    askingPriceEur: Math.round(asking),
+    surfaceMq: Math.round(surface * 10) / 10,
+    omiMaxEurPerMq: Math.round(omiMax),
+    omiSemestre: input.omiSemestre ?? null,
+    classificazione,
+    fonte: "OMI",
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -642,13 +742,16 @@ export function computePerditaImmaginePct(daysOnline: number, dropsCount: number
 // reale è presente → kind="neutro" e nessun gancio inviabile.
 
 export interface HookContext {
-  omiCompromaxEur?: number | null;       // OMI compr_max della zona del marker
-  omiCompromInEur?: number | null;
+  omiCompromaxEur?: number | null;       // OMI compr_max €/mq della zona del marker
+  omiCompromInEur?: number | null;       // OMI compr_min €/mq
   omiSemestre?: string | null;
   asteImminentiCount?: number;           // numero aste PVP nel comune
   asteEvidenceUrl?: string | null;
-  domandaPickIstatScore?: number | null; // indice ISTAT 0..100 di domanda potenziale (es. famiglie giovani / nuovi residenti)
+  domandaPickIstatScore?: number | null; // indice ISTAT 0..100 di domanda potenziale
   domandaPickIstatNota?: string | null;
+  // Capitale a Rischio (validazione OMI)
+  surfaceMq?: number | null;             // superficie immobile in mq (da payload o ricalcolo)
+  capitaleARischio?: CapitaleARischio | null;
 }
 
 function formatEuro(n: number | null | undefined): string {
@@ -658,75 +761,101 @@ function formatEuro(n: number | null | undefined): string {
 
 function buildWhatsAppMessage(
   marker: DossierMarker,
-  hook: { headline: string; body: string; perditaImmaginePct: number | null; visibilityIndex: number | null },
+  hook: {
+    headline: string;
+    body: string;
+    perditaImmaginePct: number | null;
+    visibilityIndex: number | null;
+    breakdown?: VisibilityBreakdown | null;
+  },
   ctx: HookContext,
   evidenze: string[],
+  fonti: EngagementHook["fonti"],
 ): string {
   // Formato leggibile, senza markdown pesante (WhatsApp non rende tabelle).
-  // Usa interruzioni di riga e bullet * per rendere scannable.
+  // Usa interruzioni di riga, bullet • e *bold* per rendere scannable.
+  // Ogni blocco riporta esplicitamente la fonte (No Lies → blindare l'autorità).
   const lines: string[] = [];
   lines.push(`*${hook.headline}*`);
   lines.push("");
   lines.push(hook.body);
   lines.push("");
 
-  // Storico ribassi
+  // ── Storico annuncio + perdita visibilità ──
   const drops = Number(marker.payload.drops_count ?? 0);
   const totalDropPct = Number(marker.payload.total_drop_pct ?? 0);
   const daysOnline = Number(marker.payload.days_online ?? 0);
   const initialPrice = Number(marker.payload.initial_price_eur ?? 0);
   const lastPrice = Number(marker.payload.last_price_eur ?? 0);
   if (daysOnline > 0 || drops > 0) {
-    lines.push("📉 *Storico annuncio*");
+    lines.push("📉 *Storico annuncio* _(fonte: snapshot portali)_");
     if (daysOnline > 0) lines.push(`• Online da: ${Math.round(daysOnline)} giorni (~${Math.max(1, Math.round(daysOnline / 30))} mesi)`);
     if (drops > 0) lines.push(`• Ribassi applicati: ${drops}${totalDropPct > 0 ? ` (-${totalDropPct.toFixed(1)}%)` : ""}`);
     if (initialPrice > 0 && lastPrice > 0 && initialPrice > lastPrice) {
       lines.push(`• Prezzo: da ${formatEuro(initialPrice)} a ${formatEuro(lastPrice)}`);
     }
     if (hook.perditaImmaginePct !== null) {
-      lines.push(`• Perdita di immagine stimata: *${hook.perditaImmaginePct.toFixed(1)}%*`);
+      lines.push(`• Perdita di immagine stimata: *-${hook.perditaImmaginePct.toFixed(0)}%*`);
     }
     if (hook.visibilityIndex !== null) {
-      lines.push(`• Indice di visibilità residuo: ${hook.visibilityIndex.toFixed(0)}/100`);
+      lines.push(`• Indice visibilità residuo: ${hook.visibilityIndex.toFixed(0)}/100`);
+    }
+    if (hook.breakdown && hook.breakdown.recentDropsIn60d > 0) {
+      lines.push(`• Ribassi negli ultimi 60gg: ${hook.breakdown.recentDropsIn60d} (impatto -${hook.breakdown.penaltyRibassiRecentiPct.toFixed(0)}% sulla visibilità)`);
     }
     lines.push("");
   }
 
-  // Riferimento OMI
-  if (ctx.omiCompromaxEur || ctx.omiCompromInEur) {
-    lines.push("📊 *Valori OMI di zona*");
+  // ── Capitale a Rischio (validazione OMI) ──
+  if (ctx.capitaleARischio && ctx.capitaleARischio.euroAtRisk > 0) {
+    const cr = ctx.capitaleARischio;
+    const sevEmoji =
+      cr.classificazione === "critico" ? "🚨" :
+      cr.classificazione === "elevato" ? "⚠️" :
+      cr.classificazione === "moderato" ? "🟡" : "🟢";
+    lines.push(`${sevEmoji} *Capitale a Rischio* _(fonte: Agenzia Entrate – OMI ${cr.omiSemestre ?? ""})_`.trim());
+    lines.push(`• Prezzo richiesto: ${formatEuro(cr.askingPriceEur)} (${cr.surfaceMq} mq)`);
+    lines.push(`• Valore OMI massimo atteso: ${formatEuro(cr.expectedOmiValueEur)} (${formatEuro(cr.omiMaxEurPerMq)}/mq × ${cr.surfaceMq} mq)`);
+    lines.push(`• *Capitale esposto: ${formatEuro(cr.euroAtRisk)} (+${cr.gapVsOmiPct.toFixed(1)}% sopra OMI max)*`);
+    lines.push(`• Classificazione: ${cr.classificazione.toUpperCase()}`);
+    lines.push("");
+  } else if (ctx.omiCompromaxEur || ctx.omiCompromInEur) {
+    lines.push(`📊 *Valori OMI di zona* _(fonte: Agenzia Entrate – OMI ${ctx.omiSemestre ?? ""})_`.trim());
     if (ctx.omiCompromInEur && ctx.omiCompromaxEur) {
       lines.push(`• Range €/mq: ${formatEuro(ctx.omiCompromInEur)} – ${formatEuro(ctx.omiCompromaxEur)}`);
     } else if (ctx.omiCompromaxEur) {
       lines.push(`• OMI max €/mq: ${formatEuro(ctx.omiCompromaxEur)}`);
     }
-    if (ctx.omiSemestre) lines.push(`• Fonte: Agenzia delle Entrate - OMI ${ctx.omiSemestre}`);
     lines.push("");
   }
 
-  // Asta vicina
+  // ── Asta vicina ──
   if ((ctx.asteImminentiCount ?? 0) > 0) {
-    lines.push("⚖️ *Aste in zona*");
-    lines.push(`• ${ctx.asteImminentiCount} asta/e attiva/e nel comune`);
-    if (ctx.asteEvidenceUrl) lines.push(`• Fonte: ${ctx.asteEvidenceUrl}`);
+    lines.push("⚖️ *Aste in zona* _(fonte: PVP – Ministero della Giustizia)_");
+    lines.push(`• ${ctx.asteImminentiCount} asta/e attiva/e nel comune di ${marker.municipality ?? "riferimento"}`);
+    if (ctx.asteEvidenceUrl) lines.push(`• Verifica: ${ctx.asteEvidenceUrl}`);
     lines.push("");
   }
 
-  // Picco domanda
+  // ── Picco domanda (ISTAT) ──
   if (ctx.domandaPickIstatScore !== null && ctx.domandaPickIstatScore !== undefined && ctx.domandaPickIstatScore > 0) {
-    lines.push("📈 *Domanda di zona*");
+    lines.push("📈 *Domanda di zona* _(fonte: ISTAT – demografia comunale)_");
     lines.push(`• Indice ISTAT: ${ctx.domandaPickIstatScore.toFixed(0)}/100`);
     if (ctx.domandaPickIstatNota) lines.push(`• ${ctx.domandaPickIstatNota}`);
     lines.push("");
   }
 
-  // Footer evidenze
+  // ── Footer evidenze + fonti consolidate ──
   if (evidenze.length > 0) {
     lines.push("🔎 *Evidenze*");
-    for (const e of evidenze.slice(0, 4)) lines.push(`• ${e}`);
+    for (const e of evidenze.slice(0, 5)) lines.push(`• ${e}`);
+    lines.push("");
+  }
+  if (fonti.length > 0) {
+    lines.push(`_Fonti: ${Array.from(new Set(fonti)).join(" · ")}_`);
   }
 
-  return lines.join("\n").slice(0, 1500);
+  return lines.join("\n").slice(0, 1600);
 }
 
 export function generateHook(marker: DossierMarker, ctx: HookContext = {}): EngagementHook {
@@ -736,14 +865,30 @@ export function generateHook(marker: DossierMarker, ctx: HookContext = {}): Enga
   const drops = Number(marker.payload.drops_count ?? 0);
   const totalDropPct = Number(marker.payload.total_drop_pct ?? 0);
   const daysOnline = Number(marker.payload.days_online ?? 0);
+  const recentDrops60d = Number(marker.payload.recent_drops_60d ?? marker.payload.drops_in_60d ?? 0);
   const initialPrice = Number(marker.payload.initial_price_eur ?? 0);
   const lastPrice = Number(marker.payload.last_price_eur ?? 0);
   const fatigue = String(marker.payload.fatigue_label ?? "");
   const asteCount = ctx.asteImminentiCount ?? 0;
   const domandaScore = ctx.domandaPickIstatScore ?? null;
 
-  const visibility = computeVisibilityIndex(daysOnline, drops);
-  const perdita = computePerditaImmaginePct(daysOnline, drops);
+  const breakdown = computeVisibilityBreakdown(daysOnline, drops, recentDrops60d);
+  const visibility = breakdown ? breakdown.visibilityIndex : null;
+  const perdita = breakdown ? breakdown.perditaImmaginePct : null;
+
+  // ── Capitale a Rischio (validazione OMI) ──
+  // Best-effort: usa ctx.capitaleARischio se già pre-calcolato, altrimenti tenta
+  // di calcolarlo on-the-fly da surface (payload) + OMI (ctx) + lastPrice.
+  let capitale = ctx.capitaleARischio ?? null;
+  if (!capitale) {
+    const surface = Number(ctx.surfaceMq ?? marker.payload.surface_mq ?? marker.payload.superficie_mq ?? 0);
+    capitale = computeCapitaleARischio({
+      askingPriceEur: lastPrice || initialPrice,
+      surfaceMq: surface,
+      omiMaxEurPerMq: ctx.omiCompromaxEur ?? null,
+      omiSemestre: ctx.omiSemestre ?? null,
+    });
+  }
 
   // ── Score "Notizia Peggiore" ──
   let badScore = 0;
@@ -752,19 +897,23 @@ export function generateHook(marker: DossierMarker, ctx: HookContext = {}): Enga
   else if (perdita !== null && perdita >= 20) badScore += 1;
   if (drops >= 3) badScore += 2;
   else if (drops >= 2) badScore += 1;
+  if (recentDrops60d >= 2) badScore += 2;
+  else if (recentDrops60d >= 1) badScore += 1;
   if (totalDropPct >= 15) badScore += 2;
   else if (totalDropPct >= 8) badScore += 1;
   if (asteCount >= 1) badScore += 2;
   if (fatigue === "caldissimo") badScore += 2;
   else if (fatigue === "caldo") badScore += 1;
   if (marker.kind === "agency_swap") badScore += 2;
+  if (capitale && capitale.classificazione === "critico") badScore += 3;
+  else if (capitale && capitale.classificazione === "elevato") badScore += 2;
+  else if (capitale && capitale.classificazione === "moderato") badScore += 1;
 
   // ── Score "Notizia Migliore" ──
   let goodScore = 0;
   if (domandaScore !== null && domandaScore >= 70) goodScore += 3;
   else if (domandaScore !== null && domandaScore >= 50) goodScore += 2;
   else if (domandaScore !== null && domandaScore >= 30) goodScore += 1;
-  // Successioni dense in zona = potere d'acquisto in arrivo (positivo per chi vende ORA)
   if (marker.kind === "successione_densa") goodScore += 1;
 
   let kind: HookKind = "neutro";
@@ -773,21 +922,36 @@ export function generateHook(marker: DossierMarker, ctx: HookContext = {}): Enga
 
   if (badScore >= 3 && badScore >= goodScore) {
     kind = "notizia_peggiore";
-    // Priorità all'asta vicina come notizia esclusiva
-    if (asteCount >= 1) {
+    // Priorità 1: Capitale a Rischio CRITICO (gancio monetario di massimo impatto)
+    if (capitale && capitale.classificazione === "critico" && capitale.euroAtRisk > 0) {
+      headline = `${formatEuro(capitale.euroAtRisk)} di capitale esposto sopra il valore OMI`;
+      body =
+        `Confrontando il prezzo richiesto (${formatEuro(capitale.askingPriceEur)}) con il valore OMI massimo della zona ` +
+        `(${formatEuro(capitale.omiMaxEurPerMq)}/mq × ${capitale.surfaceMq} mq = ${formatEuro(capitale.expectedOmiValueEur)}), ` +
+        `risultano ${formatEuro(capitale.euroAtRisk)} di "capitale a rischio" (+${capitale.gapVsOmiPct.toFixed(1)}% sopra OMI). ` +
+        `Ogni mese di permanenza online erode questo margine.`;
+      fonti.push("OMI", "Portali");
+      evidenze.push(`Capitale a Rischio: ${formatEuro(capitale.euroAtRisk)} (+${capitale.gapVsOmiPct.toFixed(1)}% vs OMI max) — fonte: OMI ${capitale.omiSemestre ?? ""}`.trim());
+    } else if (asteCount >= 1) {
       headline = `Un'asta giudiziaria è stata aperta vicino al suo immobile`;
       body =
         `Nella zona di ${marker.municipality ?? "riferimento"} è attiva un'asta pubblica del Tribunale che influenzerà i prezzi richiesti del mercato libero per i prossimi 6 mesi. ` +
         `Vale la pena rivedere insieme la sua strategia prima che l'effetto sui valori si consolidi.`;
       fonti.push("PVP_Ministero_Giustizia");
-      evidenze.push(`Aste attive nel comune: ${asteCount}${ctx.asteEvidenceUrl ? ` (PVP: ${ctx.asteEvidenceUrl})` : ""}`);
+      evidenze.push(`Aste attive nel comune: ${asteCount}${ctx.asteEvidenceUrl ? ` (PVP: ${ctx.asteEvidenceUrl})` : ""} — fonte: PVP Ministero Giustizia`);
     } else if (drops >= 2 && perdita !== null && perdita >= 30) {
-      headline = `Il suo annuncio sta perdendo visibilità: ~${perdita.toFixed(0)}% in meno rispetto al lancio`;
+      const recentNote = recentDrops60d >= 2
+        ? ` (+${recentDrops60d} ribassi solo negli ultimi 60gg → -${(breakdown?.penaltyRibassiRecentiPct ?? 0).toFixed(0)}% sulla visibilità)`
+        : "";
+      headline = `Il suo annuncio ha perso ~${perdita.toFixed(0)}% di visibilità rispetto al lancio`;
       body =
-        `Dopo ${Math.max(1, Math.round(daysOnline / 30))} mesi e ${drops} ribassi, l'indice di visibilità del suo immobile è sceso a ${visibility?.toFixed(0)}/100. ` +
+        `Dopo ${Math.max(1, Math.round(daysOnline / 30))} mesi e ${drops} ribassi${recentNote}, l'indice di visibilità è sceso a ${visibility?.toFixed(0)}/100. ` +
         `Il mercato lo classifica come "annuncio bruciato": serve un cambio di approccio per riportarlo in evidenza.`;
       fonti.push("snapshot_storico", "Portali");
-      evidenze.push(`Online ${Math.round(daysOnline)}gg, ${drops} ribassi (-${totalDropPct.toFixed(1)}%)`);
+      evidenze.push(`Online ${Math.round(daysOnline)}gg, ${drops} ribassi (-${totalDropPct.toFixed(1)}%) — fonte: snapshot portali`);
+      if (breakdown) {
+        evidenze.push(`Formula visibilità: ${breakdown.formula} = ${breakdown.visibilityIndex.toFixed(0)}/100 — fonte: modello calibrato Lovable Core`);
+      }
     } else if (totalDropPct >= 8) {
       const deltaAbs = initialPrice && lastPrice ? Math.round(initialPrice - lastPrice) : null;
       headline = `Il suo immobile ha già perso ${totalDropPct.toFixed(1)}% di valore richiesto`;
@@ -796,12 +960,12 @@ export function generateHook(marker: DossierMarker, ctx: HookContext = {}): Enga
         (deltaAbs ? ` (-${formatEuro(deltaAbs)} in valore assoluto)` : "") +
         `. Ogni settimana ulteriore di permanenza online riduce la sua leva negoziale.`;
       fonti.push("Portali", "snapshot_storico");
-      evidenze.push(`Ribassi: ${drops} | Perdita richiesta: ${totalDropPct.toFixed(1)}%`);
+      evidenze.push(`Ribassi: ${drops} | Perdita richiesta: ${totalDropPct.toFixed(1)}% — fonte: snapshot portali`);
     } else {
       headline = `Segnali di stanchezza sul suo annuncio`;
       body = `L'immobile è online da ${Math.round(daysOnline)} giorni e mostra segnali di affaticamento del mercato. Possiamo rivedere insieme la strategia prima che l'effetto si consolidi.`;
       fonti.push("snapshot_storico");
-      evidenze.push(`days_online=${daysOnline}; fatigue=${fatigue || "n/d"}`);
+      evidenze.push(`days_online=${daysOnline}; fatigue=${fatigue || "n/d"} — fonte: snapshot portali`);
     }
   } else if (goodScore >= 2 && goodScore > badScore) {
     kind = "notizia_migliore";
@@ -812,7 +976,7 @@ export function generateHook(marker: DossierMarker, ctx: HookContext = {}): Enga
         (ctx.domandaPickIstatNota ? `${ctx.domandaPickIstatNota} ` : "") +
         `È una finestra favorevole per posizionare il suo immobile con la giusta strategia.`;
       fonti.push("ISTAT");
-      evidenze.push(`Indice domanda ISTAT: ${domandaScore.toFixed(0)}/100`);
+      evidenze.push(`Indice domanda ISTAT: ${domandaScore.toFixed(0)}/100 — fonte: ISTAT demografia comunale`);
     } else {
       headline = `Movimento favorevole di mercato in zona`;
       body = `I segnali demografici e di rotazione patrimoniale in zona stanno generando opportunità per chi vende nei prossimi mesi.`;
@@ -824,27 +988,39 @@ export function generateHook(marker: DossierMarker, ctx: HookContext = {}): Enga
     body = `Al momento non emergono segnali di forte urgenza né di picco di domanda: situazione stabile, monitoriamo.`;
   }
 
-  // Aggiungi sempre OMI come ancora di autorità se disponibile
+  // Aggiungi sempre OMI come ancora di autorità se disponibile (anche se non headline)
   if (ctx.omiCompromaxEur || ctx.omiCompromInEur) {
     fonti.push("OMI");
     if (ctx.omiCompromInEur && ctx.omiCompromaxEur) {
-      evidenze.push(`OMI ${ctx.omiSemestre ?? ""} €/mq: ${formatEuro(ctx.omiCompromInEur)}–${formatEuro(ctx.omiCompromaxEur)}`);
+      evidenze.push(`OMI ${ctx.omiSemestre ?? ""} €/mq: ${formatEuro(ctx.omiCompromInEur)}–${formatEuro(ctx.omiCompromaxEur)} — fonte: Agenzia Entrate`);
     }
   }
+  // Capitale a Rischio sempre come evidenza se calcolato (anche se non era il gancio principale)
+  if (capitale && capitale.euroAtRisk > 0 && !evidenze.some((e) => e.startsWith("Capitale a Rischio"))) {
+    evidenze.push(`Capitale a Rischio: ${formatEuro(capitale.euroAtRisk)} (+${capitale.gapVsOmiPct.toFixed(1)}% vs OMI max) — fonte: OMI ${capitale.omiSemestre ?? ""}`.trim());
+    if (!fonti.includes("OMI")) fonti.push("OMI");
+  }
+
+  // Inietta capitale calcolato nel context per il WhatsApp builder
+  const ctxWithCapitale: HookContext = { ...ctx, capitaleARischio: capitale };
 
   const whatsappMessage = buildWhatsAppMessage(
     marker,
-    { headline, body, perditaImmaginePct: perdita, visibilityIndex: visibility },
-    ctx,
+    { headline, body, perditaImmaginePct: perdita, visibilityIndex: visibility, breakdown },
+    ctxWithCapitale,
     evidenze,
+    fonti,
   );
 
   return {
     kind,
-    headline: headline.slice(0, 120),
-    body: body.slice(0, 480),
+    headline: headline.slice(0, 140),
+    body: body.slice(0, 520),
     perditaImmaginePct: perdita,
     visibilityIndex: visibility,
+    visibilityBreakdown: breakdown,
+    capitaleARischioEur: capitale ? capitale.euroAtRisk : null,
+    capitaleARischio: capitale,
     fonti: Array.from(new Set(fonti)),
     evidenze,
     whatsappMessage,
@@ -903,6 +1079,32 @@ export async function buildHookContextForMarker(marker: DossierMarker): Promise<
       ctx.domandaPickIstatScore = Math.round(score);
       ctx.domandaPickIstatNota =
         under35 > 0 ? `Under 35: ${under35.toFixed(1)}% — indice vecchiaia ${indVec.toFixed(0)} (ISTAT)` : null;
+    }
+  } catch (_) { /* best effort */ }
+
+  // ── Validazione OMI: Capitale a Rischio ──
+  // Calcola il gap monetario tra prezzo richiesto e tetto OMI massimo della zona.
+  // Richiede: surface_mq nel payload + OMI compr_max disponibile + askingPrice.
+  try {
+    const surfaceMq = Number(
+      marker.payload.surface_mq ??
+      marker.payload.superficie_mq ??
+      marker.payload.mq ??
+      0,
+    );
+    const askingPrice = Number(
+      marker.payload.last_price_eur ??
+      marker.payload.initial_price_eur ??
+      0,
+    );
+    if (surfaceMq > 0 && askingPrice > 0 && ctx.omiCompromaxEur && ctx.omiCompromaxEur > 0) {
+      ctx.surfaceMq = surfaceMq;
+      ctx.capitaleARischio = computeCapitaleARischio({
+        askingPriceEur: askingPrice,
+        surfaceMq,
+        omiMaxEurPerMq: ctx.omiCompromaxEur,
+        omiSemestre: ctx.omiSemestre,
+      });
     }
   } catch (_) { /* best effort */ }
 
