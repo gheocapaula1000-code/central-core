@@ -28,6 +28,7 @@ import { recomputeSuccessionHeatmap } from "./successioniHeatmap.ts";
 import { computePriceResistanceIndex } from "./priceResistance.ts";
 import { buildRadarClusterDossier, generateHook, buildHookContextForMarker, type DossierMarker } from "./clusterDossier.ts";
 import { scrapeRibassiPortali } from "./ribassiPortali.ts";
+import { buildAgentRadar, type AgentRadarRequest } from "./agentRadar.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // Certificazione ufficiale del dato (tutela legale dell'agenzia)
@@ -49,6 +50,7 @@ const ROUTES = [
   "GET  /health",
   "GET  /manifest",
   "POST /civiko/radar-veneto",
+  "POST /agent-radar",
   "POST /cluster-dossier",
   "POST /generate-hook",
   "POST /jobs/recompute-succession-heatmap",
@@ -942,6 +944,37 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] generate-hook error: ${e instanceof Error ? e.message : String(e)}`);
         return withIdentity(fail(req, 500, "HOOK_FAILED", "Hook generation failed", debugId), "error");
+      }
+    }
+
+    // Agent Radar — output operativo Veneto-only per MVP Civiko One
+    if (pathname.endsWith("/agent-radar")) {
+      const rlA = rateLimit(req, `${FUNCTION_NAME}:agent-radar`, { windowMs: 60_000, max: 60 });
+      if (!rlA.ok) {
+        const r = fail(req, 429, "RATE_LIMITED", "Troppe richieste, riprovare a breve.", debugId);
+        r.headers.set("Retry-After", String(rlA.retryAfter));
+        return withIdentity(r, "rate-limited");
+      }
+      let body: AgentRadarRequest = {};
+      try {
+        const parsed = await req.json();
+        if (parsed && typeof parsed === "object") body = parsed as AgentRadarRequest;
+      } catch { /* body opzionale */ }
+      try {
+        const out = await buildAgentRadar(body);
+        return withIdentity(json(req, 200, out, debugId), "agent-radar");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] agent-radar error: ${e instanceof Error ? e.message : String(e)}`);
+        // Fallback shape stabile
+        const fallback = {
+          configured: false,
+          scope: { region: "Veneto" as const, province: ["VE","VR","VI","PD","TV","BL","RO"], datasetStatus: "empty" as const, message: "Errore interno temporaneo." },
+          summary: { totalSignals: 0, hotZones: 0, priceDrops: 0, auctions: 0, motivatedSellers: 0, dataQuality: "mancante" as const },
+          zones: [],
+          opportunities: [],
+          dataQuality: { real: [], partial: [], missing: [], warnings: ["Errore interno: " + (e instanceof Error ? e.message : String(e))] },
+        };
+        return withIdentity(json(req, 200, fallback, debugId), "agent-radar-fallback");
       }
     }
 
