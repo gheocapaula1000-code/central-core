@@ -422,6 +422,57 @@ export type Database = {
         }
         Relationships: []
       }
+      crawl_watchlist: {
+        Row: {
+          allowed_use: string | null
+          comuni: string[]
+          created_at: string
+          id: number
+          last_crawled_at: string | null
+          next_crawl_at: string | null
+          notes: string | null
+          province: string[]
+          source_name: string
+          source_type: string
+          source_url: string
+          status: string
+          updated_at: string
+          watch_frequency: string
+        }
+        Insert: {
+          allowed_use?: string | null
+          comuni?: string[]
+          created_at?: string
+          id?: number
+          last_crawled_at?: string | null
+          next_crawl_at?: string | null
+          notes?: string | null
+          province?: string[]
+          source_name: string
+          source_type: string
+          source_url: string
+          status?: string
+          updated_at?: string
+          watch_frequency?: string
+        }
+        Update: {
+          allowed_use?: string | null
+          comuni?: string[]
+          created_at?: string
+          id?: number
+          last_crawled_at?: string | null
+          next_crawl_at?: string | null
+          notes?: string | null
+          province?: string[]
+          source_name?: string
+          source_type?: string
+          source_url?: string
+          status?: string
+          updated_at?: string
+          watch_frequency?: string
+        }
+        Relationships: []
+      }
       data_sources: {
         Row: {
           allowed_use: string | null
@@ -815,6 +866,99 @@ export type Database = {
         }
         Relationships: []
       }
+      legal_property_signals: {
+        Row: {
+          area_label: string | null
+          base_price_eur: number | null
+          comune: string | null
+          confidence_score: number
+          court_or_authority: string | null
+          data_basis: string[]
+          estimated_asset_type: string | null
+          extracted_entities: Json
+          fetched_at: string
+          fingerprint: string
+          id: number
+          is_active: boolean
+          lat: number | null
+          lng: number | null
+          minimum_bid_eur: number | null
+          payload: Json
+          privacy_redacted: boolean
+          procedure_date: string | null
+          property_type: string | null
+          provincia: string | null
+          quality: string
+          sale_date: string | null
+          signal_type: string
+          source_document_id: number | null
+          source_name: string
+          source_url: string | null
+          status: string | null
+          updated_at: string
+        }
+        Insert: {
+          area_label?: string | null
+          base_price_eur?: number | null
+          comune?: string | null
+          confidence_score?: number
+          court_or_authority?: string | null
+          data_basis?: string[]
+          estimated_asset_type?: string | null
+          extracted_entities?: Json
+          fetched_at?: string
+          fingerprint: string
+          id?: number
+          is_active?: boolean
+          lat?: number | null
+          lng?: number | null
+          minimum_bid_eur?: number | null
+          payload?: Json
+          privacy_redacted?: boolean
+          procedure_date?: string | null
+          property_type?: string | null
+          provincia?: string | null
+          quality?: string
+          sale_date?: string | null
+          signal_type: string
+          source_document_id?: number | null
+          source_name: string
+          source_url?: string | null
+          status?: string | null
+          updated_at?: string
+        }
+        Update: {
+          area_label?: string | null
+          base_price_eur?: number | null
+          comune?: string | null
+          confidence_score?: number
+          court_or_authority?: string | null
+          data_basis?: string[]
+          estimated_asset_type?: string | null
+          extracted_entities?: Json
+          fetched_at?: string
+          fingerprint?: string
+          id?: number
+          is_active?: boolean
+          lat?: number | null
+          lng?: number | null
+          minimum_bid_eur?: number | null
+          payload?: Json
+          privacy_redacted?: boolean
+          procedure_date?: string | null
+          property_type?: string | null
+          provincia?: string | null
+          quality?: string
+          sale_date?: string | null
+          signal_type?: string
+          source_document_id?: number | null
+          source_name?: string
+          source_url?: string | null
+          status?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       listing_bridge_jobs: {
         Row: {
           created_at: string
@@ -992,6 +1136,105 @@ export type Database = {
           source?: string
           surface_sqm?: number | null
           url?: string
+        }
+        Relationships: []
+      }
+      listing_velocity_signals: {
+        Row: {
+          comune: string | null
+          confidence_score: number
+          created_at: string
+          data_basis: string[]
+          days_online: number | null
+          detected_at: string
+          first_seen_at: string | null
+          fresh_listing: boolean
+          hours_since_first_seen: number | null
+          id: number
+          is_active: boolean
+          last_seen_at: string | null
+          lat: number | null
+          listing_hash: string
+          lng: number | null
+          payload: Json
+          previous_price_eur: number | null
+          price_drop_percent: number | null
+          price_eur: number | null
+          price_per_mq: number | null
+          property_type: string | null
+          provincia: string | null
+          quality: string
+          repost_detected: boolean
+          source_name: string
+          source_url: string | null
+          stale_listing: boolean
+          surface_mq: number | null
+          updated_at: string
+          velocity_type: string
+        }
+        Insert: {
+          comune?: string | null
+          confidence_score?: number
+          created_at?: string
+          data_basis?: string[]
+          days_online?: number | null
+          detected_at?: string
+          first_seen_at?: string | null
+          fresh_listing?: boolean
+          hours_since_first_seen?: number | null
+          id?: number
+          is_active?: boolean
+          last_seen_at?: string | null
+          lat?: number | null
+          listing_hash: string
+          lng?: number | null
+          payload?: Json
+          previous_price_eur?: number | null
+          price_drop_percent?: number | null
+          price_eur?: number | null
+          price_per_mq?: number | null
+          property_type?: string | null
+          provincia?: string | null
+          quality?: string
+          repost_detected?: boolean
+          source_name: string
+          source_url?: string | null
+          stale_listing?: boolean
+          surface_mq?: number | null
+          updated_at?: string
+          velocity_type?: string
+        }
+        Update: {
+          comune?: string | null
+          confidence_score?: number
+          created_at?: string
+          data_basis?: string[]
+          days_online?: number | null
+          detected_at?: string
+          first_seen_at?: string | null
+          fresh_listing?: boolean
+          hours_since_first_seen?: number | null
+          id?: number
+          is_active?: boolean
+          last_seen_at?: string | null
+          lat?: number | null
+          listing_hash?: string
+          lng?: number | null
+          payload?: Json
+          previous_price_eur?: number | null
+          price_drop_percent?: number | null
+          price_eur?: number | null
+          price_per_mq?: number | null
+          property_type?: string | null
+          provincia?: string | null
+          quality?: string
+          repost_detected?: boolean
+          source_name?: string
+          source_url?: string | null
+          stale_listing?: boolean
+          surface_mq?: number | null
+          updated_at?: string
+          velocity_type?: string
         }
         Relationships: []
       }
@@ -1753,6 +1996,93 @@ export type Database = {
         }
         Relationships: []
       }
+      pricing_error_signals: {
+        Row: {
+          comparable_avg: number | null
+          comune: string | null
+          confidence_score: number
+          data_basis: string[]
+          detected_at: string
+          deviation_from_comparable_percent: number | null
+          deviation_from_omi_percent: number | null
+          id: number
+          is_active: boolean
+          listing_hash: string
+          omi_avg: number | null
+          omi_max: number | null
+          omi_min: number | null
+          price_eur: number | null
+          price_per_mq: number | null
+          pricing_error_type: string
+          property_type: string | null
+          provincia: string | null
+          quality: string
+          reason: string | null
+          recommended_action: string | null
+          score: number
+          source_name: string | null
+          source_url: string | null
+          surface_mq: number | null
+          updated_at: string
+        }
+        Insert: {
+          comparable_avg?: number | null
+          comune?: string | null
+          confidence_score?: number
+          data_basis?: string[]
+          detected_at?: string
+          deviation_from_comparable_percent?: number | null
+          deviation_from_omi_percent?: number | null
+          id?: number
+          is_active?: boolean
+          listing_hash: string
+          omi_avg?: number | null
+          omi_max?: number | null
+          omi_min?: number | null
+          price_eur?: number | null
+          price_per_mq?: number | null
+          pricing_error_type?: string
+          property_type?: string | null
+          provincia?: string | null
+          quality?: string
+          reason?: string | null
+          recommended_action?: string | null
+          score?: number
+          source_name?: string | null
+          source_url?: string | null
+          surface_mq?: number | null
+          updated_at?: string
+        }
+        Update: {
+          comparable_avg?: number | null
+          comune?: string | null
+          confidence_score?: number
+          data_basis?: string[]
+          detected_at?: string
+          deviation_from_comparable_percent?: number | null
+          deviation_from_omi_percent?: number | null
+          id?: number
+          is_active?: boolean
+          listing_hash?: string
+          omi_avg?: number | null
+          omi_max?: number | null
+          omi_min?: number | null
+          price_eur?: number | null
+          price_per_mq?: number | null
+          pricing_error_type?: string
+          property_type?: string | null
+          provincia?: string | null
+          quality?: string
+          reason?: string | null
+          recommended_action?: string | null
+          score?: number
+          source_name?: string | null
+          source_url?: string | null
+          surface_mq?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       property_id_registry: {
         Row: {
           created_at: string
@@ -2148,6 +2478,75 @@ export type Database = {
           signal_type?: string
           source_name?: string
           title?: string | null
+        }
+        Relationships: []
+      }
+      urgent_opportunity_signals: {
+        Row: {
+          agent_action: string | null
+          area_label: string | null
+          comune: string | null
+          confidence_score: number
+          created_at: string
+          data_basis: string[]
+          expires_at: string | null
+          fingerprint: string
+          id: number
+          is_active: boolean
+          opportunity_type: string
+          priority: string
+          provincia: string | null
+          quality: string
+          reason: string | null
+          script: string | null
+          source_urls: string[]
+          target: string | null
+          time_window: string
+          title: string
+        }
+        Insert: {
+          agent_action?: string | null
+          area_label?: string | null
+          comune?: string | null
+          confidence_score?: number
+          created_at?: string
+          data_basis?: string[]
+          expires_at?: string | null
+          fingerprint: string
+          id?: number
+          is_active?: boolean
+          opportunity_type: string
+          priority: string
+          provincia?: string | null
+          quality?: string
+          reason?: string | null
+          script?: string | null
+          source_urls?: string[]
+          target?: string | null
+          time_window: string
+          title: string
+        }
+        Update: {
+          agent_action?: string | null
+          area_label?: string | null
+          comune?: string | null
+          confidence_score?: number
+          created_at?: string
+          data_basis?: string[]
+          expires_at?: string | null
+          fingerprint?: string
+          id?: number
+          is_active?: boolean
+          opportunity_type?: string
+          priority?: string
+          provincia?: string | null
+          quality?: string
+          reason?: string | null
+          script?: string | null
+          source_urls?: string[]
+          target?: string | null
+          time_window?: string
+          title?: string
         }
         Relationships: []
       }
