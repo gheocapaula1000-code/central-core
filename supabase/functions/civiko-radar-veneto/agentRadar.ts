@@ -406,6 +406,17 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     const giorniMedi = median(a.daysOnline);
     if (giorniMedi && giorniMedi > 120) score += 10;
 
+    // OMI baseline: garantisce ranking utile per zone OMI-only (capoluoghi pesano di più)
+    if (a.omiQuality === "reale") {
+      score += 8;
+      const CAPOLUOGHI: Record<string, number> = {
+        "VE:venezia": 12, "VE:mestre": 10,
+        "VR:verona": 12, "VI:vicenza": 12, "PD:padova": 12,
+        "TV:treviso": 12, "BL:belluno": 10, "RO:rovigo": 10,
+      };
+      score += CAPOLUOGHI[aggKey(a.comune, a.provincia)] ?? 0;
+    }
+
     score = Math.round(Math.min(100, score));
 
     let signalType: AgentRadarZone["signalType"] = "misto";
