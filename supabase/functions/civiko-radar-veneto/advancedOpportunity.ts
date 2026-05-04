@@ -210,8 +210,10 @@ async function runLegalFirecrawl(opts: {
     if (src.crawl_depth >= 1) {
       const m = await fcMap(src.base_url, { search: "asta vendita pignoramento", limit: Math.min(opts.maxPages, src.max_pages) });
       if (m.ok) {
-        for (const l of m.links) {
+        for (const raw of m.links) {
           if (targets.length >= opts.maxPages) break;
+          const l = typeof raw === "string" ? raw : (raw as { url?: string })?.url;
+          if (!l || typeof l !== "string") continue;
           if (isForbiddenPage(l)) continue;
           if (!/asta|vendita|pignoramento|alienazion|liquidazion/i.test(l)) continue;
           targets.push(l);
