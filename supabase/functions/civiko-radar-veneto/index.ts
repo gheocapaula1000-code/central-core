@@ -381,6 +381,7 @@ function estimateSentimentFromIstat(comune: string, istat: IstatComuneRow | null
       livello: "non_disponibile",
       nota: "Riscontro non disponibile in questo momento.",
       fonte: "Fonte da Collegare",
+      fonte_certificata: "non_certificata",
     };
   }
   const pop = istat.popolazione;
@@ -395,13 +396,14 @@ function estimateSentimentFromIstat(comune: string, istat: IstatComuneRow | null
     livello,
     nota,
     fonte: "ISTAT (DCIS_POPRES1)",
+    fonte_certificata: "ISTAT",
     derivazione: "stima_da_dati_statistici",
   };
 }
 
 function estimateSicurezzaFromIstat(istat: IstatComuneRow | null): ZoneSignal {
   if (!istat || !istat.popolazione) {
-    return { label: "Sicurezza Percepita", livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare" };
+    return { label: "Sicurezza Percepita", livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" };
   }
   // Comuni piccoli e con anzianità alta → percezione sicurezza generalmente più alta
   const pop = istat.popolazione;
@@ -420,7 +422,7 @@ function estimateSicurezzaFromIstat(istat: IstatComuneRow | null): ZoneSignal {
 
 function estimateRumoreFromOmi(istat: IstatComuneRow | null, omi: { commercialZones: number; totalZones: number } | null): ZoneSignal {
   if (!omi || omi.totalZones === 0) {
-    return { label: "Rumore Ambientale", livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare" };
+    return { label: "Rumore Ambientale", livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" };
   }
   const ratio = omi.commercialZones / Math.max(1, omi.totalZones);
   const pop = istat?.popolazione ?? 0;
@@ -432,13 +434,14 @@ function estimateRumoreFromOmi(istat: IstatComuneRow | null, omi: { commercialZo
     livello,
     nota: `Stima derivata: ${omi.commercialZones} zone OMI a destinazione commerciale/uffici su ${omi.totalZones} totali (${Math.round(ratio * 100)}%). Maggiore presenza commerciale = maggiore esposizione a rumore diurno/notturno.`,
     fonte: "Agenzia delle Entrate – OMI",
+    fonte_certificata: "AdE",
     derivazione: "stima_da_dati_statistici",
   };
 }
 
 function estimateAriaFromIstat(istat: IstatComuneRow | null): ZoneSignal {
   if (!istat || !istat.popolazione) {
-    return { label: "Qualità dell'Aria", livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare" };
+    return { label: "Qualità dell'Aria", livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" };
   }
   const pop = istat.popolazione;
   let livello: ZoneSignal["livello"] = "stimato_medio";
@@ -712,10 +715,10 @@ Deno.serve(async (req) => {
       scope: { comune: "—", provincia: "—" },
       data_source_verification: DATA_SOURCE_VERIFICATION,
       segnaliDiZona: {
-        sentiment: { label: "Sentiment di Zona", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare" },
-        sicurezza: { label: "Sicurezza Percepita", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare" },
-        rumore: { label: "Rumore Ambientale", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare" },
-        qualitaAria: { label: "Qualità dell'Aria", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare" },
+        sentiment: { label: "Sentiment di Zona", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" },
+        sicurezza: { label: "Sicurezza Percepita", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" },
+        rumore: { label: "Rumore Ambientale", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" },
+        qualitaAria: { label: "Qualità dell'Aria", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" },
       },
       opportunitaOffMarket: [], bandiRegionali: [],
       warnings: ["Errore interno temporaneo durante l'elaborazione."],
