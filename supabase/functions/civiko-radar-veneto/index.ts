@@ -1010,7 +1010,77 @@ Deno.serve(async (req) => {
         return withIdentity(fail(req, 500, "JOB_FAILED", "Advanced opportunity engine failed", debugId), "job-error");
       }
     }
-    if (pathname.endsWith("/jobs/recompute-succession-heatmap") || pathname.endsWith("/jobs/recompute-price-resistance")) {
+
+    // ── New Perplexity-derived intelligence jobs ─────────────
+    {
+      const newJobs = [
+        "/jobs/import-veneto-open-data",
+        "/jobs/import-veneto-geo-environment",
+        "/jobs/import-omi-territorial-notes",
+        "/jobs/build-veneto-intelligence-from-research",
+        "/jobs/apify-run-veneto-source",
+      ];
+      const matched = newJobs.find((p) => pathname.endsWith(p));
+      if (matched) {
+        const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
+        const provided = req.headers.get("x-job-secret") ?? "";
+        if (!expected || provided !== expected) {
+          return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
+        }
+        try {
+          const body = await req.json().catch(() => ({}));
+          if (matched === "/jobs/import-veneto-open-data") {
+            const r = await runVenetoOpenDataImport({
+              keywords: Array.isArray(body?.keywords) && body.keywords.length ? body.keywords : ["urbanistica","piano interventi","quartieri","rumore","mobilità","parcheggi","edifici","strade"],
+              province: Array.isArray(body?.province) ? body.province : ["PD","VI","VR","TV","VE","BL","RO"],
+              dryRun: body?.dryRun !== false,
+              import: body?.import === true,
+            });
+            return withIdentity(json(req, r.ok ? 200 : 207, { job: "import-veneto-open-data", ...r }, debugId), "job-open-data");
+          }
+          if (matched === "/jobs/import-veneto-geo-environment" || matched === "/jobs/import-omi-territorial-notes") {
+            return withIdentity(json(req, 200, {
+              job: matched.replace("/jobs/",""),
+              status: "registered_only",
+              note: matched.endsWith("geo-environment")
+                ? "ARPAV/Geoportale layers require per-layer URL resolution; sources registered in data_sources."
+                : "OMI Note Territoriali PDF parsing pipeline pending; sources registered in data_sources.",
+            }, debugId), "job-stub");
+          }
+          if (matched === "/jobs/build-veneto-intelligence-from-research") {
+            const r = await buildVenetoIntelligenceFromResearch({
+              dryRun: body?.dryRun !== false,
+              runOpenData: body?.runOpenData !== false,
+              runGeoEnvironment: body?.runGeoEnvironment !== false,
+              runOmiNotes: body?.runOmiNotes !== false,
+              runUrbanPlanning: body?.runUrbanPlanning !== false,
+              runMicrozoneSentiment: body?.runMicrozoneSentiment !== false,
+              runTurnoverSignals: body?.runTurnoverSignals !== false,
+              runAreaScores: body?.runAreaScores !== false,
+              runApify: body?.runApify === true,
+              province: Array.isArray(body?.province) ? body.province : ["PD","VI","VR","TV","VE","BL","RO"],
+              comuni: Array.isArray(body?.comuni) ? body.comuni : undefined,
+              import: body?.import === true,
+            });
+            return withIdentity(json(req, r.ok ? 200 : 207, { job: "build-veneto-intelligence-from-research", ...r }, debugId), "job-vir");
+          }
+          if (matched === "/jobs/apify-run-veneto-source") {
+            const r = await runApifyForVenetoSource({
+              source_name: String(body?.source_name ?? ""),
+              actor_id: String(body?.actor_id ?? ""),
+              input: body?.input ?? {},
+              dryRun: body?.dryRun !== false,
+              import: body?.import === true,
+            });
+            return withIdentity(json(req, r.ok ? 200 : 207, { job: "apify-run-veneto-source", ...r }, debugId), "job-apify");
+          }
+        } catch (e) {
+          console.error(`[${FUNCTION_NAME}] perplexity job error:`, e instanceof Error ? e.message : String(e));
+          return withIdentity(fail(req, 500, "JOB_FAILED", "Perplexity-derived job failed", debugId), "job-error");
+        }
+      }
+    }
+
       const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
       const provided = req.headers.get("x-job-secret") ?? "";
       if (!expected || provided !== expected) {
