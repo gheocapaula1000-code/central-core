@@ -29,6 +29,7 @@ import { computePriceResistanceIndex } from "./priceResistance.ts";
 import { buildRadarClusterDossier, generateHook, buildHookContextForMarker, type DossierMarker } from "./clusterDossier.ts";
 import { scrapeRibassiPortali } from "./ribassiPortali.ts";
 import { buildAgentRadar, type AgentRadarRequest } from "./agentRadar.ts";
+import { deriveAllSignals } from "./deriveSignals.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // Certificazione ufficiale del dato (tutela legale dell'agenzia)
@@ -666,6 +667,7 @@ async function activateVeneto(): Promise<{
   istat: { triggered: boolean; status: string };
   portali: Array<{ comune: string; provincia: string; opportunita: number; bruciati: number; ribassi: number }>;
   totals: { opportunita: number; bruciati: number; ribassi: number };
+  derive: Awaited<ReturnType<typeof deriveAllSignals>>;
   fonte_certificata_summary: Record<string, number>;
   warnings: string[];
 }> {
@@ -730,10 +732,22 @@ async function activateVeneto(): Promise<{
     { opportunita: 0, bruciati: 0, ribassi: 0 },
   );
 
+  // 3) Derivazione automatica motivated_sellers + market_anomalies + radar_signals
+  //    da snapshot esistenti (reali e seed_demo) + OMI reale.
+  let derive: Awaited<ReturnType<typeof deriveAllSignals>>;
+  try {
+    derive = await deriveAllSignals();
+    if (derive.warnings.length) warnings.push(...derive.warnings.map((w) => `derive: ${w}`));
+  } catch (e) {
+    warnings.push(`derive error: ${e instanceof Error ? e.message : String(e)}`);
+    derive = { motivated_sellers_inserted: 0, market_anomalies_inserted: 0, radar_signals_inserted: 0, warnings: [] };
+  }
+
   return {
     istat: { triggered: istatStatus === "triggered", status: istatStatus },
     portali: portaliResults,
     totals,
+    derive,
     fonte_certificata_summary: {
       "ISTAT": istatStatus === "triggered" ? 1 : 0,
       "Portali": totals.opportunita,
