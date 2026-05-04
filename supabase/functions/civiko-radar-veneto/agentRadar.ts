@@ -282,7 +282,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       summary: { totalSignals: 0, hotZones: 0, priceDrops: 0, auctions: 0, motivatedSellers: 0, dataQuality: "mancante" },
       zones: allowDemo ? buildDemoZones(filterProv).slice(0, 3) : [],
       opportunities: [],
-      dataQuality: { real: [], partial: [], missing: ["supabase"], warnings: ["Service role mancante."] },
+      dataQuality: { real: [], partial: [], demo: [], missing: ["supabase"], warnings: ["Service role mancante."] },
     };
   }
 
