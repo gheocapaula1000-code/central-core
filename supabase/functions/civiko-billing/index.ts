@@ -391,6 +391,36 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const pathname = url.pathname;
 
+    // ── New RESTful sub-paths (dual-auth: JWT user OR app-secret) ──
+    // GET /subscription
+    // POST /checkout
+    // POST /portal
+    const isRestSubscription = req.method === "GET" && (pathname.endsWith("/subscription") || pathname === EXPECTED_BASE_PATH + "/subscription");
+    const isRestCheckout = req.method === "POST" && (pathname.endsWith("/checkout") && !pathname.endsWith("/create-checkout"));
+    const isRestPortal = req.method === "POST" && pathname.endsWith("/portal") && !pathname.endsWith("/customer-portal");
+
+    if (isRestSubscription || isRestCheckout || isRestPortal) {
+      const auth = await authenticateDual(req, debugId);
+      if (!auth.ok) return auth.res;
+      const agencyOverride = auth.userId;
+
+      if (isRestSubscription) {
+        return await handleCheckSubscription(req, {}, debugId, { agencyOverride, route: "subscription" });
+      }
+
+      let body: Record<string, unknown> = {};
+      try { body = (await req.json()) as Record<string, unknown>; }
+      catch { return withIdentity(fail(req, 400, "INVALID_JSON", "Body is not valid JSON", debugId), "error"); }
+      if (body == null || typeof body !== "object" || Array.isArray(body)) {
+        return withIdentity(fail(req, 400, "INVALID_BODY", "Body must be a JSON object.", debugId), "error");
+      }
+      // Inject email from JWT if not provided
+      if (!body.email && auth.email) body.email = auth.email;
+
+      if (isRestCheckout) return await handleCreateCheckout(req, body, debugId, { agencyOverride, route: "checkout" });
+      if (isRestPortal) return await handleCustomerPortal(req, body, debugId, { agencyOverride, route: "portal" });
+    }
+
     if (req.method === "GET") {
       if (pathname.endsWith("/health") || pathname === "/" || pathname === EXPECTED_BASE_PATH) {
         return withIdentity(json(req, 200, {
