@@ -30,6 +30,7 @@ import { buildRadarClusterDossier, generateHook, buildHookContextForMarker, type
 import { scrapeRibassiPortali } from "./ribassiPortali.ts";
 import { buildAgentRadar, type AgentRadarRequest } from "./agentRadar.ts";
 import { deriveAllSignals } from "./deriveSignals.ts";
+import { buildVenetoDataEngine } from "./dataEngine.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // Certificazione ufficiale del dato (tutela legale dell'agenzia)
@@ -57,6 +58,7 @@ const ROUTES = [
   "POST /jobs/recompute-succession-heatmap",
   "POST /jobs/recompute-price-resistance",
   "POST /jobs/activate-veneto",
+  "POST /jobs/build-civiko-veneto-data-engine",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
@@ -882,6 +884,26 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] activate-veneto error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Activate Veneto failed", debugId), "job-error");
+      }
+    }
+
+    // Build proprietario Civiko Data Engine Veneto
+    if (pathname.endsWith("/jobs/build-civiko-veneto-data-engine")) {
+      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
+      const provided = req.headers.get("x-job-secret") ?? "";
+      if (!expected || provided !== expected) {
+        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
+      }
+      try {
+        const r = await buildVenetoDataEngine();
+        return withIdentity(json(req, 200, {
+          job: "build-civiko-veneto-data-engine",
+          data_source_verification: DATA_SOURCE_VERIFICATION,
+          ...r,
+        }, debugId), "job-data-engine");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] data-engine error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Data Engine Veneto failed", debugId), "job-error");
       }
     }
 

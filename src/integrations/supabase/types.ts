@@ -74,6 +74,117 @@ export type Database = {
         }
         Relationships: []
       }
+      area_opportunity_scores: {
+        Row: {
+          components: Json
+          computed_at: string
+          data_basis: string | null
+          id: number
+          microzone: string | null
+          municipality: string
+          province: string
+          quality: string
+          region: string
+          score: number
+          temperature: string
+        }
+        Insert: {
+          components?: Json
+          computed_at?: string
+          data_basis?: string | null
+          id?: number
+          microzone?: string | null
+          municipality: string
+          province: string
+          quality?: string
+          region?: string
+          score: number
+          temperature: string
+        }
+        Update: {
+          components?: Json
+          computed_at?: string
+          data_basis?: string | null
+          id?: number
+          microzone?: string | null
+          municipality?: string
+          province?: string
+          quality?: string
+          region?: string
+          score?: number
+          temperature?: string
+        }
+        Relationships: []
+      }
+      auction_signals: {
+        Row: {
+          base_price_eur: number | null
+          cap: string | null
+          data_basis: string | null
+          detected_at: string
+          fingerprint: string
+          id: number
+          is_active: boolean
+          lat: number | null
+          lng: number | null
+          minimum_offer_eur: number | null
+          municipality: string | null
+          payload: Json | null
+          property_type: string | null
+          province: string | null
+          quality: string
+          sale_date: string | null
+          source_name: string
+          source_url: string | null
+          status: string | null
+          updated_at: string
+        }
+        Insert: {
+          base_price_eur?: number | null
+          cap?: string | null
+          data_basis?: string | null
+          detected_at?: string
+          fingerprint: string
+          id?: number
+          is_active?: boolean
+          lat?: number | null
+          lng?: number | null
+          minimum_offer_eur?: number | null
+          municipality?: string | null
+          payload?: Json | null
+          property_type?: string | null
+          province?: string | null
+          quality?: string
+          sale_date?: string | null
+          source_name: string
+          source_url?: string | null
+          status?: string | null
+          updated_at?: string
+        }
+        Update: {
+          base_price_eur?: number | null
+          cap?: string | null
+          data_basis?: string | null
+          detected_at?: string
+          fingerprint?: string
+          id?: number
+          is_active?: boolean
+          lat?: number | null
+          lng?: number | null
+          minimum_offer_eur?: number | null
+          municipality?: string | null
+          payload?: Json | null
+          property_type?: string | null
+          province?: string | null
+          quality?: string
+          sale_date?: string | null
+          source_name?: string
+          source_url?: string | null
+          status?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       billing_customers: {
         Row: {
           agency_id: string
@@ -248,6 +359,48 @@ export type Database = {
         }
         Relationships: []
       }
+      civiko_data_quality: {
+        Row: {
+          id: number
+          last_check_at: string
+          municipalities_covered: number | null
+          notes: string | null
+          provinces_covered: string[] | null
+          region: string
+          rows_demo: number | null
+          rows_partial: number | null
+          rows_real: number | null
+          rows_total: number | null
+          table_name: string
+        }
+        Insert: {
+          id?: number
+          last_check_at?: string
+          municipalities_covered?: number | null
+          notes?: string | null
+          provinces_covered?: string[] | null
+          region?: string
+          rows_demo?: number | null
+          rows_partial?: number | null
+          rows_real?: number | null
+          rows_total?: number | null
+          table_name: string
+        }
+        Update: {
+          id?: number
+          last_check_at?: string
+          municipalities_covered?: number | null
+          notes?: string | null
+          provinces_covered?: string[] | null
+          region?: string
+          rows_demo?: number | null
+          rows_partial?: number | null
+          rows_real?: number | null
+          rows_total?: number | null
+          table_name?: string
+        }
+        Relationships: []
+      }
       classificazione_sismica: {
         Row: {
           codice_istat: string
@@ -266,6 +419,102 @@ export type Database = {
           comune?: string
           id?: number
           zona_sismica?: number
+        }
+        Relationships: []
+      }
+      data_sources: {
+        Row: {
+          allowed_use: string | null
+          coverage_area: string
+          created_at: string
+          freshness_score: number | null
+          id: number
+          ingestion_status: string
+          last_run_at: string | null
+          notes: string | null
+          priority: number
+          reliability_score: number | null
+          requires_key: boolean
+          source_name: string
+          source_type: string
+          updated_at: string
+        }
+        Insert: {
+          allowed_use?: string | null
+          coverage_area?: string
+          created_at?: string
+          freshness_score?: number | null
+          id?: number
+          ingestion_status?: string
+          last_run_at?: string | null
+          notes?: string | null
+          priority?: number
+          reliability_score?: number | null
+          requires_key?: boolean
+          source_name: string
+          source_type: string
+          updated_at?: string
+        }
+        Update: {
+          allowed_use?: string | null
+          coverage_area?: string
+          created_at?: string
+          freshness_score?: number | null
+          id?: number
+          ingestion_status?: string
+          last_run_at?: string | null
+          notes?: string | null
+          priority?: number
+          reliability_score?: number | null
+          requires_key?: boolean
+          source_name?: string
+          source_type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ingestion_runs: {
+        Row: {
+          completed_at: string | null
+          duration_ms: number | null
+          errors: Json | null
+          id: number
+          job_name: string
+          report: Json | null
+          rows_in: number | null
+          rows_out: number | null
+          source_name: string | null
+          started_at: string
+          status: string
+          warnings: Json | null
+        }
+        Insert: {
+          completed_at?: string | null
+          duration_ms?: number | null
+          errors?: Json | null
+          id?: number
+          job_name: string
+          report?: Json | null
+          rows_in?: number | null
+          rows_out?: number | null
+          source_name?: string | null
+          started_at?: string
+          status?: string
+          warnings?: Json | null
+        }
+        Update: {
+          completed_at?: string | null
+          duration_ms?: number | null
+          errors?: Json | null
+          id?: number
+          job_name?: string
+          report?: Json | null
+          rows_in?: number | null
+          rows_out?: number | null
+          source_name?: string | null
+          started_at?: string
+          status?: string
+          warnings?: Json | null
         }
         Relationships: []
       }
@@ -1497,6 +1746,69 @@ export type Database = {
         }
         Relationships: []
       }
+      source_documents: {
+        Row: {
+          content_hash: string | null
+          doc_type: string | null
+          fetched_at: string
+          id: number
+          metadata: Json | null
+          source_name: string
+          url: string | null
+        }
+        Insert: {
+          content_hash?: string | null
+          doc_type?: string | null
+          fetched_at?: string
+          id?: number
+          metadata?: Json | null
+          source_name: string
+          url?: string | null
+        }
+        Update: {
+          content_hash?: string | null
+          doc_type?: string | null
+          fetched_at?: string
+          id?: number
+          metadata?: Json | null
+          source_name?: string
+          url?: string | null
+        }
+        Relationships: []
+      }
+      source_fetch_logs: {
+        Row: {
+          duration_ms: number | null
+          error: string | null
+          fetched_at: string
+          id: number
+          ok: boolean | null
+          source_name: string
+          status_code: number | null
+          url: string | null
+        }
+        Insert: {
+          duration_ms?: number | null
+          error?: string | null
+          fetched_at?: string
+          id?: number
+          ok?: boolean | null
+          source_name: string
+          status_code?: number | null
+          url?: string | null
+        }
+        Update: {
+          duration_ms?: number | null
+          error?: string | null
+          fetched_at?: string
+          id?: number
+          ok?: boolean | null
+          source_name?: string
+          status_code?: number | null
+          url?: string | null
+        }
+        Relationships: []
+      }
       succession_heatmap_cap: {
         Row: {
           cap: string
@@ -1539,6 +1851,60 @@ export type Database = {
           probability_score?: number
           province?: string | null
           region?: string
+        }
+        Relationships: []
+      }
+      territorial_signals: {
+        Row: {
+          data_basis: string | null
+          description: string | null
+          detected_at: string
+          fingerprint: string
+          id: number
+          is_active: boolean
+          lat: number | null
+          lng: number | null
+          municipality: string | null
+          payload: Json | null
+          province: string | null
+          quality: string
+          signal_type: string
+          source_name: string
+          title: string | null
+        }
+        Insert: {
+          data_basis?: string | null
+          description?: string | null
+          detected_at?: string
+          fingerprint: string
+          id?: number
+          is_active?: boolean
+          lat?: number | null
+          lng?: number | null
+          municipality?: string | null
+          payload?: Json | null
+          province?: string | null
+          quality?: string
+          signal_type: string
+          source_name: string
+          title?: string | null
+        }
+        Update: {
+          data_basis?: string | null
+          description?: string | null
+          detected_at?: string
+          fingerprint?: string
+          id?: number
+          is_active?: boolean
+          lat?: number | null
+          lng?: number | null
+          municipality?: string | null
+          payload?: Json | null
+          province?: string | null
+          quality?: string
+          signal_type?: string
+          source_name?: string
+          title?: string | null
         }
         Relationships: []
       }

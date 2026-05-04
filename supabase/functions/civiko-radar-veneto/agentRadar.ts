@@ -295,10 +295,32 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     return data ?? [];
   }, warnings);
 
+  // auction_signals (Civiko-owned, dedicato aste)
+  const auctions = await safe("auction_signals", async () => {
+    let q = supa.from("auction_signals")
+      .select("province,municipality,base_price_eur,sale_date,is_active")
+      .eq("is_active", true);
+    if (filterProv) q = q.in("province", [filterProv, fullProvName(filterProv)].filter(Boolean) as string[]);
+    const { data, error } = await q.range(0, 1999);
+    if (error) throw error;
+    return data ?? [];
+  }, warnings);
+
+  // area_opportunity_scores (priorità Civiko)
+  const aosRows = await safe("area_opportunity_scores", async () => {
+    let q = supa.from("area_opportunity_scores").select("province,municipality,score,temperature,components,quality");
+    if (filterProv) q = q.eq("province", filterProv);
+    const { data, error } = await q.range(0, 4999);
+    if (error) throw error;
+    return data ?? [];
+  }, warnings);
+
   if (snaps && snaps.length > 0) real.push("listing_price_snapshots"); else missing.push("listing_price_snapshots");
   if (motivated && motivated.length > 0) real.push("motivated_sellers"); else missing.push("motivated_sellers");
   if (anomalies && anomalies.length > 0) real.push("market_anomalies"); else missing.push("market_anomalies");
   if (signals && signals.length > 0) real.push("radar_signals"); else missing.push("radar_signals");
+  if (auctions && auctions.length > 0) real.push("auction_signals"); else missing.push("auction_signals");
+  if (aosRows && aosRows.length > 0) real.push("area_opportunity_scores"); else missing.push("area_opportunity_scores");
   if (omiRows && omiRows.length > 0) real.push("omi_valori"); else missing.push("omi_valori");
 
   // ── Aggregazione per zona ───────────────────────────────────
@@ -341,6 +363,26 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     if (filterComune && row.municipality.toLowerCase() !== filterComune) continue;
     const a = ensure(row.municipality, prov);
     if ((row.anomaly_type ?? "").toLowerCase().includes("ribass")) a.ribassi30gg++;
+  }
+
+  // auction_signals → conta come aste aggiuntive
+  for (const r of auctions ?? []) {
+    const row = r as { province: string|null; municipality: string|null };
+    const prov = isVenetoRow(row.province);
+    if (!prov || !row.municipality) continue;
+    if (filterComune && row.municipality.toLowerCase() !== filterComune) continue;
+    ensure(row.municipality, prov).aste++;
+  }
+
+  // area_opportunity_scores → boost zone già scorate da Civiko Data Engine
+  const aosBoost = new Map<string, { score: number; quality: string }>();
+  for (const r of aosRows ?? []) {
+    const row = r as { province: string|null; municipality: string|null; score: number|null; quality: string|null };
+    const prov = isVenetoRow(row.province);
+    if (!prov || !row.municipality || row.score == null) continue;
+    aosBoost.set(aggKey(row.municipality, prov), { score: Number(row.score), quality: row.quality ?? "parziale" });
+    // Crea zona se non esiste
+    ensure(row.municipality, prov);
   }
 
   for (const r of signals ?? []) {
@@ -415,6 +457,12 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         "TV:treviso": 12, "BL:belluno": 10, "RO:rovigo": 10,
       };
       score += CAPOLUOGHI[aggKey(a.comune, a.provincia)] ?? 0;
+    }
+
+    // Boost da area_opportunity_scores (priorità Civiko Data Engine)
+    const aosHit = aosBoost.get(aggKey(a.comune, a.provincia));
+    if (aosHit) {
+      score = Math.max(score, aosHit.score);
     }
 
     score = Math.round(Math.min(100, score));
