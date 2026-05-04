@@ -108,9 +108,42 @@ export interface AgentRadarResponse {
   dataQuality: {
     real: string[];
     partial: string[];
+    demo: string[];
     missing: string[];
     warnings: string[];
   };
+}
+
+// ── Quality classification (centralizzata) ────────────────────────
+const DEMO_MARKERS = ["seed_demo", "demo", "mock", "fixture", "sample"];
+export function isDemoSource(...vals: Array<unknown>): boolean {
+  for (const v of vals) {
+    if (v == null) continue;
+    const s = String(v).toLowerCase();
+    if (DEMO_MARKERS.some((m) => s.includes(m))) return true;
+  }
+  return false;
+}
+
+export type QualityTag = "reale" | "parziale" | "demo" | "stimato" | "mancante";
+
+export function classifyDataQuality(input: {
+  source?: unknown;
+  sourceBasis?: unknown;
+  payloadQuality?: unknown;
+  payloadSource?: unknown;
+  derivedFromDemo?: boolean;
+  hasReal?: boolean;
+  isOmiOnly?: boolean;
+}): QualityTag {
+  if (isDemoSource(input.source, input.sourceBasis, input.payloadSource) || input.derivedFromDemo) return "demo";
+  const pq = typeof input.payloadQuality === "string" ? input.payloadQuality.toLowerCase() : "";
+  if (pq === "demo") return "demo";
+  if (pq === "reale" && input.hasReal) return "reale";
+  if (pq === "parziale") return "parziale";
+  if (input.isOmiOnly) return "parziale"; // OMI da solo non basta a dichiarare opportunità reale
+  if (input.hasReal) return "reale";
+  return "parziale";
 }
 
 function getServiceClient(): SupabaseClient | null {
@@ -140,24 +173,34 @@ interface ZoneAgg {
   lat: number | null;
   lng: number | null;
   annunciAttivi: number;
+  annunciAttiviDemo: number;
   ribassi30gg: number;
+  ribassi30ggDemo: number;
   aste: number;
+  asteDemo: number;
   venditoriMotivati: number;
+  venditoriMotivatiDemo: number;
   prezziPerSqm: number[];
   daysOnline: number[];
   omiValoreMedio: number | null;
   omiFascia: string | null;
   omiMicrozona: string | null;
   omiQuality: "reale" | "stimato" | "mancante";
+  hasDemoSource: boolean;
+  hasRealSource: boolean;
 }
 
 function emptyAgg(k: AggKey): ZoneAgg {
   return {
     comune: k.comune, provincia: k.provincia,
     lat: null, lng: null,
-    annunciAttivi: 0, ribassi30gg: 0, aste: 0, venditoriMotivati: 0,
+    annunciAttivi: 0, annunciAttiviDemo: 0,
+    ribassi30gg: 0, ribassi30ggDemo: 0,
+    aste: 0, asteDemo: 0,
+    venditoriMotivati: 0, venditoriMotivatiDemo: 0,
     prezziPerSqm: [], daysOnline: [],
     omiValoreMedio: null, omiFascia: null, omiMicrozona: null, omiQuality: "mancante",
+    hasDemoSource: false, hasRealSource: false,
   };
 }
 
@@ -219,6 +262,7 @@ function buildDemoZones(filter: ProvCode | null): AgentRadarZone[] {
   return (filtered.length ? filtered : demos).map((d) => ({ ...d, quality: "demo" as const }));
 }
 
+
 export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRadarResponse> {
   const warnings: string[] = [];
   const real: string[] = [];
@@ -238,14 +282,14 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       summary: { totalSignals: 0, hotZones: 0, priceDrops: 0, auctions: 0, motivatedSellers: 0, dataQuality: "mancante" },
       zones: allowDemo ? buildDemoZones(filterProv).slice(0, 3) : [],
       opportunities: [],
-      dataQuality: { real: [], partial: [], missing: ["supabase"], warnings: ["Service role mancante."] },
+      dataQuality: { real: [], partial: [], demo: [], missing: ["supabase"], warnings: ["Service role mancante."] },
     };
   }
 
   // ── Pull dati (best-effort, ognuno in try/catch) ────────────
   const snaps = await safe("listing_price_snapshots", async () => {
     let q = supa.from("listing_price_snapshots")
-      .select("province,municipality,price_eur,surface_sqm,lat,lng,captured_at")
+      .select("province,municipality,price_eur,surface_sqm,lat,lng,captured_at,source")
       .gte("captured_at", new Date(Date.now() - 60 * 86400_000).toISOString());
     if (filterProv) q = q.in("province", [filterProv, fullProvName(filterProv)].filter(Boolean) as string[]);
     const { data, error } = await q.range(0, 4999);
@@ -255,7 +299,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
 
   const motivated = await safe("motivated_sellers", async () => {
     let q = supa.from("motivated_sellers")
-      .select("province,municipality,days_online,total_drop_pct,fatigue_score,is_active")
+      .select("province,municipality,days_online,total_drop_pct,fatigue_score,is_active,source,payload")
       .eq("is_active", true);
     if (filterProv) q = q.in("province", [filterProv, fullProvName(filterProv)].filter(Boolean) as string[]);
     const { data, error } = await q.range(0, 1999);
@@ -265,17 +309,16 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
 
   const anomalies = await safe("market_anomalies", async () => {
     let q = supa.from("market_anomalies")
-      .select("province,municipality,anomaly_type,detected_at,is_active")
-      .eq("is_active", true);
+      .select("province,municipality,anomaly_type,detected_at,is_active,payload");
     if (filterProv) q = q.in("province", [filterProv, fullProvName(filterProv)].filter(Boolean) as string[]);
-    const { data, error } = await q.range(0, 1999);
+    const { data, error } = await q.eq("is_active", true).range(0, 1999);
     if (error) throw error;
     return data ?? [];
   }, warnings);
 
   const signals = await safe("radar_signals", async () => {
     let q = supa.from("radar_signals")
-      .select("province,municipality,signal_type,is_active,lat,lng")
+      .select("province,municipality,signal_type,is_active,lat,lng,source,payload")
       .eq("is_active", true);
     if (filterProv) q = q.in("province", [filterProv, fullProvName(filterProv)].filter(Boolean) as string[]);
     const { data, error } = await q.range(0, 1999);
@@ -298,7 +341,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   // auction_signals (Civiko-owned, dedicato aste)
   const auctions = await safe("auction_signals", async () => {
     let q = supa.from("auction_signals")
-      .select("province,municipality,base_price_eur,sale_date,is_active")
+      .select("province,municipality,base_price_eur,sale_date,is_active,source_name,payload,quality")
       .eq("is_active", true);
     if (filterProv) q = q.in("province", [filterProv, fullProvName(filterProv)].filter(Boolean) as string[]);
     const { data, error } = await q.range(0, 1999);
@@ -308,20 +351,67 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
 
   // area_opportunity_scores (priorità Civiko)
   const aosRows = await safe("area_opportunity_scores", async () => {
-    let q = supa.from("area_opportunity_scores").select("province,municipality,score,temperature,components,quality");
+    let q = supa.from("area_opportunity_scores").select("province,municipality,score,temperature,components,quality,data_basis");
     if (filterProv) q = q.eq("province", filterProv);
     const { data, error } = await q.range(0, 4999);
     if (error) throw error;
     return data ?? [];
   }, warnings);
 
-  if (snaps && snaps.length > 0) real.push("listing_price_snapshots"); else missing.push("listing_price_snapshots");
-  if (motivated && motivated.length > 0) real.push("motivated_sellers"); else missing.push("motivated_sellers");
-  if (anomalies && anomalies.length > 0) real.push("market_anomalies"); else missing.push("market_anomalies");
-  if (signals && signals.length > 0) real.push("radar_signals"); else missing.push("radar_signals");
-  if (auctions && auctions.length > 0) real.push("auction_signals"); else missing.push("auction_signals");
-  if (aosRows && aosRows.length > 0) real.push("area_opportunity_scores"); else missing.push("area_opportunity_scores");
+  // ── Helper: classifica record demo vs reale e split conteggi ──
+  const isRecordDemo = (rec: { source?: unknown; source_name?: unknown; payload?: unknown }): boolean => {
+    const p = (rec.payload ?? {}) as Record<string, unknown>;
+    return isDemoSource(rec.source, rec.source_name, p?.source, p?.quality, p?.data_basis);
+  };
+
+  // Conteggio demo per dataset
+  let snapsDemo = 0, snapsReal = 0;
+  for (const r of snaps ?? []) { isRecordDemo(r as never) ? snapsDemo++ : snapsReal++; }
+  let motivatedDemo = 0, motivatedReal = 0;
+  for (const r of motivated ?? []) { isRecordDemo(r as never) ? motivatedDemo++ : motivatedReal++; }
+  let anomaliesDemo = 0, anomaliesReal = 0;
+  for (const r of anomalies ?? []) { isRecordDemo(r as never) ? anomaliesDemo++ : anomaliesReal++; }
+  let signalsDemo = 0, signalsReal = 0;
+  for (const r of signals ?? []) { isRecordDemo(r as never) ? signalsDemo++ : signalsReal++; }
+  let auctionsDemo = 0, auctionsReal = 0;
+  for (const r of auctions ?? []) { isRecordDemo(r as never) ? auctionsDemo++ : auctionsReal++; }
+
+  // Marca dataQuality buckets
+  const demo: string[] = [];
+  const pushBucket = (label: string, realN: number, demoN: number, total: number) => {
+    if (total === 0) { missing.push(label); return; }
+    if (realN > 0 && demoN === 0) real.push(label);
+    else if (realN > 0 && demoN > 0) { partial.push(label); demo.push(`${label} (${demoN}/${total} demo)`); }
+    else demo.push(`${label} (${demoN}/${total} demo)`);
+  };
+  pushBucket("listing_price_snapshots", snapsReal, snapsDemo, snaps?.length ?? 0);
+  pushBucket("motivated_sellers", motivatedReal, motivatedDemo, motivated?.length ?? 0);
+  pushBucket("market_anomalies", anomaliesReal, anomaliesDemo, anomalies?.length ?? 0);
+  pushBucket("radar_signals", signalsReal, signalsDemo, signals?.length ?? 0);
+  pushBucket("auction_signals", auctionsReal, auctionsDemo, auctions?.length ?? 0);
+  // OMI: sempre reale (Agenzia Entrate)
   if (omiRows && omiRows.length > 0) real.push("omi_valori"); else missing.push("omi_valori");
+  // AOS: parziale a meno che non sia full real
+  if (aosRows && aosRows.length > 0) {
+    const aosDemoN = (aosRows ?? []).filter((r) => {
+      const x = r as { quality?: string; data_basis?: string };
+      return isDemoSource(x.quality, x.data_basis);
+    }).length;
+    if (aosDemoN > 0) { partial.push("area_opportunity_scores"); demo.push(`area_opportunity_scores (${aosDemoN}/${aosRows.length} demo)`); }
+    else partial.push("area_opportunity_scores");
+  } else missing.push("area_opportunity_scores");
+
+  // Warnings sui demo
+  const totalDemoExcluded = !allowDemo
+    ? (snapsDemo + motivatedDemo + anomaliesDemo + signalsDemo + auctionsDemo)
+    : 0;
+  if (!allowDemo && totalDemoExcluded > 0) {
+    warnings.push(`${totalDemoExcluded} record demo (seed_demo_veneto) esclusi da allowDemo=false (snaps:${snapsDemo}, motiv:${motivatedDemo}, anom:${anomaliesDemo}, sig:${signalsDemo}, aste:${auctionsDemo}).`);
+  }
+  if (allowDemo) {
+    const includedDemo = snapsDemo + motivatedDemo + anomaliesDemo + signalsDemo + auctionsDemo;
+    if (includedDemo > 0) warnings.push(`${includedDemo} record demo inclusi solo per test perché allowDemo=true.`);
+  }
 
   // ── Aggregazione per zona ───────────────────────────────────
   const aggMap = new Map<string, ZoneAgg>();
@@ -333,66 +423,90 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   };
 
   for (const r of snaps ?? []) {
-    const row = r as { province: string|null; municipality: string|null; price_eur: number|null; surface_sqm: number|null; lat: number|null; lng: number|null; captured_at: string };
+    const row = r as { province: string|null; municipality: string|null; price_eur: number|null; surface_sqm: number|null; lat: number|null; lng: number|null; captured_at: string; source: string|null };
     const prov = isVenetoRow(row.province);
     if (!prov || !row.municipality) continue;
     if (filterComune && row.municipality.toLowerCase() !== filterComune) continue;
+    const isDemo = isDemoSource(row.source);
+    if (isDemo && !allowDemo) continue; // ESCLUDI demo
     const a = ensure(row.municipality, prov);
-    a.annunciAttivi++;
-    if (row.price_eur && row.surface_sqm && row.surface_sqm > 10 && row.surface_sqm < 2000) {
+    if (isDemo) { a.annunciAttiviDemo++; a.hasDemoSource = true; }
+    else { a.annunciAttivi++; a.hasRealSource = true; }
+    if (!isDemo && row.price_eur && row.surface_sqm && row.surface_sqm > 10 && row.surface_sqm < 2000) {
       a.prezziPerSqm.push(row.price_eur / row.surface_sqm);
     }
     const dDays = (Date.now() - new Date(row.captured_at).getTime()) / 86400_000;
-    if (dDays >= 0 && dDays <= 365) a.daysOnline.push(dDays);
+    if (!isDemo && dDays >= 0 && dDays <= 365) a.daysOnline.push(dDays);
     if (a.lat == null && typeof row.lat === "number") { a.lat = row.lat; a.lng = row.lng; }
   }
 
   for (const r of motivated ?? []) {
-    const row = r as { province: string|null; municipality: string|null; days_online: number|null };
+    const row = r as { province: string|null; municipality: string|null; days_online: number|null; source: string|null; payload: Record<string, unknown>|null };
     const prov = isVenetoRow(row.province);
     if (!prov || !row.municipality) continue;
     if (filterComune && row.municipality.toLowerCase() !== filterComune) continue;
+    const isDemo = isRecordDemo(row as never);
+    if (isDemo && !allowDemo) continue;
     const a = ensure(row.municipality, prov);
-    a.venditoriMotivati++;
+    if (isDemo) { a.venditoriMotivatiDemo++; a.hasDemoSource = true; }
+    else { a.venditoriMotivati++; a.hasRealSource = true; }
   }
 
   for (const r of anomalies ?? []) {
-    const row = r as { province: string|null; municipality: string|null; anomaly_type: string|null };
+    const row = r as { province: string|null; municipality: string|null; anomaly_type: string|null; payload: Record<string, unknown>|null };
     const prov = isVenetoRow(row.province);
     if (!prov || !row.municipality) continue;
     if (filterComune && row.municipality.toLowerCase() !== filterComune) continue;
+    const isDemo = isRecordDemo(row as never);
+    if (isDemo && !allowDemo) continue;
     const a = ensure(row.municipality, prov);
-    if ((row.anomaly_type ?? "").toLowerCase().includes("ribass")) a.ribassi30gg++;
+    const isRibasso = (row.anomaly_type ?? "").toLowerCase().includes("ribass");
+    if (isRibasso) {
+      if (isDemo) { a.ribassi30ggDemo++; a.hasDemoSource = true; }
+      else { a.ribassi30gg++; a.hasRealSource = true; }
+    }
   }
 
   // auction_signals → conta come aste aggiuntive
   for (const r of auctions ?? []) {
-    const row = r as { province: string|null; municipality: string|null };
+    const row = r as { province: string|null; municipality: string|null; source_name: string|null; payload: Record<string, unknown>|null };
     const prov = isVenetoRow(row.province);
     if (!prov || !row.municipality) continue;
     if (filterComune && row.municipality.toLowerCase() !== filterComune) continue;
-    ensure(row.municipality, prov).aste++;
+    const isDemo = isRecordDemo(row as never);
+    if (isDemo && !allowDemo) continue;
+    const a = ensure(row.municipality, prov);
+    if (isDemo) { a.asteDemo++; a.hasDemoSource = true; }
+    else { a.aste++; a.hasRealSource = true; }
   }
 
   // area_opportunity_scores → boost zone già scorate da Civiko Data Engine
-  const aosBoost = new Map<string, { score: number; quality: string }>();
+  const aosBoost = new Map<string, { score: number; quality: string; demo: boolean }>();
   for (const r of aosRows ?? []) {
-    const row = r as { province: string|null; municipality: string|null; score: number|null; quality: string|null };
+    const row = r as { province: string|null; municipality: string|null; score: number|null; quality: string|null; data_basis: string|null };
     const prov = isVenetoRow(row.province);
     if (!prov || !row.municipality || row.score == null) continue;
-    aosBoost.set(aggKey(row.municipality, prov), { score: Number(row.score), quality: row.quality ?? "parziale" });
+    const aosDemo = isDemoSource(row.quality, row.data_basis);
+    if (aosDemo && !allowDemo) continue;
+    aosBoost.set(aggKey(row.municipality, prov), { score: Number(row.score), quality: row.quality ?? "parziale", demo: aosDemo });
     // Crea zona se non esiste
-    ensure(row.municipality, prov);
+    const a = ensure(row.municipality, prov);
+    if (aosDemo) a.hasDemoSource = true;
   }
 
   for (const r of signals ?? []) {
-    const row = r as { province: string|null; municipality: string|null; signal_type: string|null; lat: number|null; lng: number|null };
+    const row = r as { province: string|null; municipality: string|null; signal_type: string|null; lat: number|null; lng: number|null; source: string|null; payload: Record<string, unknown>|null };
     const prov = isVenetoRow(row.province);
     if (!prov || !row.municipality) continue;
     if (filterComune && row.municipality.toLowerCase() !== filterComune) continue;
+    const isDemo = isRecordDemo(row as never);
+    if (isDemo && !allowDemo) continue;
     const a = ensure(row.municipality, prov);
     const t = (row.signal_type ?? "").toLowerCase();
-    if (t.includes("asta")) a.aste++;
+    if (t.includes("asta")) {
+      if (isDemo) { a.asteDemo++; a.hasDemoSource = true; }
+      else { a.aste++; a.hasRealSource = true; }
+    }
     if (a.lat == null && typeof row.lat === "number") { a.lat = row.lat; a.lng = row.lng; }
   }
 
@@ -434,11 +548,17 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   // ── Scoring + build zones ───────────────────────────────────
   const zones: AgentRadarZone[] = [];
   for (const a of aggMap.values()) {
+    // Metrics effettive: somma reale + demo (se demo è stato ammesso)
+    const annunciTot = a.annunciAttivi + a.annunciAttiviDemo;
+    const ribassiTot = a.ribassi30gg + a.ribassi30ggDemo;
+    const asteTot = a.aste + a.asteDemo;
+    const motivTot = a.venditoriMotivati + a.venditoriMotivatiDemo;
+
     let score = 0;
-    score += Math.min(20, a.ribassi30gg * 5);
-    score += Math.min(20, a.venditoriMotivati * 4);
-    score += Math.min(15, a.aste * 5);
-    score += Math.min(15, Math.log10(1 + a.annunciAttivi) * 10);
+    score += Math.min(20, ribassiTot * 5);
+    score += Math.min(20, motivTot * 4);
+    score += Math.min(15, asteTot * 5);
+    score += Math.min(15, Math.log10(1 + annunciTot) * 10);
     const askingMed = median(a.prezziPerSqm);
     let omiGapPct: number | null = null;
     if (askingMed && a.omiValoreMedio) {
@@ -448,7 +568,6 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     const giorniMedi = median(a.daysOnline);
     if (giorniMedi && giorniMedi > 120) score += 10;
 
-    // OMI baseline: garantisce ranking utile per zone OMI-only (capoluoghi pesano di più)
     if (a.omiQuality === "reale") {
       score += 8;
       const CAPOLUOGHI: Record<string, number> = {
@@ -459,28 +578,24 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       score += CAPOLUOGHI[aggKey(a.comune, a.provincia)] ?? 0;
     }
 
-    // Boost da area_opportunity_scores (priorità Civiko Data Engine)
     const aosHit = aosBoost.get(aggKey(a.comune, a.provincia));
-    if (aosHit) {
-      score = Math.max(score, aosHit.score);
-    }
-
+    if (aosHit) score = Math.max(score, aosHit.score);
     score = Math.round(Math.min(100, score));
 
     let signalType: AgentRadarZone["signalType"] = "misto";
-    const flags: number[] = [a.ribassi30gg, a.aste, a.venditoriMotivati, a.annunciAttivi, omiGapPct ? 1 : 0];
-    if (a.aste >= Math.max(...flags)) signalType = "asta";
-    else if (a.ribassi30gg > 0 && a.ribassi30gg >= a.venditoriMotivati) signalType = "ribasso";
-    else if (a.venditoriMotivati > 0) signalType = "motivato";
+    const flags: number[] = [ribassiTot, asteTot, motivTot, annunciTot, omiGapPct ? 1 : 0];
+    if (asteTot > 0 && asteTot >= Math.max(...flags)) signalType = "asta";
+    else if (ribassiTot > 0 && ribassiTot >= motivTot) signalType = "ribasso";
+    else if (motivTot > 0) signalType = "motivato";
     else if (omiGapPct && omiGapPct > 5) signalType = "omi_gap";
-    else if (a.annunciAttivi > 20) signalType = "stock";
+    else if (annunciTot > 20) signalType = "stock";
 
     const reasons: string[] = [];
-    if (a.ribassi30gg) reasons.push(`${a.ribassi30gg} ribassi recenti`);
-    if (a.venditoriMotivati) reasons.push(`${a.venditoriMotivati} venditori motivati`);
-    if (a.aste) reasons.push(`${a.aste} aste attive`);
+    if (ribassiTot) reasons.push(`${ribassiTot} ribassi recenti`);
+    if (motivTot) reasons.push(`${motivTot} venditori motivati`);
+    if (asteTot) reasons.push(`${asteTot} aste attive`);
     if (omiGapPct !== null) reasons.push(`gap OMI ${omiGapPct > 0 ? "+" : ""}${omiGapPct.toFixed(0)}%`);
-    if (a.annunciAttivi) reasons.push(`${a.annunciAttivi} annunci attivi`);
+    if (annunciTot) reasons.push(`${annunciTot} annunci attivi`);
 
     const action = signalType === "asta" ? "Verifica fascicoli PVP e contatta i creditori procedenti."
       : signalType === "ribasso" ? "Apri mandati su immobili con ribasso >10% e prezzo target sotto OMI max."
@@ -489,9 +604,25 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       : signalType === "stock" ? "Audit stock zona e selezione immobili da rinegoziare."
       : "Mappatura segnali combinati: priorità a contatti caldi.";
 
-    const allReal = a.omiQuality === "reale" && a.annunciAttivi > 0;
-    const someReal = a.omiQuality === "reale" || a.annunciAttivi > 0 || a.venditoriMotivati > 0 || a.aste > 0 || a.ribassi30gg > 0;
-    const quality: AgentRadarZone["quality"] = allReal ? "reale" : someReal ? "parziale" : "stimato";
+    // ── Quality della zona: peggior fonte vince ──
+    // Se i segnali commerciali sono tutti demo → demo (anche se OMI è reale, i segnali commerciali non lo sono).
+    const commercialSignalsReal = a.annunciAttivi + a.ribassi30gg + a.aste + a.venditoriMotivati;
+    const commercialSignalsDemo = a.annunciAttiviDemo + a.ribassi30ggDemo + a.asteDemo + a.venditoriMotivatiDemo;
+    let quality: AgentRadarZone["quality"];
+    if (commercialSignalsDemo > 0 && commercialSignalsReal === 0) {
+      quality = a.omiQuality === "reale" ? "parziale" : "demo";
+      // Se la zona deve la propria opportunità a segnali demo, marcala come demo
+      if (commercialSignalsDemo > 0) quality = "demo";
+    } else if (commercialSignalsReal > 0 && a.omiQuality === "reale") {
+      quality = commercialSignalsDemo > 0 ? "parziale" : "reale";
+    } else if (a.omiQuality === "reale") {
+      // OMI-only: parziale (OMI da solo non basta a dichiarare opportunità reale)
+      quality = "parziale";
+    } else if (commercialSignalsReal > 0 || commercialSignalsDemo > 0) {
+      quality = commercialSignalsDemo > 0 ? "demo" : "parziale";
+    } else {
+      quality = "stimato";
+    }
 
     zones.push({
       id: `${a.provincia}-${a.comune.toLowerCase().replace(/\s+/g, "-")}`,
@@ -513,10 +644,10 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         quality: a.omiQuality,
       },
       metrics: {
-        annunciAttivi: a.annunciAttivi || null,
-        ribassi30gg: a.ribassi30gg || null,
-        aste: a.aste || null,
-        venditoriMotivati: a.venditoriMotivati || null,
+        annunciAttivi: annunciTot || null,
+        ribassi30gg: ribassiTot || null,
+        aste: asteTot || null,
+        venditoriMotivati: motivTot || null,
         giorniMediMercato: giorniMedi ? Math.round(giorniMedi) : null,
       },
       quality,
@@ -558,16 +689,32 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     });
 
   // ── Dataset status & summary ────────────────────────────────
-  const totalRows = (snaps?.length ?? 0) + (motivated?.length ?? 0) + (anomalies?.length ?? 0) + (signals?.length ?? 0) + (omiRows?.length ?? 0);
-  let datasetStatus: "complete" | "partial" | "empty" = "empty";
-  if (totalRows === 0) datasetStatus = "empty";
-  else if (real.length >= 4) datasetStatus = "complete";
-  else datasetStatus = "partial";
+  // Conteggi REALI (post-filtro demo), non grezzi
+  const realCommercialRows = snapsReal + motivatedReal + anomaliesReal + signalsReal + auctionsReal;
+  const demoCommercialRows = snapsDemo + motivatedDemo + anomaliesDemo + signalsDemo + auctionsDemo;
+  const omiAvailable = (omiRows?.length ?? 0) > 0;
+  const provincesCovered = new Set(
+    zones.filter((z) => z.quality !== "demo").map((z) => z.provincia)
+  ).size;
 
-  if (datasetStatus === "partial" && missing.length > 0) partial.push(...real);
+  let datasetStatus: "complete" | "partial" | "empty" = "empty";
+  if (!omiAvailable && realCommercialRows === 0 && demoCommercialRows === 0) {
+    datasetStatus = "empty";
+  } else if (
+    omiAvailable &&
+    realCommercialRows >= 50 &&
+    snapsReal >= 20 &&
+    provincesCovered >= 4 &&
+    demoCommercialRows === 0 // nessuna dipendenza significativa da seed demo
+  ) {
+    datasetStatus = "complete";
+  } else {
+    datasetStatus = "partial";
+  }
 
   let finalZones = topZones;
-  let dataQualityOverall: AgentRadarResponse["summary"]["dataQuality"] = "reale";
+  let dataQualityOverall: AgentRadarResponse["summary"]["dataQuality"];
+
   if (datasetStatus === "empty") {
     if (allowDemo) {
       finalZones = buildDemoZones(filterProv).slice(0, 3);
@@ -577,26 +724,44 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       finalZones = [];
       dataQualityOverall = "mancante";
     }
-  } else if (datasetStatus === "partial") {
-    dataQualityOverall = "parziale";
   } else {
-    dataQualityOverall = "reale";
+    // Calcolo summary.dataQuality basato su rapporto reale/demo dei segnali operativi
+    if (allowDemo && demoCommercialRows > realCommercialRows) {
+      dataQualityOverall = "demo";
+    } else if (realCommercialRows === 0 && omiAvailable) {
+      // solo OMI reale, niente segnali commerciali → parziale
+      dataQualityOverall = "parziale";
+    } else if (datasetStatus === "complete") {
+      dataQualityOverall = "reale";
+    } else {
+      dataQualityOverall = "parziale";
+    }
   }
 
   const summary = {
-    totalSignals: (anomalies?.length ?? 0) + (signals?.length ?? 0) + (motivated?.length ?? 0),
+    totalSignals: (anomaliesReal + signalsReal + motivatedReal) + (allowDemo ? (anomaliesDemo + signalsDemo + motivatedDemo) : 0),
     hotZones: finalZones.filter((z) => z.temperature === "calda" || z.temperature === "molto_calda").length,
-    priceDrops: (anomalies ?? []).filter((a) => ((a as { anomaly_type: string|null }).anomaly_type ?? "").toLowerCase().includes("ribass")).length,
-    auctions: (signals ?? []).filter((s) => ((s as { signal_type: string|null }).signal_type ?? "").toLowerCase().includes("asta")).length,
-    motivatedSellers: motivated?.length ?? 0,
+    priceDrops: (anomalies ?? []).filter((a) => {
+      const x = a as { anomaly_type: string|null };
+      const isDemo = isRecordDemo(a as never);
+      if (isDemo && !allowDemo) return false;
+      return (x.anomaly_type ?? "").toLowerCase().includes("ribass");
+    }).length,
+    auctions: ((auctions ?? []).filter((s) => (!isRecordDemo(s as never) || allowDemo)).length)
+      + ((signals ?? []).filter((s) => {
+        const x = s as { signal_type: string|null };
+        if (isRecordDemo(s as never) && !allowDemo) return false;
+        return (x.signal_type ?? "").toLowerCase().includes("asta");
+      }).length),
+    motivatedSellers: motivatedReal + (allowDemo ? motivatedDemo : 0),
     dataQuality: dataQualityOverall,
   };
 
   const message =
     datasetStatus === "empty" && !allowDemo ? "Nessun dato Veneto disponibile. Popolare omi-import, scraping portali e job radar."
     : datasetStatus === "empty" && allowDemo ? "Nessun dato reale: restituite 3 zone DEMO Veneto a scopo dimostrativo."
-    : datasetStatus === "partial" ? "Dataset parziale: alcune fonti non popolate, segnali calcolati su dati disponibili."
-    : "Dataset Veneto popolato: zone e opportunità calcolate su dati reali.";
+    : datasetStatus === "partial" ? "Dataset parziale: OMI reale presente, segnali commerciali incompleti o misti con demo."
+    : "Dataset Veneto completo: OMI reale + listing reali + copertura multi-provincia, nessuna dipendenza da seed demo.";
 
   return {
     configured: !!supa,
@@ -604,7 +769,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     summary,
     zones: finalZones,
     opportunities: datasetStatus === "empty" ? [] : opportunities,
-    dataQuality: { real, partial, missing, warnings },
+    dataQuality: { real, partial, demo, missing, warnings },
   };
 }
 
