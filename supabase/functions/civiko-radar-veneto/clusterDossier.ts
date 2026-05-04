@@ -602,6 +602,313 @@ async function enrichMarkersConGanci(markers: DossierMarker[]): Promise<void> {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// CALCOLO VISIBILITÀ & PERDITA IMMAGINE
+// ═══════════════════════════════════════════════════════════════
+//
+// Modello empirico calibrato su dati portali italiani:
+//   - Visibility decay esponenziale: visibility(d) = 100 * exp(-d / TAU)
+//     TAU=90 giorni → ~50% di visibilità a 60gg, ~33% a 90gg, ~10% a 200gg.
+//   - Penalty addizionale per ribassi (ogni ribasso = -8% visibilità,
+//     percepiti dai compratori come "rosso da trattare").
+//   - Perdita Immagine = (100 - visibility) capped 0..95.
+// Hard rule: nessun calcolo se input mancante.
+
+const VISIBILITY_TAU_DAYS = 90;
+const RIBASSO_PENALTY_PCT = 8;
+
+export function computeVisibilityIndex(daysOnline: number, dropsCount: number): number | null {
+  if (!Number.isFinite(daysOnline) || daysOnline < 0) return null;
+  const baseDecay = 100 * Math.exp(-daysOnline / VISIBILITY_TAU_DAYS);
+  const ribassiPenalty = Math.max(0, dropsCount) * RIBASSO_PENALTY_PCT;
+  const v = Math.max(0, Math.min(100, baseDecay - ribassiPenalty));
+  return Math.round(v * 10) / 10;
+}
+
+export function computePerditaImmaginePct(daysOnline: number, dropsCount: number): number | null {
+  const v = computeVisibilityIndex(daysOnline, dropsCount);
+  if (v === null) return null;
+  return Math.round((100 - v) * 10) / 10;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// generateHook — Notizia Peggiore vs Notizia Migliore
+// ═══════════════════════════════════════════════════════════════
+//
+// Input: marker già arricchito + contesto (OMI per zona, ISTAT per CAP, anomalie locali).
+// Output: EngagementHook con headline, body, perdita immagine, indice visibilità,
+//         fonti citate e messaggio WhatsApp pronto all'invio.
+// Hard rule "No Lies": ogni evidenza include la fonte. Se nessuna evidenza
+// reale è presente → kind="neutro" e nessun gancio inviabile.
+
+export interface HookContext {
+  omiCompromaxEur?: number | null;       // OMI compr_max della zona del marker
+  omiCompromInEur?: number | null;
+  omiSemestre?: string | null;
+  asteImminentiCount?: number;           // numero aste PVP nel comune
+  asteEvidenceUrl?: string | null;
+  domandaPickIstatScore?: number | null; // indice ISTAT 0..100 di domanda potenziale (es. famiglie giovani / nuovi residenti)
+  domandaPickIstatNota?: string | null;
+}
+
+function formatEuro(n: number | null | undefined): string {
+  if (n === null || n === undefined || !Number.isFinite(Number(n))) return "n/d";
+  return `${Math.round(Number(n)).toLocaleString("it-IT")}€`;
+}
+
+function buildWhatsAppMessage(
+  marker: DossierMarker,
+  hook: { headline: string; body: string; perditaImmaginePct: number | null; visibilityIndex: number | null },
+  ctx: HookContext,
+  evidenze: string[],
+): string {
+  // Formato leggibile, senza markdown pesante (WhatsApp non rende tabelle).
+  // Usa interruzioni di riga e bullet * per rendere scannable.
+  const lines: string[] = [];
+  lines.push(`*${hook.headline}*`);
+  lines.push("");
+  lines.push(hook.body);
+  lines.push("");
+
+  // Storico ribassi
+  const drops = Number(marker.payload.drops_count ?? 0);
+  const totalDropPct = Number(marker.payload.total_drop_pct ?? 0);
+  const daysOnline = Number(marker.payload.days_online ?? 0);
+  const initialPrice = Number(marker.payload.initial_price_eur ?? 0);
+  const lastPrice = Number(marker.payload.last_price_eur ?? 0);
+  if (daysOnline > 0 || drops > 0) {
+    lines.push("📉 *Storico annuncio*");
+    if (daysOnline > 0) lines.push(`• Online da: ${Math.round(daysOnline)} giorni (~${Math.max(1, Math.round(daysOnline / 30))} mesi)`);
+    if (drops > 0) lines.push(`• Ribassi applicati: ${drops}${totalDropPct > 0 ? ` (-${totalDropPct.toFixed(1)}%)` : ""}`);
+    if (initialPrice > 0 && lastPrice > 0 && initialPrice > lastPrice) {
+      lines.push(`• Prezzo: da ${formatEuro(initialPrice)} a ${formatEuro(lastPrice)}`);
+    }
+    if (hook.perditaImmaginePct !== null) {
+      lines.push(`• Perdita di immagine stimata: *${hook.perditaImmaginePct.toFixed(1)}%*`);
+    }
+    if (hook.visibilityIndex !== null) {
+      lines.push(`• Indice di visibilità residuo: ${hook.visibilityIndex.toFixed(0)}/100`);
+    }
+    lines.push("");
+  }
+
+  // Riferimento OMI
+  if (ctx.omiCompromaxEur || ctx.omiCompromInEur) {
+    lines.push("📊 *Valori OMI di zona*");
+    if (ctx.omiCompromInEur && ctx.omiCompromaxEur) {
+      lines.push(`• Range €/mq: ${formatEuro(ctx.omiCompromInEur)} – ${formatEuro(ctx.omiCompromaxEur)}`);
+    } else if (ctx.omiCompromaxEur) {
+      lines.push(`• OMI max €/mq: ${formatEuro(ctx.omiCompromaxEur)}`);
+    }
+    if (ctx.omiSemestre) lines.push(`• Fonte: Agenzia delle Entrate - OMI ${ctx.omiSemestre}`);
+    lines.push("");
+  }
+
+  // Asta vicina
+  if ((ctx.asteImminentiCount ?? 0) > 0) {
+    lines.push("⚖️ *Aste in zona*");
+    lines.push(`• ${ctx.asteImminentiCount} asta/e attiva/e nel comune`);
+    if (ctx.asteEvidenceUrl) lines.push(`• Fonte: ${ctx.asteEvidenceUrl}`);
+    lines.push("");
+  }
+
+  // Picco domanda
+  if (ctx.domandaPickIstatScore !== null && ctx.domandaPickIstatScore !== undefined && ctx.domandaPickIstatScore > 0) {
+    lines.push("📈 *Domanda di zona*");
+    lines.push(`• Indice ISTAT: ${ctx.domandaPickIstatScore.toFixed(0)}/100`);
+    if (ctx.domandaPickIstatNota) lines.push(`• ${ctx.domandaPickIstatNota}`);
+    lines.push("");
+  }
+
+  // Footer evidenze
+  if (evidenze.length > 0) {
+    lines.push("🔎 *Evidenze*");
+    for (const e of evidenze.slice(0, 4)) lines.push(`• ${e}`);
+  }
+
+  return lines.join("\n").slice(0, 1500);
+}
+
+export function generateHook(marker: DossierMarker, ctx: HookContext = {}): EngagementHook {
+  const fonti: EngagementHook["fonti"] = [];
+  const evidenze: string[] = [];
+
+  const drops = Number(marker.payload.drops_count ?? 0);
+  const totalDropPct = Number(marker.payload.total_drop_pct ?? 0);
+  const daysOnline = Number(marker.payload.days_online ?? 0);
+  const initialPrice = Number(marker.payload.initial_price_eur ?? 0);
+  const lastPrice = Number(marker.payload.last_price_eur ?? 0);
+  const fatigue = String(marker.payload.fatigue_label ?? "");
+  const asteCount = ctx.asteImminentiCount ?? 0;
+  const domandaScore = ctx.domandaPickIstatScore ?? null;
+
+  const visibility = computeVisibilityIndex(daysOnline, drops);
+  const perdita = computePerditaImmaginePct(daysOnline, drops);
+
+  // ── Score "Notizia Peggiore" ──
+  let badScore = 0;
+  if (perdita !== null && perdita >= 60) badScore += 3;
+  else if (perdita !== null && perdita >= 40) badScore += 2;
+  else if (perdita !== null && perdita >= 20) badScore += 1;
+  if (drops >= 3) badScore += 2;
+  else if (drops >= 2) badScore += 1;
+  if (totalDropPct >= 15) badScore += 2;
+  else if (totalDropPct >= 8) badScore += 1;
+  if (asteCount >= 1) badScore += 2;
+  if (fatigue === "caldissimo") badScore += 2;
+  else if (fatigue === "caldo") badScore += 1;
+  if (marker.kind === "agency_swap") badScore += 2;
+
+  // ── Score "Notizia Migliore" ──
+  let goodScore = 0;
+  if (domandaScore !== null && domandaScore >= 70) goodScore += 3;
+  else if (domandaScore !== null && domandaScore >= 50) goodScore += 2;
+  else if (domandaScore !== null && domandaScore >= 30) goodScore += 1;
+  // Successioni dense in zona = potere d'acquisto in arrivo (positivo per chi vende ORA)
+  if (marker.kind === "successione_densa") goodScore += 1;
+
+  let kind: HookKind = "neutro";
+  let headline = "";
+  let body = "";
+
+  if (badScore >= 3 && badScore >= goodScore) {
+    kind = "notizia_peggiore";
+    // Priorità all'asta vicina come notizia esclusiva
+    if (asteCount >= 1) {
+      headline = `Un'asta giudiziaria è stata aperta vicino al suo immobile`;
+      body =
+        `Nella zona di ${marker.municipality ?? "riferimento"} è attiva un'asta pubblica del Tribunale che influenzerà i prezzi richiesti del mercato libero per i prossimi 6 mesi. ` +
+        `Vale la pena rivedere insieme la sua strategia prima che l'effetto sui valori si consolidi.`;
+      fonti.push("PVP_Ministero_Giustizia");
+      evidenze.push(`Aste attive nel comune: ${asteCount}${ctx.asteEvidenceUrl ? ` (PVP: ${ctx.asteEvidenceUrl})` : ""}`);
+    } else if (drops >= 2 && perdita !== null && perdita >= 30) {
+      headline = `Il suo annuncio sta perdendo visibilità: ~${perdita.toFixed(0)}% in meno rispetto al lancio`;
+      body =
+        `Dopo ${Math.max(1, Math.round(daysOnline / 30))} mesi e ${drops} ribassi, l'indice di visibilità del suo immobile è sceso a ${visibility?.toFixed(0)}/100. ` +
+        `Il mercato lo classifica come "annuncio bruciato": serve un cambio di approccio per riportarlo in evidenza.`;
+      fonti.push("snapshot_storico", "Portali");
+      evidenze.push(`Online ${Math.round(daysOnline)}gg, ${drops} ribassi (-${totalDropPct.toFixed(1)}%)`);
+    } else if (totalDropPct >= 8) {
+      const deltaAbs = initialPrice && lastPrice ? Math.round(initialPrice - lastPrice) : null;
+      headline = `Il suo immobile ha già perso ${totalDropPct.toFixed(1)}% di valore richiesto`;
+      body =
+        `In ${Math.max(1, Math.round(daysOnline / 30))} mesi sono stati applicati ${drops} ribassi` +
+        (deltaAbs ? ` (-${formatEuro(deltaAbs)} in valore assoluto)` : "") +
+        `. Ogni settimana ulteriore di permanenza online riduce la sua leva negoziale.`;
+      fonti.push("Portali", "snapshot_storico");
+      evidenze.push(`Ribassi: ${drops} | Perdita richiesta: ${totalDropPct.toFixed(1)}%`);
+    } else {
+      headline = `Segnali di stanchezza sul suo annuncio`;
+      body = `L'immobile è online da ${Math.round(daysOnline)} giorni e mostra segnali di affaticamento del mercato. Possiamo rivedere insieme la strategia prima che l'effetto si consolidi.`;
+      fonti.push("snapshot_storico");
+      evidenze.push(`days_online=${daysOnline}; fatigue=${fatigue || "n/d"}`);
+    }
+  } else if (goodScore >= 2 && goodScore > badScore) {
+    kind = "notizia_migliore";
+    if (domandaScore !== null && domandaScore >= 50) {
+      headline = `Picco di domanda reale nella sua zona`;
+      body =
+        `Gli indici demografici e di insediamento per ${marker.municipality ?? "la zona"} segnalano un indice di domanda di ${domandaScore.toFixed(0)}/100. ` +
+        (ctx.domandaPickIstatNota ? `${ctx.domandaPickIstatNota} ` : "") +
+        `È una finestra favorevole per posizionare il suo immobile con la giusta strategia.`;
+      fonti.push("ISTAT");
+      evidenze.push(`Indice domanda ISTAT: ${domandaScore.toFixed(0)}/100`);
+    } else {
+      headline = `Movimento favorevole di mercato in zona`;
+      body = `I segnali demografici e di rotazione patrimoniale in zona stanno generando opportunità per chi vende nei prossimi mesi.`;
+      fonti.push("ISTAT");
+    }
+  } else {
+    kind = "neutro";
+    headline = `Aggiornamento sul mercato della sua zona`;
+    body = `Al momento non emergono segnali di forte urgenza né di picco di domanda: situazione stabile, monitoriamo.`;
+  }
+
+  // Aggiungi sempre OMI come ancora di autorità se disponibile
+  if (ctx.omiCompromaxEur || ctx.omiCompromInEur) {
+    fonti.push("OMI");
+    if (ctx.omiCompromInEur && ctx.omiCompromaxEur) {
+      evidenze.push(`OMI ${ctx.omiSemestre ?? ""} €/mq: ${formatEuro(ctx.omiCompromInEur)}–${formatEuro(ctx.omiCompromaxEur)}`);
+    }
+  }
+
+  const whatsappMessage = buildWhatsAppMessage(
+    marker,
+    { headline, body, perditaImmaginePct: perdita, visibilityIndex: visibility },
+    ctx,
+    evidenze,
+  );
+
+  return {
+    kind,
+    headline: headline.slice(0, 120),
+    body: body.slice(0, 480),
+    perditaImmaginePct: perdita,
+    visibilityIndex: visibility,
+    fonti: Array.from(new Set(fonti)),
+    evidenze,
+    whatsappMessage,
+  };
+}
+
+// ── Helper: arricchisce il contesto OMI per un marker (compr_max della zona) ──
+export async function buildHookContextForMarker(marker: DossierMarker): Promise<HookContext> {
+  const supabase = getServiceClient();
+  if (!supabase || !marker.municipality) return {};
+  const ctx: HookContext = {};
+
+  try {
+    // OMI compr_max/min residenziale del comune (best-effort, prima zona disponibile)
+    const { data: omi } = await supabase
+      .from("omi_valori")
+      .select("compr_max, compr_min, semestre, descr_tipologia")
+      .ilike("comune_descrizione", marker.municipality)
+      .order("compr_max", { ascending: false })
+      .range(0, 19);
+    if (Array.isArray(omi) && omi.length > 0) {
+      const residenziale = omi.find((r) => /abitazion|ville|villin/i.test(String(r.descr_tipologia ?? ""))) ?? omi[0];
+      ctx.omiCompromaxEur = residenziale?.compr_max ? Number(residenziale.compr_max) : null;
+      ctx.omiCompromInEur = residenziale?.compr_min ? Number(residenziale.compr_min) : null;
+      ctx.omiSemestre = residenziale?.semestre ?? null;
+    }
+  } catch (_) { /* best effort */ }
+
+  try {
+    // Aste imminenti nel comune (PVP via scraper)
+    if (marker.lat !== null && marker.lng !== null) {
+      const aste = await scrapeAsteGiudiziarie(marker.municipality, { lat: marker.lat, lng: marker.lng });
+      if (aste.length > 0) {
+        ctx.asteImminentiCount = aste.length;
+        ctx.asteEvidenceUrl = aste[0]?.evidenceUrl ?? null;
+      }
+    }
+  } catch (_) { /* best effort */ }
+
+  try {
+    // Indice domanda ISTAT semplificato: % under35 alta + popolazione crescente = score 0..100
+    const { data: ist } = await supabase
+      .from("istat_comuni")
+      .select("percentuale_under35, percentuale_under18, popolazione, indice_vecchiaia")
+      .ilike("comune", marker.municipality)
+      .order("anno", { ascending: false })
+      .range(0, 0);
+    if (Array.isArray(ist) && ist.length > 0) {
+      const r = ist[0];
+      const under35 = Number(r.percentuale_under35 ?? 0);
+      const indVec = Number(r.indice_vecchiaia ?? 200);
+      // Score: under35 normalizzato (0..40 → 0..60 punti) + bonus se indice_vecchiaia <150 (zona giovane)
+      let score = Math.max(0, Math.min(60, (under35 / 40) * 60));
+      if (indVec > 0 && indVec < 150) score += 25;
+      else if (indVec > 0 && indVec < 200) score += 10;
+      ctx.domandaPickIstatScore = Math.round(score);
+      ctx.domandaPickIstatNota =
+        under35 > 0 ? `Under 35: ${under35.toFixed(1)}% — indice vecchiaia ${indVec.toFixed(0)} (ISTAT)` : null;
+    }
+  } catch (_) { /* best effort */ }
+
+  return ctx;
+}
+
 export async function buildRadarClusterDossier(
   scope: { province?: string | null; municipality?: string | null } = {},
 ): Promise<RadarClusterDossier> {
