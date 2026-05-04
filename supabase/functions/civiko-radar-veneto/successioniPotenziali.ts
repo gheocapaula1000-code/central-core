@@ -165,18 +165,31 @@ async function scrapeSource(
 async function geocodeMunicipality(
   municipality: string,
   province: string | null,
-): Promise<{ lat: number; lng: number } | null> {
+): Promise<{ lat: number; lng: number; cap: string | null } | null> {
   const key = Deno.env.get("MAPBOX_API_KEY");
   if (!key) return null;
   const q = encodeURIComponent(`${municipality}${province ? `, ${province}` : ""}, Italia`);
-  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${q}.json?country=IT&limit=1&access_token=${key}`;
+  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${q}.json?country=IT&limit=1&types=place,postcode&access_token=${key}`;
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
-    const center = data?.features?.[0]?.center;
+    const feat = data?.features?.[0];
+    const center = feat?.center;
     if (!Array.isArray(center) || center.length !== 2) return null;
-    return { lng: Number(center[0]), lat: Number(center[1]) };
+    // Extract CAP from context (postcode) o dal feature stesso
+    let cap: string | null = null;
+    const ctx = Array.isArray(feat?.context) ? feat.context : [];
+    for (const c of ctx) {
+      if (typeof c?.id === "string" && c.id.startsWith("postcode") && typeof c.text === "string") {
+        cap = c.text.match(/^\d{5}$/)?.[0] ?? null;
+        break;
+      }
+    }
+    if (!cap && feat?.id?.startsWith?.("postcode") && typeof feat?.text === "string") {
+      cap = feat.text.match(/^\d{5}$/)?.[0] ?? null;
+    }
+    return { lng: Number(center[0]), lat: Number(center[1]), cap };
   } catch {
     return null;
   }
