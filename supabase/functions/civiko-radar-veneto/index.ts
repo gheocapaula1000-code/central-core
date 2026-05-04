@@ -585,6 +585,7 @@ function estimateAriaFromIstat(istat: IstatComuneRow | null, coords: { lat: numb
 async function applyStatisticalFallback(
   comune: string,
   signals: RadarResponse["segnaliDiZona"],
+  coords: { lat: number; lng: number } | null,
   warnings: string[],
 ): Promise<RadarResponse["segnaliDiZona"]> {
   const needsFallback =
@@ -597,19 +598,34 @@ async function applyStatisticalFallback(
   const [istat, omi] = await Promise.all([fetchIstatComune(comune), fetchOmiCommercialPresence(comune)]);
 
   if (!istat) {
-    warnings.push("Base dati ISTAT non popolata per questo comune: avviare il job 'istat-sdmx-fetch' per il Veneto.");
-    // best-effort trigger non bloccante (fire-and-forget)
+    warnings.push("Base dati ISTAT in fase di certificazione per questo comune: scansione profonda 'istat-sdmx-fetch' avviata.");
     triggerIstatPopulation().catch((e) => console.warn(`[radar-veneto] istat trigger error: ${e instanceof Error ? e.message : String(e)}`));
   }
   if (!omi) {
-    warnings.push("Base dati OMI non popolata per questo comune: avviare l'import 'omi-import' per l'area Veneto.");
+    warnings.push("Base dati OMI in fase di certificazione per questo comune: avviare l'import 'omi-import' per l'area Veneto.");
   }
 
+  // Sentiment / Sicurezza: se ISTAT mancante per frazione remota → in_certificazione (no errore)
+  const inCertificazione = (label: string, fc: FonteCertificata, fonte: string): ZoneSignal => ({
+    label, livello: "in_certificazione",
+    nota: "Dato in fase di certificazione: scansione profonda istantanea avviata su fonti ufficiali.",
+    fonte, fonte_certificata: fc,
+    scansione_profonda: { stato: "avviata", eta_minuti: 5 },
+  });
+
   return {
-    sentiment: signals.sentiment.livello === "non_disponibile" ? estimateSentimentFromIstat(comune, istat) : signals.sentiment,
-    sicurezza: signals.sicurezza.livello === "non_disponibile" ? estimateSicurezzaFromIstat(istat) : signals.sicurezza,
-    rumore: signals.rumore.livello === "non_disponibile" ? estimateRumoreFromOmi(istat, omi) : signals.rumore,
-    qualitaAria: signals.qualitaAria.livello === "non_disponibile" ? estimateAriaFromIstat(istat) : signals.qualitaAria,
+    sentiment: signals.sentiment.livello === "non_disponibile"
+      ? (istat ? estimateSentimentFromIstat(comune, istat) : inCertificazione("Sentiment di Zona", "ISTAT", "ISTAT (DCIS_POPRES1)"))
+      : signals.sentiment,
+    sicurezza: signals.sicurezza.livello === "non_disponibile"
+      ? (istat ? estimateSicurezzaFromIstat(istat) : inCertificazione("Sicurezza Percepita", "ISTAT", "ISTAT (DCIS_POPRES1)"))
+      : signals.sicurezza,
+    rumore: signals.rumore.livello === "non_disponibile"
+      ? estimateRumoreFromOmi(istat, omi, coords)
+      : signals.rumore,
+    qualitaAria: signals.qualitaAria.livello === "non_disponibile"
+      ? estimateAriaFromIstat(istat, coords)
+      : signals.qualitaAria,
   };
 }
 
