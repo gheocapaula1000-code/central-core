@@ -60,9 +60,53 @@ export interface ProvinceContractualPower {
   reasoning: string;
 }
 
+// ── Intestazione tecnica del report (autorità + fonti ufficiali) ──
+export interface OfficialSourceRef {
+  id: "ISTAT" | "AGENZIA_ENTRATE_OMI" | "PVP_MINISTERO_GIUSTIZIA";
+  label: string;          // dicitura ufficiale leggibile
+  shortLabel: string;     // sigla per badge
+  logoUrl: string;        // URL logo ufficiale (per il frontend)
+  referenceUrl: string;   // pagina ufficiale di riferimento dati
+  usage: string;          // a cosa serve nel report (trasparenza metodologica)
+}
+
+export interface ReportHeader {
+  title: string;          // "REPORT DI AUDIT TERRITORIALE - VENETO"
+  subtitle: string;
+  documentType: "audit_territoriale";
+  region: "VENETO";
+  generatedAt: string;
+  scope: { province?: string; municipality?: string };
+  officialSources: OfficialSourceRef[];
+  disclaimer: string;     // l'agenzia riporta solo fonti ufficiali, nessun dato inventato
+}
+
+// ── "Dati Scomodi": gap richiesto vs OMI compr_max (toglie ogni obiezione) ──
+export interface GapOmiChartBar {
+  label: string;                    // es. "Padova" o "Marker · 35 Via Roma"
+  askingEurPerMq: number | null;    // €/mq richiesto
+  omiMaxEurPerMq: number | null;    // €/mq OMI compr_max
+  gapPct: number | null;            // (asking - omi_max) / omi_max * 100
+  gapEur: number | null;            // capitale assoluto sopra OMI (se calcolabile)
+  severity: "verde" | "moderato" | "elevato" | "critico" | "neutro";
+  fonte: "Agenzia delle Entrate – OMI";
+  semestre?: string | null;
+}
+
+export interface ScomodiBlock {
+  title: string;                    // "Gap prezzo richiesto vs fascia massima OMI"
+  description: string;              // descrizione "scomoda" del dato
+  fonte: "Agenzia delle Entrate – OMI";
+  bars: GapOmiChartBar[];           // per provincia (e/o per marker)
+  topOffender?: GapOmiChartBar | null;  // bar con gap massimo (rilievo)
+  methodologyNote: string;
+}
+
 export interface RadarClusterDossier {
   region: "veneto";
   generatedAt: string;
+  reportHeader: ReportHeader;        // intestazione tecnica + loghi/fonti ufficiali
+  scomodi: ScomodiBlock;             // grafico gap OMI in apertura
   scope: { province?: string; municipality?: string };
   totals: {
     markers_rossi: number;
