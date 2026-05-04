@@ -603,32 +603,129 @@ async function enrichMarkersConGanci(markers: DossierMarker[]): Promise<void> {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// CALCOLO VISIBILITÀ & PERDITA IMMAGINE
+// CALCOLO VISIBILITÀ, PERDITA IMMAGINE & CAPITALE A RISCHIO
 // ═══════════════════════════════════════════════════════════════
 //
-// Modello empirico calibrato su dati portali italiani:
+// Modello empirico calibrato su dati portali italiani (Immobiliare/Idealista/Casa.it):
 //   - Visibility decay esponenziale: visibility(d) = 100 * exp(-d / TAU)
-//     TAU=90 giorni → ~50% di visibilità a 60gg, ~33% a 90gg, ~10% a 200gg.
-//   - Penalty addizionale per ribassi (ogni ribasso = -8% visibilità,
-//     percepiti dai compratori come "rosso da trattare").
+//     TAU=120gg → ~85% a 20gg, ~78% a 30gg, ~61% a 60gg, ~47% a 90gg, ~22% a 180gg.
+//   - Penalty per ribassi storici (ogni ribasso = -3% visibilità, percepito come
+//     "rosso da trattare" sui filtri portale).
+//   - Penalty extra per ribassi CONCENTRATI negli ultimi 60gg (segnale di urgenza
+//     che i portali declassano: ogni ribasso recente = -7% addizionale).
 //   - Perdita Immagine = (100 - visibility) capped 0..95.
-// Hard rule: nessun calcolo se input mancante.
+//
+// Calibrazione di riferimento (per talking point):
+//   • +2 ribassi in 60gg con immobile online da 60gg → visibility ≈ 55 → -45% (perdita 45%).
+//   • 0 ribassi a 30gg → visibility ≈ 78 → -22%.
+//   • 3 ribassi in 90gg → visibility ≈ 26 → -74%.
+//
+// Hard rule: nessun calcolo se input mancante (No Lies).
 
-const VISIBILITY_TAU_DAYS = 90;
-const RIBASSO_PENALTY_PCT = 8;
+const VISIBILITY_TAU_DAYS = 120;
+const RIBASSO_PENALTY_PCT = 3;          // per ogni ribasso storico totale
+const RIBASSO_RECENTE_PENALTY_PCT = 7;  // per ogni ribasso negli ultimi 60gg
 
-export function computeVisibilityIndex(daysOnline: number, dropsCount: number): number | null {
-  if (!Number.isFinite(daysOnline) || daysOnline < 0) return null;
-  const baseDecay = 100 * Math.exp(-daysOnline / VISIBILITY_TAU_DAYS);
-  const ribassiPenalty = Math.max(0, dropsCount) * RIBASSO_PENALTY_PCT;
-  const v = Math.max(0, Math.min(100, baseDecay - ribassiPenalty));
-  return Math.round(v * 10) / 10;
+export interface VisibilityBreakdown {
+  visibilityIndex: number;          // 0..100
+  perditaImmaginePct: number;       // 0..100
+  baseDecayPct: number;             // 0..100 (componente tempo)
+  penaltyRibassiTotaliPct: number;  // ≥ 0
+  penaltyRibassiRecentiPct: number; // ≥ 0
+  daysOnline: number;
+  dropsCount: number;
+  recentDropsIn60d: number;
+  formula: string;                  // descrizione human-readable
 }
 
-export function computePerditaImmaginePct(daysOnline: number, dropsCount: number): number | null {
-  const v = computeVisibilityIndex(daysOnline, dropsCount);
-  if (v === null) return null;
-  return Math.round((100 - v) * 10) / 10;
+export function computeVisibilityBreakdown(
+  daysOnline: number,
+  dropsCount: number,
+  recentDropsIn60d: number = 0,
+): VisibilityBreakdown | null {
+  if (!Number.isFinite(daysOnline) || daysOnline < 0) return null;
+  const safeDrops = Math.max(0, Math.floor(dropsCount || 0));
+  const safeRecent = Math.max(0, Math.min(safeDrops, Math.floor(recentDropsIn60d || 0)));
+  const baseDecay = 100 * Math.exp(-daysOnline / VISIBILITY_TAU_DAYS);
+  const penaltyTot = safeDrops * RIBASSO_PENALTY_PCT;
+  const penaltyRec = safeRecent * RIBASSO_RECENTE_PENALTY_PCT;
+  const visibility = Math.max(0, Math.min(100, baseDecay - penaltyTot - penaltyRec));
+  const perdita = Math.max(0, Math.min(95, 100 - visibility));
+  return {
+    visibilityIndex: Math.round(visibility * 10) / 10,
+    perditaImmaginePct: Math.round(perdita * 10) / 10,
+    baseDecayPct: Math.round(baseDecay * 10) / 10,
+    penaltyRibassiTotaliPct: Math.round(penaltyTot * 10) / 10,
+    penaltyRibassiRecentiPct: Math.round(penaltyRec * 10) / 10,
+    daysOnline: Math.round(daysOnline),
+    dropsCount: safeDrops,
+    recentDropsIn60d: safeRecent,
+    formula: `100·exp(-${Math.round(daysOnline)}/${VISIBILITY_TAU_DAYS}) − ${safeDrops}×${RIBASSO_PENALTY_PCT}% − ${safeRecent}×${RIBASSO_RECENTE_PENALTY_PCT}%`,
+  };
+}
+
+export function computeVisibilityIndex(daysOnline: number, dropsCount: number, recentDropsIn60d: number = 0): number | null {
+  const b = computeVisibilityBreakdown(daysOnline, dropsCount, recentDropsIn60d);
+  return b ? b.visibilityIndex : null;
+}
+
+export function computePerditaImmaginePct(daysOnline: number, dropsCount: number, recentDropsIn60d: number = 0): number | null {
+  const b = computeVisibilityBreakdown(daysOnline, dropsCount, recentDropsIn60d);
+  return b ? b.perditaImmaginePct : null;
+}
+
+// ── Capitale a Rischio (gap monetario vs OMI max) ──────────────
+// Definizione: differenza in € tra il prezzo richiesto attuale e il valore di
+// mercato OMI massimo per la zona. Etichetta "Capitale a Rischio" perché
+// rappresenta la quota che l'attuale strategia espone a perdita di valore.
+//
+// Modalità di calcolo:
+//   1. Se disponibili surface_mq e OMI €/mq → capitale = max(0, lastPrice − surface × omiMax).
+//   2. Se disponibile solo asking €/mq vs OMI €/mq → capitale per mq, poi normalizzato.
+// Hard rule: se input incompleti → null (No Lies).
+
+export interface CapitaleARischio {
+  euroAtRisk: number;          // valore assoluto >= 0
+  gapVsOmiPct: number;         // % rispetto al valore OMI atteso (può essere negativo se sotto OMI)
+  expectedOmiValueEur: number; // valore atteso = surface × omiMax
+  askingPriceEur: number;
+  surfaceMq: number;
+  omiMaxEurPerMq: number;
+  omiSemestre: string | null;
+  classificazione: "verde" | "moderato" | "elevato" | "critico";
+  fonte: "OMI";
+}
+
+export function computeCapitaleARischio(input: {
+  askingPriceEur: number | null | undefined;
+  surfaceMq: number | null | undefined;
+  omiMaxEurPerMq: number | null | undefined;
+  omiSemestre?: string | null;
+}): CapitaleARischio | null {
+  const asking = Number(input.askingPriceEur);
+  const surface = Number(input.surfaceMq);
+  const omiMax = Number(input.omiMaxEurPerMq);
+  if (!Number.isFinite(asking) || asking <= 0) return null;
+  if (!Number.isFinite(surface) || surface <= 0) return null;
+  if (!Number.isFinite(omiMax) || omiMax <= 0) return null;
+  const expected = surface * omiMax;
+  const euroAtRisk = Math.max(0, Math.round(asking - expected));
+  const gapPct = Math.round(((asking - expected) / expected) * 1000) / 10; // 1 decimale
+  let classificazione: CapitaleARischio["classificazione"] = "verde";
+  if (gapPct >= 25) classificazione = "critico";
+  else if (gapPct >= 12) classificazione = "elevato";
+  else if (gapPct >= 4) classificazione = "moderato";
+  return {
+    euroAtRisk,
+    gapVsOmiPct: gapPct,
+    expectedOmiValueEur: Math.round(expected),
+    askingPriceEur: Math.round(asking),
+    surfaceMq: Math.round(surface * 10) / 10,
+    omiMaxEurPerMq: Math.round(omiMax),
+    omiSemestre: input.omiSemestre ?? null,
+    classificazione,
+    fonte: "OMI",
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════
