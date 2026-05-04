@@ -475,15 +475,24 @@ export type Database = {
       }
       data_sources: {
         Row: {
+          allowed_paths: string[]
           allowed_use: string | null
+          base_url: string | null
+          comuni: string[]
           coverage_area: string
           created_at: string
+          excluded_paths: string[]
+          expected_entities: string[]
+          format_expected: string | null
           freshness_score: number | null
           id: number
+          ingestion_method: string | null
           ingestion_status: string
           last_run_at: string | null
           notes: string | null
           priority: number
+          province: string[]
+          quality_default: string
           reliability_score: number | null
           requires_key: boolean
           source_name: string
@@ -491,15 +500,24 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          allowed_paths?: string[]
           allowed_use?: string | null
+          base_url?: string | null
+          comuni?: string[]
           coverage_area?: string
           created_at?: string
+          excluded_paths?: string[]
+          expected_entities?: string[]
+          format_expected?: string | null
           freshness_score?: number | null
           id?: number
+          ingestion_method?: string | null
           ingestion_status?: string
           last_run_at?: string | null
           notes?: string | null
           priority?: number
+          province?: string[]
+          quality_default?: string
           reliability_score?: number | null
           requires_key?: boolean
           source_name: string
@@ -507,15 +525,24 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          allowed_paths?: string[]
           allowed_use?: string | null
+          base_url?: string | null
+          comuni?: string[]
           coverage_area?: string
           created_at?: string
+          excluded_paths?: string[]
+          expected_entities?: string[]
+          format_expected?: string | null
           freshness_score?: number | null
           id?: number
+          ingestion_method?: string | null
           ingestion_status?: string
           last_run_at?: string | null
           notes?: string | null
           priority?: number
+          province?: string[]
+          quality_default?: string
           reliability_score?: number | null
           requires_key?: boolean
           source_name?: string
@@ -1411,6 +1438,108 @@ export type Database = {
           municipality?: string | null
           payload?: Json
           province?: string | null
+        }
+        Relationships: []
+      }
+      microzone_sentiment: {
+        Row: {
+          air_quality_score: number | null
+          area_label: string | null
+          area_type: string | null
+          computed_at: string
+          comune: string
+          confidence_score: number
+          data_basis: string[]
+          environment_score: number | null
+          family_fit_score: number | null
+          fingerprint: string
+          green_score: number | null
+          id: number
+          investor_fit_score: number | null
+          is_active: boolean
+          lat: number | null
+          lng: number | null
+          nightlife_pressure_score: number | null
+          noise_score: number | null
+          parking_score: number | null
+          provincia: string
+          quality: string
+          safety_proxy_score: number | null
+          school_access_score: number | null
+          sentiment_score_total: number | null
+          services_score: number | null
+          source_refs: Json
+          student_fit_score: number | null
+          tourism_pressure_score: number | null
+          transit_access_score: number | null
+          updated_at: string
+          urban_decay_risk_score: number | null
+        }
+        Insert: {
+          air_quality_score?: number | null
+          area_label?: string | null
+          area_type?: string | null
+          computed_at?: string
+          comune: string
+          confidence_score?: number
+          data_basis?: string[]
+          environment_score?: number | null
+          family_fit_score?: number | null
+          fingerprint: string
+          green_score?: number | null
+          id?: number
+          investor_fit_score?: number | null
+          is_active?: boolean
+          lat?: number | null
+          lng?: number | null
+          nightlife_pressure_score?: number | null
+          noise_score?: number | null
+          parking_score?: number | null
+          provincia: string
+          quality?: string
+          safety_proxy_score?: number | null
+          school_access_score?: number | null
+          sentiment_score_total?: number | null
+          services_score?: number | null
+          source_refs?: Json
+          student_fit_score?: number | null
+          tourism_pressure_score?: number | null
+          transit_access_score?: number | null
+          updated_at?: string
+          urban_decay_risk_score?: number | null
+        }
+        Update: {
+          air_quality_score?: number | null
+          area_label?: string | null
+          area_type?: string | null
+          computed_at?: string
+          comune?: string
+          confidence_score?: number
+          data_basis?: string[]
+          environment_score?: number | null
+          family_fit_score?: number | null
+          fingerprint?: string
+          green_score?: number | null
+          id?: number
+          investor_fit_score?: number | null
+          is_active?: boolean
+          lat?: number | null
+          lng?: number | null
+          nightlife_pressure_score?: number | null
+          noise_score?: number | null
+          parking_score?: number | null
+          provincia?: string
+          quality?: string
+          safety_proxy_score?: number | null
+          school_access_score?: number | null
+          sentiment_score_total?: number | null
+          services_score?: number | null
+          source_refs?: Json
+          student_fit_score?: number | null
+          tourism_pressure_score?: number | null
+          transit_access_score?: number | null
+          updated_at?: string
+          urban_decay_risk_score?: number | null
         }
         Relationships: []
       }
@@ -2429,11 +2558,17 @@ export type Database = {
       }
       territorial_signals: {
         Row: {
+          amount_eur: number | null
+          confidence_score: number
           data_basis: string | null
           description: string | null
           detected_at: string
+          fetched_at: string
           fingerprint: string
+          geo_polygon: Json | null
           id: number
+          impact_direction: string | null
+          impact_strength: number | null
           is_active: boolean
           lat: number | null
           lng: number | null
@@ -2441,16 +2576,25 @@ export type Database = {
           payload: Json | null
           province: string | null
           quality: string
+          signal_subtype: string | null
           signal_type: string
           source_name: string
+          source_url: string | null
+          target_demand_segment: string | null
           title: string | null
         }
         Insert: {
+          amount_eur?: number | null
+          confidence_score?: number
           data_basis?: string | null
           description?: string | null
           detected_at?: string
+          fetched_at?: string
           fingerprint: string
+          geo_polygon?: Json | null
           id?: number
+          impact_direction?: string | null
+          impact_strength?: number | null
           is_active?: boolean
           lat?: number | null
           lng?: number | null
@@ -2458,16 +2602,25 @@ export type Database = {
           payload?: Json | null
           province?: string | null
           quality?: string
+          signal_subtype?: string | null
           signal_type: string
           source_name: string
+          source_url?: string | null
+          target_demand_segment?: string | null
           title?: string | null
         }
         Update: {
+          amount_eur?: number | null
+          confidence_score?: number
           data_basis?: string | null
           description?: string | null
           detected_at?: string
+          fetched_at?: string
           fingerprint?: string
+          geo_polygon?: Json | null
           id?: number
+          impact_direction?: string | null
+          impact_strength?: number | null
           is_active?: boolean
           lat?: number | null
           lng?: number | null
@@ -2475,9 +2628,81 @@ export type Database = {
           payload?: Json | null
           province?: string | null
           quality?: string
+          signal_subtype?: string | null
           signal_type?: string
           source_name?: string
+          source_url?: string | null
+          target_demand_segment?: string | null
           title?: string | null
+        }
+        Relationships: []
+      }
+      turnover_signals: {
+        Row: {
+          area_label: string | null
+          computed_at: string
+          comune: string
+          confidence_score: number
+          data_basis: string[]
+          distress_aggregate: number | null
+          elderly_ratio: number | null
+          fingerprint: string
+          id: number
+          is_active: boolean
+          low_rotation_proxy: number | null
+          non_occupied_ratio: number | null
+          old_building_ratio: number | null
+          provincia: string
+          quality: string
+          second_home_proxy: number | null
+          single_household_ratio: number | null
+          source_refs: Json
+          turnover_potential_score: number
+          updated_at: string
+        }
+        Insert: {
+          area_label?: string | null
+          computed_at?: string
+          comune: string
+          confidence_score?: number
+          data_basis?: string[]
+          distress_aggregate?: number | null
+          elderly_ratio?: number | null
+          fingerprint: string
+          id?: number
+          is_active?: boolean
+          low_rotation_proxy?: number | null
+          non_occupied_ratio?: number | null
+          old_building_ratio?: number | null
+          provincia: string
+          quality?: string
+          second_home_proxy?: number | null
+          single_household_ratio?: number | null
+          source_refs?: Json
+          turnover_potential_score?: number
+          updated_at?: string
+        }
+        Update: {
+          area_label?: string | null
+          computed_at?: string
+          comune?: string
+          confidence_score?: number
+          data_basis?: string[]
+          distress_aggregate?: number | null
+          elderly_ratio?: number | null
+          fingerprint?: string
+          id?: number
+          is_active?: boolean
+          low_rotation_proxy?: number | null
+          non_occupied_ratio?: number | null
+          old_building_ratio?: number | null
+          provincia?: string
+          quality?: string
+          second_home_proxy?: number | null
+          single_household_ratio?: number | null
+          source_refs?: Json
+          turnover_potential_score?: number
+          updated_at?: string
         }
         Relationships: []
       }
