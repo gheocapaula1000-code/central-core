@@ -102,11 +102,34 @@ export interface ScomodiBlock {
   methodologyNote: string;
 }
 
+// ── "Immobili Bruciati" (competitor in zona) — genera urgenza nel proprietario ──
+export interface BurnedCompetitorBar {
+  label: string;                    // es. "Padova" o "Treviso"
+  province: string;
+  count: number;                    // numero immobili bruciati attivi
+  avgDaysOnline: number | null;     // giacenza media
+  avgDropsCount: number | null;     // ribassi medi
+  avgTotalDropPct: number | null;   // % perdita prezzo media
+  severity: "verde" | "moderato" | "elevato" | "critico";
+  fonte: "Snapshot Portali Immobiliari";
+}
+
+export interface BurnedCompetitorsBlock {
+  title: string;                    // "Immobili Bruciati in zona (competitor)"
+  description: string;
+  fonte: "Snapshot Portali Immobiliari";
+  bars: BurnedCompetitorBar[];
+  totalActive: number;
+  topHotspot: BurnedCompetitorBar | null;
+  methodologyNote: string;
+}
+
 export interface RadarClusterDossier {
   region: "veneto";
   generatedAt: string;
   reportHeader: ReportHeader;        // intestazione tecnica + loghi/fonti ufficiali
   scomodi: ScomodiBlock;             // grafico gap OMI in apertura
+  immobiliBruciati: BurnedCompetitorsBlock; // grafico competitor "bruciati" in zona
   scope: { province?: string; municipality?: string };
   totals: {
     markers_rossi: number;
