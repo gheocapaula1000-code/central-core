@@ -16,7 +16,7 @@
 import {
   makeDebugId, handleOptions, json, fail,
   CORE_VERSION, CORE_CONTRACT, addIdentityHeaders,
-  buildManifest, enforceOriginPolicy,
+  buildManifest, enforceOriginPolicy, requireSecret, extractVerifiedEmail,
 } from "../_shared/http.ts";
 import { sanitizeOutgoing, getServiceSupabase } from "../_shared/civiko.ts";
 import {
@@ -30,6 +30,9 @@ const EXPECTED_BASE_PATH = "/functions/v1/civiko-billing";
 const ROUTES = [
   "GET  /health",
   "GET  /manifest",
+  "GET  /subscription",
+  "POST /checkout",
+  "POST /portal",
   "POST /civiko/billing/create-checkout",
   "POST /civiko/billing/customer-portal",
   "POST /civiko/billing/check-subscription",
@@ -39,6 +42,39 @@ const ROUTES = [
 
 function withIdentity(res: Response, route: string) {
   return addIdentityHeaders(res, { function: FUNCTION_NAME, route });
+}
+
+// ── Dual-mode auth: accept either a valid Supabase JWT or app-secret.
+// Returns { userId, email } when authenticated via JWT, or {} when via secret.
+// Returns a Response on rejection.
+async function authenticateDual(
+  req: Request,
+  debugId: string,
+): Promise<{ ok: true; userId: string | null; email: string | null } | { ok: false; res: Response }> {
+  const authHeader = req.headers.get("authorization") ?? "";
+  const bearer = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
+  const looksLikeJwt = bearer.startsWith("eyJ");
+
+  // Try JWT first when the Bearer token is shaped like a JWT
+  if (looksLikeJwt) {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
+    if (supabaseUrl && supabaseKey) {
+      try {
+        const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+        const sb = createClient(supabaseUrl, supabaseKey);
+        const { data: { user }, error } = await sb.auth.getUser(bearer);
+        if (!error && user?.id) {
+          return { ok: true, userId: user.id, email: user.email ?? null };
+        }
+      } catch (_) { /* fall through to app-secret */ }
+    }
+  }
+
+  // Fall back to app-secret (legacy proxy pattern)
+  const secretRes = requireSecret(req, debugId);
+  if (secretRes) return { ok: false, res: withIdentity(secretRes, "auth-rejected") };
+  return { ok: true, userId: null, email: null };
 }
 
 // ── Stripe minimal helpers (form-encoded REST, no SDK) ────────
@@ -70,28 +106,41 @@ function unconfiguredResponse(req: Request, debugId: string, route: string) {
 
 // ── handlers ──────────────────────────────────────────────────
 
-async function handleCreateCheckout(req: Request, body: Record<string, unknown>, debugId: string) {
+async function handleCreateCheckout(
+  req: Request,
+  body: Record<string, unknown>,
+  debugId: string,
+  ctx: { agencyOverride?: string | null; route?: string } = {},
+) {
+  const route = ctx.route ?? "create-checkout";
   const env = readStripeEnv();
-  if (!env.configured || !env.secretKey) return unconfiguredResponse(req, debugId, "create-checkout");
+  if (!env.configured || !env.secretKey) return unconfiguredResponse(req, debugId, route);
 
-  const agencyId = String(body.agencyId ?? "");
+  const agencyId = String(body.agencyId ?? ctx.agencyOverride ?? "");
   const planKey = String(body.planKey ?? "") as CivikoPlanKey;
   const intervalRaw = String(body.interval ?? "month");
   const interval = (intervalRaw === "year" || intervalRaw === "annual") ? "annual" : "monthly";
-  const successUrl = String(body.successUrl ?? "");
-  const cancelUrl = String(body.cancelUrl ?? "");
+  const successUrl = String(body.successUrl ?? body.returnUrl ?? "");
+  const cancelUrl = String(body.cancelUrl ?? body.returnUrl ?? "");
   const email = body.email ? String(body.email) : null;
+  const uiModeRaw = String(body.uiMode ?? "hosted").toLowerCase();
+  const uiMode: "embedded" | "hosted" = uiModeRaw === "embedded" ? "embedded" : "hosted";
 
   if (!agencyId) return withIdentity(fail(req, 400, "INVALID_BODY", "agencyId is required.", debugId), "error");
   if (!CIVIKO_PLANS.includes(planKey)) return withIdentity(fail(req, 400, "INVALID_BODY", "planKey not recognized.", debugId), "error");
-  if (!successUrl || !cancelUrl) return withIdentity(fail(req, 400, "INVALID_BODY", "successUrl and cancelUrl are required.", debugId), "error");
+  if (uiMode === "hosted" && (!successUrl || !cancelUrl)) {
+    return withIdentity(fail(req, 400, "INVALID_BODY", "successUrl and cancelUrl are required for hosted mode.", debugId), "error");
+  }
+  if (uiMode === "embedded" && !successUrl) {
+    return withIdentity(fail(req, 400, "INVALID_BODY", "returnUrl (or successUrl) is required for embedded mode.", debugId), "error");
+  }
 
   const priceKey = `${planKey}_${interval}`;
   const priceId = env.prices[priceKey];
   if (!priceId) return withIdentity(json(req, 200, sanitizeOutgoing({
     billingReady: false, reason: "price_not_configured",
     message: "Variante di abbonamento non configurata.",
-  }), debugId), "create-checkout");
+  }), debugId), route);
 
   // Reuse customer if exists
   const sb = getServiceSupabase();
@@ -107,13 +156,18 @@ async function handleCreateCheckout(req: Request, body: Record<string, unknown>,
     "mode": "subscription",
     "line_items[0][price]": priceId,
     "line_items[0][quantity]": "1",
-    "success_url": successUrl,
-    "cancel_url": cancelUrl,
     "client_reference_id": agencyId,
     "metadata[agency_id]": agencyId,
     "metadata[app_id]": CIVIKO_APP_ID,
     "metadata[plan_key]": planKey,
   };
+  if (uiMode === "embedded") {
+    form["ui_mode"] = "embedded";
+    form["return_url"] = successUrl;
+  } else {
+    form["success_url"] = successUrl;
+    form["cancel_url"] = cancelUrl;
+  }
   if (stripeCustomerId) form["customer"] = stripeCustomerId;
   else if (email) form["customer_email"] = email;
 
@@ -123,16 +177,26 @@ async function handleCreateCheckout(req: Request, body: Record<string, unknown>,
     return withIdentity(fail(req, 502, "STRIPE_ERROR", `Checkout non disponibile. Riferimento: ${debugId}`, debugId), "error");
   }
   const url = (r.data?.url as string) ?? null;
+  const clientSecret = (r.data?.client_secret as string) ?? null;
   return withIdentity(json(req, 200, sanitizeOutgoing({
-    billingReady: true, checkoutUrl: url, planKey, interval,
-  }), debugId), "create-checkout");
+    billingReady: true,
+    uiMode,
+    ...(uiMode === "embedded" ? { clientSecret } : { checkoutUrl: url, url }),
+    planKey, interval,
+  }), debugId), route);
 }
 
-async function handleCustomerPortal(req: Request, body: Record<string, unknown>, debugId: string) {
+async function handleCustomerPortal(
+  req: Request,
+  body: Record<string, unknown>,
+  debugId: string,
+  ctx: { agencyOverride?: string | null; route?: string } = {},
+) {
+  const route = ctx.route ?? "customer-portal";
   const env = readStripeEnv();
-  if (!env.configured || !env.secretKey) return unconfiguredResponse(req, debugId, "customer-portal");
+  if (!env.configured || !env.secretKey) return unconfiguredResponse(req, debugId, route);
 
-  const agencyId = String(body.agencyId ?? "");
+  const agencyId = String(body.agencyId ?? ctx.agencyOverride ?? "");
   const returnUrl = String(body.returnUrl ?? "");
   if (!agencyId || !returnUrl) return withIdentity(fail(req, 400, "INVALID_BODY", "agencyId and returnUrl are required.", debugId), "error");
 
@@ -143,7 +207,7 @@ async function handleCustomerPortal(req: Request, body: Record<string, unknown>,
     .eq("agency_id", agencyId).eq("app_id", CIVIKO_APP_ID).maybeSingle();
   if (!data?.stripe_customer_id) return withIdentity(json(req, 200, sanitizeOutgoing({
     billingReady: true, available: false, reason: "no_customer",
-  }), debugId), "customer-portal");
+  }), debugId), route);
 
   const r = await stripeForm(env.secretKey, "billing_portal/sessions", {
     customer: data.stripe_customer_id,
@@ -153,20 +217,27 @@ async function handleCustomerPortal(req: Request, body: Record<string, unknown>,
     console.error(`[${FUNCTION_NAME}] portal.create failed status=${r.status} debug_id=${debugId}`);
     return withIdentity(fail(req, 502, "STRIPE_ERROR", `Portale non disponibile. Riferimento: ${debugId}`, debugId), "error");
   }
+  const url = (r.data?.url as string) ?? null;
   return withIdentity(json(req, 200, sanitizeOutgoing({
-    billingReady: true, portalUrl: (r.data?.url as string) ?? null,
-  }), debugId), "customer-portal");
+    billingReady: true, portalUrl: url, url,
+  }), debugId), route);
 }
 
-async function handleCheckSubscription(req: Request, body: Record<string, unknown>, debugId: string) {
+async function handleCheckSubscription(
+  req: Request,
+  body: Record<string, unknown>,
+  debugId: string,
+  ctx: { agencyOverride?: string | null; route?: string } = {},
+) {
+  const route = ctx.route ?? "check-subscription";
   const env = readStripeEnv();
-  const agencyId = String(body.agencyId ?? "");
+  const agencyId = String(body.agencyId ?? ctx.agencyOverride ?? "");
   if (!agencyId) return withIdentity(fail(req, 400, "INVALID_BODY", "agencyId is required.", debugId), "error");
 
-  if (!env.configured) return unconfiguredResponse(req, debugId, "check-subscription");
+  if (!env.configured) return unconfiguredResponse(req, debugId, route);
 
   const sb = getServiceSupabase();
-  if (!sb) return unconfiguredResponse(req, debugId, "check-subscription");
+  if (!sb) return unconfiguredResponse(req, debugId, route);
 
   const sub = await getActiveSubscription(sb, agencyId);
   const usage = await getCurrentUsage(sb, agencyId);
@@ -189,7 +260,7 @@ async function handleCheckSubscription(req: Request, body: Record<string, unknow
       allow_pdf_export: !!ent.allow_pdf_export,
       allow_white_label: !!ent.allow_white_label,
     } : null,
-  }), debugId), "check-subscription");
+  }), debugId), route);
 }
 
 async function handleRecordUsage(req: Request, body: Record<string, unknown>, debugId: string) {
@@ -319,6 +390,36 @@ Deno.serve(async (req) => {
 
     const url = new URL(req.url);
     const pathname = url.pathname;
+
+    // ── New RESTful sub-paths (dual-auth: JWT user OR app-secret) ──
+    // GET /subscription
+    // POST /checkout
+    // POST /portal
+    const isRestSubscription = req.method === "GET" && (pathname.endsWith("/subscription") || pathname === EXPECTED_BASE_PATH + "/subscription");
+    const isRestCheckout = req.method === "POST" && (pathname.endsWith("/checkout") && !pathname.endsWith("/create-checkout"));
+    const isRestPortal = req.method === "POST" && pathname.endsWith("/portal") && !pathname.endsWith("/customer-portal");
+
+    if (isRestSubscription || isRestCheckout || isRestPortal) {
+      const auth = await authenticateDual(req, debugId);
+      if (!auth.ok) return auth.res;
+      const agencyOverride = auth.userId;
+
+      if (isRestSubscription) {
+        return await handleCheckSubscription(req, {}, debugId, { agencyOverride, route: "subscription" });
+      }
+
+      let body: Record<string, unknown> = {};
+      try { body = (await req.json()) as Record<string, unknown>; }
+      catch { return withIdentity(fail(req, 400, "INVALID_JSON", "Body is not valid JSON", debugId), "error"); }
+      if (body == null || typeof body !== "object" || Array.isArray(body)) {
+        return withIdentity(fail(req, 400, "INVALID_BODY", "Body must be a JSON object.", debugId), "error");
+      }
+      // Inject email from JWT if not provided
+      if (!body.email && auth.email) body.email = auth.email;
+
+      if (isRestCheckout) return await handleCreateCheckout(req, body, debugId, { agencyOverride, route: "checkout" });
+      if (isRestPortal) return await handleCustomerPortal(req, body, debugId, { agencyOverride, route: "portal" });
+    }
 
     if (req.method === "GET") {
       if (pathname.endsWith("/health") || pathname === "/" || pathname === EXPECTED_BASE_PATH) {
