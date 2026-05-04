@@ -304,6 +304,7 @@ export async function scrapeSuccessioniPotenziali(
         source_url: ob.source_url,
         lat: coords?.lat ?? null,
         lng: coords?.lng ?? null,
+        cap: coords?.cap ?? null,
         omi_link_zona: omi.link_zona,
         omi_zona_descr: omi.zona_descr,
         omi_tipologia: omi.tipologia,
