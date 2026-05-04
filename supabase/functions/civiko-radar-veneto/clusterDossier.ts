@@ -1214,8 +1214,8 @@ function buildReportHeader(
 ): ReportHeader {
   const scopeLabel = [scope.municipality, scope.province, "Veneto"].filter(Boolean).join(" · ");
   return {
-    title: "REPORT DI AUDIT TERRITORIALE - VENETO",
-    subtitle: `Audit di mercato e segnali predatori — ${scopeLabel || "Regione Veneto"}`,
+    title: "AUDIT TECNICO TERRITORIALE - ANALISI OGGETTIVA DEL VALORE",
+    subtitle: `Analisi oggettiva del valore di mercato e dei segnali competitivi — ${scopeLabel || "Regione Veneto"}`,
     documentType: "audit_territoriale",
     region: "VENETO",
     generatedAt,
@@ -1226,7 +1226,7 @@ function buildReportHeader(
     officialSources: OFFICIAL_SOURCES,
     disclaimer:
       "Tutti i dati riportati provengono esclusivamente da fonti ufficiali e pubbliche " +
-      "(ISTAT, Agenzia delle Entrate – OMI, PVP – Ministero della Giustizia). " +
+      "(ISTAT, Agenzia delle Entrate – OMI, PVP – Ministero della Giustizia) e da snapshot pubblici dei portali immobiliari. " +
       "Nessun dato è stimato in assenza di evidenza: i campi non disponibili sono indicati esplicitamente.",
   };
 }
