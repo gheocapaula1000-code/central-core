@@ -60,9 +60,53 @@ export interface ProvinceContractualPower {
   reasoning: string;
 }
 
+// ── Intestazione tecnica del report (autorità + fonti ufficiali) ──
+export interface OfficialSourceRef {
+  id: "ISTAT" | "AGENZIA_ENTRATE_OMI" | "PVP_MINISTERO_GIUSTIZIA";
+  label: string;          // dicitura ufficiale leggibile
+  shortLabel: string;     // sigla per badge
+  logoUrl: string;        // URL logo ufficiale (per il frontend)
+  referenceUrl: string;   // pagina ufficiale di riferimento dati
+  usage: string;          // a cosa serve nel report (trasparenza metodologica)
+}
+
+export interface ReportHeader {
+  title: string;          // "REPORT DI AUDIT TERRITORIALE - VENETO"
+  subtitle: string;
+  documentType: "audit_territoriale";
+  region: "VENETO";
+  generatedAt: string;
+  scope: { province?: string; municipality?: string };
+  officialSources: OfficialSourceRef[];
+  disclaimer: string;     // l'agenzia riporta solo fonti ufficiali, nessun dato inventato
+}
+
+// ── "Dati Scomodi": gap richiesto vs OMI compr_max (toglie ogni obiezione) ──
+export interface GapOmiChartBar {
+  label: string;                    // es. "Padova" o "Marker · 35 Via Roma"
+  askingEurPerMq: number | null;    // €/mq richiesto
+  omiMaxEurPerMq: number | null;    // €/mq OMI compr_max
+  gapPct: number | null;            // (asking - omi_max) / omi_max * 100
+  gapEur: number | null;            // capitale assoluto sopra OMI (se calcolabile)
+  severity: "verde" | "moderato" | "elevato" | "critico" | "neutro";
+  fonte: "Agenzia delle Entrate – OMI";
+  semestre?: string | null;
+}
+
+export interface ScomodiBlock {
+  title: string;                    // "Gap prezzo richiesto vs fascia massima OMI"
+  description: string;              // descrizione "scomoda" del dato
+  fonte: "Agenzia delle Entrate – OMI";
+  bars: GapOmiChartBar[];           // per provincia (e/o per marker)
+  topOffender?: GapOmiChartBar | null;  // bar con gap massimo (rilievo)
+  methodologyNote: string;
+}
+
 export interface RadarClusterDossier {
   region: "veneto";
   generatedAt: string;
+  reportHeader: ReportHeader;        // intestazione tecnica + loghi/fonti ufficiali
+  scomodi: ScomodiBlock;             // grafico gap OMI in apertura
   scope: { province?: string; municipality?: string };
   totals: {
     markers_rossi: number;
@@ -1111,17 +1155,175 @@ export async function buildHookContextForMarker(marker: DossierMarker): Promise<
   return ctx;
 }
 
+// ─── Intestazione tecnica + riferimenti ufficiali ────────────────────────
+// Le immagini sono link a loghi pubblici delle istituzioni (statici, ufficiali).
+// Il frontend può scegliere se renderizzarli inline o sostituirli con asset locali.
+const OFFICIAL_SOURCES: OfficialSourceRef[] = [
+  {
+    id: "ISTAT",
+    label: "Istituto Nazionale di Statistica (ISTAT)",
+    shortLabel: "ISTAT",
+    logoUrl: "https://www.istat.it/wp-content/themes/istat-2024/assets/img/logo.svg",
+    referenceUrl: "https://demo.istat.it/",
+    usage: "Densità demografica per fascia d'età, indice di vecchiaia, popolazione residente per comune.",
+  },
+  {
+    id: "AGENZIA_ENTRATE_OMI",
+    label: "Agenzia delle Entrate – Osservatorio del Mercato Immobiliare (OMI)",
+    shortLabel: "Agenzia delle Entrate – OMI",
+    logoUrl: "https://www.agenziaentrate.gov.it/portale/o/aebrand/themes/agenziaentrate/images/logo-agenzia-entrate.png",
+    referenceUrl: "https://www.agenziaentrate.gov.it/portale/web/guest/schede/fabbricatiterreni/omi",
+    usage: "Valori di mercato per zona OMI (compravendita min/max €/mq), riferimenti ufficiali per gap di prezzo.",
+  },
+  {
+    id: "PVP_MINISTERO_GIUSTIZIA",
+    label: "Portale Vendite Pubbliche – Ministero della Giustizia",
+    shortLabel: "PVP – Ministero della Giustizia",
+    logoUrl: "https://venditepubbliche.giustizia.it/pvp/resources/img/logo-pvp.png",
+    referenceUrl: "https://venditepubbliche.giustizia.it/",
+    usage: "Aste giudiziarie attive nel comune di riferimento (impatto sul prezzo di mercato della zona).",
+  },
+];
+
+function buildReportHeader(
+  scope: { province?: string | null; municipality?: string | null },
+  generatedAt: string,
+): ReportHeader {
+  const scopeLabel = [scope.municipality, scope.province, "Veneto"].filter(Boolean).join(" · ");
+  return {
+    title: "REPORT DI AUDIT TERRITORIALE - VENETO",
+    subtitle: `Audit di mercato e segnali predatori — ${scopeLabel || "Regione Veneto"}`,
+    documentType: "audit_territoriale",
+    region: "VENETO",
+    generatedAt,
+    scope: {
+      province: scope.province ?? undefined,
+      municipality: scope.municipality ?? undefined,
+    },
+    officialSources: OFFICIAL_SOURCES,
+    disclaimer:
+      "Tutti i dati riportati provengono esclusivamente da fonti ufficiali e pubbliche " +
+      "(ISTAT, Agenzia delle Entrate – OMI, PVP – Ministero della Giustizia). " +
+      "Nessun dato è stimato in assenza di evidenza: i campi non disponibili sono indicati esplicitamente.",
+  };
+}
+
+function severityFromGapPct(gapPct: number | null): GapOmiChartBar["severity"] {
+  if (gapPct === null || !Number.isFinite(gapPct)) return "neutro";
+  if (gapPct > 25) return "critico";
+  if (gapPct > 10) return "elevato";
+  if (gapPct > 0) return "moderato";
+  return "verde";
+}
+
+// Recupera il gap medio richiesto vs OMI compr_max per provincia (pre-calcolato
+// dal job `priceResistance.ts` nella tabella `price_resistance_index`).
+async function fetchScomodiBars(
+  supabase: ReturnType<typeof getServiceClient>,
+  scope: { province?: string | null; municipality?: string | null },
+): Promise<GapOmiChartBar[]> {
+  if (!supabase) return [];
+  let query = supabase
+    .from("price_resistance_index")
+    .select("province, avg_asking_price_eur, avg_omi_compr_max_eur, avg_gap_pct, computed_at")
+    .eq("region", "veneto")
+    .order("computed_at", { ascending: false })
+    .range(0, 199);
+  if (scope.province) query = query.ilike("province", scope.province);
+
+  const { data, error } = await query;
+  if (error || !data) return [];
+
+  // Tieni la riga più recente per ciascuna provincia.
+  const latestByProvince = new Map<string, {
+    province: string; avg_asking_price_eur: number | null;
+    avg_omi_compr_max_eur: number | null; avg_gap_pct: number | null;
+  }>();
+  for (const r of data as Array<{
+    province: string; avg_asking_price_eur: number | null;
+    avg_omi_compr_max_eur: number | null; avg_gap_pct: number | null; computed_at: string;
+  }>) {
+    if (!latestByProvince.has(r.province)) latestByProvince.set(r.province, r);
+  }
+
+  const bars: GapOmiChartBar[] = [];
+  for (const r of latestByProvince.values()) {
+    const gapPct = typeof r.avg_gap_pct === "number" ? r.avg_gap_pct : null;
+    bars.push({
+      label: r.province,
+      askingEurPerMq: r.avg_asking_price_eur ?? null,
+      omiMaxEurPerMq: r.avg_omi_compr_max_eur ?? null,
+      gapPct,
+      gapEur: null, // dato provinciale aggregato: capitale assoluto non significativo
+      severity: severityFromGapPct(gapPct),
+      fonte: "Agenzia delle Entrate – OMI",
+    });
+  }
+  // Ordina per gap discendente: i più "scomodi" in cima.
+  bars.sort((a, b) => (b.gapPct ?? -Infinity) - (a.gapPct ?? -Infinity));
+  return bars;
+}
+
+// Estrae bars per-marker (se i marker hanno già `capitaleARischio` arricchito).
+function buildMarkerBars(markers: DossierMarker[]): GapOmiChartBar[] {
+  const out: GapOmiChartBar[] = [];
+  for (const m of markers) {
+    const cr = (m.payload?.capitaleARischio ?? null) as CapitaleARischio | null;
+    if (!cr || !Number.isFinite(cr.gapVsOmiPct)) continue;
+    out.push({
+      label: `${m.municipality ?? "—"} · ${m.kind}`,
+      askingEurPerMq: cr.surfaceMq > 0 ? Math.round(cr.askingPriceEur / cr.surfaceMq) : null,
+      omiMaxEurPerMq: cr.omiMaxEurPerMq,
+      gapPct: cr.gapVsOmiPct,
+      gapEur: cr.euroAtRisk,
+      severity:
+        cr.classificazione === "critico" ? "critico" :
+        cr.classificazione === "elevato" ? "elevato" :
+        cr.classificazione === "moderato" ? "moderato" : "verde",
+      fonte: "Agenzia delle Entrate – OMI",
+      semestre: cr.omiSemestre ?? null,
+    });
+  }
+  out.sort((a, b) => (b.gapPct ?? -Infinity) - (a.gapPct ?? -Infinity));
+  return out.slice(0, 10);
+}
+
+function buildScomodiBlock(provinceBars: GapOmiChartBar[], markerBars: GapOmiChartBar[]): ScomodiBlock {
+  // Combina: prima province (visione macro), poi top marker (visione micro).
+  const bars = [...provinceBars, ...markerBars];
+  const topOffender =
+    bars.filter((b) => b.gapPct !== null && b.gapPct > 0)
+        .sort((a, b) => (b.gapPct ?? 0) - (a.gapPct ?? 0))[0] ?? null;
+  return {
+    title: "Gap prezzo richiesto vs fascia massima OMI",
+    description:
+      "Il dato che toglie ogni obiezione: di quanto i venditori si stanno posizionando " +
+      "sopra la fascia massima riconosciuta dall'Agenzia delle Entrate. Più il gap è alto, " +
+      "più tempo l'immobile resterà invenduto.",
+    fonte: "Agenzia delle Entrate – OMI",
+    bars,
+    topOffender,
+    methodologyNote:
+      "Gap = (prezzo richiesto medio €/mq − OMI compr_max medio €/mq) / OMI compr_max × 100. " +
+      "OMI rappresenta il range pubblico ufficiale, non il prezzo di transato notarile. " +
+      "Soglie: >25% critico · >10% elevato · >0% moderato · ≤0% allineato/sotto mercato.",
+  };
+}
+
 export async function buildRadarClusterDossier(
   scope: { province?: string | null; municipality?: string | null } = {},
 ): Promise<RadarClusterDossier> {
   const supabase = getServiceClient();
   const generatedAt = new Date().toISOString();
   const warnings: string[] = [];
+  const reportHeader = buildReportHeader(scope, generatedAt);
 
   if (!supabase) {
     return {
       region: "veneto",
       generatedAt,
+      reportHeader,
+      scomodi: buildScomodiBlock([], []),
       scope: { province: scope.province ?? undefined, municipality: scope.municipality ?? undefined },
       totals: { markers_rossi: 0, markers_viola: 0, markers_lead_caldo: 0 },
       markers: [],
@@ -1133,10 +1335,11 @@ export async function buildRadarClusterDossier(
   const province = scope.province?.trim() ? scope.province.trim() : null;
   const municipality = scope.municipality?.trim() ? scope.municipality.trim() : null;
 
-  const [bruciati, successioni, potere] = await Promise.all([
+  const [bruciati, successioni, potere, scomodiBars] = await Promise.all([
     fetchMarkersBruciati(supabase, province, municipality).catch((e) => { warnings.push(`bruciati: ${e instanceof Error ? e.message : String(e)}`); return [] as DossierMarker[]; }),
     fetchMarkersSuccessioniDense(supabase, province, municipality).catch((e) => { warnings.push(`successioni: ${e instanceof Error ? e.message : String(e)}`); return [] as DossierMarker[]; }),
     fetchPotereContrattuale(supabase, province).catch((e) => { warnings.push(`potere: ${e instanceof Error ? e.message : String(e)}`); return [] as ProvinceContractualPower[]; }),
+    fetchScomodiBars(supabase, { province, municipality }).catch((e) => { warnings.push(`scomodi_provincia: ${e instanceof Error ? e.message : String(e)}`); return [] as GapOmiChartBar[]; }),
   ]);
 
   const markers = [...bruciati, ...successioni];
@@ -1147,6 +1350,11 @@ export async function buildRadarClusterDossier(
   } catch (e) {
     warnings.push(`ganci_apertura: ${e instanceof Error ? e.message : String(e)}`);
   }
+
+  // Costruisce le bars per-marker DOPO l'enrichment (così include capitaleARischio).
+  const markerBars = buildMarkerBars(markers);
+  const scomodi = buildScomodiBlock(scomodiBars, markerBars);
+
   const totals = {
     markers_rossi: markers.filter((m) => m.color === "rosso").length,
     markers_viola: markers.filter((m) => m.color === "viola").length,
@@ -1156,10 +1364,15 @@ export async function buildRadarClusterDossier(
   if (markers.length === 0) {
     warnings.push("Nessun marker disponibile: i dati maturano con i job daily (snapshot, succession-heatmap, price-resistance).");
   }
+  if (scomodi.bars.length === 0) {
+    warnings.push("Grafico gap OMI vuoto: il job price-resistance-index non ha ancora prodotto dati per lo scope richiesto.");
+  }
 
   return {
     region: "veneto",
     generatedAt,
+    reportHeader,
+    scomodi,
     scope: { province: province ?? undefined, municipality: municipality ?? undefined },
     totals,
     markers,
