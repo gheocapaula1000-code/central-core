@@ -739,13 +739,16 @@ export function computeCapitaleARischio(input: {
 // reale è presente → kind="neutro" e nessun gancio inviabile.
 
 export interface HookContext {
-  omiCompromaxEur?: number | null;       // OMI compr_max della zona del marker
-  omiCompromInEur?: number | null;
+  omiCompromaxEur?: number | null;       // OMI compr_max €/mq della zona del marker
+  omiCompromInEur?: number | null;       // OMI compr_min €/mq
   omiSemestre?: string | null;
   asteImminentiCount?: number;           // numero aste PVP nel comune
   asteEvidenceUrl?: string | null;
-  domandaPickIstatScore?: number | null; // indice ISTAT 0..100 di domanda potenziale (es. famiglie giovani / nuovi residenti)
+  domandaPickIstatScore?: number | null; // indice ISTAT 0..100 di domanda potenziale
   domandaPickIstatNota?: string | null;
+  // Capitale a Rischio (validazione OMI)
+  surfaceMq?: number | null;             // superficie immobile in mq (da payload o ricalcolo)
+  capitaleARischio?: CapitaleARischio | null;
 }
 
 function formatEuro(n: number | null | undefined): string {
