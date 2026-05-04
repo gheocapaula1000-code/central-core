@@ -46,6 +46,7 @@ export interface DossierMarker {
   evidenceUrl?: string | null;
   detectedAt: string;
   talkingPoints: string[];
+  ganciApertura?: GancioApertura[];
   payload: Record<string, unknown>;
 }
 
