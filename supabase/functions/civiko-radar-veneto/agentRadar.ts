@@ -272,7 +272,11 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   const filterProv = normalizeProvincia(req.provincia);
   const filterComune = (req.comune ?? "").trim().toLowerCase();
   const maxZones = Math.max(1, Math.min(50, req.maxZones ?? 12));
-  const allowDemo = req.allowDemo === true;
+  // POLICY PRODUZIONE: demo/mock/seed sempre esclusi. allowDemo ignorato per retro-compat.
+  const allowDemo = false;
+  if (req.allowDemo === true) {
+    warnings.push("allowDemo=true ignorato: produzione esclude sempre demo/mock/seed.");
+  }
 
   const supa = getServiceClient();
   if (!supa) {
@@ -716,26 +720,14 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   let dataQualityOverall: AgentRadarResponse["summary"]["dataQuality"];
 
   if (datasetStatus === "empty") {
-    if (allowDemo) {
-      finalZones = buildDemoZones(filterProv).slice(0, 3);
-      dataQualityOverall = "demo";
-      warnings.push("Dataset vuoto: zone restituite sono DEMO marcate quality='demo'.");
-    } else {
-      finalZones = [];
-      dataQualityOverall = "mancante";
-    }
+    finalZones = [];
+    dataQualityOverall = "mancante";
+  } else if (realCommercialRows === 0 && omiAvailable) {
+    dataQualityOverall = "parziale";
+  } else if (datasetStatus === "complete") {
+    dataQualityOverall = "reale";
   } else {
-    // Calcolo summary.dataQuality basato su rapporto reale/demo dei segnali operativi
-    if (allowDemo && demoCommercialRows > realCommercialRows) {
-      dataQualityOverall = "demo";
-    } else if (realCommercialRows === 0 && omiAvailable) {
-      // solo OMI reale, niente segnali commerciali → parziale
-      dataQualityOverall = "parziale";
-    } else if (datasetStatus === "complete") {
-      dataQualityOverall = "reale";
-    } else {
-      dataQualityOverall = "parziale";
-    }
+    dataQualityOverall = "parziale";
   }
 
   const summary = {
@@ -758,18 +750,18 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   };
 
   const message =
-    datasetStatus === "empty" && !allowDemo ? "Nessun dato Veneto disponibile. Popolare omi-import, scraping portali e job radar."
-    : datasetStatus === "empty" && allowDemo ? "Nessun dato reale: restituite 3 zone DEMO Veneto a scopo dimostrativo."
-    : datasetStatus === "partial" ? "Dataset parziale: OMI reale presente, segnali commerciali incompleti o misti con demo."
-    : "Dataset Veneto completo: OMI reale + listing reali + copertura multi-provincia, nessuna dipendenza da seed demo.";
+    datasetStatus === "empty" ? "Nessun dato Veneto reale disponibile. Popolare omi-import, scraping portali e job radar."
+    : datasetStatus === "partial" ? "Dataset parziale: dati reali/parziali insufficienti per dichiarare copertura completa."
+    : "Dataset Veneto completo: OMI reale + listing reali + copertura multi-provincia.";
 
+  // POLICY PRODUZIONE: nessun record demo restituito al client. Mantieni demo:[] per retro-compat.
   return {
     configured: !!supa,
     scope: { region: "Veneto", province: VENETO_PROVINCES, datasetStatus, message },
     summary,
-    zones: finalZones,
-    opportunities: datasetStatus === "empty" ? [] : opportunities,
-    dataQuality: { real, partial, demo, missing, warnings },
+    zones: finalZones.filter((z) => z.quality !== "demo"),
+    opportunities: datasetStatus === "empty" ? [] : opportunities.filter((o) => true),
+    dataQuality: { real, partial, demo: [], missing, warnings },
   };
 }
 

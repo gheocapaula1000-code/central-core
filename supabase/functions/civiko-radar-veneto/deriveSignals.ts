@@ -92,6 +92,9 @@ export async function deriveAllSignals(): Promise<DeriveReport> {
     quality: "reale" | "parziale";
   }
   const norm: NormSnap[] = [];
+  const DEMO_MARKERS = ["seed_demo", "demo", "mock", "fixture", "sample"];
+  const isDemoStr = (s: string | null | undefined) =>
+    !!s && DEMO_MARKERS.some((m) => s.toLowerCase().includes(m));
   for (const r of snaps ?? []) {
     const row = r as { listing_id: string; source: string; url: string;
       municipality: string; province: string; price_eur: number|null;
@@ -99,6 +102,8 @@ export async function deriveAllSignals(): Promise<DeriveReport> {
       captured_at: string; first_seen_at: string|null };
     const prov = normProv(row.province);
     if (!prov || !VENETO.has(prov) || !row.price_eur || !row.municipality) continue;
+    // POLICY PRODUZIONE: scarta record demo/mock/seed alla fonte.
+    if (isDemoStr(row.source) || isDemoStr(row.listing_id) || isDemoStr(row.url)) continue;
     const pmq = row.surface_sqm && row.surface_sqm > 10 ? row.price_eur / row.surface_sqm : null;
     const seen = new Date(row.first_seen_at ?? row.captured_at).getTime();
     const giorni = Math.max(0, (Date.now() - seen) / 86_400_000);
@@ -109,7 +114,7 @@ export async function deriveAllSignals(): Promise<DeriveReport> {
       municipality: row.municipality, prov,
       price: row.price_eur, sqm: row.surface_sqm, lat: row.lat, lng: row.lng,
       pmq, giorni, omi_medio, gap_pct,
-      quality: row.source === "seed_demo_veneto" ? "parziale" : "reale",
+      quality: "reale",
     });
   }
 
