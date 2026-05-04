@@ -58,6 +58,7 @@ const ROUTES = [
   "POST /jobs/recompute-succession-heatmap",
   "POST /jobs/recompute-price-resistance",
   "POST /jobs/activate-veneto",
+  "POST /jobs/build-civiko-veneto-data-engine",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
