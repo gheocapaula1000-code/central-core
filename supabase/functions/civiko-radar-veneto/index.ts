@@ -947,6 +947,37 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Agent Radar — output operativo Veneto-only per MVP Civiko One
+    if (pathname.endsWith("/agent-radar")) {
+      const rlA = rateLimit(req, `${FUNCTION_NAME}:agent-radar`, { windowMs: 60_000, max: 60 });
+      if (!rlA.ok) {
+        const r = fail(req, 429, "RATE_LIMITED", "Troppe richieste, riprovare a breve.", debugId);
+        r.headers.set("Retry-After", String(rlA.retryAfter));
+        return withIdentity(r, "rate-limited");
+      }
+      let body: AgentRadarRequest = {};
+      try {
+        const parsed = await req.json();
+        if (parsed && typeof parsed === "object") body = parsed as AgentRadarRequest;
+      } catch { /* body opzionale */ }
+      try {
+        const out = await buildAgentRadar(body);
+        return withIdentity(json(req, 200, out, debugId), "agent-radar");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] agent-radar error: ${e instanceof Error ? e.message : String(e)}`);
+        // Fallback shape stabile
+        const fallback = {
+          configured: false,
+          scope: { region: "Veneto" as const, province: ["VE","VR","VI","PD","TV","BL","RO"], datasetStatus: "empty" as const, message: "Errore interno temporaneo." },
+          summary: { totalSignals: 0, hotZones: 0, priceDrops: 0, auctions: 0, motivatedSellers: 0, dataQuality: "mancante" as const },
+          zones: [],
+          opportunities: [],
+          dataQuality: { real: [], partial: [], missing: [], warnings: ["Errore interno: " + (e instanceof Error ? e.message : String(e))] },
+        };
+        return withIdentity(json(req, 200, fallback, debugId), "agent-radar-fallback");
+      }
+    }
+
     const rl = rateLimit(req, FUNCTION_NAME, { windowMs: 60_000, max: 30 });
     if (!rl.ok) {
       const r = fail(req, 429, "RATE_LIMITED", "Troppe richieste, riprovare a breve.", debugId);
