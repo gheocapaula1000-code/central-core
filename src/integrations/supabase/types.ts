@@ -473,6 +473,78 @@ export type Database = {
         }
         Relationships: []
       }
+      estate_turnover_zones: {
+        Row: {
+          agent_action: string
+          area_label: string
+          computed_at: string
+          comune: string
+          confidence_score: number
+          data_basis: string[]
+          fingerprint: string
+          id: number
+          is_active: boolean
+          microzona: string | null
+          missing_factors: Json
+          positive_factors: Json
+          provincia: string
+          quality: string
+          reason: string
+          region: string
+          score: number
+          script: string
+          source_urls: string[]
+          temperature: string
+          updated_at: string
+        }
+        Insert: {
+          agent_action: string
+          area_label: string
+          computed_at?: string
+          comune: string
+          confidence_score?: number
+          data_basis?: string[]
+          fingerprint: string
+          id?: number
+          is_active?: boolean
+          microzona?: string | null
+          missing_factors?: Json
+          positive_factors?: Json
+          provincia: string
+          quality?: string
+          reason: string
+          region?: string
+          score: number
+          script: string
+          source_urls?: string[]
+          temperature: string
+          updated_at?: string
+        }
+        Update: {
+          agent_action?: string
+          area_label?: string
+          computed_at?: string
+          comune?: string
+          confidence_score?: number
+          data_basis?: string[]
+          fingerprint?: string
+          id?: number
+          is_active?: boolean
+          microzona?: string | null
+          missing_factors?: Json
+          positive_factors?: Json
+          provincia?: string
+          quality?: string
+          reason?: string
+          region?: string
+          score?: number
+          script?: string
+          source_urls?: string[]
+          temperature?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ingestion_runs: {
         Row: {
           completed_at: string | null
@@ -515,6 +587,120 @@ export type Database = {
           started_at?: string
           status?: string
           warnings?: Json | null
+        }
+        Relationships: []
+      }
+      inheritance_pressure_signals: {
+        Row: {
+          area_label: string
+          area_type: string
+          computed_at: string
+          comune: string
+          confidence_score: number
+          data_basis: string[]
+          fingerprint: string
+          id: number
+          indicators: Json
+          is_active: boolean
+          lat: number | null
+          lng: number | null
+          provincia: string
+          quality: string
+          region: string
+          score: number
+          signal_basis: string[]
+          source_names: string[]
+          source_urls: string[]
+          updated_at: string
+        }
+        Insert: {
+          area_label: string
+          area_type: string
+          computed_at?: string
+          comune: string
+          confidence_score?: number
+          data_basis?: string[]
+          fingerprint: string
+          id?: number
+          indicators?: Json
+          is_active?: boolean
+          lat?: number | null
+          lng?: number | null
+          provincia: string
+          quality?: string
+          region?: string
+          score: number
+          signal_basis?: string[]
+          source_names?: string[]
+          source_urls?: string[]
+          updated_at?: string
+        }
+        Update: {
+          area_label?: string
+          area_type?: string
+          computed_at?: string
+          comune?: string
+          confidence_score?: number
+          data_basis?: string[]
+          fingerprint?: string
+          id?: number
+          indicators?: Json
+          is_active?: boolean
+          lat?: number | null
+          lng?: number | null
+          provincia?: string
+          quality?: string
+          region?: string
+          score?: number
+          signal_basis?: string[]
+          source_names?: string[]
+          source_urls?: string[]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      inheritance_safe_source_documents: {
+        Row: {
+          classification: string
+          comune: string | null
+          contains_personal_data: boolean
+          extracted_aggregate_indicators: Json
+          fetched_at: string
+          hash: string
+          id: number
+          imported_as_aggregate: boolean
+          provincia: string | null
+          rejected_reason: string | null
+          source_name: string
+          source_url: string
+        }
+        Insert: {
+          classification: string
+          comune?: string | null
+          contains_personal_data?: boolean
+          extracted_aggregate_indicators?: Json
+          fetched_at?: string
+          hash: string
+          id?: number
+          imported_as_aggregate?: boolean
+          provincia?: string | null
+          rejected_reason?: string | null
+          source_name: string
+          source_url: string
+        }
+        Update: {
+          classification?: string
+          comune?: string | null
+          contains_personal_data?: boolean
+          extracted_aggregate_indicators?: Json
+          fetched_at?: string
+          hash?: string
+          id?: number
+          imported_as_aggregate?: boolean
+          provincia?: string | null
+          rejected_reason?: string | null
+          source_name?: string
+          source_url?: string
         }
         Relationships: []
       }
