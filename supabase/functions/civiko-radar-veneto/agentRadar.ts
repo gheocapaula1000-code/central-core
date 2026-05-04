@@ -367,8 +367,20 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     if (row.compr_min) o.vals.push(Number(row.compr_min));
   }
   for (const [k, o] of omiByComune.entries()) {
-    const a = aggMap.get(k);
-    if (!a) continue;
+    let a = aggMap.get(k);
+    if (!a) {
+      // ── Crea zona OMI-only per Veneto: dati reali OMI senza altri segnali ──
+      const [prov, comuneLower] = k.split(":");
+      // Recover original casing from omiRows
+      const orig = (omiRows ?? []).find((r) => {
+        const row = r as { provincia: string|null; comune_descrizione: string|null };
+        const p = isVenetoRow(row.provincia);
+        return p === prov && (row.comune_descrizione ?? "").toLowerCase().trim() === comuneLower;
+      }) as { comune_descrizione: string } | undefined;
+      const comune = orig?.comune_descrizione ?? comuneLower;
+      a = emptyAgg({ comune, provincia: prov as ProvCode });
+      aggMap.set(k, a);
+    }
     if (o.vals.length > 0) {
       a.omiValoreMedio = Math.round(o.vals.reduce((x, y) => x + y, 0) / o.vals.length);
       a.omiFascia = o.fascia;
