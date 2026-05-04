@@ -284,6 +284,7 @@ async function buildOffMarket(comune: string, provincia: string, coords: { lat: 
       scontoStimato: p.scontoStimato,
       localita: p.localita,
       fonte: p.fonte,
+      fonte_certificata: certifySource(p.fonte),
       evidenceUrl: p.evidenceUrl,
       publishedAt: null,
       categoria: p.categoria,
@@ -299,11 +300,13 @@ async function buildOffMarket(comune: string, provincia: string, coords: { lat: 
   const out: OffMarketOpportunity[] = [];
   for (const block of results) {
     for (const it of block.items) {
+      const f = block.tipo === "asta" ? "Tribunale (PVP)" : block.tipo === "ribasso" ? "Monitoraggio Portali" : "Rassegna pubblica";
       out.push({
         tipo: block.tipo,
         titolo: it.title.slice(0, 200) || "Opportunità pubblica",
         descrizione: (it.description || "").slice(0, 320),
-        fonte: "Rassegna pubblica",
+        fonte: f,
+        fonte_certificata: certifySource(f),
         evidenceUrl: it.url || null,
         publishedAt: null,
       });
