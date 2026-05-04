@@ -884,6 +884,7 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] activate-veneto error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Activate Veneto failed", debugId), "job-error");
+      }
     }
 
     // Build proprietario Civiko Data Engine Veneto
@@ -904,7 +905,6 @@ Deno.serve(async (req) => {
         console.error(`[${FUNCTION_NAME}] data-engine error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Data Engine Veneto failed", debugId), "job-error");
       }
-    }
     }
 
     if (pathname.endsWith("/jobs/recompute-succession-heatmap") || pathname.endsWith("/jobs/recompute-price-resistance")) {
