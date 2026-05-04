@@ -767,13 +767,14 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     : datasetStatus === "partial" ? "Dataset parziale: OMI reale presente, segnali commerciali incompleti o misti con demo."
     : "Dataset Veneto completo: OMI reale + listing reali + copertura multi-provincia, nessuna dipendenza da seed demo.";
 
+  // POLICY PRODUZIONE: nessun record demo restituito al client. Mantieni demo:[] per retro-compat.
   return {
     configured: !!supa,
     scope: { region: "Veneto", province: VENETO_PROVINCES, datasetStatus, message },
     summary,
-    zones: finalZones,
-    opportunities: datasetStatus === "empty" ? [] : opportunities,
-    dataQuality: { real, partial, demo, missing, warnings },
+    zones: finalZones.filter((z) => z.quality !== "demo"),
+    opportunities: datasetStatus === "empty" ? [] : opportunities.filter((o) => true),
+    dataQuality: { real, partial, demo: [], missing, warnings },
   };
 }
 
