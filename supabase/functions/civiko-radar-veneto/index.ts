@@ -689,6 +689,7 @@ Deno.serve(async (req) => {
     const fallback = sanitizeOutgoing({
       configured: false, status: "unavailable",
       scope: { comune: "—", provincia: "—" },
+      data_source_verification: DATA_SOURCE_VERIFICATION,
       segnaliDiZona: {
         sentiment: { label: "Sentiment di Zona", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare" },
         sicurezza: { label: "Sicurezza Percepita", livello: "non_disponibile", nota: "Errore interno temporaneo.", fonte: "Fonte da Collegare" },
