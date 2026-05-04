@@ -618,6 +618,13 @@ export async function buildRadarClusterDossier(
   ]);
 
   const markers = [...bruciati, ...successioni];
+
+  // Arricchimento "Gancio d'Apertura" — calcoli sync + fetch aste PVP per marker rossi/ambra
+  try {
+    await enrichMarkersConGanci(markers);
+  } catch (e) {
+    warnings.push(`ganci_apertura: ${e instanceof Error ? e.message : String(e)}`);
+  }
   const totals = {
     markers_rossi: markers.filter((m) => m.color === "rosso").length,
     markers_viola: markers.filter((m) => m.color === "viola").length,
