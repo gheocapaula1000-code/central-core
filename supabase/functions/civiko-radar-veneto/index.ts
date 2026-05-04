@@ -26,7 +26,7 @@ import { rateLimit } from "../_shared/rate-limit.ts";
 import { buildOpportunitaOffMarket } from "./radarOpportunita.ts";
 import { recomputeSuccessionHeatmap } from "./successioniHeatmap.ts";
 import { computePriceResistanceIndex } from "./priceResistance.ts";
-import { buildRadarClusterDossier } from "./clusterDossier.ts";
+import { buildRadarClusterDossier, generateHook, buildHookContextForMarker, type DossierMarker } from "./clusterDossier.ts";
 
 const FUNCTION_NAME = "civiko-radar-veneto";
 const EXPECTED_BASE_PATH = "/functions/v1/civiko-radar-veneto";
