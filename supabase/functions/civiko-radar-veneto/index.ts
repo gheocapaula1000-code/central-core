@@ -435,6 +435,37 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Generate Hook — gancio testuale + perdita immagine + WhatsApp message per un singolo lead
+    if (pathname.endsWith("/generate-hook")) {
+      const rlH = rateLimit(req, `${FUNCTION_NAME}:hook`, { windowMs: 60_000, max: 60 });
+      if (!rlH.ok) {
+        const r = fail(req, 429, "RATE_LIMITED", "Troppe richieste, riprovare a breve.", debugId);
+        r.headers.set("Retry-After", String(rlH.retryAfter));
+        return withIdentity(r, "rate-limited");
+      }
+      let body: unknown;
+      try { body = await req.json(); }
+      catch { return withIdentity(fail(req, 400, "INVALID_JSON", "Body is not valid JSON", debugId), "error"); }
+      if (!body || typeof body !== "object") {
+        return withIdentity(fail(req, 400, "INVALID_BODY", "Body must be a JSON object with 'marker' field.", debugId), "error");
+      }
+      const marker = (body as { marker?: DossierMarker }).marker;
+      if (!marker || typeof marker !== "object" || !marker.payload) {
+        return withIdentity(fail(req, 400, "MISSING_MARKER", "Field 'marker' (DossierMarker) is required.", debugId), "error");
+      }
+      try {
+        const providedCtx = (body as { context?: Record<string, unknown> }).context;
+        const ctx = providedCtx && typeof providedCtx === "object"
+          ? providedCtx as Awaited<ReturnType<typeof buildHookContextForMarker>>
+          : await buildHookContextForMarker(marker);
+        const hook = generateHook(marker, ctx);
+        return withIdentity(json(req, 200, { hook, context: ctx, marker_subtitle: marker.subtitle }, debugId), "generate-hook");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] generate-hook error: ${e instanceof Error ? e.message : String(e)}`);
+        return withIdentity(fail(req, 500, "HOOK_FAILED", "Hook generation failed", debugId), "error");
+      }
+    }
+
     const rl = rateLimit(req, FUNCTION_NAME, { windowMs: 60_000, max: 30 });
     if (!rl.ok) {
       const r = fail(req, 429, "RATE_LIMITED", "Troppe richieste, riprovare a breve.", debugId);
