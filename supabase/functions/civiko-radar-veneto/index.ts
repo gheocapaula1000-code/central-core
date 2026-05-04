@@ -386,6 +386,27 @@ Deno.serve(async (req) => {
     }
     if (req.method !== "POST") return withIdentity(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), "error");
 
+    // Job endpoints (cron-driven, protetti da DIAGNOSTIC_SECRET)
+    if (pathname.endsWith("/jobs/recompute-succession-heatmap") || pathname.endsWith("/jobs/recompute-price-resistance")) {
+      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
+      const provided = req.headers.get("x-job-secret") ?? "";
+      if (!expected || provided !== expected) {
+        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
+      }
+      try {
+        if (pathname.endsWith("/jobs/recompute-succession-heatmap")) {
+          const r = await recomputeSuccessionHeatmap();
+          return withIdentity(json(req, 200, { job: "succession-heatmap", ...r }, debugId), "job-succession");
+        } else {
+          const r = await computePriceResistanceIndex();
+          return withIdentity(json(req, 200, { job: "price-resistance", ...r }, debugId), "job-resistance");
+        }
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] job error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Job execution failed", debugId), "job-error");
+      }
+    }
+
     const rl = rateLimit(req, FUNCTION_NAME, { windowMs: 60_000, max: 30 });
     if (!rl.ok) {
       const r = fail(req, 429, "RATE_LIMITED", "Troppe richieste, riprovare a breve.", debugId);
