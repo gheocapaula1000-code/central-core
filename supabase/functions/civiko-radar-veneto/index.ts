@@ -640,7 +640,7 @@ async function triggerIstatPopulation(): Promise<void> {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-ai-core-secret": secret,
+        "x-internal-secret": secret,
         "x-source-app": "civiko-radar-veneto",
       },
       body: JSON.stringify({ anno: 2025, clear_first: false }),
@@ -680,7 +680,7 @@ async function activateVeneto(): Promise<{
       try {
         const res = await fetch(`${url}/functions/v1/istat-sdmx-fetch`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-ai-core-secret": secret, "x-source-app": "civiko-radar-veneto" },
+          headers: { "Content-Type": "application/json", "x-internal-secret": secret, "x-source-app": "civiko-radar-veneto" },
           body: JSON.stringify({ anno: 2025, clear_first: false }),
           signal: ctrl.signal,
         });
@@ -774,7 +774,7 @@ async function orchestrate(body: RequestBody): Promise<RadarResponse> {
   ]);
 
   // Sintesi obbligatoria: nessun "non_disponibile" lasciato vuoto se ISTAT/OMI possono rispondere
-  const segnali = await applyStatisticalFallback(comune, segnaliRaw, warnings);
+  const segnali = await applyStatisticalFallback(comune, segnaliRaw, coords, warnings);
 
   const anySignal = Object.values(segnali).some((s) => s.livello !== "non_disponibile");
   const status: RadarResponse["status"] = (anySignal || off.length || bandi.length) ? (anySignal && off.length && bandi.length ? "ok" : "partial") : "unavailable";
