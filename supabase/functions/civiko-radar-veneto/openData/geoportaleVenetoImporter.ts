@@ -51,8 +51,7 @@ function buildIstatPrefixCQL(field: string, provs: string[]): string | null {
   return parts.join(" OR ");
 }
 
-  // Uses 5-digit a_codice with province prefix (28/27/25...)
-const _LAYER_META: any = null;
+  // Per-layer config
 const LAYER_META: Record<string, {
   signal_type: SignalType; topic: string; title: string; impact: number;
   provinceFilter?: (provs: string[]) => string | null;
