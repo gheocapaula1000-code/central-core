@@ -236,7 +236,9 @@ async function normalizePackage(base: string, pkg: any): Promise<NormalizedOpenD
   const metadata_modified = pkg?.metadata_modified ?? null;
   const text = `${dataset_title ?? ""} ${dataset_notes ?? ""} ${tags.join(" ")} ${groups.join(" ")} ${organization ?? ""}`;
   const topic = classifyTopic(text);
-  const { comune, provincia } = inferGeo(text);
+  const { comune, provincia, fixed } = inferGeo(text);
+  const isRegionalText = /\bregion[ea]\s+(del\s+)?veneto\b|\bregionale\b/i.test(text);
+  const regional_scope = !comune && (isRegionalText || /regione/i.test(organization ?? ""));
   const datasetSourceUrl = pkgUrl(base, pkg?.name ?? dataset_id);
 
   const baseRec: Omit<NormalizedOpenDataRecord, "resource_id"|"resource_name"|"resource_url"|"resource_format"|"resource_mimetype"|"resource_description"|"classification"|"hash"|"importable"|"source_url"> = {
@@ -248,6 +250,8 @@ async function normalizePackage(base: string, pkg: any): Promise<NormalizedOpenD
     quality: dataset_title ? "reale" : "parziale",
     confidence_score: dataset_title ? 0.7 : 0.4,
     data_basis: ["open_data_veneto", "ckan_api"],
+    geo_fixed: fixed,
+    regional_scope,
   };
 
   // Always emit a dataset-level record.
