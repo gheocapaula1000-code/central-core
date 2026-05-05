@@ -13,6 +13,31 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const ALLOWED_PROV = new Set(["VE", "VR", "VI", "PD", "TV", "BL", "RO"]);
 
+// ── normalization & aliases (Veneto-only, conservative) ──
+// Fold: lowercase, NFD strip accents, normalize curly quotes,
+// drop trailing apostrophe (Arsie' → arsie, Arsiè → arsie),
+// drop all apostrophes/dots, collapse spaces.
+function normFold(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\u2018\u2019\u201B\u0060\u00B4]/g, "'")
+    .toLowerCase()
+    .replace(/['.,]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+// Manual aliases for renames/suffix divergences (microzone → ispra canonical).
+// All targets verified to exist in ispra_rischio for Veneto.
+const COMUNE_ALIASES: Record<string, string> = {
+  "brenzone": "brenzone sul garda",
+  "costermano": "costermano sul garda",
+  "negrar": "negrar di valpolicella",
+  "vodo di cadore": "vodo cadore",
+};
+function aliasKey(folded: string): string {
+  return COMUNE_ALIASES[folded] ?? folded;
+}
+
+
 const WEIGHTS = {
   air_quality_score: 0.35,
   environment_score: 0.25,
