@@ -65,7 +65,10 @@ export async function joinIspraToMicrozoneSentiment(supa: any, provFilter: strin
   const idx = new Map<string, any>();
   for (const r of ispra) {
     if (typeof r.comune === "string" && r.comune.trim()) {
-      idx.set(r.comune.trim().toLowerCase(), r);
+      const raw = r.comune.trim().toLowerCase();
+      idx.set(raw, r);
+      const folded = normFold(r.comune);
+      if (!idx.has(folded)) idx.set(folded, r);
     }
   }
 
