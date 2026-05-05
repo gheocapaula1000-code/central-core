@@ -269,7 +269,7 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
         report.dataset_items_read += runRes.pages.length;
         for (const p of runRes.pages) {
           const md = p.markdown ?? p.text ?? "";
-          if (md) pagesProcessed.push({ url: p.url, markdown: md, links: p.links ?? [] });
+          if (md) pagesProcessed.push({ url: p.url, markdown: md, links: p.links ?? [], title: p.title ?? null });
         }
         perSrc.method = "apify";
         report.sources_used_apify++;
