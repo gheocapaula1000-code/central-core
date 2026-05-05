@@ -43,14 +43,14 @@ const LAYER_META: Record<string, {
     provinceFilter: (ps) => {
       const codes = ps.map((p) => PROV_TO_CODE[p]).filter(Boolean);
       if (!codes.length) return null;
-      // CQL: a_codice LIKE '28%' OR a_codice LIKE '27%' ...
-      return codes.map((c) => `a_codice LIKE '${c}%'`).join(" OR ");
+      // GeoServer rejects long OR chains; use disjunction with parens
+      return "(" + codes.map((c) => `a_codice LIKE '${c}%'`).join(") OR (") + ")";
     },
   },
-  // Has provincia column directly
+  // Has provincia column directly — use IN()
   "rv:c0508011_classsismica": {
     signal_type: "seismic_risk_dataset", topic: "rischio", title: "Classificazione sismica", impact: -0.2,
-    provinceFilter: (ps) => ps.map((p) => `provincia='${p}'`).join(" OR "),
+    provinceFilter: (ps) => `provincia IN (${ps.map((p) => `'${p}'`).join(",")})`,
   },
   // Parchi: 17 features only — no province col, fetch all then filter via geometry/comune (best-effort)
   "rv:c1102051_parchiistituiti_2025": {
@@ -62,7 +62,7 @@ const LAYER_META: Record<string, {
     provinceFilter: (ps) => {
       const codes = ps.map((p) => PROV_TO_CODE[p]).filter(Boolean);
       if (!codes.length) return null;
-      return codes.map((c) => `cod_istat LIKE '${c}%'`).join(" OR ");
+      return "(" + codes.map((c) => `cod_istat LIKE '${c}%'`).join(") OR (") + ")";
     },
   },
   "rv:c1102101_vincolosismico": {
