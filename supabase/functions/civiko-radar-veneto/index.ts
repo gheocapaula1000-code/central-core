@@ -994,6 +994,7 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] discover-auctions error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Auction discovery failed", debugId), "job-error");
+      }
     }
 
     // ── ASTE ASYNC: start, status, import controllato ──
@@ -1038,7 +1039,6 @@ Deno.serve(async (req) => {
         console.error(`[${FUNCTION_NAME}] import-auction-candidates error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "import auction candidates failed", debugId), "job-error");
       }
-    }
     }
 
     if (pathname.endsWith("/jobs/firecrawl-deep-veneto")) {
