@@ -115,8 +115,9 @@ function featureKey(props: Record<string, unknown>): string {
   return `h=${h}`;
 }
 
-async function fetchLayer(layer: string, count: number): Promise<{ ok: boolean; features?: any[]; crs?: string; geomType?: string; error?: string }> {
-  const url = `${WFS_URL}?service=WFS&version=2.0.0&request=GetFeature&typeNames=${encodeURIComponent(layer)}&count=${count}&outputFormat=application/json&srsName=EPSG:4326`;
+async function fetchLayer(layer: string, count: number, cqlFilter?: string | null): Promise<{ ok: boolean; features?: any[]; crs?: string; geomType?: string; error?: string }> {
+  let url = `${WFS_URL}?service=WFS&version=2.0.0&request=GetFeature&typeNames=${encodeURIComponent(layer)}&count=${count}&outputFormat=application/json&srsName=EPSG:4326`;
+  if (cqlFilter) url += `&CQL_FILTER=${encodeURIComponent(cqlFilter)}`;
   try {
     const r = await fetch(url);
     if (!r.ok) return { ok: false, error: `HTTP ${r.status}` };
