@@ -915,7 +915,7 @@ Deno.serve(async (req) => {
     }
     if (req.method !== "POST") return withIdentity(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), "error");
 
-    // Job endpoints (cron-driven, protetti da DIAGNOSTIC_SECRET)
+    // Job endpoints (cron-driven, protetti da CENTRAL_CORE_JOB_SECRET, fallback DIAGNOSTIC_SECRET)
     if (pathname.endsWith("/jobs/activate-veneto")) {
       const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
