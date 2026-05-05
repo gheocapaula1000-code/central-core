@@ -229,7 +229,7 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
             continue;
           }
           if (r.markdown) {
-            pagesProcessed.push({ url: u, markdown: r.markdown, links: r.links ?? [] });
+            pagesProcessed.push({ url: u, markdown: r.markdown, links: r.links ?? [], title: r.title ?? null });
           }
         }
         if (pagesProcessed.length > 0) {
