@@ -95,15 +95,16 @@ export async function runApifyAuctionSource(
     : (source.allowed_paths.length ? source.allowed_paths : ["/"]).slice(0, 8).map((p) => source.base_url.replace(/\/$/, "") + p)
   ).slice(0, Math.max(8, maxPages)).map((u) => ({ url: u }));
 
-  const include = source.source_type === "delegated_auction_portal"
-    ? DETAIL_INCLUDE_GLOBS
-    : PA_INCLUDE_GLOBS;
+  // Use playwright for SPA-rendered portals (astegiudiziarie/astetelematiche),
+  // cheerio for static PA/tribunal pages. No CAPTCHA bypass, no login.
+  const isSpa = /astegiudiziarie\.it|astetelematiche\.it/i.test(source.base_url);
+  const crawlerType = isSpa ? "playwright:firefox" : "cheerio";
 
-  const input = {
+  const input: Record<string, unknown> = {
     startUrls,
     maxCrawlDepth: maxDepth,
     maxCrawlPages: maxPages,
-    crawlerType: "cheerio",
+    crawlerType,
     respectRobotsTxtFile: true,
     includeUrlGlobs: include,
     excludeUrlGlobs: EXCLUDE_GLOBS,
@@ -112,6 +113,10 @@ export async function runApifyAuctionSource(
     saveScreenshots: false,
     proxyConfiguration: { useApifyProxy: true },
   };
+  if (isSpa) {
+    input.dynamicContentWaitSecs = 8;
+    input.maxScrollHeightPixels = 6000;
+  }
 
   let run;
   try {
