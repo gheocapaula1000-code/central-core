@@ -72,6 +72,10 @@ export async function runApifyAuctionSource(
     maxDepth?: number;
     timeoutMs?: number;
     pollMs?: number;
+    /** Override start URLs (full URLs). When provided, source allowed_paths are ignored. */
+    startUrlsOverride?: string[];
+    /** Force depth=0 second-pass behavior (no following). */
+    secondPass?: boolean;
   } = {},
 ): Promise<ApifyAuctionRunResult> {
   if (!apifyAvailable()) {
@@ -82,13 +86,14 @@ export async function runApifyAuctionSource(
   }
 
   const maxPages = Math.min(options.maxPagesPerSource ?? 10, 40);
-  const maxDepth = Math.min(options.maxDepth ?? 1, 2);
+  const maxDepth = options.secondPass ? 0 : Math.min(options.maxDepth ?? 1, 2);
   const timeout = Math.min(options.timeoutMs ?? 180_000, 240_000);
   const pollMs = options.pollMs ?? 4_000;
 
-  const startUrls = (source.allowed_paths.length ? source.allowed_paths : ["/"])
-    .slice(0, 4)
-    .map((p) => ({ url: source.base_url.replace(/\/$/, "") + p }));
+  const startUrls = (options.startUrlsOverride && options.startUrlsOverride.length > 0
+    ? options.startUrlsOverride
+    : (source.allowed_paths.length ? source.allowed_paths : ["/"]).slice(0, 8).map((p) => source.base_url.replace(/\/$/, "") + p)
+  ).slice(0, Math.max(8, maxPages)).map((u) => ({ url: u }));
 
   const include = source.source_type === "delegated_auction_portal"
     ? DETAIL_INCLUDE_GLOBS
