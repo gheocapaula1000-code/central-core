@@ -44,13 +44,17 @@ interface RecoveryReport {
   base_assigned: number;
   alias_assigned: number;
   fuzzy_assigned: number;
-  spatial_joined: number;
+  point_in_polygon_assigned: number;
+  needs_review_textual_unmatched: number;
   still_unassigned: number;
   recovered_count: number;
   importable_count: number;
   in_PD: number; in_VE: number; in_BL: number;
+  in_VR: number; in_VI: number; in_TV: number; in_RO: number;
+  suspected_false_positive_count: number;
   sample_recovered: any[];
   sample_unassigned: any[];
+  sample_needs_review: any[];
   warnings: string[];
   errors: string[];
 }
