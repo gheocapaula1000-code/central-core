@@ -42,6 +42,7 @@ import { enrichRadarFromOpenDataVeneto } from "./openData/openDataEnrichment.ts"
 import { runGeoportaleVenetoDiscovery } from "./openData/geoportaleVenetoCswImporter.ts";
 import { runGeoportaleImport } from "./openData/geoportaleVenetoImporter.ts";
 import { runGeoportaleRecovery } from "./openData/geoportaleVenetoRecovery.ts";
+import { runArpavAirImport } from "./openData/arpavAirImporter.ts";
 import { runApifyForVenetoSource } from "./apify/apifyAdapter.ts";
 import { runApifyForVenetoSourceV2, apifyDiagnostics } from "./apify/apifyOrchestrator.ts";
 import { APIFY_VENETO_REGISTRY } from "./apify/apifySourceRegistry.ts";
