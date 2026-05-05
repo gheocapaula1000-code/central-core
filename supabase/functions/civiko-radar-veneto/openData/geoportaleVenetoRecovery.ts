@@ -21,7 +21,7 @@ import {
   sanitizeProperties,
   type IstatCache,
 } from "./geoportaleSpatialJoin.ts";
-import { inferFromTextProperties } from "./geoportaleComuneAliases.ts";
+import { inferFromTextProperties, hasTextualComuneProperty } from "./geoportaleComuneAliases.ts";
 import { VENETO_COMUNI } from "./venetoComuni.ts";
 
 const WFS_URL = "https://idt2-geoserver.regione.veneto.it/geoserver/ows";
