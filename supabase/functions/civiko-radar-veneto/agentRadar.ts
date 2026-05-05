@@ -917,6 +917,10 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     territory: odvTerritory,
     microzoneSentimentAvailable,
     airQualityCoverage,
+    greenCoverage,
+    riskCoverage,
+    environmentCoverage,
+    avgSentimentScore,
     dataConfidenceAvg,
   };
 
