@@ -37,6 +37,7 @@ import { runMicrozoneOpportunitySignals } from "./firecrawl/microzoneOpportunity
 import { runAdvancedVenetoOpportunities } from "./advancedOpportunity.ts";
 import { buildVenetoIntelligenceFromResearch } from "./intelligence/orchestrator.ts";
 import { runVenetoOpenDataImport } from "./openData/ckanImporter.ts";
+import { runOpenDataVenetoDeepImport } from "./openData/openDataVenetoCkanImporter.ts";
 import { runApifyForVenetoSource } from "./apify/apifyAdapter.ts";
 import { runApifyForVenetoSourceV2, apifyDiagnostics } from "./apify/apifyOrchestrator.ts";
 import { APIFY_VENETO_REGISTRY } from "./apify/apifySourceRegistry.ts";
@@ -1040,6 +1041,7 @@ Deno.serve(async (req) => {
 
       const newJobs = [
         "/jobs/import-veneto-open-data",
+        "/jobs/import-open-data-veneto-deep",
         "/jobs/import-veneto-geo-environment",
         "/jobs/import-omi-territorial-notes",
         "/jobs/build-veneto-intelligence-from-research",
@@ -1059,6 +1061,15 @@ Deno.serve(async (req) => {
               import: body?.import === true,
             });
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "import-veneto-open-data", ...r }, debugId), "job-open-data");
+          }
+          if (matched === "/jobs/import-open-data-veneto-deep") {
+            const r = await runOpenDataVenetoDeepImport({
+              dryRun: body?.dryRun !== false,
+              import: body?.import === true,
+              limitPerKeyword: typeof body?.limitPerKeyword === "number" ? body.limitPerKeyword : 20,
+              keywords: Array.isArray(body?.keywords) ? body.keywords : undefined,
+            });
+            return withIdentity(json(req, r.ok ? 200 : 207, { job: "import-open-data-veneto-deep", ...r }, debugId), "job-open-data-deep");
           }
           if (matched === "/jobs/import-veneto-geo-environment" || matched === "/jobs/import-omi-territorial-notes") {
             return withIdentity(json(req, 200, {
