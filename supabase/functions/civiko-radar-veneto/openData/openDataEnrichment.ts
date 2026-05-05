@@ -261,8 +261,16 @@ export async function enrichRadarFromOpenDataVeneto(): Promise<EnrichmentReport>
         },
       };
 
-      const { error } = await supa.from("radar_signals").upsert(row, { onConflict: "fingerprint" });
-      if (error) { warnings.push(`radar_signals upsert ${fp}: ${error.message}`); continue; }
+      // Manual upsert: unique key is (agency_id, fingerprint) and agency_id IS NULL → NULLs don't conflict in PG
+      const { data: existing } = await supa.from("radar_signals")
+        .select("id").eq("fingerprint", fp).is("agency_id", null).maybeSingle();
+      if (existing?.id) {
+        const { error } = await supa.from("radar_signals").update(row).eq("id", existing.id);
+        if (error) { warnings.push(`radar_signals update ${fp}: ${error.message}`); continue; }
+      } else {
+        const { error } = await supa.from("radar_signals").insert(row);
+        if (error) { warnings.push(`radar_signals insert ${fp}: ${error.message}`); continue; }
+      }
       radarUpserted++;
       if (topRadarSignals.length < 10) {
         topRadarSignals.push({ province: m.province, municipality: m.municipality, signal_type: radarType, title: row.title, confidence });
