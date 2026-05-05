@@ -72,6 +72,10 @@ export async function runApifyAuctionSource(
     maxDepth?: number;
     timeoutMs?: number;
     pollMs?: number;
+    /** Override start URLs (full URLs). When provided, source allowed_paths are ignored. */
+    startUrlsOverride?: string[];
+    /** Force depth=0 second-pass behavior (no following). */
+    secondPass?: boolean;
   } = {},
 ): Promise<ApifyAuctionRunResult> {
   if (!apifyAvailable()) {
@@ -82,23 +86,26 @@ export async function runApifyAuctionSource(
   }
 
   const maxPages = Math.min(options.maxPagesPerSource ?? 10, 40);
-  const maxDepth = Math.min(options.maxDepth ?? 1, 2);
+  const maxDepth = options.secondPass ? 0 : Math.min(options.maxDepth ?? 1, 2);
   const timeout = Math.min(options.timeoutMs ?? 180_000, 240_000);
   const pollMs = options.pollMs ?? 4_000;
 
-  const startUrls = (source.allowed_paths.length ? source.allowed_paths : ["/"])
-    .slice(0, 4)
-    .map((p) => ({ url: source.base_url.replace(/\/$/, "") + p }));
+  const startUrls = (options.startUrlsOverride && options.startUrlsOverride.length > 0
+    ? options.startUrlsOverride
+    : (source.allowed_paths.length ? source.allowed_paths : ["/"]).slice(0, 8).map((p) => source.base_url.replace(/\/$/, "") + p)
+  ).slice(0, Math.max(8, maxPages)).map((u) => ({ url: u }));
 
-  const include = source.source_type === "delegated_auction_portal"
-    ? DETAIL_INCLUDE_GLOBS
-    : PA_INCLUDE_GLOBS;
+  // Use playwright for SPA-rendered portals (astegiudiziarie/astetelematiche),
+  // cheerio for static PA/tribunal pages. No CAPTCHA bypass, no login.
+  const isSpa = /astegiudiziarie\.it|astetelematiche\.it/i.test(source.base_url);
+  const crawlerType = isSpa ? "playwright:firefox" : "cheerio";
+  const include = source.source_type === "delegated_auction_portal" ? DETAIL_INCLUDE_GLOBS : PA_INCLUDE_GLOBS;
 
-  const input = {
+  const input: Record<string, unknown> = {
     startUrls,
     maxCrawlDepth: maxDepth,
     maxCrawlPages: maxPages,
-    crawlerType: "cheerio",
+    crawlerType,
     respectRobotsTxtFile: true,
     includeUrlGlobs: include,
     excludeUrlGlobs: EXCLUDE_GLOBS,
@@ -107,6 +114,10 @@ export async function runApifyAuctionSource(
     saveScreenshots: false,
     proxyConfiguration: { useApifyProxy: true },
   };
+  if (isSpa) {
+    input.dynamicContentWaitSecs = 8;
+    input.maxScrollHeightPixels = 6000;
+  }
 
   let run;
   try {
@@ -166,3 +177,56 @@ export async function runApifyAuctionSource(
 
   return { ok: true, source_key: source.source_key, actor_run_id: runId, dataset_id: datasetId, status, pages };
 }
+
+// ── Detail link extraction from Apify dataset items ────────────────
+const DETAIL_PATTERNS: RegExp[] = [
+  /\/scheda[\/\-]/i,
+  /\/dettaglio[\/\-]/i,
+  /\/lotto[\/\-]/i,
+  /\/annuncio[\/\-]/i,
+  /\/immobile[\/\-]/i,
+  /\/bene[\/\-]/i,
+  /\/vendita-asta-/i,
+  /[?&](idAsta|idLotto|idAnnuncio|lotId|id)=\d+/i,
+  /-l\d{4,}-p\d{4,}/i,
+];
+const DETAIL_REJECT: RegExp[] = [
+  /\/(login|user|account|registrazione|privacy|cookie|contatti|contact|search|cerca|admin|newsletter|news\/)/i,
+  /[?&](page|p|sort|order|filter)=/i,
+];
+
+export function extractDetailLinksFromPages(
+  pages: ApifyAuctionPage[],
+  source: AuctionSource,
+  limit = 30,
+): string[] {
+  const out = new Set<string>();
+  let baseHost = "";
+  try { baseHost = new URL(source.base_url).host; } catch { /* ignore */ }
+  for (const p of pages) {
+    const candidates = new Set<string>();
+    for (const l of p.links ?? []) candidates.add(l);
+    const md = p.markdown ?? "";
+    const mdLinks = md.match(/\((https?:\/\/[^\s)]+|\/[^\s)]+)\)/g) ?? [];
+    for (const m of mdLinks) candidates.add(m.slice(1, -1));
+    for (const raw of candidates) {
+      let abs: string;
+      try {
+        abs = raw.startsWith("http") ? raw : new URL(raw, source.base_url).toString();
+      } catch { continue; }
+      try {
+        const u = new URL(abs);
+        if (baseHost && u.host !== baseHost) continue;
+        const pq = u.pathname + u.search;
+        if (DETAIL_REJECT.some((r) => r.test(pq))) continue;
+        if (!DETAIL_PATTERNS.some((r) => r.test(pq))) continue;
+        u.hash = "";
+        out.add(u.toString());
+      } catch { /* ignore */ }
+      if (out.size >= limit) break;
+    }
+    if (out.size >= limit) break;
+  }
+  return Array.from(out).slice(0, limit);
+}
+

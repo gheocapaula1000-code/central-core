@@ -20,6 +20,7 @@ import {
   apifyAvailable,
   isApifyEligible,
   runApifyAuctionSource,
+  extractDetailLinksFromPages,
 } from "./apifyAuctionRunner.ts";
 
 export interface DiscoverRequest {
@@ -35,6 +36,8 @@ export interface DiscoverRequest {
   runApify?: boolean;
   fallbackToApifyOnFirecrawlError?: boolean;
   downloadPdf?: boolean;
+  enableDetailSecondPass?: boolean;
+  maxDetailLinksPerSource?: number;
 }
 
 export interface DiscoverReport {
@@ -54,9 +57,13 @@ export interface DiscoverReport {
   apify_runs_succeeded: number;
   apify_runs_failed: number;
   dataset_items_read: number;
+  first_pass_items: number;
+  detail_links_found: number;
+  second_pass_items: number;
   pages_seen: number;
   detail_pages_seen: number;
   index_pages_seen: number;
+  detail_ratio: number;
   pdf_links_found: number;
   pdfs_downloaded: number;
   candidates_found: number;
@@ -72,11 +79,17 @@ export interface DiscoverReport {
     method: "firecrawl" | "apify" | "skipped";
     apify_run_id?: string;
     apify_dataset_id?: string;
+    apify_second_run_id?: string;
+    seed_urls?: string[];
+    first_pass_items?: number;
+    detail_links_found?: number;
+    second_pass_items?: number;
     pages_seen: number;
     pdf_links: number;
     candidates: number;
     error?: string;
   }>;
+  seed_urls_validated: string[];
   sample_candidates: AuctionCandidate[];
   sample_needs_review: AuctionCandidate[];
   sample_rejected: Array<{ reason: string; source_url: string; excerpt?: string }>;
@@ -113,6 +126,8 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
     runApify: req.runApify === true,
     fallbackToApifyOnFirecrawlError: req.fallbackToApifyOnFirecrawlError !== false,
     downloadPdf: req.downloadPdf === true && !dryRun,
+    enableDetailSecondPass: req.enableDetailSecondPass !== false,
+    maxDetailLinksPerSource: Math.min(req.maxDetailLinksPerSource ?? 20, 40),
   };
 
   const fcOk = firecrawlAvailable();
@@ -134,9 +149,13 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
     apify_runs_succeeded: 0,
     apify_runs_failed: 0,
     dataset_items_read: 0,
+    first_pass_items: 0,
+    detail_links_found: 0,
+    second_pass_items: 0,
     pages_seen: 0,
     detail_pages_seen: 0,
     index_pages_seen: 0,
+    detail_ratio: 0,
     pdf_links_found: 0,
     pdfs_downloaded: 0,
     candidates_found: 0,
@@ -146,6 +165,7 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
     rejected_reasons: {},
     location_inference_stats: { from_text: 0, from_title: 0, from_breadcrumb: 0, from_url: 0, from_source_scope: 0, failed: 0 },
     per_source: [],
+    seed_urls_validated: [],
     sample_candidates: [],
     sample_needs_review: [],
     sample_rejected: [],
@@ -188,6 +208,11 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
       method: "skipped" as "firecrawl" | "apify" | "skipped",
       apify_run_id: undefined as string | undefined,
       apify_dataset_id: undefined as string | undefined,
+      apify_second_run_id: undefined as string | undefined,
+      seed_urls: [] as string[],
+      first_pass_items: 0,
+      detail_links_found: 0,
+      second_pass_items: 0,
       pages_seen: 0,
       pdf_links: 0,
       candidates: 0,
@@ -252,11 +277,29 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
       );
 
     if (shouldUseApify) {
+      // Build provincial seed URLs (verified at registry level), filtered by province scope.
+      const seedSet = new Set<string>();
+      const baseUrl = src.base_url.replace(/\/$/, "");
+      if (src.provincial_seeds && src.provincial_seeds.length > 0) {
+        for (const ps of src.provincial_seeds) {
+          if (cfg.province.includes(ps.province)) {
+            for (const p of ps.paths) seedSet.add(baseUrl + p);
+          }
+        }
+      }
+      if (seedSet.size === 0) {
+        for (const p of src.allowed_paths.slice(0, 4)) seedSet.add(baseUrl + p);
+      }
+      const seedUrls = Array.from(seedSet);
+      perSrc.seed_urls = seedUrls;
+      report.seed_urls_validated.push(...seedUrls);
+
       report.apify_runs_started++;
       const runRes = await runApifyAuctionSource(src, {
         maxPagesPerSource: cfg.maxPagesPerSource,
         maxDepth: cfg.maxDepth,
         timeoutMs: 180_000,
+        startUrlsOverride: seedUrls,
       });
       perSrc.apify_run_id = runRes.actor_run_id;
       perSrc.apify_dataset_id = runRes.dataset_id;
@@ -267,12 +310,45 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
       } else {
         report.apify_runs_succeeded++;
         report.dataset_items_read += runRes.pages.length;
+        perSrc.first_pass_items = runRes.pages.length;
+        report.first_pass_items += runRes.pages.length;
         for (const p of runRes.pages) {
           const md = p.markdown ?? p.text ?? "";
           if (md) pagesProcessed.push({ url: p.url, markdown: md, links: p.links ?? [], title: p.title ?? null });
         }
         perSrc.method = "apify";
         report.sources_used_apify++;
+
+        // ── Second pass: detail links
+        if (cfg.enableDetailSecondPass) {
+          const detailLinks = extractDetailLinksFromPages(runRes.pages, src, cfg.maxDetailLinksPerSource);
+          perSrc.detail_links_found = detailLinks.length;
+          report.detail_links_found += detailLinks.length;
+          if (detailLinks.length > 0) {
+            report.apify_runs_started++;
+            const second = await runApifyAuctionSource(src, {
+              maxPagesPerSource: Math.min(detailLinks.length, cfg.maxDetailLinksPerSource),
+              maxDepth: 0,
+              timeoutMs: 180_000,
+              startUrlsOverride: detailLinks,
+              secondPass: true,
+            });
+            perSrc.apify_second_run_id = second.actor_run_id;
+            if (!second.ok) {
+              report.apify_runs_failed++;
+              report.warnings.push(`${src.source_key} apify-2: ${second.error ?? "failed"}`.slice(0, 240));
+            } else {
+              report.apify_runs_succeeded++;
+              report.dataset_items_read += second.pages.length;
+              perSrc.second_pass_items = second.pages.length;
+              report.second_pass_items += second.pages.length;
+              for (const p of second.pages) {
+                const md = p.markdown ?? p.text ?? "";
+                if (md) pagesProcessed.push({ url: p.url, markdown: md, links: p.links ?? [], title: p.title ?? null });
+              }
+            }
+          }
+        }
       }
     } else if (!shouldUseApify && pagesProcessed.length === 0 && !perSrc.error) {
       perSrc.error = perSrc.error ?? (firecrawlHadCreditError ? "firecrawl_402_no_apify_fallback" : "no_method_available");
@@ -339,6 +415,9 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
     report.warnings.push("dryRun=false richiesto, ma import disabilitato in questo modulo: usare endpoint dedicato (non ancora attivo).");
   }
 
+  report.detail_ratio = report.pages_seen > 0
+    ? Number((report.detail_pages_seen / report.pages_seen).toFixed(2))
+    : 0;
   report.ready_for_controlled_import = report.candidates_importable >= 5 && report.errors.length === 0;
   return report;
 }
