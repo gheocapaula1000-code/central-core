@@ -854,23 +854,39 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
 
   const enrichedTotalSignals = (summary.totalSignals ?? 0) + radarSignalsCount + territorialSignalsCount;
 
-  // ── Additive: microzone_sentiment coverage (ARPAV air quality first connector) ──
+  // ── Additive: microzone_sentiment coverage (ARPAV + territorial enrichment) ──
   let microzoneSentimentAvailable = 0;
   let airQualityCoverage = 0;
+  let greenCoverage = 0;
+  let riskCoverage = 0;
+  let environmentCoverage = 0;
+  let avgSentimentScore = 0;
   let dataConfidenceAvg = 0;
   try {
     const { count: msc } = await supa.from("microzone_sentiment").select("id", { count: "exact", head: true }).eq("is_active", true);
     microzoneSentimentAvailable = msc ?? 0;
     const { count: aqc } = await supa.from("microzone_sentiment").select("id", { count: "exact", head: true }).eq("is_active", true).not("air_quality_score", "is", null);
     airQualityCoverage = aqc ?? 0;
-    const { data: confRows } = await supa.from("microzone_sentiment").select("confidence_score").eq("is_active", true).limit(1000);
+    const { count: gc } = await supa.from("microzone_sentiment").select("id", { count: "exact", head: true }).eq("is_active", true).not("green_score", "is", null);
+    greenCoverage = gc ?? 0;
+    const { count: ec } = await supa.from("microzone_sentiment").select("id", { count: "exact", head: true }).eq("is_active", true).not("environment_score", "is", null);
+    environmentCoverage = ec ?? 0;
+    const { data: confRows } = await supa.from("microzone_sentiment").select("confidence_score, sentiment_score_total, source_refs").eq("is_active", true).limit(1000);
     if (confRows && confRows.length) {
       const sum = confRows.reduce((a, r) => a + Number(r.confidence_score || 0), 0);
       dataConfidenceAvg = Number((sum / confRows.length).toFixed(3));
+      const sentVals = confRows.map((r) => Number(r.sentiment_score_total)).filter((n) => !Number.isNaN(n) && n > 0);
+      if (sentVals.length) avgSentimentScore = Number((sentVals.reduce((a, b) => a + b, 0) / sentVals.length).toFixed(2));
+      riskCoverage = confRows.filter((r) => Array.isArray(r.source_refs) && (r.source_refs as any[]).some((s: any) => s?.source === "derived" && s?.risk_score != null)).length;
     }
     if (microzoneSentimentAvailable > 0 && !partial.includes("arpav_air_quality")) partial.push("arpav_air_quality");
     if (microzoneSentimentAvailable > 0 && !partial.includes("microzone_sentiment")) partial.push("microzone_sentiment");
+    if (riskCoverage > 0 || greenCoverage > 0) {
+      if (!partial.includes("geoportale_veneto")) partial.push("geoportale_veneto");
+      if (!partial.includes("environmental_sentiment")) partial.push("environmental_sentiment");
+    }
   } catch (_e) { /* additive */ }
+
 
 
   const summaryExt = {
