@@ -72,6 +72,9 @@ export interface DeepImportReport {
   records_imported: number;
   skipped_existing: number;
   territorial_signals_created: number;
+  geo_inference_fixed_count: number;
+  records_topic_vincoli: number;
+  records_regional_scope: number;
   warnings: string[];
   errors: string[];
 }
