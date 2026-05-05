@@ -318,12 +318,14 @@ const TOPIC_TO_SIGNAL_TYPE: Partial<Record<Topic, string>> = {
   scuole: "schools_dataset",
   geoportale: "geoportal_dataset",
   patrimonio: "public_assets_dataset",
+  turismo: "tourism_dataset",
 };
 
 export async function runOpenDataVenetoDeepImport(opts: {
   dryRun: boolean;
   import: boolean;
   limitPerKeyword?: number;
+  maxImportRecords?: number;
   keywords?: string[];
 }): Promise<DeepImportReport> {
   const keywords = (opts.keywords && opts.keywords.length > 0)
