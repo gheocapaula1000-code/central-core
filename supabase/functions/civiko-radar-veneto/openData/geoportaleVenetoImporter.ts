@@ -29,12 +29,46 @@ type SignalType =
   | "planning_constraints_dataset"
   | "landscape_constraint_dataset";
 
-const LAYER_META: Record<string, { signal_type: SignalType; topic: string; title: string; impact: number }> = {
-  "rv:c1102011_vincoloidrogeolog": { signal_type: "risk_constraint_dataset", topic: "vincoli", title: "Vincolo idrogeologico", impact: -0.4 },
-  "rv:c0508011_classsismica": { signal_type: "seismic_risk_dataset", topic: "rischio", title: "Classificazione sismica", impact: -0.2 },
-  "rv:c1102051_parchiistituiti_2025": { signal_type: "protected_area_dataset", topic: "parchi", title: "Parchi istituiti", impact: 0.3 },
-  "rv:c1102071_vincoloforestale": { signal_type: "planning_constraints_dataset", topic: "vincoli", title: "Vincolo forestale", impact: -0.3 },
-  "rv:c1102101_vincolosismico": { signal_type: "seismic_risk_dataset", topic: "vincoli", title: "Vincolo sismico", impact: -0.3 },
+// Per-layer config: signal_type, topic, title, impact, and how to filter by province via WFS CQL.
+// `provinceFilter`: builder fn that returns CQL_FILTER for selected provinces (PD/VE/BL) or null if no server-side filter possible.
+const PROV_TO_CODE: Record<string, string> = { PD: "28", VE: "27", BL: "25", VI: "24", VR: "23", TV: "26", RO: "29" };
+
+const LAYER_META: Record<string, {
+  signal_type: SignalType; topic: string; title: string; impact: number;
+  provinceFilter?: (provs: string[]) => string | null;
+}> = {
+  // Uses 5-digit a_codice with province prefix (28/27/25...)
+  "rv:c1102011_vincoloidrogeolog": {
+    signal_type: "risk_constraint_dataset", topic: "vincoli", title: "Vincolo idrogeologico", impact: -0.4,
+    provinceFilter: (ps) => {
+      const codes = ps.map((p) => PROV_TO_CODE[p]).filter(Boolean);
+      if (!codes.length) return null;
+      // CQL: a_codice LIKE '28%' OR a_codice LIKE '27%' ...
+      return codes.map((c) => `a_codice LIKE '${c}%'`).join(" OR ");
+    },
+  },
+  // Has provincia column directly
+  "rv:c0508011_classsismica": {
+    signal_type: "seismic_risk_dataset", topic: "rischio", title: "Classificazione sismica", impact: -0.2,
+    provinceFilter: (ps) => ps.map((p) => `provincia='${p}'`).join(" OR "),
+  },
+  // Parchi: 17 features only — no province col, fetch all then filter via geometry/comune (best-effort)
+  "rv:c1102051_parchiistituiti_2025": {
+    signal_type: "protected_area_dataset", topic: "parchi", title: "Parchi istituiti", impact: 0.3,
+    provinceFilter: () => null,
+  },
+  "rv:c1102071_vincoloforestale": {
+    signal_type: "planning_constraints_dataset", topic: "vincoli", title: "Vincolo forestale", impact: -0.3,
+    provinceFilter: (ps) => {
+      const codes = ps.map((p) => PROV_TO_CODE[p]).filter(Boolean);
+      if (!codes.length) return null;
+      return codes.map((c) => `cod_istat LIKE '${c}%'`).join(" OR ");
+    },
+  },
+  "rv:c1102101_vincolosismico": {
+    signal_type: "seismic_risk_dataset", topic: "vincoli", title: "Vincolo sismico", impact: -0.3,
+    provinceFilter: () => null,
+  },
 };
 
 interface LayerReport {
