@@ -1053,6 +1053,7 @@ Deno.serve(async (req) => {
         "/jobs/enrich-radar-from-open-data-veneto",
         "/jobs/geoportale-veneto-discovery",
         "/jobs/import-geoportale-veneto-layers",
+        "/jobs/recover-geoportale-veneto-unassigned",
         "/jobs/import-veneto-geo-environment",
         "/jobs/import-omi-territorial-notes",
         "/jobs/build-veneto-intelligence-from-research",
