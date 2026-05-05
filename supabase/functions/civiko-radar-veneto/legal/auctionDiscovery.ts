@@ -79,11 +79,17 @@ export interface DiscoverReport {
     method: "firecrawl" | "apify" | "skipped";
     apify_run_id?: string;
     apify_dataset_id?: string;
+    apify_second_run_id?: string;
+    seed_urls?: string[];
+    first_pass_items?: number;
+    detail_links_found?: number;
+    second_pass_items?: number;
     pages_seen: number;
     pdf_links: number;
     candidates: number;
     error?: string;
   }>;
+  seed_urls_validated: string[];
   sample_candidates: AuctionCandidate[];
   sample_needs_review: AuctionCandidate[];
   sample_rejected: Array<{ reason: string; source_url: string; excerpt?: string }>;
