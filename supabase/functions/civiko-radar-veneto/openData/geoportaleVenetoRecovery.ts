@@ -289,6 +289,14 @@ export async function runGeoportaleRecovery(params: RecoveryParams) {
     coverage_recovered_PD: reports.reduce((s, r) => s + r.in_PD, 0),
     coverage_recovered_VE: reports.reduce((s, r) => s + r.in_VE, 0),
     coverage_recovered_BL: reports.reduce((s, r) => s + r.in_BL, 0),
+    coverage_recovered_VR: reports.reduce((s, r) => s + r.in_VR, 0),
+    coverage_recovered_VI: reports.reduce((s, r) => s + r.in_VI, 0),
+    coverage_recovered_TV: reports.reduce((s, r) => s + r.in_TV, 0),
+    coverage_recovered_RO: reports.reduce((s, r) => s + r.in_RO, 0),
+    needs_review_textual_unmatched_total: reports.reduce((s, r) => s + r.needs_review_textual_unmatched, 0),
+    point_in_polygon_assigned_total: reports.reduce((s, r) => s + r.point_in_polygon_assigned, 0),
+    alias_assigned_total: reports.reduce((s, r) => s + r.alias_assigned, 0),
+    fuzzy_assigned_total: reports.reduce((s, r) => s + r.fuzzy_assigned, 0),
     recommendation: dryRun
       ? (candidateInserts.length > 0
           ? "DRY_RUN_OK: re-run with import=true to persist recovered features."
