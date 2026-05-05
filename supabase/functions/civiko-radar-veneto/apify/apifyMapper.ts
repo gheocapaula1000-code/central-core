@@ -25,6 +25,16 @@ export interface NormalizedRecord {
   classification: RecordClassification;
   importable: boolean;
   reject_reason?: string;
+  resource_urls?: string[];
+  formats?: string[];
+  download_urls?: string[];
+  organization?: string | null;
+  groups?: string[];
+  tags?: string[];
+  license?: string | null;
+  updated_at?: string | null;
+  published_at?: string | null;
+  quality?: "high" | "medium" | "low";
 }
 
 const DEMO_RX = /\b(demo|mock|seed|lorem ipsum|esempio fittizio|test data)\b/i;
