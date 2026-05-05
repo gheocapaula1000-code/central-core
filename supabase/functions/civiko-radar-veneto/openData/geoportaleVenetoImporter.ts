@@ -252,21 +252,24 @@ export async function runGeoportaleImport(params: GeoportaleImportParams) {
       const meta = LAYER_META[layer];
       const rep = reports.find((r) => r.layer_name === layer);
       if (!rep || rep.importable_count === 0) continue;
-      const docFp = `geoportale|doc|${layer}`;
+      const docHash = `geoportale|doc|${layer}`;
       const { data: existDoc } = await sb
         .from("source_documents")
-        .select("id").eq("fingerprint", docFp).limit(1);
+        .select("id").eq("content_hash", docHash).limit(1);
       if (existDoc && existDoc.length) continue;
       const { error: docErr } = await sb.from("source_documents").insert({
-        fingerprint: docFp,
+        content_hash: docHash,
         source_name: "Geoportale Regione Veneto",
+        source_type: "wfs_layer",
         source_url: `${WFS_URL}?service=WFS&request=GetFeature&typeNames=${layer}`,
+        url: `${WFS_URL}?service=WFS&request=GetFeature&typeNames=${layer}&outputFormat=application/json`,
         title: `${meta.title} (${layer})`,
-        description: `Layer WFS Geoportale Regione Veneto — ${meta.title}. Topic: ${meta.topic}.`,
+        text_excerpt: `Layer WFS Geoportale Regione Veneto — ${meta.title}. Topic: ${meta.topic}.`,
         data_basis: "geoportale_veneto,wfs",
         quality: "reale",
-        topic: meta.topic,
-        payload: { layer_name: layer, signal_type: meta.signal_type, features_imported: rep.importable_count },
+        classification: meta.topic,
+        importability: true,
+        metadata: { layer_name: layer, signal_type: meta.signal_type, features_imported: rep.importable_count },
       });
       if (!docErr) sourceDocsCreated++;
     }
