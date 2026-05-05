@@ -95,7 +95,8 @@ const ROUTES = [
   "POST /jobs/recover-geoportale-veneto-unassigned",
   "POST /jobs/import-arpav-air-quality",
   "POST /jobs/enrich-microzone-sentiment-from-territorial-signals",
-  "POST /jobs/enrich-microzone-sentiment-from-ispra-risk",
+ "POST /jobs/enrich-microzone-sentiment-from-ispra-risk",
+ "POST /jobs/import-geoportale-green-coverage",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
