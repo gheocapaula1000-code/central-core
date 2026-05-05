@@ -85,6 +85,7 @@ const ROUTES = [
   "GET  /jobs/apify-registry",
   "POST /jobs/enrich-radar-from-open-data-veneto",
   "POST /jobs/geoportale-veneto-discovery",
+  "POST /jobs/import-geoportale-veneto-layers",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
