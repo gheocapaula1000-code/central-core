@@ -877,13 +877,18 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       dataConfidenceAvg = Number((sum / confRows.length).toFixed(3));
       const sentVals = confRows.map((r) => Number(r.sentiment_score_total)).filter((n) => !Number.isNaN(n) && n > 0);
       if (sentVals.length) avgSentimentScore = Number((sentVals.reduce((a, b) => a + b, 0) / sentVals.length).toFixed(2));
-      riskCoverage = confRows.filter((r) => Array.isArray(r.source_refs) && (r.source_refs as any[]).some((s: any) => s?.source === "derived" && s?.risk_score != null)).length;
+      riskCoverage = confRows.filter((r) => Array.isArray(r.source_refs) && (r.source_refs as any[]).some((s: any) => s?.risk_score != null)).length;
     }
     if (microzoneSentimentAvailable > 0 && !partial.includes("arpav_air_quality")) partial.push("arpav_air_quality");
     if (microzoneSentimentAvailable > 0 && !partial.includes("microzone_sentiment")) partial.push("microzone_sentiment");
     if (riskCoverage > 0 || greenCoverage > 0) {
       if (!partial.includes("geoportale_veneto")) partial.push("geoportale_veneto");
       if (!partial.includes("environmental_sentiment")) partial.push("environmental_sentiment");
+    }
+    if (riskCoverage > 0) {
+      for (const k of ["ispra_rischio", "hydrogeological_risk", "landslide_risk"]) {
+        if (!partial.includes(k)) partial.push(k);
+      }
     }
   } catch (_e) { /* additive */ }
 
