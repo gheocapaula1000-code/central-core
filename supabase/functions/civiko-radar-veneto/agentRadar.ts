@@ -73,6 +73,9 @@ export interface AgentRadarZone {
     giorniMediMercato: number | null;
   };
   quality: "reale" | "parziale" | "stimato" | "demo";
+  sourceUrls?: string[];
+  dataBasis?: string[];
+  confidence?: string;
 }
 
 export interface AgentRadarOpportunity {
@@ -637,6 +640,13 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       quality = "stimato";
     }
 
+    const zSourceUrls: string[] = [];
+    const zBasis: string[] = [];
+    if (a.omiQuality === "reale") zBasis.push("omi_valori");
+    if (annunciTot) zBasis.push("listing_price_snapshots");
+    if (ribassiTot) zBasis.push("market_anomalies");
+    if (asteTot) zBasis.push("radar_signals");
+    if (motivTot) zBasis.push("motivated_sellers");
     zones.push({
       id: `${a.provincia}-${a.comune.toLowerCase().replace(/\s+/g, "-")}`,
       comune: a.comune,
@@ -664,6 +674,9 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         giorniMediMercato: giorniMedi ? Math.round(giorniMedi) : null,
       },
       quality,
+      sourceUrls: zSourceUrls,
+      dataBasis: zBasis,
+      confidence: quality === "reale" ? "high" : quality === "parziale" ? "medium" : "low",
     });
   }
 
@@ -698,6 +711,9 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         recommendedMove: z.agentAction,
         script,
         dataBasis: basis,
+        sourceUrls: z.sourceUrls ?? [],
+        confidence: z.confidence ?? (z.quality === "reale" ? "high" : z.quality === "parziale" ? "medium" : "low"),
+        quality: z.quality,
       };
     });
 
@@ -888,7 +904,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       odvOpportunities.push({
         id: `op-odv-${r.province}-${slug}-${r.signal_type}`,
         priority: priorityFromScore(score),
-        comune: r.municipality, provincia: r.province,
+        comune: r.municipality, provincia: provCode,
         headline: r.title ?? `${r.signal_type} — ${r.municipality}`,
         whyNow: r.description ?? "Dataset territoriale ufficiale disponibile per la zona.",
         recommendedMove: action,
@@ -916,6 +932,9 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         omi: { available: false, valoreMedio: null, fascia: null, microzona: null, quality: "mancante" },
         metrics: { annunciAttivi: null, ribassi30gg: null, aste: null, venditoriMotivati: null, giorniMediMercato: null },
         quality: "parziale",
+        sourceUrls,
+        dataBasis: ["open_data_veneto","territorial_signals"],
+        confidence: r.confidence ?? "medium",
       });
     }
     if (odvOpportunities.length > 0) {
