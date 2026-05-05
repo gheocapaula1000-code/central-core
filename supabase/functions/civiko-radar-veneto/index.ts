@@ -48,6 +48,7 @@ import { runEnrichMicrozoneFromTerritorial } from "./openData/microzoneEnricher.
 import { runIspraRiskEnrichment } from "./openData/ispraRiskEnricher.ts";
 import { runGeoportaleGreenImport } from "./openData/geoportaleGreenImporter.ts";
 import { discoverVenetoAuctions } from "./legal/auctionDiscovery.ts";
+import { startAuctionDiscoveryRun, getAuctionDiscoveryRun, importAuctionCandidates } from "./legal/auctionRunStore.ts";
 import { runApifyForVenetoSource } from "./apify/apifyAdapter.ts";
 import { runApifyForVenetoSourceV2, apifyDiagnostics } from "./apify/apifyOrchestrator.ts";
 import { APIFY_VENETO_REGISTRY } from "./apify/apifySourceRegistry.ts";
@@ -99,6 +100,9 @@ const ROUTES = [
  "POST /jobs/enrich-microzone-sentiment-from-ispra-risk",
  "POST /jobs/import-geoportale-green-coverage",
  "POST /jobs/discover-veneto-auctions",
+ "POST /jobs/start-auction-discovery",
+ "POST /jobs/auction-discovery-status",
+ "POST /jobs/import-auction-candidates",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
@@ -990,7 +994,51 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] discover-auctions error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Auction discovery failed", debugId), "job-error");
+    }
+
+    // ── ASTE ASYNC: start, status, import controllato ──
+    if (pathname.endsWith("/jobs/start-auction-discovery")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const r = await startAuctionDiscoveryRun(body, "core-admin");
+        return withIdentity(json(req, 202, { job: "start-auction-discovery", ...r }, debugId), "job-auction-start");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] start-auction-discovery error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "start auction discovery failed", debugId), "job-error");
       }
+    }
+    if (pathname.endsWith("/jobs/auction-discovery-status")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const runId = String(body?.run_id ?? "").trim();
+        if (!runId) return withIdentity(fail(req, 400, "BAD_REQUEST", "run_id required", debugId), "job-auction-status");
+        const r = await getAuctionDiscoveryRun(runId);
+        return withIdentity(json(req, r.ok ? 200 : 404, { job: "auction-discovery-status", ...r }, debugId), "job-auction-status");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] auction-discovery-status error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "auction status failed", debugId), "job-error");
+      }
+    }
+    if (pathname.endsWith("/jobs/import-auction-candidates")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const runId = String(body?.run_id ?? "").trim();
+        if (!runId) return withIdentity(fail(req, 400, "BAD_REQUEST", "run_id required", debugId), "job-auction-import");
+        const r = await importAuctionCandidates({
+          run_id: runId,
+          minConfidence: typeof body?.minConfidence === "number" ? body.minConfidence : undefined,
+          includeNeedsReview: body?.includeNeedsReview === true,
+          maxImportRecords: typeof body?.maxImportRecords === "number" ? body.maxImportRecords : undefined,
+        });
+        return withIdentity(json(req, 200, { job: "import-auction-candidates", ...r }, debugId), "job-auction-import");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] import-auction-candidates error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "import auction candidates failed", debugId), "job-error");
+      }
+    }
     }
 
     if (pathname.endsWith("/jobs/firecrawl-deep-veneto")) {

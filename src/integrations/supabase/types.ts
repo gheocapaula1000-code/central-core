@@ -116,6 +116,149 @@ export type Database = {
         }
         Relationships: []
       }
+      auction_discovery_candidates: {
+        Row: {
+          asset_type: string | null
+          auction_date: string | null
+          base_price: number | null
+          comune: string | null
+          confidence_score: number
+          created_at: string
+          data_basis: string[]
+          fingerprint: string
+          id: number
+          lot_number: string | null
+          minimum_offer: number | null
+          payload: Json
+          pdf_url: string | null
+          privacy_redacted: boolean
+          procedure_number: string | null
+          provincia: string | null
+          quality: string
+          reject_reason: string | null
+          run_id: string
+          source_name: string
+          source_url: string | null
+          status: string
+          title: string | null
+          tribunal: string | null
+        }
+        Insert: {
+          asset_type?: string | null
+          auction_date?: string | null
+          base_price?: number | null
+          comune?: string | null
+          confidence_score?: number
+          created_at?: string
+          data_basis?: string[]
+          fingerprint: string
+          id?: number
+          lot_number?: string | null
+          minimum_offer?: number | null
+          payload?: Json
+          pdf_url?: string | null
+          privacy_redacted?: boolean
+          procedure_number?: string | null
+          provincia?: string | null
+          quality?: string
+          reject_reason?: string | null
+          run_id: string
+          source_name: string
+          source_url?: string | null
+          status?: string
+          title?: string | null
+          tribunal?: string | null
+        }
+        Update: {
+          asset_type?: string | null
+          auction_date?: string | null
+          base_price?: number | null
+          comune?: string | null
+          confidence_score?: number
+          created_at?: string
+          data_basis?: string[]
+          fingerprint?: string
+          id?: number
+          lot_number?: string | null
+          minimum_offer?: number | null
+          payload?: Json
+          pdf_url?: string | null
+          privacy_redacted?: boolean
+          procedure_number?: string | null
+          provincia?: string | null
+          quality?: string
+          reject_reason?: string | null
+          run_id?: string
+          source_name?: string
+          source_url?: string | null
+          status?: string
+          title?: string | null
+          tribunal?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "auction_discovery_candidates_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "auction_discovery_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      auction_discovery_runs: {
+        Row: {
+          apify_run_ids: Json
+          candidates_count: number
+          created_at: string
+          created_by: string | null
+          errors: Json
+          finished_at: string | null
+          id: string
+          importable_count: number
+          needs_review_count: number
+          params: Json
+          report: Json
+          sources: Json
+          started_at: string
+          status: string
+          warnings: Json
+        }
+        Insert: {
+          apify_run_ids?: Json
+          candidates_count?: number
+          created_at?: string
+          created_by?: string | null
+          errors?: Json
+          finished_at?: string | null
+          id?: string
+          importable_count?: number
+          needs_review_count?: number
+          params?: Json
+          report?: Json
+          sources?: Json
+          started_at?: string
+          status?: string
+          warnings?: Json
+        }
+        Update: {
+          apify_run_ids?: Json
+          candidates_count?: number
+          created_at?: string
+          created_by?: string | null
+          errors?: Json
+          finished_at?: string | null
+          id?: string
+          importable_count?: number
+          needs_review_count?: number
+          params?: Json
+          report?: Json
+          sources?: Json
+          started_at?: string
+          status?: string
+          warnings?: Json
+        }
+        Relationships: []
+      }
       auction_signals: {
         Row: {
           base_price_eur: number | null
