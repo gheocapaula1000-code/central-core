@@ -20,6 +20,7 @@ import {
   apifyAvailable,
   isApifyEligible,
   runApifyAuctionSource,
+  extractDetailLinksFromPages,
 } from "./apifyAuctionRunner.ts";
 
 export interface DiscoverRequest {
