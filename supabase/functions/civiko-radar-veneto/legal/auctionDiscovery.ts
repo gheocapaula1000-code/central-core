@@ -282,16 +282,26 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
     for (const page of pagesProcessed) {
       perSrc.pages_seen++;
       report.pages_seen++;
+      if (isLikelyDetailUrl(page.url)) report.detail_pages_seen++;
+      else report.index_pages_seen++;
       const pdfLinks = (page.links ?? []).filter((l) => PDF_LINK_RE.test(l)).slice(0, cfg.maxPdfPerSource);
       perSrc.pdf_links += pdfLinks.length;
       report.pdf_links_found += pdfLinks.length;
-      // Niente download PDF in dry run
-      const cands = await extractAuctionCandidatesFromMarkdown(page.markdown, src, page.url, pdfLinks[0] ?? null);
+      const cands = await extractAuctionCandidatesFromMarkdown(page.markdown, src, page.url, pdfLinks[0] ?? null, { title: page.title ?? null });
       for (const c of cands) {
+        // location stats
+        const lb = c.location_basis;
+        if (lb === "text") report.location_inference_stats.from_text++;
+        else if (lb === "title") report.location_inference_stats.from_title++;
+        else if (lb === "breadcrumb") report.location_inference_stats.from_breadcrumb++;
+        else if (lb === "url") report.location_inference_stats.from_url++;
+        else if (lb === "source_scope") report.location_inference_stats.from_source_scope++;
+        else report.location_inference_stats.failed++;
+
         if (c.privacy_redacted && (c.payload?.personal_hits as number) > 3) {
           rejectReason("personal_data_heavy");
           report.candidates_rejected++;
-          if (report.sample_rejected.length < 10) {
+          if (report.sample_rejected.length < 5) {
             report.sample_rejected.push({ reason: "personal_data_heavy", source_url: page.url, excerpt: String((c.payload?.excerpt) ?? "").slice(0, 160) });
           }
           continue;
@@ -299,6 +309,9 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
         if (!c.province) {
           rejectReason("no_province");
           report.candidates_rejected++;
+          if (report.sample_rejected.length < 5) {
+            report.sample_rejected.push({ reason: "no_province", source_url: page.url, excerpt: String((c.payload?.excerpt) ?? "").slice(0, 160) });
+          }
           continue;
         }
         allCandidates.push(c);
