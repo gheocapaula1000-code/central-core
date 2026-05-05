@@ -179,7 +179,7 @@ export async function runGeoportaleGreenImport(params: GreenImportParams) {
       }
 
       // PIP via centroids (multi-sample)
-      const centroids = sampleCentroids(feat.geometry);
+      const centroids = samplePoints(feat.geometry);
       for (const c of centroids) {
         try {
           const { data: zones, error } = await sb.rpc("omi_zone_by_point", {
