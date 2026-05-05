@@ -43,11 +43,15 @@ export function buildIstatLookup(rows: Array<{ codice_istat: string; comune: str
   const m: IstatCache = new Map();
   for (const r of rows) {
     if (!r.codice_istat || !r.comune) continue;
-    const padded = r.codice_istat.padStart(6, "0");
-    m.set(padded, r.comune);
-    // Also index 5-digit version (no leading 0) — WFS uses '23001' instead of '023001'
-    m.set(padded.replace(/^0+/, ""), r.comune);
-    m.set(r.codice_istat, r.comune);
+    const raw = String(r.codice_istat);
+    // Original (e.g. "05028060")
+    m.set(raw, r.comune);
+    // Last 6 digits (ISTAT comune full: "028060")
+    const last6 = raw.slice(-6).padStart(6, "0");
+    m.set(last6, r.comune);
+    // Last 5 digits with leading zero stripped (Geoportale uses "28060")
+    const trimmed = last6.replace(/^0+/, "");
+    if (trimmed) m.set(trimmed, r.comune);
   }
   return m;
 }
