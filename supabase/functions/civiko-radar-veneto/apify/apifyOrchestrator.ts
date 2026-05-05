@@ -21,14 +21,21 @@ export interface ApifyRunReport {
   dataset_items_read: number;
   records_normalized: number;
   records_importable: number;
+  records_importable_dataset: number;
+  records_importable_resource: number;
+  records_importable_index: number;
   records_rejected_count: number;
   records_rejected: { reason: string; count: number }[];
   records_imported: number;
   skipped_existing: number;
   sample_records: Array<{ source_url: string; title: string | null; data_basis: "real" | "partial"; classification?: string }>;
   sample_importable_records: Array<{ source_url: string; title: string | null; classification: string }>;
+  sample_dataset_records: Array<{ source_url: string; title: string | null; classification: string; resource_urls?: string[]; formats?: string[] }>;
+  sample_resource_records: Array<{ source_url: string; title: string | null; classification: string; formats?: string[]; download_urls?: string[] }>;
   sample_rejected_records: Array<{ source_url: string; title: string | null; classification: string; reject_reason?: string }>;
   input_template_used?: Record<string, unknown>;
+  ready_for_real_import: boolean;
+  ready_reason: string;
   warnings: string[];
   errors: string[];
   tokenExposed: false;
@@ -54,13 +61,20 @@ export async function runApifyForVenetoSourceV2(opts: {
     dataset_items_read: 0,
     records_normalized: 0,
     records_importable: 0,
+    records_importable_dataset: 0,
+    records_importable_resource: 0,
+    records_importable_index: 0,
     records_rejected_count: 0,
     records_rejected: [],
     records_imported: 0,
     skipped_existing: 0,
     sample_records: [],
     sample_importable_records: [],
+    sample_dataset_records: [],
+    sample_resource_records: [],
     sample_rejected_records: [],
+    ready_for_real_import: false,
+    ready_reason: "not_evaluated",
     warnings: [],
     errors: [],
     tokenExposed: false,
@@ -170,6 +184,35 @@ export async function runApifyForVenetoSourceV2(opts: {
   report.sample_rejected_records = rejectedRecs.slice(0, 3).map((r) => ({
     source_url: r.source_url, title: r.title, classification: r.classification, reject_reason: r.reject_reason,
   }));
+
+  const datasetRecs = importableRecs.filter((r) => r.classification === "dataset");
+  const resourceRecs = importableRecs.filter((r) => r.classification === "resource" || r.classification === "document");
+  const indexRecs = importableRecs.filter((r) => r.classification === "dataset_index" || r.classification === "organization" || r.classification === "irrelevant");
+  report.records_importable_dataset = datasetRecs.length;
+  report.records_importable_resource = resourceRecs.length;
+  report.records_importable_index = indexRecs.length;
+  report.sample_dataset_records = datasetRecs.slice(0, 5).map((r) => ({
+    source_url: r.source_url, title: r.title, classification: r.classification,
+    resource_urls: r.resource_urls, formats: r.formats,
+  }));
+  report.sample_resource_records = resourceRecs.slice(0, 5).map((r) => ({
+    source_url: r.source_url, title: r.title, classification: r.classification,
+    formats: r.formats, download_urls: r.download_urls,
+  }));
+
+  // Readiness gate for real import.
+  const realCount = datasetRecs.length + resourceRecs.length;
+  const hasLoginOrProfile = (mapped.rejected.find((x) => x.reason === "login_page")?.count ?? 0)
+    + (mapped.rejected.find((x) => x.reason === "profile_page")?.count ?? 0);
+  if (realCount >= 10 && hasLoginOrProfile === 0) {
+    report.ready_for_real_import = true;
+    report.ready_reason = `ok:${realCount}_real_dataset_or_resource_records`;
+  } else {
+    report.ready_for_real_import = false;
+    report.ready_reason = realCount < 10
+      ? `not_enough_real_records:${realCount}<10`
+      : `login_or_profile_present:${hasLoginOrProfile}`;
+  }
 
   // Hard guard: never write when dryRun OR when import flag false.
   const doImport = opts.import === true && opts.dryRun === false;
