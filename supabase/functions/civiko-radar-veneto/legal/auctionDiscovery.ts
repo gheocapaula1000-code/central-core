@@ -54,6 +54,8 @@ export interface DiscoverReport {
   apify_runs_failed: number;
   dataset_items_read: number;
   pages_seen: number;
+  detail_pages_seen: number;
+  index_pages_seen: number;
   pdf_links_found: number;
   pdfs_downloaded: number;
   candidates_found: number;
@@ -61,6 +63,7 @@ export interface DiscoverReport {
   candidates_needs_review: number;
   candidates_rejected: number;
   rejected_reasons: Record<string, number>;
+  location_inference_stats: { from_text: number; from_title: number; from_breadcrumb: number; from_url: number; from_source_scope: number; failed: number };
   per_source: Array<{
     source_key: string;
     source_name: string;
