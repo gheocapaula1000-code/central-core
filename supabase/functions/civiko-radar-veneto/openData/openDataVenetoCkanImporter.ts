@@ -416,6 +416,9 @@ export async function runOpenDataVenetoDeepImport(opts: {
     comune: r.comune,
     provincia: r.provincia,
   }));
+  report.geo_inference_fixed_count = importable.filter((r) => r.geo_fixed).length;
+  report.records_topic_vincoli = importable.filter((r) => r.topic === "vincoli").length;
+  report.records_regional_scope = importable.filter((r) => r.regional_scope).length;
 
   const doImport = opts.import === true && opts.dryRun === false;
   if (!doImport) {
