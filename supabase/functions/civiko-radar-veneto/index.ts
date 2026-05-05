@@ -1040,7 +1040,6 @@ Deno.serve(async (req) => {
         return withIdentity(fail(req, 500, "JOB_FAILED", "import auction candidates failed", debugId), "job-error");
       }
     }
-    }
 
     if (pathname.endsWith("/jobs/firecrawl-deep-veneto")) {
       const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
