@@ -147,14 +147,15 @@ export const AUCTION_SOURCE_REGISTRY: AuctionSource[] = [
     excluded_paths: ["/login", "/account", "/carrello", "/user/", "/news/", "/assets/"],
     allowed_content_types: ["text/html", "application/pdf"],
     crawl_method: "apify",
-    max_depth: 2,
-    max_pages: 40,
+    max_depth: 1,
+    max_pages: 8,
     rate_limit_ms: 1500,
     priority: 1,
     enabled: true,
     compliance_status: "needs_review",
     extraction_strategy: "html_cards",
     keywords: AUCTION_KEYWORDS,
+    notes: "Validato 2026-05: HTML statico ricco. Preferire cheerio + maxPages basso per evitare poll_timeout Playwright.",
   },
   // ── Aste Telematiche (Spaziogiustizia)
   {
