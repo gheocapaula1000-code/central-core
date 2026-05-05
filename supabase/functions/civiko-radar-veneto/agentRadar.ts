@@ -1003,7 +1003,69 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     }
   } catch (e) { warnings.push(`odv_opportunities: ${e instanceof Error ? e.message : String(e)}`); }
 
-  const mergedOpportunities = [...opportunities, ...odvOpportunities.slice(0, 12)];
+  // ── Additive: Off-Market Opportunity Scores ─────────────────────
+  const offmarketOpportunities: AgentRadarOpportunity[] = [];
+  let offMarketZones = 0;
+  let highAcquisitionZones = 0;
+  let valuationCampaignZones = 0;
+  let avgOffMarketScore: number | null = null;
+  let avgAcquisitionScore: number | null = null;
+  try {
+    let q = supa.from("offmarket_opportunity_scores")
+      .select("comune,provincia,off_market_potential_score,acquisition_priority_score,microzone_heat_score,family_attractiveness_score,investor_attractiveness_score,exclusive_pitch_score,owner_education_score,valuation_campaign_score,confidence_score,quality,recommended_actions,scripts,data_basis,positive_factors")
+      .eq("is_active", true)
+      .order("acquisition_priority_score", { ascending: false })
+      .range(0, 199);
+    if (filterProv) q = q.eq("provincia", filterProv);
+    if (filterComune) q = q.ilike("comune", filterComune);
+    const { data: oosRows } = await q;
+    const rowsArr = (oosRows ?? []) as Array<Record<string, unknown>>;
+    if (rowsArr.length > 0) {
+      offMarketZones = rowsArr.filter((r) => Number(r.off_market_potential_score) >= 60).length;
+      highAcquisitionZones = rowsArr.filter((r) => Number(r.acquisition_priority_score) >= 60).length;
+      valuationCampaignZones = rowsArr.filter((r) => Number(r.valuation_campaign_score) >= 55).length;
+      const offSum = rowsArr.reduce((a, r) => a + Number(r.off_market_potential_score), 0);
+      const acqSum = rowsArr.reduce((a, r) => a + Number(r.acquisition_priority_score), 0);
+      avgOffMarketScore = Number((offSum / rowsArr.length).toFixed(1));
+      avgAcquisitionScore = Number((acqSum / rowsArr.length).toFixed(1));
+      for (const r of rowsArr.slice(0, 30)) {
+        const actions = Array.isArray(r.recommended_actions) ? r.recommended_actions as Array<Record<string, unknown>> : [];
+        const scripts = Array.isArray(r.scripts) ? r.scripts as Array<Record<string, unknown>> : [];
+        const dataBasis = Array.isArray(r.data_basis) ? (r.data_basis as unknown[]).map(String) : ["aggregato"];
+        const provCode = (normalizeProvincia(String(r.provincia)) ?? String(r.provincia)) as ProvCode | "—";
+        for (const act of actions.slice(0, 2)) {
+          const baseScore = Number(r.acquisition_priority_score) || 50;
+          const matchedScript = scripts.find((s) => String(s.type) === String(act.type));
+          offmarketOpportunities.push({
+            id: `op-oos-${r.provincia}-${String(r.comune).toLowerCase().replace(/\s+/g, "-")}-${String(act.type)}`,
+            priority: priorityFromScore(baseScore),
+            comune: String(r.comune), provincia: provCode,
+            headline: String(act.headline ?? `${act.type} — ${r.comune}`),
+            whyNow: String(act.whyNow ?? "Indicatori aggregati di zona favorevoli."),
+            recommendedMove: String(act.recommendedMove ?? "Avvia campagna mirata."),
+            script: matchedScript ? String(matchedScript.text ?? "") : "",
+            dataBasis,
+            sourceUrls: [],
+            confidence: String(act.confidence ?? "medium"),
+            quality: String(r.quality ?? "parziale"),
+            target: String(act.target ?? "zona"),
+            nextStep: String(act.recommendedMove ?? ""),
+          });
+        }
+      }
+      if (!partial.includes("offmarket_opportunity_scores")) partial.push("offmarket_opportunity_scores");
+    }
+  } catch (e) { warnings.push(`offmarket_scores: ${e instanceof Error ? e.message : String(e)}`); }
+
+  Object.assign(summaryExt, {
+    offMarketZones,
+    highAcquisitionZones,
+    valuationCampaignZones,
+    avgOffMarketScore,
+    avgAcquisitionScore,
+  });
+
+  const mergedOpportunities = [...opportunities, ...odvOpportunities.slice(0, 12), ...offmarketOpportunities.slice(0, 24)];
 
   // Merge ODV zones with deduplication on id, then re-sort by score
   const baseZones = finalZones.filter((z) => z.quality !== "demo");
