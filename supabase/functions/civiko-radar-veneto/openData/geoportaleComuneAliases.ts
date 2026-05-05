@@ -1,14 +1,15 @@
 // ═══════════════════════════════════════════════════════════════
 // Geoportale Veneto — alias + fuzzy match for comune names.
 // Never invents comuni: every alias must resolve to a real key in
-// VENETO_COMUNI. Fuzzy match uses normalized Jaro-Winkler-like
-// similarity with high threshold (>=0.92).
+// VENETO_COMUNI. Fuzzy match uses normalized Sørensen-Dice with
+// high threshold (>=0.92) and clear runner-up margin.
 // ═══════════════════════════════════════════════════════════════
 
 import { VENETO_COMUNI } from "./venetoComuni.ts";
 
 /** Hand-curated abbreviation aliases (only those that resolve to a real Veneto comune). */
 const RAW_ALIASES: Record<string, string> = {
+  // ── BL Cadore ──
   "Domegge di Cad.": "Domegge Di Cadore",
   "S. Vito di Cad.": "San Vito Di Cadore",
   "Santo Stefano di Cad.": "Santo Stefano Di Cadore",
@@ -21,10 +22,13 @@ const RAW_ALIASES: Record<string, string> = {
   "Valle di Cad.": "Valle Di Cadore",
   "Borca di Cad.": "Borca Di Cadore",
   "Auronzo di Cad.": "Auronzo Di Cadore",
+  "Cibiana di Cad.": "Cibiana Di Cadore",
+  // ── VE / PD San* abbreviations ──
   "S. Donà di Piave": "San Donà Di Piave",
   "S. Dona' di Piave": "San Donà Di Piave",
   "S. Stino di Livenza": "San Stino Di Livenza",
   "S. Martino Buon Albergo": "San Martino Buon Albergo",
+  "S. Martino B.A.": "San Martino Buon Albergo",
   "S. Martino di Lupari": "San Martino Di Lupari",
   "S. Bonifacio": "San Bonifacio",
   "S. Pietro in Cariano": "San Pietro In Cariano",
@@ -40,17 +44,53 @@ const RAW_ALIASES: Record<string, string> = {
   "S. Vito di Leguzzano": "San Vito Di Leguzzano",
   "S. Nazario": "San Nazario",
   "S. Tomaso Agordino": "San Tomaso Agordino",
-  "S. Vito di Cadore": "San Vito Di Cadore",
-  "S. Stefano di Cadore": "Santo Stefano Di Cadore",
-  "S. Pietro di Cadore": "San Pietro Di Cadore",
+  "S. Giovanni Ilarione": "San Giovanni Ilarione",
+  "S. Biagio di Callalta": "San Biagio Di Callalta",
+  "S. Zeno di M.": "San Zeno Di Montagna",
+  "S. Zeno di Montagna": "San Zeno Di Montagna",
+  // ── VR abbreviazioni / suffissi ──
+  "Brenzone": "Brenzone Sul Garda",
+  "Brenzone s/Garda": "Brenzone Sul Garda",
+  "Cavaion Ver.": "Cavaion Veronese",
+  "Cavaion": "Cavaion Veronese",
+  "Costermano": "Costermano Sul Garda",
+  "Roverè Ver.": "Roverè Veronese",
+  "Rovere Veronese": "Roverè Veronese",
+  "Rovere Ver.": "Roverè Veronese",
+  "Albaredo d Adige": "Albaredo d'Adige",
+  "Boschi Sant Anna": "Boschi Sant'Anna",
+  "Montecchia di C.": "Montecchia Di Crosara",
+  "Cazzano di T.": "Cazzano Di Tramigna",
+  "Brentino B.": "Brentino Belluno",
+  "Ferrara di M. B.": "Ferrara Di Monte Baldo",
+  "Ferrara M. B.": "Ferrara Di Monte Baldo",
+  // ── VI ──
+  "Montecchio M.": "Montecchio Maggiore",
+  "Bassano": "Bassano Del Grappa",
+  "Romano d Ezzelino": "Romano d'Ezzelino",
+  "Recoaro T.": "Recoaro Terme",
+  // ── TV ──
+  "Vittorio V.": "Vittorio Veneto",
+  "Castelfranco V.": "Castelfranco Veneto",
+  "Mogliano V.": "Mogliano Veneto",
+  // ── RO ──
+  "Badia P.": "Badia Polesine",
 };
 
-// Build a normalized lookup map (lowercase, no punctuation, no accents)
+// ── normalization ────────────────────────────────────────────────
 function stripAccents(s: string): string {
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
+/** Normalize: lowercase, strip accents, normalize apostrophes (’`´→'),
+ * collapse spaces, drop punctuation. */
 function normKey(s: string): string {
-  return stripAccents(s).toLowerCase().replace(/['’`.]/g, "").replace(/\s+/g, " ").trim();
+  return stripAccents(
+    s.replace(/[\u2018\u2019\u201B\u0060\u00B4]/g, "'"),
+  )
+    .toLowerCase()
+    .replace(/['.,]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 const ALIAS_MAP = new Map<string, string>();
@@ -58,43 +98,76 @@ for (const [k, v] of Object.entries(RAW_ALIASES)) {
   if (VENETO_COMUNI[v]) ALIAS_MAP.set(normKey(k), v);
 }
 
-// Pre-build normalized index of all real comuni (key=normalized, value=canonical name)
 const COMUNE_INDEX = new Map<string, string>();
 for (const name of Object.keys(VENETO_COMUNI)) COMUNE_INDEX.set(normKey(name), name);
 
-/** Try alias resolution and rule-based expansion (S. → San/Santo/Santa, Cad. → Cadore). */
+// Suffix candidates appended only when produces a unique match.
+const SUFFIX_CANDIDATES = [
+  "sul garda", "sull adige", "d adige", "del grappa",
+  "veronese", "veneto", "vicentino", "terme", "polesine",
+  "di cadore", "di piave", "di livenza", "di tramigna",
+  "di crosara", "di montagna", "di monte baldo",
+];
+
+const ABBREV_EXPANSIONS: Array<[RegExp, string]> = [
+  [/\bcad\b/g, "cadore"],
+  [/\bver\b/g, "veronese"],
+  [/\bm b\b/g, "monte baldo"],
+  [/\bb a\b/g, "buon albergo"],
+];
+
+/** Try alias → direct → rule-based expansion → suffix probing.
+ * Only returns matches that resolve to a real key in VENETO_COMUNI. */
 export function resolveAlias(raw: string): string | null {
   if (!raw) return null;
   const k = normKey(raw);
-  // Direct alias hit
+  if (!k) return null;
+
+  // 1. Direct alias
   const direct = ALIAS_MAP.get(k);
   if (direct) return direct;
-  // Direct comune index hit (catches accent/punct variants)
+
+  // 2. Direct comune index
   const idx = COMUNE_INDEX.get(k);
   if (idx) return idx;
 
-  // Rule-based expansion
-  const expansions = new Set<string>();
-  // Cad. → Cadore
-  if (/\bcad\b/.test(k)) expansions.add(k.replace(/\bcad\b/g, "cadore"));
-  // S. → San / Santo / Santa  (only when at start of token)
-  if (/\bs\b/.test(k)) {
-    expansions.add(k.replace(/\bs\b/g, "san"));
-    expansions.add(k.replace(/\bs\b/g, "santo"));
-    expansions.add(k.replace(/\bs\b/g, "santa"));
-  }
-  // Combined Cad. + S.
+  // 3. Rule-based expansion of abbreviations
+  const expansions = new Set<string>([k]);
   for (const e of [...expansions]) {
-    if (/\bcad\b/.test(e)) expansions.add(e.replace(/\bcad\b/g, "cadore"));
+    let mutated = e;
+    for (const [re, repl] of ABBREV_EXPANSIONS) mutated = mutated.replace(re, repl);
+    if (mutated !== e) expansions.add(mutated);
+  }
+  // 3.b S. → San / Santa / Santo
+  for (const e of [...expansions]) {
+    if (/\bs\b/.test(e)) {
+      expansions.add(e.replace(/\bs\b/g, "san"));
+      expansions.add(e.replace(/\bs\b/g, "santo"));
+      expansions.add(e.replace(/\bs\b/g, "santa"));
+    }
   }
   for (const cand of expansions) {
     const hit = COMUNE_INDEX.get(cand);
     if (hit) return hit;
   }
+
+  // 4. Suffix probing: append common suffixes; require UNIQUE match
+  const baseCandidates = [...expansions];
+  for (const base of baseCandidates) {
+    const matches = new Set<string>();
+    for (const suf of SUFFIX_CANDIDATES) {
+      const probe = `${base} ${suf}`;
+      const hit = COMUNE_INDEX.get(probe);
+      if (hit) matches.add(hit);
+    }
+    if (matches.size === 1) return [...matches][0];
+    // ambiguous → skip
+  }
+
   return null;
 }
 
-/** Lightweight similarity: Sørensen–Dice on character bigrams. Stable, dependency-free. */
+// ── fuzzy ─────────────────────────────────────────────────────────
 function bigrams(s: string): Set<string> {
   const out = new Set<string>();
   for (let i = 0; i < s.length - 1; i++) out.add(s.slice(i, i + 2));
@@ -109,7 +182,6 @@ function dice(a: string, b: string): number {
   return (2 * inter) / (A.size + B.size);
 }
 
-/** Returns canonical comune if a single match >= threshold and clear margin over runner-up. */
 export function fuzzyMatchComune(raw: string, threshold = 0.92): { comune: string; score: number } | null {
   if (!raw) return null;
   const q = normKey(raw);
@@ -128,15 +200,29 @@ export function fuzzyMatchComune(raw: string, threshold = 0.92): { comune: strin
   return null;
 }
 
-/** Try every textual property → alias → fuzzy. Returns canonical comune + provincia. */
+const TEXT_PROP_KEYS = ["comune", "denom_com", "denominazione_comune", "b_nome", "nome", "name", "nome_comune", "comune_nome", "a_nome", "denominazi", "denominazione", "municipio"];
+
+/** Returns true if the feature has any textual comune-like property
+ * (regardless of whether it resolves). Used to gate PIP. */
+export function hasTextualComuneProperty(properties: Record<string, unknown>): boolean {
+  for (const k of Object.keys(properties)) {
+    if (!TEXT_PROP_KEYS.includes(k.toLowerCase())) continue;
+    const v = properties[k];
+    if (typeof v === "string" && v.trim().length >= 2) return true;
+  }
+  return false;
+}
+
+/** Try every textual property → alias/expansion → fuzzy.
+ * Returns canonical comune + provincia, or null. */
 export function inferFromTextProperties(
   properties: Record<string, unknown>,
   opts: { fuzzyThreshold?: number } = {},
 ): { comune: string; provincia: string; method: "alias" | "fuzzy"; score?: number } | null {
-  const candidates = ["comune", "denom_com", "denominazione_comune", "b_nome", "nome", "nome_comune", "comune_nome", "a_nome", "denominazi", "denominazione"];
   const seen = new Set<string>();
+  // pass 1: alias / direct / expansion / suffix
   for (const k of Object.keys(properties)) {
-    if (!candidates.includes(k.toLowerCase())) continue;
+    if (!TEXT_PROP_KEYS.includes(k.toLowerCase())) continue;
     const v = properties[k];
     if (typeof v !== "string" || !v.trim()) continue;
     if (seen.has(v)) continue;
@@ -144,9 +230,9 @@ export function inferFromTextProperties(
     const a = resolveAlias(v);
     if (a && VENETO_COMUNI[a]) return { comune: a, provincia: VENETO_COMUNI[a], method: "alias" };
   }
-  // Second pass: fuzzy
+  // pass 2: fuzzy
   for (const k of Object.keys(properties)) {
-    if (!candidates.includes(k.toLowerCase())) continue;
+    if (!TEXT_PROP_KEYS.includes(k.toLowerCase())) continue;
     const v = properties[k];
     if (typeof v !== "string" || !v.trim()) continue;
     const f = fuzzyMatchComune(v, opts.fuzzyThreshold ?? 0.92);
