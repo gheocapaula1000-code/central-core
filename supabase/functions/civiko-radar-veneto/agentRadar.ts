@@ -854,6 +854,25 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
 
   const enrichedTotalSignals = (summary.totalSignals ?? 0) + radarSignalsCount + territorialSignalsCount;
 
+  // ── Additive: microzone_sentiment coverage (ARPAV air quality first connector) ──
+  let microzoneSentimentAvailable = 0;
+  let airQualityCoverage = 0;
+  let dataConfidenceAvg = 0;
+  try {
+    const { count: msc } = await supa.from("microzone_sentiment").select("id", { count: "exact", head: true }).eq("is_active", true);
+    microzoneSentimentAvailable = msc ?? 0;
+    const { count: aqc } = await supa.from("microzone_sentiment").select("id", { count: "exact", head: true }).eq("is_active", true).not("air_quality_score", "is", null);
+    airQualityCoverage = aqc ?? 0;
+    const { data: confRows } = await supa.from("microzone_sentiment").select("confidence_score").eq("is_active", true).limit(1000);
+    if (confRows && confRows.length) {
+      const sum = confRows.reduce((a, r) => a + Number(r.confidence_score || 0), 0);
+      dataConfidenceAvg = Number((sum / confRows.length).toFixed(3));
+    }
+    if (microzoneSentimentAvailable > 0 && !partial.includes("arpav_air_quality")) partial.push("arpav_air_quality");
+    if (microzoneSentimentAvailable > 0 && !partial.includes("microzone_sentiment")) partial.push("microzone_sentiment");
+  } catch (_e) { /* additive */ }
+
+
   const summaryExt = {
     ...summary,
     totalSignals: enrichedTotalSignals,
