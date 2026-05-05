@@ -12,7 +12,7 @@ const CKAN_BASES = [
 
 export type Topic =
   | "urbanistica" | "ambiente" | "mobilita" | "servizi" | "edifici"
-  | "strade" | "scuole" | "geoportale" | "patrimonio" | "vincoli" | "altro";
+  | "strade" | "scuole" | "geoportale" | "patrimonio" | "vincoli" | "turismo" | "altro";
 
 export type Classification = "dataset" | "resource" | "geo_resource" | "csv_resource" | "document_resource";
 
@@ -97,6 +97,7 @@ const TOPIC_RX: Array<{ topic: Topic; rx: RegExp }> = [
   { topic: "geoportale",   rx: /\b(geoportal|cartograf|wms|wfs|shapefile|geojson|kml|kmz|raster|ortofoto)\b/i },
   { topic: "patrimonio",   rx: /\b(patrimoni|alienazion|beni\s+pubblic|demanio|asta\s+pubblica)\b/i },
   { topic: "servizi",      rx: /\b(servizi\s+pubblic|sociali|sanitari|farmaci|biblioteche|sport)\b/i },
+  { topic: "turismo",      rx: /\b(turism|presenze\s+turistiche|arrivi\s+turistic|ricettiv|alberg|hotel|b&b|affittacamere|case\s+vacanza)\b/i },
 ];
 
 function classifyTopic(text: string): Topic {
@@ -317,12 +318,14 @@ const TOPIC_TO_SIGNAL_TYPE: Partial<Record<Topic, string>> = {
   scuole: "schools_dataset",
   geoportale: "geoportal_dataset",
   patrimonio: "public_assets_dataset",
+  turismo: "tourism_dataset",
 };
 
 export async function runOpenDataVenetoDeepImport(opts: {
   dryRun: boolean;
   import: boolean;
   limitPerKeyword?: number;
+  maxImportRecords?: number;
   keywords?: string[];
 }): Promise<DeepImportReport> {
   const keywords = (opts.keywords && opts.keywords.length > 0)
@@ -430,8 +433,9 @@ export async function runOpenDataVenetoDeepImport(opts: {
   const supa = getSupa();
   if (!supa) { report.errors.push("supabase_not_configured"); return report; }
 
-  // Cap real import to 50 records max.
-  const toImport = importable.slice(0, 50);
+  // Cap real import (default 50, configurable up to 200).
+  const cap = Math.max(1, Math.min(200, opts.maxImportRecords ?? 50));
+  const toImport = importable.slice(0, cap);
   const urls = toImport.map((r) => r.source_url);
   const { data: existing } = await supa
     .from("source_documents")
