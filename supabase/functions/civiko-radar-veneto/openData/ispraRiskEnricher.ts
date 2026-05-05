@@ -161,8 +161,10 @@ export async function runIspraRiskEnrichment(params: IspraEnrichParams) {
   let joinable = 0, riskNull = 0, risk75plus = 0, risk90 = 0;
 
   for (const r of ms) {
-    const key = (r.comune ?? "").toString().trim().toLowerCase();
-    const ir = key ? idx.get(key) : null;
+    const rawKey = (r.comune ?? "").toString().trim().toLowerCase();
+    const folded = normFold(r.comune ?? "");
+    const aliased = aliasKey(folded);
+    const ir = idx.get(rawKey) ?? idx.get(folded) ?? idx.get(aliased) ?? null;
     if (!ir) {
       if (notJoinable.length < 30) notJoinable.push({ id: r.id, comune: r.comune, provincia: r.provincia });
       continue;
