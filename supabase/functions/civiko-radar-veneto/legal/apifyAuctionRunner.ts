@@ -91,7 +91,7 @@ export async function runApifyAuctionSource(
     saveMarkdown: true,
     saveHtml: false,
     saveScreenshots: false,
-    proxyConfiguration: { useApifyProxy: false },
+    proxyConfiguration: { useApifyProxy: true },
   };
 
   let run;
