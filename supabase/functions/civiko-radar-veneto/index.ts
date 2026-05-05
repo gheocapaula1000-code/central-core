@@ -98,6 +98,7 @@ const ROUTES = [
   "POST /jobs/enrich-microzone-sentiment-from-territorial-signals",
  "POST /jobs/enrich-microzone-sentiment-from-ispra-risk",
  "POST /jobs/import-geoportale-green-coverage",
+ "POST /jobs/discover-veneto-auctions",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
