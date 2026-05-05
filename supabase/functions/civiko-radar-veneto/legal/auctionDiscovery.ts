@@ -126,6 +126,8 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
     runApify: req.runApify === true,
     fallbackToApifyOnFirecrawlError: req.fallbackToApifyOnFirecrawlError !== false,
     downloadPdf: req.downloadPdf === true && !dryRun,
+    enableDetailSecondPass: req.enableDetailSecondPass !== false,
+    maxDetailLinksPerSource: Math.min(req.maxDetailLinksPerSource ?? 20, 40),
   };
 
   const fcOk = firecrawlAvailable();
