@@ -34,6 +34,7 @@ import { buildVenetoDataEngine } from "./dataEngine.ts";
 import { importVenetoAuctions } from "./auctionImport.ts";
 import { runFirecrawlDeepVeneto } from "./firecrawl/crawlRunner.ts";
 import { runMicrozoneOpportunitySignals } from "./firecrawl/microzoneOpportunityRunner.ts";
+import { runOffMarketOpportunityEngine } from "./offmarket/offMarketOpportunityEngine.ts";
 import { runAdvancedVenetoOpportunities } from "./advancedOpportunity.ts";
 import { buildVenetoIntelligenceFromResearch } from "./intelligence/orchestrator.ts";
 import { runVenetoOpenDataImport } from "./openData/ckanImporter.ts";
@@ -102,7 +103,8 @@ const ROUTES = [
  "POST /jobs/discover-veneto-auctions",
  "POST /jobs/start-auction-discovery",
  "POST /jobs/auction-discovery-status",
- "POST /jobs/import-auction-candidates",
+  "POST /jobs/import-auction-candidates",
+  "POST /jobs/build-offmarket-opportunity-scores",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
@@ -1050,6 +1052,19 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] firecrawl-deep error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Firecrawl deep crawl failed", debugId), "job-error");
+      }
+    }
+
+    // Off-Market & Microzone Opportunity Engine (Civiko proprietary scoring)
+    if (pathname.endsWith("/jobs/build-offmarket-opportunity-scores")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const r = await runOffMarketOpportunityEngine(body);
+        return withIdentity(json(req, r.ok ? 200 : 207, { job: "build-offmarket-opportunity-scores", ...r }, debugId), "job-offmarket-opp");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] offmarket-opp error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Off-market opportunity engine failed", debugId), "job-error");
       }
     }
 
