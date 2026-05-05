@@ -36,6 +36,8 @@ export interface DiscoverRequest {
   runApify?: boolean;
   fallbackToApifyOnFirecrawlError?: boolean;
   downloadPdf?: boolean;
+  enableDetailSecondPass?: boolean;
+  maxDetailLinksPerSource?: number;
 }
 
 export interface DiscoverReport {
