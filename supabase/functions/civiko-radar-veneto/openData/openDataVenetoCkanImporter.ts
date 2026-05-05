@@ -97,6 +97,7 @@ const TOPIC_RX: Array<{ topic: Topic; rx: RegExp }> = [
   { topic: "geoportale",   rx: /\b(geoportal|cartograf|wms|wfs|shapefile|geojson|kml|kmz|raster|ortofoto)\b/i },
   { topic: "patrimonio",   rx: /\b(patrimoni|alienazion|beni\s+pubblic|demanio|asta\s+pubblica)\b/i },
   { topic: "servizi",      rx: /\b(servizi\s+pubblic|sociali|sanitari|farmaci|biblioteche|sport)\b/i },
+  { topic: "turismo",      rx: /\b(turism|presenze\s+turistiche|arrivi\s+turistic|ricettiv|alberg|hotel|b&b|affittacamere|case\s+vacanza)\b/i },
 ];
 
 function classifyTopic(text: string): Topic {
