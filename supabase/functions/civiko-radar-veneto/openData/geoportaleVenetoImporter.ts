@@ -33,25 +33,15 @@ type SignalType =
 // `provinceFilter`: builder fn that returns CQL_FILTER for selected provinces (PD/VE/BL) or null if no server-side filter possible.
 const PROV_TO_CODE: Record<string, string> = { PD: "28", VE: "27", BL: "25", VI: "24", VR: "23", TV: "26", RO: "29" };
 
-const LAYER_META: Record<string, {
-  signal_type: SignalType; topic: string; title: string; impact: number;
-  provinceFilter?: (provs: string[]) => string | null;
-}> = {
-// CQL builder for ISTAT-prefix-based filtering. GeoServer CQL doesn't reliably
-// accept LIKE chains; we use BETWEEN over the contiguous prefix range when the
-// requested provinces happen to be consecutive (which is true for any subset
-// here because Veneto codes are 23,24,25,26,27,28,29).
+// CQL builder for ISTAT-prefix-based filtering using BETWEEN ranges
+// (GeoServer CQL rejects long LIKE-chains).
 function buildIstatPrefixCQL(field: string, provs: string[]): string | null {
   const codes = provs.map((p) => PROV_TO_CODE[p]).filter(Boolean).sort();
   if (!codes.length) return null;
-  // Use IN with full sub-range substitution: just expand each prefix to a range and OR
-  // For a single prefix '28' → BETWEEN '28000' AND '28999'.
-  // Multiple disjoint prefixes via OR of BETWEEN ranges.
   const parts = codes.map((c) => `(${field} BETWEEN '${c}000' AND '${c}999')`);
   return parts.join(" OR ");
 }
 
-  // Per-layer config
 const LAYER_META: Record<string, {
   signal_type: SignalType; topic: string; title: string; impact: number;
   provinceFilter?: (provs: string[]) => string | null;
