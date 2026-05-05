@@ -932,6 +932,9 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         omi: { available: false, valoreMedio: null, fascia: null, microzona: null, quality: "mancante" },
         metrics: { annunciAttivi: null, ribassi30gg: null, aste: null, venditoriMotivati: null, giorniMediMercato: null },
         quality: "parziale",
+        sourceUrls,
+        dataBasis: ["open_data_veneto","territorial_signals"],
+        confidence: r.confidence ?? "medium",
       });
     }
     if (odvOpportunities.length > 0) {
