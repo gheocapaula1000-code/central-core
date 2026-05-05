@@ -85,7 +85,8 @@ const SUPPORTED_FORMATS = new Set([
 ]);
 
 const TOPIC_RX: Array<{ topic: Topic; rx: RegExp }> = [
-  { topic: "urbanistica",  rx: /\b(urbanistic|piano\s*(degli\s*)?intervent|p\.?i\.?\s|prg|pat\b|pati\b|regolamento\s+edilizio|vincol|destinazion\s+uso)\b/i },
+  { topic: "vincoli",      rx: /\b(vincol|regime\s+di\s+vincolo|ambiti\s+sottopost|tutela|paesaggistic|idrogeologic|sismic|fasce\s+di?\s*rispetto|piano\s+(di\s+)?assett|pianificazione\s+e\s+vincoli)\b/i },
+  { topic: "urbanistica",  rx: /\b(urbanistic|piano\s*(degli\s*)?intervent|p\.?i\.?\s|prg|pat\b|pati\b|regolamento\s+edilizio|destinazion\s+uso|zonizzazion)\b/i },
   { topic: "ambiente",     rx: /\b(ambient|aria|qualit[aà]\s+aria|rumore|acustic|ARPAV|inquinament|verd|parchi|natura|emission)\b/i },
   { topic: "mobilita",     rx: /\b(mobilit|trasport|traffic|ciclabil|tpl|autobus|treno|stazion|porto|aeroport|parcheggi)\b/i },
   { topic: "scuole",       rx: /\b(scuol|istitut|asilo|nido|infanz|liceo|universit)\b/i },
@@ -105,16 +106,73 @@ const VENETO_PROV_FULL: Record<string, string> = {
   venezia: "VE", verona: "VR", vicenza: "VI", padova: "PD", treviso: "TV", belluno: "BL", rovigo: "RO",
 };
 const VENETO_PROV_RX = /\b(venezia|verona|vicenza|padova|treviso|belluno|rovigo)\b/i;
-const COMUNE_RX = /\b(?:Comune\s+(?:di|della|del)\s+)([A-ZÀ-Ý][a-zà-ÿ'’\-]+(?:\s+[A-ZÀ-Ý][a-zà-ÿ'’\-]+){0,3})\b/;
 
-function inferGeo(text: string): { comune: string | null; provincia: string | null } {
+// Stop-words that frequently appear after "Comune di X" but are NOT part of the comune name.
+const STOPWORDS = new Set([
+  "si","no","trattasi","anni","anno","dataset","regione","pubblica","pubblico","privato",
+  "del","della","dei","delle","degli","di","da","in","su","con","per","tra","fra","e","ed","o",
+  "che","come","sono","sia","stato","stata","è","ha","ho","la","il","lo","gli","le","un","una","uno",
+  "comprende","contiene","relativo","relativa","relativi","relative","include","comprendente",
+  "anagrafica","elenco","lista","mappa","mappe","dati","informazioni","servizio","servizi",
+  "via","piazza","corso","viale","strada","località",
+]);
+
+// Build comune name lookup: lowercased -> canonical "Title Case".
+const COMUNE_LOOKUP: Map<string, { name: string; provincia: string }> = new Map();
+for (const [name, prov] of Object.entries(VENETO_COMUNI)) {
+  COMUNE_LOOKUP.set(name.toLowerCase(), { name, provincia: prov });
+}
+
+const COMUNE_RX = /\bComune\s+(?:di|della|del|dello|dei|delle|degli)\s+([A-ZÀ-Ý][\wÀ-ÿ'’\-]+(?:\s+[A-ZÀ-Ý'][\wÀ-ÿ'’\-]+){0,4})/;
+
+function cleanComuneName(raw: string): string | null {
+  if (!raw) return null;
+  // Strip trailing punctuation/dashes
+  const tokens = raw.replace(/[\.,;:\-–—]+/g, " ").split(/\s+/).filter(Boolean);
+  const kept: string[] = [];
+  for (const tok of tokens) {
+    const low = tok.toLowerCase();
+    if (STOPWORDS.has(low)) break;
+    // stop on lowercase token (likely a sentence continuation, not comune part)
+    if (kept.length > 0 && /^[a-zà-ÿ]/.test(tok)) break;
+    kept.push(tok);
+    if (kept.length >= 4) break;
+  }
+  if (kept.length === 0) return null;
+  // Try progressive shrink: longest match wins against lookup
+  for (let n = kept.length; n >= 1; n--) {
+    const candidate = kept.slice(0, n).join(" ");
+    const hit = COMUNE_LOOKUP.get(candidate.toLowerCase());
+    if (hit) return hit.name;
+  }
+  // Fallback: return cleaned candidate Title-cased (still better than dirty)
+  return kept.join(" ");
+}
+
+function lookupProvinciaFromComune(comune: string | null): string | null {
+  if (!comune) return null;
+  const hit = COMUNE_LOOKUP.get(comune.toLowerCase());
+  return hit ? hit.provincia : null;
+}
+
+function inferComuneFromTitle(text: string): string | null {
+  const m = text.match(COMUNE_RX);
+  if (!m) return null;
+  return cleanComuneName(m[1]);
+}
+
+function inferGeo(text: string): { comune: string | null; provincia: string | null; fixed: boolean } {
   let provincia: string | null = null;
-  const m = text.toLowerCase().match(VENETO_PROV_RX);
-  if (m) provincia = VENETO_PROV_FULL[m[1]] ?? null;
-  let comune: string | null = null;
-  const c = text.match(COMUNE_RX);
-  if (c) comune = c[1].trim();
-  return { comune, provincia };
+  const pm = text.toLowerCase().match(VENETO_PROV_RX);
+  if (pm) provincia = VENETO_PROV_FULL[pm[1]] ?? null;
+
+  const comune = inferComuneFromTitle(text);
+  let fixed = false;
+  if (comune) {
+    const looked = lookupProvinciaFromComune(comune);
+    if (looked) { provincia = looked; fixed = true; }
+  }
+  return { comune, provincia, fixed };
 }
 
 const NOISE_URL_RX = /\/(user|login|register|signin|signup|password|comment|comment-form|privacy|cookie|contatti|contact|search|admin)/i;
