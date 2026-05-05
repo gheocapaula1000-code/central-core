@@ -30,8 +30,8 @@ export const APIFY_VENETO_REGISTRY: ApifySourceBinding[] = [
     actor_id: "apify/website-content-crawler",
     input_template: {
       startUrls: [{ url: "https://dati.veneto.it/" }],
-      maxCrawlDepth: 2,
-      maxCrawlPages: 60,
+      maxCrawlDepth: 1,
+      maxCrawlPages: 10,
       crawlerType: "cheerio",
       respectRobotsTxtFile: true,
     },
