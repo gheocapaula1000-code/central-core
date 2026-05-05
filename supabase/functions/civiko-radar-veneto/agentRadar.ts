@@ -866,23 +866,27 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     territory: odvTerritory,
   };
 
-  // ── Additive: Open Data Veneto opportunities (territorial signals) ──
+  // ── Additive: Open Data Veneto opportunities + zones (territorial signals) ──
   const odvOpportunities: AgentRadarOpportunity[] = [];
+  const odvZones: AgentRadarZone[] = [];
   try {
     const { data: odvSig } = await supa.from("radar_signals")
-      .select("province,municipality,signal_type,title,description,evidence_url,source,confidence,payload")
+      .select("province,municipality,signal_type,title,description,evidence_url,source,confidence,payload,lat,lng")
       .eq("source", "Open Data Veneto").eq("is_active", true)
       .order("detected_at", { ascending: false })
       .range(0, 49);
-    for (const r of (odvSig ?? []) as Array<{ province: string|null; municipality: string|null; signal_type: string|null; title: string|null; description: string|null; evidence_url: string|null; confidence: string|null; payload: Record<string, unknown>|null }>) {
+    for (const r of (odvSig ?? []) as Array<{ province: string|null; municipality: string|null; signal_type: string|null; title: string|null; description: string|null; evidence_url: string|null; confidence: string|null; payload: Record<string, unknown>|null; lat: number|null; lng: number|null }>) {
       if (!r.province || !r.municipality) continue;
       if (filterProv && r.province !== filterProv) continue;
       if (filterComune && r.municipality.toLowerCase() !== filterComune) continue;
       const score = Number((r.payload?.score as number | undefined) ?? 60);
       const action = String((r.payload?.agentAction as string | undefined) ?? "Verifica applicabilità del dataset all'immobile.");
       const script = String((r.payload?.script as string | undefined) ?? "");
+      const sourceUrls = r.evidence_url ? [r.evidence_url] : [];
+      const provCode = (normalizeProvincia(r.province) ?? r.province) as ProvCode | "—";
+      const slug = r.municipality.toLowerCase().replace(/\s+/g,"-");
       odvOpportunities.push({
-        id: `op-odv-${r.province}-${r.municipality.toLowerCase().replace(/\s+/g,"-")}-${r.signal_type}`,
+        id: `op-odv-${r.province}-${slug}-${r.signal_type}`,
         priority: priorityFromScore(score),
         comune: r.municipality, provincia: r.province,
         headline: r.title ?? `${r.signal_type} — ${r.municipality}`,
@@ -890,21 +894,56 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         recommendedMove: action,
         script,
         dataBasis: ["open_data_veneto","territorial_signals"],
+        sourceUrls,
+        confidence: r.confidence ?? "medium",
+        quality: "parziale",
+        target: "agente immobiliare",
+        nextStep: action,
+      });
+      // Build a zone for the frontend "Zone calde" widget
+      odvZones.push({
+        id: `odv-${r.province}-${slug}-${r.signal_type}`,
+        comune: r.municipality,
+        provincia: provCode,
+        lat: r.lat ?? null,
+        lng: r.lng ?? null,
+        score,
+        temperature: temperatureFromScore(score),
+        signalType: "domanda",
+        title: r.title ?? `${r.municipality} — ${r.signal_type}`,
+        reason: r.description ?? "Dataset territoriale ufficiale Open Data Veneto.",
+        agentAction: action,
+        omi: { available: false, valoreMedio: null, fascia: null, microzona: null, quality: "mancante" },
+        metrics: { annunciAttivi: null, ribassi30gg: null, aste: null, venditoriMotivati: null, giorniMediMercato: null },
+        quality: "parziale",
       });
     }
     if (odvOpportunities.length > 0) {
-      if (!real.includes("territorial_signals")) partial.push("territorial_signals (open_data_veneto)");
+      if (!partial.includes("territorial_signals")) partial.push("territorial_signals");
+      if (!partial.includes("open_data_veneto")) partial.push("open_data_veneto");
+      if (!partial.includes("source_documents")) partial.push("source_documents");
+      if (!partial.includes("radar_signals") && !real.includes("radar_signals")) partial.push("radar_signals");
     }
   } catch (e) { warnings.push(`odv_opportunities: ${e instanceof Error ? e.message : String(e)}`); }
 
-  const mergedOpportunities = [...opportunities, ...odvOpportunities.slice(0, 6)];
+  const mergedOpportunities = [...opportunities, ...odvOpportunities.slice(0, 12)];
+
+  // Merge ODV zones with deduplication on id, then re-sort by score
+  const baseZones = finalZones.filter((z) => z.quality !== "demo");
+  const seen = new Set(baseZones.map(z => z.id));
+  for (const z of odvZones) { if (!seen.has(z.id)) { baseZones.push(z); seen.add(z.id); } }
+  baseZones.sort((a,b) => b.score - a.score);
+  const cappedZones = baseZones.slice(0, Math.max(maxZones, 24));
+
+  // Recompute hotZones with merged zones
+  summaryExt.hotZones = cappedZones.filter((z) => z.temperature === "calda" || z.temperature === "molto_calda").length;
 
   // POLICY PRODUZIONE: nessun record demo restituito al client. Mantieni demo:[] per retro-compat.
   return {
     configured: !!supa,
     scope: { region: "Veneto", province: VENETO_PROVINCES, datasetStatus, message },
     summary: summaryExt,
-    zones: finalZones.filter((z) => z.quality !== "demo"),
+    zones: cappedZones,
     opportunities: datasetStatus === "empty" ? [] : mergedOpportunities,
     dataQuality: { real, partial, demo: [], missing, warnings, privacyRejectedCount },
   } as AgentRadarResponse;
