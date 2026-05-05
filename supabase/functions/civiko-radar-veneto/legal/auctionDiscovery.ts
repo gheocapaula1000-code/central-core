@@ -13,6 +13,7 @@ import {
 } from "./auctionSourceRegistry.ts";
 import {
   extractAuctionCandidatesFromMarkdown,
+  isLikelyDetailUrl,
   type AuctionCandidate,
 } from "./auctionParser.ts";
 import {
@@ -54,6 +55,8 @@ export interface DiscoverReport {
   apify_runs_failed: number;
   dataset_items_read: number;
   pages_seen: number;
+  detail_pages_seen: number;
+  index_pages_seen: number;
   pdf_links_found: number;
   pdfs_downloaded: number;
   candidates_found: number;
@@ -61,6 +64,7 @@ export interface DiscoverReport {
   candidates_needs_review: number;
   candidates_rejected: number;
   rejected_reasons: Record<string, number>;
+  location_inference_stats: { from_text: number; from_title: number; from_breadcrumb: number; from_url: number; from_source_scope: number; failed: number };
   per_source: Array<{
     source_key: string;
     source_name: string;
@@ -131,6 +135,8 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
     apify_runs_failed: 0,
     dataset_items_read: 0,
     pages_seen: 0,
+    detail_pages_seen: 0,
+    index_pages_seen: 0,
     pdf_links_found: 0,
     pdfs_downloaded: 0,
     candidates_found: 0,
@@ -138,6 +144,7 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
     candidates_needs_review: 0,
     candidates_rejected: 0,
     rejected_reasons: {},
+    location_inference_stats: { from_text: 0, from_title: 0, from_breadcrumb: 0, from_url: 0, from_source_scope: 0, failed: 0 },
     per_source: [],
     sample_candidates: [],
     sample_needs_review: [],
@@ -188,7 +195,7 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
     };
     report.sources_checked++;
 
-    let pagesProcessed: Array<{ url: string; markdown: string; links: string[] }> = [];
+    let pagesProcessed: Array<{ url: string; markdown: string; links: string[]; title?: string | null }> = [];
     let firecrawlHadCreditError = false;
 
     // ── Firecrawl path
@@ -222,7 +229,7 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
             continue;
           }
           if (r.markdown) {
-            pagesProcessed.push({ url: u, markdown: r.markdown, links: r.links ?? [] });
+            pagesProcessed.push({ url: u, markdown: r.markdown, links: r.links ?? [], title: r.title ?? null });
           }
         }
         if (pagesProcessed.length > 0) {
@@ -262,7 +269,7 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
         report.dataset_items_read += runRes.pages.length;
         for (const p of runRes.pages) {
           const md = p.markdown ?? p.text ?? "";
-          if (md) pagesProcessed.push({ url: p.url, markdown: md, links: p.links ?? [] });
+          if (md) pagesProcessed.push({ url: p.url, markdown: md, links: p.links ?? [], title: p.title ?? null });
         }
         perSrc.method = "apify";
         report.sources_used_apify++;
@@ -275,16 +282,26 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
     for (const page of pagesProcessed) {
       perSrc.pages_seen++;
       report.pages_seen++;
+      if (isLikelyDetailUrl(page.url)) report.detail_pages_seen++;
+      else report.index_pages_seen++;
       const pdfLinks = (page.links ?? []).filter((l) => PDF_LINK_RE.test(l)).slice(0, cfg.maxPdfPerSource);
       perSrc.pdf_links += pdfLinks.length;
       report.pdf_links_found += pdfLinks.length;
-      // Niente download PDF in dry run
-      const cands = await extractAuctionCandidatesFromMarkdown(page.markdown, src, page.url, pdfLinks[0] ?? null);
+      const cands = await extractAuctionCandidatesFromMarkdown(page.markdown, src, page.url, pdfLinks[0] ?? null, { title: page.title ?? null });
       for (const c of cands) {
+        // location stats
+        const lb = c.location_basis;
+        if (lb === "text") report.location_inference_stats.from_text++;
+        else if (lb === "title") report.location_inference_stats.from_title++;
+        else if (lb === "breadcrumb") report.location_inference_stats.from_breadcrumb++;
+        else if (lb === "url") report.location_inference_stats.from_url++;
+        else if (lb === "source_scope") report.location_inference_stats.from_source_scope++;
+        else report.location_inference_stats.failed++;
+
         if (c.privacy_redacted && (c.payload?.personal_hits as number) > 3) {
           rejectReason("personal_data_heavy");
           report.candidates_rejected++;
-          if (report.sample_rejected.length < 10) {
+          if (report.sample_rejected.length < 5) {
             report.sample_rejected.push({ reason: "personal_data_heavy", source_url: page.url, excerpt: String((c.payload?.excerpt) ?? "").slice(0, 160) });
           }
           continue;
@@ -292,6 +309,9 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
         if (!c.province) {
           rejectReason("no_province");
           report.candidates_rejected++;
+          if (report.sample_rejected.length < 5) {
+            report.sample_rejected.push({ reason: "no_province", source_url: page.url, excerpt: String((c.payload?.excerpt) ?? "").slice(0, 160) });
+          }
           continue;
         }
         allCandidates.push(c);

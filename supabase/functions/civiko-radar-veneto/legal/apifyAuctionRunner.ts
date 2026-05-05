@@ -32,15 +32,25 @@ export interface ApifyAuctionRunResult {
 
 const ACTOR_ID = "apify~website-content-crawler";
 
-const INCLUDE_GLOBS = [
-  "**/aste**", "**/vendite**", "**/vendite-giudiziarie**",
-  "**/avvisi**", "**/alienazioni**", "**/patrimonio**",
-  "**/bandi**", "**/pdf**",
+// Globs portale-aste mirate a pagine dettaglio/lotto/scheda
+const DETAIL_INCLUDE_GLOBS = [
+  "**/scheda**", "**/dettaglio**", "**/lotto**", "**/lotti**",
+  "**/vendita**", "**/vendite**", "**/asta**", "**/aste**",
+  "**/annuncio**", "**/annunci**", "**/immobili**", "**/immobile**",
+  "**/bene**", "**/beni**", "**/procedure**", "**/procedura**",
+  "**/avviso**", "**/avvisi**", "**/alienazion**", "**/bandi**",
+];
+// Tribunali/PA: globs più larghe ma sempre tematiche
+const PA_INCLUDE_GLOBS = [
+  "**/vendite**", "**/aste**", "**/avvisi**", "**/alienazion**",
+  "**/patrimonio**", "**/bandi**", "**/news**", "**/documenti**",
 ];
 const EXCLUDE_GLOBS = [
-  "**/login**", "**/user**", "**/captcha**",
-  "**/privacy**", "**/cookie**", "**/contatti**", "**/contact**",
-  "**/search**", "**/admin**",
+  "**/login**", "**/user**", "**/account**", "**/registrazione**",
+  "**/captcha**", "**/privacy**", "**/cookie**", "**/contatti**", "**/contact**",
+  "**/search**", "**/cerca**", "**/admin**", "**/newsletter**",
+  "**/sort=**", "**/order=**", "**/page=*", "**/p=*",
+  "**/?page=*", "**/?p=*", "**/?sort=*", "**/?filter=*",
 ];
 
 export function apifyAvailable(): boolean {
@@ -71,7 +81,7 @@ export async function runApifyAuctionSource(
     return { ok: false, source_key: source.source_key, pages: [], error: "INELIGIBLE_SOURCE" };
   }
 
-  const maxPages = Math.min(options.maxPagesPerSource ?? 10, 25);
+  const maxPages = Math.min(options.maxPagesPerSource ?? 10, 40);
   const maxDepth = Math.min(options.maxDepth ?? 1, 2);
   const timeout = Math.min(options.timeoutMs ?? 180_000, 240_000);
   const pollMs = options.pollMs ?? 4_000;
@@ -80,13 +90,17 @@ export async function runApifyAuctionSource(
     .slice(0, 4)
     .map((p) => ({ url: source.base_url.replace(/\/$/, "") + p }));
 
+  const include = source.source_type === "delegated_auction_portal"
+    ? DETAIL_INCLUDE_GLOBS
+    : PA_INCLUDE_GLOBS;
+
   const input = {
     startUrls,
     maxCrawlDepth: maxDepth,
     maxCrawlPages: maxPages,
     crawlerType: "cheerio",
     respectRobotsTxtFile: true,
-    includeUrlGlobs: INCLUDE_GLOBS,
+    includeUrlGlobs: include,
     excludeUrlGlobs: EXCLUDE_GLOBS,
     saveMarkdown: true,
     saveHtml: false,
