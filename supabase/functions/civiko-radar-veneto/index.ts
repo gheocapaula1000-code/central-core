@@ -1106,6 +1106,7 @@ Deno.serve(async (req) => {
               maxImportRecords: typeof body?.maxImportRecords === "number" ? body.maxImportRecords : 200,
             });
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "import-geoportale-veneto-layers", ...r }, debugId), "job-geoportale-import");
+          }
           if (matched === "/jobs/import-veneto-geo-environment" || matched === "/jobs/import-omi-territorial-notes") {
             return withIdentity(json(req, 200, {
               job: matched.replace("/jobs/",""),
