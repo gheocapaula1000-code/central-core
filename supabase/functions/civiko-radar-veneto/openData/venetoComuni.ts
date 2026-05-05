@@ -4,7 +4,7 @@ export const VENETO_COMUNI: Record<string,string> = {
   "Boschi Sant'Anna": "VR",
   "Brenzone Sul Garda": "VR",
   "Costermano Sul Garda": "VR",
-  "Ferrara Di Monte Baldo": "VR",
+  // (Ferrara Di Monte Baldo già presente più sotto)
   "Roverè Veronese": "VR",
   "San Martino Buon Albergo": "VR",
   "Romano d'Ezzelino": "VI",
