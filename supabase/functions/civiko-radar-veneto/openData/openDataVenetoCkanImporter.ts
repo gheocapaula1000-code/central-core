@@ -43,6 +43,8 @@ export interface NormalizedOpenDataRecord {
   data_basis: string[];
   importable: boolean;
   reject_reason?: string;
+  geo_fixed?: boolean;
+  regional_scope?: boolean;
   hash: string;
 }
 
