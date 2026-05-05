@@ -1066,6 +1066,7 @@ Deno.serve(async (req) => {
         "/jobs/import-arpav-air-quality",
         "/jobs/enrich-microzone-sentiment-from-territorial-signals",
         "/jobs/enrich-microzone-sentiment-from-ispra-risk",
+        "/jobs/import-geoportale-green-coverage",
         "/jobs/import-veneto-geo-environment",
         "/jobs/import-omi-territorial-notes",
         "/jobs/build-veneto-intelligence-from-research",
