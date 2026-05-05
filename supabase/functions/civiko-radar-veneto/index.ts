@@ -38,6 +38,7 @@ import { runAdvancedVenetoOpportunities } from "./advancedOpportunity.ts";
 import { buildVenetoIntelligenceFromResearch } from "./intelligence/orchestrator.ts";
 import { runVenetoOpenDataImport } from "./openData/ckanImporter.ts";
 import { runOpenDataVenetoDeepImport } from "./openData/openDataVenetoCkanImporter.ts";
+import { enrichRadarFromOpenDataVeneto } from "./openData/openDataEnrichment.ts";
 import { runApifyForVenetoSource } from "./apify/apifyAdapter.ts";
 import { runApifyForVenetoSourceV2, apifyDiagnostics } from "./apify/apifyOrchestrator.ts";
 import { APIFY_VENETO_REGISTRY } from "./apify/apifySourceRegistry.ts";
@@ -80,6 +81,7 @@ const ROUTES = [
   "POST /jobs/apify-run-veneto-source",
   "POST /jobs/apify-diagnostics",
   "GET  /jobs/apify-registry",
+  "POST /jobs/enrich-radar-from-open-data-veneto",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
@@ -1042,6 +1044,7 @@ Deno.serve(async (req) => {
       const newJobs = [
         "/jobs/import-veneto-open-data",
         "/jobs/import-open-data-veneto-deep",
+        "/jobs/enrich-radar-from-open-data-veneto",
         "/jobs/import-veneto-geo-environment",
         "/jobs/import-omi-territorial-notes",
         "/jobs/build-veneto-intelligence-from-research",
@@ -1070,6 +1073,10 @@ Deno.serve(async (req) => {
               keywords: Array.isArray(body?.keywords) ? body.keywords : undefined,
             });
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "import-open-data-veneto-deep", ...r }, debugId), "job-open-data-deep");
+          }
+          if (matched === "/jobs/enrich-radar-from-open-data-veneto") {
+            const r = await enrichRadarFromOpenDataVeneto();
+            return withIdentity(json(req, r.ok ? 200 : 207, { job: "enrich-radar-from-open-data-veneto", ...r }, debugId), "job-enrich-odv");
           }
           if (matched === "/jobs/import-veneto-geo-environment" || matched === "/jobs/import-omi-territorial-notes") {
             return withIdentity(json(req, 200, {
