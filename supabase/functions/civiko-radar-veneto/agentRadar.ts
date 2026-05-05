@@ -73,6 +73,9 @@ export interface AgentRadarZone {
     giorniMediMercato: number | null;
   };
   quality: "reale" | "parziale" | "stimato" | "demo";
+  sourceUrls?: string[];
+  dataBasis?: string[];
+  confidence?: string;
 }
 
 export interface AgentRadarOpportunity {
