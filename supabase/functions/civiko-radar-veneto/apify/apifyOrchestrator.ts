@@ -21,10 +21,13 @@ export interface ApifyRunReport {
   dataset_items_read: number;
   records_normalized: number;
   records_importable: number;
+  records_rejected_count: number;
   records_rejected: { reason: string; count: number }[];
   records_imported: number;
   skipped_existing: number;
-  sample_records: Array<{ source_url: string; title: string | null; data_basis: "real" | "partial" }>;
+  sample_records: Array<{ source_url: string; title: string | null; data_basis: "real" | "partial"; classification?: string }>;
+  sample_importable_records: Array<{ source_url: string; title: string | null; classification: string }>;
+  sample_rejected_records: Array<{ source_url: string; title: string | null; classification: string; reject_reason?: string }>;
   input_template_used?: Record<string, unknown>;
   warnings: string[];
   errors: string[];
