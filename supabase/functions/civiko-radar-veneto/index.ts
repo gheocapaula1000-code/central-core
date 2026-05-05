@@ -1070,6 +1070,7 @@ Deno.serve(async (req) => {
               dryRun: body?.dryRun !== false,
               import: body?.import === true,
               limitPerKeyword: typeof body?.limitPerKeyword === "number" ? body.limitPerKeyword : 20,
+              maxImportRecords: typeof body?.maxImportRecords === "number" ? body.maxImportRecords : undefined,
               keywords: Array.isArray(body?.keywords) ? body.keywords : undefined,
             });
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "import-open-data-veneto-deep", ...r }, debugId), "job-open-data-deep");
