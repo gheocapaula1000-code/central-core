@@ -415,6 +415,9 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
     report.warnings.push("dryRun=false richiesto, ma import disabilitato in questo modulo: usare endpoint dedicato (non ancora attivo).");
   }
 
+  report.detail_ratio = report.pages_seen > 0
+    ? Number((report.detail_pages_seen / report.pages_seen).toFixed(2))
+    : 0;
   report.ready_for_controlled_import = report.candidates_importable >= 5 && report.errors.length === 0;
   return report;
 }
