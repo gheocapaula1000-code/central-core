@@ -1074,6 +1074,10 @@ Deno.serve(async (req) => {
             });
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "import-open-data-veneto-deep", ...r }, debugId), "job-open-data-deep");
           }
+          if (matched === "/jobs/enrich-radar-from-open-data-veneto") {
+            const r = await enrichRadarFromOpenDataVeneto();
+            return withIdentity(json(req, r.ok ? 200 : 207, { job: "enrich-radar-from-open-data-veneto", ...r }, debugId), "job-enrich-odv");
+          }
           if (matched === "/jobs/import-veneto-geo-environment" || matched === "/jobs/import-omi-territorial-notes") {
             return withIdentity(json(req, 200, {
               job: matched.replace("/jobs/",""),
