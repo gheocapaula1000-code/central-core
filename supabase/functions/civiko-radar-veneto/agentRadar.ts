@@ -861,6 +861,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   let riskCoverage = 0;
   let environmentCoverage = 0;
   let avgSentimentScore = 0;
+  let avgRiskScore: number | null = null;
   let dataConfidenceAvg = 0;
   try {
     const { count: msc } = await supa.from("microzone_sentiment").select("id", { count: "exact", head: true }).eq("is_active", true);
