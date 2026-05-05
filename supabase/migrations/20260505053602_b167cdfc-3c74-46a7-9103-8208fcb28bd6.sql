@@ -1,0 +1,1 @@
+DELETE FROM public.microzone_sentiment WHERE fingerprint LIKE 'arpav_air|%';

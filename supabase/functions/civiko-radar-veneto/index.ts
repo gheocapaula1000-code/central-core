@@ -43,6 +43,7 @@ import { runGeoportaleVenetoDiscovery } from "./openData/geoportaleVenetoCswImpo
 import { runGeoportaleImport } from "./openData/geoportaleVenetoImporter.ts";
 import { runGeoportaleRecovery } from "./openData/geoportaleVenetoRecovery.ts";
 import { runArpavAirImport } from "./openData/arpavAirImporter.ts";
+import { runArpavEnvironmentalImport } from "./openData/arpavEnvironmentalImporter.ts";
 import { runApifyForVenetoSource } from "./apify/apifyAdapter.ts";
 import { runApifyForVenetoSourceV2, apifyDiagnostics } from "./apify/apifyOrchestrator.ts";
 import { APIFY_VENETO_REGISTRY } from "./apify/apifySourceRegistry.ts";
@@ -1127,6 +1128,19 @@ Deno.serve(async (req) => {
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "recover-geoportale-veneto-unassigned", ...r }, debugId), "job-geoportale-recovery");
           }
           if (matched === "/jobs/import-arpav-air-quality") {
+            const useEnv = body?.includeStations !== undefined || body?.includeZoneAria !== undefined || body?.pageSize !== undefined;
+            if (useEnv) {
+              const r = await runArpavEnvironmentalImport({
+                dryRun: body?.dryRun !== false,
+                import: body?.import === true,
+                province: Array.isArray(body?.province) ? body.province : ["VE","VR","VI","PD","TV","BL","RO"],
+                maxFeatures: typeof body?.maxFeatures === "number" ? body.maxFeatures : 2000,
+                pageSize: typeof body?.pageSize === "number" ? body.pageSize : 500,
+                includeStations: body?.includeStations !== false,
+                includeZoneAria: body?.includeZoneAria !== false,
+              });
+              return withIdentity(json(req, r.ok ? 200 : 207, { job: "import-arpav-air-quality", mode: "environmental", ...r }, debugId), "job-arpav-env");
+            }
             const r = await runArpavAirImport({
               dryRun: body?.dryRun !== false,
               import: body?.import === true,
