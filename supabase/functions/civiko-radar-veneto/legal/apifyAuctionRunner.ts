@@ -142,7 +142,7 @@ export async function runApifyAuctionSource(
       : [];
     pages.push({
       url,
-      title: (o.title ?? o.metadata && (o.metadata as Record<string, unknown>)?.title ?? null) as string | null,
+      title: (o.title ?? ((o.metadata as Record<string, unknown> | undefined)?.title) ?? null) as string | null,
       markdown: md ? String(md).slice(0, 14_000) : null,
       text: text ? String(text).slice(0, 14_000) : null,
       html: null,
