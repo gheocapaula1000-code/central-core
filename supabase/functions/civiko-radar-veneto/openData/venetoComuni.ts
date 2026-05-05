@@ -1,4 +1,14 @@
 export const VENETO_COMUNI: Record<string,string> = {
+  // ── Canonical entries added for Geoportale recovery (accents/apostrophes/suffixes) ──
+  "Albaredo d'Adige": "VR",
+  "Boschi Sant'Anna": "VR",
+  "Brenzone Sul Garda": "VR",
+  "Costermano Sul Garda": "VR",
+  "Ferrara Di Monte Baldo": "VR",
+  "Roverè Veronese": "VR",
+  "San Martino Buon Albergo": "VR",
+  "Romano d'Ezzelino": "VI",
+  // ── /canonical extensions ──
   "Abano Terme": "PD",
   "Adria": "RO",
   "Affi": "VR",
