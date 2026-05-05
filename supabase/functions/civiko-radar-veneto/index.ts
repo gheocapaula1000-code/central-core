@@ -980,7 +980,19 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Firecrawl Deep Veneto — crawl pubblico, no demo, no bypass
+    // Discover aste/legal Veneto — dry run only (no DB writes)
+    if (pathname.endsWith("/jobs/discover-veneto-auctions")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const r = await discoverVenetoAuctions(body);
+        return withIdentity(json(req, r.ok ? 200 : 207, { job: "discover-veneto-auctions", ...r }, debugId), "job-discover-auctions");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] discover-auctions error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Auction discovery failed", debugId), "job-error");
+      }
+    }
+
     if (pathname.endsWith("/jobs/firecrawl-deep-veneto")) {
       const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
