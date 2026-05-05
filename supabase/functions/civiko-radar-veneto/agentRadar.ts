@@ -85,6 +85,11 @@ export interface AgentRadarOpportunity {
   recommendedMove: string;
   script: string;
   dataBasis: string[];
+  sourceUrls?: string[];
+  confidence?: string;
+  quality?: string;
+  target?: string;
+  nextStep?: string;
 }
 
 export interface AgentRadarResponse {
