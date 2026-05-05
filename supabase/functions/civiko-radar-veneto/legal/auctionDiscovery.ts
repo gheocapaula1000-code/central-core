@@ -57,9 +57,13 @@ export interface DiscoverReport {
   apify_runs_succeeded: number;
   apify_runs_failed: number;
   dataset_items_read: number;
+  first_pass_items: number;
+  detail_links_found: number;
+  second_pass_items: number;
   pages_seen: number;
   detail_pages_seen: number;
   index_pages_seen: number;
+  detail_ratio: number;
   pdf_links_found: number;
   pdfs_downloaded: number;
   candidates_found: number;
