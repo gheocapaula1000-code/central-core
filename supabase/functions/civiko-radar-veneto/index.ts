@@ -994,6 +994,7 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] discover-auctions error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Auction discovery failed", debugId), "job-error");
+      }
     }
 
     // ── ASTE ASYNC: start, status, import controllato ──
