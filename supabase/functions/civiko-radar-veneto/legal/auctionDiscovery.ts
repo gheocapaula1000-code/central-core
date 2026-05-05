@@ -195,7 +195,7 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
     };
     report.sources_checked++;
 
-    let pagesProcessed: Array<{ url: string; markdown: string; links: string[] }> = [];
+    let pagesProcessed: Array<{ url: string; markdown: string; links: string[]; title?: string | null }> = [];
     let firecrawlHadCreditError = false;
 
     // ── Firecrawl path
