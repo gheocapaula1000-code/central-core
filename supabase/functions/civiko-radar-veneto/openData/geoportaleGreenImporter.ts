@@ -80,19 +80,39 @@ async function fetchLayer(layer: string, count: number) {
   }
 }
 
-function sampleCentroids(geom: any): Array<{ lat: number; lng: number }> {
+function samplePoints(geom: any): Array<{ lat: number; lng: number }> {
   if (!geom || !geom.coordinates) return [];
   const out: Array<{ lat: number; lng: number }> = [];
-  if (geom.type === "MultiPolygon") {
-    for (const poly of geom.coordinates) {
-      const c = geometryCentroid({ type: "Polygon", coordinates: poly });
-      if (c) out.push(c);
-    }
-  } else {
-    const c = geometryCentroid(geom);
+  const polygons: any[] = geom.type === "MultiPolygon"
+    ? geom.coordinates
+    : geom.type === "Polygon" ? [geom.coordinates] : [];
+  for (const poly of polygons) {
+    // centroid
+    const c = geometryCentroid({ type: "Polygon", coordinates: poly });
     if (c) out.push(c);
+    // vertices on outer ring (sampled, max 8 per polygon)
+    const ring = poly?.[0];
+    if (Array.isArray(ring) && ring.length > 0) {
+      const step = Math.max(1, Math.floor(ring.length / 8));
+      for (let i = 0; i < ring.length; i += step) {
+        const v = ring[i];
+        if (Array.isArray(v) && typeof v[0] === "number" && typeof v[1] === "number") {
+          out.push({ lng: v[0], lat: v[1] });
+        }
+      }
+    }
   }
-  return out.slice(0, 12);
+  // dedupe by ~3-decimal precision (≈110m)
+  const seen = new Set<string>();
+  const dedup: Array<{ lat: number; lng: number }> = [];
+  for (const p of out) {
+    const k = `${p.lat.toFixed(3)},${p.lng.toFixed(3)}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    dedup.push(p);
+    if (dedup.length >= 30) break;
+  }
+  return dedup;
 }
 
 function canonicalComune(name: string): string | null {
