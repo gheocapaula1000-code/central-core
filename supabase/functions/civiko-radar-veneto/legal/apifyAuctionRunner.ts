@@ -99,6 +99,7 @@ export async function runApifyAuctionSource(
   // cheerio for static PA/tribunal pages. No CAPTCHA bypass, no login.
   const isSpa = /astegiudiziarie\.it|astetelematiche\.it/i.test(source.base_url);
   const crawlerType = isSpa ? "playwright:firefox" : "cheerio";
+  const include = source.source_type === "delegated_auction_portal" ? DETAIL_INCLUDE_GLOBS : PA_INCLUDE_GLOBS;
 
   const input: Record<string, unknown> = {
     startUrls,
