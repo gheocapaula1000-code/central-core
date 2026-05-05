@@ -95,9 +95,9 @@ export async function runApifyAuctionSource(
     : (source.allowed_paths.length ? source.allowed_paths : ["/"]).slice(0, 8).map((p) => source.base_url.replace(/\/$/, "") + p)
   ).slice(0, Math.max(8, maxPages)).map((u) => ({ url: u }));
 
-  // Use playwright for SPA-rendered portals (astegiudiziarie/astetelematiche),
-  // cheerio for static PA/tribunal pages. No CAPTCHA bypass, no login.
-  const isSpa = /astegiudiziarie\.it|astetelematiche\.it/i.test(source.base_url);
+  // astegiudiziarie.it serve HTML statico ricco → cheerio (rapido, niente poll_timeout).
+  // Lasciamo playwright solo per portali realmente SPA noti.
+  const isSpa = /astetelematiche\.it/i.test(source.base_url);
   const crawlerType = isSpa ? "playwright:firefox" : "cheerio";
   const include = source.source_type === "delegated_auction_portal" ? DETAIL_INCLUDE_GLOBS : PA_INCLUDE_GLOBS;
 
