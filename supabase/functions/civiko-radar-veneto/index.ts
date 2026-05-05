@@ -39,6 +39,7 @@ import { buildVenetoIntelligenceFromResearch } from "./intelligence/orchestrator
 import { runVenetoOpenDataImport } from "./openData/ckanImporter.ts";
 import { runOpenDataVenetoDeepImport } from "./openData/openDataVenetoCkanImporter.ts";
 import { enrichRadarFromOpenDataVeneto } from "./openData/openDataEnrichment.ts";
+import { runGeoportaleVenetoDiscovery } from "./openData/geoportaleVenetoCswImporter.ts";
 import { runApifyForVenetoSource } from "./apify/apifyAdapter.ts";
 import { runApifyForVenetoSourceV2, apifyDiagnostics } from "./apify/apifyOrchestrator.ts";
 import { APIFY_VENETO_REGISTRY } from "./apify/apifySourceRegistry.ts";
@@ -82,6 +83,7 @@ const ROUTES = [
   "POST /jobs/apify-diagnostics",
   "GET  /jobs/apify-registry",
   "POST /jobs/enrich-radar-from-open-data-veneto",
+  "POST /jobs/geoportale-veneto-discovery",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
@@ -1045,6 +1047,7 @@ Deno.serve(async (req) => {
         "/jobs/import-veneto-open-data",
         "/jobs/import-open-data-veneto-deep",
         "/jobs/enrich-radar-from-open-data-veneto",
+        "/jobs/geoportale-veneto-discovery",
         "/jobs/import-veneto-geo-environment",
         "/jobs/import-omi-territorial-notes",
         "/jobs/build-veneto-intelligence-from-research",
@@ -1078,6 +1081,17 @@ Deno.serve(async (req) => {
           if (matched === "/jobs/enrich-radar-from-open-data-veneto") {
             const r = await enrichRadarFromOpenDataVeneto();
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "enrich-radar-from-open-data-veneto", ...r }, debugId), "job-enrich-odv");
+          }
+          if (matched === "/jobs/geoportale-veneto-discovery") {
+            const r = await runGeoportaleVenetoDiscovery({
+              dryRun: body?.dryRun !== false,
+              topics: Array.isArray(body?.topics) ? body.topics : ["vincoli","urbanistica","ambiente","rischio","parchi","paesaggio"],
+              maxLayers: typeof body?.maxLayers === "number" ? body.maxLayers : 20,
+              sampleFeatures: body?.sampleFeatures !== false,
+              maxFeaturesPerLayer: typeof body?.maxFeaturesPerLayer === "number" ? body.maxFeaturesPerLayer : 5,
+              import: body?.import === true,
+            });
+            return withIdentity(json(req, r.ok ? 200 : 207, { job: "geoportale-veneto-discovery", ...r }, debugId), "job-geoportale-discovery");
           }
           if (matched === "/jobs/import-veneto-geo-environment" || matched === "/jobs/import-omi-territorial-notes") {
             return withIdentity(json(req, 200, {
