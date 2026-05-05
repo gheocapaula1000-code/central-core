@@ -277,11 +277,29 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
       );
 
     if (shouldUseApify) {
+      // Build provincial seed URLs (verified at registry level), filtered by province scope.
+      const seedSet = new Set<string>();
+      const baseUrl = src.base_url.replace(/\/$/, "");
+      if (src.provincial_seeds && src.provincial_seeds.length > 0) {
+        for (const ps of src.provincial_seeds) {
+          if (cfg.province.includes(ps.province)) {
+            for (const p of ps.paths) seedSet.add(baseUrl + p);
+          }
+        }
+      }
+      if (seedSet.size === 0) {
+        for (const p of src.allowed_paths.slice(0, 4)) seedSet.add(baseUrl + p);
+      }
+      const seedUrls = Array.from(seedSet);
+      perSrc.seed_urls = seedUrls;
+      report.seed_urls_validated.push(...seedUrls);
+
       report.apify_runs_started++;
       const runRes = await runApifyAuctionSource(src, {
         maxPagesPerSource: cfg.maxPagesPerSource,
         maxDepth: cfg.maxDepth,
         timeoutMs: 180_000,
+        startUrlsOverride: seedUrls,
       });
       perSrc.apify_run_id = runRes.actor_run_id;
       perSrc.apify_dataset_id = runRes.dataset_id;
@@ -292,12 +310,45 @@ export async function discoverVenetoAuctions(req: DiscoverRequest): Promise<Disc
       } else {
         report.apify_runs_succeeded++;
         report.dataset_items_read += runRes.pages.length;
+        perSrc.first_pass_items = runRes.pages.length;
+        report.first_pass_items += runRes.pages.length;
         for (const p of runRes.pages) {
           const md = p.markdown ?? p.text ?? "";
           if (md) pagesProcessed.push({ url: p.url, markdown: md, links: p.links ?? [], title: p.title ?? null });
         }
         perSrc.method = "apify";
         report.sources_used_apify++;
+
+        // ── Second pass: detail links
+        if (cfg.enableDetailSecondPass) {
+          const detailLinks = extractDetailLinksFromPages(runRes.pages, src, cfg.maxDetailLinksPerSource);
+          perSrc.detail_links_found = detailLinks.length;
+          report.detail_links_found += detailLinks.length;
+          if (detailLinks.length > 0) {
+            report.apify_runs_started++;
+            const second = await runApifyAuctionSource(src, {
+              maxPagesPerSource: Math.min(detailLinks.length, cfg.maxDetailLinksPerSource),
+              maxDepth: 0,
+              timeoutMs: 180_000,
+              startUrlsOverride: detailLinks,
+              secondPass: true,
+            });
+            perSrc.apify_second_run_id = second.actor_run_id;
+            if (!second.ok) {
+              report.apify_runs_failed++;
+              report.warnings.push(`${src.source_key} apify-2: ${second.error ?? "failed"}`.slice(0, 240));
+            } else {
+              report.apify_runs_succeeded++;
+              report.dataset_items_read += second.pages.length;
+              perSrc.second_pass_items = second.pages.length;
+              report.second_pass_items += second.pages.length;
+              for (const p of second.pages) {
+                const md = p.markdown ?? p.text ?? "";
+                if (md) pagesProcessed.push({ url: p.url, markdown: md, links: p.links ?? [], title: p.title ?? null });
+              }
+            }
+          }
+        }
       }
     } else if (!shouldUseApify && pagesProcessed.length === 0 && !perSrc.error) {
       perSrc.error = perSrc.error ?? (firecrawlHadCreditError ? "firecrawl_402_no_apify_fallback" : "no_method_available");
