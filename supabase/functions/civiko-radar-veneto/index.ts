@@ -917,11 +917,7 @@ Deno.serve(async (req) => {
 
     // Job endpoints (cron-driven, protetti da DIAGNOSTIC_SECRET)
     if (pathname.endsWith("/jobs/activate-veneto")) {
-      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-      const provided = req.headers.get("x-job-secret") ?? "";
-      if (!expected || provided !== expected) {
-        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
-      }
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
         const r = await activateVeneto();
         return withIdentity(json(req, 200, {
@@ -937,11 +933,7 @@ Deno.serve(async (req) => {
 
     // Build proprietario Civiko Data Engine Veneto
     if (pathname.endsWith("/jobs/build-civiko-veneto-data-engine")) {
-      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-      const provided = req.headers.get("x-job-secret") ?? "";
-      if (!expected || provided !== expected) {
-        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
-      }
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
         const r = await buildVenetoDataEngine();
         return withIdentity(json(req, 200, {
@@ -957,11 +949,7 @@ Deno.serve(async (req) => {
 
     // Import aste Veneto (CSV/JSON tracciato, no demo)
     if (pathname.endsWith("/jobs/import-veneto-auctions")) {
-      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-      const provided = req.headers.get("x-job-secret") ?? "";
-      if (!expected || provided !== expected) {
-        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
-      }
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
         const body = await req.json().catch(() => ({}));
         const r = await importVenetoAuctions(body);
@@ -974,11 +962,7 @@ Deno.serve(async (req) => {
 
     // Firecrawl Deep Veneto — crawl pubblico, no demo, no bypass
     if (pathname.endsWith("/jobs/firecrawl-deep-veneto")) {
-      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-      const provided = req.headers.get("x-job-secret") ?? "";
-      if (!expected || provided !== expected) {
-        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
-      }
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
         const body = await req.json().catch(() => ({}));
         const r = await runFirecrawlDeepVeneto(body);
@@ -991,11 +975,7 @@ Deno.serve(async (req) => {
 
     // Microzone Opportunity Signals — segnali aggregati pressione successoria
     if (pathname.endsWith("/jobs/firecrawl-microzone-opportunity-signals")) {
-      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-      const provided = req.headers.get("x-job-secret") ?? "";
-      if (!expected || provided !== expected) {
-        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
-      }
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
         const body = await req.json().catch(() => ({}));
         const r = await runMicrozoneOpportunitySignals(body);
@@ -1008,11 +988,7 @@ Deno.serve(async (req) => {
 
     // Advanced Opportunity Engine — orchestratore segnali avanzati
     if (pathname.endsWith("/jobs/build-advanced-veneto-opportunities")) {
-      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-      const provided = req.headers.get("x-job-secret") ?? "";
-      if (!expected || provided !== expected) {
-        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
-      }
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
         const body = await req.json().catch(() => ({}));
         const background = body?.background === true || body?.async === true;
@@ -1047,11 +1023,7 @@ Deno.serve(async (req) => {
     {
       // GET /jobs/apify-registry — protected, returns registry metadata only (no token).
       if (req.method === "GET" && pathname.endsWith("/jobs/apify-registry")) {
-        const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-        const provided = req.headers.get("x-job-secret") ?? "";
-        if (!expected || provided !== expected) {
-          return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
-        }
+        const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
         return withIdentity(json(req, 200, {
           job: "apify-registry",
           count: APIFY_VENETO_REGISTRY.length,
@@ -1076,11 +1048,7 @@ Deno.serve(async (req) => {
       ];
       const matched = newJobs.find((p) => pathname.endsWith(p));
       if (matched) {
-        const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-        const provided = req.headers.get("x-job-secret") ?? "";
-        if (!expected || provided !== expected) {
-          return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
-        }
+        const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
         try {
           const body = await req.json().catch(() => ({}));
           if (matched === "/jobs/import-veneto-open-data") {
@@ -1140,11 +1108,7 @@ Deno.serve(async (req) => {
     }
 
     if (pathname.endsWith("/jobs/recompute-succession-heatmap") || pathname.endsWith("/jobs/recompute-price-resistance")) {
-      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-      const provided = req.headers.get("x-job-secret") ?? "";
-      if (!expected || provided !== expected) {
-        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
-      }
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
         if (pathname.endsWith("/jobs/recompute-succession-heatmap")) {
           const r = await recomputeSuccessionHeatmap();
