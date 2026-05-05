@@ -4,6 +4,7 @@
 // Never invents data; never bypasses login/CAPTCHA. Robots.txt-friendly.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { VENETO_COMUNI } from "./venetoComuni.ts";
 
 const CKAN_BASES = [
   "https://dati.veneto.it/SpodCkanApi",
@@ -11,7 +12,7 @@ const CKAN_BASES = [
 
 export type Topic =
   | "urbanistica" | "ambiente" | "mobilita" | "servizi" | "edifici"
-  | "strade" | "scuole" | "geoportale" | "patrimonio" | "altro";
+  | "strade" | "scuole" | "geoportale" | "patrimonio" | "vincoli" | "altro";
 
 export type Classification = "dataset" | "resource" | "geo_resource" | "csv_resource" | "document_resource";
 
@@ -42,6 +43,8 @@ export interface NormalizedOpenDataRecord {
   data_basis: string[];
   importable: boolean;
   reject_reason?: string;
+  geo_fixed?: boolean;
+  regional_scope?: boolean;
   hash: string;
 }
 
@@ -71,6 +74,9 @@ export interface DeepImportReport {
   records_imported: number;
   skipped_existing: number;
   territorial_signals_created: number;
+  geo_inference_fixed_count: number;
+  records_topic_vincoli: number;
+  records_regional_scope: number;
   warnings: string[];
   errors: string[];
 }
@@ -81,7 +87,8 @@ const SUPPORTED_FORMATS = new Set([
 ]);
 
 const TOPIC_RX: Array<{ topic: Topic; rx: RegExp }> = [
-  { topic: "urbanistica",  rx: /\b(urbanistic|piano\s*(degli\s*)?intervent|p\.?i\.?\s|prg|pat\b|pati\b|regolamento\s+edilizio|vincol|destinazion\s+uso)\b/i },
+  { topic: "vincoli",      rx: /\b(vincol|regime\s+di\s+vincolo|ambiti\s+sottopost|tutela|paesaggistic|idrogeologic|sismic|fasce\s+di?\s*rispetto|piano\s+(di\s+)?assett|pianificazione\s+e\s+vincoli)\b/i },
+  { topic: "urbanistica",  rx: /\b(urbanistic|piano\s*(degli\s*)?intervent|p\.?i\.?\s|prg|pat\b|pati\b|regolamento\s+edilizio|destinazion\s+uso|zonizzazion)\b/i },
   { topic: "ambiente",     rx: /\b(ambient|aria|qualit[aà]\s+aria|rumore|acustic|ARPAV|inquinament|verd|parchi|natura|emission)\b/i },
   { topic: "mobilita",     rx: /\b(mobilit|trasport|traffic|ciclabil|tpl|autobus|treno|stazion|porto|aeroport|parcheggi)\b/i },
   { topic: "scuole",       rx: /\b(scuol|istitut|asilo|nido|infanz|liceo|universit)\b/i },
@@ -101,16 +108,73 @@ const VENETO_PROV_FULL: Record<string, string> = {
   venezia: "VE", verona: "VR", vicenza: "VI", padova: "PD", treviso: "TV", belluno: "BL", rovigo: "RO",
 };
 const VENETO_PROV_RX = /\b(venezia|verona|vicenza|padova|treviso|belluno|rovigo)\b/i;
-const COMUNE_RX = /\b(?:Comune\s+(?:di|della|del)\s+)([A-ZÀ-Ý][a-zà-ÿ'’\-]+(?:\s+[A-ZÀ-Ý][a-zà-ÿ'’\-]+){0,3})\b/;
 
-function inferGeo(text: string): { comune: string | null; provincia: string | null } {
+// Stop-words that frequently appear after "Comune di X" but are NOT part of the comune name.
+const STOPWORDS = new Set([
+  "si","no","trattasi","anni","anno","dataset","regione","pubblica","pubblico","privato",
+  "del","della","dei","delle","degli","di","da","in","su","con","per","tra","fra","e","ed","o",
+  "che","come","sono","sia","stato","stata","è","ha","ho","la","il","lo","gli","le","un","una","uno",
+  "comprende","contiene","relativo","relativa","relativi","relative","include","comprendente",
+  "anagrafica","elenco","lista","mappa","mappe","dati","informazioni","servizio","servizi",
+  "via","piazza","corso","viale","strada","località",
+]);
+
+// Build comune name lookup: lowercased -> canonical "Title Case".
+const COMUNE_LOOKUP: Map<string, { name: string; provincia: string }> = new Map();
+for (const [name, prov] of Object.entries(VENETO_COMUNI)) {
+  COMUNE_LOOKUP.set(name.toLowerCase(), { name, provincia: prov });
+}
+
+const COMUNE_RX = /\bComune\s+(?:di|della|del|dello|dei|delle|degli)\s+([A-ZÀ-Ý][\wÀ-ÿ'’\-]+(?:\s+[A-ZÀ-Ý'][\wÀ-ÿ'’\-]+){0,4})/;
+
+function cleanComuneName(raw: string): string | null {
+  if (!raw) return null;
+  // Strip trailing punctuation/dashes
+  const tokens = raw.replace(/[\.,;:\-–—]+/g, " ").split(/\s+/).filter(Boolean);
+  const kept: string[] = [];
+  for (const tok of tokens) {
+    const low = tok.toLowerCase();
+    if (STOPWORDS.has(low)) break;
+    // stop on lowercase token (likely a sentence continuation, not comune part)
+    if (kept.length > 0 && /^[a-zà-ÿ]/.test(tok)) break;
+    kept.push(tok);
+    if (kept.length >= 4) break;
+  }
+  if (kept.length === 0) return null;
+  // Try progressive shrink: longest match wins against lookup
+  for (let n = kept.length; n >= 1; n--) {
+    const candidate = kept.slice(0, n).join(" ");
+    const hit = COMUNE_LOOKUP.get(candidate.toLowerCase());
+    if (hit) return hit.name;
+  }
+  // Fallback: return cleaned candidate Title-cased (still better than dirty)
+  return kept.join(" ");
+}
+
+function lookupProvinciaFromComune(comune: string | null): string | null {
+  if (!comune) return null;
+  const hit = COMUNE_LOOKUP.get(comune.toLowerCase());
+  return hit ? hit.provincia : null;
+}
+
+function inferComuneFromTitle(text: string): string | null {
+  const m = text.match(COMUNE_RX);
+  if (!m) return null;
+  return cleanComuneName(m[1]);
+}
+
+function inferGeo(text: string): { comune: string | null; provincia: string | null; fixed: boolean } {
   let provincia: string | null = null;
-  const m = text.toLowerCase().match(VENETO_PROV_RX);
-  if (m) provincia = VENETO_PROV_FULL[m[1]] ?? null;
-  let comune: string | null = null;
-  const c = text.match(COMUNE_RX);
-  if (c) comune = c[1].trim();
-  return { comune, provincia };
+  const pm = text.toLowerCase().match(VENETO_PROV_RX);
+  if (pm) provincia = VENETO_PROV_FULL[pm[1]] ?? null;
+
+  const comune = inferComuneFromTitle(text);
+  let fixed = false;
+  if (comune) {
+    const looked = lookupProvinciaFromComune(comune);
+    if (looked) { provincia = looked; fixed = true; }
+  }
+  return { comune, provincia, fixed };
 }
 
 const NOISE_URL_RX = /\/(user|login|register|signin|signup|password|comment|comment-form|privacy|cookie|contatti|contact|search|admin)/i;
@@ -172,7 +236,9 @@ async function normalizePackage(base: string, pkg: any): Promise<NormalizedOpenD
   const metadata_modified = pkg?.metadata_modified ?? null;
   const text = `${dataset_title ?? ""} ${dataset_notes ?? ""} ${tags.join(" ")} ${groups.join(" ")} ${organization ?? ""}`;
   const topic = classifyTopic(text);
-  const { comune, provincia } = inferGeo(text);
+  const { comune, provincia, fixed } = inferGeo(text);
+  const isRegionalText = /\bregion[ea]\s+(del\s+)?veneto\b|\bregionale\b/i.test(text);
+  const regional_scope = !comune && (isRegionalText || /regione/i.test(organization ?? ""));
   const datasetSourceUrl = pkgUrl(base, pkg?.name ?? dataset_id);
 
   const baseRec: Omit<NormalizedOpenDataRecord, "resource_id"|"resource_name"|"resource_url"|"resource_format"|"resource_mimetype"|"resource_description"|"classification"|"hash"|"importable"|"source_url"> = {
@@ -184,6 +250,8 @@ async function normalizePackage(base: string, pkg: any): Promise<NormalizedOpenD
     quality: dataset_title ? "reale" : "parziale",
     confidence_score: dataset_title ? 0.7 : 0.4,
     data_basis: ["open_data_veneto", "ckan_api"],
+    geo_fixed: fixed,
+    regional_scope,
   };
 
   // Always emit a dataset-level record.
@@ -240,6 +308,7 @@ function applyQualityFilters(rec: NormalizedOpenDataRecord): NormalizedOpenDataR
 
 const TOPIC_TO_SIGNAL_TYPE: Partial<Record<Topic, string>> = {
   urbanistica: "urban_planning_dataset",
+  vincoli: "planning_constraints_dataset",
   ambiente: "environment_dataset",
   mobilita: "mobility_dataset",
   servizi: "public_services_dataset",
@@ -279,6 +348,9 @@ export async function runOpenDataVenetoDeepImport(opts: {
     records_imported: 0,
     skipped_existing: 0,
     territorial_signals_created: 0,
+    geo_inference_fixed_count: 0,
+    records_topic_vincoli: 0,
+    records_regional_scope: 0,
     warnings: [],
     errors: [],
   };
@@ -344,6 +416,9 @@ export async function runOpenDataVenetoDeepImport(opts: {
     comune: r.comune,
     provincia: r.provincia,
   }));
+  report.geo_inference_fixed_count = importable.filter((r) => r.geo_fixed).length;
+  report.records_topic_vincoli = importable.filter((r) => r.topic === "vincoli").length;
+  report.records_regional_scope = importable.filter((r) => r.regional_scope).length;
 
   const doImport = opts.import === true && opts.dryRun === false;
   if (!doImport) {
