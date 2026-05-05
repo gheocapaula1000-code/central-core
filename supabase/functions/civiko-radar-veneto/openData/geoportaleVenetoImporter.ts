@@ -177,7 +177,8 @@ export async function runGeoportaleImport(params: GeoportaleImportParams) {
       errors: [],
     };
 
-    const r = await fetchLayer(layer, maxFeat);
+    const cql = meta.provinceFilter ? meta.provinceFilter(Array.from(provinceFilter)) : null;
+    const r = await fetchLayer(layer, maxFeat, cql);
     if (!r.ok) {
       rep.errors.push(`fetch_failed: ${r.error}`);
       reports.push(rep);
