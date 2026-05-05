@@ -21,7 +21,7 @@ import {
   sanitizeProperties,
   type IstatCache,
 } from "./geoportaleSpatialJoin.ts";
-import { inferFromTextProperties } from "./geoportaleComuneAliases.ts";
+import { inferFromTextProperties, hasTextualComuneProperty } from "./geoportaleComuneAliases.ts";
 import { VENETO_COMUNI } from "./venetoComuni.ts";
 
 const WFS_URL = "https://idt2-geoserver.regione.veneto.it/geoserver/ows";
@@ -44,13 +44,17 @@ interface RecoveryReport {
   base_assigned: number;
   alias_assigned: number;
   fuzzy_assigned: number;
-  spatial_joined: number;
+  point_in_polygon_assigned: number;
+  needs_review_textual_unmatched: number;
   still_unassigned: number;
   recovered_count: number;
   importable_count: number;
   in_PD: number; in_VE: number; in_BL: number;
+  in_VR: number; in_VI: number; in_TV: number; in_RO: number;
+  suspected_false_positive_count: number;
   sample_recovered: any[];
   sample_unassigned: any[];
+  sample_needs_review: any[];
   warnings: string[];
   errors: string[];
 }
@@ -121,10 +125,14 @@ export async function runGeoportaleRecovery(params: RecoveryParams) {
     const rep: RecoveryReport = {
       layer_name: layer, title: meta.title,
       features_read: 0, base_assigned: 0,
-      alias_assigned: 0, fuzzy_assigned: 0, spatial_joined: 0,
+      alias_assigned: 0, fuzzy_assigned: 0,
+      point_in_polygon_assigned: 0,
+      needs_review_textual_unmatched: 0,
       still_unassigned: 0, recovered_count: 0, importable_count: 0,
       in_PD: 0, in_VE: 0, in_BL: 0,
-      sample_recovered: [], sample_unassigned: [],
+      in_VR: 0, in_VI: 0, in_TV: 0, in_RO: 0,
+      suspected_false_positive_count: 0,
+      sample_recovered: [], sample_unassigned: [], sample_needs_review: [],
       warnings: [], errors: [],
     };
 
@@ -135,23 +143,31 @@ export async function runGeoportaleRecovery(params: RecoveryParams) {
     for (const feat of r.features!) {
       const props = (feat.properties ?? {}) as Record<string, unknown>;
 
-      // Skip if base importer already would have assigned (already in DB via prior import)
       const base = inferComuneProvinciaFromProperties(props, istat);
       if (base) { rep.base_assigned++; continue; }
 
-      // Recovery: alias / fuzzy
       let recovered: { comune: string; provincia: string; method: "alias" | "fuzzy" | "pip"; score?: number } | null = null;
       const text = inferFromTextProperties(props, { fuzzyThreshold });
       if (text) recovered = text;
 
-      // Recovery: point-in-polygon via centroid
-      if (!recovered && enablePIP) {
+      // Anti-false-positive: if textual comune-like prop exists but did NOT
+      // resolve via direct/alias/fuzzy, do NOT trust PIP.
+      const hasText = hasTextualComuneProperty(props);
+      if (!recovered && hasText) {
+        rep.needs_review_textual_unmatched++;
+        if (rep.sample_needs_review.length < 5) {
+          rep.sample_needs_review.push({ keys: Object.keys(props).slice(0, 10), sample: sanitizeProperties(props, 6) });
+        }
+        continue;
+      }
+
+      // PIP only when no textual comune prop at all (e.g. parchi)
+      if (!recovered && enablePIP && !hasText) {
         const c = geometryCentroid(feat.geometry);
         if (c && Number.isFinite(c.lat) && Number.isFinite(c.lng)) {
           const { data: zones } = await sb.rpc("omi_zone_by_point", { p_lat: c.lat, p_lng: c.lng });
           const z = (zones ?? [])[0] as { comune_descrizione?: string; provincia?: string } | undefined;
           if (z?.comune_descrizione && z?.provincia) {
-            // Validate against VENETO_COMUNI to avoid invented values
             const cn = Object.keys(VENETO_COMUNI).find(
               (k) => k.toLowerCase() === String(z.comune_descrizione).toLowerCase(),
             );
@@ -171,19 +187,26 @@ export async function runGeoportaleRecovery(params: RecoveryParams) {
       }
       if (recovered.method === "alias") rep.alias_assigned++;
       else if (recovered.method === "fuzzy") rep.fuzzy_assigned++;
-      else rep.spatial_joined++;
+      else rep.point_in_polygon_assigned++;
 
       if (!provinceFilter.has(recovered.provincia)) continue;
       rep.recovered_count++;
+      const p = recovered.provincia as keyof typeof rep;
       if (recovered.provincia === "PD") rep.in_PD++;
       if (recovered.provincia === "VE") rep.in_VE++;
       if (recovered.provincia === "BL") rep.in_BL++;
+      if (recovered.provincia === "VR") rep.in_VR++;
+      if (recovered.provincia === "VI") rep.in_VI++;
+      if (recovered.provincia === "TV") rep.in_TV++;
+      if (recovered.provincia === "RO") rep.in_RO++;
+      void p;
 
       const centroid = geometryCentroid(feat.geometry);
       const fkey = featureKey(props);
       const fingerprint = fp(layer, recovered.comune, recovered.provincia, fkey);
       const sanProps = sanitizeProperties(props, 12);
-      const conf = recovered.method === "alias" ? 0.85 : recovered.method === "fuzzy" ? 0.75 : 0.7;
+      // PIP capped at 0.65 to reflect reduced trust
+      const conf = recovered.method === "alias" ? 0.85 : recovered.method === "fuzzy" ? 0.75 : 0.65;
 
       const row = {
         fingerprint,
@@ -266,6 +289,14 @@ export async function runGeoportaleRecovery(params: RecoveryParams) {
     coverage_recovered_PD: reports.reduce((s, r) => s + r.in_PD, 0),
     coverage_recovered_VE: reports.reduce((s, r) => s + r.in_VE, 0),
     coverage_recovered_BL: reports.reduce((s, r) => s + r.in_BL, 0),
+    coverage_recovered_VR: reports.reduce((s, r) => s + r.in_VR, 0),
+    coverage_recovered_VI: reports.reduce((s, r) => s + r.in_VI, 0),
+    coverage_recovered_TV: reports.reduce((s, r) => s + r.in_TV, 0),
+    coverage_recovered_RO: reports.reduce((s, r) => s + r.in_RO, 0),
+    needs_review_textual_unmatched_total: reports.reduce((s, r) => s + r.needs_review_textual_unmatched, 0),
+    point_in_polygon_assigned_total: reports.reduce((s, r) => s + r.point_in_polygon_assigned, 0),
+    alias_assigned_total: reports.reduce((s, r) => s + r.alias_assigned, 0),
+    fuzzy_assigned_total: reports.reduce((s, r) => s + r.fuzzy_assigned, 0),
     recommendation: dryRun
       ? (candidateInserts.length > 0
           ? "DRY_RUN_OK: re-run with import=true to persist recovered features."
