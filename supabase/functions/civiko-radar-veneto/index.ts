@@ -44,6 +44,7 @@ import { runGeoportaleImport } from "./openData/geoportaleVenetoImporter.ts";
 import { runGeoportaleRecovery } from "./openData/geoportaleVenetoRecovery.ts";
 import { runArpavAirImport } from "./openData/arpavAirImporter.ts";
 import { runArpavEnvironmentalImport } from "./openData/arpavEnvironmentalImporter.ts";
+import { runEnrichMicrozoneFromTerritorial } from "./openData/microzoneEnricher.ts";
 import { runApifyForVenetoSource } from "./apify/apifyAdapter.ts";
 import { runApifyForVenetoSourceV2, apifyDiagnostics } from "./apify/apifyOrchestrator.ts";
 import { APIFY_VENETO_REGISTRY } from "./apify/apifySourceRegistry.ts";
@@ -91,6 +92,7 @@ const ROUTES = [
   "POST /jobs/import-geoportale-veneto-layers",
   "POST /jobs/recover-geoportale-veneto-unassigned",
   "POST /jobs/import-arpav-air-quality",
+  "POST /jobs/enrich-microzone-sentiment-from-territorial-signals",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
@@ -1058,6 +1060,7 @@ Deno.serve(async (req) => {
         "/jobs/import-geoportale-veneto-layers",
         "/jobs/recover-geoportale-veneto-unassigned",
         "/jobs/import-arpav-air-quality",
+        "/jobs/enrich-microzone-sentiment-from-territorial-signals",
         "/jobs/import-veneto-geo-environment",
         "/jobs/import-omi-territorial-notes",
         "/jobs/build-veneto-intelligence-from-research",
@@ -1148,6 +1151,14 @@ Deno.serve(async (req) => {
               maxFeatures: typeof body?.maxFeatures === "number" ? body.maxFeatures : 1000,
             });
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "import-arpav-air-quality", ...r }, debugId), "job-arpav-air");
+          }
+          if (matched === "/jobs/enrich-microzone-sentiment-from-territorial-signals") {
+            const r = await runEnrichMicrozoneFromTerritorial({
+              dryRun: body?.dryRun !== false,
+              import: body?.import === true,
+              province: Array.isArray(body?.province) ? body.province : ["VE","VR","VI","PD","TV","BL","RO"],
+            });
+            return withIdentity(json(req, r.ok ? 200 : 207, { job: "enrich-microzone-sentiment-from-territorial-signals", ...r }, debugId), "job-enrich-ms");
           }
           if (matched === "/jobs/import-veneto-geo-environment" || matched === "/jobs/import-omi-territorial-notes") {
             return withIdentity(json(req, 200, {
