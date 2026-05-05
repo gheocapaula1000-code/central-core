@@ -4,6 +4,7 @@
 // Never invents data; never bypasses login/CAPTCHA. Robots.txt-friendly.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { VENETO_COMUNI } from "./venetoComuni.ts";
 
 const CKAN_BASES = [
   "https://dati.veneto.it/SpodCkanApi",
@@ -11,7 +12,7 @@ const CKAN_BASES = [
 
 export type Topic =
   | "urbanistica" | "ambiente" | "mobilita" | "servizi" | "edifici"
-  | "strade" | "scuole" | "geoportale" | "patrimonio" | "altro";
+  | "strade" | "scuole" | "geoportale" | "patrimonio" | "vincoli" | "altro";
 
 export type Classification = "dataset" | "resource" | "geo_resource" | "csv_resource" | "document_resource";
 
