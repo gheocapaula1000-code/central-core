@@ -899,6 +899,9 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     constraints: odvConstraints,
     accessibility: odvAccess,
     territory: odvTerritory,
+    microzoneSentimentAvailable,
+    airQualityCoverage,
+    dataConfidenceAvg,
   };
 
   // ── Additive: Open Data Veneto opportunities + zones (territorial signals) ──
