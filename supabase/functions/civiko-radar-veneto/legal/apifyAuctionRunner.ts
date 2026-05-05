@@ -81,7 +81,7 @@ export async function runApifyAuctionSource(
     return { ok: false, source_key: source.source_key, pages: [], error: "INELIGIBLE_SOURCE" };
   }
 
-  const maxPages = Math.min(options.maxPagesPerSource ?? 10, 25);
+  const maxPages = Math.min(options.maxPagesPerSource ?? 10, 40);
   const maxDepth = Math.min(options.maxDepth ?? 1, 2);
   const timeout = Math.min(options.timeoutMs ?? 180_000, 240_000);
   const pollMs = options.pollMs ?? 4_000;
@@ -90,13 +90,17 @@ export async function runApifyAuctionSource(
     .slice(0, 4)
     .map((p) => ({ url: source.base_url.replace(/\/$/, "") + p }));
 
+  const include = source.source_type === "delegated_auction_portal"
+    ? DETAIL_INCLUDE_GLOBS
+    : PA_INCLUDE_GLOBS;
+
   const input = {
     startUrls,
     maxCrawlDepth: maxDepth,
     maxCrawlPages: maxPages,
     crawlerType: "cheerio",
     respectRobotsTxtFile: true,
-    includeUrlGlobs: INCLUDE_GLOBS,
+    includeUrlGlobs: include,
     excludeUrlGlobs: EXCLUDE_GLOBS,
     saveMarkdown: true,
     saveHtml: false,
