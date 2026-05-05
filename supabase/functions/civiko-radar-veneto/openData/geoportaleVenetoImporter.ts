@@ -37,33 +37,41 @@ const LAYER_META: Record<string, {
   signal_type: SignalType; topic: string; title: string; impact: number;
   provinceFilter?: (provs: string[]) => string | null;
 }> = {
+// CQL builder for ISTAT-prefix-based filtering. GeoServer CQL doesn't reliably
+// accept LIKE chains; we use BETWEEN over the contiguous prefix range when the
+// requested provinces happen to be consecutive (which is true for any subset
+// here because Veneto codes are 23,24,25,26,27,28,29).
+function buildIstatPrefixCQL(field: string, provs: string[]): string | null {
+  const codes = provs.map((p) => PROV_TO_CODE[p]).filter(Boolean).sort();
+  if (!codes.length) return null;
+  // Use IN with full sub-range substitution: just expand each prefix to a range and OR
+  // For a single prefix '28' → BETWEEN '28000' AND '28999'.
+  // Multiple disjoint prefixes via OR of BETWEEN ranges.
+  const parts = codes.map((c) => `(${field} BETWEEN '${c}000' AND '${c}999')`);
+  return parts.join(" OR ");
+}
+
   // Uses 5-digit a_codice with province prefix (28/27/25...)
+const _LAYER_META: any = null;
+const LAYER_META: Record<string, {
+  signal_type: SignalType; topic: string; title: string; impact: number;
+  provinceFilter?: (provs: string[]) => string | null;
+}> = {
   "rv:c1102011_vincoloidrogeolog": {
     signal_type: "risk_constraint_dataset", topic: "vincoli", title: "Vincolo idrogeologico", impact: -0.4,
-    provinceFilter: (ps) => {
-      const codes = ps.map((p) => PROV_TO_CODE[p]).filter(Boolean);
-      if (!codes.length) return null;
-      // GeoServer rejects long OR chains; use disjunction with parens
-      return "(" + codes.map((c) => `a_codice LIKE '${c}%'`).join(") OR (") + ")";
-    },
+    provinceFilter: (ps) => buildIstatPrefixCQL("a_codice", ps),
   },
-  // Has provincia column directly — use IN()
   "rv:c0508011_classsismica": {
     signal_type: "seismic_risk_dataset", topic: "rischio", title: "Classificazione sismica", impact: -0.2,
     provinceFilter: (ps) => `provincia IN (${ps.map((p) => `'${p}'`).join(",")})`,
   },
-  // Parchi: 17 features only — no province col, fetch all then filter via geometry/comune (best-effort)
   "rv:c1102051_parchiistituiti_2025": {
     signal_type: "protected_area_dataset", topic: "parchi", title: "Parchi istituiti", impact: 0.3,
     provinceFilter: () => null,
   },
   "rv:c1102071_vincoloforestale": {
     signal_type: "planning_constraints_dataset", topic: "vincoli", title: "Vincolo forestale", impact: -0.3,
-    provinceFilter: (ps) => {
-      const codes = ps.map((p) => PROV_TO_CODE[p]).filter(Boolean);
-      if (!codes.length) return null;
-      return "(" + codes.map((c) => `cod_istat LIKE '${c}%'`).join(") OR (") + ")";
-    },
+    provinceFilter: (ps) => buildIstatPrefixCQL("cod_istat", ps),
   },
   "rv:c1102101_vincolosismico": {
     signal_type: "seismic_risk_dataset", topic: "vincoli", title: "Vincolo sismico", impact: -0.3,
