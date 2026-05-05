@@ -1050,6 +1050,7 @@ Deno.serve(async (req) => {
         "/jobs/import-open-data-veneto-deep",
         "/jobs/enrich-radar-from-open-data-veneto",
         "/jobs/geoportale-veneto-discovery",
+        "/jobs/import-geoportale-veneto-layers",
         "/jobs/import-veneto-geo-environment",
         "/jobs/import-omi-territorial-notes",
         "/jobs/build-veneto-intelligence-from-research",
