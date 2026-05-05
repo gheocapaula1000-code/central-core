@@ -38,6 +38,11 @@ export type ExtractionStrategy =
 
 export type ProvCode = "PD" | "VE" | "VR" | "VI" | "TV" | "BL" | "RO";
 
+export interface ProvincialSeed {
+  province: ProvCode;
+  paths: string[];
+}
+
 export interface AuctionSource {
   source_key: string;
   source_name: string;
@@ -45,6 +50,8 @@ export interface AuctionSource {
   source_type: AuctionSourceType;
   province_scope: ProvCode[] | "ALL_VENETO";
   allowed_paths: string[];
+  /** Optional verified provincial seed URLs (HTTP 200 confirmed). */
+  provincial_seeds?: ProvincialSeed[];
   excluded_paths: string[];
   allowed_content_types: string[];
   crawl_method: CrawlMethod;
