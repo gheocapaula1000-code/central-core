@@ -31,18 +31,25 @@ export const APIFY_VENETO_REGISTRY: ApifySourceBinding[] = [
     input_template: {
       startUrls: [
         { url: "https://dati.veneto.it/dataset" },
-        { url: "https://dati.veneto.it/organization" },
-        { url: "https://dati.veneto.it/group" },
+        { url: "https://dati.veneto.it/dataset?groups=territorio" },
+        { url: "https://dati.veneto.it/dataset?groups=ambiente" },
+        { url: "https://dati.veneto.it/dataset?groups=trasporti" },
+        { url: "https://dati.veneto.it/dataset?groups=urbanistica" },
+        { url: "https://dati.veneto.it/organization/regione-del-veneto" },
       ],
-      maxCrawlDepth: 2,
-      maxCrawlPages: 30,
+      maxCrawlDepth: 3,
+      maxCrawlPages: 80,
       crawlerType: "cheerio",
       respectRobotsTxtFile: true,
+      saveMarkdown: true,
+      saveHtml: false,
+      removeElementsCssSelector: "nav, header, footer, .sidebar, .comments, form",
       includeUrlGlobs: [
-        "**/dataset**",
-        "**/organization**",
-        "**/group**",
-        "**/resource**",
+        "**/dataset/**",
+        "**/dataset?**",
+        "**/resource/**",
+        "**/organization/regione-del-veneto**",
+        "**/group/**",
       ],
       excludeUrlGlobs: [
         "**/user/**",
@@ -67,6 +74,55 @@ export const APIFY_VENETO_REGISTRY: ApifySourceBinding[] = [
     compliance_notes: "Open data pubblici, robots.txt rispettato.",
     output_mapping: "url->source_url; title->title; markdown->content",
     quality_rules: ["require:source_url", "require:title", "reject:demo|mock|seed"],
+    import_target: "source_documents",
+  },
+  {
+    // Alternate deeper-discovery binding using cheerio-scraper, which is better at
+    // following links and emitting structured URL/title pairs when wcc is too shallow.
+    source_name: "open_data_veneto_deep_discovery",
+    source_type: "open_data",
+    actor_id: "apify/cheerio-scraper",
+    input_template: {
+      startUrls: [
+        { url: "https://dati.veneto.it/dataset" },
+        { url: "https://dati.veneto.it/dataset?groups=territorio" },
+        { url: "https://dati.veneto.it/dataset?groups=ambiente" },
+        { url: "https://dati.veneto.it/dataset?groups=trasporti" },
+        { url: "https://dati.veneto.it/dataset?groups=urbanistica" },
+        { url: "https://dati.veneto.it/organization/regione-del-veneto" },
+      ],
+      linkSelector: "a[href]",
+      pseudoUrls: [
+        { purl: "https://dati.veneto.it/dataset/[.+]" },
+        { purl: "https://dati.veneto.it/dataset/[.+]/resource/[.+]" },
+        { purl: "https://dati.veneto.it/organization/[.+]" },
+        { purl: "https://dati.veneto.it/group/[.+]" },
+      ],
+      maxCrawlingDepth: 3,
+      maxPagesPerCrawl: 80,
+      maxConcurrency: 5,
+      respectRobotsTxtFile: true,
+      pageFunction: `async function pageFunction(context) {
+  const { request, $ } = context;
+  const url = request.url;
+  const title = ($('h1').first().text() || $('title').text() || '').trim();
+  const description = ($('meta[name="description"]').attr('content') || $('.notes').text() || '').trim();
+  const organization = ($('.organization-name').first().text() || '').trim();
+  const license = ($('.license-name').first().text() || $('a[rel="license"]').first().text() || '').trim();
+  const updated_at = ($('th:contains("Ultimo aggiornamento") + td').first().text() || $('.dataset-details .automatic-local-datetime').first().text() || '').trim();
+  const tags = $('.tag-list a, .tags a').map((_, el) => $(el).text().trim()).get();
+  const groups = $('.group-list a, .groups a').map((_, el) => $(el).text().trim()).get();
+  const resource_urls = $('a.resource-url-analytics, a[href*="/resource/"]').map((_, el) => $(el).attr('href')).get().filter(Boolean);
+  const formats = $('.format-label, .resource-format').map((_, el) => $(el).text().trim().toLowerCase()).get();
+  const download_urls = $('a.resource-url-analytics[href$=".csv"], a[href$=".geojson"], a[href$=".json"], a[href$=".zip"], a[href$=".xls"], a[href$=".xlsx"], a[href$=".pdf"], a[href$=".kml"], a[href$=".shp"]').map((_, el) => $(el).attr('href')).get().filter(Boolean);
+  return { url, title, description, organization, license, updated_at, tags, groups, resource_urls, formats, download_urls };
+}`,
+    },
+    expected_schema: "url,title,description,organization,license,updated_at,tags,groups,resource_urls,formats,download_urls",
+    allowed_use: "Discovery profonda dataset CKAN pubblici Regione Veneto",
+    compliance_notes: "Open data pubblici, robots.txt rispettato.",
+    output_mapping: "url->source_url; title->title; description->content; resource_urls->resource_urls",
+    quality_rules: ["require:source_url", "reject:demo|mock|seed"],
     import_target: "source_documents",
   },
   {
