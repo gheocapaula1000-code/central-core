@@ -904,7 +904,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       odvOpportunities.push({
         id: `op-odv-${r.province}-${slug}-${r.signal_type}`,
         priority: priorityFromScore(score),
-        comune: r.municipality, provincia: r.province,
+        comune: r.municipality, provincia: provCode,
         headline: r.title ?? `${r.signal_type} — ${r.municipality}`,
         whyNow: r.description ?? "Dataset territoriale ufficiale disponibile per la zona.",
         recommendedMove: action,
