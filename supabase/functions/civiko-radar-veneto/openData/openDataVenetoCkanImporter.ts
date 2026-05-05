@@ -308,6 +308,7 @@ function applyQualityFilters(rec: NormalizedOpenDataRecord): NormalizedOpenDataR
 
 const TOPIC_TO_SIGNAL_TYPE: Partial<Record<Topic, string>> = {
   urbanistica: "urban_planning_dataset",
+  vincoli: "planning_constraints_dataset",
   ambiente: "environment_dataset",
   mobilita: "mobility_dataset",
   servizi: "public_services_dataset",
