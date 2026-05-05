@@ -810,8 +810,37 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     legalSignals = legal ?? 0;
   } catch (_e) { /* additive, mai bloccante */ }
 
+  // ── Open Data Veneto: territorial signals breakdown ──
+  let odvUrban = 0, odvServices = 0, odvMobility = 0, odvConstraints = 0, odvAccess = 0, odvTerritory = 0, odvTotal = 0, sourceDocsCount = 0;
+  try {
+    const { data: tsRows } = await supa.from("territorial_signals")
+      .select("signal_type").eq("is_active", true).range(0, 4999);
+    for (const r of (tsRows ?? []) as Array<{ signal_type: string|null }>) {
+      odvTotal++;
+      const t = (r.signal_type ?? "").toLowerCase();
+      if (t.includes("urban")) odvUrban++;
+      else if (t.includes("serv")) odvServices++;
+      else if (t.includes("mobil")) odvMobility++;
+      else if (t.includes("vincol") || t.includes("constraint")) odvConstraints++;
+      else if (t.includes("access")) odvAccess++;
+      else if (t.includes("territor") || t.includes("ambient")) odvTerritory++;
+    }
+    const { count: sdc } = await supa.from("source_documents").select("id", { count: "exact", head: true });
+    sourceDocsCount = sdc ?? 0;
+  } catch (_e) { /* additive */ }
+
+  // Radar signals (all active) — include in totalSignals so the frontend mostra dati Open Data Veneto
+  let radarSignalsCount = 0;
+  try {
+    const { count: rsc } = await supa.from("radar_signals").select("id", { count: "exact", head: true }).eq("is_active", true);
+    radarSignalsCount = rsc ?? 0;
+  } catch (_e) { /* additive */ }
+
+  const enrichedTotalSignals = (summary.totalSignals ?? 0) + radarSignalsCount + territorialSignalsCount;
+
   const summaryExt = {
     ...summary,
+    totalSignals: enrichedTotalSignals,
     inheritancePressureZones,
     estateTurnoverZones,
     territorialSignals: territorialSignalsCount,
@@ -825,6 +854,16 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     underpriced: underpricedCount,
     overpricedStale,
     legalSignals,
+    // Open Data Veneto retro-compat keys
+    sourceDocuments: sourceDocsCount,
+    radarSignals: radarSignalsCount,
+    openDataSignals: odvTotal,
+    urbanPlanning: odvUrban,
+    publicServices: odvServices,
+    mobility: odvMobility,
+    constraints: odvConstraints,
+    accessibility: odvAccess,
+    territory: odvTerritory,
   };
 
   // ── Additive: Open Data Veneto opportunities (territorial signals) ──
