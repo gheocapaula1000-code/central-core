@@ -879,6 +879,15 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       const sentVals = confRows.map((r) => Number(r.sentiment_score_total)).filter((n) => !Number.isNaN(n) && n > 0);
       if (sentVals.length) avgSentimentScore = Number((sentVals.reduce((a, b) => a + b, 0) / sentVals.length).toFixed(2));
       riskCoverage = confRows.filter((r) => Array.isArray(r.source_refs) && (r.source_refs as any[]).some((s: any) => s?.risk_score != null)).length;
+      const riskVals: number[] = [];
+      for (const r of confRows) {
+        if (Array.isArray(r.source_refs)) {
+          for (const s of r.source_refs as any[]) {
+            if (s?.risk_score != null) { const n = Number(s.risk_score); if (Number.isFinite(n)) { riskVals.push(n); break; } }
+          }
+        }
+      }
+      if (riskVals.length) avgRiskScore = Number((riskVals.reduce((a, b) => a + b, 0) / riskVals.length).toFixed(2));
     }
     if (microzoneSentimentAvailable > 0 && !partial.includes("arpav_air_quality")) partial.push("arpav_air_quality");
     if (microzoneSentimentAvailable > 0 && !partial.includes("microzone_sentiment")) partial.push("microzone_sentiment");
