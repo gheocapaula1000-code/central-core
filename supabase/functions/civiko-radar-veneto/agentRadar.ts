@@ -822,13 +822,46 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     legalSignals,
   };
 
+  // ── Additive: Open Data Veneto opportunities (territorial signals) ──
+  const odvOpportunities: AgentRadarOpportunity[] = [];
+  try {
+    const { data: odvSig } = await supa.from("radar_signals")
+      .select("province,municipality,signal_type,title,description,evidence_url,source,confidence,payload")
+      .eq("source", "Open Data Veneto").eq("is_active", true)
+      .order("detected_at", { ascending: false })
+      .range(0, 49);
+    for (const r of (odvSig ?? []) as Array<{ province: string|null; municipality: string|null; signal_type: string|null; title: string|null; description: string|null; evidence_url: string|null; confidence: string|null; payload: Record<string, unknown>|null }>) {
+      if (!r.province || !r.municipality) continue;
+      if (filterProv && r.province !== filterProv) continue;
+      if (filterComune && r.municipality.toLowerCase() !== filterComune) continue;
+      const score = Number((r.payload?.score as number | undefined) ?? 60);
+      const action = String((r.payload?.agentAction as string | undefined) ?? "Verifica applicabilità del dataset all'immobile.");
+      const script = String((r.payload?.script as string | undefined) ?? "");
+      odvOpportunities.push({
+        id: `op-odv-${r.province}-${r.municipality.toLowerCase().replace(/\s+/g,"-")}-${r.signal_type}`,
+        priority: priorityFromScore(score),
+        comune: r.municipality, provincia: r.province,
+        headline: r.title ?? `${r.signal_type} — ${r.municipality}`,
+        whyNow: r.description ?? "Dataset territoriale ufficiale disponibile per la zona.",
+        recommendedMove: action,
+        script,
+        dataBasis: ["open_data_veneto","territorial_signals"],
+      });
+    }
+    if (odvOpportunities.length > 0) {
+      if (!real.includes("territorial_signals")) partial.push("territorial_signals (open_data_veneto)");
+    }
+  } catch (e) { warnings.push(`odv_opportunities: ${e instanceof Error ? e.message : String(e)}`); }
+
+  const mergedOpportunities = [...opportunities, ...odvOpportunities.slice(0, 6)];
+
   // POLICY PRODUZIONE: nessun record demo restituito al client. Mantieni demo:[] per retro-compat.
   return {
     configured: !!supa,
     scope: { region: "Veneto", province: VENETO_PROVINCES, datasetStatus, message },
     summary: summaryExt,
     zones: finalZones.filter((z) => z.quality !== "demo"),
-    opportunities: datasetStatus === "empty" ? [] : opportunities.filter((o) => true),
+    opportunities: datasetStatus === "empty" ? [] : mergedOpportunities,
     dataQuality: { real, partial, demo: [], missing, warnings, privacyRejectedCount },
   } as AgentRadarResponse;
 }
