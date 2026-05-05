@@ -1082,6 +1082,17 @@ Deno.serve(async (req) => {
             const r = await enrichRadarFromOpenDataVeneto();
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "enrich-radar-from-open-data-veneto", ...r }, debugId), "job-enrich-odv");
           }
+          if (matched === "/jobs/geoportale-veneto-discovery") {
+            const r = await runGeoportaleVenetoDiscovery({
+              dryRun: body?.dryRun !== false,
+              topics: Array.isArray(body?.topics) ? body.topics : ["vincoli","urbanistica","ambiente","rischio","parchi","paesaggio"],
+              maxLayers: typeof body?.maxLayers === "number" ? body.maxLayers : 20,
+              sampleFeatures: body?.sampleFeatures !== false,
+              maxFeaturesPerLayer: typeof body?.maxFeaturesPerLayer === "number" ? body.maxFeaturesPerLayer : 5,
+              import: body?.import === true,
+            });
+            return withIdentity(json(req, r.ok ? 200 : 207, { job: "geoportale-veneto-discovery", ...r }, debugId), "job-geoportale-discovery");
+          }
           if (matched === "/jobs/import-veneto-geo-environment" || matched === "/jobs/import-omi-territorial-notes") {
             return withIdentity(json(req, 200, {
               job: matched.replace("/jobs/",""),
