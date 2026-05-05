@@ -640,6 +640,13 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       quality = "stimato";
     }
 
+    const zSourceUrls: string[] = [];
+    const zBasis: string[] = [];
+    if (a.omiQuality === "reale") zBasis.push("omi_valori");
+    if (annunciTot) zBasis.push("listing_price_snapshots");
+    if (ribassiTot) zBasis.push("market_anomalies");
+    if (asteTot) zBasis.push("radar_signals");
+    if (motivTot) zBasis.push("motivated_sellers");
     zones.push({
       id: `${a.provincia}-${a.comune.toLowerCase().replace(/\s+/g, "-")}`,
       comune: a.comune,
@@ -667,6 +674,9 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         giorniMediMercato: giorniMedi ? Math.round(giorniMedi) : null,
       },
       quality,
+      sourceUrls: zSourceUrls,
+      dataBasis: zBasis,
+      confidence: quality === "reale" ? "high" : quality === "parziale" ? "medium" : "low",
     });
   }
 
