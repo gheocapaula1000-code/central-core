@@ -1096,6 +1096,7 @@ Deno.serve(async (req) => {
               actor_id: String(body?.actor_id ?? ""),
               input: body?.input ?? {},
               dryRun: body?.dryRun !== false,
+              invokeActor: body?.invokeActor === true,
               import: body?.import === true,
             });
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "apify-run-veneto-source", ...r }, debugId), "job-apify");
