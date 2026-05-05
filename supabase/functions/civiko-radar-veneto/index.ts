@@ -230,6 +230,34 @@ function withIdentity(res: Response, route: string): Response {
   return addIdentityHeaders(res, { function: FUNCTION_NAME, route });
 }
 
+/**
+ * Job endpoint authorization.
+ * Validates header `x-job-secret` against, in order:
+ *   1. CENTRAL_CORE_JOB_SECRET (canonical, preferred)
+ *   2. DIAGNOSTIC_SECRET (legacy fallback for retro-compat)
+ * Returns null if authorized, otherwise an error Response.
+ * Never logs or returns the secret value.
+ */
+function authorizeJob(req: Request, debugId: string): Response | null {
+  const primary = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+  const fallback = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
+  if (!primary && !fallback) {
+    return withIdentity(
+      fail(req, 500, "CONFIG_ERROR", "CENTRAL_CORE_JOB_SECRET non configurato", debugId),
+      "job-auth",
+    );
+  }
+  const provided = req.headers.get("x-job-secret") ?? "";
+  if (!provided) {
+    return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
+  }
+  const ok = (primary && provided === primary) || (fallback && provided === fallback);
+  if (!ok) {
+    return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
+  }
+  return null;
+}
+
 function emptySignal(label: string): ZoneSignal {
   return { label, livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" };
 }
