@@ -1063,6 +1063,7 @@ Deno.serve(async (req) => {
         "/jobs/recover-geoportale-veneto-unassigned",
         "/jobs/import-arpav-air-quality",
         "/jobs/enrich-microzone-sentiment-from-territorial-signals",
+        "/jobs/enrich-microzone-sentiment-from-ispra-risk",
         "/jobs/import-veneto-geo-environment",
         "/jobs/import-omi-territorial-notes",
         "/jobs/build-veneto-intelligence-from-research",
