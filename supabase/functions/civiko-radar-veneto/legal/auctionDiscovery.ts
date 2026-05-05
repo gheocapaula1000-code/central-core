@@ -13,6 +13,7 @@ import {
 } from "./auctionSourceRegistry.ts";
 import {
   extractAuctionCandidatesFromMarkdown,
+  isLikelyDetailUrl,
   type AuctionCandidate,
 } from "./auctionParser.ts";
 import {
