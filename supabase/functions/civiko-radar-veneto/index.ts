@@ -230,6 +230,34 @@ function withIdentity(res: Response, route: string): Response {
   return addIdentityHeaders(res, { function: FUNCTION_NAME, route });
 }
 
+/**
+ * Job endpoint authorization.
+ * Validates header `x-job-secret` against, in order:
+ *   1. CENTRAL_CORE_JOB_SECRET (canonical, preferred)
+ *   2. DIAGNOSTIC_SECRET (legacy fallback for retro-compat)
+ * Returns null if authorized, otherwise an error Response.
+ * Never logs or returns the secret value.
+ */
+function authorizeJob(req: Request, debugId: string): Response | null {
+  const primary = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+  const fallback = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
+  if (!primary && !fallback) {
+    return withIdentity(
+      fail(req, 500, "CONFIG_ERROR", "CENTRAL_CORE_JOB_SECRET non configurato", debugId),
+      "job-auth",
+    );
+  }
+  const provided = req.headers.get("x-job-secret") ?? "";
+  if (!provided) {
+    return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
+  }
+  const ok = (primary && provided === primary) || (fallback && provided === fallback);
+  if (!ok) {
+    return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
+  }
+  return null;
+}
+
 function emptySignal(label: string): ZoneSignal {
   return { label, livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" };
 }
@@ -887,13 +915,9 @@ Deno.serve(async (req) => {
     }
     if (req.method !== "POST") return withIdentity(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), "error");
 
-    // Job endpoints (cron-driven, protetti da DIAGNOSTIC_SECRET)
+    // Job endpoints (cron-driven, protetti da CENTRAL_CORE_JOB_SECRET, fallback DIAGNOSTIC_SECRET)
     if (pathname.endsWith("/jobs/activate-veneto")) {
-      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-      const provided = req.headers.get("x-job-secret") ?? "";
-      if (!expected || provided !== expected) {
-        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
-      }
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
         const r = await activateVeneto();
         return withIdentity(json(req, 200, {
@@ -909,11 +933,7 @@ Deno.serve(async (req) => {
 
     // Build proprietario Civiko Data Engine Veneto
     if (pathname.endsWith("/jobs/build-civiko-veneto-data-engine")) {
-      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-      const provided = req.headers.get("x-job-secret") ?? "";
-      if (!expected || provided !== expected) {
-        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
-      }
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
         const r = await buildVenetoDataEngine();
         return withIdentity(json(req, 200, {
@@ -929,11 +949,7 @@ Deno.serve(async (req) => {
 
     // Import aste Veneto (CSV/JSON tracciato, no demo)
     if (pathname.endsWith("/jobs/import-veneto-auctions")) {
-      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-      const provided = req.headers.get("x-job-secret") ?? "";
-      if (!expected || provided !== expected) {
-        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
-      }
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
         const body = await req.json().catch(() => ({}));
         const r = await importVenetoAuctions(body);
@@ -946,11 +962,7 @@ Deno.serve(async (req) => {
 
     // Firecrawl Deep Veneto — crawl pubblico, no demo, no bypass
     if (pathname.endsWith("/jobs/firecrawl-deep-veneto")) {
-      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-      const provided = req.headers.get("x-job-secret") ?? "";
-      if (!expected || provided !== expected) {
-        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
-      }
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
         const body = await req.json().catch(() => ({}));
         const r = await runFirecrawlDeepVeneto(body);
@@ -963,11 +975,7 @@ Deno.serve(async (req) => {
 
     // Microzone Opportunity Signals — segnali aggregati pressione successoria
     if (pathname.endsWith("/jobs/firecrawl-microzone-opportunity-signals")) {
-      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-      const provided = req.headers.get("x-job-secret") ?? "";
-      if (!expected || provided !== expected) {
-        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
-      }
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
         const body = await req.json().catch(() => ({}));
         const r = await runMicrozoneOpportunitySignals(body);
@@ -980,11 +988,7 @@ Deno.serve(async (req) => {
 
     // Advanced Opportunity Engine — orchestratore segnali avanzati
     if (pathname.endsWith("/jobs/build-advanced-veneto-opportunities")) {
-      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-      const provided = req.headers.get("x-job-secret") ?? "";
-      if (!expected || provided !== expected) {
-        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
-      }
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
         const body = await req.json().catch(() => ({}));
         const background = body?.background === true || body?.async === true;
@@ -1019,11 +1023,7 @@ Deno.serve(async (req) => {
     {
       // GET /jobs/apify-registry — protected, returns registry metadata only (no token).
       if (req.method === "GET" && pathname.endsWith("/jobs/apify-registry")) {
-        const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-        const provided = req.headers.get("x-job-secret") ?? "";
-        if (!expected || provided !== expected) {
-          return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
-        }
+        const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
         return withIdentity(json(req, 200, {
           job: "apify-registry",
           count: APIFY_VENETO_REGISTRY.length,
@@ -1048,11 +1048,7 @@ Deno.serve(async (req) => {
       ];
       const matched = newJobs.find((p) => pathname.endsWith(p));
       if (matched) {
-        const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-        const provided = req.headers.get("x-job-secret") ?? "";
-        if (!expected || provided !== expected) {
-          return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
-        }
+        const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
         try {
           const body = await req.json().catch(() => ({}));
           if (matched === "/jobs/import-veneto-open-data") {
@@ -1112,11 +1108,7 @@ Deno.serve(async (req) => {
     }
 
     if (pathname.endsWith("/jobs/recompute-succession-heatmap") || pathname.endsWith("/jobs/recompute-price-resistance")) {
-      const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-      const provided = req.headers.get("x-job-secret") ?? "";
-      if (!expected || provided !== expected) {
-        return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
-      }
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
         if (pathname.endsWith("/jobs/recompute-succession-heatmap")) {
           const r = await recomputeSuccessionHeatmap();
