@@ -151,14 +151,24 @@ export async function runApifyForVenetoSourceV2(opts: {
   report.dataset_items_read = items.length;
 
   const mapped = await mapApifyDataset(items, binding);
+  const importableRecs = mapped.records.filter((r) => r.importable);
+  const rejectedRecs = mapped.records.filter((r) => !r.importable);
   report.records_normalized = mapped.records.length;
-  report.records_importable = mapped.records.length;
+  report.records_importable = importableRecs.length;
+  report.records_rejected_count = rejectedRecs.length;
   report.records_rejected = mapped.rejected;
   report.warnings.push(...mapped.warnings);
   report.sample_records = mapped.records.slice(0, 3).map((r) => ({
     source_url: r.source_url,
     title: r.title,
     data_basis: r.data_basis,
+    classification: r.classification,
+  }));
+  report.sample_importable_records = importableRecs.slice(0, 3).map((r) => ({
+    source_url: r.source_url, title: r.title, classification: r.classification,
+  }));
+  report.sample_rejected_records = rejectedRecs.slice(0, 3).map((r) => ({
+    source_url: r.source_url, title: r.title, classification: r.classification, reject_reason: r.reject_reason,
   }));
 
   // Hard guard: never write when dryRun OR when import flag false.
@@ -166,7 +176,7 @@ export async function runApifyForVenetoSourceV2(opts: {
   if (!doImport) {
     report.warnings.push("import_skipped_test_mode");
   } else {
-    const imp = await importApifyRecords(mapped.records, binding, { dryRun: false, doImport: true });
+    const imp = await importApifyRecords(importableRecs, binding, { dryRun: false, doImport: true });
     report.records_imported = imp.inserted;
     report.skipped_existing = imp.skipped_existing;
     if (imp.errors.length) report.errors.push(...imp.errors.slice(0, 5));
