@@ -433,8 +433,9 @@ export async function runOpenDataVenetoDeepImport(opts: {
   const supa = getSupa();
   if (!supa) { report.errors.push("supabase_not_configured"); return report; }
 
-  // Cap real import to 50 records max.
-  const toImport = importable.slice(0, 50);
+  // Cap real import (default 50, configurable up to 200).
+  const cap = Math.max(1, Math.min(200, opts.maxImportRecords ?? 50));
+  const toImport = importable.slice(0, cap);
   const urls = toImport.map((r) => r.source_url);
   const { data: existing } = await supa
     .from("source_documents")
