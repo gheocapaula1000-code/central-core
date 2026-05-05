@@ -1174,6 +1174,17 @@ Deno.serve(async (req) => {
             });
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "enrich-microzone-sentiment-from-ispra-risk", ...r }, debugId), "job-enrich-ms-ispra");
           }
+          if (matched === "/jobs/import-geoportale-green-coverage") {
+            const r = await runGeoportaleGreenImport({
+              dryRun: body?.dryRun !== false,
+              import: body?.import === true,
+              layers: Array.isArray(body?.layers) ? body.layers : undefined,
+              province: Array.isArray(body?.province) ? body.province : ["VE","VR","VI","PD","TV","BL","RO"],
+              maxFeaturesPerLayer: typeof body?.maxFeaturesPerLayer === "number" ? body.maxFeaturesPerLayer : 1000,
+              maxImportRecords: typeof body?.maxImportRecords === "number" ? body.maxImportRecords : 400,
+            });
+            return withIdentity(json(req, r.ok ? 200 : 207, { job: "import-geoportale-green-coverage", ...r }, debugId), "job-geo-green");
+          }
           if (matched === "/jobs/import-veneto-geo-environment" || matched === "/jobs/import-omi-territorial-notes") {
             return withIdentity(json(req, 200, {
               job: matched.replace("/jobs/",""),
