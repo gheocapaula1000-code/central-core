@@ -42,6 +42,7 @@ import { enrichRadarFromOpenDataVeneto } from "./openData/openDataEnrichment.ts"
 import { runGeoportaleVenetoDiscovery } from "./openData/geoportaleVenetoCswImporter.ts";
 import { runGeoportaleImport } from "./openData/geoportaleVenetoImporter.ts";
 import { runGeoportaleRecovery } from "./openData/geoportaleVenetoRecovery.ts";
+import { runArpavAirImport } from "./openData/arpavAirImporter.ts";
 import { runApifyForVenetoSource } from "./apify/apifyAdapter.ts";
 import { runApifyForVenetoSourceV2, apifyDiagnostics } from "./apify/apifyOrchestrator.ts";
 import { APIFY_VENETO_REGISTRY } from "./apify/apifySourceRegistry.ts";
@@ -88,6 +89,7 @@ const ROUTES = [
   "POST /jobs/geoportale-veneto-discovery",
   "POST /jobs/import-geoportale-veneto-layers",
   "POST /jobs/recover-geoportale-veneto-unassigned",
+  "POST /jobs/import-arpav-air-quality",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
@@ -1054,6 +1056,7 @@ Deno.serve(async (req) => {
         "/jobs/geoportale-veneto-discovery",
         "/jobs/import-geoportale-veneto-layers",
         "/jobs/recover-geoportale-veneto-unassigned",
+        "/jobs/import-arpav-air-quality",
         "/jobs/import-veneto-geo-environment",
         "/jobs/import-omi-territorial-notes",
         "/jobs/build-veneto-intelligence-from-research",
@@ -1122,6 +1125,15 @@ Deno.serve(async (req) => {
               enableSpatialJoin: body?.enableSpatialJoin !== false,
             });
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "recover-geoportale-veneto-unassigned", ...r }, debugId), "job-geoportale-recovery");
+          }
+          if (matched === "/jobs/import-arpav-air-quality") {
+            const r = await runArpavAirImport({
+              dryRun: body?.dryRun !== false,
+              import: body?.import === true,
+              province: Array.isArray(body?.province) ? body.province : ["VE","VR","VI","PD","TV","BL","RO"],
+              maxFeatures: typeof body?.maxFeatures === "number" ? body.maxFeatures : 1000,
+            });
+            return withIdentity(json(req, r.ok ? 200 : 207, { job: "import-arpav-air-quality", ...r }, debugId), "job-arpav-air");
           }
           if (matched === "/jobs/import-veneto-geo-environment" || matched === "/jobs/import-omi-territorial-notes") {
             return withIdentity(json(req, 200, {
