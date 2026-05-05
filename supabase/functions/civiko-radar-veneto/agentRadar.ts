@@ -711,6 +711,9 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         recommendedMove: z.agentAction,
         script,
         dataBasis: basis,
+        sourceUrls: z.sourceUrls ?? [],
+        confidence: z.confidence ?? (z.quality === "reale" ? "high" : z.quality === "parziale" ? "medium" : "low"),
+        quality: z.quality,
       };
     });
 
