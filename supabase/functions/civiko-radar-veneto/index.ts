@@ -39,6 +39,7 @@ import { buildVenetoIntelligenceFromResearch } from "./intelligence/orchestrator
 import { runVenetoOpenDataImport } from "./openData/ckanImporter.ts";
 import { runOpenDataVenetoDeepImport } from "./openData/openDataVenetoCkanImporter.ts";
 import { enrichRadarFromOpenDataVeneto } from "./openData/openDataEnrichment.ts";
+import { runGeoportaleVenetoDiscovery } from "./openData/geoportaleVenetoCswImporter.ts";
 import { runApifyForVenetoSource } from "./apify/apifyAdapter.ts";
 import { runApifyForVenetoSourceV2, apifyDiagnostics } from "./apify/apifyOrchestrator.ts";
 import { APIFY_VENETO_REGISTRY } from "./apify/apifySourceRegistry.ts";
