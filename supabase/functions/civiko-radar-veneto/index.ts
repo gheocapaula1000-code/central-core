@@ -47,6 +47,7 @@ import { runArpavEnvironmentalImport } from "./openData/arpavEnvironmentalImport
 import { runEnrichMicrozoneFromTerritorial } from "./openData/microzoneEnricher.ts";
 import { runIspraRiskEnrichment } from "./openData/ispraRiskEnricher.ts";
 import { runGeoportaleGreenImport } from "./openData/geoportaleGreenImporter.ts";
+import { discoverVenetoAuctions } from "./legal/auctionDiscovery.ts";
 import { runApifyForVenetoSource } from "./apify/apifyAdapter.ts";
 import { runApifyForVenetoSourceV2, apifyDiagnostics } from "./apify/apifyOrchestrator.ts";
 import { APIFY_VENETO_REGISTRY } from "./apify/apifySourceRegistry.ts";
@@ -97,6 +98,7 @@ const ROUTES = [
   "POST /jobs/enrich-microzone-sentiment-from-territorial-signals",
  "POST /jobs/enrich-microzone-sentiment-from-ispra-risk",
  "POST /jobs/import-geoportale-green-coverage",
+ "POST /jobs/discover-veneto-auctions",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
@@ -978,7 +980,19 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Firecrawl Deep Veneto — crawl pubblico, no demo, no bypass
+    // Discover aste/legal Veneto — dry run only (no DB writes)
+    if (pathname.endsWith("/jobs/discover-veneto-auctions")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const r = await discoverVenetoAuctions(body);
+        return withIdentity(json(req, r.ok ? 200 : 207, { job: "discover-veneto-auctions", ...r }, debugId), "job-discover-auctions");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] discover-auctions error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Auction discovery failed", debugId), "job-error");
+      }
+    }
+
     if (pathname.endsWith("/jobs/firecrawl-deep-veneto")) {
       const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
