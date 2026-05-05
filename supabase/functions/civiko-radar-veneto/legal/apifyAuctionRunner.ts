@@ -176,3 +176,56 @@ export async function runApifyAuctionSource(
 
   return { ok: true, source_key: source.source_key, actor_run_id: runId, dataset_id: datasetId, status, pages };
 }
+
+// ── Detail link extraction from Apify dataset items ────────────────
+const DETAIL_PATTERNS: RegExp[] = [
+  /\/scheda[\/\-]/i,
+  /\/dettaglio[\/\-]/i,
+  /\/lotto[\/\-]/i,
+  /\/annuncio[\/\-]/i,
+  /\/immobile[\/\-]/i,
+  /\/bene[\/\-]/i,
+  /\/vendita-asta-/i,
+  /[?&](idAsta|idLotto|idAnnuncio|lotId|id)=\d+/i,
+  /-l\d{4,}-p\d{4,}/i,
+];
+const DETAIL_REJECT: RegExp[] = [
+  /\/(login|user|account|registrazione|privacy|cookie|contatti|contact|search|cerca|admin|newsletter|news\/)/i,
+  /[?&](page|p|sort|order|filter)=/i,
+];
+
+export function extractDetailLinksFromPages(
+  pages: ApifyAuctionPage[],
+  source: AuctionSource,
+  limit = 30,
+): string[] {
+  const out = new Set<string>();
+  let baseHost = "";
+  try { baseHost = new URL(source.base_url).host; } catch { /* ignore */ }
+  for (const p of pages) {
+    const candidates = new Set<string>();
+    for (const l of p.links ?? []) candidates.add(l);
+    const md = p.markdown ?? "";
+    const mdLinks = md.match(/\((https?:\/\/[^\s)]+|\/[^\s)]+)\)/g) ?? [];
+    for (const m of mdLinks) candidates.add(m.slice(1, -1));
+    for (const raw of candidates) {
+      let abs: string;
+      try {
+        abs = raw.startsWith("http") ? raw : new URL(raw, source.base_url).toString();
+      } catch { continue; }
+      try {
+        const u = new URL(abs);
+        if (baseHost && u.host !== baseHost) continue;
+        const pq = u.pathname + u.search;
+        if (DETAIL_REJECT.some((r) => r.test(pq))) continue;
+        if (!DETAIL_PATTERNS.some((r) => r.test(pq))) continue;
+        u.hash = "";
+        out.add(u.toString());
+      } catch { /* ignore */ }
+      if (out.size >= limit) break;
+    }
+    if (out.size >= limit) break;
+  }
+  return Array.from(out).slice(0, limit);
+}
+
