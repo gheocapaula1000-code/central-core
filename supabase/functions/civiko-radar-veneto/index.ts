@@ -1062,6 +1062,15 @@ Deno.serve(async (req) => {
             });
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "import-veneto-open-data", ...r }, debugId), "job-open-data");
           }
+          if (matched === "/jobs/import-open-data-veneto-deep") {
+            const r = await runOpenDataVenetoDeepImport({
+              dryRun: body?.dryRun !== false,
+              import: body?.import === true,
+              limitPerKeyword: typeof body?.limitPerKeyword === "number" ? body.limitPerKeyword : 20,
+              keywords: Array.isArray(body?.keywords) ? body.keywords : undefined,
+            });
+            return withIdentity(json(req, r.ok ? 200 : 207, { job: "import-open-data-veneto-deep", ...r }, debugId), "job-open-data-deep");
+          }
           if (matched === "/jobs/import-veneto-geo-environment" || matched === "/jobs/import-omi-territorial-notes") {
             return withIdentity(json(req, 200, {
               job: matched.replace("/jobs/",""),
