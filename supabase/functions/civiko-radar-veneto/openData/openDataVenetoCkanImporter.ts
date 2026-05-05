@@ -12,7 +12,7 @@ const CKAN_BASES = [
 
 export type Topic =
   | "urbanistica" | "ambiente" | "mobilita" | "servizi" | "edifici"
-  | "strade" | "scuole" | "geoportale" | "patrimonio" | "vincoli" | "altro";
+  | "strade" | "scuole" | "geoportale" | "patrimonio" | "vincoli" | "turismo" | "altro";
 
 export type Classification = "dataset" | "resource" | "geo_resource" | "csv_resource" | "document_resource";
 
