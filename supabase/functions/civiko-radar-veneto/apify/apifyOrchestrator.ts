@@ -1,7 +1,7 @@
 // Apify orchestrator — connects registry, client, mapper, importer.
 // Never logs/returns the token.
 
-import { isApifyConfigured, runActorSync, testApifyConnection } from "./apifyClient.ts";
+import { getDatasetItems, getRunStatus, isApifyConfigured, runActorSync, startActorRun, testApifyConnection } from "./apifyClient.ts";
 import { findApifySource, isApifyActorAllowed } from "./apifySourceRegistry.ts";
 import { mapApifyDataset } from "./apifyMapper.ts";
 import { importApifyRecords } from "./apifyDatasetImporter.ts";
@@ -13,12 +13,19 @@ export interface ApifyRunReport {
   allowed: boolean;
   apifyConfigured: boolean;
   dryRun: boolean;
+  invokeActor: boolean;
   imported_to_target?: string;
+  actor_run_id?: string;
+  actor_status?: string;
+  dataset_id?: string;
   dataset_items_read: number;
   records_normalized: number;
+  records_importable: number;
   records_rejected: { reason: string; count: number }[];
   records_imported: number;
   skipped_existing: number;
+  sample_records: Array<{ source_url: string; title: string | null; data_basis: "real" | "partial" }>;
+  input_template_used?: Record<string, unknown>;
   warnings: string[];
   errors: string[];
   tokenExposed: false;
@@ -29,6 +36,7 @@ export async function runApifyForVenetoSourceV2(opts: {
   actor_id: string;
   input?: Record<string, unknown>;
   dryRun: boolean;
+  invokeActor?: boolean;
   import: boolean;
 }): Promise<ApifyRunReport> {
   const report: ApifyRunReport = {
