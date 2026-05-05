@@ -936,6 +936,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     riskCoverage,
     environmentCoverage,
     avgSentimentScore,
+    avgRiskScore,
     dataConfidenceAvg,
   };
 
