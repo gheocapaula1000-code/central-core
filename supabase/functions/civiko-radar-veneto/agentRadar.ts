@@ -861,6 +861,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   let riskCoverage = 0;
   let environmentCoverage = 0;
   let avgSentimentScore = 0;
+  let avgRiskScore: number | null = null;
   let dataConfidenceAvg = 0;
   try {
     const { count: msc } = await supa.from("microzone_sentiment").select("id", { count: "exact", head: true }).eq("is_active", true);
@@ -877,13 +878,27 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       dataConfidenceAvg = Number((sum / confRows.length).toFixed(3));
       const sentVals = confRows.map((r) => Number(r.sentiment_score_total)).filter((n) => !Number.isNaN(n) && n > 0);
       if (sentVals.length) avgSentimentScore = Number((sentVals.reduce((a, b) => a + b, 0) / sentVals.length).toFixed(2));
-      riskCoverage = confRows.filter((r) => Array.isArray(r.source_refs) && (r.source_refs as any[]).some((s: any) => s?.source === "derived" && s?.risk_score != null)).length;
+      riskCoverage = confRows.filter((r) => Array.isArray(r.source_refs) && (r.source_refs as any[]).some((s: any) => s?.risk_score != null)).length;
+      const riskVals: number[] = [];
+      for (const r of confRows) {
+        if (Array.isArray(r.source_refs)) {
+          for (const s of r.source_refs as any[]) {
+            if (s?.risk_score != null) { const n = Number(s.risk_score); if (Number.isFinite(n)) { riskVals.push(n); break; } }
+          }
+        }
+      }
+      if (riskVals.length) avgRiskScore = Number((riskVals.reduce((a, b) => a + b, 0) / riskVals.length).toFixed(2));
     }
     if (microzoneSentimentAvailable > 0 && !partial.includes("arpav_air_quality")) partial.push("arpav_air_quality");
     if (microzoneSentimentAvailable > 0 && !partial.includes("microzone_sentiment")) partial.push("microzone_sentiment");
     if (riskCoverage > 0 || greenCoverage > 0) {
       if (!partial.includes("geoportale_veneto")) partial.push("geoportale_veneto");
       if (!partial.includes("environmental_sentiment")) partial.push("environmental_sentiment");
+    }
+    if (riskCoverage > 0) {
+      for (const k of ["ispra_rischio", "hydrogeological_risk", "landslide_risk"]) {
+        if (!partial.includes(k)) partial.push(k);
+      }
     }
   } catch (_e) { /* additive */ }
 
@@ -921,6 +936,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     riskCoverage,
     environmentCoverage,
     avgSentimentScore,
+    avgRiskScore,
     dataConfidenceAvg,
   };
 

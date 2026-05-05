@@ -45,6 +45,7 @@ import { runGeoportaleRecovery } from "./openData/geoportaleVenetoRecovery.ts";
 import { runArpavAirImport } from "./openData/arpavAirImporter.ts";
 import { runArpavEnvironmentalImport } from "./openData/arpavEnvironmentalImporter.ts";
 import { runEnrichMicrozoneFromTerritorial } from "./openData/microzoneEnricher.ts";
+import { runIspraRiskEnrichment } from "./openData/ispraRiskEnricher.ts";
 import { runApifyForVenetoSource } from "./apify/apifyAdapter.ts";
 import { runApifyForVenetoSourceV2, apifyDiagnostics } from "./apify/apifyOrchestrator.ts";
 import { APIFY_VENETO_REGISTRY } from "./apify/apifySourceRegistry.ts";
@@ -93,6 +94,7 @@ const ROUTES = [
   "POST /jobs/recover-geoportale-veneto-unassigned",
   "POST /jobs/import-arpav-air-quality",
   "POST /jobs/enrich-microzone-sentiment-from-territorial-signals",
+  "POST /jobs/enrich-microzone-sentiment-from-ispra-risk",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
@@ -1061,6 +1063,7 @@ Deno.serve(async (req) => {
         "/jobs/recover-geoportale-veneto-unassigned",
         "/jobs/import-arpav-air-quality",
         "/jobs/enrich-microzone-sentiment-from-territorial-signals",
+        "/jobs/enrich-microzone-sentiment-from-ispra-risk",
         "/jobs/import-veneto-geo-environment",
         "/jobs/import-omi-territorial-notes",
         "/jobs/build-veneto-intelligence-from-research",
@@ -1159,6 +1162,14 @@ Deno.serve(async (req) => {
               province: Array.isArray(body?.province) ? body.province : ["VE","VR","VI","PD","TV","BL","RO"],
             });
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "enrich-microzone-sentiment-from-territorial-signals", ...r }, debugId), "job-enrich-ms");
+          }
+          if (matched === "/jobs/enrich-microzone-sentiment-from-ispra-risk") {
+            const r = await runIspraRiskEnrichment({
+              dryRun: body?.dryRun !== false,
+              import: body?.import === true,
+              province: Array.isArray(body?.province) ? body.province : ["VE","VR","VI","PD","TV","BL","RO"],
+            });
+            return withIdentity(json(req, r.ok ? 200 : 207, { job: "enrich-microzone-sentiment-from-ispra-risk", ...r }, debugId), "job-enrich-ms-ispra");
           }
           if (matched === "/jobs/import-veneto-geo-environment" || matched === "/jobs/import-omi-territorial-notes") {
             return withIdentity(json(req, 200, {
