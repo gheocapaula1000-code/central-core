@@ -1893,6 +1893,96 @@ export type Database = {
         }
         Relationships: []
       }
+      offmarket_opportunity_scores: {
+        Row: {
+          acquisition_priority_score: number
+          area_label: string
+          area_type: string
+          computed_at: string
+          comune: string
+          confidence_score: number
+          data_basis: Json
+          exclusive_pitch_score: number
+          family_attractiveness_score: number
+          fingerprint: string
+          id: number
+          investor_attractiveness_score: number
+          is_active: boolean
+          microzone_heat_score: number
+          missing_factors: Json
+          negative_factors: Json
+          off_market_potential_score: number
+          owner_education_score: number
+          positive_factors: Json
+          provincia: string
+          quality: string
+          recommended_actions: Json
+          region: string
+          scripts: Json
+          source_refs: Json
+          updated_at: string
+          valuation_campaign_score: number
+        }
+        Insert: {
+          acquisition_priority_score?: number
+          area_label: string
+          area_type?: string
+          computed_at?: string
+          comune: string
+          confidence_score?: number
+          data_basis?: Json
+          exclusive_pitch_score?: number
+          family_attractiveness_score?: number
+          fingerprint: string
+          id?: number
+          investor_attractiveness_score?: number
+          is_active?: boolean
+          microzone_heat_score?: number
+          missing_factors?: Json
+          negative_factors?: Json
+          off_market_potential_score?: number
+          owner_education_score?: number
+          positive_factors?: Json
+          provincia: string
+          quality?: string
+          recommended_actions?: Json
+          region?: string
+          scripts?: Json
+          source_refs?: Json
+          updated_at?: string
+          valuation_campaign_score?: number
+        }
+        Update: {
+          acquisition_priority_score?: number
+          area_label?: string
+          area_type?: string
+          computed_at?: string
+          comune?: string
+          confidence_score?: number
+          data_basis?: Json
+          exclusive_pitch_score?: number
+          family_attractiveness_score?: number
+          fingerprint?: string
+          id?: number
+          investor_attractiveness_score?: number
+          is_active?: boolean
+          microzone_heat_score?: number
+          missing_factors?: Json
+          negative_factors?: Json
+          off_market_potential_score?: number
+          owner_education_score?: number
+          positive_factors?: Json
+          provincia?: string
+          quality?: string
+          recommended_actions?: Json
+          region?: string
+          scripts?: Json
+          source_refs?: Json
+          updated_at?: string
+          valuation_campaign_score?: number
+        }
+        Relationships: []
+      }
       omi_import_jobs: {
         Row: {
           batch_size: number
