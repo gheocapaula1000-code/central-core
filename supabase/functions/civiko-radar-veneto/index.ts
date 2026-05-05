@@ -1163,6 +1163,14 @@ Deno.serve(async (req) => {
             });
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "enrich-microzone-sentiment-from-territorial-signals", ...r }, debugId), "job-enrich-ms");
           }
+          if (matched === "/jobs/enrich-microzone-sentiment-from-ispra-risk") {
+            const r = await runIspraRiskEnrichment({
+              dryRun: body?.dryRun !== false,
+              import: body?.import === true,
+              province: Array.isArray(body?.province) ? body.province : ["VE","VR","VI","PD","TV","BL","RO"],
+            });
+            return withIdentity(json(req, r.ok ? 200 : 207, { job: "enrich-microzone-sentiment-from-ispra-risk", ...r }, debugId), "job-enrich-ms-ispra");
+          }
           if (matched === "/jobs/import-veneto-geo-environment" || matched === "/jobs/import-omi-territorial-notes") {
             return withIdentity(json(req, 200, {
               job: matched.replace("/jobs/",""),
