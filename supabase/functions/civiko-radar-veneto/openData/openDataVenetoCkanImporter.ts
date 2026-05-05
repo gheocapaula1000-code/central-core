@@ -348,6 +348,9 @@ export async function runOpenDataVenetoDeepImport(opts: {
     records_imported: 0,
     skipped_existing: 0,
     territorial_signals_created: 0,
+    geo_inference_fixed_count: 0,
+    records_topic_vincoli: 0,
+    records_regional_scope: 0,
     warnings: [],
     errors: [],
   };
