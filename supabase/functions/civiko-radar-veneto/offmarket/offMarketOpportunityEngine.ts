@@ -153,32 +153,52 @@ async function loadCommuneRows(supa: SupabaseClient, provFilter: string[], comFi
   const provs = provFilter.filter((p) => VENETO_PROVINCES.includes(p));
   if (provs.length === 0) return [];
 
-  // 1) ISTAT: anagrafica comuni Veneto (paginata)
+  // 1) Spine: microzone_sentiment ha (comune, provincia) coerenti per Veneto.
+  //    Aggrega via DISTINCT per ottenere lista comuni.
   const istat: Record<string, CommuneRow> = {};
-  let from = 0;
-  for (;;) {
-    const q = supa.from("istat_comuni")
-      .select("comune,provincia,popolazione,indice_vecchiaia,percentuale_over65,percentuale_over85,eta_media")
-      .in("provincia", provs)
-      .range(from, from + 999);
-    const { data, error } = await q;
-    if (error) throw new Error(`istat: ${error.message}`);
-    if (!data || data.length === 0) break;
-    for (const r of data as Array<Record<string, unknown>>) {
-      const key = `${r.provincia}|${String(r.comune).toLowerCase().trim()}`;
-      if (comFilter && !comFilter.map((c) => c.toLowerCase()).includes(String(r.comune).toLowerCase())) continue;
-      istat[key] = {
-        comune: String(r.comune),
-        provincia: String(r.provincia),
-        popolazione: (r.popolazione as number) ?? null,
-        indice_vecchiaia: (r.indice_vecchiaia as number) ?? null,
-        percentuale_over65: (r.percentuale_over65 as number) ?? null,
-        percentuale_over85: (r.percentuale_over85 as number) ?? null,
-        eta_media: (r.eta_media as number) ?? null,
-      };
+  {
+    let from = 0;
+    for (;;) {
+      const { data, error } = await supa.from("microzone_sentiment")
+        .select("comune,provincia")
+        .in("provincia", provs)
+        .range(from, from + 999);
+      if (error) throw new Error(`spine: ${error.message}`);
+      if (!data || data.length === 0) break;
+      for (const r of data as Array<Record<string, unknown>>) {
+        const com = String(r.comune ?? "").trim();
+        const pr = String(r.provincia ?? "").trim().toUpperCase();
+        if (!com || !pr) continue;
+        if (comFilter && !comFilter.map((c) => c.toLowerCase()).includes(com.toLowerCase())) continue;
+        const key = `${pr}|${com.toLowerCase()}`;
+        if (!istat[key]) istat[key] = { comune: com, provincia: pr };
+      }
+      if (data.length < 1000) break;
+      from += 1000;
     }
-    if (data.length < 1000) break;
-    from += 1000;
+  }
+
+  // 1b) Enrichment ISTAT (provincia null nel DB → match per nome comune)
+  {
+    const comuni = Array.from(new Set(Object.values(istat).map((r) => r.comune)));
+    for (let i = 0; i < comuni.length; i += 200) {
+      const ch = comuni.slice(i, i + 200);
+      const { data, error } = await supa.from("istat_comuni")
+        .select("comune,popolazione,indice_vecchiaia,percentuale_over65,percentuale_over85,eta_media")
+        .in("comune", ch);
+      if (error) continue;
+      for (const r of (data ?? []) as Array<Record<string, unknown>>) {
+        for (const k of Object.keys(istat)) {
+          if (istat[k].comune.toLowerCase() === String(r.comune).toLowerCase()) {
+            istat[k].popolazione = (r.popolazione as number) ?? istat[k].popolazione ?? null;
+            istat[k].indice_vecchiaia = (r.indice_vecchiaia as number) ?? istat[k].indice_vecchiaia ?? null;
+            istat[k].percentuale_over65 = (r.percentuale_over65 as number) ?? istat[k].percentuale_over65 ?? null;
+            istat[k].percentuale_over85 = (r.percentuale_over85 as number) ?? istat[k].percentuale_over85 ?? null;
+            istat[k].eta_media = (r.eta_media as number) ?? istat[k].eta_media ?? null;
+          }
+        }
+      }
+    }
   }
 
   const result = istat;
