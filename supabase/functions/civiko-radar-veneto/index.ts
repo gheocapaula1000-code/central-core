@@ -45,6 +45,7 @@ import { runGeoportaleRecovery } from "./openData/geoportaleVenetoRecovery.ts";
 import { runArpavAirImport } from "./openData/arpavAirImporter.ts";
 import { runArpavEnvironmentalImport } from "./openData/arpavEnvironmentalImporter.ts";
 import { runEnrichMicrozoneFromTerritorial } from "./openData/microzoneEnricher.ts";
+import { runIspraRiskEnrichment } from "./openData/ispraRiskEnricher.ts";
 import { runApifyForVenetoSource } from "./apify/apifyAdapter.ts";
 import { runApifyForVenetoSourceV2, apifyDiagnostics } from "./apify/apifyOrchestrator.ts";
 import { APIFY_VENETO_REGISTRY } from "./apify/apifySourceRegistry.ts";
