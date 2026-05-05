@@ -1096,6 +1096,16 @@ Deno.serve(async (req) => {
             });
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "geoportale-veneto-discovery", ...r }, debugId), "job-geoportale-discovery");
           }
+          if (matched === "/jobs/import-geoportale-veneto-layers") {
+            const r = await runGeoportaleImport({
+              dryRun: body?.dryRun !== false,
+              import: body?.import === true,
+              layers: Array.isArray(body?.layers) ? body.layers : undefined,
+              province: Array.isArray(body?.province) ? body.province : ["PD","VE","BL"],
+              maxFeaturesPerLayer: typeof body?.maxFeaturesPerLayer === "number" ? body.maxFeaturesPerLayer : 100,
+              maxImportRecords: typeof body?.maxImportRecords === "number" ? body.maxImportRecords : 200,
+            });
+            return withIdentity(json(req, r.ok ? 200 : 207, { job: "import-geoportale-veneto-layers", ...r }, debugId), "job-geoportale-import");
           if (matched === "/jobs/import-veneto-geo-environment" || matched === "/jobs/import-omi-territorial-notes") {
             return withIdentity(json(req, 200, {
               job: matched.replace("/jobs/",""),
