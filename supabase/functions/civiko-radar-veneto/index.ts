@@ -37,7 +37,7 @@ import { runMicrozoneOpportunitySignals } from "./firecrawl/microzoneOpportunity
 import { runOffMarketOpportunityEngine } from "./offmarket/offMarketOpportunityEngine.ts";
 import { runOffMarketFirecrawlDiscovery } from "./offmarket/offMarketFirecrawlRunner.ts";
 import { runEarlyOffmarketDiscovery } from "./offmarket/earlyOffmarketRunner.ts";
-import { runRescoreEarlyCandidates, runPromoteEarlyCandidate } from "./offmarket/earlySignalReview.ts";
+import { runRescoreEarlyCandidates, runPromoteEarlyCandidate, runListEarlyCandidates } from "./offmarket/earlySignalReview.ts";
 import { runAdvancedVenetoOpportunities } from "./advancedOpportunity.ts";
 import { buildVenetoIntelligenceFromResearch } from "./intelligence/orchestrator.ts";
 import { runVenetoOpenDataImport } from "./openData/ckanImporter.ts";
@@ -112,6 +112,7 @@ const ROUTES = [
   "POST /jobs/discover-early-offmarket-signals",
   "POST /jobs/rescore-early-offmarket-candidates",
   "POST /jobs/promote-early-signal-candidate",
+  "POST /jobs/list-early-signal-candidates",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
@@ -1124,6 +1125,18 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] promote-early error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Promote early candidate failed", debugId), "job-error");
+      }
+    }
+
+    if (pathname.endsWith("/jobs/list-early-signal-candidates")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const r = await runListEarlyCandidates(body);
+        return withIdentity(json(req, 200, { job: "list-early-signal-candidates", ...r }, debugId), "job-list-early");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] list-early error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "List early candidates failed", debugId), "job-error");
       }
     }
 

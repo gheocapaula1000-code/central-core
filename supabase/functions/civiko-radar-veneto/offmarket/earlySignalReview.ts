@@ -123,6 +123,65 @@ export async function runRescoreEarlyCandidates(body: RescoreBody) {
   };
 }
 
+export interface ListBody {
+  status?: string;
+  limit?: number;
+  run_id?: string | null;
+  includeUnsafe?: boolean;
+}
+
+const LIST_FIELDS = [
+  "id","run_id","comune","provincia","signal_type","title","summary",
+  "why_it_matters","possible_agent_action","timing","source_url","source_name",
+  "confidence_score","quality","data_basis","privacy_safe","needs_review",
+  "import_recommendation","status","priority_score","commercial_value_score",
+  "real_estate_relevance_score","review_reason","rejection_reason","asset_type",
+  "location_detail","amount_text","deadline_text","publication_date",
+  "ai_summary","agent_action","owner_pitch","investor_pitch",
+  "created_at","promoted_at","promoted_to",
+].join(", ");
+
+export async function runListEarlyCandidates(body: ListBody) {
+  const status = (body.status ?? "needs_review").toString();
+  const limit = Math.min(Math.max(Number(body.limit ?? 50) || 50, 1), 100);
+  const includeUnsafe = body.includeUnsafe === true;
+  const client = sb();
+
+  let q = client.from("early_offmarket_signal_candidates")
+    .select(LIST_FIELDS)
+    .order("priority_score", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (status && status !== "all") q = q.eq("status", status);
+  else q = q.neq("status", "rejected");
+  if (body.run_id) q = q.eq("run_id", body.run_id);
+  if (!includeUnsafe) q = q.eq("privacy_safe", true);
+
+  const { data, error } = await q;
+  if (error) throw new Error(`list candidates: ${error.message}`);
+  const rows = data ?? [];
+
+  const by_status: Record<string, number> = {};
+  const by_comune: Record<string, number> = {};
+  let top_priority: number | null = null;
+  for (const r of rows as any[]) {
+    by_status[r.status ?? "unknown"] = (by_status[r.status ?? "unknown"] ?? 0) + 1;
+    if (r.comune) by_comune[r.comune] = (by_comune[r.comune] ?? 0) + 1;
+    const p = Number(r.priority_score);
+    if (!Number.isNaN(p) && (top_priority === null || p > top_priority)) top_priority = p;
+  }
+
+  return {
+    ok: true,
+    candidates: rows,
+    count: rows.length,
+    status_filter: status,
+    run_id: body.run_id ?? null,
+    summary: { by_status, by_comune, top_priority },
+  };
+}
+
 export interface PromoteBody {
   candidate_id: string;
   target?: "territorial_signals" | "radar_signals";
