@@ -228,8 +228,11 @@ export function evaluateCandidatePage(input: EvalInput): EvalResult {
     }
   }
 
-  // 3) Asset type
-  const asset_type = detectAssetType(lower);
+  // 3) Asset type. Title override: parole non-RE nel titolo battono il breadcrumb.
+  const titleHasNonRE = NON_RE_TOKENS.some((t) => titleLower.includes(t));
+  const titleHasRE = RE_ASSET_RULES.some((r) => r.tokens.some((t) => titleLower.includes(t)));
+  let asset_type = detectAssetType(lower);
+  if (titleHasNonRE && !titleHasRE) asset_type = "non_real_estate_asset";
   if (asset_type === "non_real_estate_asset") {
     return baseResult({
       status: "rejected",
