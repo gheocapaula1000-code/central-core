@@ -36,6 +36,7 @@ import { runFirecrawlDeepVeneto } from "./firecrawl/crawlRunner.ts";
 import { runMicrozoneOpportunitySignals } from "./firecrawl/microzoneOpportunityRunner.ts";
 import { runOffMarketOpportunityEngine } from "./offmarket/offMarketOpportunityEngine.ts";
 import { runOffMarketFirecrawlDiscovery } from "./offmarket/offMarketFirecrawlRunner.ts";
+import { runEarlyOffmarketDiscovery } from "./offmarket/earlyOffmarketRunner.ts";
 import { runAdvancedVenetoOpportunities } from "./advancedOpportunity.ts";
 import { buildVenetoIntelligenceFromResearch } from "./intelligence/orchestrator.ts";
 import { runVenetoOpenDataImport } from "./openData/ckanImporter.ts";
@@ -107,6 +108,8 @@ const ROUTES = [
   "POST /jobs/import-auction-candidates",
   "POST /jobs/build-offmarket-opportunity-scores",
   "POST /jobs/firecrawl-offmarket-microzone-discovery",
+  "POST /jobs/discover-early-offmarket-signals",
+  "POST /jobs/promote-early-signal-candidate",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
