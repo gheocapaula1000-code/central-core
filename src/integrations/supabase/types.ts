@@ -3405,6 +3405,45 @@ export type Database = {
         }
         Relationships: []
       }
+      veneto_comuni: {
+        Row: {
+          codice_istat: string
+          created_at: string
+          is_capoluogo: boolean
+          lat: number | null
+          lng: number | null
+          nome: string
+          nome_normalizzato: string
+          popolazione: number | null
+          provincia: string
+          provincia_nome: string
+        }
+        Insert: {
+          codice_istat: string
+          created_at?: string
+          is_capoluogo?: boolean
+          lat?: number | null
+          lng?: number | null
+          nome: string
+          nome_normalizzato: string
+          popolazione?: number | null
+          provincia: string
+          provincia_nome: string
+        }
+        Update: {
+          codice_istat?: string
+          created_at?: string
+          is_capoluogo?: boolean
+          lat?: number | null
+          lng?: number | null
+          nome?: string
+          nome_normalizzato?: string
+          popolazione?: number | null
+          provincia?: string
+          provincia_nome?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
