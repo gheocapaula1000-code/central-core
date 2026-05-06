@@ -209,47 +209,60 @@ export async function runPromoteEarlyCandidate(body: PromoteBody) {
     return { ok: false, reason: `status ${cand.status} not promotable` };
   }
 
-  // Check if territorial_signals table exists; if not, just mark as promoted with target="candidate_only"
-  let promoted_to = `${target}:not_persisted`;
-  try {
-    if (target === "territorial_signals") {
-      // Check table existence by attempting an insert; many projects don't have it yet.
-      const row = {
-        comune: cand.comune,
-        provincia: cand.provincia,
-        signal_type: cand.signal_type,
-        title: cand.title,
-        description: cand.ai_summary ?? cand.summary,
-        source_url: cand.source_url,
-        source_name: cand.source_name,
-        confidence_score: cand.confidence_score,
-        quality: cand.quality,
-        data_basis: cand.data_basis,
-        payload: { ...(cand.payload ?? {}), candidate_id: cand.id, reviewer_note: body.reviewer_note ?? null },
-        fingerprint: cand.fingerprint,
-      };
-      const { error: insErr } = await client.from("territorial_signals").insert(row);
-      if (insErr && !/duplicate key|unique/i.test(insErr.message)) {
-        // Table likely missing — fall back to candidate-only promotion
-        promoted_to = `territorial_signals:skipped(${insErr.message.slice(0, 60)})`;
-      } else {
-        promoted_to = "territorial_signals";
-      }
-    }
+  // Insert into target using municipality/province (correct schema).
+  let promoted_to: string | null = null;
+  let skipped_existing = false;
+  let target_error: string | null = null;
 
-    if (cand.commercial_value_score >= 70 && target === "territorial_signals") {
-      // optional radar_signal mirror; ignore if table missing
-      try {
-        await client.from("radar_signals").insert({
-          comune: cand.comune, provincia: cand.provincia,
-          signal_type: cand.signal_type, title: cand.title,
-          source_url: cand.source_url, payload: cand.payload, fingerprint: cand.fingerprint,
-        });
-        promoted_to += "+radar_signals";
-      } catch { /* ignore */ }
+  if (target === "territorial_signals") {
+    const row = {
+      municipality: cand.comune,
+      province: cand.provincia,
+      signal_type: cand.signal_type,
+      title: cand.title,
+      description: cand.ai_summary ?? cand.summary,
+      source_name: cand.source_name,
+      confidence_score: cand.confidence_score,
+      quality: cand.quality,
+      data_basis: cand.data_basis,
+      payload: { ...(cand.payload ?? {}), candidate_id: cand.id, source_url: cand.source_url, reviewer_note: body.reviewer_note ?? null },
+      fingerprint: cand.fingerprint,
+    };
+    const { error: insErr } = await client.from("territorial_signals").insert(row);
+    if (insErr) {
+      if (/duplicate key|unique/i.test(insErr.message)) {
+        skipped_existing = true;
+        promoted_to = "territorial_signals:already_existing";
+      } else {
+        target_error = insErr.message;
+      }
+    } else {
+      promoted_to = "territorial_signals";
     }
-  } catch (e) {
-    promoted_to = `error:${e instanceof Error ? e.message : String(e)}`;
+  } else if (target === "radar_signals") {
+    const { error: insErr } = await client.from("radar_signals").insert({
+      municipality: cand.comune, province: cand.provincia,
+      signal_type: cand.signal_type, title: cand.title,
+      description: cand.ai_summary ?? cand.summary,
+      source: cand.source_name, evidence_url: cand.source_url,
+      payload: { ...(cand.payload ?? {}), candidate_id: cand.id }, fingerprint: cand.fingerprint,
+    });
+    if (insErr) {
+      if (/duplicate key|unique/i.test(insErr.message)) { skipped_existing = true; promoted_to = "radar_signals:already_existing"; }
+      else target_error = insErr.message;
+    } else {
+      promoted_to = "radar_signals";
+    }
+  }
+
+  if (target_error) {
+    return { ok: false, candidate_id: cand.id, reason: "target_insert_failed", error: target_error };
+  }
+  if (skipped_existing) {
+    return { ok: true, candidate_id: cand.id, skipped_existing: true, promoted_to, status: cand.status };
+  }
+  if (!promoted_to) {
+    return { ok: false, candidate_id: cand.id, reason: "no_target_inserted" };
   }
 
   await client.from("early_offmarket_signal_candidates").update({

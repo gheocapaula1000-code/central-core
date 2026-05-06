@@ -38,6 +38,7 @@ import { runOffMarketOpportunityEngine } from "./offmarket/offMarketOpportunityE
 import { runOffMarketFirecrawlDiscovery } from "./offmarket/offMarketFirecrawlRunner.ts";
 import { runEarlyOffmarketDiscovery } from "./offmarket/earlyOffmarketRunner.ts";
 import { runRescoreEarlyCandidates, runPromoteEarlyCandidate, runListEarlyCandidates } from "./offmarket/earlySignalReview.ts";
+import { runAgencyOffmarketBrief } from "./agency/agencyOffmarketBrief.ts";
 import { runAdvancedVenetoOpportunities } from "./advancedOpportunity.ts";
 import { buildVenetoIntelligenceFromResearch } from "./intelligence/orchestrator.ts";
 import { runVenetoOpenDataImport } from "./openData/ckanImporter.ts";
@@ -113,6 +114,7 @@ const ROUTES = [
   "POST /jobs/rescore-early-offmarket-candidates",
   "POST /jobs/promote-early-signal-candidate",
   "POST /jobs/list-early-signal-candidates",
+  "POST /jobs/build-agency-offmarket-brief",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
@@ -1137,6 +1139,18 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] list-early error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "List early candidates failed", debugId), "job-error");
+      }
+    }
+
+    if (pathname.endsWith("/jobs/build-agency-offmarket-brief")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const r = await runAgencyOffmarketBrief(body);
+        return withIdentity(json(req, r.ok ? 200 : 207, { job: "build-agency-offmarket-brief", ...r }, debugId), "job-agency-brief");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] agency-brief error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Agency off-market brief failed", debugId), "job-error");
       }
     }
 
