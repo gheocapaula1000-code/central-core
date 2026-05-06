@@ -241,7 +241,7 @@ export function evaluateCandidatePage(input: EvalInput): EvalResult {
 
   // 4) Low information: < 2 useful keywords AND not strong RE keyword
   const usefulKw = base.matched_keywords.length;
-  const hasStrongRe = STRONG_PUBLIC_RE_KEYWORDS.some((k) => lower.includes(k));
+  const hasStrongRe = STRONG_PUBLIC_RE_PATTERNS.some((re) => re.test(text));
   if (usefulKw < 2 && !hasStrongRe) {
     return baseResult({
       status: "rejected",
