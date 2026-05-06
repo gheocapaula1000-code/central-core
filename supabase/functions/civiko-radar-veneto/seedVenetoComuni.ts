@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { VENETO_COMUNI_SEED } from "../../../src/data/veneto-comuni-seed.ts";
+import { VENETO_COMUNI_SEED } from "./venetoComuniSeed.ts";
 
 export async function seedVenetoComuni(): Promise<{ ok: boolean; inserted: number; skipped: number; errors: string[] }> {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
