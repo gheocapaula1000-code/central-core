@@ -37,7 +37,7 @@ import { runMicrozoneOpportunitySignals } from "./firecrawl/microzoneOpportunity
 import { runOffMarketOpportunityEngine } from "./offmarket/offMarketOpportunityEngine.ts";
 import { runOffMarketFirecrawlDiscovery } from "./offmarket/offMarketFirecrawlRunner.ts";
 import { runEarlyOffmarketDiscovery } from "./offmarket/earlyOffmarketRunner.ts";
-import { runRescoreEarlyCandidates, runPromoteEarlyCandidate } from "./offmarket/earlySignalReview.ts";
+import { runRescoreEarlyCandidates, runPromoteEarlyCandidate, runListEarlyCandidates } from "./offmarket/earlySignalReview.ts";
 import { runAdvancedVenetoOpportunities } from "./advancedOpportunity.ts";
 import { buildVenetoIntelligenceFromResearch } from "./intelligence/orchestrator.ts";
 import { runVenetoOpenDataImport } from "./openData/ckanImporter.ts";
