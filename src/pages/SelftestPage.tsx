@@ -107,7 +107,7 @@ export default function SelftestPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-3 gap-4 text-center text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-center text-sm">
                 <div>
                   <div className="text-2xl font-bold text-emerald-500">{report.summary.pass}</div>
                   <div className="text-muted-foreground">Pass</div>
@@ -160,7 +160,7 @@ export default function SelftestPage() {
               <CardTitle className="text-sm text-muted-foreground">Configurazione Rate Limiter</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-3 gap-4 text-sm font-mono">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-sm font-mono">
                 <div><span className="text-muted-foreground">Window:</span> <span className="text-foreground">{report.config.rate_window_ms}ms</span></div>
                 <div><span className="text-muted-foreground">Trusted:</span> <span className="text-foreground">{report.config.rate_max_trusted}/min</span></div>
                 <div><span className="text-muted-foreground">Public:</span> <span className="text-foreground">{report.config.rate_max_public}/min</span></div>

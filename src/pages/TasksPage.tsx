@@ -12,7 +12,7 @@ export default function TasksPage() {
   const filtered = filter === "all" ? TASK_REGISTRY : TASK_REGISTRY.filter((t) => t.type === filter);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <h1 className="text-2xl font-bold">Task Registry</h1>
         <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)}>
@@ -24,7 +24,7 @@ export default function TasksPage() {
         </Tabs>
       </div>
 
-      <div className="rounded-lg border bg-card">
+      <div className="rounded-lg border bg-card overflow-x-auto w-full min-w-0">
         <Table>
           <TableHeader>
             <TableRow>

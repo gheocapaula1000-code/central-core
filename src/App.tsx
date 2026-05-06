@@ -49,7 +49,7 @@ const App = () => (
                 </div>
                 <span className="font-semibold md:hidden">Central Core V3</span>
               </header>
-              <main className="flex-1 p-6 overflow-auto">
+              <main className="flex-1 p-4 md:p-6 overflow-auto min-w-0">
                 <Routes>
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/apps" element={<AppsPage />} />
