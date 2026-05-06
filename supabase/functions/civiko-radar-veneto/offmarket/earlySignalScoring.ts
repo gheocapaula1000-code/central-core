@@ -83,12 +83,14 @@ const RE_ASSET_RULES: Array<{ type: AssetType; tokens: string[] }> = [
   { type: "bene_immobile",           tokens: ["bene immobile","beni immobili"] },
 ];
 
-const STRONG_PUBLIC_RE_KEYWORDS = [
-  "alienazione immobile","alienazione fabbricato","alienazione terreno",
-  "alienazione di fabbricato","alienazione di terreno","alienazione di immobile",
-  "alienazioni immobiliari","dismissioni patrimoniali","patrimonio immobiliare",
-  "proprietà del comune","proprieta del comune","bene immobile",
-  "asta pubblica immobile","asta pubblica fabbricato","asta pubblica terreno",
+const STRONG_PUBLIC_RE_PATTERNS: RegExp[] = [
+  /alienazione (di\s+)?(un[' ]?|uno |una )?(immobile|fabbricato|terreno|edificio|complesso|area)/i,
+  /alienazion[ei] (di\s+)?(un[' ]?|uno |una )?(bene\s+)?immobil/i,
+  /alienazion[ei] (a mezzo )?asta pubblica/i,
+  /dismission[ei] patrimon/i,
+  /patrimonio immobiliare/i,
+  /propriet[aà] (comunale|del comune)/i,
+  /asta pubblica.*(immobile|fabbricato|terreno|edificio)/i,
 ];
 
 const HIGH_PRIORITY_COMUNI = new Set([
