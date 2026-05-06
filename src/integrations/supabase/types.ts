@@ -696,75 +696,129 @@ export type Database = {
       }
       early_offmarket_signal_candidates: {
         Row: {
+          agent_action: string | null
+          ai_summary: string | null
+          amount_text: string | null
+          asset_type: string | null
+          commercial_value_score: number
           comune: string | null
           confidence_score: number | null
           created_at: string
           data_basis: string | null
+          deadline_text: string | null
           fingerprint: string
           id: string
           import_recommendation: string | null
+          investor_pitch: string | null
+          location_detail: string | null
           needs_review: boolean
+          owner_pitch: string | null
           payload: Json | null
           possible_agent_action: string | null
+          priority_score: number
           privacy_safe: boolean
           promoted_at: string | null
+          promoted_to: string | null
           provincia: string | null
+          publication_date: string | null
           quality: string | null
+          real_estate_relevance_score: number
           reject_reason: string | null
+          rejection_reason: string | null
+          review_reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
           run_id: string | null
           signal_type: string
           source_name: string | null
           source_url: string
+          status: string
           summary: string | null
           timing: string | null
           title: string
           why_it_matters: string | null
         }
         Insert: {
+          agent_action?: string | null
+          ai_summary?: string | null
+          amount_text?: string | null
+          asset_type?: string | null
+          commercial_value_score?: number
           comune?: string | null
           confidence_score?: number | null
           created_at?: string
           data_basis?: string | null
+          deadline_text?: string | null
           fingerprint: string
           id?: string
           import_recommendation?: string | null
+          investor_pitch?: string | null
+          location_detail?: string | null
           needs_review?: boolean
+          owner_pitch?: string | null
           payload?: Json | null
           possible_agent_action?: string | null
+          priority_score?: number
           privacy_safe?: boolean
           promoted_at?: string | null
+          promoted_to?: string | null
           provincia?: string | null
+          publication_date?: string | null
           quality?: string | null
+          real_estate_relevance_score?: number
           reject_reason?: string | null
+          rejection_reason?: string | null
+          review_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           run_id?: string | null
           signal_type: string
           source_name?: string | null
           source_url: string
+          status?: string
           summary?: string | null
           timing?: string | null
           title: string
           why_it_matters?: string | null
         }
         Update: {
+          agent_action?: string | null
+          ai_summary?: string | null
+          amount_text?: string | null
+          asset_type?: string | null
+          commercial_value_score?: number
           comune?: string | null
           confidence_score?: number | null
           created_at?: string
           data_basis?: string | null
+          deadline_text?: string | null
           fingerprint?: string
           id?: string
           import_recommendation?: string | null
+          investor_pitch?: string | null
+          location_detail?: string | null
           needs_review?: boolean
+          owner_pitch?: string | null
           payload?: Json | null
           possible_agent_action?: string | null
+          priority_score?: number
           privacy_safe?: boolean
           promoted_at?: string | null
+          promoted_to?: string | null
           provincia?: string | null
+          publication_date?: string | null
           quality?: string | null
+          real_estate_relevance_score?: number
           reject_reason?: string | null
+          rejection_reason?: string | null
+          review_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           run_id?: string | null
           signal_type?: string
           source_name?: string | null
           source_url?: string
+          status?: string
           summary?: string | null
           timing?: string | null
           title?: string
