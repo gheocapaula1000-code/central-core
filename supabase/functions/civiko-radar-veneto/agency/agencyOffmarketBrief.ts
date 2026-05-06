@@ -23,6 +23,8 @@ export interface AgencyBriefBody extends OperatingAreaInput {
   preferences?: Partial<AgencySignalPreferences>;
   excludeAuctions?: boolean;
   includePublicAlienations?: boolean;
+  includeSensitiveTurnover?: boolean;
+  includeSensitiveTurnoverAggregated?: boolean;
   topN?: number;
 }
 
@@ -40,6 +42,8 @@ export async function runAgencyOffmarketBrief(body: AgencyBriefBody) {
       ...(body.preferences ?? {}),
       ...(body.excludeAuctions !== undefined ? { exclude_auctions: !!body.excludeAuctions } : {}),
       ...(body.includePublicAlienations !== undefined ? { include_public_alienations: !!body.includePublicAlienations } : {}),
+      ...(body.includeSensitiveTurnover !== undefined ? { include_sensitive_turnover: !!body.includeSensitiveTurnover } : { include_sensitive_turnover: false }),
+      ...(body.includeSensitiveTurnoverAggregated !== undefined ? { include_sensitive_turnover_aggregated: !!body.includeSensitiveTurnoverAggregated } : { include_sensitive_turnover_aggregated: true }),
     },
   });
 
