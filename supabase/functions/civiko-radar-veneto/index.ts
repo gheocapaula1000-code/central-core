@@ -115,6 +115,13 @@ const ROUTES = [
   "POST /jobs/promote-early-signal-candidate",
   "POST /jobs/list-early-signal-candidates",
   "POST /jobs/build-agency-offmarket-brief",
+  "POST /agency/personal",
+  "POST /agency/operating-areas/list",
+  "POST /agency/operating-areas/create",
+  "POST /agency/operating-areas/update",
+  "POST /agency/operating-areas/deactivate",
+  "POST /agency/signal-preferences/get",
+  "POST /agency/signal-preferences/upsert",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
