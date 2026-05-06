@@ -228,13 +228,11 @@ export function evaluateCandidatePage(input: EvalInput): EvalResult {
     }
   }
 
-  // 3) Asset type. Considera solo la PARTE PRINCIPALE del titolo (prima del breadcrumb "/")
-  // per determinare se l'oggetto reale è non-immobiliare (es. "Alienazione di veicoli ... / Alienazione beni immobili").
-  const titleMain = titleLower.split(/\s[\/|·•]\s/)[0];
-  const titleHasNonRE = NON_RE_TOKENS.some((t) => titleMain.includes(t));
-  const titleHasRE = RE_ASSET_RULES.some((r) => r.tokens.some((t) => titleMain.includes(t)));
+  // 3) Asset type. Se nel titolo compare un termine non-RE (veicoli, autocarri, motocicli, …)
+  // forziamo non_real_estate_asset: i breadcrumb tipo "Alienazione beni immobili" sono solo categoria.
+  const titleHasNonRE = NON_RE_TOKENS.some((t) => titleLower.includes(t));
   let asset_type = detectAssetType(lower);
-  if (titleHasNonRE && !titleHasRE) asset_type = "non_real_estate_asset";
+  if (titleHasNonRE) asset_type = "non_real_estate_asset";
   if (asset_type === "non_real_estate_asset") {
     return baseResult({
       status: "rejected",
