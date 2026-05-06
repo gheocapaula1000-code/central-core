@@ -134,7 +134,12 @@ export default function Dashboard() {
             <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/build-agency-offmarket-brief", { province: ["PD"], comuni: ["Padova"], dryRun: false })}>
               Test Brief Padova
             </Button>
-          </div>
+            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/rescore-early-offmarket-candidates", {})}>
+              Rescore Candidati
+            </Button>
+            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/promote-early-signal-candidate", { run_id: "eos-motky4y0", force: true, min_confidence: 0.6 })}>
+              Promuovi Candidati Verona
+            </Button>
           {jobLoading && <p className="text-xs text-muted-foreground">In esecuzione...</p>}
           {jobResult && (
             <pre className="overflow-auto max-h-48 rounded-md bg-muted p-3 text-xs">
