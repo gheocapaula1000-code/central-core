@@ -147,19 +147,37 @@ function redactPreview(text: string, max = 280): string {
 }
 
 // ── Path guards ─────────────────────────────────────────────────
-function urlAllowed(u: string, src: OffMarketFirecrawlSource): boolean {
+// Hostname e excluded_paths sono HARD filter (sicurezza/compliance).
+// allowed_paths è SOFT hint: usato per ranking, non per filtro.
+function urlSafe(u: string, src: OffMarketFirecrawlSource): boolean {
   try {
     const url = new URL(u, src.base_url);
-    const path = url.pathname.toLowerCase();
     const baseHost = new URL(src.base_url).hostname.toLowerCase();
     if (url.hostname.toLowerCase() !== baseHost) return false;
+    const path = url.pathname.toLowerCase();
     if (src.excluded_paths.some((p) => path.includes(p.toLowerCase()))) return false;
-    if (src.allowed_paths.length === 0) return true;
-    return src.allowed_paths.some((p) => path.startsWith(p.toLowerCase()) || path.includes(p.toLowerCase()));
+    return true;
   } catch {
     return false;
   }
 }
+
+function urlPriority(u: string, src: OffMarketFirecrawlSource): number {
+  try {
+    const path = new URL(u, src.base_url).pathname.toLowerCase();
+    let score = 0;
+    for (const p of src.allowed_paths) {
+      if (path.includes(p.toLowerCase())) score += 2;
+    }
+    for (const k of src.keywords) {
+      if (path.includes(k.toLowerCase().replace(/\s+/g, "-"))) score += 1;
+    }
+    return score;
+  } catch {
+    return 0;
+  }
+}
+
 
 // ── Categoria → SignalType mapping ──────────────────────────────
 const CATEGORY_SIGNAL: Record<PageCategory, SignalType | null> = {
