@@ -39,6 +39,7 @@ import { runOffMarketFirecrawlDiscovery } from "./offmarket/offMarketFirecrawlRu
 import { runEarlyOffmarketDiscovery } from "./offmarket/earlyOffmarketRunner.ts";
 import { runRescoreEarlyCandidates, runPromoteEarlyCandidate, runListEarlyCandidates } from "./offmarket/earlySignalReview.ts";
 import { runAgencyOffmarketBrief } from "./agency/agencyOffmarketBrief.ts";
+import { handleAgencyCrudRoute } from "./agency/agencyCrud.ts";
 import { runAdvancedVenetoOpportunities } from "./advancedOpportunity.ts";
 import { buildVenetoIntelligenceFromResearch } from "./intelligence/orchestrator.ts";
 import { runVenetoOpenDataImport } from "./openData/ckanImporter.ts";
@@ -115,6 +116,13 @@ const ROUTES = [
   "POST /jobs/promote-early-signal-candidate",
   "POST /jobs/list-early-signal-candidates",
   "POST /jobs/build-agency-offmarket-brief",
+  "POST /agency/personal",
+  "POST /agency/operating-areas/list",
+  "POST /agency/operating-areas/create",
+  "POST /agency/operating-areas/update",
+  "POST /agency/operating-areas/deactivate",
+  "POST /agency/signal-preferences/get",
+  "POST /agency/signal-preferences/upsert",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
@@ -950,6 +958,15 @@ Deno.serve(async (req) => {
       return withIdentity(fail(req, 404, "ROUTE_NOT_FOUND", `GET ${pathname}`, debugId), "error");
     }
     if (req.method !== "POST") return withIdentity(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), "error");
+
+    // Agency CRUD endpoints (proxy → x-job-secret + x-user-id)
+    if (pathname.includes("/agency/") && !pathname.includes("/jobs/")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      const handled = await handleAgencyCrudRoute(req, pathname, debugId);
+      if (handled) {
+        return withIdentity(json(req, handled.status, handled.body, debugId), "agency-crud");
+      }
+    }
 
     // Job endpoints (cron-driven, protetti da CENTRAL_CORE_JOB_SECRET, fallback DIAGNOSTIC_SECRET)
     if (pathname.endsWith("/jobs/activate-veneto")) {
