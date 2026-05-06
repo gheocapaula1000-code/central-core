@@ -849,7 +849,9 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   // Radar signals (all active) — include in totalSignals so the frontend mostra dati Open Data Veneto
   let radarSignalsCount = 0;
   try {
-    const { count: rsc } = await supa.from("radar_signals").select("id", { count: "exact", head: true }).eq("is_active", true);
+    let rsq = supa.from("radar_signals").select("id", { count: "exact", head: true }).eq("is_active", true);
+    if (filterComune) rsq = rsq.ilike("municipality", filterComune.trim());
+    const { count: rsc } = await rsq;
     radarSignalsCount = rsc ?? 0;
   } catch (_e) { /* additive */ }
 
