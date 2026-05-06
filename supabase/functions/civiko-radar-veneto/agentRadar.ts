@@ -337,6 +337,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       .select("province,municipality,signal_type,is_active,lat,lng,source,payload")
       .eq("is_active", true);
     if (filterProv) q = q.in("province", [filterProv, fullProvName(filterProv)].filter(Boolean) as string[]);
+    if (filterComune) q = q.ilike("municipality", filterComune.trim());
     const { data, error } = await q.range(0, 1999);
     if (error) throw error;
     return data ?? [];
@@ -514,7 +515,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     const row = r as { province: string|null; municipality: string|null; signal_type: string|null; lat: number|null; lng: number|null; source: string|null; payload: Record<string, unknown>|null };
     const prov = isVenetoRow(row.province);
     if (!prov || !row.municipality) continue;
-    if (filterComune && row.municipality.toLowerCase() !== filterComune) continue;
+    if (filterComune && row.municipality.trim().toLowerCase() !== filterComune.trim().toLowerCase()) continue;
     const isDemo = isRecordDemo(row as never);
     if (isDemo && !allowDemo) continue;
     const a = ensure(row.municipality, prov);
@@ -848,7 +849,9 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   // Radar signals (all active) — include in totalSignals so the frontend mostra dati Open Data Veneto
   let radarSignalsCount = 0;
   try {
-    const { count: rsc } = await supa.from("radar_signals").select("id", { count: "exact", head: true }).eq("is_active", true);
+    let rsq = supa.from("radar_signals").select("id", { count: "exact", head: true }).eq("is_active", true);
+    if (filterComune) rsq = rsq.ilike("municipality", filterComune.trim());
+    const { count: rsc } = await rsq;
     radarSignalsCount = rsc ?? 0;
   } catch (_e) { /* additive */ }
 
