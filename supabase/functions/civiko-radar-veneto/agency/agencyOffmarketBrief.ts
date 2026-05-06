@@ -181,10 +181,72 @@ export async function runAgencyOffmarketBrief(body: AgencyBriefBody) {
   if (valuation_campaigns.length > 0) recommended_actions.push("Lanciare ciclo di report valori per microzone selezionate.");
   if (owner_education_angles.length > 0) recommended_actions.push("Inviare materiale educativo proprietari basato su dati OMI/zona.");
 
+  // Sensitive turnover (aggregated only by default; nominative never used here)
+  let turnover_aggregated_insights: any[] = [];
+  let turnover_used = false;
+  if (ctx.preferences.include_sensitive_turnover_aggregated) {
+    let etzQ = client.from("estate_turnover_zones")
+      .select("comune, provincia, area_label, microzona, score, temperature, reason, positive_factors, missing_factors, confidence_score, quality, category, agency_private_only, computed_at")
+      .eq("is_active", true)
+      .order("score", { ascending: false, nullsFirst: false })
+      .limit(200);
+    if (ctx.area.comuni.length) etzQ = etzQ.in("comune", ctx.area.comuni);
+    else if (ctx.area.province.length) etzQ = etzQ.in("provincia", ctx.area.province);
+    const { data: etz } = await etzQ;
+
+    let ipsQ = client.from("inheritance_pressure_signals")
+      .select("comune, provincia, area_label, area_type, score, confidence_score, quality, indicators, category, agency_private_only, computed_at")
+      .eq("is_active", true)
+      .order("score", { ascending: false, nullsFirst: false })
+      .limit(200);
+    if (ctx.area.comuni.length) ipsQ = ipsQ.in("comune", ctx.area.comuni);
+    else if (ctx.area.province.length) ipsQ = ipsQ.in("provincia", ctx.area.province);
+    const { data: ips } = await ipsQ;
+
+    // Strictly aggregated rows (area_type aggregato OR area_label di zona). Nessun nominativo.
+    const etzAgg = (etz ?? []).filter((r: any) => !!r.area_label).slice(0, topN).map((r: any) => ({
+      kind: "estate_turnover_zone",
+      comune: r.comune, provincia: r.provincia, area_label: r.area_label, microzona: r.microzona,
+      score: r.score, temperature: r.temperature,
+      reason_aggregated: r.reason ?? null,
+      positive_factors: r.positive_factors ?? [],
+      confidence: r.confidence_score, quality: r.quality,
+      neutral_angle: "Aggiornare il report valori della zona per supportare i proprietari nella valutazione.",
+    }));
+    const aggArea = new Set(["comune","quartiere","microzona","sezione_censuaria","cap","zona_omi"]);
+    const ipsAgg = (ips ?? []).filter((r: any) => aggArea.has(String(r.area_type ?? "").toLowerCase())).slice(0, topN).map((r: any) => ({
+      kind: "inheritance_pressure_aggregate",
+      comune: r.comune, provincia: r.provincia, area_label: r.area_label, area_type: r.area_type,
+      score: r.score, indicators: r.indicators ?? {},
+      confidence: r.confidence_score, quality: r.quality,
+      neutral_angle: "Demografia di zona suggerisce turnover patrimoniale potenziale: utile per pianificare campagne valutative neutre.",
+    }));
+
+    turnover_aggregated_insights = [...etzAgg, ...ipsAgg];
+    if (turnover_aggregated_insights.length > 0) {
+      turnover_used = true;
+      data_basis.push("estate_turnover_zones:aggregated", "inheritance_pressure_signals:aggregated");
+    } else {
+      missing_data.push("turnover_aggregated_insights");
+    }
+  }
+
+  const recommended_actions: string[] = [];
+  if (top_comuni.length > 0) recommended_actions.push(`Concentrare campagna su ${top_comuni.slice(0, 3).map((c) => c.comune).join(", ")}.`);
+  if (top_microzones.length > 0) recommended_actions.push(`Aprire valutazioni in ${top_microzones.slice(0, 3).map((m) => m.area_label).join(", ")}.`);
+  if (valuation_campaigns.length > 0) recommended_actions.push("Lanciare ciclo di report valori per microzone selezionate.");
+  if (owner_education_angles.length > 0) recommended_actions.push("Inviare materiale educativo proprietari basato su dati OMI/zona.");
+  if (turnover_used) recommended_actions.push("Usare turnover aggregato di zona per timing di campagne neutre (nessun outreach nominativo).");
+
+  // Scripts: solo neutri, filtra forbidden topics (lutto/successione/ecc.)
+  const { isScriptSafeForSensitiveTurnover, buildNeutralZoneScript } = await import("../privacy/sensitiveTurnoverPolicy.ts");
   const scripts = acquisition_opportunities
-    .filter((o) => o.owner_script)
-    .slice(0, 5)
-    .map((o) => ({ comune: o.comune, area_label: o.area_label, script: o.owner_script }));
+    .map((o) => {
+      const raw = typeof o.owner_script === "string" ? o.owner_script : null;
+      const safe = raw && isScriptSafeForSensitiveTurnover(raw).safe ? raw : buildNeutralZoneScript(o.comune, o.area_label);
+      return { comune: o.comune, area_label: o.area_label, script: safe };
+    })
+    .slice(0, 5);
 
   const totalConf = (oos ?? []).reduce((s: number, r: any) => s + Number(r.confidence_score ?? 0), 0);
   const confidence = (oos?.length ?? 0) > 0 ? Math.round((totalConf / (oos!.length)) * 100) / 100 : 0;
@@ -200,8 +262,10 @@ export async function runAgencyOffmarketBrief(body: AgencyBriefBody) {
       excluded_categories: [
         ...(ctx.preferences.exclude_auctions ? ["auctions"] : []),
         ...(!ctx.preferences.include_public_alienations ? ["public_alienations"] : []),
+        ...(!ctx.preferences.include_sensitive_turnover ? ["sensitive_turnover_nominative"] : []),
         "sensitive_nominative",
       ],
+      sensitive_turnover_mode: ctx.preferences.include_sensitive_turnover_aggregated ? "aggregated_only" : "off",
     },
     counts: {
       offmarket_rows: oos?.length ?? 0,
@@ -209,17 +273,24 @@ export async function runAgencyOffmarketBrief(body: AgencyBriefBody) {
       area_opportunity_rows: aos?.length ?? 0,
       territorial_signals_filtered: tsFiltered.length,
       radar_signals_filtered: rsFiltered.length,
+      turnover_aggregated_rows: turnover_aggregated_insights.length,
     },
     top_comuni,
     top_microzones,
     acquisition_opportunities,
     valuation_campaigns,
     owner_education_angles,
+    turnover_aggregated_insights,
     recommended_actions,
     scripts,
     data_basis,
     missing_data,
     warnings,
     confidence,
+    privacy: {
+      personal_data_used: false,
+      nominative_outreach_allowed: false,
+      sensitive_topics_blocked_in_scripts: ["lutto","decesso","successione","eredi"],
+    },
   };
 }
