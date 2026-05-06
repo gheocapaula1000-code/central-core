@@ -35,6 +35,7 @@ import { importVenetoAuctions } from "./auctionImport.ts";
 import { runFirecrawlDeepVeneto } from "./firecrawl/crawlRunner.ts";
 import { runMicrozoneOpportunitySignals } from "./firecrawl/microzoneOpportunityRunner.ts";
 import { runOffMarketOpportunityEngine } from "./offmarket/offMarketOpportunityEngine.ts";
+import { runOffMarketFirecrawlDiscovery } from "./offmarket/offMarketFirecrawlRunner.ts";
 import { runAdvancedVenetoOpportunities } from "./advancedOpportunity.ts";
 import { buildVenetoIntelligenceFromResearch } from "./intelligence/orchestrator.ts";
 import { runVenetoOpenDataImport } from "./openData/ckanImporter.ts";
