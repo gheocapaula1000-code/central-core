@@ -101,7 +101,7 @@ export async function runAgencyOffmarketBrief(body: AgencyBriefBody) {
     .eq("is_active", true)
     .order("acquisition_priority_score", { ascending: false, nullsFirst: false })
     .limit(500);
-  if (ctx.area.comuni.length) oosQ = oosQ.in("comune", ctx.area.comuni);
+  if (ctx.area.comuni.length) oosQ = oosQ.in("comune", expandMunicipalityVariants(ctx.area.comuni));
   else if (ctx.area.province.length) oosQ = oosQ.in("provincia", ctx.area.province);
   const { data: oos, error: oosErr } = await oosQ;
   if (oosErr) warnings.push(`offmarket_opportunity_scores: ${oosErr.message}`);
@@ -114,7 +114,7 @@ export async function runAgencyOffmarketBrief(body: AgencyBriefBody) {
     .eq("is_active", true)
     .order("sentiment_score_total", { ascending: false, nullsFirst: false })
     .limit(300);
-  if (ctx.area.comuni.length) msQ = msQ.in("comune", ctx.area.comuni);
+  if (ctx.area.comuni.length) msQ = msQ.in("comune", expandMunicipalityVariants(ctx.area.comuni));
   else if (ctx.area.province.length) msQ = msQ.in("provincia", ctx.area.province);
   const { data: ms } = await msQ;
   if ((ms?.length ?? 0) > 0) data_basis.push("microzone_sentiment"); else missing_data.push("microzone_sentiment");
@@ -123,7 +123,7 @@ export async function runAgencyOffmarketBrief(body: AgencyBriefBody) {
   let aosQ = client.from("area_opportunity_scores")
     .select("municipality, province, microzone, score, temperature, components, quality, computed_at")
     .order("score", { ascending: false, nullsFirst: false }).limit(300);
-  if (ctx.area.comuni.length) aosQ = aosQ.in("municipality", ctx.area.comuni);
+  if (ctx.area.comuni.length) aosQ = aosQ.in("municipality", expandMunicipalityVariants(ctx.area.comuni));
   else if (ctx.area.province.length) aosQ = aosQ.in("province", ctx.area.province);
   const { data: aos } = await aosQ;
   if ((aos?.length ?? 0) > 0) data_basis.push("area_opportunity_scores"); else missing_data.push("area_opportunity_scores");
@@ -132,7 +132,7 @@ export async function runAgencyOffmarketBrief(body: AgencyBriefBody) {
   let tsQ = client.from("territorial_signals")
     .select("municipality, province, signal_type, title, description, confidence_score, quality, payload, detected_at")
     .order("detected_at", { ascending: false }).limit(300);
-  if (ctx.area.comuni.length) tsQ = tsQ.in("municipality", ctx.area.comuni);
+  if (ctx.area.comuni.length) tsQ = tsQ.in("municipality", expandMunicipalityVariants(ctx.area.comuni));
   else if (ctx.area.province.length) tsQ = tsQ.in("province", ctx.area.province);
   const { data: ts } = await tsQ;
   const tsFiltered = (ts ?? []).filter((s: any) => isSignalAllowedByPreferences(s, ctx.preferences).allowed);
@@ -143,7 +143,7 @@ export async function runAgencyOffmarketBrief(body: AgencyBriefBody) {
     .select("municipality, province, signal_type, title, description, confidence, urgency, payload, detected_at")
     .eq("is_active", true)
     .order("detected_at", { ascending: false }).limit(300);
-  if (ctx.area.comuni.length) rsQ = rsQ.in("municipality", ctx.area.comuni);
+  if (ctx.area.comuni.length) rsQ = rsQ.in("municipality", expandMunicipalityVariants(ctx.area.comuni));
   else if (ctx.area.province.length) rsQ = rsQ.in("province", ctx.area.province);
   const { data: rs } = await rsQ;
   const rsFiltered = (rs ?? []).filter((s: any) => isSignalAllowedByPreferences(s, ctx.preferences).allowed);
@@ -221,7 +221,7 @@ export async function runAgencyOffmarketBrief(body: AgencyBriefBody) {
       .eq("is_active", true)
       .order("score", { ascending: false, nullsFirst: false })
       .limit(200);
-    if (ctx.area.comuni.length) etzQ = etzQ.in("comune", ctx.area.comuni);
+    if (ctx.area.comuni.length) etzQ = etzQ.in("comune", expandMunicipalityVariants(ctx.area.comuni));
     else if (ctx.area.province.length) etzQ = etzQ.in("provincia", ctx.area.province);
     const { data: etz } = await etzQ;
 
@@ -230,7 +230,7 @@ export async function runAgencyOffmarketBrief(body: AgencyBriefBody) {
       .eq("is_active", true)
       .order("score", { ascending: false, nullsFirst: false })
       .limit(200);
-    if (ctx.area.comuni.length) ipsQ = ipsQ.in("comune", ctx.area.comuni);
+    if (ctx.area.comuni.length) ipsQ = ipsQ.in("comune", expandMunicipalityVariants(ctx.area.comuni));
     else if (ctx.area.province.length) ipsQ = ipsQ.in("provincia", ctx.area.province);
     const { data: ips } = await ipsQ;
 
