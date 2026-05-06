@@ -1,0 +1,137 @@
+{
+  "regione": "Veneto",
+  "versione": "1.0.0",
+  "fonte_prezzi": "OMI Agenzia delle Entrate — fasce semestrali 2023-2024",
+  "avvertenza": "Fasce OMI orientative. Non sono prezzi di mercato reale. Volumi annunci non disponibili senza API portali.",
+  "province": [
+    {
+      "codice": "VI", "nome": "Vicenza",
+      "comuni_principali": ["Vicenza","Bassano del Grappa","Schio","Thiene","Valdagno","Arzignano","Marostica"],
+      "comuni": [
+        { "nome": "Vicenza", "tipo": "capoluogo", "microzone": [
+            {"nome": "Centro Storico", "tipo": "centrale", "prezzo_mq_min": 1800, "prezzo_mq_max": 3200},
+            {"nome": "Semicentro", "tipo": "semicentrale", "prezzo_mq_min": 1400, "prezzo_mq_max": 2200},
+            {"nome": "Periferia", "tipo": "periferica", "prezzo_mq_min": 900, "prezzo_mq_max": 1600}
+          ], "segnali": ["Città UNESCO","Ferrovia Vicenza-Verona-Padova"] },
+        { "nome": "Bassano del Grappa", "tipo": "comune_rilevante", "microzone": [
+            {"nome": "Centro", "tipo": "centrale", "prezzo_mq_min": 1600, "prezzo_mq_max": 2800},
+            {"nome": "Periferia", "tipo": "periferica", "prezzo_mq_min": 900, "prezzo_mq_max": 1500}
+          ], "segnali": ["Meta turistica documentata","A31 Valdastico"] },
+        { "nome": "Schio", "tipo": "comune_rilevante", "microzone": [
+            {"nome": "Centro", "tipo": "centrale", "prezzo_mq_min": 1100, "prezzo_mq_max": 1900},
+            {"nome": "Periferia", "tipo": "periferica", "prezzo_mq_min": 700, "prezzo_mq_max": 1200}
+          ], "segnali": [] }
+      ]
+    },
+    {
+      "codice": "VR", "nome": "Verona",
+      "comuni_principali": ["Verona","Villafranca di Verona","Legnago","San Bonifacio","Soave","Bardolino","Lazise"],
+      "comuni": [
+        { "nome": "Verona", "tipo": "capoluogo", "microzone": [
+            {"nome": "Centro Storico", "tipo": "centrale", "prezzo_mq_min": 2500, "prezzo_mq_max": 4500},
+            {"nome": "Semicentro", "tipo": "semicentrale", "prezzo_mq_min": 1600, "prezzo_mq_max": 2800},
+            {"nome": "Periferia", "tipo": "periferica", "prezzo_mq_min": 1000, "prezzo_mq_max": 1800}
+          ], "segnali": ["Seconda città turistica Veneto — ISTAT","Aeroporto Catullo","A4/A22"] },
+        { "nome": "Lazise", "tipo": "comune_turistico", "microzone": [
+            {"nome": "Lungolago", "tipo": "turistica", "prezzo_mq_min": 2800, "prezzo_mq_max": 5000},
+            {"nome": "Entroterra", "tipo": "periferica", "prezzo_mq_min": 1400, "prezzo_mq_max": 2200}
+          ], "segnali": ["Lago di Garda — mercato seconda casa"] },
+        { "nome": "Villafranca di Verona", "tipo": "comune_rilevante", "microzone": [
+            {"nome": "Centro", "tipo": "centrale", "prezzo_mq_min": 1200, "prezzo_mq_max": 2000},
+            {"nome": "Periferia", "tipo": "periferica", "prezzo_mq_min": 800, "prezzo_mq_max": 1400}
+          ], "segnali": ["Aeroporto adiacente"] }
+      ]
+    },
+    {
+      "codice": "PD", "nome": "Padova",
+      "comuni_principali": ["Padova","Abano Terme","Cittadella","Este","Monselice","Vigonza","Selvazzano Dentro"],
+      "comuni": [
+        { "nome": "Padova", "tipo": "capoluogo", "microzone": [
+            {"nome": "Centro Storico", "tipo": "centrale", "prezzo_mq_min": 2200, "prezzo_mq_max": 4000},
+            {"nome": "Semicentro", "tipo": "semicentrale", "prezzo_mq_min": 1500, "prezzo_mq_max": 2500},
+            {"nome": "Periferia", "tipo": "periferica", "prezzo_mq_min": 900, "prezzo_mq_max": 1600}
+          ], "segnali": ["Università di Padova — 60.000+ studenti","Tram SIR1/SIR2/SIR3","A4/A13"] },
+        { "nome": "Abano Terme", "tipo": "comune_termale", "microzone": [
+            {"nome": "Centro Termale", "tipo": "turistica", "prezzo_mq_min": 1400, "prezzo_mq_max": 2600},
+            {"nome": "Residenziale", "tipo": "periferica", "prezzo_mq_min": 900, "prezzo_mq_max": 1500}
+          ], "segnali": ["Distretto termale documentato"] },
+        { "nome": "Cittadella", "tipo": "comune_rilevante", "microzone": [
+            {"nome": "Centro Storico Murato", "tipo": "centrale", "prezzo_mq_min": 1200, "prezzo_mq_max": 2100},
+            {"nome": "Periferia", "tipo": "periferica", "prezzo_mq_min": 800, "prezzo_mq_max": 1300}
+          ], "segnali": [] }
+      ]
+    },
+    {
+      "codice": "TV", "nome": "Treviso",
+      "comuni_principali": ["Treviso","Conegliano","Vittorio Veneto","Castelfranco Veneto","Montebelluna","Oderzo"],
+      "comuni": [
+        { "nome": "Treviso", "tipo": "capoluogo", "microzone": [
+            {"nome": "Centro Storico", "tipo": "centrale", "prezzo_mq_min": 2000, "prezzo_mq_max": 3500},
+            {"nome": "Semicentro", "tipo": "semicentrale", "prezzo_mq_min": 1400, "prezzo_mq_max": 2200},
+            {"nome": "Periferia", "tipo": "periferica", "prezzo_mq_min": 900, "prezzo_mq_max": 1500}
+          ], "segnali": ["Aeroporto Marco Polo a 30km"] },
+        { "nome": "Conegliano", "tipo": "comune_rilevante", "microzone": [
+            {"nome": "Centro", "tipo": "centrale", "prezzo_mq_min": 1300, "prezzo_mq_max": 2200},
+            {"nome": "Periferia", "tipo": "periferica", "prezzo_mq_min": 800, "prezzo_mq_max": 1300}
+          ], "segnali": ["Strada del Prosecco UNESCO 2019"] },
+        { "nome": "Castelfranco Veneto", "tipo": "comune_rilevante", "microzone": [
+            {"nome": "Centro Murato", "tipo": "centrale", "prezzo_mq_min": 1200, "prezzo_mq_max": 2000},
+            {"nome": "Periferia", "tipo": "periferica", "prezzo_mq_min": 750, "prezzo_mq_max": 1200}
+          ], "segnali": [] }
+      ]
+    },
+    {
+      "codice": "VE", "nome": "Venezia",
+      "comuni_principali": ["Venezia","Mestre","Chioggia","San Donà di Piave","Mirano","Jesolo"],
+      "comuni": [
+        { "nome": "Venezia Centro Storico", "tipo": "capoluogo_storico", "microzone": [
+            {"nome": "San Marco", "tipo": "centrale_turistica", "prezzo_mq_min": 5000, "prezzo_mq_max": 12000},
+            {"nome": "Cannaregio", "tipo": "centrale", "prezzo_mq_min": 3500, "prezzo_mq_max": 7000},
+            {"nome": "Dorsoduro", "tipo": "centrale", "prezzo_mq_min": 4000, "prezzo_mq_max": 8000},
+            {"nome": "Castello", "tipo": "semicentrale", "prezzo_mq_min": 3000, "prezzo_mq_max": 6000}
+          ], "segnali": ["20M+ presenze/anno — CCIAA Venezia","Spopolamento residenti documentato — ISTAT"] },
+        { "nome": "Mestre", "tipo": "area_continentale", "microzone": [
+            {"nome": "Centro Mestre", "tipo": "centrale", "prezzo_mq_min": 1600, "prezzo_mq_max": 2800},
+            {"nome": "Periferia", "tipo": "periferica", "prezzo_mq_min": 900, "prezzo_mq_max": 1600}
+          ], "segnali": ["Collegamento diretto Venezia via treno/tram"] },
+        { "nome": "Jesolo", "tipo": "comune_turistico_balneare", "microzone": [
+            {"nome": "Litorale", "tipo": "turistica_balneare", "prezzo_mq_min": 2000, "prezzo_mq_max": 4500},
+            {"nome": "Entroterra", "tipo": "periferica", "prezzo_mq_min": 900, "prezzo_mq_max": 1600}
+          ], "segnali": ["Litorale adriatico — stagionalità documentata"] }
+      ]
+    },
+    {
+      "codice": "RO", "nome": "Rovigo",
+      "comuni_principali": ["Rovigo","Adria","Porto Tolle","Badia Polesine"],
+      "comuni": [
+        { "nome": "Rovigo", "tipo": "capoluogo", "microzone": [
+            {"nome": "Centro", "tipo": "centrale", "prezzo_mq_min": 900, "prezzo_mq_max": 1600},
+            {"nome": "Periferia", "tipo": "periferica", "prezzo_mq_min": 500, "prezzo_mq_max": 950}
+          ], "segnali": [] },
+        { "nome": "Adria", "tipo": "comune_rilevante", "microzone": [
+            {"nome": "Centro", "tipo": "centrale", "prezzo_mq_min": 700, "prezzo_mq_max": 1300}
+          ], "segnali": [] },
+        { "nome": "Porto Tolle", "tipo": "comune_delta", "microzone": null,
+          "segnali": ["Delta del Po — Parco Regionale documentato"] }
+      ]
+    },
+    {
+      "codice": "BL", "nome": "Belluno",
+      "comuni_principali": ["Belluno","Cortina d'Ampezzo","Feltre","Longarone","Agordo"],
+      "comuni": [
+        { "nome": "Belluno", "tipo": "capoluogo", "microzone": [
+            {"nome": "Centro", "tipo": "centrale", "prezzo_mq_min": 1000, "prezzo_mq_max": 1800},
+            {"nome": "Periferia", "tipo": "periferica", "prezzo_mq_min": 600, "prezzo_mq_max": 1100}
+          ], "segnali": [] },
+        { "nome": "Cortina d'Ampezzo", "tipo": "comune_luxury_montagna", "microzone": [
+            {"nome": "Centro Cortina", "tipo": "turistica_luxury", "prezzo_mq_min": 6000, "prezzo_mq_max": 15000},
+            {"nome": "Frazioni", "tipo": "turistica", "prezzo_mq_min": 3000, "prezzo_mq_max": 7000}
+          ], "segnali": ["Olimpiadi Milano-Cortina 2026 documentato","Opere infrastrutturali pre-olimpiadi in corso"] },
+        { "nome": "Feltre", "tipo": "comune_rilevante", "microzone": [
+            {"nome": "Centro Storico", "tipo": "centrale", "prezzo_mq_min": 800, "prezzo_mq_max": 1400},
+            {"nome": "Periferia", "tipo": "periferica", "prezzo_mq_min": 500, "prezzo_mq_max": 900}
+          ], "segnali": [] }
+      ]
+    }
+  ]
+}
