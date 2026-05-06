@@ -177,7 +177,7 @@ export default function Dashboard() {
                 const res = await fetch(`${baseUrl}/functions/v1/civiko-radar-veneto/jobs/promote-early-signal-candidate`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json", "x-job-secret": jobSecret },
-                  body: JSON.stringify({ candidate_id: id, force: true, note: "Revisione manuale approvata — alienazione comunale Verona" }),
+                  body: JSON.stringify({ candidate_id: id, force: true, reviewer_note: "Revisione manuale approvata — alienazione comunale Verona", target: "radar_signals" }),
                 });
                 const data = await res.json();
                 results.push({ id: id.slice(0, 8), ok: data.ok, promoted_to: data.promoted_to, error: data.error ?? null });
