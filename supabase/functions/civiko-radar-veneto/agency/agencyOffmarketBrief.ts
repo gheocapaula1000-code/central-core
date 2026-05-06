@@ -176,11 +176,7 @@ export async function runAgencyOffmarketBrief(body: AgencyBriefBody) {
       owner_education_score: r.owner_education_score,
     }));
 
-  const recommended_actions: string[] = [];
-  if (top_comuni.length > 0) recommended_actions.push(`Concentrare campagna su ${top_comuni.slice(0, 3).map((c) => c.comune).join(", ")}.`);
-  if (top_microzones.length > 0) recommended_actions.push(`Aprire valutazioni in ${top_microzones.slice(0, 3).map((m) => m.area_label).join(", ")}.`);
-  if (valuation_campaigns.length > 0) recommended_actions.push("Lanciare ciclo di report valori per microzone selezionate.");
-  if (owner_education_angles.length > 0) recommended_actions.push("Inviare materiale educativo proprietari basato su dati OMI/zona.");
+
 
   // Sensitive turnover (aggregated only by default; nominative never used here)
   let turnover_aggregated_insights: any[] = [];
