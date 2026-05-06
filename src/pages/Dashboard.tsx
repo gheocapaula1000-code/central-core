@@ -137,8 +137,31 @@ export default function Dashboard() {
             <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/rescore-early-offmarket-candidates", {})}>
               Rescore Candidati
             </Button>
-            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/promote-early-signal-candidate", { run_id: "eos-motky4y0", force: true, min_confidence: 0.6 })}>
-              Promuovi Candidati Verona
+            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={async () => {
+              const ids = [
+                "fa6e1602-1ff1-4b6d-adc9-1270b9e20665",
+                "f89f7ab5-f977-4301-9ba4-d6349aba0266",
+                "6a26522f-7869-4f92-b1a8-b4b6e552a874",
+                "d31a61f5-c66d-46ed-bdef-dabca1a787cc",
+                "a4882842-4b3d-45e6-92d9-d342a5933add"
+              ];
+              setJobLoading(true);
+              setJobResult(null);
+              const results = [];
+              for (const id of ids) {
+                const baseUrl = import.meta.env.VITE_SUPABASE_URL;
+                const res = await fetch(`${baseUrl}/functions/v1/civiko-radar-veneto/jobs/promote-early-signal-candidate`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", "x-job-secret": jobSecret },
+                  body: JSON.stringify({ candidate_id: id, force: true }),
+                });
+                const data = await res.json();
+                results.push({ id: id.slice(0, 8), ok: data.ok, promoted_to: data.promoted_to });
+              }
+              setJobResult(JSON.stringify(results, null, 2));
+              setJobLoading(false);
+            }}>
+              Promuovi 5 Candidati
             </Button>
           </div>
           {jobLoading && <p className="text-xs text-muted-foreground">In esecuzione...</p>}
