@@ -1083,6 +1083,7 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] fc-offmarket-discovery error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Firecrawl off-market discovery failed", debugId), "job-error");
+      }
     }
 
     // Early Off-Market Signals — discovery DRY-RUN-FIRST (Perplexity + Firecrawl)
@@ -1107,7 +1108,6 @@ Deno.serve(async (req) => {
         promoted: false,
         reason: "Promotion disabled in this turn. Implement after manual review of candidates.",
       }, debugId), "job-promote-early-stub");
-    }
     }
 
     if (pathname.endsWith("/jobs/firecrawl-microzone-opportunity-signals")) {
