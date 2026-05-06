@@ -8,7 +8,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import {
   getAgencyOperatingContext, type OperatingAreaInput,
   type AgencySignalPreferences, isSignalAllowedByPreferences,
+  resolveOperatingAreaInput,
 } from "./agencyOperatingContext.ts";
+// (compat trailing import line removed)
+const __unused__ = 0;
 import { isScriptSafeForSensitiveTurnover, buildNeutralZoneScript } from "../privacy/sensitiveTurnoverPolicy.ts";
 
 function sb() {
