@@ -240,7 +240,7 @@ export async function runAgencyOffmarketBrief(body: AgencyBriefBody) {
   if (turnover_used) recommended_actions.push("Usare turnover aggregato di zona per timing di campagne neutre (nessun outreach nominativo).");
 
   // Scripts: solo neutri, filtra forbidden topics (lutto/successione/ecc.)
-  const { isScriptSafeForSensitiveTurnover, buildNeutralZoneScript } = await import("../privacy/sensitiveTurnoverPolicy.ts");
+  // Scripts: solo neutri, filtra forbidden topics (lutto/successione/ecc.) — helper importato in cima.
   const scripts = acquisition_opportunities
     .map((o) => {
       const raw = typeof o.owner_script === "string" ? o.owner_script : null;
