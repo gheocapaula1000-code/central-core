@@ -163,6 +163,30 @@ export default function Dashboard() {
             }}>
               Promuovi 5 Candidati
             </Button>
+            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={async () => {
+              const ids = [
+                "fa6e1602-1ff1-4b6d-adc9-1270b9e20665",
+                "f89f7ab5-f977-4301-9ba4-d6349aba0266",
+                "d31a61f5-c66d-46ed-bdef-dabca1a787cc",
+              ];
+              setJobLoading(true);
+              setJobResult(null);
+              const results = [];
+              for (const id of ids) {
+                const baseUrl = import.meta.env.VITE_SUPABASE_URL;
+                const res = await fetch(`${baseUrl}/functions/v1/civiko-radar-veneto/jobs/promote-early-signal-candidate`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", "x-job-secret": jobSecret },
+                  body: JSON.stringify({ candidate_id: id, force: true, note: "Revisione manuale approvata — alienazione comunale Verona" }),
+                });
+                const data = await res.json();
+                results.push({ id: id.slice(0, 8), ok: data.ok, promoted_to: data.promoted_to, error: data.error ?? null });
+              }
+              setJobResult(JSON.stringify(results, null, 2));
+              setJobLoading(false);
+            }}>
+              Riprova 3 Falliti
+            </Button>
           </div>
           {jobLoading && <p className="text-xs text-muted-foreground">In esecuzione...</p>}
           {jobResult && (
