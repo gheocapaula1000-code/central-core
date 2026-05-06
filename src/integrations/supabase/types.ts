@@ -14,13 +14,86 @@ export type Database = {
   }
   public: {
     Tables: {
+      agencies: {
+        Row: {
+          billing_email: string | null
+          created_at: string
+          id: string
+          name: string
+          plan: string | null
+          slug: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          billing_email?: string | null
+          created_at?: string
+          id?: string
+          name: string
+          plan?: string | null
+          slug?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          billing_email?: string | null
+          created_at?: string
+          id?: string
+          name?: string
+          plan?: string | null
+          slug?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      agency_memberships: {
+        Row: {
+          agency_id: string
+          created_at: string
+          id: string
+          role: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          agency_id: string
+          created_at?: string
+          id?: string
+          role?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          agency_id?: string
+          created_at?: string
+          id?: string
+          role?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agency_memberships_agency_id_fkey"
+            columns: ["agency_id"]
+            isOneToOne: false
+            referencedRelation: "agencies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agency_operating_areas: {
         Row: {
           agency_id: string | null
           comuni: string[]
           created_at: string
+          created_by: string | null
           focus: string[]
           id: string
+          is_active: boolean
           is_default: boolean
           label: string | null
           microzones: string[]
@@ -35,8 +108,10 @@ export type Database = {
           agency_id?: string | null
           comuni?: string[]
           created_at?: string
+          created_by?: string | null
           focus?: string[]
           id?: string
+          is_active?: boolean
           is_default?: boolean
           label?: string | null
           microzones?: string[]
@@ -51,8 +126,10 @@ export type Database = {
           agency_id?: string | null
           comuni?: string[]
           created_at?: string
+          created_by?: string | null
           focus?: string[]
           id?: string
+          is_active?: boolean
           is_default?: boolean
           label?: string | null
           microzones?: string[]
@@ -129,6 +206,7 @@ export type Database = {
         Row: {
           agency_id: string | null
           created_at: string
+          created_by: string | null
           exclude_auctions: boolean
           exclude_signal_types: string[]
           id: string
@@ -142,6 +220,7 @@ export type Database = {
           include_tourism: boolean
           include_urban_planning: boolean
           min_confidence: number
+          operating_area_id: string | null
           updated_at: string
           user_id: string | null
           workspace_id: string | null
@@ -149,6 +228,7 @@ export type Database = {
         Insert: {
           agency_id?: string | null
           created_at?: string
+          created_by?: string | null
           exclude_auctions?: boolean
           exclude_signal_types?: string[]
           id?: string
@@ -162,6 +242,7 @@ export type Database = {
           include_tourism?: boolean
           include_urban_planning?: boolean
           min_confidence?: number
+          operating_area_id?: string | null
           updated_at?: string
           user_id?: string | null
           workspace_id?: string | null
@@ -169,6 +250,7 @@ export type Database = {
         Update: {
           agency_id?: string | null
           created_at?: string
+          created_by?: string | null
           exclude_auctions?: boolean
           exclude_signal_types?: string[]
           id?: string
@@ -182,11 +264,20 @@ export type Database = {
           include_tourism?: boolean
           include_urban_planning?: boolean
           min_confidence?: number
+          operating_area_id?: string | null
           updated_at?: string
           user_id?: string | null
           workspace_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "agency_signal_preferences_operating_area_id_fkey"
+            columns: ["operating_area_id"]
+            isOneToOne: false
+            referencedRelation: "agency_operating_areas"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       area_opportunity_scores: {
         Row: {
@@ -3333,6 +3424,8 @@ export type Database = {
         }
         Returns: number
       }
+      is_agency_admin: { Args: { target_agency_id: string }; Returns: boolean }
+      is_agency_member: { Args: { target_agency_id: string }; Returns: boolean }
       omi_zone_by_point: {
         Args: { p_lat: number; p_lng: number }
         Returns: {
