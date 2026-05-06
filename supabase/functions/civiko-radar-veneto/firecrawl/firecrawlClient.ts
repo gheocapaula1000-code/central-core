@@ -71,7 +71,16 @@ export async function fcMap(url: string, opts: { search?: string; limit?: number
     });
     if (!res.ok) return { ok: false, links: [], error: `HTTP ${res.status}` };
     const data = await res.json().catch(() => ({}));
-    const links: string[] = Array.isArray(data?.links) ? data.links : Array.isArray(data?.data?.links) ? data.data.links : [];
+    const raw: unknown[] = Array.isArray(data?.links)
+      ? data.links
+      : Array.isArray(data?.data?.links)
+        ? data.data.links
+        : Array.isArray(data?.data)
+          ? data.data
+          : [];
+    const links: string[] = raw
+      .map((l) => (typeof l === "string" ? l : (l as { url?: string })?.url ?? ""))
+      .filter((s): s is string => typeof s === "string" && s.length > 0);
     return { ok: true, links: links.slice(0, opts.limit ?? 100) };
   } catch (e) {
     return { ok: false, links: [], error: e instanceof Error ? e.message : String(e) };
