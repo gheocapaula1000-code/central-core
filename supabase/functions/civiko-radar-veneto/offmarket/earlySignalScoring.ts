@@ -230,7 +230,7 @@ export function evaluateCandidatePage(input: EvalInput): EvalResult {
 
   // 3) Asset type. Considera solo la PARTE PRINCIPALE del titolo (prima del breadcrumb "/")
   // per determinare se l'oggetto reale è non-immobiliare (es. "Alienazione di veicoli ... / Alienazione beni immobili").
-  const titleMain = titleLower.split(/[\/|·•]/)[0];
+  const titleMain = titleLower.split(/\s[\/|·•]\s/)[0];
   const titleHasNonRE = NON_RE_TOKENS.some((t) => titleMain.includes(t));
   const titleHasRE = RE_ASSET_RULES.some((r) => r.tokens.some((t) => titleMain.includes(t)));
   let asset_type = detectAssetType(lower);
