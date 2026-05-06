@@ -959,6 +959,15 @@ Deno.serve(async (req) => {
     }
     if (req.method !== "POST") return withIdentity(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), "error");
 
+    // Agency CRUD endpoints (proxy → x-job-secret + x-user-id)
+    if (pathname.includes("/agency/") && !pathname.includes("/jobs/")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      const handled = await handleAgencyCrudRoute(req, pathname, debugId);
+      if (handled) {
+        return withIdentity(json(req, handled.status, handled.body, debugId), "agency-crud");
+      }
+    }
+
     // Job endpoints (cron-driven, protetti da CENTRAL_CORE_JOB_SECRET, fallback DIAGNOSTIC_SECRET)
     if (pathname.endsWith("/jobs/activate-veneto")) {
       const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
