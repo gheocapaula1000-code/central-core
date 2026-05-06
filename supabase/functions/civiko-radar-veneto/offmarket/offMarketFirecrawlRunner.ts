@@ -89,15 +89,42 @@ export interface OffMarketDiscoveryReport {
   warnings: string[];
   errors: string[];
   estimated_value_for_radar: string;
-  per_source_summary: Array<{
-    source_key: string;
-    comune: string;
-    pages_seen: number;
-    pages_classified: number;
-    candidates: number;
-    error?: string;
-  }>;
+  per_source_summary: Array<SourceDebug>;
 }
+
+export interface SourceDebug {
+  source_key: string;
+  source_name: string;
+  base_url: string;
+  comune: string;
+  provincia: string;
+  category: string;
+  enabled: boolean;
+  compliance_status: "ok" | "skipped";
+  map_status: "ok" | "error" | "empty" | "skipped";
+  map_error?: string;
+  map_urls_found: number;
+  map_sample_urls: string[];
+  fallback_used: boolean;
+  scrape_attempted: boolean;
+  scrape_urls_selected: string[];
+  scrape_results: Array<{
+    url: string;
+    status?: number;
+    ok: boolean;
+    error?: string;
+    title?: string | null;
+    markdown_length: number;
+    classification?: string;
+    confidence?: number;
+    keywords_matched?: string[];
+    candidate_built: boolean;
+    reject_reason?: string;
+  }>;
+  candidates: number;
+  warning?: string;
+}
+
 
 // ── Privacy / PII guards (regex aggregate) ───────────────────────
 const PII_PATTERNS = [
@@ -120,19 +147,37 @@ function redactPreview(text: string, max = 280): string {
 }
 
 // ── Path guards ─────────────────────────────────────────────────
-function urlAllowed(u: string, src: OffMarketFirecrawlSource): boolean {
+// Hostname e excluded_paths sono HARD filter (sicurezza/compliance).
+// allowed_paths è SOFT hint: usato per ranking, non per filtro.
+function urlSafe(u: string, src: OffMarketFirecrawlSource): boolean {
   try {
     const url = new URL(u, src.base_url);
-    const path = url.pathname.toLowerCase();
     const baseHost = new URL(src.base_url).hostname.toLowerCase();
     if (url.hostname.toLowerCase() !== baseHost) return false;
+    const path = url.pathname.toLowerCase();
     if (src.excluded_paths.some((p) => path.includes(p.toLowerCase()))) return false;
-    if (src.allowed_paths.length === 0) return true;
-    return src.allowed_paths.some((p) => path.startsWith(p.toLowerCase()) || path.includes(p.toLowerCase()));
+    return true;
   } catch {
     return false;
   }
 }
+
+function urlPriority(u: string, src: OffMarketFirecrawlSource): number {
+  try {
+    const path = new URL(u, src.base_url).pathname.toLowerCase();
+    let score = 0;
+    for (const p of src.allowed_paths) {
+      if (path.includes(p.toLowerCase())) score += 2;
+    }
+    for (const k of src.keywords) {
+      if (path.includes(k.toLowerCase().replace(/\s+/g, "-"))) score += 1;
+    }
+    return score;
+  } catch {
+    return 0;
+  }
+}
+
 
 // ── Categoria → SignalType mapping ──────────────────────────────
 const CATEGORY_SIGNAL: Record<PageCategory, SignalType | null> = {
@@ -319,43 +364,104 @@ export async function runOffMarketFirecrawlDiscovery(
   let sourcesSkipped = 0;
 
   for (const src of sources) {
-    if (creditStatus === "insufficient") { sourcesSkipped++; continue; }
-    const summary = { source_key: src.source_key, comune: src.comune, pages_seen: 0, pages_classified: 0, candidates: 0, error: undefined as string | undefined };
+    const dbg: SourceDebug = {
+      source_key: src.source_key,
+      source_name: src.source_name,
+      base_url: src.base_url,
+      comune: src.comune,
+      provincia: src.provincia,
+      category: src.category,
+      enabled: src.enabled,
+      compliance_status: "ok",
+      map_status: "skipped",
+      map_urls_found: 0,
+      map_sample_urls: [],
+      fallback_used: false,
+      scrape_attempted: false,
+      scrape_urls_selected: [],
+      scrape_results: [],
+      candidates: 0,
+    };
+
+    if (creditStatus === "insufficient") {
+      dbg.warning = "Skipped: credito Firecrawl insufficiente";
+      sourcesSkipped++;
+      perSource.push(dbg);
+      continue;
+    }
 
     // 1) fcMap discovery
     const search = src.keywords.slice(0, 3).join(" ");
     const map = await fcMap(src.base_url, { search, limit: src.max_pages, timeoutMs: 18_000 });
+    let candidatesUrl: string[] = [];
     if (!map.ok) {
-      summary.error = `map: ${map.error ?? "unknown"}`;
+      dbg.map_status = "error";
+      dbg.map_error = map.error ?? "unknown";
       if (/402/.test(String(map.error))) creditStatus = "insufficient";
       if (/429/.test(String(map.error))) creditStatus = creditStatus === "insufficient" ? creditStatus : "rate_limited";
-      perSource.push(summary);
-      continue;
+    } else {
+      const safe = map.links.filter((u) => urlSafe(u, src));
+      dbg.map_urls_found = safe.length;
+      dbg.map_sample_urls = safe.slice(0, 5);
+      dbg.map_status = safe.length > 0 ? "ok" : "empty";
+      // ranking: priorità a path coerenti con allowed_paths/keywords
+      candidatesUrl = [...safe]
+        .sort((a, b) => urlPriority(b, src) - urlPriority(a, src))
+        .slice(0, maxPages);
     }
 
-    const candidatesUrl = map.links.filter((u) => urlAllowed(u, src)).slice(0, maxPages);
-    summary.pages_seen = candidatesUrl.length;
-    pagesSeen += candidatesUrl.length;
+    // 2) Fallback: se map vuoto/errore → scrape diretto base_url
+    if (candidatesUrl.length === 0 && creditStatus !== "insufficient") {
+      dbg.fallback_used = true;
+      candidatesUrl = [src.base_url];
+      dbg.warning = (dbg.warning ?? "") + (dbg.warning ? " | " : "") + "Fallback: nessuna URL da map, uso base_url";
+    }
 
-    // 2) fcScrape mirato (budget globale)
+    dbg.scrape_urls_selected = candidatesUrl.slice(0, 5);
+    dbg.scrape_attempted = candidatesUrl.length > 0;
+
+    // 3) fcScrape mirato
     for (const u of candidatesUrl) {
-      if (scrapeBudget <= 0) { warnings.push(`Budget scrape esaurito su ${src.source_key}`); break; }
+      if (scrapeBudget <= 0) {
+        warnings.push(`Budget scrape esaurito su ${src.source_key}`);
+        break;
+      }
       if (creditStatus === "insufficient") break;
       scrapeBudget--;
       const sc = await fcScrape(u, { timeoutMs: 22_000, formats: ["markdown", "links"] });
+      const r: SourceDebug["scrape_results"][number] = {
+        url: u,
+        ok: sc.ok,
+        status: sc.status,
+        error: sc.error,
+        title: sc.title,
+        markdown_length: sc.markdown?.length ?? 0,
+        candidate_built: false,
+      };
+
       if (!sc.ok) {
-        if (sc.status === 402 || /402/.test(String(sc.error))) { creditStatus = "insufficient"; break; }
-        if (sc.status === 429 || /429/.test(String(sc.error))) { creditStatus = creditStatus === "insufficient" ? creditStatus : "rate_limited"; }
+        if (sc.status === 402 || /402/.test(String(sc.error))) creditStatus = "insufficient";
+        if (sc.status === 429 || /429/.test(String(sc.error))) creditStatus = creditStatus === "insufficient" ? creditStatus : "rate_limited";
+        dbg.scrape_results.push(r);
         continue;
       }
+
       const md = sc.markdown ?? "";
       const title = sc.title ?? u;
-      // Skip se è palesemente una pagina di anagrafe / login / privacy
+      pagesSeen++;
+
       if (containsPII(md) && /(necrolog|anagrafe|defunti)/i.test(md)) {
+        r.reject_reason = "PII (necrologi/anagrafe)";
         warnings.push(`Pagina esclusa per PII: ${u}`);
+        dbg.scrape_results.push(r);
         continue;
       }
+
       const cls = classifyPage(title, md);
+      r.classification = cls.category;
+      r.confidence = Number(cls.confidence.toFixed(2));
+      r.keywords_matched = cls.matched;
+
       const pdfs = extractPdfLinks(sc.links, src.base_url);
       pdfLinksFound += pdfs.length;
       const page: ClassifiedPage = {
@@ -374,14 +480,18 @@ export async function runOffMarketFirecrawlDiscovery(
         pdf_links: pdfs,
       };
       pagesClassified++;
-      summary.pages_classified++;
       const cand = buildCandidate(page);
       if (cand) {
         candidates.push(cand);
-        summary.candidates++;
+        dbg.candidates++;
+        r.candidate_built = true;
+        r.reject_reason = cand.reject_reason;
+      } else {
+        r.reject_reason = `categoria ${cls.category} non mappata a signal`;
       }
+      dbg.scrape_results.push(r);
     }
-    perSource.push(summary);
+    perSource.push(dbg);
   }
 
   // ── Aggregazioni ────────────────────────────────────────────
