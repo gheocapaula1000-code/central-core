@@ -1475,18 +1475,54 @@ Deno.serve(async (req) => {
         r.headers.set("Retry-After", String(rlA.retryAfter));
         return withIdentity(r, "rate-limited");
       }
-      let body: AgentRadarRequest = {};
+      let body: AgentRadarRequest & { scope?: string; operating_area_id?: string; user_id?: string; agency_id?: string; province?: string | string[]; comuni?: string[] } = {};
       try {
         const parsed = await req.json();
-        if (parsed && typeof parsed === "object") body = parsed as AgentRadarRequest;
+        if (parsed && typeof parsed === "object") body = parsed as any;
       } catch { /* body opzionale */ }
+
+      const requestedScope = (body.scope ?? "").toString().toLowerCase();
+      const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+      const hasJobSecret = !!jobSecret && req.headers.get("x-job-secret") === jobSecret;
+      let scopeMode: "global" | "agency_area" = "agency_area";
+      if (requestedScope === "global") {
+        if (!hasJobSecret) {
+          return withIdentity(json(req, 403, { ok: false, scopeMode: "agency_area", error: { code: "GLOBAL_SCOPE_FORBIDDEN", message: "Global scope reserved to admin/job." } }, debugId), "agent-radar-forbidden");
+        }
+        scopeMode = "global";
+      }
+      if (scopeMode === "agency_area") {
+        const provArr = Array.isArray((body as any).province) ? (body as any).province : (typeof (body as any).province === "string" ? [(body as any).province] : []);
+        const hasArea = !!body.operating_area_id || (provArr.length > 0) || ((body.comuni?.length ?? 0) > 0) || !!(body as any).comune || !!(body as any).provincia;
+        if (!hasArea) {
+          return withIdentity(json(req, 200, {
+            ok: false, scopeMode: "agency_area", needsOperatingArea: true,
+            message: "Configura la tua zona di lavoro per ricevere il Radar.",
+            summary: { totalSignals: 0, hotZones: 0, priceDrops: 0, auctions: 0, motivatedSellers: 0, dataQuality: "mancante" as const },
+            zones: [], opportunities: [],
+          }, debugId), "agent-radar-needs-area");
+        }
+        if (body.operating_area_id) {
+          const { validateOperatingAreaAccess } = await import("./agency/agencyOperatingContext.ts");
+          const v = await validateOperatingAreaAccess({ user_id: body.user_id ?? null, agency_id: body.agency_id ?? null, operating_area_id: body.operating_area_id });
+          if (!v.allowed) {
+            return withIdentity(json(req, 403, { ok: false, scopeMode: "agency_area", error: { code: "OPERATING_AREA_FORBIDDEN", message: v.reason ?? "not_allowed" } }, debugId), "agent-radar-area-forbidden");
+          }
+          const a = v.area as any;
+          if (!(body as any).provincia && a?.province?.[0]) (body as any).provincia = a.province[0];
+          if (!(body as any).comune && a?.comuni?.[0]) (body as any).comune = a.comuni[0];
+        } else {
+          if (!(body as any).provincia && provArr[0]) (body as any).provincia = provArr[0];
+          if (!(body as any).comune && body.comuni?.[0]) (body as any).comune = body.comuni[0];
+        }
+      }
       try {
-        const out = await buildAgentRadar(body);
-        return withIdentity(json(req, 200, out, debugId), "agent-radar");
+        const out = await buildAgentRadar(body as AgentRadarRequest);
+        return withIdentity(json(req, 200, { ...out, scopeMode, ok: true }, debugId), "agent-radar");
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] agent-radar error: ${e instanceof Error ? e.message : String(e)}`);
-        // Fallback shape stabile
         const fallback = {
+          ok: false, scopeMode,
           configured: false,
           scope: { region: "Veneto" as const, province: ["VE","VR","VI","PD","TV","BL","RO"], datasetStatus: "empty" as const, message: "Errore interno temporaneo." },
           summary: { totalSignals: 0, hotZones: 0, priceDrops: 0, auctions: 0, motivatedSellers: 0, dataQuality: "mancante" as const },

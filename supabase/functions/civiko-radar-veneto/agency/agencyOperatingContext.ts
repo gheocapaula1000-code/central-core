@@ -132,3 +132,98 @@ export function filterSignalsForAgencyArea<T extends Record<string, any>>(
 ): T[] {
   return signals.filter((s) => isSignalInOperatingArea(s as any, ctx) && isSignalAllowedByPreferences(s as any, ctx.preferences).allowed);
 }
+
+// ── Tenant resolution helpers (service role) ─────────────────────────────
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+function svc() {
+  const url = Deno.env.get("SUPABASE_URL");
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !key) throw new Error("supabase service role missing");
+  return createClient(url, key, { auth: { persistSession: false } });
+}
+
+export async function getUserAgencyContext(user_id: string | null | undefined): Promise<{
+  user_id: string | null;
+  agency_ids: string[];
+  default_agency_id: string | null;
+  default_operating_area_id: string | null;
+}> {
+  if (!user_id) return { user_id: null, agency_ids: [], default_agency_id: null, default_operating_area_id: null };
+  const c = svc();
+  const { data: mems } = await c.from("agency_memberships")
+    .select("agency_id, role, status").eq("user_id", user_id).eq("status", "active");
+  const agency_ids = Array.from(new Set((mems ?? []).map((m: any) => m.agency_id).filter(Boolean)));
+  const default_agency_id = agency_ids[0] ?? null;
+  let default_operating_area_id: string | null = null;
+  if (default_agency_id) {
+    const { data: aoa } = await c.from("agency_operating_areas")
+      .select("id, is_default, is_active").eq("agency_id", default_agency_id).eq("is_active", true)
+      .order("is_default", { ascending: false }).limit(1);
+    default_operating_area_id = aoa?.[0]?.id ?? null;
+  } else {
+    const { data: aoa } = await c.from("agency_operating_areas")
+      .select("id, is_default, is_active").eq("user_id", user_id).eq("is_active", true)
+      .order("is_default", { ascending: false }).limit(1);
+    default_operating_area_id = aoa?.[0]?.id ?? null;
+  }
+  return { user_id, agency_ids, default_agency_id, default_operating_area_id };
+}
+
+export async function validateOperatingAreaAccess(
+  params: { user_id?: string | null; agency_id?: string | null; operating_area_id: string },
+): Promise<{ allowed: boolean; area: any | null; reason?: string }> {
+  if (!params.operating_area_id) return { allowed: false, area: null, reason: "missing_operating_area_id" };
+  const c = svc();
+  const { data: area, error } = await c.from("agency_operating_areas")
+    .select("*").eq("id", params.operating_area_id).maybeSingle();
+  if (error || !area) return { allowed: false, area: null, reason: "not_found" };
+  if (area.agency_id) {
+    if (!params.user_id) return { allowed: false, area: null, reason: "auth_required" };
+    const { data: mem } = await c.from("agency_memberships")
+      .select("user_id").eq("agency_id", area.agency_id).eq("user_id", params.user_id).eq("status", "active").maybeSingle();
+    if (!mem) return { allowed: false, area: null, reason: "not_member" };
+    return { allowed: true, area };
+  }
+  if (area.user_id) {
+    if (params.user_id && area.user_id === params.user_id) return { allowed: true, area };
+    return { allowed: false, area: null, reason: "not_owner" };
+  }
+  return { allowed: false, area: null, reason: "no_tenant_binding" };
+}
+
+export async function resolveOperatingAreaInput(
+  body: { operating_area_id?: string | null; user_id?: string | null; agency_id?: string | null } & OperatingAreaInput,
+): Promise<{ area: OperatingAreaInput; preferences: Partial<AgencySignalPreferences>; source: "explicit"|"area_id"|"none"; reason?: string }> {
+  if (body.operating_area_id) {
+    const v = await validateOperatingAreaAccess({
+      user_id: body.user_id ?? null, agency_id: body.agency_id ?? null,
+      operating_area_id: body.operating_area_id,
+    });
+    if (!v.allowed) return { area: {}, preferences: {}, source: "none", reason: v.reason };
+    const a = v.area;
+    let prefs: Partial<AgencySignalPreferences> = {};
+    const c = svc();
+    const { data: p } = await c.from("agency_signal_preferences")
+      .select("*").or(`operating_area_id.eq.${a.id},and(agency_id.eq.${a.agency_id ?? "00000000-0000-0000-0000-000000000000"})`)
+      .limit(1).maybeSingle();
+    if (p) prefs = p as any;
+    return {
+      area: {
+        province: a.province, comuni: a.comuni, microzones: a.microzones,
+        quartieri: a.quartieri, focus: a.focus, radius_km: a.radius_km, label: a.label,
+      },
+      preferences: prefs, source: "area_id",
+    };
+  }
+  if ((body.province?.length ?? 0) > 0 || (body.comuni?.length ?? 0) > 0) {
+    return {
+      area: {
+        province: body.province ?? [], comuni: body.comuni ?? [],
+        microzones: body.microzones ?? [], quartieri: body.quartieri ?? [],
+        focus: body.focus ?? [], radius_km: body.radius_km ?? null, label: body.label ?? null,
+      },
+      preferences: {}, source: "explicit",
+    };
+  }
+  return { area: {}, preferences: {}, source: "none" };
+}

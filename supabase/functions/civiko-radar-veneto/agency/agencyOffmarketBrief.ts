@@ -8,7 +8,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import {
   getAgencyOperatingContext, type OperatingAreaInput,
   type AgencySignalPreferences, isSignalAllowedByPreferences,
+  resolveOperatingAreaInput,
 } from "./agencyOperatingContext.ts";
+// (compat trailing import line removed)
+const __unused__ = 0;
 import { isScriptSafeForSensitiveTurnover, buildNeutralZoneScript } from "../privacy/sensitiveTurnoverPolicy.ts";
 
 function sb() {
@@ -21,6 +24,9 @@ function sb() {
 export interface AgencyBriefBody extends OperatingAreaInput {
   dryRun?: boolean;
   import?: boolean;
+  user_id?: string | null;
+  agency_id?: string | null;
+  operating_area_id?: string | null;
   preferences?: Partial<AgencySignalPreferences>;
   excludeAuctions?: boolean;
   includePublicAlienations?: boolean;
@@ -33,13 +39,27 @@ export async function runAgencyOffmarketBrief(body: AgencyBriefBody) {
   const dryRun = body.dryRun !== false;
   const topN = Math.min(Math.max(Number(body.topN ?? 10) || 10, 1), 50);
 
+  const resolved = await resolveOperatingAreaInput({
+    operating_area_id: body.operating_area_id ?? null,
+    user_id: body.user_id ?? null,
+    agency_id: body.agency_id ?? null,
+    province: body.province, comuni: body.comuni, microzones: body.microzones,
+    quartieri: body.quartieri, focus: body.focus, radius_km: body.radius_km, label: body.label,
+  });
+
+  if (resolved.source === "none") {
+    return {
+      ok: false,
+      needs_operating_area: true,
+      reason: resolved.reason ?? "no_area_provided",
+      message: "Specifica operating_area_id oppure province/comuni per definire l'area operativa.",
+    };
+  }
+
   const ctx = getAgencyOperatingContext({
-    area: {
-      province: body.province, comuni: body.comuni,
-      microzones: body.microzones, quartieri: body.quartieri,
-      focus: body.focus, radius_km: body.radius_km, label: body.label,
-    },
+    area: resolved.area,
     preferences: {
+      ...resolved.preferences,
       ...(body.preferences ?? {}),
       ...(body.excludeAuctions !== undefined ? { exclude_auctions: !!body.excludeAuctions } : {}),
       ...(body.includePublicAlienations !== undefined ? { include_public_alienations: !!body.includePublicAlienations } : {}),
