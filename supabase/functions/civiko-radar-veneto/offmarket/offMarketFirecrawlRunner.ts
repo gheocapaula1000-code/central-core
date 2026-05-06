@@ -89,15 +89,42 @@ export interface OffMarketDiscoveryReport {
   warnings: string[];
   errors: string[];
   estimated_value_for_radar: string;
-  per_source_summary: Array<{
-    source_key: string;
-    comune: string;
-    pages_seen: number;
-    pages_classified: number;
-    candidates: number;
-    error?: string;
-  }>;
+  per_source_summary: Array<SourceDebug>;
 }
+
+export interface SourceDebug {
+  source_key: string;
+  source_name: string;
+  base_url: string;
+  comune: string;
+  provincia: string;
+  category: string;
+  enabled: boolean;
+  compliance_status: "ok" | "skipped";
+  map_status: "ok" | "error" | "empty" | "skipped";
+  map_error?: string;
+  map_urls_found: number;
+  map_sample_urls: string[];
+  fallback_used: boolean;
+  scrape_attempted: boolean;
+  scrape_urls_selected: string[];
+  scrape_results: Array<{
+    url: string;
+    status?: number;
+    ok: boolean;
+    error?: string;
+    title?: string | null;
+    markdown_length: number;
+    classification?: string;
+    confidence?: number;
+    keywords_matched?: string[];
+    candidate_built: boolean;
+    reject_reason?: string;
+  }>;
+  candidates: number;
+  warning?: string;
+}
+
 
 // ── Privacy / PII guards (regex aggregate) ───────────────────────
 const PII_PATTERNS = [
