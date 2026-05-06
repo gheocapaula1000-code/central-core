@@ -337,6 +337,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       .select("province,municipality,signal_type,is_active,lat,lng,source,payload")
       .eq("is_active", true);
     if (filterProv) q = q.in("province", [filterProv, fullProvName(filterProv)].filter(Boolean) as string[]);
+    if (filterComune) q = q.ilike("municipality", filterComune.trim());
     const { data, error } = await q.range(0, 1999);
     if (error) throw error;
     return data ?? [];
