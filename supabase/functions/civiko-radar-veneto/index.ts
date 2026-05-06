@@ -973,11 +973,25 @@ Deno.serve(async (req) => {
     if (pathname.endsWith("/jobs/activate-veneto")) {
       const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
-        const r = await activateVeneto();
-        return withIdentity(json(req, 200, {
+        // Job pesante (>150s): eseguito in background per evitare IDLE_TIMEOUT.
+        const task = (async () => {
+          try {
+            const r = await activateVeneto();
+            console.log(`[${FUNCTION_NAME}] activate-veneto completed`, JSON.stringify({ totals: r.totals, warnings: r.warnings.length }));
+          } catch (err) {
+            console.error(`[${FUNCTION_NAME}] activate-veneto background error:`, err instanceof Error ? err.message : String(err));
+          }
+        })();
+        // @ts-ignore - EdgeRuntime is available in Supabase Edge Runtime
+        if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+          // @ts-ignore
+          EdgeRuntime.waitUntil(task);
+        }
+        return withIdentity(json(req, 202, {
           job: "activate-veneto",
+          status: "started",
+          message: "Job avviato in background. Verifica i log per il completamento.",
           data_source_verification: DATA_SOURCE_VERIFICATION,
-          ...r,
         }, debugId), "job-activate-veneto");
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] activate-veneto error:`, e instanceof Error ? e.message : String(e));
