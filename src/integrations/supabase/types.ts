@@ -14,6 +14,57 @@ export type Database = {
   }
   public: {
     Tables: {
+      agency_operating_areas: {
+        Row: {
+          agency_id: string | null
+          comuni: string[]
+          created_at: string
+          focus: string[]
+          id: string
+          is_default: boolean
+          label: string | null
+          microzones: string[]
+          province: string[]
+          quartieri: string[]
+          radius_km: number | null
+          updated_at: string
+          user_id: string | null
+          workspace_id: string | null
+        }
+        Insert: {
+          agency_id?: string | null
+          comuni?: string[]
+          created_at?: string
+          focus?: string[]
+          id?: string
+          is_default?: boolean
+          label?: string | null
+          microzones?: string[]
+          province?: string[]
+          quartieri?: string[]
+          radius_km?: number | null
+          updated_at?: string
+          user_id?: string | null
+          workspace_id?: string | null
+        }
+        Update: {
+          agency_id?: string | null
+          comuni?: string[]
+          created_at?: string
+          focus?: string[]
+          id?: string
+          is_default?: boolean
+          label?: string | null
+          microzones?: string[]
+          province?: string[]
+          quartieri?: string[]
+          radius_km?: number | null
+          updated_at?: string
+          user_id?: string | null
+          workspace_id?: string | null
+        }
+        Relationships: []
+      }
       agency_property_outcomes: {
         Row: {
           agency_id: string
@@ -71,6 +122,63 @@ export type Database = {
           property_type?: string | null
           updated_at?: string
           visits_count?: number | null
+        }
+        Relationships: []
+      }
+      agency_signal_preferences: {
+        Row: {
+          agency_id: string | null
+          created_at: string
+          exclude_auctions: boolean
+          exclude_signal_types: string[]
+          id: string
+          include_green_risk_sentiment: boolean
+          include_mobility: boolean
+          include_public_alienations: boolean
+          include_services: boolean
+          include_signal_types: string[]
+          include_tourism: boolean
+          include_urban_planning: boolean
+          min_confidence: number
+          updated_at: string
+          user_id: string | null
+          workspace_id: string | null
+        }
+        Insert: {
+          agency_id?: string | null
+          created_at?: string
+          exclude_auctions?: boolean
+          exclude_signal_types?: string[]
+          id?: string
+          include_green_risk_sentiment?: boolean
+          include_mobility?: boolean
+          include_public_alienations?: boolean
+          include_services?: boolean
+          include_signal_types?: string[]
+          include_tourism?: boolean
+          include_urban_planning?: boolean
+          min_confidence?: number
+          updated_at?: string
+          user_id?: string | null
+          workspace_id?: string | null
+        }
+        Update: {
+          agency_id?: string | null
+          created_at?: string
+          exclude_auctions?: boolean
+          exclude_signal_types?: string[]
+          id?: string
+          include_green_risk_sentiment?: boolean
+          include_mobility?: boolean
+          include_public_alienations?: boolean
+          include_services?: boolean
+          include_signal_types?: string[]
+          include_tourism?: boolean
+          include_urban_planning?: boolean
+          min_confidence?: number
+          updated_at?: string
+          user_id?: string | null
+          workspace_id?: string | null
         }
         Relationships: []
       }
