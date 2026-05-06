@@ -37,6 +37,7 @@ import { runMicrozoneOpportunitySignals } from "./firecrawl/microzoneOpportunity
 import { runOffMarketOpportunityEngine } from "./offmarket/offMarketOpportunityEngine.ts";
 import { runOffMarketFirecrawlDiscovery } from "./offmarket/offMarketFirecrawlRunner.ts";
 import { runEarlyOffmarketDiscovery } from "./offmarket/earlyOffmarketRunner.ts";
+import { runRescoreEarlyCandidates, runPromoteEarlyCandidate } from "./offmarket/earlySignalReview.ts";
 import { runAdvancedVenetoOpportunities } from "./advancedOpportunity.ts";
 import { buildVenetoIntelligenceFromResearch } from "./intelligence/orchestrator.ts";
 import { runVenetoOpenDataImport } from "./openData/ckanImporter.ts";
@@ -109,6 +110,7 @@ const ROUTES = [
   "POST /jobs/build-offmarket-opportunity-scores",
   "POST /jobs/firecrawl-offmarket-microzone-discovery",
   "POST /jobs/discover-early-offmarket-signals",
+  "POST /jobs/rescore-early-offmarket-candidates",
   "POST /jobs/promote-early-signal-candidate",
 ];
 
@@ -1099,15 +1101,30 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Stub: promote candidate (no-op in this turn — protezione attiva)
+    // Rescore existing early off-market candidates with new classifier
+    if (pathname.endsWith("/jobs/rescore-early-offmarket-candidates")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const r = await runRescoreEarlyCandidates(body);
+        return withIdentity(json(req, 200, { job: "rescore-early-offmarket-candidates", ...r }, debugId), "job-rescore-early");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] rescore-early error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Rescore early candidates failed", debugId), "job-error");
+      }
+    }
+
+    // Promote early-signal candidate (controlled): requires status approved/importable, or force+note for needs_review.
     if (pathname.endsWith("/jobs/promote-early-signal-candidate")) {
       const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
-      return withIdentity(json(req, 200, {
-        job: "promote-early-signal-candidate",
-        ok: true,
-        promoted: false,
-        reason: "Promotion disabled in this turn. Implement after manual review of candidates.",
-      }, debugId), "job-promote-early-stub");
+      try {
+        const body = await req.json().catch(() => ({}));
+        const r = await runPromoteEarlyCandidate(body);
+        return withIdentity(json(req, r.ok ? 200 : 207, { job: "promote-early-signal-candidate", ...r }, debugId), "job-promote-early");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] promote-early error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Promote early candidate failed", debugId), "job-error");
+      }
     }
 
     if (pathname.endsWith("/jobs/firecrawl-microzone-opportunity-signals")) {
