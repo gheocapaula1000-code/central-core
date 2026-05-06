@@ -1128,6 +1128,18 @@ Deno.serve(async (req) => {
       }
     }
 
+    if (pathname.endsWith("/jobs/list-early-signal-candidates")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const r = await runListEarlyCandidates(body);
+        return withIdentity(json(req, 200, { job: "list-early-signal-candidates", ...r }, debugId), "job-list-early");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] list-early error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "List early candidates failed", debugId), "job-error");
+      }
+    }
+
     if (pathname.endsWith("/jobs/firecrawl-microzone-opportunity-signals")) {
       const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
