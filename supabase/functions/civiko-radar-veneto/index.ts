@@ -36,6 +36,7 @@ import { runFirecrawlDeepVeneto } from "./firecrawl/crawlRunner.ts";
 import { runMicrozoneOpportunitySignals } from "./firecrawl/microzoneOpportunityRunner.ts";
 import { runOffMarketOpportunityEngine } from "./offmarket/offMarketOpportunityEngine.ts";
 import { runOffMarketFirecrawlDiscovery } from "./offmarket/offMarketFirecrawlRunner.ts";
+import { runEarlyOffmarketDiscovery } from "./offmarket/earlyOffmarketRunner.ts";
 import { runAdvancedVenetoOpportunities } from "./advancedOpportunity.ts";
 import { buildVenetoIntelligenceFromResearch } from "./intelligence/orchestrator.ts";
 import { runVenetoOpenDataImport } from "./openData/ckanImporter.ts";
@@ -107,6 +108,8 @@ const ROUTES = [
   "POST /jobs/import-auction-candidates",
   "POST /jobs/build-offmarket-opportunity-scores",
   "POST /jobs/firecrawl-offmarket-microzone-discovery",
+  "POST /jobs/discover-early-offmarket-signals",
+  "POST /jobs/promote-early-signal-candidate",
 ];
 
 // Capoluoghi Veneto per attivazione massiva monitoraggio portali
@@ -1081,6 +1084,30 @@ Deno.serve(async (req) => {
         console.error(`[${FUNCTION_NAME}] fc-offmarket-discovery error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Firecrawl off-market discovery failed", debugId), "job-error");
       }
+    }
+
+    // Early Off-Market Signals — discovery DRY-RUN-FIRST (Perplexity + Firecrawl)
+    if (pathname.endsWith("/jobs/discover-early-offmarket-signals")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const r = await runEarlyOffmarketDiscovery(body);
+        return withIdentity(json(req, r.ok ? 200 : 207, { job: "discover-early-offmarket-signals", ...r }, debugId), "job-early-offmarket");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] discover-early-offmarket error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Early off-market discovery failed", debugId), "job-error");
+      }
+    }
+
+    // Stub: promote candidate (no-op in this turn — protezione attiva)
+    if (pathname.endsWith("/jobs/promote-early-signal-candidate")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      return withIdentity(json(req, 200, {
+        job: "promote-early-signal-candidate",
+        ok: true,
+        promoted: false,
+        reason: "Promotion disabled in this turn. Implement after manual review of candidates.",
+      }, debugId), "job-promote-early-stub");
     }
 
     if (pathname.endsWith("/jobs/firecrawl-microzone-opportunity-signals")) {

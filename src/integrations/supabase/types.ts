@@ -694,6 +694,84 @@ export type Database = {
         }
         Relationships: []
       }
+      early_offmarket_signal_candidates: {
+        Row: {
+          comune: string | null
+          confidence_score: number | null
+          created_at: string
+          data_basis: string | null
+          fingerprint: string
+          id: string
+          import_recommendation: string | null
+          needs_review: boolean
+          payload: Json | null
+          possible_agent_action: string | null
+          privacy_safe: boolean
+          promoted_at: string | null
+          provincia: string | null
+          quality: string | null
+          reject_reason: string | null
+          run_id: string | null
+          signal_type: string
+          source_name: string | null
+          source_url: string
+          summary: string | null
+          timing: string | null
+          title: string
+          why_it_matters: string | null
+        }
+        Insert: {
+          comune?: string | null
+          confidence_score?: number | null
+          created_at?: string
+          data_basis?: string | null
+          fingerprint: string
+          id?: string
+          import_recommendation?: string | null
+          needs_review?: boolean
+          payload?: Json | null
+          possible_agent_action?: string | null
+          privacy_safe?: boolean
+          promoted_at?: string | null
+          provincia?: string | null
+          quality?: string | null
+          reject_reason?: string | null
+          run_id?: string | null
+          signal_type: string
+          source_name?: string | null
+          source_url: string
+          summary?: string | null
+          timing?: string | null
+          title: string
+          why_it_matters?: string | null
+        }
+        Update: {
+          comune?: string | null
+          confidence_score?: number | null
+          created_at?: string
+          data_basis?: string | null
+          fingerprint?: string
+          id?: string
+          import_recommendation?: string | null
+          needs_review?: boolean
+          payload?: Json | null
+          possible_agent_action?: string | null
+          privacy_safe?: boolean
+          promoted_at?: string | null
+          provincia?: string | null
+          quality?: string | null
+          reject_reason?: string | null
+          run_id?: string | null
+          signal_type?: string
+          source_name?: string | null
+          source_url?: string
+          summary?: string | null
+          timing?: string | null
+          title?: string
+          why_it_matters?: string | null
+        }
+        Relationships: []
+      }
       estate_turnover_zones: {
         Row: {
           agent_action: string
