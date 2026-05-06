@@ -128,6 +128,12 @@ export default function Dashboard() {
             <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/import-veneto-open-data", { dryRun: false, import: true })}>
               Import Open Data
             </Button>
+            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/list-early-signal-candidates", { limit: 5 })}>
+              Diagnosi DB
+            </Button>
+            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/build-agency-offmarket-brief", { province: ["PD"], comuni: ["Padova"], dryRun: false })}>
+              Test Brief Padova
+            </Button>
           </div>
           {jobLoading && <p className="text-xs text-muted-foreground">In esecuzione...</p>}
           {jobResult && (
