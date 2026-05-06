@@ -39,6 +39,7 @@ import { runOffMarketFirecrawlDiscovery } from "./offmarket/offMarketFirecrawlRu
 import { runEarlyOffmarketDiscovery } from "./offmarket/earlyOffmarketRunner.ts";
 import { runRescoreEarlyCandidates, runPromoteEarlyCandidate, runListEarlyCandidates } from "./offmarket/earlySignalReview.ts";
 import { runAgencyOffmarketBrief } from "./agency/agencyOffmarketBrief.ts";
+import { handleAgencyCrudRoute } from "./agency/agencyCrud.ts";
 import { runAdvancedVenetoOpportunities } from "./advancedOpportunity.ts";
 import { buildVenetoIntelligenceFromResearch } from "./intelligence/orchestrator.ts";
 import { runVenetoOpenDataImport } from "./openData/ckanImporter.ts";
