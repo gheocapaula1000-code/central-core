@@ -135,6 +135,8 @@ export type Database = {
           include_green_risk_sentiment: boolean
           include_mobility: boolean
           include_public_alienations: boolean
+          include_sensitive_turnover: boolean
+          include_sensitive_turnover_aggregated: boolean
           include_services: boolean
           include_signal_types: string[]
           include_tourism: boolean
@@ -153,6 +155,8 @@ export type Database = {
           include_green_risk_sentiment?: boolean
           include_mobility?: boolean
           include_public_alienations?: boolean
+          include_sensitive_turnover?: boolean
+          include_sensitive_turnover_aggregated?: boolean
           include_services?: boolean
           include_signal_types?: string[]
           include_tourism?: boolean
@@ -171,6 +175,8 @@ export type Database = {
           include_green_risk_sentiment?: boolean
           include_mobility?: boolean
           include_public_alienations?: boolean
+          include_sensitive_turnover?: boolean
+          include_sensitive_turnover_aggregated?: boolean
           include_services?: boolean
           include_signal_types?: string[]
           include_tourism?: boolean
@@ -936,8 +942,10 @@ export type Database = {
       }
       estate_turnover_zones: {
         Row: {
+          agency_private_only: boolean
           agent_action: string
           area_label: string
+          category: string | null
           computed_at: string
           comune: string
           confidence_score: number
@@ -952,15 +960,20 @@ export type Database = {
           quality: string
           reason: string
           region: string
+          requires_review: boolean
+          retention_days: number | null
           score: number
           script: string
           source_urls: string[]
+          standard_radar_visible: boolean
           temperature: string
           updated_at: string
         }
         Insert: {
+          agency_private_only?: boolean
           agent_action: string
           area_label: string
+          category?: string | null
           computed_at?: string
           comune: string
           confidence_score?: number
@@ -975,15 +988,20 @@ export type Database = {
           quality?: string
           reason: string
           region?: string
+          requires_review?: boolean
+          retention_days?: number | null
           score: number
           script: string
           source_urls?: string[]
+          standard_radar_visible?: boolean
           temperature: string
           updated_at?: string
         }
         Update: {
+          agency_private_only?: boolean
           agent_action?: string
           area_label?: string
+          category?: string | null
           computed_at?: string
           comune?: string
           confidence_score?: number
@@ -998,9 +1016,12 @@ export type Database = {
           quality?: string
           reason?: string
           region?: string
+          requires_review?: boolean
+          retention_days?: number | null
           score?: number
           script?: string
           source_urls?: string[]
+          standard_radar_visible?: boolean
           temperature?: string
           updated_at?: string
         }
@@ -1053,8 +1074,10 @@ export type Database = {
       }
       inheritance_pressure_signals: {
         Row: {
+          agency_private_only: boolean
           area_label: string
           area_type: string
+          category: string | null
           computed_at: string
           comune: string
           confidence_score: number
@@ -1068,15 +1091,20 @@ export type Database = {
           provincia: string
           quality: string
           region: string
+          requires_review: boolean
+          retention_days: number | null
           score: number
           signal_basis: string[]
           source_names: string[]
           source_urls: string[]
+          standard_radar_visible: boolean
           updated_at: string
         }
         Insert: {
+          agency_private_only?: boolean
           area_label: string
           area_type: string
+          category?: string | null
           computed_at?: string
           comune: string
           confidence_score?: number
@@ -1090,15 +1118,20 @@ export type Database = {
           provincia: string
           quality?: string
           region?: string
+          requires_review?: boolean
+          retention_days?: number | null
           score: number
           signal_basis?: string[]
           source_names?: string[]
           source_urls?: string[]
+          standard_radar_visible?: boolean
           updated_at?: string
         }
         Update: {
+          agency_private_only?: boolean
           area_label?: string
           area_type?: string
+          category?: string | null
           computed_at?: string
           comune?: string
           confidence_score?: number
@@ -1112,10 +1145,13 @@ export type Database = {
           provincia?: string
           quality?: string
           region?: string
+          requires_review?: boolean
+          retention_days?: number | null
           score?: number
           signal_basis?: string[]
           source_names?: string[]
           source_urls?: string[]
+          standard_radar_visible?: boolean
           updated_at?: string
         }
         Relationships: []
@@ -2042,8 +2078,10 @@ export type Database = {
       }
       obituaries_seen: {
         Row: {
+          agency_private_only: boolean
           cap: string | null
           captured_at: string
+          category: string | null
           death_date: string | null
           fingerprint: string
           id: number
@@ -2054,13 +2092,18 @@ export type Database = {
           omi_tipologia: string | null
           omi_zona_descr: string | null
           province: string | null
+          requires_review: boolean
+          retention_days: number | null
           source_id: number | null
           source_url: string | null
+          standard_radar_visible: boolean
           surname: string
         }
         Insert: {
+          agency_private_only?: boolean
           cap?: string | null
           captured_at?: string
+          category?: string | null
           death_date?: string | null
           fingerprint: string
           id?: number
@@ -2071,13 +2114,18 @@ export type Database = {
           omi_tipologia?: string | null
           omi_zona_descr?: string | null
           province?: string | null
+          requires_review?: boolean
+          retention_days?: number | null
           source_id?: number | null
           source_url?: string | null
+          standard_radar_visible?: boolean
           surname: string
         }
         Update: {
+          agency_private_only?: boolean
           cap?: string | null
           captured_at?: string
+          category?: string | null
           death_date?: string | null
           fingerprint?: string
           id?: number
@@ -2088,15 +2136,20 @@ export type Database = {
           omi_tipologia?: string | null
           omi_zona_descr?: string | null
           province?: string | null
+          requires_review?: boolean
+          retention_days?: number | null
           source_id?: number | null
           source_url?: string | null
+          standard_radar_visible?: boolean
           surname?: string
         }
         Relationships: []
       }
       obituaries_sources: {
         Row: {
+          agency_private_only: boolean
           base_url: string
+          category: string | null
           created_at: string
           id: number
           is_active: boolean
@@ -2104,11 +2157,16 @@ export type Database = {
           name: string
           region: string | null
           reliability_score: number | null
+          requires_review: boolean
+          retention_days: number | null
           search_url_template: string
           source_type: string
+          standard_radar_visible: boolean
         }
         Insert: {
+          agency_private_only?: boolean
           base_url: string
+          category?: string | null
           created_at?: string
           id?: number
           is_active?: boolean
@@ -2116,11 +2174,16 @@ export type Database = {
           name: string
           region?: string | null
           reliability_score?: number | null
+          requires_review?: boolean
+          retention_days?: number | null
           search_url_template: string
           source_type?: string
+          standard_radar_visible?: boolean
         }
         Update: {
+          agency_private_only?: boolean
           base_url?: string
+          category?: string | null
           created_at?: string
           id?: number
           is_active?: boolean
@@ -2128,8 +2191,11 @@ export type Database = {
           name?: string
           region?: string | null
           reliability_score?: number | null
+          requires_review?: boolean
+          retention_days?: number | null
           search_url_template?: string
           source_type?: string
+          standard_radar_visible?: boolean
         }
         Relationships: []
       }
