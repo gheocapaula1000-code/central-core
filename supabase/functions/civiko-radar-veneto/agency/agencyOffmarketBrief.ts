@@ -14,6 +14,20 @@ import {
 const __unused__ = 0;
 import { isScriptSafeForSensitiveTurnover, buildNeutralZoneScript } from "../privacy/sensitiveTurnoverPolicy.ts";
 
+// Case-insensitive expansion for municipality/comune .in() filters.
+// Postgres .in() is case-sensitive, so we expand to Initcap + UPPER + lower variants.
+function expandMunicipalityVariants(values: string[]): string[] {
+  const set = new Set<string>();
+  for (const v of values) {
+    if (!v) continue;
+    set.add(v);
+    set.add(v.charAt(0).toUpperCase() + v.slice(1).toLowerCase());
+    set.add(v.toUpperCase());
+    set.add(v.toLowerCase());
+  }
+  return Array.from(set);
+}
+
 function sb() {
   const url = Deno.env.get("SUPABASE_URL");
   const svc = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
