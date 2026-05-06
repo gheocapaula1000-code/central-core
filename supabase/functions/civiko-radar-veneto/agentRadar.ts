@@ -515,7 +515,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     const row = r as { province: string|null; municipality: string|null; signal_type: string|null; lat: number|null; lng: number|null; source: string|null; payload: Record<string, unknown>|null };
     const prov = isVenetoRow(row.province);
     if (!prov || !row.municipality) continue;
-    if (filterComune && row.municipality.toLowerCase() !== filterComune) continue;
+    if (filterComune && row.municipality.trim().toLowerCase() !== filterComune.trim().toLowerCase()) continue;
     const isDemo = isRecordDemo(row as never);
     if (isDemo && !allowDemo) continue;
     const a = ensure(row.municipality, prov);
