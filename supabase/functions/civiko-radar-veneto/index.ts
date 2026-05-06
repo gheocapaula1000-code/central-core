@@ -1070,7 +1070,19 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Microzone Opportunity Signals — segnali aggregati pressione successoria
+    // Firecrawl Off-Market & Microzone Discovery (DRY-RUN-FIRST, no import)
+    if (pathname.endsWith("/jobs/firecrawl-offmarket-microzone-discovery")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const r = await runOffMarketFirecrawlDiscovery(body);
+        return withIdentity(json(req, r.ok ? 200 : 207, { job: "firecrawl-offmarket-microzone-discovery", ...r }, debugId), "job-fc-offmarket-discovery");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] fc-offmarket-discovery error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Firecrawl off-market discovery failed", debugId), "job-error");
+      }
+    }
+
     if (pathname.endsWith("/jobs/firecrawl-microzone-opportunity-signals")) {
       const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
