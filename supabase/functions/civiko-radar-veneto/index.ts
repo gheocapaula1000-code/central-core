@@ -86,6 +86,7 @@ const ROUTES = [
   "POST /jobs/recompute-price-resistance",
   "POST /jobs/activate-veneto",
   "POST /jobs/build-civiko-veneto-data-engine",
+  "POST /jobs/seed-veneto-comuni",
   "POST /jobs/import-veneto-auctions",
   "POST /jobs/firecrawl-deep-veneto",
   "POST /jobs/firecrawl-microzone-opportunity-signals",
@@ -997,6 +998,18 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] data-engine error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Data Engine Veneto failed", debugId), "job-error");
+      }
+    }
+
+    if (pathname.endsWith("/jobs/seed-veneto-comuni")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const { seedVenetoComuni } = await import("./seedVenetoComuni.ts");
+        const r = await seedVenetoComuni();
+        return withIdentity(json(req, r.ok ? 200 : 207, { job: "seed-veneto-comuni", ...r }, debugId), "job-seed-comuni");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] seed-veneto-comuni error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Seed veneto comuni failed", debugId), "job-error");
       }
     }
 
