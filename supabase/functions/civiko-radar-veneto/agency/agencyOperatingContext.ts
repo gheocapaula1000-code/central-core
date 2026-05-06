@@ -30,6 +30,8 @@ export interface AgencySignalPreferences {
   min_confidence: number;
   exclude_auctions: boolean;
   include_public_alienations: boolean;
+  include_sensitive_turnover: boolean;
+  include_sensitive_turnover_aggregated: boolean;
   include_urban_planning: boolean;
   include_mobility: boolean;
   include_services: boolean;
@@ -43,6 +45,8 @@ export const DEFAULT_PREFERENCES: AgencySignalPreferences = {
   min_confidence: 0.55,
   exclude_auctions: true,
   include_public_alienations: false,
+  include_sensitive_turnover: false,
+  include_sensitive_turnover_aggregated: true,
   include_urban_planning: true,
   include_mobility: true,
   include_services: true,
