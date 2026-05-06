@@ -380,8 +380,8 @@ export default function MetricsPage() {
                   </Badge>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid grid-cols-2 gap-3 text-sm">
+              <CardContent className="space-y-3 min-w-0 overflow-hidden">
+                <div className="grid grid-cols-2 gap-2 text-sm">
                   <div>
                     <p className="text-muted-foreground text-xs">Chiamate</p>
                     <p className="font-mono font-semibold">{s.calls}</p>
