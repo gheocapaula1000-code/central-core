@@ -85,6 +85,7 @@ const ROUTES = [
   "POST /jobs/recompute-succession-heatmap",
   "POST /jobs/recompute-price-resistance",
   "POST /jobs/activate-veneto",
+  "POST /jobs/deep-scan-padova",
   "POST /jobs/build-civiko-veneto-data-engine",
   "POST /jobs/seed-veneto-comuni",
   "POST /jobs/import-veneto-auctions",
@@ -996,6 +997,57 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] activate-veneto error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Activate Veneto failed", debugId), "job-error");
+      }
+    }
+
+    if (pathname.endsWith("/jobs/deep-scan-padova")) {
+      const _auth = authorizeJob(req, debugId); if (_auth) return _auth;
+      try {
+        const PADOVA_AREA = [
+          { comune: "Padova",              provincia: "PD" },
+          { comune: "Vigonza",             provincia: "PD" },
+          { comune: "Selvazzano Dentro",   provincia: "PD" },
+          { comune: "Rubano",              provincia: "PD" },
+          { comune: "Abano Terme",         provincia: "PD" },
+          { comune: "Noventa Padovana",    provincia: "PD" },
+          { comune: "Saonara",             provincia: "PD" },
+          { comune: "Ponte San Nicolò",    provincia: "PD" },
+          { comune: "Albignasego",         provincia: "PD" },
+          { comune: "Casalserugo",         provincia: "PD" },
+          { comune: "Due Carrare",         provincia: "PD" },
+          { comune: "Montegrotto Terme",   provincia: "PD" },
+          { comune: "Cadoneghe",           provincia: "PD" },
+          { comune: "Limena",              provincia: "PD" },
+          { comune: "Vigodarzere",         provincia: "PD" },
+          { comune: "Mestrino",            provincia: "PD" },
+        ];
+        const results: Array<Record<string, unknown>> = [];
+        for (const loc of PADOVA_AREA) {
+          try {
+            const resOpps = await scrapeRibassiPortali(loc.comune, null, loc.provincia);
+            results.push({
+              comune: loc.comune,
+              opportunita_residenziale: resOpps.filter(o => o.categoria === "residenziale").length,
+              opportunita_commerciale: resOpps.filter(o => o.categoria === "commerciale").length,
+              opportunita_terreno: resOpps.filter(o => o.categoria === "terreno").length,
+              opportunita_luxury: resOpps.filter(o => o.categoria === "luxury").length,
+              totale: resOpps.length,
+            });
+          } catch (e) {
+            results.push({ comune: loc.comune, error: e instanceof Error ? e.message : String(e) });
+          }
+        }
+        const totale = results.reduce((acc, r) => acc + ((r.totale as number) ?? 0), 0);
+        return withIdentity(json(req, 200, {
+          job: "deep-scan-padova",
+          ok: true,
+          comuni_processati: results.length,
+          opportunita_totali: totale,
+          results,
+        }, debugId), "job-deep-scan-padova");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] deep-scan-padova error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "deep-scan-padova failed", debugId), "job-error");
       }
     }
 
