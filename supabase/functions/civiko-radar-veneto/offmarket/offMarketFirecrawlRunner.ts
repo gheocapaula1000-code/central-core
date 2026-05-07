@@ -77,7 +77,8 @@ export interface CandidateSignal {
 export interface OffMarketDiscoveryReport {
   ok: boolean;
   dryRun: boolean;
-  imported: false;
+  imported: boolean;
+  saved_candidates?: number;
   firecrawl_available: boolean;
   firecrawl_credit_status: "ok" | "insufficient" | "rate_limited" | "unknown";
   sources_checked: number;
@@ -520,9 +521,9 @@ export async function runOffMarketFirecrawlDiscovery(
     ? `Valore moderato: ${importable.length} segnali importabili — affinare registry per coprire più comuni.`
     : `Valore basso in questa run — affinare keyword/allowed_paths o aggiungere fonti.`;
 
-  return {
+  const result: OffMarketDiscoveryReport = {
     ok: creditStatus !== "insufficient",
-    dryRun: true,
+    dryRun,
     imported: false,
     firecrawl_available: true,
     firecrawl_credit_status: creditStatus,
@@ -545,6 +546,47 @@ export async function runOffMarketFirecrawlDiscovery(
     estimated_value_for_radar: evalLine,
     per_source_summary: perSource,
   };
+
+  const allCandidates = candidates;
+  if (!dryRun && allCandidates.filter(c => c.import_recommendation === "importable" || c.import_recommendation === "needs_review").length > 0) {
+    const supa = getServiceClient();
+    if (supa) {
+      const toSave = allCandidates
+        .filter(c => c.import_recommendation === "importable" || c.import_recommendation === "needs_review")
+        .map(c => ({
+          comune: c.comune,
+          provincia: c.provincia,
+          signal_type: c.signal_type,
+          title: c.title,
+          summary: c.reason ?? "",
+          why_it_matters: c.reason ?? "",
+          possible_agent_action: c.possible_agent_action ?? "",
+          source_url: c.source_url,
+          source_name: c.source_name,
+          confidence_score: c.confidence_score,
+          quality: c.quality,
+          data_basis: c.data_basis,
+          privacy_safe: true,
+          needs_review: c.import_recommendation === "needs_review",
+          import_recommendation: c.import_recommendation,
+          fingerprint: `${c.signal_type}::${c.source_url?.toLowerCase()}`,
+          status: c.import_recommendation === "importable" ? "discovered" : "needs_review",
+        }));
+      const { error } = await supa
+        .from("early_offmarket_signal_candidates")
+        .upsert(toSave, { onConflict: "fingerprint", ignoreDuplicates: true });
+      if (!error) {
+        result.saved_candidates = toSave.length;
+        result.imported = true;
+      } else {
+        warnings.push(`save failed: ${error.message}`);
+      }
+    } else {
+      warnings.push("save skipped: SUPABASE_SERVICE_ROLE_KEY missing");
+    }
+  }
+
+  return result;
 }
 
 function emptyReport(o: { ok: boolean; dryRun: boolean; firecrawl_available: boolean; credit: OffMarketDiscoveryReport["firecrawl_credit_status"]; warnings: string[]; errors: string[] }): OffMarketDiscoveryReport {
