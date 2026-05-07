@@ -241,11 +241,19 @@ export async function runPromoteEarlyCandidate(body: PromoteBody) {
     }
   } else if (target === "radar_signals") {
     const { error: insErr } = await client.from("radar_signals").insert({
-      municipality: cand.comune, province: cand.provincia,
-      signal_type: cand.signal_type, is_active: true, title: cand.title,
+      municipality: cand.comune,
+      province: cand.provincia,
+      signal_type: cand.signal_type,
+      is_active: true,
+      title: cand.title,
       description: cand.ai_summary ?? cand.summary,
-      source: cand.source_name, evidence_url: cand.source_url,
-      payload: { ...(cand.payload ?? {}), candidate_id: cand.id }, fingerprint: cand.fingerprint,
+      source: cand.source_name,
+      evidence_url: cand.source_url,
+      payload: { ...(cand.payload ?? {}), candidate_id: cand.id },
+      fingerprint: cand.fingerprint ?? `candidate_${cand.id}`,
+      agency_id: null,
+      confidence: cand.confidence_score >= 0.7 ? "high" : cand.confidence_score >= 0.5 ? "medium" : "low",
+      urgency: cand.priority_score >= 70 ? "alta" : cand.priority_score >= 50 ? "media" : "bassa",
     });
     if (insErr) {
       if (/duplicate key|unique/i.test(insErr.message)) { skipped_existing = true; promoted_to = "radar_signals:already_existing"; }
