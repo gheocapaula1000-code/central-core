@@ -25,6 +25,18 @@ const QUERIES: Array<{ q: string; comune: string; provincia: string; category: s
   { q: "Comune di Verona alienazione beni immobili sito istituzionale",  comune: "Verona",  provincia: "VR", category: "pre_alienation" },
   { q: "Comune di Venezia dismissioni patrimoniali immobili sito ufficiale", comune: "Venezia", provincia: "VE", category: "pre_alienation" },
   { q: "Comune di Padova patrimonio immobiliare alienazioni avviso",      comune: "Padova",  provincia: "PD", category: "pre_alienation" },
+  // ── Padova prima periferia — residenziale ──
+  { q: "Comune Vigonza Selvazzano Rubano Albignasego alienazioni immobili residenziali avvisi pubblici", comune: "Vigonza", provincia: "PD", category: "pre_alienation" },
+  { q: "Comune Cadoneghe Limena Vigodarzere Noventa Padovana vendita immobili bando asta pubblica", comune: "Cadoneghe", provincia: "PD", category: "pre_alienation" },
+  { q: "Comune Abano Terme Montegrotto Terme patrimonio immobiliare cessione alienazione", comune: "Abano Terme", provincia: "PD", category: "pre_alienation" },
+  { q: "Ponte San Nicolò Saonara Casalserugo Due Carrare Mestrino immobili vendita pubblica avviso", comune: "Ponte San Nicolò", provincia: "PD", category: "pre_alienation" },
+  // ── Padova città — commerciale ──
+  { q: "Comune di Padova cessione locali commerciali negozi uffici patrimonio pubblico bando", comune: "Padova", provincia: "PD", category: "commercial" },
+  { q: "Padova aste giudiziarie immobili commerciali capannoni uffici tribunale", comune: "Padova", provincia: "PD", category: "asta_commerciale" },
+  { q: "Padova prima periferia capannoni industriali commerciali dismissioni aste tribunale Padova", comune: "Padova", provincia: "PD", category: "asta_commerciale" },
+  // ── Padova — bandi e agevolazioni ──
+  { q: "Regione Veneto bandi acquisto prima casa agevolazioni mutuo Padova provincia 2024 2025", comune: "Padova", provincia: "PD", category: "bando" },
+  { q: "Comune Padova bandi ristrutturazione efficientamento energetico incentivi proprietari", comune: "Padova", provincia: "PD", category: "bando" },
   { q: "Comune di Vicenza beni immobili gestione patrimonio avviso",      comune: "Vicenza", provincia: "VI", category: "public_asset" },
   { q: "Comune di Treviso variante piano interventi rigenerazione",       comune: "Treviso", provincia: "TV", category: "zoning_change" },
   { q: "Jesolo rigenerazione urbana patrimonio pubblico avviso",          comune: "Jesolo",  provincia: "VE", category: "urban_regeneration" },
