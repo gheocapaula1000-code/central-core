@@ -118,6 +118,7 @@ const ROUTES = [
   "POST /jobs/discover-early-offmarket-signals",
   "POST /jobs/rescore-early-offmarket-candidates",
   "POST /jobs/promote-early-signal-candidate",
+  "POST /jobs/promote-batch",
   "POST /jobs/list-early-signal-candidates",
   "POST /jobs/build-agency-offmarket-brief",
   "POST /agency/personal",
@@ -1277,6 +1278,56 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] promote-early error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Promote early candidate failed", debugId), "job-error");
+      }
+    }
+
+    if (pathname.endsWith("/jobs/promote-batch")) {
+      const _auth = authorizeJob(req, debugId); if (_auth) return _auth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const minPriority: number = body.min_priority ?? 60;
+        const reviewerNote: string = body.reviewer_note ?? "Batch auto-approvazione";
+        const target: string = body.target ?? "radar_signals";
+        const provincia: string | null = body.provincia ?? null;
+
+        const supa = getServiceClient();
+        if (!supa) return withIdentity(fail(req, 503, "DB_UNAVAILABLE", "No DB", debugId), "job-error");
+
+        let q = supa
+          .from("early_offmarket_signal_candidates")
+          .select("id, comune, provincia, priority_score, signal_type")
+          .eq("status", "needs_review")
+          .gte("priority_score", minPriority)
+          .order("priority_score", { ascending: false })
+          .limit(50);
+        if (provincia) q = q.eq("provincia", provincia);
+        const { data: candidates, error: fetchErr } = await q;
+        if (fetchErr) return withIdentity(fail(req, 500, "FETCH_FAILED", fetchErr.message, debugId), "job-error");
+        if (!candidates?.length) return withIdentity(json(req, 200, { job: "promote-batch", ok: true, promoted: 0, message: "Nessun candidato da promuovere" }, debugId), "job-promote-batch");
+
+        const results = [];
+        for (const cand of candidates) {
+          const r = await runPromoteEarlyCandidate({
+            candidate_id: cand.id,
+            force: true,
+            reviewer_note: reviewerNote,
+            target,
+          });
+          results.push({ id: cand.id.slice(0, 8), comune: cand.comune, ok: r.ok, promoted_to: r.promoted_to });
+        }
+
+        const promoted = results.filter(r => r.ok).length;
+        return withIdentity(json(req, 200, {
+          job: "promote-batch",
+          ok: true,
+          total_candidates: candidates.length,
+          promoted,
+          failed: results.length - promoted,
+          results,
+        }, debugId), "job-promote-batch");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] promote-batch error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", e instanceof Error ? e.message : String(e), debugId), "job-error");
       }
     }
 
