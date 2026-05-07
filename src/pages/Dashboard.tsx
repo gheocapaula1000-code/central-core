@@ -219,7 +219,7 @@ export default function Dashboard() {
               province: ["PD"],
               maxQueries: 20,
               dryRun: false,
-              import: true
+              saveCandidates: true
             })}>
               Scopri Segnali Padova
             </Button>
