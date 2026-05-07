@@ -87,6 +87,7 @@ const ROUTES = [
   "POST /jobs/activate-veneto",
   "POST /jobs/deep-scan-padova",
   "POST /jobs/perplexity-deep-padova",
+  "POST /jobs/microzone-padova",
   "POST /jobs/build-civiko-veneto-data-engine",
   "POST /jobs/seed-veneto-comuni",
   "POST /jobs/import-veneto-auctions",
@@ -1078,7 +1079,59 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Build proprietario Civiko Data Engine Veneto
+    if (pathname.endsWith("/jobs/microzone-padova")) {
+      const _auth = authorizeJob(req, debugId); if (_auth) return _auth;
+      try {
+        const supa = getServiceClient();
+        if (!supa) return withIdentity(fail(req, 503, "DB_UNAVAILABLE", "No DB client", debugId), "job-error");
+        const PADOVA_MICROZONE = [
+          { comune: "Padova", provincia: "PD", area_label: "Arcella",            lat: 45.4280, lng: 11.8700, tipo: "semicentrale",  property_types: ["residenziale","commerciale"] },
+          { comune: "Padova", provincia: "PD", area_label: "Pontevigodarzere",   lat: 45.4420, lng: 11.8650, tipo: "periferica",    property_types: ["residenziale"] },
+          { comune: "Padova", provincia: "PD", area_label: "Centro Storico",     lat: 45.4064, lng: 11.8768, tipo: "centrale",      property_types: ["residenziale","commerciale","luxury"] },
+          { comune: "Padova", provincia: "PD", area_label: "Prato della Valle",  lat: 45.3990, lng: 11.8740, tipo: "centrale",      property_types: ["residenziale","commerciale"] },
+          { comune: "Padova", provincia: "PD", area_label: "Stazione",           lat: 45.4160, lng: 11.8800, tipo: "semicentrale",  property_types: ["residenziale","commerciale","uffici"] },
+          { comune: "Padova", provincia: "PD", area_label: "Guizza",             lat: 45.3860, lng: 11.8700, tipo: "periferica",    property_types: ["residenziale"] },
+          { comune: "Padova", provincia: "PD", area_label: "Ovest - Voltabarozzo", lat: 45.4000, lng: 11.8500, tipo: "periferica", property_types: ["residenziale","terreno"] },
+          { comune: "Padova", provincia: "PD", area_label: "Est - ZI",           lat: 45.4070, lng: 11.9300, tipo: "industriale",  property_types: ["commerciale","capannoni","terreno"] },
+          { comune: "Padova", provincia: "PD", area_label: "Sud - Bassanello",   lat: 45.3800, lng: 11.8800, tipo: "periferica",   property_types: ["residenziale"] },
+          { comune: "Vigonza",           provincia: "PD", area_label: "Vigonza",           lat: 45.4270, lng: 11.9570, tipo: "prima_periferia", property_types: ["residenziale","terreno"] },
+          { comune: "Selvazzano Dentro", provincia: "PD", area_label: "Selvazzano Dentro", lat: 45.3800, lng: 11.8030, tipo: "prima_periferia", property_types: ["residenziale","terreno"] },
+          { comune: "Rubano",            provincia: "PD", area_label: "Rubano",            lat: 45.4060, lng: 11.7850, tipo: "prima_periferia", property_types: ["residenziale","commerciale"] },
+          { comune: "Albignasego",       provincia: "PD", area_label: "Albignasego",       lat: 45.3620, lng: 11.8670, tipo: "prima_periferia", property_types: ["residenziale"] },
+          { comune: "Cadoneghe",         provincia: "PD", area_label: "Cadoneghe",         lat: 45.4430, lng: 11.9020, tipo: "prima_periferia", property_types: ["residenziale","commerciale"] },
+          { comune: "Limena",            provincia: "PD", area_label: "Limena",            lat: 45.4580, lng: 11.8710, tipo: "prima_periferia", property_types: ["residenziale","terreno"] },
+          { comune: "Noventa Padovana",  provincia: "PD", area_label: "Noventa Padovana",  lat: 45.4210, lng: 11.9520, tipo: "prima_periferia", property_types: ["residenziale"] },
+          { comune: "Abano Terme",       provincia: "PD", area_label: "Abano Terme",       lat: 45.3600, lng: 11.7900, tipo: "termale",         property_types: ["residenziale","commerciale","luxury"] },
+          { comune: "Montegrotto Terme", provincia: "PD", area_label: "Montegrotto Terme", lat: 45.3330, lng: 11.7830, tipo: "termale",         property_types: ["residenziale","luxury"] },
+        ];
+        const upserted: string[] = [];
+        for (const mz of PADOVA_MICROZONE) {
+          const { error } = await supa.from("area_opportunity_scores").upsert({
+            municipality: mz.comune,
+            province: mz.provincia,
+            area_label: mz.area_label,
+            lat: mz.lat,
+            lng: mz.lng,
+            area_type: mz.tipo,
+            property_types: mz.property_types,
+            quality: "parziale",
+            derivazione: "stima_da_dati_statistici",
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "municipality,area_label" });
+          if (!error) upserted.push(mz.area_label);
+        }
+        return withIdentity(json(req, 200, {
+          job: "microzone-padova",
+          ok: true,
+          upserted: upserted.length,
+          microzone: upserted,
+        }, debugId), "job-microzone-padova");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] microzone-padova error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "microzone-padova failed", debugId), "job-error");
+      }
+    }
+
     if (pathname.endsWith("/jobs/build-civiko-veneto-data-engine")) {
       const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
