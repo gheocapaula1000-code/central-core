@@ -28,6 +28,7 @@ import {
   handleScanStoricoTransazioni,
   handleScanMarket,
   handleScanOffmarket,
+  handleScanZoneIntelligence,
 } from "./scan.ts";
 
 // ── Forecast handlers ──
@@ -75,6 +76,7 @@ const ROUTES: Record<string, (req: Request, body: Record<string, unknown>, debug
   "scan/market":               handleScanMarket,
   "scan/market-context":       handleScanMarket, // backward-compat alias
   "scan/offmarket":            handleScanOffmarket,
+  "scan/zone-intelligence":    handleScanZoneIntelligence,
   // Motore Forecast (7)
   "forecast/moodscore":        handleForecastMoodScore,
   "forecast/timeview":         handleForecastTimeView,
