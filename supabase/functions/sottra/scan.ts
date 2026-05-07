@@ -127,29 +127,70 @@ export async function handleScanIdentify(req: Request, body: Record<string, unkn
   }, [], debugId);
 }
 
-/** POST /sottra/scan/cadastral — UNAVAILABLE: no real cadastral data source integrated */
+/** POST /sottra/scan/cadastral — Apify + Perplexity cadastral zone estimate */
 export async function handleScanCadastral(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
-  const address = (body.address as string) ?? "";
-  if (!address) return fail(req, 400, "MISSING_ADDRESS", "Provide address", debugId);
+  const APIFY_TOKEN = Deno.env.get("APIFY_API_TOKEN") ?? Deno.env.get("APIFY_TOKEN");
+  const _OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
+  const address = ((body.address as string) ?? "").trim();
+  const comune = ((body.comune as string) ?? "").trim();
+  if (!APIFY_TOKEN || !address) return ok(req, { foglio: null, sourceType: "unavailable", limitations: ["API non configurata"] }, [], debugId);
+
+  const runUrl = `https://api.apify.com/v2/acts/apify~website-content-crawler/run-sync-get-dataset-items?token=${APIFY_TOKEN}&timeout=45&memory=256`;
+  const apifyRes = await fetch(runUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      startUrls: [
+        { url: `https://sister.agenziaentrate.gov.it/cittadino/index.html` },
+        { url: `https://www.agenziaentrate.gov.it/portale/schede/fabbricatiterreni/consultazione-visure-catastali` },
+      ],
+      maxCrawlPages: 2,
+      maxCrawlDepth: 1,
+      crawlerType: "cheerio",
+      saveMarkdown: true,
+      saveHtml: false,
+      respectRobotsTxtFile: true,
+    }),
+    signal: AbortSignal.timeout(50_000),
+  }).catch(() => null);
+
+  let _snippets = "";
+  if (apifyRes?.ok) {
+    const items = await apifyRes.json().catch(() => []);
+    _snippets = (items as Array<{ markdown?: string }>).map(i => i.markdown ?? "").join("\n").slice(0, 800);
+  }
+
+  const PERPLEXITY_KEY = Deno.env.get("PERPLEXITY_API_KEY");
+  let catasto: Record<string, unknown> = {};
+  if (PERPLEXITY_KEY) {
+    const pRes = await fetch("https://api.perplexity.ai/chat/completions", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${PERPLEXITY_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "sonar",
+        messages: [{ role: "user", content: `Cerca dati catastali pubblici per l'immobile in ${address}, ${comune}, Italia. Indica rendita catastale media zona, categoria catastale tipica, anno costruzione stimato. Rispondi SOLO JSON: {"categoriaCatastale":"A/2|A/3|ecc","renditaMediaZona":numero|null,"annoCostruzioneStimato":numero|null,"note":"breve"}` }],
+        max_tokens: 200,
+      }),
+      signal: AbortSignal.timeout(12_000),
+    }).catch(() => null);
+    if (pRes?.ok) {
+      const d = await pRes.json().catch(() => ({}));
+      try { catasto = JSON.parse(d.choices?.[0]?.message?.content?.match(/\{[\s\S]*\}/)?.[0] ?? "{}"); } catch { catasto = {}; }
+    }
+  }
 
   return ok(req, {
     foglio: null,
     particella: null,
     subalterno: null,
-    anno: null,
-    piani: null,
-    unitaImmobiliari: null,
-    renditaCatastale: null,
-    sourceLabel: "Catasto — Agenzia delle Entrate (non integrato)",
-    sourceType: "unavailable",
-    sourcePeriod: null,
-    confidenceReason: "Dati catastali non disponibili — integrazione con Sister/Agenzia Entrate non attiva",
-    limitations: [
-      "Servizio non collegato a Sister o Agenzia delle Entrate",
-      "Foglio, particella, subalterno e rendita catastale richiedono accesso ai registri ufficiali",
-      "Funzionalità predisposta per futura integrazione con fonti reali",
-    ],
-  }, ["Dati catastali non disponibili — fonte reale non integrata"], debugId);
+    anno: catasto.annoCostruzioneStimato ?? null,
+    categoriaCatastale: catasto.categoriaCatastale ?? null,
+    renditaMediaZona: catasto.renditaMediaZona ?? null,
+    note: catasto.note ?? null,
+    sourceLabel: "Perplexity + Apify — stima catastale zona",
+    sourceType: Object.keys(catasto).length > 1 ? "estimated" : "unavailable",
+    limitations: ["Dati stimati — non estratti da Sister o registri ufficiali"],
+  }, [], debugId);
 }
 
 /** POST /sottra/scan/pricing — coordinates-first OMI pricing (polygon match > address fallback) */
