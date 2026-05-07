@@ -214,7 +214,7 @@ export default function Dashboard() {
             <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/perplexity-deep-padova")}>
               Perplexity Deep Padova
             </Button>
-            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/run-early-offmarket-signals", {
+            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/discover-early-offmarket-signals", {
               comuni: ["Padova","Vigonza","Selvazzano Dentro","Rubano","Abano Terme","Noventa Padovana","Albignasego","Cadoneghe","Limena","Mestrino","Montegrotto Terme"],
               province: ["PD"],
               maxQueries: 20
