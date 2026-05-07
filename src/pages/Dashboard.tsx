@@ -137,6 +137,18 @@ export default function Dashboard() {
             <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/rescore-early-offmarket-candidates", {})}>
               Rescore Candidati
             </Button>
+            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/offmarket-padova")}>
+              Off-Market Firecrawl Padova
+            </Button>
+            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/discover-early-offmarket-signals", {
+              comuni: ["Padova","Vigonza","Selvazzano Dentro","Rubano","Abano Terme","Noventa Padovana","Albignasego","Cadoneghe","Limena","Mestrino","Montegrotto Terme"],
+              province: ["PD"],
+              maxQueries: 30,
+              dryRun: false,
+              saveCandidates: true
+            })}>
+              Scopri Affari Padova (30 query)
+            </Button>
             <Button size="sm" disabled={!jobSecret || jobLoading} onClick={async () => {
               const ids = [
                 "fa6e1602-1ff1-4b6d-adc9-1270b9e20665",
