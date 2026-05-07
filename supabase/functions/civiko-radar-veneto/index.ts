@@ -1005,55 +1005,21 @@ Deno.serve(async (req) => {
     if (pathname.endsWith("/jobs/deep-scan-padova")) {
       const _auth = authorizeJob(req, debugId); if (_auth) return _auth;
       try {
-        const PADOVA_AREA = [
-          { comune: "Padova",              provincia: "PD" },
-          { comune: "Vigonza",             provincia: "PD" },
-          { comune: "Selvazzano Dentro",   provincia: "PD" },
-          { comune: "Rubano",              provincia: "PD" },
-          { comune: "Abano Terme",         provincia: "PD" },
-          { comune: "Noventa Padovana",    provincia: "PD" },
-          { comune: "Saonara",             provincia: "PD" },
-          { comune: "Ponte San Nicolò",    provincia: "PD" },
-          { comune: "Albignasego",         provincia: "PD" },
-          { comune: "Casalserugo",         provincia: "PD" },
-          { comune: "Due Carrare",         provincia: "PD" },
-          { comune: "Montegrotto Terme",   provincia: "PD" },
-          { comune: "Cadoneghe",           provincia: "PD" },
-          { comune: "Limena",              provincia: "PD" },
-          { comune: "Vigodarzere",         provincia: "PD" },
-          { comune: "Mestrino",            provincia: "PD" },
-        ];
-        const PER_COMUNE_TIMEOUT_MS = 20_000;
-        const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> =>
-          new Promise((resolve, reject) => {
-            const t = setTimeout(() => reject(new Error(`timeout ${ms}ms`)), ms);
-            p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
-          });
-        const settled = await Promise.allSettled(
-          PADOVA_AREA.map((loc) =>
-            withTimeout(scrapeRibassiPortali(loc.comune, null, loc.provincia), PER_COMUNE_TIMEOUT_MS)
-              .then((resOpps) => ({
-                comune: loc.comune,
-                opportunita_residenziale: resOpps.filter(o => o.categoria === "residenziale").length,
-                opportunita_commerciale: resOpps.filter(o => o.categoria === "commerciale").length,
-                opportunita_terreno: resOpps.filter(o => o.categoria === "terreno").length,
-                opportunita_luxury: resOpps.filter(o => o.categoria === "luxury").length,
-                totale: resOpps.length,
-              }))
-          )
-        );
-        const results: Array<Record<string, unknown>> = settled.map((r, i) =>
-          r.status === "fulfilled"
-            ? r.value
-            : { comune: PADOVA_AREA[i].comune, error: r.reason instanceof Error ? r.reason.message : String(r.reason) }
-        );
-        const totale = results.reduce((acc, r) => acc + ((r.totale as number) ?? 0), 0);
+        const body = await req.json().catch(() => ({}));
+        const comuneTarget = body.comune ?? "Padova";
+        const provinciaTarget = "PD";
+
+        const resOpps = await scrapeRibassiPortali(comuneTarget, null, provinciaTarget);
+
         return withIdentity(json(req, 200, {
           job: "deep-scan-padova",
           ok: true,
-          comuni_processati: results.length,
-          opportunita_totali: totale,
-          results,
+          comune: comuneTarget,
+          opportunita_residenziale: resOpps.filter(o => o.categoria === "residenziale").length,
+          opportunita_commerciale: resOpps.filter(o => o.categoria === "commerciale").length,
+          opportunita_terreno: resOpps.filter(o => o.categoria === "terreno").length,
+          totale: resOpps.length,
+          sample: resOpps.slice(0, 3),
         }, debugId), "job-deep-scan-padova");
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] deep-scan-padova error:`, e instanceof Error ? e.message : String(e));
