@@ -27,7 +27,7 @@ export function firecrawlAvailable(): boolean {
 export async function fcScrape(url: string, opts: { timeoutMs?: number; formats?: string[] } = {}): Promise<ScrapeResult> {
   const k = key();
   if (!k) return { ok: false, url, error: "FIRECRAWL_API_KEY missing" };
-  const timeout = opts.timeoutMs ?? 25_000;
+  const timeout = opts.timeoutMs ?? 55_000;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeout);
   try {
@@ -61,7 +61,7 @@ export async function fcMap(url: string, opts: { search?: string; limit?: number
   const k = key();
   if (!k) return { ok: false, links: [], error: "FIRECRAWL_API_KEY missing" };
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 20_000);
+  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 55_000);
   try {
     const res = await fetch(`${FIRECRAWL_V2}/map`, {
       method: "POST",
