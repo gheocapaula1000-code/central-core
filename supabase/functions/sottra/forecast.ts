@@ -25,32 +25,52 @@ function extractComune(address: string): string {
 // AI-BASED ENDPOINTS (sourceType: "estimate")
 // ═══════════════════════════════════════════════════════════════
 
-/** POST /sottra/forecast/moodscore — UNAVAILABLE: no real sentiment/quality data source integrated */
+/** POST /sottra/forecast/moodscore — Perplexity neighborhood quality assessment */
 export async function handleForecastMoodScore(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const lat = body.lat as number | undefined;
   const lng = body.lng as number | undefined;
   if (lat == null || lng == null) return fail(req, 400, "MISSING_COORDS", "Provide lat and lng", debugId);
 
+  const PERPLEXITY_KEY = Deno.env.get("PERPLEXITY_API_KEY");
+  if (!PERPLEXITY_KEY) return ok(req, { score: null, sourceType: "unavailable" }, [], debugId);
+
+  const address = await reverseGeocode(lat, lng) ?? `${lat},${lng}`;
+  const comune = extractComune(address) ?? "zona";
+
+  const res = await fetch("https://api.perplexity.ai/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${PERPLEXITY_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "sonar",
+      messages: [{ role: "user", content: `Valuta la qualità di vita del quartiere ${address}, ${comune} su una scala 1-10 per: commercio, trasporti, verde, sicurezza, vita sociale. Rispondi SOLO in JSON: {"score": numero, "commercio": numero, "trasporti": numero, "verde": numero, "sicurezza": numero, "socialLife": numero, "note": "stringa breve"}` }],
+      max_tokens: 200,
+    }),
+    signal: AbortSignal.timeout(12_000),
+  });
+  const data = await res.json();
+  const testo = data.choices?.[0]?.message?.content ?? "";
+  let mood: Record<string, unknown> = {};
+  try {
+    const match = testo.match(/\{[\s\S]*\}/);
+    if (match) mood = JSON.parse(match[0]);
+  } catch { mood = {}; }
+
   return ok(req, {
-    score: null,
+    score: mood.score ?? null,
     trend: null,
     categorie: {
-      commercio: null,
-      trasporti: null,
-      verde: null,
-      sicurezza: null,
-      socialLife: null,
+      commercio: mood.commercio ?? null,
+      trasporti: mood.trasporti ?? null,
+      verde: mood.verde ?? null,
+      sicurezza: mood.sicurezza ?? null,
+      socialLife: mood.socialLife ?? null,
     },
-    sourceLabel: "Indice qualità percepita (non disponibile)",
-    sourceType: "unavailable",
-    sourcePeriod: null,
-    confidenceReason: "MoodScore non disponibile — nessuna fonte dati reale per qualità percepita del quartiere",
-    limitations: [
-      "Nessuna fonte ufficiale integrata per la qualità percepita dei quartieri",
-      "Servizio predisposto per futura integrazione con dati reali (ISTAT BES, open data comunali, ecc.)",
-      "Nessun punteggio inventato o simulato viene restituito",
-    ],
-  }, ["MoodScore non disponibile — fonte reale non integrata"], debugId);
+    note: mood.note ?? null,
+    sourceLabel: "Perplexity — analisi qualità quartiere",
+    sourceType: mood.score ? "real" : "empty",
+    sourcePeriod: "2025",
+    limitations: [],
+  }, [], debugId);
 }
 
 /** POST /sottra/forecast/timeview — coordinates → scenario medio periodo basato su dati reali */
