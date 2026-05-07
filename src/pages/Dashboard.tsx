@@ -220,7 +220,7 @@ export default function Dashboard() {
             <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/rescore-early-offmarket-candidates", { dryRun: false })}>
               Rescore Candidati
             </Button>
-            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/promote-batch", { min_priority: 60, provincia: "PD", reviewer_note: "Approvazione batch Padova", target: "radar_signals" })}>
+            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/promote-batch", { min_priority: 60, reviewer_note: "Approvazione batch Veneto", target: "radar_signals" })}>
               Promuovi Batch Padova
             </Button>
           </div>
