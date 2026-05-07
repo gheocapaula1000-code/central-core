@@ -258,6 +258,12 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
       }
 
       // Publishable
+      const prezzoMq = Math.round((omi.compr_min + omi.compr_max) / 2);
+
+      if (!omi.polygonMatch) {
+        console.log("[pricing] fallback comunale:", { compr_min: omi.compr_min, compr_max: omi.compr_max, media: prezzoMq });
+      }
+
       const confidenceLabel = omi.polygonMatch
         ? `Prezzi ufficiali OMI — zona ${omi.zona} (${omi.zona_descr}), match spaziale poligono, confidence: ${(omi.matchConfidence * 100).toFixed(0)}%`
         : sourceType === "official"
@@ -276,7 +282,7 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
       }
 
       return ok(req, {
-        prezzoMq: omi.prezzoMedio,
+        prezzoMq: prezzoMq,
         prezzoMqMin: omi.compr_min,
         prezzoMqMax: omi.compr_max,
         mediaZona: null,
