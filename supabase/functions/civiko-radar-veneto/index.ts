@@ -86,6 +86,7 @@ const ROUTES = [
   "POST /jobs/recompute-price-resistance",
   "POST /jobs/activate-veneto",
   "POST /jobs/deep-scan-padova",
+  "POST /jobs/perplexity-deep-padova",
   "POST /jobs/build-civiko-veneto-data-engine",
   "POST /jobs/seed-veneto-comuni",
   "POST /jobs/import-veneto-auctions",
@@ -1048,6 +1049,32 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] deep-scan-padova error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "deep-scan-padova failed", debugId), "job-error");
+      }
+    }
+
+    if (pathname.endsWith("/jobs/perplexity-deep-padova")) {
+      const _auth = authorizeJob(req, debugId); if (_auth) return _auth;
+      try {
+        const { runPerplexityDiscovery } = await import("./offmarket/perplexityDiscovery.ts");
+        const result = await runPerplexityDiscovery({
+          comuni: [
+            "Padova","Vigonza","Selvazzano Dentro","Rubano","Abano Terme",
+            "Noventa Padovana","Saonara","Ponte San Nicolò","Albignasego",
+            "Casalserugo","Due Carrare","Montegrotto Terme","Cadoneghe",
+            "Limena","Vigodarzere","Mestrino"
+          ],
+          maxQueries: 20,
+        });
+        return withIdentity(json(req, 200, {
+          job: "perplexity-deep-padova",
+          ok: result.ok,
+          hits: result.hits.length,
+          errors: result.errors,
+          sample: result.hits.slice(0, 3),
+        }, debugId), "job-perplexity-padova");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] perplexity-deep-padova error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "perplexity-deep-padova failed", debugId), "job-error");
       }
     }
 
