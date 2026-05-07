@@ -340,6 +340,12 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     if (filterComune) q = q.ilike("municipality", filterComune.trim());
     const { data, error } = await q.range(0, 1999);
     if (error) throw error;
+    console.log("[DEBUG radar_signals]", {
+      filterProv,
+      filterComune,
+      signalsCount: (data ?? []).length,
+      firstSignal: (data ?? [])[0] ?? null,
+    });
     return data ?? [];
   }, warnings);
 
