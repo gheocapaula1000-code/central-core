@@ -356,29 +356,55 @@ export async function handleScanEnergy(req: Request, body: Record<string, unknow
   }, ["Dati energetici non disponibili — fonte reale non integrata"], debugId);
 }
 
-/** POST /sottra/scan/condominio — UNAVAILABLE: no real condominium registry data source */
+/** POST /sottra/scan/condominio — Firecrawl + OpenAI web analysis */
 export async function handleScanCondominio(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const address = (body.address as string) ?? "";
   if (!address) return fail(req, 400, "MISSING_ADDRESS", "Provide address", debugId);
 
+  const FIRECRAWL_KEY = Deno.env.get("FIRECRAWL_API_KEY");
+  const comune = ((body.comune as string) ?? "").trim();
+  if (!FIRECRAWL_KEY || !address) return ok(req, { statoConservazione: null, sourceType: "unavailable", limitations: ["API non configurata"] }, [], debugId);
+
+  const searchRes = await fetch("https://api.firecrawl.dev/v1/search", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${FIRECRAWL_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      query: `condominio ${address} ${comune} stato conservazione ascensore riscaldamento`,
+      limit: 3,
+      scrapeOptions: { formats: ["markdown"] },
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const searchData = await searchRes.json();
+  const snippets = (searchData.data ?? []).map((r: { markdown?: string }) => r.markdown ?? "").join("\n").slice(0, 800);
+
+  const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
+  let parsed: Record<string, unknown> = {};
+  if (OPENAI_KEY && snippets.length > 50) {
+    const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: `Dal seguente testo estrai info sul condominio in ${address}. Rispondi SOLO in JSON: {"statoConservazione": "buono|discreto|da_ristrutturare|non_disponibile", "ascensore": true|false|null, "tipoRiscaldamento": "autonomo|centralizzato|non_disponibile", "note": "stringa breve"}. Testo: ${snippets}` }],
+        max_tokens: 150,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const aiData = await aiRes.json();
+    try { parsed = JSON.parse(aiData.choices?.[0]?.message?.content ?? "{}"); } catch { parsed = {}; }
+  }
+
   return ok(req, {
-    tipoRiscaldamento: null,
-    ascensore: null,
-    statoConservazione: null,
+    tipoRiscaldamento: parsed.tipoRiscaldamento ?? null,
+    ascensore: parsed.ascensore ?? null,
+    statoConservazione: parsed.statoConservazione ?? null,
     annoUltimaRistrutturazione: null,
-    postiAuto: null,
-    giardino: null,
-    portineria: null,
-    sourceLabel: "Registri condominiali (non integrato)",
-    sourceType: "unavailable",
-    sourcePeriod: null,
-    confidenceReason: "Dati condominiali non disponibili — nessun registro reale integrato",
-    limitations: [
-      "Servizio non collegato a registri condominiali, verbali o visure",
-      "Le informazioni condominiali reali richiedono accesso a documentazione specifica dell'edificio",
-      "Funzionalità predisposta per futura integrazione con fonti reali",
-    ],
-  }, ["Dati condominiali non disponibili — fonte reale non integrata"], debugId);
+    note: parsed.note ?? null,
+    sourceLabel: "Firecrawl + OpenAI — analisi web edificio",
+    sourceType: Object.keys(parsed).length > 0 ? "real" : "empty",
+    limitations: [],
+  }, [], debugId);
 }
 
 /** POST /sottra/scan/storico-transazioni — UNAVAILABLE: no real transaction registry integrated */
