@@ -242,7 +242,7 @@ export async function runPromoteEarlyCandidate(body: PromoteBody) {
   } else if (target === "radar_signals") {
     const { error: insErr } = await client.from("radar_signals").insert({
       municipality: cand.comune, province: cand.provincia,
-      signal_type: cand.signal_type, title: cand.title,
+      signal_type: cand.signal_type, is_active: true, title: cand.title,
       description: cand.ai_summary ?? cand.summary,
       source: cand.source_name, evidence_url: cand.source_url,
       payload: { ...(cand.payload ?? {}), candidate_id: cand.id }, fingerprint: cand.fingerprint,
