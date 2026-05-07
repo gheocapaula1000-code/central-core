@@ -3042,6 +3042,48 @@ export type Database = {
         }
         Relationships: []
       }
+      sottra_scans: {
+        Row: {
+          address: string | null
+          comune: string | null
+          created_at: string
+          id: string
+          lat: number | null
+          lng: number | null
+          photo_thumbnail: string | null
+          provincia: string | null
+          result_snapshot: Json | null
+          user_id: string
+          zona_omi: string | null
+        }
+        Insert: {
+          address?: string | null
+          comune?: string | null
+          created_at?: string
+          id?: string
+          lat?: number | null
+          lng?: number | null
+          photo_thumbnail?: string | null
+          provincia?: string | null
+          result_snapshot?: Json | null
+          user_id: string
+          zona_omi?: string | null
+        }
+        Update: {
+          address?: string | null
+          comune?: string | null
+          created_at?: string
+          id?: string
+          lat?: number | null
+          lng?: number | null
+          photo_thumbnail?: string | null
+          provincia?: string | null
+          result_snapshot?: Json | null
+          user_id?: string
+          zona_omi?: string | null
+        }
+        Relationships: []
+      }
       source_documents: {
         Row: {
           classification: string | null
