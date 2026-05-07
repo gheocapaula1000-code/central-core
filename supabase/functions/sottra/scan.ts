@@ -420,3 +420,65 @@ export async function handleScanMarket(req: Request, body: Record<string, unknow
     return fail(req, 502, "PROVIDER_ERROR", `Market data analysis failed. Reference: ${debugId}`, debugId);
   }
 }
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+
+/** POST /sottra/scan/offmarket — radar signals + early off-market candidates for a comune */
+export async function handleScanOffmarket(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
+  const lat = body.lat as number | undefined;
+  const lng = body.lng as number | undefined;
+  const comune = body.comune as string | undefined;
+  const provincia = body.provincia as string | undefined;
+  if (lat == null || lng == null) return fail(req, 400, "MISSING_COORDS", "Provide lat and lng", debugId);
+
+  const supabase = createClient(
+    Deno.env.get("SUPABASE_URL") ?? "",
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+  );
+
+  const [radarRes, candidatesRes] = await Promise.all([
+    supabase
+      .from("radar_signals")
+      .select("signal_type, title, description, source, evidence_url, confidence, urgency, municipality, province, lat, lng, payload")
+      .eq("is_active", true)
+      .ilike("municipality", comune ?? "")
+      .order("created_at", { ascending: false })
+      .limit(10),
+    supabase
+      .from("early_offmarket_signal_candidates")
+      .select("signal_type, title, why_it_matters, possible_agent_action, source_url, confidence_score, quality, comune, provincia")
+      .in("status", ["promoted", "needs_review"])
+      .ilike("comune", comune ?? "")
+      .order("priority_score", { ascending: false })
+      .limit(5),
+  ]);
+
+  const signals = (radarRes.data ?? []).map((s: any) => ({
+    tipo: s.signal_type,
+    titolo: s.title ?? s.description,
+    fonte: s.source,
+    url: s.evidence_url,
+    confidenza: s.confidence,
+    urgenza: s.urgency,
+    comune: s.municipality,
+  }));
+
+  const opportunities = (candidatesRes.data ?? []).map((c: any) => ({
+    tipo: c.signal_type,
+    titolo: c.title,
+    perchéOra: c.why_it_matters,
+    azioneAgente: c.possible_agent_action,
+    url: c.source_url,
+    qualità: c.quality,
+  }));
+
+  return ok(req, {
+    segnali: signals,
+    opportunita: opportunities,
+    comune: comune ?? null,
+    provincia: provincia ?? null,
+    totale: signals.length + opportunities.length,
+    sourceType: signals.length > 0 ? "real" : "empty",
+    limitations: signals.length === 0 ? ["Nessun segnale off-market disponibile per questa zona"] : [],
+  }, [], debugId);
+}
