@@ -370,8 +370,16 @@ export async function handleScanListings(req: Request, body: Record<string, unkn
   let annunci: unknown[] = [];
   try {
     const match = testo.match(/\[[\s\S]*\]/);
-    if (match) annunci = JSON.parse(match[0]);
-  } catch { annunci = []; }
+    if (match) {
+      annunci = JSON.parse(match[0]);
+    } else if (testo.length > 30) {
+      annunci = [{ descrizione: testo, prezzo_eur: null, superficie_mq: null, url: null }];
+    }
+  } catch {
+    if (testo.length > 30) {
+      annunci = [{ descrizione: testo, prezzo_eur: null, superficie_mq: null, url: null }];
+    }
+  }
 
   return ok(req, {
     annunci,
