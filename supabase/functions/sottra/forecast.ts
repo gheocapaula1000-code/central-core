@@ -862,3 +862,83 @@ export async function handleForecastTrendDemografico(req: Request, body: Record<
     limitations,
   }, [], debugId);
 }
+
+/** POST /sottra/forecast/neighborhood — Perplexity + Firecrawl neighborhood quality analysis */
+export async function handleForecastNeighborhood(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
+  const lat = body.lat as number | undefined;
+  const lng = body.lng as number | undefined;
+  const address = ((body.address as string) ?? "").trim();
+  if (lat == null || lng == null) return fail(req, 400, "MISSING_COORDS", "Provide lat and lng", debugId);
+
+  const PERPLEXITY_KEY = Deno.env.get("PERPLEXITY_API_KEY");
+  const FIRECRAWL_KEY = Deno.env.get("FIRECRAWL_API_KEY");
+  const comune = extractComune(address) || "zona";
+
+  const dims: Record<string, number | null> = {
+    sicurezza: null, verde: null, commercio: null,
+    trasporti: null, istruzione: null, socialita: null,
+    rumoreNotturno: null, qualitaAria: null,
+  };
+
+  // Perplexity: valutazione qualitativa quartiere
+  if (PERPLEXITY_KEY) {
+    const pRes = await fetch("https://api.perplexity.ai/chat/completions", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${PERPLEXITY_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "sonar",
+        messages: [{ role: "user", content: `Valuta il quartiere di ${address}, ${comune} su scala 0-100 per: sicurezza percepita, verde e parchi, commercio e negozi, trasporti pubblici, scuole e istruzione, vita sociale, rumore notturno (100=silenzioso), qualità aria. Fonti: notizie locali, forum, recensioni. Rispondi SOLO JSON: {"sicurezza":75,"verde":60,"commercio":80,"trasporti":85,"istruzione":70,"socialita":65,"rumoreNotturno":55,"qualitaAria":70,"band":"good|moderate|poor","note":"breve"}` }],
+        max_tokens: 300,
+        search_recency_filter: "year",
+      }),
+      signal: AbortSignal.timeout(15_000),
+    }).catch(() => null);
+    if (pRes?.ok) {
+      const d = await pRes.json().catch(() => ({}));
+      try {
+        const parsed = JSON.parse(d.choices?.[0]?.message?.content?.match(/\{[\s\S]*\}/)?.[0] ?? "{}");
+        Object.assign(dims, parsed);
+      } catch { /* ignora */ }
+    }
+  }
+
+  // Firecrawl: cerca notizie sicurezza/ambiente quartiere
+  let noteLocali = "";
+  if (FIRECRAWL_KEY && comune) {
+    const fRes = await fetch("https://api.firecrawl.dev/v1/search", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${FIRECRAWL_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: `sicurezza qualità vita quartiere ${comune} ${address} 2024 2025`,
+        limit: 2,
+        scrapeOptions: { formats: ["markdown"] },
+      }),
+      signal: AbortSignal.timeout(20_000),
+    }).catch(() => null);
+    if (fRes?.ok) {
+      const fd = await fRes.json().catch(() => ({ data: [] }));
+      noteLocali = (fd.data ?? []).map((r: { markdown?: string }) => (r.markdown ?? "").slice(0, 300)).join(" ");
+    }
+  }
+
+  const score = Object.values(dims).filter((v): v is number => v !== null).reduce((a, b) => a + b, 0) /
+    Math.max(Object.values(dims).filter(v => v !== null).length, 1);
+  const band = score >= 70 ? "good" : score >= 45 ? "moderate" : "poor";
+
+  return ok(req, {
+    score: Math.round(score),
+    band,
+    dimensions: [
+      { key: "sicurezza", label: "Sicurezza", value: dims.sicurezza, status: dims.sicurezza != null ? (dims.sicurezza >= 65 ? "good" : dims.sicurezza >= 40 ? "partial" : "poor") : "unavailable" },
+      { key: "verde", label: "Verde e Parchi", value: dims.verde, status: dims.verde != null ? (dims.verde >= 65 ? "good" : dims.verde >= 40 ? "partial" : "poor") : "unavailable" },
+      { key: "commercio", label: "Commercio", value: dims.commercio, status: dims.commercio != null ? (dims.commercio >= 65 ? "good" : "partial") : "unavailable" },
+      { key: "trasporti", label: "Trasporti", value: dims.trasporti, status: dims.trasporti != null ? (dims.trasporti >= 65 ? "good" : "partial") : "unavailable" },
+      { key: "istruzione", label: "Istruzione", value: dims.istruzione, status: "partial" },
+      { key: "socialita", label: "Vita Sociale", value: dims.socialita, status: "partial" },
+    ],
+    note: (dims as Record<string, unknown>).note as string ?? noteLocali.slice(0, 200) ?? null,
+    sourceLabel: "Perplexity + Firecrawl — analisi qualità quartiere",
+    sourceType: score > 0 ? "real" : "unavailable",
+    limitations: [],
+  }, [], debugId);
+}
