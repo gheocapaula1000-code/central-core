@@ -358,10 +358,9 @@ export async function handleScanEnergy(req: Request, body: Record<string, unknow
 
 /** POST /sottra/scan/condominio — Firecrawl + OpenAI web analysis */
 export async function handleScanCondominio(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
-  const address = (body.address as string) ?? "";
-  if (!address) return fail(req, 400, "MISSING_ADDRESS", "Provide address", debugId);
-
   const FIRECRAWL_KEY = Deno.env.get("FIRECRAWL_API_KEY");
+  const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
+  const address = ((body.address as string) ?? "").trim();
   const comune = ((body.comune as string) ?? "").trim();
   if (!FIRECRAWL_KEY || !address) return ok(req, { statoConservazione: null, sourceType: "unavailable", limitations: ["API non configurata"] }, [], debugId);
 
@@ -369,30 +368,35 @@ export async function handleScanCondominio(req: Request, body: Record<string, un
     method: "POST",
     headers: { "Authorization": `Bearer ${FIRECRAWL_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      query: `condominio ${address} ${comune} stato conservazione ascensore riscaldamento`,
+      query: `condominio "${address}" ${comune} stato conservazione ascensore riscaldamento spese`,
       limit: 3,
       scrapeOptions: { formats: ["markdown"] },
     }),
-    signal: AbortSignal.timeout(20_000),
-  });
-  const searchData = await searchRes.json();
-  const snippets = (searchData.data ?? []).map((r: { markdown?: string }) => r.markdown ?? "").join("\n").slice(0, 800);
+    signal: AbortSignal.timeout(25_000),
+  }).catch(() => null);
 
-  const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
+  let snippets = "";
+  if (searchRes?.ok) {
+    const d = await searchRes.json().catch(() => ({ data: [] }));
+    snippets = (d.data ?? []).map((r: { markdown?: string }) => r.markdown ?? "").join("\n").slice(0, 1000);
+  }
+
   let parsed: Record<string, unknown> = {};
-  if (OPENAI_KEY && snippets.length > 50) {
+  if (OPENAI_KEY && snippets.length > 30) {
     const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "gpt-4o-mini",
-        messages: [{ role: "user", content: `Dal seguente testo estrai info sul condominio in ${address}. Rispondi SOLO in JSON: {"statoConservazione": "buono|discreto|da_ristrutturare|non_disponibile", "ascensore": true|false|null, "tipoRiscaldamento": "autonomo|centralizzato|non_disponibile", "note": "stringa breve"}. Testo: ${snippets}` }],
+        messages: [{ role: "user", content: `Dal testo estrai info sul condominio in ${address}, ${comune}. Rispondi SOLO JSON: {"statoConservazione":"buono|discreto|da_ristrutturare|non_disponibile","ascensore":true|false|null,"tipoRiscaldamento":"autonomo|centralizzato|non_disponibile","note":"breve"}. Testo: ${snippets}` }],
         max_tokens: 150,
       }),
       signal: AbortSignal.timeout(10_000),
-    });
-    const aiData = await aiRes.json();
-    try { parsed = JSON.parse(aiData.choices?.[0]?.message?.content ?? "{}"); } catch { parsed = {}; }
+    }).catch(() => null);
+    if (aiRes?.ok) {
+      const aiData = await aiRes.json().catch(() => ({}));
+      try { parsed = JSON.parse(aiData.choices?.[0]?.message?.content ?? "{}"); } catch { parsed = {}; }
+    }
   }
 
   return ok(req, {
@@ -401,32 +405,49 @@ export async function handleScanCondominio(req: Request, body: Record<string, un
     statoConservazione: parsed.statoConservazione ?? null,
     annoUltimaRistrutturazione: null,
     note: parsed.note ?? null,
-    sourceLabel: "Firecrawl + OpenAI — analisi web edificio",
-    sourceType: Object.keys(parsed).length > 0 ? "real" : "empty",
+    sourceLabel: "Firecrawl + OpenAI",
+    sourceType: Object.keys(parsed).length > 1 ? "real" : "empty",
     limitations: [],
   }, [], debugId);
 }
 
-/** POST /sottra/scan/storico-transazioni — UNAVAILABLE: no real transaction registry integrated */
+/** POST /sottra/scan/storico-transazioni — Perplexity web search for recent transactions */
 export async function handleScanStoricoTransazioni(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
-  const address = (body.address as string) ?? "";
-  if (!address) return fail(req, 400, "MISSING_ADDRESS", "Provide address", debugId);
+  const PERPLEXITY_KEY = Deno.env.get("PERPLEXITY_API_KEY");
+  const address = ((body.address as string) ?? "").trim();
+  const comune = ((body.comune as string) ?? "").trim();
+  if (!PERPLEXITY_KEY || !address) return ok(req, { transazioni: [], sourceType: "unavailable", limitations: ["API non configurata"] }, [], debugId);
+
+  const res = await fetch("https://api.perplexity.ai/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${PERPLEXITY_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "sonar",
+      messages: [{ role: "user", content: `Cerca transazioni immobiliari recenti (compravendite) vicino a ${address}, ${comune}, Italia. Prezzi al mq, date, tipologie. Rispondi in italiano conciso.` }],
+      max_tokens: 400,
+      search_recency_filter: "year",
+      return_citations: true,
+    }),
+    signal: AbortSignal.timeout(12_000),
+  }).catch(() => null);
+
+  let testo = "";
+  let fonti: string[] = [];
+  if (res?.ok) {
+    const data = await res.json().catch(() => ({}));
+    testo = data.choices?.[0]?.message?.content ?? "";
+    fonti = (data.citations ?? []).slice(0, 3);
+  }
 
   return ok(req, {
-    transazioni: [],
+    transazioni: testo ? [{ descrizione: testo, fonti }] : [],
     mediaZona12Mesi: null,
     variazione12Mesi: null,
-    sourceLabel: "Agenzia delle Entrate — Registro transazioni (non integrato)",
-    sourceType: "unavailable",
-    sourcePeriod: null,
-    confidenceReason: "Storico transazioni non disponibile — integrazione con Agenzia Entrate non attiva",
-    limitations: [
-      "Servizio non collegato alla banca dati delle transazioni immobiliari dell'Agenzia delle Entrate",
-      "Lo storico reale delle compravendite richiede accesso a atti notarili o database ufficiali",
-      "Nessuna transazione inventata o simulata viene restituita",
-      "Funzionalità predisposta per futura integrazione con fonti reali",
-    ],
-  }, ["Storico transazioni non disponibile — fonte reale non integrata"], debugId);
+    sourceLabel: "Perplexity — ricerca transazioni recenti",
+    sourceType: testo.length > 30 ? "real" : "empty",
+    sourcePeriod: "ultimi 12 mesi",
+    limitations: testo.length === 0 ? ["Nessuna transazione recente trovata"] : [],
+  }, [], debugId);
 }
 
 /** POST /sottra/scan/market — Market data comparables + signals (confidence-gated) */
