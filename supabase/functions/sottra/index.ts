@@ -30,6 +30,7 @@ import {
   handleScanOffmarket,
   handleScanZoneIntelligence,
   handleScanPoiEnrichment,
+  handleScanSave,
 } from "./scan.ts";
 
 // ── Forecast handlers ──
@@ -80,6 +81,7 @@ const ROUTES: Record<string, (req: Request, body: Record<string, unknown>, debug
   "scan/offmarket":            handleScanOffmarket,
   "scan/zone-intelligence":    handleScanZoneIntelligence,
   "scan/poi-enrichment":         handleScanPoiEnrichment,
+  "scan/save":                 handleScanSave,
   // Motore Forecast (7)
   "forecast/moodscore":        handleForecastMoodScore,
   "forecast/timeview":         handleForecastTimeView,
