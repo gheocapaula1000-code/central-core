@@ -249,7 +249,7 @@ export async function runPromoteEarlyCandidate(body: PromoteBody) {
       description: cand.ai_summary ?? cand.summary,
       source: cand.source_name,
       evidence_url: cand.source_url,
-      payload: { ...(cand.payload ?? {}), candidate_id: cand.id },
+      payload: (() => { const { dryRun: _dr, ...rest } = (cand.payload ?? {}) as Record<string, unknown>; return { ...rest, candidate_id: cand.id }; })(),
       fingerprint: cand.fingerprint ?? `candidate_${cand.id}`,
       agency_id: null,
       confidence: cand.confidence_score >= 0.7 ? "high" : cand.confidence_score >= 0.5 ? "medium" : "low",
