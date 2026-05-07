@@ -295,23 +295,44 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
   }
 }
 
-/** POST /sottra/scan/listings — UNAVAILABLE: no real listings data source integrated */
+/** POST /sottra/scan/listings — Perplexity web search for recent real estate listings */
 export async function handleScanListings(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const address = (body.address as string) ?? "";
   if (!address) return fail(req, 400, "MISSING_ADDRESS", "Provide address", debugId);
 
+  const PERPLEXITY_KEY = Deno.env.get("PERPLEXITY_API_KEY");
+  if (!PERPLEXITY_KEY) return ok(req, { annunci: [], sourceType: "unavailable", limitations: ["API non configurata"] }, [], debugId);
+
+  const comune = ((body.comune as string) ?? "").trim();
+  if (!comune) return fail(req, 400, "MISSING_COMUNE", "Provide comune", debugId);
+
+  const query = `annunci vendita immobili ${address} ${comune} prezzi recenti 2025 2026`;
+  const res = await fetch("https://api.perplexity.ai/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${PERPLEXITY_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "sonar",
+      messages: [{ role: "user", content: `Trovami 3-5 annunci immobiliari reali vicino a ${address}, ${comune}. Per ognuno indica: prezzo, mq se disponibile, link fonte. Rispondi in italiano in formato JSON array con campi: prezzo_eur, superficie_mq, descrizione, url. Query: ${query}` }],
+      max_tokens: 500,
+      search_recency_filter: "month",
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const data = await res.json();
+  const testo = data.choices?.[0]?.message?.content ?? "";
+  let annunci: unknown[] = [];
+  try {
+    const match = testo.match(/\[[\s\S]*\]/);
+    if (match) annunci = JSON.parse(match[0]);
+  } catch { annunci = []; }
+
   return ok(req, {
-    annunci: [],
-    sourceLabel: "Portali immobiliari (non integrato)",
-    sourceType: "unavailable",
-    sourcePeriod: null,
-    confidenceReason: "Annunci immobiliari non disponibili — nessun portale reale integrato",
-    limitations: [
-      "Servizio non collegato a portali immobiliari reali (Idealista, Immobiliare.it, ecc.)",
-      "Nessun annuncio inventato o simulato viene restituito",
-      "Funzionalità predisposta per futura integrazione con feed reali",
-    ],
-  }, ["Annunci immobiliari non disponibili — fonte reale non integrata"], debugId);
+    annunci,
+    sourceLabel: "Perplexity — ricerca web annunci recenti",
+    sourceType: annunci.length > 0 ? "real" : "empty",
+    sourcePeriod: "ultimi 30 giorni",
+    limitations: annunci.length === 0 ? ["Nessun annuncio recente trovato"] : [],
+  }, [], debugId);
 }
 
 /** POST /sottra/scan/energy — UNAVAILABLE: no real APE/ENEA data source integrated */
@@ -335,29 +356,55 @@ export async function handleScanEnergy(req: Request, body: Record<string, unknow
   }, ["Dati energetici non disponibili — fonte reale non integrata"], debugId);
 }
 
-/** POST /sottra/scan/condominio — UNAVAILABLE: no real condominium registry data source */
+/** POST /sottra/scan/condominio — Firecrawl + OpenAI web analysis */
 export async function handleScanCondominio(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const address = (body.address as string) ?? "";
   if (!address) return fail(req, 400, "MISSING_ADDRESS", "Provide address", debugId);
 
+  const FIRECRAWL_KEY = Deno.env.get("FIRECRAWL_API_KEY");
+  const comune = ((body.comune as string) ?? "").trim();
+  if (!FIRECRAWL_KEY || !address) return ok(req, { statoConservazione: null, sourceType: "unavailable", limitations: ["API non configurata"] }, [], debugId);
+
+  const searchRes = await fetch("https://api.firecrawl.dev/v1/search", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${FIRECRAWL_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      query: `condominio ${address} ${comune} stato conservazione ascensore riscaldamento`,
+      limit: 3,
+      scrapeOptions: { formats: ["markdown"] },
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const searchData = await searchRes.json();
+  const snippets = (searchData.data ?? []).map((r: { markdown?: string }) => r.markdown ?? "").join("\n").slice(0, 800);
+
+  const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
+  let parsed: Record<string, unknown> = {};
+  if (OPENAI_KEY && snippets.length > 50) {
+    const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: `Dal seguente testo estrai info sul condominio in ${address}. Rispondi SOLO in JSON: {"statoConservazione": "buono|discreto|da_ristrutturare|non_disponibile", "ascensore": true|false|null, "tipoRiscaldamento": "autonomo|centralizzato|non_disponibile", "note": "stringa breve"}. Testo: ${snippets}` }],
+        max_tokens: 150,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const aiData = await aiRes.json();
+    try { parsed = JSON.parse(aiData.choices?.[0]?.message?.content ?? "{}"); } catch { parsed = {}; }
+  }
+
   return ok(req, {
-    tipoRiscaldamento: null,
-    ascensore: null,
-    statoConservazione: null,
+    tipoRiscaldamento: parsed.tipoRiscaldamento ?? null,
+    ascensore: parsed.ascensore ?? null,
+    statoConservazione: parsed.statoConservazione ?? null,
     annoUltimaRistrutturazione: null,
-    postiAuto: null,
-    giardino: null,
-    portineria: null,
-    sourceLabel: "Registri condominiali (non integrato)",
-    sourceType: "unavailable",
-    sourcePeriod: null,
-    confidenceReason: "Dati condominiali non disponibili — nessun registro reale integrato",
-    limitations: [
-      "Servizio non collegato a registri condominiali, verbali o visure",
-      "Le informazioni condominiali reali richiedono accesso a documentazione specifica dell'edificio",
-      "Funzionalità predisposta per futura integrazione con fonti reali",
-    ],
-  }, ["Dati condominiali non disponibili — fonte reale non integrata"], debugId);
+    note: parsed.note ?? null,
+    sourceLabel: "Firecrawl + OpenAI — analisi web edificio",
+    sourceType: Object.keys(parsed).length > 0 ? "real" : "empty",
+    limitations: [],
+  }, [], debugId);
 }
 
 /** POST /sottra/scan/storico-transazioni — UNAVAILABLE: no real transaction registry integrated */
