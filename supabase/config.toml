@@ -1,5 +1,8 @@
 project_id = "jpunnzgixcghuydstdlt"
 
+[functions.core-proxy]
+verify_jwt = false
+
 [functions.ai-core-run]
 verify_jwt = false
 
