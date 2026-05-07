@@ -9,6 +9,7 @@
 // Compliance: niente login/CAPTCHA, niente PII, niente necrologi.
 // ═══════════════════════════════════════════════════════════════
 
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { fcMap, fcScrape, firecrawlAvailable } from "../firecrawl/firecrawlClient.ts";
 import {
   OFFMARKET_FIRECRAWL_REGISTRY,
@@ -16,6 +17,13 @@ import {
   type OffMarketCategory,
   type OffMarketFirecrawlSource,
 } from "./offMarketFirecrawlRegistry.ts";
+
+function getServiceClient() {
+  const url = Deno.env.get("SUPABASE_URL");
+  const svc = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !svc) return null;
+  return createClient(url, svc, { auth: { persistSession: false } });
+}
 
 // ── Tipi pubblici ───────────────────────────────────────────────
 export type PageCategory =
