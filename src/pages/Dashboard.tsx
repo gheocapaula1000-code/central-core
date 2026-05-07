@@ -190,7 +190,25 @@ export default function Dashboard() {
             <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/microzone-padova")}>
               Microzone Padova
             </Button>
-            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/deep-scan-padova")}>
+            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={async () => {
+              const comuni = ["Padova","Vigonza","Selvazzano Dentro","Rubano","Abano Terme","Noventa Padovana","Albignasego","Cadoneghe","Limena","Mestrino"];
+              setJobLoading(true);
+              setJobResult(null);
+              const results: Array<{ comune: string; totale: number; ok: boolean }> = [];
+              for (const comune of comuni) {
+                const baseUrl = import.meta.env.VITE_SUPABASE_URL;
+                const res = await fetch(`${baseUrl}/functions/v1/civiko-radar-veneto/jobs/deep-scan-padova`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", "x-job-secret": jobSecret },
+                  body: JSON.stringify({ comune }),
+                });
+                const data = await res.json();
+                results.push({ comune, totale: data.totale ?? 0, ok: data.ok });
+                setJobResult(JSON.stringify(results, null, 2));
+                await new Promise(r => setTimeout(r, 2000));
+              }
+              setJobLoading(false);
+            }}>
               Deep Scan Padova
             </Button>
             <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/perplexity-deep-padova")}>
