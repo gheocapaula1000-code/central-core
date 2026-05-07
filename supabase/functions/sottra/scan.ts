@@ -736,3 +736,48 @@ export async function handleScanPoiEnrichment(req: Request, body: Record<string,
     limitations: poi.length === 0 ? ["Nessun POI trovato per questa zona"] : [],
   }, [], debugId);
 }
+
+/** POST /sottra/scan/save — persist a completed scan for the authenticated user */
+export async function handleScanSave(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+  if (!token) return fail(req, 401, "MISSING_AUTH", "Authorization Bearer token required", debugId);
+
+  const url = Deno.env.get("SUPABASE_URL") ?? "";
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+  if (!url || !serviceKey) return fail(req, 500, "BACKEND_MISCONFIGURED", "Supabase env not configured", debugId);
+
+  const authClient = createClient(url, anonKey || serviceKey);
+  const { data: userData, error: userErr } = await authClient.auth.getUser(token);
+  if (userErr || !userData?.user) return fail(req, 401, "INVALID_TOKEN", "Could not resolve user from token", debugId);
+
+  const supabase = createClient(url, serviceKey);
+  const row = {
+    user_id: userData.user.id,
+    address: (body.address as string) ?? null,
+    comune: (body.comune as string) ?? null,
+    provincia: (body.provincia as string) ?? null,
+    lat: (body.lat as number) ?? null,
+    lng: (body.lng as number) ?? null,
+    zona_omi: (body.zona_omi as string) ?? null,
+    photo_thumbnail: (body.photo_thumbnail as string) ?? null,
+    result_snapshot: (body.result_snapshot as Record<string, unknown>) ?? null,
+  };
+
+  const { data, error } = await supabase
+    .from("sottra_scans")
+    .insert(row)
+    .select("id, created_at")
+    .single();
+
+  if (error) return fail(req, 500, "DB_INSERT_FAILED", error.message, debugId);
+
+  return ok(req, {
+    id: data.id,
+    createdAt: data.created_at,
+    sourceLabel: "Sottra — scansione salvata",
+    sourceType: "real",
+    limitations: [],
+  }, [], debugId);
+}
