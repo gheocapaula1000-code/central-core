@@ -1023,22 +1023,30 @@ Deno.serve(async (req) => {
           { comune: "Vigodarzere",         provincia: "PD" },
           { comune: "Mestrino",            provincia: "PD" },
         ];
-        const results: Array<Record<string, unknown>> = [];
-        for (const loc of PADOVA_AREA) {
-          try {
-            const resOpps = await scrapeRibassiPortali(loc.comune, null, loc.provincia);
-            results.push({
-              comune: loc.comune,
-              opportunita_residenziale: resOpps.filter(o => o.categoria === "residenziale").length,
-              opportunita_commerciale: resOpps.filter(o => o.categoria === "commerciale").length,
-              opportunita_terreno: resOpps.filter(o => o.categoria === "terreno").length,
-              opportunita_luxury: resOpps.filter(o => o.categoria === "luxury").length,
-              totale: resOpps.length,
-            });
-          } catch (e) {
-            results.push({ comune: loc.comune, error: e instanceof Error ? e.message : String(e) });
-          }
-        }
+        const PER_COMUNE_TIMEOUT_MS = 20_000;
+        const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> =>
+          new Promise((resolve, reject) => {
+            const t = setTimeout(() => reject(new Error(`timeout ${ms}ms`)), ms);
+            p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+          });
+        const settled = await Promise.allSettled(
+          PADOVA_AREA.map((loc) =>
+            withTimeout(scrapeRibassiPortali(loc.comune, null, loc.provincia), PER_COMUNE_TIMEOUT_MS)
+              .then((resOpps) => ({
+                comune: loc.comune,
+                opportunita_residenziale: resOpps.filter(o => o.categoria === "residenziale").length,
+                opportunita_commerciale: resOpps.filter(o => o.categoria === "commerciale").length,
+                opportunita_terreno: resOpps.filter(o => o.categoria === "terreno").length,
+                opportunita_luxury: resOpps.filter(o => o.categoria === "luxury").length,
+                totale: resOpps.length,
+              }))
+          )
+        );
+        const results: Array<Record<string, unknown>> = settled.map((r, i) =>
+          r.status === "fulfilled"
+            ? r.value
+            : { comune: PADOVA_AREA[i].comune, error: r.reason instanceof Error ? r.reason.message : String(r.reason) }
+        );
         const totale = results.reduce((acc, r) => acc + ((r.totale as number) ?? 0), 0);
         return withIdentity(json(req, 200, {
           job: "deep-scan-padova",
