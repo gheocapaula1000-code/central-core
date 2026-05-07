@@ -26,7 +26,7 @@ export interface NormalizedListing {
 }
 
 const FIRECRAWL_URL = "https://api.firecrawl.dev/v2/scrape";
-const SCRAPE_TIMEOUT_MS = 30_000;
+const SCRAPE_TIMEOUT_MS = 55_000;
 const MAX_LISTINGS_PER_PORTAL = 25;
 
 // Pool di User-Agent per rotazione (Firecrawl li forwarda)
