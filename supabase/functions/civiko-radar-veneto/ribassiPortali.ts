@@ -231,7 +231,7 @@ export async function scrapeRibassiPortali(
     return [];
   }
 
-  const listings = await scrapeAllPortals(municipality, firecrawlKey);
+  const listings = await scrapeAllPortals(municipality, firecrawlKey, province ?? "");
   console.log("[DEBUG ribassiPortali] scrapeAllPortals returned:", {
     municipality,
     total: listings.length,
