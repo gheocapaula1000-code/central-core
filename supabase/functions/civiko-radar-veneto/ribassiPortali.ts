@@ -218,8 +218,12 @@ export async function scrapeRibassiPortali(
   coords: { lat: number; lng: number } | null,
   province?: string,
 ): Promise<OpportunitaOffMarket[]> {
+  console.log("[DEBUG ribassiPortali] input:", { municipality, province: province ?? null, hasCoords: !!coords });
   const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY");
-  if (!firecrawlKey || !municipality) return [];
+  if (!firecrawlKey || !municipality) {
+    console.log("[DEBUG ribassiPortali] early-exit:", { hasKey: !!firecrawlKey, hasMunicipality: !!municipality });
+    return [];
+  }
 
   const supabase = getServiceClient();
   if (!supabase) {
@@ -228,6 +232,12 @@ export async function scrapeRibassiPortali(
   }
 
   const listings = await scrapeAllPortals(municipality, firecrawlKey);
+  console.log("[DEBUG ribassiPortali] scrapeAllPortals returned:", {
+    municipality,
+    total: listings.length,
+    bySource: listings.reduce((acc: Record<string, number>, l) => { acc[l.source] = (acc[l.source] ?? 0) + 1; return acc; }, {}),
+    sample: listings.slice(0, 2).map((l) => ({ source: l.source, title: l.title?.slice(0, 60), price_eur: l.price_eur, url: l.url?.slice(0, 80) })),
+  });
   if (listings.length === 0) return [];
 
   const opportunita: OpportunitaOffMarket[] = [];
