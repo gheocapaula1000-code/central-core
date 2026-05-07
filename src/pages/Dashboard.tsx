@@ -223,6 +223,22 @@ export default function Dashboard() {
             <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/promote-batch", { min_priority: 60, reviewer_note: "Approvazione batch Veneto", target: "radar_signals" })}>
               Promuovi Batch Padova
             </Button>
+            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={async () => {
+              setJobLoading(true);
+              const baseUrl = import.meta.env.VITE_SUPABASE_URL;
+              const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+              const res = await fetch(`${baseUrl}/rest/v1/radar_signals?municipality=ilike.Verona&is_active=eq.true&select=id,municipality,province,signal_type,is_active,fingerprint&limit=10`, {
+                headers: {
+                  "apikey": anonKey,
+                  "Authorization": `Bearer ${anonKey}`,
+                }
+              });
+              const data = await res.json();
+              setJobResult(JSON.stringify({ count: Array.isArray(data) ? data.length : 0, rows: data }, null, 2));
+              setJobLoading(false);
+            }}>
+              Leggi radar_signals Verona
+            </Button>
           </div>
           {jobLoading && <p className="text-xs text-muted-foreground">In esecuzione...</p>}
           {jobResult && (
