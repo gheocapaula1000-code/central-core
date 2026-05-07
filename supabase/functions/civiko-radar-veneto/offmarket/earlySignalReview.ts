@@ -22,7 +22,7 @@ export interface RescoreBody {
 
 export async function runRescoreEarlyCandidates(body: RescoreBody) {
   const dryRun = body.dryRun !== false;
-  const doImport = body.import === true && !dryRun;
+  const doImport = !dryRun;
   const limit = Math.min(body.limit ?? 500, 1000);
   const client = sb();
 
