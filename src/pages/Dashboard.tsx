@@ -217,26 +217,11 @@ export default function Dashboard() {
             <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/run-early-offmarket-signals", { comuni: ["Padova","Vigonza","Selvazzano Dentro","Rubano","Abano Terme","Noventa Padovana","Albignasego","Cadoneghe","Limena","Mestrino","Montegrotto Terme"], province: ["PD"], maxQueries: 20 })}>
               Scopri Segnali Padova
             </Button>
-            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={async () => {
-              setJobLoading(true);
-              setJobResult(null);
-              const baseUrl = import.meta.env.VITE_SUPABASE_URL;
-              const r1 = await fetch(`${baseUrl}/functions/v1/civiko-radar-veneto/jobs/rescore-early-offmarket-candidates`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "x-job-secret": jobSecret },
-                body: JSON.stringify({ dryRun: false }),
-              });
-              const rescore = await r1.json();
-              const r2 = await fetch(`${baseUrl}/functions/v1/civiko-radar-veneto/jobs/promote-early-signal-candidate`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "x-job-secret": jobSecret },
-                body: JSON.stringify({ promote_all: true, min_priority: 60, reviewer_note: "Auto-approvazione batch Padova", force: true, target: "radar_signals" }),
-              });
-              const promote = await r2.json();
-              setJobResult(JSON.stringify({ rescore: { upgraded: rescore.upgraded_to_needs_review, total: rescore.total_candidates }, promote }, null, 2));
-              setJobLoading(false);
-            }}>
-              Rescore + Promuovi Padova
+            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/rescore-early-offmarket-candidates", { dryRun: false })}>
+              Rescore Candidati
+            </Button>
+            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/promote-batch", { min_priority: 60, provincia: "PD", reviewer_note: "Approvazione batch Padova", target: "radar_signals" })}>
+              Promuovi Batch Padova
             </Button>
           </div>
           {jobLoading && <p className="text-xs text-muted-foreground">In esecuzione...</p>}
