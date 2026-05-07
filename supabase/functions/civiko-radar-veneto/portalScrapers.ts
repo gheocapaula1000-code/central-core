@@ -129,8 +129,12 @@ async function scrapePortal(
   firecrawlKey: string,
 ): Promise<NormalizedListing[]> {
   const slug = municipalitySlug(municipality);
-  if (!slug) return [];
+  if (!slug) {
+    console.log(`[DEBUG portalScrapers] ${config.source}: empty slug for "${municipality}"`);
+    return [];
+  }
   const url = config.buildUrl(slug);
+  console.log(`[DEBUG portalScrapers] ${config.source} URL:`, url);
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), SCRAPE_TIMEOUT_MS);
@@ -163,6 +167,7 @@ async function scrapePortal(
     const data = await res.json();
     const items: unknown =
       data?.data?.json?.listings ?? data?.json?.listings ?? data?.data?.extract?.listings ?? [];
+    console.log(`[DEBUG portalScrapers] ${config.source} raw items:`, Array.isArray(items) ? items.length : `not-array(${typeof items})`);
     if (!Array.isArray(items)) return [];
 
     const out: NormalizedListing[] = [];
