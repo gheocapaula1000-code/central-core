@@ -29,6 +29,7 @@ import {
   handleScanMarket,
   handleScanOffmarket,
   handleScanZoneIntelligence,
+  handleScanPoiEnrichment,
 } from "./scan.ts";
 
 // ── Forecast handlers ──
@@ -39,6 +40,7 @@ import {
   handleForecastInfrastrutture,
   handleForecastRischioZona,
   handleForecastTrendDemografico,
+  handleForecastNeighborhood,
 } from "./forecast.ts";
 
 // ── Sviluppo Area handler ──
@@ -77,6 +79,7 @@ const ROUTES: Record<string, (req: Request, body: Record<string, unknown>, debug
   "scan/market-context":       handleScanMarket, // backward-compat alias
   "scan/offmarket":            handleScanOffmarket,
   "scan/zone-intelligence":    handleScanZoneIntelligence,
+  "scan/poi-enrichment":         handleScanPoiEnrichment,
   // Motore Forecast (7)
   "forecast/moodscore":        handleForecastMoodScore,
   "forecast/timeview":         handleForecastTimeView,
@@ -84,6 +87,7 @@ const ROUTES: Record<string, (req: Request, body: Record<string, unknown>, debug
   "forecast/infrastrutture":   handleForecastInfrastrutture,
   "forecast/rischio-zona":     handleForecastRischioZona,
   "forecast/trend-demografico": handleForecastTrendDemografico,
+  "forecast/neighborhood":     handleForecastNeighborhood,
   "forecast/sviluppo-area":    handleForecastSviluppoArea,
   // Motore ICTV (1)
   "forecast/convergenza-territoriale": handleForecastConvergenzaTerritoriale,
