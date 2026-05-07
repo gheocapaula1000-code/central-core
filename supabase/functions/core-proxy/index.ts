@@ -27,7 +27,10 @@ serve(async (req) => {
         "Authorization": authHeader,
         "apikey": ANON_KEY,
       },
-      body: JSON.stringify({ route: endpoint.replace(/^\//, ""), ...((payload as Record<string, unknown>) ?? {}) }),
+      body: JSON.stringify({ 
+        route: endpoint.replace(/^\//, ""),
+        ...(typeof payload === "object" && payload !== null ? payload as Record<string, unknown> : {})
+      }),
       signal: controller.signal,
     });
 
