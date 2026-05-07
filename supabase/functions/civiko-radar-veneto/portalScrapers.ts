@@ -290,4 +290,3 @@ export async function scrapeAllPortals(
   }
   return listings;
 }
-}
