@@ -217,7 +217,9 @@ export default function Dashboard() {
             <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/discover-early-offmarket-signals", {
               comuni: ["Padova","Vigonza","Selvazzano Dentro","Rubano","Abano Terme","Noventa Padovana","Albignasego","Cadoneghe","Limena","Mestrino","Montegrotto Terme"],
               province: ["PD"],
-              maxQueries: 20
+              maxQueries: 20,
+              dryRun: false,
+              import: true
             })}>
               Scopri Segnali Padova
             </Button>
