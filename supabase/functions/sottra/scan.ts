@@ -422,7 +422,6 @@ export async function handleScanMarket(req: Request, body: Record<string, unknow
 }
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { perplexityAvailable } from "../civiko-radar-veneto/offmarket/perplexityDiscovery.ts";
 
 /** POST /sottra/scan/offmarket — radar signals + early off-market candidates for a comune */
 export async function handleScanOffmarket(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
