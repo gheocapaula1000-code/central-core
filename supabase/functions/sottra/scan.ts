@@ -482,3 +482,61 @@ export async function handleScanOffmarket(req: Request, body: Record<string, unk
     limitations: signals.length === 0 ? ["Nessun segnale off-market disponibile per questa zona"] : [],
   }, [], debugId);
 }
+
+/** POST /sottra/scan/zone-intelligence — Perplexity-powered zone intelligence for a comune */
+export async function handleScanZoneIntelligence(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
+  const lat = body.lat as number | undefined;
+  const lng = body.lng as number | undefined;
+  const comune = (body.comune as string | undefined)?.trim();
+  const provincia = (body.provincia as string | undefined)?.trim();
+  const indirizzo = (body.indirizzo as string | undefined)?.trim();
+
+  if (!comune) return fail(req, 400, "MISSING_COMUNE", "Provide comune", debugId);
+
+  const key = Deno.env.get("PERPLEXITY_API_KEY");
+  if (!key) return ok(req, { notizie: [], segnali: [], sourceType: "unavailable", limitations: ["PERPLEXITY_API_KEY mancante"] }, [], debugId);
+
+  const PERPLEXITY_URL = "https://api.perplexity.ai/chat/completions";
+
+  const queries = [
+    `notizie recenti ${comune} ${provincia ?? ""} immobili urbanistica sviluppo quartiere 2025 2026`,
+    `aste giudiziarie immobili ${comune} ${provincia ?? ""} tribunale 2025 2026`,
+    `variante urbanistica piano interventi ${comune} 2025 2026`,
+  ];
+
+  const results: Array<{ query: string; risposta: string; fonti: string[] }> = [];
+
+  for (const q of queries) {
+    try {
+      const res = await fetch(PERPLEXITY_URL, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "sonar",
+          messages: [{ role: "user", content: `Rispondimi in italiano in modo conciso (max 3 frasi). ${q}` }],
+          max_tokens: 300,
+          search_recency_filter: "month",
+          return_citations: true,
+        }),
+        signal: AbortSignal.timeout(12_000),
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const testo = data.choices?.[0]?.message?.content ?? "";
+      const citazioni = (data.citations ?? []).slice(0, 3);
+      if (testo && testo.length > 20) {
+        results.push({ query: q, risposta: testo, fonti: citazioni });
+      }
+    } catch { /* continua */ }
+  }
+
+  return ok(req, {
+    comune,
+    provincia: provincia ?? null,
+    indirizzo: indirizzo ?? null,
+    risultati: results,
+    totale: results.length,
+    sourceType: results.length > 0 ? "real" : "empty",
+    limitations: results.length === 0 ? ["Nessuna notizia recente trovata per questa zona"] : [],
+  }, [], debugId);
+}
