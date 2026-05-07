@@ -116,6 +116,7 @@ const ROUTES = [
   "POST /jobs/build-offmarket-opportunity-scores",
   "POST /jobs/firecrawl-offmarket-microzone-discovery",
   "POST /jobs/discover-early-offmarket-signals",
+  "POST /jobs/offmarket-padova",
   "POST /jobs/rescore-early-offmarket-candidates",
   "POST /jobs/promote-early-signal-candidate",
   "POST /jobs/promote-batch",
@@ -1252,6 +1253,22 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] discover-early-offmarket error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Early off-market discovery failed", debugId), "job-error");
+      }
+    }
+
+    if (pathname.endsWith("/jobs/offmarket-padova")) {
+      const _auth = authorizeJob(req, debugId); if (_auth) return _auth;
+      try {
+        const { runOffMarketFirecrawl } = await import("./offmarket/offMarketFirecrawlRunner.ts");
+        const r = await runOffMarketFirecrawl({
+          comuni: ["Padova","Vigonza","Selvazzano Dentro","Rubano","Albignasego","Cadoneghe","Limena","Noventa Padovana","Abano Terme","Montegrotto Terme"],
+          province: ["PD"],
+          saveCandidates: true,
+          dryRun: false,
+        });
+        return withIdentity(json(req, 200, { job: "offmarket-padova", ...r }, debugId), "job-offmarket-padova");
+      } catch (e) {
+        return withIdentity(fail(req, 500, "JOB_FAILED", e instanceof Error ? e.message : String(e), debugId), "job-error");
       }
     }
 
