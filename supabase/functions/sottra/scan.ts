@@ -257,11 +257,11 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
         }, [`Match zona OMI debole (${(omi.matchConfidence * 100).toFixed(0)}%) — prezzi non pubblicati`], debugId);
       }
 
-      // Publishable
-      const prezzoMq = Math.round((omi.compr_min + omi.compr_max) / 2);
+      const row = omi;
+      const prezzoMq = Math.round((Number(row.compr_min) + Number(row.compr_max)) / 2);
 
-      if (!omi.polygonMatch) {
-        console.log("[pricing] fallback comunale:", { compr_min: omi.compr_min, compr_max: omi.compr_max, media: prezzoMq });
+      if (!row.polygonMatch) {
+        console.log("[pricing] omi row:", { compr_min: row.compr_min, compr_max: row.compr_max, media: Math.round((Number(row.compr_min) + Number(row.compr_max)) / 2) });
       }
 
       const confidenceLabel = omi.polygonMatch
