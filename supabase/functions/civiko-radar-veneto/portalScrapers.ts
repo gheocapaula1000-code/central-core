@@ -205,17 +205,89 @@ async function scrapePortal(
   }
 }
 
+async function scrapeWithApify(comune: string, provincia: string): Promise<NormalizedListing[]> {
+  const APIFY_TOKEN = Deno.env.get("APIFY_API_TOKEN") ?? Deno.env.get("APIFY_TOKEN");
+  if (!APIFY_TOKEN) {
+    console.log("[scrapeWithApify] no APIFY_API_TOKEN configured");
+    return [];
+  }
+  const actorId = "misceres~immobiliare-it-scraper";
+  const runUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${APIFY_TOKEN}&timeout=60&memory=256`;
+  const slug = municipalitySlug(comune);
+  const startUrl = `https://www.immobiliare.it/vendita-case/${slug || comune.toLowerCase()}/`;
+  const body = {
+    startUrls: [startUrl],
+    maxItems: 50,
+    proxyConfiguration: { useApifyProxy: true },
+  };
+  console.log("[scrapeWithApify] calling Apify actor:", actorId, "startUrl:", startUrl);
+  try {
+    const res = await fetch(runUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(90_000),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      console.warn(`[scrapeWithApify] HTTP ${res.status} body: ${txt.slice(0, 200)}`);
+      return [];
+    }
+    const items = await res.json();
+    if (!Array.isArray(items)) {
+      console.warn("[scrapeWithApify] response is not an array");
+      return [];
+    }
+    console.log(`[scrapeWithApify] received ${items.length} raw items for ${comune} (${provincia})`);
+    const out: NormalizedListing[] = [];
+    for (const item of items.slice(0, 50)) {
+      if (!item || typeof item !== "object") continue;
+      const r = item as Record<string, unknown>;
+      const url = typeof r.url === "string" ? r.url : null;
+      const id = typeof r.id === "string" || typeof r.id === "number" ? String(r.id) : url;
+      if (!url || !id) continue;
+      out.push({
+        source: "immobiliare.it",
+        listing_id: id.slice(0, 200),
+        url: url.slice(0, 400),
+        title: typeof r.title === "string"
+          ? r.title.slice(0, 200)
+          : (typeof r.description === "string" ? r.description.slice(0, 200) : "Annuncio"),
+        address: typeof r.address === "string" ? r.address.slice(0, 200) : null,
+        price_eur: parsePriceEur(r.price),
+        surface_sqm: parseInt0(r.surface ?? r.squareMeters),
+        rooms: parseInt0(r.rooms),
+        property_type: normalizePropertyType(typeof r.propertyType === "string" ? r.propertyType : "residenziale"),
+        agency_name: typeof r.agency === "string" ? r.agency.slice(0, 150) : null,
+        lat: typeof r.lat === "number" ? r.lat : (typeof r.latitude === "number" ? r.latitude : null),
+        lng: typeof r.lng === "number" ? r.lng : (typeof r.longitude === "number" ? r.longitude : null),
+      });
+    }
+    return out;
+  } catch (e) {
+    console.error("[scrapeWithApify] error:", e instanceof Error ? e.message : String(e));
+    return [];
+  }
+}
+
 export async function scrapeAllPortals(
   municipality: string,
   firecrawlKey: string,
+  provincia: string = "",
 ): Promise<NormalizedListing[]> {
   if (!municipality) return [];
   const results = await Promise.allSettled(
     PORTAL_CONFIGS.map((c) => scrapePortal(c, municipality, firecrawlKey)),
   );
-  const merged: NormalizedListing[] = [];
+  const listings: NormalizedListing[] = [];
   for (const r of results) {
-    if (r.status === "fulfilled") merged.push(...r.value);
+    if (r.status === "fulfilled") listings.push(...r.value);
   }
-  return merged;
+  if (listings.length === 0) {
+    console.log("[portalScrapers] Firecrawl fallito, tentativo Apify per", municipality);
+    const apifyListings = await scrapeWithApify(municipality, provincia);
+    listings.push(...apifyListings);
+  }
+  return listings;
+}
 }
