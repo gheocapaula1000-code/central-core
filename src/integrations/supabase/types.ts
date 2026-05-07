@@ -281,43 +281,64 @@ export type Database = {
       }
       area_opportunity_scores: {
         Row: {
+          area_label: string | null
+          area_type: string | null
           components: Json
           computed_at: string
           data_basis: string | null
+          derivazione: string | null
           id: number
+          lat: number | null
+          lng: number | null
           microzone: string | null
           municipality: string
+          property_types: string[] | null
           province: string
           quality: string
           region: string
-          score: number
-          temperature: string
+          score: number | null
+          temperature: string | null
+          updated_at: string
         }
         Insert: {
+          area_label?: string | null
+          area_type?: string | null
           components?: Json
           computed_at?: string
           data_basis?: string | null
+          derivazione?: string | null
           id?: number
+          lat?: number | null
+          lng?: number | null
           microzone?: string | null
           municipality: string
+          property_types?: string[] | null
           province: string
           quality?: string
           region?: string
-          score: number
-          temperature: string
+          score?: number | null
+          temperature?: string | null
+          updated_at?: string
         }
         Update: {
+          area_label?: string | null
+          area_type?: string | null
           components?: Json
           computed_at?: string
           data_basis?: string | null
+          derivazione?: string | null
           id?: number
+          lat?: number | null
+          lng?: number | null
           microzone?: string | null
           municipality?: string
+          property_types?: string[] | null
           province?: string
           quality?: string
           region?: string
-          score?: number
-          temperature?: string
+          score?: number | null
+          temperature?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
