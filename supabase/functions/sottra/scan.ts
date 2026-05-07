@@ -295,23 +295,44 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
   }
 }
 
-/** POST /sottra/scan/listings — UNAVAILABLE: no real listings data source integrated */
+/** POST /sottra/scan/listings — Perplexity web search for recent real estate listings */
 export async function handleScanListings(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const address = (body.address as string) ?? "";
   if (!address) return fail(req, 400, "MISSING_ADDRESS", "Provide address", debugId);
 
+  const PERPLEXITY_KEY = Deno.env.get("PERPLEXITY_API_KEY");
+  if (!PERPLEXITY_KEY) return ok(req, { annunci: [], sourceType: "unavailable", limitations: ["API non configurata"] }, [], debugId);
+
+  const comune = ((body.comune as string) ?? "").trim();
+  if (!comune) return fail(req, 400, "MISSING_COMUNE", "Provide comune", debugId);
+
+  const query = `annunci vendita immobili ${address} ${comune} prezzi recenti 2025 2026`;
+  const res = await fetch("https://api.perplexity.ai/chat/completions", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${PERPLEXITY_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "sonar",
+      messages: [{ role: "user", content: `Trovami 3-5 annunci immobiliari reali vicino a ${address}, ${comune}. Per ognuno indica: prezzo, mq se disponibile, link fonte. Rispondi in italiano in formato JSON array con campi: prezzo_eur, superficie_mq, descrizione, url. Query: ${query}` }],
+      max_tokens: 500,
+      search_recency_filter: "month",
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const data = await res.json();
+  const testo = data.choices?.[0]?.message?.content ?? "";
+  let annunci: unknown[] = [];
+  try {
+    const match = testo.match(/\[[\s\S]*\]/);
+    if (match) annunci = JSON.parse(match[0]);
+  } catch { annunci = []; }
+
   return ok(req, {
-    annunci: [],
-    sourceLabel: "Portali immobiliari (non integrato)",
-    sourceType: "unavailable",
-    sourcePeriod: null,
-    confidenceReason: "Annunci immobiliari non disponibili — nessun portale reale integrato",
-    limitations: [
-      "Servizio non collegato a portali immobiliari reali (Idealista, Immobiliare.it, ecc.)",
-      "Nessun annuncio inventato o simulato viene restituito",
-      "Funzionalità predisposta per futura integrazione con feed reali",
-    ],
-  }, ["Annunci immobiliari non disponibili — fonte reale non integrata"], debugId);
+    annunci,
+    sourceLabel: "Perplexity — ricerca web annunci recenti",
+    sourceType: annunci.length > 0 ? "real" : "empty",
+    sourcePeriod: "ultimi 30 giorni",
+    limitations: annunci.length === 0 ? ["Nessun annuncio recente trovato"] : [],
+  }, [], debugId);
 }
 
 /** POST /sottra/scan/energy — UNAVAILABLE: no real APE/ENEA data source integrated */
