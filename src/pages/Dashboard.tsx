@@ -187,6 +187,15 @@ export default function Dashboard() {
             }}>
               Riprova 3 Falliti
             </Button>
+            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/microzone-padova")}>
+              Microzone Padova
+            </Button>
+            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/deep-scan-padova")}>
+              Deep Scan Padova
+            </Button>
+            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/perplexity-deep-padova")}>
+              Perplexity Deep Padova
+            </Button>
           </div>
           {jobLoading && <p className="text-xs text-muted-foreground">In esecuzione...</p>}
           {jobResult && (
