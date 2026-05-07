@@ -42,6 +42,23 @@ const QUERIES: Array<{ q: string; comune: string; provincia: string; category: s
   { q: "Jesolo rigenerazione urbana patrimonio pubblico avviso",          comune: "Jesolo",  provincia: "VE", category: "urban_regeneration" },
   { q: "Chioggia opere pubbliche mobilità turismo piano",                 comune: "Chioggia",provincia: "VE", category: "public_work" },
   { q: "Veneto manifestazione interesse immobili comunali bando",          comune: "Veneto",  provincia: "VEN", category: "expression_of_interest" },
+  // ── Aste tribunale Padova ──
+  { q: "aste giudiziarie immobili residenziali Padova tribunale pvp.giustizia.it 2025 2026", comune: "Padova", provincia: "PD", category: "pre_auction_signal" },
+  { q: "aste giudiziarie immobili commerciali capannoni Padova provincia tribunale 2025 2026", comune: "Padova", provincia: "PD", category: "pre_auction_signal" },
+  { q: "procedura esecutiva immobiliare Padova Vigonza Selvazzano Rubano Albignasego 2025", comune: "Padova", provincia: "PD", category: "pre_auction_signal" },
+  // ── Immobili bruciati / fatigue ──
+  { q: "immobile invenduto anni Padova centro storico vendesi da tempo prezzo ridotto", comune: "Padova", provincia: "PD", category: "price_fatigue_signal" },
+  { q: "vendita immobile urgente Padova provincia proprietario diretto trattabile 2025 2026", comune: "Padova", provincia: "PD", category: "motivated_seller_signal" },
+  // ── Successioni e patrimoni ──
+  { q: "successione ereditaria immobili Padova provincia atti notarili vendita eredi 2025", comune: "Padova", provincia: "PD", category: "succession_signal" },
+  { q: "eredità immobili Vigonza Selvazzano Rubano Albignasego Cadoneghe vendita rapida 2025", comune: "Vigonza", provincia: "PD", category: "succession_signal" },
+  // ── Rigenerazione urbana periferia ──
+  { q: "rigenerazione urbana piano interventi Padova 2030 microzone quartieri target investimento", comune: "Padova", provincia: "PD", category: "urban_regeneration_signal" },
+  { q: "variante urbanistica Selvazzano Dentro Rubano Mestrino Limena cambio destinazione uso 2025", comune: "Selvazzano Dentro", provincia: "PD", category: "zoning_change_signal" },
+  // ── Dismissioni enti pubblici ──
+  { q: "ATER Padova dismissione patrimonio ERP vendita alloggi sociali 2025 2026", comune: "Padova", provincia: "PD", category: "public_asset_disposal_signal" },
+  { q: "Università Padova dismette patrimonio immobiliare vendita edifici storico 2025", comune: "Padova", provincia: "PD", category: "public_asset_disposal_signal" },
+  { q: "Ospedale Padova ULSS6 dismissione strutture sanitarie alienazione immobili 2025", comune: "Padova", provincia: "PD", category: "public_asset_disposal_signal" },
 ];
 
 export async function runPerplexityDiscovery(opts: {
