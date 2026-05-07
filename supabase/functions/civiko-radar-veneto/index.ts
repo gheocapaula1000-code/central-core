@@ -1263,8 +1263,9 @@ Deno.serve(async (req) => {
         const r = await runOffMarketFirecrawlDiscovery({
           comuni: ["Padova","Vigonza","Selvazzano Dentro","Rubano","Albignasego","Cadoneghe","Limena","Noventa Padovana","Abano Terme","Montegrotto Terme"],
           province: ["PD"],
-          saveCandidates: true,
           dryRun: false,
+          maxSources: 20,
+          maxPagesPerSource: 5,
         });
         return withIdentity(json(req, 200, { job: "offmarket-padova", ...r }, debugId), "job-offmarket-padova");
       } catch (e) {
