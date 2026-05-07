@@ -316,7 +316,7 @@ const DEFAULTS = {
 export async function runOffMarketFirecrawlDiscovery(
   body: DiscoveryRequest,
 ): Promise<OffMarketDiscoveryReport> {
-  const dryRun = body?.dryRun !== false;            // default true
+  const dryRun = body?.dryRun === true;             // default false (live run)
   const wantImport = body?.import === true && !dryRun;
   const warnings: string[] = [];
   const errors: string[] = [];
