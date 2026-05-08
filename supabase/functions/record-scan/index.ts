@@ -25,20 +25,30 @@ serve(async (req) => {
     .eq("agency_id", user.id)
     .maybeSingle();
 
-  if (!sub) {
-    // Trial: allow up to 3 free scans
-    const { data: trialScans } = await supabase
-      .from("sottra_scans")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", user.id);
-    const count = (trialScans as unknown as { count: number })?.count ?? 0;
-    if (count >= 3) return new Response(JSON.stringify({ limit_reached: true, error: "Trial esaurito. Abbonati per continuare." }), { headers: CORS });
-    return new Response(JSON.stringify({ ok: true, scans_remaining: 3 - count }), { headers: CORS });
-  }
-
-  if (sub.status !== "active" && sub.status !== "trialing") {
+  if (sub && sub.status !== "active" && sub.status !== "trialing") {
     return new Response(JSON.stringify({ limit_reached: true, error: "Abbonamento non attivo." }), { headers: CORS });
   }
 
-  return new Response(JSON.stringify({ ok: true }), { headers: CORS });
+  // Ottieni limite dal piano
+  const scanLimits: Record<string, number> = { agente: 100, agenzia: 300, enterprise: 1000 };
+  const limit = sub ? (scanLimits[sub.plan_key ?? ""] ?? 100) : 3;
+
+  // Conta scansioni del mese corrente
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+
+  const { count } = await supabase
+    .from("sottra_scans")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .gte("created_at", startOfMonth.toISOString());
+
+  const used = count ?? 0;
+
+  if (used >= limit) {
+    return new Response(JSON.stringify({ limit_reached: true, error: `Limite di ${limit} scansioni mensili raggiunto.` }), { headers: CORS });
+  }
+
+  return new Response(JSON.stringify({ ok: true, scans_remaining: limit - used - 1 }), { headers: CORS });
 });
