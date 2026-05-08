@@ -18,12 +18,12 @@ serve(async (req) => {
   const { data: { user }, error: authErr } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""));
   if (authErr || !user) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: CORS });
 
-  // Get user subscription
+  // Get user subscription (billing_subscriptions uses agency_id which maps to the user/agency)
   const { data: sub } = await supabase
-    .from("subscriptions")
-    .select("plan, scans_used, scans_limit, status")
-    .eq("user_id", user.id)
-    .single();
+    .from("billing_subscriptions")
+    .select("plan_key, status")
+    .eq("agency_id", user.id)
+    .maybeSingle();
 
   if (!sub) {
     // Trial: allow up to 3 free scans
@@ -40,15 +40,5 @@ serve(async (req) => {
     return new Response(JSON.stringify({ limit_reached: true, error: "Abbonamento non attivo." }), { headers: CORS });
   }
 
-  if (sub.scans_used >= sub.scans_limit) {
-    return new Response(JSON.stringify({ limit_reached: true, error: "Limite scansioni mensili raggiunto." }), { headers: CORS });
-  }
-
-  // Increment scan counter
-  await supabase
-    .from("subscriptions")
-    .update({ scans_used: sub.scans_used + 1 })
-    .eq("user_id", user.id);
-
-  return new Response(JSON.stringify({ ok: true, scans_remaining: sub.scans_limit - sub.scans_used - 1 }), { headers: CORS });
+  return new Response(JSON.stringify({ ok: true }), { headers: CORS });
 });
