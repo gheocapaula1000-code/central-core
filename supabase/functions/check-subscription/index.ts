@@ -19,17 +19,17 @@ serve(async (req) => {
   if (!user) return new Response(JSON.stringify({ billing_active, subscriptionStatus: null, plan: null }), { headers: CORS });
 
   const { data: sub } = await supabase
-    .from("subscriptions")
-    .select("status, plan, scans_used, scans_limit, current_period_end")
-    .eq("user_id", user.id)
-    .single();
+    .from("billing_subscriptions")
+    .select("status, plan_key, current_period_end")
+    .eq("agency_id", user.id)
+    .maybeSingle();
 
   return new Response(JSON.stringify({
     billing_active,
     subscriptionStatus: sub?.status ?? "trialing",
-    plan: sub?.plan ?? null,
-    scans_used: sub?.scans_used ?? 0,
-    scans_limit: sub?.scans_limit ?? 3,
+    plan: sub?.plan_key ?? null,
+    scans_used: 0,
+    scans_limit: 3,
     current_period_end: sub?.current_period_end ?? null,
   }), { headers: { ...CORS, "Content-Type": "application/json" } });
 });
