@@ -71,3 +71,9 @@ verify_jwt = false
 
 [functions.record-scan]
 verify_jwt = false
+
+[functions.create-checkout]
+verify_jwt = false
+
+[functions.record-scan]
+verify_jwt = false
