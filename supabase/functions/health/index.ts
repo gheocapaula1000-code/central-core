@@ -1,3 +1,4 @@
+// touched 2026-05-09 — added .it domains and acquisitionradar
 // v3.4.0
 // health check endpoint — Central Core V3
 // Public — no auth required. Minimal response, no version leak.
