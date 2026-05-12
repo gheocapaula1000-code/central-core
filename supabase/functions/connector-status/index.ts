@@ -1,0 +1,139 @@
+// connector-status — admin-only synthetic status of external connectors
+// Lightweight: configuration check + cheap liveness probe where safe.
+import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+};
+
+function getOwnerEmails(): string[] {
+  const raw = Deno.env.get("CORE_ADMIN_BOOTSTRAP_EMAILS") ?? "";
+  return raw.split(/[,\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+}
+
+type Status = "ready" | "warning" | "error";
+interface Connector {
+  name: string;
+  configured: boolean;
+  status: Status;
+  message: string;
+  last_test: string;
+  probe?: "config" | "live";
+}
+
+async function probe(name: string, envVar: string, live?: () => Promise<{ ok: boolean; msg: string }>): Promise<Connector> {
+  const last_test = new Date().toISOString();
+  const configured = !!Deno.env.get(envVar);
+  if (!configured) return { name, configured: false, status: "error", message: "Non configurato", last_test, probe: "config" };
+  if (!live) return { name, configured: true, status: "ready", message: "Configurato", last_test, probe: "config" };
+  try {
+    const r = await live();
+    return { name, configured: true, status: r.ok ? "ready" : "warning", message: r.msg, last_test, probe: "live" };
+  } catch (e) {
+    return { name, configured: true, status: "warning", message: `Probe fallita: ${(e as Error).message}`, last_test, probe: "live" };
+  }
+}
+
+async function liveOpenAI(): Promise<{ ok: boolean; msg: string }> {
+  const key = Deno.env.get("OPENAI_API_KEY")!;
+  const r = await fetch("https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${key}` } });
+  return { ok: r.ok, msg: r.ok ? "API raggiungibile" : `HTTP ${r.status}` };
+}
+async function liveAnthropic(): Promise<{ ok: boolean; msg: string }> {
+  const key = Deno.env.get("ANTHROPIC_API_KEY")!;
+  // Lightweight: missing-version returns 400 if key valid; auth error returns 401
+  const r = await fetch("https://api.anthropic.com/v1/models", {
+    headers: { "x-api-key": key, "anthropic-version": "2023-06-01" },
+  });
+  return { ok: r.ok || r.status === 400, msg: r.status === 401 ? "Auth fallita" : `HTTP ${r.status}` };
+}
+async function liveFirecrawl(): Promise<{ ok: boolean; msg: string }> {
+  const key = Deno.env.get("FIRECRAWL_API_KEY")!;
+  const r = await fetch("https://api.firecrawl.dev/v2/team/credit-usage", {
+    headers: { Authorization: `Bearer ${key}` },
+  });
+  return { ok: r.ok || r.status === 404, msg: r.status === 401 ? "Auth fallita" : `HTTP ${r.status}` };
+}
+async function liveApify(): Promise<{ ok: boolean; msg: string }> {
+  const key = Deno.env.get("APIFY_API_TOKEN")!;
+  const r = await fetch(`https://api.apify.com/v2/users/me?token=${encodeURIComponent(key)}`);
+  return { ok: r.ok, msg: r.ok ? "Token valido" : `HTTP ${r.status}` };
+}
+async function livePerplexity(): Promise<{ ok: boolean; msg: string }> {
+  const key = Deno.env.get("PERPLEXITY_API_KEY")!;
+  const r = await fetch("https://api.perplexity.ai/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "sonar", messages: [{ role: "user", content: "ping" }], max_tokens: 1 }),
+  });
+  return { ok: r.ok || r.status === 400, msg: r.status === 401 ? "Auth fallita" : `HTTP ${r.status}` };
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+
+  const json = (b: unknown, s = 200) =>
+    new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } });
+
+  try {
+    const auth = req.headers.get("Authorization");
+    if (!auth) return json({ error: "Unauthorized" }, 401);
+
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+      { auth: { persistSession: false } },
+    );
+    const token = auth.replace("Bearer ", "").trim();
+    const { data: userData, error: uErr } = await supabase.auth.getUser(token);
+    if (uErr || !userData.user) return json({ error: "Unauthorized" }, 401);
+
+    const email = (userData.user.email ?? "").toLowerCase();
+    const isOwner = getOwnerEmails().includes(email);
+    let isAdmin = isOwner;
+    if (!isAdmin) {
+      const { data: role } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userData.user.id)
+        .eq("role", "admin")
+        .maybeSingle();
+      isAdmin = !!role;
+    }
+    if (!isAdmin) return json({ error: "Forbidden" }, 403);
+
+    const url = new URL(req.url);
+    const skipLive = url.searchParams.get("live") === "false";
+
+    const connectors = await Promise.all([
+      probe("Firecrawl", "FIRECRAWL_API_KEY", skipLive ? undefined : liveFirecrawl),
+      probe("Apify", "APIFY_API_TOKEN", skipLive ? undefined : liveApify),
+      probe("Perplexity", "PERPLEXITY_API_KEY", skipLive ? undefined : livePerplexity),
+      probe("Lovable", "LOVABLE_API_KEY"), // gateway managed: solo config check
+      probe("OpenAI", "OPENAI_API_KEY", skipLive ? undefined : liveOpenAI),
+      probe("Anthropic", "ANTHROPIC_API_KEY", skipLive ? undefined : liveAnthropic),
+      probe("Google Maps", "GOOGLE_MAPS_API_KEY"), // pay-per-call: solo config
+      probe("Mapbox", "MAPBOX_API_KEY"), // pay-per-call: solo config
+      probe("Stripe", "STRIPE_SECRET_KEY"), // evita test live per non emettere eventi
+    ]);
+
+    const summary = {
+      ready: connectors.filter((c) => c.status === "ready").length,
+      warning: connectors.filter((c) => c.status === "warning").length,
+      error: connectors.filter((c) => c.status === "error").length,
+    };
+
+    return json({
+      ok: true,
+      checked_at: new Date().toISOString(),
+      summary,
+      connectors,
+    });
+  } catch (e) {
+    console.error("connector-status unhandled:", e);
+    return json({ error: "Errore temporaneo" }, 500);
+  }
+});
