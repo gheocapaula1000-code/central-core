@@ -97,10 +97,28 @@ Deno.serve(async (req) => {
     };
   }
 
+  // Boolean-only secret presence (never log values)
+  const secrets_configured = {
+    firecrawl: !!Deno.env.get("FIRECRAWL_API_KEY"),
+    apify: !!Deno.env.get("APIFY_API_TOKEN"),
+    perplexity: !!Deno.env.get("PERPLEXITY_API_KEY"),
+    lovable: !!Deno.env.get("LOVABLE_API_KEY"),
+    openai: !!Deno.env.get("OPENAI_API_KEY"),
+    anthropic: !!Deno.env.get("ANTHROPIC_API_KEY"),
+    google_maps: !!Deno.env.get("GOOGLE_MAPS_API_KEY"),
+    mapbox: !!Deno.env.get("MAPBOX_API_KEY"),
+    stripe: !!Deno.env.get("STRIPE_SECRET_KEY"),
+  };
+  console.log("[health] secrets presence:", secrets_configured);
+
   const res = ok(req, {
+    ok: true,
+    service: "central-core",
+    version: "v3.4.0",
     status: "healthy",
     contract: CORE_CONTRACT,
     function: FUNCTION_NAME,
+    secrets_configured,
     ...(apiStatus ? { api_status: apiStatus } : {}),
   });
   return addIdentityHeaders(res, { function: FUNCTION_NAME, route: "health" });
