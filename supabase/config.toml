@@ -86,3 +86,6 @@ verify_jwt = false
 
 [functions.agency-opportunities]
 verify_jwt = false
+
+[functions.demo-agency-opportunities]
+verify_jwt = false
