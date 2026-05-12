@@ -1,0 +1,293 @@
+import { useEffect, useState, useCallback } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AlertTriangle, CheckCircle2, ExternalLink, RefreshCw, Wallet, Activity, Bell, Settings2, History } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
+
+type Risk = "basso" | "medio" | "alto" | "ignoto";
+
+interface Provider {
+  key: string;
+  name: string;
+  category: string;
+  configured: boolean;
+  connection_status: "ok" | "error" | "unknown";
+  credit_estimate: { value: number | null; unit: string; raw_label?: string };
+  threshold_min_eur: number | null;
+  usage_24h: { calls: number | null; cost_eur: number | null };
+  usage_7d: { calls: number | null; cost_eur: number | null };
+  exhaustion_risk: Risk;
+  recommended_action: string;
+  billing_url: string;
+  automation: "auto_reload" | "manual_only" | "managed" | "pay_per_call";
+  automation_label: string;
+  last_check: string;
+  error?: string;
+}
+
+interface CreditsResponse {
+  ok: boolean;
+  checked_at: string;
+  summary: { total: number; configured: number; missing: number; risk_high: number; risk_medium: number; risk_unknown: number };
+  providers: Provider[];
+  alerts: { level: "red" | "yellow"; provider: string; message: string; action_url: string }[];
+}
+
+interface Thresholds {
+  yellow_eur: number;
+  red_eur: number;
+  block_eur: number;
+  block_enabled: boolean;
+}
+
+const DEFAULT_THRESHOLDS: Thresholds = { yellow_eur: 25, red_eur: 10, block_eur: 5, block_enabled: false };
+const STORAGE_KEY = "core.api-credits.thresholds";
+
+function riskBadge(risk: Risk) {
+  const map: Record<Risk, { label: string; className: string }> = {
+    basso: { label: "Rischio basso", className: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" },
+    medio: { label: "Rischio medio", className: "bg-amber-500/15 text-amber-400 border-amber-500/30" },
+    alto: { label: "Rischio alto", className: "bg-red-500/15 text-red-400 border-red-500/30" },
+    ignoto: { label: "Non noto", className: "bg-muted text-muted-foreground border-border" },
+  };
+  const m = map[risk];
+  return <Badge variant="outline" className={m.className}>{m.label}</Badge>;
+}
+
+function automationBadge(p: Provider) {
+  if (p.automation === "auto_reload") return <Badge variant="outline" className="border-violet-500/30 text-violet-400">Automazione possibile</Badge>;
+  if (p.automation === "managed") return <Badge variant="outline">Gestito</Badge>;
+  if (p.automation === "pay_per_call") return <Badge variant="outline">Pay-per-call</Badge>;
+  return <Badge variant="outline">Ricarica manuale consigliata</Badge>;
+}
+
+export default function ApiCreditsPage() {
+  const [data, setData] = useState<CreditsResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [thresholds, setThresholds] = useState<Thresholds>(() => {
+    try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? { ...DEFAULT_THRESHOLDS, ...JSON.parse(raw) } : DEFAULT_THRESHOLDS; } catch { return DEFAULT_THRESHOLDS; }
+  });
+
+  const load = useCallback(async () => {
+    setLoading(true); setErr(null);
+    try {
+      const { data: res, error } = await supabase.functions.invoke<CreditsResponse>("api-credits-status");
+      if (error) throw new Error(error.message);
+      setData(res ?? null);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  function saveThresholds(next: Thresholds) {
+    setThresholds(next);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* noop */ }
+    toast({ title: "Soglie salvate", description: "Le soglie sono state aggiornate localmente." });
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2"><Wallet className="h-6 w-6 text-violet-400" /> Centro Crediti API</h1>
+          <p className="text-sm text-muted-foreground mt-1">Monitoraggio crediti e usage stimato dei provider del Central Core. Nessuna chiave o token esposta.</p>
+        </div>
+        <Button onClick={load} disabled={loading} variant="outline" size="sm">
+          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} /> Aggiorna
+        </Button>
+      </div>
+
+      {err && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Errore caricamento</AlertTitle>
+          <AlertDescription>{err}. Devi essere admin/owner per vedere questa sezione.</AlertDescription>
+        </Alert>
+      )}
+
+      <Tabs defaultValue="overview">
+        <TabsList className="flex-wrap h-auto">
+          <TabsTrigger value="overview"><Activity className="h-4 w-4 mr-1.5" />Panoramica</TabsTrigger>
+          <TabsTrigger value="providers"><Wallet className="h-4 w-4 mr-1.5" />Provider</TabsTrigger>
+          <TabsTrigger value="thresholds"><Settings2 className="h-4 w-4 mr-1.5" />Soglie</TabsTrigger>
+          <TabsTrigger value="history"><History className="h-4 w-4 mr-1.5" />Storico</TabsTrigger>
+          <TabsTrigger value="actions"><Bell className="h-4 w-4 mr-1.5" />Azioni consigliate</TabsTrigger>
+        </TabsList>
+
+        {/* ── Panoramica ───────────────────────────────────────────── */}
+        <TabsContent value="overview" className="space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <SummaryCard label="Provider" value={data?.summary.total ?? "—"} />
+            <SummaryCard label="Configurati" value={data?.summary.configured ?? "—"} tone="ok" />
+            <SummaryCard label="Rischio alto" value={data?.summary.risk_high ?? "—"} tone={data && data.summary.risk_high > 0 ? "red" : "muted"} />
+            <SummaryCard label="Rischio medio" value={data?.summary.risk_medium ?? "—"} tone={data && data.summary.risk_medium > 0 ? "amber" : "muted"} />
+          </div>
+          {data?.alerts && data.alerts.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle className="text-base flex items-center gap-2"><Bell className="h-4 w-4" /> Avvisi attivi</CardTitle></CardHeader>
+              <CardContent className="space-y-2">
+                {data.alerts.map((a, i) => (
+                  <div key={i} className={`flex items-start gap-3 rounded-md border p-3 ${a.level === "red" ? "border-red-500/30 bg-red-500/5" : "border-amber-500/30 bg-amber-500/5"}`}>
+                    <AlertTriangle className={`h-4 w-4 mt-0.5 ${a.level === "red" ? "text-red-400" : "text-amber-400"}`} />
+                    <div className="flex-1 text-sm">
+                      <div className="font-medium">{a.provider}</div>
+                      <div className="text-muted-foreground">{a.message}</div>
+                    </div>
+                    <a href={a.action_url} target="_blank" rel="noreferrer" className="text-xs underline text-muted-foreground hover:text-foreground inline-flex items-center gap-1">Portale <ExternalLink className="h-3 w-3" /></a>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+          {data && data.alerts.length === 0 && (
+            <Alert><CheckCircle2 className="h-4 w-4" /><AlertTitle>Tutto ok</AlertTitle><AlertDescription>Nessun provider sotto soglia di attenzione.</AlertDescription></Alert>
+          )}
+          {data?.checked_at && <p className="text-xs text-muted-foreground">Ultimo controllo: {new Date(data.checked_at).toLocaleString("it-IT")}</p>}
+        </TabsContent>
+
+        {/* ── Provider ─────────────────────────────────────────────── */}
+        <TabsContent value="providers" className="space-y-3">
+          {data?.providers.map((p) => (
+            <Card key={p.key}>
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      {p.name}
+                      <span className="text-xs font-normal text-muted-foreground capitalize">· {p.category}</span>
+                    </CardTitle>
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      {riskBadge(p.exhaustion_risk)}
+                      {automationBadge(p)}
+                      <Badge variant={p.connection_status === "ok" ? "default" : "destructive"} className="text-xs">
+                        {p.connection_status === "ok" ? "Connesso" : p.configured ? "Errore" : "Non configurato"}
+                      </Badge>
+                    </div>
+                  </div>
+                  <a href={p.billing_url} target="_blank" rel="noreferrer" className="text-xs underline text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+                    Portale billing <ExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+              </CardHeader>
+              <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                <Metric label="Credito stimato" value={
+                  p.credit_estimate.value != null
+                    ? `${p.credit_estimate.value} ${p.credit_estimate.unit}`
+                    : (p.credit_estimate.raw_label ?? "n/d")
+                } />
+                <Metric label="Soglia minima" value={p.threshold_min_eur != null ? `${p.threshold_min_eur} €` : "n/a"} />
+                <Metric label="Consumo 24h" value={p.usage_24h.cost_eur != null ? `${p.usage_24h.cost_eur} €` : "n/d"} />
+                <Metric label="Consumo 7g" value={p.usage_7d.cost_eur != null ? `${p.usage_7d.cost_eur} €` : "n/d"} />
+                <div className="col-span-2 md:col-span-4">
+                  <div className="text-xs text-muted-foreground mb-1">Azione consigliata</div>
+                  <div className="text-sm">{p.recommended_action}</div>
+                </div>
+                {p.error && (
+                  <div className="col-span-2 md:col-span-4 text-xs text-red-400">⚠ {p.error}</div>
+                )}
+                <div className="col-span-2 md:col-span-4 text-xs text-muted-foreground">
+                  Ultimo controllo: {new Date(p.last_check).toLocaleString("it-IT")}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+          {!data && !err && <p className="text-sm text-muted-foreground">Caricamento…</p>}
+        </TabsContent>
+
+        {/* ── Soglie ───────────────────────────────────────────────── */}
+        <TabsContent value="thresholds">
+          <Card>
+            <CardHeader><CardTitle className="text-base">Soglie di avviso</CardTitle></CardHeader>
+            <CardContent className="space-y-4 max-w-md">
+              <div className="space-y-2">
+                <Label>Avviso giallo sotto (€)</Label>
+                <Input type="number" value={thresholds.yellow_eur} onChange={(e) => setThresholds({ ...thresholds, yellow_eur: Number(e.target.value) })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Avviso rosso sotto (€)</Label>
+                <Input type="number" value={thresholds.red_eur} onChange={(e) => setThresholds({ ...thresholds, red_eur: Number(e.target.value) })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Blocco prudenziale sotto (€)</Label>
+                <Input type="number" value={thresholds.block_eur} onChange={(e) => setThresholds({ ...thresholds, block_eur: Number(e.target.value) })} />
+              </div>
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <div>
+                  <div className="text-sm font-medium">Attiva blocco prudenziale</div>
+                  <div className="text-xs text-muted-foreground">Sospende job opzionali quando il credito stimato è sotto la soglia.</div>
+                </div>
+                <Switch checked={thresholds.block_enabled} onCheckedChange={(v) => setThresholds({ ...thresholds, block_enabled: v })} />
+              </div>
+              <Button onClick={() => saveThresholds(thresholds)}>Salva soglie</Button>
+              <p className="text-xs text-muted-foreground">Le soglie sono salvate localmente. L'applicazione effettiva ai job richiede un secondo step server-side.</p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Storico ──────────────────────────────────────────────── */}
+        <TabsContent value="history">
+          <Card>
+            <CardHeader><CardTitle className="text-base">Storico consumi</CardTitle></CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Lo storico per provider verrà popolato quando avremo telemetria dei job lato Central Core.
+                Per ora consulta i portali billing tramite la tab Provider.
+              </p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Azioni ───────────────────────────────────────────────── */}
+        <TabsContent value="actions" className="space-y-3">
+          {data?.providers.filter(p => p.exhaustion_risk !== "basso").map((p) => (
+            <Card key={p.key}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">{p.name} {riskBadge(p.exhaustion_risk)}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <div>{p.recommended_action}</div>
+                <a href={p.billing_url} target="_blank" rel="noreferrer" className="text-xs underline text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+                  Apri portale {p.name} <ExternalLink className="h-3 w-3" />
+                </a>
+              </CardContent>
+            </Card>
+          ))}
+          {data && data.providers.every(p => p.exhaustion_risk === "basso") && (
+            <Alert><CheckCircle2 className="h-4 w-4" /><AlertTitle>Nessuna azione richiesta</AlertTitle><AlertDescription>Tutti i provider sono entro le soglie.</AlertDescription></Alert>
+          )}
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function SummaryCard({ label, value, tone = "muted" }: { label: string; value: number | string; tone?: "ok" | "red" | "amber" | "muted" }) {
+  const toneClass = tone === "ok" ? "text-emerald-400" : tone === "red" ? "text-red-400" : tone === "amber" ? "text-amber-400" : "text-foreground";
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        <div className="text-xs text-muted-foreground">{label}</div>
+        <div className={`text-2xl font-bold mt-1 ${toneClass}`}>{value}</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="font-medium">{value}</div>
+    </div>
+  );
+}

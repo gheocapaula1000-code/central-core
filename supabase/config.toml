@@ -89,3 +89,6 @@ verify_jwt = false
 
 [functions.demo-agency-opportunities]
 verify_jwt = false
+
+[functions.api-credits-status]
+verify_jwt = false
