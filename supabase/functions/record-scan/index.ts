@@ -1,21 +1,33 @@
+// record-scan — self-contained (no _shared imports beyond billing helpers below)
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { isOwnerById } from "../_shared/ownerUtils.ts";
-import { corsHeaders, handleCors } from "../_shared/cors.ts";
-import { isBillingActive } from "../_shared/billing.ts";
 
 const APP_ID = "civiko_one";
 const TRIAL_SCAN_LIMIT = 3;
 const FALLBACK_PAID_LIMIT = 30;
 
-serve(async (req) => {
-  const preflight = handleCors(req);
-  if (preflight) return preflight;
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
 
-  const cors = corsHeaders(req);
+// Inline owner check (avoid missing _shared/ownerUtils.ts)
+function getOwnerEmails(): string[] {
+  const raw = Deno.env.get("CORE_ADMIN_BOOTSTRAP_EMAILS") ?? "";
+  return raw.split(/[,\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+}
+
+function isBillingActive(): boolean {
+  return !!Deno.env.get("STRIPE_SECRET_KEY");
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), {
-      headers: { ...cors, "Content-Type": "application/json" },
+      headers: { ...CORS, "Content-Type": "application/json" },
       status,
     });
 
@@ -36,10 +48,9 @@ serve(async (req) => {
     if (userError || !userData.user) return json({ error: "Sessione non valida" }, 401);
     const user = userData.user;
 
-    // Bypass owner
-    let isOwner = false;
-    try { isOwner = await isOwnerById(user.id); } catch { /* non-blocking */ }
-    if (isOwner) {
+    // Bypass owner (by email)
+    const ownerEmails = getOwnerEmails();
+    if (user.email && ownerEmails.includes(user.email.toLowerCase())) {
       return json({ recorded: false, bypassed: true, scans_used: 0, scans_limit: 999, plan_key: "owner" });
     }
 
@@ -64,7 +75,7 @@ serve(async (req) => {
       return json({ error: "scan_id richiesto" }, 400);
     }
 
-    // Risolvi agency_id: prima da agency_memberships, fallback a user.id
+    // Risolvi agency_id
     let agencyId: string = user.id;
     const { data: membership } = await serviceClient
       .from("agency_memberships")
@@ -76,7 +87,7 @@ serve(async (req) => {
       .maybeSingle();
     if (membership?.agency_id) agencyId = membership.agency_id as string;
 
-    // Leggi subscription da billing_subscriptions (campo agency_id, non user_id)
+    // Subscription
     const { data: sub } = await serviceClient
       .from("billing_subscriptions")
       .select("status, plan_key, current_period_end, trial_end")
@@ -98,7 +109,7 @@ serve(async (req) => {
       }, 403);
     }
 
-    // Leggi limite da billing_entitlements (fonte di verità, non hardcoded)
+    // Limite da entitlements
     let scansLimit: number = TRIAL_SCAN_LIMIT;
     let planKey: string | null = null;
 
@@ -112,7 +123,7 @@ serve(async (req) => {
         .maybeSingle();
 
       if (ent && ent.monthly_scans === null) {
-        scansLimit = Number.POSITIVE_INFINITY; // civiko_elite = illimitato
+        scansLimit = Number.POSITIVE_INFINITY;
       } else if (ent && typeof ent.monthly_scans === "number") {
         scansLimit = ent.monthly_scans;
       } else {
@@ -120,7 +131,6 @@ serve(async (req) => {
       }
     }
 
-    // Conta scansioni del periodo corrente da sottra_scans (non da user_trials)
     const periodStart = (() => {
       if (hasActiveSub && sub?.current_period_end) {
         const end = new Date(sub.current_period_end);
@@ -144,7 +154,7 @@ serve(async (req) => {
     }
     const scansUsed = usedCountRaw ?? 0;
 
-    // Idempotenza: stesso scan_id non scala il contatore (protezione da retry di rete)
+    // Idempotenza
     let alreadyRecorded = false;
     try {
       const { data: existing } = await serviceClient
