@@ -77,3 +77,9 @@ verify_jwt = false
 
 [functions.check-subscription]
 verify_jwt = false
+
+[functions.core-status]
+verify_jwt = false
+
+[functions.connector-status]
+verify_jwt = false
