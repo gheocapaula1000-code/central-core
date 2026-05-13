@@ -88,8 +88,10 @@ export default function ApiCreditsPage() {
   const [data, setData] = useState<CreditsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [errType, setErrType] = useState<'auth' | 'generic' | null>(null);
   const [thr, setThr] = useState<ThresholdsResponse | null>(null);
   const [thrLoading, setThrLoading] = useState(false);
+  const [thrErrType, setThrErrType] = useState<'auth' | 'generic' | null>(null);
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
 
   const load = useCallback(async () => {
