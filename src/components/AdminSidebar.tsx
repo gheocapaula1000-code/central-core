@@ -20,6 +20,7 @@ const menuItems = [
   { title: "Territori", url: "/territori", icon: MapPin },
   { title: "Opportunità Pilota", url: "/opportunita-pilota", icon: Target },
   { title: "Dossier Agenzia", url: "/dossier-agenzia", icon: Briefcase },
+  { title: "Sintesi Proprietario", url: "/sintesi-proprietario", icon: BookOpen },
   { title: "Provider Operativi", url: "/providers", icon: Bot },
   { title: "Chiavi & Sicurezza", url: "/security", icon: KeyRound },
   { title: "Metrics", url: "/metrics", icon: BarChart3 },
