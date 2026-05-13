@@ -406,7 +406,7 @@ export default function ApiCreditsPage() {
 
         {/* ── Azioni ───────────────────────────────────────────────── */}
         <TabsContent value="actions" className="space-y-3">
-          {data?.providers.filter(p => p.exhaustion_risk !== "basso").map((p) => (
+          {data?.providers?.filter(p => p.exhaustion_risk !== "basso").map((p) => (
             <Card key={p.key}>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2">{p.name} {riskBadge(p.exhaustion_risk)}</CardTitle>
