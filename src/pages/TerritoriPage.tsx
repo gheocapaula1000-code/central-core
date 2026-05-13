@@ -172,6 +172,12 @@ const statoLabel: Record<StatoMicrozona, string> = {
   futuro: "Futuro",
 };
 
+const faseVariant: Record<FasePilota, string> = {
+  fase_1: "bg-sky-900/40 text-sky-200 border-sky-800",
+  fase_2: "bg-secondary text-muted-foreground",
+  futura: "bg-slate-800 text-slate-300 border-slate-700",
+};
+
 function fmt(value: string) {
   return value.replace(/_/g, " ");
 }
