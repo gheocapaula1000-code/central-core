@@ -259,34 +259,70 @@ export default function ApiCreditsPage() {
         </TabsContent>
 
         {/* ── Soglie ───────────────────────────────────────────────── */}
-        <TabsContent value="thresholds">
-          <Card>
-            <CardHeader><CardTitle className="text-base">Soglie di avviso</CardTitle></CardHeader>
-            <CardContent className="space-y-4 max-w-md">
-              <div className="space-y-2">
-                <Label>Avviso giallo sotto (€)</Label>
-                <Input type="number" value={thresholds.yellow_eur} onChange={(e) => setThresholds({ ...thresholds, yellow_eur: Number(e.target.value) })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Avviso rosso sotto (€)</Label>
-                <Input type="number" value={thresholds.red_eur} onChange={(e) => setThresholds({ ...thresholds, red_eur: Number(e.target.value) })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Blocco prudenziale sotto (€)</Label>
-                <Input type="number" value={thresholds.block_eur} onChange={(e) => setThresholds({ ...thresholds, block_eur: Number(e.target.value) })} />
-              </div>
-              <div className="flex items-center justify-between rounded-md border p-3">
-                <div>
-                  <div className="text-sm font-medium">Attiva blocco prudenziale</div>
-                  <div className="text-xs text-muted-foreground">Sospende job opzionali quando il credito stimato è sotto la soglia.</div>
+        <TabsContent value="thresholds" className="space-y-3">
+          <Alert>
+            <Bell className="h-4 w-4" />
+            <AlertTitle>Automazione e ricariche</AlertTitle>
+            <AlertDescription>{thr?.automation_note ?? AUTOMATION_NOTE_FALLBACK}</AlertDescription>
+          </Alert>
+
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              Soglie persistenti lato Core. Default applicati quando non salvate: giallo {thr?.defaults.warning_threshold_eur ?? 25}€ · rosso {thr?.defaults.critical_threshold_eur ?? 10}€ · blocco {thr?.defaults.block_threshold_eur ?? 5}€.
+            </p>
+            <Button variant="outline" size="sm" onClick={loadThresholds} disabled={thrLoading}>
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${thrLoading ? "animate-spin" : ""}`} /> Ricarica
+            </Button>
+          </div>
+
+          {thr?.thresholds.map((t) => (
+            <Card key={t.provider}>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <CardTitle className="text-base capitalize">{t.provider.replace(/_/g, " ")}</CardTitle>
+                  <Badge variant="outline" className={t.source === "persisted" ? "border-emerald-500/30 text-emerald-400" : ""}>
+                    {t.source === "persisted" ? "Salvata" : "Default"}
+                  </Badge>
                 </div>
-                <Switch checked={thresholds.block_enabled} onCheckedChange={(v) => setThresholds({ ...thresholds, block_enabled: v })} />
-              </div>
-              <Button onClick={() => saveThresholds(thresholds)}>Salva soglie</Button>
-              <p className="text-xs text-muted-foreground">Le soglie sono salvate localmente. L'applicazione effettiva ai job richiede un secondo step server-side.</p>
-            </CardContent>
-          </Card>
+              </CardHeader>
+              <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Avviso giallo (€)</Label>
+                  <Input type="number" min={0} value={t.warning_threshold_eur}
+                    onChange={(e) => updateLocal(t.provider, { warning_threshold_eur: Number(e.target.value) })} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Avviso rosso (€)</Label>
+                  <Input type="number" min={0} value={t.critical_threshold_eur}
+                    onChange={(e) => updateLocal(t.provider, { critical_threshold_eur: Number(e.target.value) })} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Blocco prudenziale (€)</Label>
+                  <Input type="number" min={0} value={t.block_threshold_eur}
+                    onChange={(e) => updateLocal(t.provider, { block_threshold_eur: Number(e.target.value) })} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Ricarica consigliata (€)</Label>
+                  <Input type="number" min={0} value={t.recommended_topup_eur}
+                    onChange={(e) => updateLocal(t.provider, { recommended_topup_eur: Number(e.target.value) })} />
+                </div>
+                <div className="col-span-2 md:col-span-4 flex items-center justify-between gap-2 flex-wrap">
+                  <p className="text-xs text-muted-foreground">
+                    {t.updated_at ? `Ultimo aggiornamento: ${new Date(t.updated_at).toLocaleString("it-IT")}` : "Mai aggiornata"}
+                  </p>
+                  <Button size="sm" onClick={() => saveThreshold(t)} disabled={savingProvider === t.provider}>
+                    {savingProvider === t.provider ? "Salvataggio…" : "Salva soglia"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+
+          {!thr && !thrLoading && (
+            <p className="text-sm text-muted-foreground">Devi essere admin/owner per gestire le soglie.</p>
+          )}
         </TabsContent>
+
 
         {/* ── Storico ──────────────────────────────────────────────── */}
         <TabsContent value="history">
