@@ -279,6 +279,42 @@ export type Database = {
           },
         ]
       }
+      api_credit_thresholds: {
+        Row: {
+          block_threshold_eur: number
+          critical_threshold_eur: number
+          id: string
+          notes: string | null
+          provider: string
+          recommended_topup_eur: number
+          updated_at: string
+          updated_by: string | null
+          warning_threshold_eur: number
+        }
+        Insert: {
+          block_threshold_eur?: number
+          critical_threshold_eur?: number
+          id?: string
+          notes?: string | null
+          provider: string
+          recommended_topup_eur?: number
+          updated_at?: string
+          updated_by?: string | null
+          warning_threshold_eur?: number
+        }
+        Update: {
+          block_threshold_eur?: number
+          critical_threshold_eur?: number
+          id?: string
+          notes?: string | null
+          provider?: string
+          recommended_topup_eur?: number
+          updated_at?: string
+          updated_by?: string | null
+          warning_threshold_eur?: number
+        }
+        Relationships: []
+      }
       area_opportunity_scores: {
         Row: {
           area_label: string | null
