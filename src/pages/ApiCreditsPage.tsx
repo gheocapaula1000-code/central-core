@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { AlertTriangle, CheckCircle2, ExternalLink, RefreshCw, Wallet, Activity, Bell, Settings2, History } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ExternalLink, RefreshCw, Wallet, Activity, Bell, Settings2, History, Shield, Info } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
@@ -88,30 +88,69 @@ export default function ApiCreditsPage() {
   const [data, setData] = useState<CreditsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [errType, setErrType] = useState<'auth' | 'generic' | null>(null);
   const [thr, setThr] = useState<ThresholdsResponse | null>(null);
   const [thrLoading, setThrLoading] = useState(false);
+  const [thrErrType, setThrErrType] = useState<'auth' | 'generic' | null>(null);
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
 
+  async function callEdgeFunction<T>(
+    name: string,
+    options?: { method?: string; body?: unknown }
+  ): Promise<{ data: T | null; error: { type: 'auth' | 'generic'; message: string } | null }> {
+    const { data: { session } } = await supabase.auth.getSession();
+    const headers: Record<string, string> = {
+      apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      "Content-Type": "application/json",
+    };
+    if (session?.access_token) {
+      headers["Authorization"] = `Bearer ${session.access_token}`;
+    }
+
+    const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${name}`, {
+      method: options?.method ?? "GET",
+      headers,
+      ...(options?.body ? { body: JSON.stringify(options.body) } : {}),
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      return { data: null, error: { type: 'auth', message: 'Accesso negato' } };
+    }
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const msg = body?.error?.message || 'Errore del servizio';
+      return { data: null, error: { type: 'generic', message: msg } };
+    }
+
+    const data = await res.json().catch(() => null);
+    return { data, error: null };
+  }
+
   const load = useCallback(async () => {
-    setLoading(true); setErr(null);
-    try {
-      const { data: res, error } = await supabase.functions.invoke<CreditsResponse>("api-credits-status");
-      if (error) throw new Error(error.message);
-      setData(res ?? null);
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally { setLoading(false); }
+    setLoading(true); setErr(null); setErrType(null);
+    const { data: res, error } = await callEdgeFunction<CreditsResponse>("api-credits-status", { method: "POST" });
+    if (error) {
+      setErr(error.message);
+      setErrType(error.type);
+    } else {
+      setData(res);
+    }
+    setLoading(false);
   }, []);
 
   const loadThresholds = useCallback(async () => {
-    setThrLoading(true);
-    try {
-      const { data: res, error } = await supabase.functions.invoke<ThresholdsResponse>("api-credit-thresholds", { method: "GET" });
-      if (error) throw new Error(error.message);
-      setThr(res ?? null);
-    } catch (e) {
-      toast({ title: "Errore caricamento soglie", description: (e as Error).message, variant: "destructive" });
-    } finally { setThrLoading(false); }
+    setThrLoading(true); setThrErrType(null);
+    const { data: res, error } = await callEdgeFunction<ThresholdsResponse>("api-credit-thresholds", { method: "GET" });
+    if (error) {
+      if (error.type === 'generic') {
+        toast({ title: "Centro Crediti non disponibile", description: "Il servizio soglie non ha risposto correttamente. Riprova più tardi." });
+      }
+      setThrErrType(error.type);
+    } else {
+      setThr(res);
+    }
+    setThrLoading(false);
   }, []);
 
   useEffect(() => { load(); loadThresholds(); }, [load, loadThresholds]);
@@ -125,12 +164,12 @@ export default function ApiCreditsPage() {
 
   async function saveThreshold(t: PersistedThreshold) {
     if (!(t.warning_threshold_eur >= t.critical_threshold_eur && t.critical_threshold_eur >= t.block_threshold_eur)) {
-      toast({ title: "Soglie non valide", description: "Deve valere: giallo ≥ rosso ≥ blocco.", variant: "destructive" });
+      toast({ title: "Soglie non valide", description: "Deve valere: giallo ≥ rosso ≥ blocco." });
       return;
     }
     setSavingProvider(t.provider);
     try {
-      const { error } = await supabase.functions.invoke<ThresholdsResponse>("api-credit-thresholds", {
+      const { error } = await callEdgeFunction<ThresholdsResponse>("api-credit-thresholds", {
         method: "POST",
         body: {
           provider: t.provider,
@@ -140,11 +179,18 @@ export default function ApiCreditsPage() {
           recommended_topup_eur: t.recommended_topup_eur,
         },
       });
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (error.type === 'auth') {
+          toast({ title: "Accesso negato", description: "Non hai i permessi per salvare le soglie." });
+        } else {
+          toast({ title: "Salvataggio non riuscito", description: "Il servizio non ha risposto correttamente. Riprova più tardi." });
+        }
+        return;
+      }
       toast({ title: "Soglie salvate", description: `Provider: ${t.provider}` });
       updateLocal(t.provider, { source: "persisted", updated_at: new Date().toISOString() });
     } catch (e) {
-      toast({ title: "Errore salvataggio", description: (e as Error).message, variant: "destructive" });
+      toast({ title: "Salvataggio non riuscito", description: "Errore imprevisto. Riprova più tardi." });
     } finally { setSavingProvider(null); }
   }
 
@@ -161,12 +207,33 @@ export default function ApiCreditsPage() {
         </Button>
       </div>
 
-      {err && (
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Errore caricamento</AlertTitle>
-          <AlertDescription>{err}. Devi essere admin/owner per vedere questa sezione.</AlertDescription>
-        </Alert>
+      {errType === 'auth' && (
+        <Card className="border-amber-500/20 bg-amber-500/5">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-3">
+              <Shield className="h-5 w-5 text-amber-400 mt-0.5 shrink-0" />
+              <div>
+                <h3 className="font-semibold">Accesso admin richiesto</h3>
+                <p className="text-sm text-muted-foreground mt-1">Per visualizzare il Centro Crediti API devi essere autenticata come owner/admin del Central Core.</p>
+                <p className="text-xs text-muted-foreground mt-2">Nessuna chiave, token o informazione sensibile viene esposta.</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {errType === 'generic' && (
+        <Card className="border-border">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-3">
+              <Info className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
+              <div>
+                <h3 className="font-semibold">Centro Crediti non disponibile</h3>
+                <p className="text-sm text-muted-foreground mt-1">Il servizio non ha risposto correttamente. Riprova più tardi o verifica lo stato del Central Core.</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       <Tabs defaultValue="overview">
@@ -211,7 +278,7 @@ export default function ApiCreditsPage() {
 
         {/* ── Provider ─────────────────────────────────────────────── */}
         <TabsContent value="providers" className="space-y-3">
-          {data?.providers.map((p) => (
+          {data?.providers?.map((p) => (
             <Card key={p.key}>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -318,8 +385,36 @@ export default function ApiCreditsPage() {
             </Card>
           ))}
 
-          {!thr && !thrLoading && (
-            <p className="text-sm text-muted-foreground">Devi essere admin/owner per gestire le soglie.</p>
+          {thrErrType === 'auth' && !thrLoading && (
+            <Card className="border-amber-500/20 bg-amber-500/5">
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-3">
+                  <Shield className="h-5 w-5 text-amber-400 mt-0.5 shrink-0" />
+                  <div>
+                    <h3 className="font-semibold">Accesso admin richiesto</h3>
+                    <p className="text-sm text-muted-foreground mt-1">Per gestire le soglie devi essere autenticata come owner/admin del Central Core.</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {thrErrType === 'generic' && !thrLoading && (
+            <Card className="border-border">
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-3">
+                  <Info className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
+                  <div>
+                    <h3 className="font-semibold">Soglie non disponibili</h3>
+                    <p className="text-sm text-muted-foreground mt-1">Il servizio non ha risposto correttamente. Riprova più tardi.</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {!thr && !thrLoading && !thrErrType && (
+            <p className="text-sm text-muted-foreground">Nessuna soglia configurata.</p>
           )}
         </TabsContent>
 
@@ -339,7 +434,7 @@ export default function ApiCreditsPage() {
 
         {/* ── Azioni ───────────────────────────────────────────────── */}
         <TabsContent value="actions" className="space-y-3">
-          {data?.providers.filter(p => p.exhaustion_risk !== "basso").map((p) => (
+          {data?.providers?.filter(p => p.exhaustion_risk !== "basso").map((p) => (
             <Card key={p.key}>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2">{p.name} {riskBadge(p.exhaustion_risk)}</CardTitle>
