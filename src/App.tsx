@@ -18,6 +18,7 @@ import SelftestPage from "@/pages/SelftestPage";
 import ApiCreditsPage from "@/pages/ApiCreditsPage";
 import DevJobsPage from "@/pages/DevJobsPage";
 import TerritoriPage from "@/pages/TerritoriPage";
+import OpportunitaPilotaPage from "@/pages/OpportunitaPilotaPage";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -64,6 +65,7 @@ const App = () => (
                   <Route path="/api-credits" element={<ApiCreditsPage />} />
                   <Route path="/dev/jobs" element={<DevJobsPage />} />
                   <Route path="/territori" element={<TerritoriPage />} />
+                  <Route path="/opportunita-pilota" element={<OpportunitaPilotaPage />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </main>
