@@ -19,6 +19,7 @@ const menuItems = [
   { title: "App Collegate", url: "/apps", icon: Smartphone },
   { title: "Territori", url: "/territori", icon: MapPin },
   { title: "Opportunità Pilota", url: "/opportunita-pilota", icon: Target },
+  { title: "Dossier Agenzia", url: "/dossier-agenzia", icon: Briefcase },
   { title: "Provider Operativi", url: "/providers", icon: Bot },
   { title: "Chiavi & Sicurezza", url: "/security", icon: KeyRound },
   { title: "Metrics", url: "/metrics", icon: BarChart3 },
