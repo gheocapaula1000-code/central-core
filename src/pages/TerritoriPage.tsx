@@ -248,6 +248,7 @@ export default function TerritoriPage() {
     const q = query.trim().toLowerCase();
     return territorio.microzone.filter((m) => {
       if (filter !== "tutti") {
+        if (filter === "fase_1" && m.fasePilota !== "fase_1") return false;
         if (filter === "stato_attivo" && m.stato !== "attivo") return false;
         if (filter === "stato_da_completare" && m.stato !== "da_completare") return false;
         if (filter === "stato_futuro" && m.stato !== "futuro") return false;
@@ -255,6 +256,7 @@ export default function TerritoriPage() {
           filter !== "stato_attivo" &&
           filter !== "stato_da_completare" &&
           filter !== "stato_futuro" &&
+          filter !== "fase_1" &&
           m.cluster !== filter
         ) {
           return false;
@@ -271,6 +273,7 @@ export default function TerritoriPage() {
 
   const totale = territorio.microzone.length;
   const attive = territorio.microzone.filter((m) => m.stato === "attivo").length;
+  const fase1 = territorio.microzone.filter((m) => m.fasePilota === "fase_1").length;
   const opportunitaAttive = territorio.microzone.reduce((acc, m) => acc + m.opportunitaAttive, 0);
   const ultimoAggiornamento = territorio.microzone
     .map((m) => m.ultimoAggiornamento)
@@ -312,6 +315,12 @@ export default function TerritoriPage() {
         </Card>
         <Card>
           <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Microzone fase 1</p>
+            <p className="text-2xl font-bold mt-1">{fase1}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Opportunità attive</p>
             <p className="text-2xl font-bold mt-1">{opportunitaAttive}</p>
           </CardContent>
@@ -327,9 +336,7 @@ export default function TerritoriPage() {
       {/* Nota interna */}
       <Card className="border-dashed">
         <CardContent className="p-4 text-xs text-muted-foreground">
-          Questa sezione serve a strutturare il pilota territoriale di Metodo Civiko One.
-          I dati mostrati sono operativi e possono essere aggiornati dal Central Core.
-          Nessuna fonte grezza o informazione sensibile viene esposta.
+          Le microzone Fase 1 sono quelle su cui concentrare i primi test operativi e, in seguito, la raccolta controllata di dati reali. Le altre microzone restano predisposte ma non prioritarie.
         </CardContent>
       </Card>
 
