@@ -19,11 +19,11 @@ const menuItems = [
   { title: "App Collegate", url: "/apps", icon: Smartphone },
   { title: "Territori", url: "/territori", icon: MapPin },
   { title: "Provider Operativi", url: "/providers", icon: Bot },
-  { title: "Task Registry", url: "/tasks", icon: ClipboardList },
   { title: "Chiavi & Sicurezza", url: "/security", icon: KeyRound },
   { title: "Metrics", url: "/metrics", icon: BarChart3 },
   { title: "Self-Test", url: "/selftest", icon: ShieldCheck },
   { title: "Centro Crediti API", url: "/api-credits", icon: Wallet },
+  { title: "Task Registry (legacy)", url: "/tasks", icon: ClipboardList },
 ];
 
 export function AdminSidebar() {
