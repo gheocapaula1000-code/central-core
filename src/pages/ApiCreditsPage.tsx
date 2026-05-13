@@ -278,7 +278,7 @@ export default function ApiCreditsPage() {
 
         {/* ── Provider ─────────────────────────────────────────────── */}
         <TabsContent value="providers" className="space-y-3">
-          {data?.providers.map((p) => (
+          {data?.providers?.map((p) => (
             <Card key={p.key}>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
