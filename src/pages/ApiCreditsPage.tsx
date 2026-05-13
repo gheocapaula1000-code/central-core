@@ -94,26 +94,63 @@ export default function ApiCreditsPage() {
   const [thrErrType, setThrErrType] = useState<'auth' | 'generic' | null>(null);
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
 
+  async function callEdgeFunction<T>(
+    name: string,
+    options?: { method?: string; body?: unknown }
+  ): Promise<{ data: T | null; error: { type: 'auth' | 'generic'; message: string } | null }> {
+    const { data: { session } } = await supabase.auth.getSession();
+    const headers: Record<string, string> = {
+      apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      "Content-Type": "application/json",
+    };
+    if (session?.access_token) {
+      headers["Authorization"] = `Bearer ${session.access_token}`;
+    }
+
+    const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${name}`, {
+      method: options?.method ?? "GET",
+      headers,
+      ...(options?.body ? { body: JSON.stringify(options.body) } : {}),
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      return { data: null, error: { type: 'auth', message: 'Accesso negato' } };
+    }
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const msg = body?.error?.message || 'Errore del servizio';
+      return { data: null, error: { type: 'generic', message: msg } };
+    }
+
+    const data = await res.json().catch(() => null);
+    return { data, error: null };
+  }
+
   const load = useCallback(async () => {
-    setLoading(true); setErr(null);
-    try {
-      const { data: res, error } = await supabase.functions.invoke<CreditsResponse>("api-credits-status");
-      if (error) throw new Error(error.message);
-      setData(res ?? null);
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally { setLoading(false); }
+    setLoading(true); setErr(null); setErrType(null);
+    const { data: res, error } = await callEdgeFunction<CreditsResponse>("api-credits-status", { method: "POST" });
+    if (error) {
+      setErr(error.message);
+      setErrType(error.type);
+    } else {
+      setData(res);
+    }
+    setLoading(false);
   }, []);
 
   const loadThresholds = useCallback(async () => {
-    setThrLoading(true);
-    try {
-      const { data: res, error } = await supabase.functions.invoke<ThresholdsResponse>("api-credit-thresholds", { method: "GET" });
-      if (error) throw new Error(error.message);
-      setThr(res ?? null);
-    } catch (e) {
-      toast({ title: "Errore caricamento soglie", description: (e as Error).message, variant: "destructive" });
-    } finally { setThrLoading(false); }
+    setThrLoading(true); setThrErrType(null);
+    const { data: res, error } = await callEdgeFunction<ThresholdsResponse>("api-credit-thresholds", { method: "GET" });
+    if (error) {
+      if (error.type === 'generic') {
+        toast({ title: "Centro Crediti non disponibile", description: "Il servizio soglie non ha risposto correttamente. Riprova più tardi." });
+      }
+      setThrErrType(error.type);
+    } else {
+      setThr(res);
+    }
+    setThrLoading(false);
   }, []);
 
   useEffect(() => { load(); loadThresholds(); }, [load, loadThresholds]);
