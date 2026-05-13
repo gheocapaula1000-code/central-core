@@ -20,6 +20,7 @@ import DevJobsPage from "@/pages/DevJobsPage";
 import TerritoriPage from "@/pages/TerritoriPage";
 import OpportunitaPilotaPage from "@/pages/OpportunitaPilotaPage";
 import DossierAgenziaPage from "@/pages/DossierAgenziaPage";
+import SintesiProprietarioPage from "@/pages/SintesiProprietarioPage";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
