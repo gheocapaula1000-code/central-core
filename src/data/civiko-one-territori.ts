@@ -14,6 +14,7 @@ export type FasciaPercepita =
 export type SentimentCommerciale = "favorevole" | "neutro" | "debole" | "da_verificare";
 export type StimaLivello = "alta" | "media" | "bassa" | "da_verificare";
 export type StatoMicrozona = "attivo" | "da_completare" | "futuro";
+export type FasePilota = "fase_1" | "fase_2" | "futura";
 
 export type ClusterCommerciale =
   | "padova_citta"
@@ -40,6 +41,7 @@ export interface Microzona {
   opportunitaAttive: number;
   ultimoAggiornamento: string;
   stato: StatoMicrozona;
+  fasePilota: FasePilota;
   noteOperativeInterne?: string;
 }
 
@@ -59,6 +61,12 @@ export const CLUSTER_LABEL: Record<ClusterCommerciale, string> = {
   provincia_estendere: "Provincia da estendere",
 };
 
+export const FASE_LABEL: Record<FasePilota, string> = {
+  fase_1: "Fase 1",
+  fase_2: "Fase 2",
+  futura: "Futura",
+};
+
 const today = "2026-05-13";
 
 // Helper compatto per ridurre rumore
@@ -73,6 +81,7 @@ const mz = (
   sentiment: SentimentCommerciale,
   opportunitaAttive: number,
   stato: StatoMicrozona,
+  fasePilota: FasePilota,
   noteOperativeInterne?: string,
 ): Microzona => ({
   nome,
@@ -86,6 +95,7 @@ const mz = (
   opportunitaAttive,
   ultimoAggiornamento: today,
   stato,
+  fasePilota,
   noteOperativeInterne,
 });
 
@@ -97,50 +107,62 @@ export const TERRITORI_CIVIKO_ONE: TerritorioPilota[] = [
     pwa: "civiko_one",
     cluster: ["padova_citta", "prima_cintura", "termali_premium", "provincia_estendere"],
     microzone: [
-      // A. Padova città
-      mz("Centro Storico", "Padova", "padova_citta", "premium", ["appartamenti", "commerciali"], "alta", "media", "favorevole", 4, "attivo", "Tagli piccoli muovono velocemente."),
-      mz("Portello", "Padova", "padova_citta", "medio-alta", ["appartamenti"], "alta", "media", "favorevole", 3, "attivo", "Forte componente investitori universitari."),
-      mz("Arcella", "Padova", "padova_citta", "media", ["appartamenti"], "media", "alta", "neutro", 2, "attivo", "Sensibile al prezzo, premia ristrutturato."),
-      mz("Sacra Famiglia", "Padova", "padova_citta", "media", ["appartamenti", "case_indipendenti"], "media", "media", "neutro", 1, "attivo"),
-      mz("Forcellini", "Padova", "padova_citta", "medio-alta", ["appartamenti", "villette"], "alta", "media", "favorevole", 2, "attivo"),
-      mz("Madonna Pellegrina", "Padova", "padova_citta", "medio-alta", ["appartamenti"], "media", "media", "neutro", 1, "attivo"),
-      mz("Guizza", "Padova", "padova_citta", "media", ["appartamenti"], "media", "alta", "neutro", 1, "attivo"),
-      mz("Stanga", "Padova", "padova_citta", "media", ["appartamenti", "commerciali"], "media", "media", "debole", 0, "da_completare"),
-      mz("Camin", "Padova", "padova_citta", "media", ["villette", "appartamenti"], "media", "media", "neutro", 0, "da_completare"),
-      mz("Chiesanuova", "Padova", "padova_citta", "media", ["appartamenti", "villette"], "media", "media", "neutro", 0, "da_completare"),
-      mz("Torre", "Padova", "padova_citta", "media", ["appartamenti", "villette"], "da_verificare", "da_verificare", "da_verificare", 0, "da_completare"),
-      mz("Mortise", "Padova", "padova_citta", "media", ["appartamenti", "villette"], "da_verificare", "da_verificare", "da_verificare", 0, "da_completare"),
-      mz("Brusegana", "Padova", "padova_citta", "medio-alta", ["appartamenti", "villette"], "media", "media", "neutro", 0, "da_completare"),
-      mz("Mandria", "Padova", "padova_citta", "media", ["villette", "appartamenti"], "da_verificare", "da_verificare", "da_verificare", 0, "da_completare"),
-      mz("Voltabarozzo", "Padova", "padova_citta", "media", ["villette", "appartamenti"], "da_verificare", "da_verificare", "da_verificare", 0, "da_completare"),
+      // A. Padova città — Fase 1
+      mz("Centro Storico", "Padova", "padova_citta", "premium", ["appartamenti", "commerciali"], "alta", "media", "favorevole", 4, "attivo", "fase_1", "Tagli piccoli muovono velocemente."),
+      mz("Portello", "Padova", "padova_citta", "medio-alta", ["appartamenti"], "alta", "media", "favorevole", 3, "attivo", "fase_1", "Forte componente investitori universitari."),
+      mz("Arcella", "Padova", "padova_citta", "media", ["appartamenti"], "media", "alta", "neutro", 2, "attivo", "fase_1", "Sensibile al prezzo, premia ristrutturato."),
+      mz("Sacra Famiglia", "Padova", "padova_citta", "media", ["appartamenti", "case_indipendenti"], "media", "media", "neutro", 1, "attivo", "fase_1"),
+      mz("Forcellini", "Padova", "padova_citta", "medio-alta", ["appartamenti", "villette"], "alta", "media", "favorevole", 2, "attivo", "fase_1"),
+      mz("Guizza", "Padova", "padova_citta", "media", ["appartamenti"], "media", "alta", "neutro", 1, "attivo", "fase_1"),
+      mz("Stanga", "Padova", "padova_citta", "media", ["appartamenti", "commerciali"], "media", "media", "debole", 0, "da_completare", "fase_1"),
 
-      // B. Prima cintura
-      mz("Albignasego", "Albignasego", "prima_cintura", "medio-alta", ["villette", "appartamenti"], "alta", "media", "favorevole", 2, "attivo"),
-      mz("Selvazzano Dentro", "Selvazzano Dentro", "prima_cintura", "premium", ["villette", "case_indipendenti"], "alta", "media", "favorevole", 2, "attivo"),
-      mz("Rubano", "Rubano", "prima_cintura", "medio-alta", ["villette", "appartamenti"], "alta", "media", "favorevole", 1, "attivo"),
-      mz("Cadoneghe", "Cadoneghe", "prima_cintura", "media", ["villette", "appartamenti"], "media", "media", "neutro", 1, "attivo"),
-      mz("Vigodarzere", "Vigodarzere", "prima_cintura", "media", ["villette", "case_indipendenti"], "media", "media", "neutro", 0, "da_completare"),
-      mz("Noventa Padovana", "Noventa Padovana", "prima_cintura", "medio-alta", ["villette", "appartamenti"], "alta", "media", "favorevole", 1, "attivo"),
-      mz("Ponte San Nicolò", "Ponte San Nicolò", "prima_cintura", "medio-alta", ["villette", "appartamenti"], "alta", "media", "favorevole", 1, "attivo"),
-      mz("Vigonza", "Vigonza", "prima_cintura", "media", ["villette", "case_indipendenti"], "media", "media", "neutro", 0, "da_completare"),
-      mz("Limena", "Limena", "prima_cintura", "media", ["villette", "appartamenti"], "media", "media", "neutro", 0, "da_completare"),
-      mz("Saonara", "Saonara", "prima_cintura", "media", ["villette", "case_indipendenti"], "da_verificare", "da_verificare", "da_verificare", 0, "da_completare"),
+      // A. Padova città — Fase 2
+      mz("Madonna Pellegrina", "Padova", "padova_citta", "medio-alta", ["appartamenti"], "media", "media", "neutro", 1, "attivo", "fase_2"),
+      mz("Camin", "Padova", "padova_citta", "media", ["villette", "appartamenti"], "media", "media", "neutro", 0, "da_completare", "fase_2"),
+      mz("Chiesanuova", "Padova", "padova_citta", "media", ["appartamenti", "villette"], "media", "media", "neutro", 0, "da_completare", "fase_2"),
+      mz("Brusegana", "Padova", "padova_citta", "medio-alta", ["appartamenti", "villette"], "media", "media", "neutro", 0, "da_completare", "fase_2"),
 
-      // C. Termali / premium
-      mz("Abano Terme", "Abano Terme", "termali_premium", "turistica", ["appartamenti", "villette", "commerciali"], "media", "media", "neutro", 1, "attivo", "Mercato termale, attenzione a stagionalità."),
-      mz("Montegrotto Terme", "Montegrotto Terme", "termali_premium", "turistica", ["appartamenti", "villette"], "media", "media", "neutro", 1, "attivo"),
-      mz("Teolo", "Teolo", "termali_premium", "premium", ["villette", "case_indipendenti", "terreni"], "media", "media", "neutro", 0, "da_completare"),
-      mz("Torreglia", "Torreglia", "termali_premium", "premium", ["villette", "case_indipendenti"], "media", "media", "neutro", 0, "da_completare"),
-      mz("Galzignano Terme", "Galzignano Terme", "termali_premium", "turistica", ["villette", "appartamenti"], "da_verificare", "da_verificare", "da_verificare", 0, "futuro"),
+      // A. Padova città — Futura
+      mz("Torre", "Padova", "padova_citta", "media", ["appartamenti", "villette"], "da_verificare", "da_verificare", "da_verificare", 0, "da_completare", "futura"),
+      mz("Mortise", "Padova", "padova_citta", "media", ["appartamenti", "villette"], "da_verificare", "da_verificare", "da_verificare", 0, "da_completare", "futura"),
+      mz("Mandria", "Padova", "padova_citta", "media", ["villette", "appartamenti"], "da_verificare", "da_verificare", "da_verificare", 0, "da_completare", "futura"),
+      mz("Voltabarozzo", "Padova", "padova_citta", "media", ["villette", "appartamenti"], "da_verificare", "da_verificare", "da_verificare", 0, "da_completare", "futura"),
 
-      // D. Provincia da estendere
-      mz("Cittadella", "Cittadella", "provincia_estendere", "medio-alta", ["appartamenti", "villette", "commerciali"], "media", "media", "neutro", 0, "futuro"),
-      mz("Camposampiero", "Camposampiero", "provincia_estendere", "media", ["villette", "appartamenti"], "da_verificare", "da_verificare", "da_verificare", 0, "futuro"),
-      mz("Piove di Sacco", "Piove di Sacco", "provincia_estendere", "media", ["villette", "appartamenti"], "media", "media", "neutro", 0, "futuro"),
-      mz("Monselice", "Monselice", "provincia_estendere", "media", ["appartamenti", "villette", "commerciali"], "media", "media", "neutro", 0, "futuro"),
-      mz("Este", "Este", "provincia_estendere", "media", ["appartamenti", "villette"], "media", "media", "neutro", 0, "futuro"),
-      mz("Conselve", "Conselve", "provincia_estendere", "media", ["villette", "case_indipendenti"], "da_verificare", "da_verificare", "da_verificare", 0, "futuro"),
-      mz("Montagnana", "Montagnana", "provincia_estendere", "media", ["appartamenti", "villette"], "da_verificare", "da_verificare", "da_verificare", 0, "futuro"),
+      // B. Prima cintura — Fase 1
+      mz("Albignasego", "Albignasego", "prima_cintura", "medio-alta", ["villette", "appartamenti"], "alta", "media", "favorevole", 2, "attivo", "fase_1"),
+      mz("Selvazzano Dentro", "Selvazzano Dentro", "prima_cintura", "premium", ["villette", "case_indipendenti"], "alta", "media", "favorevole", 2, "attivo", "fase_1"),
+
+      // B. Prima cintura — Fase 2
+      mz("Rubano", "Rubano", "prima_cintura", "medio-alta", ["villette", "appartamenti"], "alta", "media", "favorevole", 1, "attivo", "fase_2"),
+      mz("Cadoneghe", "Cadoneghe", "prima_cintura", "media", ["villette", "appartamenti"], "media", "media", "neutro", 1, "attivo", "fase_2"),
+      mz("Noventa Padovana", "Noventa Padovana", "prima_cintura", "medio-alta", ["villette", "appartamenti"], "alta", "media", "favorevole", 1, "attivo", "fase_2"),
+      mz("Ponte San Nicolò", "Ponte San Nicolò", "prima_cintura", "medio-alta", ["villette", "appartamenti"], "alta", "media", "favorevole", 1, "attivo", "fase_2"),
+      mz("Vigodarzere", "Vigodarzere", "prima_cintura", "media", ["villette", "case_indipendenti"], "media", "media", "neutro", 0, "da_completare", "fase_2"),
+      mz("Vigonza", "Vigonza", "prima_cintura", "media", ["villette", "case_indipendenti"], "media", "media", "neutro", 0, "da_completare", "fase_2"),
+      mz("Limena", "Limena", "prima_cintura", "media", ["villette", "appartamenti"], "media", "media", "neutro", 0, "da_completare", "fase_2"),
+
+      // B. Prima cintura — Futura
+      mz("Saonara", "Saonara", "prima_cintura", "media", ["villette", "case_indipendenti"], "da_verificare", "da_verificare", "da_verificare", 0, "da_completare", "futura"),
+
+      // C. Termali / premium — Fase 1
+      mz("Abano Terme", "Abano Terme", "termali_premium", "turistica", ["appartamenti", "villette", "commerciali"], "media", "media", "neutro", 1, "attivo", "fase_1", "Mercato termale, attenzione a stagionalità."),
+
+      // C. Termali / premium — Fase 2
+      mz("Montegrotto Terme", "Montegrotto Terme", "termali_premium", "turistica", ["appartamenti", "villette"], "media", "media", "neutro", 1, "attivo", "fase_2"),
+      mz("Teolo", "Teolo", "termali_premium", "premium", ["villette", "case_indipendenti", "terreni"], "media", "media", "neutro", 0, "da_completare", "fase_2"),
+      mz("Torreglia", "Torreglia", "termali_premium", "premium", ["villette", "case_indipendenti"], "media", "media", "neutro", 0, "da_completare", "fase_2"),
+
+      // C. Termali / premium — Futura
+      mz("Galzignano Terme", "Galzignano Terme", "termali_premium", "turistica", ["villette", "appartamenti"], "da_verificare", "da_verificare", "da_verificare", 0, "futuro", "futura"),
+
+      // D. Provincia da estendere — tutte futura
+      mz("Cittadella", "Cittadella", "provincia_estendere", "medio-alta", ["appartamenti", "villette", "commerciali"], "media", "media", "neutro", 0, "futuro", "futura"),
+      mz("Camposampiero", "Camposampiero", "provincia_estendere", "media", ["villette", "appartamenti"], "da_verificare", "da_verificare", "da_verificare", 0, "futuro", "futura"),
+      mz("Piove di Sacco", "Piove di Sacco", "provincia_estendere", "media", ["villette", "appartamenti"], "media", "media", "neutro", 0, "futuro", "futura"),
+      mz("Monselice", "Monselice", "provincia_estendere", "media", ["appartamenti", "villette", "commerciali"], "media", "media", "neutro", 0, "futuro", "futura"),
+      mz("Este", "Este", "provincia_estendere", "media", ["appartamenti", "villette"], "media", "media", "neutro", 0, "futuro", "futura"),
+      mz("Conselve", "Conselve", "provincia_estendere", "media", ["villette", "case_indipendenti"], "da_verificare", "da_verificare", "da_verificare", 0, "futuro", "futura"),
+      mz("Montagnana", "Montagnana", "provincia_estendere", "media", ["appartamenti", "villette"], "da_verificare", "da_verificare", "da_verificare", 0, "futuro", "futura"),
     ],
   },
 ];
@@ -150,7 +172,7 @@ export const VISIBILITA_DATI = {
   visibili_agenzia: [
     "nome", "comune", "cluster", "fasciaPercepita", "tipologiePrevalenti",
     "domandaStimata", "offertaStimata", "sentimentCommerciale",
-    "opportunitaAttive", "ultimoAggiornamento", "stato",
+    "opportunitaAttive", "ultimoAggiornamento", "stato", "fasePilota",
   ],
   presentabili_proprietario: ["nome", "comune", "fasciaPercepita"],
 } as const;
