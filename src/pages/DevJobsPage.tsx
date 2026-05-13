@@ -1,83 +1,50 @@
-import { Smartphone, Bot, ClipboardList, Activity, Clock } from "lucide-react";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { APP_REGISTRY, TASK_REGISTRY, PROVIDERS } from "@/lib/constants";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { AlertTriangle } from "lucide-react";
 
-const stats = [
-  {
-    label: "App Collegate",
-    value: APP_REGISTRY.length.toString(),
-    icon: Smartphone,
-  },
-  {
-    label: "Providers Configurati",
-    value: `${PROVIDERS.length}`,
-    icon: Bot,
-  },
-  {
-    label: "Task Registrati",
-    value: TASK_REGISTRY.length.toString(),
-    icon: ClipboardList,
-  },
-  {
-    label: "Chiamate Oggi",
-    value: "—",
-    icon: Activity,
-  },
-];
+export default function DevJobsPage() {
+  const [jobSecret, setJobSecret] = useState("");
+  const [jobResult, setJobResult] = useState<string | null>(null);
+  const [jobLoading, setJobLoading] = useState(false);
 
-export default function Dashboard() {
+  const runJob = async (jobPath: string, body: object = {}) => {
+    setJobLoading(true);
+    setJobResult(null);
+    try {
+      const baseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const res = await fetch(`${baseUrl}/functions/v1/civiko-radar-veneto${jobPath}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-job-secret": jobSecret,
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      setJobResult(JSON.stringify(data, null, 2));
+    } catch (e) {
+      setJobResult(String(e));
+    } finally {
+      setJobLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Dashboard</h1>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((s) => (
-          <Card key={s.label}>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">{s.label}</CardTitle>
-              <s.icon className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-bold">{s.value}</p>
-            </CardContent>
-          </Card>
-        ))}
+      <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 flex items-start gap-3">
+        <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+        <p className="text-sm text-amber-200">
+          Pagina riservata sviluppo. Richiede CENTRAL_CORE_JOB_SECRET. Non usare in produzione senza supervisione.
+        </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Clock className="h-4 w-4" /> Attività Recente
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground text-sm">
-            I log delle chiamate saranno disponibili in un prossimo aggiornamento.
-          </p>
-        </CardContent>
-      </Card>
+      <h1 className="text-2xl font-bold">Job di Sistema</h1>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Quick Status</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-4">
-            {PROVIDERS.map((p) => (
-              <div key={p.id} className="flex items-center gap-2 text-sm">
-                <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground" />
-                <span>{p.name}</span>
-                <span className="text-xs text-muted-foreground">(verificabile da self-test)</span>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="text-sm">Job di Sistema</CardTitle>
+          <CardTitle className="text-sm">Esecuzione job</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <Input

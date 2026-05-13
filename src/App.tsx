@@ -16,6 +16,7 @@ import SecurityPage from "@/pages/SecurityPage";
 import MetricsPage from "@/pages/MetricsPage";
 import SelftestPage from "@/pages/SelftestPage";
 import ApiCreditsPage from "@/pages/ApiCreditsPage";
+import DevJobsPage from "@/pages/DevJobsPage";
 import TerritoriPage from "@/pages/TerritoriPage";
 import NotFound from "@/pages/NotFound";
 
@@ -61,6 +62,7 @@ const App = () => (
                   <Route path="/metrics" element={<MetricsPage />} />
                   <Route path="/selftest" element={<SelftestPage />} />
                   <Route path="/api-credits" element={<ApiCreditsPage />} />
+                  <Route path="/dev/jobs" element={<DevJobsPage />} />
                   <Route path="/territori" element={<TerritoriPage />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>
