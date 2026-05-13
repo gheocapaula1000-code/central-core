@@ -92,3 +92,6 @@ verify_jwt = false
 
 [functions.api-credits-status]
 verify_jwt = false
+
+[functions.api-credit-thresholds]
+verify_jwt = false
