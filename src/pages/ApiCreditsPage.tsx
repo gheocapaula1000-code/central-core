@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertTriangle, CheckCircle2, ExternalLink, RefreshCw, Wallet, Activity, Bell, Settings2, History } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -40,15 +40,31 @@ interface CreditsResponse {
   alerts: { level: "red" | "yellow"; provider: string; message: string; action_url: string }[];
 }
 
-interface Thresholds {
-  yellow_eur: number;
-  red_eur: number;
-  block_eur: number;
-  block_enabled: boolean;
+interface PersistedThreshold {
+  provider: string;
+  warning_threshold_eur: number;
+  critical_threshold_eur: number;
+  block_threshold_eur: number;
+  recommended_topup_eur: number;
+  notes?: string | null;
+  updated_at?: string;
+  source: "persisted" | "default";
 }
 
-const DEFAULT_THRESHOLDS: Thresholds = { yellow_eur: 25, red_eur: 10, block_eur: 5, block_enabled: false };
-const STORAGE_KEY = "core.api-credits.thresholds";
+interface ThresholdsResponse {
+  ok: boolean;
+  defaults: {
+    warning_threshold_eur: number;
+    critical_threshold_eur: number;
+    block_threshold_eur: number;
+    recommended_topup_eur: number;
+  };
+  thresholds: PersistedThreshold[];
+  automation_note: string;
+}
+
+const AUTOMATION_NOTE_FALLBACK =
+  "Le ricariche automatiche dipendono dalle policy dei singoli provider. Il sistema monitora, avvisa e guida l’azione, ma non effettua pagamenti automatici senza conferma.";
 
 function riskBadge(risk: Risk) {
   const map: Record<Risk, { label: string; className: string }> = {
@@ -72,9 +88,9 @@ export default function ApiCreditsPage() {
   const [data, setData] = useState<CreditsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [thresholds, setThresholds] = useState<Thresholds>(() => {
-    try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? { ...DEFAULT_THRESHOLDS, ...JSON.parse(raw) } : DEFAULT_THRESHOLDS; } catch { return DEFAULT_THRESHOLDS; }
-  });
+  const [thr, setThr] = useState<ThresholdsResponse | null>(null);
+  const [thrLoading, setThrLoading] = useState(false);
+  const [savingProvider, setSavingProvider] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
@@ -87,13 +103,51 @@ export default function ApiCreditsPage() {
     } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const loadThresholds = useCallback(async () => {
+    setThrLoading(true);
+    try {
+      const { data: res, error } = await supabase.functions.invoke<ThresholdsResponse>("api-credit-thresholds", { method: "GET" });
+      if (error) throw new Error(error.message);
+      setThr(res ?? null);
+    } catch (e) {
+      toast({ title: "Errore caricamento soglie", description: (e as Error).message, variant: "destructive" });
+    } finally { setThrLoading(false); }
+  }, []);
 
-  function saveThresholds(next: Thresholds) {
-    setThresholds(next);
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* noop */ }
-    toast({ title: "Soglie salvate", description: "Le soglie sono state aggiornate localmente." });
+  useEffect(() => { load(); loadThresholds(); }, [load, loadThresholds]);
+
+  function updateLocal(provider: string, patch: Partial<PersistedThreshold>) {
+    setThr((prev) => prev ? {
+      ...prev,
+      thresholds: prev.thresholds.map((t) => t.provider === provider ? { ...t, ...patch } : t),
+    } : prev);
   }
+
+  async function saveThreshold(t: PersistedThreshold) {
+    if (!(t.warning_threshold_eur >= t.critical_threshold_eur && t.critical_threshold_eur >= t.block_threshold_eur)) {
+      toast({ title: "Soglie non valide", description: "Deve valere: giallo ≥ rosso ≥ blocco.", variant: "destructive" });
+      return;
+    }
+    setSavingProvider(t.provider);
+    try {
+      const { error } = await supabase.functions.invoke<ThresholdsResponse>("api-credit-thresholds", {
+        method: "POST",
+        body: {
+          provider: t.provider,
+          warning_threshold_eur: t.warning_threshold_eur,
+          critical_threshold_eur: t.critical_threshold_eur,
+          block_threshold_eur: t.block_threshold_eur,
+          recommended_topup_eur: t.recommended_topup_eur,
+        },
+      });
+      if (error) throw new Error(error.message);
+      toast({ title: "Soglie salvate", description: `Provider: ${t.provider}` });
+      updateLocal(t.provider, { source: "persisted", updated_at: new Date().toISOString() });
+    } catch (e) {
+      toast({ title: "Errore salvataggio", description: (e as Error).message, variant: "destructive" });
+    } finally { setSavingProvider(null); }
+  }
+
 
   return (
     <div className="space-y-6">
@@ -205,34 +259,70 @@ export default function ApiCreditsPage() {
         </TabsContent>
 
         {/* ── Soglie ───────────────────────────────────────────────── */}
-        <TabsContent value="thresholds">
-          <Card>
-            <CardHeader><CardTitle className="text-base">Soglie di avviso</CardTitle></CardHeader>
-            <CardContent className="space-y-4 max-w-md">
-              <div className="space-y-2">
-                <Label>Avviso giallo sotto (€)</Label>
-                <Input type="number" value={thresholds.yellow_eur} onChange={(e) => setThresholds({ ...thresholds, yellow_eur: Number(e.target.value) })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Avviso rosso sotto (€)</Label>
-                <Input type="number" value={thresholds.red_eur} onChange={(e) => setThresholds({ ...thresholds, red_eur: Number(e.target.value) })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Blocco prudenziale sotto (€)</Label>
-                <Input type="number" value={thresholds.block_eur} onChange={(e) => setThresholds({ ...thresholds, block_eur: Number(e.target.value) })} />
-              </div>
-              <div className="flex items-center justify-between rounded-md border p-3">
-                <div>
-                  <div className="text-sm font-medium">Attiva blocco prudenziale</div>
-                  <div className="text-xs text-muted-foreground">Sospende job opzionali quando il credito stimato è sotto la soglia.</div>
+        <TabsContent value="thresholds" className="space-y-3">
+          <Alert>
+            <Bell className="h-4 w-4" />
+            <AlertTitle>Automazione e ricariche</AlertTitle>
+            <AlertDescription>{thr?.automation_note ?? AUTOMATION_NOTE_FALLBACK}</AlertDescription>
+          </Alert>
+
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              Soglie persistenti lato Core. Default applicati quando non salvate: giallo {thr?.defaults.warning_threshold_eur ?? 25}€ · rosso {thr?.defaults.critical_threshold_eur ?? 10}€ · blocco {thr?.defaults.block_threshold_eur ?? 5}€.
+            </p>
+            <Button variant="outline" size="sm" onClick={loadThresholds} disabled={thrLoading}>
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${thrLoading ? "animate-spin" : ""}`} /> Ricarica
+            </Button>
+          </div>
+
+          {thr?.thresholds.map((t) => (
+            <Card key={t.provider}>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <CardTitle className="text-base capitalize">{t.provider.replace(/_/g, " ")}</CardTitle>
+                  <Badge variant="outline" className={t.source === "persisted" ? "border-emerald-500/30 text-emerald-400" : ""}>
+                    {t.source === "persisted" ? "Salvata" : "Default"}
+                  </Badge>
                 </div>
-                <Switch checked={thresholds.block_enabled} onCheckedChange={(v) => setThresholds({ ...thresholds, block_enabled: v })} />
-              </div>
-              <Button onClick={() => saveThresholds(thresholds)}>Salva soglie</Button>
-              <p className="text-xs text-muted-foreground">Le soglie sono salvate localmente. L'applicazione effettiva ai job richiede un secondo step server-side.</p>
-            </CardContent>
-          </Card>
+              </CardHeader>
+              <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Avviso giallo (€)</Label>
+                  <Input type="number" min={0} value={t.warning_threshold_eur}
+                    onChange={(e) => updateLocal(t.provider, { warning_threshold_eur: Number(e.target.value) })} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Avviso rosso (€)</Label>
+                  <Input type="number" min={0} value={t.critical_threshold_eur}
+                    onChange={(e) => updateLocal(t.provider, { critical_threshold_eur: Number(e.target.value) })} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Blocco prudenziale (€)</Label>
+                  <Input type="number" min={0} value={t.block_threshold_eur}
+                    onChange={(e) => updateLocal(t.provider, { block_threshold_eur: Number(e.target.value) })} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Ricarica consigliata (€)</Label>
+                  <Input type="number" min={0} value={t.recommended_topup_eur}
+                    onChange={(e) => updateLocal(t.provider, { recommended_topup_eur: Number(e.target.value) })} />
+                </div>
+                <div className="col-span-2 md:col-span-4 flex items-center justify-between gap-2 flex-wrap">
+                  <p className="text-xs text-muted-foreground">
+                    {t.updated_at ? `Ultimo aggiornamento: ${new Date(t.updated_at).toLocaleString("it-IT")}` : "Mai aggiornata"}
+                  </p>
+                  <Button size="sm" onClick={() => saveThreshold(t)} disabled={savingProvider === t.provider}>
+                    {savingProvider === t.provider ? "Salvataggio…" : "Salva soglia"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+
+          {!thr && !thrLoading && (
+            <p className="text-sm text-muted-foreground">Devi essere admin/owner per gestire le soglie.</p>
+          )}
         </TabsContent>
+
 
         {/* ── Storico ──────────────────────────────────────────────── */}
         <TabsContent value="history">
