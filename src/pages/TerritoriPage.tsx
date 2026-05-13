@@ -138,7 +138,8 @@ type FilterKey =
   | ClusterCommerciale
   | "stato_attivo"
   | "stato_da_completare"
-  | "stato_futuro";
+  | "stato_futuro"
+  | "fase_1";
 
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "tutti", label: "Tutti" },
