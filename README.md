@@ -1,6 +1,9 @@
 # Central Core V3
 
-Backend condiviso (Supabase Edge Functions) per Wyloni, KeyDraft e Sottra. Gestisce orchestrazione provider, rate limiting e routing.
+Central Core è l'orchestratore proprietario multi-PWA. Gestisce provider, crediti, sicurezza, routing, funzioni operative e opportunità per Metodo Civiko One e per eventuali PWA presenti o future.
+
+PWA principale attiva: **Metodo Civiko One**.  
+PWA legacy: Wyloni, KeyDraft, Sottra.
 
 ## Documentazione
 
