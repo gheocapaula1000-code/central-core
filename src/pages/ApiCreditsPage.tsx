@@ -164,12 +164,12 @@ export default function ApiCreditsPage() {
 
   async function saveThreshold(t: PersistedThreshold) {
     if (!(t.warning_threshold_eur >= t.critical_threshold_eur && t.critical_threshold_eur >= t.block_threshold_eur)) {
-      toast({ title: "Soglie non valide", description: "Deve valere: giallo ≥ rosso ≥ blocco.", variant: "destructive" });
+      toast({ title: "Soglie non valide", description: "Deve valere: giallo ≥ rosso ≥ blocco." });
       return;
     }
     setSavingProvider(t.provider);
     try {
-      const { error } = await supabase.functions.invoke<ThresholdsResponse>("api-credit-thresholds", {
+      const { error } = await callEdgeFunction<ThresholdsResponse>("api-credit-thresholds", {
         method: "POST",
         body: {
           provider: t.provider,
@@ -179,11 +179,18 @@ export default function ApiCreditsPage() {
           recommended_topup_eur: t.recommended_topup_eur,
         },
       });
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (error.type === 'auth') {
+          toast({ title: "Accesso negato", description: "Non hai i permessi per salvare le soglie." });
+        } else {
+          toast({ title: "Salvataggio non riuscito", description: "Il servizio non ha risposto correttamente. Riprova più tardi." });
+        }
+        return;
+      }
       toast({ title: "Soglie salvate", description: `Provider: ${t.provider}` });
       updateLocal(t.provider, { source: "persisted", updated_at: new Date().toISOString() });
     } catch (e) {
-      toast({ title: "Errore salvataggio", description: (e as Error).message, variant: "destructive" });
+      toast({ title: "Salvataggio non riuscito", description: "Errore imprevisto. Riprova più tardi." });
     } finally { setSavingProvider(null); }
   }
 
