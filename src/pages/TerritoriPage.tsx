@@ -219,6 +219,11 @@ function MicrozonaCard({ m }: { m: Microzona }) {
         <p className="text-[10px] text-muted-foreground text-right pt-1">
           Aggiornato: {m.ultimoAggiornamento}
         </p>
+        <ServiziProssimitaBlock comune={m.comune} nome={m.nome} />
+      </CardContent>
+    </Card>
+  );
+}
       </CardContent>
     </Card>
   );
