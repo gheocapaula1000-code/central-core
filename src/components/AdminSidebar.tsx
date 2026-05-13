@@ -1,4 +1,4 @@
-import { LayoutDashboard, Smartphone, Bot, ClipboardList, KeyRound, BarChart3, ShieldCheck, Wallet, MapPin, Target } from "lucide-react";
+import { LayoutDashboard, Smartphone, Bot, ClipboardList, KeyRound, BarChart3, ShieldCheck, Wallet, MapPin, Target, Briefcase } from "lucide-react";
 import coreIcon from "@/assets/core-icon.png";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -19,6 +19,7 @@ const menuItems = [
   { title: "App Collegate", url: "/apps", icon: Smartphone },
   { title: "Territori", url: "/territori", icon: MapPin },
   { title: "Opportunità Pilota", url: "/opportunita-pilota", icon: Target },
+  { title: "Dossier Agenzia", url: "/dossier-agenzia", icon: Briefcase },
   { title: "Provider Operativi", url: "/providers", icon: Bot },
   { title: "Chiavi & Sicurezza", url: "/security", icon: KeyRound },
   { title: "Metrics", url: "/metrics", icon: BarChart3 },
