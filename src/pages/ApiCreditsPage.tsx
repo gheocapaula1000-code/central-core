@@ -207,12 +207,33 @@ export default function ApiCreditsPage() {
         </Button>
       </div>
 
-      {err && (
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Errore caricamento</AlertTitle>
-          <AlertDescription>{err}. Devi essere admin/owner per vedere questa sezione.</AlertDescription>
-        </Alert>
+      {errType === 'auth' && (
+        <Card className="border-amber-500/20 bg-amber-500/5">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-3">
+              <Shield className="h-5 w-5 text-amber-400 mt-0.5 shrink-0" />
+              <div>
+                <h3 className="font-semibold">Accesso admin richiesto</h3>
+                <p className="text-sm text-muted-foreground mt-1">Per visualizzare il Centro Crediti API devi essere autenticata come owner/admin del Central Core.</p>
+                <p className="text-xs text-muted-foreground mt-2">Nessuna chiave, token o informazione sensibile viene esposta.</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {errType === 'generic' && (
+        <Card className="border-border">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-3">
+              <Info className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
+              <div>
+                <h3 className="font-semibold">Centro Crediti non disponibile</h3>
+                <p className="text-sm text-muted-foreground mt-1">Il servizio non ha risposto correttamente. Riprova più tardi o verifica lo stato del Central Core.</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       <Tabs defaultValue="overview">
