@@ -806,6 +806,105 @@ export type Database = {
         }
         Relationships: []
       }
+      civiko_signal_policy: {
+        Row: {
+          created_at: string
+          forbidden_phrases: string[]
+          id: number
+          notes: string | null
+          retention_policy: string
+          sensitivity_level: string
+          signal_type: string
+          updated_at: string
+          usable_for_scoring: boolean
+          visible_to_agency: boolean
+          visible_to_owner: boolean
+        }
+        Insert: {
+          created_at?: string
+          forbidden_phrases?: string[]
+          id?: number
+          notes?: string | null
+          retention_policy?: string
+          sensitivity_level: string
+          signal_type: string
+          updated_at?: string
+          usable_for_scoring?: boolean
+          visible_to_agency?: boolean
+          visible_to_owner?: boolean
+        }
+        Update: {
+          created_at?: string
+          forbidden_phrases?: string[]
+          id?: number
+          notes?: string | null
+          retention_policy?: string
+          sensitivity_level?: string
+          signal_type?: string
+          updated_at?: string
+          usable_for_scoring?: boolean
+          visible_to_agency?: boolean
+          visible_to_owner?: boolean
+        }
+        Relationships: []
+      }
+      civiko_signals_classified: {
+        Row: {
+          allowed_commercial_phrase: string | null
+          collected_at: string
+          confidence_level: string
+          created_at: string
+          forbidden_phrases: string[]
+          id: number
+          payload: Json
+          retention_policy: string
+          sensitivity_level: string
+          signal_id: string
+          signal_type: string
+          source_name_internal: string
+          updated_at: string
+          usable_for_scoring: boolean
+          visible_to_agency: boolean
+          visible_to_owner: boolean
+        }
+        Insert: {
+          allowed_commercial_phrase?: string | null
+          collected_at?: string
+          confidence_level?: string
+          created_at?: string
+          forbidden_phrases?: string[]
+          id?: number
+          payload?: Json
+          retention_policy?: string
+          sensitivity_level: string
+          signal_id: string
+          signal_type: string
+          source_name_internal: string
+          updated_at?: string
+          usable_for_scoring?: boolean
+          visible_to_agency?: boolean
+          visible_to_owner?: boolean
+        }
+        Update: {
+          allowed_commercial_phrase?: string | null
+          collected_at?: string
+          confidence_level?: string
+          created_at?: string
+          forbidden_phrases?: string[]
+          id?: number
+          payload?: Json
+          retention_policy?: string
+          sensitivity_level?: string
+          signal_id?: string
+          signal_type?: string
+          source_name_internal?: string
+          updated_at?: string
+          usable_for_scoring?: boolean
+          visible_to_agency?: boolean
+          visible_to_owner?: boolean
+        }
+        Relationships: []
+      }
       classificazione_sismica: {
         Row: {
           codice_istat: string
