@@ -1,4 +1,4 @@
-import { LayoutDashboard, Smartphone, Bot, ClipboardList, KeyRound, BarChart3, ShieldCheck, Wallet, MapPin, Target } from "lucide-react";
+import { LayoutDashboard, Smartphone, Bot, ClipboardList, KeyRound, BarChart3, ShieldCheck, Wallet, MapPin, Target, Briefcase } from "lucide-react";
 import coreIcon from "@/assets/core-icon.png";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
