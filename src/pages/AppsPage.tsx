@@ -13,11 +13,16 @@ export default function AppsPage() {
             <CardHeader className="flex flex-row items-start gap-3 pb-3">
               <span className="text-3xl">{app.icon}</span>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <CardTitle className="text-lg">{app.name}</CardTitle>
-                  <Badge variant="outline" className="bg-secondary text-muted-foreground border-border">
-                    Registrata
+                  <Badge variant="outline" className="bg-secondary text-muted-foreground border-border capitalize">
+                    {app.lifecycle}
                   </Badge>
+                  {app.lifecycle === "principale" && (
+                    <Badge className="bg-violet-900/40 text-violet-200 border-violet-700">
+                      PWA attiva
+                    </Badge>
+                  )}
                 </div>
                 <p className="text-sm text-muted-foreground mt-1">{app.description}</p>
               </div>

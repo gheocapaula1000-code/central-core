@@ -16,6 +16,7 @@ import SecurityPage from "@/pages/SecurityPage";
 import MetricsPage from "@/pages/MetricsPage";
 import SelftestPage from "@/pages/SelftestPage";
 import ApiCreditsPage from "@/pages/ApiCreditsPage";
+import TerritoriPage from "@/pages/TerritoriPage";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -60,6 +61,7 @@ const App = () => (
                   <Route path="/metrics" element={<MetricsPage />} />
                   <Route path="/selftest" element={<SelftestPage />} />
                   <Route path="/api-credits" element={<ApiCreditsPage />} />
+                  <Route path="/territori" element={<TerritoriPage />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </main>
