@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { APP_REGISTRY } from "@/lib/constants";
 
 export default function AppsPage() {
@@ -49,6 +50,23 @@ export default function AppsPage() {
                   <span className="text-muted-foreground">Registrata dal</span>
                   <span className="font-mono text-xs">{app.connectedAt}</span>
                 </div>
+                {app.id === "civiko_one" && (
+                  <div className="pt-3 border-t border-border space-y-2">
+                    <a
+                      href="https://civiko-method-pro.lovable.app/owner-access"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block"
+                    >
+                      <Button variant="secondary" size="sm" className="w-full">
+                        Apri accesso owner PWA
+                      </Button>
+                    </a>
+                    <p className="text-xs text-muted-foreground text-center leading-relaxed">
+                      Accesso interno riservato. La PWA agenzia resta priva di collegamenti admin visibili.
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}
