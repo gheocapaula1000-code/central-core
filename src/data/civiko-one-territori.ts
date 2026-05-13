@@ -3,33 +3,44 @@
 // Visibilità: dati interni Core. Sottoinsiemi possono essere esposti
 // alla PWA agenzie tramite endpoint dedicati (mai direttamente questo file).
 
-export type FasciaPercepita = "popolare" | "media" | "medio-alta" | "alta" | "prestige";
-export type SentimentCommerciale = "freddo" | "tiepido" | "stabile" | "caldo" | "molto_caldo";
-export type ClusterTerritoriale =
-  | "padova_centro"
-  | "padova_nord"
-  | "padova_sud"
-  | "padova_est"
-  | "padova_ovest"
-  | "cintura_nord"
-  | "cintura_sud"
-  | "cintura_est"
-  | "cintura_ovest"
-  | "terme_euganee";
+export type FasciaPercepita =
+  | "popolare"
+  | "media"
+  | "medio-alta"
+  | "premium"
+  | "turistica"
+  | "commerciale";
+
+export type SentimentCommerciale = "favorevole" | "neutro" | "debole" | "da_verificare";
+export type StimaLivello = "alta" | "media" | "bassa" | "da_verificare";
+export type StatoMicrozona = "attivo" | "da_completare" | "futuro";
+
+export type ClusterCommerciale =
+  | "padova_citta"
+  | "prima_cintura"
+  | "termali_premium"
+  | "provincia_estendere";
+
+export type TipologiaPrevalente =
+  | "appartamenti"
+  | "villette"
+  | "case_indipendenti"
+  | "commerciali"
+  | "terreni";
 
 export interface Microzona {
   nome: string;
   comune: string;
-  cluster: ClusterTerritoriale;
+  cluster: ClusterCommerciale;
   fasciaPercepita: FasciaPercepita;
-  tipologiePrevalenti: string[];
-  domandaStimata: "bassa" | "media" | "alta" | "molto_alta";
-  offertaStimata: "bassa" | "media" | "alta" | "molto_alta";
+  tipologiePrevalenti: TipologiaPrevalente[];
+  domandaStimata: StimaLivello;
+  offertaStimata: StimaLivello;
   sentimentCommerciale: SentimentCommerciale;
-  rangePrezzoIndicativoEurMq: { min: number; max: number };
-  tempiStimatiVenditaMesi: { min: number; max: number };
-  noteOperativeInterne: string;
-  ultimoAggiornamento: string; // ISO date
+  opportunitaAttive: number;
+  ultimoAggiornamento: string;
+  stato: StatoMicrozona;
+  noteOperativeInterne?: string;
 }
 
 export interface TerritorioPilota {
@@ -37,11 +48,46 @@ export interface TerritorioPilota {
   nome: string;
   stato: "attivo" | "preparazione" | "sospeso";
   pwa: string;
-  cluster: ClusterTerritoriale[];
+  cluster: ClusterCommerciale[];
   microzone: Microzona[];
 }
 
+export const CLUSTER_LABEL: Record<ClusterCommerciale, string> = {
+  padova_citta: "Padova città",
+  prima_cintura: "Prima cintura",
+  termali_premium: "Termali / premium",
+  provincia_estendere: "Provincia da estendere",
+};
+
 const today = "2026-05-13";
+
+// Helper compatto per ridurre rumore
+const mz = (
+  nome: string,
+  comune: string,
+  cluster: ClusterCommerciale,
+  fascia: FasciaPercepita,
+  tipologie: TipologiaPrevalente[],
+  domanda: StimaLivello,
+  offerta: StimaLivello,
+  sentiment: SentimentCommerciale,
+  opportunitaAttive: number,
+  stato: StatoMicrozona,
+  noteOperativeInterne?: string,
+): Microzona => ({
+  nome,
+  comune,
+  cluster,
+  fasciaPercepita: fascia,
+  tipologiePrevalenti: tipologie,
+  domandaStimata: domanda,
+  offertaStimata: offerta,
+  sentimentCommerciale: sentiment,
+  opportunitaAttive,
+  ultimoAggiornamento: today,
+  stato,
+  noteOperativeInterne,
+});
 
 export const TERRITORI_CIVIKO_ONE: TerritorioPilota[] = [
   {
@@ -49,38 +95,52 @@ export const TERRITORI_CIVIKO_ONE: TerritorioPilota[] = [
     nome: "Padova e provincia",
     stato: "attivo",
     pwa: "civiko_one",
-    cluster: [
-      "padova_centro",
-      "padova_nord",
-      "padova_sud",
-      "padova_est",
-      "padova_ovest",
-      "cintura_nord",
-      "cintura_sud",
-      "cintura_est",
-      "cintura_ovest",
-      "terme_euganee",
-    ],
+    cluster: ["padova_citta", "prima_cintura", "termali_premium", "provincia_estendere"],
     microzone: [
-      { nome: "Centro Storico", comune: "Padova", cluster: "padova_centro", fasciaPercepita: "alta", tipologiePrevalenti: ["bilocale", "trilocale", "attico"], domandaStimata: "alta", offertaStimata: "media", sentimentCommerciale: "caldo", rangePrezzoIndicativoEurMq: { min: 3200, max: 4800 }, tempiStimatiVenditaMesi: { min: 2, max: 5 }, noteOperativeInterne: "Tagli piccoli muovono velocemente, attico premium su Piazze.", ultimoAggiornamento: today },
-      { nome: "Portello", comune: "Padova", cluster: "padova_centro", fasciaPercepita: "medio-alta", tipologiePrevalenti: ["bilocale studenti", "trilocale"], domandaStimata: "alta", offertaStimata: "media", sentimentCommerciale: "caldo", rangePrezzoIndicativoEurMq: { min: 2600, max: 3700 }, tempiStimatiVenditaMesi: { min: 2, max: 5 }, noteOperativeInterne: "Forte componente investitori per affitto universitario.", ultimoAggiornamento: today },
-      { nome: "Arcella", comune: "Padova", cluster: "padova_nord", fasciaPercepita: "media", tipologiePrevalenti: ["trilocale anni 60-70", "quadrilocale"], domandaStimata: "media", offertaStimata: "alta", sentimentCommerciale: "stabile", rangePrezzoIndicativoEurMq: { min: 1300, max: 2100 }, tempiStimatiVenditaMesi: { min: 4, max: 9 }, noteOperativeInterne: "Forte sensibilità al prezzo, ristrutturato premia.", ultimoAggiornamento: today },
-      { nome: "Sacra Famiglia", comune: "Padova", cluster: "padova_nord", fasciaPercepita: "media", tipologiePrevalenti: ["trilocale", "casa singola"], domandaStimata: "media", offertaStimata: "media", sentimentCommerciale: "stabile", rangePrezzoIndicativoEurMq: { min: 1500, max: 2300 }, tempiStimatiVenditaMesi: { min: 4, max: 8 }, noteOperativeInterne: "Quartiere residenziale, target famiglie.", ultimoAggiornamento: today },
-      { nome: "Forcellini", comune: "Padova", cluster: "padova_est", fasciaPercepita: "medio-alta", tipologiePrevalenti: ["trilocale", "quadrilocale", "villetta"], domandaStimata: "alta", offertaStimata: "media", sentimentCommerciale: "caldo", rangePrezzoIndicativoEurMq: { min: 2000, max: 2900 }, tempiStimatiVenditaMesi: { min: 3, max: 6 }, noteOperativeInterne: "Zona ben servita, scuole e verde apprezzati.", ultimoAggiornamento: today },
-      { nome: "Madonna Pellegrina", comune: "Padova", cluster: "padova_est", fasciaPercepita: "medio-alta", tipologiePrevalenti: ["trilocale", "quadrilocale"], domandaStimata: "media", offertaStimata: "media", sentimentCommerciale: "stabile", rangePrezzoIndicativoEurMq: { min: 1800, max: 2700 }, tempiStimatiVenditaMesi: { min: 3, max: 7 }, noteOperativeInterne: "Residenziale consolidato, target famiglie 35-55.", ultimoAggiornamento: today },
-      { nome: "Guizza", comune: "Padova", cluster: "padova_sud", fasciaPercepita: "media", tipologiePrevalenti: ["trilocale", "quadrilocale"], domandaStimata: "media", offertaStimata: "alta", sentimentCommerciale: "stabile", rangePrezzoIndicativoEurMq: { min: 1500, max: 2200 }, tempiStimatiVenditaMesi: { min: 4, max: 8 }, noteOperativeInterne: "Sensibile a prezzo e stato manutenzione.", ultimoAggiornamento: today },
-      { nome: "Stanga", comune: "Padova", cluster: "padova_est", fasciaPercepita: "media", tipologiePrevalenti: ["bilocale", "trilocale"], domandaStimata: "media", offertaStimata: "media", sentimentCommerciale: "tiepido", rangePrezzoIndicativoEurMq: { min: 1400, max: 2100 }, tempiStimatiVenditaMesi: { min: 5, max: 9 }, noteOperativeInterne: "Zona mista residenziale-commerciale.", ultimoAggiornamento: today },
-      { nome: "Camin", comune: "Padova", cluster: "padova_est", fasciaPercepita: "media", tipologiePrevalenti: ["villetta", "trilocale"], domandaStimata: "media", offertaStimata: "media", sentimentCommerciale: "stabile", rangePrezzoIndicativoEurMq: { min: 1500, max: 2200 }, tempiStimatiVenditaMesi: { min: 4, max: 8 }, noteOperativeInterne: "Vicinanza zona industriale impatta percezione.", ultimoAggiornamento: today },
-      { nome: "Chiesanuova", comune: "Padova", cluster: "padova_ovest", fasciaPercepita: "media", tipologiePrevalenti: ["trilocale", "casa a schiera"], domandaStimata: "media", offertaStimata: "media", sentimentCommerciale: "stabile", rangePrezzoIndicativoEurMq: { min: 1500, max: 2200 }, tempiStimatiVenditaMesi: { min: 4, max: 8 }, noteOperativeInterne: "Buon collegamento tangenziale.", ultimoAggiornamento: today },
-      { nome: "Albignasego", comune: "Albignasego", cluster: "cintura_sud", fasciaPercepita: "medio-alta", tipologiePrevalenti: ["villetta", "quadrilocale"], domandaStimata: "alta", offertaStimata: "media", sentimentCommerciale: "caldo", rangePrezzoIndicativoEurMq: { min: 1800, max: 2600 }, tempiStimatiVenditaMesi: { min: 3, max: 6 }, noteOperativeInterne: "Cintura residenziale ad alta domanda famiglie.", ultimoAggiornamento: today },
-      { nome: "Selvazzano Dentro", comune: "Selvazzano Dentro", cluster: "cintura_ovest", fasciaPercepita: "alta", tipologiePrevalenti: ["villa", "quadrilocale", "villetta"], domandaStimata: "alta", offertaStimata: "media", sentimentCommerciale: "caldo", rangePrezzoIndicativoEurMq: { min: 2000, max: 3000 }, tempiStimatiVenditaMesi: { min: 3, max: 6 }, noteOperativeInterne: "Target medio-alto, ville premium su Caselle.", ultimoAggiornamento: today },
-      { nome: "Rubano", comune: "Rubano", cluster: "cintura_ovest", fasciaPercepita: "medio-alta", tipologiePrevalenti: ["villetta", "trilocale"], domandaStimata: "alta", offertaStimata: "media", sentimentCommerciale: "caldo", rangePrezzoIndicativoEurMq: { min: 1900, max: 2700 }, tempiStimatiVenditaMesi: { min: 3, max: 6 }, noteOperativeInterne: "Servizi e scuole apprezzati, domanda costante.", ultimoAggiornamento: today },
-      { nome: "Cadoneghe", comune: "Cadoneghe", cluster: "cintura_nord", fasciaPercepita: "media", tipologiePrevalenti: ["villetta", "trilocale"], domandaStimata: "media", offertaStimata: "media", sentimentCommerciale: "stabile", rangePrezzoIndicativoEurMq: { min: 1500, max: 2200 }, tempiStimatiVenditaMesi: { min: 4, max: 8 }, noteOperativeInterne: "Equilibrio tra qualità vita e prezzo.", ultimoAggiornamento: today },
-      { nome: "Vigodarzere", comune: "Vigodarzere", cluster: "cintura_nord", fasciaPercepita: "media", tipologiePrevalenti: ["villetta", "casa singola"], domandaStimata: "media", offertaStimata: "media", sentimentCommerciale: "stabile", rangePrezzoIndicativoEurMq: { min: 1500, max: 2200 }, tempiStimatiVenditaMesi: { min: 4, max: 8 }, noteOperativeInterne: "Cintura nord, target famiglie.", ultimoAggiornamento: today },
-      { nome: "Noventa Padovana", comune: "Noventa Padovana", cluster: "cintura_est", fasciaPercepita: "medio-alta", tipologiePrevalenti: ["villetta", "trilocale"], domandaStimata: "alta", offertaStimata: "media", sentimentCommerciale: "caldo", rangePrezzoIndicativoEurMq: { min: 1800, max: 2600 }, tempiStimatiVenditaMesi: { min: 3, max: 6 }, noteOperativeInterne: "Forte attrazione per famiglie giovani.", ultimoAggiornamento: today },
-      { nome: "Ponte San Nicolo'", comune: "Ponte San Nicolo'", cluster: "cintura_sud", fasciaPercepita: "medio-alta", tipologiePrevalenti: ["villetta", "trilocale"], domandaStimata: "alta", offertaStimata: "media", sentimentCommerciale: "caldo", rangePrezzoIndicativoEurMq: { min: 1700, max: 2500 }, tempiStimatiVenditaMesi: { min: 3, max: 7 }, noteOperativeInterne: "Domanda costante, target famiglie 30-50.", ultimoAggiornamento: today },
-      { nome: "Abano Terme", comune: "Abano Terme", cluster: "terme_euganee", fasciaPercepita: "alta", tipologiePrevalenti: ["villa", "trilocale", "investimento turistico"], domandaStimata: "media", offertaStimata: "media", sentimentCommerciale: "stabile", rangePrezzoIndicativoEurMq: { min: 2000, max: 3200 }, tempiStimatiVenditaMesi: { min: 4, max: 9 }, noteOperativeInterne: "Mercato termale, attenzione a stagionalità e ricettivo.", ultimoAggiornamento: today },
-      { nome: "Montegrotto Terme", comune: "Montegrotto Terme", cluster: "terme_euganee", fasciaPercepita: "medio-alta", tipologiePrevalenti: ["villa", "trilocale", "investimento turistico"], domandaStimata: "media", offertaStimata: "media", sentimentCommerciale: "stabile", rangePrezzoIndicativoEurMq: { min: 1800, max: 2800 }, tempiStimatiVenditaMesi: { min: 4, max: 9 }, noteOperativeInterne: "Mercato termale, dinamica simile ad Abano.", ultimoAggiornamento: today },
+      // A. Padova città
+      mz("Centro Storico", "Padova", "padova_citta", "premium", ["appartamenti", "commerciali"], "alta", "media", "favorevole", 4, "attivo", "Tagli piccoli muovono velocemente."),
+      mz("Portello", "Padova", "padova_citta", "medio-alta", ["appartamenti"], "alta", "media", "favorevole", 3, "attivo", "Forte componente investitori universitari."),
+      mz("Arcella", "Padova", "padova_citta", "media", ["appartamenti"], "media", "alta", "neutro", 2, "attivo", "Sensibile al prezzo, premia ristrutturato."),
+      mz("Sacra Famiglia", "Padova", "padova_citta", "media", ["appartamenti", "case_indipendenti"], "media", "media", "neutro", 1, "attivo"),
+      mz("Forcellini", "Padova", "padova_citta", "medio-alta", ["appartamenti", "villette"], "alta", "media", "favorevole", 2, "attivo"),
+      mz("Madonna Pellegrina", "Padova", "padova_citta", "medio-alta", ["appartamenti"], "media", "media", "neutro", 1, "attivo"),
+      mz("Guizza", "Padova", "padova_citta", "media", ["appartamenti"], "media", "alta", "neutro", 1, "attivo"),
+      mz("Stanga", "Padova", "padova_citta", "media", ["appartamenti", "commerciali"], "media", "media", "debole", 0, "da_completare"),
+      mz("Camin", "Padova", "padova_citta", "media", ["villette", "appartamenti"], "media", "media", "neutro", 0, "da_completare"),
+      mz("Chiesanuova", "Padova", "padova_citta", "media", ["appartamenti", "villette"], "media", "media", "neutro", 0, "da_completare"),
+      mz("Torre", "Padova", "padova_citta", "media", ["appartamenti", "villette"], "da_verificare", "da_verificare", "da_verificare", 0, "da_completare"),
+      mz("Mortise", "Padova", "padova_citta", "media", ["appartamenti", "villette"], "da_verificare", "da_verificare", "da_verificare", 0, "da_completare"),
+      mz("Brusegana", "Padova", "padova_citta", "medio-alta", ["appartamenti", "villette"], "media", "media", "neutro", 0, "da_completare"),
+      mz("Mandria", "Padova", "padova_citta", "media", ["villette", "appartamenti"], "da_verificare", "da_verificare", "da_verificare", 0, "da_completare"),
+      mz("Voltabarozzo", "Padova", "padova_citta", "media", ["villette", "appartamenti"], "da_verificare", "da_verificare", "da_verificare", 0, "da_completare"),
+
+      // B. Prima cintura
+      mz("Albignasego", "Albignasego", "prima_cintura", "medio-alta", ["villette", "appartamenti"], "alta", "media", "favorevole", 2, "attivo"),
+      mz("Selvazzano Dentro", "Selvazzano Dentro", "prima_cintura", "premium", ["villette", "case_indipendenti"], "alta", "media", "favorevole", 2, "attivo"),
+      mz("Rubano", "Rubano", "prima_cintura", "medio-alta", ["villette", "appartamenti"], "alta", "media", "favorevole", 1, "attivo"),
+      mz("Cadoneghe", "Cadoneghe", "prima_cintura", "media", ["villette", "appartamenti"], "media", "media", "neutro", 1, "attivo"),
+      mz("Vigodarzere", "Vigodarzere", "prima_cintura", "media", ["villette", "case_indipendenti"], "media", "media", "neutro", 0, "da_completare"),
+      mz("Noventa Padovana", "Noventa Padovana", "prima_cintura", "medio-alta", ["villette", "appartamenti"], "alta", "media", "favorevole", 1, "attivo"),
+      mz("Ponte San Nicolò", "Ponte San Nicolò", "prima_cintura", "medio-alta", ["villette", "appartamenti"], "alta", "media", "favorevole", 1, "attivo"),
+      mz("Vigonza", "Vigonza", "prima_cintura", "media", ["villette", "case_indipendenti"], "media", "media", "neutro", 0, "da_completare"),
+      mz("Limena", "Limena", "prima_cintura", "media", ["villette", "appartamenti"], "media", "media", "neutro", 0, "da_completare"),
+      mz("Saonara", "Saonara", "prima_cintura", "media", ["villette", "case_indipendenti"], "da_verificare", "da_verificare", "da_verificare", 0, "da_completare"),
+
+      // C. Termali / premium
+      mz("Abano Terme", "Abano Terme", "termali_premium", "turistica", ["appartamenti", "villette", "commerciali"], "media", "media", "neutro", 1, "attivo", "Mercato termale, attenzione a stagionalità."),
+      mz("Montegrotto Terme", "Montegrotto Terme", "termali_premium", "turistica", ["appartamenti", "villette"], "media", "media", "neutro", 1, "attivo"),
+      mz("Teolo", "Teolo", "termali_premium", "premium", ["villette", "case_indipendenti", "terreni"], "media", "media", "neutro", 0, "da_completare"),
+      mz("Torreglia", "Torreglia", "termali_premium", "premium", ["villette", "case_indipendenti"], "media", "media", "neutro", 0, "da_completare"),
+      mz("Galzignano Terme", "Galzignano Terme", "termali_premium", "turistica", ["villette", "appartamenti"], "da_verificare", "da_verificare", "da_verificare", 0, "futuro"),
+
+      // D. Provincia da estendere
+      mz("Cittadella", "Cittadella", "provincia_estendere", "medio-alta", ["appartamenti", "villette", "commerciali"], "media", "media", "neutro", 0, "futuro"),
+      mz("Camposampiero", "Camposampiero", "provincia_estendere", "media", ["villette", "appartamenti"], "da_verificare", "da_verificare", "da_verificare", 0, "futuro"),
+      mz("Piove di Sacco", "Piove di Sacco", "provincia_estendere", "media", ["villette", "appartamenti"], "media", "media", "neutro", 0, "futuro"),
+      mz("Monselice", "Monselice", "provincia_estendere", "media", ["appartamenti", "villette", "commerciali"], "media", "media", "neutro", 0, "futuro"),
+      mz("Este", "Este", "provincia_estendere", "media", ["appartamenti", "villette"], "media", "media", "neutro", 0, "futuro"),
+      mz("Conselve", "Conselve", "provincia_estendere", "media", ["villette", "case_indipendenti"], "da_verificare", "da_verificare", "da_verificare", 0, "futuro"),
+      mz("Montagnana", "Montagnana", "provincia_estendere", "media", ["appartamenti", "villette"], "da_verificare", "da_verificare", "da_verificare", 0, "futuro"),
     ],
   },
 ];
@@ -90,9 +150,7 @@ export const VISIBILITA_DATI = {
   visibili_agenzia: [
     "nome", "comune", "cluster", "fasciaPercepita", "tipologiePrevalenti",
     "domandaStimata", "offertaStimata", "sentimentCommerciale",
-    "rangePrezzoIndicativoEurMq", "tempiStimatiVenditaMesi", "ultimoAggiornamento",
+    "opportunitaAttive", "ultimoAggiornamento", "stato",
   ],
-  presentabili_proprietario: [
-    "nome", "comune", "fasciaPercepita", "rangePrezzoIndicativoEurMq", "tempiStimatiVenditaMesi",
-  ],
+  presentabili_proprietario: ["nome", "comune", "fasciaPercepita"],
 } as const;

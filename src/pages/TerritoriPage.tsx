@@ -2,15 +2,55 @@ import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { TERRITORI_CIVIKO_ONE, type Microzona } from "@/data/civiko-one-territori";
+import { Button } from "@/components/ui/button";
+import {
+  TERRITORI_CIVIKO_ONE,
+  CLUSTER_LABEL,
+  type Microzona,
+  type ClusterCommerciale,
+  type StatoMicrozona,
+} from "@/data/civiko-one-territori";
 
-const sentimentColor: Record<string, string> = {
-  freddo: "bg-slate-700 text-slate-100",
-  tiepido: "bg-amber-900/40 text-amber-200",
-  stabile: "bg-secondary text-muted-foreground",
-  caldo: "bg-orange-900/40 text-orange-200",
-  molto_caldo: "bg-red-900/40 text-red-200",
+type FilterKey =
+  | "tutti"
+  | ClusterCommerciale
+  | "stato_attivo"
+  | "stato_da_completare"
+  | "stato_futuro";
+
+const FILTERS: { key: FilterKey; label: string }[] = [
+  { key: "tutti", label: "Tutti" },
+  { key: "padova_citta", label: "Padova città" },
+  { key: "prima_cintura", label: "Prima cintura" },
+  { key: "termali_premium", label: "Termali / premium" },
+  { key: "provincia_estendere", label: "Provincia da estendere" },
+  { key: "stato_attivo", label: "Attivi" },
+  { key: "stato_da_completare", label: "Da completare" },
+  { key: "stato_futuro", label: "Futuri" },
+];
+
+const sentimentVariant: Record<string, string> = {
+  favorevole: "bg-emerald-900/40 text-emerald-200 border-emerald-800",
+  neutro: "bg-secondary text-muted-foreground",
+  debole: "bg-amber-900/40 text-amber-200 border-amber-800",
+  da_verificare: "bg-slate-800 text-slate-300 border-slate-700",
 };
+
+const statoVariant: Record<StatoMicrozona, string> = {
+  attivo: "bg-emerald-900/40 text-emerald-200 border-emerald-800",
+  da_completare: "bg-amber-900/40 text-amber-200 border-amber-800",
+  futuro: "bg-slate-800 text-slate-300 border-slate-700",
+};
+
+const statoLabel: Record<StatoMicrozona, string> = {
+  attivo: "Attivo",
+  da_completare: "Da completare",
+  futuro: "Futuro",
+};
+
+function fmt(value: string) {
+  return value.replace(/_/g, " ");
+}
 
 function MicrozonaCard({ m }: { m: Microzona }) {
   return (
@@ -20,11 +60,11 @@ function MicrozonaCard({ m }: { m: Microzona }) {
           <div>
             <CardTitle className="text-base">{m.nome}</CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {m.comune} · {m.cluster.split("_").join(" ")}
+              {m.comune} · {CLUSTER_LABEL[m.cluster]}
             </p>
           </div>
-          <Badge className={sentimentColor[m.sentimentCommerciale] ?? ""}>
-            {m.sentimentCommerciale.replace("_", " ")}
+          <Badge variant="outline" className={statoVariant[m.stato]}>
+            {statoLabel[m.stato]}
           </Badge>
         </div>
       </CardHeader>
@@ -33,32 +73,30 @@ function MicrozonaCard({ m }: { m: Microzona }) {
           <span className="text-muted-foreground">Fascia percepita</span>
           <span className="capitalize">{m.fasciaPercepita}</span>
         </div>
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Tipologie prevalenti</span>
-          <span className="text-right text-xs">{m.tipologiePrevalenti.join(", ")}</span>
+        <div className="flex items-start justify-between gap-2">
+          <span className="text-muted-foreground">Tipologie</span>
+          <span className="text-right text-xs">
+            {m.tipologiePrevalenti.map(fmt).join(", ")}
+          </span>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Domanda / Offerta</span>
-          <span>
-            <Badge variant="outline" className="mr-1 capitalize">{m.domandaStimata}</Badge>
-            <Badge variant="outline" className="capitalize">{m.offertaStimata}</Badge>
+          <span className="space-x-1">
+            <Badge variant="outline" className="capitalize">{fmt(m.domandaStimata)}</Badge>
+            <Badge variant="outline" className="capitalize">{fmt(m.offertaStimata)}</Badge>
           </span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Prezzo indicativo €/mq</span>
-          <span className="font-mono text-xs">
-            {m.rangePrezzoIndicativoEurMq.min.toLocaleString("it-IT")} – {m.rangePrezzoIndicativoEurMq.max.toLocaleString("it-IT")}
-          </span>
+          <span className="text-muted-foreground">Sentiment</span>
+          <Badge variant="outline" className={`capitalize ${sentimentVariant[m.sentimentCommerciale] ?? ""}`}>
+            {fmt(m.sentimentCommerciale)}
+          </Badge>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Tempi vendita</span>
-          <span className="text-xs">{m.tempiStimatiVenditaMesi.min}–{m.tempiStimatiVenditaMesi.max} mesi</span>
+          <span className="text-muted-foreground">Opportunità attive</span>
+          <span className="font-mono">{m.opportunitaAttive}</span>
         </div>
-        <div className="pt-2 border-t border-border">
-          <p className="text-xs text-muted-foreground">Note operative interne</p>
-          <p className="text-xs mt-1">{m.noteOperativeInterne}</p>
-        </div>
-        <p className="text-[10px] text-muted-foreground text-right">
+        <p className="text-[10px] text-muted-foreground text-right pt-1">
           Aggiornato: {m.ultimoAggiornamento}
         </p>
       </CardContent>
@@ -68,18 +106,41 @@ function MicrozonaCard({ m }: { m: Microzona }) {
 
 export default function TerritoriPage() {
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<FilterKey>("tutti");
   const territorio = TERRITORI_CIVIKO_ONE[0];
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return territorio.microzone;
-    return territorio.microzone.filter(
-      (m) =>
+    return territorio.microzone.filter((m) => {
+      if (filter !== "tutti") {
+        if (filter === "stato_attivo" && m.stato !== "attivo") return false;
+        if (filter === "stato_da_completare" && m.stato !== "da_completare") return false;
+        if (filter === "stato_futuro" && m.stato !== "futuro") return false;
+        if (
+          filter !== "stato_attivo" &&
+          filter !== "stato_da_completare" &&
+          filter !== "stato_futuro" &&
+          m.cluster !== filter
+        ) {
+          return false;
+        }
+      }
+      if (!q) return true;
+      return (
         m.nome.toLowerCase().includes(q) ||
         m.comune.toLowerCase().includes(q) ||
-        m.cluster.toLowerCase().includes(q),
-    );
-  }, [query, territorio.microzone]);
+        CLUSTER_LABEL[m.cluster].toLowerCase().includes(q)
+      );
+    });
+  }, [query, filter, territorio.microzone]);
+
+  const totale = territorio.microzone.length;
+  const attive = territorio.microzone.filter((m) => m.stato === "attivo").length;
+  const opportunitaAttive = territorio.microzone.reduce((acc, m) => acc + m.opportunitaAttive, 0);
+  const ultimoAggiornamento = territorio.microzone
+    .map((m) => m.ultimoAggiornamento)
+    .sort()
+    .pop();
 
   return (
     <div className="space-y-6">
@@ -87,24 +148,74 @@ export default function TerritoriPage() {
         <div>
           <h1 className="text-2xl font-bold">Territori</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Dati interni Core per la PWA <span className="font-medium">Metodo Civiko One</span>.
-            Non esporre fonti grezze o payload tecnici fuori dal Core.
+            Pilota territoriale per <span className="font-medium">Metodo Civiko One</span>.
+            Dati operativi interni Core.
           </p>
         </div>
-        <Badge variant="outline" className="capitalize">PWA principale: Metodo Civiko One</Badge>
+        <Badge variant="outline">PWA principale: Metodo Civiko One</Badge>
       </div>
 
+      {/* Sintesi */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Territorio pilota</p>
+            <p className="font-semibold mt-1">{territorio.nome}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Microzone censite</p>
+            <p className="text-2xl font-bold mt-1">{totale}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Microzone attive</p>
+            <p className="text-2xl font-bold mt-1">{attive}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Opportunità attive</p>
+            <p className="text-2xl font-bold mt-1">{opportunitaAttive}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Ultimo aggiornamento</p>
+            <p className="font-semibold mt-1">{ultimoAggiornamento ?? "—"}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Nota interna */}
+      <Card className="border-dashed">
+        <CardContent className="p-4 text-xs text-muted-foreground">
+          Questa sezione serve a strutturare il pilota territoriale di Metodo Civiko One.
+          I dati mostrati sono operativi e possono essere aggiornati dal Central Core.
+          Nessuna fonte grezza o informazione sensibile viene esposta.
+        </CardContent>
+      </Card>
+
+      {/* Filtri */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div>
-              <CardTitle className="text-lg">{territorio.nome}</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">
-                Stato: <Badge variant="outline" className="capitalize">{territorio.stato}</Badge> · {territorio.microzone.length} microzone · {territorio.cluster.length} cluster
-              </p>
+            <div className="flex flex-wrap gap-2">
+              {FILTERS.map((f) => (
+                <Button
+                  key={f.key}
+                  variant={filter === f.key ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setFilter(f.key)}
+                >
+                  {f.label}
+                </Button>
+              ))}
             </div>
             <Input
-              placeholder="Filtra microzone, comuni o cluster"
+              placeholder="Filtra per nome, comune o cluster"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               className="max-w-xs"
@@ -113,11 +224,19 @@ export default function TerritoriPage() {
         </CardHeader>
       </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {filtered.map((m) => (
-          <MicrozonaCard key={`${m.comune}-${m.nome}`} m={m} />
-        ))}
-      </div>
+      {filtered.length === 0 ? (
+        <Card>
+          <CardContent className="p-8 text-center text-sm text-muted-foreground">
+            Nessuna microzona corrisponde ai filtri selezionati.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {filtered.map((m) => (
+            <MicrozonaCard key={`${m.comune}-${m.nome}`} m={m} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
