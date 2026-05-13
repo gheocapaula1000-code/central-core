@@ -192,6 +192,9 @@ function MicrozonaCard({ m }: { m: Microzona }) {
             <p className="text-xs text-muted-foreground mt-0.5">
               {m.comune} · {CLUSTER_LABEL[m.cluster]}
             </p>
+            <Badge variant="outline" className={`mt-1.5 text-[10px] ${faseVariant[m.fasePilota]}`}>
+              {FASE_LABEL[m.fasePilota]}
+            </Badge>
           </div>
           <Badge variant="outline" className={statoVariant[m.stato]}>
             {statoLabel[m.stato]}
