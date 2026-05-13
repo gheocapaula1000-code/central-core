@@ -6,9 +6,11 @@ import { Button } from "@/components/ui/button";
 import {
   TERRITORI_CIVIKO_ONE,
   CLUSTER_LABEL,
+  FASE_LABEL,
   type Microzona,
   type ClusterCommerciale,
   type StatoMicrozona,
+  type FasePilota,
 } from "@/data/civiko-one-territori";
 import {
   getServiziProssimita,
