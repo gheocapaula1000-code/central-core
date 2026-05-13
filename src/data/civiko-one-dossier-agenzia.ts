@@ -234,7 +234,7 @@ function buildDossier(o: OpportunitaPilota): DossierAgenzia {
       rispostaObiezioni: [
         "Rispetto la scelta, le lascio comunque la lettura della zona così la confronta quando vuole.",
         "Capisco, le propongo una valutazione gratuita che le resta utile in ogni caso.",
-        "Il valore reale lo decide il mercato: posso mostrarle come si è mosso negli ultimi mesi.",
+        "Il valore finale lo conferma sempre il mercato; posso mostrarle alcuni segnali recenti della zona e ragionare con lei su un posizionamento corretto.",
         "Anche senza fretta, oggi è il momento giusto per posizionarsi correttamente.",
       ],
       versoEsclusiva:
