@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { AlertTriangle, CheckCircle2, ExternalLink, RefreshCw, Wallet, Activity, Bell, Settings2, History } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ExternalLink, RefreshCw, Wallet, Activity, Bell, Settings2, History, Shield, Info } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
