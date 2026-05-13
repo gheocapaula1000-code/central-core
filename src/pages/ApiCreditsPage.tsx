@@ -385,8 +385,36 @@ export default function ApiCreditsPage() {
             </Card>
           ))}
 
-          {!thr && !thrLoading && (
-            <p className="text-sm text-muted-foreground">Devi essere admin/owner per gestire le soglie.</p>
+          {thrErrType === 'auth' && !thrLoading && (
+            <Card className="border-amber-500/20 bg-amber-500/5">
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-3">
+                  <Shield className="h-5 w-5 text-amber-400 mt-0.5 shrink-0" />
+                  <div>
+                    <h3 className="font-semibold">Accesso admin richiesto</h3>
+                    <p className="text-sm text-muted-foreground mt-1">Per gestire le soglie devi essere autenticata come owner/admin del Central Core.</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {thrErrType === 'generic' && !thrLoading && (
+            <Card className="border-border">
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-3">
+                  <Info className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
+                  <div>
+                    <h3 className="font-semibold">Soglie non disponibili</h3>
+                    <p className="text-sm text-muted-foreground mt-1">Il servizio non ha risposto correttamente. Riprova più tardi.</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {!thr && !thrLoading && !thrErrType && (
+            <p className="text-sm text-muted-foreground">Nessuna soglia configurata.</p>
           )}
         </TabsContent>
 
