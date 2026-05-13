@@ -143,6 +143,7 @@ type FilterKey =
 
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "tutti", label: "Tutti" },
+  { key: "fase_1", label: "Fase 1" },
   { key: "padova_citta", label: "Padova città" },
   { key: "prima_cintura", label: "Prima cintura" },
   { key: "termali_premium", label: "Termali / premium" },
