@@ -6,9 +6,11 @@ import { Button } from "@/components/ui/button";
 import {
   TERRITORI_CIVIKO_ONE,
   CLUSTER_LABEL,
+  FASE_LABEL,
   type Microzona,
   type ClusterCommerciale,
   type StatoMicrozona,
+  type FasePilota,
 } from "@/data/civiko-one-territori";
 import {
   getServiziProssimita,
@@ -136,10 +138,12 @@ type FilterKey =
   | ClusterCommerciale
   | "stato_attivo"
   | "stato_da_completare"
-  | "stato_futuro";
+  | "stato_futuro"
+  | "fase_1";
 
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "tutti", label: "Tutti" },
+  { key: "fase_1", label: "Fase 1" },
   { key: "padova_citta", label: "Padova città" },
   { key: "prima_cintura", label: "Prima cintura" },
   { key: "termali_premium", label: "Termali / premium" },
@@ -168,6 +172,12 @@ const statoLabel: Record<StatoMicrozona, string> = {
   futuro: "Futuro",
 };
 
+const faseVariant: Record<FasePilota, string> = {
+  fase_1: "bg-sky-900/40 text-sky-200 border-sky-800",
+  fase_2: "bg-secondary text-muted-foreground",
+  futura: "bg-slate-800 text-slate-300 border-slate-700",
+};
+
 function fmt(value: string) {
   return value.replace(/_/g, " ");
 }
@@ -182,6 +192,9 @@ function MicrozonaCard({ m }: { m: Microzona }) {
             <p className="text-xs text-muted-foreground mt-0.5">
               {m.comune} · {CLUSTER_LABEL[m.cluster]}
             </p>
+            <Badge variant="outline" className={`mt-1.5 text-[10px] ${faseVariant[m.fasePilota]}`}>
+              {FASE_LABEL[m.fasePilota]}
+            </Badge>
           </div>
           <Badge variant="outline" className={statoVariant[m.stato]}>
             {statoLabel[m.stato]}
@@ -235,6 +248,7 @@ export default function TerritoriPage() {
     const q = query.trim().toLowerCase();
     return territorio.microzone.filter((m) => {
       if (filter !== "tutti") {
+        if (filter === "fase_1" && m.fasePilota !== "fase_1") return false;
         if (filter === "stato_attivo" && m.stato !== "attivo") return false;
         if (filter === "stato_da_completare" && m.stato !== "da_completare") return false;
         if (filter === "stato_futuro" && m.stato !== "futuro") return false;
@@ -242,6 +256,7 @@ export default function TerritoriPage() {
           filter !== "stato_attivo" &&
           filter !== "stato_da_completare" &&
           filter !== "stato_futuro" &&
+          filter !== "fase_1" &&
           m.cluster !== filter
         ) {
           return false;
@@ -258,6 +273,7 @@ export default function TerritoriPage() {
 
   const totale = territorio.microzone.length;
   const attive = territorio.microzone.filter((m) => m.stato === "attivo").length;
+  const fase1 = territorio.microzone.filter((m) => m.fasePilota === "fase_1").length;
   const opportunitaAttive = territorio.microzone.reduce((acc, m) => acc + m.opportunitaAttive, 0);
   const ultimoAggiornamento = territorio.microzone
     .map((m) => m.ultimoAggiornamento)
@@ -299,6 +315,12 @@ export default function TerritoriPage() {
         </Card>
         <Card>
           <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Microzone fase 1</p>
+            <p className="text-2xl font-bold mt-1">{fase1}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Opportunità attive</p>
             <p className="text-2xl font-bold mt-1">{opportunitaAttive}</p>
           </CardContent>
@@ -314,9 +336,7 @@ export default function TerritoriPage() {
       {/* Nota interna */}
       <Card className="border-dashed">
         <CardContent className="p-4 text-xs text-muted-foreground">
-          Questa sezione serve a strutturare il pilota territoriale di Metodo Civiko One.
-          I dati mostrati sono operativi e possono essere aggiornati dal Central Core.
-          Nessuna fonte grezza o informazione sensibile viene esposta.
+          Le microzone Fase 1 sono quelle su cui concentrare i primi test operativi e, in seguito, la raccolta controllata di dati reali. Le altre microzone restano predisposte ma non prioritarie.
         </CardContent>
       </Card>
 
