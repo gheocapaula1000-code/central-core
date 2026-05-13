@@ -224,10 +224,7 @@ function MicrozonaCard({ m }: { m: Microzona }) {
     </Card>
   );
 }
-      </CardContent>
-    </Card>
-  );
-}
+
 
 export default function TerritoriPage() {
   const [query, setQuery] = useState("");
