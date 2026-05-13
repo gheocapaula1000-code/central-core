@@ -10,6 +10,126 @@ import {
   type ClusterCommerciale,
   type StatoMicrozona,
 } from "@/data/civiko-one-territori";
+import {
+  getServiziProssimita,
+  CATEGORIA_LABEL,
+  PRESENZA_LABEL,
+  type PresenzaServizio,
+  type CategoriaServizio,
+  type MaturitaDato,
+} from "@/data/civiko-one-servizi-prossimita";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+
+const presenzaVariant: Record<PresenzaServizio, string> = {
+  forte_presenza: "bg-emerald-900/40 text-emerald-200 border-emerald-800",
+  presenza_media: "bg-sky-900/40 text-sky-200 border-sky-800",
+  presenza_limitata: "bg-amber-900/40 text-amber-200 border-amber-800",
+  da_verificare: "bg-slate-800 text-slate-300 border-slate-700",
+};
+
+const maturitaLabel: Record<MaturitaDato, string> = {
+  demo: "Demo",
+  da_verificare: "Da verificare",
+  verificato: "Verificato",
+};
+
+const maturitaVariant: Record<MaturitaDato, string> = {
+  demo: "bg-slate-800 text-slate-300 border-slate-700",
+  da_verificare: "bg-amber-900/40 text-amber-200 border-amber-800",
+  verificato: "bg-emerald-900/40 text-emerald-200 border-emerald-800",
+};
+
+const CATEGORIE_ORDINE: CategoriaServizio[] = [
+  "supermercati",
+  "alimentari_botteghe",
+  "bar",
+  "ristoranti",
+  "pizzerie",
+  "tabacchini",
+  "farmacie",
+  "scuole",
+  "asili",
+  "fermate_bus_tram",
+  "parcheggi",
+  "parchi_aree_verdi",
+  "studi_medici",
+  "banche_sportelli",
+  "poste",
+  "palestre_sport",
+  "servizi_famiglie",
+];
+
+function ServiziProssimitaBlock({ comune, nome }: { comune: string; nome: string }) {
+  const data = getServiziProssimita(comune, nome);
+  if (!data) {
+    return (
+      <Accordion type="single" collapsible className="w-full">
+        <AccordionItem value="servizi" className="border-t border-b-0">
+          <AccordionTrigger className="text-xs py-2 hover:no-underline">
+            Servizi di prossimità
+          </AccordionTrigger>
+          <AccordionContent>
+            <p className="text-xs text-muted-foreground">
+              Dato non ancora censito per questa microzona.
+            </p>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+    );
+  }
+  return (
+    <Accordion type="single" collapsible className="w-full">
+      <AccordionItem value="servizi" className="border-t border-b-0">
+        <AccordionTrigger className="text-xs py-2 hover:no-underline">
+          <span className="flex items-center gap-2">
+            Servizi di prossimità
+            <Badge variant="outline" className={maturitaVariant[data.maturitaDato]}>
+              {maturitaLabel[data.maturitaDato]}
+            </Badge>
+          </span>
+        </AccordionTrigger>
+        <AccordionContent className="space-y-3">
+          <div className="grid grid-cols-1 gap-1">
+            {CATEGORIE_ORDINE.map((cat) => {
+              const presenza = data.categorie[cat] ?? "da_verificare";
+              return (
+                <div key={cat} className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">{CATEGORIA_LABEL[cat]}</span>
+                  <Badge variant="outline" className={presenzaVariant[presenza]}>
+                    {PRESENZA_LABEL[presenza]}
+                  </Badge>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="pt-2 border-t border-border space-y-1">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              Lettura commerciale dei servizi
+            </p>
+            <p className="text-xs leading-relaxed">{data.letturaCommerciale}</p>
+          </div>
+
+          <div className="space-y-1">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              Argomenti utili per l'agente
+            </p>
+            <ul className="text-xs leading-relaxed list-disc pl-4 space-y-0.5">
+              {data.argomentiUtiliAgente.map((a, i) => (
+                <li key={i}>{a}</li>
+              ))}
+            </ul>
+          </div>
+        </AccordionContent>
+      </AccordionItem>
+    </Accordion>
+  );
+}
 
 type FilterKey =
   | "tutti"
@@ -99,10 +219,12 @@ function MicrozonaCard({ m }: { m: Microzona }) {
         <p className="text-[10px] text-muted-foreground text-right pt-1">
           Aggiornato: {m.ultimoAggiornamento}
         </p>
+        <ServiziProssimitaBlock comune={m.comune} nome={m.nome} />
       </CardContent>
     </Card>
   );
 }
+
 
 export default function TerritoriPage() {
   const [query, setQuery] = useState("");
