@@ -20,7 +20,7 @@ function MicrozonaCard({ m }: { m: Microzona }) {
           <div>
             <CardTitle className="text-base">{m.nome}</CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {m.comune} · {m.cluster.replaceAll("_", " ")}
+              {m.comune} · {m.cluster.split("_").join(" ")}
             </p>
           </div>
           <Badge className={sentimentColor[m.sentimentCommerciale] ?? ""}>
