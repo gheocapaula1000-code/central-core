@@ -328,6 +328,8 @@ const statoAssetLabel: Record<StatoAsset, string> = {
   osservato: "Osservato",
   in_verifica: "In verifica",
 };
+
+export default function TestRealeArcellaPage() {
   const territorio = TERRITORI_CIVIKO_ONE[0];
   const microzona = territorio.microzone.find(
     (m) => m.nome === ARCELLA_NOME && m.comune === ARCELLA_COMUNE,
