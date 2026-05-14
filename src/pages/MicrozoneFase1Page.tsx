@@ -125,8 +125,6 @@ function buildRighe(): RigaFase1[] {
     const servizi = !!getServiziProssimita(m.comune, m.nome);
     const opp = opportunita.length;
     const stato = deriveStato(m);
-    const priorita = derivePriorita(m, opp);
-    const maturita = deriveMaturita(m, opp, servizi);
     const key = `${m.comune}-${m.nome}`;
     const isTestReale = key === TEST_REALE_KEY;
     const prioritaBase = derivePriorita(m, opp);
