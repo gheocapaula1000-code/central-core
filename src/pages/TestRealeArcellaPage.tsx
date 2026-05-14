@@ -197,7 +197,7 @@ export default function TestRealeArcellaPage() {
                   : "mt-1 bg-amber-900/40 text-amber-200 border-amber-800"
               }
             >
-              {maturita === "demo_operativa" ? "Demo operativa" : "Da verificare"}
+              {maturita === "demo_operativa" ? "Preparazione completata" : "Da verificare"}
             </Badge>
           </CardContent>
         </Card>
