@@ -261,6 +261,8 @@ export default function MicrozoneFase1Page() {
   const oppCollegate = fase1.reduce((acc, r) => acc + r.opportunita, 0);
   const dossierCollegati = fase1.reduce((acc, r) => acc + r.dossier, 0);
   const pronteTestReali = fase1.filter((r) => r.prontaPerTestReali).length;
+  const testReale = righe.find((r) => r.isTestReale);
+  const altreFase1InAttesa = fase1.filter((r) => !r.isTestReale).length;
 
   return (
     <div className="space-y-6">
@@ -275,6 +277,35 @@ export default function MicrozoneFase1Page() {
         </div>
         <Badge variant="outline">PWA principale: Metodo Civiko One</Badge>
       </div>
+
+      {testReale && (
+        <Card className="border-fuchsia-700/60 bg-fuchsia-950/10">
+          <CardContent className="p-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-wide text-fuchsia-300">
+                Microzona test selezionata
+              </p>
+              <p className="text-lg font-semibold">
+                {testReale.microzona.nome}{" "}
+                <span className="text-sm text-muted-foreground font-normal">
+                  · {testReale.microzona.comune}
+                </span>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Prima e unica microzona attivata per il popolamento dati reali. Le altre Fase 1 restano in attesa.
+              </p>
+            </div>
+            <div className="text-right">
+              <Badge variant="outline" className={statoTestRealeVariant.test_reale_pronto}>
+                {statoTestRealeLabel.test_reale_pronto}
+              </Badge>
+              <p className="text-xs text-muted-foreground mt-2">
+                Altre microzone Fase 1 in attesa: <span className="font-mono">{altreFase1InAttesa}</span>
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Card>
