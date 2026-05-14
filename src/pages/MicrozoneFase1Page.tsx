@@ -14,9 +14,13 @@ import { OPPORTUNITA_PILOTA } from "@/data/civiko-one-opportunita-pilota";
 import { DOSSIER_AGENZIA } from "@/data/civiko-one-dossier-agenzia";
 import { getServiziProssimita } from "@/data/civiko-one-servizi-prossimita";
 
-type PrioritaOperativa = "alta" | "media" | "bassa";
+type PrioritaOperativa = "massima" | "alta" | "media" | "bassa";
 type MaturitaDato = "demo_operativa" | "da_verificare" | "verificato";
 type StatoFase = "fase_1" | "in_osservazione" | "futura";
+type StatoTestReale = "test_reale_pronto" | "in_attesa" | "non_applicabile";
+
+// Microzona unica selezionata come primo test reale del pilota.
+const TEST_REALE_KEY = "Padova-Arcella";
 
 interface RigaFase1 {
   microzona: Microzona;
@@ -29,6 +33,8 @@ interface RigaFase1 {
   serviziDisponibili: boolean;
   notaInterna: string;
   prontaPerTestReali: boolean;
+  isTestReale: boolean;
+  statoTestReale: StatoTestReale;
 }
 
 // Mappatura stato fase derivata dal dataset territori esistente.
