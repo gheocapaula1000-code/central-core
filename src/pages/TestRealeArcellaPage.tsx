@@ -347,6 +347,30 @@ export default function TestRealeArcellaPage() {
 
   return (
     <div className="space-y-6">
+      {/* Nota interna approvazione */}
+      <Card className="border-emerald-800/50 bg-emerald-950/20">
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5">
+              <Badge
+                variant="outline"
+                className="bg-emerald-900/40 text-emerald-200 border-emerald-800 text-[10px]"
+              >
+                Base pilota interna
+              </Badge>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-emerald-100">
+                Arcella è la prima microzona test reale completata come base pilota interna
+              </p>
+              <p className="text-xs text-emerald-200/70 mt-1">
+                Tutti i blocchi di test sono stati verificati internamente. Nessun provider esterno attivo, nessuno scraping in corso.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold">Test Reale Arcella</h1>
@@ -358,9 +382,9 @@ export default function TestRealeArcellaPage() {
         </div>
         <Badge
           variant="outline"
-          className="bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-800"
+          className="bg-emerald-900/40 text-emerald-200 border-emerald-800"
         >
-          Preparazione completata
+          Microzona test approvata
         </Badge>
       </div>
 
