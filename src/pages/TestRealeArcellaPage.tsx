@@ -50,8 +50,8 @@ const CHECKLIST: BloccoChecklist[] = [
     id: "servizi_prossimita",
     titolo: "Servizi di prossimità",
     voci: [
-      { testo: "Servizi minimi verificabili sul territorio", stato: "da_fare" },
-      { testo: "Lettura sintetica confermata sul campo", stato: "da_fare" },
+      { testo: "Servizi minimi verificabili sul territorio", stato: "completato" },
+      { testo: "Lettura sintetica confermata sul campo", stato: "completato" },
     ],
   },
   {
@@ -363,8 +363,8 @@ export default function TestRealeArcellaPage() {
             id: "servizi_essenziali",
             titolo: "Servizi di prossimità essenziali",
             elementi: [
-              { testo: "Primi servizi di prossimità essenziali", stato: "non_raccolto" },
-              { testo: "Lettura sintetica della zona", stato: "non_raccolto" },
+              { testo: "Primi servizi di prossimità essenziali", stato: "raccolto" },
+              { testo: "Lettura sintetica della zona", stato: "raccolto" },
             ],
           },
           {
