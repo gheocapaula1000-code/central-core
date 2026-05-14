@@ -14,9 +14,13 @@ import { OPPORTUNITA_PILOTA } from "@/data/civiko-one-opportunita-pilota";
 import { DOSSIER_AGENZIA } from "@/data/civiko-one-dossier-agenzia";
 import { getServiziProssimita } from "@/data/civiko-one-servizi-prossimita";
 
-type PrioritaOperativa = "alta" | "media" | "bassa";
+type PrioritaOperativa = "massima" | "alta" | "media" | "bassa";
 type MaturitaDato = "demo_operativa" | "da_verificare" | "verificato";
 type StatoFase = "fase_1" | "in_osservazione" | "futura";
+type StatoTestReale = "test_reale_pronto" | "in_attesa" | "non_applicabile";
+
+// Microzona unica selezionata come primo test reale del pilota.
+const TEST_REALE_KEY = "Padova-Arcella";
 
 interface RigaFase1 {
   microzona: Microzona;
@@ -29,6 +33,8 @@ interface RigaFase1 {
   serviziDisponibili: boolean;
   notaInterna: string;
   prontaPerTestReali: boolean;
+  isTestReale: boolean;
+  statoTestReale: StatoTestReale;
 }
 
 // Mappatura stato fase derivata dal dataset territori esistente.
@@ -63,9 +69,22 @@ const statoFaseVariant: Record<StatoFase, string> = {
 };
 
 const prioritaVariant: Record<PrioritaOperativa, string> = {
+  massima: "bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-800",
   alta: "bg-emerald-900/40 text-emerald-200 border-emerald-800",
   media: "bg-amber-900/40 text-amber-200 border-amber-800",
   bassa: "bg-slate-800 text-slate-300 border-slate-700",
+};
+
+const statoTestRealeLabel: Record<StatoTestReale, string> = {
+  test_reale_pronto: "Test reale pronto",
+  in_attesa: "In attesa",
+  non_applicabile: "—",
+};
+
+const statoTestRealeVariant: Record<StatoTestReale, string> = {
+  test_reale_pronto: "bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-800",
+  in_attesa: "bg-secondary text-muted-foreground",
+  non_applicabile: "bg-slate-800 text-slate-300 border-slate-700",
 };
 
 const maturitaLabel: Record<MaturitaDato, string> = {
@@ -106,18 +125,24 @@ function buildRighe(): RigaFase1[] {
     const servizi = !!getServiziProssimita(m.comune, m.nome);
     const opp = opportunita.length;
     const stato = deriveStato(m);
-    const priorita = derivePriorita(m, opp);
-    const maturita = deriveMaturita(m, opp, servizi);
     const key = `${m.comune}-${m.nome}`;
-    const nota =
-      NOTE_INTERNE[key] ??
-      m.noteOperativeInterne ??
-      "Nessuna nota interna registrata.";
+    const isTestReale = key === TEST_REALE_KEY;
+    const prioritaBase = derivePriorita(m, opp);
+    const priorita: PrioritaOperativa = isTestReale ? "massima" : prioritaBase;
+    const maturita = deriveMaturita(m, opp, servizi);
+    const nota = isTestReale
+      ? "Prima microzona test reale del pilota Padova: priorità massima, popolamento dati reali da preparare con cautela."
+      : NOTE_INTERNE[key] ?? m.noteOperativeInterne ?? "Nessuna nota interna registrata.";
     const prontaPerTestReali =
       stato === "fase_1" &&
       m.stato === "attivo" &&
-      priorita === "alta" &&
+      prioritaBase === "alta" &&
       maturita === "demo_operativa";
+    const statoTestReale: StatoTestReale = isTestReale
+      ? "test_reale_pronto"
+      : stato === "fase_1"
+        ? "in_attesa"
+        : "non_applicabile";
 
     return {
       microzona: m,
@@ -130,6 +155,8 @@ function buildRighe(): RigaFase1[] {
       serviziDisponibili: servizi,
       notaInterna: nota,
       prontaPerTestReali,
+      isTestReale,
+      statoTestReale,
     };
   });
 }
@@ -146,7 +173,7 @@ const FILTERS: { key: FilterKey; label: string }[] = [
 function RigaCard({ r }: { r: RigaFase1 }) {
   const m = r.microzona;
   return (
-    <Card>
+    <Card className={r.isTestReale ? "border-fuchsia-700/60 ring-1 ring-fuchsia-700/30" : undefined}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div>
@@ -155,6 +182,11 @@ function RigaCard({ r }: { r: RigaFase1 }) {
               {m.comune} · {CLUSTER_LABEL[m.cluster]} · <span className="capitalize">{m.fasciaPercepita}</span>
             </p>
             <div className="flex flex-wrap gap-1.5 mt-2">
+              {r.isTestReale && (
+                <Badge variant="outline" className={`text-[10px] ${statoTestRealeVariant.test_reale_pronto}`}>
+                  Microzona test reale
+                </Badge>
+              )}
               <Badge variant="outline" className={`text-[10px] ${statoFaseVariant[r.statoFase]}`}>
                 {statoFaseLabel[r.statoFase]}
               </Badge>
@@ -164,7 +196,7 @@ function RigaCard({ r }: { r: RigaFase1 }) {
               <Badge variant="outline" className={`text-[10px] ${maturitaVariant[r.maturita]}`}>
                 {maturitaLabel[r.maturita]}
               </Badge>
-              {r.prontaPerTestReali && (
+              {!r.isTestReale && r.prontaPerTestReali && (
                 <Badge variant="outline" className="text-[10px] bg-emerald-900/40 text-emerald-200 border-emerald-800">
                   Pronta per test reali
                 </Badge>
@@ -189,6 +221,12 @@ function RigaCard({ r }: { r: RigaFase1 }) {
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Servizi di prossimità</span>
           <span>{r.serviziDisponibili ? "Sì" : "No"}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Stato test reale</span>
+          <Badge variant="outline" className={`text-[10px] ${statoTestRealeVariant[r.statoTestReale]}`}>
+            {statoTestRealeLabel[r.statoTestReale]}
+          </Badge>
         </div>
         <div className="pt-2 border-t border-border">
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Nota interna</p>
@@ -223,6 +261,8 @@ export default function MicrozoneFase1Page() {
   const oppCollegate = fase1.reduce((acc, r) => acc + r.opportunita, 0);
   const dossierCollegati = fase1.reduce((acc, r) => acc + r.dossier, 0);
   const pronteTestReali = fase1.filter((r) => r.prontaPerTestReali).length;
+  const testReale = righe.find((r) => r.isTestReale);
+  const altreFase1InAttesa = fase1.filter((r) => !r.isTestReale).length;
 
   return (
     <div className="space-y-6">
@@ -237,6 +277,35 @@ export default function MicrozoneFase1Page() {
         </div>
         <Badge variant="outline">PWA principale: Metodo Civiko One</Badge>
       </div>
+
+      {testReale && (
+        <Card className="border-fuchsia-700/60 bg-fuchsia-950/10">
+          <CardContent className="p-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-wide text-fuchsia-300">
+                Microzona test selezionata
+              </p>
+              <p className="text-lg font-semibold">
+                {testReale.microzona.nome}{" "}
+                <span className="text-sm text-muted-foreground font-normal">
+                  · {testReale.microzona.comune}
+                </span>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Prima e unica microzona attivata per il popolamento dati reali. Le altre Fase 1 restano in attesa.
+              </p>
+            </div>
+            <div className="text-right">
+              <Badge variant="outline" className={statoTestRealeVariant.test_reale_pronto}>
+                {statoTestRealeLabel.test_reale_pronto}
+              </Badge>
+              <p className="text-xs text-muted-foreground mt-2">
+                Altre microzone Fase 1 in attesa: <span className="font-mono">{altreFase1InAttesa}</span>
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Card>
