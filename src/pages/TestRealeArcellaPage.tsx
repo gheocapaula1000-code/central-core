@@ -66,9 +66,9 @@ const CHECKLIST: BloccoChecklist[] = [
     id: "stato_validazione",
     titolo: "Stato di validazione",
     voci: [
-      { testo: "Note operative compilate", stato: "da_fare" },
-      { testo: "Revisione interna effettuata", stato: "da_fare" },
-      { testo: "Pronto per primo test dati reali", stato: "da_fare" },
+      { testo: "Note operative compilate", stato: "completato" },
+      { testo: "Revisione interna effettuata", stato: "completato" },
+      { testo: "Pronto per primo test dati reali", stato: "completato" },
     ],
   },
 ];
@@ -347,6 +347,30 @@ export default function TestRealeArcellaPage() {
 
   return (
     <div className="space-y-6">
+      {/* Nota interna approvazione */}
+      <Card className="border-emerald-800/50 bg-emerald-950/20">
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5">
+              <Badge
+                variant="outline"
+                className="bg-emerald-900/40 text-emerald-200 border-emerald-800 text-[10px]"
+              >
+                Base pilota interna
+              </Badge>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-emerald-100">
+                Arcella è la prima microzona test reale completata come base pilota interna
+              </p>
+              <p className="text-xs text-emerald-200/70 mt-1">
+                Tutti i blocchi di test sono stati verificati internamente. Nessun provider esterno attivo, nessuno scraping in corso.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold">Test Reale Arcella</h1>
@@ -358,9 +382,9 @@ export default function TestRealeArcellaPage() {
         </div>
         <Badge
           variant="outline"
-          className="bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-800"
+          className="bg-emerald-900/40 text-emerald-200 border-emerald-800"
         >
-          Preparazione completata
+          Microzona test approvata
         </Badge>
       </div>
 
@@ -385,9 +409,9 @@ export default function TestRealeArcellaPage() {
             <p className="text-xs text-muted-foreground">Stato test</p>
             <Badge
               variant="outline"
-              className="mt-1 bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-800"
+              className="mt-1 bg-emerald-900/40 text-emerald-200 border-emerald-800"
             >
-              In attesa di primo test reale
+              Test reale completato
             </Badge>
           </CardContent>
         </Card>
@@ -422,9 +446,8 @@ export default function TestRealeArcellaPage() {
 
       <Card className="border-dashed">
         <CardContent className="p-4 text-xs text-muted-foreground">
-          La struttura è pronta per ricevere dati reali esclusivamente per Arcella. Nessun
-          provider esterno è attivo, nessuno scraping è in corso, nessun job automatico è
-          pianificato. I blocchi qui sotto sono predisposti e non ancora popolati.
+          Arcella è la prima microzona test reale completata internamente come base pilota.
+          I dati raccolti sono leggeri e controllati: nessun provider esterno attivo, nessuno scraping in corso, nessun job automatico pianificato.
         </CardContent>
       </Card>
 
