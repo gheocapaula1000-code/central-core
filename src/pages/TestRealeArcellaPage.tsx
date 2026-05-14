@@ -50,8 +50,8 @@ const CHECKLIST: BloccoChecklist[] = [
     id: "servizi_prossimita",
     titolo: "Servizi di prossimità",
     voci: [
-      { testo: "Servizi minimi verificabili sul territorio", stato: "da_fare" },
-      { testo: "Lettura sintetica confermata sul campo", stato: "da_fare" },
+      { testo: "Servizi minimi verificabili sul territorio", stato: "completato" },
+      { testo: "Lettura sintetica confermata sul campo", stato: "completato" },
     ],
   },
   {
@@ -123,6 +123,48 @@ const BLOCCHI: BloccoPredisposto[] = [
       "Esito della validazione qualitativa dei dati raccolti su Arcella.",
   },
 ];
+
+interface ServizioVerificato {
+  categoria: string;
+  elementi: { nome: string; presenza: string; nota?: string }[];
+}
+
+const SERVIZI_VERIFICATI_ARCELLA: ServizioVerificato[] = [
+  {
+    categoria: "Trasporti",
+    elementi: [
+      { nome: "Fermate bus / tram", presenza: "Forte presenza", nota: "Linee verso centro e tangenziali" },
+    ],
+  },
+  {
+    categoria: "Scuole",
+    elementi: [
+      { nome: "Scuole primarie e secondarie", presenza: "Presenza media", nota: "Copertura nel raggio microzona" },
+      { nome: "Asili", presenza: "Presenza media" },
+    ],
+  },
+  {
+    categoria: "Spesa e alimentari",
+    elementi: [
+      { nome: "Supermercati", presenza: "Forte presenza", nota: "Punti vendita di medie dimensioni" },
+      { nome: "Alimentari / botteghe", presenza: "Forte presenza" },
+    ],
+  },
+  {
+    categoria: "Servizi quotidiani essenziali",
+    elementi: [
+      { nome: "Farmacie", presenza: "Presenza media" },
+      { nome: "Tabacchini", presenza: "Forte presenza" },
+      { nome: "Poste", presenza: "Presenza media", nota: "Sportello nel raggio operativo" },
+    ],
+  },
+];
+
+const presenzaVariant: Record<string, string> = {
+  "Forte presenza": "bg-emerald-900/40 text-emerald-200 border-emerald-800",
+  "Presenza media": "bg-sky-900/40 text-sky-200 border-sky-800",
+  "Presenza limitata": "bg-amber-900/40 text-amber-200 border-amber-800",
+};
 
 export default function TestRealeArcellaPage() {
   const territorio = TERRITORI_CIVIKO_ONE[0];
@@ -225,32 +267,83 @@ export default function TestRealeArcellaPage() {
 
       {/* Blocchi predisposti */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {BLOCCHI.map((b) => (
-          <Card key={b.id} className="border-dashed">
-            <CardHeader className="pb-2">
-              <div className="flex items-start justify-between gap-2">
-                <CardTitle className="text-base">{b.titolo}</CardTitle>
-                <Badge variant="outline" className="bg-secondary text-muted-foreground text-[10px]">
-                  Predisposto
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-xs text-muted-foreground leading-relaxed">{b.descrizione}</p>
-              <div className="flex flex-wrap gap-1.5">
-                <Badge variant="outline" className="text-[10px] bg-slate-800 text-slate-300 border-slate-700">
-                  Non ancora popolato
-                </Badge>
-                <Badge variant="outline" className="text-[10px] bg-fuchsia-900/30 text-fuchsia-200 border-fuchsia-800">
-                  In attesa di primo test reale
-                </Badge>
-              </div>
-              <div className="rounded border border-dashed border-border p-3 text-[11px] text-muted-foreground italic">
-                Nessun contenuto disponibile. Verrà compilato in fase di test reale.
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+        {BLOCCHI.map((b) =>
+          b.id === "servizi_verificati" ? (
+            <Card key={b.id} className="border-dashed">
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between gap-2">
+                  <CardTitle className="text-base">{b.titolo}</CardTitle>
+                  <Badge variant="outline" className="bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-800 text-[10px]">
+                    Primo test reale
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-xs text-muted-foreground leading-relaxed">{b.descrizione}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <Badge variant="outline" className="text-[10px] bg-sky-900/40 text-sky-200 border-sky-800">
+                    Parzialmente popolato
+                  </Badge>
+                </div>
+                <div className="space-y-3">
+                  {SERVIZI_VERIFICATI_ARCELLA.map((gruppo) => (
+                    <div key={gruppo.categoria}>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                        {gruppo.categoria}
+                      </p>
+                      <ul className="space-y-1.5">
+                        {gruppo.elementi.map((el, idx) => (
+                          <li
+                            key={idx}
+                            className="flex items-start justify-between gap-2 text-xs leading-relaxed"
+                          >
+                            <div className="flex flex-col">
+                              <span>{el.nome}</span>
+                              {el.nota && (
+                                <span className="text-[10px] text-muted-foreground">{el.nota}</span>
+                              )}
+                            </div>
+                            <Badge
+                              variant="outline"
+                              className={`shrink-0 text-[10px] ${presenzaVariant[el.presenza] || "bg-slate-800 text-slate-300 border-slate-700"}`}
+                            >
+                              {el.presenza}
+                            </Badge>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card key={b.id} className="border-dashed">
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between gap-2">
+                  <CardTitle className="text-base">{b.titolo}</CardTitle>
+                  <Badge variant="outline" className="bg-secondary text-muted-foreground text-[10px]">
+                    Predisposto
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-xs text-muted-foreground leading-relaxed">{b.descrizione}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <Badge variant="outline" className="text-[10px] bg-slate-800 text-slate-300 border-slate-700">
+                    Non ancora popolato
+                  </Badge>
+                  <Badge variant="outline" className="text-[10px] bg-fuchsia-900/30 text-fuchsia-200 border-fuchsia-800">
+                    In attesa di primo test reale
+                  </Badge>
+                </div>
+                <div className="rounded border border-dashed border-border p-3 text-[11px] text-muted-foreground italic">
+                  Nessun contenuto disponibile. Verrà compilato in fase di test reale.
+                </div>
+              </CardContent>
+            </Card>
+          )
+        )}
       </div>
 
       {/* Checklist Test Reale */}
@@ -363,8 +456,8 @@ export default function TestRealeArcellaPage() {
             id: "servizi_essenziali",
             titolo: "Servizi di prossimità essenziali",
             elementi: [
-              { testo: "Primi servizi di prossimità essenziali", stato: "non_raccolto" },
-              { testo: "Lettura sintetica della zona", stato: "non_raccolto" },
+              { testo: "Primi servizi di prossimità essenziali", stato: "raccolto" },
+              { testo: "Lettura sintetica della zona", stato: "raccolto" },
             ],
           },
           {
