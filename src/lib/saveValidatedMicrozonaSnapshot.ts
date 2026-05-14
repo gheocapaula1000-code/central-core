@@ -55,7 +55,7 @@ export async function saveValidatedMicrozonaSnapshot(
   // Caso valid o valid_with_warnings → salva snapshot.
   const { data, error } = await supabase
     .from("microzona_dossier")
-    .insert({
+    .insert([{
       microzona_id: dossier.microzona_id,
       versione: dossier.versione,
       stato: dossier.stato, // resta "approvata_interna" in questo step
