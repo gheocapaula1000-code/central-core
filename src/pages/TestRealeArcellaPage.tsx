@@ -446,9 +446,8 @@ export default function TestRealeArcellaPage() {
 
       <Card className="border-dashed">
         <CardContent className="p-4 text-xs text-muted-foreground">
-          La struttura è pronta per ricevere dati reali esclusivamente per Arcella. Nessun
-          provider esterno è attivo, nessuno scraping è in corso, nessun job automatico è
-          pianificato. I blocchi qui sotto sono predisposti e non ancora popolati.
+          Arcella è la prima microzona test reale completata internamente come base pilota.
+          I dati raccolti sono leggeri e controllati: nessun provider esterno attivo, nessuno scraping in corso, nessun job automatico pianificato.
         </CardContent>
       </Card>
 
