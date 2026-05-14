@@ -677,8 +677,8 @@ export default function TestRealeArcellaPage() {
             id: "opportunita_minime",
             titolo: "Opportunità candidate minime",
             elementi: [
-              { testo: "Prime opportunità candidate osservabili", stato: "non_raccolto" },
-              { testo: "Coerenza con la microzona verificata", stato: "non_raccolto" },
+              { testo: "Prime opportunità candidate osservabili", stato: "raccolto" },
+              { testo: "Coerenza con la microzona verificata", stato: "raccolto" },
             ],
           },
           {
