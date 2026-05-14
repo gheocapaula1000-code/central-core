@@ -2107,6 +2107,48 @@ export type Database = {
         }
         Relationships: []
       }
+      microzona_dossier: {
+        Row: {
+          asset_osservati: Json
+          created_at: string
+          created_by: string | null
+          id: string
+          microzona_id: string
+          note_interne: string | null
+          opportunita_candidate: Json
+          segnali_territoriali: Json
+          servizi_prossimita: Json
+          stato: string
+          versione: string
+        }
+        Insert: {
+          asset_osservati?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          microzona_id: string
+          note_interne?: string | null
+          opportunita_candidate?: Json
+          segnali_territoriali?: Json
+          servizi_prossimita?: Json
+          stato: string
+          versione?: string
+        }
+        Update: {
+          asset_osservati?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          microzona_id?: string
+          note_interne?: string | null
+          opportunita_candidate?: Json
+          segnali_territoriali?: Json
+          servizi_prossimita?: Json
+          stato?: string
+          versione?: string
+        }
+        Relationships: []
+      }
       microzone_sentiment: {
         Row: {
           air_quality_score: number | null
