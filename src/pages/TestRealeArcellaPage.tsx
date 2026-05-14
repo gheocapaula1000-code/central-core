@@ -409,9 +409,9 @@ export default function TestRealeArcellaPage() {
             <p className="text-xs text-muted-foreground">Stato test</p>
             <Badge
               variant="outline"
-              className="mt-1 bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-800"
+              className="mt-1 bg-emerald-900/40 text-emerald-200 border-emerald-800"
             >
-              In attesa di primo test reale
+              Test reale completato
             </Badge>
           </CardContent>
         </Card>
