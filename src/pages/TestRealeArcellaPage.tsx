@@ -327,6 +327,138 @@ export default function TestRealeArcellaPage() {
           </section>
         );
       })()}
+
+      {/* Set minimo dati reali */}
+      {(() => {
+        type StatoElemento = "raccolto" | "non_raccolto";
+        interface ElementoSet {
+          testo: string;
+          stato: StatoElemento;
+        }
+        interface BloccoSet {
+          id: string;
+          titolo: string;
+          elementi: ElementoSet[];
+        }
+        const SET_MINIMO: BloccoSet[] = [
+          {
+            id: "identita_microzona",
+            titolo: "Identità microzona",
+            elementi: [
+              { testo: "Nome microzona confermato", stato: "non_raccolto" },
+              { testo: "Perimetro operativo confermato", stato: "non_raccolto" },
+              { testo: "Cluster commerciale confermato", stato: "non_raccolto" },
+            ],
+          },
+          {
+            id: "segnali_immobiliari",
+            titolo: "Segnali immobiliari di base",
+            elementi: [
+              { testo: "Tipologie prevalenti", stato: "non_raccolto" },
+              { testo: "Fascia di domanda percepita", stato: "non_raccolto" },
+              { testo: "Fascia di offerta percepita", stato: "non_raccolto" },
+            ],
+          },
+          {
+            id: "servizi_essenziali",
+            titolo: "Servizi di prossimità essenziali",
+            elementi: [
+              { testo: "Primi servizi di prossimità essenziali", stato: "non_raccolto" },
+              { testo: "Lettura sintetica della zona", stato: "non_raccolto" },
+            ],
+          },
+          {
+            id: "opportunita_minime",
+            titolo: "Opportunità candidate minime",
+            elementi: [
+              { testo: "Prime opportunità candidate osservabili", stato: "non_raccolto" },
+              { testo: "Coerenza con la microzona verificata", stato: "non_raccolto" },
+            ],
+          },
+          {
+            id: "note_operative",
+            titolo: "Note operative",
+            elementi: [
+              { testo: "Almeno una nota operativa utile", stato: "non_raccolto" },
+            ],
+          },
+        ];
+
+        const tutti = SET_MINIMO.flatMap((b) => b.elementi);
+        const totale = tutti.length;
+        const raccolti = tutti.filter((e) => e.stato === "raccolto").length;
+        const nonRaccolti = totale - raccolti;
+
+        const statoLabel: Record<StatoElemento, string> = {
+          raccolto: "Raccolto",
+          non_raccolto: "Non raccolto",
+        };
+        const statoVariant: Record<StatoElemento, string> = {
+          raccolto: "bg-emerald-900/40 text-emerald-200 border-emerald-800",
+          non_raccolto: "bg-slate-800 text-slate-300 border-slate-700",
+        };
+
+        return (
+          <section className="space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold">Set minimo dati reali</h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                Primo pacchetto minimo di dati reali da raccogliere su Arcella prima di
+                attivare qualsiasi provider o automazione. Stato iniziale di tutti gli elementi: non raccolto.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs text-muted-foreground">Totale elementi</p>
+                  <p className="text-2xl font-bold mt-1">{totale}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs text-muted-foreground">Raccolti</p>
+                  <p className="text-2xl font-bold mt-1">{raccolti}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs text-muted-foreground">Non raccolti</p>
+                  <p className="text-2xl font-bold mt-1">{nonRaccolti}</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {SET_MINIMO.map((blocco) => (
+                <Card key={blocco.id}>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">{blocco.titolo}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ul className="space-y-2">
+                      {blocco.elementi.map((e, i) => (
+                        <li
+                          key={i}
+                          className="flex items-start justify-between gap-3 text-xs leading-relaxed"
+                        >
+                          <span>{e.testo}</span>
+                          <Badge
+                            variant="outline"
+                            className={`shrink-0 text-[10px] ${statoVariant[e.stato]}`}
+                          >
+                            {statoLabel[e.stato]}
+                          </Badge>
+                        </li>
+                      ))}
+                    </ul>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </section>
+        );
+      })()}
     </div>
   );
 }
