@@ -546,9 +546,9 @@ export default function TestRealeArcellaPage() {
             id: "segnali_immobiliari",
             titolo: "Segnali immobiliari di base",
             elementi: [
-              { testo: "Tipologie prevalenti", stato: "non_raccolto" },
-              { testo: "Fascia di domanda percepita", stato: "non_raccolto" },
-              { testo: "Fascia di offerta percepita", stato: "non_raccolto" },
+              { testo: "Tipologie prevalenti", stato: "raccolto" },
+              { testo: "Fascia di domanda percepita", stato: "raccolto" },
+              { testo: "Fascia di offerta percepita", stato: "raccolto" },
             ],
           },
           {
