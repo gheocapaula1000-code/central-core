@@ -14,6 +14,77 @@ interface BloccoPredisposto {
   descrizione: string;
 }
 
+type StatoVoce = "da_fare" | "in_verifica" | "completato";
+
+interface VoceChecklist {
+  testo: string;
+  stato: StatoVoce;
+}
+
+interface BloccoChecklist {
+  id: string;
+  titolo: string;
+  voci: VoceChecklist[];
+}
+
+const CHECKLIST: BloccoChecklist[] = [
+  {
+    id: "territorio_perimetro",
+    titolo: "Territorio e perimetro",
+    voci: [
+      { testo: "Perimetro microzona Arcella confermato", stato: "da_fare" },
+      { testo: "Cluster commerciale coerente verificato", stato: "da_fare" },
+      { testo: "Confini con microzone limitrofe chiariti", stato: "da_fare" },
+    ],
+  },
+  {
+    id: "opportunita_candidate",
+    titolo: "Opportunità candidate",
+    voci: [
+      { testo: "Prime opportunità candidate identificate", stato: "da_fare" },
+      { testo: "Opportunità validate come coerenti con la microzona", stato: "da_fare" },
+      { testo: "Priorità operativa assegnata alle candidate", stato: "da_fare" },
+    ],
+  },
+  {
+    id: "servizi_prossimita",
+    titolo: "Servizi di prossimità",
+    voci: [
+      { testo: "Servizi minimi verificabili sul territorio", stato: "da_fare" },
+      { testo: "Lettura sintetica confermata sul campo", stato: "da_fare" },
+    ],
+  },
+  {
+    id: "dossier_collegabili",
+    titolo: "Dossier collegabili",
+    voci: [
+      { testo: "Almeno un dossier collegabile preparato", stato: "da_fare" },
+      { testo: "Dossier coerente con la microzona Arcella", stato: "da_fare" },
+    ],
+  },
+  {
+    id: "stato_validazione",
+    titolo: "Stato di validazione",
+    voci: [
+      { testo: "Note operative compilate", stato: "da_fare" },
+      { testo: "Revisione interna effettuata", stato: "da_fare" },
+      { testo: "Pronto per primo test dati reali", stato: "da_fare" },
+    ],
+  },
+];
+
+const statoVoceLabel: Record<StatoVoce, string> = {
+  da_fare: "Da fare",
+  in_verifica: "In verifica",
+  completato: "Completato",
+};
+
+const statoVoceVariant: Record<StatoVoce, string> = {
+  da_fare: "bg-slate-800 text-slate-300 border-slate-700",
+  in_verifica: "bg-amber-900/40 text-amber-200 border-amber-800",
+  completato: "bg-emerald-900/40 text-emerald-200 border-emerald-800",
+};
+
 const BLOCCHI: BloccoPredisposto[] = [
   {
     id: "segnali_territoriali",
@@ -181,6 +252,81 @@ export default function TestRealeArcellaPage() {
           </Card>
         ))}
       </div>
+
+      {/* Checklist Test Reale */}
+      {(() => {
+        const tutteVoci = CHECKLIST.flatMap((b) => b.voci);
+        const totale = tutteVoci.length;
+        const completate = tutteVoci.filter((v) => v.stato === "completato").length;
+        const inVerifica = tutteVoci.filter((v) => v.stato === "in_verifica").length;
+        const daFare = tutteVoci.filter((v) => v.stato === "da_fare").length;
+        return (
+          <section className="space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold">Checklist Test Reale</h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                Elementi da raccogliere, controllare e validare prima di considerare Arcella pronta al
+                primo test con dati reali. Stato iniziale di tutte le voci: da fare.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs text-muted-foreground">Totale voci</p>
+                  <p className="text-2xl font-bold mt-1">{totale}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs text-muted-foreground">Completate</p>
+                  <p className="text-2xl font-bold mt-1">{completate}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs text-muted-foreground">In verifica</p>
+                  <p className="text-2xl font-bold mt-1">{inVerifica}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs text-muted-foreground">Da fare</p>
+                  <p className="text-2xl font-bold mt-1">{daFare}</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {CHECKLIST.map((blocco) => (
+                <Card key={blocco.id}>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">{blocco.titolo}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ul className="space-y-2">
+                      {blocco.voci.map((v, i) => (
+                        <li
+                          key={i}
+                          className="flex items-start justify-between gap-3 text-xs leading-relaxed"
+                        >
+                          <span>{v.testo}</span>
+                          <Badge
+                            variant="outline"
+                            className={`shrink-0 text-[10px] ${statoVoceVariant[v.stato]}`}
+                          >
+                            {statoVoceLabel[v.stato]}
+                          </Badge>
+                        </li>
+                      ))}
+                    </ul>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </section>
+        );
+      })()}
     </div>
   );
 }
