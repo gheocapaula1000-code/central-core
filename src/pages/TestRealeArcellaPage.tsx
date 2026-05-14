@@ -285,6 +285,50 @@ const statoOpportunitaLabel: Record<StatoOpportunita, string> = {
   da_confermare: "Da confermare",
 };
 
+type StatoAsset = "osservato" | "in_verifica";
+
+interface AssetOsservato {
+  etichetta: string;
+  tipologia: string;
+  coerenzaOpportunita: string;
+  stato: StatoAsset;
+  nota?: string;
+}
+
+const ASSET_OSSERVATI_ARCELLA: AssetOsservato[] = [
+  {
+    etichetta: "Appartamento medio-piccolo ristrutturato",
+    tipologia: "Appartamento",
+    coerenzaOpportunita: "Famiglie in cerca di appartamento ristrutturato",
+    stato: "osservato",
+    nota: "Tipologia coerente con domanda attiva verificata",
+  },
+  {
+    etichetta: "Bilocale / trilocale da investimento",
+    tipologia: "Bilocale / trilocale",
+    coerenzaOpportunita: "Piccolo investitore su affitto",
+    stato: "osservato",
+    nota: "Formato richiesto dal target investitori",
+  },
+  {
+    etichetta: "Appartamento medio per prima casa",
+    tipologia: "Appartamento",
+    coerenzaOpportunita: "Prima casa giovane coppia",
+    stato: "in_verifica",
+    nota: "In verifica rispetto alla fascia di prezzo percepita",
+  },
+];
+
+const statoAssetVariant: Record<StatoAsset, string> = {
+  osservato: "bg-emerald-900/40 text-emerald-200 border-emerald-800",
+  in_verifica: "bg-amber-900/40 text-amber-200 border-amber-800",
+};
+
+const statoAssetLabel: Record<StatoAsset, string> = {
+  osservato: "Osservato",
+  in_verifica: "In verifica",
+};
+
 export default function TestRealeArcellaPage() {
   const territorio = TERRITORI_CIVIKO_ONE[0];
   const microzona = territorio.microzone.find(
@@ -476,6 +520,51 @@ export default function TestRealeArcellaPage() {
                           {statoOpportunitaLabel[o.stato]}
                         </Badge>
                       </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ) : b.id === "immobili_osservati" ? (
+            <Card key={b.id} className="border-dashed">
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between gap-2">
+                  <CardTitle className="text-base">{b.titolo}</CardTitle>
+                  <Badge variant="outline" className="bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-800 text-[10px]">
+                    Primo test reale
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-xs text-muted-foreground leading-relaxed">{b.descrizione}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <Badge variant="outline" className="text-[10px] bg-sky-900/40 text-sky-200 border-sky-800">
+                    Parzialmente popolato
+                  </Badge>
+                </div>
+                <div className="space-y-2">
+                  {ASSET_OSSERVATI_ARCELLA.map((a, idx) => (
+                    <div
+                      key={idx}
+                      className="flex flex-col gap-1 text-xs leading-relaxed border-b border-border/50 pb-2 last:border-0 last:pb-0"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-medium">{a.etichetta}</span>
+                        <Badge
+                          variant="outline"
+                          className={`shrink-0 text-[10px] ${statoAssetVariant[a.stato]}`}
+                        >
+                          {statoAssetLabel[a.stato]}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                        <span>{a.tipologia}</span>
+                        <span>·</span>
+                        <span>{a.coerenzaOpportunita}</span>
+                      </div>
+                      {a.nota && (
+                        <span className="text-[10px] text-muted-foreground">{a.nota}</span>
+                      )}
                     </div>
                   ))}
                 </div>
