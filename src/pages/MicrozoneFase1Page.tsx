@@ -69,9 +69,22 @@ const statoFaseVariant: Record<StatoFase, string> = {
 };
 
 const prioritaVariant: Record<PrioritaOperativa, string> = {
+  massima: "bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-800",
   alta: "bg-emerald-900/40 text-emerald-200 border-emerald-800",
   media: "bg-amber-900/40 text-amber-200 border-amber-800",
   bassa: "bg-slate-800 text-slate-300 border-slate-700",
+};
+
+const statoTestRealeLabel: Record<StatoTestReale, string> = {
+  test_reale_pronto: "Test reale pronto",
+  in_attesa: "In attesa",
+  non_applicabile: "—",
+};
+
+const statoTestRealeVariant: Record<StatoTestReale, string> = {
+  test_reale_pronto: "bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-800",
+  in_attesa: "bg-secondary text-muted-foreground",
+  non_applicabile: "bg-slate-800 text-slate-300 border-slate-700",
 };
 
 const maturitaLabel: Record<MaturitaDato, string> = {
