@@ -41,9 +41,9 @@ const CHECKLIST: BloccoChecklist[] = [
     id: "opportunita_candidate",
     titolo: "Opportunità candidate",
     voci: [
-      { testo: "Prime opportunità candidate identificate", stato: "da_fare" },
-      { testo: "Opportunità validate come coerenti con la microzona", stato: "da_fare" },
-      { testo: "Priorità operativa assegnata alle candidate", stato: "da_fare" },
+      { testo: "Prime opportunità candidate identificate", stato: "completato" },
+      { testo: "Opportunità validate come coerenti con la microzona", stato: "completato" },
+      { testo: "Priorità operativa assegnata alle candidate", stato: "completato" },
     ],
   },
   {
