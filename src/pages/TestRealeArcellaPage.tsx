@@ -326,7 +326,48 @@ export default function TestRealeArcellaPage() {
       {/* Blocchi predisposti */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {BLOCCHI.map((b) =>
-          b.id === "servizi_verificati" ? (
+          b.id === "segnali_territoriali" ? (
+            <Card key={b.id} className="border-dashed">
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between gap-2">
+                  <CardTitle className="text-base">{b.titolo}</CardTitle>
+                  <Badge variant="outline" className="bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-800 text-[10px]">
+                    Primo test reale
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-xs text-muted-foreground leading-relaxed">{b.descrizione}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <Badge variant="outline" className="text-[10px] bg-sky-900/40 text-sky-200 border-sky-800">
+                    Parzialmente popolato
+                  </Badge>
+                </div>
+                <div className="space-y-2">
+                  {SEGNALI_TERRITORIALI_ARCELLA.map((s, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-start justify-between gap-2 text-xs leading-relaxed"
+                    >
+                      <div className="flex flex-col">
+                        <span className="font-medium">{s.nome}</span>
+                        <span className="text-[10px] text-muted-foreground">{s.nota}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-[10px] text-muted-foreground">{s.livello}</span>
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] ${statoSegnaleVariant[s.stato]}`}
+                        >
+                          {statoSegnaleLabel[s.stato]}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ) : b.id === "servizi_verificati" ? (
             <Card key={b.id} className="border-dashed">
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between gap-2">
