@@ -128,15 +128,23 @@ function buildRighe(): RigaFase1[] {
     const priorita = derivePriorita(m, opp);
     const maturita = deriveMaturita(m, opp, servizi);
     const key = `${m.comune}-${m.nome}`;
-    const nota =
-      NOTE_INTERNE[key] ??
-      m.noteOperativeInterne ??
-      "Nessuna nota interna registrata.";
+    const isTestReale = key === TEST_REALE_KEY;
+    const prioritaBase = derivePriorita(m, opp);
+    const priorita: PrioritaOperativa = isTestReale ? "massima" : prioritaBase;
+    const maturita = deriveMaturita(m, opp, servizi);
+    const nota = isTestReale
+      ? "Prima microzona test reale del pilota Padova: priorità massima, popolamento dati reali da preparare con cautela."
+      : NOTE_INTERNE[key] ?? m.noteOperativeInterne ?? "Nessuna nota interna registrata.";
     const prontaPerTestReali =
       stato === "fase_1" &&
       m.stato === "attivo" &&
-      priorita === "alta" &&
+      prioritaBase === "alta" &&
       maturita === "demo_operativa";
+    const statoTestReale: StatoTestReale = isTestReale
+      ? "test_reale_pronto"
+      : stato === "fase_1"
+        ? "in_attesa"
+        : "non_applicabile";
 
     return {
       microzona: m,
@@ -149,6 +157,8 @@ function buildRighe(): RigaFase1[] {
       serviziDisponibili: servizi,
       notaInterna: nota,
       prontaPerTestReali,
+      isTestReale,
+      statoTestReale,
     };
   });
 }
