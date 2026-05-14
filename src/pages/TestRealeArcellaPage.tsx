@@ -14,6 +14,77 @@ interface BloccoPredisposto {
   descrizione: string;
 }
 
+type StatoVoce = "da_fare" | "in_verifica" | "completato";
+
+interface VoceChecklist {
+  testo: string;
+  stato: StatoVoce;
+}
+
+interface BloccoChecklist {
+  id: string;
+  titolo: string;
+  voci: VoceChecklist[];
+}
+
+const CHECKLIST: BloccoChecklist[] = [
+  {
+    id: "territorio_perimetro",
+    titolo: "Territorio e perimetro",
+    voci: [
+      { testo: "Perimetro microzona Arcella confermato", stato: "da_fare" },
+      { testo: "Cluster commerciale coerente verificato", stato: "da_fare" },
+      { testo: "Confini con microzone limitrofe chiariti", stato: "da_fare" },
+    ],
+  },
+  {
+    id: "opportunita_candidate",
+    titolo: "Opportunità candidate",
+    voci: [
+      { testo: "Prime opportunità candidate identificate", stato: "da_fare" },
+      { testo: "Opportunità validate come coerenti con la microzona", stato: "da_fare" },
+      { testo: "Priorità operativa assegnata alle candidate", stato: "da_fare" },
+    ],
+  },
+  {
+    id: "servizi_prossimita",
+    titolo: "Servizi di prossimità",
+    voci: [
+      { testo: "Servizi minimi verificabili sul territorio", stato: "da_fare" },
+      { testo: "Lettura sintetica confermata sul campo", stato: "da_fare" },
+    ],
+  },
+  {
+    id: "dossier_collegabili",
+    titolo: "Dossier collegabili",
+    voci: [
+      { testo: "Almeno un dossier collegabile preparato", stato: "da_fare" },
+      { testo: "Dossier coerente con la microzona Arcella", stato: "da_fare" },
+    ],
+  },
+  {
+    id: "stato_validazione",
+    titolo: "Stato di validazione",
+    voci: [
+      { testo: "Note operative compilate", stato: "da_fare" },
+      { testo: "Revisione interna effettuata", stato: "da_fare" },
+      { testo: "Pronto per primo test dati reali", stato: "da_fare" },
+    ],
+  },
+];
+
+const statoVoceLabel: Record<StatoVoce, string> = {
+  da_fare: "Da fare",
+  in_verifica: "In verifica",
+  completato: "Completato",
+};
+
+const statoVoceVariant: Record<StatoVoce, string> = {
+  da_fare: "bg-slate-800 text-slate-300 border-slate-700",
+  in_verifica: "bg-amber-900/40 text-amber-200 border-amber-800",
+  completato: "bg-emerald-900/40 text-emerald-200 border-emerald-800",
+};
+
 const BLOCCHI: BloccoPredisposto[] = [
   {
     id: "segnali_territoriali",
