@@ -1,4 +1,4 @@
-import { LayoutDashboard, Smartphone, Bot, ClipboardList, KeyRound, BarChart3, ShieldCheck, Wallet, MapPin, Target, Briefcase, BookOpen, Layers } from "lucide-react";
+import { LayoutDashboard, Smartphone, Bot, ClipboardList, KeyRound, BarChart3, ShieldCheck, Wallet, MapPin, Target, Briefcase, BookOpen, Layers, FlaskConical } from "lucide-react";
 import coreIcon from "@/assets/core-icon.png";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -19,6 +19,7 @@ const menuItems = [
   { title: "App Collegate", url: "/apps", icon: Smartphone },
   { title: "Territori", url: "/territori", icon: MapPin },
   { title: "Microzone Fase 1", url: "/microzone-fase-1", icon: Layers },
+  { title: "Test Reale Arcella", url: "/test-reale-arcella", icon: FlaskConical },
   { title: "Opportunità Pilota", url: "/opportunita-pilota", icon: Target },
   { title: "Dossier Agenzia", url: "/dossier-agenzia", icon: Briefcase },
   { title: "Sintesi Proprietario", url: "/sintesi-proprietario", icon: BookOpen },
