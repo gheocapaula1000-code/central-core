@@ -173,7 +173,7 @@ const FILTERS: { key: FilterKey; label: string }[] = [
 function RigaCard({ r }: { r: RigaFase1 }) {
   const m = r.microzona;
   return (
-    <Card>
+    <Card className={r.isTestReale ? "border-fuchsia-700/60 ring-1 ring-fuchsia-700/30" : undefined}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div>
@@ -182,6 +182,11 @@ function RigaCard({ r }: { r: RigaFase1 }) {
               {m.comune} · {CLUSTER_LABEL[m.cluster]} · <span className="capitalize">{m.fasciaPercepita}</span>
             </p>
             <div className="flex flex-wrap gap-1.5 mt-2">
+              {r.isTestReale && (
+                <Badge variant="outline" className={`text-[10px] ${statoTestRealeVariant.test_reale_pronto}`}>
+                  Microzona test reale
+                </Badge>
+              )}
               <Badge variant="outline" className={`text-[10px] ${statoFaseVariant[r.statoFase]}`}>
                 {statoFaseLabel[r.statoFase]}
               </Badge>
@@ -191,7 +196,7 @@ function RigaCard({ r }: { r: RigaFase1 }) {
               <Badge variant="outline" className={`text-[10px] ${maturitaVariant[r.maturita]}`}>
                 {maturitaLabel[r.maturita]}
               </Badge>
-              {r.prontaPerTestReali && (
+              {!r.isTestReale && r.prontaPerTestReali && (
                 <Badge variant="outline" className="text-[10px] bg-emerald-900/40 text-emerald-200 border-emerald-800">
                   Pronta per test reali
                 </Badge>
