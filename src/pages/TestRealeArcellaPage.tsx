@@ -66,9 +66,9 @@ const CHECKLIST: BloccoChecklist[] = [
     id: "stato_validazione",
     titolo: "Stato di validazione",
     voci: [
-      { testo: "Note operative compilate", stato: "da_fare" },
-      { testo: "Revisione interna effettuata", stato: "da_fare" },
-      { testo: "Pronto per primo test dati reali", stato: "da_fare" },
+      { testo: "Note operative compilate", stato: "completato" },
+      { testo: "Revisione interna effettuata", stato: "completato" },
+      { testo: "Pronto per primo test dati reali", stato: "completato" },
     ],
   },
 ];
