@@ -219,8 +219,10 @@ function RigaCard({ r }: { r: RigaFase1 }) {
           <span className="font-mono">{r.dossier}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Servizi di prossimità</span>
-          <span>{r.serviziDisponibili ? "Sì" : "No"}</span>
+          <span className="text-muted-foreground">Stato test reale</span>
+          <Badge variant="outline" className={`text-[10px] ${statoTestRealeVariant[r.statoTestReale]}`}>
+            {statoTestRealeLabel[r.statoTestReale]}
+          </Badge>
         </div>
         <div className="pt-2 border-t border-border">
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Nota interna</p>
