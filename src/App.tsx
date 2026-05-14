@@ -18,6 +18,7 @@ import SelftestPage from "@/pages/SelftestPage";
 import ApiCreditsPage from "@/pages/ApiCreditsPage";
 import DevJobsPage from "@/pages/DevJobsPage";
 import TerritoriPage from "@/pages/TerritoriPage";
+import MicrozoneFase1Page from "@/pages/MicrozoneFase1Page";
 import OpportunitaPilotaPage from "@/pages/OpportunitaPilotaPage";
 import DossierAgenziaPage from "@/pages/DossierAgenziaPage";
 import SintesiProprietarioPage from "@/pages/SintesiProprietarioPage";
@@ -67,6 +68,7 @@ const App = () => (
                   <Route path="/api-credits" element={<ApiCreditsPage />} />
                   <Route path="/dev/jobs" element={<DevJobsPage />} />
                   <Route path="/territori" element={<TerritoriPage />} />
+                  <Route path="/microzone-fase-1" element={<MicrozoneFase1Page />} />
                   <Route path="/opportunita-pilota" element={<OpportunitaPilotaPage />} />
                   <Route path="/dossier-agenzia" element={<DossierAgenziaPage />} />
                   <Route path="/sintesi-proprietario" element={<SintesiProprietarioPage />} />
