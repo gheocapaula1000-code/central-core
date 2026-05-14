@@ -95,3 +95,6 @@ verify_jwt = false
 
 [functions.api-credit-thresholds]
 verify_jwt = false
+
+[functions.publish-microzona-dossier]
+verify_jwt = false
