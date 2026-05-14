@@ -64,7 +64,7 @@ export async function saveValidatedMicrozonaSnapshot(
       opportunita_candidate: dossier.opportunita_candidate,
       asset_osservati: dossier.asset_osservati,
       note_interne: dossier.note_interne || null,
-    })
+    }])
     .select("id")
     .single();
 
