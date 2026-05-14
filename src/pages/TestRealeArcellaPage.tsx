@@ -285,7 +285,49 @@ const statoOpportunitaLabel: Record<StatoOpportunita, string> = {
   da_confermare: "Da confermare",
 };
 
-export default function TestRealeArcellaPage() {
+type StatoAsset = "osservato" | "in_verifica";
+
+interface AssetOsservato {
+  etichetta: string;
+  tipologia: string;
+  coerenzaOpportunita: string;
+  stato: StatoAsset;
+  nota?: string;
+}
+
+const ASSET_OSSERVATI_ARCELLA: AssetOsservato[] = [
+  {
+    etichetta: "Appartamento medio-piccolo ristrutturato",
+    tipologia: "Appartamento",
+    coerenzaOpportunita: "Famiglie in cerca di appartamento ristrutturato",
+    stato: "osservato",
+    nota: "Tipologia coerente con domanda attiva verificata",
+  },
+  {
+    etichetta: "Bilocale / trilocale da investimento",
+    tipologia: "Bilocale / trilocale",
+    coerenzaOpportunita: "Piccolo investitore su affitto",
+    stato: "osservato",
+    nota: "Formato richiesto dal target investitori",
+  },
+  {
+    etichetta: "Appartamento medio per prima casa",
+    tipologia: "Appartamento",
+    coerenzaOpportunita: "Prima casa giovane coppia",
+    stato: "in_verifica",
+    nota: "In verifica rispetto alla fascia di prezzo percepita",
+  },
+];
+
+const statoAssetVariant: Record<StatoAsset, string> = {
+  osservato: "bg-emerald-900/40 text-emerald-200 border-emerald-800",
+  in_verifica: "bg-amber-900/40 text-amber-200 border-amber-800",
+};
+
+const statoAssetLabel: Record<StatoAsset, string> = {
+  osservato: "Osservato",
+  in_verifica: "In verifica",
+};
   const territorio = TERRITORI_CIVIKO_ONE[0];
   const microzona = territorio.microzone.find(
     (m) => m.nome === ARCELLA_NOME && m.comune === ARCELLA_COMUNE,
