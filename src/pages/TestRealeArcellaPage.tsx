@@ -428,6 +428,59 @@ export default function TestRealeArcellaPage() {
                 </div>
               </CardContent>
             </Card>
+          ) : b.id === "opportunita_candidate" ? (
+            <Card key={b.id} className="border-dashed">
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between gap-2">
+                  <CardTitle className="text-base">{b.titolo}</CardTitle>
+                  <Badge variant="outline" className="bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-800 text-[10px]">
+                    Primo test reale
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-xs text-muted-foreground leading-relaxed">{b.descrizione}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <Badge variant="outline" className="text-[10px] bg-sky-900/40 text-sky-200 border-sky-800">
+                    Parzialmente popolato
+                  </Badge>
+                </div>
+                <div className="space-y-2">
+                  {OPPORTUNITA_CANDIDATE_ARCELLA.map((o, idx) => (
+                    <div
+                      key={idx}
+                      className="flex flex-col gap-1 text-xs leading-relaxed border-b border-border/50 pb-2 last:border-0 last:pb-0"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-medium">{o.titolo}</span>
+                        <Badge
+                          variant="outline"
+                          className={`shrink-0 text-[10px] ${prioritaVariant[o.priorita]}`}
+                        >
+                          {prioritaLabel[o.priorita]}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                        <span>{o.tipologia}</span>
+                        <span>·</span>
+                        <span>Coerenza {o.coerenza.toLowerCase()}</span>
+                      </div>
+                      {o.nota && (
+                        <span className="text-[10px] text-muted-foreground">{o.nota}</span>
+                      )}
+                      <div className="flex justify-end">
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] ${statoOpportunitaVariant[o.stato]}`}
+                        >
+                          {statoOpportunitaLabel[o.stato]}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           ) : b.id === "servizi_verificati" ? (
             <Card key={b.id} className="border-dashed">
               <CardHeader className="pb-2">
