@@ -523,6 +523,51 @@ const statoAssetLabel: Record<StatoAsset, string> = {
                 </div>
               </CardContent>
             </Card>
+          ) : b.id === "immobili_osservati" ? (
+            <Card key={b.id} className="border-dashed">
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between gap-2">
+                  <CardTitle className="text-base">{b.titolo}</CardTitle>
+                  <Badge variant="outline" className="bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-800 text-[10px]">
+                    Primo test reale
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-xs text-muted-foreground leading-relaxed">{b.descrizione}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <Badge variant="outline" className="text-[10px] bg-sky-900/40 text-sky-200 border-sky-800">
+                    Parzialmente popolato
+                  </Badge>
+                </div>
+                <div className="space-y-2">
+                  {ASSET_OSSERVATI_ARCELLA.map((a, idx) => (
+                    <div
+                      key={idx}
+                      className="flex flex-col gap-1 text-xs leading-relaxed border-b border-border/50 pb-2 last:border-0 last:pb-0"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-medium">{a.etichetta}</span>
+                        <Badge
+                          variant="outline"
+                          className={`shrink-0 text-[10px] ${statoAssetVariant[a.stato]}`}
+                        >
+                          {statoAssetLabel[a.stato]}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                        <span>{a.tipologia}</span>
+                        <span>·</span>
+                        <span>{a.coerenzaOpportunita}</span>
+                      </div>
+                      {a.nota && (
+                        <span className="text-[10px] text-muted-foreground">{a.nota}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           ) : b.id === "servizi_verificati" ? (
             <Card key={b.id} className="border-dashed">
               <CardHeader className="pb-2">
