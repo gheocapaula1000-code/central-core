@@ -124,6 +124,48 @@ const BLOCCHI: BloccoPredisposto[] = [
   },
 ];
 
+interface ServizioVerificato {
+  categoria: string;
+  elementi: { nome: string; presenza: string; nota?: string }[];
+}
+
+const SERVIZI_VERIFICATI_ARCELLA: ServizioVerificato[] = [
+  {
+    categoria: "Trasporti",
+    elementi: [
+      { nome: "Fermate bus / tram", presenza: "Forte presenza", nota: "Linee verso centro e tangenziali" },
+    ],
+  },
+  {
+    categoria: "Scuole",
+    elementi: [
+      { nome: "Scuole primarie e secondarie", presenza: "Presenza media", nota: "Copertura nel raggio microzona" },
+      { nome: "Asili", presenza: "Presenza media" },
+    ],
+  },
+  {
+    categoria: "Spesa e alimentari",
+    elementi: [
+      { nome: "Supermercati", presenza: "Forte presenza", nota: "Punti vendita di medie dimensioni" },
+      { nome: "Alimentari / botteghe", presenza: "Forte presenza" },
+    ],
+  },
+  {
+    categoria: "Servizi quotidiani essenziali",
+    elementi: [
+      { nome: "Farmacie", presenza: "Presenza media" },
+      { nome: "Tabacchini", presenza: "Forte presenza" },
+      { nome: "Poste", presenza: "Presenza media", nota: "Sportello nel raggio operativo" },
+    ],
+  },
+];
+
+const presenzaVariant: Record<string, string> = {
+  "Forte presenza": "bg-emerald-900/40 text-emerald-200 border-emerald-800",
+  "Presenza media": "bg-sky-900/40 text-sky-200 border-sky-800",
+  "Presenza limitata": "bg-amber-900/40 text-amber-200 border-amber-800",
+};
+
 export default function TestRealeArcellaPage() {
   const territorio = TERRITORI_CIVIKO_ONE[0];
   const microzona = territorio.microzone.find(
