@@ -41,9 +41,9 @@ const CHECKLIST: BloccoChecklist[] = [
     id: "opportunita_candidate",
     titolo: "Opportunità candidate",
     voci: [
-      { testo: "Prime opportunità candidate identificate", stato: "da_fare" },
-      { testo: "Opportunità validate come coerenti con la microzona", stato: "da_fare" },
-      { testo: "Priorità operativa assegnata alle candidate", stato: "da_fare" },
+      { testo: "Prime opportunità candidate identificate", stato: "completato" },
+      { testo: "Opportunità validate come coerenti con la microzona", stato: "completato" },
+      { testo: "Priorità operativa assegnata alle candidate", stato: "completato" },
     ],
   },
   {
@@ -224,6 +224,67 @@ const statoSegnaleLabel: Record<StatoSegnale, string> = {
   da_confermare: "Da confermare",
 };
 
+type PrioritaOpportunita = "alta" | "media" | "bassa";
+type StatoOpportunita = "verificata" | "da_confermare";
+
+interface OpportunitaCandidate {
+  titolo: string;
+  tipologia: string;
+  coerenza: string;
+  priorita: PrioritaOpportunita;
+  stato: StatoOpportunita;
+  nota?: string;
+}
+
+const OPPORTUNITA_CANDIDATE_ARCELLA: OpportunitaCandidate[] = [
+  {
+    titolo: "Famiglie in cerca di appartamento ristrutturato",
+    tipologia: "Appartamento medio-piccolo",
+    coerenza: "Forte",
+    priorita: "alta",
+    stato: "verificata",
+    nota: "Domanda attiva su zona popolare con servizi",
+  },
+  {
+    titolo: "Piccolo investitore su affitto",
+    tipologia: "Bilocale / trilocale",
+    coerenza: "Forte",
+    priorita: "media",
+    stato: "verificata",
+    nota: "Buona accessibilità e servizi sostengono rendimento",
+  },
+  {
+    titolo: "Prima casa giovane coppia",
+    tipologia: "Appartamento medio",
+    coerenza: "Media",
+    priorita: "media",
+    stato: "da_confermare",
+    nota: "Interesse sostenuto da trasporti e prezzi contenuti",
+  },
+];
+
+const prioritaVariant: Record<PrioritaOpportunita, string> = {
+  alta: "bg-rose-900/40 text-rose-200 border-rose-800",
+  media: "bg-sky-900/40 text-sky-200 border-sky-800",
+  bassa: "bg-slate-800 text-slate-300 border-slate-700",
+};
+
+const prioritaLabel: Record<PrioritaOpportunita, string> = {
+  alta: "Alta",
+  media: "Media",
+  bassa: "Bassa",
+};
+
+const statoOpportunitaVariant: Record<StatoOpportunita, string> = {
+  verificata: "bg-emerald-900/40 text-emerald-200 border-emerald-800",
+  da_confermare: "bg-amber-900/40 text-amber-200 border-amber-800",
+};
+
+const statoOpportunitaLabel: Record<StatoOpportunita, string> = {
+  verificata: "Verificata",
+  da_confermare: "Da confermare",
+};
+
 export default function TestRealeArcellaPage() {
   const territorio = TERRITORI_CIVIKO_ONE[0];
   const microzona = territorio.microzone.find(
@@ -360,6 +421,59 @@ export default function TestRealeArcellaPage() {
                           className={`text-[10px] ${statoSegnaleVariant[s.stato]}`}
                         >
                           {statoSegnaleLabel[s.stato]}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ) : b.id === "opportunita_candidate" ? (
+            <Card key={b.id} className="border-dashed">
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between gap-2">
+                  <CardTitle className="text-base">{b.titolo}</CardTitle>
+                  <Badge variant="outline" className="bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-800 text-[10px]">
+                    Primo test reale
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-xs text-muted-foreground leading-relaxed">{b.descrizione}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <Badge variant="outline" className="text-[10px] bg-sky-900/40 text-sky-200 border-sky-800">
+                    Parzialmente popolato
+                  </Badge>
+                </div>
+                <div className="space-y-2">
+                  {OPPORTUNITA_CANDIDATE_ARCELLA.map((o, idx) => (
+                    <div
+                      key={idx}
+                      className="flex flex-col gap-1 text-xs leading-relaxed border-b border-border/50 pb-2 last:border-0 last:pb-0"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-medium">{o.titolo}</span>
+                        <Badge
+                          variant="outline"
+                          className={`shrink-0 text-[10px] ${prioritaVariant[o.priorita]}`}
+                        >
+                          {prioritaLabel[o.priorita]}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                        <span>{o.tipologia}</span>
+                        <span>·</span>
+                        <span>Coerenza {o.coerenza.toLowerCase()}</span>
+                      </div>
+                      {o.nota && (
+                        <span className="text-[10px] text-muted-foreground">{o.nota}</span>
+                      )}
+                      <div className="flex justify-end">
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] ${statoOpportunitaVariant[o.stato]}`}
+                        >
+                          {statoOpportunitaLabel[o.stato]}
                         </Badge>
                       </div>
                     </div>
@@ -563,8 +677,8 @@ export default function TestRealeArcellaPage() {
             id: "opportunita_minime",
             titolo: "Opportunità candidate minime",
             elementi: [
-              { testo: "Prime opportunità candidate osservabili", stato: "non_raccolto" },
-              { testo: "Coerenza con la microzona verificata", stato: "non_raccolto" },
+              { testo: "Prime opportunità candidate osservabili", stato: "raccolto" },
+              { testo: "Coerenza con la microzona verificata", stato: "raccolto" },
             ],
           },
           {
