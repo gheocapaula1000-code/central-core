@@ -224,6 +224,67 @@ const statoSegnaleLabel: Record<StatoSegnale, string> = {
   da_confermare: "Da confermare",
 };
 
+type PrioritaOpportunita = "alta" | "media" | "bassa";
+type StatoOpportunita = "verificata" | "da_confermare";
+
+interface OpportunitaCandidate {
+  titolo: string;
+  tipologia: string;
+  coerenza: string;
+  priorita: PrioritaOpportunita;
+  stato: StatoOpportunita;
+  nota?: string;
+}
+
+const OPPORTUNITA_CANDIDATE_ARCELLA: OpportunitaCandidate[] = [
+  {
+    titolo: "Famiglie in cerca di appartamento ristrutturato",
+    tipologia: "Appartamento medio-piccolo",
+    coerenza: "Forte",
+    priorita: "alta",
+    stato: "verificata",
+    nota: "Domanda attiva su zona popolare con servizi",
+  },
+  {
+    titolo: "Piccolo investitore su affitto",
+    tipologia: "Bilocale / trilocale",
+    coerenza: "Forte",
+    priorita: "media",
+    stato: "verificata",
+    nota: "Buona accessibilità e servizi sostengono rendimento",
+  },
+  {
+    titolo: "Prima casa giovane coppia",
+    tipologia: "Appartamento medio",
+    coerenza: "Media",
+    priorita: "media",
+    stato: "da_confermare",
+    nota: "Interesse sostenuto da trasporti e prezzi contenuti",
+  },
+];
+
+const prioritaVariant: Record<PrioritaOpportunita, string> = {
+  alta: "bg-rose-900/40 text-rose-200 border-rose-800",
+  media: "bg-sky-900/40 text-sky-200 border-sky-800",
+  bassa: "bg-slate-800 text-slate-300 border-slate-700",
+};
+
+const prioritaLabel: Record<PrioritaOpportunita, string> = {
+  alta: "Alta",
+  media: "Media",
+  bassa: "Bassa",
+};
+
+const statoOpportunitaVariant: Record<StatoOpportunita, string> = {
+  verificata: "bg-emerald-900/40 text-emerald-200 border-emerald-800",
+  da_confermare: "bg-amber-900/40 text-amber-200 border-amber-800",
+};
+
+const statoOpportunitaLabel: Record<StatoOpportunita, string> = {
+  verificata: "Verificata",
+  da_confermare: "Da confermare",
+};
+
 export default function TestRealeArcellaPage() {
   const territorio = TERRITORI_CIVIKO_ONE[0];
   const microzona = territorio.microzone.find(
