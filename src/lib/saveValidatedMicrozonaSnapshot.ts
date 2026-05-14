@@ -59,10 +59,10 @@ export async function saveValidatedMicrozonaSnapshot(
       microzona_id: dossier.microzona_id,
       versione: dossier.versione,
       stato: dossier.stato, // resta "approvata_interna" in questo step
-      servizi_prossimita: dossier.servizi_prossimita,
-      segnali_territoriali: dossier.segnali_territoriali,
-      opportunita_candidate: dossier.opportunita_candidate,
-      asset_osservati: dossier.asset_osservati,
+      servizi_prossimita: dossier.servizi_prossimita as unknown as Json,
+      segnali_territoriali: dossier.segnali_territoriali as unknown as Json,
+      opportunita_candidate: dossier.opportunita_candidate as unknown as Json,
+      asset_osservati: dossier.asset_osservati as unknown as Json,
       note_interne: dossier.note_interne || null,
     }])
     .select("id")
