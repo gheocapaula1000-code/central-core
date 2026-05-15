@@ -1,0 +1,45 @@
+{
+  "_meta": {
+    "descrizione": "Esempio di 'dossier tipo' conforme a StandardMicrozonaPadovaModel (src/lib/standardMicrozonaPadovaModel.ts). Derivato dal pilota Arcella, anonimizzato. NON è un seed DB: serve solo come riferimento per future microzone di Padova e provincia.",
+    "coerenza": {
+      "db_table": "microzona_dossier (colonne: microzona_id, versione, stato, servizi_prossimita, segnali_territoriali, opportunita_candidate, asset_osservati)",
+      "edge_function": "publish-microzona-dossier (data.{microzona_id, versione, stato, blocchi, riepilogo})",
+      "pwa_view": "/microzone/<microzona_id>"
+    },
+    "livelli_ammessi": ["certo", "probabile", "da_testare"],
+    "stati_ammessi": ["approvata_interna", "pubblicabile", "pubblicata"]
+  },
+
+  "microzona_id": "esempio-padova",
+  "nome": "Esempio Padova",
+  "comune": "Padova",
+  "provincia": "PD",
+
+  "stato_interno": "approvata_interna",
+  "data_snapshot": "2026-05-15T00:00:00.000Z",
+  "note_interne": "Dossier tipo derivato dal pilota Arcella. Anonimizzato.",
+
+  "blocchi": {
+    "servizi_prossimita": [
+      { "categoria": "Trasporti", "etichetta": "Fermata bus principale", "livello": "certo" },
+      { "categoria": "Scuole", "etichetta": "Primaria di quartiere", "livello": "probabile" }
+    ],
+    "segnali_territoriali": [
+      { "nome": "Domanda percepita", "intensita": "forte", "livello": "certo" },
+      { "nome": "Pressione competitiva", "intensita": "media", "livello": "da_testare" }
+    ],
+    "opportunita_candidate": [
+      { "titolo": "Famiglie con figli", "priorita": "alta", "livello": "certo" },
+      { "titolo": "Prima casa under 35", "priorita": "media", "livello": "probabile" }
+    ],
+    "asset_osservati": [
+      { "etichetta": "Appartamento 3 locali", "livello": "certo" },
+      { "etichetta": "Bilocale ristrutturato", "livello": "probabile" }
+    ]
+  },
+
+  "riepilogo": {
+    "totale_elementi": 8,
+    "ripartizione": { "certo": 4, "probabile": 3, "da_testare": 1 }
+  }
+}
