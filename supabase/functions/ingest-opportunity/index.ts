@@ -33,6 +33,8 @@ interface RawInput {
   surface_mq?: number | string | null;
   fetched_at?: string;
   raw_payload?: Record<string, unknown>;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
 }
 
 function num(v: unknown): number | null {
@@ -144,6 +146,10 @@ Deno.serve(async (req) => {
     // 2) normalize
     const ask_price = num(item.ask_price);
     const surface_mq = num(item.surface_mq);
+    const latRaw = num(item.latitude);
+    const lonRaw = num(item.longitude);
+    const latitude = latRaw !== null && latRaw >= -90 && latRaw <= 90 ? latRaw : null;
+    const longitude = lonRaw !== null && lonRaw >= -180 && lonRaw <= 180 ? lonRaw : null;
     const title = (item.title ?? "").toString().slice(0, 200) || "(senza titolo)";
     const normalized = {
       raw_id: raw.id,
@@ -154,6 +160,8 @@ Deno.serve(async (req) => {
       property_type: item.property_type ?? null,
       ask_price,
       surface_mq,
+      latitude,
+      longitude,
       source_name: item.source_name,
       source_url: item.source_url ?? null,
     };

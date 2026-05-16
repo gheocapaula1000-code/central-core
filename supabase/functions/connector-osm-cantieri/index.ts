@@ -41,14 +41,33 @@ function json(status: number, body: unknown) {
   });
 }
 
+// Microzone logic prudente:
+// 1) addr:suburb (più affidabile, dato ufficiale OSM)
+// 2) addr:neighbourhood o addr:quarter
+// 3) addr:city_district (talvolta usato per quartieri)
+// Nessun fallback inventato: se manca, resta null.
+function resolveMicrozone(tags: Record<string, string>): string | null {
+  const candidates = [
+    tags["addr:suburb"],
+    tags["addr:neighbourhood"],
+    tags["addr:quarter"],
+    tags["addr:city_district"],
+  ];
+  for (const c of candidates) {
+    const v = (c ?? "").trim();
+    if (v && v.length >= 2 && v.length <= 80) return v;
+  }
+  return null;
+}
+
 function buildPayload(el: OverpassElement) {
   const tags = el.tags ?? {};
   const street = tags["addr:street"];
   const number = tags["addr:housenumber"];
-  const suburb = tags["addr:suburb"] ?? tags["addr:neighbourhood"];
   const address = [street, number].filter(Boolean).join(" ") || null;
-  const lat = el.lat ?? el.center?.lat;
-  const lon = el.lon ?? el.center?.lon;
+  const lat = el.lat ?? el.center?.lat ?? null;
+  const lon = el.lon ?? el.center?.lon ?? null;
+  const microzone = resolveMicrozone(tags);
   const title = tags["name"]
     ? `Cantiere: ${tags["name"]}`
     : `Cantiere in costruzione (OSM ${el.type}/${el.id})`;
@@ -57,12 +76,14 @@ function buildPayload(el: OverpassElement) {
     source_name: "osm-overpass:padova-construction",
     source_url: `https://www.openstreetmap.org/${el.type}/${el.id}`,
     municipality: "Padova",
-    microzone: suburb ?? null,
+    microzone,
     title,
     address_text: address,
     property_type: tags["building:use"] ?? "cantiere",
     ask_price: null,
     surface_mq: null,
+    latitude: lat,
+    longitude: lon,
     fetched_at: new Date().toISOString(),
     raw_payload: { osm_id: el.id, osm_type: el.type, lat, lon, tags },
   };
