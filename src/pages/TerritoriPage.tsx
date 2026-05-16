@@ -30,7 +30,7 @@ import {
   COPERTURA_PADOVA,
   COPERTURA_PADOVA_SINTESI,
   STATO_COPERTURA_LABEL,
-  MATURITA_DATO_LABEL,
+  MATURITA_DATO_LABEL as MATURITA_COPERTURA_LABEL,
   type StatoCopertura,
   type MaturitaDato as MaturitaCopertura,
 } from "@/data/copertura-padova";
