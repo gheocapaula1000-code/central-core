@@ -98,3 +98,9 @@ verify_jwt = false
 
 [functions.publish-microzona-dossier]
 verify_jwt = false
+
+[functions.ingest-opportunity]
+verify_jwt = false
+
+[functions.admin-ingest-test]
+verify_jwt = false
