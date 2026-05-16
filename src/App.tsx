@@ -23,6 +23,7 @@ import TestRealeArcellaPage from "@/pages/TestRealeArcellaPage";
 import OpportunitaPilotaPage from "@/pages/OpportunitaPilotaPage";
 import DossierAgenziaPage from "@/pages/DossierAgenziaPage";
 import SintesiProprietarioPage from "@/pages/SintesiProprietarioPage";
+import DataEnginePage from "@/pages/DataEnginePage";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -74,6 +75,7 @@ const App = () => (
                   <Route path="/opportunita-pilota" element={<OpportunitaPilotaPage />} />
                   <Route path="/dossier-agenzia" element={<DossierAgenziaPage />} />
                   <Route path="/sintesi-proprietario" element={<SintesiProprietarioPage />} />
+                  <Route path="/data-engine" element={<DataEnginePage />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </main>
