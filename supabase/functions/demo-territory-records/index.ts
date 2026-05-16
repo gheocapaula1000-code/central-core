@@ -1,6 +1,7 @@
 // demo-territory-records
-// Endpoint pubblico sicuro: sottoinsieme innocuo dei record del pilota (Padova).
-// Nessun dato sensibile, max 5 record, solo campi pubblici già esposti come stime.
+// Endpoint pubblico sicuro: selezione minima ma reale dei segnali territoriali
+// del pilota (Padova + cintura). Nessun dato sensibile, niente raw_payload,
+// niente null rumorosi. Arricchito con area_label/freshness_label/priority_label.
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -12,7 +13,16 @@ const corsHeaders = {
 };
 
 const SUPPORTED_CITIES = new Set(["padova"]);
-const MAX_RECORDS = 5;
+const MAX_RECORDS = 12;
+
+const PD_LAT = 45.4064;
+const PD_LON = 11.8768;
+
+const CINTURA = [
+  "Padova", "Albignasego", "Cadoneghe", "Rubano", "Selvazzano Dentro",
+  "Ponte San Nicolò", "Noventa Padovana", "Vigodarzere", "Limena", "Abano Terme",
+  "Saonara",
+];
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -21,12 +31,59 @@ function json(body: unknown, status = 200) {
   });
 }
 
-// Sanifica title: rimuove indirizzi civici espliciti e numeri lunghi.
 function sanitizeTitle(t: string): string {
-  if (!t) return "Opportunità nel territorio";
-  let s = t.replace(/\b\d{1,4}\b/g, "").replace(/\s+/g, " ").trim();
-  if (s.length > 80) s = s.slice(0, 77) + "…";
-  return s || "Opportunità nel territorio";
+  if (!t) return "Segnale territoriale";
+  let s = t.replace(/\(OSM [a-z]+\/\d+\)/gi, "").replace(/\s+/g, " ").trim();
+  if (s.length > 90) s = s.slice(0, 87) + "…";
+  return s || "Segnale territoriale";
+}
+
+function freshnessLabel(d: number): string {
+  if (d <= 7) return "ultimi 7 giorni";
+  if (d <= 30) return "ultimo mese";
+  if (d <= 90) return "ultimi 3 mesi";
+  return "oltre 3 mesi";
+}
+
+function priorityLabel(s: number): string {
+  if (s >= 80) return "alta";
+  if (s >= 60) return "medio-alta";
+  if (s >= 40) return "media";
+  return "bassa";
+}
+
+function deriveAreaLabel(
+  lat: number | null,
+  lon: number | null,
+  municipality: string | null,
+  microzone: string | null,
+): string {
+  if (microzone) return microzone;
+  const muni = municipality ?? "Padova";
+  if (lat == null || lon == null) return muni;
+  if (muni.toLowerCase() !== "padova") return muni;
+  const dLat = lat - PD_LAT;
+  const dLon = lon - PD_LON;
+  const r = Math.sqrt(dLat * dLat + dLon * dLon);
+  if (r < 0.012) return "Padova · Centro";
+  const angle = (Math.atan2(dLat, dLon) * 180) / Math.PI;
+  let dir = "Ovest";
+  if (angle >= -22.5 && angle < 22.5) dir = "Est";
+  else if (angle >= 22.5 && angle < 67.5) dir = "Nord-Est";
+  else if (angle >= 67.5 && angle < 112.5) dir = "Nord";
+  else if (angle >= 112.5 && angle < 157.5) dir = "Nord-Ovest";
+  else if (angle >= -67.5 && angle < -22.5) dir = "Sud-Est";
+  else if (angle >= -112.5 && angle < -67.5) dir = "Sud";
+  else if (angle >= -157.5 && angle < -112.5) dir = "Sud-Ovest";
+  return `Padova · settore ${dir}`;
+}
+
+function reasonShort(score: number, source: string, hasGeo: boolean, hasMicrozone: boolean): string {
+  const bits: string[] = [`priorità ${priorityLabel(score)}`];
+  if (source.includes("osm-overpass")) bits.push("cantiere rilevato");
+  if (hasMicrozone) bits.push("microzona nota");
+  else if (hasGeo) bits.push("geo verificata");
+  return bits.join(" · ");
 }
 
 serve(async (req) => {
@@ -44,29 +101,64 @@ serve(async (req) => {
   const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const admin = createClient(SUPABASE_URL, SERVICE);
 
+  // Strategia "pochi ma buoni": preferisco record con geo, escludo titolo vuoto.
   const { data, error } = await admin
     .from("normalized_opportunities")
     .select(
-      "title,municipality,microzone,source_name,last_seen_at,freshness_days,priority_score,scoring_reason,latitude,longitude",
+      "title,municipality,microzone,source_name,last_seen_at,freshness_days,priority_score,latitude,longitude",
     )
-    .ilike("municipality", cityRaw)
+    .in("municipality", CINTURA)
+    .not("latitude", "is", null)
+    .not("longitude", "is", null)
+    .gt("priority_score", 0)
     .order("priority_score", { ascending: false })
     .order("last_seen_at", { ascending: false })
-    .limit(MAX_RECORDS);
+    .limit(MAX_RECORDS * 4);
 
-  if (error) return json({ error: "query_failed" }, 500);
+  if (error) {
+    console.log("demo-territory-records query error", error.message);
+    return json({ error: "query_failed" }, 500);
+  }
 
-  const records = (data ?? []).map((r: any) => ({
-    title: sanitizeTitle(r.title),
-    municipality: r.municipality,
-    microzone: r.microzone,
-    source_name: r.source_name,
-    last_seen_at: r.last_seen_at,
-    freshness_days: Number(r.freshness_days ?? 0),
-    priority_score: Number(r.priority_score ?? 0),
-    scoring_reason: r.scoring_reason,
-    has_geo: r.latitude != null && r.longitude != null,
-  }));
+  // Diversifica per municipality/area in modo da non avere 12 record dallo stesso angolo.
+  const seenArea = new Map<string, number>();
+  const selected: any[] = [];
+  for (const r of data ?? []) {
+    const area = deriveAreaLabel(
+      r.latitude == null ? null : Number(r.latitude),
+      r.longitude == null ? null : Number(r.longitude),
+      r.municipality,
+      r.microzone,
+    );
+    const count = seenArea.get(area) ?? 0;
+    if (count >= 2) continue; // max 2 per area
+    seenArea.set(area, count + 1);
+    selected.push({ ...r, _area: area });
+    if (selected.length >= MAX_RECORDS) break;
+  }
 
+  const records = selected.map((r: any) => {
+    const lat = r.latitude == null ? null : Number(r.latitude);
+    const lon = r.longitude == null ? null : Number(r.longitude);
+    const hasGeo = lat != null && lon != null;
+    const freshness = Number(r.freshness_days ?? 0);
+    const score = Number(r.priority_score ?? 0);
+    return {
+      title: sanitizeTitle(r.title ?? ""),
+      municipality: r.municipality ?? "Padova",
+      microzone: r.microzone,
+      area_label: r._area,
+      source_name: r.source_name,
+      last_seen_at: r.last_seen_at,
+      freshness_days: freshness,
+      freshness_label: freshnessLabel(freshness),
+      priority_score: score,
+      priority_label: priorityLabel(score),
+      reason_short: reasonShort(score, r.source_name ?? "", hasGeo, r.microzone != null),
+      has_geo: hasGeo,
+    };
+  });
+
+  console.log(`demo-territory-records city=${cityRaw} served=${records.length}`);
   return json({ city: cityRaw, demo: true, count: records.length, records });
 });
