@@ -26,6 +26,14 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import {
+  COPERTURA_PADOVA,
+  COPERTURA_PADOVA_SINTESI,
+  STATO_COPERTURA_LABEL,
+  MATURITA_DATO_LABEL,
+  type StatoCopertura,
+  type MaturitaDato,
+} from "@/data/copertura-padova";
 
 const presenzaVariant: Record<PresenzaServizio, string> = {
   forte_presenza: "bg-emerald-900/40 text-emerald-200 border-emerald-800",
