@@ -106,6 +106,8 @@ export default function DataEnginePage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [lastCreatedId, setLastCreatedId] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<{ at: string; read: number; normalized: number; errors: number } | null>(null);
 
   const reload = useCallback(async () => {
     try {
