@@ -106,17 +106,34 @@ export default function DataEnginePage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [lastCreatedId, setLastCreatedId] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<{ at: string; read: number; normalized: number; errors: number } | null>(null);
 
   const reload = useCallback(async () => {
     try {
-      const [r, n] = await Promise.all([
+      const [r, n, s] = await Promise.all([
         supabase.from("raw_sources_ingest").select("*").order("fetched_at", { ascending: false }).limit(50),
         supabase.from("normalized_opportunities").select("*").order("last_seen_at", { ascending: false }).limit(100),
+        supabase.from("raw_sources_ingest")
+          .select("fetched_at, raw_payload, ingest_error")
+          .eq("source_name", "osm-overpass:padova-construction#sync-log")
+          .order("fetched_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
       ]);
       if (r.error) throw r.error;
       if (n.error) throw n.error;
       setRaws((r.data ?? []) as RawRow[]);
       setNorms((n.data ?? []) as NormRow[]);
+      if (s.data) {
+        const p = (s.data.raw_payload ?? {}) as { read?: number; normalized?: number; errors_count?: number };
+        setLastSync({
+          at: s.data.fetched_at as string,
+          read: p.read ?? 0,
+          normalized: p.normalized ?? 0,
+          errors: p.errors_count ?? 0,
+        });
+      }
       setErr(null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -126,6 +143,25 @@ export default function DataEnginePage() {
   }, []);
 
   useEffect(() => { void reload(); }, [reload]);
+
+  async function runSync() {
+    setSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("connector-osm-cantieri", { body: {} });
+      if (error) throw error;
+      const d = (data as { ok?: boolean; data?: { read: number; normalized: number; errors: string[] } })?.data;
+      if (d) {
+        toast.success(`Sync OSM: letti ${d.read}, normalizzati ${d.normalized}${d.errors.length ? `, errori ${d.errors.length}` : ""}`);
+      } else {
+        toast.success("Sync completata");
+      }
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Errore sync");
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   const setField = (k: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -176,6 +212,32 @@ export default function DataEnginePage() {
       </div>
 
       {err && <div className="p-3 rounded-md border border-destructive/50 text-destructive text-sm">{err}</div>}
+
+      {/* Connettore OSM Cantieri */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Connettore: OSM Cantieri Padova</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Sorgente: OpenStreetMap Overpass API · edifici <code>building=construction</code> nel territorio comunale di Padova.
+            Pubblica, free, senza chiave. <strong>Fair-use:</strong> max una sync ogni ~5 minuti, cap 80 record per run.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button onClick={runSync} disabled={syncing}>
+              {syncing ? "Sincronizzazione…" : "Sincronizza ora"}
+            </Button>
+            {lastSync ? (
+              <div className="text-xs text-muted-foreground">
+                Ultima sync: <strong>{new Date(lastSync.at).toLocaleString()}</strong> · letti {lastSync.read} · normalizzati {lastSync.normalized}
+                {lastSync.errors > 0 && <> · <span className="text-destructive">errori {lastSync.errors}</span></>}
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">Nessuna sync registrata.</div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Form admin di test */}
       <Card>
