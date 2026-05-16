@@ -333,7 +333,7 @@ export default function TerritoriPage() {
             </div>
             <div className="rounded-md border p-3">
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Prioritarie</p>
-              <p className="text-2xl font-bold mt-1">{COPERTURA_PADOVA_SINTESI.microzone_prioritarie}</p>
+              <p className="text-2xl font-bold mt-1">{prioritarieList.length}</p>
             </div>
             <div className="rounded-md border p-3">
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">In preparazione</p>
@@ -347,6 +347,29 @@ export default function TerritoriPage() {
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Da arricchire</p>
               <p className="text-2xl font-bold mt-1">{COPERTURA_PADOVA_SINTESI.microzone_da_arricchire}</p>
             </div>
+          </div>
+
+          <div className="mt-4">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2">
+              Microzone prioritarie ({prioritarieList.length})
+            </p>
+            {prioritarieList.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Nessuna microzona prioritaria al momento.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {prioritarieList.map((c) => (
+                  <Badge
+                    key={`prio-${c.microzona_id}`}
+                    variant="outline"
+                    className="text-[10px] bg-sky-900/40 text-sky-200 border-sky-800"
+                    title={c.uso_commerciale_consigliato}
+                  >
+                    {c.nome}
+                    <span className="ml-1 opacity-70">· {c.comune}</span>
+                  </Badge>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="mt-4">
