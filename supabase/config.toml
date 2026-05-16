@@ -104,3 +104,6 @@ verify_jwt = true
 
 [functions.admin-ingest-test]
 verify_jwt = true
+
+[functions.connector-osm-cantieri]
+verify_jwt = true
