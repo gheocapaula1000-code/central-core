@@ -310,6 +310,12 @@ export default function DataEnginePage() {
                 <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2 flex-wrap">
                   <span>{n.title}</span>
                   <Badge variant="secondary">score {n.priority_score}</Badge>
+                  <Badge variant={n.latitude !== null && n.longitude !== null ? "default" : "outline"}>
+                    {n.latitude !== null && n.longitude !== null ? "geo ✓" : "geo —"}
+                  </Badge>
+                  <Badge variant={n.microzone ? "default" : "outline"}>
+                    {n.microzone ? `microzona: ${n.microzone}` : "microzona assente"}
+                  </Badge>
                   {n.possible_duplicate && <Badge variant="destructive">dubbio duplicato</Badge>}
                   {highlight && <Badge>appena creato</Badge>}
                 </CardTitle></CardHeader>
