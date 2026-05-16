@@ -213,6 +213,32 @@ export default function DataEnginePage() {
 
       {err && <div className="p-3 rounded-md border border-destructive/50 text-destructive text-sm">{err}</div>}
 
+      {/* Connettore OSM Cantieri */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Connettore: OSM Cantieri Padova</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Sorgente: OpenStreetMap Overpass API · edifici <code>building=construction</code> nel territorio comunale di Padova.
+            Pubblica, free, senza chiave. <strong>Fair-use:</strong> max una sync ogni ~5 minuti, cap 80 record per run.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button onClick={runSync} disabled={syncing}>
+              {syncing ? "Sincronizzazione…" : "Sincronizza ora"}
+            </Button>
+            {lastSync ? (
+              <div className="text-xs text-muted-foreground">
+                Ultima sync: <strong>{new Date(lastSync.at).toLocaleString()}</strong> · letti {lastSync.read} · normalizzati {lastSync.normalized}
+                {lastSync.errors > 0 && <> · <span className="text-destructive">errori {lastSync.errors}</span></>}
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">Nessuna sync registrata.</div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Form admin di test */}
       <Card>
         <CardHeader className="pb-3">
