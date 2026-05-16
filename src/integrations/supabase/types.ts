@@ -2376,6 +2376,8 @@ export type Database = {
           freshness_days: number
           id: string
           last_seen_at: string
+          latitude: number | null
+          longitude: number | null
           microzone: string | null
           municipality: string | null
           possible_duplicate: boolean
@@ -2399,6 +2401,8 @@ export type Database = {
           freshness_days?: number
           id?: string
           last_seen_at?: string
+          latitude?: number | null
+          longitude?: number | null
           microzone?: string | null
           municipality?: string | null
           possible_duplicate?: boolean
@@ -2422,6 +2426,8 @@ export type Database = {
           freshness_days?: number
           id?: string
           last_seen_at?: string
+          latitude?: number | null
+          longitude?: number | null
           microzone?: string | null
           municipality?: string | null
           possible_duplicate?: boolean
