@@ -322,7 +322,10 @@ export default function DataEnginePage() {
                 <CardContent className="text-xs space-y-1">
                   <div>{n.municipality ?? "—"} · {n.microzone ?? "—"} · {n.property_type ?? "—"}</div>
                   <div>{n.address_text ?? "—"}</div>
-                  <div>prezzo: {n.ask_price ?? "—"} € · mq: {n.surface_mq ?? "—"} · completezza: {n.completeness_score}% · freshness: {n.freshness_days}gg</div>
+                  <div>
+                    coord: {n.latitude !== null && n.longitude !== null ? `${n.latitude.toFixed(5)}, ${n.longitude.toFixed(5)}` : "assenti"} ·
+                    prezzo: {n.ask_price ?? "—"} € · mq: {n.surface_mq ?? "—"} · completezza: {n.completeness_score}% · freshness: {n.freshness_days}gg
+                  </div>
                   <div className="text-muted-foreground">fonte: {n.source_name} {n.source_url && <a href={n.source_url} target="_blank" rel="noopener noreferrer" className="underline">↗</a>}</div>
                   <div className="text-muted-foreground italic">{n.scoring_reason}</div>
                 </CardContent>
