@@ -33,6 +33,8 @@ interface RawInput {
   surface_mq?: number | string | null;
   fetched_at?: string;
   raw_payload?: Record<string, unknown>;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
 }
 
 function num(v: unknown): number | null {
