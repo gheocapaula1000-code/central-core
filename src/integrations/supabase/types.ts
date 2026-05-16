@@ -2365,6 +2365,86 @@ export type Database = {
         }
         Relationships: []
       }
+      normalized_opportunities: {
+        Row: {
+          address_text: string | null
+          ask_price: number | null
+          completeness_score: number
+          created_at: string
+          dedupe_key: string | null
+          first_seen_at: string
+          freshness_days: number
+          id: string
+          last_seen_at: string
+          microzone: string | null
+          municipality: string | null
+          possible_duplicate: boolean
+          priority_score: number
+          property_type: string | null
+          raw_id: string | null
+          scoring_reason: string | null
+          source_name: string
+          source_url: string | null
+          surface_mq: number | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          address_text?: string | null
+          ask_price?: number | null
+          completeness_score?: number
+          created_at?: string
+          dedupe_key?: string | null
+          first_seen_at?: string
+          freshness_days?: number
+          id?: string
+          last_seen_at?: string
+          microzone?: string | null
+          municipality?: string | null
+          possible_duplicate?: boolean
+          priority_score?: number
+          property_type?: string | null
+          raw_id?: string | null
+          scoring_reason?: string | null
+          source_name: string
+          source_url?: string | null
+          surface_mq?: number | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          address_text?: string | null
+          ask_price?: number | null
+          completeness_score?: number
+          created_at?: string
+          dedupe_key?: string | null
+          first_seen_at?: string
+          freshness_days?: number
+          id?: string
+          last_seen_at?: string
+          microzone?: string | null
+          municipality?: string | null
+          possible_duplicate?: boolean
+          priority_score?: number
+          property_type?: string | null
+          raw_id?: string | null
+          scoring_reason?: string | null
+          source_name?: string
+          source_url?: string | null
+          surface_mq?: number | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "normalized_opportunities_raw_id_fkey"
+            columns: ["raw_id"]
+            isOneToOne: false
+            referencedRelation: "raw_sources_ingest"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       obituaries_seen: {
         Row: {
           agency_private_only: boolean
@@ -3216,6 +3296,42 @@ export type Database = {
           source?: string | null
           title?: string
           urgency?: string
+        }
+        Relationships: []
+      }
+      raw_sources_ingest: {
+        Row: {
+          created_at: string
+          fetched_at: string
+          id: string
+          ingest_error: string | null
+          microzone: string | null
+          municipality: string | null
+          raw_payload: Json
+          source_name: string
+          source_url: string | null
+        }
+        Insert: {
+          created_at?: string
+          fetched_at?: string
+          id?: string
+          ingest_error?: string | null
+          microzone?: string | null
+          municipality?: string | null
+          raw_payload?: Json
+          source_name: string
+          source_url?: string | null
+        }
+        Update: {
+          created_at?: string
+          fetched_at?: string
+          id?: string
+          ingest_error?: string | null
+          microzone?: string | null
+          municipality?: string | null
+          raw_payload?: Json
+          source_name?: string
+          source_url?: string | null
         }
         Relationships: []
       }
