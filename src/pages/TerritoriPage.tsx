@@ -288,6 +288,11 @@ export default function TerritoriPage() {
     .sort()
     .pop();
 
+  // Lista canonica: unica fonte per KPI "Prioritarie" + elenco visibile.
+  const prioritarieList = COPERTURA_PADOVA.filter(
+    (c) => c.stato_copertura === "prioritaria",
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
