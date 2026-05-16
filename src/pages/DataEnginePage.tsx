@@ -36,6 +36,8 @@ interface NormRow {
   priority_score: number;
   scoring_reason: string | null;
   possible_duplicate: boolean;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 type FormState = {
