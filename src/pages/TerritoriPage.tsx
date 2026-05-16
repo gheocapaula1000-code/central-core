@@ -32,7 +32,7 @@ import {
   STATO_COPERTURA_LABEL,
   MATURITA_DATO_LABEL,
   type StatoCopertura,
-  type MaturitaDato,
+  type MaturitaDato as MaturitaCopertura,
 } from "@/data/copertura-padova";
 
 const presenzaVariant: Record<PresenzaServizio, string> = {
