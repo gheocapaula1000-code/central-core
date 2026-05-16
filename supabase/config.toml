@@ -107,3 +107,9 @@ verify_jwt = true
 
 [functions.connector-osm-cantieri]
 verify_jwt = true
+
+[functions.territory-records]
+verify_jwt = true
+
+[functions.demo-territory-records]
+verify_jwt = false
