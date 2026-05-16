@@ -100,7 +100,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.ingest-opportunity]
-verify_jwt = false
+verify_jwt = true
 
 [functions.admin-ingest-test]
-verify_jwt = false
+verify_jwt = true

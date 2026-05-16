@@ -101,12 +101,13 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: { code: "method_not_allowed" } }), { status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
-  // simple shared-secret protection
-  if (JOB_SECRET) {
-    const provided = req.headers.get("x-job-secret") ?? "";
-    if (provided !== JOB_SECRET) {
-      return new Response(JSON.stringify({ error: { code: "unauthorized" } }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
+  // fail-closed: il job secret è obbligatorio
+  if (!JOB_SECRET) {
+    return new Response(JSON.stringify({ error: { code: "misconfigured", message: "CENTRAL_CORE_JOB_SECRET not set" } }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+  const provided = req.headers.get("x-job-secret") ?? "";
+  if (provided.length !== JOB_SECRET.length || provided !== JOB_SECRET) {
+    return new Response(JSON.stringify({ error: { code: "unauthorized" } }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
   let body: unknown;
