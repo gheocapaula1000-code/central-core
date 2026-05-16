@@ -301,6 +301,87 @@ export default function TerritoriPage() {
         <Badge variant="outline">PWA principale: Metodo Civiko One</Badge>
       </div>
 
+      {/* Copertura Padova — sintesi normalizzata */}
+      <Card className="border-primary/30">
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <CardTitle className="text-lg">Copertura Padova</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
+                {COPERTURA_PADOVA_SINTESI.nota_lettura}
+              </p>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <Badge variant="outline" className="bg-emerald-900/40 text-emerald-200 border-emerald-800">
+                Copertura territoriale: {COPERTURA_PADOVA_SINTESI.copertura_territoriale}
+              </Badge>
+              <Badge variant="outline" className="bg-sky-900/40 text-sky-200 border-sky-800">
+                Profondità dato: {COPERTURA_PADOVA_SINTESI.profondita_dato}
+              </Badge>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+            <div className="rounded-md border p-3">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Totale censite</p>
+              <p className="text-2xl font-bold mt-1">{COPERTURA_PADOVA_SINTESI.totale_microzone_censite}</p>
+            </div>
+            <div className="rounded-md border p-3">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Attive</p>
+              <p className="text-2xl font-bold mt-1">{COPERTURA_PADOVA_SINTESI.microzone_attive}</p>
+            </div>
+            <div className="rounded-md border p-3">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Prioritarie</p>
+              <p className="text-2xl font-bold mt-1">{COPERTURA_PADOVA_SINTESI.microzone_prioritarie}</p>
+            </div>
+            <div className="rounded-md border p-3">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">In preparazione</p>
+              <p className="text-2xl font-bold mt-1">{COPERTURA_PADOVA_SINTESI.microzone_in_preparazione}</p>
+            </div>
+            <div className="rounded-md border p-3">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Demo pronte</p>
+              <p className="text-2xl font-bold mt-1">{COPERTURA_PADOVA_SINTESI.microzone_demo_pronte}</p>
+            </div>
+            <div className="rounded-md border p-3">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Da arricchire</p>
+              <p className="text-2xl font-bold mt-1">{COPERTURA_PADOVA_SINTESI.microzone_da_arricchire}</p>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-2">
+              Stato copertura per microzona ({COPERTURA_PADOVA.length})
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {COPERTURA_PADOVA.map((c) => {
+                const variant: Record<StatoCopertura, string> = {
+                  attiva: "bg-emerald-900/40 text-emerald-200 border-emerald-800",
+                  prioritaria: "bg-sky-900/40 text-sky-200 border-sky-800",
+                  censita: "bg-secondary text-muted-foreground",
+                  in_preparazione: "bg-slate-800 text-slate-300 border-slate-700",
+                };
+                const matVariant: Record<MaturitaCopertura, string> = {
+                  alta: "text-emerald-300",
+                  media: "text-sky-300",
+                  base: "text-slate-400",
+                };
+                return (
+                  <Badge
+                    key={c.microzona_id}
+                    variant="outline"
+                    className={`text-[10px] ${variant[c.stato_copertura]}`}
+                    title={`${c.nome} — ${STATO_COPERTURA_LABEL[c.stato_copertura]} · maturità ${MATURITA_COPERTURA_LABEL[c.maturita_dato]} · ${c.uso_commerciale_consigliato}`}
+                  >
+                    {c.nome}
+                    <span className={`ml-1 ${matVariant[c.maturita_dato]}`}>·{c.maturita_dato[0].toUpperCase()}</span>
+                  </Badge>
+                );
+              })}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
       {/* Sintesi */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <Card>
