@@ -1,8 +1,9 @@
 // ═══════════════════════════════════════════════════════════════
 // connector-osm-cantieri — connettore OSM esteso (Padova + cintura)
-// Sorgente: OpenStreetMap (Overpass API). Recupera cantieri/edifici
-// in costruzione su Padova città e prima cintura, li invia a
-// ingest-opportunity con x-job-secret (server-side).
+// Sorgente: OpenStreetMap (Overpass API).
+// 4 categorie reali: cantiere_edilizio, area_trasformazione,
+// brownfield, demolizione. Genera titoli umani derivati dai tag reali
+// e arricchisce con category + tags + external_ref.
 // Solo admin autenticati possono triggerare la sync.
 // ═══════════════════════════════════════════════════════════════
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -19,14 +20,15 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
 
 const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
-const MAX_PER_COMUNE = 60;
+const MAX_PER_QUERY = 80;
 
-// Padova città + prima cintura supportata da OSM admin_level=8
 const COMUNI = [
   "Padova", "Albignasego", "Cadoneghe", "Rubano", "Selvazzano Dentro",
   "Ponte San Nicolò", "Noventa Padovana", "Vigodarzere", "Limena", "Abano Terme",
   "Saonara",
 ];
+
+type Category = "cantiere_edilizio" | "area_trasformazione" | "brownfield" | "demolizione";
 
 interface OverpassElement {
   type: "node" | "way" | "relation";
@@ -46,10 +48,8 @@ function json(status: number, body: unknown) {
 
 function resolveMicrozone(tags: Record<string, string>): string | null {
   const candidates = [
-    tags["addr:suburb"],
-    tags["addr:neighbourhood"],
-    tags["addr:quarter"],
-    tags["addr:city_district"],
+    tags["addr:suburb"], tags["addr:neighbourhood"],
+    tags["addr:quarter"], tags["addr:city_district"],
   ];
   for (const c of candidates) {
     const v = (c ?? "").trim();
@@ -58,62 +58,106 @@ function resolveMicrozone(tags: Record<string, string>): string | null {
   return null;
 }
 
-function buildTitle(tags: Record<string, string>, comune: string): string {
-  const name = (tags["name"] ?? "").trim();
-  if (name) return `Cantiere: ${name}`.slice(0, 140);
-  const street = (tags["addr:street"] ?? "").trim();
-  if (street) {
-    const num = (tags["addr:housenumber"] ?? "").trim();
-    return `Cantiere in ${street}${num ? " " + num : ""}, ${comune}`.slice(0, 140);
+// Deriva la sotto-tipologia edificio da tag reali, senza inventare.
+function buildingFamily(tags: Record<string, string>): { kind: string; label: string; tag?: string } {
+  const b = (tags["building"] ?? "").toLowerCase();
+  const cstr = (tags["construction"] ?? "").toLowerCase();
+  const use = (tags["building:use"] ?? "").toLowerCase();
+  const candidate = [use, cstr !== "yes" ? cstr : "", b !== "construction" && b !== "yes" ? b : ""]
+    .find((x) => x && x.length > 0) ?? "";
+
+  if (/apartment|residential|house|dormitory|terrace|detached|semidetached/.test(candidate)) {
+    return { kind: "residenziale", label: "residenziale", tag: "residenziale" };
   }
-  const use = (tags["building:use"] ?? tags["construction"] ?? "").trim();
-  if (use && use !== "yes") return `Cantiere ${use} a ${comune}`.slice(0, 140);
-  return `Cantiere edilizio a ${comune}`;
+  if (/commercial|retail|shop|supermarket|mall/.test(candidate)) {
+    return { kind: "commerciale", label: "commerciale", tag: "commerciale" };
+  }
+  if (/office/.test(candidate)) return { kind: "direzionale", label: "direzionale", tag: "direzionale" };
+  if (/industrial|warehouse|factory|manufacture/.test(candidate)) {
+    return { kind: "produttivo", label: "produttivo", tag: "produttivo" };
+  }
+  if (/school|kindergarten|university|college|hospital|clinic|public/.test(candidate)) {
+    return { kind: "servizi_pubblici", label: "servizi pubblici", tag: "servizi-pubblici" };
+  }
+  if (/hotel|hostel|guest_house/.test(candidate)) {
+    return { kind: "ricettivo", label: "ricettivo", tag: "ricettivo" };
+  }
+  return { kind: "generico", label: "edilizio" };
 }
 
-function buildPayload(el: OverpassElement, comune: string) {
+function humanStreet(tags: Record<string, string>): string | null {
+  const street = (tags["addr:street"] ?? "").trim();
+  if (!street) return null;
+  const num = (tags["addr:housenumber"] ?? "").trim();
+  return num ? `${street} ${num}` : street;
+}
+
+function buildRecord(el: OverpassElement, comune: string, category: Category) {
   const tags = el.tags ?? {};
-  const street = tags["addr:street"];
-  const number = tags["addr:housenumber"];
-  const address = [street, number].filter(Boolean).join(" ") || null;
   const lat = el.lat ?? el.center?.lat ?? null;
   const lon = el.lon ?? el.center?.lon ?? null;
   const microzone = resolveMicrozone(tags);
-  const construction = tags["construction"];
-  const property_type =
-    tags["building:use"] ??
-    (construction && construction !== "yes" ? construction : null) ??
-    (tags["landuse"] === "construction" ? "area edificabile" : "cantiere");
+  const street = humanStreet(tags);
+  const name = (tags["name"] ?? "").trim();
+  const fam = buildingFamily(tags);
+
+  // Titolo umano, derivato da dati reali, mai con ID OSM dentro.
+  let title: string;
+  let property_type: string;
+  const tagsArr: string[] = [category];
+
+  switch (category) {
+    case "cantiere_edilizio": {
+      property_type = `cantiere ${fam.label}`;
+      if (name) title = `${name} · cantiere a ${comune}`;
+      else if (street) title = `Cantiere ${fam.label} in ${street}, ${comune}`;
+      else title = `Cantiere ${fam.label} a ${comune}`;
+      if (fam.tag) tagsArr.push(fam.tag);
+      break;
+    }
+    case "area_trasformazione": {
+      property_type = "area in trasformazione";
+      title = street ? `Area in trasformazione in ${street}, ${comune}` : `Area in trasformazione a ${comune}`;
+      tagsArr.push("trasformazione-urbana");
+      break;
+    }
+    case "brownfield": {
+      property_type = "area dismessa";
+      title = street ? `Area dismessa in ${street}, ${comune}` : `Area dismessa in riconversione a ${comune}`;
+      tagsArr.push("riconversione", "ex-industriale");
+      break;
+    }
+    case "demolizione": {
+      property_type = "demolizione / riconversione";
+      title = street ? `Demolizione in ${street}, ${comune}` : `Demolizione / riconversione a ${comune}`;
+      tagsArr.push("demolizione");
+      break;
+    }
+  }
+  if (street) tagsArr.push("con-indirizzo");
+  if (microzone) tagsArr.push("con-microzona");
 
   return {
-    source_name: "osm-overpass:padova-construction",
+    source_name: "osm-overpass:padova-territory",
     source_url: `https://www.openstreetmap.org/${el.type}/${el.id}`,
     municipality: comune,
     microzone,
-    title: buildTitle(tags, comune),
-    address_text: address,
+    title: title.slice(0, 160),
+    address_text: street,
     property_type,
     ask_price: null,
     surface_mq: null,
     latitude: lat,
     longitude: lon,
     fetched_at: new Date().toISOString(),
-    raw_payload: { osm_id: el.id, osm_type: el.type, lat, lon, tags, comune },
+    category,
+    tags: tagsArr,
+    external_ref: `osm:${el.type}/${el.id}`,
+    raw_payload: { osm_id: el.id, osm_type: el.type, lat, lon, tags, comune, category },
   };
 }
 
-async function fetchComune(comune: string): Promise<OverpassElement[]> {
-  const q = `
-    [out:json][timeout:30];
-    area["name"="${comune}"]["boundary"="administrative"]["admin_level"="8"]->.a;
-    (
-      node["building"="construction"](area.a);
-      way["building"="construction"](area.a);
-      relation["building"="construction"](area.a);
-      way["landuse"="construction"](area.a);
-    );
-    out center ${MAX_PER_COMUNE};
-  `.trim();
+async function overpass(q: string): Promise<OverpassElement[]> {
   const r = await fetch(OVERPASS_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "civiko-core/1.0" },
@@ -122,6 +166,38 @@ async function fetchComune(comune: string): Promise<OverpassElement[]> {
   if (!r.ok) return [];
   const data = await r.json().catch(() => ({}));
   return (data?.elements ?? []) as OverpassElement[];
+}
+
+async function fetchComune(comune: string): Promise<Array<ReturnType<typeof buildRecord>>> {
+  const areaPrelude = `area["name"="${comune}"]["boundary"="administrative"]["admin_level"="8"]->.a;`;
+  const queries: Array<{ cat: Category; body: string }> = [
+    {
+      cat: "cantiere_edilizio",
+      body: `(node["building"="construction"](area.a); way["building"="construction"](area.a); relation["building"="construction"](area.a););`,
+    },
+    {
+      cat: "area_trasformazione",
+      body: `(way["landuse"="construction"](area.a); relation["landuse"="construction"](area.a););`,
+    },
+    {
+      cat: "brownfield",
+      body: `(way["landuse"="brownfield"](area.a); relation["landuse"="brownfield"](area.a););`,
+    },
+    {
+      cat: "demolizione",
+      body: `(way["building"="demolition"](area.a); way["demolished:building"](area.a););`,
+    },
+  ];
+
+  const out: Array<ReturnType<typeof buildRecord>> = [];
+  for (const { cat, body } of queries) {
+    const q = `[out:json][timeout:30]; ${areaPrelude} ${body} out center ${MAX_PER_QUERY};`;
+    try {
+      const els = await overpass(q);
+      for (const e of els) out.push(buildRecord(e, comune, cat));
+    } catch (_) { /* skip query */ }
+  }
+  return out;
 }
 
 Deno.serve(async (req) => {
@@ -139,63 +215,69 @@ Deno.serve(async (req) => {
 
   const svc = createClient(SUPABASE_URL, SERVICE_KEY);
   const { data: isAdmin, error: roleErr } = await svc.rpc("has_role", {
-    _user_id: userData.user.id,
-    _role: "admin",
+    _user_id: userData.user.id, _role: "admin",
   });
   if (roleErr || !isAdmin) return json(403, { error: { code: "forbidden", message: "admin required" } });
 
   if (!JOB_SECRET) return json(500, { error: { code: "misconfigured", message: "CENTRAL_CORE_JOB_SECRET not set" } });
 
-  // 1) raccolta su tutti i comuni della cintura (sequenziale per fair-use)
   const perComune: Record<string, number> = {};
-  const all: ReturnType<typeof buildPayload>[] = [];
+  const perCategory: Record<string, number> = {};
+  const all: Array<ReturnType<typeof buildRecord>> = [];
+
   for (const c of COMUNI) {
     try {
-      const els = await fetchComune(c);
-      perComune[c] = els.length;
-      for (const e of els) all.push(buildPayload(e, c));
+      const recs = await fetchComune(c);
+      perComune[c] = recs.length;
+      for (const r of recs) {
+        all.push(r);
+        perCategory[r.category] = (perCategory[r.category] ?? 0) + 1;
+      }
     } catch {
       perComune[c] = -1;
     }
   }
 
   if (all.length === 0) {
-    return json(200, { ok: true, data: { read: 0, normalized: 0, errors: [], perComune, note: "no elements" } });
+    return json(200, { ok: true, data: { read: 0, normalized: 0, perComune, perCategory, note: "no elements" } });
   }
 
-  // 2) inoltra a ingest-opportunity in batch
+  // POST in batch a ingest-opportunity (limite payload ragionevole: chunk da 200)
   let normalized = 0;
   const errors: string[] = [];
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/ingest-opportunity`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${SERVICE_KEY}`,
-      "apikey": SERVICE_KEY,
-      "x-job-secret": JOB_SECRET,
-    },
-    body: JSON.stringify(all),
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    return json(502, { error: { code: "ingest_failed", message: body?.error?.message ?? `HTTP ${res.status}` } });
-  }
-  const results = (body?.results ?? []) as Array<{ normalized_id?: string; error?: string }>;
-  for (const r of results) {
-    if (r.normalized_id) normalized++;
-    if (r.error) errors.push(r.error);
+  for (let i = 0; i < all.length; i += 200) {
+    const chunk = all.slice(i, i + 200);
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/ingest-opportunity`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SERVICE_KEY}`,
+        "apikey": SERVICE_KEY,
+        "x-job-secret": JOB_SECRET,
+      },
+      body: JSON.stringify(chunk),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      errors.push(`ingest chunk ${i}: ${body?.error?.message ?? `HTTP ${res.status}`}`);
+      continue;
+    }
+    const results = (body?.results ?? []) as Array<{ normalized_id?: string; error?: string }>;
+    for (const r of results) {
+      if (r.normalized_id) normalized++;
+      if (r.error) errors.push(r.error);
+    }
   }
 
-  // 3) log sintetico
   await svc.from("raw_sources_ingest").insert({
-    source_name: "osm-overpass:padova-construction#sync-log",
+    source_name: "osm-overpass:padova-territory#sync-log",
     source_url: null,
     fetched_at: new Date().toISOString(),
     municipality: "Padova",
     microzone: null,
-    raw_payload: { kind: "sync_log", read: all.length, normalized, perComune, errors_count: errors.length },
+    raw_payload: { kind: "sync_log", read: all.length, normalized, perComune, perCategory, errors_count: errors.length },
     ingest_error: errors.length ? errors.slice(0, 5).join(" | ") : null,
   });
 
-  return json(200, { ok: true, data: { read: all.length, normalized, perComune, errors: errors.slice(0, 10) } });
+  return json(200, { ok: true, data: { read: all.length, normalized, perComune, perCategory, errors: errors.slice(0, 10) } });
 });
