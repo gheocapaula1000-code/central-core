@@ -229,6 +229,21 @@ export default function DataEnginePage() {
             <Button onClick={runSync} disabled={syncing}>
               {syncing ? "Sincronizzazione…" : "Sincronizza ora"}
             </Button>
+            <Button
+              variant="outline"
+              onClick={async () => {
+                try {
+                  const { data, error } = await supabase.functions.invoke("zone-completeness", { method: "POST" });
+                  if (error) throw error;
+                  const d = data as { count?: number };
+                  toast.success(`Completezza zone ricalcolata (${d?.count ?? 0} zone)`);
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "Errore ricalcolo");
+                }
+              }}
+            >
+              Ricalcola completezza zone
+            </Button>
             {lastSync ? (
               <div className="text-xs text-muted-foreground">
                 Ultima sync: <strong>{new Date(lastSync.at).toLocaleString()}</strong> · letti {lastSync.read} · normalizzati {lastSync.normalized}
