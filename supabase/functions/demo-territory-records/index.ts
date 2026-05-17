@@ -78,9 +78,16 @@ function deriveAreaLabel(
   return `Padova · settore ${dir}`;
 }
 
-function reasonShort(score: number, source: string, hasGeo: boolean, hasMicrozone: boolean): string {
+function reasonShort(score: number, category: string | null, hasGeo: boolean, hasMicrozone: boolean): string {
   const bits: string[] = [`priorità ${priorityLabel(score)}`];
-  if (source.includes("osm-overpass")) bits.push("cantiere rilevato");
+  const catLabel: Record<string, string> = {
+    cantiere_edilizio: "cantiere attivo",
+    area_trasformazione: "area in trasformazione",
+    brownfield: "area dismessa",
+    demolizione: "demolizione in corso",
+    segnale_demografico: "ricambio generazionale",
+  };
+  if (category && catLabel[category]) bits.push(catLabel[category]);
   if (hasMicrozone) bits.push("microzona nota");
   else if (hasGeo) bits.push("geo verificata");
   return bits.join(" · ");
