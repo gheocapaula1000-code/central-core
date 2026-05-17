@@ -35,6 +35,9 @@ interface RawInput {
   raw_payload?: Record<string, unknown>;
   latitude?: number | string | null;
   longitude?: number | string | null;
+  category?: string | null;
+  tags?: string[] | null;
+  external_ref?: string | null;
 }
 
 function num(v: unknown): number | null {
