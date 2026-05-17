@@ -26,6 +26,8 @@ type CleanRecord = {
   municipality: string | null;
   microzone: string | null;
   area_label: string;
+  category: string | null;
+  tags: string[];
   source_name: string;
   last_seen_at: string;
   freshness_days: number;
