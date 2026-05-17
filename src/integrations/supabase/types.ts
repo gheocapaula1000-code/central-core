@@ -3836,6 +3836,57 @@ export type Database = {
         }
         Relationships: []
       }
+      zone_completeness: {
+        Row: {
+          avg_freshness_days: number
+          categories_count: number
+          completeness_score: number
+          computed_at: string
+          freshness_score: number
+          geo_coverage_ratio: number
+          id: number
+          min_quality_ratio: number
+          readiness_label: string
+          reason_short: string | null
+          top_categories: Json
+          total_records: number
+          zone_key: string
+          zone_label: string
+        }
+        Insert: {
+          avg_freshness_days?: number
+          categories_count?: number
+          completeness_score?: number
+          computed_at?: string
+          freshness_score?: number
+          geo_coverage_ratio?: number
+          id?: number
+          min_quality_ratio?: number
+          readiness_label?: string
+          reason_short?: string | null
+          top_categories?: Json
+          total_records?: number
+          zone_key: string
+          zone_label: string
+        }
+        Update: {
+          avg_freshness_days?: number
+          categories_count?: number
+          completeness_score?: number
+          computed_at?: string
+          freshness_score?: number
+          geo_coverage_ratio?: number
+          id?: number
+          min_quality_ratio?: number
+          readiness_label?: string
+          reason_short?: string | null
+          top_categories?: Json
+          total_records?: number
+          zone_key?: string
+          zone_label?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
