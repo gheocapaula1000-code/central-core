@@ -216,11 +216,15 @@ serve(async (req) => {
     return json({ ok: true, computed_at, count: zones.length, zones });
   }
 
-  // GET: leggi la fotografia salvata
-  const { data, error } = await admin
-    .from("zone_completeness")
-    .select("*")
-    .order("completeness_score", { ascending: false });
+  // GET: leggi la fotografia salvata con filtri opzionali
+  const url = new URL(req.url);
+  const minStr = url.searchParams.get("min_completeness");
+  const minScore = minStr != null ? Number(minStr) : null;
+  const readinessFilter = url.searchParams.get("readiness"); // pronta|quasi pronta|debole
+  let q = admin.from("zone_completeness").select("*").order("completeness_score", { ascending: false });
+  if (minScore != null && Number.isFinite(minScore)) q = q.gte("completeness_score", minScore);
+  if (readinessFilter) q = q.eq("readiness_label", readinessFilter);
+  const { data, error } = await q;
   if (error) return json({ error: "query_failed", message: error.message }, 500);
-  return json({ count: data?.length ?? 0, zones: data ?? [] });
+  return json({ count: data?.length ?? 0, filters: { min_completeness: minScore, readiness: readinessFilter }, zones: data ?? [] });
 });
