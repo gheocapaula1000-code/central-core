@@ -113,3 +113,6 @@ verify_jwt = true
 
 [functions.demo-territory-records]
 verify_jwt = false
+
+[functions.connector-istat-demografia]
+verify_jwt = true
