@@ -149,7 +149,7 @@ serve(async (req) => {
   const { data, error } = await admin
     .from("normalized_opportunities")
     .select(
-      "title,municipality,microzone,source_name,last_seen_at,freshness_days,priority_score,scoring_reason,latitude,longitude",
+      "title,municipality,microzone,source_name,last_seen_at,freshness_days,priority_score,scoring_reason,latitude,longitude,category,tags",
     )
     .in("municipality", CINTURA)
     .gt("priority_score", 0)
@@ -174,13 +174,15 @@ serve(async (req) => {
       municipality: r.municipality,
       microzone: r.microzone,
       area_label: deriveAreaLabel(lat, lon, r.municipality, r.microzone),
+      category: r.category ?? null,
+      tags: Array.isArray(r.tags) ? r.tags : [],
       source_name: r.source_name,
       last_seen_at: r.last_seen_at,
       freshness_days: freshness,
       freshness_label: freshnessLabel(freshness),
       priority_score: score,
       priority_label: priorityLabel(score),
-      reason_short: reasonShort(score, r.source_name ?? "", hasGeo, r.microzone != null),
+      reason_short: reasonShort(score, r.category ?? null, hasGeo, r.microzone != null),
       has_geo: hasGeo,
       latitude: lat,
       longitude: lon,
