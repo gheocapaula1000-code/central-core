@@ -78,9 +78,16 @@ function deriveAreaLabel(
   return `Padova · settore ${dir}`;
 }
 
-function reasonShort(score: number, source: string, hasGeo: boolean, hasMicrozone: boolean): string {
+function reasonShort(score: number, category: string | null, hasGeo: boolean, hasMicrozone: boolean): string {
   const bits: string[] = [`priorità ${priorityLabel(score)}`];
-  if (source.includes("osm-overpass")) bits.push("cantiere rilevato");
+  const catLabel: Record<string, string> = {
+    cantiere_edilizio: "cantiere attivo",
+    area_trasformazione: "area in trasformazione",
+    brownfield: "area dismessa",
+    demolizione: "demolizione in corso",
+    segnale_demografico: "ricambio generazionale",
+  };
+  if (category && catLabel[category]) bits.push(catLabel[category]);
   if (hasMicrozone) bits.push("microzona nota");
   else if (hasGeo) bits.push("geo verificata");
   return bits.join(" · ");
@@ -102,26 +109,25 @@ serve(async (req) => {
   const admin = createClient(SUPABASE_URL, SERVICE);
 
   // Strategia "pochi ma buoni": preferisco record con geo, escludo titolo vuoto.
+  // Diversifica anche per category per coprire più tipi di segnale.
   const { data, error } = await admin
     .from("normalized_opportunities")
     .select(
-      "title,municipality,microzone,source_name,last_seen_at,freshness_days,priority_score,latitude,longitude",
+      "title,municipality,microzone,source_name,last_seen_at,freshness_days,priority_score,latitude,longitude,category,tags",
     )
     .in("municipality", CINTURA)
-    .not("latitude", "is", null)
-    .not("longitude", "is", null)
     .gt("priority_score", 0)
     .order("priority_score", { ascending: false })
     .order("last_seen_at", { ascending: false })
-    .limit(MAX_RECORDS * 4);
+    .limit(MAX_RECORDS * 6);
 
   if (error) {
     console.log("demo-territory-records query error", error.message);
     return json({ error: "query_failed" }, 500);
   }
 
-  // Diversifica per municipality/area in modo da non avere 12 record dallo stesso angolo.
   const seenArea = new Map<string, number>();
+  const seenCat = new Map<string, number>();
   const selected: any[] = [];
   for (const r of data ?? []) {
     const area = deriveAreaLabel(
@@ -130,9 +136,11 @@ serve(async (req) => {
       r.municipality,
       r.microzone,
     );
-    const count = seenArea.get(area) ?? 0;
-    if (count >= 2) continue; // max 2 per area
-    seenArea.set(area, count + 1);
+    const cat = r.category ?? "altro";
+    if ((seenArea.get(area) ?? 0) >= 2) continue;
+    if ((seenCat.get(cat) ?? 0) >= 5) continue;
+    seenArea.set(area, (seenArea.get(area) ?? 0) + 1);
+    seenCat.set(cat, (seenCat.get(cat) ?? 0) + 1);
     selected.push({ ...r, _area: area });
     if (selected.length >= MAX_RECORDS) break;
   }
@@ -148,13 +156,15 @@ serve(async (req) => {
       municipality: r.municipality ?? "Padova",
       microzone: r.microzone,
       area_label: r._area,
+      category: r.category ?? null,
+      tags: Array.isArray(r.tags) ? r.tags : [],
       source_name: r.source_name,
       last_seen_at: r.last_seen_at,
       freshness_days: freshness,
       freshness_label: freshnessLabel(freshness),
       priority_score: score,
       priority_label: priorityLabel(score),
-      reason_short: reasonShort(score, r.source_name ?? "", hasGeo, r.microzone != null),
+      reason_short: reasonShort(score, r.category ?? null, hasGeo, r.microzone != null),
       has_geo: hasGeo,
     };
   });

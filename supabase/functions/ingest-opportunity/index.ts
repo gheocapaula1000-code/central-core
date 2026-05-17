@@ -35,6 +35,9 @@ interface RawInput {
   raw_payload?: Record<string, unknown>;
   latitude?: number | string | null;
   longitude?: number | string | null;
+  category?: string | null;
+  tags?: string[] | null;
+  external_ref?: string | null;
 }
 
 function num(v: unknown): number | null {
@@ -151,6 +154,10 @@ Deno.serve(async (req) => {
     const latitude = latRaw !== null && latRaw >= -90 && latRaw <= 90 ? latRaw : null;
     const longitude = lonRaw !== null && lonRaw >= -180 && lonRaw <= 180 ? lonRaw : null;
     const title = (item.title ?? "").toString().slice(0, 200) || "(senza titolo)";
+    const tags = Array.isArray(item.tags) ? item.tags.filter((t) => typeof t === "string" && t.length <= 60).slice(0, 20) : [];
+    const category = typeof item.category === "string" && item.category.length <= 60 ? item.category : null;
+    const external_ref = typeof item.external_ref === "string" && item.external_ref.length <= 200 ? item.external_ref : null;
+
     const normalized = {
       raw_id: raw.id,
       title,
@@ -164,22 +171,39 @@ Deno.serve(async (req) => {
       longitude,
       source_name: item.source_name,
       source_url: item.source_url ?? null,
+      tags,
+      category,
+      external_ref,
     };
-    const dk = dedupeKey({
-      title: normalized.title,
-      municipality: normalized.municipality ?? undefined,
-      address_text: normalized.address_text ?? undefined,
-      ask_price,
-      surface_mq,
-    });
+    // dedupe key: se abbiamo external_ref, è la chiave stabile primaria.
+    const dk = external_ref
+      ? `ref|${item.source_name}|${external_ref}`
+      : dedupeKey({
+          title: normalized.title,
+          municipality: normalized.municipality ?? undefined,
+          address_text: normalized.address_text ?? undefined,
+          ask_price,
+          surface_mq,
+        });
     const s = score({ ...normalized, fetched_at });
 
-    // 3) dedupe — match prudente
-    const { data: existing } = await sb.from("normalized_opportunities")
-      .select("id, first_seen_at")
-      .eq("dedupe_key", dk)
-      .limit(1)
-      .maybeSingle();
+    // 3) dedupe — preferisci external_ref quando presente
+    let existing: { id: string } | null = null;
+    if (external_ref) {
+      const { data } = await sb.from("normalized_opportunities")
+        .select("id")
+        .eq("source_name", item.source_name)
+        .eq("external_ref", external_ref)
+        .limit(1).maybeSingle();
+      existing = data ?? null;
+    }
+    if (!existing) {
+      const { data } = await sb.from("normalized_opportunities")
+        .select("id")
+        .eq("dedupe_key", dk)
+        .limit(1).maybeSingle();
+      existing = data ?? null;
+    }
 
     let possible_duplicate = false;
     if (!existing) {
