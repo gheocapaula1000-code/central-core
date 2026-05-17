@@ -2369,9 +2369,11 @@ export type Database = {
         Row: {
           address_text: string | null
           ask_price: number | null
+          category: string | null
           completeness_score: number
           created_at: string
           dedupe_key: string | null
+          external_ref: string | null
           first_seen_at: string
           freshness_days: number
           id: string
@@ -2388,15 +2390,18 @@ export type Database = {
           source_name: string
           source_url: string | null
           surface_mq: number | null
+          tags: string[]
           title: string
           updated_at: string
         }
         Insert: {
           address_text?: string | null
           ask_price?: number | null
+          category?: string | null
           completeness_score?: number
           created_at?: string
           dedupe_key?: string | null
+          external_ref?: string | null
           first_seen_at?: string
           freshness_days?: number
           id?: string
@@ -2413,15 +2418,18 @@ export type Database = {
           source_name: string
           source_url?: string | null
           surface_mq?: number | null
+          tags?: string[]
           title: string
           updated_at?: string
         }
         Update: {
           address_text?: string | null
           ask_price?: number | null
+          category?: string | null
           completeness_score?: number
           created_at?: string
           dedupe_key?: string | null
+          external_ref?: string | null
           first_seen_at?: string
           freshness_days?: number
           id?: string
@@ -2438,6 +2446,7 @@ export type Database = {
           source_name?: string
           source_url?: string | null
           surface_mq?: number | null
+          tags?: string[]
           title?: string
           updated_at?: string
         }
