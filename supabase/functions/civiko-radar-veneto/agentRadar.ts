@@ -539,7 +539,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   }
 
   for (const r of signals ?? []) {
-    const row = r as { province: string|null; municipality: string|null; signal_type: string|null; lat: number|null; lng: number|null; source: string|null; payload: Record<string, unknown>|null };
+    const row = r as { province: string|null; municipality: string|null; signal_type: string|null; lat: number|null; lng: number|null; source: string|null; evidence_url: string|null; payload: Record<string, unknown>|null };
     const prov = isVenetoRow(row.province);
     if (!prov || !row.municipality) continue;
     if (filterComune && row.municipality.trim().toLowerCase() !== filterComune.trim().toLowerCase()) continue;
@@ -551,6 +551,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       if (isDemo) { a.asteDemo++; a.hasDemoSource = true; }
       else { a.aste++; a.hasRealSource = true; }
     }
+    if (!isDemo) pushZoneUrl(a, row.evidence_url ?? urlFromPayload(row.payload));
     if (a.lat == null && typeof row.lat === "number") { a.lat = row.lat; a.lng = row.lng; }
   }
 
