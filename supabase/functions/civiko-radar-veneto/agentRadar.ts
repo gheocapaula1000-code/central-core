@@ -1082,6 +1082,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
             script: matchedScript ? String(matchedScript.text ?? "") : "",
             dataBasis,
             sourceUrls: [],
+            source_url: null,
             confidence: String(act.confidence ?? "medium"),
             quality: String(r.quality ?? "parziale"),
             target: String(act.target ?? "zona"),
