@@ -35,6 +35,20 @@ function normProv(p: string | null | undefined): string | null {
   const k = p.trim().toLowerCase();
   return PROV_NORM[k] ?? (VENETO.has(p.toUpperCase()) ? p.toUpperCase() : null);
 }
+/**
+ * ISO week tag, formato "YYYYWW" (es. "2026W21"). Usato per dedupe rolling
+ * settimanale dei segnali derivati: stesso comune/listing entro la stessa
+ * settimana = idempotente; settimana nuova = nuovo segnale ammesso.
+ */
+function isoWeekTag(d: Date = new Date()): string {
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const dayNum = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  const week = Math.ceil((((t.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return `${t.getUTCFullYear()}W${String(week).padStart(2, "0")}`;
+}
+
 
 /**
  * Esegue le 3 derivazioni e restituisce conteggi inseriti.
