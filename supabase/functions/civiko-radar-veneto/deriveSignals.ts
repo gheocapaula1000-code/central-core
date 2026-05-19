@@ -132,21 +132,24 @@ export async function deriveAllSignals(): Promise<DeriveReport> {
     });
   }
 
-  // ─── 4. Insert motivated_sellers (giorni>=100) ─────────────
+  // ─── 4. Insert motivated_sellers (giorni>=60, dedupe rolling settimanale) ─
+  // Opzione B Padova: soglia abbassata da 100 → 60 gg. Dedupe per identity_hash
+  // che include settimana ISO → 1 record per listing per settimana.
+  const weekTag = isoWeekTag();
   const msExisting = new Set<string>();
-  const { data: msEx } = await supa.from("motivated_sellers").select("listing_id").range(0, 9999);
-  for (const r of msEx ?? []) msExisting.add((r as { listing_id: string }).listing_id);
+  const { data: msEx } = await supa.from("motivated_sellers").select("identity_hash").range(0, 9999);
+  for (const r of msEx ?? []) msExisting.add((r as { identity_hash: string }).identity_hash);
 
   const msRows = norm
-    .filter((n) => n.giorni >= 100 && !msExisting.has(n.listing_id))
+    .filter((n) => n.giorni >= 60)
     .map((n) => ({
-      identity_hash: `derived_${n.prov}_${n.listing_id}`,
+      identity_hash: `derived_${n.prov}_${n.listing_id}_${weekTag}`,
       listing_id: n.listing_id, source: n.source, url: n.url,
       municipality: n.municipality, province: n.prov,
       first_seen_at: new Date(Date.now() - n.giorni * 86_400_000).toISOString(),
       last_price_eur: n.price, initial_price_eur: n.price,
       total_drop_pct: 0, drops_count: 0,
-      days_online: Math.max(120, Math.round(n.giorni)),
+      days_online: Math.max(60, Math.round(n.giorni)),
       fatigue_score: (n.gap_pct ?? 0) > 30 ? 80 : (n.gap_pct ?? 0) > 15 ? 65 : 55,
       fatigue_label: (n.gap_pct ?? 0) > 30 ? "caldissimo" : (n.gap_pct ?? 0) > 15 ? "caldo" : "tiepido",
       payload: {
@@ -155,8 +158,11 @@ export async function deriveAllSignals(): Promise<DeriveReport> {
         gap_omi_pct: n.gap_pct ? Math.round(n.gap_pct * 10) / 10 : null,
         omi_medio: n.omi_medio,
         data_basis: ["listing_price_snapshots", "omi_valori"],
+        week_tag: weekTag,
       },
-    }));
+    }))
+    .filter((row) => !msExisting.has(row.identity_hash));
+
 
   let msInserted = 0;
   if (msRows.length > 0) {
