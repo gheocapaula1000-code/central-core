@@ -1003,6 +1003,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         script,
         dataBasis: ["open_data_veneto","territorial_signals"],
         sourceUrls,
+        source_url: sourceUrls[0] ?? null,
         confidence: r.confidence ?? "medium",
         quality: "parziale",
         target: "agente immobiliare",
