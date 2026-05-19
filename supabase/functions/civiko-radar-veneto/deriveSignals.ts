@@ -35,6 +35,20 @@ function normProv(p: string | null | undefined): string | null {
   const k = p.trim().toLowerCase();
   return PROV_NORM[k] ?? (VENETO.has(p.toUpperCase()) ? p.toUpperCase() : null);
 }
+/**
+ * ISO week tag, formato "YYYYWW" (es. "2026W21"). Usato per dedupe rolling
+ * settimanale dei segnali derivati: stesso comune/listing entro la stessa
+ * settimana = idempotente; settimana nuova = nuovo segnale ammesso.
+ */
+function isoWeekTag(d: Date = new Date()): string {
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const dayNum = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  const week = Math.ceil((((t.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return `${t.getUTCFullYear()}W${String(week).padStart(2, "0")}`;
+}
+
 
 /**
  * Esegue le 3 derivazioni e restituisce conteggi inseriti.
@@ -118,21 +132,24 @@ export async function deriveAllSignals(): Promise<DeriveReport> {
     });
   }
 
-  // ─── 4. Insert motivated_sellers (giorni>=100) ─────────────
+  // ─── 4. Insert motivated_sellers (giorni>=60, dedupe rolling settimanale) ─
+  // Opzione B Padova: soglia abbassata da 100 → 60 gg. Dedupe per identity_hash
+  // che include settimana ISO → 1 record per listing per settimana.
+  const weekTag = isoWeekTag();
   const msExisting = new Set<string>();
-  const { data: msEx } = await supa.from("motivated_sellers").select("listing_id").range(0, 9999);
-  for (const r of msEx ?? []) msExisting.add((r as { listing_id: string }).listing_id);
+  const { data: msEx } = await supa.from("motivated_sellers").select("identity_hash").range(0, 9999);
+  for (const r of msEx ?? []) msExisting.add((r as { identity_hash: string }).identity_hash);
 
   const msRows = norm
-    .filter((n) => n.giorni >= 100 && !msExisting.has(n.listing_id))
+    .filter((n) => n.giorni >= 60)
     .map((n) => ({
-      identity_hash: `derived_${n.prov}_${n.listing_id}`,
+      identity_hash: `derived_${n.prov}_${n.listing_id}_${weekTag}`,
       listing_id: n.listing_id, source: n.source, url: n.url,
       municipality: n.municipality, province: n.prov,
       first_seen_at: new Date(Date.now() - n.giorni * 86_400_000).toISOString(),
       last_price_eur: n.price, initial_price_eur: n.price,
       total_drop_pct: 0, drops_count: 0,
-      days_online: Math.max(120, Math.round(n.giorni)),
+      days_online: Math.max(60, Math.round(n.giorni)),
       fatigue_score: (n.gap_pct ?? 0) > 30 ? 80 : (n.gap_pct ?? 0) > 15 ? 65 : 55,
       fatigue_label: (n.gap_pct ?? 0) > 30 ? "caldissimo" : (n.gap_pct ?? 0) > 15 ? "caldo" : "tiepido",
       payload: {
@@ -141,8 +158,11 @@ export async function deriveAllSignals(): Promise<DeriveReport> {
         gap_omi_pct: n.gap_pct ? Math.round(n.gap_pct * 10) / 10 : null,
         omi_medio: n.omi_medio,
         data_basis: ["listing_price_snapshots", "omi_valori"],
+        week_tag: weekTag,
       },
-    }));
+    }))
+    .filter((row) => !msExisting.has(row.identity_hash));
+
 
   let msInserted = 0;
   if (msRows.length > 0) {
@@ -185,7 +205,7 @@ export async function deriveAllSignals(): Promise<DeriveReport> {
     const quality = a.is_demo_only ? "parziale" : "reale";
 
     if (avgPmq && a.omi_medio && avgPmq > a.omi_medio * 1.20) {
-      const ih = `derived_gap_alto_${a.prov}_${muniHash}`;
+      const ih = `derived_gap_alto_${a.prov}_${muniHash}_${weekTag}`;
       if (!anExisting.has(ih)) {
         const gap = ((avgPmq - a.omi_medio) / a.omi_medio) * 100;
         anRows.push({
@@ -202,7 +222,7 @@ export async function deriveAllSignals(): Promise<DeriveReport> {
       }
     }
     if (avgGior > 120) {
-      const ih = `derived_giacenza_${a.prov}_${muniHash}`;
+      const ih = `derived_giacenza_${a.prov}_${muniHash}_${weekTag}`;
       if (!anExisting.has(ih)) {
         anRows.push({
           identity_hash: ih, anomaly_type: "giacenza_lunga",
@@ -252,7 +272,7 @@ export async function deriveAllSignals(): Promise<DeriveReport> {
   const rsRows: Array<Record<string, unknown>> = [];
   for (const a of comuneAgg.values()) {
     const muniHash = await sha1(a.municipality);
-    const fp = `derived_rs_${a.prov}_${muniHash}`;
+    const fp = `derived_rs_${a.prov}_${muniHash}_${weekTag}`;
     if (rsExisting.has(fp)) continue;
     const k = `${a.prov}:${a.municipality.toUpperCase()}`;
     const nMot = msByComune.get(k) ?? 0;
