@@ -222,7 +222,7 @@ export async function deriveAllSignals(): Promise<DeriveReport> {
       }
     }
     if (avgGior > 120) {
-      const ih = `derived_giacenza_${a.prov}_${muniHash}`;
+      const ih = `derived_giacenza_${a.prov}_${muniHash}_${weekTag}`;
       if (!anExisting.has(ih)) {
         anRows.push({
           identity_hash: ih, anomaly_type: "giacenza_lunga",
