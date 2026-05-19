@@ -254,6 +254,23 @@ export async function scrapeRibassiPortali(
       rooms: l.rooms,
     });
 
+    // Preserva first_seen_at del listing (più vecchio se già visto).
+    // La tabella è append-only: i nuovi snapshot devono ereditare il
+    // first_seen_at originale per non azzerare days_online ad ogni run.
+    let preservedFirstSeen: string = nowIso;
+    {
+      const { data: prev } = await supabase
+        .from("listing_price_snapshots")
+        .select("first_seen_at")
+        .eq("listing_id", l.listing_id)
+        .not("first_seen_at", "is", null)
+        .order("first_seen_at", { ascending: true })
+        .limit(1);
+      if (prev && prev.length > 0 && prev[0].first_seen_at) {
+        preservedFirstSeen = prev[0].first_seen_at as string;
+      }
+    }
+
     // Snapshot persistente (anche senza identity_hash — tracciamo storico per listing_id)
     const { error: insErr } = await supabase.from("listing_price_snapshots").insert({
       listing_id: l.listing_id,
@@ -266,7 +283,7 @@ export async function scrapeRibassiPortali(
       lng: l.lng ?? coords?.lng ?? null,
       raw_title: l.title,
       raw_address: l.address,
-      first_seen_at: nowIso, // upsert logic: se già esiste, INSERT crea solo nuovo snapshot
+      first_seen_at: preservedFirstSeen, // se nuovo listing_id = now; altrimenti eredita il più vecchio
       agency_name: l.agency_name,
       surface_sqm: l.surface_sqm,
       rooms: l.rooms,
