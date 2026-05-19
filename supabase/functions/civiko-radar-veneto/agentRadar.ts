@@ -615,13 +615,14 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
 
     if (a.omiQuality === "reale") {
       score += 8;
-      const CAPOLUOGHI: Record<string, number> = {
-        "VE:venezia": 12, "VE:mestre": 10,
-        "VR:verona": 12, "VI:vicenza": 12, "PD:padova": 12,
-        "TV:treviso": 12, "BL:belluno": 10, "RO:rovigo": 10,
-      };
-      score += CAPOLUOGHI[aggKey(a.comune, a.provincia)] ?? 0;
     }
+    // Bonus capoluogo: applicato SEMPRE (Opzione B Padova), indipendente da omiQuality.
+    const CAPOLUOGHI: Record<string, number> = {
+      "VE:venezia": 12, "VE:mestre": 10,
+      "VR:verona": 12, "VI:vicenza": 12, "PD:padova": 12,
+      "TV:treviso": 12, "BL:belluno": 10, "RO:rovigo": 10,
+    };
+    score += CAPOLUOGHI[aggKey(a.comune, a.provincia)] ?? 0;
 
     const aosHit = aosBoost.get(aggKey(a.comune, a.provincia));
     if (aosHit) score = Math.max(score, aosHit.score);
