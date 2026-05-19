@@ -1,13 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { getStripeConfig, AR_DEFAULT_ACCOUNT_URL } from "../_shared/acquisitionradar-billing.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-internal-secret",
 };
 
-const DEFAULT_RETURN_URL = "https://acquisitionradar.app/account";
+const DEFAULT_RETURN_URL = AR_DEFAULT_ACCOUNT_URL;
 
 function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
