@@ -44,12 +44,24 @@ serve(async (req) => {
   }
 
   const body = await req.json().catch(() => ({}));
-  const { price_id, email: bodyEmail, user_id: bodyUserId } = body as { price_id?: string; email?: string; user_id?: string };
+  const { price_id, email: bodyEmail, user_id: bodyUserId, workspace_id: bodyWorkspaceId } = body as { price_id?: string; email?: string; user_id?: string; workspace_id?: string };
   if (!price_id) return new Response(JSON.stringify({ error: "Missing price_id" }), { status: 400, headers: { ...CORS, "Content-Type": "application/json" } });
+
+  // Map price_id → plan name
+  const PRICE_TO_PLAN: Record<string, string> = {
+    price_1TYSCWGWMFww3yH4OJQnZLvD: "agente",
+    price_1TYSCWGWMFww3yH4Q5r622nu: "agente",
+    price_1TYSEKGWMFww3yH4LjVMx2FI: "agenzia",
+    price_1TYSEKGWMFww3yH4WlaLOCjL: "agenzia",
+    price_1TYSFqGWMFww3yH4nYOrpPfV: "studio",
+    price_1TYSFqGWMFww3yH4W1rg9sGH: "studio",
+  };
+  const plan = PRICE_TO_PLAN[price_id] ?? "";
 
   // When called via internal secret, allow caller to specify customer email / user_id in body
   const customerEmail = userEmail ?? bodyEmail ?? undefined;
   const metaUserId = userId ?? bodyUserId ?? "";
+  const workspaceId = bodyWorkspaceId ?? "";
 
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ["card"],
@@ -58,7 +70,7 @@ serve(async (req) => {
     line_items: [{ price: price_id, quantity: 1 }],
     success_url: "https://sottra.app?checkout=success",
     cancel_url: "https://sottra.app?checkout=cancel",
-    metadata: { user_id: metaUserId },
+    metadata: { user_id: metaUserId, workspace_id: workspaceId, plan },
   });
 
   return new Response(JSON.stringify({ url: session.url }), { headers: { ...CORS, "Content-Type": "application/json" } });
