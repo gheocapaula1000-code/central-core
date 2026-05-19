@@ -1026,6 +1026,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         metrics: { annunciAttivi: null, ribassi30gg: null, aste: null, venditoriMotivati: null, giorniMediMercato: null },
         quality: "parziale",
         sourceUrls,
+        source_url: sourceUrls[0] ?? null,
         dataBasis: ["open_data_veneto","territorial_signals"],
         confidence: r.confidence ?? "medium",
       });
