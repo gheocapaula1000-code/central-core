@@ -272,7 +272,7 @@ export async function deriveAllSignals(): Promise<DeriveReport> {
   const rsRows: Array<Record<string, unknown>> = [];
   for (const a of comuneAgg.values()) {
     const muniHash = await sha1(a.municipality);
-    const fp = `derived_rs_${a.prov}_${muniHash}`;
+    const fp = `derived_rs_${a.prov}_${muniHash}_${weekTag}`;
     if (rsExisting.has(fp)) continue;
     const k = `${a.prov}:${a.municipality.toUpperCase()}`;
     const nMot = msByComune.get(k) ?? 0;
