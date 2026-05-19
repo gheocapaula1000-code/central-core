@@ -467,7 +467,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   };
 
   for (const r of snaps ?? []) {
-    const row = r as { province: string|null; municipality: string|null; price_eur: number|null; surface_sqm: number|null; lat: number|null; lng: number|null; captured_at: string; source: string|null };
+    const row = r as { province: string|null; municipality: string|null; price_eur: number|null; surface_sqm: number|null; lat: number|null; lng: number|null; captured_at: string; source: string|null; url: string|null };
     const prov = isVenetoRow(row.province);
     if (!prov || !row.municipality) continue;
     if (filterComune && row.municipality.toLowerCase() !== filterComune) continue;
@@ -475,7 +475,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     if (isDemo && !allowDemo) continue; // ESCLUDI demo
     const a = ensure(row.municipality, prov);
     if (isDemo) { a.annunciAttiviDemo++; a.hasDemoSource = true; }
-    else { a.annunciAttivi++; a.hasRealSource = true; }
+    else { a.annunciAttivi++; a.hasRealSource = true; pushZoneUrl(a, row.url); }
     if (!isDemo && row.price_eur && row.surface_sqm && row.surface_sqm > 10 && row.surface_sqm < 2000) {
       a.prezziPerSqm.push(row.price_eur / row.surface_sqm);
     }
@@ -485,7 +485,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   }
 
   for (const r of motivated ?? []) {
-    const row = r as { province: string|null; municipality: string|null; days_online: number|null; source: string|null; payload: Record<string, unknown>|null };
+    const row = r as { province: string|null; municipality: string|null; days_online: number|null; source: string|null; url: string|null; payload: Record<string, unknown>|null };
     const prov = isVenetoRow(row.province);
     if (!prov || !row.municipality) continue;
     if (filterComune && row.municipality.toLowerCase() !== filterComune) continue;
@@ -493,7 +493,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     if (isDemo && !allowDemo) continue;
     const a = ensure(row.municipality, prov);
     if (isDemo) { a.venditoriMotivatiDemo++; a.hasDemoSource = true; }
-    else { a.venditoriMotivati++; a.hasRealSource = true; }
+    else { a.venditoriMotivati++; a.hasRealSource = true; pushZoneUrl(a, row.url ?? urlFromPayload(row.payload)); }
   }
 
   for (const r of anomalies ?? []) {
@@ -507,7 +507,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     const isRibasso = (row.anomaly_type ?? "").toLowerCase().includes("ribass");
     if (isRibasso) {
       if (isDemo) { a.ribassi30ggDemo++; a.hasDemoSource = true; }
-      else { a.ribassi30gg++; a.hasRealSource = true; }
+      else { a.ribassi30gg++; a.hasRealSource = true; pushZoneUrl(a, urlFromPayload(row.payload)); }
     }
   }
 
