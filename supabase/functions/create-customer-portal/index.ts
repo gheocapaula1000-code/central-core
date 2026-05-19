@@ -37,7 +37,9 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return jsonRes({ error: "method_not_allowed" }, 405);
 
-  const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "", { apiVersion: "2023-10-16" });
+  const cfg = getStripeConfig();
+  if (!cfg.configured || !cfg.secretKey) return jsonRes({ error: "billing_not_configured" }, 503);
+  const stripe = new Stripe(cfg.secretKey, { apiVersion: "2023-10-16" });
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
