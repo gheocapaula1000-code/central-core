@@ -202,6 +202,7 @@ interface ZoneAgg {
   omiQuality: "reale" | "stimato" | "mancante";
   hasDemoSource: boolean;
   hasRealSource: boolean;
+  sourceUrls: string[];
 }
 
 function emptyAgg(k: AggKey): ZoneAgg {
@@ -215,6 +216,7 @@ function emptyAgg(k: AggKey): ZoneAgg {
     prezziPerSqm: [], daysOnline: [],
     omiValoreMedio: null, omiFascia: null, omiMicrozona: null, omiQuality: "mancante",
     hasDemoSource: false, hasRealSource: false,
+    sourceUrls: [],
   };
 }
 
