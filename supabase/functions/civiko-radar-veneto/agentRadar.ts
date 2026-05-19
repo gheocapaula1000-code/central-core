@@ -669,7 +669,8 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       quality = "stimato";
     }
 
-    const zSourceUrls: string[] = [];
+    const zSourceUrls: string[] = [...a.sourceUrls];
+    const zSourceUrl: string | null = zSourceUrls.find((u) => !!u) ?? null;
     const zBasis: string[] = [];
     if (a.omiQuality === "reale") zBasis.push("omi_valori");
     if (annunciTot) zBasis.push("listing_price_snapshots");
@@ -704,6 +705,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       },
       quality,
       sourceUrls: zSourceUrls,
+      source_url: zSourceUrl,
       dataBasis: zBasis,
       confidence: quality === "reale" ? "high" : quality === "parziale" ? "medium" : "low",
     });
