@@ -1687,7 +1687,7 @@ Deno.serve(async (req) => {
     }
 
     // Agent Radar — output operativo Veneto-only per MVP Civiko One
-    if (pathname.endsWith("/agent-radar")) {
+    if (pathname.endsWith("/agent-radar") || pathname.endsWith("/agentRadar")) {
       const rlA = rateLimit(req, `${FUNCTION_NAME}:agent-radar`, { windowMs: 60_000, max: 60 });
       if (!rlA.ok) {
         const r = fail(req, 429, "RATE_LIMITED", "Troppe richieste, riprovare a breve.", debugId);

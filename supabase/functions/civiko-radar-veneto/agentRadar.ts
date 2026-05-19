@@ -74,6 +74,7 @@ export interface AgentRadarZone {
   };
   quality: "reale" | "parziale" | "stimato" | "demo";
   sourceUrls?: string[];
+  source_url?: string | null;
   dataBasis?: string[];
   confidence?: string;
 }
@@ -89,6 +90,7 @@ export interface AgentRadarOpportunity {
   script: string;
   dataBasis: string[];
   sourceUrls?: string[];
+  source_url?: string | null;
   confidence?: string;
   quality?: string;
   target?: string;
@@ -200,6 +202,7 @@ interface ZoneAgg {
   omiQuality: "reale" | "stimato" | "mancante";
   hasDemoSource: boolean;
   hasRealSource: boolean;
+  sourceUrls: string[];
 }
 
 function emptyAgg(k: AggKey): ZoneAgg {
@@ -213,6 +216,7 @@ function emptyAgg(k: AggKey): ZoneAgg {
     prezziPerSqm: [], daysOnline: [],
     omiValoreMedio: null, omiFascia: null, omiMicrozona: null, omiQuality: "mancante",
     hasDemoSource: false, hasRealSource: false,
+    sourceUrls: [],
   };
 }
 
@@ -305,7 +309,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   // ── Pull dati (best-effort, ognuno in try/catch) ────────────
   const snaps = await safe("listing_price_snapshots", async () => {
     let q = supa.from("listing_price_snapshots")
-      .select("province,municipality,price_eur,surface_sqm,lat,lng,captured_at,source")
+      .select("province,municipality,price_eur,surface_sqm,lat,lng,captured_at,source,url")
       .gte("captured_at", new Date(Date.now() - 60 * 86400_000).toISOString());
     if (filterProv) q = q.in("province", [filterProv, fullProvName(filterProv)].filter(Boolean) as string[]);
     const { data, error } = await q.range(0, 4999);
@@ -315,7 +319,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
 
   const motivated = await safe("motivated_sellers", async () => {
     let q = supa.from("motivated_sellers")
-      .select("province,municipality,days_online,total_drop_pct,fatigue_score,is_active,source,payload")
+      .select("province,municipality,days_online,total_drop_pct,fatigue_score,is_active,source,url,payload")
       .eq("is_active", true);
     if (filterProv) q = q.in("province", [filterProv, fullProvName(filterProv)].filter(Boolean) as string[]);
     const { data, error } = await q.range(0, 1999);
@@ -334,7 +338,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
 
   const signals = await safe("radar_signals", async () => {
     let q = supa.from("radar_signals")
-      .select("province,municipality,signal_type,is_active,lat,lng,source,payload")
+      .select("province,municipality,signal_type,is_active,lat,lng,source,evidence_url,payload")
       .eq("is_active", true);
     if (filterProv) q = q.in("province", [filterProv, fullProvName(filterProv)].filter(Boolean) as string[]);
     if (filterComune) q = q.ilike("municipality", filterComune.trim());
@@ -385,6 +389,23 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   const isRecordDemo = (rec: { source?: unknown; source_name?: unknown; payload?: unknown }): boolean => {
     const p = (rec.payload ?? {}) as Record<string, unknown>;
     return isDemoSource(rec.source, rec.source_name, p?.source, p?.quality, p?.data_basis);
+  };
+
+  // Raccoglie URL reali per zona (dedup, cap a 5). Strategia: usa la URL diretta
+  // dalla riga (snapshot/seller/signal) o, in fallback, payload.url. Niente invenzioni.
+  const MAX_URLS_PER_ZONE = 5;
+  const pushZoneUrl = (a: ZoneAgg, raw: unknown) => {
+    if (typeof raw !== "string") return;
+    const u = raw.trim();
+    if (!u || !/^https?:\/\//i.test(u)) return;
+    if (a.sourceUrls.length >= MAX_URLS_PER_ZONE) return;
+    if (a.sourceUrls.includes(u)) return;
+    a.sourceUrls.push(u);
+  };
+  const urlFromPayload = (p: unknown): string | null => {
+    const o = (p ?? {}) as Record<string, unknown>;
+    const cand = o.url ?? o.source_url ?? o.evidence_url ?? o.listing_url;
+    return typeof cand === "string" ? cand : null;
   };
 
   // Conteggio demo per dataset
@@ -446,7 +467,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   };
 
   for (const r of snaps ?? []) {
-    const row = r as { province: string|null; municipality: string|null; price_eur: number|null; surface_sqm: number|null; lat: number|null; lng: number|null; captured_at: string; source: string|null };
+    const row = r as { province: string|null; municipality: string|null; price_eur: number|null; surface_sqm: number|null; lat: number|null; lng: number|null; captured_at: string; source: string|null; url: string|null };
     const prov = isVenetoRow(row.province);
     if (!prov || !row.municipality) continue;
     if (filterComune && row.municipality.toLowerCase() !== filterComune) continue;
@@ -454,7 +475,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     if (isDemo && !allowDemo) continue; // ESCLUDI demo
     const a = ensure(row.municipality, prov);
     if (isDemo) { a.annunciAttiviDemo++; a.hasDemoSource = true; }
-    else { a.annunciAttivi++; a.hasRealSource = true; }
+    else { a.annunciAttivi++; a.hasRealSource = true; pushZoneUrl(a, row.url); }
     if (!isDemo && row.price_eur && row.surface_sqm && row.surface_sqm > 10 && row.surface_sqm < 2000) {
       a.prezziPerSqm.push(row.price_eur / row.surface_sqm);
     }
@@ -464,7 +485,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   }
 
   for (const r of motivated ?? []) {
-    const row = r as { province: string|null; municipality: string|null; days_online: number|null; source: string|null; payload: Record<string, unknown>|null };
+    const row = r as { province: string|null; municipality: string|null; days_online: number|null; source: string|null; url: string|null; payload: Record<string, unknown>|null };
     const prov = isVenetoRow(row.province);
     if (!prov || !row.municipality) continue;
     if (filterComune && row.municipality.toLowerCase() !== filterComune) continue;
@@ -472,7 +493,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     if (isDemo && !allowDemo) continue;
     const a = ensure(row.municipality, prov);
     if (isDemo) { a.venditoriMotivatiDemo++; a.hasDemoSource = true; }
-    else { a.venditoriMotivati++; a.hasRealSource = true; }
+    else { a.venditoriMotivati++; a.hasRealSource = true; pushZoneUrl(a, row.url ?? urlFromPayload(row.payload)); }
   }
 
   for (const r of anomalies ?? []) {
@@ -486,7 +507,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     const isRibasso = (row.anomaly_type ?? "").toLowerCase().includes("ribass");
     if (isRibasso) {
       if (isDemo) { a.ribassi30ggDemo++; a.hasDemoSource = true; }
-      else { a.ribassi30gg++; a.hasRealSource = true; }
+      else { a.ribassi30gg++; a.hasRealSource = true; pushZoneUrl(a, urlFromPayload(row.payload)); }
     }
   }
 
@@ -518,7 +539,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   }
 
   for (const r of signals ?? []) {
-    const row = r as { province: string|null; municipality: string|null; signal_type: string|null; lat: number|null; lng: number|null; source: string|null; payload: Record<string, unknown>|null };
+    const row = r as { province: string|null; municipality: string|null; signal_type: string|null; lat: number|null; lng: number|null; source: string|null; evidence_url: string|null; payload: Record<string, unknown>|null };
     const prov = isVenetoRow(row.province);
     if (!prov || !row.municipality) continue;
     if (filterComune && row.municipality.trim().toLowerCase() !== filterComune.trim().toLowerCase()) continue;
@@ -530,6 +551,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       if (isDemo) { a.asteDemo++; a.hasDemoSource = true; }
       else { a.aste++; a.hasRealSource = true; }
     }
+    if (!isDemo) pushZoneUrl(a, row.evidence_url ?? urlFromPayload(row.payload));
     if (a.lat == null && typeof row.lat === "number") { a.lat = row.lat; a.lng = row.lng; }
   }
 
@@ -647,7 +669,8 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       quality = "stimato";
     }
 
-    const zSourceUrls: string[] = [];
+    const zSourceUrls: string[] = [...a.sourceUrls];
+    const zSourceUrl: string | null = zSourceUrls.find((u) => !!u) ?? null;
     const zBasis: string[] = [];
     if (a.omiQuality === "reale") zBasis.push("omi_valori");
     if (annunciTot) zBasis.push("listing_price_snapshots");
@@ -682,6 +705,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       },
       quality,
       sourceUrls: zSourceUrls,
+      source_url: zSourceUrl,
       dataBasis: zBasis,
       confidence: quality === "reale" ? "high" : quality === "parziale" ? "medium" : "low",
     });
@@ -719,6 +743,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         script,
         dataBasis: basis,
         sourceUrls: z.sourceUrls ?? [],
+        source_url: z.source_url ?? (z.sourceUrls?.find((u) => !!u) ?? null),
         confidence: z.confidence ?? (z.quality === "reale" ? "high" : z.quality === "parziale" ? "medium" : "low"),
         quality: z.quality,
       };
@@ -978,6 +1003,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         script,
         dataBasis: ["open_data_veneto","territorial_signals"],
         sourceUrls,
+        source_url: sourceUrls[0] ?? null,
         confidence: r.confidence ?? "medium",
         quality: "parziale",
         target: "agente immobiliare",
@@ -1000,6 +1026,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         metrics: { annunciAttivi: null, ribassi30gg: null, aste: null, venditoriMotivati: null, giorniMediMercato: null },
         quality: "parziale",
         sourceUrls,
+        source_url: sourceUrls[0] ?? null,
         dataBasis: ["open_data_veneto","territorial_signals"],
         confidence: r.confidence ?? "medium",
       });
@@ -1055,6 +1082,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
             script: matchedScript ? String(matchedScript.text ?? "") : "",
             dataBasis,
             sourceUrls: [],
+            source_url: null,
             confidence: String(act.confidence ?? "medium"),
             quality: String(r.quality ?? "parziale"),
             target: String(act.target ?? "zona"),
