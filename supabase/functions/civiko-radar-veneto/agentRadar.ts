@@ -74,6 +74,7 @@ export interface AgentRadarZone {
   };
   quality: "reale" | "parziale" | "stimato" | "demo";
   sourceUrls?: string[];
+  source_url?: string | null;
   dataBasis?: string[];
   confidence?: string;
 }
@@ -89,6 +90,7 @@ export interface AgentRadarOpportunity {
   script: string;
   dataBasis: string[];
   sourceUrls?: string[];
+  source_url?: string | null;
   confidence?: string;
   quality?: string;
   target?: string;
