@@ -7,7 +7,7 @@ const CORS = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-internal-secret",
 };
 
-const DEFAULT_RETURN_URL = "https://sottra.app/account";
+const DEFAULT_RETURN_URL = "https://acquisitionradar.app/account";
 
 function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
