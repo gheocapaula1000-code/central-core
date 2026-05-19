@@ -205,7 +205,7 @@ export async function deriveAllSignals(): Promise<DeriveReport> {
     const quality = a.is_demo_only ? "parziale" : "reale";
 
     if (avgPmq && a.omi_medio && avgPmq > a.omi_medio * 1.20) {
-      const ih = `derived_gap_alto_${a.prov}_${muniHash}`;
+      const ih = `derived_gap_alto_${a.prov}_${muniHash}_${weekTag}`;
       if (!anExisting.has(ih)) {
         const gap = ((avgPmq - a.omi_medio) / a.omi_medio) * 100;
         anRows.push({
