@@ -743,6 +743,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         script,
         dataBasis: basis,
         sourceUrls: z.sourceUrls ?? [],
+        source_url: z.source_url ?? (z.sourceUrls?.find((u) => !!u) ?? null),
         confidence: z.confidence ?? (z.quality === "reale" ? "high" : z.quality === "parziale" ? "medium" : "low"),
         quality: z.quality,
       };
