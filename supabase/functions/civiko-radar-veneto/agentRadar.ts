@@ -391,6 +391,23 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     return isDemoSource(rec.source, rec.source_name, p?.source, p?.quality, p?.data_basis);
   };
 
+  // Raccoglie URL reali per zona (dedup, cap a 5). Strategia: usa la URL diretta
+  // dalla riga (snapshot/seller/signal) o, in fallback, payload.url. Niente invenzioni.
+  const MAX_URLS_PER_ZONE = 5;
+  const pushZoneUrl = (a: ZoneAgg, raw: unknown) => {
+    if (typeof raw !== "string") return;
+    const u = raw.trim();
+    if (!u || !/^https?:\/\//i.test(u)) return;
+    if (a.sourceUrls.length >= MAX_URLS_PER_ZONE) return;
+    if (a.sourceUrls.includes(u)) return;
+    a.sourceUrls.push(u);
+  };
+  const urlFromPayload = (p: unknown): string | null => {
+    const o = (p ?? {}) as Record<string, unknown>;
+    const cand = o.url ?? o.source_url ?? o.evidence_url ?? o.listing_url;
+    return typeof cand === "string" ? cand : null;
+  };
+
   // Conteggio demo per dataset
   let snapsDemo = 0, snapsReal = 0;
   for (const r of snaps ?? []) { isRecordDemo(r as never) ? snapsDemo++ : snapsReal++; }
