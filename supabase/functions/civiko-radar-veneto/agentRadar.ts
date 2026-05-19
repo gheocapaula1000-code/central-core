@@ -319,7 +319,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
 
   const motivated = await safe("motivated_sellers", async () => {
     let q = supa.from("motivated_sellers")
-      .select("province,municipality,days_online,total_drop_pct,fatigue_score,is_active,source,payload")
+      .select("province,municipality,days_online,total_drop_pct,fatigue_score,is_active,source,url,payload")
       .eq("is_active", true);
     if (filterProv) q = q.in("province", [filterProv, fullProvName(filterProv)].filter(Boolean) as string[]);
     const { data, error } = await q.range(0, 1999);
