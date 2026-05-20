@@ -55,6 +55,7 @@ import { runIspraRiskEnrichment } from "./openData/ispraRiskEnricher.ts";
 import { runGeoportaleGreenImport } from "./openData/geoportaleGreenImporter.ts";
 import { discoverVenetoAuctions } from "./legal/auctionDiscovery.ts";
 import { startAuctionDiscoveryRun, getAuctionDiscoveryRun, importAuctionCandidates } from "./legal/auctionRunStore.ts";
+import { refreshPadovaAuctions } from "./legal/refreshPadovaAuctions.ts";
 import { runApifyForVenetoSource } from "./apify/apifyAdapter.ts";
 import { runApifyForVenetoSourceV2, apifyDiagnostics } from "./apify/apifyOrchestrator.ts";
 import { APIFY_VENETO_REGISTRY } from "./apify/apifySourceRegistry.ts";
@@ -113,6 +114,7 @@ const ROUTES = [
  "POST /jobs/start-auction-discovery",
  "POST /jobs/auction-discovery-status",
   "POST /jobs/import-auction-candidates",
+  "POST /jobs/refresh-padova-auctions",
   "POST /jobs/build-offmarket-opportunity-scores",
   "POST /jobs/firecrawl-offmarket-microzone-discovery",
   "POST /jobs/discover-early-offmarket-signals",
@@ -1202,6 +1204,19 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] import-auction-candidates error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "import auction candidates failed", debugId), "job-error");
+      }
+    }
+
+    // ── ASTE PADOVA: pipeline end-to-end (scrape→parse→dedupe→insert) ──
+    if (pathname.endsWith("/jobs/refresh-padova-auctions")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const r = await refreshPadovaAuctions(body);
+        return withIdentity(json(req, r.ok ? 200 : 207, r, debugId), "job-refresh-padova-auctions");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] refresh-padova-auctions error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "refresh-padova-auctions failed", debugId), "job-error");
       }
     }
 
