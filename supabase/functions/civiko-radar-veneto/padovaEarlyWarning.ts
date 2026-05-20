@@ -106,12 +106,25 @@ function scoreFor(signals: RawSignal[]): { score: number; confidence: string } {
   // Auction-only should not dominate
   const onlyAuction = signals.every((s) => s.type === "auction_confirmation");
   const auctionPenalty = onlyAuction ? -20 : 0;
-  let score = Math.min(100, Math.round(Math.max(0, sumWeights * 0.7 + sourcesBonus + evidenceBonus + auctionPenalty)));
+  const allPrivacySafe = signals.every((s) => s.privacy_safe);
+  const score = Math.min(100, Math.round(Math.max(0, sumWeights * 0.7 + sourcesBonus + evidenceBonus + auctionPenalty)));
+  // HIGH-CONFIDENCE policy (commercial gate):
+  //   evidence_count >= 3 AND sources_count >= 2 AND privacy_safe
+  //   AND not auction-only AND not single-perplexity-only AND not single-stale-only
+  const onlyPerplexity = signals.every((s) => /perplex/i.test(s.source));
+  const singleStaleOnly = signals.length === 1 && signals[0].type === "velocity_stale";
   let confidence: string;
-  if (sourceSet.size >= 3 || (sourceSet.size >= 2 && signals.length >= 4)) confidence = "alta";
+  const highEligible =
+    signals.length >= 3 &&
+    sourceSet.size >= 2 &&
+    allPrivacySafe &&
+    !onlyAuction &&
+    !onlyPerplexity &&
+    !singleStaleOnly;
+  if (highEligible && (sourceSet.size >= 3 || (sourceSet.size >= 2 && signals.length >= 4))) confidence = "alta";
   else if (sourceSet.size >= 2 || signals.length >= 3) confidence = "media";
   else confidence = "bassa";
-  if (onlyAuction) confidence = "bassa";
+  if (onlyAuction || onlyPerplexity) confidence = "bassa";
   return { score, confidence };
 }
 
