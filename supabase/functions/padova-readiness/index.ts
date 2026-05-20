@@ -531,7 +531,7 @@ serve(async (req) => {
       status: commercial_status,
       missing: commercialMissing,
       thresholds: {
-        controlled_client: { non_auction: COM_MIN_NON_AUCTION, multi_source: COM_MIN_MULTI, high_confidence: COM_MIN_HIGH, provider_fresh_days: PROVIDER_FRESH_DAYS },
+        controlled_client: { non_auction: COM_MIN_NON_AUCTION, multi_source: COM_MIN_MULTI, high_confidence: COM_MIN_HIGH, listing_sources: COM_MIN_LISTING_SOURCES, provider_fresh_days: PROVIDER_FRESH_DAYS },
         public_sales: { all_controlled_client_thresholds_met: true, cron_active_required: true },
       },
       opportunities: {
@@ -539,6 +539,12 @@ serve(async (req) => {
         non_auction: ewoNonAuction ?? 0,
         multi_source: ewoMultiSource ?? 0,
         high_confidence: ewoHighConf ?? 0,
+      },
+      listing_sources: {
+        active: activeListingSources,
+        active_count: activeListingSources.length,
+        snapshots_per_source_30d: listingSourceCounts,
+        min_required: COM_MIN_LISTING_SOURCES,
       },
       provider_freshness: {
         last_provider_run_age_days: providerFreshAgeDays,
@@ -548,6 +554,8 @@ serve(async (req) => {
       scheduling: {
         cron_active: cronActive,
         cron_jobs_visible: cronJobs,
+        daily_radar_recent: dailyRanRecently,
+        last_daily_radar_run: lastDailyRadarRun,
       },
       last_run: lastEwRun,
       top_opportunities: topOpps ?? [],
