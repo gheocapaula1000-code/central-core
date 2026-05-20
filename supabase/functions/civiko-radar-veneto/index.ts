@@ -118,6 +118,7 @@ const ROUTES = [
   "POST /jobs/refresh-padova-auctions",
   "POST /jobs/padova-daily-radar",
   "POST /jobs/padova-institutional-sources",
+  "POST /jobs/refresh-padova-legal-life-events",
   "POST /jobs/build-offmarket-opportunity-scores",
   "POST /jobs/firecrawl-offmarket-microzone-discovery",
   "POST /jobs/discover-early-offmarket-signals",
@@ -1475,6 +1476,21 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] padova-institutional-sources error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Padova institutional sources failed", debugId), "job-error");
+      }
+    }
+
+    // Padova legal & life-event signals — aggrega segnali legali/patrimoniali
+    // privacy-safe in `legal_life_event_signals`. Solo fonti già ingestite e lecite.
+    if (pathname.endsWith("/jobs/refresh-padova-legal-life-events")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const { refreshPadovaLegalLifeEvents } = await import("./legalLifeEvents.ts");
+        const r = await refreshPadovaLegalLifeEvents(body);
+        return withIdentity(json(req, r.ok ? 200 : 207, { job: "refresh-padova-legal-life-events", ...r }, debugId), "job-padova-lle");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] padova-legal-life-events error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Padova legal/life-event refresh failed", debugId), "job-error");
       }
     }
 

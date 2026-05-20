@@ -37,17 +37,32 @@ const SIGNAL_WEIGHTS: Record<string, number> = {
   // legal/aste — solo conferma
   auction_confirmation: 12,
   inheritance_aggregate: 10,
+  // legal & life-event layer (privacy-safe)
+  foreclosure_signal: 34,
+  pre_auction_signal: 30,
+  public_notice_signal: 14,
+  possible_succession_signal: 10,
+  public_asset_disposal: 22,
+  municipal_property_signal: 18,
+  urban_planning_signal: 16,
+  concession_or_lease_signal: 16,
 };
 
 const PRIMARY_PRIORITY = [
   "MULTISOURCE_DISTRESS",
+  "FORECLOSURE_SIGNAL",
+  "PRE_AUCTION_SIGNAL",
   "PRICE_DROP_DISTRESS",
   "RELISTING_PATTERN",
   "STALE_LISTING",
   "OMI_MISPRICING",
+  "PUBLIC_ASSET_DISPOSAL",
   "MICROZONE_PRESSURE",
   "OFFMARKET_DISCOVERY",
+  "URBAN_PLANNING_SIGNAL",
   "POSSIBLE_INHERITANCE_SIGNAL",
+  "POSSIBLE_SUCCESSION_SIGNAL",
+  "PUBLIC_NOTICE_SIGNAL",
   "AUCTION_CONFIRMATION",
 ];
 
@@ -81,13 +96,19 @@ function pickPrimary(types: Set<string>, signals: RawSignal[]): string {
   // Multi-source listing-level → MULTISOURCE_DISTRESS
   const sourceSet = new Set(signals.map((s) => s.source));
   if (sourceSet.size >= 2 && signals.length >= 3) return "MULTISOURCE_DISTRESS";
+  if (types.has("foreclosure_signal")) return "FORECLOSURE_SIGNAL";
+  if (types.has("pre_auction_signal")) return "PRE_AUCTION_SIGNAL";
   if (types.has("velocity_price_drop") || types.has("ribasso") || types.has("cluster_ribassi")) return "PRICE_DROP_DISTRESS";
   if (types.has("velocity_repost") || types.has("cross_portal_reappear") || types.has("price_jump_after_disappear")) return "RELISTING_PATTERN";
   if (types.has("velocity_stale") || types.has("giacenza_lunga")) return "STALE_LISTING";
   if (types.has("omi_gap_alto") || types.has("omi_gap_basso")) return "OMI_MISPRICING";
+  if (types.has("public_asset_disposal") || types.has("municipal_property_signal")) return "PUBLIC_ASSET_DISPOSAL";
   if (types.has("stock_anomalo")) return "MICROZONE_PRESSURE";
   if (types.has("offmarket_promoted")) return "OFFMARKET_DISCOVERY";
+  if (types.has("urban_planning_signal") || types.has("concession_or_lease_signal")) return "URBAN_PLANNING_SIGNAL";
   if (types.has("inheritance_aggregate")) return "POSSIBLE_INHERITANCE_SIGNAL";
+  if (types.has("possible_succession_signal")) return "POSSIBLE_SUCCESSION_SIGNAL";
+  if (types.has("public_notice_signal")) return "PUBLIC_NOTICE_SIGNAL";
   if (types.has("auction_confirmation")) return "AUCTION_CONFIRMATION";
   if (types.has("agency_swap") || types.has("motivated_seller")) return "MICROZONE_PRESSURE";
   return PRIMARY_PRIORITY[PRIMARY_PRIORITY.length - 1];
@@ -369,7 +390,35 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
     });
   }
 
-  // ─── Build opportunities ───
+  // legal_life_event_signals — privacy-safe legal & life-event layer
+  const { data: lle } = await sb
+    .from("legal_life_event_signals")
+    .select("signal_type, source_name, source_url, area_or_microzone, confidence, privacy_safe, pii_redacted, contains_personal_data, dedupe_key, payload_minimized")
+    .ilike("municipality", COMUNE)
+    .eq("is_active", true)
+    .eq("privacy_safe", true)
+    .eq("pii_redacted", true)
+    .eq("contains_personal_data", false)
+    .range(0, 999);
+  for (const r of (lle ?? []) as any[]) {
+    const t = String(r.signal_type ?? "").toLowerCase();
+    const weight = SIGNAL_WEIGHTS[t] ?? 12;
+    // Group by area for legal/life-event signals; for auction confirmations,
+    // reuse the existing `auc:<fingerprint>` key so they merge with auction_signals evidence.
+    const key = t === "auction_confirmation"
+      ? r.dedupe_key                                  // already "auc:<fingerprint>"
+      : `lle:${r.area_or_microzone ?? "padova"}`;
+    const agg = getAgg(key, { identity_hash: null, area_label: r.area_or_microzone ?? null });
+    agg.signals.push({
+      identity_hash: null,
+      type: t,
+      source: r.source_name ?? "legal_life_event",
+      source_url: r.source_url ?? null,
+      weight: r.confidence === "alta" ? weight : (r.confidence === "media" ? Math.round(weight * 0.85) : Math.round(weight * 0.6)),
+      payload: r.payload_minimized ?? {},
+      privacy_safe: true,
+    });
+  }
   const rows: any[] = [];
   let multiSource = 0;
   let highConfidence = 0;

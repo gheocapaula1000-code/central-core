@@ -527,6 +527,37 @@ serve(async (req) => {
     auctions: auctionsBlock,
     early_warning: earlyWarningBlock,
     listing_history: listingHistoryBlock,
+    legal_life_events: await (async () => {
+      try {
+        const { data: lle } = await sb
+          .from("legal_life_event_signals")
+          .select("signal_type, source_url, privacy_safe, pii_redacted, contains_personal_data, is_active, confidence")
+          .ilike("municipality", "Padova")
+          .eq("is_active", true)
+          .range(0, 999);
+        const rows = (lle ?? []) as Array<Record<string, unknown>>;
+        const by_type: Record<string, number> = {};
+        for (const r of rows) by_type[String(r.signal_type)] = (by_type[String(r.signal_type)] ?? 0) + 1;
+        const withUrl = rows.filter((r) => !!r.source_url).length;
+        const privacySafe = rows.filter((r) => r.privacy_safe && r.pii_redacted && !r.contains_personal_data).length;
+        return {
+          total: rows.length,
+          privacy_safe_total: privacySafe,
+          with_source_url: withUrl,
+          foreclosure_signals: by_type["FORECLOSURE_SIGNAL"] ?? 0,
+          pre_auction_signals: by_type["PRE_AUCTION_SIGNAL"] ?? 0,
+          auction_confirmations: by_type["AUCTION_CONFIRMATION"] ?? 0,
+          public_asset_signals: (by_type["PUBLIC_ASSET_DISPOSAL"] ?? 0) + (by_type["MUNICIPAL_PROPERTY_SIGNAL"] ?? 0),
+          urban_planning_signals: (by_type["URBAN_PLANNING_SIGNAL"] ?? 0) + (by_type["CONCESSION_OR_LEASE_SIGNAL"] ?? 0),
+          succession_like_signals_privacy_safe: (by_type["POSSIBLE_SUCCESSION_SIGNAL"] ?? 0) + (by_type["POSSIBLE_INHERITANCE_SIGNAL"] ?? 0),
+          public_notice_signals: by_type["PUBLIC_NOTICE_SIGNAL"] ?? 0,
+          signals_rejected_for_privacy: rows.length - privacySafe,
+          high_confidence: rows.filter((r) => r.confidence === "alta").length,
+        };
+      } catch (e) {
+        return { total: 0, error: e instanceof Error ? e.message : String(e) };
+      }
+    })(),
     commercial_readiness: {
       status: commercial_status,
       missing: commercialMissing,
@@ -567,6 +598,7 @@ serve(async (req) => {
       "listing_price_snapshots", "motivated_sellers", "market_anomalies",
       "radar_signals", "auction_signals", "early_offmarket_signal_candidates",
       "inheritance_pressure_signals", "listing_velocity_signals",
+      "legal_life_event_signals",
       "omi_zone_geometry", "Firecrawl", "Perplexity", "Apify",
     ],
   }, [], debugId);

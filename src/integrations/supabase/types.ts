@@ -1649,6 +1649,81 @@ export type Database = {
         }
         Relationships: []
       }
+      legal_life_event_signals: {
+        Row: {
+          area_or_microzone: string | null
+          confidence: string
+          contains_personal_data: boolean
+          created_at: string
+          dedupe_key: string
+          detected_at: string
+          event_date: string | null
+          explanation: string | null
+          id: number
+          is_active: boolean
+          legal_basis_note: string | null
+          municipality: string
+          payload_minimized: Json
+          pii_redacted: boolean
+          privacy_safe: boolean
+          property_hint: string | null
+          province: string | null
+          region: string
+          signal_type: string
+          source_name: string
+          source_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          area_or_microzone?: string | null
+          confidence?: string
+          contains_personal_data?: boolean
+          created_at?: string
+          dedupe_key: string
+          detected_at?: string
+          event_date?: string | null
+          explanation?: string | null
+          id?: number
+          is_active?: boolean
+          legal_basis_note?: string | null
+          municipality: string
+          payload_minimized?: Json
+          pii_redacted?: boolean
+          privacy_safe?: boolean
+          property_hint?: string | null
+          province?: string | null
+          region?: string
+          signal_type: string
+          source_name: string
+          source_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          area_or_microzone?: string | null
+          confidence?: string
+          contains_personal_data?: boolean
+          created_at?: string
+          dedupe_key?: string
+          detected_at?: string
+          event_date?: string | null
+          explanation?: string | null
+          id?: number
+          is_active?: boolean
+          legal_basis_note?: string | null
+          municipality?: string
+          payload_minimized?: Json
+          pii_redacted?: boolean
+          privacy_safe?: boolean
+          property_hint?: string | null
+          province?: string | null
+          region?: string
+          signal_type?: string
+          source_name?: string
+          source_url?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       legal_property_signals: {
         Row: {
           area_label: string | null
