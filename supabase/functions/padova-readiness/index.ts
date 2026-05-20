@@ -304,17 +304,43 @@ serve(async (req) => {
     .order("early_acquisition_score", { ascending: false })
     .limit(5);
 
-  const COM_MIN_NON_AUCTION = 5;
-  const COM_MIN_MULTI = 3;
-  const COM_MIN_HIGH = 1;
+  // ── Commercial thresholds: primo cliente pagante 499€/mese ──
+  const COM_MIN_NON_AUCTION = 10;
+  const COM_MIN_MULTI = 5;
+  const COM_MIN_HIGH = 2;
+  const PROVIDER_FRESH_DAYS = 7;
+
+  // Provider freshness: almeno un provider esterno con run reale negli ultimi 7 giorni
+  const providerRuns = [fcRun, pplxRun, apifyRun, auctionRun].filter(Boolean) as Array<{ started_at?: string }>;
+  const mostRecentProviderAt = providerRuns
+    .map((r) => r?.started_at ? new Date(r.started_at).getTime() : 0)
+    .reduce((a, b) => Math.max(a, b), 0);
+  const providerFreshAgeDays = mostRecentProviderAt
+    ? Math.floor((Date.now() - mostRecentProviderAt) / (24 * 3600 * 1000))
+    : null;
+  const providerFresh = providerFreshAgeDays !== null && providerFreshAgeDays <= PROVIDER_FRESH_DAYS;
+
+  // Cron attivi? lettura best-effort da cron.job (può fallire per RLS → si presume off)
+  let cronActive = false;
+  let cronJobs: Array<{ jobname: string; schedule: string; active: boolean }> = [];
+  try {
+    const { data: crons } = await sb
+      // @ts-expect-error schema cron non tipizzato
+      .schema("cron").from("job").select("jobname, schedule, active");
+    cronJobs = (crons ?? []) as typeof cronJobs;
+    cronActive = cronJobs.some((j) => j.active && /padova|early-warning|refresh-padova/i.test(j.jobname));
+  } catch { /* cron schema non leggibile dal client → cronActive resta false */ }
+
   const commercialMissing: string[] = [];
   if ((ewoNonAuction ?? 0) < COM_MIN_NON_AUCTION) commercialMissing.push(`opportunità non-asta insufficienti (${ewoNonAuction ?? 0} < ${COM_MIN_NON_AUCTION})`);
   if ((ewoMultiSource ?? 0) < COM_MIN_MULTI) commercialMissing.push(`opportunità multi-fonte insufficienti (${ewoMultiSource ?? 0} < ${COM_MIN_MULTI})`);
   if ((ewoHighConf ?? 0) < COM_MIN_HIGH) commercialMissing.push(`opportunità high-confidence insufficienti (${ewoHighConf ?? 0} < ${COM_MIN_HIGH})`);
   if (!providers.firecrawl_configured) commercialMissing.push("FIRECRAWL_API_KEY mancante");
+  if (!providerFresh) commercialMissing.push(`nessun run provider negli ultimi ${PROVIDER_FRESH_DAYS} giorni (ultimo: ${providerFreshAgeDays ?? "mai"}g fa)`);
+
   let commercial_status: "NOT_READY" | "PARTIAL_TECHNICAL" | "READY_FOR_CONTROLLED_CLIENT" | "READY_FOR_PUBLIC_SALES";
   if ((ewoTotal ?? 0) === 0) commercial_status = "NOT_READY";
-  else if (commercialMissing.length === 0 && (ewoMultiSource ?? 0) >= 5 && (ewoHighConf ?? 0) >= 3) commercial_status = "READY_FOR_PUBLIC_SALES";
+  else if (commercialMissing.length === 0 && cronActive) commercial_status = "READY_FOR_PUBLIC_SALES";
   else if (commercialMissing.length === 0) commercial_status = "READY_FOR_CONTROLLED_CLIENT";
   else commercial_status = "PARTIAL_TECHNICAL";
 
