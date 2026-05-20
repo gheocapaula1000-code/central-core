@@ -146,7 +146,7 @@ export async function refreshPadovaLegalLifeEvents(
         event_date: (r.sale_date as string) ?? null,
         area_or_microzone: title,
         property_hint: (r.property_type as string) ?? null,
-        confidence: "media",
+        confidence: /astalegale|asteimmobili|pvp|portale.?vendite/i.test(String(r.source_name ?? "")) ? "alta" : "media",
         privacy_safe: true,
         contains_personal_data: false,
         pii_redacted: true,
