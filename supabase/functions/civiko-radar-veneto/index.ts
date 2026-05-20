@@ -117,6 +117,7 @@ const ROUTES = [
   "POST /jobs/import-auction-candidates",
   "POST /jobs/refresh-padova-auctions",
   "POST /jobs/padova-daily-radar",
+  "POST /jobs/padova-institutional-sources",
   "POST /jobs/build-offmarket-opportunity-scores",
   "POST /jobs/firecrawl-offmarket-microzone-discovery",
   "POST /jobs/discover-early-offmarket-signals",
@@ -1460,6 +1461,20 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] padova-daily-radar error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Padova daily radar failed", debugId), "job-error");
+      }
+    }
+
+    // Padova institutional sources — Comune patrimonio / avvisi pubblici
+    // Fonte legittima a basso volume, source_name distinta da casa.it.
+    if (pathname.endsWith("/jobs/padova-institutional-sources")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const { runComunePadovaPatrimonio } = await import("./comunePadovaPatrimonio.ts");
+        const r = await runComunePadovaPatrimonio();
+        return withIdentity(json(req, r.ok ? 200 : 207, { job: "padova-institutional-sources", ...r }, debugId), "job-padova-instit");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] padova-institutional-sources error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Padova institutional sources failed", debugId), "job-error");
       }
     }
 

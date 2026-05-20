@@ -220,6 +220,30 @@ export async function runPadovaDailyRadar(opts: DailyRadarOptions = {}) {
     warnings.push("listings_refresh_skipped");
   }
 
+  // Stage 1b — fonte istituzionale Padova (Comune patrimonio / avvisi pubblici)
+  // Volume basso ma legalmente difendibile → seconda source_name distinta.
+  try {
+    const t0 = Date.now();
+    const { runComunePadovaPatrimonio } = await import("./comunePadovaPatrimonio.ts");
+    const r = await runComunePadovaPatrimonio();
+    stages.push({
+      stage: "institutional-comune-padova",
+      ok: r.ok,
+      status: r.ok ? 200 : 207,
+      duration_ms: Date.now() - t0,
+      rows: r.items_inserted,
+      error: r.ok ? undefined : (r.errors[0] ?? "partial"),
+    });
+    if (r.warnings.length) warnings.push(...r.warnings.map((w) => `comune_padova:${w}`));
+  } catch (e) {
+    stages.push({
+      stage: "institutional-comune-padova",
+      ok: false, status: 0, duration_ms: 0,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    warnings.push("comune_padova_failed");
+  }
+
   // Stage 2 — refresh aste Padova (conferma, non valore primario)
   const sAuc = await callStage(
     "refresh-auctions",
