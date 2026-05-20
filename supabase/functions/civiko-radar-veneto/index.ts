@@ -1431,6 +1431,7 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] advanced-opp error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Advanced opportunity engine failed", debugId), "job-error");
+      }
     }
 
     // Padova Early Warning aggregator — multi-source acquisition opportunities
@@ -1445,7 +1446,7 @@ Deno.serve(async (req) => {
         return withIdentity(fail(req, 500, "JOB_FAILED", "Padova early warning failed", debugId), "job-error");
       }
     }
-    }
+
 
     // ── New Perplexity-derived intelligence jobs ─────────────
     {
