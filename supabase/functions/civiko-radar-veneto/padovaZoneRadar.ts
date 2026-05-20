@@ -169,13 +169,34 @@ async function processZone(
     if (r.identity_hash) identitySet.add(r.identity_hash);
   }
 
-  // 2) Aste come conferma (non valore primario)
+  // 1b) Fonti city-level indipendenti (reali, ufficiali) che rafforzano le zone
+  //     con listing volume: comune_padova_patrimonio (Comune, istituzionale) e
+  //     altre fonti listing non casa.it. Sono conferme di mercato a livello comunale.
+  const citySourcesSet = new Set<string>();
+  if (listings.length > 0) {
+    const { data: cityListings } = await sb
+      .from("listing_price_snapshots")
+      .select("source")
+      .ilike("municipality", COMUNE)
+      .neq("source", "casa.it")
+      .neq("source", "seed_demo_veneto")
+      .limit(50);
+    for (const r of (cityListings ?? []) as Array<{ source: string }>) {
+      if (r.source) citySourcesSet.add(r.source);
+    }
+  }
+
+  // 2) Aste come conferma (fonte ufficiale indipendente: Astalegale/PVP)
   const { data: auctions } = await sb
     .from("auction_signals")
     .select("source_name, is_active")
     .ilike("municipality", COMUNE)
     .eq("is_active", true);
   const auctionsActive = (auctions ?? []).length;
+  const auctionSources = new Set<string>();
+  for (const r of (auctions ?? []) as Array<{ source_name: string }>) {
+    if (r.source_name) auctionSources.add(r.source_name);
+  }
 
   // 3) Legal/life-event aggregati privacy-safe
   const { data: legals } = await sb
@@ -185,20 +206,40 @@ async function processZone(
     .eq("is_active", true)
     .eq("privacy_safe", true)
     .eq("pii_redacted", true);
-  const legalForZone = (legals ?? []).filter((l) => {
-    const area = String((l as { area_or_microzone: string | null }).area_or_microzone ?? "").toLowerCase();
+  const allLegals = (legals ?? []) as Array<{ signal_type: string; source_name: string; area_or_microzone: string | null; confidence: string }>;
+  const legalForZone = allLegals.filter((l) => {
+    const area = String(l.area_or_microzone ?? "").toLowerCase();
     if (!area) return false;
     return zone.aliases.some((a) => area.includes(a));
   });
-  const sensitiveTypes = new Set(["POSSIBLE_SUCCESSION_SIGNAL", "FORECLOSURE_SIGNAL", "PRE_AUCTION_SIGNAL"]);
-  const hasSensitive = legalForZone.some((l) => sensitiveTypes.has(String((l as { signal_type: string }).signal_type)));
+  // Legal alta-confidenza city-level (Astalegale/Tribunale): conferma ufficiale comunale
+  // per zone con listing volume. Non attribuita per via specifica.
+  const cityHighConfLegals = allLegals.filter((l) => l.confidence === "alta");
+  const cityLegalSources = new Set<string>();
+  if (listings.length > 0) {
+    for (const l of cityHighConfLegals) {
+      if (l.source_name) cityLegalSources.add(l.source_name);
+    }
+  }
 
-  // 4) Score zona
+  const sensitiveTypes = new Set(["POSSIBLE_SUCCESSION_SIGNAL", "FORECLOSURE_SIGNAL", "PRE_AUCTION_SIGNAL"]);
+  const hasSensitive = legalForZone.some((l) => sensitiveTypes.has(l.signal_type));
+
+  // 4) Score zona — combina fonti zona-level + city-level indipendenti
   const signals_found = listings.length + legalForZone.length + auctionsActive;
-  const sources_count = sourcesSet.size + new Set(legalForZone.map((l) => (l as { source_name: string }).source_name)).size;
+  const allSources = new Set<string>([
+    ...sourcesSet,
+    ...citySourcesSet,
+    ...auctionSources,
+    ...cityLegalSources,
+    ...legalForZone.map((l) => l.source_name),
+  ]);
+  const sources_count = allSources.size;
   const multi_source = sources_count >= 2 ? 1 : 0;
-  const high_conf_legals = legalForZone.filter((l) => (l as { confidence: string }).confidence === "alta").length;
-  const high_confidence = high_conf_legals > 0 && sources_count >= 2 ? 1 : 0;
+  // High-confidence: listing primary + >=3 fonti indipendenti + >=1 fonte ufficiale
+  //                  alta confidenza (Astalegale/Tribunale/PVP).
+  const high_conf_signals = legalForZone.filter((l) => l.confidence === "alta").length + cityHighConfLegals.length;
+  const high_confidence = (listings.length > 0 && sources_count >= 3 && high_conf_signals > 0) ? 1 : 0;
 
   // Score 0-100 conservativo
   const score = Math.min(
