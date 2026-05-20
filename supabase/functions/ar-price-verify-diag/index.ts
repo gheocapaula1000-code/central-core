@@ -8,13 +8,10 @@ const CORS = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-internal-secret",
 };
 
-const DIAG = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if ((req.headers.get("x-internal-secret") ?? "") !== DIAG || !DIAG) {
-    return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { ...CORS, "Content-Type": "application/json" } });
-  }
+  // Auth: JWT verified upstream by Supabase (verify_jwt = true).
+
 
   const key = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
   const monthly = Deno.env.get("AR_STRIPE_PRICE_AGENZIA_MONTHLY") ?? "";
