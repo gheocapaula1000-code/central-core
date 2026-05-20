@@ -1,13 +1,16 @@
 // ═══════════════════════════════════════════════════════════════
 // AcquisitionRadar — Stripe billing config (centralized)
 //
-// Single source of truth for:
-//   • Stripe secret key + mode detection (test / live / unconfigured)
-//   • price_id → plan mapping (test fallbacks, live via env vars)
-//   • Default return URLs for AcquisitionRadar PWA
+// MVP Padova Comune: piano UNICO "agenzia"
+//   • mensile  499 EUR  → AR_STRIPE_PRICE_AGENZIA_MONTHLY
+//   • annuale 4990 EUR  → AR_STRIPE_PRICE_AGENZIA_ANNUAL
 //
-// Go-live procedure: set the AR_STRIPE_PRICE_* env vars to live price
-// IDs and swap STRIPE_SECRET_KEY to a sk_live_* value. No code change.
+// Per ogni interval esistono DUE env var:
+//   • *_MONTHLY / *_ANNUAL          → price ID LIVE  (sk_live_*)
+//   • *_MONTHLY_TEST / *_ANNUAL_TEST → price ID TEST (sk_test_*)
+//
+// Go-live: settare AR_STRIPE_PRICE_AGENZIA_* (LIVE) + ruotare
+// STRIPE_SECRET_KEY a sk_live_*. Nessuna modifica al codice.
 // ═══════════════════════════════════════════════════════════════
 
 export type StripeMode = "test" | "live" | "unconfigured";
@@ -28,69 +31,89 @@ export function getStripeConfig(): StripeConfig {
   return { secretKey, webhookSecret, mode, configured: !!secretKey };
 }
 
-// ── AcquisitionRadar plans ──────────────────────────────────────
-// price_id → plan name. Test IDs are hardcoded as fallback so that
-// the existing test mode keeps working until live IDs are wired in
-// via AR_STRIPE_PRICE_*_LIVE env vars.
+// ── AR plan (MVP: single plan "agenzia") ────────────────────────
+export type ArPlan = "agenzia";
+export type ArInterval = "monthly" | "annual";
 
-export type ArPlan = "agente" | "agenzia" | "studio";
-
-interface PlanEntry {
+interface AllowedPriceEntry {
   plan: ArPlan;
-  monthlyTestId: string;
-  annualTestId: string;
-  monthlyEnvKey: string; // env var holding the LIVE monthly price_id
-  annualEnvKey: string;  // env var holding the LIVE annual price_id
+  interval: ArInterval;
+  envKeyLive: string;
+  envKeyTest: string;
 }
 
-const AR_PLANS: PlanEntry[] = [
-  {
-    plan: "agente",
-    monthlyTestId: "price_1TYSCWGWMFww3yH4OJQnZLvD",
-    annualTestId:  "price_1TYSCWGWMFww3yH4Q5r622nu",
-    monthlyEnvKey: "AR_STRIPE_PRICE_AGENTE_MONTHLY",
-    annualEnvKey:  "AR_STRIPE_PRICE_AGENTE_ANNUAL",
-  },
-  {
-    plan: "agenzia",
-    monthlyTestId: "price_1TYSEKGWMFww3yH4LjVMx2FI",
-    annualTestId:  "price_1TYSEKGWMFww3yH4WlaLOCjL",
-    monthlyEnvKey: "AR_STRIPE_PRICE_AGENZIA_MONTHLY",
-    annualEnvKey:  "AR_STRIPE_PRICE_AGENZIA_ANNUAL",
-  },
-  {
-    plan: "studio",
-    monthlyTestId: "price_1TYSFqGWMFww3yH4nYOrpPfV",
-    annualTestId:  "price_1TYSFqGWMFww3yH4W1rg9sGH",
-    monthlyEnvKey: "AR_STRIPE_PRICE_STUDIO_MONTHLY",
-    annualEnvKey:  "AR_STRIPE_PRICE_STUDIO_ANNUAL",
-  },
+const AR_PRICE_REGISTRY: AllowedPriceEntry[] = [
+  { plan: "agenzia", interval: "monthly", envKeyLive: "AR_STRIPE_PRICE_AGENZIA_MONTHLY", envKeyTest: "AR_STRIPE_PRICE_AGENZIA_MONTHLY_TEST" },
+  { plan: "agenzia", interval: "annual",  envKeyLive: "AR_STRIPE_PRICE_AGENZIA_ANNUAL",  envKeyTest: "AR_STRIPE_PRICE_AGENZIA_ANNUAL_TEST"  },
 ];
 
-/**
- * Returns map price_id → plan name, including both the test fallbacks
- * and any live IDs configured via env vars. Same price_id resolves
- * to the same plan regardless of mode, so the mapping stays stable
- * during the test → live transition.
- */
-export function getPriceToPlanMap(): Record<string, ArPlan> {
-  const map: Record<string, ArPlan> = {};
-  for (const p of AR_PLANS) {
-    map[p.monthlyTestId] = p.plan;
-    map[p.annualTestId] = p.plan;
-    const liveMonthly = Deno.env.get(p.monthlyEnvKey);
-    const liveAnnual = Deno.env.get(p.annualEnvKey);
-    if (liveMonthly) map[liveMonthly] = p.plan;
-    if (liveAnnual) map[liveAnnual] = p.plan;
+export interface ResolvedPrice {
+  priceId: string;
+  plan: ArPlan;
+  interval: ArInterval;
+  envKey: string;
+}
+
+/** Costruisce la mappa price_id → entry, leggendo TUTTE le env var configurate. */
+function buildAllowedMap(): Map<string, ResolvedPrice> {
+  const map = new Map<string, ResolvedPrice>();
+  for (const e of AR_PRICE_REGISTRY) {
+    for (const envKey of [e.envKeyLive, e.envKeyTest]) {
+      const id = Deno.env.get(envKey);
+      if (id && id.trim().length > 0) {
+        map.set(id.trim(), { priceId: id.trim(), plan: e.plan, interval: e.interval, envKey });
+      }
+    }
   }
   return map;
 }
 
-export function planFromPriceId(priceId: string): ArPlan | "" {
-  return getPriceToPlanMap()[priceId] ?? "";
+/** True se il price_id è esplicitamente allowlistato via env per Acquisition Radar. */
+export function resolveArPrice(priceId: string): ResolvedPrice | null {
+  if (!priceId) return null;
+  return buildAllowedMap().get(priceId.trim()) ?? null;
 }
 
-// ── Default URLs (AcquisitionRadar PWA) ─────────────────────────
-export const AR_DEFAULT_ACCOUNT_URL  = "https://acquisitionradar.app/account";
-export const AR_DEFAULT_CHECKOUT_OK  = "https://acquisitionradar.app/account?checkout=success";
-export const AR_DEFAULT_CHECKOUT_KO  = "https://acquisitionradar.app/account?checkout=cancel";
+/** Compatibilità: plan name dal price_id (vuoto se non allowlistato). */
+export function planFromPriceId(priceId: string): ArPlan | "" {
+  return resolveArPrice(priceId)?.plan ?? "";
+}
+
+/** Restituisce i price_id configurati e quali env mancano (utile per diagnostica). */
+export function arPriceConfigStatus(): {
+  configured: Array<{ envKey: string; priceId: string; plan: ArPlan; interval: ArInterval }>;
+  missing: string[];
+} {
+  const configured: Array<{ envKey: string; priceId: string; plan: ArPlan; interval: ArInterval }> = [];
+  const missing: string[] = [];
+  for (const e of AR_PRICE_REGISTRY) {
+    const live = Deno.env.get(e.envKeyLive);
+    if (live) configured.push({ envKey: e.envKeyLive, priceId: live, plan: e.plan, interval: e.interval });
+    else missing.push(e.envKeyLive);
+  }
+  return { configured, missing };
+}
+
+// ── URL allowlist (AcquisitionRadar PWA) ────────────────────────
+export const AR_ALLOWED_HOSTS = new Set<string>([
+  "acquisitionradar.it",
+  "www.acquisitionradar.it",
+  "acquisitionradar.app",
+  "www.acquisitionradar.app",
+]);
+
+export const AR_DEFAULT_ACCOUNT_URL  = "https://acquisitionradar.it/account";
+export const AR_DEFAULT_CHECKOUT_OK  = "https://acquisitionradar.it/checkout/successo";
+export const AR_DEFAULT_CHECKOUT_KO  = "https://acquisitionradar.it/pricing";
+
+/** Valida che l'URL sia https e appartenga a un host AR consentito. */
+export function isAllowedArUrl(raw: string | undefined | null): boolean {
+  if (!raw || typeof raw !== "string") return false;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "https:") return false;
+    return AR_ALLOWED_HOSTS.has(u.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
