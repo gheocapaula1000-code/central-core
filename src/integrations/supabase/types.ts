@@ -1187,6 +1187,96 @@ export type Database = {
         }
         Relationships: []
       }
+      early_warning_opportunities: {
+        Row: {
+          area_label: string | null
+          comune: string
+          confidence: string
+          detected_at: string
+          early_acquisition_score: number
+          evidence_count: number
+          explanation: string | null
+          fingerprint: string
+          id: number
+          identity_hash: string | null
+          is_active: boolean
+          microzona: string | null
+          payload: Json
+          primary_signal_type: string
+          privacy_safe: boolean
+          property_type: string | null
+          provincia: string | null
+          recommended_action: string | null
+          region: string
+          secondary_signals: Json
+          signal_types: string[]
+          source_names: string[]
+          source_urls: string[]
+          sources_count: number
+          title: string
+          updated_at: string
+          warnings: string[]
+        }
+        Insert: {
+          area_label?: string | null
+          comune: string
+          confidence?: string
+          detected_at?: string
+          early_acquisition_score?: number
+          evidence_count?: number
+          explanation?: string | null
+          fingerprint: string
+          id?: number
+          identity_hash?: string | null
+          is_active?: boolean
+          microzona?: string | null
+          payload?: Json
+          primary_signal_type: string
+          privacy_safe?: boolean
+          property_type?: string | null
+          provincia?: string | null
+          recommended_action?: string | null
+          region?: string
+          secondary_signals?: Json
+          signal_types?: string[]
+          source_names?: string[]
+          source_urls?: string[]
+          sources_count?: number
+          title: string
+          updated_at?: string
+          warnings?: string[]
+        }
+        Update: {
+          area_label?: string | null
+          comune?: string
+          confidence?: string
+          detected_at?: string
+          early_acquisition_score?: number
+          evidence_count?: number
+          explanation?: string | null
+          fingerprint?: string
+          id?: number
+          identity_hash?: string | null
+          is_active?: boolean
+          microzona?: string | null
+          payload?: Json
+          primary_signal_type?: string
+          privacy_safe?: boolean
+          property_type?: string | null
+          provincia?: string | null
+          recommended_action?: string | null
+          region?: string
+          secondary_signals?: Json
+          signal_types?: string[]
+          source_names?: string[]
+          source_urls?: string[]
+          sources_count?: number
+          title?: string
+          updated_at?: string
+          warnings?: string[]
+        }
+        Relationships: []
+      }
       estate_turnover_zones: {
         Row: {
           agency_private_only: boolean

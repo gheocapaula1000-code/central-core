@@ -271,6 +271,54 @@ serve(async (req) => {
     .order("started_at", { ascending: false })
     .limit(5);
 
+  // ── Commercial Early Warning Aggregator stats ──
+  const { count: ewoTotal } = await sb
+    .from("early_warning_opportunities")
+    .select("*", { count: "exact", head: true })
+    .ilike("comune", PADOVA)
+    .eq("is_active", true);
+  const { count: ewoNonAuction } = await sb
+    .from("early_warning_opportunities")
+    .select("*", { count: "exact", head: true })
+    .ilike("comune", PADOVA)
+    .eq("is_active", true)
+    .neq("primary_signal_type", "AUCTION_CONFIRMATION");
+  const { count: ewoMultiSource } = await sb
+    .from("early_warning_opportunities")
+    .select("*", { count: "exact", head: true })
+    .ilike("comune", PADOVA)
+    .eq("is_active", true)
+    .gte("sources_count", 2);
+  const { count: ewoHighConf } = await sb
+    .from("early_warning_opportunities")
+    .select("*", { count: "exact", head: true })
+    .ilike("comune", PADOVA)
+    .eq("is_active", true)
+    .eq("confidence", "alta");
+  const lastEwRun = await lastIngestion(sb, "build-padova-early-warning");
+  const { data: topOpps } = await sb
+    .from("early_warning_opportunities")
+    .select("title, primary_signal_type, early_acquisition_score, confidence, evidence_count, sources_count, source_names")
+    .ilike("comune", PADOVA)
+    .eq("is_active", true)
+    .order("early_acquisition_score", { ascending: false })
+    .limit(5);
+
+  const COM_MIN_NON_AUCTION = 5;
+  const COM_MIN_MULTI = 3;
+  const COM_MIN_HIGH = 1;
+  const commercialMissing: string[] = [];
+  if ((ewoNonAuction ?? 0) < COM_MIN_NON_AUCTION) commercialMissing.push(`opportunità non-asta insufficienti (${ewoNonAuction ?? 0} < ${COM_MIN_NON_AUCTION})`);
+  if ((ewoMultiSource ?? 0) < COM_MIN_MULTI) commercialMissing.push(`opportunità multi-fonte insufficienti (${ewoMultiSource ?? 0} < ${COM_MIN_MULTI})`);
+  if ((ewoHighConf ?? 0) < COM_MIN_HIGH) commercialMissing.push(`opportunità high-confidence insufficienti (${ewoHighConf ?? 0} < ${COM_MIN_HIGH})`);
+  if (!providers.firecrawl_configured) commercialMissing.push("FIRECRAWL_API_KEY mancante");
+  let commercial_status: "NOT_READY" | "PARTIAL_TECHNICAL" | "READY_FOR_CONTROLLED_CLIENT" | "READY_FOR_PUBLIC_SALES";
+  if ((ewoTotal ?? 0) === 0) commercial_status = "NOT_READY";
+  else if (commercialMissing.length === 0 && (ewoMultiSource ?? 0) >= 5 && (ewoHighConf ?? 0) >= 3) commercial_status = "READY_FOR_PUBLIC_SALES";
+  else if (commercialMissing.length === 0) commercial_status = "READY_FOR_CONTROLLED_CLIENT";
+  else commercial_status = "PARTIAL_TECHNICAL";
+
+
   // ── Status decision: commercial readiness, NOT solo aste ──
   const motivations: string[] = [];
   let status: "NOT_READY" | "PARTIAL" | "READY" = "NOT_READY";
@@ -376,8 +424,24 @@ serve(async (req) => {
     fresh_within_14d: isFresh,
     auctions: auctionsBlock,
     early_warning: earlyWarningBlock,
+    commercial_readiness: {
+      status: commercial_status,
+      missing: commercialMissing,
+      thresholds: {
+        controlled_client: { non_auction: COM_MIN_NON_AUCTION, multi_source: COM_MIN_MULTI, high_confidence: COM_MIN_HIGH },
+        public_sales: { multi_source: 5, high_confidence: 3 },
+      },
+      opportunities: {
+        total: ewoTotal ?? 0,
+        non_auction: ewoNonAuction ?? 0,
+        multi_source: ewoMultiSource ?? 0,
+        high_confidence: ewoHighConf ?? 0,
+      },
+      last_run: lastEwRun,
+      top_opportunities: topOpps ?? [],
+    },
     providers,
-    last_runs: { firecrawl: fcRun, perplexity: pplxRun, apify: apifyRun, padova_auctions: auctionRun },
+    last_runs: { firecrawl: fcRun, perplexity: pplxRun, apify: apifyRun, padova_auctions: auctionRun, padova_early_warning: lastEwRun },
     recent_errors: recentErrors ?? [],
     fonti: [
       "listing_price_snapshots", "motivated_sellers", "market_anomalies",

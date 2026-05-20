@@ -41,6 +41,7 @@ import { runRescoreEarlyCandidates, runPromoteEarlyCandidate, runListEarlyCandid
 import { runAgencyOffmarketBrief } from "./agency/agencyOffmarketBrief.ts";
 import { handleAgencyCrudRoute } from "./agency/agencyCrud.ts";
 import { runAdvancedVenetoOpportunities } from "./advancedOpportunity.ts";
+import { runPadovaEarlyWarning } from "./padovaEarlyWarning.ts";
 import { buildVenetoIntelligenceFromResearch } from "./intelligence/orchestrator.ts";
 import { runVenetoOpenDataImport } from "./openData/ckanImporter.ts";
 import { runOpenDataVenetoDeepImport } from "./openData/openDataVenetoCkanImporter.ts";
@@ -1432,6 +1433,20 @@ Deno.serve(async (req) => {
         return withIdentity(fail(req, 500, "JOB_FAILED", "Advanced opportunity engine failed", debugId), "job-error");
       }
     }
+
+    // Padova Early Warning aggregator — multi-source acquisition opportunities
+    if (pathname.endsWith("/jobs/build-padova-early-warning")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const r = await runPadovaEarlyWarning(body);
+        return withIdentity(json(req, r.ok ? 200 : 207, { job: "build-padova-early-warning", ...r }, debugId), "job-padova-ew");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] padova-early-warning error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Padova early warning failed", debugId), "job-error");
+      }
+    }
+
 
     // ── New Perplexity-derived intelligence jobs ─────────────
     {
