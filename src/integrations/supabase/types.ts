@@ -4106,6 +4106,10 @@ export type Database = {
         }
         Returns: string
       }
+      vault_create_secret_if_missing: {
+        Args: { p_name: string; p_value: string }
+        Returns: Json
+      }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
