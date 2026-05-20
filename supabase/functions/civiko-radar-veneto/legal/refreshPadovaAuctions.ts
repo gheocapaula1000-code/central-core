@@ -156,6 +156,14 @@ export async function refreshPadovaAuctions(req: RefreshPadovaRequest = {}): Pro
       pages_seen: disc.pages_seen,
       errors: disc.errors.slice(0, 5),
       warnings: disc.warnings.slice(0, 5),
+      needs_review_samples: (disc.sample_needs_review ?? []).slice(0, 5).map((c) => ({
+        source_url: c.source_url ?? null,
+        confidence_score: c.confidence_score ?? 0,
+        reason: c.needs_review_reason ?? null,
+        comune: c.comune ?? null,
+        tribunal: c.tribunal ?? null,
+      })),
+      rejected_samples: [],
     },
     import: {
       received: imp.totals.received,
