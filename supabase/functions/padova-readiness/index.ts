@@ -4,14 +4,25 @@
 //
 // Auth: x-diagnostic-secret = DIAGNOSTIC_SECRET (server-side only)
 //
-// Restituisce contatori reali per Padova (Comune) sui dataset usati
-// dal radar Acquisition Radar, e dichiara lo status:
-//   NOT_READY | PARTIAL | READY
+// Envelope atteso da Acquisition Radar (/admin/readiness):
+//   {
+//     ok: true,
+//     data: {
+//       status: "NOT_READY" | "PARTIAL" | "READY",
+//       reason: string,
+//       updated_at: string | null,
+//       signals: {
+//         real_listings, motivated_sellers, market_anomalies,
+//         radar_signals, auction_signals, omi
+//       }
+//     }
+//   }
 //
 // Regole status:
 //   NOT_READY = nessun dato reale / solo demo
-//   PARTIAL   = dati reali parziali o stale (>14gg)
-//   READY     = dataset reali, freschi (<=14gg) e sufficienti per il MVP
+//   PARTIAL   = dati reali parziali o stale (>14gg) o auction_signals=0
+//   READY     = dataset reali, freschi (<=14gg), copertura sufficiente
+//               INCLUSO auction_signals >= 1
 // ═══════════════════════════════════════════════════════════════
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
