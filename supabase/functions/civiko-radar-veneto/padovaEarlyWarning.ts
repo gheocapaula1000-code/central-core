@@ -37,6 +37,15 @@ const SIGNAL_WEIGHTS: Record<string, number> = {
   // legal/aste — solo conferma
   auction_confirmation: 12,
   inheritance_aggregate: 10,
+  // legal & life-event layer (privacy-safe)
+  foreclosure_signal: 34,
+  pre_auction_signal: 30,
+  public_notice_signal: 14,
+  possible_succession_signal: 10,
+  public_asset_disposal: 22,
+  municipal_property_signal: 18,
+  urban_planning_signal: 16,
+  concession_or_lease_signal: 16,
 };
 
 const PRIMARY_PRIORITY = [
