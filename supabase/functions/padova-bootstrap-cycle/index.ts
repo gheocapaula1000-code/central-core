@@ -117,8 +117,25 @@ serve(async (req) => {
   stages.push(s1);
   if (!s1.ok) warnings.push(`stage_refresh_auctions_failed:${s1.status}`);
 
-  // Stage 2: dry_run early-warning (sanity)
+  // Stage 2: advanced-veneto-opportunities — DB-derived velocity/pricing engine.
+  // Reads accumulated listing_price_snapshots (e.g. casa.it daily ingest) and
+  // produces listing_velocity_signals (stale, price_drop, repost) + motivated_sellers.
+  // This is what makes PRICE_DROP_DISTRESS / STALE_LISTING / RELISTING_PATTERN
+  // emerge in the next early-warning build.
   const s2 = await runStage(
+    "build-advanced-veneto-opportunities",
+    functionUrl("civiko-radar-veneto/jobs/build-advanced-veneto-opportunities"),
+    {
+      method: "POST",
+      headers: jobHeaders,
+      body: JSON.stringify({ doImport: true, province: ["PD"] }),
+    },
+  );
+  stages.push(s2);
+  if (!s2.ok) warnings.push(`stage_advanced_opportunities_failed:${s2.status}`);
+
+  // Stage 3: dry_run early-warning (sanity)
+  const s2b = await runStage(
     "build-padova-early-warning-dry-run",
     functionUrl("civiko-radar-veneto/jobs/build-padova-early-warning"),
     {
@@ -127,7 +144,7 @@ serve(async (req) => {
       body: JSON.stringify({ dryRun: true }),
     },
   );
-  stages.push(s2);
+  stages.push(s2b);
 
   // Stage 3: real early-warning build (skip if dryRun)
   if (!dryRun) {

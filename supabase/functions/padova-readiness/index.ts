@@ -402,6 +402,58 @@ serve(async (req) => {
     role: "confirmation_signal_only",
   };
 
+  // ── Listing snapshot history depth (real, non-demo) ──
+  const { data: snapHistory } = await sb
+    .from("listing_price_snapshots")
+    .select("url, captured_at, source")
+    .ilike("municipality", PADOVA)
+    .neq("source", "seed_demo_veneto")
+    .order("captured_at", { ascending: false })
+    .range(0, 4999);
+  const snapByUrl = new Map<string, { count: number; sources: Set<string>; first: number; last: number }>();
+  for (const r of (snapHistory ?? []) as Array<{ url: string; captured_at: string; source: string }>) {
+    const cur = snapByUrl.get(r.url) ?? { count: 0, sources: new Set<string>(), first: Date.now(), last: 0 };
+    cur.count++;
+    cur.sources.add(r.source);
+    const t = new Date(r.captured_at).getTime();
+    if (t < cur.first) cur.first = t;
+    if (t > cur.last) cur.last = t;
+    snapByUrl.set(r.url, cur);
+  }
+  const snap_total = (snapHistory ?? []).length;
+  const snap_unique_urls = snapByUrl.size;
+  let snap_with_2plus = 0;
+  let snap_with_3plus = 0;
+  for (const v of snapByUrl.values()) {
+    if (v.count >= 2) snap_with_2plus++;
+    if (v.count >= 3) snap_with_3plus++;
+  }
+  const snap_sources = Array.from(new Set((snapHistory ?? []).map((r) => r.source)));
+
+  // ── Velocity signals breakdown (real engine output) ──
+  const { data: velRows } = await sb
+    .from("listing_velocity_signals")
+    .select("velocity_type, stale_listing, repost_detected, price_drop_percent, is_active")
+    .ilike("comune", PADOVA)
+    .eq("is_active", true);
+  const velBreakdown = {
+    total_active: (velRows ?? []).length,
+    stale: (velRows ?? []).filter((r: { stale_listing?: boolean }) => r.stale_listing).length,
+    price_drop: (velRows ?? []).filter((r: { price_drop_percent?: number }) => (Number(r.price_drop_percent) || 0) >= 5).length,
+    repost: (velRows ?? []).filter((r: { repost_detected?: boolean }) => r.repost_detected).length,
+  };
+  const lastAdvancedRun = await lastIngestion(sb, "build-advanced-veneto-opportunities");
+
+  const listingHistoryBlock = {
+    snapshots_total_real: snap_total,
+    unique_urls: snap_unique_urls,
+    urls_with_2plus_snapshots: snap_with_2plus,
+    urls_with_3plus_snapshots: snap_with_3plus,
+    sources: snap_sources,
+    velocity_signals: velBreakdown,
+    last_advanced_opportunities_run: lastAdvancedRun,
+  };
+
   const earlyWarningBlock = {
     total_real_non_auction: earlyWarningRealCount,
     high_confidence: earlyWarningHighConfCount,
@@ -450,6 +502,7 @@ serve(async (req) => {
     fresh_within_14d: isFresh,
     auctions: auctionsBlock,
     early_warning: earlyWarningBlock,
+    listing_history: listingHistoryBlock,
     commercial_readiness: {
       status: commercial_status,
       missing: commercialMissing,
