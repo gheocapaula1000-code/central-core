@@ -3190,6 +3190,7 @@ export type Database = {
           score_weight: number
           signal_type: string
           source_name: string
+          source_unverified: boolean
           source_url: string
         }
         Insert: {
@@ -3207,6 +3208,7 @@ export type Database = {
           score_weight?: number
           signal_type: string
           source_name: string
+          source_unverified?: boolean
           source_url: string
         }
         Update: {
@@ -3224,6 +3226,7 @@ export type Database = {
           score_weight?: number
           signal_type?: string
           source_name?: string
+          source_unverified?: boolean
           source_url?: string
         }
         Relationships: []
@@ -3263,6 +3266,78 @@ export type Database = {
           objection_type?: string
           source?: string
           suggested_response?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      padova_civici: {
+        Row: {
+          cap: string | null
+          civic_number: string
+          civic_suffix: string | null
+          comune: string
+          fingerprint: string
+          id: number
+          ingested_at: string
+          lat: number | null
+          license: string | null
+          lng: number | null
+          microzona: string | null
+          omi_zone: string | null
+          provincia: string
+          quality: string
+          quartiere: string | null
+          raw: Json
+          source_name: string
+          source_url: string
+          street_name: string
+          street_name_normalized: string
+          updated_at: string
+        }
+        Insert: {
+          cap?: string | null
+          civic_number: string
+          civic_suffix?: string | null
+          comune?: string
+          fingerprint: string
+          id?: number
+          ingested_at?: string
+          lat?: number | null
+          license?: string | null
+          lng?: number | null
+          microzona?: string | null
+          omi_zone?: string | null
+          provincia?: string
+          quality?: string
+          quartiere?: string | null
+          raw?: Json
+          source_name: string
+          source_url: string
+          street_name: string
+          street_name_normalized: string
+          updated_at?: string
+        }
+        Update: {
+          cap?: string | null
+          civic_number?: string
+          civic_suffix?: string | null
+          comune?: string
+          fingerprint?: string
+          id?: number
+          ingested_at?: string
+          lat?: number | null
+          license?: string | null
+          lng?: number | null
+          microzona?: string | null
+          omi_zone?: string | null
+          provincia?: string
+          quality?: string
+          quartiere?: string | null
+          raw?: Json
+          source_name?: string
+          source_url?: string
+          street_name?: string
+          street_name_normalized?: string
           updated_at?: string
         }
         Relationships: []
@@ -4258,6 +4333,14 @@ export type Database = {
           p_opaque_id: string
         }
         Returns: string
+      }
+      resolve_padova_geo_level: {
+        Args: { p_lat: number; p_lng: number }
+        Returns: {
+          geo_level: string
+          microzona: string
+          omi_zone: string
+        }[]
       }
       vault_create_secret_if_missing: {
         Args: { p_name: string; p_value: string }
