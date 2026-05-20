@@ -1364,6 +1364,45 @@ export type Database = {
         }
         Relationships: []
       }
+      evidence_source_registry: {
+        Row: {
+          created_at: string
+          default_anticipatory: string
+          default_geo_level: string
+          default_weight: number
+          id: number
+          notes: string | null
+          priority_rank: number
+          privacy_class: string
+          source_name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          default_anticipatory?: string
+          default_geo_level: string
+          default_weight?: number
+          id?: number
+          notes?: string | null
+          priority_rank?: number
+          privacy_class?: string
+          source_name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          default_anticipatory?: string
+          default_geo_level?: string
+          default_weight?: number
+          id?: number
+          notes?: string | null
+          priority_rank?: number
+          privacy_class?: string
+          source_name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ingestion_runs: {
         Row: {
           completed_at: string | null
@@ -3132,6 +3171,60 @@ export type Database = {
           semestre?: string | null
           zona?: string
           zona_descr?: string | null
+        }
+        Relationships: []
+      }
+      opportunity_evidence: {
+        Row: {
+          anticipatory_or_confirmation: string
+          area_match: Json
+          collected_at: string
+          fingerprint: string
+          freshness_days: number | null
+          geo_level: string
+          id: number
+          opportunity_id: number
+          opportunity_table: string
+          privacy_safe: boolean
+          reason_for_weight: string
+          score_weight: number
+          signal_type: string
+          source_name: string
+          source_url: string
+        }
+        Insert: {
+          anticipatory_or_confirmation: string
+          area_match?: Json
+          collected_at?: string
+          fingerprint: string
+          freshness_days?: number | null
+          geo_level: string
+          id?: number
+          opportunity_id: number
+          opportunity_table?: string
+          privacy_safe?: boolean
+          reason_for_weight: string
+          score_weight?: number
+          signal_type: string
+          source_name: string
+          source_url: string
+        }
+        Update: {
+          anticipatory_or_confirmation?: string
+          area_match?: Json
+          collected_at?: string
+          fingerprint?: string
+          freshness_days?: number | null
+          geo_level?: string
+          id?: number
+          opportunity_id?: number
+          opportunity_table?: string
+          privacy_safe?: boolean
+          reason_for_weight?: string
+          score_weight?: number
+          signal_type?: string
+          source_name?: string
+          source_url?: string
         }
         Relationships: []
       }
