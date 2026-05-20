@@ -1,16 +1,16 @@
 // ═══════════════════════════════════════════════════════════════
 // AcquisitionRadar — Stripe billing config (centralized)
 //
-// MVP Padova Comune: piano UNICO "agenzia"
-//   • mensile  499 EUR  → AR_STRIPE_PRICE_AGENZIA_MONTHLY
-//   • annuale 4990 EUR  → AR_STRIPE_PRICE_AGENZIA_ANNUAL
+// MVP Padova Comune: piano UNICO "agenzia" (premium)
+//   • mensile  1490 EUR  → AR_STRIPE_PRICE_AGENZIA_MONTHLY
+//   • annuale 14900 EUR  → AR_STRIPE_PRICE_AGENZIA_ANNUAL
 //
 // Per ogni interval esistono DUE env var:
 //   • *_MONTHLY / *_ANNUAL          → price ID LIVE  (sk_live_*)
 //   • *_MONTHLY_TEST / *_ANNUAL_TEST → price ID TEST (sk_test_*)
 //
-// Go-live: settare AR_STRIPE_PRICE_AGENZIA_* (LIVE) + ruotare
-// STRIPE_SECRET_KEY a sk_live_*. Nessuna modifica al codice.
+// I price_id NON sono mai hardcoded: solo via env. Nessun fallback ai
+// vecchi listini 499/4990. Rotazione = aggiornare i secret, non il codice.
 // ═══════════════════════════════════════════════════════════════
 
 export type StripeMode = "test" | "live" | "unconfigured";
