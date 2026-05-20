@@ -1476,6 +1476,7 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] padova-institutional-sources error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Padova institutional sources failed", debugId), "job-error");
+      }
     }
 
     // Padova legal & life-event signals — aggrega segnali legali/patrimoniali
@@ -1491,7 +1492,6 @@ Deno.serve(async (req) => {
         console.error(`[${FUNCTION_NAME}] padova-legal-life-events error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Padova legal/life-event refresh failed", debugId), "job-error");
       }
-    }
     }
 
 
