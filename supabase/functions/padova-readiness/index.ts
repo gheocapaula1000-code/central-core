@@ -138,10 +138,11 @@ serve(async (req) => {
   };
 
   // Last ingestion runs (best-effort string match in job_name)
-  const [fcRun, pplxRun, apifyRun] = await Promise.all([
+  const [fcRun, pplxRun, apifyRun, auctionRun] = await Promise.all([
     lastIngestion(sb, "firecrawl"),
     lastIngestion(sb, "perplexity"),
     lastIngestion(sb, "apify"),
+    lastIngestion(sb, "refresh-padova-auctions"),
   ]);
 
   // Counts on Padova Comune
@@ -162,6 +163,22 @@ serve(async (req) => {
     lastUpdateAt(sb, "radar_signals", "municipality", "detected_at").catch(() => null),
   ]);
 
+  // Auction freshness: newest detected_at on PD auctions + most common source_name
+  const { data: lastAuctionRow } = await sb
+    .from("auction_signals")
+    .select("detected_at, source_name")
+    .ilike("municipality", PADOVA)
+    .order("detected_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const lastAuctionAt = (lastAuctionRow as { detected_at?: string } | null)?.detected_at ?? null;
+  const lastAuctionSource = (lastAuctionRow as { source_name?: string } | null)?.source_name ?? null;
+  const auctionAgeDays = lastAuctionAt
+    ? Math.floor((Date.now() - new Date(lastAuctionAt).getTime()) / (24 * 3600 * 1000))
+    : null;
+  const AUCTION_STALE_DAYS = 30;
+  const auctionsFresh = auctionAgeDays !== null && auctionAgeDays <= AUCTION_STALE_DAYS;
+
   const lastDataUpdate = [lastListing, lastAnomaly, lastSignal]
     .filter((x): x is string => !!x)
     .sort()
@@ -174,6 +191,14 @@ serve(async (req) => {
   const { data: recentErrors } = await sb
     .from("ingestion_runs")
     .select("job_name, status, errors, started_at")
+    .eq("status", "error")
+    .order("started_at", { ascending: false })
+    .limit(5);
+
+  const { data: recentAuctionErrors } = await sb
+    .from("ingestion_runs")
+    .select("job_name, status, errors, started_at")
+    .ilike("job_name", "%refresh-padova-auctions%")
     .eq("status", "error")
     .order("started_at", { ascending: false })
     .limit(5);
@@ -192,6 +217,9 @@ serve(async (req) => {
     if (listingReal < 20) missing.push(`listing reali insufficienti (${listingReal} < 20)`);
     if (omiRows < 1)       missing.push("nessuna riga OMI per Padova");
     if (auctions < 1)      missing.push("auction_signals=0 (richiesto >=1 per READY)");
+    if (!auctionsFresh && auctions >= 1) {
+      missing.push(`auction_signals stale (>${AUCTION_STALE_DAYS}gg, età=${auctionAgeDays}gg)`);
+    }
     if (!providers.firecrawl_configured)  missing.push("FIRECRAWL_API_KEY mancante");
     if (!providers.perplexity_configured) missing.push("PERPLEXITY_API_KEY mancante");
     if (!providers.apify_configured)      missing.push("APIFY_API_TOKEN mancante");
@@ -208,6 +236,18 @@ serve(async (req) => {
   }
 
   const reason = motivations.join(" ");
+
+  // Auction block (commercial readiness)
+  const auctionsBlock = {
+    count: auctions,
+    last_detected_at: lastAuctionAt,
+    age_days: auctionAgeDays,
+    fresh_within_days: AUCTION_STALE_DAYS,
+    is_fresh: auctionsFresh,
+    source_name: lastAuctionSource,
+    last_run: auctionRun, // ingestion_runs row for refresh-padova-auctions
+    recent_errors: recentAuctionErrors ?? [],
+  };
 
   // ── Envelope compatibile con Acquisition Radar /admin/readiness ──
   return ok(req, {
@@ -234,8 +274,9 @@ serve(async (req) => {
       omi_rows: omiRows,
     },
     fresh_within_14d: isFresh,
+    auctions: auctionsBlock,
     providers,
-    last_runs: { firecrawl: fcRun, perplexity: pplxRun, apify: apifyRun },
+    last_runs: { firecrawl: fcRun, perplexity: pplxRun, apify: apifyRun, padova_auctions: auctionRun },
     recent_errors: recentErrors ?? [],
     fonti: [
       "listing_price_snapshots", "motivated_sellers", "market_anomalies",
