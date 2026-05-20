@@ -129,3 +129,4 @@ verify_jwt = true
 
 [functions.zone-completeness]
 verify_jwt = true
+
