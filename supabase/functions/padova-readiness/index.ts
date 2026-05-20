@@ -308,7 +308,23 @@ serve(async (req) => {
   const COM_MIN_NON_AUCTION = 10;
   const COM_MIN_MULTI = 5;
   const COM_MIN_HIGH = 2;
+  const COM_MIN_LISTING_SOURCES = 2;
   const PROVIDER_FRESH_DAYS = 7;
+
+  // Distinct listing source_names attive negli ultimi 30 giorni (esclude demo)
+  const sinceListing = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+  const { data: listingSrcRows } = await sb
+    .from("listing_price_snapshots")
+    .select("source, captured_at")
+    .ilike("municipality", PADOVA)
+    .neq("source", "seed_demo_veneto")
+    .gte("captured_at", sinceListing)
+    .range(0, 4999);
+  const listingSourceCounts: Record<string, number> = {};
+  for (const r of (listingSrcRows ?? []) as Array<{ source: string }>) {
+    listingSourceCounts[r.source] = (listingSourceCounts[r.source] ?? 0) + 1;
+  }
+  const activeListingSources = Object.keys(listingSourceCounts);
 
   // Provider freshness: almeno un provider esterno con run reale negli ultimi 7 giorni
   const providerRuns = [fcRun, pplxRun, apifyRun, auctionRun].filter(Boolean) as Array<{ started_at?: string }>;
@@ -328,15 +344,23 @@ serve(async (req) => {
       // @ts-expect-error schema cron non tipizzato
       .schema("cron").from("job").select("jobname, schedule, active");
     cronJobs = (crons ?? []) as typeof cronJobs;
-    cronActive = cronJobs.some((j) => j.active && /padova|early-warning|refresh-padova/i.test(j.jobname));
+    cronActive = cronJobs.some((j) => j.active && /padova|early-warning|refresh-padova|snapshot/i.test(j.jobname));
   } catch { /* cron schema non leggibile dal client → cronActive resta false */ }
+
+  // Daily-radar run negli ultimi 7 giorni?
+  const lastDailyRadarRun = await lastIngestion(sb, "padova-daily-radar");
+  const dailyRanRecently = lastDailyRadarRun?.started_at
+    ? (Date.now() - new Date(lastDailyRadarRun.started_at).getTime()) < 7 * 24 * 3600 * 1000
+    : false;
 
   const commercialMissing: string[] = [];
   if ((ewoNonAuction ?? 0) < COM_MIN_NON_AUCTION) commercialMissing.push(`opportunità non-asta insufficienti (${ewoNonAuction ?? 0} < ${COM_MIN_NON_AUCTION})`);
   if ((ewoMultiSource ?? 0) < COM_MIN_MULTI) commercialMissing.push(`opportunità multi-fonte insufficienti (${ewoMultiSource ?? 0} < ${COM_MIN_MULTI})`);
   if ((ewoHighConf ?? 0) < COM_MIN_HIGH) commercialMissing.push(`opportunità high-confidence insufficienti (${ewoHighConf ?? 0} < ${COM_MIN_HIGH})`);
+  if (activeListingSources.length < COM_MIN_LISTING_SOURCES) commercialMissing.push(`fonti listing attive insufficienti (${activeListingSources.length}/${COM_MIN_LISTING_SOURCES}: ${activeListingSources.join(", ") || "nessuna"})`);
   if (!providers.firecrawl_configured) commercialMissing.push("FIRECRAWL_API_KEY mancante");
   if (!providerFresh) commercialMissing.push(`nessun run provider negli ultimi ${PROVIDER_FRESH_DAYS} giorni (ultimo: ${providerFreshAgeDays ?? "mai"}g fa)`);
+  if (!dailyRanRecently) commercialMissing.push("nessun padova-daily-radar negli ultimi 7 giorni");
 
   let commercial_status: "NOT_READY" | "PARTIAL_TECHNICAL" | "READY_FOR_CONTROLLED_CLIENT" | "READY_FOR_PUBLIC_SALES";
   if ((ewoTotal ?? 0) === 0) commercial_status = "NOT_READY";
