@@ -502,6 +502,7 @@ serve(async (req) => {
     fresh_within_14d: isFresh,
     auctions: auctionsBlock,
     early_warning: earlyWarningBlock,
+    listing_history: listingHistoryBlock,
     commercial_readiness: {
       status: commercial_status,
       missing: commercialMissing,
