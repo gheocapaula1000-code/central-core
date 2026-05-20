@@ -236,10 +236,20 @@ async function processZone(
   ]);
   const sources_count = allSources.size;
   const multi_source = sources_count >= 2 ? 1 : 0;
-  // High-confidence: listing primary + >=3 fonti indipendenti + >=1 fonte ufficiale
-  //                  alta confidenza (Astalegale/Tribunale/PVP).
-  const high_conf_signals = legalForZone.filter((l) => l.confidence === "alta").length + cityHighConfLegals.length;
-  const high_confidence = (listings.length > 0 && sources_count >= 3 && high_conf_signals > 0) ? 1 : 0;
+  // High-confidence: richiede evidenza ZONA-SPECIFICA forte, non city-level diffusa.
+  // - listing primary su microzona (casa.it filtrato per alias quartiere)
+  // - >=1 segnale legal/asta ALTA effettivamente attribuito alla zona (legalForZone)
+  // - >=2 fonti zona-pertinenti (listing zone + legal/auction zone-bound)
+  // Le fonti city-level (comune_padova_patrimonio city-wide, Astalegale city-level)
+  // restano contate in sources_count come supporto ma NON possono da sole promuovere
+  // tutte le microzone a 'alta' contemporaneamente.
+  const zoneHighConfLegals = legalForZone.filter((l) => l.confidence === "alta").length;
+  const zoneBoundSources = new Set<string>([
+    ...sourcesSet,
+    ...auctionSources,
+    ...legalForZone.map((l) => l.source_name),
+  ]);
+  const high_confidence = (listings.length > 0 && zoneHighConfLegals > 0 && zoneBoundSources.size >= 2) ? 1 : 0;
 
   // Score 0-100 conservativo
   const score = Math.min(
