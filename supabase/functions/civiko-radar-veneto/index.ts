@@ -41,6 +41,7 @@ import { runRescoreEarlyCandidates, runPromoteEarlyCandidate, runListEarlyCandid
 import { runAgencyOffmarketBrief } from "./agency/agencyOffmarketBrief.ts";
 import { handleAgencyCrudRoute } from "./agency/agencyCrud.ts";
 import { runAdvancedVenetoOpportunities } from "./advancedOpportunity.ts";
+import { runPadovaEarlyWarning } from "./padovaEarlyWarning.ts";
 import { buildVenetoIntelligenceFromResearch } from "./intelligence/orchestrator.ts";
 import { runVenetoOpenDataImport } from "./openData/ckanImporter.ts";
 import { runOpenDataVenetoDeepImport } from "./openData/openDataVenetoCkanImporter.ts";
