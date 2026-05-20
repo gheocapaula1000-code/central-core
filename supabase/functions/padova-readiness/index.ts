@@ -454,14 +454,23 @@ serve(async (req) => {
       status: commercial_status,
       missing: commercialMissing,
       thresholds: {
-        controlled_client: { non_auction: COM_MIN_NON_AUCTION, multi_source: COM_MIN_MULTI, high_confidence: COM_MIN_HIGH },
-        public_sales: { multi_source: 5, high_confidence: 3 },
+        controlled_client: { non_auction: COM_MIN_NON_AUCTION, multi_source: COM_MIN_MULTI, high_confidence: COM_MIN_HIGH, provider_fresh_days: PROVIDER_FRESH_DAYS },
+        public_sales: { all_controlled_client_thresholds_met: true, cron_active_required: true },
       },
       opportunities: {
         total: ewoTotal ?? 0,
         non_auction: ewoNonAuction ?? 0,
         multi_source: ewoMultiSource ?? 0,
         high_confidence: ewoHighConf ?? 0,
+      },
+      provider_freshness: {
+        last_provider_run_age_days: providerFreshAgeDays,
+        fresh_within_days: PROVIDER_FRESH_DAYS,
+        is_fresh: providerFresh,
+      },
+      scheduling: {
+        cron_active: cronActive,
+        cron_jobs_visible: cronJobs,
       },
       last_run: lastEwRun,
       top_opportunities: topOpps ?? [],
