@@ -283,7 +283,7 @@ async function processZone(
       secondary_signals: [],
       evidence_count: signals_found,
       sources_count,
-      source_names: Array.from(new Set([...sourcesSet, ...legalForZone.map((l) => (l as { source_name: string }).source_name)])),
+      source_names: Array.from(allSources),
       source_urls: [],
       confidence,
       early_acquisition_score: score,
