@@ -128,6 +128,11 @@ Deno.serve(async (req) => {
     }
     if (req.method !== "POST") return withIdentity(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), "error");
 
+    // Auth obbligatoria su POST: x-source-app + x-internal-secret (per-app)
+    const authFail = requireSecret(req, debugId);
+    if (authFail) return withIdentity(authFail, "unauthorized");
+
+
     let raw: unknown;
     try { raw = await req.json(); }
     catch { return withIdentity(fail(req, 400, "INVALID_JSON", "Body is not valid JSON", debugId), "error"); }
