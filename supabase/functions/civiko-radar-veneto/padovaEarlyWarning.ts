@@ -96,13 +96,19 @@ function pickPrimary(types: Set<string>, signals: RawSignal[]): string {
   // Multi-source listing-level → MULTISOURCE_DISTRESS
   const sourceSet = new Set(signals.map((s) => s.source));
   if (sourceSet.size >= 2 && signals.length >= 3) return "MULTISOURCE_DISTRESS";
+  if (types.has("foreclosure_signal")) return "FORECLOSURE_SIGNAL";
+  if (types.has("pre_auction_signal")) return "PRE_AUCTION_SIGNAL";
   if (types.has("velocity_price_drop") || types.has("ribasso") || types.has("cluster_ribassi")) return "PRICE_DROP_DISTRESS";
   if (types.has("velocity_repost") || types.has("cross_portal_reappear") || types.has("price_jump_after_disappear")) return "RELISTING_PATTERN";
   if (types.has("velocity_stale") || types.has("giacenza_lunga")) return "STALE_LISTING";
   if (types.has("omi_gap_alto") || types.has("omi_gap_basso")) return "OMI_MISPRICING";
+  if (types.has("public_asset_disposal") || types.has("municipal_property_signal")) return "PUBLIC_ASSET_DISPOSAL";
   if (types.has("stock_anomalo")) return "MICROZONE_PRESSURE";
   if (types.has("offmarket_promoted")) return "OFFMARKET_DISCOVERY";
+  if (types.has("urban_planning_signal") || types.has("concession_or_lease_signal")) return "URBAN_PLANNING_SIGNAL";
   if (types.has("inheritance_aggregate")) return "POSSIBLE_INHERITANCE_SIGNAL";
+  if (types.has("possible_succession_signal")) return "POSSIBLE_SUCCESSION_SIGNAL";
+  if (types.has("public_notice_signal")) return "PUBLIC_NOTICE_SIGNAL";
   if (types.has("auction_confirmation")) return "AUCTION_CONFIRMATION";
   if (types.has("agency_swap") || types.has("motivated_seller")) return "MICROZONE_PRESSURE";
   return PRIMARY_PRIORITY[PRIMARY_PRIORITY.length - 1];
