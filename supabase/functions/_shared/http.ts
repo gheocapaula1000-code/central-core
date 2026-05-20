@@ -49,6 +49,7 @@ export const APP_SECRET_MAP: Record<string, string> = {
   regiads: "AI_CORE_SECRET_REGIADS",
   pratica: "AI_CORE_SECRET_PRATICA",
   civiko: "AI_CORE_SECRET_CIVIKO",
+  acquisitionradar: "AI_CORE_SECRET_ACQUISITIONRADAR",
 };
 
 const KNOWN_APPS = new Set(Object.keys(APP_SECRET_MAP));
