@@ -33,6 +33,8 @@ export interface RefreshPadovaReport {
     pages_seen: number;
     errors: string[];
     warnings: string[];
+    needs_review_samples?: Array<{ source_url: string | null; confidence_score: number; reason: string | null; comune: string | null; tribunal: string | null }>;
+    rejected_samples?: Array<{ source_url: string | null; confidence_score: number; reason: string }>;
   };
   import: {
     received: number;
