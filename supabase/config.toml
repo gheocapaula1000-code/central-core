@@ -84,6 +84,10 @@ verify_jwt = false
 [functions.stripe-webhook]
 verify_jwt = false
 
+[functions.padova-readiness]
+verify_jwt = false
+
+
 [functions.core-status]
 verify_jwt = false
 
