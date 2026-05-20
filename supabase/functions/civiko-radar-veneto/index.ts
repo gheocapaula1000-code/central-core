@@ -55,6 +55,7 @@ import { runIspraRiskEnrichment } from "./openData/ispraRiskEnricher.ts";
 import { runGeoportaleGreenImport } from "./openData/geoportaleGreenImporter.ts";
 import { discoverVenetoAuctions } from "./legal/auctionDiscovery.ts";
 import { startAuctionDiscoveryRun, getAuctionDiscoveryRun, importAuctionCandidates } from "./legal/auctionRunStore.ts";
+import { refreshPadovaAuctions } from "./legal/refreshPadovaAuctions.ts";
 import { runApifyForVenetoSource } from "./apify/apifyAdapter.ts";
 import { runApifyForVenetoSourceV2, apifyDiagnostics } from "./apify/apifyOrchestrator.ts";
 import { APIFY_VENETO_REGISTRY } from "./apify/apifySourceRegistry.ts";
