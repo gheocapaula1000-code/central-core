@@ -1204,6 +1204,7 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] import-auction-candidates error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "import auction candidates failed", debugId), "job-error");
+      }
     }
 
     // ── ASTE PADOVA: pipeline end-to-end (scrape→parse→dedupe→insert) ──
@@ -1217,7 +1218,6 @@ Deno.serve(async (req) => {
         console.error(`[${FUNCTION_NAME}] refresh-padova-auctions error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "refresh-padova-auctions failed", debugId), "job-error");
       }
-    }
     }
 
     if (pathname.endsWith("/jobs/firecrawl-deep-veneto")) {
