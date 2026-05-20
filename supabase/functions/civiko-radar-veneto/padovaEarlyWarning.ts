@@ -403,9 +403,10 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
   for (const r of (lle ?? []) as any[]) {
     const t = String(r.signal_type ?? "").toLowerCase();
     const weight = SIGNAL_WEIGHTS[t] ?? 12;
-    // Group by area: legal/life-event are area-level signals; auctions group with auction key
+    // Group by area for legal/life-event signals; for auction confirmations,
+    // reuse the existing `auc:<fingerprint>` key so they merge with auction_signals evidence.
     const key = t === "auction_confirmation"
-      ? `auc:${r.dedupe_key}`
+      ? r.dedupe_key                                  // already "auc:<fingerprint>"
       : `lle:${r.area_or_microzone ?? "padova"}`;
     const agg = getAgg(key, { identity_hash: null, area_label: r.area_or_microzone ?? null });
     agg.signals.push({
