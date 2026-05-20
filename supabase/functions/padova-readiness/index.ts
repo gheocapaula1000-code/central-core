@@ -163,6 +163,74 @@ serve(async (req) => {
     lastUpdateAt(sb, "radar_signals", "municipality", "detected_at").catch(() => null),
   ]);
 
+  // ── Real (non-demo) motivated sellers Padova ──
+  const { count: motivatedReal } = await sb
+    .from("motivated_sellers")
+    .select("*", { count: "exact", head: true })
+    .ilike("municipality", PADOVA)
+    .eq("is_active", true)
+    .neq("source", "seed_demo_veneto");
+
+  // ── Early-warning real anticipatory signals (NON-asta) ──
+  // 1) market_anomalies attivi (giacenza_lunga, omi_gap_alto/basso, ribasso, cluster_ribassi, agency_swap, cross_portal_reappear, price_jump_after_disappear)
+  const { data: anomaliesByType } = await sb
+    .from("market_anomalies")
+    .select("anomaly_type, confidence, identity_hash, detected_at, payload")
+    .ilike("municipality", PADOVA)
+    .eq("is_active", true);
+  const anomalyTypeCounts: Record<string, number> = {};
+  const anomalyHighConf: string[] = [];
+  for (const r of (anomaliesByType ?? []) as Array<{ anomaly_type: string; confidence: string; identity_hash: string }>) {
+    anomalyTypeCounts[r.anomaly_type] = (anomalyTypeCounts[r.anomaly_type] ?? 0) + 1;
+    if (r.confidence === "high") anomalyHighConf.push(r.identity_hash);
+  }
+
+  // 2) listing_velocity_signals stale/repost/price_drop (NOT pure freshness)
+  const { count: velocityEarly } = await sb
+    .from("listing_velocity_signals")
+    .select("*", { count: "exact", head: true })
+    .ilike("comune", PADOVA)
+    .eq("is_active", true)
+    .or("stale_listing.eq.true,repost_detected.eq.true,price_drop_percent.gte.5");
+
+  // 3) early_offmarket promoted (Comune patrimonio, bandi, alienazioni) — privacy-safe già
+  const { count: offmarketPromoted } = await sb
+    .from("early_offmarket_signal_candidates")
+    .select("*", { count: "exact", head: true })
+    .ilike("comune", PADOVA)
+    .eq("status", "promoted")
+    .neq("signal_type", "irrelevant");
+
+  // 4) inheritance_pressure_signals (aggregate-only, privacy-safe by design)
+  const { count: inheritancePressure } = await sb
+    .from("inheritance_pressure_signals")
+    .select("*", { count: "exact", head: true })
+    .ilike("comune", PADOVA)
+    .eq("is_active", true)
+    .eq("standard_radar_visible", false); // resta agency_private_only
+
+  // 5) Multi-source: identity_hash che compare in motivated_sellers (reali) E market_anomalies
+  const { data: msHashes } = await sb
+    .from("motivated_sellers")
+    .select("identity_hash")
+    .ilike("municipality", PADOVA)
+    .eq("is_active", true)
+    .neq("source", "seed_demo_veneto");
+  const msHashSet = new Set((msHashes ?? []).map((r) => (r as { identity_hash: string }).identity_hash));
+  let multiSource = 0;
+  for (const r of (anomaliesByType ?? []) as Array<{ identity_hash: string }>) {
+    if (msHashSet.has(r.identity_hash)) multiSource++;
+  }
+
+  const earlyWarningRealCount =
+    Object.values(anomalyTypeCounts).reduce((a, b) => a + b, 0) +
+    (velocityEarly ?? 0) +
+    (offmarketPromoted ?? 0) +
+    (inheritancePressure ?? 0);
+
+  const earlyWarningHighConfCount =
+    anomalyHighConf.length + (offmarketPromoted ?? 0);
+
   // Auction freshness: newest detected_at on PD auctions + most common source_name
   const { data: lastAuctionRow } = await sb
     .from("auction_signals")
@@ -203,32 +271,43 @@ serve(async (req) => {
     .order("started_at", { ascending: false })
     .limit(5);
 
-  // ── Status decision ──
+  // ── Status decision: commercial readiness, NOT solo aste ──
   const motivations: string[] = [];
   let status: "NOT_READY" | "PARTIAL" | "READY" = "NOT_READY";
 
-  const hasAnyReal = listingReal > 0 || motivated > 0 || anomalies > 0 || signals > 0;
+  // Soglie commerciali realistiche per Padova Comune
+  const MIN_LISTING_REAL = 20;
+  const MIN_EARLY_WARNING = 8;          // almeno 8 segnali anticipatori reali non-asta
+  const MIN_EARLY_HIGH_CONF = 3;        // di cui almeno 3 ad alta confidenza
+  const MIN_LEGAL_OR_AUCTION = 1;       // almeno 1 fonte legale/asta come conferma
+
+  const hasAnyReal = listingReal > 0 || (motivatedReal ?? 0) > 0 || anomalies > 0 || signals > 0;
 
   if (!hasAnyReal) {
     status = "NOT_READY";
     motivations.push("Nessun dato reale per Padova Comune nei dataset radar.");
   } else {
     const missing: string[] = [];
-    if (listingReal < 20) missing.push(`listing reali insufficienti (${listingReal} < 20)`);
+    if (listingReal < MIN_LISTING_REAL) missing.push(`listing reali insufficienti (${listingReal} < ${MIN_LISTING_REAL})`);
     if (omiRows < 1)       missing.push("nessuna riga OMI per Padova");
-    if (auctions < 1)      missing.push("auction_signals=0 (richiesto >=1 per READY)");
+    if (auctions < MIN_LEGAL_OR_AUCTION) missing.push(`fonte legale/asta insufficiente (${auctions} < ${MIN_LEGAL_OR_AUCTION})`);
     if (!auctionsFresh && auctions >= 1) {
       missing.push(`auction_signals stale (>${AUCTION_STALE_DAYS}gg, età=${auctionAgeDays}gg)`);
+    }
+    if (earlyWarningRealCount < MIN_EARLY_WARNING) {
+      missing.push(`early_warning non-asta insufficienti (${earlyWarningRealCount} < ${MIN_EARLY_WARNING})`);
+    }
+    if (earlyWarningHighConfCount < MIN_EARLY_HIGH_CONF) {
+      missing.push(`segnali early_warning high-confidence insufficienti (${earlyWarningHighConfCount} < ${MIN_EARLY_HIGH_CONF})`);
     }
     if (!providers.firecrawl_configured)  missing.push("FIRECRAWL_API_KEY mancante");
     if (!providers.perplexity_configured) missing.push("PERPLEXITY_API_KEY mancante");
     if (!providers.apify_configured)      missing.push("APIFY_API_TOKEN mancante");
     if (!isFresh)          missing.push("dati non aggiornati negli ultimi 14 giorni");
-    if (anomalies < 1 && signals < 1) missing.push("nessun segnale/anomalia di mercato");
 
     if (missing.length === 0) {
       status = "READY";
-      motivations.push("Dataset reale, fresco e con copertura sufficiente per il MVP Padova Comune.");
+      motivations.push("Acquisition Radar: dati reali, segnali anticipatori multipli, fonti incrociate, freschezza ok.");
     } else {
       status = "PARTIAL";
       motivations.push(`Dati reali parziali. Mancano: ${missing.join("; ")}.`);
@@ -237,7 +316,6 @@ serve(async (req) => {
 
   const reason = motivations.join(" ");
 
-  // Auction block (commercial readiness)
   const auctionsBlock = {
     count: auctions,
     last_detected_at: lastAuctionAt,
@@ -245,29 +323,51 @@ serve(async (req) => {
     fresh_within_days: AUCTION_STALE_DAYS,
     is_fresh: auctionsFresh,
     source_name: lastAuctionSource,
-    last_run: auctionRun, // ingestion_runs row for refresh-padova-auctions
+    last_run: auctionRun,
     recent_errors: recentAuctionErrors ?? [],
+    role: "confirmation_signal_only",
   };
 
-  // ── Envelope compatibile con Acquisition Radar /admin/readiness ──
+  const earlyWarningBlock = {
+    total_real_non_auction: earlyWarningRealCount,
+    high_confidence: earlyWarningHighConfCount,
+    multi_source_listings: multiSource,
+    by_anomaly_type: anomalyTypeCounts, // es. {agency_swap:16, omi_gap_alto:3, giacenza_lunga:1}
+    velocity_early_signals: velocityEarly ?? 0,
+    offmarket_promoted_real: offmarketPromoted ?? 0,
+    inheritance_pressure_aggregate: inheritancePressure ?? 0,
+    motivated_sellers_real: motivatedReal ?? 0,
+    motivated_sellers_total_including_demo: motivated,
+    thresholds: {
+      min_early_warning: MIN_EARLY_WARNING,
+      min_high_confidence: MIN_EARLY_HIGH_CONF,
+      min_legal_or_auction: MIN_LEGAL_OR_AUCTION,
+      min_listing_real: MIN_LISTING_REAL,
+    },
+    privacy_policy: "aggregate-only for inheritance/turnover; no personal names exposed",
+  };
+
   return ok(req, {
     status,
     reason,
     updated_at: lastDataUpdate,
     signals: {
       real_listings: listingReal,
-      motivated_sellers: motivated,
+      motivated_sellers: motivatedReal ?? 0,
       market_anomalies: anomalies,
       radar_signals: signals,
       auction_signals: auctions,
       omi: omiRows,
+      early_warning_non_auction: earlyWarningRealCount,
+      early_warning_high_confidence: earlyWarningHighConfCount,
+      multi_source_listings: multiSource,
     },
-    // ── extra diagnostica (non rompe il consumer PWA) ──
     function: FUNCTION_NAME,
     counts_padova_comune: {
       listing_price_snapshots_total: listingTotal,
       listing_price_snapshots_real: listingReal,
-      motivated_sellers: motivated,
+      motivated_sellers_real: motivatedReal ?? 0,
+      motivated_sellers_total_including_demo: motivated,
       market_anomalies: anomalies,
       radar_signals: signals,
       auction_signals: auctions,
@@ -275,13 +375,15 @@ serve(async (req) => {
     },
     fresh_within_14d: isFresh,
     auctions: auctionsBlock,
+    early_warning: earlyWarningBlock,
     providers,
     last_runs: { firecrawl: fcRun, perplexity: pplxRun, apify: apifyRun, padova_auctions: auctionRun },
     recent_errors: recentErrors ?? [],
     fonti: [
       "listing_price_snapshots", "motivated_sellers", "market_anomalies",
-      "radar_signals", "auction_signals", "omi_zone_geometry",
-      "Firecrawl", "Perplexity", "Apify",
+      "radar_signals", "auction_signals", "early_offmarket_signal_candidates",
+      "inheritance_pressure_signals", "listing_velocity_signals",
+      "omi_zone_geometry", "Firecrawl", "Perplexity", "Apify",
     ],
   }, [], debugId);
 });
