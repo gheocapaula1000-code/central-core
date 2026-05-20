@@ -127,14 +127,14 @@ serve(async (req) => {
   ] = await Promise.all([
     countByComune(sb, "listing_price_snapshots", "municipality"),
     countRealByComune(sb, "listing_price_snapshots", "municipality"),
-    countByComuneAlt(sb, "motivated_sellers", "comune"),
-    countByComuneAlt(sb, "market_anomalies", "comune"),
-    countByComuneAlt(sb, "radar_signals", "comune"),
+    countByComuneAlt(sb, "motivated_sellers", "municipality"),
+    countByComuneAlt(sb, "market_anomalies", "municipality"),
+    countByComuneAlt(sb, "radar_signals", "municipality"),
     countByComuneAlt(sb, "auction_signals", "municipality"),
     omiRowCount(sb),
     lastUpdateAt(sb, "listing_price_snapshots", "municipality", "captured_at"),
-    lastUpdateAt(sb, "market_anomalies", "comune", "detected_at").catch(() => null),
-    lastUpdateAt(sb, "radar_signals", "comune", "detected_at").catch(() => null),
+    lastUpdateAt(sb, "market_anomalies", "municipality", "detected_at").catch(() => null),
+    lastUpdateAt(sb, "radar_signals", "municipality", "detected_at").catch(() => null),
   ]);
 
   const lastDataUpdate = [lastListing, lastAnomaly, lastSignal]
