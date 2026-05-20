@@ -3174,6 +3174,66 @@ export type Database = {
         }
         Relationships: []
       }
+      padova_zone_radar_queue: {
+        Row: {
+          attempts: number
+          created_at: string
+          duration_ms: number | null
+          finished_at: string | null
+          id: number
+          last_error: string | null
+          municipality: string
+          omi_zone_id: string | null
+          priority: number
+          province: string
+          run_id: string
+          started_at: string | null
+          status: string
+          summary: Json
+          updated_at: string
+          zone_name: string
+          zone_type: string | null
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          duration_ms?: number | null
+          finished_at?: string | null
+          id?: number
+          last_error?: string | null
+          municipality?: string
+          omi_zone_id?: string | null
+          priority?: number
+          province?: string
+          run_id: string
+          started_at?: string | null
+          status?: string
+          summary?: Json
+          updated_at?: string
+          zone_name: string
+          zone_type?: string | null
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          duration_ms?: number | null
+          finished_at?: string | null
+          id?: number
+          last_error?: string | null
+          municipality?: string
+          omi_zone_id?: string | null
+          priority?: number
+          province?: string
+          run_id?: string
+          started_at?: string | null
+          status?: string
+          summary?: Json
+          updated_at?: string
+          zone_name?: string
+          zone_type?: string | null
+        }
+        Relationships: []
+      }
       price_resistance_index: {
         Row: {
           avg_asking_price_eur: number | null
