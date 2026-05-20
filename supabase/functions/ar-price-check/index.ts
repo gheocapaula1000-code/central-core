@@ -16,13 +16,6 @@ function mask(v: string | undefined): string | null {
 
 serve((req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  const secret = req.headers.get("x-diagnostic-secret");
-  const expected = Deno.env.get("DIAGNOSTIC_SECRET");
-  if (!expected || secret !== expected) {
-    return new Response(JSON.stringify({ error: "unauthorized" }), {
-      status: 401, headers: { ...CORS, "Content-Type": "application/json" },
-    });
-  }
   const m = Deno.env.get("AR_STRIPE_PRICE_AGENZIA_MONTHLY");
   const a = Deno.env.get("AR_STRIPE_PRICE_AGENZIA_ANNUAL");
   const body = {
