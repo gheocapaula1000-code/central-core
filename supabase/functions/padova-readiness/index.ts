@@ -4,19 +4,30 @@
 //
 // Auth: x-diagnostic-secret = DIAGNOSTIC_SECRET (server-side only)
 //
-// Restituisce contatori reali per Padova (Comune) sui dataset usati
-// dal radar Acquisition Radar, e dichiara lo status:
-//   NOT_READY | PARTIAL | READY
+// Envelope atteso da Acquisition Radar (/admin/readiness):
+//   {
+//     ok: true,
+//     data: {
+//       status: "NOT_READY" | "PARTIAL" | "READY",
+//       reason: string,
+//       updated_at: string | null,
+//       signals: {
+//         real_listings, motivated_sellers, market_anomalies,
+//         radar_signals, auction_signals, omi
+//       }
+//     }
+//   }
 //
 // Regole status:
 //   NOT_READY = nessun dato reale / solo demo
-//   PARTIAL   = dati reali parziali o stale (>14gg)
-//   READY     = dataset reali, freschi (<=14gg) e sufficienti per il MVP
+//   PARTIAL   = dati reali parziali o stale (>14gg) o auction_signals=0
+//   READY     = dataset reali, freschi (<=14gg), copertura sufficiente
+//               INCLUSO auction_signals >= 1
 // ═══════════════════════════════════════════════════════════════
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { makeDebugId, requireDiagnosticSecret, json, handleOptions } from "../_shared/http.ts";
+import { makeDebugId, requireDiagnosticSecret, ok, handleOptions } from "../_shared/http.ts";
 
 const FUNCTION_NAME = "padova-readiness";
 const PADOVA = "Padova";
@@ -106,10 +117,24 @@ serve(async (req) => {
   );
 
   // Secret/provider availability
+  const stripeKey = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
+  const stripeMode = stripeKey.startsWith("sk_live_")
+    ? "live"
+    : stripeKey.startsWith("sk_test_") || stripeKey.startsWith("rk_test_")
+      ? "test"
+      : "unconfigured";
+  // Mostra solo prefisso (8 char) + suffisso (4 char) — mai la chiave intera
+  const stripePrefix = stripeKey
+    ? `${stripeKey.slice(0, 8)}...${stripeKey.slice(-4)}`
+    : null;
   const providers = {
     firecrawl_configured: !!Deno.env.get("FIRECRAWL_API_KEY"),
     perplexity_configured: !!Deno.env.get("PERPLEXITY_API_KEY"),
     apify_configured: !!Deno.env.get("APIFY_API_TOKEN"),
+    stripe_configured: !!stripeKey,
+    stripe_mode: stripeMode,
+    stripe_key_masked: stripePrefix,
+    stripe_webhook_configured: !!Deno.env.get("STRIPE_WEBHOOK_SECRET"),
   };
 
   // Last ingestion runs (best-effort string match in job_name)
@@ -166,6 +191,7 @@ serve(async (req) => {
     const missing: string[] = [];
     if (listingReal < 20) missing.push(`listing reali insufficienti (${listingReal} < 20)`);
     if (omiRows < 1)       missing.push("nessuna riga OMI per Padova");
+    if (auctions < 1)      missing.push("auction_signals=0 (richiesto >=1 per READY)");
     if (!providers.firecrawl_configured)  missing.push("FIRECRAWL_API_KEY mancante");
     if (!providers.perplexity_configured) missing.push("PERPLEXITY_API_KEY mancante");
     if (!providers.apify_configured)      missing.push("APIFY_API_TOKEN mancante");
@@ -181,17 +207,23 @@ serve(async (req) => {
     }
   }
 
-  const fonti = [
-    "listing_price_snapshots", "motivated_sellers", "market_anomalies",
-    "radar_signals", "auction_signals", "omi_zone_geometry",
-    "Firecrawl", "Perplexity", "Apify",
-  ];
+  const reason = motivations.join(" ");
 
-  return json(req, 200, {
-    function: FUNCTION_NAME,
-    debug_id: debugId,
+  // ── Envelope compatibile con Acquisition Radar /admin/readiness ──
+  return ok(req, {
     status,
-    motivation: motivations.join(" "),
+    reason,
+    updated_at: lastDataUpdate,
+    signals: {
+      real_listings: listingReal,
+      motivated_sellers: motivated,
+      market_anomalies: anomalies,
+      radar_signals: signals,
+      auction_signals: auctions,
+      omi: omiRows,
+    },
+    // ── extra diagnostica (non rompe il consumer PWA) ──
+    function: FUNCTION_NAME,
     counts_padova_comune: {
       listing_price_snapshots_total: listingTotal,
       listing_price_snapshots_real: listingReal,
@@ -201,15 +233,14 @@ serve(async (req) => {
       auction_signals: auctions,
       omi_rows: omiRows,
     },
-    last_data_update: lastDataUpdate,
     fresh_within_14d: isFresh,
     providers,
-    last_runs: {
-      firecrawl: fcRun,
-      perplexity: pplxRun,
-      apify: apifyRun,
-    },
+    last_runs: { firecrawl: fcRun, perplexity: pplxRun, apify: apifyRun },
     recent_errors: recentErrors ?? [],
-    fonti,
-  }, debugId);
+    fonti: [
+      "listing_price_snapshots", "motivated_sellers", "market_anomalies",
+      "radar_signals", "auction_signals", "omi_zone_geometry",
+      "Firecrawl", "Perplexity", "Apify",
+    ],
+  }, [], debugId);
 });
