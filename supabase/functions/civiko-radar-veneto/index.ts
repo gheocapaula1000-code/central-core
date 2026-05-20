@@ -1464,6 +1464,20 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Padova institutional sources — Comune patrimonio / avvisi pubblici
+    // Fonte legittima a basso volume, source_name distinta da casa.it.
+    if (pathname.endsWith("/jobs/padova-institutional-sources")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const { runComunePadovaPatrimonio } = await import("./comunePadovaPatrimonio.ts");
+        const r = await runComunePadovaPatrimonio();
+        return withIdentity(json(req, r.ok ? 200 : 207, { job: "padova-institutional-sources", ...r }, debugId), "job-padova-instit");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] padova-institutional-sources error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Padova institutional sources failed", debugId), "job-error");
+      }
+    }
+
 
     // ── New Perplexity-derived intelligence jobs ─────────────
     {
