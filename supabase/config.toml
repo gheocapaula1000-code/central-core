@@ -129,3 +129,6 @@ verify_jwt = true
 
 [functions.zone-completeness]
 verify_jwt = true
+
+[functions.ar-price-check]
+verify_jwt = false
