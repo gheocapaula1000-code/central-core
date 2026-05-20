@@ -116,6 +116,7 @@ const ROUTES = [
  "POST /jobs/auction-discovery-status",
   "POST /jobs/import-auction-candidates",
   "POST /jobs/refresh-padova-auctions",
+  "POST /jobs/padova-daily-radar",
   "POST /jobs/build-offmarket-opportunity-scores",
   "POST /jobs/firecrawl-offmarket-microzone-discovery",
   "POST /jobs/discover-early-offmarket-signals",
@@ -1444,6 +1445,21 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] padova-early-warning error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Padova early warning failed", debugId), "job-error");
+      }
+    }
+
+    // Padova Daily Radar — orchestrator multi-fonte (listing+aste+perplexity+EW)
+    if (pathname.endsWith("/jobs/padova-daily-radar")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const { runPadovaDailyRadar } = await import("./padovaDailyRadar.ts");
+        const r = await runPadovaDailyRadar(body);
+        const httpStatus = r.status === "FAILED" ? 500 : (r.status === "PARTIAL_WITH_WARNINGS" ? 207 : 200);
+        return withIdentity(json(req, httpStatus, r, debugId), "job-padova-daily");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] padova-daily-radar error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Padova daily radar failed", debugId), "job-error");
       }
     }
 
