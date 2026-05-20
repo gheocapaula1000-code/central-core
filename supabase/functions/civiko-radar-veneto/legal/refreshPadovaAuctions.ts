@@ -90,6 +90,20 @@ export async function refreshPadovaAuctions(req: RefreshPadovaRequest = {}): Pro
   const includeNR = req.includeNeedsReview === true;
   const maxPages = Math.min(Math.max(req.maxPagesPerSource ?? 8, 1), 12);
 
+  const sb = svcClient();
+  const startedAt = new Date().toISOString();
+
+  // Open ingestion run (best-effort) — only for real runs
+  let runId: number | null = null;
+  if (sb && !dryRun) {
+    const { data } = await sb
+      .from("ingestion_runs")
+      .insert({ job_name: "refresh-padova-auctions", source_name: sourceName, status: "started" })
+      .select("id")
+      .maybeSingle();
+    runId = (data as { id?: number } | null)?.id ?? null;
+  }
+
   const before = await countPadovaSignals();
 
   // FASE 1+2: scrape + parse via discovery (compliance-safe)
@@ -124,7 +138,7 @@ export async function refreshPadovaAuctions(req: RefreshPadovaRequest = {}): Pro
   if (disc.errors.length > 0) notes.push(`discovery_errors=${disc.errors.length}`);
   notes.push("PVP (pvp.giustizia.it) resta manual_only: non scrapato.");
 
-  return {
+  const report: RefreshPadovaReport = {
     ok: imp.ok && disc.ok,
     job: "refresh-padova-auctions",
     dryRun,
@@ -151,4 +165,31 @@ export async function refreshPadovaAuctions(req: RefreshPadovaRequest = {}): Pro
     },
     notes,
   };
+
+  // Close ingestion run (best-effort)
+  if (sb && runId !== null) {
+    const completedAt = new Date().toISOString();
+    const durationMs = new Date(completedAt).getTime() - new Date(startedAt).getTime();
+    await sb
+      .from("ingestion_runs")
+      .update({
+        status: report.ok ? "completed" : "error",
+        completed_at: completedAt,
+        duration_ms: durationMs,
+        rows_in: disc.candidates_found,
+        rows_out: imp.totals.inserted,
+        errors: disc.errors.slice(0, 5),
+        warnings: imp.warnings.slice(0, 5),
+        report: {
+          source_name: sourceName,
+          discovery: report.discovery,
+          import: report.import,
+          auction_signals_before: before,
+          auction_signals_after: after,
+        },
+      })
+      .eq("id", runId);
+  }
+
+  return report;
 }
