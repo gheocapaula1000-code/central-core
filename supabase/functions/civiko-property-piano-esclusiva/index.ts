@@ -6,7 +6,7 @@
 import {
   makeDebugId, handleOptions, json, fail,
   CORE_VERSION, CORE_CONTRACT, addIdentityHeaders,
-  buildManifest, enforceOriginPolicy,
+  buildManifest, enforceOriginPolicy, requireSecret,
 } from "../_shared/http.ts";
 import { sanitizeOutgoing } from "../_shared/civiko.ts";
 
