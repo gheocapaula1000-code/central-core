@@ -19,7 +19,7 @@
 
 import {
   CORE_CONTRACT, CORE_VERSION, addIdentityHeaders, buildManifest,
-  enforceOriginPolicy, fail, handleOptions, json, makeDebugId,
+  enforceOriginPolicy, fail, handleOptions, json, makeDebugId, requireSecret,
 } from "../_shared/http.ts";
 import { sanitizeOutgoing } from "../_shared/civiko.ts";
 import { rateLimit } from "../_shared/rate-limit.ts";
