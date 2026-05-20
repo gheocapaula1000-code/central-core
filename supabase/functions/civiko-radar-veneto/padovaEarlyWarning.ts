@@ -378,7 +378,34 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
     });
   }
 
-  // ─── Build opportunities ───
+  // legal_life_event_signals — privacy-safe legal & life-event layer
+  const { data: lle } = await sb
+    .from("legal_life_event_signals")
+    .select("signal_type, source_name, source_url, area_or_microzone, confidence, privacy_safe, pii_redacted, contains_personal_data, dedupe_key, payload_minimized")
+    .ilike("municipality", COMUNE)
+    .eq("is_active", true)
+    .eq("privacy_safe", true)
+    .eq("pii_redacted", true)
+    .eq("contains_personal_data", false)
+    .range(0, 999);
+  for (const r of (lle ?? []) as any[]) {
+    const t = String(r.signal_type ?? "").toLowerCase();
+    const weight = SIGNAL_WEIGHTS[t] ?? 12;
+    // Group by area: legal/life-event are area-level signals; auctions group with auction key
+    const key = t === "auction_confirmation"
+      ? `auc:${r.dedupe_key}`
+      : `lle:${r.area_or_microzone ?? "padova"}`;
+    const agg = getAgg(key, { identity_hash: null, area_label: r.area_or_microzone ?? null });
+    agg.signals.push({
+      identity_hash: null,
+      type: t,
+      source: r.source_name ?? "legal_life_event",
+      source_url: r.source_url ?? null,
+      weight: r.confidence === "alta" ? weight : (r.confidence === "media" ? Math.round(weight * 0.85) : Math.round(weight * 0.6)),
+      payload: r.payload_minimized ?? {},
+      privacy_safe: true,
+    });
+  }
   const rows: any[] = [];
   let multiSource = 0;
   let highConfidence = 0;
