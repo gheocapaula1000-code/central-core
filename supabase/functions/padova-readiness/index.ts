@@ -424,8 +424,24 @@ serve(async (req) => {
     fresh_within_14d: isFresh,
     auctions: auctionsBlock,
     early_warning: earlyWarningBlock,
+    commercial_readiness: {
+      status: commercial_status,
+      missing: commercialMissing,
+      thresholds: {
+        controlled_client: { non_auction: COM_MIN_NON_AUCTION, multi_source: COM_MIN_MULTI, high_confidence: COM_MIN_HIGH },
+        public_sales: { multi_source: 5, high_confidence: 3 },
+      },
+      opportunities: {
+        total: ewoTotal ?? 0,
+        non_auction: ewoNonAuction ?? 0,
+        multi_source: ewoMultiSource ?? 0,
+        high_confidence: ewoHighConf ?? 0,
+      },
+      last_run: lastEwRun,
+      top_opportunities: topOpps ?? [],
+    },
     providers,
-    last_runs: { firecrawl: fcRun, perplexity: pplxRun, apify: apifyRun, padova_auctions: auctionRun },
+    last_runs: { firecrawl: fcRun, perplexity: pplxRun, apify: apifyRun, padova_auctions: auctionRun, padova_early_warning: lastEwRun },
     recent_errors: recentErrors ?? [],
     fonti: [
       "listing_price_snapshots", "motivated_sellers", "market_anomalies",
