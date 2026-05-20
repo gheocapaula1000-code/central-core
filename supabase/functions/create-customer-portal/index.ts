@@ -1,21 +1,31 @@
+// ═══════════════════════════════════════════════════════════════
+// AcquisitionRadar — Stripe Customer Portal
+// POST /functions/v1/create-customer-portal
+//
+// Auth: per-app secret obbligatorio
+//   • x-source-app: acquisitionradar
+//   • x-internal-secret: AI_CORE_SECRET_ACQUISITIONRADAR
+//
+// Body o header server-side:
+//   • workspace_id (body)  oppure  x-workspace-id (header)
+//   • return_url (opzionale, default https://acquisitionradar.it/account)
+//
+// Lookup stripe_customer_id da billing_customers
+// (agency_id = workspace_id, app_id = 'acquisitionradar').
+// La tabella workspaces nel Core non ha owner_id — non usato.
+// ═══════════════════════════════════════════════════════════════
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { getStripeConfig, AR_DEFAULT_ACCOUNT_URL } from "../_shared/acquisitionradar-billing.ts";
+import { getStripeConfig, AR_DEFAULT_ACCOUNT_URL, isAllowedArUrl } from "../_shared/acquisitionradar-billing.ts";
+import { makeDebugId, requireSecret } from "../_shared/http.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-internal-secret",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-internal-secret, x-source-app, x-workspace-id",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
-
-const DEFAULT_RETURN_URL = AR_DEFAULT_ACCOUNT_URL;
-
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
 
 function jsonRes(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -24,9 +34,10 @@ function jsonRes(body: unknown, status = 200) {
   });
 }
 
-function log(level: "info" | "warn" | "error", fields: Record<string, unknown>) {
+function logEvent(level: "info" | "warn" | "error", fields: Record<string, unknown>) {
+  const fn = level === "error" ? console.error : console.log;
   try {
-    console[level === "error" ? "error" : "log"](JSON.stringify({
+    fn(JSON.stringify({
       level, app: "AcquisitionRadar", endpoint: "/create-customer-portal",
       ts: new Date().toISOString(), ...fields,
     }));
@@ -37,78 +48,74 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return jsonRes({ error: "method_not_allowed" }, 405);
 
+  const debugId = makeDebugId();
+
+  const authFail = requireSecret(req, debugId);
+  if (authFail) return authFail;
+
   const cfg = getStripeConfig();
-  if (!cfg.configured || !cfg.secretKey) return jsonRes({ error: "billing_not_configured" }, 503);
+  if (!cfg.configured || !cfg.secretKey) {
+    logEvent("error", { debug_id: debugId, outcome: "billing_not_configured" });
+    return jsonRes({ error: "billing_not_configured" }, 503);
+  }
   const stripe = new Stripe(cfg.secretKey, { apiVersion: "2023-10-16" });
+
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
   );
 
-  // ── Dual auth: same logic as /create-checkout ──
-  let userId: string | null = null;
+  let body: Record<string, unknown> = {};
+  try { body = await req.json() ?? {}; } catch { /* noop */ }
 
-  const providedSecret = req.headers.get("x-internal-secret") ?? "";
-  const internalSecret = Deno.env.get("CORE_INTERNAL_SECRET") ?? "";
-  const internalAuthorized = !!providedSecret && !!internalSecret && safeEqual(providedSecret, internalSecret);
+  const headerWorkspace = (req.headers.get("x-workspace-id") ?? "").trim();
+  const workspace_id    = headerWorkspace || String(body.workspace_id ?? "").trim();
+  const return_url_in   = String(body.return_url ?? "").trim();
+  const return_url      = isAllowedArUrl(return_url_in) ? return_url_in : AR_DEFAULT_ACCOUNT_URL;
 
-  if (!internalAuthorized) {
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const token = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
-    if (!token) {
-      log("warn", { outcome: "unauthorized", reason: "missing_token" });
-      return jsonRes({ error: "Unauthorized" }, 401);
-    }
-    const { data: { user } } = await supabase.auth.getUser(token);
-    if (!user) {
-      log("warn", { outcome: "unauthorized", reason: "invalid_token" });
-      return jsonRes({ error: "Unauthorized" }, 401);
-    }
-    userId = user.id;
+  if (!workspace_id) {
+    logEvent("warn", { debug_id: debugId, outcome: "missing_workspace_id" });
+    return jsonRes({ error: "missing_workspace_id", message: "workspace_id obbligatorio (body o header x-workspace-id)" }, 400);
   }
 
-  const body = await req.json().catch(() => ({})) as {
-    return_url?: string;
-    workspace_id?: string;
-    user_id?: string;
-  };
-  const returnUrl = body.return_url || DEFAULT_RETURN_URL;
-  const workspaceId = body.workspace_id ?? "";
-  const effectiveUserId = userId ?? body.user_id ?? "";
-
-  // ── Resolve workspace.stripe_customer_id ──
+  // ── Lookup stripe_customer_id da billing_customers (acquisitionradar) ──
   let stripeCustomerId: string | null = null;
   try {
-    let q = supabase.from("workspaces").select("stripe_customer_id").limit(1);
-    if (workspaceId) {
-      q = supabase.from("workspaces").select("stripe_customer_id").eq("id", workspaceId).limit(1);
-    } else if (effectiveUserId) {
-      q = supabase.from("workspaces").select("stripe_customer_id").eq("owner_id", effectiveUserId).limit(1);
-    }
-    const { data, error } = await q.maybeSingle();
+    const { data, error } = await supabase
+      .from("billing_customers")
+      .select("stripe_customer_id")
+      .eq("agency_id", workspace_id)
+      .eq("app_id", "acquisitionradar")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
     if (error) {
-      log("error", { outcome: "db_error", workspace_id: workspaceId, msg: error.message });
-    } else {
-      stripeCustomerId = (data?.stripe_customer_id as string | null) ?? null;
+      logEvent("error", { debug_id: debugId, outcome: "db_error", workspace_id, msg: error.message });
+      return jsonRes({ error: "db_error" }, 500);
     }
+    stripeCustomerId = (data?.stripe_customer_id as string | null) ?? null;
   } catch (e) {
-    log("error", { outcome: "db_exception", workspace_id: workspaceId, msg: e instanceof Error ? e.message : "unknown" });
+    logEvent("error", { debug_id: debugId, outcome: "db_exception", workspace_id, msg: e instanceof Error ? e.message : "unknown" });
+    return jsonRes({ error: "db_exception" }, 500);
   }
 
   if (!stripeCustomerId) {
-    log("warn", { outcome: "missing_stripe_customer_id", workspace_id: workspaceId });
-    return jsonRes({ error: "missing_stripe_customer_id" }, 422);
+    logEvent("warn", { debug_id: debugId, outcome: "no_stripe_customer", workspace_id });
+    return jsonRes({
+      error: "no_stripe_customer",
+      message: "Nessun customer Stripe associato a questo workspace",
+    }, 404);
   }
 
   try {
     const session = await stripe.billingPortal.sessions.create({
       customer: stripeCustomerId,
-      return_url: returnUrl,
+      return_url,
     });
-    log("info", { outcome: "ok", workspace_id: workspaceId });
+    logEvent("info", { debug_id: debugId, outcome: "ok", mode: cfg.mode, workspace_id });
     return jsonRes({ url: session.url });
   } catch (e) {
-    log("error", { outcome: "stripe_error", workspace_id: workspaceId, msg: e instanceof Error ? e.message : "unknown" });
+    logEvent("error", { debug_id: debugId, outcome: "stripe_error", mode: cfg.mode, workspace_id, msg: e instanceof Error ? e.message : "unknown" });
     return jsonRes({ error: "stripe_error" }, 502);
   }
 });

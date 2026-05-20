@@ -19,7 +19,7 @@
 
 import {
   CORE_CONTRACT, CORE_VERSION, addIdentityHeaders, buildManifest,
-  enforceOriginPolicy, fail, handleOptions, json, makeDebugId,
+  enforceOriginPolicy, fail, handleOptions, json, makeDebugId, requireSecret,
 } from "../_shared/http.ts";
 import { sanitizeOutgoing } from "../_shared/civiko.ts";
 import { rateLimit } from "../_shared/rate-limit.ts";
@@ -1686,8 +1686,11 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Agent Radar — output operativo Veneto-only per MVP Civiko One
+    // Agent Radar — output operativo Veneto-only per MVP Civiko One / Acquisition Radar
     if (pathname.endsWith("/agent-radar") || pathname.endsWith("/agentRadar")) {
+      // Auth obbligatoria: x-source-app + x-internal-secret (per-app)
+      const authFail = requireSecret(req, debugId);
+      if (authFail) return withIdentity(authFail, "agent-radar-unauthorized");
       const rlA = rateLimit(req, `${FUNCTION_NAME}:agent-radar`, { windowMs: 60_000, max: 60 });
       if (!rlA.ok) {
         const r = fail(req, 429, "RATE_LIMITED", "Troppe richieste, riprovare a breve.", debugId);

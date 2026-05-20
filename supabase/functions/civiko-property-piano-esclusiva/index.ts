@@ -6,7 +6,7 @@
 import {
   makeDebugId, handleOptions, json, fail,
   CORE_VERSION, CORE_CONTRACT, addIdentityHeaders,
-  buildManifest, enforceOriginPolicy,
+  buildManifest, enforceOriginPolicy, requireSecret,
 } from "../_shared/http.ts";
 import { sanitizeOutgoing } from "../_shared/civiko.ts";
 
@@ -127,6 +127,11 @@ Deno.serve(async (req) => {
       return withIdentity(fail(req, 404, "ROUTE_NOT_FOUND", `GET ${url.pathname}`, debugId), "error");
     }
     if (req.method !== "POST") return withIdentity(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), "error");
+
+    // Auth obbligatoria su POST: x-source-app + x-internal-secret (per-app)
+    const authFail = requireSecret(req, debugId);
+    if (authFail) return withIdentity(authFail, "unauthorized");
+
 
     let raw: unknown;
     try { raw = await req.json(); }
