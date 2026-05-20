@@ -130,5 +130,9 @@ verify_jwt = true
 [functions.zone-completeness]
 verify_jwt = true
 
+[functions.ar-price-verify-diag]
+verify_jwt = true
+
+
 
 
