@@ -1467,7 +1467,37 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Padova institutional sources — Comune patrimonio / avvisi pubblici
+    // Padova Zone Radar — pipeline a checkpoint per microzona (sostituisce mega-run fragile)
+    if (pathname.endsWith("/jobs/padova-zone-radar")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const { runPadovaZoneRadar } = await import("./padovaZoneRadar.ts");
+        const r = await runPadovaZoneRadar({
+          mode: body?.mode ?? "next",
+          zone_name: typeof body?.zone_name === "string" ? body.zone_name : undefined,
+          max_zones: typeof body?.max_zones === "number" ? body.max_zones : undefined,
+          dryRun: body?.dryRun === true,
+        });
+        return withIdentity(json(req, r.ok ? 200 : 500, r, debugId), "job-padova-zone");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] padova-zone-radar error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Padova zone radar failed", debugId), "job-error");
+      }
+    }
+
+    // Finalizer: aggrega tutte le zone elaborate e scrive record finale in ingestion_runs
+    if (pathname.endsWith("/jobs/padova-zone-radar-finalize")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const { finalizePadovaZoneRadar } = await import("./padovaZoneRadar.ts");
+        const r = await finalizePadovaZoneRadar();
+        return withIdentity(json(req, r.ok ? 200 : 500, r, debugId), "job-padova-zone-finalize");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] padova-zone-radar-finalize error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Padova zone radar finalize failed", debugId), "job-error");
+      }
+    }
     // Fonte legittima a basso volume, source_name distinta da casa.it.
     if (pathname.endsWith("/jobs/padova-institutional-sources")) {
       const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
