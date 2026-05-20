@@ -177,6 +177,7 @@ serve(async (req) => {
     const missing: string[] = [];
     if (listingReal < 20) missing.push(`listing reali insufficienti (${listingReal} < 20)`);
     if (omiRows < 1)       missing.push("nessuna riga OMI per Padova");
+    if (auctions < 1)      missing.push("auction_signals=0 (richiesto >=1 per READY)");
     if (!providers.firecrawl_configured)  missing.push("FIRECRAWL_API_KEY mancante");
     if (!providers.perplexity_configured) missing.push("PERPLEXITY_API_KEY mancante");
     if (!providers.apify_configured)      missing.push("APIFY_API_TOKEN mancante");
@@ -192,17 +193,23 @@ serve(async (req) => {
     }
   }
 
-  const fonti = [
-    "listing_price_snapshots", "motivated_sellers", "market_anomalies",
-    "radar_signals", "auction_signals", "omi_zone_geometry",
-    "Firecrawl", "Perplexity", "Apify",
-  ];
+  const reason = motivations.join(" ");
 
-  return json(req, 200, {
-    function: FUNCTION_NAME,
-    debug_id: debugId,
+  // ── Envelope compatibile con Acquisition Radar /admin/readiness ──
+  return ok(req, {
     status,
-    motivation: motivations.join(" "),
+    reason,
+    updated_at: lastDataUpdate,
+    signals: {
+      real_listings: listingReal,
+      motivated_sellers: motivated,
+      market_anomalies: anomalies,
+      radar_signals: signals,
+      auction_signals: auctions,
+      omi: omiRows,
+    },
+    // ── extra diagnostica (non rompe il consumer PWA) ──
+    function: FUNCTION_NAME,
     counts_padova_comune: {
       listing_price_snapshots_total: listingTotal,
       listing_price_snapshots_real: listingReal,
@@ -212,15 +219,14 @@ serve(async (req) => {
       auction_signals: auctions,
       omi_rows: omiRows,
     },
-    last_data_update: lastDataUpdate,
     fresh_within_14d: isFresh,
     providers,
-    last_runs: {
-      firecrawl: fcRun,
-      perplexity: pplxRun,
-      apify: apifyRun,
-    },
+    last_runs: { firecrawl: fcRun, perplexity: pplxRun, apify: apifyRun },
     recent_errors: recentErrors ?? [],
-    fonti,
-  }, debugId);
+    fonti: [
+      "listing_price_snapshots", "motivated_sellers", "market_anomalies",
+      "radar_signals", "auction_signals", "omi_zone_geometry",
+      "Firecrawl", "Perplexity", "Apify",
+    ],
+  }, [], debugId);
 });
