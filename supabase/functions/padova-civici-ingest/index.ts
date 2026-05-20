@@ -155,7 +155,7 @@ async function actionIngest(supa: ReturnType<typeof svc>, urlOverride?: string) 
   let skipped = 0, dupInBatch = 0;
   for (const c of parsed.records) {
     const norm = normalizeStreet(c.street_name);
-    const fp = await sha1(`padova|${norm}|${c.civic_number}|${c.civic_suffix ?? ""}`);
+    const fp = `padova|${norm}|${c.civic_number}|${c.civic_suffix ?? ""}`;
     if (seen.has(fp)) { dupInBatch++; continue; }
     seen.add(fp);
     rows.push({
