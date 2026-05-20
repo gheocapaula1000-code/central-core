@@ -281,6 +281,29 @@ export async function runPadovaDailyRadar(opts: DailyRadarOptions = {}) {
   stages.push(sAdv);
   if (!sAdv.ok) warnings.push(`advanced_opportunities_failed:${sAdv.status}`);
 
+  // Stage 4b — Legal & life-event signals layer (privacy-safe aggregator)
+  try {
+    const t0 = Date.now();
+    const { refreshPadovaLegalLifeEvents } = await import("./legalLifeEvents.ts");
+    const rLle = await refreshPadovaLegalLifeEvents({ dryRun: opts.dryRun === true });
+    stages.push({
+      stage: "legal-life-events",
+      ok: rLle.ok,
+      status: rLle.ok ? 200 : 207,
+      duration_ms: Date.now() - t0,
+      rows: rLle.found,
+      error: rLle.ok ? undefined : (rLle.warnings[0] ?? "partial"),
+    });
+    if (rLle.warnings.length) warnings.push(...rLle.warnings.map((w) => `legal_life_events:${w}`));
+  } catch (e) {
+    stages.push({
+      stage: "legal-life-events",
+      ok: false, status: 0, duration_ms: 0,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    warnings.push("legal_life_events_failed");
+  }
+
   // Stage 5 — Early Warning aggregator
   const sEw = await callStage(
     "build-early-warning",
