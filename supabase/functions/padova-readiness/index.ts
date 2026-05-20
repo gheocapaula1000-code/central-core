@@ -598,6 +598,7 @@ serve(async (req) => {
       "listing_price_snapshots", "motivated_sellers", "market_anomalies",
       "radar_signals", "auction_signals", "early_offmarket_signal_candidates",
       "inheritance_pressure_signals", "listing_velocity_signals",
+      "legal_life_event_signals",
       "omi_zone_geometry", "Firecrawl", "Perplexity", "Apify",
     ],
   }, [], debugId);
