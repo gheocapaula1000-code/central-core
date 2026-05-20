@@ -117,10 +117,24 @@ serve(async (req) => {
   );
 
   // Secret/provider availability
+  const stripeKey = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
+  const stripeMode = stripeKey.startsWith("sk_live_")
+    ? "live"
+    : stripeKey.startsWith("sk_test_") || stripeKey.startsWith("rk_test_")
+      ? "test"
+      : "unconfigured";
+  // Mostra solo prefisso (8 char) + suffisso (4 char) — mai la chiave intera
+  const stripePrefix = stripeKey
+    ? `${stripeKey.slice(0, 8)}...${stripeKey.slice(-4)}`
+    : null;
   const providers = {
     firecrawl_configured: !!Deno.env.get("FIRECRAWL_API_KEY"),
     perplexity_configured: !!Deno.env.get("PERPLEXITY_API_KEY"),
     apify_configured: !!Deno.env.get("APIFY_API_TOKEN"),
+    stripe_configured: !!stripeKey,
+    stripe_mode: stripeMode,
+    stripe_key_masked: stripePrefix,
+    stripe_webhook_configured: !!Deno.env.get("STRIPE_WEBHOOK_SECRET"),
   };
 
   // Last ingestion runs (best-effort string match in job_name)
