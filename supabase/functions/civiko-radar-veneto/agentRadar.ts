@@ -218,6 +218,9 @@ interface ZoneAgg {
   hasDemoSource: boolean;
   hasRealSource: boolean;
   sourceUrls: string[];
+  // ── Opzione A: dati per cluster via ──
+  streetSnaps: Map<string, { listingIds: Set<string>; urls: Set<string> }>;
+  hasMotivatedOrAnomalyReal: boolean;
 }
 
 function emptyAgg(k: AggKey): ZoneAgg {
@@ -232,6 +235,8 @@ function emptyAgg(k: AggKey): ZoneAgg {
     omiValoreMedio: null, omiFascia: null, omiMicrozona: null, omiQuality: "mancante",
     hasDemoSource: false, hasRealSource: false,
     sourceUrls: [],
+    streetSnaps: new Map(),
+    hasMotivatedOrAnomalyReal: false,
   };
 }
 
