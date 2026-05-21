@@ -77,6 +77,21 @@ export interface AgentRadarZone {
   source_url?: string | null;
   dataBasis?: string[];
   confidence?: string;
+  // ── Opzione A: targeting a livello VIA (mai civico) ───────────
+  // Esposto SOLO se cluster reale di annunci sulla stessa via normalizzata
+  // E almeno un segnale motivated/anomaly attivo nello stesso comune.
+  // Gate hard: civico MAI esposto. Nessuna invenzione.
+  targetType?: "via" | "microzona";
+  streetTargets?: AgentRadarStreetTarget[];
+}
+
+export interface AgentRadarStreetTarget {
+  targetType: "via";
+  targetVia: string;            // Title Case, mai con numero civico
+  viaSignalCount: number;       // numero annunci REALI distinti sulla via
+  viaConfidence: "high" | "medium" | "low";
+  dataBasis: string[];          // es: ["listing_price_snapshots","motivated_sellers"]
+  sourceUrls: string[];         // URL reali degli annunci che hanno generato il cluster
 }
 
 export interface AgentRadarOpportunity {
@@ -203,6 +218,9 @@ interface ZoneAgg {
   hasDemoSource: boolean;
   hasRealSource: boolean;
   sourceUrls: string[];
+  // ── Opzione A: dati per cluster via ──
+  streetSnaps: Map<string, { listingIds: Set<string>; urls: Set<string> }>;
+  hasMotivatedOrAnomalyReal: boolean;
 }
 
 function emptyAgg(k: AggKey): ZoneAgg {
@@ -217,7 +235,30 @@ function emptyAgg(k: AggKey): ZoneAgg {
     omiValoreMedio: null, omiFascia: null, omiMicrozona: null, omiQuality: "mancante",
     hasDemoSource: false, hasRealSource: false,
     sourceUrls: [],
+    streetSnaps: new Map(),
+    hasMotivatedOrAnomalyReal: false,
   };
+}
+
+// ── Opzione A: estrazione via normalizzata dal raw_address ───────
+// Hard rule: MAI il civico. Il numero, anche se presente in raw_address,
+// viene troncato. Granularità massima = via. Niente persone, niente civici.
+const STREET_PREFIX_RE = /(?:^|[,\s])((?:via|viale|piazza|piazzale|corso|vicolo|largo|riviera|lungargine|stradella|borgo|salita)\s+[A-Za-zÀ-ÿ'’\.\- ]{2,60}?)(?=\s*\d|\s*,|$)/i;
+const NUMBER_TAIL_RE = /\s*\d+\s*[a-z]?\s*$/i;
+export function extractStreetNorm(rawAddress: string | null | undefined): string | null {
+  if (!rawAddress || typeof rawAddress !== "string") return null;
+  const m = rawAddress.match(STREET_PREFIX_RE);
+  if (!m || !m[1]) return null;
+  // Tronca eventuale civico residuo, normalizza whitespace e case.
+  const stripped = m[1].replace(NUMBER_TAIL_RE, "").trim().toLowerCase().replace(/\s+/g, " ");
+  // Filtri anti-rumore: troppe parole funzione / token non plausibili.
+  if (stripped.length < 5) return null;
+  if (/\b(corso di svolgimento|scaduti|in corso)\b/.test(stripped)) return null;
+  return stripped;
+}
+
+function titleCaseVia(s: string): string {
+  return s.replace(/\b\w+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1));
 }
 
 function aggKey(comune: string, provincia: ProvCode): string {
@@ -309,7 +350,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   // ── Pull dati (best-effort, ognuno in try/catch) ────────────
   const snaps = await safe("listing_price_snapshots", async () => {
     let q = supa.from("listing_price_snapshots")
-      .select("province,municipality,price_eur,surface_sqm,lat,lng,captured_at,source,url")
+      .select("province,municipality,price_eur,surface_sqm,lat,lng,captured_at,source,url,raw_address,listing_id")
       .gte("captured_at", new Date(Date.now() - 60 * 86400_000).toISOString());
     if (filterProv) q = q.in("province", [filterProv, fullProvName(filterProv)].filter(Boolean) as string[]);
     const { data, error } = await q.range(0, 4999);
@@ -467,7 +508,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   };
 
   for (const r of snaps ?? []) {
-    const row = r as { province: string|null; municipality: string|null; price_eur: number|null; surface_sqm: number|null; lat: number|null; lng: number|null; captured_at: string; source: string|null; url: string|null };
+    const row = r as { province: string|null; municipality: string|null; price_eur: number|null; surface_sqm: number|null; lat: number|null; lng: number|null; captured_at: string; source: string|null; url: string|null; raw_address: string|null; listing_id: string|null };
     const prov = isVenetoRow(row.province);
     if (!prov || !row.municipality) continue;
     if (filterComune && row.municipality.toLowerCase() !== filterComune) continue;
@@ -482,6 +523,17 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     const dDays = (Date.now() - new Date(row.captured_at).getTime()) / 86400_000;
     if (!isDemo && dDays >= 0 && dDays <= 365) a.daysOnline.push(dDays);
     if (a.lat == null && typeof row.lat === "number") { a.lat = row.lat; a.lng = row.lng; }
+    // ── Opzione A: cluster via (solo reale, mai demo, mai civico) ──
+    if (!isDemo) {
+      const streetNorm = extractStreetNorm(row.raw_address);
+      if (streetNorm) {
+        let s = a.streetSnaps.get(streetNorm);
+        if (!s) { s = { listingIds: new Set(), urls: new Set() }; a.streetSnaps.set(streetNorm, s); }
+        const lid = (row.listing_id ?? "").trim() || `${row.url ?? ""}|${row.captured_at}`;
+        s.listingIds.add(lid);
+        if (row.url) s.urls.add(row.url);
+      }
+    }
   }
 
   for (const r of motivated ?? []) {
@@ -493,7 +545,11 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     if (isDemo && !allowDemo) continue;
     const a = ensure(row.municipality, prov);
     if (isDemo) { a.venditoriMotivatiDemo++; a.hasDemoSource = true; }
-    else { a.venditoriMotivati++; a.hasRealSource = true; pushZoneUrl(a, row.url ?? urlFromPayload(row.payload)); }
+    else {
+      a.venditoriMotivati++; a.hasRealSource = true;
+      a.hasMotivatedOrAnomalyReal = true;
+      pushZoneUrl(a, row.url ?? urlFromPayload(row.payload));
+    }
   }
 
   for (const r of anomalies ?? []) {
@@ -507,7 +563,11 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     const isRibasso = (row.anomaly_type ?? "").toLowerCase().includes("ribass");
     if (isRibasso) {
       if (isDemo) { a.ribassi30ggDemo++; a.hasDemoSource = true; }
-      else { a.ribassi30gg++; a.hasRealSource = true; pushZoneUrl(a, urlFromPayload(row.payload)); }
+      else {
+        a.ribassi30gg++; a.hasRealSource = true;
+        a.hasMotivatedOrAnomalyReal = true;
+        pushZoneUrl(a, urlFromPayload(row.payload));
+      }
     }
   }
 
@@ -678,6 +738,43 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     if (ribassiTot) zBasis.push("market_anomalies");
     if (asteTot) zBasis.push("radar_signals");
     if (motivTot) zBasis.push("motivated_sellers");
+    // ── Opzione A: street targets (hard-gate) ─────────────────
+    // Promuove a livello "via" SOLO se:
+    //   (1) zona temperatura "calda" o "molto_calda"
+    //   (2) quality zona ≠ "demo"
+    //   (3) cluster reale: >= STREET_MIN_LISTINGS annunci distinti su stessa via
+    //   (4) almeno un segnale REALE motivated_sellers o market_anomalies attivo
+    //       nello stesso comune.
+    // Se uno qualunque fallisce: nessuna via, zona resta a livello microzona.
+    // Civico MAI esposto.
+    const zoneTemp = temperatureFromScore(score);
+    const streetTargets: AgentRadarStreetTarget[] = [];
+    const MIN_LISTINGS = Math.max(2, parseInt(Deno.env.get("RADAR_STREET_MIN_LISTINGS") ?? "3", 10) || 3);
+    const isHotZone = zoneTemp === "calda" || zoneTemp === "molto_calda";
+    const zoneIsReal = quality !== "demo";
+    if (isHotZone && zoneIsReal && a.hasMotivatedOrAnomalyReal && a.streetSnaps.size > 0) {
+      const candidates = Array.from(a.streetSnaps.entries())
+        .map(([norm, v]) => ({ norm, count: v.listingIds.size, urls: Array.from(v.urls) }))
+        .filter((c) => c.count >= MIN_LISTINGS)
+        .sort((x, y) => y.count - x.count)
+        .slice(0, 5);
+      for (const c of candidates) {
+        // Sanity: la stringa normalizzata non deve contenere cifre (no civico)
+        if (/\d/.test(c.norm)) continue;
+        const conf: "high" | "medium" | "low" =
+          c.count >= MIN_LISTINGS + 3 ? "high" : c.count >= MIN_LISTINGS + 1 ? "medium" : "low";
+        streetTargets.push({
+          targetType: "via",
+          targetVia: titleCaseVia(c.norm),
+          viaSignalCount: c.count,
+          viaConfidence: conf,
+          dataBasis: ["listing_price_snapshots", a.venditoriMotivati > 0 ? "motivated_sellers" : "market_anomalies"],
+          sourceUrls: c.urls.slice(0, 3),
+        });
+      }
+    }
+    const targetType: "via" | "microzona" = streetTargets.length > 0 ? "via" : "microzona";
+
     zones.push({
       id: `${a.provincia}-${a.comune.toLowerCase().replace(/\s+/g, "-")}`,
       comune: a.comune,
@@ -685,7 +782,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       lat: a.lat,
       lng: a.lng,
       score,
-      temperature: temperatureFromScore(score),
+      temperature: zoneTemp,
       signalType,
       title: `${a.comune} — ${signalLabel(signalType)}`,
       reason: reasons.length ? reasons.join(", ") : "Segnali aggregati per la zona.",
@@ -709,6 +806,8 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       source_url: zSourceUrl,
       dataBasis: zBasis,
       confidence: quality === "reale" ? "high" : quality === "parziale" ? "medium" : "low",
+      targetType,
+      streetTargets: streetTargets.length > 0 ? streetTargets : undefined,
     });
   }
 
