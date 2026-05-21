@@ -77,6 +77,21 @@ export interface AgentRadarZone {
   source_url?: string | null;
   dataBasis?: string[];
   confidence?: string;
+  // ── Opzione A: targeting a livello VIA (mai civico) ───────────
+  // Esposto SOLO se cluster reale di annunci sulla stessa via normalizzata
+  // E almeno un segnale motivated/anomaly attivo nello stesso comune.
+  // Gate hard: civico MAI esposto. Nessuna invenzione.
+  targetType?: "via" | "microzona";
+  streetTargets?: AgentRadarStreetTarget[];
+}
+
+export interface AgentRadarStreetTarget {
+  targetType: "via";
+  targetVia: string;            // Title Case, mai con numero civico
+  viaSignalCount: number;       // numero annunci REALI distinti sulla via
+  viaConfidence: "high" | "medium" | "low";
+  dataBasis: string[];          // es: ["listing_price_snapshots","motivated_sellers"]
+  sourceUrls: string[];         // URL reali degli annunci che hanno generato il cluster
 }
 
 export interface AgentRadarOpportunity {
