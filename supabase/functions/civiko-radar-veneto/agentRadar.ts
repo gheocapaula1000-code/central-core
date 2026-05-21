@@ -240,6 +240,27 @@ function emptyAgg(k: AggKey): ZoneAgg {
   };
 }
 
+// ── Opzione A: estrazione via normalizzata dal raw_address ───────
+// Hard rule: MAI il civico. Il numero, anche se presente in raw_address,
+// viene troncato. Granularità massima = via. Niente persone, niente civici.
+const STREET_PREFIX_RE = /(?:^|[,\s])((?:via|viale|piazza|piazzale|corso|vicolo|largo|riviera|lungargine|stradella|borgo|salita)\s+[A-Za-zÀ-ÿ'’\.\- ]{2,60}?)(?=\s*\d|\s*,|$)/i;
+const NUMBER_TAIL_RE = /\s*\d+\s*[a-z]?\s*$/i;
+export function extractStreetNorm(rawAddress: string | null | undefined): string | null {
+  if (!rawAddress || typeof rawAddress !== "string") return null;
+  const m = rawAddress.match(STREET_PREFIX_RE);
+  if (!m || !m[1]) return null;
+  // Tronca eventuale civico residuo, normalizza whitespace e case.
+  const stripped = m[1].replace(NUMBER_TAIL_RE, "").trim().toLowerCase().replace(/\s+/g, " ");
+  // Filtri anti-rumore: troppe parole funzione / token non plausibili.
+  if (stripped.length < 5) return null;
+  if (/\b(corso di svolgimento|scaduti|in corso)\b/.test(stripped)) return null;
+  return stripped;
+}
+
+function titleCaseVia(s: string): string {
+  return s.replace(/\b\w+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1));
+}
+
 function aggKey(comune: string, provincia: ProvCode): string {
   return `${provincia}:${comune.toLowerCase().trim()}`;
 }
