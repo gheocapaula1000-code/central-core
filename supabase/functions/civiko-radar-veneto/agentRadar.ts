@@ -329,7 +329,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   // ── Pull dati (best-effort, ognuno in try/catch) ────────────
   const snaps = await safe("listing_price_snapshots", async () => {
     let q = supa.from("listing_price_snapshots")
-      .select("province,municipality,price_eur,surface_sqm,lat,lng,captured_at,source,url")
+      .select("province,municipality,price_eur,surface_sqm,lat,lng,captured_at,source,url,raw_address,listing_id")
       .gte("captured_at", new Date(Date.now() - 60 * 86400_000).toISOString());
     if (filterProv) q = q.in("province", [filterProv, fullProvName(filterProv)].filter(Boolean) as string[]);
     const { data, error } = await q.range(0, 4999);
