@@ -487,7 +487,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   };
 
   for (const r of snaps ?? []) {
-    const row = r as { province: string|null; municipality: string|null; price_eur: number|null; surface_sqm: number|null; lat: number|null; lng: number|null; captured_at: string; source: string|null; url: string|null };
+    const row = r as { province: string|null; municipality: string|null; price_eur: number|null; surface_sqm: number|null; lat: number|null; lng: number|null; captured_at: string; source: string|null; url: string|null; raw_address: string|null; listing_id: string|null };
     const prov = isVenetoRow(row.province);
     if (!prov || !row.municipality) continue;
     if (filterComune && row.municipality.toLowerCase() !== filterComune) continue;
@@ -502,6 +502,17 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     const dDays = (Date.now() - new Date(row.captured_at).getTime()) / 86400_000;
     if (!isDemo && dDays >= 0 && dDays <= 365) a.daysOnline.push(dDays);
     if (a.lat == null && typeof row.lat === "number") { a.lat = row.lat; a.lng = row.lng; }
+    // ── Opzione A: cluster via (solo reale, mai demo, mai civico) ──
+    if (!isDemo) {
+      const streetNorm = extractStreetNorm(row.raw_address);
+      if (streetNorm) {
+        let s = a.streetSnaps.get(streetNorm);
+        if (!s) { s = { listingIds: new Set(), urls: new Set() }; a.streetSnaps.set(streetNorm, s); }
+        const lid = (row.listing_id ?? "").trim() || `${row.url ?? ""}|${row.captured_at}`;
+        s.listingIds.add(lid);
+        if (row.url) s.urls.add(row.url);
+      }
+    }
   }
 
   for (const r of motivated ?? []) {
@@ -513,7 +524,11 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     if (isDemo && !allowDemo) continue;
     const a = ensure(row.municipality, prov);
     if (isDemo) { a.venditoriMotivatiDemo++; a.hasDemoSource = true; }
-    else { a.venditoriMotivati++; a.hasRealSource = true; pushZoneUrl(a, row.url ?? urlFromPayload(row.payload)); }
+    else {
+      a.venditoriMotivati++; a.hasRealSource = true;
+      a.hasMotivatedOrAnomalyReal = true;
+      pushZoneUrl(a, row.url ?? urlFromPayload(row.payload));
+    }
   }
 
   for (const r of anomalies ?? []) {
@@ -527,7 +542,11 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     const isRibasso = (row.anomaly_type ?? "").toLowerCase().includes("ribass");
     if (isRibasso) {
       if (isDemo) { a.ribassi30ggDemo++; a.hasDemoSource = true; }
-      else { a.ribassi30gg++; a.hasRealSource = true; pushZoneUrl(a, urlFromPayload(row.payload)); }
+      else {
+        a.ribassi30gg++; a.hasRealSource = true;
+        a.hasMotivatedOrAnomalyReal = true;
+        pushZoneUrl(a, urlFromPayload(row.payload));
+      }
     }
   }
 
