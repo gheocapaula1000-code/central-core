@@ -738,6 +738,43 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     if (ribassiTot) zBasis.push("market_anomalies");
     if (asteTot) zBasis.push("radar_signals");
     if (motivTot) zBasis.push("motivated_sellers");
+    // ── Opzione A: street targets (hard-gate) ─────────────────
+    // Promuove a livello "via" SOLO se:
+    //   (1) zona temperatura "calda" o "molto_calda"
+    //   (2) quality zona ≠ "demo"
+    //   (3) cluster reale: >= STREET_MIN_LISTINGS annunci distinti su stessa via
+    //   (4) almeno un segnale REALE motivated_sellers o market_anomalies attivo
+    //       nello stesso comune.
+    // Se uno qualunque fallisce: nessuna via, zona resta a livello microzona.
+    // Civico MAI esposto.
+    const zoneTemp = temperatureFromScore(score);
+    const streetTargets: AgentRadarStreetTarget[] = [];
+    const MIN_LISTINGS = Math.max(2, parseInt(Deno.env.get("RADAR_STREET_MIN_LISTINGS") ?? "3", 10) || 3);
+    const isHotZone = zoneTemp === "calda" || zoneTemp === "molto_calda";
+    const zoneIsReal = quality !== "demo";
+    if (isHotZone && zoneIsReal && a.hasMotivatedOrAnomalyReal && a.streetSnaps.size > 0) {
+      const candidates = Array.from(a.streetSnaps.entries())
+        .map(([norm, v]) => ({ norm, count: v.listingIds.size, urls: Array.from(v.urls) }))
+        .filter((c) => c.count >= MIN_LISTINGS)
+        .sort((x, y) => y.count - x.count)
+        .slice(0, 5);
+      for (const c of candidates) {
+        // Sanity: la stringa normalizzata non deve contenere cifre (no civico)
+        if (/\d/.test(c.norm)) continue;
+        const conf: "high" | "medium" | "low" =
+          c.count >= MIN_LISTINGS + 3 ? "high" : c.count >= MIN_LISTINGS + 1 ? "medium" : "low";
+        streetTargets.push({
+          targetType: "via",
+          targetVia: titleCaseVia(c.norm),
+          viaSignalCount: c.count,
+          viaConfidence: conf,
+          dataBasis: ["listing_price_snapshots", a.venditoriMotivati > 0 ? "motivated_sellers" : "market_anomalies"],
+          sourceUrls: c.urls.slice(0, 3),
+        });
+      }
+    }
+    const targetType: "via" | "microzona" = streetTargets.length > 0 ? "via" : "microzona";
+
     zones.push({
       id: `${a.provincia}-${a.comune.toLowerCase().replace(/\s+/g, "-")}`,
       comune: a.comune,
@@ -745,7 +782,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       lat: a.lat,
       lng: a.lng,
       score,
-      temperature: temperatureFromScore(score),
+      temperature: zoneTemp,
       signalType,
       title: `${a.comune} — ${signalLabel(signalType)}`,
       reason: reasons.length ? reasons.join(", ") : "Segnali aggregati per la zona.",
@@ -769,6 +806,8 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       source_url: zSourceUrl,
       dataBasis: zBasis,
       confidence: quality === "reale" ? "high" : quality === "parziale" ? "medium" : "low",
+      targetType,
+      streetTargets: streetTargets.length > 0 ? streetTargets : undefined,
     });
   }
 
