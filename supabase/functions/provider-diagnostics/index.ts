@@ -76,14 +76,30 @@ async function probePerplexity(): Promise<TimedResult> {
   const key = Deno.env.get("PERPLEXITY_API_KEY");
   if (!key) return { ok: false, latency_ms: 0, message: "PERPLEXITY_API_KEY not configured" };
   return timed(async () => {
+    // NOTE: Perplexity "sonar" requires max_tokens >= 16. Smaller values return HTTP 400.
+    const model = Deno.env.get("PERPLEXITY_MODEL") ?? "sonar";
     const r = await fetch("https://api.perplexity.ai/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "sonar", messages: [{ role: "user", content: "ping" }], max_tokens: 1 }),
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content: "ping" }],
+        max_tokens: 16,
+      }),
     });
-    // 200 ok; 400 = key valid, payload tiny issue; 401 = auth fail
-    const ok = r.ok || r.status === 400;
-    return { ok, status: r.status, message: r.status === 401 ? "auth failed" : ok ? "auth ok" : `HTTP ${r.status}` };
+    if (r.ok) {
+      // Drain body to free the connection but ignore content.
+      await r.text().catch(() => "");
+      return { ok: true, status: r.status, message: "auth ok", meta: { model } };
+    }
+    const body = await r.text().catch(() => "");
+    log("warn", "perplexity probe non-2xx", { status: r.status, body: body.slice(0, 500), model, key: maskKey(key) });
+    return {
+      ok: false,
+      status: r.status,
+      message: r.status === 401 ? "auth failed" : `HTTP ${r.status}: ${body.slice(0, 200)}`,
+      meta: { model, error_body: body.slice(0, 500) },
+    };
   });
 }
 async function probeFirecrawl(): Promise<TimedResult> {
