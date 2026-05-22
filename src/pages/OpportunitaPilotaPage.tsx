@@ -103,11 +103,17 @@ export default function OpportunitaPilotaPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Opportunità Pilota</h1>
+        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+          Opportunità Pilota
+          <Badge variant="outline">Anteprima esempio</Badge>
+        </h1>
         <p className="text-sm text-muted-foreground">
-          Base operativa Metodo Civiko One — territorio pilota: {TERRITORI_CIVIKO_ONE[0].nome}.
+          Base operativa Metodo Civiko One — territorio pilota dimostrativo: {TERRITORI_CIVIKO_ONE[0].nome}.
         </p>
       </div>
+
+      <DemoDataBanner />
+
 
       {/* Sintesi */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
