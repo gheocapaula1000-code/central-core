@@ -1,4 +1,4 @@
-import { LayoutDashboard, Smartphone, Bot, ClipboardList, KeyRound, BarChart3, ShieldCheck, Wallet, MapPin, Target, Briefcase, BookOpen, Layers, FlaskConical, Database } from "lucide-react";
+import { LayoutDashboard, Smartphone, Bot, ClipboardList, KeyRound, BarChart3, ShieldCheck, Wallet, MapPin, Target, Briefcase, BookOpen, Layers, FlaskConical, Database, Activity } from "lucide-react";
 import coreIcon from "@/assets/core-icon.png";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -25,6 +25,7 @@ const menuItems = [
   { title: "Sintesi Proprietario", url: "/sintesi-proprietario", icon: BookOpen },
   { title: "Motore Dati (Pilota PD)", url: "/data-engine", icon: Database },
   { title: "Provider Operativi", url: "/providers", icon: Bot },
+  { title: "Diagnostica Provider", url: "/provider-diagnostics", icon: Activity },
   { title: "Chiavi & Sicurezza", url: "/security", icon: KeyRound },
   { title: "Metrics", url: "/metrics", icon: BarChart3 },
   { title: "Self-Test", url: "/selftest", icon: ShieldCheck },

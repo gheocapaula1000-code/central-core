@@ -94,6 +94,9 @@ verify_jwt = false
 [functions.connector-status]
 verify_jwt = false
 
+[functions.provider-diagnostics]
+verify_jwt = false
+
 [functions.agency-opportunities]
 verify_jwt = false
 

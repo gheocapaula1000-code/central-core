@@ -3599,6 +3599,45 @@ export type Database = {
           },
         ]
       }
+      provider_diagnostics_events: {
+        Row: {
+          action: string | null
+          created_at: string
+          event_type: string
+          http_status: number | null
+          id: number
+          latency_ms: number | null
+          message: string | null
+          meta: Json
+          ok: boolean
+          provider: string
+        }
+        Insert: {
+          action?: string | null
+          created_at?: string
+          event_type: string
+          http_status?: number | null
+          id?: number
+          latency_ms?: number | null
+          message?: string | null
+          meta?: Json
+          ok: boolean
+          provider: string
+        }
+        Update: {
+          action?: string | null
+          created_at?: string
+          event_type?: string
+          http_status?: number | null
+          id?: number
+          latency_ms?: number | null
+          message?: string | null
+          meta?: Json
+          ok?: boolean
+          provider?: string
+        }
+        Relationships: []
+      }
       radar_run_log: {
         Row: {
           agency_id: string | null
