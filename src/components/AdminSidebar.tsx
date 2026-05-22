@@ -19,7 +19,7 @@ const menuItems = [
   { title: "App Collegate", url: "/apps", icon: Smartphone },
   { title: "Territori", url: "/territori", icon: MapPin },
   { title: "Microzone Fase 1", url: "/microzone-fase-1", icon: Layers },
-  { title: "Test Reale Arcella", url: "/test-reale-arcella", icon: FlaskConical },
+  { title: "Checklist Microzona (esempio)", url: "/checklist-microzona-esempio", icon: FlaskConical },
   { title: "Opportunità Pilota", url: "/opportunita-pilota", icon: Target },
   { title: "Dossier Agenzia", url: "/dossier-agenzia", icon: Briefcase },
   { title: "Sintesi Proprietario", url: "/sintesi-proprietario", icon: BookOpen },
