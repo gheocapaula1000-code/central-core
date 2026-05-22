@@ -290,7 +290,7 @@ export default function MicrozoneFase1Page() {
           <CardContent className="p-4 flex flex-wrap items-center justify-between gap-3">
             <div className="space-y-1">
               <p className="text-[10px] uppercase tracking-wide text-fuchsia-300">
-                Microzona test selezionata
+                Microzona esempio selezionata
               </p>
               <p className="text-lg font-semibold">
                 {testReale.microzona.nome}{" "}
@@ -299,7 +299,7 @@ export default function MicrozoneFase1Page() {
                 </span>
               </p>
               <p className="text-xs text-muted-foreground">
-                Prima e unica microzona attivata per il popolamento dati reali. Le altre Fase 1 restano in attesa.
+                Prima e unica microzona attivata nella checklist esempio. Le altre Fase 1 restano in attesa.
               </p>
             </div>
             <div className="text-right">
