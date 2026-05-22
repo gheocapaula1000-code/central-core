@@ -348,6 +348,11 @@ export default function TestRealeArcellaPage() {
 
   return (
     <div className="space-y-6">
+      <DemoDataBanner
+        title="Anteprima dimostrativa — Arcella"
+        description="Questa pagina mostra la struttura interna di una checklist di test su una microzona pilota (Arcella) usando un dataset di esempio. I valori (opportunità, dossier, servizi) non rappresentano dati reali. I test reali e i dossier operativi vengono generati dalla dashboard AcquisitionRadar."
+      />
+
       {/* Nota interna approvazione */}
       <Card className="border-emerald-800/50 bg-emerald-950/20">
         <CardContent className="p-4">
@@ -357,15 +362,15 @@ export default function TestRealeArcellaPage() {
                 variant="outline"
                 className="bg-emerald-900/40 text-emerald-200 border-emerald-800 text-[10px]"
               >
-                Base pilota interna
+                Base pilota interna · Dati dimostrativi
               </Badge>
             </div>
             <div>
               <p className="text-sm font-medium text-emerald-100">
-                Arcella è la prima microzona test reale completata come base pilota interna
+                Arcella è la microzona di esempio usata come base pilota interna
               </p>
               <p className="text-xs text-emerald-200/70 mt-1">
-                Tutti i blocchi di test sono stati verificati internamente. Nessun provider esterno attivo, nessuno scraping in corso.
+                Checklist e struttura verificate internamente sul dataset dimostrativo. Nessun provider esterno attivo, nessuno scraping in corso.
               </p>
             </div>
           </div>
@@ -374,11 +379,14 @@ export default function TestRealeArcellaPage() {
 
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold">Test Reale Arcella</h1>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            Test Reale Arcella
+            <Badge variant="outline">Anteprima esempio</Badge>
+          </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Contenitore interno per il primo test con dati reali sulla microzona{" "}
-            <span className="font-medium">Arcella · Padova</span>. Struttura predisposta, nessun
-            popolamento attivo.
+            Contenitore interno dimostrativo per la microzona{" "}
+            <span className="font-medium">Arcella · Padova</span>. Struttura predisposta su
+            dataset di esempio, nessun popolamento con dati reali.
           </p>
         </div>
         <Badge
