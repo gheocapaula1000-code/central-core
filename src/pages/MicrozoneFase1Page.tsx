@@ -13,6 +13,7 @@ import {
 import { OPPORTUNITA_PILOTA } from "@/data/civiko-one-opportunita-pilota";
 import { DOSSIER_AGENZIA } from "@/data/civiko-one-dossier-agenzia";
 import { getServiziProssimita } from "@/data/civiko-one-servizi-prossimita";
+import { DemoDataBanner } from "@/components/DemoDataBanner";
 
 type PrioritaOperativa = "massima" | "alta" | "media" | "bassa";
 type MaturitaDato = "demo_operativa" | "da_verificare" | "verificato";
