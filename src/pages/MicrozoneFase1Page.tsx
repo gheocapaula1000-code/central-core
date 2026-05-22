@@ -102,7 +102,7 @@ const maturitaVariant: Record<MaturitaDato, string> = {
 
 // Note interne brevi, non tecnico-commerciali.
 const NOTE_INTERNE: Record<string, string> = {
-  "Padova-Arcella": "Candidata principale al primo test reale: domanda viva, offerta abbondante.",
+  "Padova-Arcella": "Candidata principale alla prima checklist esempio: domanda viva, offerta abbondante.",
   "Padova-Centro Storico": "Microzona simbolica del pilota, da trattare con prudenza.",
   "Padova-Portello": "Forte componente investitori, utile come banco di prova secondario.",
   "Padova-Forcellini": "Zona residenziale stabile, buon equilibrio per primi confronti.",
