@@ -97,7 +97,7 @@ const BLOCCHI: BloccoPredisposto[] = [
     id: "opportunita_candidate",
     titolo: "Opportunità candidate",
     descrizione:
-      "Lista delle opportunità da consolidare e validare durante il primo test reale su Arcella.",
+      "Lista delle opportunità da consolidare e validare durante l'utilizzo dimostrativo su Arcella.",
   },
   {
     id: "immobili_osservati",
@@ -115,7 +115,7 @@ const BLOCCHI: BloccoPredisposto[] = [
     id: "note_operative",
     titolo: "Note operative",
     descrizione:
-      "Annotazioni interne raccolte durante la preparazione e l'esecuzione del test reale.",
+      "Annotazioni interne raccolte durante la preparazione e l'esecuzione della checklist dimostrativa.",
   },
   {
     id: "stato_validazione",
