@@ -185,7 +185,7 @@ function RigaCard({ r }: { r: RigaFase1 }) {
             <div className="flex flex-wrap gap-1.5 mt-2">
               {r.isTestReale && (
                 <Badge variant="outline" className={`text-[10px] ${statoTestRealeVariant.test_reale_pronto}`}>
-                  Microzona test reale
+                  Microzona checklist esempio
                 </Badge>
               )}
               <Badge variant="outline" className={`text-[10px] ${statoFaseVariant[r.statoFase]}`}>
