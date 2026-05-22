@@ -77,7 +77,7 @@ const prioritaVariant: Record<PrioritaOperativa, string> = {
 };
 
 const statoTestRealeLabel: Record<StatoTestReale, string> = {
-  test_reale_pronto: "Test reale pronto",
+  test_reale_pronto: "Checklist esempio pronta",
   in_attesa: "In attesa",
   non_applicabile: "—",
 };
@@ -102,7 +102,7 @@ const maturitaVariant: Record<MaturitaDato, string> = {
 
 // Note interne brevi, non tecnico-commerciali.
 const NOTE_INTERNE: Record<string, string> = {
-  "Padova-Arcella": "Candidata principale al primo test reale: domanda viva, offerta abbondante.",
+  "Padova-Arcella": "Candidata principale alla prima checklist esempio: domanda viva, offerta abbondante.",
   "Padova-Centro Storico": "Microzona simbolica del pilota, da trattare con prudenza.",
   "Padova-Portello": "Forte componente investitori, utile come banco di prova secondario.",
   "Padova-Forcellini": "Zona residenziale stabile, buon equilibrio per primi confronti.",
@@ -132,7 +132,7 @@ function buildRighe(): RigaFase1[] {
     const priorita: PrioritaOperativa = isTestReale ? "massima" : prioritaBase;
     const maturita = deriveMaturita(m, opp, servizi);
     const nota = isTestReale
-      ? "Prima microzona test reale del pilota Padova: priorità massima, popolamento dati reali da preparare con cautela."
+      ? "Prima microzona checklist esempio del pilota Padova: priorità massima, popolamento dati da preparare con cautela."
       : NOTE_INTERNE[key] ?? m.noteOperativeInterne ?? "Nessuna nota interna registrata.";
     const prontaPerTestReali =
       stato === "fase_1" &&
@@ -185,7 +185,7 @@ function RigaCard({ r }: { r: RigaFase1 }) {
             <div className="flex flex-wrap gap-1.5 mt-2">
               {r.isTestReale && (
                 <Badge variant="outline" className={`text-[10px] ${statoTestRealeVariant.test_reale_pronto}`}>
-                  Microzona test reale
+                  Microzona checklist esempio
                 </Badge>
               )}
               <Badge variant="outline" className={`text-[10px] ${statoFaseVariant[r.statoFase]}`}>
@@ -199,7 +199,7 @@ function RigaCard({ r }: { r: RigaFase1 }) {
               </Badge>
               {!r.isTestReale && r.prontaPerTestReali && (
                 <Badge variant="outline" className="text-[10px] bg-emerald-900/40 text-emerald-200 border-emerald-800">
-                  Pronta per test reali
+                  Pronta per checklist esempio
                 </Badge>
               )}
             </div>
@@ -224,7 +224,7 @@ function RigaCard({ r }: { r: RigaFase1 }) {
           <span>{r.serviziDisponibili ? "Sì" : "No"}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Stato test reale</span>
+          <span className="text-muted-foreground">Stato checklist</span>
           <Badge variant="outline" className={`text-[10px] ${statoTestRealeVariant[r.statoTestReale]}`}>
             {statoTestRealeLabel[r.statoTestReale]}
           </Badge>
@@ -290,7 +290,7 @@ export default function MicrozoneFase1Page() {
           <CardContent className="p-4 flex flex-wrap items-center justify-between gap-3">
             <div className="space-y-1">
               <p className="text-[10px] uppercase tracking-wide text-fuchsia-300">
-                Microzona test selezionata
+                Microzona esempio selezionata
               </p>
               <p className="text-lg font-semibold">
                 {testReale.microzona.nome}{" "}
@@ -299,7 +299,7 @@ export default function MicrozoneFase1Page() {
                 </span>
               </p>
               <p className="text-xs text-muted-foreground">
-                Prima e unica microzona attivata per il popolamento dati reali. Le altre Fase 1 restano in attesa.
+                Prima e unica microzona attivata nella checklist esempio. Le altre Fase 1 restano in attesa.
               </p>
             </div>
             <div className="text-right">
