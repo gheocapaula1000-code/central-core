@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { AlertTriangle } from "lucide-react";
 
 export default function DevJobsPage() {
@@ -47,8 +48,7 @@ export default function DevJobsPage() {
           <CardTitle className="text-sm">Esecuzione job</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Input
-            type="password"
+          <PasswordInput
             placeholder="Job Secret (CENTRAL_CORE_JOB_SECRET)"
             value={jobSecret}
             onChange={(e) => setJobSecret(e.target.value)}

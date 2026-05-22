@@ -7,6 +7,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Button } from "@/components/ui/button";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -137,8 +138,7 @@ export default function MetricsPage() {
             <p className="text-xs text-muted-foreground">
               Gli endpoint diagnostici richiedono una chiave dedicata per l'accesso.
             </p>
-            <Input
-              type="password"
+            <PasswordInput
               placeholder="Inserisci chiave diagnostica"
               value={diagSecret}
               onChange={(e) => setDiagSecret(e.target.value)}
