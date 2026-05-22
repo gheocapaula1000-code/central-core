@@ -48,8 +48,7 @@ export default function DevJobsPage() {
           <CardTitle className="text-sm">Esecuzione job</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Input
-            type="password"
+          <PasswordInput
             placeholder="Job Secret (CENTRAL_CORE_JOB_SECRET)"
             value={jobSecret}
             onChange={(e) => setJobSecret(e.target.value)}
