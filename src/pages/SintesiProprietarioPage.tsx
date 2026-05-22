@@ -17,6 +17,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { FileText, Flame, Target, BookOpen, MapPin, Home, ListChecks, ShieldCheck } from "lucide-react";
+import { DemoDataBanner } from "@/components/DemoDataBanner";
 
 type FilterKey =
   | "tutti"
