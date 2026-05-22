@@ -77,7 +77,7 @@ const prioritaVariant: Record<PrioritaOperativa, string> = {
 };
 
 const statoTestRealeLabel: Record<StatoTestReale, string> = {
-  test_reale_pronto: "Test reale pronto",
+  test_reale_pronto: "Checklist esempio pronta",
   in_attesa: "In attesa",
   non_applicabile: "—",
 };
