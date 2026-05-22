@@ -64,6 +64,20 @@ export async function recomputeSuccessionHeatmap(): Promise<{
   errors: number;
   results: HeatmapResult[];
 }> {
+  // DISABLED for privacy/compliance: obituary-derived person-level signals
+  // are no longer ingested. obituaries_seen is frozen (see migration
+  // disable_obituary_person_level_signals). This aggregator is kept as a
+  // no-op stub so any scheduled job remains safe.
+  void getServiceClient;
+  return { computed: 0, skipped: 0, errors: 0, results: [] };
+}
+
+async function _legacyRecomputeSuccessionHeatmapDisabled(): Promise<{
+  computed: number;
+  skipped: number;
+  errors: number;
+  results: HeatmapResult[];
+}> {
   const supabase = getServiceClient();
   if (!supabase) return { computed: 0, skipped: 0, errors: 1, results: [] };
 
