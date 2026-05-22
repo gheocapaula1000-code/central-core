@@ -269,15 +269,21 @@ export default function MicrozoneFase1Page() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold">Microzone Fase 1</h1>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            Microzone Fase 1
+            <Badge variant="outline">Anteprima esempio</Badge>
+          </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Selezione ristretta di microzone prioritarie del pilota{" "}
-            <span className="font-medium">Padova e provincia</span>. Base ordinata per i primi
-            test con dati reali e per l'evoluzione di opportunità, dossier e sintesi.
+            Selezione dimostrativa di microzone prioritarie del pilota{" "}
+            <span className="font-medium">Padova e provincia</span>. Dataset di esempio:
+            non rappresenta opportunità o proprietà reali.
           </p>
         </div>
         <Badge variant="outline">PWA principale: Metodo Civiko One</Badge>
       </div>
+
+      <DemoDataBanner />
+
 
       {testReale && (
         <Card className="border-fuchsia-700/60 bg-fuchsia-950/10">
