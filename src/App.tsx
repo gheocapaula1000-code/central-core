@@ -8,6 +8,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AdminSidebar } from "@/components/AdminSidebar";
+import { AuthGate } from "@/components/AuthGate";
 import Dashboard from "@/pages/Dashboard";
 import AppsPage from "@/pages/AppsPage";
 import ProvidersPage from "@/pages/ProvidersPage";
