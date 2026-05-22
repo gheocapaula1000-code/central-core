@@ -34,6 +34,7 @@ import {
   type StatoCopertura,
   type MaturitaDato as MaturitaCopertura,
 } from "@/data/copertura-padova";
+import { DemoDataBanner } from "@/components/DemoDataBanner";
 
 const presenzaVariant: Record<PresenzaServizio, string> = {
   forte_presenza: "bg-emerald-900/40 text-emerald-200 border-emerald-800",
@@ -297,14 +298,20 @@ export default function TerritoriPage() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold">Territori</h1>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            Territori
+            <Badge variant="outline">Anteprima esempio</Badge>
+          </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Pilota territoriale per <span className="font-medium">Metodo Civiko One</span>.
-            Dati operativi interni Core.
+            Pilota territoriale dimostrativo per <span className="font-medium">Metodo Civiko One</span>.
+            Dataset di esempio interno Core.
           </p>
         </div>
         <Badge variant="outline">PWA principale: Metodo Civiko One</Badge>
       </div>
+
+      <DemoDataBanner />
+
 
       {/* Copertura Padova — sintesi normalizzata */}
       <Card className="border-primary/30">
