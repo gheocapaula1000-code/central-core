@@ -305,8 +305,8 @@ serve(async (req) => {
       isAdmin = !!role;
     }
     if (!isAdmin) {
-      log("warn", "forbidden", { email });
-      return jsonRes({ error: "Forbidden" }, 403);
+      log("warn", "not found (non-admin)", { email });
+      return new Response("Not found", { status: 404, headers: CORS });
     }
 
     const url = new URL(req.url);
