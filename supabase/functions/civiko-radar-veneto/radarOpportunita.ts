@@ -164,6 +164,7 @@ Per ogni opportunità trovata, includi URL diretto alla fonte property-based ver
         o.tipo !== "asta" &&
         o.tipo !== "ribasso" &&
         o.tipo !== "successione" &&
+        o.tipo !== "divorzio" &&
         typeof o.evidenceUrl === "string" &&
         o.evidenceUrl.startsWith("http"),
     );
