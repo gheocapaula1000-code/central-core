@@ -97,7 +97,7 @@ const BLOCCHI: BloccoPredisposto[] = [
     id: "opportunita_candidate",
     titolo: "Opportunità candidate",
     descrizione:
-      "Lista delle opportunità da consolidare e validare durante il primo test reale su Arcella.",
+      "Lista delle opportunità da consolidare e validare durante l'utilizzo dimostrativo su Arcella.",
   },
   {
     id: "immobili_osservati",
@@ -115,7 +115,7 @@ const BLOCCHI: BloccoPredisposto[] = [
     id: "note_operative",
     titolo: "Note operative",
     descrizione:
-      "Annotazioni interne raccolte durante la preparazione e l'esecuzione del test reale.",
+      "Annotazioni interne raccolte durante la preparazione e l'esecuzione della checklist dimostrativa.",
   },
   {
     id: "stato_validazione",
@@ -330,7 +330,7 @@ const statoAssetLabel: Record<StatoAsset, string> = {
   in_verifica: "In verifica",
 };
 
-export default function TestRealeArcellaPage() {
+export default function ChecklistMicrozonaEsempioPage() {
   const territorio = TERRITORI_CIVIKO_ONE[0];
   const microzona = territorio.microzone.find(
     (m) => m.nome === ARCELLA_NOME && m.comune === ARCELLA_COMUNE,
@@ -350,7 +350,7 @@ export default function TestRealeArcellaPage() {
     <div className="space-y-6">
       <DemoDataBanner
         title="Anteprima dimostrativa — Arcella"
-        description="Questa pagina mostra la struttura interna di una checklist di test su una microzona pilota (Arcella) usando un dataset di esempio. I valori (opportunità, dossier, servizi) non rappresentano dati reali. I test reali e i dossier operativi vengono generati dalla dashboard AcquisitionRadar."
+        description="Questa pagina mostra la struttura interna di una checklist dimostrativa su una microzona pilota (Arcella) usando un dataset di esempio. I valori (opportunità, dossier, servizi) non rappresentano dati reali. I dossier operativi vengono generati dalla dashboard AcquisitionRadar."
       />
 
       {/* Nota interna approvazione */}
@@ -380,7 +380,7 @@ export default function TestRealeArcellaPage() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            Test Reale Arcella
+            Checklist Microzona Arcella
             <Badge variant="outline">Anteprima esempio</Badge>
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -393,7 +393,7 @@ export default function TestRealeArcellaPage() {
           variant="outline"
           className="bg-emerald-900/40 text-emerald-200 border-emerald-800"
         >
-          Microzona test approvata
+          Base pilota approvata
         </Badge>
       </div>
 
@@ -415,12 +415,12 @@ export default function TestRealeArcellaPage() {
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">Stato test</p>
+            <p className="text-xs text-muted-foreground">Stato checklist</p>
             <Badge
               variant="outline"
               className="mt-1 bg-emerald-900/40 text-emerald-200 border-emerald-800"
             >
-              Test reale completato
+              Checklist completata
             </Badge>
           </CardContent>
         </Card>
@@ -455,7 +455,7 @@ export default function TestRealeArcellaPage() {
 
       <Card className="border-dashed">
         <CardContent className="p-4 text-xs text-muted-foreground">
-          Arcella è la prima microzona test reale completata internamente come base pilota.
+          Arcella è la microzona di esempio usata come base pilota interna.
           I dati raccolti sono leggeri e controllati: nessun provider esterno attivo, nessuno scraping in corso, nessun job automatico pianificato.
         </CardContent>
       </Card>
@@ -469,7 +469,7 @@ export default function TestRealeArcellaPage() {
                 <div className="flex items-start justify-between gap-2">
                   <CardTitle className="text-base">{b.titolo}</CardTitle>
                   <Badge variant="outline" className="bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-800 text-[10px]">
-                    Primo test reale
+                    Esempio dimostrativo
                   </Badge>
                 </div>
               </CardHeader>
@@ -510,7 +510,7 @@ export default function TestRealeArcellaPage() {
                 <div className="flex items-start justify-between gap-2">
                   <CardTitle className="text-base">{b.titolo}</CardTitle>
                   <Badge variant="outline" className="bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-800 text-[10px]">
-                    Primo test reale
+                    Esempio dimostrativo
                   </Badge>
                 </div>
               </CardHeader>
@@ -563,7 +563,7 @@ export default function TestRealeArcellaPage() {
                 <div className="flex items-start justify-between gap-2">
                   <CardTitle className="text-base">{b.titolo}</CardTitle>
                   <Badge variant="outline" className="bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-800 text-[10px]">
-                    Primo test reale
+                    Esempio dimostrativo
                   </Badge>
                 </div>
               </CardHeader>
@@ -608,7 +608,7 @@ export default function TestRealeArcellaPage() {
                 <div className="flex items-start justify-between gap-2">
                   <CardTitle className="text-base">{b.titolo}</CardTitle>
                   <Badge variant="outline" className="bg-fuchsia-900/40 text-fuchsia-200 border-fuchsia-800 text-[10px]">
-                    Primo test reale
+                    Esempio dimostrativo
                   </Badge>
                 </div>
               </CardHeader>
@@ -668,11 +668,11 @@ export default function TestRealeArcellaPage() {
                     Non ancora popolato
                   </Badge>
                   <Badge variant="outline" className="text-[10px] bg-fuchsia-900/30 text-fuchsia-200 border-fuchsia-800">
-                    In attesa di primo test reale
+                    In attesa di popolamento reale
                   </Badge>
                 </div>
                 <div className="rounded border border-dashed border-border p-3 text-[11px] text-muted-foreground italic">
-                  Nessun contenuto disponibile. Verrà compilato in fase di test reale.
+                  Nessun contenuto disponibile. Verrà compilato con dati reali dalla dashboard AcquisitionRadar.
                 </div>
               </CardContent>
             </Card>
@@ -680,7 +680,7 @@ export default function TestRealeArcellaPage() {
         )}
       </div>
 
-      {/* Checklist Test Reale */}
+      {/* Checklist Microzona */}
       {(() => {
         const tutteVoci = CHECKLIST.flatMap((b) => b.voci);
         const totale = tutteVoci.length;
@@ -690,10 +690,10 @@ export default function TestRealeArcellaPage() {
         return (
           <section className="space-y-4">
             <div>
-              <h2 className="text-lg font-semibold">Checklist Test Reale</h2>
+              <h2 className="text-lg font-semibold">Checklist Microzona</h2>
               <p className="text-xs text-muted-foreground mt-1">
                 Elementi da raccogliere, controllare e validare prima di considerare Arcella pronta al
-                primo test con dati reali. Stato iniziale di tutte le voci: da fare.
+                utilizzo con dati reali. Stato iniziale di tutte le voci: da fare.
               </p>
             </div>
 
@@ -755,7 +755,7 @@ export default function TestRealeArcellaPage() {
         );
       })()}
 
-      {/* Set minimo dati reali */}
+      {/* Set minimo dati dimostrativi */}
       {(() => {
         type StatoElemento = "raccolto" | "non_raccolto";
         interface ElementoSet {
@@ -828,10 +828,9 @@ export default function TestRealeArcellaPage() {
         return (
           <section className="space-y-4">
             <div>
-              <h2 className="text-lg font-semibold">Set minimo dati reali</h2>
+              <h2 className="text-lg font-semibold">Set minimo dati dimostrativi</h2>
               <p className="text-xs text-muted-foreground mt-1">
-                Primo pacchetto minimo di dati reali da raccogliere su Arcella prima di
-                attivare qualsiasi provider o automazione. Stato iniziale di tutti gli elementi: non raccolto.
+                Pacchetto minimo dimostrativo per la microzona Arcella. Stato iniziale di tutti gli elementi: non raccolto.
               </p>
             </div>
 

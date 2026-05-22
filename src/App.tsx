@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Menu } from "lucide-react";
@@ -20,7 +20,7 @@ import ApiCreditsPage from "@/pages/ApiCreditsPage";
 import DevJobsPage from "@/pages/DevJobsPage";
 import TerritoriPage from "@/pages/TerritoriPage";
 import MicrozoneFase1Page from "@/pages/MicrozoneFase1Page";
-import TestRealeArcellaPage from "@/pages/TestRealeArcellaPage";
+import ChecklistMicrozonaEsempioPage from "@/pages/ChecklistMicrozonaEsempioPage";
 import OpportunitaPilotaPage from "@/pages/OpportunitaPilotaPage";
 import DossierAgenziaPage from "@/pages/DossierAgenziaPage";
 import SintesiProprietarioPage from "@/pages/SintesiProprietarioPage";
@@ -73,7 +73,8 @@ const App = () => (
                   <Route path="/dev/jobs" element={<DevJobsPage />} />
                   <Route path="/territori" element={<TerritoriPage />} />
                   <Route path="/microzone-fase-1" element={<MicrozoneFase1Page />} />
-                  <Route path="/test-reale-arcella" element={<TestRealeArcellaPage />} />
+                  <Route path="/checklist-microzona-esempio" element={<ChecklistMicrozonaEsempioPage />} />
+                  <Route path="/test-reale-arcella" element={<Navigate to="/checklist-microzona-esempio" replace />} />
                   <Route path="/opportunita-pilota" element={<OpportunitaPilotaPage />} />
                   <Route path="/dossier-agenzia" element={<DossierAgenziaPage />} />
                   <Route path="/sintesi-proprietario" element={<SintesiProprietarioPage />} />
