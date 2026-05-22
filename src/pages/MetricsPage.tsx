@@ -138,8 +138,7 @@ export default function MetricsPage() {
             <p className="text-xs text-muted-foreground">
               Gli endpoint diagnostici richiedono una chiave dedicata per l'accesso.
             </p>
-            <Input
-              type="password"
+            <PasswordInput
               placeholder="Inserisci chiave diagnostica"
               value={diagSecret}
               onChange={(e) => setDiagSecret(e.target.value)}
