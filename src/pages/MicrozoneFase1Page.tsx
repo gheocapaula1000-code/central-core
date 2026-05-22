@@ -199,7 +199,7 @@ function RigaCard({ r }: { r: RigaFase1 }) {
               </Badge>
               {!r.isTestReale && r.prontaPerTestReali && (
                 <Badge variant="outline" className="text-[10px] bg-emerald-900/40 text-emerald-200 border-emerald-800">
-                  Pronta per test reali
+                  Pronta per checklist esempio
                 </Badge>
               )}
             </div>
