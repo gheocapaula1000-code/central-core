@@ -132,7 +132,7 @@ function buildRighe(): RigaFase1[] {
     const priorita: PrioritaOperativa = isTestReale ? "massima" : prioritaBase;
     const maturita = deriveMaturita(m, opp, servizi);
     const nota = isTestReale
-      ? "Prima microzona test reale del pilota Padova: priorità massima, popolamento dati reali da preparare con cautela."
+      ? "Prima microzona checklist esempio del pilota Padova: priorità massima, popolamento dati da preparare con cautela."
       : NOTE_INTERNE[key] ?? m.noteOperativeInterne ?? "Nessuna nota interna registrata.";
     const prontaPerTestReali =
       stato === "fase_1" &&
