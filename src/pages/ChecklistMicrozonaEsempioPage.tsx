@@ -350,7 +350,7 @@ export default function ChecklistMicrozonaEsempioPage() {
     <div className="space-y-6">
       <DemoDataBanner
         title="Anteprima dimostrativa — Arcella"
-        description="Questa pagina mostra la struttura interna di una checklist di test su una microzona pilota (Arcella) usando un dataset di esempio. I valori (opportunità, dossier, servizi) non rappresentano dati reali. I test reali e i dossier operativi vengono generati dalla dashboard AcquisitionRadar."
+        description="Questa pagina mostra la struttura interna di una checklist dimostrativa su una microzona pilota (Arcella) usando un dataset di esempio. I valori (opportunità, dossier, servizi) non rappresentano dati reali. I dossier operativi vengono generati dalla dashboard AcquisitionRadar."
       />
 
       {/* Nota interna approvazione */}
@@ -393,7 +393,7 @@ export default function ChecklistMicrozonaEsempioPage() {
           variant="outline"
           className="bg-emerald-900/40 text-emerald-200 border-emerald-800"
         >
-          Microzona test approvata
+          Base pilota approvata
         </Badge>
       </div>
 
