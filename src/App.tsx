@@ -11,6 +11,7 @@ import { AdminSidebar } from "@/components/AdminSidebar";
 import Dashboard from "@/pages/Dashboard";
 import AppsPage from "@/pages/AppsPage";
 import ProvidersPage from "@/pages/ProvidersPage";
+import ProviderDiagnosticsPage from "@/pages/ProviderDiagnosticsPage";
 import TasksPage from "@/pages/TasksPage";
 import SecurityPage from "@/pages/SecurityPage";
 import MetricsPage from "@/pages/MetricsPage";
@@ -63,6 +64,7 @@ const App = () => (
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/apps" element={<AppsPage />} />
                   <Route path="/providers" element={<ProvidersPage />} />
+                  <Route path="/provider-diagnostics" element={<ProviderDiagnosticsPage />} />
                   <Route path="/tasks" element={<TasksPage />} />
                   <Route path="/security" element={<SecurityPage />} />
                   <Route path="/metrics" element={<MetricsPage />} />
