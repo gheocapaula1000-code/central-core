@@ -34,6 +34,7 @@ import {
   type StatoCopertura,
   type MaturitaDato as MaturitaCopertura,
 } from "@/data/copertura-padova";
+import { DemoDataBanner } from "@/components/DemoDataBanner";
 
 const presenzaVariant: Record<PresenzaServizio, string> = {
   forte_presenza: "bg-emerald-900/40 text-emerald-200 border-emerald-800",
