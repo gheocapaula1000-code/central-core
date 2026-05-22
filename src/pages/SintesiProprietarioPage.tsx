@@ -121,11 +121,15 @@ export default function SintesiProprietarioPage() {
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <BookOpen className="h-6 w-6" />
           Sintesi Proprietario
+          <Badge variant="outline" className="ml-1">Anteprima esempio</Badge>
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
           Versione prudente e presentabile del Dossier Agenzia, da usare durante la prima visita.
         </p>
       </div>
+
+      <DemoDataBanner />
+
 
       {/* Sintesi */}
       <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
