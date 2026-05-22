@@ -175,23 +175,35 @@ async function testPerplexity(): Promise<TimedResult> {
   const key = Deno.env.get("PERPLEXITY_API_KEY");
   if (!key) return { ok: false, latency_ms: 0, message: "PERPLEXITY_API_KEY not configured" };
   return timed(async () => {
+    const model = Deno.env.get("PERPLEXITY_MODEL") ?? "sonar";
     const r = await fetch("https://api.perplexity.ai/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "sonar",
+        model,
         messages: [{ role: "user", content: "What is the capital of Italy? Reply in one word." }],
-        max_tokens: 20,
+        max_tokens: 32,
       }),
     });
     if (!r.ok) {
-      const t = await r.text();
-      return { ok: false, status: r.status, message: `HTTP ${r.status}: ${t.slice(0, 160)}` };
+      const t = await r.text().catch(() => "");
+      log("warn", "perplexity test non-2xx", { status: r.status, body: t.slice(0, 500), model, key: maskKey(key) });
+      return {
+        ok: false,
+        status: r.status,
+        message: `HTTP ${r.status}: ${t.slice(0, 200)}`,
+        meta: { model, error_body: t.slice(0, 500) },
+      };
     }
     const data = await r.json();
     const out = data?.choices?.[0]?.message?.content ?? "";
     const citations = Array.isArray(data?.citations) ? data.citations.length : 0;
-    return { ok: true, status: r.status, message: `search ok (${(out as string).slice(0, 60)})`, meta: { citations } };
+    return {
+      ok: true,
+      status: r.status,
+      message: `search ok (${(out as string).slice(0, 60)})`,
+      meta: { citations, model: data?.model ?? model },
+    };
   });
 }
 
