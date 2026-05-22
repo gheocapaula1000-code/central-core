@@ -224,7 +224,7 @@ function RigaCard({ r }: { r: RigaFase1 }) {
           <span>{r.serviziDisponibili ? "Sì" : "No"}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Stato test reale</span>
+          <span className="text-muted-foreground">Stato checklist</span>
           <Badge variant="outline" className={`text-[10px] ${statoTestRealeVariant[r.statoTestReale]}`}>
             {statoTestRealeLabel[r.statoTestReale]}
           </Badge>
