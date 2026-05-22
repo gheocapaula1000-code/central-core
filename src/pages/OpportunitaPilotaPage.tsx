@@ -23,6 +23,7 @@ import {
 } from "@/data/civiko-one-opportunita-pilota";
 import { CLUSTER_LABEL, TERRITORI_CIVIKO_ONE } from "@/data/civiko-one-territori";
 import { Flame, ThermometerSun, Snowflake, Search, Info, ShieldCheck } from "lucide-react";
+import { DemoDataBanner } from "@/components/DemoDataBanner";
 
 type Filtro =
   | "tutte"
