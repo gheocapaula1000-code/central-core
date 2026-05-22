@@ -4,6 +4,7 @@ import { TERRITORI_CIVIKO_ONE, CLUSTER_LABEL } from "@/data/civiko-one-territori
 import { OPPORTUNITA_PILOTA } from "@/data/civiko-one-opportunita-pilota";
 import { DOSSIER_AGENZIA } from "@/data/civiko-one-dossier-agenzia";
 import { getServiziProssimita } from "@/data/civiko-one-servizi-prossimita";
+import { DemoDataBanner } from "@/components/DemoDataBanner";
 
 const ARCELLA_NOME = "Arcella";
 const ARCELLA_COMUNE = "Padova";
