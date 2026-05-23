@@ -763,6 +763,9 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       omi_gap: 0, omi_gap_direction: "n/a", omi_gap_pct: null,
       listing_fatigue: 0, omi_quality_bonus: 0, capoluogo_bonus: 0,
       area_opportunity_score: 0, microzone_match: 0,
+      urbanistica: 0, opere_pubbliche: 0, mobilita_tram: 0,
+      patrimonio_pubblico: 0, rigenerazione_urbana: 0, servizi_pubblici: 0,
+      urban_microzone_context: 0,
       total: 0, notes: [],
     };
 
