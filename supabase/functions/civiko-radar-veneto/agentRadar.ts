@@ -154,7 +154,9 @@ export interface AgentRadarOpportunity {
   microzone_match?: "matched" | "unknown";
   microzone_match_confidence?: "high" | "medium" | "low" | "unknown";
   microzone_match_method?: "label_explicit" | "indirizzo_keyword" | "omi_zone" | "text_keyword" | "none";
+  score_breakdown?: ScoreBreakdown;
 }
+
 
 export interface AgentRadarResponse {
   configured: boolean;
