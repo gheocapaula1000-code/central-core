@@ -697,49 +697,114 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   }
 
   // ── Scoring + build zones ───────────────────────────────────
+  // Transparent additive model. Demo counts NEVER contribute to score
+  // (they only survive in quality classification). OMI gap is bidirectional:
+  //   gap > +5%  → seller pressure (overpricing → ribassi probabili)
+  //   gap < -5%  → acquisition opportunity (sotto mercato → mandato urgente)
+  // Capoluogo bonus applies ONLY if at least one real commercial signal exists.
+  // AOS is blended additively (capped) instead of overriding the local score.
   const zones: AgentRadarZone[] = [];
   for (const a of aggMap.values()) {
-    // Metrics effettive: somma reale + demo (se demo è stato ammesso)
+    // REAL counts only for scoring. Demo counts are kept aside for display/quality.
+    const ribassiR = a.ribassi30gg;
+    const motivR   = a.venditoriMotivati;
+    const asteR    = a.aste;
+    const annunciR = a.annunciAttivi;
+
+    // Totali "display" (con demo, se ammesso) per metrics/reason
     const annunciTot = a.annunciAttivi + a.annunciAttiviDemo;
     const ribassiTot = a.ribassi30gg + a.ribassi30ggDemo;
     const asteTot = a.aste + a.asteDemo;
     const motivTot = a.venditoriMotivati + a.venditoriMotivatiDemo;
 
-    let score = 0;
-    score += Math.min(20, ribassiTot * 5);
-    score += Math.min(20, motivTot * 4);
-    score += Math.min(15, asteTot * 5);
-    score += Math.min(15, Math.log10(1 + annunciTot) * 10);
+    const breakdown: ScoreBreakdown = {
+      ribassi: 0, motivated_sellers: 0, aste: 0, stock_listings: 0,
+      omi_gap: 0, omi_gap_direction: "n/a", omi_gap_pct: null,
+      listing_fatigue: 0, omi_quality_bonus: 0, capoluogo_bonus: 0,
+      area_opportunity_score: 0, microzone_match: 0,
+      total: 0, notes: [],
+    };
+
+    breakdown.ribassi           = Math.min(20, ribassiR * 5);
+    breakdown.motivated_sellers = Math.min(20, motivR   * 4);
+    breakdown.aste              = Math.min(15, asteR    * 5);
+    breakdown.stock_listings    = annunciR > 0 ? Math.min(15, Math.log10(1 + annunciR) * 10) : 0;
+
     const askingMed = median(a.prezziPerSqm);
     let omiGapPct: number | null = null;
     if (askingMed && a.omiValoreMedio) {
       omiGapPct = ((askingMed - a.omiValoreMedio) / a.omiValoreMedio) * 100;
-      score += Math.min(20, Math.max(0, omiGapPct) * 0.6);
+      breakdown.omi_gap_pct = Math.round(omiGapPct * 10) / 10;
+      if (omiGapPct > 5) {
+        // Overpricing → pressione venditori (probabili ribassi futuri)
+        breakdown.omi_gap = Math.min(20, omiGapPct * 0.6);
+        breakdown.omi_gap_direction = "overpricing";
+        breakdown.notes.push(`overpricing OMI +${omiGapPct.toFixed(0)}% → pressione venditore`);
+      } else if (omiGapPct < -5) {
+        // Underpricing → opportunità acquisizione sotto mercato
+        breakdown.omi_gap = Math.min(18, Math.abs(omiGapPct) * 0.55);
+        breakdown.omi_gap_direction = "underpricing";
+        breakdown.notes.push(`underpricing OMI ${omiGapPct.toFixed(0)}% → opportunità acquisto`);
+      } else {
+        breakdown.omi_gap_direction = "neutral";
+      }
     }
-    const giorniMedi = median(a.daysOnline);
-    if (giorniMedi && giorniMedi > 120) score += 10;
 
-    if (a.omiQuality === "reale") {
-      score += 8;
+    const giorniMedi = median(a.daysOnline);
+    if (giorniMedi && giorniMedi > 120) {
+      breakdown.listing_fatigue = 10;
+      breakdown.notes.push(`giacenza media ${Math.round(giorniMedi)}gg`);
     }
-    // Bonus capoluogo: applicato SEMPRE (Opzione B Padova), indipendente da omiQuality.
+    if (a.omiQuality === "reale") breakdown.omi_quality_bonus = 8;
+
+    // Capoluogo bonus SOLO se c'è almeno un segnale commerciale REALE.
+    // Evita che la sola taglia città produca priorità media/alta da sola.
+    const hasRealCommercial = (ribassiR + motivR + asteR + annunciR) > 0;
     const CAPOLUOGHI: Record<string, number> = {
       "VE:venezia": 12, "VE:mestre": 10,
       "VR:verona": 12, "VI:vicenza": 12, "PD:padova": 12,
       "TV:treviso": 12, "BL:belluno": 10, "RO:rovigo": 10,
     };
-    score += CAPOLUOGHI[aggKey(a.comune, a.provincia)] ?? 0;
+    const capoluogoRaw = CAPOLUOGHI[aggKey(a.comune, a.provincia)] ?? 0;
+    if (capoluogoRaw > 0 && hasRealCommercial) {
+      breakdown.capoluogo_bonus = capoluogoRaw;
+    } else if (capoluogoRaw > 0) {
+      breakdown.notes.push("capoluogo bonus sospeso (nessun segnale commerciale reale)");
+    }
 
+    // AOS blended (additive, capped) invece di Math.max override.
+    // Pesato 0.25 per restare esplicabile dai segnali locali, max contributo 18.
     const aosHit = aosBoost.get(aggKey(a.comune, a.provincia));
-    if (aosHit) score = Math.max(score, aosHit.score);
-    score = Math.round(Math.min(100, score));
+    if (aosHit && Number.isFinite(aosHit.score) && !aosHit.demo) {
+      breakdown.area_opportunity_score = Math.min(18, Math.max(0, aosHit.score) * 0.25);
+    }
+
+    // Microzone match contribution (Padova only). Compute now using same matcher
+    // used in post-processing. High=+4, medium=+2, low/unknown=0. Never fakes.
+    const zoneMatch = matchPadovaMicrozone({
+      comune: a.comune, provincia: a.provincia, lat: a.lat, lng: a.lng,
+      omiZone: a.omiMicrozona, text: [a.comune, a.omiFascia ?? ""],
+    });
+    if (zoneMatch.microzone_match === "matched") {
+      if (zoneMatch.microzone_match_confidence === "high") breakdown.microzone_match = 4;
+      else if (zoneMatch.microzone_match_confidence === "medium") breakdown.microzone_match = 2;
+    }
+
+    let scoreRaw =
+      breakdown.ribassi + breakdown.motivated_sellers + breakdown.aste +
+      breakdown.stock_listings + breakdown.omi_gap + breakdown.listing_fatigue +
+      breakdown.omi_quality_bonus + breakdown.capoluogo_bonus +
+      breakdown.area_opportunity_score + breakdown.microzone_match;
+
+    const score = Math.round(Math.min(100, Math.max(0, scoreRaw)));
+    breakdown.total = score;
 
     let signalType: AgentRadarZone["signalType"] = "misto";
     const flags: number[] = [ribassiTot, asteTot, motivTot, annunciTot, omiGapPct ? 1 : 0];
     if (asteTot > 0 && asteTot >= Math.max(...flags)) signalType = "asta";
     else if (ribassiTot > 0 && ribassiTot >= motivTot) signalType = "ribasso";
     else if (motivTot > 0) signalType = "motivato";
-    else if (omiGapPct && omiGapPct > 5) signalType = "omi_gap";
+    else if (omiGapPct && Math.abs(omiGapPct) > 5) signalType = "omi_gap";
     else if (annunciTot > 20) signalType = "stock";
 
     const reasons: string[] = [];
@@ -748,6 +813,10 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     if (asteTot) reasons.push(`${asteTot} aste attive`);
     if (omiGapPct !== null) reasons.push(`gap OMI ${omiGapPct > 0 ? "+" : ""}${omiGapPct.toFixed(0)}%`);
     if (annunciTot) reasons.push(`${annunciTot} annunci attivi`);
+    if (breakdown.microzone_match > 0 && zoneMatch.microzone) {
+      reasons.push(`microzona ${zoneMatch.microzone}`);
+    }
+
 
     const action = signalType === "asta" ? "Verifica fascicoli PVP e contatta i creditori procedenti."
       : signalType === "ribasso" ? "Apri mandati su immobili con ribasso >10% e prezzo target sotto OMI max."
