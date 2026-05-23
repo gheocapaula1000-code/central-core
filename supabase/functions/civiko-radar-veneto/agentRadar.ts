@@ -1587,7 +1587,7 @@ export function classifyUrbanSignal(
   // Urbanistica / varianti / piani
   if (/(urban_planning|variante|piano (interventi|regolatore)|p\.i\.|prg|puc|pat\b|zoning)/.test(hay)) return "urbanistica";
   // Servizi pubblici (scuole, sanità, università)
-  if (/(scuola|school|sanit|ospedal|universit|public_services|servizi_pubblici|asilo|biblioteca)/.test(hay)) return "servizi_pubblici";
+  if (/(scuola|scolastic|plesso|school|sanit|ospedal|universit|public_services|servizi_pubblici|asilo|biblioteca)/.test(hay)) return "servizi_pubblici";
   return null;
 }
 
