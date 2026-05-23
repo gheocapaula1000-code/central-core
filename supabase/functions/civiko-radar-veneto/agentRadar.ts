@@ -92,6 +92,12 @@ export interface AgentRadarZone {
   // Gate hard: civico MAI esposto. Nessuna invenzione.
   targetType?: "via" | "microzona";
   streetTargets?: AgentRadarStreetTarget[];
+  // ── Padova microzone annotation (best-effort, may be "unknown") ──
+  microzone?: string | null;
+  microzone_id?: PadovaMicrozoneId | null;
+  microzone_match?: "matched" | "unknown";
+  microzone_match_confidence?: "high" | "medium" | "low" | "unknown";
+  microzone_match_method?: "label_explicit" | "indirizzo_keyword" | "omi_zone" | "text_keyword" | "none";
 }
 
 export interface AgentRadarStreetTarget {
