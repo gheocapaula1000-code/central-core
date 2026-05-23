@@ -118,6 +118,17 @@ export interface ScoreBreakdown {
   capoluogo_bonus: number;
   area_opportunity_score: number;
   microzone_match: number;
+  // ── Urban transformation contributions (territorial_signals, capped, additive) ──
+  // Labels surface to dashboard/PDF as: Urbanistica, Opere pubbliche, Mobilità / tram,
+  // Patrimonio pubblico, Rigenerazione urbana, Servizi pubblici. Each is bounded so
+  // urban signals alone cannot push priority to "alta" without commercial evidence.
+  urbanistica: number;
+  opere_pubbliche: number;
+  mobilita_tram: number;
+  patrimonio_pubblico: number;
+  rigenerazione_urbana: number;
+  servizi_pubblici: number;
+  urban_microzone_context: number;
   total: number;
   notes: string[];
 }
