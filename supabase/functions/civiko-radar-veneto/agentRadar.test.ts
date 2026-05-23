@@ -105,3 +105,69 @@ Deno.test("buildHumanReason surfaces AOS when only that component is present", (
   assert(reason.includes("Padova"));
   assertEquals(buildHumanReason(undefined), "");
 });
+
+import { classifyUrbanSignal, emptyUrbanBuckets } from "./agentRadar.ts";
+
+Deno.test("classifyUrbanSignal: patrimonio_pubblico from alienazione text", () => {
+  assertEquals(classifyUrbanSignal("public_asset_disposal_signal", null, "Alienazione immobile comunale", null), "patrimonio_pubblico");
+  assertEquals(classifyUrbanSignal(null, null, "Dismissione patrimonio", null), "patrimonio_pubblico");
+});
+
+Deno.test("classifyUrbanSignal: mobilita_tram for tram/SFMR/ciclabile", () => {
+  assertEquals(classifyUrbanSignal("mobility_dataset", null, "Nuova fermata tram", null), "mobilita_tram");
+  assertEquals(classifyUrbanSignal(null, null, "SFMR Padova", null), "mobilita_tram");
+  assertEquals(classifyUrbanSignal(null, null, "Pista ciclabile", null), "mobilita_tram");
+});
+
+Deno.test("classifyUrbanSignal: opere_pubbliche for cantieri/manutenzione/rotatorie/parcheggi", () => {
+  assertEquals(classifyUrbanSignal(null, null, "Manutenzione straordinaria strada", null), "opere_pubbliche");
+  assertEquals(classifyUrbanSignal(null, null, "Nuova rotatoria via Roma", null), "opere_pubbliche");
+  assertEquals(classifyUrbanSignal(null, null, "Parcheggio interrato", null), "opere_pubbliche");
+});
+
+Deno.test("classifyUrbanSignal: urbanistica for variante / PAT / piano interventi", () => {
+  assertEquals(classifyUrbanSignal("urban_planning_dataset", null, "Variante al P.I.", null), "urbanistica");
+});
+
+Deno.test("classifyUrbanSignal: rigenerazione_urbana for brownfield/rigenerazione", () => {
+  assertEquals(classifyUrbanSignal(null, null, "Rigenerazione urbana ex caserma", null), "rigenerazione_urbana");
+  assertEquals(classifyUrbanSignal(null, null, "Brownfield redevelopment", null), "rigenerazione_urbana");
+});
+
+Deno.test("classifyUrbanSignal: servizi_pubblici for scuola/ospedale/università", () => {
+  assertEquals(classifyUrbanSignal(null, null, "Nuovo plesso scolastico", null), "servizi_pubblici");
+  assertEquals(classifyUrbanSignal(null, null, "Ospedale di Padova", null), "servizi_pubblici");
+});
+
+Deno.test("classifyUrbanSignal: returns null when no urban context", () => {
+  assertEquals(classifyUrbanSignal(null, null, "asta giudiziaria", null), null);
+  assertEquals(classifyUrbanSignal(null, null, "", null), null);
+});
+
+Deno.test("buildAosOnlyBreakdown includes urban fields zeroed", () => {
+  const b = buildAosOnlyBreakdown(40, "test:source");
+  assertEquals(b.urbanistica, 0);
+  assertEquals(b.opere_pubbliche, 0);
+  assertEquals(b.mobilita_tram, 0);
+  assertEquals(b.patrimonio_pubblico, 0);
+  assertEquals(b.rigenerazione_urbana, 0);
+  assertEquals(b.servizi_pubblici, 0);
+  assertEquals(b.urban_microzone_context, 0);
+});
+
+Deno.test("buildHumanReason surfaces urban transformation labels", () => {
+  const b = buildAosOnlyBreakdown(0, "test");
+  b.patrimonio_pubblico = 6;
+  b.mobilita_tram = 4;
+  b.urbanistica = 3;
+  b.total = 50;
+  const reason = buildHumanReason(b, "Padova");
+  assert(reason.includes("Patrimonio pubblico"));
+  assert(reason.includes("Mobilità / tram"));
+});
+
+Deno.test("emptyUrbanBuckets initializes all zero", () => {
+  const b = emptyUrbanBuckets();
+  assertEquals(b.total, 0);
+  assertEquals(b.urbanistica, 0);
+});

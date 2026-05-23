@@ -118,6 +118,17 @@ export interface ScoreBreakdown {
   capoluogo_bonus: number;
   area_opportunity_score: number;
   microzone_match: number;
+  // ── Urban transformation contributions (territorial_signals, capped, additive) ──
+  // Labels surface to dashboard/PDF as: Urbanistica, Opere pubbliche, Mobilità / tram,
+  // Patrimonio pubblico, Rigenerazione urbana, Servizi pubblici. Each is bounded so
+  // urban signals alone cannot push priority to "alta" without commercial evidence.
+  urbanistica: number;
+  opere_pubbliche: number;
+  mobilita_tram: number;
+  patrimonio_pubblico: number;
+  rigenerazione_urbana: number;
+  servizi_pubblici: number;
+  urban_microzone_context: number;
   total: number;
   notes: string[];
 }
@@ -472,6 +483,36 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     return data ?? [];
   }, warnings);
 
+  // ── Urban transformation signals (territorial_signals, public/admin only) ──
+  // Aggregated per comune into 6 buckets surfaced on score_breakdown. No personal
+  // data, no obituary. Each bucket counts DISTINCT active signals; caps applied
+  // later in the scoring loop. Source URLs are NOT exposed here — provider names
+  // and table names remain internal; only neutral labels reach the client.
+  const urbanByComune = new Map<string, UrbanBuckets>();
+  await safe("territorial_signals:urban", async () => {
+    let q = supa.from("territorial_signals")
+      .select("province,municipality,signal_type,signal_subtype,title,description")
+      .eq("is_active", true);
+    if (filterProv) q = q.in("province", [filterProv, fullProvName(filterProv)].filter(Boolean) as string[]);
+    if (filterComune) q = q.ilike("municipality", filterComune.trim());
+    const { data, error } = await q.range(0, 4999);
+    if (error) throw error;
+    for (const r of (data ?? []) as Array<{ province: string|null; municipality: string|null; signal_type: string|null; signal_subtype: string|null; title: string|null; description: string|null }>) {
+      const prov = isVenetoRow(r.province);
+      if (!prov || !r.municipality) continue;
+      const bucket = classifyUrbanSignal(r.signal_type, r.signal_subtype, r.title, r.description);
+      if (!bucket) continue;
+      const k = aggKey(r.municipality, prov);
+      let b = urbanByComune.get(k);
+      if (!b) { b = emptyUrbanBuckets(); urbanByComune.set(k, b); }
+      b[bucket]++;
+      b.total++;
+    }
+    return null;
+  }, warnings);
+
+
+
   // ── Helper: classifica record demo vs reale e split conteggi ──
   const isRecordDemo = (rec: { source?: unknown; source_name?: unknown; payload?: unknown }): boolean => {
     const p = (rec.payload ?? {}) as Record<string, unknown>;
@@ -722,6 +763,9 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       omi_gap: 0, omi_gap_direction: "n/a", omi_gap_pct: null,
       listing_fatigue: 0, omi_quality_bonus: 0, capoluogo_bonus: 0,
       area_opportunity_score: 0, microzone_match: 0,
+      urbanistica: 0, opere_pubbliche: 0, mobilita_tram: 0,
+      patrimonio_pubblico: 0, rigenerazione_urbana: 0, servizi_pubblici: 0,
+      urban_microzone_context: 0,
       total: 0, notes: [],
     };
 
@@ -790,11 +834,51 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       else if (zoneMatch.microzone_match_confidence === "medium") breakdown.microzone_match = 2;
     }
 
+    // ── Urban transformation contributions (per-comune, small caps) ──
+    // Source: public/admin only (territorial_signals). Each contribution is bounded
+    // and the aggregate is capped so urban context cannot dominate the score.
+    const urb = urbanByComune.get(aggKey(a.comune, a.provincia));
+    if (urb) {
+      breakdown.urbanistica          = Math.min(4, urb.urbanistica * 2);
+      breakdown.opere_pubbliche      = Math.min(4, urb.opere_pubbliche * 2);
+      breakdown.mobilita_tram        = Math.min(5, urb.mobilita_tram * 2);
+      breakdown.patrimonio_pubblico  = Math.min(6, urb.patrimonio_pubblico * 3);
+      breakdown.rigenerazione_urbana = Math.min(5, urb.rigenerazione_urbana * 2);
+      breakdown.servizi_pubblici     = Math.min(3, urb.servizi_pubblici * 1);
+      // Aggregate cap on urban transformation: never more than 18 in total.
+      const urbSum = breakdown.urbanistica + breakdown.opere_pubbliche + breakdown.mobilita_tram
+        + breakdown.patrimonio_pubblico + breakdown.rigenerazione_urbana + breakdown.servizi_pubblici;
+      if (urbSum > 18) {
+        const k = 18 / urbSum;
+        breakdown.urbanistica          = Math.round(breakdown.urbanistica * k * 10) / 10;
+        breakdown.opere_pubbliche      = Math.round(breakdown.opere_pubbliche * k * 10) / 10;
+        breakdown.mobilita_tram        = Math.round(breakdown.mobilita_tram * k * 10) / 10;
+        breakdown.patrimonio_pubblico  = Math.round(breakdown.patrimonio_pubblico * k * 10) / 10;
+        breakdown.rigenerazione_urbana = Math.round(breakdown.rigenerazione_urbana * k * 10) / 10;
+        breakdown.servizi_pubblici     = Math.round(breakdown.servizi_pubblici * k * 10) / 10;
+      }
+      // Microzone × urban interaction: small explainable boost when a confidently
+      // matched microzone coincides with at least one urban transformation signal
+      // in the same comune. Never fabricates a microzone.
+      if (zoneMatch.microzone_match === "matched"
+          && zoneMatch.microzone_match_confidence !== "unknown"
+          && zoneMatch.microzone_match_confidence !== "low"
+          && urb.total > 0) {
+        breakdown.urban_microzone_context = 2;
+      }
+      if (urb.total > 0) {
+        breakdown.notes.push(`segnali urbani: ${urb.total} (urbanistica:${urb.urbanistica}, opere:${urb.opere_pubbliche}, mobilità:${urb.mobilita_tram}, patrimonio:${urb.patrimonio_pubblico}, rigenerazione:${urb.rigenerazione_urbana}, servizi:${urb.servizi_pubblici})`);
+      }
+    }
+
     let scoreRaw =
       breakdown.ribassi + breakdown.motivated_sellers + breakdown.aste +
       breakdown.stock_listings + breakdown.omi_gap + breakdown.listing_fatigue +
       breakdown.omi_quality_bonus + breakdown.capoluogo_bonus +
-      breakdown.area_opportunity_score + breakdown.microzone_match;
+      breakdown.area_opportunity_score + breakdown.microzone_match +
+      breakdown.urbanistica + breakdown.opere_pubbliche + breakdown.mobilita_tram +
+      breakdown.patrimonio_pubblico + breakdown.rigenerazione_urbana +
+      breakdown.servizi_pubblici + breakdown.urban_microzone_context;
 
     const score = Math.round(Math.min(100, Math.max(0, scoreRaw)));
     breakdown.total = score;
@@ -1421,13 +1505,17 @@ export function buildAosOnlyBreakdown(score: number, source: string): ScoreBreak
     omi_gap: 0, omi_gap_direction: "n/a", omi_gap_pct: null,
     listing_fatigue: 0, omi_quality_bonus: 0, capoluogo_bonus: 0,
     area_opportunity_score: safe, microzone_match: 0,
+    urbanistica: 0, opere_pubbliche: 0, mobilita_tram: 0,
+    patrimonio_pubblico: 0, rigenerazione_urbana: 0, servizi_pubblici: 0,
+    urban_microzone_context: 0,
     total: safe,
     notes: [`score derived from ${source}`],
   };
 }
 
 /** Human-readable rationale built from the score_breakdown. Highlights the
- *  top contributing components so dashboard and PDF can show "perché". */
+ *  top contributing components so dashboard and PDF can show "perché".
+ *  Labels are non-technical and never expose internal table or provider names. */
 export function buildHumanReason(b: ScoreBreakdown | undefined, comune?: string): string {
 
   if (!b) return "";
@@ -1443,11 +1531,64 @@ export function buildHumanReason(b: ScoreBreakdown | undefined, comune?: string)
     { label: "microzona selezionata", v: b.microzone_match },
     { label: "score di area Civiko", v: b.area_opportunity_score },
     { label: "capoluogo", v: b.capoluogo_bonus },
+    { label: "Urbanistica", v: b.urbanistica ?? 0 },
+    { label: "Opere pubbliche", v: b.opere_pubbliche ?? 0 },
+    { label: "Mobilità / tram", v: b.mobilita_tram ?? 0 },
+    { label: "Patrimonio pubblico", v: b.patrimonio_pubblico ?? 0 },
+    { label: "Rigenerazione urbana", v: b.rigenerazione_urbana ?? 0 },
+    { label: "Servizi pubblici", v: b.servizi_pubblici ?? 0 },
+    { label: "microzona con trasformazione urbana", v: b.urban_microzone_context ?? 0 },
   ].filter((p) => p.v > 0).sort((a, b2) => b2.v - a.v).slice(0, 3);
   if (parts.length === 0) return "";
   const tier = b.total >= 70 ? "Priorità alta" : b.total >= 45 ? "Priorità media" : "Priorità bassa";
   const where = comune ? ` su ${comune}` : "";
   return `${tier}${where}: ${parts.map((p) => p.label).join(", ")}.`;
+}
+
+// ── Urban transformation classifier ──────────────────────────────
+// Bucketizes territorial_signals into 6 explainable groups. Pure heuristics
+// over signal_type / signal_subtype / title / description. Returns null when
+// nothing matches (no fabrication, no default-bucket fallback).
+export type UrbanBucket =
+  | "urbanistica" | "opere_pubbliche" | "mobilita_tram"
+  | "patrimonio_pubblico" | "rigenerazione_urbana" | "servizi_pubblici";
+
+export interface UrbanBuckets {
+  urbanistica: number;
+  opere_pubbliche: number;
+  mobilita_tram: number;
+  patrimonio_pubblico: number;
+  rigenerazione_urbana: number;
+  servizi_pubblici: number;
+  total: number;
+}
+
+export function emptyUrbanBuckets(): UrbanBuckets {
+  return { urbanistica: 0, opere_pubbliche: 0, mobilita_tram: 0,
+    patrimonio_pubblico: 0, rigenerazione_urbana: 0, servizi_pubblici: 0, total: 0 };
+}
+
+export function classifyUrbanSignal(
+  signalType: string | null,
+  signalSubtype: string | null,
+  title: string | null,
+  description: string | null,
+): UrbanBucket | null {
+  const hay = `${signalType ?? ""} ${signalSubtype ?? ""} ${title ?? ""} ${description ?? ""}`.toLowerCase();
+  if (!hay.trim()) return null;
+  // Patrimonio pubblico (alienazioni, dismissioni)
+  if (/(alienaz|dismission|patrimonio|public_asset|pre_alienation|asta pubblica)/.test(hay)) return "patrimonio_pubblico";
+  // Rigenerazione urbana / brownfield
+  if (/(rigeneraz|brownfield|redevelopment|urban_regeneration|riqualificazione)/.test(hay)) return "rigenerazione_urbana";
+  // Mobilità / tram / trasporto
+  if (/(\btram\b|sfmr|fermata|metropolitan|trasport|mobilit|stazione ferrov|pista cicla|ciclabile)/.test(hay)) return "mobilita_tram";
+  // Opere pubbliche / lavori / cantieri / manutenzione straordinaria
+  if (/(opera_pubblica|public_work|lavori pubblici|cantier|manutenzione straordinaria|rotatori|viabilit|parcheggio)/.test(hay)) return "opere_pubbliche";
+  // Urbanistica / varianti / piani
+  if (/(urban_planning|variante|piano (interventi|regolatore)|p\.i\.|prg|puc|pat\b|zoning)/.test(hay)) return "urbanistica";
+  // Servizi pubblici (scuole, sanità, università)
+  if (/(scuola|scolastic|plesso|school|sanit|ospedal|universit|public_services|servizi_pubblici|asilo|biblioteca)/.test(hay)) return "servizi_pubblici";
+  return null;
 }
 
 

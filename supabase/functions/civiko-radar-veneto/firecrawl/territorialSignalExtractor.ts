@@ -15,6 +15,7 @@ const CLASS_TO_TYPE: Partial<Record<PageClass, string>> = {
   school: "scuola",
   tourism: "turismo",
   business_area: "area_industriale",
+  commercial_retail: "centro_commerciale",
   open_data: "investimento_pubblico",
   real_estate_market: "mercato",
   territorial_service: "sanita_servizi",
