@@ -1401,6 +1401,31 @@ function fullProvName(p: ProvCode): string {
   return ({ VE: "Venezia", VR: "Verona", VI: "Vicenza", PD: "Padova", TV: "Treviso", BL: "Belluno", RO: "Rovigo" } as const)[p];
 }
 
+/** Human-readable rationale built from the score_breakdown. Highlights the
+ *  top contributing components so dashboard and PDF can show "perché". */
+export function buildHumanReason(b: ScoreBreakdown | undefined, comune?: string): string {
+  if (!b) return "";
+  const parts: Array<{ label: string; v: number }> = [
+    { label: "ribasso recente", v: b.ribassi },
+    { label: "venditori motivati", v: b.motivated_sellers },
+    { label: "aste attive", v: b.aste },
+    { label: "stock elevato", v: b.stock_listings },
+    { label: b.omi_gap_direction === "underpricing" ? "gap OMI favorevole (sotto mercato)"
+           : b.omi_gap_direction === "overpricing" ? "gap OMI sfavorevole (sopra mercato)"
+           : "gap OMI", v: b.omi_gap },
+    { label: "giacenza elevata", v: b.listing_fatigue },
+    { label: "microzona selezionata", v: b.microzone_match },
+    { label: "score di area Civiko", v: b.area_opportunity_score },
+    { label: "capoluogo", v: b.capoluogo_bonus },
+  ].filter((p) => p.v > 0).sort((a, b2) => b2.v - a.v).slice(0, 3);
+  if (parts.length === 0) return "";
+  const tier = b.total >= 70 ? "Priorità alta" : b.total >= 45 ? "Priorità media" : "Priorità bassa";
+  const where = comune ? ` su ${comune}` : "";
+  return `${tier}${where}: ${parts.map((p) => p.label).join(", ")}.`;
+}
+
+
+
 function signalLabel(t: AgentRadarZone["signalType"]): string {
   switch (t) {
     case "asta": return "aste attive";
