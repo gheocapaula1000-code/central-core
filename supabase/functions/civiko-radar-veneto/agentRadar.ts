@@ -1213,6 +1213,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       const sourceUrls = r.evidence_url ? [r.evidence_url] : [];
       const provCode = (normalizeProvincia(r.province) ?? r.province) as ProvCode | "—";
       const slug = r.municipality.toLowerCase().replace(/\s+/g,"-");
+      const odvBreakdown = buildAosOnlyBreakdown(score, "open_data_veneto:radar_signals");
       odvOpportunities.push({
         id: `op-odv-${r.province}-${slug}-${r.signal_type}`,
         priority: priorityFromScore(score),
@@ -1228,7 +1229,9 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         quality: "parziale",
         target: "agente immobiliare",
         nextStep: action,
+        score_breakdown: odvBreakdown,
       });
+
       // Build a zone for the frontend "Zone calde" widget
       odvZones.push({
         id: `odv-${r.province}-${slug}-${r.signal_type}`,
