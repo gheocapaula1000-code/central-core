@@ -1505,13 +1505,17 @@ export function buildAosOnlyBreakdown(score: number, source: string): ScoreBreak
     omi_gap: 0, omi_gap_direction: "n/a", omi_gap_pct: null,
     listing_fatigue: 0, omi_quality_bonus: 0, capoluogo_bonus: 0,
     area_opportunity_score: safe, microzone_match: 0,
+    urbanistica: 0, opere_pubbliche: 0, mobilita_tram: 0,
+    patrimonio_pubblico: 0, rigenerazione_urbana: 0, servizi_pubblici: 0,
+    urban_microzone_context: 0,
     total: safe,
     notes: [`score derived from ${source}`],
   };
 }
 
 /** Human-readable rationale built from the score_breakdown. Highlights the
- *  top contributing components so dashboard and PDF can show "perché". */
+ *  top contributing components so dashboard and PDF can show "perché".
+ *  Labels are non-technical and never expose internal table or provider names. */
 export function buildHumanReason(b: ScoreBreakdown | undefined, comune?: string): string {
 
   if (!b) return "";
@@ -1527,11 +1531,64 @@ export function buildHumanReason(b: ScoreBreakdown | undefined, comune?: string)
     { label: "microzona selezionata", v: b.microzone_match },
     { label: "score di area Civiko", v: b.area_opportunity_score },
     { label: "capoluogo", v: b.capoluogo_bonus },
+    { label: "Urbanistica", v: b.urbanistica ?? 0 },
+    { label: "Opere pubbliche", v: b.opere_pubbliche ?? 0 },
+    { label: "Mobilità / tram", v: b.mobilita_tram ?? 0 },
+    { label: "Patrimonio pubblico", v: b.patrimonio_pubblico ?? 0 },
+    { label: "Rigenerazione urbana", v: b.rigenerazione_urbana ?? 0 },
+    { label: "Servizi pubblici", v: b.servizi_pubblici ?? 0 },
+    { label: "microzona con trasformazione urbana", v: b.urban_microzone_context ?? 0 },
   ].filter((p) => p.v > 0).sort((a, b2) => b2.v - a.v).slice(0, 3);
   if (parts.length === 0) return "";
   const tier = b.total >= 70 ? "Priorità alta" : b.total >= 45 ? "Priorità media" : "Priorità bassa";
   const where = comune ? ` su ${comune}` : "";
   return `${tier}${where}: ${parts.map((p) => p.label).join(", ")}.`;
+}
+
+// ── Urban transformation classifier ──────────────────────────────
+// Bucketizes territorial_signals into 6 explainable groups. Pure heuristics
+// over signal_type / signal_subtype / title / description. Returns null when
+// nothing matches (no fabrication, no default-bucket fallback).
+export type UrbanBucket =
+  | "urbanistica" | "opere_pubbliche" | "mobilita_tram"
+  | "patrimonio_pubblico" | "rigenerazione_urbana" | "servizi_pubblici";
+
+export interface UrbanBuckets {
+  urbanistica: number;
+  opere_pubbliche: number;
+  mobilita_tram: number;
+  patrimonio_pubblico: number;
+  rigenerazione_urbana: number;
+  servizi_pubblici: number;
+  total: number;
+}
+
+export function emptyUrbanBuckets(): UrbanBuckets {
+  return { urbanistica: 0, opere_pubbliche: 0, mobilita_tram: 0,
+    patrimonio_pubblico: 0, rigenerazione_urbana: 0, servizi_pubblici: 0, total: 0 };
+}
+
+export function classifyUrbanSignal(
+  signalType: string | null,
+  signalSubtype: string | null,
+  title: string | null,
+  description: string | null,
+): UrbanBucket | null {
+  const hay = `${signalType ?? ""} ${signalSubtype ?? ""} ${title ?? ""} ${description ?? ""}`.toLowerCase();
+  if (!hay.trim()) return null;
+  // Patrimonio pubblico (alienazioni, dismissioni)
+  if (/(alienaz|dismission|patrimonio|public_asset|pre_alienation|asta pubblica)/.test(hay)) return "patrimonio_pubblico";
+  // Rigenerazione urbana / brownfield
+  if (/(rigeneraz|brownfield|redevelopment|urban_regeneration|riqualificazione)/.test(hay)) return "rigenerazione_urbana";
+  // Mobilità / tram / trasporto
+  if (/(\btram\b|sfmr|fermata|metropolitan|trasport|mobilit|stazione ferrov|pista cicla|ciclabile)/.test(hay)) return "mobilita_tram";
+  // Opere pubbliche / lavori / cantieri / manutenzione straordinaria
+  if (/(opera_pubblica|public_work|lavori pubblici|cantier|manutenzione straordinaria|rotatori|viabilit|parcheggio)/.test(hay)) return "opere_pubbliche";
+  // Urbanistica / varianti / piani
+  if (/(urban_planning|variante|piano (interventi|regolatore)|p\.i\.|prg|puc|pat\b|zoning)/.test(hay)) return "urbanistica";
+  // Servizi pubblici (scuole, sanità, università)
+  if (/(scuola|school|sanit|ospedal|universit|public_services|servizi_pubblici|asilo|biblioteca)/.test(hay)) return "servizi_pubblici";
+  return null;
 }
 
 
