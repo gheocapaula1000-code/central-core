@@ -61,3 +61,45 @@ Deno.test("output JSON is fully serializable (no undefined)", async () => {
   assertEquals(round.scope.region, "Veneto");
   assertEquals(round.zones.length, 0);
 });
+
+Deno.test("buildAosOnlyBreakdown produces real, non-fabricated breakdown", () => {
+  const b = buildAosOnlyBreakdown(72, "offmarket_opportunity_scores:acquisition_priority_score");
+  // Snake_case fields, total reflects input, per-signal subscores stay 0 (no invention).
+  assertEquals(b.area_opportunity_score, 72);
+  assertEquals(b.total, 72);
+  assertEquals(b.ribassi, 0);
+  assertEquals(b.motivated_sellers, 0);
+  assertEquals(b.aste, 0);
+  assertEquals(b.stock_listings, 0);
+  assertEquals(b.omi_gap, 0);
+  assertEquals(b.omi_gap_direction, "n/a");
+  assertEquals(b.omi_gap_pct, null);
+  assertEquals(b.microzone_match, 0);
+  assert(b.notes.some((n) => n.includes("offmarket_opportunity_scores")));
+});
+
+Deno.test("buildAosOnlyBreakdown clamps invalid input and is JSON-serializable", () => {
+  const b = buildAosOnlyBreakdown(Number.NaN, "open_data_veneto:radar_signals");
+  assertEquals(b.area_opportunity_score, 0);
+  assertEquals(b.total, 0);
+  const round = JSON.parse(JSON.stringify(b));
+  assertEquals(round.area_opportunity_score, 0);
+  assertEquals(round.omi_gap_direction, "n/a");
+});
+
+Deno.test("opportunity object spread preserves score_breakdown end-to-end", () => {
+  // Simulates the annotatedOpps map step that wraps opportunities with microzone fields.
+  const op = { id: "op-1", whyNow: "x", score_breakdown: buildAosOnlyBreakdown(60, "test:source") };
+  const annotated = { ...op, microzone: null, microzone_match: "unknown" as const };
+  assert(annotated.score_breakdown);
+  assertEquals(annotated.score_breakdown.total, 60);
+  // Snake_case is the contract field consumed by AcquisitionRadar.
+  assert("score_breakdown" in annotated);
+});
+
+Deno.test("buildHumanReason returns empty when no breakdown components", () => {
+  const b = buildAosOnlyBreakdown(40, "test:source");
+  // AOS-only breakdown has all per-signal fields at 0 → no top components to surface.
+  assertEquals(buildHumanReason(b, "Padova"), "");
+  assertEquals(buildHumanReason(undefined), "");
+});
