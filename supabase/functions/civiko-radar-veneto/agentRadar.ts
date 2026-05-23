@@ -1235,13 +1235,65 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   // Recompute hotZones with merged zones
   summaryExt.hotZones = cappedZones.filter((z) => z.temperature === "calda" || z.temperature === "molto_calda").length;
 
+  // ── Padova microzone post-processing (annotate + optional filter) ──
+  // Strategy: text/address/OMI keyword matching against a fixed catalog of
+  // 20 AcquisitionRadar labels. When microzones[] is empty we ONLY annotate.
+  // When it has values we filter zones+opportunities down to matches; items
+  // we cannot confidently assign get tagged `unknown` and are dropped from
+  // the filtered set (never silently re-labeled).
+  const selectedMicrozones = normalizeRequestedMicrozones(req.microzones);
+  const zonesAsMatchable = cappedZones.map((z) => ({
+    comune: z.comune, provincia: z.provincia, lat: z.lat, lng: z.lng,
+    omiZone: z.omi?.microzona ?? null,
+    text: [z.title, z.reason, z.agentAction],
+  }));
+  const oppsAsMatchable = mergedOpportunities.map((o) => ({
+    comune: o.comune, provincia: o.provincia,
+    text: [o.headline, o.whyNow, o.recommendedMove, o.script, o.target ?? ""],
+  }));
+
+  const zoneRes = applyPadovaMicrozoneFilter(zonesAsMatchable, selectedMicrozones);
+  const oppRes = applyPadovaMicrozoneFilter(oppsAsMatchable, selectedMicrozones);
+
+  // Re-attach match info on the original objects (preserving identity/shape).
+  const annotatedZones: AgentRadarZone[] = cappedZones.map((z, i) => {
+    const m: MicrozoneMatchResult = matchPadovaMicrozone(zonesAsMatchable[i]);
+    return { ...z, microzone: m.microzone, microzone_id: m.microzone_id, microzone_match: m.microzone_match, microzone_match_confidence: m.microzone_match_confidence, microzone_match_method: m.microzone_match_method };
+  });
+  const annotatedOpps: AgentRadarOpportunity[] = mergedOpportunities.map((o, i) => {
+    const m: MicrozoneMatchResult = matchPadovaMicrozone(oppsAsMatchable[i]);
+    return { ...o, microzone: m.microzone, microzone_id: m.microzone_id, microzone_match: m.microzone_match, microzone_match_confidence: m.microzone_match_confidence, microzone_match_method: m.microzone_match_method };
+  });
+
+  const filteredZones = selectedMicrozones.length === 0
+    ? annotatedZones
+    : annotatedZones.filter((z) => z.microzone_id && selectedMicrozones.includes(z.microzone_id as PadovaMicrozoneId));
+  const filteredOpps = selectedMicrozones.length === 0
+    ? annotatedOpps
+    : annotatedOpps.filter((o) => o.microzone_id && selectedMicrozones.includes(o.microzone_id as PadovaMicrozoneId));
+
+  console.log("[agent-radar] microzones", JSON.stringify({
+    selected: selectedMicrozones,
+    mode: selectedMicrozones.length === 0 ? "annotate_only" : "filter",
+    zones_in: cappedZones.length,
+    zones_kept: filteredZones.length,
+    opps_in: mergedOpportunities.length,
+    opps_kept: filteredOpps.length,
+    zone_counts: zoneRes.matchedCounts,
+    opp_counts: oppRes.matchedCounts,
+  }));
+
+  summaryExt.hotZones = filteredZones.filter((z) => z.temperature === "calda" || z.temperature === "molto_calda").length;
+  (summaryExt as Record<string, unknown>).microzonesSelected = selectedMicrozones;
+  (summaryExt as Record<string, unknown>).microzoneMatchCounts = { zones: zoneRes.matchedCounts, opportunities: oppRes.matchedCounts };
+
   // POLICY PRODUZIONE: nessun record demo restituito al client. Mantieni demo:[] per retro-compat.
   return {
     configured: !!supa,
     scope: { region: "Veneto", province: VENETO_PROVINCES, datasetStatus, message },
     summary: summaryExt,
-    zones: cappedZones,
-    opportunities: datasetStatus === "empty" ? [] : mergedOpportunities,
+    zones: filteredZones,
+    opportunities: datasetStatus === "empty" ? [] : filteredOpps,
     dataQuality: { real, partial, demo: [], missing, warnings, privacyRejectedCount },
   } as AgentRadarResponse;
 }
