@@ -834,11 +834,51 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       else if (zoneMatch.microzone_match_confidence === "medium") breakdown.microzone_match = 2;
     }
 
+    // ── Urban transformation contributions (per-comune, small caps) ──
+    // Source: public/admin only (territorial_signals). Each contribution is bounded
+    // and the aggregate is capped so urban context cannot dominate the score.
+    const urb = urbanByComune.get(aggKey(a.comune, a.provincia));
+    if (urb) {
+      breakdown.urbanistica          = Math.min(4, urb.urbanistica * 2);
+      breakdown.opere_pubbliche      = Math.min(4, urb.opere_pubbliche * 2);
+      breakdown.mobilita_tram        = Math.min(5, urb.mobilita_tram * 2);
+      breakdown.patrimonio_pubblico  = Math.min(6, urb.patrimonio_pubblico * 3);
+      breakdown.rigenerazione_urbana = Math.min(5, urb.rigenerazione_urbana * 2);
+      breakdown.servizi_pubblici     = Math.min(3, urb.servizi_pubblici * 1);
+      // Aggregate cap on urban transformation: never more than 18 in total.
+      const urbSum = breakdown.urbanistica + breakdown.opere_pubbliche + breakdown.mobilita_tram
+        + breakdown.patrimonio_pubblico + breakdown.rigenerazione_urbana + breakdown.servizi_pubblici;
+      if (urbSum > 18) {
+        const k = 18 / urbSum;
+        breakdown.urbanistica          = Math.round(breakdown.urbanistica * k * 10) / 10;
+        breakdown.opere_pubbliche      = Math.round(breakdown.opere_pubbliche * k * 10) / 10;
+        breakdown.mobilita_tram        = Math.round(breakdown.mobilita_tram * k * 10) / 10;
+        breakdown.patrimonio_pubblico  = Math.round(breakdown.patrimonio_pubblico * k * 10) / 10;
+        breakdown.rigenerazione_urbana = Math.round(breakdown.rigenerazione_urbana * k * 10) / 10;
+        breakdown.servizi_pubblici     = Math.round(breakdown.servizi_pubblici * k * 10) / 10;
+      }
+      // Microzone × urban interaction: small explainable boost when a confidently
+      // matched microzone coincides with at least one urban transformation signal
+      // in the same comune. Never fabricates a microzone.
+      if (zoneMatch.microzone_match === "matched"
+          && zoneMatch.microzone_match_confidence !== "unknown"
+          && zoneMatch.microzone_match_confidence !== "low"
+          && urb.total > 0) {
+        breakdown.urban_microzone_context = 2;
+      }
+      if (urb.total > 0) {
+        breakdown.notes.push(`segnali urbani: ${urb.total} (urbanistica:${urb.urbanistica}, opere:${urb.opere_pubbliche}, mobilità:${urb.mobilita_tram}, patrimonio:${urb.patrimonio_pubblico}, rigenerazione:${urb.rigenerazione_urbana}, servizi:${urb.servizi_pubblici})`);
+      }
+    }
+
     let scoreRaw =
       breakdown.ribassi + breakdown.motivated_sellers + breakdown.aste +
       breakdown.stock_listings + breakdown.omi_gap + breakdown.listing_fatigue +
       breakdown.omi_quality_bonus + breakdown.capoluogo_bonus +
-      breakdown.area_opportunity_score + breakdown.microzone_match;
+      breakdown.area_opportunity_score + breakdown.microzone_match +
+      breakdown.urbanistica + breakdown.opere_pubbliche + breakdown.mobilita_tram +
+      breakdown.patrimonio_pubblico + breakdown.rigenerazione_urbana +
+      breakdown.servizi_pubblici + breakdown.urban_microzone_context;
 
     const score = Math.round(Math.min(100, Math.max(0, scoreRaw)));
     breakdown.total = score;
