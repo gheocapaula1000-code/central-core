@@ -923,7 +923,9 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       confidence: quality === "reale" ? "high" : quality === "parziale" ? "medium" : "low",
       targetType,
       streetTargets: streetTargets.length > 0 ? streetTargets : undefined,
+      score_breakdown: breakdown,
     });
+
   }
 
   zones.sort((a, b) => b.score - a.score);
