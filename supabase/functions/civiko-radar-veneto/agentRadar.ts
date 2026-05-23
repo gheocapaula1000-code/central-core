@@ -1295,6 +1295,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         for (const act of actions.slice(0, 2)) {
           const baseScore = Number(r.acquisition_priority_score) || 50;
           const matchedScript = scripts.find((s) => String(s.type) === String(act.type));
+          const oosBreakdown = buildAosOnlyBreakdown(baseScore, "offmarket_opportunity_scores:acquisition_priority_score");
           offmarketOpportunities.push({
             id: `op-oos-${r.provincia}-${String(r.comune).toLowerCase().replace(/\s+/g, "-")}-${String(act.type)}`,
             priority: priorityFromScore(baseScore),
@@ -1310,7 +1311,9 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
             quality: String(r.quality ?? "parziale"),
             target: String(act.target ?? "zona"),
             nextStep: String(act.recommendedMove ?? ""),
+            score_breakdown: oosBreakdown,
           });
+
         }
       }
       if (!partial.includes("offmarket_opportunity_scores")) partial.push("offmarket_opportunity_scores");
