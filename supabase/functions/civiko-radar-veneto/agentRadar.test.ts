@@ -97,9 +97,11 @@ Deno.test("opportunity object spread preserves score_breakdown end-to-end", () =
   assert("score_breakdown" in annotated);
 });
 
-Deno.test("buildHumanReason returns empty when no breakdown components", () => {
-  const b = buildAosOnlyBreakdown(40, "test:source");
-  // AOS-only breakdown has all per-signal fields at 0 → no top components to surface.
-  assertEquals(buildHumanReason(b, "Padova"), "");
+Deno.test("buildHumanReason surfaces AOS when only that component is present", () => {
+  const b = buildAosOnlyBreakdown(50, "test:source");
+  // AOS-only breakdown still produces a human reason citing area_opportunity_score.
+  const reason = buildHumanReason(b, "Padova");
+  assert(reason.includes("score di area Civiko"));
+  assert(reason.includes("Padova"));
   assertEquals(buildHumanReason(undefined), "");
 });
