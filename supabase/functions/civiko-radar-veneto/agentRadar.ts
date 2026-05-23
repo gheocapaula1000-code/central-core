@@ -949,13 +949,14 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         : z.signalType === "asta"
         ? `Buongiorno, seguo le procedure su ${z.comune}. Posso aiutarla a leggere il fascicolo e valutare l'opportunità prima dell'asta.`
         : `Buongiorno, ho un'analisi aggiornata della zona ${z.comune}: stock, prezzi medi e gap OMI. Posso passare a illustrarla?`;
+      const humanReason = buildHumanReason(z.score_breakdown, z.comune);
       return {
         id: `op-${z.id}-${i}`,
         priority: priorityFromScore(z.score),
         comune: z.comune,
         provincia: z.provincia,
         headline: `${z.comune}: ${signalLabel(z.signalType)} (score ${z.score})`,
-        whyNow: z.reason,
+        whyNow: humanReason || z.reason,
         recommendedMove: z.agentAction,
         script,
         dataBasis: basis,
@@ -963,8 +964,10 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         source_url: z.source_url ?? (z.sourceUrls?.find((u) => !!u) ?? null),
         confidence: z.confidence ?? (z.quality === "reale" ? "high" : z.quality === "parziale" ? "medium" : "low"),
         quality: z.quality,
+        score_breakdown: z.score_breakdown,
       };
     });
+
 
   // ── Dataset status & summary ────────────────────────────────
   // Conteggi REALI (post-filtro demo), non grezzi
