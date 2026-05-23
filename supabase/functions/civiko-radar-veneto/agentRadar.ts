@@ -19,6 +19,13 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import {
+  normalizeRequestedMicrozones,
+  applyPadovaMicrozoneFilter,
+  matchPadovaMicrozone,
+  type PadovaMicrozoneId,
+  type MicrozoneMatchResult,
+} from "./padovaMicrozones.ts";
 
 export type ProvCode = "VE" | "VR" | "VI" | "PD" | "TV" | "BL" | "RO";
 export const VENETO_PROVINCES: ProvCode[] = ["VE", "VR", "VI", "PD", "TV", "BL", "RO"];
