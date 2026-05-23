@@ -1213,6 +1213,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
       const sourceUrls = r.evidence_url ? [r.evidence_url] : [];
       const provCode = (normalizeProvincia(r.province) ?? r.province) as ProvCode | "—";
       const slug = r.municipality.toLowerCase().replace(/\s+/g,"-");
+      const odvBreakdown = buildAosOnlyBreakdown(score, "open_data_veneto:radar_signals");
       odvOpportunities.push({
         id: `op-odv-${r.province}-${slug}-${r.signal_type}`,
         priority: priorityFromScore(score),
@@ -1228,7 +1229,9 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         quality: "parziale",
         target: "agente immobiliare",
         nextStep: action,
+        score_breakdown: odvBreakdown,
       });
+
       // Build a zone for the frontend "Zone calde" widget
       odvZones.push({
         id: `odv-${r.province}-${slug}-${r.signal_type}`,
@@ -1292,6 +1295,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
         for (const act of actions.slice(0, 2)) {
           const baseScore = Number(r.acquisition_priority_score) || 50;
           const matchedScript = scripts.find((s) => String(s.type) === String(act.type));
+          const oosBreakdown = buildAosOnlyBreakdown(baseScore, "offmarket_opportunity_scores:acquisition_priority_score");
           offmarketOpportunities.push({
             id: `op-oos-${r.provincia}-${String(r.comune).toLowerCase().replace(/\s+/g, "-")}-${String(act.type)}`,
             priority: priorityFromScore(baseScore),
@@ -1307,7 +1311,9 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
             quality: String(r.quality ?? "parziale"),
             target: String(act.target ?? "zona"),
             nextStep: String(act.recommendedMove ?? ""),
+            score_breakdown: oosBreakdown,
           });
+
         }
       }
       if (!partial.includes("offmarket_opportunity_scores")) partial.push("offmarket_opportunity_scores");
@@ -1401,9 +1407,29 @@ function fullProvName(p: ProvCode): string {
   return ({ VE: "Venezia", VR: "Verona", VI: "Vicenza", PD: "Padova", TV: "Treviso", BL: "Belluno", RO: "Rovigo" } as const)[p];
 }
 
+/** Build a ScoreBreakdown for opportunities whose only computed numeric input
+ *  is an aggregate score (Open Data Veneto radar_signals.payload.score or
+ *  offmarket_opportunity_scores.acquisition_priority_score). No invented
+ *  components: every per-signal field stays 0, the real score is placed in
+ *  area_opportunity_score, and `notes` records the source table/field.
+ *  This guarantees consumers (AcquisitionRadar) always receive a
+ *  `score_breakdown` they can read, without fabricating sub-scores. */
+export function buildAosOnlyBreakdown(score: number, source: string): ScoreBreakdown {
+  const safe = Number.isFinite(score) ? Math.max(0, Math.round(score)) : 0;
+  return {
+    ribassi: 0, motivated_sellers: 0, aste: 0, stock_listings: 0,
+    omi_gap: 0, omi_gap_direction: "n/a", omi_gap_pct: null,
+    listing_fatigue: 0, omi_quality_bonus: 0, capoluogo_bonus: 0,
+    area_opportunity_score: safe, microzone_match: 0,
+    total: safe,
+    notes: [`score derived from ${source}`],
+  };
+}
+
 /** Human-readable rationale built from the score_breakdown. Highlights the
  *  top contributing components so dashboard and PDF can show "perché". */
 export function buildHumanReason(b: ScoreBreakdown | undefined, comune?: string): string {
+
   if (!b) return "";
   const parts: Array<{ label: string; v: number }> = [
     { label: "ribasso recente", v: b.ribassi },
