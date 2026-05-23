@@ -1407,9 +1407,29 @@ function fullProvName(p: ProvCode): string {
   return ({ VE: "Venezia", VR: "Verona", VI: "Vicenza", PD: "Padova", TV: "Treviso", BL: "Belluno", RO: "Rovigo" } as const)[p];
 }
 
+/** Build a ScoreBreakdown for opportunities whose only computed numeric input
+ *  is an aggregate score (Open Data Veneto radar_signals.payload.score or
+ *  offmarket_opportunity_scores.acquisition_priority_score). No invented
+ *  components: every per-signal field stays 0, the real score is placed in
+ *  area_opportunity_score, and `notes` records the source table/field.
+ *  This guarantees consumers (AcquisitionRadar) always receive a
+ *  `score_breakdown` they can read, without fabricating sub-scores. */
+export function buildAosOnlyBreakdown(score: number, source: string): ScoreBreakdown {
+  const safe = Number.isFinite(score) ? Math.max(0, Math.round(score)) : 0;
+  return {
+    ribassi: 0, motivated_sellers: 0, aste: 0, stock_listings: 0,
+    omi_gap: 0, omi_gap_direction: "n/a", omi_gap_pct: null,
+    listing_fatigue: 0, omi_quality_bonus: 0, capoluogo_bonus: 0,
+    area_opportunity_score: safe, microzone_match: 0,
+    total: safe,
+    notes: [`score derived from ${source}`],
+  };
+}
+
 /** Human-readable rationale built from the score_breakdown. Highlights the
  *  top contributing components so dashboard and PDF can show "perché". */
 export function buildHumanReason(b: ScoreBreakdown | undefined, comune?: string): string {
+
   if (!b) return "";
   const parts: Array<{ label: string; v: number }> = [
     { label: "ribasso recente", v: b.ribassi },
