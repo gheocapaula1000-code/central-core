@@ -483,6 +483,36 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     return data ?? [];
   }, warnings);
 
+  // ── Urban transformation signals (territorial_signals, public/admin only) ──
+  // Aggregated per comune into 6 buckets surfaced on score_breakdown. No personal
+  // data, no obituary. Each bucket counts DISTINCT active signals; caps applied
+  // later in the scoring loop. Source URLs are NOT exposed here — provider names
+  // and table names remain internal; only neutral labels reach the client.
+  const urbanByComune = new Map<string, UrbanBuckets>();
+  await safe("territorial_signals:urban", async () => {
+    let q = supa.from("territorial_signals")
+      .select("province,municipality,signal_type,signal_subtype,title,description")
+      .eq("is_active", true);
+    if (filterProv) q = q.in("province", [filterProv, fullProvName(filterProv)].filter(Boolean) as string[]);
+    if (filterComune) q = q.ilike("municipality", filterComune.trim());
+    const { data, error } = await q.range(0, 4999);
+    if (error) throw error;
+    for (const r of (data ?? []) as Array<{ province: string|null; municipality: string|null; signal_type: string|null; signal_subtype: string|null; title: string|null; description: string|null }>) {
+      const prov = isVenetoRow(r.province);
+      if (!prov || !r.municipality) continue;
+      const bucket = classifyUrbanSignal(r.signal_type, r.signal_subtype, r.title, r.description);
+      if (!bucket) continue;
+      const k = aggKey(r.municipality, prov);
+      let b = urbanByComune.get(k);
+      if (!b) { b = emptyUrbanBuckets(); urbanByComune.set(k, b); }
+      b[bucket]++;
+      b.total++;
+    }
+    return null;
+  }, warnings);
+
+
+
   // ── Helper: classifica record demo vs reale e split conteggi ──
   const isRecordDemo = (rec: { source?: unknown; source_name?: unknown; payload?: unknown }): boolean => {
     const p = (rec.payload ?? {}) as Record<string, unknown>;
