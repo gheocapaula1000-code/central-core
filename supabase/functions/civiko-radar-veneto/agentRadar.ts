@@ -98,7 +98,30 @@ export interface AgentRadarZone {
   microzone_match?: "matched" | "unknown";
   microzone_match_confidence?: "high" | "medium" | "low" | "unknown";
   microzone_match_method?: "label_explicit" | "indirizzo_keyword" | "omi_zone" | "text_keyword" | "none";
+  /** Transparent scoring breakdown — only components actually computed contribute.
+   *  source_reliability / freshness / inheritance_pressure live in other modules
+   *  (documentScorer.ts, inheritancePressureExtractor.ts) and are NOT yet wired
+   *  into this ranker — they are intentionally omitted rather than faked. */
+  score_breakdown?: ScoreBreakdown;
 }
+
+export interface ScoreBreakdown {
+  ribassi: number;
+  motivated_sellers: number;
+  aste: number;
+  stock_listings: number;
+  omi_gap: number;
+  omi_gap_direction: "overpricing" | "underpricing" | "neutral" | "n/a";
+  omi_gap_pct: number | null;
+  listing_fatigue: number;
+  omi_quality_bonus: number;
+  capoluogo_bonus: number;
+  area_opportunity_score: number;
+  microzone_match: number;
+  total: number;
+  notes: string[];
+}
+
 
 export interface AgentRadarStreetTarget {
   targetType: "via";
