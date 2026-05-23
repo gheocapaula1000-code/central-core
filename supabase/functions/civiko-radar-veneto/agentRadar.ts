@@ -51,6 +51,8 @@ export interface AgentRadarRequest {
   comune?: string;
   allowDemo?: boolean;
   maxZones?: number;
+  /** AcquisitionRadar Padova microzone labels (or ids). Empty = no filter. */
+  microzones?: string[];
 }
 
 export interface AgentRadarZone {
