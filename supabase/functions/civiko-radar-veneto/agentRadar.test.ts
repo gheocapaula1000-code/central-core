@@ -3,9 +3,12 @@
 import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   buildAgentRadar,
+  buildAosOnlyBreakdown,
+  buildHumanReason,
   normalizeProvincia,
   VENETO_PROVINCES,
 } from "./agentRadar.ts";
+
 
 // Ensure no service role → triggers "empty" branch (no Supabase calls).
 Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY");
