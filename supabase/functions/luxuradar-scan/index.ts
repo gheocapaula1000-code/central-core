@@ -421,9 +421,9 @@ function extractPriceEur(text: string): number | null {
   return null;
 }
 
-async function collectFromScrape(s: LuxurySource): Promise<CollectedAsset[]> {
+async function collectFromScrape(s: LuxurySource): Promise<CollectionResult> {
   const key = Deno.env.get("FIRECRAWL_API_KEY");
-  if (!key || !s.url) return [];
+  if (!key || !s.url) return { assets: [], discarded: [], rawCount: 0 };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 35_000);
   try {
@@ -457,28 +457,34 @@ async function collectFromScrape(s: LuxurySource): Promise<CollectedAsset[]> {
       }),
       signal: ctrl.signal,
     });
-    if (!res.ok) return [];
+    if (!res.ok) return { assets: [], discarded: [], rawCount: 0 };
     const data = await res.json();
     const items: Array<Record<string, unknown>> =
       data?.data?.json?.items ?? data?.json?.items ?? data?.data?.json?.aste ?? [];
-    if (!Array.isArray(items)) return [];
+    if (!Array.isArray(items)) return { assets: [], discarded: [], rawCount: 0 };
 
     const out: CollectedAsset[] = [];
+    const discarded: DiscardedSignal[] = [];
     for (const it of items) {
       const price = Number(it?.prezzoBaseEur);
-      if (!Number.isFinite(price) || price < LUXURY_MIN_EUR) continue;
+      const rawTitle = cleanTitle(`${it?.tipo ?? "Immobile"} — ${it?.citta ?? "Italia"}`);
+      if (!Number.isFinite(price) || price < LUXURY_MIN_EUR) {
+        discarded.push({ title: rawTitle, sourceUrl: String(it?.link ?? "") || null, sourceCategory: s.category, sourceId: s.id, reason: "no_price_no_asset_evidence" });
+        continue;
+      }
       const text = `${it?.tipo ?? ""} ${it?.citta ?? ""}`;
       if (hasForbiddenContent(text)) continue;
+      const loc = detectLocation(`${text} ${it?.regione ?? ""}`, s);
       const link = String(it?.link ?? "");
       const absUrl = link.startsWith("http") ? link
         : link && s.url ? new URL(link, s.url).toString() : null;
 
       const asset: CollectedAsset = {
-        title: cleanTitle(`${it?.tipo ?? "Immobile"} — ${it?.citta ?? "Italia"}`),
+        title: rawTitle,
         category: categoryFromText(text, "trophy"),
         country: "IT",
-        region: it?.regione ? String(it.regione) : (s.regionHint ?? null),
-        city: it?.citta ? String(it.citta) : (s.cityHint ?? null),
+        region: loc.region,
+        city: loc.city,
         priceEur: Math.round(price),
         priceMinEur: null, priceMaxEur: null,
         surfaceSqm: it?.superficieMq ? Math.round(Number(it.superficieMq)) : null,
@@ -488,6 +494,7 @@ async function collectFromScrape(s: LuxurySource): Promise<CollectedAsset[]> {
         heroImageUrl: null,
         priceConfidence: "exact",
         extractionConfidence: "high",
+        locationConfidence: loc.confidence,
         missingFields: [],
         rawData: { source_id: s.id, dataEvento: it?.dataEvento ?? null },
       };
@@ -495,10 +502,10 @@ async function collectFromScrape(s: LuxurySource): Promise<CollectedAsset[]> {
       out.push(asset);
 
     }
-    return out;
+    return { assets: out, discarded, rawCount: items.length };
   } catch (e) {
     console.warn(`[luxuradar] scrape ${s.id} error:`, e instanceof Error ? e.message : String(e));
-    return [];
+    return { assets: [], discarded: [], rawCount: 0 };
   } finally { clearTimeout(timer); }
 }
 
