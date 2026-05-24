@@ -916,6 +916,7 @@ function toClientAsset(row: Record<string, unknown>) {
   const raw = (row.raw_data ?? {}) as Record<string, unknown>;
   const priceConfidence = (raw.price_confidence as string) ?? (row.price_eur ? "exact" : "unknown");
   const extractionConfidence = (raw.extraction_confidence as string) ?? "medium";
+  const locationConfidence = (raw.location_confidence as string) ?? "unknown";
   const missingFields = Array.isArray(raw.missing_fields) ? raw.missing_fields as string[] : [];
 
   // Only expose a price range when both bounds exist AND we did not just
@@ -941,6 +942,7 @@ function toClientAsset(row: Record<string, unknown>) {
     priceRangeEur,
     priceConfidence,
     extractionConfidence,
+    locationConfidence,
     missingFields,
     surfaceSqm: row.surface_sqm,
     score: row.score,
@@ -956,5 +958,30 @@ function toClientAsset(row: Record<string, unknown>) {
     heroImageUrl: row.hero_image_url,
     updatedAt: row.updated_at,
   };
+}
+
+function isPublishableRow(row: Record<string, unknown>): boolean {
+  const raw = (row.raw_data ?? {}) as Record<string, unknown>;
+  const a: CollectedAsset = {
+    title: String(row.title ?? ""),
+    category: String(row.category ?? ""),
+    country: String(row.country ?? "IT"),
+    region: row.region ? String(row.region) : null,
+    city: row.city ? String(row.city) : null,
+    priceEur: typeof row.price_eur === "number" ? row.price_eur : row.price_eur ? Number(row.price_eur) : null,
+    priceMinEur: row.price_min_eur ? Number(row.price_min_eur) : null,
+    priceMaxEur: row.price_max_eur ? Number(row.price_max_eur) : null,
+    surfaceSqm: row.surface_sqm ? Number(row.surface_sqm) : null,
+    sourceCategory: String(row.source_category ?? ""),
+    sourceLabel: String(row.source_label ?? ""),
+    sourceUrl: row.source_url ? String(row.source_url) : null,
+    heroImageUrl: row.hero_image_url ? String(row.hero_image_url) : null,
+    priceConfidence: (raw.price_confidence as PriceConfidence) ?? (row.price_eur ? "exact" : "unknown"),
+    extractionConfidence: (raw.extraction_confidence as ExtractionConfidence) ?? "medium",
+    locationConfidence: (raw.location_confidence as LocationConfidence) ?? "unknown",
+    missingFields: Array.isArray(raw.missing_fields) ? raw.missing_fields as string[] : [],
+    rawData: raw,
+  };
+  return evaluatePublishability(a) === null;
 }
 
