@@ -232,7 +232,7 @@ function buildRisk(a: CollectedAsset): string {
 
 // ── Collectors (source-registry driven) ─────────────────────────────────────
 import {
-  ACTIVE_SOURCES, REGISTERED_SOURCES, getActiveSourcesFiltered,
+  REGISTERED_SOURCES, getActiveSourcesFiltered,
   type LuxurySource,
 } from "./sourceRegistry.ts";
 
