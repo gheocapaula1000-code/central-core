@@ -242,7 +242,7 @@ function evaluatePublishability(a: CollectedAsset): ExclusionReason | null {
   if (a.locationConfidence === "source_hint") return "location_hint_only";
   if (a.extractionConfidence === "low") return "low_confidence";
 
-  const text = `${a.title} ${a.rawData?.snippet ?? ""}`;
+  const text = `${a.title} ${String(a.rawData?.snippet ?? "")}`;
   const hasRealPrice = a.priceConfidence === "exact" || a.priceConfidence === "range";
   const strongSource = a.sourceCategory === "pvp_judicial" || a.sourceCategory === "public_disposal" || a.sourceCategory === "special_situation";
   const strongCategory = ["hotel", "palazzo", "villa", "castle", "historic_estate", "masseria", "trophy", "judicial_auction", "public_disposal"].includes(a.category);
@@ -380,7 +380,7 @@ function scoreAsset(a: CollectedAsset): { score: number; priority: Priority; bre
     || a.sourceCategory === "special_situation";
   const hasTrustedLocation = a.locationConfidence === "exact" || a.locationConfidence === "inferred";
   const hasUsableExtraction = a.extractionConfidence === "medium" || a.extractionConfidence === "high";
-  const strongPrimeEvidence = hasClearAssetWording(`${a.title} ${a.rawData?.snippet ?? ""}`)
+  const strongPrimeEvidence = hasClearAssetWording(`${a.title} ${String(a.rawData?.snippet ?? "")}`)
     && isInstitutional
     && a.priceConfidence !== "threshold_only"
     && a.priceConfidence !== "unknown";
