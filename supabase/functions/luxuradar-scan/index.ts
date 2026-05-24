@@ -591,10 +591,15 @@ Deno.serve(async (req) => {
       return ok({
         scan_run_id: run.id,
         sources_used: sourcesUsed,
+        source_counts: sourceCounts,
+        registered_only: REGISTERED_SOURCES.map((s) => ({
+          id: s.id, category: s.category, note: s.notes ?? "registered only",
+        })),
         assets_found: filtered.length,
         assets_new: newCount,
         assets: (rows ?? []).map(toClientAsset),
       }, debugId);
+
     }
 
     return fail(405, "method_not_allowed", `Method ${req.method} not supported`, debugId);
