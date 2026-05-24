@@ -9,7 +9,9 @@ export type SourceCategory =
   | "public_notice"
   | "special_situation"
   | "hospitality_signal"
-  | "luxury_market_signal";
+  | "luxury_market_signal"
+  | "prime_asset_signal";
+
 
 export type ExtractionMethod = "firecrawl_scrape" | "firecrawl_search" | "perplexity" | "apify" | "public_api" | "manual";
 
