@@ -89,10 +89,18 @@ const SOURCE_LABELS: Record<string, string> = {
   pvp_judicial: "Judicial auction",
   public_disposal: "Public disposal",
   luxury_market_signal: "Luxury market signal",
+  prime_asset_signal: "Prime asset signal",
   hospitality_signal: "Hospitality asset",
   special_situation: "Special situation",
   public_notice: "Public notice",
 };
+
+// "Price upon request" / POA markers — keep priceConfidence = "unknown"
+// (not threshold_only) so luxury broker pages aren't penalized as if they
+// were anchored on the €3M search threshold.
+const PRICE_ON_REQUEST_RX =
+  /(prezzo\s+(su\s+richiesta|riservato|a\s+richiesta)|price\s+(upon|on)\s+request|\bpoa\b|price:\s*request)/i;
+
 
 const FORBIDDEN_TERMS = [
   "necrolog", "obituar", "erede", "eredi", "defunto", "defunta",
