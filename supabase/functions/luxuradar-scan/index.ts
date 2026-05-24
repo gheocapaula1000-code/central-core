@@ -28,6 +28,9 @@ interface ScanFilters {
   limit?: number;
 }
 
+type PriceConfidence = "exact" | "range" | "threshold_only" | "unknown";
+type ExtractionConfidence = "high" | "medium" | "low";
+
 interface CollectedAsset {
   title: string;
   category: string;
@@ -42,6 +45,9 @@ interface CollectedAsset {
   sourceLabel: string;       // client-safe label
   sourceUrl: string | null;
   heroImageUrl: string | null;
+  priceConfidence: PriceConfidence;
+  extractionConfidence: ExtractionConfidence;
+  missingFields: string[];
   rawData: Record<string, unknown>;
 }
 
@@ -91,6 +97,43 @@ function sanitizeTitle(t: string): string {
   return out;
 }
 
+// Aggressive title cleanup for search results (PDF labels, file boilerplate, dup separators).
+function cleanTitle(raw: string): string {
+  let t = sanitizeTitle(raw);
+  // Remove bracketed file labels: [PDF], [DOC], (PDF), [XLS]…
+  t = t.replace(/[\[\(]\s*(pdf|doc|docx|xls|xlsx|ppt|pptx|file|download|scarica)\s*[\]\)]/gi, " ");
+  // Remove leading/inline "PDF -", "PDF |", "PDF:" tokens
+  t = t.replace(/(^|\s|[|·•\-–—:])\s*(pdf|doc|docx|xls|xlsx)\s*(?=\s|[|·•\-–—:]|$)/gi, "$1 ");
+  // Strip trailing file extensions on tokens like "documento.pdf"
+  t = t.replace(/\.(pdf|docx?|xlsx?|pptx?)\b/gi, "");
+  // Boilerplate phrases
+  t = t.replace(/\b(scarica\s+(il|la)?\s*(documento|allegato|pdf|file)?|allegato\s+\d*|click\s+here|leggi\s+(di\s+)?più|continua\s+a\s+leggere)\b/gi, " ");
+  // Collapse repeated separators: " | | ", " - - ", " · · "
+  t = t.replace(/([|·•\-–—:])\s*\1+/g, "$1");
+  // Trim leading/trailing separators
+  t = t.replace(/^[\s|·•\-–—:]+|[\s|·•\-–—:]+$/g, "");
+  // Collapse whitespace again
+  t = t.replace(/\s+/g, " ").trim();
+  return t.slice(0, 220);
+}
+
+// Normalize URL for dedupe: lowercase host, strip fragment + tracking params + trailing slash.
+function normalizeUrl(u: string | null): string {
+  if (!u) return "";
+  try {
+    const url = new URL(u);
+    url.hash = "";
+    const drop = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid", "ref"];
+    for (const k of drop) url.searchParams.delete(k);
+    url.hostname = url.hostname.toLowerCase();
+    let s = url.toString();
+    s = s.replace(/\/+$/, "");
+    return s.toLowerCase();
+  } catch {
+    return u.toLowerCase().trim();
+  }
+}
+
 function hasForbiddenContent(text: string): boolean {
   const lower = text.toLowerCase();
   return FORBIDDEN_TERMS.some((t) => lower.includes(t));
@@ -103,12 +146,36 @@ async function sha1(input: string): Promise<string> {
 
 async function buildDedupeKey(a: CollectedAsset): Promise<string> {
   const base = [
-    (a.sourceUrl || "").toLowerCase(),
+    normalizeUrl(a.sourceUrl),
     a.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(),
     (a.city || "").toLowerCase(),
+    (a.region || "").toLowerCase(),
+    a.category.toLowerCase(),
   ].join("|");
   return await sha1(base);
 }
+
+function computeMissingFields(a: CollectedAsset): string[] {
+  const missing: string[] = [];
+  if (!a.city) missing.push("city");
+  if (!a.region) missing.push("region");
+  if (!a.priceEur && !(a.priceMinEur && a.priceMaxEur)) missing.push("price");
+  if (!a.surfaceSqm) missing.push("surface");
+  if (!a.sourceUrl) missing.push("source_url");
+  return missing;
+}
+
+// Dossier requires real anchor data — not just a threshold-only price guess.
+function computeDossierAvailable(a: CollectedAsset): boolean {
+  if (!a.sourceUrl) return false;
+  if (!a.city && !a.region) return false;
+  if (a.priceConfidence === "threshold_only" || a.priceConfidence === "unknown") return false;
+  if (a.extractionConfidence === "low") return false;
+  // At least 3 meaningful fields beyond the URL
+  const present = [a.city, a.region, a.priceEur, a.surfaceSqm, a.category].filter(Boolean).length;
+  return present >= 3;
+}
+
 
 // ── Scoring ─────────────────────────────────────────────────────────────────
 interface ScoreBreakdown {
@@ -141,12 +208,16 @@ function scoreAsset(a: CollectedAsset): { score: number; priority: Priority; bre
     freshness: 0, completeness: 0, risk_penalty: 0, total: 0,
   };
 
-  const price = a.priceEur ?? a.priceMaxEur ?? a.priceMinEur ?? 0;
-  if (price >= 20_000_000) b.price = 25;
-  else if (price >= 10_000_000) b.price = 20;
-  else if (price >= PRIME_MIN_EUR) b.price = 15;
-  else if (price >= LUXURY_MIN_EUR) b.price = 10;
-  else if (price > 0) b.price = 4;
+  // Only score on a real, extracted price. Threshold-only/unknown prices do NOT
+  // get treated like a real €3M asking price.
+  const realPrice = a.priceConfidence === "exact" || a.priceConfidence === "range"
+    ? (a.priceEur ?? a.priceMaxEur ?? a.priceMinEur ?? 0)
+    : 0;
+  if (realPrice >= 20_000_000) b.price = 25;
+  else if (realPrice >= 10_000_000) b.price = 20;
+  else if (realPrice >= PRIME_MIN_EUR) b.price = 15;
+  else if (realPrice >= LUXURY_MIN_EUR) b.price = 10;
+  else if (realPrice > 0) b.price = 4;
 
   // rarity by category
   const rare = ["castle", "historic_estate", "palazzo", "trophy", "masseria"];
@@ -173,13 +244,20 @@ function scoreAsset(a: CollectedAsset): { score: number; priority: Priority; bre
   let comp = 0;
   if (a.city) comp += 2;
   if (a.region) comp += 1;
-  if (a.priceEur || (a.priceMinEur && a.priceMaxEur)) comp += 3;
+  if (a.priceConfidence === "exact") comp += 3;
+  else if (a.priceConfidence === "range") comp += 2;
   if (a.surfaceSqm) comp += 2;
   if (a.sourceUrl) comp += 2;
+  if (a.extractionConfidence === "low") comp = Math.max(0, comp - 2);
   b.completeness = Math.min(10, comp);
 
   // small risk penalty for judicial assets (procedural risk)
   if (a.sourceCategory === "pvp_judicial") b.risk_penalty = -3;
+  // Penalize threshold-only / unknown prices so they cannot reach high priority
+  // on the back of a fake €3M anchor.
+  if (a.priceConfidence === "threshold_only") b.risk_penalty -= 6;
+  if (a.priceConfidence === "unknown") b.risk_penalty -= 4;
+  if (a.extractionConfidence === "low") b.risk_penalty -= 3;
 
   const total = Math.max(0, Math.min(100,
     b.price + b.rarity + b.location_prestige + b.source_quality +
@@ -192,10 +270,11 @@ function scoreAsset(a: CollectedAsset): { score: number; priority: Priority; bre
   const isInstitutional = a.sourceCategory === "pvp_judicial"
     || a.sourceCategory === "public_disposal"
     || a.sourceCategory === "special_situation";
-  if (price >= PRIME_MIN_EUR && isInstitutional && total >= 60) priority = "critical";
-  else if (price >= PRIME_MIN_EUR && total >= 55) priority = "high";
-  else if (price >= LUXURY_MIN_EUR && total >= 40) priority = "medium";
-  else if (total >= 30) priority = "medium";
+  // Critical/high require a real extracted price ≥ Prime threshold.
+  if (realPrice >= PRIME_MIN_EUR && isInstitutional && total >= 60) priority = "critical";
+  else if (realPrice >= PRIME_MIN_EUR && total >= 55) priority = "high";
+  else if (realPrice >= LUXURY_MIN_EUR && total >= 40) priority = "medium";
+  else if (total >= 30 && a.priceConfidence !== "threshold_only") priority = "medium";
 
   return { score: total, priority, breakdown: b };
 }
@@ -315,8 +394,8 @@ async function collectFromScrape(s: LuxurySource): Promise<CollectedAsset[]> {
       const absUrl = link.startsWith("http") ? link
         : link && s.url ? new URL(link, s.url).toString() : null;
 
-      out.push({
-        title: sanitizeTitle(`${it?.tipo ?? "Immobile"} — ${it?.citta ?? "Italia"}`),
+      const asset: CollectedAsset = {
+        title: cleanTitle(`${it?.tipo ?? "Immobile"} — ${it?.citta ?? "Italia"}`),
         category: categoryFromText(text, "trophy"),
         country: "IT",
         region: it?.regione ? String(it.regione) : (s.regionHint ?? null),
@@ -328,8 +407,14 @@ async function collectFromScrape(s: LuxurySource): Promise<CollectedAsset[]> {
         sourceLabel: s.label,
         sourceUrl: absUrl,
         heroImageUrl: null,
+        priceConfidence: "exact",
+        extractionConfidence: "high",
+        missingFields: [],
         rawData: { source_id: s.id, dataEvento: it?.dataEvento ?? null },
-      });
+      };
+      asset.missingFields = computeMissingFields(asset);
+      out.push(asset);
+
     }
     return out;
   } catch (e) {
@@ -358,40 +443,60 @@ async function collectFromSearch(s: LuxurySource): Promise<CollectedAsset[]> {
 
     const out: CollectedAsset[] = [];
     for (const r of results) {
-      const title = String(r?.title ?? "").trim();
+      const rawTitle = String(r?.title ?? "").trim();
       const desc = String(r?.description ?? "");
       const url = String(r?.url ?? "");
-      if (!title || !url) continue;
+      if (!rawTitle || !url) continue;
+      const title = cleanTitle(rawTitle);
+      if (!title || title.length < 6) continue;
       const combined = `${title} ${desc}`;
       if (hasForbiddenContent(combined)) continue;
       if (!/alienazione|vendita|bando|asta|disposal|demanio|patrimonio|hotel|villa|palazzo|castello|dimora|tenuta|complesso|dismissione|cessione|masser/i.test(combined)) continue;
 
       const priceEur = extractPriceEur(combined);
       const isSpecialSituation = s.category === "special_situation";
+      const isInstitutional = isSpecialSituation || s.category === "public_disposal" || s.category === "pvp_judicial";
       // Filter: drop below €3M unless special situation with unknown price
       if (priceEur && priceEur < LUXURY_MIN_EUR) continue;
-      if (!priceEur && !isSpecialSituation && s.category !== "public_disposal" && s.category !== "pvp_judicial") continue;
+      if (!priceEur && !isInstitutional) continue;
 
       const category = categoryFromText(combined, s.expectedTypes[0] ?? "trophy");
+      // Detect PDF-only results: extraction confidence is lower.
+      const isPdf = /\.pdf(?:$|\?|#)/i.test(url) || /\[pdf\]|\bpdf\b/i.test(rawTitle);
+      const priceConfidence: PriceConfidence = priceEur ? "exact" : "threshold_only";
+      const extractionConfidence: ExtractionConfidence =
+        priceEur ? (isPdf ? "medium" : "high") : (isPdf ? "low" : "medium");
 
-      out.push({
-        title: sanitizeTitle(title),
+      const asset: CollectedAsset = {
+        title,
         category,
         country: "IT",
         region: s.regionHint ?? null,
         city: s.cityHint ?? null,
         priceEur,
-        priceMinEur: priceEur ? null : LUXURY_MIN_EUR,
+        // Do NOT fake €3M as priceMinEur when only the search threshold is known.
+        priceMinEur: null,
         priceMaxEur: null,
         surfaceSqm: null,
         sourceCategory: s.category,
         sourceLabel: s.label,
         sourceUrl: url,
         heroImageUrl: null,
-        rawData: { source_id: s.id, snippet: desc.slice(0, 400) },
-      });
+        priceConfidence,
+        extractionConfidence,
+        missingFields: [],
+        rawData: {
+          source_id: s.id,
+          snippet: desc.slice(0, 400),
+          is_pdf: isPdf,
+          original_title: rawTitle !== title ? rawTitle.slice(0, 240) : undefined,
+        },
+      };
+      asset.missingFields = computeMissingFields(asset);
+      out.push(asset);
     }
     return out;
+
   } catch (e) {
     console.warn(`[luxuradar] search ${s.id} error:`, e instanceof Error ? e.message : String(e));
     return [];
@@ -427,15 +532,19 @@ function applyFilters(assets: CollectedAsset[], f: ScanFilters): CollectedAsset[
   });
 }
 
-// In-memory dedupe within a single scan (DB upsert handles cross-run dedupe)
+// In-memory dedupe within a single scan (DB upsert handles cross-run dedupe).
+// Uses normalized URL + cleaned title + city + region + category to avoid
+// duplicates surfaced by the same PDF or search result across queries.
 function dedupeWithinRun(assets: CollectedAsset[]): CollectedAsset[] {
   const seen = new Set<string>();
   const out: CollectedAsset[] = [];
   for (const a of assets) {
     const key = [
-      (a.sourceUrl || "").toLowerCase(),
+      normalizeUrl(a.sourceUrl),
       a.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(),
       (a.city || "").toLowerCase(),
+      (a.region || "").toLowerCase(),
+      a.category.toLowerCase(),
     ].join("|");
     if (seen.has(key)) continue;
     seen.add(key);
@@ -443,6 +552,7 @@ function dedupeWithinRun(assets: CollectedAsset[]): CollectedAsset[] {
   }
   return out;
 }
+
 
 
 
@@ -555,9 +665,16 @@ Deno.serve(async (req) => {
           source_category: a.sourceCategory,
           source_label: a.sourceLabel,
           source_url: a.sourceUrl,
-          dossier_available: !!(a.city && (a.priceEur || a.priceMinEur) && a.sourceUrl),
+          dossier_available: computeDossierAvailable(a),
           hero_image_url: a.heroImageUrl,
-          raw_data: { ...a.rawData, score_breakdown: breakdown },
+          raw_data: {
+            ...a.rawData,
+            score_breakdown: breakdown,
+            price_confidence: a.priceConfidence,
+            extraction_confidence: a.extractionConfidence,
+            missing_fields: a.missingFields,
+          },
+
           dedupe_key: dedupeKey,
           scan_run_id: run.id,
         };
@@ -611,6 +728,21 @@ Deno.serve(async (req) => {
 
 // ── Client mapping ──────────────────────────────────────────────────────────
 function toClientAsset(row: Record<string, unknown>) {
+  const raw = (row.raw_data ?? {}) as Record<string, unknown>;
+  const priceConfidence = (raw.price_confidence as string) ?? (row.price_eur ? "exact" : "unknown");
+  const extractionConfidence = (raw.extraction_confidence as string) ?? "medium";
+  const missingFields = Array.isArray(raw.missing_fields) ? raw.missing_fields as string[] : [];
+
+  // Only expose a price range when both bounds exist AND we did not just
+  // anchor on the scan threshold. Threshold-only rows return null here so
+  // clients cannot mistake €3M for a real asking price.
+  let priceRangeEur: { min: unknown; max: unknown } | null = null;
+  if (priceConfidence !== "threshold_only" && priceConfidence !== "unknown") {
+    if (row.price_min_eur && row.price_max_eur) {
+      priceRangeEur = { min: row.price_min_eur, max: row.price_max_eur };
+    }
+  }
+
   return {
     id: row.id,
     title: row.title,
@@ -620,9 +752,11 @@ function toClientAsset(row: Record<string, unknown>) {
       region: row.region,
       city: row.city,
     },
-    priceEur: row.price_eur,
-    priceRangeEur: (row.price_min_eur || row.price_max_eur)
-      ? { min: row.price_min_eur, max: row.price_max_eur } : null,
+    priceEur: priceConfidence === "exact" ? row.price_eur : null,
+    priceRangeEur,
+    priceConfidence,
+    extractionConfidence,
+    missingFields,
     surfaceSqm: row.surface_sqm,
     score: row.score,
     priority: row.priority,
@@ -638,3 +772,4 @@ function toClientAsset(row: Record<string, unknown>) {
     updatedAt: row.updated_at,
   };
 }
+
