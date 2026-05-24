@@ -589,8 +589,6 @@ async function collectFromSearch(s: LuxurySource): Promise<CollectionResult> {
       }
 
       const priceEur = extractPriceEur(combined);
-      const isSpecialSituation = s.category === "special_situation";
-      const isInstitutional = isSpecialSituation || s.category === "public_disposal" || s.category === "pvp_judicial";
       // Filter: drop below €3M unless special situation with unknown price
       if (priceEur && priceEur < LUXURY_MIN_EUR) continue;
       if (!priceEur && !hasAssetWording) {
