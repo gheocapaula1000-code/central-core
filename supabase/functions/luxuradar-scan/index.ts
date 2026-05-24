@@ -558,7 +558,7 @@ async function collectFromSearch(s: LuxurySource): Promise<CollectionResult> {
       const isInstitutional = isSpecialSituation || s.category === "public_disposal" || s.category === "pvp_judicial";
       // Filter: drop below €3M unless special situation with unknown price
       if (priceEur && priceEur < LUXURY_MIN_EUR) continue;
-      if (!priceEur && !isInstitutional && !hasAssetWording) {
+      if (!priceEur && !hasAssetWording) {
         discarded.push({ title, sourceUrl: url, sourceCategory: s.category, sourceId: s.id, reason: "no_price_no_asset_evidence" });
         continue;
       }
