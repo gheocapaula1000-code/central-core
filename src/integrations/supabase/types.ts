@@ -2272,6 +2272,129 @@ export type Database = {
         }
         Relationships: []
       }
+      luxuradar_assets: {
+        Row: {
+          category: string
+          city: string | null
+          country: string
+          created_at: string
+          dedupe_key: string
+          dossier_available: boolean
+          hero_image_url: string | null
+          id: string
+          opportunity: string | null
+          price_eur: number | null
+          price_max_eur: number | null
+          price_min_eur: number | null
+          priority: string
+          raw_data: Json
+          region: string | null
+          risk: string | null
+          scan_run_id: string | null
+          score: number
+          source_category: string
+          source_label: string
+          source_url: string | null
+          surface_sqm: number | null
+          title: string
+          updated_at: string
+          why_now: string | null
+        }
+        Insert: {
+          category: string
+          city?: string | null
+          country?: string
+          created_at?: string
+          dedupe_key: string
+          dossier_available?: boolean
+          hero_image_url?: string | null
+          id?: string
+          opportunity?: string | null
+          price_eur?: number | null
+          price_max_eur?: number | null
+          price_min_eur?: number | null
+          priority?: string
+          raw_data?: Json
+          region?: string | null
+          risk?: string | null
+          scan_run_id?: string | null
+          score?: number
+          source_category: string
+          source_label: string
+          source_url?: string | null
+          surface_sqm?: number | null
+          title: string
+          updated_at?: string
+          why_now?: string | null
+        }
+        Update: {
+          category?: string
+          city?: string | null
+          country?: string
+          created_at?: string
+          dedupe_key?: string
+          dossier_available?: boolean
+          hero_image_url?: string | null
+          id?: string
+          opportunity?: string | null
+          price_eur?: number | null
+          price_max_eur?: number | null
+          price_min_eur?: number | null
+          priority?: string
+          raw_data?: Json
+          region?: string | null
+          risk?: string | null
+          scan_run_id?: string | null
+          score?: number
+          source_category?: string
+          source_label?: string
+          source_url?: string | null
+          surface_sqm?: number | null
+          title?: string
+          updated_at?: string
+          why_now?: string | null
+        }
+        Relationships: []
+      }
+      luxuradar_scan_runs: {
+        Row: {
+          assets_found: number
+          assets_new: number
+          created_at: string
+          error: string | null
+          filters: Json
+          finished_at: string | null
+          id: string
+          sources_used: string[]
+          started_at: string
+          status: string
+        }
+        Insert: {
+          assets_found?: number
+          assets_new?: number
+          created_at?: string
+          error?: string | null
+          filters?: Json
+          finished_at?: string | null
+          id?: string
+          sources_used?: string[]
+          started_at?: string
+          status?: string
+        }
+        Update: {
+          assets_found?: number
+          assets_new?: number
+          created_at?: string
+          error?: string | null
+          filters?: Json
+          finished_at?: string | null
+          id?: string
+          sources_used?: string[]
+          started_at?: string
+          status?: string
+        }
+        Relationships: []
+      }
       market_anomalies: {
         Row: {
           anomaly_type: string
