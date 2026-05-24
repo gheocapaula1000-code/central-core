@@ -510,7 +510,15 @@ async function collectFromScrape(s: LuxurySource): Promise<CollectionResult> {
       }
       const text = `${it?.tipo ?? ""} ${it?.citta ?? ""}`;
       if (hasForbiddenContent(text)) continue;
-      const loc = detectLocation(`${text} ${it?.regione ?? ""}`, s);
+      const structuredCity = it?.citta ? String(it.citta).trim() : null;
+      const structuredRegion = it?.regione ? String(it.regione).trim() : null;
+      const loc = structuredCity || structuredRegion
+        ? {
+          city: structuredCity,
+          region: structuredRegion,
+          confidence: structuredCity && structuredRegion ? "exact" as const : "inferred" as const,
+        }
+        : detectLocation(text, s);
       const link = String(it?.link ?? "");
       const absUrl = link.startsWith("http") ? link
         : link && s.url ? new URL(link, s.url).toString() : null;
