@@ -765,6 +765,9 @@ Deno.serve(async (req) => {
       const sourcesUsed: string[] = [];
       const sourceCounts: Record<string, number> = {};
       const collected: CollectedAsset[] = [];
+      const signalsDiscarded: DiscardedSignal[] = [];
+      const signalsNeedingReview: DiscardedSignal[] = [];
+      let rawResultsBeforeQualityGate = 0;
 
       // Pick active sources matching filters; cap total upstream calls.
       const MAX_SOURCES_PER_RUN = 10;
@@ -780,16 +783,35 @@ Deno.serve(async (req) => {
           collectFromSource(s).then((rs) => ({ s, rs }))
         ));
         for (const { s, rs } of results) {
-          if (rs.length) {
+          rawResultsBeforeQualityGate += rs.rawCount;
+          if (rs.rawCount || rs.assets.length || rs.discarded.length) {
             sourcesUsed.push(s.id);
-            sourceCounts[s.id] = rs.length;
-            collected.push(...rs);
+            sourceCounts[s.id] = rs.rawCount;
+            collected.push(...rs.assets);
+            signalsDiscarded.push(...rs.discarded);
           }
         }
       }
 
       const deduped = dedupeWithinRun(collected);
-      const filtered = applyFilters(deduped, filters).slice(0, filters.limit ?? 30);
+      signalsDiscarded.push(...deduped.duplicates);
+      const filteredByRequest = applyFilters(deduped.assets, filters);
+      const publishable: CollectedAsset[] = [];
+      for (const a of filteredByRequest) {
+        const reason = evaluatePublishability(a);
+        if (!reason) {
+          publishable.push(a);
+          continue;
+        }
+        const signal = signalFromAsset(a, reason);
+        console.info(`[luxuradar] excluded ${reason}: ${signal.title} ${signal.sourceUrl ?? ""}`);
+        if (reason === "low_confidence" || reason === "location_hint_only" || reason === "no_price_no_asset_evidence") {
+          signalsNeedingReview.push(signal);
+        } else {
+          signalsDiscarded.push(signal);
+        }
+      }
+      const filtered = publishable.slice(0, filters.limit ?? 30);
 
 
       // Score, dedupe-key, upsert
