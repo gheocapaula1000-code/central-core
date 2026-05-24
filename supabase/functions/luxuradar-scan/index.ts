@@ -845,6 +845,8 @@ Deno.serve(async (req) => {
             score_breakdown: breakdown,
             price_confidence: a.priceConfidence,
             extraction_confidence: a.extractionConfidence,
+            location_confidence: a.locationConfidence,
+            publishable_asset: true,
             missing_fields: a.missingFields,
           },
 
@@ -885,6 +887,14 @@ Deno.serve(async (req) => {
         registered_only: REGISTERED_SOURCES.map((s) => ({
           id: s.id, category: s.category, note: s.notes ?? "registered only",
         })),
+        raw_results_before_quality_gate: rawResultsBeforeQualityGate,
+        signals_discarded: signalsDiscarded.slice(0, 50),
+        signals_needing_review: signalsNeedingReview.slice(0, 50),
+        quality_warnings: [
+          "assets[] contains only publishable asset candidates",
+          "generic administrative/search/archive/urban-planning pages are excluded from assets[]",
+          "source hints alone do not confirm asset location",
+        ],
         assets_found: filtered.length,
         assets_new: newCount,
         assets: (rows ?? []).map(toClientAsset),
