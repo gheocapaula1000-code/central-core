@@ -157,6 +157,39 @@ function hasForbiddenContent(text: string): boolean {
   return FORBIDDEN_TERMS.some((t) => lower.includes(t));
 }
 
+const GENERIC_ADMIN_PATTERNS = [
+  /\belenco\s+siti\b/i,
+  /\bsiti\s+drupal\b/i,
+  /\bvariante\s+urbanistica\b/i,
+  /\bp\.?r\.?g\.?\b|piano\s+regolatore/i,
+  /\burbanistica\b|governo\s+del\s+territorio/i,
+  /\bpatrimonio\s+immobiliare\b/i,
+  /\balbo\s+pretorio\b/i,
+  /\barchivio\b|archivio\s+atti/i,
+  /\bamministrazione\s+trasparente\b/i,
+  /\bbandi\s+di\s+gara\b|\bavvisi\s+pubblici\b/i,
+  /\bhomepage\b|\bmappa\s+del\s+sito\b/i,
+  /\bmodulistica\b|\bregolamenti\b/i,
+];
+
+const CLEAR_ASSET_WORDING = /\b(villa|hotel|albergo|resort|relais|palazzo|castello|masseria|tenuta|dimora|complesso\s+immobiliare|immobile\s+di\s+pregio|villa\s+storica|palazzo\s+storico)\b/i;
+
+function isGenericAdminPage(text: string): boolean {
+  return GENERIC_ADMIN_PATTERNS.some((rx) => rx.test(text));
+}
+
+function hasClearAssetWording(text: string): boolean {
+  return CLEAR_ASSET_WORDING.test(text);
+}
+
+function isMeaningfulTitle(title: string): boolean {
+  const compact = title.toLowerCase().replace(/[^a-z0-9àèéìòù]+/gi, " ").trim();
+  if (compact.length < 12) return false;
+  if (isGenericAdminPage(compact)) return false;
+  if (/^(beni\s+immobili|patrimonio|alienazioni|vendite|aste|avvisi|bandi)$/i.test(compact)) return false;
+  return compact.split(/\s+/).filter(Boolean).length >= 3;
+}
+
 async function sha1(input: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(input));
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
