@@ -28,6 +28,9 @@ interface ScanFilters {
   limit?: number;
 }
 
+type PriceConfidence = "exact" | "range" | "threshold_only" | "unknown";
+type ExtractionConfidence = "high" | "medium" | "low";
+
 interface CollectedAsset {
   title: string;
   category: string;
@@ -42,6 +45,9 @@ interface CollectedAsset {
   sourceLabel: string;       // client-safe label
   sourceUrl: string | null;
   heroImageUrl: string | null;
+  priceConfidence: PriceConfidence;
+  extractionConfidence: ExtractionConfidence;
+  missingFields: string[];
   rawData: Record<string, unknown>;
 }
 
