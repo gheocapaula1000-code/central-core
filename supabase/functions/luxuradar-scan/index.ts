@@ -821,6 +821,10 @@ Deno.serve(async (req) => {
       }
       const filtered = publishable.slice(0, filters.limit ?? 30);
 
+      for (const signal of [...signalsDiscarded, ...signalsNeedingReview].slice(0, 100)) {
+        console.info(`[luxuradar] excluded ${signal.reason}: ${signal.title} ${signal.sourceUrl ?? ""}`);
+      }
+
 
       // Score, dedupe-key, upsert
       const persistedIds: string[] = [];
