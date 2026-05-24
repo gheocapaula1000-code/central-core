@@ -682,9 +682,10 @@ function applyFilters(assets: CollectedAsset[], f: ScanFilters): CollectedAsset[
 // In-memory dedupe within a single scan (DB upsert handles cross-run dedupe).
 // Uses normalized URL + cleaned title + city + region + category to avoid
 // duplicates surfaced by the same PDF or search result across queries.
-function dedupeWithinRun(assets: CollectedAsset[]): CollectedAsset[] {
+function dedupeWithinRun(assets: CollectedAsset[]): { assets: CollectedAsset[]; duplicates: DiscardedSignal[] } {
   const seen = new Set<string>();
   const out: CollectedAsset[] = [];
+  const duplicates: DiscardedSignal[] = [];
   for (const a of assets) {
     const key = [
       normalizeUrl(a.sourceUrl),
@@ -693,11 +694,14 @@ function dedupeWithinRun(assets: CollectedAsset[]): CollectedAsset[] {
       (a.region || "").toLowerCase(),
       a.category.toLowerCase(),
     ].join("|");
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {
+      duplicates.push(signalFromAsset(a, "duplicate"));
+      continue;
+    }
     seen.add(key);
     out.push(a);
   }
-  return out;
+  return { assets: out, duplicates };
 }
 
 
