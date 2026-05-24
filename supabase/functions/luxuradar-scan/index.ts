@@ -30,6 +30,29 @@ interface ScanFilters {
 
 type PriceConfidence = "exact" | "range" | "threshold_only" | "unknown";
 type ExtractionConfidence = "high" | "medium" | "low";
+type LocationConfidence = "exact" | "inferred" | "source_hint" | "unknown";
+type ExclusionReason =
+  | "generic_admin_page"
+  | "no_asset_detected"
+  | "low_confidence"
+  | "location_hint_only"
+  | "no_price_no_asset_evidence"
+  | "duplicate"
+  | "boilerplate";
+
+interface DiscardedSignal {
+  title: string;
+  sourceUrl: string | null;
+  sourceCategory: string;
+  reason: ExclusionReason;
+  sourceId?: string;
+}
+
+interface CollectionResult {
+  assets: CollectedAsset[];
+  discarded: DiscardedSignal[];
+  rawCount: number;
+}
 
 interface CollectedAsset {
   title: string;
@@ -47,6 +70,7 @@ interface CollectedAsset {
   heroImageUrl: string | null;
   priceConfidence: PriceConfidence;
   extractionConfidence: ExtractionConfidence;
+  locationConfidence: LocationConfidence;
   missingFields: string[];
   rawData: Record<string, unknown>;
 }
@@ -139,6 +163,39 @@ function hasForbiddenContent(text: string): boolean {
   return FORBIDDEN_TERMS.some((t) => lower.includes(t));
 }
 
+const GENERIC_ADMIN_PATTERNS = [
+  /\belenco\s+siti\b/i,
+  /\bsiti\s+drupal\b/i,
+  /\bvariante\s+urbanistica\b/i,
+  /\bp\.?r\.?g\.?\b|piano\s+regolatore/i,
+  /\burbanistica\b|governo\s+del\s+territorio/i,
+  /\bpatrimonio\s+immobiliare\b/i,
+  /\balbo\s+pretorio\b/i,
+  /\barchivio\b|archivio\s+atti/i,
+  /\bamministrazione\s+trasparente\b/i,
+  /\bbandi\s+di\s+gara\b|\bavvisi\s+pubblici\b/i,
+  /\bhomepage\b|\bmappa\s+del\s+sito\b/i,
+  /\bmodulistica\b|\bregolamenti\b/i,
+];
+
+const CLEAR_ASSET_WORDING = /\b(villa|hotel|albergo|resort|relais|palazzo|castello|masseria|tenuta|dimora|complesso\s+immobiliare|immobile\s+di\s+pregio|villa\s+storica|palazzo\s+storico)\b/i;
+
+function isGenericAdminPage(text: string): boolean {
+  return GENERIC_ADMIN_PATTERNS.some((rx) => rx.test(text));
+}
+
+function hasClearAssetWording(text: string): boolean {
+  return CLEAR_ASSET_WORDING.test(text);
+}
+
+function isMeaningfulTitle(title: string): boolean {
+  const compact = title.toLowerCase().replace(/[^a-z0-9àèéìòù]+/gi, " ").trim();
+  if (compact.length < 12) return false;
+  if (isGenericAdminPage(compact)) return false;
+  if (/^(beni\s+immobili|patrimonio|alienazioni|vendite|aste|avvisi|bandi)$/i.test(compact)) return false;
+  return compact.split(/\s+/).filter(Boolean).length >= 3;
+}
+
 async function sha1(input: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(input));
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -169,11 +226,38 @@ function computeMissingFields(a: CollectedAsset): string[] {
 function computeDossierAvailable(a: CollectedAsset): boolean {
   if (!a.sourceUrl) return false;
   if (!a.city && !a.region) return false;
+  if (a.locationConfidence === "source_hint" || a.locationConfidence === "unknown") return false;
   if (a.priceConfidence === "threshold_only" || a.priceConfidence === "unknown") return false;
   if (a.extractionConfidence === "low") return false;
   // At least 3 meaningful fields beyond the URL
   const present = [a.city, a.region, a.priceEur, a.surfaceSqm, a.category].filter(Boolean).length;
   return present >= 3;
+}
+
+function evaluatePublishability(a: CollectedAsset): ExclusionReason | null {
+  if (!isMeaningfulTitle(a.title)) return "boilerplate";
+  if (!a.sourceUrl) return "no_asset_detected";
+  if (a.category === "signal_only" || !ALLOWED_CATEGORIES.includes(a.category)) return "no_asset_detected";
+  if (a.locationConfidence === "unknown" || !a.city && !a.region) return "no_asset_detected";
+  if (a.locationConfidence === "source_hint") return "location_hint_only";
+  if (a.extractionConfidence === "low") return "low_confidence";
+
+  const text = `${a.title} ${String(a.rawData?.snippet ?? "")}`;
+  const hasRealPrice = a.priceConfidence === "exact" || a.priceConfidence === "range";
+  const strongSource = a.sourceCategory === "pvp_judicial" || a.sourceCategory === "public_disposal" || a.sourceCategory === "special_situation";
+  const strongCategory = ["hotel", "palazzo", "villa", "castle", "historic_estate", "masseria", "trophy", "judicial_auction", "public_disposal"].includes(a.category);
+  if (hasRealPrice || hasClearAssetWording(text) || (strongCategory && strongSource)) return null;
+  return "no_price_no_asset_evidence";
+}
+
+function signalFromAsset(a: CollectedAsset, reason: ExclusionReason): DiscardedSignal {
+  return {
+    title: a.title,
+    sourceUrl: a.sourceUrl,
+    sourceCategory: a.sourceCategory,
+    sourceId: String(a.rawData?.source_id ?? ""),
+    reason,
+  };
 }
 
 
@@ -200,6 +284,28 @@ const PRESTIGE_CITIES = new Set([
 const PRESTIGE_REGIONS = new Set([
   "lombardia", "toscana", "lazio", "veneto", "liguria", "sicilia", "campania",
 ]);
+
+const ITALIAN_REGIONS = [
+  "Abruzzo", "Basilicata", "Calabria", "Campania", "Emilia-Romagna", "Friuli-Venezia Giulia",
+  "Lazio", "Liguria", "Lombardia", "Marche", "Molise", "Piemonte", "Puglia", "Sardegna",
+  "Sicilia", "Toscana", "Trentino-Alto Adige", "Umbria", "Valle d'Aosta", "Veneto",
+];
+
+const KNOWN_CITIES = [
+  "Milano", "Roma", "Firenze", "Venezia", "Como", "Portofino", "Capri", "Cortina d'Ampezzo",
+  "Cortina", "Taormina", "Positano", "Amalfi", "Santa Margherita Ligure", "Torino", "Napoli",
+  "Palermo", "Bologna", "Verona", "Siena", "Lucca", "Pisa", "Arezzo", "Olbia", "Porto Cervo",
+];
+
+function detectLocation(text: string, s?: LuxurySource): { city: string | null; region: string | null; confidence: LocationConfidence } {
+  const lower = text.toLowerCase();
+  const city = KNOWN_CITIES.find((c) => lower.includes(c.toLowerCase())) ?? null;
+  const region = ITALIAN_REGIONS.find((r) => lower.includes(r.toLowerCase())) ?? null;
+  if (city && region) return { city, region, confidence: "exact" };
+  if (city || region) return { city, region, confidence: "inferred" };
+  if (s?.cityHint || s?.regionHint) return { city: s.cityHint ?? null, region: s.regionHint ?? null, confidence: "source_hint" };
+  return { city: null, region: null, confidence: "unknown" };
+}
 
 function scoreAsset(a: CollectedAsset): { score: number; priority: Priority; breakdown: ScoreBreakdown } {
   const b: ScoreBreakdown = {
@@ -258,6 +364,8 @@ function scoreAsset(a: CollectedAsset): { score: number; priority: Priority; bre
   if (a.priceConfidence === "threshold_only") b.risk_penalty -= 6;
   if (a.priceConfidence === "unknown") b.risk_penalty -= 4;
   if (a.extractionConfidence === "low") b.risk_penalty -= 3;
+  if (a.locationConfidence === "source_hint") b.risk_penalty -= 8;
+  if (a.locationConfidence === "unknown") b.risk_penalty -= 10;
 
   const total = Math.max(0, Math.min(100,
     b.price + b.rarity + b.location_prestige + b.source_quality +
@@ -270,9 +378,15 @@ function scoreAsset(a: CollectedAsset): { score: number; priority: Priority; bre
   const isInstitutional = a.sourceCategory === "pvp_judicial"
     || a.sourceCategory === "public_disposal"
     || a.sourceCategory === "special_situation";
+  const hasTrustedLocation = a.locationConfidence === "exact" || a.locationConfidence === "inferred";
+  const hasUsableExtraction = a.extractionConfidence === "medium" || a.extractionConfidence === "high";
+  const strongPrimeEvidence = hasClearAssetWording(`${a.title} ${String(a.rawData?.snippet ?? "")}`)
+    && isInstitutional
+    && a.priceConfidence !== "threshold_only"
+    && a.priceConfidence !== "unknown";
   // Critical/high require a real extracted price ≥ Prime threshold.
-  if (realPrice >= PRIME_MIN_EUR && isInstitutional && total >= 60) priority = "critical";
-  else if (realPrice >= PRIME_MIN_EUR && total >= 55) priority = "high";
+  if (hasTrustedLocation && hasUsableExtraction && realPrice >= PRIME_MIN_EUR && isInstitutional && total >= 60) priority = "critical";
+  else if (hasTrustedLocation && hasUsableExtraction && ((realPrice >= PRIME_MIN_EUR) || strongPrimeEvidence) && total >= 55) priority = "high";
   else if (realPrice >= LUXURY_MIN_EUR && total >= 40) priority = "medium";
   else if (total >= 30 && a.priceConfidence !== "threshold_only") priority = "medium";
 
@@ -317,12 +431,13 @@ import {
 
 function categoryFromText(text: string, fallback: string): string {
   const t = text.toLowerCase();
+  if (isGenericAdminPage(t)) return "signal_only";
   if (/villa/.test(t)) return "villa";
   if (/hotel|albergh|relais|resort/.test(t)) return "hotel";
   if (/palazzo/.test(t)) return "palazzo";
   if (/castello|castle/.test(t)) return "castle";
   if (/masser/.test(t)) return "masseria";
-  if (/dimora|tenuta|villa storica|storic/.test(t)) return "historic_estate";
+  if (/dimora|tenuta|villa storica|palazzo storico|dimora storica/.test(t)) return "historic_estate";
   return fallback;
 }
 
@@ -342,9 +457,9 @@ function extractPriceEur(text: string): number | null {
   return null;
 }
 
-async function collectFromScrape(s: LuxurySource): Promise<CollectedAsset[]> {
+async function collectFromScrape(s: LuxurySource): Promise<CollectionResult> {
   const key = Deno.env.get("FIRECRAWL_API_KEY");
-  if (!key || !s.url) return [];
+  if (!key || !s.url) return { assets: [], discarded: [], rawCount: 0 };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 35_000);
   try {
@@ -378,28 +493,42 @@ async function collectFromScrape(s: LuxurySource): Promise<CollectedAsset[]> {
       }),
       signal: ctrl.signal,
     });
-    if (!res.ok) return [];
+    if (!res.ok) return { assets: [], discarded: [], rawCount: 0 };
     const data = await res.json();
     const items: Array<Record<string, unknown>> =
       data?.data?.json?.items ?? data?.json?.items ?? data?.data?.json?.aste ?? [];
-    if (!Array.isArray(items)) return [];
+    if (!Array.isArray(items)) return { assets: [], discarded: [], rawCount: 0 };
 
     const out: CollectedAsset[] = [];
+    const discarded: DiscardedSignal[] = [];
     for (const it of items) {
       const price = Number(it?.prezzoBaseEur);
-      if (!Number.isFinite(price) || price < LUXURY_MIN_EUR) continue;
+      const rawTitle = cleanTitle(`${it?.tipo ?? "Immobile"} — ${it?.citta ?? "Italia"}`);
+      if (!Number.isFinite(price) || price < LUXURY_MIN_EUR) {
+        discarded.push({ title: rawTitle, sourceUrl: String(it?.link ?? "") || null, sourceCategory: s.category, sourceId: s.id, reason: "no_price_no_asset_evidence" });
+        continue;
+      }
       const text = `${it?.tipo ?? ""} ${it?.citta ?? ""}`;
       if (hasForbiddenContent(text)) continue;
+      const structuredCity = it?.citta ? String(it.citta).trim() : null;
+      const structuredRegion = it?.regione ? String(it.regione).trim() : null;
+      const loc = structuredCity || structuredRegion
+        ? {
+          city: structuredCity,
+          region: structuredRegion,
+          confidence: structuredCity && structuredRegion ? "exact" as const : "inferred" as const,
+        }
+        : detectLocation(text, s);
       const link = String(it?.link ?? "");
       const absUrl = link.startsWith("http") ? link
         : link && s.url ? new URL(link, s.url).toString() : null;
 
       const asset: CollectedAsset = {
-        title: cleanTitle(`${it?.tipo ?? "Immobile"} — ${it?.citta ?? "Italia"}`),
+        title: rawTitle,
         category: categoryFromText(text, "trophy"),
         country: "IT",
-        region: it?.regione ? String(it.regione) : (s.regionHint ?? null),
-        city: it?.citta ? String(it.citta) : (s.cityHint ?? null),
+        region: loc.region,
+        city: loc.city,
         priceEur: Math.round(price),
         priceMinEur: null, priceMaxEur: null,
         surfaceSqm: it?.superficieMq ? Math.round(Number(it.superficieMq)) : null,
@@ -409,6 +538,7 @@ async function collectFromScrape(s: LuxurySource): Promise<CollectedAsset[]> {
         heroImageUrl: null,
         priceConfidence: "exact",
         extractionConfidence: "high",
+        locationConfidence: loc.confidence,
         missingFields: [],
         rawData: { source_id: s.id, dataEvento: it?.dataEvento ?? null },
       };
@@ -416,16 +546,16 @@ async function collectFromScrape(s: LuxurySource): Promise<CollectedAsset[]> {
       out.push(asset);
 
     }
-    return out;
+    return { assets: out, discarded, rawCount: items.length };
   } catch (e) {
     console.warn(`[luxuradar] scrape ${s.id} error:`, e instanceof Error ? e.message : String(e));
-    return [];
+    return { assets: [], discarded: [], rawCount: 0 };
   } finally { clearTimeout(timer); }
 }
 
-async function collectFromSearch(s: LuxurySource): Promise<CollectedAsset[]> {
+async function collectFromSearch(s: LuxurySource): Promise<CollectionResult> {
   const key = Deno.env.get("FIRECRAWL_API_KEY");
-  if (!key || !s.query) return [];
+  if (!key || !s.query) return { assets: [], discarded: [], rawCount: 0 };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 25_000);
   try {
@@ -435,44 +565,66 @@ async function collectFromSearch(s: LuxurySource): Promise<CollectedAsset[]> {
       body: JSON.stringify({ query: s.query, limit: 5, lang: "it", country: "it" }),
       signal: ctrl.signal,
     });
-    if (!res.ok) return [];
+    if (!res.ok) return { assets: [], discarded: [], rawCount: 0 };
     const data = await res.json();
     const results: Array<Record<string, unknown>> =
       data?.data?.web ?? data?.data ?? data?.web?.results ?? [];
-    if (!Array.isArray(results)) return [];
+    if (!Array.isArray(results)) return { assets: [], discarded: [], rawCount: 0 };
 
     const out: CollectedAsset[] = [];
+    const discarded: DiscardedSignal[] = [];
     for (const r of results) {
       const rawTitle = String(r?.title ?? "").trim();
       const desc = String(r?.description ?? "");
       const url = String(r?.url ?? "");
       if (!rawTitle || !url) continue;
       const title = cleanTitle(rawTitle);
-      if (!title || title.length < 6) continue;
       const combined = `${title} ${desc}`;
       if (hasForbiddenContent(combined)) continue;
-      if (!/alienazione|vendita|bando|asta|disposal|demanio|patrimonio|hotel|villa|palazzo|castello|dimora|tenuta|complesso|dismissione|cessione|masser/i.test(combined)) continue;
+      if (isGenericAdminPage(combined)) {
+        discarded.push({ title, sourceUrl: url, sourceCategory: s.category, sourceId: s.id, reason: "generic_admin_page" });
+        continue;
+      }
+      if (!title || !isMeaningfulTitle(title)) {
+        discarded.push({ title: title || rawTitle.slice(0, 160), sourceUrl: url || null, sourceCategory: s.category, sourceId: s.id, reason: "boilerplate" });
+        continue;
+      }
+      const hasAssetWording = hasClearAssetWording(combined);
+      const hasTransactionWording = /alienazione|vendita|bando|asta|disposal|demanio|dismissione|cessione|prezzo\s+base|incanto|lotto/i.test(combined);
+      if (!hasAssetWording && !hasTransactionWording) {
+        discarded.push({ title, sourceUrl: url, sourceCategory: s.category, sourceId: s.id, reason: "no_asset_detected" });
+        continue;
+      }
 
       const priceEur = extractPriceEur(combined);
-      const isSpecialSituation = s.category === "special_situation";
-      const isInstitutional = isSpecialSituation || s.category === "public_disposal" || s.category === "pvp_judicial";
       // Filter: drop below €3M unless special situation with unknown price
       if (priceEur && priceEur < LUXURY_MIN_EUR) continue;
-      if (!priceEur && !isInstitutional) continue;
+      if (!priceEur && !hasAssetWording) {
+        discarded.push({ title, sourceUrl: url, sourceCategory: s.category, sourceId: s.id, reason: "no_price_no_asset_evidence" });
+        continue;
+      }
 
-      const category = categoryFromText(combined, s.expectedTypes[0] ?? "trophy");
+      const fallbackCategory = s.category === "pvp_judicial" ? "judicial_auction"
+        : s.category === "public_disposal" ? "public_disposal"
+        : s.expectedTypes[0] ?? "trophy";
+      const category = categoryFromText(combined, hasAssetWording ? fallbackCategory : "signal_only");
+      if (category === "signal_only") {
+        discarded.push({ title, sourceUrl: url, sourceCategory: s.category, sourceId: s.id, reason: "no_asset_detected" });
+        continue;
+      }
       // Detect PDF-only results: extraction confidence is lower.
       const isPdf = /\.pdf(?:$|\?|#)/i.test(url) || /\[pdf\]|\bpdf\b/i.test(rawTitle);
       const priceConfidence: PriceConfidence = priceEur ? "exact" : "threshold_only";
       const extractionConfidence: ExtractionConfidence =
         priceEur ? (isPdf ? "medium" : "high") : (isPdf ? "low" : "medium");
+      const loc = detectLocation(combined, s);
 
       const asset: CollectedAsset = {
         title,
         category,
         country: "IT",
-        region: s.regionHint ?? null,
-        city: s.cityHint ?? null,
+        region: loc.region,
+        city: loc.city,
         priceEur,
         // Do NOT fake €3M as priceMinEur when only the search threshold is known.
         priceMinEur: null,
@@ -484,6 +636,7 @@ async function collectFromSearch(s: LuxurySource): Promise<CollectedAsset[]> {
         heroImageUrl: null,
         priceConfidence,
         extractionConfidence,
+        locationConfidence: loc.confidence,
         missingFields: [],
         rawData: {
           source_id: s.id,
@@ -495,19 +648,19 @@ async function collectFromSearch(s: LuxurySource): Promise<CollectedAsset[]> {
       asset.missingFields = computeMissingFields(asset);
       out.push(asset);
     }
-    return out;
+    return { assets: out, discarded, rawCount: results.length };
 
   } catch (e) {
     console.warn(`[luxuradar] search ${s.id} error:`, e instanceof Error ? e.message : String(e));
-    return [];
+    return { assets: [], discarded: [], rawCount: 0 };
   } finally { clearTimeout(timer); }
 }
 
-async function collectFromSource(s: LuxurySource): Promise<CollectedAsset[]> {
-  if (!s.active) return [];
+async function collectFromSource(s: LuxurySource): Promise<CollectionResult> {
+  if (!s.active) return { assets: [], discarded: [], rawCount: 0 };
   if (s.extraction === "firecrawl_scrape") return collectFromScrape(s);
   if (s.extraction === "firecrawl_search") return collectFromSearch(s);
-  return [];
+  return { assets: [], discarded: [], rawCount: 0 };
 }
 
 // ── Filter / dedupe ─────────────────────────────────────────────────────────
@@ -535,9 +688,10 @@ function applyFilters(assets: CollectedAsset[], f: ScanFilters): CollectedAsset[
 // In-memory dedupe within a single scan (DB upsert handles cross-run dedupe).
 // Uses normalized URL + cleaned title + city + region + category to avoid
 // duplicates surfaced by the same PDF or search result across queries.
-function dedupeWithinRun(assets: CollectedAsset[]): CollectedAsset[] {
+function dedupeWithinRun(assets: CollectedAsset[]): { assets: CollectedAsset[]; duplicates: DiscardedSignal[] } {
   const seen = new Set<string>();
   const out: CollectedAsset[] = [];
+  const duplicates: DiscardedSignal[] = [];
   for (const a of assets) {
     const key = [
       normalizeUrl(a.sourceUrl),
@@ -546,11 +700,14 @@ function dedupeWithinRun(assets: CollectedAsset[]): CollectedAsset[] {
       (a.region || "").toLowerCase(),
       a.category.toLowerCase(),
     ].join("|");
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {
+      duplicates.push(signalFromAsset(a, "duplicate"));
+      continue;
+    }
     seen.add(key);
     out.push(a);
   }
-  return out;
+  return { assets: out, duplicates };
 }
 
 
@@ -578,6 +735,7 @@ Deno.serve(async (req) => {
         .from("luxuradar_assets").select("*").eq("id", idSegment).maybeSingle();
       if (error) return fail(500, "db_error", error.message, debugId);
       if (!data) return fail(404, "not_found", "Asset not found", debugId);
+      if (!isPublishableRow(data)) return fail(404, "not_found", "Asset not publishable", debugId);
       return ok({ asset: toClientAsset(data) }, debugId);
     }
 
@@ -586,9 +744,10 @@ Deno.serve(async (req) => {
       const limit = Math.min(Number(url.searchParams.get("limit") ?? 20), 100);
       const { data, error } = await supabase
         .from("luxuradar_assets").select("*")
-        .order("score", { ascending: false }).limit(limit);
+        .order("score", { ascending: false }).limit(Math.max(limit * 3, 50));
       if (error) return fail(500, "db_error", error.message, debugId);
-      return ok({ assets: (data ?? []).map(toClientAsset), count: data?.length ?? 0 }, debugId);
+      const publishableRows = (data ?? []).filter(isPublishableRow).slice(0, limit);
+      return ok({ assets: publishableRows.map(toClientAsset), count: publishableRows.length }, debugId);
     }
 
     // POST /luxuradar-scan
@@ -614,6 +773,9 @@ Deno.serve(async (req) => {
       const sourcesUsed: string[] = [];
       const sourceCounts: Record<string, number> = {};
       const collected: CollectedAsset[] = [];
+      const signalsDiscarded: DiscardedSignal[] = [];
+      const signalsNeedingReview: DiscardedSignal[] = [];
+      let rawResultsBeforeQualityGate = 0;
 
       // Pick active sources matching filters; cap total upstream calls.
       const MAX_SOURCES_PER_RUN = 10;
@@ -629,16 +791,39 @@ Deno.serve(async (req) => {
           collectFromSource(s).then((rs) => ({ s, rs }))
         ));
         for (const { s, rs } of results) {
-          if (rs.length) {
+          rawResultsBeforeQualityGate += rs.rawCount;
+          if (rs.rawCount || rs.assets.length || rs.discarded.length) {
             sourcesUsed.push(s.id);
-            sourceCounts[s.id] = rs.length;
-            collected.push(...rs);
+            sourceCounts[s.id] = rs.rawCount;
+            collected.push(...rs.assets);
+            signalsDiscarded.push(...rs.discarded);
           }
         }
       }
 
       const deduped = dedupeWithinRun(collected);
-      const filtered = applyFilters(deduped, filters).slice(0, filters.limit ?? 30);
+      signalsDiscarded.push(...deduped.duplicates);
+      const filteredByRequest = applyFilters(deduped.assets, filters);
+      const publishable: CollectedAsset[] = [];
+      for (const a of filteredByRequest) {
+        const reason = evaluatePublishability(a);
+        if (!reason) {
+          publishable.push(a);
+          continue;
+        }
+        const signal = signalFromAsset(a, reason);
+        console.info(`[luxuradar] excluded ${reason}: ${signal.title} ${signal.sourceUrl ?? ""}`);
+        if (reason === "low_confidence" || reason === "location_hint_only" || reason === "no_price_no_asset_evidence") {
+          signalsNeedingReview.push(signal);
+        } else {
+          signalsDiscarded.push(signal);
+        }
+      }
+      const filtered = publishable.slice(0, filters.limit ?? 30);
+
+      for (const signal of [...signalsDiscarded, ...signalsNeedingReview].slice(0, 100)) {
+        console.info(`[luxuradar] excluded ${signal.reason}: ${signal.title} ${signal.sourceUrl ?? ""}`);
+      }
 
 
       // Score, dedupe-key, upsert
@@ -672,6 +857,8 @@ Deno.serve(async (req) => {
             score_breakdown: breakdown,
             price_confidence: a.priceConfidence,
             extraction_confidence: a.extractionConfidence,
+            location_confidence: a.locationConfidence,
+            publishable_asset: true,
             missing_fields: a.missingFields,
           },
 
@@ -712,6 +899,14 @@ Deno.serve(async (req) => {
         registered_only: REGISTERED_SOURCES.map((s) => ({
           id: s.id, category: s.category, note: s.notes ?? "registered only",
         })),
+        raw_results_before_quality_gate: rawResultsBeforeQualityGate,
+        signals_discarded: signalsDiscarded.slice(0, 50),
+        signals_needing_review: signalsNeedingReview.slice(0, 50),
+        quality_warnings: [
+          "assets[] contains only publishable asset candidates",
+          "generic administrative/search/archive/urban-planning pages are excluded from assets[]",
+          "source hints alone do not confirm asset location",
+        ],
         assets_found: filtered.length,
         assets_new: newCount,
         assets: (rows ?? []).map(toClientAsset),
@@ -731,6 +926,7 @@ function toClientAsset(row: Record<string, unknown>) {
   const raw = (row.raw_data ?? {}) as Record<string, unknown>;
   const priceConfidence = (raw.price_confidence as string) ?? (row.price_eur ? "exact" : "unknown");
   const extractionConfidence = (raw.extraction_confidence as string) ?? "medium";
+  const locationConfidence = (raw.location_confidence as string) ?? "unknown";
   const missingFields = Array.isArray(raw.missing_fields) ? raw.missing_fields as string[] : [];
 
   // Only expose a price range when both bounds exist AND we did not just
@@ -756,6 +952,7 @@ function toClientAsset(row: Record<string, unknown>) {
     priceRangeEur,
     priceConfidence,
     extractionConfidence,
+    locationConfidence,
     missingFields,
     surfaceSqm: row.surface_sqm,
     score: row.score,
@@ -771,5 +968,30 @@ function toClientAsset(row: Record<string, unknown>) {
     heroImageUrl: row.hero_image_url,
     updatedAt: row.updated_at,
   };
+}
+
+function isPublishableRow(row: Record<string, unknown>): boolean {
+  const raw = (row.raw_data ?? {}) as Record<string, unknown>;
+  const a: CollectedAsset = {
+    title: String(row.title ?? ""),
+    category: String(row.category ?? ""),
+    country: String(row.country ?? "IT"),
+    region: row.region ? String(row.region) : null,
+    city: row.city ? String(row.city) : null,
+    priceEur: typeof row.price_eur === "number" ? row.price_eur : row.price_eur ? Number(row.price_eur) : null,
+    priceMinEur: row.price_min_eur ? Number(row.price_min_eur) : null,
+    priceMaxEur: row.price_max_eur ? Number(row.price_max_eur) : null,
+    surfaceSqm: row.surface_sqm ? Number(row.surface_sqm) : null,
+    sourceCategory: String(row.source_category ?? ""),
+    sourceLabel: String(row.source_label ?? ""),
+    sourceUrl: row.source_url ? String(row.source_url) : null,
+    heroImageUrl: row.hero_image_url ? String(row.hero_image_url) : null,
+    priceConfidence: (raw.price_confidence as PriceConfidence) ?? (row.price_eur ? "exact" : "unknown"),
+    extractionConfidence: (raw.extraction_confidence as ExtractionConfidence) ?? "medium",
+    locationConfidence: (raw.location_confidence as LocationConfidence) ?? "unknown",
+    missingFields: Array.isArray(raw.missing_fields) ? raw.missing_fields as string[] : [],
+    rawData: raw,
+  };
+  return evaluatePublishability(a) === null;
 }
 
