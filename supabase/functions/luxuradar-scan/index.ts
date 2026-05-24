@@ -396,12 +396,13 @@ import {
 
 function categoryFromText(text: string, fallback: string): string {
   const t = text.toLowerCase();
+  if (isGenericAdminPage(t)) return "signal_only";
   if (/villa/.test(t)) return "villa";
   if (/hotel|albergh|relais|resort/.test(t)) return "hotel";
   if (/palazzo/.test(t)) return "palazzo";
   if (/castello|castle/.test(t)) return "castle";
   if (/masser/.test(t)) return "masseria";
-  if (/dimora|tenuta|villa storica|storic/.test(t)) return "historic_estate";
+  if (/dimora|tenuta|villa storica|palazzo storico|dimora storica/.test(t)) return "historic_estate";
   return fallback;
 }
 
