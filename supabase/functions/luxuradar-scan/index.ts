@@ -444,32 +444,7 @@ function dedupeWithinRun(assets: CollectedAsset[]): CollectedAsset[] {
   return out;
 }
 
-    } catch (e) {
-      console.warn("[luxuradar] disposal search error:", e instanceof Error ? e.message : String(e));
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  return out.slice(0, 30);
-}
 
-// ── Filter / dedupe ─────────────────────────────────────────────────────────
-function applyFilters(assets: CollectedAsset[], f: ScanFilters): CollectedAsset[] {
-  return assets.filter((a) => {
-    if (f.categories?.length && !f.categories.includes(a.category)) return false;
-    if (f.regions?.length && !(a.region && f.regions.map(r => r.toLowerCase()).includes(a.region.toLowerCase()))) return false;
-    if (f.sources?.length && !f.sources.includes(a.sourceCategory)) return false;
-    const price = a.priceEur ?? a.priceMaxEur ?? a.priceMinEur ?? 0;
-    if (f.minPrice && price && price < f.minPrice) return false;
-    if (f.maxPrice && price && price > f.maxPrice) return false;
-    if (f.query) {
-      const q = f.query.toLowerCase();
-      const hay = `${a.title} ${a.city ?? ""} ${a.region ?? ""}`.toLowerCase();
-      if (!hay.includes(q)) return false;
-    }
-    return true;
-  });
-}
 
 // ── Main handler ────────────────────────────────────────────────────────────
 Deno.serve(async (req) => {
