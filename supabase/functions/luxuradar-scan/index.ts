@@ -230,43 +230,64 @@ function buildRisk(a: CollectedAsset): string {
   return "Verificare due diligence completa prima di procedere.";
 }
 
-// ── Collectors ──────────────────────────────────────────────────────────────
-// Real-data first: PVP for high-value judicial auctions; firecrawl search for
-// public disposal / special-situation notices. All collectors must be resilient
-// and return [] on failure — no fake data.
+// ── Collectors (source-registry driven) ─────────────────────────────────────
+import {
+  REGISTERED_SOURCES, getActiveSourcesFiltered,
+  type LuxurySource,
+} from "./sourceRegistry.ts";
 
-async function collectPvpLuxury(filters: ScanFilters): Promise<CollectedAsset[]> {
+function categoryFromText(text: string, fallback: string): string {
+  const t = text.toLowerCase();
+  if (/villa/.test(t)) return "villa";
+  if (/hotel|albergh|relais|resort/.test(t)) return "hotel";
+  if (/palazzo/.test(t)) return "palazzo";
+  if (/castello|castle/.test(t)) return "castle";
+  if (/masser/.test(t)) return "masseria";
+  if (/dimora|tenuta|villa storica|storic/.test(t)) return "historic_estate";
+  return fallback;
+}
+
+function extractPriceEur(text: string): number | null {
+  // Match "€ 4.500.000" / "4,5 milioni" / "euro 3.200.000"
+  const mMil = text.match(/(\d{1,3}(?:[.,]\d{1,2})?)\s?(?:milion[ie]|mln)/i);
+  if (mMil) {
+    const n = Number(mMil[1].replace(",", ".")) * 1_000_000;
+    if (Number.isFinite(n) && n >= LUXURY_MIN_EUR && n <= 500_000_000) return Math.round(n);
+  }
+  const m = text.match(/(?:€|euro)\s?([\d.,]{4,})/i);
+  if (m) {
+    const raw = m[1].replace(/\./g, "").replace(",", ".");
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= LUXURY_MIN_EUR && n <= 500_000_000) return Math.round(n);
+  }
+  return null;
+}
+
+async function collectFromScrape(s: LuxurySource): Promise<CollectedAsset[]> {
   const key = Deno.env.get("FIRECRAWL_API_KEY");
-  if (!key) return [];
-
-  // Italy-wide PVP search for high-value immobili. Sorted by price desc.
-  const url = "https://pvp.giustizia.it/pvp/it/lista_annunci.wp?searchType=searchForm&page=0&size=20&sortProperty=prezzoBase,desc&macro=IMMOBILI";
+  if (!key || !s.url) return [];
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 35_000);
-
   try {
     const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        url,
+        url: s.url,
         formats: [{
           type: "json",
-          prompt: "Estrai aste immobiliari italiane con prezzo base superiore a 3 milioni di euro. Per ciascuna: tipo immobile, indirizzo/città, regione se nota, prezzo base in euro come numero, superficie in mq se nota, data vendita, link assoluto annuncio.",
+          prompt: "Estrai immobili italiani con prezzo base superiore a 3 milioni di euro. Per ciascuno: tipo immobile, città, regione se nota, prezzo base in euro come numero, superficie in mq se nota, data evento, link assoluto.",
           schema: {
             type: "object",
             properties: {
-              aste: {
+              items: {
                 type: "array",
                 items: {
                   type: "object",
                   properties: {
-                    tipo: { type: "string" },
-                    citta: { type: "string" },
-                    regione: { type: "string" },
-                    prezzoBaseEur: { type: "number" },
-                    superficieMq: { type: "number" },
-                    dataVendita: { type: "string" },
+                    tipo: { type: "string" }, citta: { type: "string" },
+                    regione: { type: "string" }, prezzoBaseEur: { type: "number" },
+                    superficieMq: { type: "number" }, dataEvento: { type: "string" },
                     link: { type: "string" },
                   },
                   required: ["tipo", "link"],
@@ -278,139 +299,110 @@ async function collectPvpLuxury(filters: ScanFilters): Promise<CollectedAsset[]>
       }),
       signal: ctrl.signal,
     });
-
     if (!res.ok) return [];
     const data = await res.json();
-    const aste: Array<Record<string, unknown>> =
-      data?.data?.json?.aste ?? data?.json?.aste ?? [];
-    if (!Array.isArray(aste)) return [];
+    const items: Array<Record<string, unknown>> =
+      data?.data?.json?.items ?? data?.json?.items ?? data?.data?.json?.aste ?? [];
+    if (!Array.isArray(items)) return [];
 
     const out: CollectedAsset[] = [];
-    for (const a of aste) {
-      const price = Number(a?.prezzoBaseEur);
+    for (const it of items) {
+      const price = Number(it?.prezzoBaseEur);
       if (!Number.isFinite(price) || price < LUXURY_MIN_EUR) continue;
-      const tipo = String(a?.tipo ?? "").toLowerCase();
-      const text = `${a?.tipo ?? ""} ${a?.citta ?? ""}`;
+      const text = `${it?.tipo ?? ""} ${it?.citta ?? ""}`;
       if (hasForbiddenContent(text)) continue;
-
-      let category = "trophy";
-      if (/villa/.test(tipo)) category = "villa";
-      else if (/hotel|albergh|relais/.test(tipo)) category = "hotel";
-      else if (/palazzo/.test(tipo)) category = "palazzo";
-      else if (/castello|castle/.test(tipo)) category = "castle";
-      else if (/masser/.test(tipo)) category = "masseria";
-      else if (/dimora|tenuta|villa storica/.test(tipo)) category = "historic_estate";
-
-      const link = String(a?.link ?? "");
+      const link = String(it?.link ?? "");
       const absUrl = link.startsWith("http") ? link
-        : link ? `https://pvp.giustizia.it${link.startsWith("/") ? "" : "/"}${link}` : null;
+        : link && s.url ? new URL(link, s.url).toString() : null;
 
       out.push({
-        title: sanitizeTitle(`${a?.tipo ?? "Immobile"} — ${a?.citta ?? "Italia"}`),
-        category,
+        title: sanitizeTitle(`${it?.tipo ?? "Immobile"} — ${it?.citta ?? "Italia"}`),
+        category: categoryFromText(text, "trophy"),
         country: "IT",
-        region: a?.regione ? String(a.regione) : null,
-        city: a?.citta ? String(a.citta) : null,
+        region: it?.regione ? String(it.regione) : (s.regionHint ?? null),
+        city: it?.citta ? String(it.citta) : (s.cityHint ?? null),
         priceEur: Math.round(price),
-        priceMinEur: null,
-        priceMaxEur: null,
-        surfaceSqm: a?.superficieMq ? Math.round(Number(a.superficieMq)) : null,
-        sourceCategory: "pvp_judicial",
-        sourceLabel: SOURCE_LABELS.pvp_judicial,
+        priceMinEur: null, priceMaxEur: null,
+        surfaceSqm: it?.superficieMq ? Math.round(Number(it.superficieMq)) : null,
+        sourceCategory: s.category,
+        sourceLabel: s.label,
         sourceUrl: absUrl,
         heroImageUrl: null,
-        rawData: { dataVendita: a?.dataVendita ?? null },
+        rawData: { source_id: s.id, dataEvento: it?.dataEvento ?? null },
       });
     }
-    return out.slice(0, filters.limit ?? 20);
+    return out;
   } catch (e) {
-    console.warn("[luxuradar] pvp error:", e instanceof Error ? e.message : String(e));
+    console.warn(`[luxuradar] scrape ${s.id} error:`, e instanceof Error ? e.message : String(e));
     return [];
-  } finally {
-    clearTimeout(timer);
-  }
+  } finally { clearTimeout(timer); }
 }
 
-async function collectPublicDisposals(filters: ScanFilters): Promise<CollectedAsset[]> {
+async function collectFromSearch(s: LuxurySource): Promise<CollectedAsset[]> {
   const key = Deno.env.get("FIRECRAWL_API_KEY");
-  if (!key) return [];
+  if (!key || !s.query) return [];
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 25_000);
+  try {
+    const res = await fetch("https://api.firecrawl.dev/v2/search", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ query: s.query, limit: 5, lang: "it", country: "it" }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const results: Array<Record<string, unknown>> =
+      data?.data?.web ?? data?.data ?? data?.web?.results ?? [];
+    if (!Array.isArray(results)) return [];
 
-  const queries = [
-    "alienazione immobile pubblico villa OR palazzo OR castello sito:comune.* OR sito:demanio.it",
-    "Agenzia del Demanio vendita immobile storico Italia",
-    "bando alienazione patrimonio comune Italia villa storica",
-  ];
-  const out: CollectedAsset[] = [];
+    const out: CollectedAsset[] = [];
+    for (const r of results) {
+      const title = String(r?.title ?? "").trim();
+      const desc = String(r?.description ?? "");
+      const url = String(r?.url ?? "");
+      if (!title || !url) continue;
+      const combined = `${title} ${desc}`;
+      if (hasForbiddenContent(combined)) continue;
+      if (!/alienazione|vendita|bando|asta|disposal|demanio|patrimonio|hotel|villa|palazzo|castello|dimora|tenuta|complesso|dismissione|cessione|masser/i.test(combined)) continue;
 
-  for (const q of queries) {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 25_000);
-    try {
-      const res = await fetch("https://api.firecrawl.dev/v2/search", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q, limit: 5, lang: "it", country: "it" }),
-        signal: ctrl.signal,
+      const priceEur = extractPriceEur(combined);
+      const isSpecialSituation = s.category === "special_situation";
+      // Filter: drop below €3M unless special situation with unknown price
+      if (priceEur && priceEur < LUXURY_MIN_EUR) continue;
+      if (!priceEur && !isSpecialSituation && s.category !== "public_disposal" && s.category !== "pvp_judicial") continue;
+
+      const category = categoryFromText(combined, s.expectedTypes[0] ?? "trophy");
+
+      out.push({
+        title: sanitizeTitle(title),
+        category,
+        country: "IT",
+        region: s.regionHint ?? null,
+        city: s.cityHint ?? null,
+        priceEur,
+        priceMinEur: priceEur ? null : LUXURY_MIN_EUR,
+        priceMaxEur: null,
+        surfaceSqm: null,
+        sourceCategory: s.category,
+        sourceLabel: s.label,
+        sourceUrl: url,
+        heroImageUrl: null,
+        rawData: { source_id: s.id, snippet: desc.slice(0, 400) },
       });
-      if (!res.ok) continue;
-      const data = await res.json();
-      const results: Array<Record<string, unknown>> = data?.data ?? data?.web?.results ?? [];
-      if (!Array.isArray(results)) continue;
-
-      for (const r of results) {
-        const title = String(r?.title ?? "").trim();
-        const desc = String(r?.description ?? "");
-        const url = String(r?.url ?? "");
-        if (!title || !url) continue;
-        const combined = `${title} ${desc}`;
-        if (hasForbiddenContent(combined)) continue;
-        // Must look like a disposal/asset notice
-        if (!/alienazione|vendita|bando|asta|disposal|demanio|patrimonio/i.test(combined)) continue;
-
-        let category = "public_disposal";
-        if (/villa/i.test(combined)) category = "villa";
-        else if (/palazzo/i.test(combined)) category = "palazzo";
-        else if (/castello/i.test(combined)) category = "castle";
-        else if (/hotel|albergo/i.test(combined)) category = "hotel";
-        else if (/masser/i.test(combined)) category = "masseria";
-        else if (/storic|dimora|tenuta/i.test(combined)) category = "historic_estate";
-
-        // try to extract price
-        let priceEur: number | null = null;
-        const m = combined.match(/€\s?([\d.,]{4,})|euro\s?([\d.,]{4,})/i);
-        if (m) {
-          const raw = (m[1] ?? m[2] ?? "").replace(/\./g, "").replace(",", ".");
-          const n = Number(raw);
-          if (Number.isFinite(n) && n >= LUXURY_MIN_EUR && n <= 500_000_000) priceEur = Math.round(n);
-        }
-
-        const sourceCategory = /agenzia del demanio|demanio\.it/i.test(combined + " " + url)
-          ? "public_disposal" : "public_notice";
-
-        out.push({
-          title: sanitizeTitle(title),
-          category,
-          country: "IT",
-          region: null,
-          city: null,
-          priceEur,
-          priceMinEur: priceEur ? null : LUXURY_MIN_EUR,
-          priceMaxEur: priceEur ? null : null,
-          surfaceSqm: null,
-          sourceCategory,
-          sourceLabel: SOURCE_LABELS[sourceCategory],
-          sourceUrl: url,
-          heroImageUrl: null,
-          rawData: { snippet: desc.slice(0, 400) },
-        });
-      }
-    } catch (e) {
-      console.warn("[luxuradar] disposal search error:", e instanceof Error ? e.message : String(e));
-    } finally {
-      clearTimeout(timer);
     }
-  }
-  return out.slice(0, 30);
+    return out;
+  } catch (e) {
+    console.warn(`[luxuradar] search ${s.id} error:`, e instanceof Error ? e.message : String(e));
+    return [];
+  } finally { clearTimeout(timer); }
+}
+
+async function collectFromSource(s: LuxurySource): Promise<CollectedAsset[]> {
+  if (!s.active) return [];
+  if (s.extraction === "firecrawl_scrape") return collectFromScrape(s);
+  if (s.extraction === "firecrawl_search") return collectFromSearch(s);
+  return [];
 }
 
 // ── Filter / dedupe ─────────────────────────────────────────────────────────
@@ -420,6 +412,10 @@ function applyFilters(assets: CollectedAsset[], f: ScanFilters): CollectedAsset[
     if (f.regions?.length && !(a.region && f.regions.map(r => r.toLowerCase()).includes(a.region.toLowerCase()))) return false;
     if (f.sources?.length && !f.sources.includes(a.sourceCategory)) return false;
     const price = a.priceEur ?? a.priceMaxEur ?? a.priceMinEur ?? 0;
+    // €3M floor unless special_situation with no price
+    if (a.sourceCategory !== "special_situation" || price > 0) {
+      if (price && price < LUXURY_MIN_EUR) return false;
+    }
     if (f.minPrice && price && price < f.minPrice) return false;
     if (f.maxPrice && price && price > f.maxPrice) return false;
     if (f.query) {
@@ -430,6 +426,25 @@ function applyFilters(assets: CollectedAsset[], f: ScanFilters): CollectedAsset[
     return true;
   });
 }
+
+// In-memory dedupe within a single scan (DB upsert handles cross-run dedupe)
+function dedupeWithinRun(assets: CollectedAsset[]): CollectedAsset[] {
+  const seen = new Set<string>();
+  const out: CollectedAsset[] = [];
+  for (const a of assets) {
+    const key = [
+      (a.sourceUrl || "").toLowerCase(),
+      a.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(),
+      (a.city || "").toLowerCase(),
+    ].join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(a);
+  }
+  return out;
+}
+
+
 
 // ── Main handler ────────────────────────────────────────────────────────────
 Deno.serve(async (req) => {
@@ -487,15 +502,34 @@ Deno.serve(async (req) => {
       if (runErr || !run) return fail(500, "db_error", runErr?.message ?? "run insert failed", debugId);
 
       const sourcesUsed: string[] = [];
+      const sourceCounts: Record<string, number> = {};
       const collected: CollectedAsset[] = [];
 
-      const [pvp, disposals] = await Promise.all([
-        collectPvpLuxury(filters).then((r) => { if (r.length) sourcesUsed.push("pvp_judicial"); return r; }),
-        collectPublicDisposals(filters).then((r) => { if (r.length) sourcesUsed.push("public_disposals"); return r; }),
-      ]);
-      collected.push(...pvp, ...disposals);
+      // Pick active sources matching filters; cap total upstream calls.
+      const MAX_SOURCES_PER_RUN = 10;
+      const selected = getActiveSourcesFiltered({
+        categories: filters.categories, regions: filters.regions, sources: filters.sources,
+      }).slice(0, MAX_SOURCES_PER_RUN);
 
-      const filtered = applyFilters(collected, filters).slice(0, filters.limit ?? 30);
+      // Run with limited concurrency (3) to stay polite.
+      const concurrency = 3;
+      for (let i = 0; i < selected.length; i += concurrency) {
+        const batch = selected.slice(i, i + concurrency);
+        const results = await Promise.all(batch.map((s) =>
+          collectFromSource(s).then((rs) => ({ s, rs }))
+        ));
+        for (const { s, rs } of results) {
+          if (rs.length) {
+            sourcesUsed.push(s.id);
+            sourceCounts[s.id] = rs.length;
+            collected.push(...rs);
+          }
+        }
+      }
+
+      const deduped = dedupeWithinRun(collected);
+      const filtered = applyFilters(deduped, filters).slice(0, filters.limit ?? 30);
+
 
       // Score, dedupe-key, upsert
       const persistedIds: string[] = [];
@@ -557,10 +591,15 @@ Deno.serve(async (req) => {
       return ok({
         scan_run_id: run.id,
         sources_used: sourcesUsed,
+        source_counts: sourceCounts,
+        registered_only: REGISTERED_SOURCES.map((s) => ({
+          id: s.id, category: s.category, note: s.notes ?? "registered only",
+        })),
         assets_found: filtered.length,
         assets_new: newCount,
         assets: (rows ?? []).map(toClientAsset),
       }, debugId);
+
     }
 
     return fail(405, "method_not_allowed", `Method ${req.method} not supported`, debugId);
