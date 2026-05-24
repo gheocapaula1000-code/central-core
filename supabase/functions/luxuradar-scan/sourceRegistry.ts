@@ -325,7 +325,23 @@ export const REGISTERED_SOURCES: LuxurySource[] = [
   { id: "hospitality_ma_pipeline", category: "hospitality_signal", label: "Hospitality asset",
     notes: "M&A pipeline alberghiera: serve feed licenziato o newsletter B2B.",
     expectedTypes: ["hotel"], reliability: 60, extraction: "manual", active: false },
+
+  // Hotel asset sale / dedicated hospitality brokers — public listings exist
+  // but layouts are inconsistent across pages; wired live only after a per-site
+  // scrape recipe is in place. Registered to document intent without faking data.
+  { id: "broker_christie_hotels_italy", category: "hospitality_signal", label: "Hospitality asset",
+    notes: "Christie's International hotel listings — Italy: layout variabile, da wire con scrape recipe.",
+    expectedTypes: ["hotel"], reliability: 70, extraction: "firecrawl_scrape", active: false },
+  { id: "broker_dreamer_real_estate", category: "luxury_market_signal", label: "Luxury market signal",
+    notes: "Dreamer Real Estate: catalogo luxury, sito con anti-bot leggero — verificare TOS prima del live.",
+    expectedTypes: ["villa","historic_estate","trophy"], reliability: 60,
+    extraction: "firecrawl_search", active: false },
+  { id: "broker_immobiliare_lusso_idealista", category: "luxury_market_signal", label: "Luxury market signal",
+    notes: "Aggregatori (Idealista/Immobiliare.it lusso): ToS restrittivi, non wired.",
+    expectedTypes: ["villa","palazzo","penthouse"], reliability: 55,
+    extraction: "manual", active: false },
 ];
+
 
 export function getActiveSourcesFiltered(opts: {
   categories?: string[];
