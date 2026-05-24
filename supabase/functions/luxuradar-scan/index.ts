@@ -234,6 +234,32 @@ function computeDossierAvailable(a: CollectedAsset): boolean {
   return present >= 3;
 }
 
+function evaluatePublishability(a: CollectedAsset): ExclusionReason | null {
+  if (!isMeaningfulTitle(a.title)) return "boilerplate";
+  if (!a.sourceUrl) return "no_asset_detected";
+  if (a.category === "signal_only" || !ALLOWED_CATEGORIES.includes(a.category)) return "no_asset_detected";
+  if (a.locationConfidence === "unknown" || !a.city && !a.region) return "no_asset_detected";
+  if (a.locationConfidence === "source_hint") return "location_hint_only";
+  if (a.extractionConfidence === "low") return "low_confidence";
+
+  const text = `${a.title} ${a.rawData?.snippet ?? ""}`;
+  const hasRealPrice = a.priceConfidence === "exact" || a.priceConfidence === "range";
+  const strongSource = a.sourceCategory === "pvp_judicial" || a.sourceCategory === "public_disposal" || a.sourceCategory === "special_situation";
+  const strongCategory = ["hotel", "palazzo", "villa", "castle", "historic_estate", "masseria", "trophy", "judicial_auction", "public_disposal"].includes(a.category);
+  if (hasRealPrice || hasClearAssetWording(text) || (strongCategory && strongSource)) return null;
+  return "no_price_no_asset_evidence";
+}
+
+function signalFromAsset(a: CollectedAsset, reason: ExclusionReason): DiscardedSignal {
+  return {
+    title: a.title,
+    sourceUrl: a.sourceUrl,
+    sourceCategory: a.sourceCategory,
+    sourceId: String(a.rawData?.source_id ?? ""),
+    reason,
+  };
+}
+
 
 // ── Scoring ─────────────────────────────────────────────────────────────────
 interface ScoreBreakdown {
