@@ -729,6 +729,7 @@ Deno.serve(async (req) => {
         .from("luxuradar_assets").select("*").eq("id", idSegment).maybeSingle();
       if (error) return fail(500, "db_error", error.message, debugId);
       if (!data) return fail(404, "not_found", "Asset not found", debugId);
+      if (!isPublishableRow(data)) return fail(404, "not_found", "Asset not publishable", debugId);
       return ok({ asset: toClientAsset(data) }, debugId);
     }
 
@@ -737,9 +738,10 @@ Deno.serve(async (req) => {
       const limit = Math.min(Number(url.searchParams.get("limit") ?? 20), 100);
       const { data, error } = await supabase
         .from("luxuradar_assets").select("*")
-        .order("score", { ascending: false }).limit(limit);
+        .order("score", { ascending: false }).limit(Math.max(limit * 3, 50));
       if (error) return fail(500, "db_error", error.message, debugId);
-      return ok({ assets: (data ?? []).map(toClientAsset), count: data?.length ?? 0 }, debugId);
+      const publishableRows = (data ?? []).filter(isPublishableRow).slice(0, limit);
+      return ok({ assets: publishableRows.map(toClientAsset), count: publishableRows.length }, debugId);
     }
 
     // POST /luxuradar-scan
