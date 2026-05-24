@@ -520,15 +520,19 @@ function applyFilters(assets: CollectedAsset[], f: ScanFilters): CollectedAsset[
   });
 }
 
-// In-memory dedupe within a single scan (DB upsert handles cross-run dedupe)
+// In-memory dedupe within a single scan (DB upsert handles cross-run dedupe).
+// Uses normalized URL + cleaned title + city + region + category to avoid
+// duplicates surfaced by the same PDF or search result across queries.
 function dedupeWithinRun(assets: CollectedAsset[]): CollectedAsset[] {
   const seen = new Set<string>();
   const out: CollectedAsset[] = [];
   for (const a of assets) {
     const key = [
-      (a.sourceUrl || "").toLowerCase(),
+      normalizeUrl(a.sourceUrl),
       a.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(),
       (a.city || "").toLowerCase(),
+      (a.region || "").toLowerCase(),
+      a.category.toLowerCase(),
     ].join("|");
     if (seen.has(key)) continue;
     seen.add(key);
@@ -536,6 +540,7 @@ function dedupeWithinRun(assets: CollectedAsset[]): CollectedAsset[] {
   }
   return out;
 }
+
 
 
 
