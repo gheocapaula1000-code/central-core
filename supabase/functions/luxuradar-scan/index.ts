@@ -48,6 +48,12 @@ interface DiscardedSignal {
   sourceId?: string;
 }
 
+interface CollectionResult {
+  assets: CollectedAsset[];
+  discarded: DiscardedSignal[];
+  rawCount: number;
+}
+
 interface CollectedAsset {
   title: string;
   category: string;
