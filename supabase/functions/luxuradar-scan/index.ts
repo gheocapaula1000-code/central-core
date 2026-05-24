@@ -30,6 +30,23 @@ interface ScanFilters {
 
 type PriceConfidence = "exact" | "range" | "threshold_only" | "unknown";
 type ExtractionConfidence = "high" | "medium" | "low";
+type LocationConfidence = "exact" | "inferred" | "source_hint" | "unknown";
+type ExclusionReason =
+  | "generic_admin_page"
+  | "no_asset_detected"
+  | "low_confidence"
+  | "location_hint_only"
+  | "no_price_no_asset_evidence"
+  | "duplicate"
+  | "boilerplate";
+
+interface DiscardedSignal {
+  title: string;
+  sourceUrl: string | null;
+  sourceCategory: string;
+  reason: ExclusionReason;
+  sourceId?: string;
+}
 
 interface CollectedAsset {
   title: string;
@@ -47,6 +64,7 @@ interface CollectedAsset {
   heroImageUrl: string | null;
   priceConfidence: PriceConfidence;
   extractionConfidence: ExtractionConfidence;
+  locationConfidence: LocationConfidence;
   missingFields: string[];
   rawData: Record<string, unknown>;
 }
