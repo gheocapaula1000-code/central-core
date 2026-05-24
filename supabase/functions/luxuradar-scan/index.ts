@@ -196,12 +196,16 @@ function scoreAsset(a: CollectedAsset): { score: number; priority: Priority; bre
     freshness: 0, completeness: 0, risk_penalty: 0, total: 0,
   };
 
-  const price = a.priceEur ?? a.priceMaxEur ?? a.priceMinEur ?? 0;
-  if (price >= 20_000_000) b.price = 25;
-  else if (price >= 10_000_000) b.price = 20;
-  else if (price >= PRIME_MIN_EUR) b.price = 15;
-  else if (price >= LUXURY_MIN_EUR) b.price = 10;
-  else if (price > 0) b.price = 4;
+  // Only score on a real, extracted price. Threshold-only/unknown prices do NOT
+  // get treated like a real €3M asking price.
+  const realPrice = a.priceConfidence === "exact" || a.priceConfidence === "range"
+    ? (a.priceEur ?? a.priceMaxEur ?? a.priceMinEur ?? 0)
+    : 0;
+  if (realPrice >= 20_000_000) b.price = 25;
+  else if (realPrice >= 10_000_000) b.price = 20;
+  else if (realPrice >= PRIME_MIN_EUR) b.price = 15;
+  else if (realPrice >= LUXURY_MIN_EUR) b.price = 10;
+  else if (realPrice > 0) b.price = 4;
 
   // rarity by category
   const rare = ["castle", "historic_estate", "palazzo", "trophy", "masseria"];
@@ -228,13 +232,20 @@ function scoreAsset(a: CollectedAsset): { score: number; priority: Priority; bre
   let comp = 0;
   if (a.city) comp += 2;
   if (a.region) comp += 1;
-  if (a.priceEur || (a.priceMinEur && a.priceMaxEur)) comp += 3;
+  if (a.priceConfidence === "exact") comp += 3;
+  else if (a.priceConfidence === "range") comp += 2;
   if (a.surfaceSqm) comp += 2;
   if (a.sourceUrl) comp += 2;
+  if (a.extractionConfidence === "low") comp = Math.max(0, comp - 2);
   b.completeness = Math.min(10, comp);
 
   // small risk penalty for judicial assets (procedural risk)
   if (a.sourceCategory === "pvp_judicial") b.risk_penalty = -3;
+  // Penalize threshold-only / unknown prices so they cannot reach high priority
+  // on the back of a fake €3M anchor.
+  if (a.priceConfidence === "threshold_only") b.risk_penalty -= 6;
+  if (a.priceConfidence === "unknown") b.risk_penalty -= 4;
+  if (a.extractionConfidence === "low") b.risk_penalty -= 3;
 
   const total = Math.max(0, Math.min(100,
     b.price + b.rarity + b.location_prestige + b.source_quality +
@@ -247,10 +258,11 @@ function scoreAsset(a: CollectedAsset): { score: number; priority: Priority; bre
   const isInstitutional = a.sourceCategory === "pvp_judicial"
     || a.sourceCategory === "public_disposal"
     || a.sourceCategory === "special_situation";
-  if (price >= PRIME_MIN_EUR && isInstitutional && total >= 60) priority = "critical";
-  else if (price >= PRIME_MIN_EUR && total >= 55) priority = "high";
-  else if (price >= LUXURY_MIN_EUR && total >= 40) priority = "medium";
-  else if (total >= 30) priority = "medium";
+  // Critical/high require a real extracted price ≥ Prime threshold.
+  if (realPrice >= PRIME_MIN_EUR && isInstitutional && total >= 60) priority = "critical";
+  else if (realPrice >= PRIME_MIN_EUR && total >= 55) priority = "high";
+  else if (realPrice >= LUXURY_MIN_EUR && total >= 40) priority = "medium";
+  else if (total >= 30 && a.priceConfidence !== "threshold_only") priority = "medium";
 
   return { score: total, priority, breakdown: b };
 }
