@@ -185,7 +185,75 @@ export const ACTIVE_SOURCES: LuxurySource[] = [
     expectedTypes: ["palazzo", "historic_estate"], reliability: 70,
     extraction: "firecrawl_search", active: true,
   },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Luxury broker public listings — Italy. Searched via Firecrawl public web
+  // search (no login). Public listing pages only. Broker name stays internal:
+  // exposed label is the sanitized "Luxury market signal" or "Prime asset signal".
+  // Many luxury listings carry "Prezzo su richiesta" — handled downstream as
+  // priceConfidence = "unknown" (no fake anchor).
+  // ──────────────────────────────────────────────────────────────────────────
+  {
+    id: "broker_sothebys_italy",
+    category: "prime_asset_signal", label: "Prime asset signal",
+    query: "site:sothebysrealty.it (villa OR palazzo OR castello OR \"dimora storica\") vendita",
+    expectedTypes: ["villa", "palazzo", "historic_estate", "castle", "trophy"],
+    reliability: 80, extraction: "firecrawl_search", active: true,
+    notes: "Italy Sotheby's public listings.",
+  },
+  {
+    id: "broker_lionard",
+    category: "prime_asset_signal", label: "Prime asset signal",
+    query: "site:lionard.com (villa OR palazzo OR castello OR tenuta OR \"dimora storica\") Italia",
+    expectedTypes: ["villa", "palazzo", "castle", "historic_estate", "trophy"],
+    reliability: 78, extraction: "firecrawl_search", active: true,
+    notes: "Lionard public luxury listings.",
+  },
+  {
+    id: "broker_romolini_christies",
+    category: "prime_asset_signal", label: "Prime asset signal",
+    query: "site:romolini.com (villa OR castello OR tenuta OR \"dimora storica\") vendita",
+    expectedTypes: ["villa", "castle", "historic_estate", "masseria"],
+    reliability: 76, extraction: "firecrawl_search", active: true,
+    notes: "Romolini Immobiliare (Christie's IRE affiliate) public listings.",
+  },
+  {
+    id: "broker_engelvoelkers_italy",
+    category: "luxury_market_signal", label: "Luxury market signal",
+    query: "site:engelvoelkers.com Italia (villa OR palazzo OR penthouse OR \"dimora storica\")",
+    expectedTypes: ["villa", "palazzo", "trophy"],
+    reliability: 72, extraction: "firecrawl_search", active: true,
+  },
+  {
+    id: "broker_knightfrank_italy",
+    category: "luxury_market_signal", label: "Luxury market signal",
+    query: "site:knightfrank.com Italy (villa OR palazzo OR estate) for sale",
+    expectedTypes: ["villa", "palazzo", "historic_estate", "trophy"],
+    reliability: 72, extraction: "firecrawl_search", active: true,
+  },
+  {
+    id: "broker_jamesedition_italy",
+    category: "luxury_market_signal", label: "Luxury market signal",
+    query: "site:jamesedition.com Italy (villa OR palazzo OR castle) real-estate",
+    expectedTypes: ["villa", "palazzo", "castle", "trophy"],
+    reliability: 68, extraction: "firecrawl_search", active: true,
+  },
+  {
+    id: "broker_luxuryestate_italy",
+    category: "luxury_market_signal", label: "Luxury market signal",
+    query: "site:luxuryestate.com Italia (villa OR palazzo OR castello)",
+    expectedTypes: ["villa", "palazzo", "castle", "historic_estate"],
+    reliability: 66, extraction: "firecrawl_search", active: true,
+  },
+  {
+    id: "broker_casaitalia_luxury",
+    category: "luxury_market_signal", label: "Luxury market signal",
+    query: "site:casait.it (villa OR \"dimora storica\" OR palazzo) lusso vendita",
+    expectedTypes: ["villa", "palazzo", "historic_estate"],
+    reliability: 62, extraction: "firecrawl_search", active: true,
+  },
 ];
+
 
 // ──────────────────────────────────────────────────────────────────────────
 // Registered only — known relevant sources, NOT live yet.
