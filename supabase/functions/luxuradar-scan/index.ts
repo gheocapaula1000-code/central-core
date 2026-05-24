@@ -653,9 +653,16 @@ Deno.serve(async (req) => {
           source_category: a.sourceCategory,
           source_label: a.sourceLabel,
           source_url: a.sourceUrl,
-          dossier_available: !!(a.city && (a.priceEur || a.priceMinEur) && a.sourceUrl),
+          dossier_available: computeDossierAvailable(a),
           hero_image_url: a.heroImageUrl,
-          raw_data: { ...a.rawData, score_breakdown: breakdown },
+          raw_data: {
+            ...a.rawData,
+            score_breakdown: breakdown,
+            price_confidence: a.priceConfidence,
+            extraction_confidence: a.extractionConfidence,
+            missing_fields: a.missingFields,
+          },
+
           dedupe_key: dedupeKey,
           scan_run_id: run.id,
         };
