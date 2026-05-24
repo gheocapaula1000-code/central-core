@@ -579,14 +579,14 @@ async function collectFromSearch(s: LuxurySource): Promise<CollectionResult> {
       const url = String(r?.url ?? "");
       if (!rawTitle || !url) continue;
       const title = cleanTitle(rawTitle);
-      if (!title || !isMeaningfulTitle(title)) {
-        discarded.push({ title: title || rawTitle.slice(0, 160), sourceUrl: url || null, sourceCategory: s.category, sourceId: s.id, reason: "boilerplate" });
-        continue;
-      }
       const combined = `${title} ${desc}`;
       if (hasForbiddenContent(combined)) continue;
       if (isGenericAdminPage(combined)) {
         discarded.push({ title, sourceUrl: url, sourceCategory: s.category, sourceId: s.id, reason: "generic_admin_page" });
+        continue;
+      }
+      if (!title || !isMeaningfulTitle(title)) {
+        discarded.push({ title: title || rawTitle.slice(0, 160), sourceUrl: url || null, sourceCategory: s.category, sourceId: s.id, reason: "boilerplate" });
         continue;
       }
       const hasAssetWording = hasClearAssetWording(combined);
