@@ -165,6 +165,18 @@ function computeMissingFields(a: CollectedAsset): string[] {
   return missing;
 }
 
+// Dossier requires real anchor data — not just a threshold-only price guess.
+function computeDossierAvailable(a: CollectedAsset): boolean {
+  if (!a.sourceUrl) return false;
+  if (!a.city && !a.region) return false;
+  if (a.priceConfidence === "threshold_only" || a.priceConfidence === "unknown") return false;
+  if (a.extractionConfidence === "low") return false;
+  // At least 3 meaningful fields beyond the URL
+  const present = [a.city, a.region, a.priceEur, a.surfaceSqm, a.category].filter(Boolean).length;
+  return present >= 3;
+}
+
+
 // ── Scoring ─────────────────────────────────────────────────────────────────
 interface ScoreBreakdown {
   price: number;
