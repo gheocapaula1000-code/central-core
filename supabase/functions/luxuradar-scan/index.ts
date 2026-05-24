@@ -431,40 +431,60 @@ async function collectFromSearch(s: LuxurySource): Promise<CollectedAsset[]> {
 
     const out: CollectedAsset[] = [];
     for (const r of results) {
-      const title = String(r?.title ?? "").trim();
+      const rawTitle = String(r?.title ?? "").trim();
       const desc = String(r?.description ?? "");
       const url = String(r?.url ?? "");
-      if (!title || !url) continue;
+      if (!rawTitle || !url) continue;
+      const title = cleanTitle(rawTitle);
+      if (!title || title.length < 6) continue;
       const combined = `${title} ${desc}`;
       if (hasForbiddenContent(combined)) continue;
       if (!/alienazione|vendita|bando|asta|disposal|demanio|patrimonio|hotel|villa|palazzo|castello|dimora|tenuta|complesso|dismissione|cessione|masser/i.test(combined)) continue;
 
       const priceEur = extractPriceEur(combined);
       const isSpecialSituation = s.category === "special_situation";
+      const isInstitutional = isSpecialSituation || s.category === "public_disposal" || s.category === "pvp_judicial";
       // Filter: drop below €3M unless special situation with unknown price
       if (priceEur && priceEur < LUXURY_MIN_EUR) continue;
-      if (!priceEur && !isSpecialSituation && s.category !== "public_disposal" && s.category !== "pvp_judicial") continue;
+      if (!priceEur && !isInstitutional) continue;
 
       const category = categoryFromText(combined, s.expectedTypes[0] ?? "trophy");
+      // Detect PDF-only results: extraction confidence is lower.
+      const isPdf = /\.pdf(?:$|\?|#)/i.test(url) || /\[pdf\]|\bpdf\b/i.test(rawTitle);
+      const priceConfidence: PriceConfidence = priceEur ? "exact" : "threshold_only";
+      const extractionConfidence: ExtractionConfidence =
+        priceEur ? (isPdf ? "medium" : "high") : (isPdf ? "low" : "medium");
 
-      out.push({
-        title: sanitizeTitle(title),
+      const asset: CollectedAsset = {
+        title,
         category,
         country: "IT",
         region: s.regionHint ?? null,
         city: s.cityHint ?? null,
         priceEur,
-        priceMinEur: priceEur ? null : LUXURY_MIN_EUR,
+        // Do NOT fake €3M as priceMinEur when only the search threshold is known.
+        priceMinEur: null,
         priceMaxEur: null,
         surfaceSqm: null,
         sourceCategory: s.category,
         sourceLabel: s.label,
         sourceUrl: url,
         heroImageUrl: null,
-        rawData: { source_id: s.id, snippet: desc.slice(0, 400) },
-      });
+        priceConfidence,
+        extractionConfidence,
+        missingFields: [],
+        rawData: {
+          source_id: s.id,
+          snippet: desc.slice(0, 400),
+          is_pdf: isPdf,
+          original_title: rawTitle !== title ? rawTitle.slice(0, 240) : undefined,
+        },
+      };
+      asset.missingFields = computeMissingFields(asset);
+      out.push(asset);
     }
     return out;
+
   } catch (e) {
     console.warn(`[luxuradar] search ${s.id} error:`, e instanceof Error ? e.message : String(e));
     return [];
