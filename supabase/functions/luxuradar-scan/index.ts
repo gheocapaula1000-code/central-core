@@ -502,15 +502,34 @@ Deno.serve(async (req) => {
       if (runErr || !run) return fail(500, "db_error", runErr?.message ?? "run insert failed", debugId);
 
       const sourcesUsed: string[] = [];
+      const sourceCounts: Record<string, number> = {};
       const collected: CollectedAsset[] = [];
 
-      const [pvp, disposals] = await Promise.all([
-        collectPvpLuxury(filters).then((r) => { if (r.length) sourcesUsed.push("pvp_judicial"); return r; }),
-        collectPublicDisposals(filters).then((r) => { if (r.length) sourcesUsed.push("public_disposals"); return r; }),
-      ]);
-      collected.push(...pvp, ...disposals);
+      // Pick active sources matching filters; cap total upstream calls.
+      const MAX_SOURCES_PER_RUN = 10;
+      const selected = getActiveSourcesFiltered({
+        categories: filters.categories, regions: filters.regions, sources: filters.sources,
+      }).slice(0, MAX_SOURCES_PER_RUN);
 
-      const filtered = applyFilters(collected, filters).slice(0, filters.limit ?? 30);
+      // Run with limited concurrency (3) to stay polite.
+      const concurrency = 3;
+      for (let i = 0; i < selected.length; i += concurrency) {
+        const batch = selected.slice(i, i + concurrency);
+        const results = await Promise.all(batch.map((s) =>
+          collectFromSource(s).then((rs) => ({ s, rs }))
+        ));
+        for (const { s, rs } of results) {
+          if (rs.length) {
+            sourcesUsed.push(s.id);
+            sourceCounts[s.id] = rs.length;
+            collected.push(...rs);
+          }
+        }
+      }
+
+      const deduped = dedupeWithinRun(collected);
+      const filtered = applyFilters(deduped, filters).slice(0, filters.limit ?? 30);
+
 
       // Score, dedupe-key, upsert
       const persistedIds: string[] = [];
