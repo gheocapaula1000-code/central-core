@@ -382,8 +382,8 @@ async function collectFromScrape(s: LuxurySource): Promise<CollectedAsset[]> {
       const absUrl = link.startsWith("http") ? link
         : link && s.url ? new URL(link, s.url).toString() : null;
 
-      out.push({
-        title: sanitizeTitle(`${it?.tipo ?? "Immobile"} — ${it?.citta ?? "Italia"}`),
+      const asset: CollectedAsset = {
+        title: cleanTitle(`${it?.tipo ?? "Immobile"} — ${it?.citta ?? "Italia"}`),
         category: categoryFromText(text, "trophy"),
         country: "IT",
         region: it?.regione ? String(it.regione) : (s.regionHint ?? null),
@@ -395,8 +395,14 @@ async function collectFromScrape(s: LuxurySource): Promise<CollectedAsset[]> {
         sourceLabel: s.label,
         sourceUrl: absUrl,
         heroImageUrl: null,
+        priceConfidence: "exact",
+        extractionConfidence: "high",
+        missingFields: [],
         rawData: { source_id: s.id, dataEvento: it?.dataEvento ?? null },
-      });
+      };
+      asset.missingFields = computeMissingFields(asset);
+      out.push(asset);
+
     }
     return out;
   } catch (e) {
