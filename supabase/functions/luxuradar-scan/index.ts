@@ -89,10 +89,18 @@ const SOURCE_LABELS: Record<string, string> = {
   pvp_judicial: "Judicial auction",
   public_disposal: "Public disposal",
   luxury_market_signal: "Luxury market signal",
+  prime_asset_signal: "Prime asset signal",
   hospitality_signal: "Hospitality asset",
   special_situation: "Special situation",
   public_notice: "Public notice",
 };
+
+// "Price upon request" / POA markers — keep priceConfidence = "unknown"
+// (not threshold_only) so luxury broker pages aren't penalized as if they
+// were anchored on the €3M search threshold.
+const PRICE_ON_REQUEST_RX =
+  /(prezzo\s+(su\s+richiesta|riservato|a\s+richiesta)|price\s+(upon|on)\s+request|\bpoa\b|price:\s*request)/i;
+
 
 const FORBIDDEN_TERMS = [
   "necrolog", "obituar", "erede", "eredi", "defunto", "defunta",
@@ -597,6 +605,9 @@ async function collectFromSearch(s: LuxurySource): Promise<CollectionResult> {
       }
 
       const priceEur = extractPriceEur(combined);
+      const isLuxuryBrokerSource =
+        s.category === "luxury_market_signal" || s.category === "prime_asset_signal";
+      const priceOnRequest = PRICE_ON_REQUEST_RX.test(combined);
       // Filter: drop below €3M unless special situation with unknown price
       if (priceEur && priceEur < LUXURY_MIN_EUR) continue;
       if (!priceEur && !hasAssetWording) {
@@ -614,10 +625,15 @@ async function collectFromSearch(s: LuxurySource): Promise<CollectionResult> {
       }
       // Detect PDF-only results: extraction confidence is lower.
       const isPdf = /\.pdf(?:$|\?|#)/i.test(url) || /\[pdf\]|\bpdf\b/i.test(rawTitle);
-      const priceConfidence: PriceConfidence = priceEur ? "exact" : "threshold_only";
+      // For luxury broker sources we never inferred a €3M threshold (search was
+      // not price-bounded), so missing price = "unknown" not "threshold_only".
+      const priceConfidence: PriceConfidence = priceEur
+        ? "exact"
+        : (isLuxuryBrokerSource || priceOnRequest ? "unknown" : "threshold_only");
       const extractionConfidence: ExtractionConfidence =
         priceEur ? (isPdf ? "medium" : "high") : (isPdf ? "low" : "medium");
       const loc = detectLocation(combined, s);
+
 
       const asset: CollectedAsset = {
         title,
