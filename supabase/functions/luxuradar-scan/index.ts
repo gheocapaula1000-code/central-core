@@ -728,6 +728,21 @@ Deno.serve(async (req) => {
 
 // ── Client mapping ──────────────────────────────────────────────────────────
 function toClientAsset(row: Record<string, unknown>) {
+  const raw = (row.raw_data ?? {}) as Record<string, unknown>;
+  const priceConfidence = (raw.price_confidence as string) ?? (row.price_eur ? "exact" : "unknown");
+  const extractionConfidence = (raw.extraction_confidence as string) ?? "medium";
+  const missingFields = Array.isArray(raw.missing_fields) ? raw.missing_fields as string[] : [];
+
+  // Only expose a price range when both bounds exist AND we did not just
+  // anchor on the scan threshold. Threshold-only rows return null here so
+  // clients cannot mistake €3M for a real asking price.
+  let priceRangeEur: { min: unknown; max: unknown } | null = null;
+  if (priceConfidence !== "threshold_only" && priceConfidence !== "unknown") {
+    if (row.price_min_eur && row.price_max_eur) {
+      priceRangeEur = { min: row.price_min_eur, max: row.price_max_eur };
+    }
+  }
+
   return {
     id: row.id,
     title: row.title,
@@ -737,9 +752,11 @@ function toClientAsset(row: Record<string, unknown>) {
       region: row.region,
       city: row.city,
     },
-    priceEur: row.price_eur,
-    priceRangeEur: (row.price_min_eur || row.price_max_eur)
-      ? { min: row.price_min_eur, max: row.price_max_eur } : null,
+    priceEur: priceConfidence === "exact" ? row.price_eur : null,
+    priceRangeEur,
+    priceConfidence,
+    extractionConfidence,
+    missingFields,
     surfaceSqm: row.surface_sqm,
     score: row.score,
     priority: row.priority,
@@ -755,3 +772,4 @@ function toClientAsset(row: Record<string, unknown>) {
     updatedAt: row.updated_at,
   };
 }
+
