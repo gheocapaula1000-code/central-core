@@ -226,6 +226,7 @@ function computeMissingFields(a: CollectedAsset): string[] {
 function computeDossierAvailable(a: CollectedAsset): boolean {
   if (!a.sourceUrl) return false;
   if (!a.city && !a.region) return false;
+  if (a.locationConfidence === "source_hint" || a.locationConfidence === "unknown") return false;
   if (a.priceConfidence === "threshold_only" || a.priceConfidence === "unknown") return false;
   if (a.extractionConfidence === "low") return false;
   // At least 3 meaningful fields beyond the URL
@@ -337,6 +338,8 @@ function scoreAsset(a: CollectedAsset): { score: number; priority: Priority; bre
   if (a.priceConfidence === "threshold_only") b.risk_penalty -= 6;
   if (a.priceConfidence === "unknown") b.risk_penalty -= 4;
   if (a.extractionConfidence === "low") b.risk_penalty -= 3;
+  if (a.locationConfidence === "source_hint") b.risk_penalty -= 8;
+  if (a.locationConfidence === "unknown") b.risk_penalty -= 10;
 
   const total = Math.max(0, Math.min(100,
     b.price + b.rarity + b.location_prestige + b.source_quality +
@@ -349,9 +352,15 @@ function scoreAsset(a: CollectedAsset): { score: number; priority: Priority; bre
   const isInstitutional = a.sourceCategory === "pvp_judicial"
     || a.sourceCategory === "public_disposal"
     || a.sourceCategory === "special_situation";
+  const hasTrustedLocation = a.locationConfidence === "exact" || a.locationConfidence === "inferred";
+  const hasUsableExtraction = a.extractionConfidence === "medium" || a.extractionConfidence === "high";
+  const strongPrimeEvidence = hasClearAssetWording(`${a.title} ${a.rawData?.snippet ?? ""}`)
+    && isInstitutional
+    && a.priceConfidence !== "threshold_only"
+    && a.priceConfidence !== "unknown";
   // Critical/high require a real extracted price ≥ Prime threshold.
-  if (realPrice >= PRIME_MIN_EUR && isInstitutional && total >= 60) priority = "critical";
-  else if (realPrice >= PRIME_MIN_EUR && total >= 55) priority = "high";
+  if (hasTrustedLocation && hasUsableExtraction && realPrice >= PRIME_MIN_EUR && isInstitutional && total >= 60) priority = "critical";
+  else if (hasTrustedLocation && hasUsableExtraction && ((realPrice >= PRIME_MIN_EUR) || strongPrimeEvidence) && total >= 55) priority = "high";
   else if (realPrice >= LUXURY_MIN_EUR && total >= 40) priority = "medium";
   else if (total >= 30 && a.priceConfidence !== "threshold_only") priority = "medium";
 
