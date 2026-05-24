@@ -252,6 +252,28 @@ const PRESTIGE_REGIONS = new Set([
   "lombardia", "toscana", "lazio", "veneto", "liguria", "sicilia", "campania",
 ]);
 
+const ITALIAN_REGIONS = [
+  "Abruzzo", "Basilicata", "Calabria", "Campania", "Emilia-Romagna", "Friuli-Venezia Giulia",
+  "Lazio", "Liguria", "Lombardia", "Marche", "Molise", "Piemonte", "Puglia", "Sardegna",
+  "Sicilia", "Toscana", "Trentino-Alto Adige", "Umbria", "Valle d'Aosta", "Veneto",
+];
+
+const KNOWN_CITIES = [
+  "Milano", "Roma", "Firenze", "Venezia", "Como", "Portofino", "Capri", "Cortina d'Ampezzo",
+  "Cortina", "Taormina", "Positano", "Amalfi", "Santa Margherita Ligure", "Torino", "Napoli",
+  "Palermo", "Bologna", "Verona", "Siena", "Lucca", "Pisa", "Arezzo", "Olbia", "Porto Cervo",
+];
+
+function detectLocation(text: string, s?: LuxurySource): { city: string | null; region: string | null; confidence: LocationConfidence } {
+  const lower = text.toLowerCase();
+  const city = KNOWN_CITIES.find((c) => lower.includes(c.toLowerCase())) ?? null;
+  const region = ITALIAN_REGIONS.find((r) => lower.includes(r.toLowerCase())) ?? null;
+  if (city && region) return { city, region, confidence: "exact" };
+  if (city || region) return { city, region, confidence: "inferred" };
+  if (s?.cityHint || s?.regionHint) return { city: s.cityHint ?? null, region: s.regionHint ?? null, confidence: "source_hint" };
+  return { city: null, region: null, confidence: "unknown" };
+}
+
 function scoreAsset(a: CollectedAsset): { score: number; priority: Priority; breakdown: ScoreBreakdown } {
   const b: ScoreBreakdown = {
     price: 0, rarity: 0, location_prestige: 0, source_quality: 0,
