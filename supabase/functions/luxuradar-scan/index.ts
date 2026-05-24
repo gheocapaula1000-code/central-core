@@ -605,6 +605,9 @@ async function collectFromSearch(s: LuxurySource): Promise<CollectionResult> {
       }
 
       const priceEur = extractPriceEur(combined);
+      const isLuxuryBrokerSource =
+        s.category === "luxury_market_signal" || s.category === "prime_asset_signal";
+      const priceOnRequest = PRICE_ON_REQUEST_RX.test(combined);
       // Filter: drop below €3M unless special situation with unknown price
       if (priceEur && priceEur < LUXURY_MIN_EUR) continue;
       if (!priceEur && !hasAssetWording) {
@@ -622,10 +625,15 @@ async function collectFromSearch(s: LuxurySource): Promise<CollectionResult> {
       }
       // Detect PDF-only results: extraction confidence is lower.
       const isPdf = /\.pdf(?:$|\?|#)/i.test(url) || /\[pdf\]|\bpdf\b/i.test(rawTitle);
-      const priceConfidence: PriceConfidence = priceEur ? "exact" : "threshold_only";
+      // For luxury broker sources we never inferred a €3M threshold (search was
+      // not price-bounded), so missing price = "unknown" not "threshold_only".
+      const priceConfidence: PriceConfidence = priceEur
+        ? "exact"
+        : (isLuxuryBrokerSource || priceOnRequest ? "unknown" : "threshold_only");
       const extractionConfidence: ExtractionConfidence =
         priceEur ? (isPdf ? "medium" : "high") : (isPdf ? "low" : "medium");
       const loc = detectLocation(combined, s);
+
 
       const asset: CollectedAsset = {
         title,
