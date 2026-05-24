@@ -97,6 +97,43 @@ function sanitizeTitle(t: string): string {
   return out;
 }
 
+// Aggressive title cleanup for search results (PDF labels, file boilerplate, dup separators).
+function cleanTitle(raw: string): string {
+  let t = sanitizeTitle(raw);
+  // Remove bracketed file labels: [PDF], [DOC], (PDF), [XLS]…
+  t = t.replace(/[\[\(]\s*(pdf|doc|docx|xls|xlsx|ppt|pptx|file|download|scarica)\s*[\]\)]/gi, " ");
+  // Remove leading/inline "PDF -", "PDF |", "PDF:" tokens
+  t = t.replace(/(^|\s|[|·•\-–—:])\s*(pdf|doc|docx|xls|xlsx)\s*(?=\s|[|·•\-–—:]|$)/gi, "$1 ");
+  // Strip trailing file extensions on tokens like "documento.pdf"
+  t = t.replace(/\.(pdf|docx?|xlsx?|pptx?)\b/gi, "");
+  // Boilerplate phrases
+  t = t.replace(/\b(scarica\s+(il|la)?\s*(documento|allegato|pdf|file)?|allegato\s+\d*|click\s+here|leggi\s+(di\s+)?più|continua\s+a\s+leggere)\b/gi, " ");
+  // Collapse repeated separators: " | | ", " - - ", " · · "
+  t = t.replace(/([|·•\-–—:])\s*\1+/g, "$1");
+  // Trim leading/trailing separators
+  t = t.replace(/^[\s|·•\-–—:]+|[\s|·•\-–—:]+$/g, "");
+  // Collapse whitespace again
+  t = t.replace(/\s+/g, " ").trim();
+  return t.slice(0, 220);
+}
+
+// Normalize URL for dedupe: lowercase host, strip fragment + tracking params + trailing slash.
+function normalizeUrl(u: string | null): string {
+  if (!u) return "";
+  try {
+    const url = new URL(u);
+    url.hash = "";
+    const drop = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid", "ref"];
+    for (const k of drop) url.searchParams.delete(k);
+    url.hostname = url.hostname.toLowerCase();
+    let s = url.toString();
+    s = s.replace(/\/+$/, "");
+    return s.toLowerCase();
+  } catch {
+    return u.toLowerCase().trim();
+  }
+}
+
 function hasForbiddenContent(text: string): boolean {
   const lower = text.toLowerCase();
   return FORBIDDEN_TERMS.some((t) => lower.includes(t));
@@ -109,11 +146,23 @@ async function sha1(input: string): Promise<string> {
 
 async function buildDedupeKey(a: CollectedAsset): Promise<string> {
   const base = [
-    (a.sourceUrl || "").toLowerCase(),
+    normalizeUrl(a.sourceUrl),
     a.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(),
     (a.city || "").toLowerCase(),
+    (a.region || "").toLowerCase(),
+    a.category.toLowerCase(),
   ].join("|");
   return await sha1(base);
+}
+
+function computeMissingFields(a: CollectedAsset): string[] {
+  const missing: string[] = [];
+  if (!a.city) missing.push("city");
+  if (!a.region) missing.push("region");
+  if (!a.priceEur && !(a.priceMinEur && a.priceMaxEur)) missing.push("price");
+  if (!a.surfaceSqm) missing.push("surface");
+  if (!a.sourceUrl) missing.push("source_url");
+  return missing;
 }
 
 // ── Scoring ─────────────────────────────────────────────────────────────────
