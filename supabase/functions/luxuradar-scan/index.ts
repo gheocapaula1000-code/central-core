@@ -510,9 +510,9 @@ async function collectFromScrape(s: LuxurySource): Promise<CollectionResult> {
   } finally { clearTimeout(timer); }
 }
 
-async function collectFromSearch(s: LuxurySource): Promise<CollectedAsset[]> {
+async function collectFromSearch(s: LuxurySource): Promise<CollectionResult> {
   const key = Deno.env.get("FIRECRAWL_API_KEY");
-  if (!key || !s.query) return [];
+  if (!key || !s.query) return { assets: [], discarded: [], rawCount: 0 };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 25_000);
   try {
@@ -522,44 +522,68 @@ async function collectFromSearch(s: LuxurySource): Promise<CollectedAsset[]> {
       body: JSON.stringify({ query: s.query, limit: 5, lang: "it", country: "it" }),
       signal: ctrl.signal,
     });
-    if (!res.ok) return [];
+    if (!res.ok) return { assets: [], discarded: [], rawCount: 0 };
     const data = await res.json();
     const results: Array<Record<string, unknown>> =
       data?.data?.web ?? data?.data ?? data?.web?.results ?? [];
-    if (!Array.isArray(results)) return [];
+    if (!Array.isArray(results)) return { assets: [], discarded: [], rawCount: 0 };
 
     const out: CollectedAsset[] = [];
+    const discarded: DiscardedSignal[] = [];
     for (const r of results) {
       const rawTitle = String(r?.title ?? "").trim();
       const desc = String(r?.description ?? "");
       const url = String(r?.url ?? "");
       if (!rawTitle || !url) continue;
       const title = cleanTitle(rawTitle);
-      if (!title || title.length < 6) continue;
+      if (!title || !isMeaningfulTitle(title)) {
+        discarded.push({ title: title || rawTitle.slice(0, 160), sourceUrl: url || null, sourceCategory: s.category, sourceId: s.id, reason: "boilerplate" });
+        continue;
+      }
       const combined = `${title} ${desc}`;
       if (hasForbiddenContent(combined)) continue;
-      if (!/alienazione|vendita|bando|asta|disposal|demanio|patrimonio|hotel|villa|palazzo|castello|dimora|tenuta|complesso|dismissione|cessione|masser/i.test(combined)) continue;
+      if (isGenericAdminPage(combined)) {
+        discarded.push({ title, sourceUrl: url, sourceCategory: s.category, sourceId: s.id, reason: "generic_admin_page" });
+        continue;
+      }
+      const hasAssetWording = hasClearAssetWording(combined);
+      const hasTransactionWording = /alienazione|vendita|bando|asta|disposal|demanio|dismissione|cessione|prezzo\s+base|incanto|lotto/i.test(combined);
+      if (!hasAssetWording && !hasTransactionWording) {
+        discarded.push({ title, sourceUrl: url, sourceCategory: s.category, sourceId: s.id, reason: "no_asset_detected" });
+        continue;
+      }
 
       const priceEur = extractPriceEur(combined);
       const isSpecialSituation = s.category === "special_situation";
       const isInstitutional = isSpecialSituation || s.category === "public_disposal" || s.category === "pvp_judicial";
       // Filter: drop below €3M unless special situation with unknown price
       if (priceEur && priceEur < LUXURY_MIN_EUR) continue;
-      if (!priceEur && !isInstitutional) continue;
+      if (!priceEur && !isInstitutional && !hasAssetWording) {
+        discarded.push({ title, sourceUrl: url, sourceCategory: s.category, sourceId: s.id, reason: "no_price_no_asset_evidence" });
+        continue;
+      }
 
-      const category = categoryFromText(combined, s.expectedTypes[0] ?? "trophy");
+      const fallbackCategory = s.category === "pvp_judicial" ? "judicial_auction"
+        : s.category === "public_disposal" ? "public_disposal"
+        : s.expectedTypes[0] ?? "trophy";
+      const category = categoryFromText(combined, hasAssetWording ? fallbackCategory : "signal_only");
+      if (category === "signal_only") {
+        discarded.push({ title, sourceUrl: url, sourceCategory: s.category, sourceId: s.id, reason: "no_asset_detected" });
+        continue;
+      }
       // Detect PDF-only results: extraction confidence is lower.
       const isPdf = /\.pdf(?:$|\?|#)/i.test(url) || /\[pdf\]|\bpdf\b/i.test(rawTitle);
       const priceConfidence: PriceConfidence = priceEur ? "exact" : "threshold_only";
       const extractionConfidence: ExtractionConfidence =
         priceEur ? (isPdf ? "medium" : "high") : (isPdf ? "low" : "medium");
+      const loc = detectLocation(combined, s);
 
       const asset: CollectedAsset = {
         title,
         category,
         country: "IT",
-        region: s.regionHint ?? null,
-        city: s.cityHint ?? null,
+        region: loc.region,
+        city: loc.city,
         priceEur,
         // Do NOT fake €3M as priceMinEur when only the search threshold is known.
         priceMinEur: null,
@@ -571,6 +595,7 @@ async function collectFromSearch(s: LuxurySource): Promise<CollectedAsset[]> {
         heroImageUrl: null,
         priceConfidence,
         extractionConfidence,
+        locationConfidence: loc.confidence,
         missingFields: [],
         rawData: {
           source_id: s.id,
@@ -582,19 +607,19 @@ async function collectFromSearch(s: LuxurySource): Promise<CollectedAsset[]> {
       asset.missingFields = computeMissingFields(asset);
       out.push(asset);
     }
-    return out;
+    return { assets: out, discarded, rawCount: results.length };
 
   } catch (e) {
     console.warn(`[luxuradar] search ${s.id} error:`, e instanceof Error ? e.message : String(e));
-    return [];
+    return { assets: [], discarded: [], rawCount: 0 };
   } finally { clearTimeout(timer); }
 }
 
-async function collectFromSource(s: LuxurySource): Promise<CollectedAsset[]> {
-  if (!s.active) return [];
+async function collectFromSource(s: LuxurySource): Promise<CollectionResult> {
+  if (!s.active) return { assets: [], discarded: [], rawCount: 0 };
   if (s.extraction === "firecrawl_scrape") return collectFromScrape(s);
   if (s.extraction === "firecrawl_search") return collectFromSearch(s);
-  return [];
+  return { assets: [], discarded: [], rawCount: 0 };
 }
 
 // ── Filter / dedupe ─────────────────────────────────────────────────────────
