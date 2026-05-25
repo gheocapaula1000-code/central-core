@@ -2272,6 +2272,111 @@ export type Database = {
         }
         Relationships: []
       }
+      luxu_assets: {
+        Row: {
+          active: boolean | null
+          category: string
+          city: string | null
+          convergent_signal: boolean | null
+          country: string | null
+          dossier_available: boolean | null
+          extraction_confidence: string | null
+          first_seen_at: string
+          hero_image_url: string | null
+          id: string
+          last_scan_run_id: string | null
+          last_seen_at: string
+          location_confidence: string | null
+          merge_count: number | null
+          merged_sources: Json | null
+          missing_fields: string[] | null
+          opportunity: string | null
+          price_confidence: string | null
+          price_eur: number | null
+          price_max_eur: number | null
+          price_min_eur: number | null
+          priority: string
+          region: string | null
+          risk: string | null
+          score: number
+          source_category: string
+          source_label: string
+          source_url: string | null
+          surface_sqm: number | null
+          times_seen: number | null
+          title: string
+          why_now: string | null
+        }
+        Insert: {
+          active?: boolean | null
+          category: string
+          city?: string | null
+          convergent_signal?: boolean | null
+          country?: string | null
+          dossier_available?: boolean | null
+          extraction_confidence?: string | null
+          first_seen_at?: string
+          hero_image_url?: string | null
+          id: string
+          last_scan_run_id?: string | null
+          last_seen_at?: string
+          location_confidence?: string | null
+          merge_count?: number | null
+          merged_sources?: Json | null
+          missing_fields?: string[] | null
+          opportunity?: string | null
+          price_confidence?: string | null
+          price_eur?: number | null
+          price_max_eur?: number | null
+          price_min_eur?: number | null
+          priority?: string
+          region?: string | null
+          risk?: string | null
+          score?: number
+          source_category: string
+          source_label: string
+          source_url?: string | null
+          surface_sqm?: number | null
+          times_seen?: number | null
+          title: string
+          why_now?: string | null
+        }
+        Update: {
+          active?: boolean | null
+          category?: string
+          city?: string | null
+          convergent_signal?: boolean | null
+          country?: string | null
+          dossier_available?: boolean | null
+          extraction_confidence?: string | null
+          first_seen_at?: string
+          hero_image_url?: string | null
+          id?: string
+          last_scan_run_id?: string | null
+          last_seen_at?: string
+          location_confidence?: string | null
+          merge_count?: number | null
+          merged_sources?: Json | null
+          missing_fields?: string[] | null
+          opportunity?: string | null
+          price_confidence?: string | null
+          price_eur?: number | null
+          price_max_eur?: number | null
+          price_min_eur?: number | null
+          priority?: string
+          region?: string | null
+          risk?: string | null
+          score?: number
+          source_category?: string
+          source_label?: string
+          source_url?: string | null
+          surface_sqm?: number | null
+          times_seen?: number | null
+          title?: string
+          why_now?: string | null
+        }
+        Relationships: []
+      }
       luxuradar_assets: {
         Row: {
           category: string
