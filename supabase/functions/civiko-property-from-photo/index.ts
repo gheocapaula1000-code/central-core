@@ -542,6 +542,42 @@ function labelForStatus(s: FonteStatus): string {
 
 // ── orchestration ─────────────────────────────────────────────
 
+// Bounding-box approssimativi delle 7 province venete.
+// Usato come fallback quando venetoEnrichment/sottra non risolvono la provincia.
+const VENETO_BBOX: Record<string, { lat: [number, number]; lng: [number, number] }> = {
+  PD: { lat: [45.0, 45.6], lng: [11.6, 12.0] },
+  VR: { lat: [45.2, 45.7], lng: [10.6, 11.4] },
+  VI: { lat: [45.4, 45.9], lng: [11.2, 11.8] },
+  VE: { lat: [45.3, 45.6], lng: [12.0, 12.6] },
+  TV: { lat: [45.6, 46.0], lng: [11.8, 12.4] },
+  BL: { lat: [46.0, 46.6], lng: [11.8, 12.6] },
+  RO: { lat: [44.8, 45.2], lng: [11.2, 12.2] },
+};
+
+function provinciaFromBbox(coords: { lat: number; lng: number } | null): string {
+  if (!coords) return "";
+  for (const [code, b] of Object.entries(VENETO_BBOX)) {
+    if (coords.lat >= b.lat[0] && coords.lat <= b.lat[1] &&
+        coords.lng >= b.lng[0] && coords.lng <= b.lng[1]) {
+      return code;
+    }
+  }
+  return "";
+}
+
+function resolveProvincia(
+  veneto: { venetoScope?: { provincia?: string | null } } | null | undefined,
+  sottra: { identity?: { provincia?: string | null } } | null | undefined,
+  coords: { lat: number; lng: number } | null,
+): string {
+  const fromVeneto = (veneto?.venetoScope?.provincia ?? "").toString().trim().toUpperCase();
+  if (fromVeneto && fromVeneto.length === 2) return fromVeneto;
+  const fromSottra = (sottra?.identity?.provincia ?? "").toString().trim().toUpperCase();
+  if (fromSottra && fromSottra.length === 2) return fromSottra;
+  return provinciaFromBbox(coords);
+}
+
+
 async function orchestrate(body: RequestBody, debugId: string) {
   const ctx = evaluateInput(body);
   const rawFacts = body.quickFacts ?? {};
