@@ -29,6 +29,7 @@ import {
 } from "./sottraInternal.ts";
 import { buildZonaIntelligence } from "./zonaIntelligence.ts";
 import { buildVenetoEnrichment } from "./venetoEnrichment.ts";
+import { analyzePhotoWithVision, type VisionAnalysis } from "./visionAnalyzer.ts";
 
 const FUNCTION_NAME = "civiko-property-from-photo";
 const EXPECTED_BASE_PATH = "/functions/v1/civiko-property-from-photo";
@@ -541,9 +542,37 @@ function labelForStatus(s: FonteStatus): string {
 
 async function orchestrate(body: RequestBody, debugId: string) {
   const ctx = evaluateInput(body);
-  const facts = body.quickFacts ?? {};
+  const rawFacts = body.quickFacts ?? {};
   const immobile = buildImmobileReale(body, ctx);
   const warnings = [...ctx.warnings];
+
+  // ── Vision layer: arricchisce quickFacts con analisi AI della foto.
+  // Non blocca mai la response principale: in errore restituisce default.
+  let visionAnalysis: VisionAnalysis;
+  try {
+    visionAnalysis = await analyzePhotoWithVision(
+      body.photo?.dataUrl,
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+    );
+  } catch (e) {
+    console.warn(`[${FUNCTION_NAME}] vision error debug_id=${debugId}: ${e instanceof Error ? e.message : String(e)}`);
+    visionAnalysis = {
+      tipologiaProbabile: "Immobile residenziale",
+      pianoStimato: null,
+      statoApparente: "Buone condizioni",
+      puntiDiForzaVisivi: [],
+      materialePresunto: null,
+      annoPresunto: null,
+      presenzaGiardino: false,
+      presenzaParcheggio: false,
+    };
+  }
+  const facts: PwaQuickFacts = {
+    ...rawFacts,
+    tipologia: safeStr(rawFacts.tipologia) || visionAnalysis.tipologiaProbabile,
+    // statoApparente non è nel tipo legacy; viene esposto via immobileOut.
+  };
 
   // Build a propertyDraft compatible with existing siblings.
   const propertyDraft = {
@@ -803,6 +832,20 @@ async function orchestrate(body: RequestBody, debugId: string) {
     immobileOut.criticitaVisibili = [];
     immobileOut.provincia = null;
     immobileOut.comune = null;
+  }
+  // Vision analysis (sempre esposta, anche in default).
+  immobileOut.visionAnalysis = {
+    tipologiaProbabile: visionAnalysis.tipologiaProbabile,
+    pianoStimato: visionAnalysis.pianoStimato,
+    statoApparente: visionAnalysis.statoApparente,
+    puntiDiForzaVisivi: visionAnalysis.puntiDiForzaVisivi,
+    materialePresunto: visionAnalysis.materialePresunto,
+    annoPresunto: visionAnalysis.annoPresunto,
+    presenzaGiardino: visionAnalysis.presenzaGiardino,
+    presenzaParcheggio: visionAnalysis.presenzaParcheggio,
+  };
+  if (!immobileOut.statoApparente || immobileOut.statoApparente === "sconosciuto") {
+    immobileOut.statoApparente = visionAnalysis.statoApparente;
   }
 
   const pianoEnriched: Record<string, unknown> = { ...pianoEsclusiva };
