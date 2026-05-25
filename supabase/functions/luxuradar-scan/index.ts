@@ -235,7 +235,9 @@ function computeDossierAvailable(a: CollectedAsset): boolean {
   if (!a.sourceUrl) return false;
   if (!a.city && !a.region) return false;
   if (a.locationConfidence === "source_hint" || a.locationConfidence === "unknown") return false;
-  if (a.priceConfidence === "threshold_only" || a.priceConfidence === "unknown") return false;
+  // Per broker prime/luxury, "price on request" è accettabile per il dossier
+  const isPrimeBroker = a.sourceCategory === "prime_asset_signal" || a.sourceCategory === "luxury_market_signal";
+  if (!isPrimeBroker && (a.priceConfidence === "threshold_only" || a.priceConfidence === "unknown")) return false;
   if (a.extractionConfidence === "low") return false;
   // At least 3 meaningful fields beyond the URL
   const present = [a.city, a.region, a.priceEur, a.surfaceSqm, a.category].filter(Boolean).length;
@@ -247,14 +249,25 @@ function evaluatePublishability(a: CollectedAsset): ExclusionReason | null {
   if (!a.sourceUrl) return "no_asset_detected";
   if (a.category === "signal_only" || !ALLOWED_CATEGORIES.includes(a.category)) return "no_asset_detected";
   if (a.locationConfidence === "unknown" || !a.city && !a.region) return "no_asset_detected";
-  if (a.locationConfidence === "source_hint") return "location_hint_only";
+  // Per broker prime/luxury con asset wording chiaro, accettiamo source_hint
+  const isPrimeBroker = a.sourceCategory === "prime_asset_signal" || a.sourceCategory === "luxury_market_signal";
+  if (a.locationConfidence === "source_hint" && !isPrimeBroker) return "location_hint_only";
   if (a.extractionConfidence === "low") return "low_confidence";
 
   const text = `${a.title} ${String(a.rawData?.snippet ?? "")}`;
   const hasRealPrice = a.priceConfidence === "exact" || a.priceConfidence === "range";
   const strongSource = a.sourceCategory === "pvp_judicial" || a.sourceCategory === "public_disposal" || a.sourceCategory === "special_situation";
   const strongCategory = ["hotel", "palazzo", "villa", "castle", "historic_estate", "masseria", "trophy", "judicial_auction", "public_disposal"].includes(a.category);
+  const isPrimeBrokerSource = a.sourceCategory === "prime_asset_signal" || a.sourceCategory === "luxury_market_signal";
+  const hasPriceOnRequest = PRICE_ON_REQUEST_RX.test(text);
+
+  // Broker luxury con asset wording chiaro passano anche senza prezzo estratto
   if (hasRealPrice || hasClearAssetWording(text) || (strongCategory && strongSource)) return null;
+
+  if (isPrimeBrokerSource && hasClearAssetWording(text)) return null;
+
+  if (isPrimeBrokerSource && hasPriceOnRequest && isMeaningfulTitle(a.title)) return null;
+
   return "no_price_no_asset_evidence";
 }
 
@@ -393,10 +406,13 @@ function scoreAsset(a: CollectedAsset): { score: number; priority: Priority; bre
     && a.priceConfidence !== "threshold_only"
     && a.priceConfidence !== "unknown";
   // Critical/high require a real extracted price ≥ Prime threshold.
+  const isPrimeBrokerAsset = a.sourceCategory === "prime_asset_signal" || a.sourceCategory === "luxury_market_signal";
+
   if (hasTrustedLocation && hasUsableExtraction && realPrice >= PRIME_MIN_EUR && isInstitutional && total >= 60) priority = "critical";
-  else if (hasTrustedLocation && hasUsableExtraction && ((realPrice >= PRIME_MIN_EUR) || strongPrimeEvidence) && total >= 55) priority = "high";
-  else if (realPrice >= LUXURY_MIN_EUR && total >= 40) priority = "medium";
-  else if (total >= 30 && a.priceConfidence !== "threshold_only") priority = "medium";
+  else if (hasTrustedLocation && hasUsableExtraction && ((realPrice >= PRIME_MIN_EUR) || strongPrimeEvidence) && total >= 50) priority = "high";
+  else if (isPrimeBrokerAsset && hasClearAssetWording(`${a.title} ${String(a.rawData?.snippet ?? "")}`) && total >= 35) priority = "medium";
+  else if (realPrice >= LUXURY_MIN_EUR && total >= 38) priority = "medium";
+  else if (total >= 28 && a.priceConfidence !== "threshold_only" && a.priceConfidence !== "unknown") priority = "medium";
 
   return { score: total, priority, breakdown: b };
 }
