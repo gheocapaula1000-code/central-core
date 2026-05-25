@@ -7,6 +7,7 @@
 // Source labels are sanitized for client display.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { mergeSignals, assetFingerprint } from "./signalMerge.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
