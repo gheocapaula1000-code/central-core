@@ -918,6 +918,9 @@ async function orchestrate(body: RequestBody, debugId: string) {
       real: [], estimated: [], missing: ["venetoScope", "omiZona", "competizioneAttiva"],
       warnings: ["Enrichment Veneto non eseguito."],
     },
+    territorialDocuments,
+    liveSignals,
+    fontiUsate: fontiUsateExt,
   };
 
   return sanitizeOutgoing(payload);
