@@ -860,6 +860,29 @@ async function orchestrate(body: RequestBody, debugId: string) {
     pianoEnriched.obiezioni = pianoEnriched.obiezioni ?? [];
   }
 
+  // ── Tier 3: enrichment real-time (Apify + Firecrawl) ────────────
+  // Mai bloccante: Promise.allSettled + timeout interni.
+  // Provincia da venetoEnrichment → sottraContext → bounding-box Veneto.
+  const provincia = resolveProvincia(venetoBundle, sottraCtx, ctx.coords);
+  const lat = ctx.coords?.lat ?? 0;
+  const lng = ctx.coords?.lng ?? 0;
+  let territorialDocuments: TerritorialDocument[] = [];
+  let liveSignals: LiveSignal[] = [];
+  let fontiUsateExt: string[] = [];
+  if (provincia) {
+    const [apifyRes, fcRes] = await Promise.allSettled([
+      runApifyPhotoEnrichment(lat, lng, provincia),
+      runFirecrawlPhotoEnrichment(lat, lng, provincia),
+    ]);
+    territorialDocuments = apifyRes.status === "fulfilled" ? apifyRes.value : [];
+    liveSignals = fcRes.status === "fulfilled" ? fcRes.value : [];
+    const apifyFonti = territorialDocuments.map((d) => d.fonte);
+    const fcFonti = liveSignals.length > 0
+      ? Array.from(new Set(liveSignals.map((s) => s.fonte)))
+      : listFirecrawlSourceNames(provincia);
+    fontiUsateExt = Array.from(new Set([...apifyFonti, ...fcFonti])).filter(Boolean);
+  }
+
   const payload = {
     configured,
     ...(message ? { message } : {}),
