@@ -940,6 +940,26 @@ Deno.serve(async (req) => {
         .in("id", persistedIds.length ? persistedIds : ["00000000-0000-0000-0000-000000000000"])
         .order("score", { ascending: false });
 
+      // Signal merge — incrocia segnali multipli sullo stesso asset
+      const mergeInput = (rows ?? []).map((r) => ({
+        row: r,
+        title: String(r.title ?? ""),
+        category: String(r.category ?? ""),
+        city: r.city ? String(r.city) : null,
+        region: r.region ? String(r.region) : null,
+        sourceCategory: String(r.source_category ?? ""),
+        sourceLabel: String(r.source_label ?? ""),
+        sourceUrl: r.source_url ? String(r.source_url) : null,
+        score: Number(r.score ?? 0),
+        priority: String(r.priority ?? "low"),
+        priceEur: r.price_eur != null ? Number(r.price_eur) : null,
+        priceConfidence: String(
+          ((r.raw_data ?? {}) as Record<string, unknown>).price_confidence ??
+            (r.price_eur ? "exact" : "unknown"),
+        ),
+      }));
+      const mergedAssets = mergeSignals(mergeInput);
+
       return ok({
         scan_run_id: run.id,
         sources_used: sourcesUsed,
@@ -957,7 +977,17 @@ Deno.serve(async (req) => {
         ],
         assets_found: filtered.length,
         assets_new: newCount,
-        assets: (rows ?? []).map(toClientAsset),
+        convergent_signals_count: mergedAssets.filter((a) => a.convergentSignal).length,
+        assets: mergedAssets.map((m) => ({
+          ...toClientAsset(m.row),
+          score: m.mergedScore,
+          priority: m.priority,
+          convergentSignal: m.convergentSignal,
+          mergeCount: m.mergeCount,
+          convergent_signal: m.convergentSignal,
+          merge_count: m.mergeCount,
+          merged_sources: m.mergedSources,
+        })),
       }, debugId);
 
     }
