@@ -489,6 +489,43 @@ export const REGISTERED_SOURCES: LuxurySource[] = [
     notes: "Aggregatori (Idealista/Immobiliare.it lusso): ToS restrittivi, non wired.",
     expectedTypes: ["villa","palazzo","penthouse"], reliability: 55,
     extraction: "manual", active: false },
+
+  // ── Infocamere / Registro Imprese — liquidazioni con asset ────────────────
+  {
+    id: "infocamere_liquidazioni",
+    category: "special_situation",
+    label: "Special situation",
+    notes: "Infocamere API commerciale (~€500/anno): liquidazioni societarie con asset immobiliari luxury. Da attivare con licenza.",
+    expectedTypes: ["trophy", "hotel", "palazzo", "villa", "special_situation"],
+    reliability: 85,
+    extraction: "public_api",
+    active: false,
+  },
+
+  // ── Sentenze civili giustizia.it — divorzi/eredità con asset ──────────────
+  {
+    id: "sentenze_civili_asset",
+    category: "special_situation",
+    label: "Special situation",
+    notes: "giustizia.it: sentenze civili pubbliche su divisioni, eredità, divorzi con asset luxury. Da wire con LLM extraction via Firecrawl.",
+    expectedTypes: ["villa", "palazzo", "castle", "historic_estate", "special_situation"],
+    reliability: 72,
+    extraction: "firecrawl_scrape",
+    active: false,
+  },
+
+  // ── Porto Cervo / Costa Smeralda — aste e dismissioni ────────────────────
+  {
+    id: "ivg_tribunale_tempio_live",
+    category: "pvp_judicial",
+    label: "Judicial auction",
+    notes: "Tribunale Tempio Pausania (competente per Olbia/Porto Cervo): IVG da wire con scrape recipe dedicata.",
+    expectedTypes: ["villa", "trophy"],
+    reliability: 78,
+    extraction: "firecrawl_scrape",
+    active: false,
+    regionHint: "Sardegna",
+  },
 ];
 
 
