@@ -900,15 +900,15 @@ async function orchestrate(body: RequestBody, debugId: string) {
   // Mai bloccante: Promise.allSettled + timeout interni.
   // Provincia da venetoEnrichment → sottraContext → bounding-box Veneto.
   const provincia = resolveProvincia(venetoBundle, sottraCtx, ctx.coords);
-  const lat = ctx.coords?.lat ?? 0;
-  const lng = ctx.coords?.lng ?? 0;
+  const enrichLat = ctx.coords?.lat ?? 0;
+  const enrichLng = ctx.coords?.lng ?? 0;
   let territorialDocuments: TerritorialDocument[] = [];
   let liveSignals: LiveSignal[] = [];
   let fontiUsateExt: string[] = [];
   if (provincia) {
     const [apifyRes, fcRes] = await Promise.allSettled([
-      runApifyPhotoEnrichment(lat, lng, provincia),
-      runFirecrawlPhotoEnrichment(lat, lng, provincia),
+      runApifyPhotoEnrichment(enrichLat, enrichLng, provincia),
+      runFirecrawlPhotoEnrichment(enrichLat, enrichLng, provincia),
     ]);
     territorialDocuments = apifyRes.status === "fulfilled" ? apifyRes.value : [];
     liveSignals = fcRes.status === "fulfilled" ? fcRes.value : [];
