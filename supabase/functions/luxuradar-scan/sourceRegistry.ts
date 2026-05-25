@@ -252,6 +252,155 @@ export const ACTIVE_SOURCES: LuxurySource[] = [
     expectedTypes: ["villa", "palazzo", "historic_estate"],
     reliability: 62, extraction: "firecrawl_search", active: true,
   },
+
+  // ── Gazzetta Ufficiale — bandi alienazione patrimonio pubblico ──────────────
+  {
+    id: "gazzetta_ufficiale_alienazioni",
+    category: "public_disposal",
+    label: "Public disposal",
+    query: "site:gazzettaufficiale.it \"alienazione\" OR \"vendita\" (villa OR palazzo OR castello OR \"immobile di pregio\" OR tenuta OR hotel) milioni",
+    expectedTypes: ["villa", "palazzo", "castle", "historic_estate", "trophy", "public_disposal", "hotel"],
+    reliability: 88,
+    extraction: "firecrawl_search",
+    active: true,
+    notes: "Gazzetta Ufficiale: bandi di alienazione patrimonio pubblico immobiliare. API pubblica, zero ToS issues.",
+  },
+
+  // ── Procedure fallimentari — asset immobiliari luxury ──────────────────────
+  {
+    id: "fallimentare_luxury_assets",
+    category: "special_situation",
+    label: "Special situation",
+    query: "\"procedura fallimentare\" OR \"curatore fallimentare\" (villa OR hotel OR palazzo OR castello OR tenuta OR resort) vendita Italia milioni",
+    expectedTypes: ["villa", "hotel", "palazzo", "castle", "historic_estate", "trophy", "special_situation"],
+    reliability: 78,
+    extraction: "firecrawl_search",
+    active: true,
+    notes: "Procedure fallimentari con asset luxury: curatori, annunci vendita, attestazioni. Dati pubblici da sentenze e bollettini.",
+  },
+
+  // ── Il Sole 24 Ore — sezione legale, inserzioni vendita asset ─────────────
+  {
+    id: "sole24ore_inserzioni_legali",
+    category: "special_situation",
+    label: "Special situation",
+    query: "site:ilsole24ore.com \"vendita giudiziaria\" OR \"asta immobiliare\" OR \"dismissione\" (villa OR palazzo OR hotel OR castello) milioni",
+    expectedTypes: ["villa", "palazzo", "hotel", "castle", "historic_estate", "trophy", "special_situation"],
+    reliability: 82,
+    extraction: "firecrawl_search",
+    active: true,
+    notes: "Il Sole 24 Ore: inserzioni legali di vendite giudiziarie e dismissioni. Fonte qualificata B2B.",
+  },
+
+  // ── IVG Tribunale Milano — aste immobili pregio ───────────────────────────
+  {
+    id: "ivg_tribunale_milano_live",
+    category: "pvp_judicial",
+    label: "Judicial auction",
+    query: "site:ivg.it tribunale Milano (villa OR palazzo OR hotel OR castello OR \"immobile di pregio\") base milioni",
+    expectedTypes: ["palazzo", "villa", "hotel", "trophy", "judicial_auction"],
+    reliability: 85,
+    extraction: "firecrawl_search",
+    active: true,
+    regionHint: "Lombardia",
+    cityHint: "Milano",
+    notes: "IVG tribunale Milano via search — complementare a PVP nazionale per asset milanesi di pregio.",
+  },
+
+  // ── IVG Tribunale Roma — aste immobili pregio ─────────────────────────────
+  {
+    id: "ivg_tribunale_roma_live",
+    category: "pvp_judicial",
+    label: "Judicial auction",
+    query: "site:ivg.it tribunale Roma (palazzo OR villa OR hotel OR \"immobile di pregio\") base milioni",
+    expectedTypes: ["palazzo", "villa", "hotel", "historic_estate", "judicial_auction"],
+    reliability: 83,
+    extraction: "firecrawl_search",
+    active: true,
+    regionHint: "Lazio",
+    cityHint: "Roma",
+    notes: "IVG tribunale Roma via search.",
+  },
+
+  // ── IVG Tribunale Firenze — aste immobili pregio ──────────────────────────
+  {
+    id: "ivg_tribunale_firenze_live",
+    category: "pvp_judicial",
+    label: "Judicial auction",
+    query: "site:ivg.it tribunale Firenze (villa OR palazzo OR castello OR tenuta) base milioni",
+    expectedTypes: ["villa", "palazzo", "castle", "historic_estate", "judicial_auction"],
+    reliability: 82,
+    extraction: "firecrawl_search",
+    active: true,
+    regionHint: "Toscana",
+    cityHint: "Firenze",
+    notes: "IVG tribunale Firenze via search.",
+  },
+
+  // ── Permessi edilizi — ristrutturazioni su ville e palazzi ────────────────
+  {
+    id: "permessi_edilizi_luxury",
+    category: "public_notice",
+    label: "Public notice",
+    query: "\"permesso di costruire\" OR \"SCIA\" (villa storica OR palazzo storico OR dimora storica OR complesso immobiliare) Italia ristrutturazione",
+    expectedTypes: ["villa", "palazzo", "historic_estate", "castle", "special_situation"],
+    reliability: 65,
+    extraction: "firecrawl_search",
+    active: true,
+    notes: "Permessi edilizi pubblici su immobili di pregio: segnale pre-vendita o cambio destinazione d'uso. Dati opendata comunali.",
+  },
+
+  // ── Dismissioni fondi immobiliari quotati — CONSOB / Borsa ────────────────
+  {
+    id: "fondi_immobiliari_dismissioni",
+    category: "special_situation",
+    label: "Special situation",
+    query: "\"fondo immobiliare\" dismissione OR liquidazione OR \"vendita patrimonio\" Italia (villa OR palazzo OR hotel OR trophy) milioni",
+    expectedTypes: ["trophy", "hotel", "palazzo", "villa", "special_situation"],
+    reliability: 80,
+    extraction: "firecrawl_search",
+    active: true,
+    notes: "Fondi immobiliari in fase di dismissione o liquidazione: asset luxury in uscita da portafogli istituzionali. CONSOB + comunicati stampa.",
+  },
+
+  // ── Aste notarili e vendite con incanto — bollettini notarili ─────────────
+  {
+    id: "aste_notarili_bollettini",
+    category: "pvp_judicial",
+    label: "Judicial auction",
+    query: "\"vendita con incanto\" OR \"asta notarile\" (villa OR palazzo OR castello OR tenuta) Italia base milioni",
+    expectedTypes: ["villa", "palazzo", "castle", "historic_estate", "judicial_auction"],
+    reliability: 76,
+    extraction: "firecrawl_search",
+    active: true,
+    notes: "Vendite con incanto e aste notarili: procedure di separazione, eredità, divisioni. Pubbliche per legge.",
+  },
+
+  // ── Hospitality Italia — transazioni hotel e resort ───────────────────────
+  {
+    id: "hospitality_transazioni_italia",
+    category: "hospitality_signal",
+    label: "Hospitality asset",
+    query: "\"cessione hotel\" OR \"vendita resort\" OR \"acquisition hotel\" Italia luxury OR 5 stelle OR boutique milioni",
+    expectedTypes: ["hotel", "trophy", "special_situation"],
+    reliability: 74,
+    extraction: "firecrawl_search",
+    active: true,
+    notes: "Transazioni alberghiere in Italia: M&A, cessioni, acquisizioni. Fonti: comunicati stampa, trade press, Hospitality News.",
+  },
+
+  // ── Demanio marittimo — concessioni e alienazioni costiere ────────────────
+  {
+    id: "demanio_marittimo_coste",
+    category: "public_disposal",
+    label: "Public disposal",
+    query: "site:agenziademanio.it OR \"demanio marittimo\" alienazione OR vendita (villa OR complesso OR resort) costa OR mare OR spiaggia milioni",
+    expectedTypes: ["villa", "trophy", "hotel", "public_disposal"],
+    reliability: 80,
+    extraction: "firecrawl_search",
+    active: true,
+    notes: "Demanio marittimo: alienazioni e valorizzazioni di asset costieri di pregio. Costa Smeralda, Amalfi, Liguria.",
+  },
 ];
 
 
