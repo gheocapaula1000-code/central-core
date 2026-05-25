@@ -21,7 +21,7 @@ type Priority = "low" | "medium" | "high" | "critical";
 interface ScanFilters {
   categories?: string[];
   regions?: string[];
-  minPrice?: number;
+  minPriceEur?: number;
   maxPrice?: number;
   sources?: string[];
   query?: string;
@@ -706,7 +706,7 @@ function applyFilters(assets: CollectedAsset[], f: ScanFilters): CollectedAsset[
     if (a.sourceCategory !== "special_situation" || price > 0) {
       if (price && price < LUXURY_MIN_EUR) return false;
     }
-    if (f.minPrice && price && price < f.minPrice) return false;
+    if (f.minPriceEur && price && price < f.minPriceEur) return false;
     if (f.maxPrice && price && price > f.maxPrice) return false;
     if (f.query) {
       const q = f.query.toLowerCase();
@@ -788,7 +788,9 @@ Deno.serve(async (req) => {
       const filters: ScanFilters = {
         categories: Array.isArray(body?.categories) ? body.categories.filter((c: unknown) => typeof c === "string" && ALLOWED_CATEGORIES.includes(c)) : undefined,
         regions: Array.isArray(body?.regions) ? body.regions.filter((r: unknown) => typeof r === "string") : undefined,
-        minPrice: typeof body?.minPrice === "number" ? Math.max(LUXURY_MIN_EUR, body.minPrice) : LUXURY_MIN_EUR,
+        minPriceEur: typeof body?.minPriceEur === "number"
+          ? Math.max(LUXURY_MIN_EUR, body.minPriceEur)
+          : (typeof body?.minPrice === "number" ? Math.max(LUXURY_MIN_EUR, body.minPrice) : LUXURY_MIN_EUR),
         maxPrice: typeof body?.maxPrice === "number" ? body.maxPrice : undefined,
         sources: Array.isArray(body?.sources) ? body.sources.filter((s: unknown) => typeof s === "string") : undefined,
         query: typeof body?.query === "string" ? body.query.slice(0, 200) : undefined,
@@ -851,7 +853,20 @@ Deno.serve(async (req) => {
           signalsDiscarded.push(signal);
         }
       }
-      const filtered = publishable.slice(0, filters.limit ?? 30);
+
+      // Post-quality-gate minPriceEur enforcement: above €3M, exclude assets
+      // without a real extracted price (price-on-request / threshold-only).
+      let publishableAssets = publishable;
+      if (filters.minPriceEur && filters.minPriceEur > 3_000_000) {
+        publishableAssets = publishableAssets.filter((a) => {
+          if (a.priceConfidence === "unknown") return false;
+          if (a.priceConfidence === "threshold_only") return false;
+          const realPrice = a.priceEur ?? a.priceMaxEur ?? a.priceMinEur ?? 0;
+          return realPrice >= filters.minPriceEur!;
+        });
+      }
+
+      const filtered = publishableAssets.slice(0, filters.limit ?? 30);
 
       for (const signal of [...signalsDiscarded, ...signalsNeedingReview].slice(0, 100)) {
         console.info(`[luxuradar] excluded ${signal.reason}: ${signal.title} ${signal.sourceUrl ?? ""}`);
