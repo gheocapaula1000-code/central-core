@@ -833,6 +833,20 @@ async function orchestrate(body: RequestBody, debugId: string) {
     immobileOut.provincia = null;
     immobileOut.comune = null;
   }
+  // Vision analysis (sempre esposta, anche in default).
+  immobileOut.visionAnalysis = {
+    tipologiaProbabile: visionAnalysis.tipologiaProbabile,
+    pianoStimato: visionAnalysis.pianoStimato,
+    statoApparente: visionAnalysis.statoApparente,
+    puntiDiForzaVisivi: visionAnalysis.puntiDiForzaVisivi,
+    materialePresunto: visionAnalysis.materialePresunto,
+    annoPresunto: visionAnalysis.annoPresunto,
+    presenzaGiardino: visionAnalysis.presenzaGiardino,
+    presenzaParcheggio: visionAnalysis.presenzaParcheggio,
+  };
+  if (!immobileOut.statoApparente || immobileOut.statoApparente === "sconosciuto") {
+    immobileOut.statoApparente = visionAnalysis.statoApparente;
+  }
 
   const pianoEnriched: Record<string, unknown> = { ...pianoEsclusiva };
   if (venetoBundle) {
