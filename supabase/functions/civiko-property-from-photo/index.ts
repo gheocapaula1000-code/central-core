@@ -30,6 +30,8 @@ import {
 import { buildZonaIntelligence } from "./zonaIntelligence.ts";
 import { buildVenetoEnrichment } from "./venetoEnrichment.ts";
 import { analyzePhotoWithVision, type VisionAnalysis } from "./visionAnalyzer.ts";
+import { runApifyPhotoEnrichment, type TerritorialDocument } from "./apifyPhotoEnrichment.ts";
+import { runFirecrawlPhotoEnrichment, listFirecrawlSourceNames, type LiveSignal } from "./firecrawlPhotoEnrichment.ts";
 
 const FUNCTION_NAME = "civiko-property-from-photo";
 const EXPECTED_BASE_PATH = "/functions/v1/civiko-property-from-photo";
@@ -540,6 +542,42 @@ function labelForStatus(s: FonteStatus): string {
 
 // ── orchestration ─────────────────────────────────────────────
 
+// Bounding-box approssimativi delle 7 province venete.
+// Usato come fallback quando venetoEnrichment/sottra non risolvono la provincia.
+const VENETO_BBOX: Record<string, { lat: [number, number]; lng: [number, number] }> = {
+  PD: { lat: [45.0, 45.6], lng: [11.6, 12.0] },
+  VR: { lat: [45.2, 45.7], lng: [10.6, 11.4] },
+  VI: { lat: [45.4, 45.9], lng: [11.2, 11.8] },
+  VE: { lat: [45.3, 45.6], lng: [12.0, 12.6] },
+  TV: { lat: [45.6, 46.0], lng: [11.8, 12.4] },
+  BL: { lat: [46.0, 46.6], lng: [11.8, 12.6] },
+  RO: { lat: [44.8, 45.2], lng: [11.2, 12.2] },
+};
+
+function provinciaFromBbox(coords: { lat: number; lng: number } | null): string {
+  if (!coords) return "";
+  for (const [code, b] of Object.entries(VENETO_BBOX)) {
+    if (coords.lat >= b.lat[0] && coords.lat <= b.lat[1] &&
+        coords.lng >= b.lng[0] && coords.lng <= b.lng[1]) {
+      return code;
+    }
+  }
+  return "";
+}
+
+function resolveProvincia(
+  veneto: { venetoScope?: { provincia?: string | null } } | null | undefined,
+  sottra: { identity?: { provincia?: string | null } } | null | undefined,
+  coords: { lat: number; lng: number } | null,
+): string {
+  const fromVeneto = (veneto?.venetoScope?.provincia ?? "").toString().trim().toUpperCase();
+  if (fromVeneto && fromVeneto.length === 2) return fromVeneto;
+  const fromSottra = (sottra?.identity?.provincia ?? "").toString().trim().toUpperCase();
+  if (fromSottra && fromSottra.length === 2) return fromSottra;
+  return provinciaFromBbox(coords);
+}
+
+
 async function orchestrate(body: RequestBody, debugId: string) {
   const ctx = evaluateInput(body);
   const rawFacts = body.quickFacts ?? {};
@@ -858,6 +896,29 @@ async function orchestrate(body: RequestBody, debugId: string) {
     pianoEnriched.obiezioni = pianoEnriched.obiezioni ?? [];
   }
 
+  // ── Tier 3: enrichment real-time (Apify + Firecrawl) ────────────
+  // Mai bloccante: Promise.allSettled + timeout interni.
+  // Provincia da venetoEnrichment → sottraContext → bounding-box Veneto.
+  const provincia = resolveProvincia(venetoBundle, sottraCtx, ctx.coords);
+  const lat = ctx.coords?.lat ?? 0;
+  const lng = ctx.coords?.lng ?? 0;
+  let territorialDocuments: TerritorialDocument[] = [];
+  let liveSignals: LiveSignal[] = [];
+  let fontiUsateExt: string[] = [];
+  if (provincia) {
+    const [apifyRes, fcRes] = await Promise.allSettled([
+      runApifyPhotoEnrichment(lat, lng, provincia),
+      runFirecrawlPhotoEnrichment(lat, lng, provincia),
+    ]);
+    territorialDocuments = apifyRes.status === "fulfilled" ? apifyRes.value : [];
+    liveSignals = fcRes.status === "fulfilled" ? fcRes.value : [];
+    const apifyFonti = territorialDocuments.map((d) => d.fonte);
+    const fcFonti = liveSignals.length > 0
+      ? Array.from(new Set(liveSignals.map((s) => s.fonte)))
+      : listFirecrawlSourceNames(provincia);
+    fontiUsateExt = Array.from(new Set([...apifyFonti, ...fcFonti])).filter(Boolean);
+  }
+
   const payload = {
     configured,
     ...(message ? { message } : {}),
@@ -893,6 +954,9 @@ async function orchestrate(body: RequestBody, debugId: string) {
       real: [], estimated: [], missing: ["venetoScope", "omiZona", "competizioneAttiva"],
       warnings: ["Enrichment Veneto non eseguito."],
     },
+    territorialDocuments,
+    liveSignals,
+    fontiUsate: fontiUsateExt,
   };
 
   return sanitizeOutgoing(payload);
