@@ -70,7 +70,7 @@ function validate(body: unknown): { ok: true; data: Body } | { ok: false; msg: s
   if (!propertyType) return { ok: false, msg: "propertyType required" };
 
   const forceRefresh = b.forceRefresh === true;
-  return { ok: true, data: { endpoint, address, contractType, propertyType, propertyType_: undefined as never, forceRefresh } as Body };
+  return { ok: true, data: { endpoint, address, contractType, propertyType, forceRefresh } };
 }
 
 serve(async (req: Request) => {
