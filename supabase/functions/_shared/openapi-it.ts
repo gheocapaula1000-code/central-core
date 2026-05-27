@@ -233,11 +233,17 @@ async function callOpenApi<T = unknown>(
     return null;
   }
 
-  const token = Deno.env.get("OPENAPI_IT_TOKEN");
-  const baseUrl = Deno.env.get("OPENAPI_IT_BASE_URL");
-  if (!token || !baseUrl) {
-    console.error("[openapi-it] missing token or base url");
-    await logCall({ endpoint, ctx, cacheHit: false, status: "skipped", errorCode: "NOT_CONFIGURED" });
+  const token = (Deno.env.get("OPENAPI_IT_TOKEN") ?? "").trim();
+  const baseUrl = (Deno.env.get("OPENAPI_IT_BASE_URL") ?? "").trim();
+  // Token sentinel "NOT_CONFIGURED" => trattato come assente, non come errore critico.
+  const tokenConfigured = token.length > 0 && token.toUpperCase() !== "NOT_CONFIGURED";
+  if (!tokenConfigured || !baseUrl) {
+    // Log non-error: la sorgente premium è semplicemente non attiva.
+    console.log("[openapi-it] premium source not configured, skipping HTTP call");
+    await logCall({
+      endpoint, ctx, cacheHit: false, status: "skipped",
+      errorCode: !tokenConfigured ? "NOT_CONFIGURED_TOKEN" : "NOT_CONFIGURED_BASE_URL",
+    });
     return null;
   }
 
