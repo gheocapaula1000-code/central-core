@@ -85,7 +85,13 @@ serve(async (req) => {
       targetUrl = `${SUPABASE_URL}/functions/v1/sottra`;
       requestBody = { route: normalizedEndpoint, ...(typeof payload === "object" && payload !== null ? payload as Record<string, unknown> : {}) };
     } else {
-      targetUrl = `${SUPABASE_URL}/functions/v1/${targetFunction}`;
+      // Per civiko-billing il router interno discrimina per sub-path (es. /check-subscription).
+      // Preserva la coda dell'endpoint logico quando esiste (civiko/billing/<action>).
+      let suffix = "";
+      if (normalizedEndpoint.startsWith("civiko/billing/")) {
+        suffix = "/" + normalizedEndpoint.substring("civiko/billing/".length);
+      }
+      targetUrl = `${SUPABASE_URL}/functions/v1/${targetFunction}${suffix}`;
       requestBody = payload ?? {};
     }
 
