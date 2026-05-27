@@ -334,6 +334,20 @@ export const CIVIKO_PADOVA_DATA_SOURCES: CivikoDataSource[] = [
     estimated_cost_eur: 0.015,
     display_order: 270,
   },
+  {
+    code: "resend_email",
+    label: "Resend — Email transazionali",
+    description: "Invio email transazionali (inviti agenzia, notifiche operatori).",
+    category: "premium", status: "account_required",
+    provider: "Resend",
+    base_url: "https://api.resend.com",
+    env_var: "RESEND_API_KEY",
+    coverage: "Mondiale",
+    requires_premium_consent: true,
+    estimated_cost_eur: 0.0004,
+    display_order: 280,
+    notes: "Chiave configurata. Uso solo on-demand per inviti/notifiche, mai per il Dossier.",
+  },
 
   // ── MANUAL_OR_PHASE_2 (mai mostrate come collegate) ────────────
   {
