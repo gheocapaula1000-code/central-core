@@ -60,6 +60,7 @@ interface Opportunity {
   next_action: string;
   dossier_status: "pronto" | "in_preparazione";
   visible_to_agency: boolean;
+  fonte_tipo?: string;
 }
 
 const PADOVA_ZONES = [
@@ -247,7 +248,7 @@ async function fetchPerplexityOpportunities(): Promise<Opportunity[]> {
         model: "sonar-pro",
         messages: [{
           role: "user",
-          content: "Trova opportunità immobiliari concrete per un agente immobiliare nel Comune di Padova, Italia. Cerca: immobili in eredità aperta, aziende che dismissono sedi o capannoni, proprietari non residenti con immobili inutilizzati, immobili fermi sul mercato da oltre 6 mesi, riconversioni industriali in corso. Rispondi SOLO con array JSON valido, senza testo aggiuntivo: [{\"titolo\":\"descrizione anonima dell'immobile max 60 chars\",\"zona\":\"microzona Padova\",\"tipo\":\"residenziale|commerciale|industriale\",\"motivo\":\"perché è un'opportunità concreta per ottenere un incarico in esclusiva max 100 chars\",\"probabilita\":50,\"valore\":200000}]. Usa solo dati verificabili. Se non hai dati concreti, restituisci [].",
+          content: "Cerca su fonti pubbliche italiane recenti (ultimi 6 mesi) notizie concrete su:\n\n1. Aziende con sede a Padova che hanno dichiarato fallimento, concordato preventivo o liquidazione volontaria nel 2024-2025 con asset immobiliari\n\n2. Aste giudiziarie immobiliari programmate nel Tribunale di Padova nel 2025\n\n3. Immobili industriali o commerciali a Padova rimasti invenduti oltre 12 mesi su portali pubblici\n\n4. Operazioni di dismissione immobiliare da enti pubblici o aziende sanitarie a Padova\n\nPer ogni notizia concreta trovata con fonte verificabile, restituisci JSON:\n[{\"titolo\":\"descrizione anonima max 60 chars\",\"zona\":\"microzona Padova\",\"tipo\":\"residenziale|commerciale|industriale\",\"motivo\":\"perché rilevante per incarico esclusiva max 80 chars\",\"probabilita\":65,\"valore\":300000,\"fonte_tipo\":\"asta|fallimento|dismissione|invenduto\"}]\n\nSe non hai notizie concrete e recenti verificabili, restituisci [].",
         }],
         temperature: 0.1,
         max_tokens: 1000,
@@ -272,20 +273,35 @@ async function fetchPerplexityOpportunities(): Promise<Opportunity[]> {
       const motivo = typeof e.motivo === "string" ? e.motivo : "";
       const probabilita = typeof e.probabilita === "number" ? e.probabilita : 0;
       const valore = typeof e.valore === "number" ? e.valore : 0;
+      const fonte_tipo = typeof e.fonte_tipo === "string" ? e.fonte_tipo : "";
       if (!titolo || !zona || !tipo || !motivo) continue;
       if (titolo.length < 8) continue;
       if (probabilita < 40) continue;
       if (valore < 50_000) continue;
       if (!VALID_PERP_TYPES.has(tipo)) continue;
 
-      const prob = Math.min(88, Math.max(40, probabilita));
+      let temperature: Opportunity["temperature"];
+      let priority: Opportunity["priority"];
+      let assignment_probability: number;
+
+      switch (fonte_tipo) {
+        case "asta":
+          temperature = "caldo"; priority = "alta"; assignment_probability = 82; break;
+        case "fallimento":
+          temperature = "caldo"; priority = "alta"; assignment_probability = 75; break;
+        case "dismissione":
+          temperature = "tiepido"; priority = "media"; assignment_probability = 64; break;
+        case "invenduto":
+          temperature = "tiepido"; priority = "media"; assignment_probability = 58; break;
+        default:
+          assignment_probability = Math.min(88, Math.max(40, probabilita));
+          temperature = assignment_probability >= 72 ? "caldo" : assignment_probability >= 55 ? "tiepido" : "freddo";
+          priority = assignment_probability >= 72 ? "alta" : assignment_probability >= 55 ? "media" : "bassa";
+      }
+
       const estimated_value = Math.round(valore / 1000) * 1000;
       const property_type: Opportunity["property_type"] =
         tipo === "industriale" ? "commerciale" : (tipo as "residenziale" | "commerciale");
-      const temperature: Opportunity["temperature"] =
-        prob >= 72 ? "caldo" : prob >= 55 ? "tiepido" : "freddo";
-      const priority: Opportunity["priority"] =
-        prob >= 72 ? "alta" : prob >= 55 ? "media" : "bassa";
 
       out.push({
         id: shortId("perp-opp", titolo + zona, 14),
@@ -294,14 +310,15 @@ async function fetchPerplexityOpportunities(): Promise<Opportunity[]> {
         property_type,
         temperature,
         priority,
-        assignment_probability: prob,
+        assignment_probability,
         estimated_value,
         commission_potential: Math.round(estimated_value * 0.03),
         window_label: "Finestra utile identificata",
         commercial_reason: motivo,
         next_action: "Prepara dossier e primo contatto",
-        dossier_status: prob >= 65 ? "pronto" : "in_preparazione",
+        dossier_status: assignment_probability >= 65 ? "pronto" : "in_preparazione",
         visible_to_agency: true,
+        fonte_tipo: fonte_tipo || undefined,
       });
     }
     return out;
