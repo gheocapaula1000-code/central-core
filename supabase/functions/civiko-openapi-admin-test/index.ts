@@ -115,8 +115,10 @@ serve(async (req: Request) => {
       isAdmin = roleData === true;
     }
     if (!isAdmin) {
-      const { data: superRole } = await svc.rpc("has_role", { _user_id: userId, _role: "super_admin" }).catch(() => ({ data: null }));
-      if (superRole === true) isAdmin = true;
+      try {
+        const { data: superRole } = await svc.rpc("has_role", { _user_id: userId, _role: "super_admin" });
+        if (superRole === true) isAdmin = true;
+      } catch { /* role enum may not include super_admin */ }
     }
     if (!isAdmin) {
       return addIdentityHeaders(fail(req, 403, "FORBIDDEN", "admin role required", debugId), IDENTITY);
