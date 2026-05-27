@@ -52,7 +52,7 @@ function distanzaKm(lat1: number, lng1: number, lat2: number, lng2: number): num
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 const PADOVA_CENTER = { lat: 45.4064, lng: 11.8768 };
-const MAX_KM = 3.5;
+const MAX_KM = 5.5;
 
 // ─── Types ───────────────────────────────────────────────────────────────
 type Category =
@@ -84,10 +84,11 @@ interface TerritoryRecord {
 }
 
 const PADOVA_ZONES = [
-  "Arcella","Portello","Centro Storico","Forcellini","Guizza","Sacra Famiglia",
-  "Camin","Stanga","Albignasego","Selvazzano Dentro","Abano Terme","Cadoneghe",
-  "Limena","Vigodarzere","Rubano","Vigonza","Noventa Padovana","Montegrotto Terme",
-  "Zona Industriale","Voltabarozzo","Pontevigodarzere","Mortise",
+  "Arcella", "Portello", "Centro Storico", "Forcellini", "Guizza",
+  "Sacra Famiglia", "Camin", "Stanga", "Zona Industriale", "Voltabarozzo",
+  "Pontevigodarzere", "Mortise", "Altichiero", "Mandria", "Brusegana",
+  "Brentelle", "Chiesanuova", "Salboro", "Ponte di Brenta", "Stazione",
+  "Fiera", "Santo", "Prato della Valle",
 ];
 
 const VALID_CATEGORIES: Category[] = [
