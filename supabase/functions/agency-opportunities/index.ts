@@ -485,15 +485,16 @@ serve(async (req) => {
   // ─── FONTE D: civiko-radar-veneto agent-radar ────────────────
   const radarOpps: Opportunity[] = [];
   try {
+    const AI_CORE_SECRET = Deno.env.get("AI_CORE_SECRET") ?? "";
     const radarUrl = (Deno.env.get("SUPABASE_URL") ?? "")
       .replace(/\/$/, "") + "/functions/v1/civiko-radar-veneto";
     const radarRes = await fetch(radarUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": req.headers.get("Authorization") ?? "",
+        "x-source-app": "agency-opportunities",
+        "x-internal-secret": AI_CORE_SECRET,
         "apikey": Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-        "x-route": "agent-radar",
       },
       body: JSON.stringify({
         provincia: "PD",
