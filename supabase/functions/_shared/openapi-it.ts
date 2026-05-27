@@ -330,7 +330,12 @@ async function callOpenApi<T = unknown>(
     return cached as T;
   }
 
-  const url = `${baseUrl.replace(/\/+$/, "")}/${endpoint}`;
+  const path = resolveOpenApiEndpointPath(endpoint);
+  if (!path) {
+    await logCall({ endpoint, ctx, cacheHit: false, status: "skipped", errorCode: "UNKNOWN_ENDPOINT" });
+    return null;
+  }
+  const url = `${baseUrl.replace(/\/+$/, "")}/${path}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   const startedAt = Date.now();
