@@ -166,7 +166,8 @@ serve(async (req) => {
       headers: {
         ...CORS,
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="dossier-padova-${slug}.pdf"`,
+        "Content-Disposition": `attachment; filename="civiko-dossier-padova.pdf"`,
+        "Cache-Control": "no-store",
         "X-Function": FUNCTION_NAME,
         "X-Debug-Id": debugId,
       },
