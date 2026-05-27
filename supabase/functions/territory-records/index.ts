@@ -272,7 +272,7 @@ async function placesNearby(q: PlacesQuery, key: string): Promise<TerritoryRecor
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 10_000);
   try {
-    const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=45.4064,11.8768&radius=9000&language=it&keyword=${encodeURIComponent(q.keyword)}&key=${key}`;
+    const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=45.4064,11.8768&radius=4500&language=it&keyword=${encodeURIComponent(q.keyword)}&key=${key}`;
     const res = await fetch(url, { signal: ctrl.signal });
     if (!res.ok) return [];
     const data = await res.json().catch(() => null);
@@ -287,6 +287,7 @@ async function placesNearby(q: PlacesQuery, key: string): Promise<TerritoryRecor
       const name = String(place.name ?? "").trim();
       if (!placeId || !name) continue;
       const vicinity = String(place.vicinity ?? "");
+      if (!vicinity.toLowerCase().includes("padova")) continue;
       const areaLabel = vicinity.split(",")[0]?.trim() || null;
       const microzona = vicinity ? findZone(vicinity) : null;
       const scoring_reason = "Rilevato tramite dati geografici in zona " + (microzona ?? "Padova");

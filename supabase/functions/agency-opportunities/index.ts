@@ -406,43 +406,60 @@ serve(async (req) => {
   if (fcRes.status === "fulfilled") all.push(...fcRes.value);
   if (ppRes.status === "fulfilled") all.push(...ppRes.value);
 
-  // Fonte C: territory-records (segnali territoriali interni)
+  // Fonte C: Google Maps Places (segnali territoriali diretti)
+  const googleKey = Deno.env.get("GOOGLE_MAPS_API_KEY");
   const territoryOpps: Opportunity[] = [];
-  try {
-    const tUrl = new URL(req.url);
-    tUrl.pathname = tUrl.pathname.replace("agency-opportunities", "territory-records");
-    tUrl.search = "?city=Padova";
-    const tRes = await fetch(tUrl.toString(), {
-      headers: {
-        "Authorization": req.headers.get("Authorization") ?? "",
-        "apikey": Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (tRes.ok) {
-      const records: any[] = await tRes.json();
-      for (const r of records) {
-        if (r.priority_score < 65) continue;
+  if (googleKey) {
+    const keywords = [
+      { kw: "cantiere edile", cat: "cantiere" },
+      { kw: "area industriale dismessa", cat: "brownfield" },
+      { kw: "demolizione immobile", cat: "demolizione" },
+    ];
+    const zonesPadova = ["Arcella","Portello","Centro Storico","Forcellini",
+      "Guizza","Sacra Famiglia","Camin","Stanga","Albignasego",
+      "Selvazzano Dentro","Abano Terme","Cadoneghe","Limena",
+      "Vigodarzere","Rubano","Zona Industriale Padova"];
+    const gmResults = await Promise.allSettled(
+      keywords.map(({ kw, cat }) =>
+        fetch(
+          `https://maps.googleapis.com/maps/api/place/nearbysearch/json` +
+          `?location=45.4064,11.8768&radius=4500&keyword=${encodeURIComponent(kw)}` +
+          `&language=it&key=${googleKey}`,
+          { signal: AbortSignal.timeout(10000) }
+        )
+        .then(r => r.ok ? r.json() : null)
+        .then(data => ({ data, cat }))
+      )
+    );
+    for (const res of gmResults) {
+      if (res.status !== "fulfilled" || !res.value?.data?.results) continue;
+      const { data, cat } = res.value;
+      for (const place of (data.results as any[]).slice(0, 4)) {
+        const vicinity: string = place.vicinity ?? "";
+        if (!vicinity.toLowerCase().includes("padova")) continue;
+        const microzona = zonesPadova.find(z =>
+          vicinity.toLowerCase().includes(z.toLowerCase())
+        ) ?? null;
+        const score = cat === "demolizione" ? 72 : cat === "brownfield" ? 68 : 65;
         territoryOpps.push({
-          id: "tr-" + r.id,
-          title: r.title,
-          territory: r.municipality + (r.area_label ? " - " + r.area_label : ""),
-          property_type: (r.category === "brownfield" || r.category === "area_trasformazione")
-            ? "commerciale" : "residenziale",
-          temperature: r.priority_score >= 80 ? "caldo" : "tiepido",
-          priority: r.priority_score >= 80 ? "alta" : "media",
-          assignment_probability: Math.min(78, Math.round(r.priority_score * 0.88)),
+          id: "gm-" + (place.place_id ?? "").slice(0, 16),
+          title: place.name,
+          territory: "Padova" + (microzona ? " - " + microzona : ""),
+          property_type: cat === "brownfield" ? "commerciale" : "residenziale",
+          temperature: "tiepido",
+          priority: "media",
+          assignment_probability: Math.round(score * 0.88),
           estimated_value: 0,
           commission_potential: 0,
           window_label: "Segnale territoriale attivo",
-          commercial_reason: r.reason_short ?? r.scoring_reason,
-          next_action: "Verifica immobili in questa zona e prepara primo contatto",
+          commercial_reason: `${cat === "cantiere" ? "Cantiere attivo" : cat === "brownfield" ? "Area in potenziale riconversione" : "Demolizione in corso"} in zona ${microzona ?? "Padova"}. Verifica immobili limitrofi.`,
+          next_action: "Verifica immobili nelle vicinanze e prepara primo contatto",
           dossier_status: "in_preparazione",
           visible_to_agency: true,
         });
       }
     }
-  } catch { /* fonte fallita silenziosamente */ }
+  }
   all.push(...territoryOpps);
 
 
