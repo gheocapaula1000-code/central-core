@@ -97,15 +97,27 @@ serve(async (req) => {
     });
     clearTimeout(timer);
 
-    // Il dossier-pdf ritorna binary — inoltra così com'è
+    // Il dossier-pdf ritorna binary — inoltra così com'è preservando Content-Type
     if (targetFunction === "civiko-dossier-pdf") {
+      const upstreamCT = res.headers.get("Content-Type") ?? "";
+      // Se l'upstream non è 2xx O non è application/pdf, passa attraverso come JSON di errore
+      if (!res.ok || !upstreamCT.includes("application/pdf")) {
+        const text = await res.text();
+        let errBody: unknown;
+        try { errBody = JSON.parse(text); } catch { errBody = { error: true, message: text || "PDF upstream error" }; }
+        return new Response(JSON.stringify(errBody), {
+          status: res.ok ? 502 : res.status,
+          headers: { ...CORS, "Content-Type": "application/json" },
+        });
+      }
       const pdfBytes = await res.arrayBuffer();
       return new Response(pdfBytes, {
         status: res.status,
         headers: {
           ...CORS,
-          "Content-Type": res.headers.get("Content-Type") ?? "application/pdf",
-          "Content-Disposition": res.headers.get("Content-Disposition") ?? `inline; filename="dossier-padova.pdf"`,
+          "Content-Type": "application/pdf",
+          "Content-Disposition": res.headers.get("Content-Disposition") ?? `attachment; filename="civiko-dossier-padova.pdf"`,
+          "Cache-Control": "no-store",
         },
       });
     }
