@@ -181,10 +181,23 @@ interface LogParams {
   durationMs?: number;
 }
 
+/**
+ * Ambiente OpenAPI corrente. Default: 'sandbox' (fail-safe: nessun costo reale).
+ * Solo quando OPENAPI_IT_ENV=production le chiamate generano costo reale.
+ */
+export function getOpenApiEnvironment(): "sandbox" | "production" {
+  const raw = (Deno.env.get("OPENAPI_IT_ENV") ?? "").trim().toLowerCase();
+  return raw === "production" ? "production" : "sandbox";
+}
+
 async function logCall(p: LogParams): Promise<void> {
   const sb = svcClient();
   if (!sb) return;
-  const cost = p.cacheHit ? 0 : (ESTIMATED_COST_EUR[p.endpoint] ?? 0);
+  const env = getOpenApiEnvironment();
+  const theoretical = p.cacheHit ? 0 : (ESTIMATED_COST_EUR[p.endpoint] ?? 0);
+  // In sandbox il costo reale è SEMPRE 0 (credito virtuale OpenAPI).
+  // estimated_cost_eur resta teorico per analisi forecast pre-produzione.
+  const realCost = env === "production" ? theoretical : 0;
   try {
     await sb.from("openapi_it_call_log").insert({
       endpoint: p.endpoint,
@@ -194,7 +207,9 @@ async function logCall(p: LogParams): Promise<void> {
       cache_hit: p.cacheHit,
       status: p.status,
       http_status: p.httpStatus ?? null,
-      estimated_cost_eur: cost,
+      estimated_cost_eur: theoretical,
+      real_cost_eur: realCost,
+      environment: env,
       debug_id: p.ctx.debugId ?? null,
       error_code: p.errorCode ?? null,
       duration_ms: p.durationMs ?? null,
