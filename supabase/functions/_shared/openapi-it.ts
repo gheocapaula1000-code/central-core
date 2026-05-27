@@ -25,15 +25,36 @@ const DEFAULT_TTL_DAYS = 30;
 const ESTIMATED_COST_EUR: Record<string, number> = {
   "real_estate/sqm-start": 0.10,
   "real_estate/sqm-advanced": 0.50,
+  "real_estate/rm-value": 1.00,
   "real_estate/rmv": 1.00,
   "real_estate/catasto-lista": 0.20,
+};
+
+// Path HTTP ufficiali OpenAPI Real Estate (sandbox + production usano gli stessi path).
+// Riferimento: documentazione OpenAPI Real Estate IT.
+// I path NON sono mai del tipo /real_estate/sqm-advanced.
+const ENDPOINT_PATH: Record<string, string> = {
+  "real_estate/sqm-start": "IT-sqm_value_start",
+  "real_estate/sqm-advanced": "IT-sqm_value_advanced",
+  "real_estate/rm-value": "IT-rm_value",
+  "real_estate/rmv": "IT-rmv",
+  "real_estate/catasto-lista": "IT-catasto_lista",
 };
 
 export type OpenApiEndpointKey =
   | "real_estate/sqm-start"
   | "real_estate/sqm-advanced"
+  | "real_estate/rm-value"
   | "real_estate/rmv"
   | "real_estate/catasto-lista";
+
+/**
+ * Risolve il path HTTP per una chiave endpoint logica.
+ * Esportata per consentire self-check senza eseguire fetch HTTP.
+ */
+export function resolveOpenApiEndpointPath(endpoint: OpenApiEndpointKey): string {
+  return ENDPOINT_PATH[endpoint] ?? "";
+}
 
 export interface OpenApiCallContext {
   /** ID dell'utente che ha richiesto la chiamata premium (richiesto). */
