@@ -190,6 +190,21 @@ export function getOpenApiEnvironment(): "sandbox" | "production" {
   return raw === "production" ? "production" : "sandbox";
 }
 
+/**
+ * Risolve la base URL OpenAPI in funzione dell'ambiente corrente.
+ * - sandbox    -> OPENAPI_IT_SANDBOX_BASE_URL (nessun fallback su prod)
+ * - production -> OPENAPI_IT_BASE_URL
+ * Ritorna stringa vuota se la variabile attesa non è configurata.
+ * Esportata per consentire self-check senza eseguire fetch HTTP.
+ */
+export function resolveOpenApiBaseUrl(env?: "sandbox" | "production"): string {
+  const e = env ?? getOpenApiEnvironment();
+  if (e === "sandbox") {
+    return (Deno.env.get("OPENAPI_IT_SANDBOX_BASE_URL") ?? "").trim();
+  }
+  return (Deno.env.get("OPENAPI_IT_BASE_URL") ?? "").trim();
+}
+
 async function logCall(p: LogParams): Promise<void> {
   const sb = svcClient();
   if (!sb) return;
