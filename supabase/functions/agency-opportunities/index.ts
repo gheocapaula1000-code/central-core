@@ -44,6 +44,19 @@ function json(body: unknown, status: number, cors: Record<string, string>) {
 const OWNER_EMAILS = (Deno.env.get("OWNER_EMAILS") ?? "")
   .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 
+// ─── Geo ─────────────────────────────────────────────────────────────────
+function distanzaKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng/2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+const PADOVA_CENTER = { lat: 45.4064, lng: 11.8768 };
+const MAX_KM = 3.5;
+
 // ─── Types ───────────────────────────────────────────────────────────────
 interface Opportunity {
   id: string;
