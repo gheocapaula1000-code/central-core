@@ -482,6 +482,60 @@ serve(async (req) => {
   }
   all.push(...territoryOpps);
 
+  // ─── FONTE D: civiko-radar-veneto agent-radar ────────────────
+  const radarOpps: Opportunity[] = [];
+  try {
+    const radarUrl = (Deno.env.get("SUPABASE_URL") ?? "")
+      .replace(/\/$/, "") + "/functions/v1/civiko-radar-veneto";
+    const radarRes = await fetch(radarUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": req.headers.get("Authorization") ?? "",
+        "apikey": Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+        "x-route": "agent-radar",
+      },
+      body: JSON.stringify({
+        provincia: "PD",
+        comune: "Padova",
+        allowDemo: false,
+        maxZones: 10,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (radarRes.ok) {
+      const radarData = await radarRes.json().catch(() => null);
+      const zones: any[] = radarData?.zones ?? radarData?.data?.zones ?? [];
+      for (const z of zones) {
+        if (!z || typeof z !== "object") continue;
+        if (z.quality === "demo") continue;
+        if (typeof z.score !== "number" || z.score < 40) continue;
+        const score = Math.min(100, Math.max(0, z.score));
+        const microzona: string = z.microzone ?? z.comune ?? "Padova";
+        radarOpps.push({
+          id: "radar-" + (z.id ?? z.comune ?? microzona).toString().slice(0, 16)
+            .replace(/[^a-z0-9]/gi, ""),
+          title: z.title ?? `Zona ${microzona} · segnale attivo`,
+          territory: "Padova - " + microzona,
+          property_type: "residenziale",
+          temperature: score >= 75 ? "caldo" : score >= 55 ? "tiepido" : "freddo",
+          priority: score >= 75 ? "alta" : score >= 55 ? "media" : "bassa",
+          assignment_probability: Math.round(score * 0.85),
+          estimated_value: 0,
+          commission_potential: 0,
+          window_label: z.agentAction ? "Azione: " + z.agentAction.slice(0, 50) : "Finestra identificata",
+          commercial_reason: z.reason ?? "Segnale di zona rilevato dal radar territoriale.",
+          next_action: z.agentAction ?? "Verifica opportunità nella zona",
+          dossier_status: score >= 70 ? "pronto" : "in_preparazione",
+          visible_to_agency: true,
+        });
+      }
+    }
+  } catch { /* fonte fallita silenziosamente */ }
+  all.push(...radarOpps);
+
+
+
 
   const items = dedupe(all)
     .filter((o) => o.visible_to_agency)
