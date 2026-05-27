@@ -77,6 +77,70 @@ async function authenticateDual(
   return { ok: true, userId: null, email: null };
 }
 
+// ── Resolve agencyId from JWT user + optional body.agencyId.
+// Rules:
+//  - JWT user + body.agencyId → must be an active membership, else 403.
+//  - JWT user + no body.agencyId → unique active membership, else 400/403.
+//  - No JWT user (app-secret path) → body.agencyId is mandatory (400).
+// Returns the resolved agencyId or a Response on rejection.
+async function resolveAgencyForBilling(
+  req: Request,
+  debugId: string,
+  userId: string | null,
+  providedAgencyId: string,
+): Promise<{ ok: true; agencyId: string } | { ok: false; res: Response }> {
+  // App-secret path (no end-user) — legacy behaviour: client must pass agencyId.
+  if (!userId) {
+    if (!providedAgencyId) {
+      return { ok: false, res: withIdentity(fail(req, 400, "INVALID_BODY", "agencyId is required.", debugId), "error") };
+    }
+    return { ok: true, agencyId: providedAgencyId };
+  }
+
+  const sb = getServiceSupabase();
+  if (!sb) {
+    return { ok: false, res: withIdentity(fail(req, 500, "STORAGE_UNAVAILABLE", `Backend not available. Reference: ${debugId}`, debugId), "error") };
+  }
+
+  if (providedAgencyId) {
+    // Verify user belongs to the requested agency.
+    const { data, error } = await sb
+      .from("agency_memberships")
+      .select("agency_id")
+      .eq("user_id", userId)
+      .eq("agency_id", providedAgencyId)
+      .eq("status", "active")
+      .maybeSingle();
+    if (error) {
+      console.error(`[${FUNCTION_NAME}] membership lookup error debug_id=${debugId}: ${error.message}`);
+      return { ok: false, res: withIdentity(fail(req, 500, "DB_ERROR", `Database error. Reference: ${debugId}`, debugId), "error") };
+    }
+    if (!data) {
+      return { ok: false, res: withIdentity(fail(req, 403, "AGENCY_FORBIDDEN", "User does not belong to the requested agency.", debugId), "error") };
+    }
+    return { ok: true, agencyId: providedAgencyId };
+  }
+
+  // Auto-resolve from memberships.
+  const { data, error } = await sb
+    .from("agency_memberships")
+    .select("agency_id")
+    .eq("user_id", userId)
+    .eq("status", "active");
+  if (error) {
+    console.error(`[${FUNCTION_NAME}] membership lookup error debug_id=${debugId}: ${error.message}`);
+    return { ok: false, res: withIdentity(fail(req, 500, "DB_ERROR", `Database error. Reference: ${debugId}`, debugId), "error") };
+  }
+  const ids = Array.from(new Set((data ?? []).map((r: { agency_id: string }) => r.agency_id))).filter(Boolean);
+  if (ids.length === 0) {
+    return { ok: false, res: withIdentity(fail(req, 403, "AGENCY_NOT_FOUND", "No active agency for this user.", debugId), "error") };
+  }
+  if (ids.length > 1) {
+    return { ok: false, res: withIdentity(fail(req, 400, "AGENCY_REQUIRED", "User has multiple agencies — agencyId must be provided.", debugId), "error") };
+  }
+  return { ok: true, agencyId: ids[0] };
+}
+
 // ── Stripe minimal helpers (form-encoded REST, no SDK) ────────
 async function stripeForm(secretKey: string, path: string, body: Record<string, string>) {
   const params = new URLSearchParams(body);
