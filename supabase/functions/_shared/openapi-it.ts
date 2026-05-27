@@ -190,6 +190,21 @@ export function getOpenApiEnvironment(): "sandbox" | "production" {
   return raw === "production" ? "production" : "sandbox";
 }
 
+/**
+ * Risolve la base URL OpenAPI in funzione dell'ambiente corrente.
+ * - sandbox    -> OPENAPI_IT_SANDBOX_BASE_URL (nessun fallback su prod)
+ * - production -> OPENAPI_IT_BASE_URL
+ * Ritorna stringa vuota se la variabile attesa non è configurata.
+ * Esportata per consentire self-check senza eseguire fetch HTTP.
+ */
+export function resolveOpenApiBaseUrl(env?: "sandbox" | "production"): string {
+  const e = env ?? getOpenApiEnvironment();
+  if (e === "sandbox") {
+    return (Deno.env.get("OPENAPI_IT_SANDBOX_BASE_URL") ?? "").trim();
+  }
+  return (Deno.env.get("OPENAPI_IT_BASE_URL") ?? "").trim();
+}
+
 async function logCall(p: LogParams): Promise<void> {
   const sb = svcClient();
   if (!sb) return;
@@ -259,12 +274,12 @@ async function callOpenApi<T = unknown>(
   }
 
   const token = (Deno.env.get("OPENAPI_IT_TOKEN") ?? "").trim();
-  // Base URL: in sandbox preferisce OPENAPI_IT_SANDBOX_BASE_URL se valorizzata,
-  // altrimenti fallback su OPENAPI_IT_BASE_URL (stessa URL finché OpenAPI non
-  // documenta un host sandbox dedicato — NON inventare endpoint).
-  const sandboxBaseUrl = (Deno.env.get("OPENAPI_IT_SANDBOX_BASE_URL") ?? "").trim();
-  const prodBaseUrl = (Deno.env.get("OPENAPI_IT_BASE_URL") ?? "").trim();
-  const baseUrl = env === "sandbox" ? (sandboxBaseUrl || prodBaseUrl) : prodBaseUrl;
+  // Base URL resolution per ambiente (host separati documentati da OpenAPI):
+  //  - sandbox    -> OPENAPI_IT_SANDBOX_BASE_URL (es. https://test.realestate.openapi.com)
+  //  - production -> OPENAPI_IT_BASE_URL         (es. https://realestate.openapi.com)
+  // Regola hard: in sandbox NON si fa mai fallback all'host di produzione.
+  // Se la sandbox base URL non è configurata, la chiamata viene skippata.
+  const baseUrl = resolveOpenApiBaseUrl(env);
 
   // Token sentinel "NOT_CONFIGURED" => trattato come assente, non come errore critico.
   const tokenConfigured = token.length > 0 && token.toUpperCase() !== "NOT_CONFIGURED";
