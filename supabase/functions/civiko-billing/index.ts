@@ -223,6 +223,19 @@ async function handleCustomerPortal(
   }), debugId), route);
 }
 
+const PLAN_LABELS: Record<string, string> = {
+  civiko_studio: "Studio",
+  civiko_pro: "Pro",
+  civiko_elite: "Elite",
+};
+
+function daysBetween(iso: string | null): number | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return null;
+  return Math.max(0, Math.ceil((t - Date.now()) / 86_400_000));
+}
+
 async function handleCheckSubscription(
   req: Request,
   body: Record<string, unknown>,
@@ -234,19 +247,95 @@ async function handleCheckSubscription(
   const agencyId = String(body.agencyId ?? ctx.agencyOverride ?? "");
   if (!agencyId) return withIdentity(fail(req, 400, "INVALID_BODY", "agencyId is required.", debugId), "error");
 
-  if (!env.configured) return unconfiguredResponse(req, debugId, route);
+  if (!env.configured) {
+    // Billing predisposition: PWA must see a deterministic contract.
+    return withIdentity(json(req, 200, sanitizeOutgoing({
+      // Normalized contract for PWA
+      status: "trial",
+      allowed: true,
+      upgradeRequired: false,
+      planLabel: "Trial",
+      daysLeft: null,
+      // Legacy/extended fields
+      billingReady: false,
+      reason: "billing_not_configured",
+      plan: null,
+      stripeStatus: null,
+    }), debugId), route);
+  }
 
   const sb = getServiceSupabase();
-  if (!sb) return unconfiguredResponse(req, debugId, route);
+  if (!sb) {
+    // Real server error — do NOT fake trial.
+    return withIdentity(fail(req, 500, "STORAGE_UNAVAILABLE", `Backend not available. Reference: ${debugId}`, debugId), "error");
+  }
 
-  const sub = await getActiveSubscription(sb, agencyId);
-  const usage = await getCurrentUsage(sb, agencyId);
-  const ent = sub?.planKey ? await getEntitlements(sb, sub.planKey) : null;
+  let sub, usage, ent;
+  try {
+    sub = await getActiveSubscription(sb, agencyId);
+    usage = await getCurrentUsage(sb, agencyId);
+    ent = sub?.planKey ? await getEntitlements(sb, sub.planKey) : null;
+  } catch (e) {
+    console.error(`[${FUNCTION_NAME}] check-subscription db error debug_id=${debugId}: ${e instanceof Error ? e.message : String(e)}`);
+    return withIdentity(fail(req, 500, "DB_ERROR", `Database error. Reference: ${debugId}`, debugId), "error");
+  }
+
+  // ── Normalize to PWA contract ──
+  const stripeStatus = sub?.status ?? null;
+  const planKey = sub?.planKey ?? null;
+  let normStatus: "trial" | "active" | "expired";
+  let allowed: boolean;
+  let upgradeRequired: boolean;
+  let planLabel: string;
+  let daysLeft: number | null;
+
+  if (stripeStatus === "trialing") {
+    normStatus = "trial";
+    allowed = true;
+    upgradeRequired = false;
+    planLabel = planKey ? PLAN_LABELS[planKey] ?? "Trial" : "Trial";
+    daysLeft = daysBetween(sub?.currentPeriodEnd ?? null);
+  } else if (planKey && (stripeStatus === "active" || stripeStatus === "past_due")) {
+    normStatus = "active";
+    allowed = true;
+    upgradeRequired = false;
+    planLabel = PLAN_LABELS[planKey] ?? planKey;
+    daysLeft = null;
+  } else if (!sub) {
+    // No subscription record → free-trial window driven by scan usage (matches evaluateBillingGate logic)
+    const scansUsed = usage?.scans_used ?? 0;
+    if (scansUsed < 3) {
+      normStatus = "trial";
+      allowed = true;
+      upgradeRequired = false;
+      planLabel = "Trial";
+      daysLeft = null;
+    } else {
+      normStatus = "expired";
+      allowed = false;
+      upgradeRequired = true;
+      planLabel = "Trial";
+      daysLeft = 0;
+    }
+  } else {
+    normStatus = "expired";
+    allowed = false;
+    upgradeRequired = true;
+    planLabel = planKey ? PLAN_LABELS[planKey] ?? planKey : "Trial";
+    daysLeft = 0;
+  }
 
   return withIdentity(json(req, 200, sanitizeOutgoing({
+    // ── Normalized PWA contract ──
+    status: normStatus,
+    allowed,
+    upgradeRequired,
+    planLabel,
+    daysLeft,
+    // ── Legacy/extended fields (kept for backward compatibility) ──
     billingReady: true,
-    plan: sub?.planKey ?? null,
-    status: sub?.status ?? null,
+    plan: planKey,
+    stripeStatus,
     currentPeriodEnd: sub?.currentPeriodEnd ?? null,
     cancelAtPeriodEnd: sub?.cancelAtPeriodEnd ?? false,
     usage,
