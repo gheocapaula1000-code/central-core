@@ -60,6 +60,7 @@ interface Opportunity {
   next_action: string;
   dossier_status: "pronto" | "in_preparazione";
   visible_to_agency: boolean;
+  fonte_tipo?: string;
 }
 
 const PADOVA_ZONES = [
