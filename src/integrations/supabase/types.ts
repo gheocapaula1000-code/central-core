@@ -3402,6 +3402,102 @@ export type Database = {
         }
         Relationships: []
       }
+      openapi_it_cache: {
+        Row: {
+          cache_key: string
+          contract: string | null
+          created_at: string
+          endpoint: string
+          expires_at: string
+          fetched_at: string
+          id: string
+          lat_scaled: number | null
+          lng_scaled: number | null
+          normalized_address: string | null
+          property_type: string | null
+          request_params: Json
+          response_payload: Json
+        }
+        Insert: {
+          cache_key: string
+          contract?: string | null
+          created_at?: string
+          endpoint: string
+          expires_at: string
+          fetched_at?: string
+          id?: string
+          lat_scaled?: number | null
+          lng_scaled?: number | null
+          normalized_address?: string | null
+          property_type?: string | null
+          request_params?: Json
+          response_payload: Json
+        }
+        Update: {
+          cache_key?: string
+          contract?: string | null
+          created_at?: string
+          endpoint?: string
+          expires_at?: string
+          fetched_at?: string
+          id?: string
+          lat_scaled?: number | null
+          lng_scaled?: number | null
+          normalized_address?: string | null
+          property_type?: string | null
+          request_params?: Json
+          response_payload?: Json
+        }
+        Relationships: []
+      }
+      openapi_it_call_log: {
+        Row: {
+          agency_id: string | null
+          cache_hit: boolean
+          created_at: string
+          debug_id: string | null
+          dossier_id: string | null
+          duration_ms: number | null
+          endpoint: string
+          error_code: string | null
+          estimated_cost_eur: number
+          http_status: number | null
+          id: string
+          status: string
+          user_id: string | null
+        }
+        Insert: {
+          agency_id?: string | null
+          cache_hit?: boolean
+          created_at?: string
+          debug_id?: string | null
+          dossier_id?: string | null
+          duration_ms?: number | null
+          endpoint: string
+          error_code?: string | null
+          estimated_cost_eur?: number
+          http_status?: number | null
+          id?: string
+          status: string
+          user_id?: string | null
+        }
+        Update: {
+          agency_id?: string | null
+          cache_hit?: boolean
+          created_at?: string
+          debug_id?: string | null
+          dossier_id?: string | null
+          duration_ms?: number | null
+          endpoint?: string
+          error_code?: string | null
+          estimated_cost_eur?: number
+          http_status?: number | null
+          id?: string
+          status?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       opportunity_evidence: {
         Row: {
           anticipatory_or_confirmation: string
