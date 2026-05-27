@@ -406,6 +406,46 @@ serve(async (req) => {
   if (fcRes.status === "fulfilled") all.push(...fcRes.value);
   if (ppRes.status === "fulfilled") all.push(...ppRes.value);
 
+  // Fonte C: territory-records (segnali territoriali interni)
+  const territoryOpps: Opportunity[] = [];
+  try {
+    const tUrl = new URL(req.url);
+    tUrl.pathname = tUrl.pathname.replace("agency-opportunities", "territory-records");
+    tUrl.search = "?city=Padova";
+    const tRes = await fetch(tUrl.toString(), {
+      headers: {
+        "Authorization": req.headers.get("Authorization") ?? "",
+        "apikey": Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (tRes.ok) {
+      const records: any[] = await tRes.json();
+      for (const r of records) {
+        if (r.priority_score < 65) continue;
+        territoryOpps.push({
+          id: "tr-" + r.id,
+          title: r.title,
+          territory: r.municipality + (r.area_label ? " - " + r.area_label : ""),
+          property_type: (r.category === "brownfield" || r.category === "area_trasformazione")
+            ? "commerciale" : "residenziale",
+          temperature: r.priority_score >= 80 ? "caldo" : "tiepido",
+          priority: r.priority_score >= 80 ? "alta" : "media",
+          assignment_probability: Math.min(78, Math.round(r.priority_score * 0.88)),
+          estimated_value: 0,
+          commission_potential: 0,
+          window_label: "Segnale territoriale attivo",
+          commercial_reason: r.reason_short ?? r.scoring_reason,
+          next_action: "Verifica immobili in questa zona e prepara primo contatto",
+          dossier_status: "in_preparazione",
+          visible_to_agency: true,
+        });
+      }
+    }
+  } catch { /* fonte fallita silenziosamente */ }
+  all.push(...territoryOpps);
+
+
   const items = dedupe(all)
     .filter((o) => o.visible_to_agency)
     .sort((a, b) => b.assignment_probability - a.assignment_probability)
