@@ -436,7 +436,7 @@ serve(async (req) => {
       keywords.map(({ kw, cat }) =>
         fetch(
           `https://maps.googleapis.com/maps/api/place/nearbysearch/json` +
-          `?location=45.4064,11.8768&radius=4500&keyword=${encodeURIComponent(kw)}` +
+          `?location=45.4064,11.8768&radius=6000&keyword=${encodeURIComponent(kw)}` +
           `&language=it&key=${googleKey}`,
           { signal: AbortSignal.timeout(10000) }
         )
@@ -449,7 +449,10 @@ serve(async (req) => {
       const { data, cat } = res.value;
       for (const place of (data.results as any[]).slice(0, 4)) {
         const vicinity: string = place.vicinity ?? "";
-        if (!vicinity.toLowerCase().includes("padova")) continue;
+        const placeLat = place.geometry?.location?.lat;
+        const placeLng = place.geometry?.location?.lng;
+        if (typeof placeLat !== "number" || typeof placeLng !== "number") continue;
+        if (distanzaKm(PADOVA_CENTER.lat, PADOVA_CENTER.lng, placeLat, placeLng) > MAX_KM) continue;
         const microzona = zonesPadova.find(z =>
           vicinity.toLowerCase().includes(z.toLowerCase())
         ) ?? null;
