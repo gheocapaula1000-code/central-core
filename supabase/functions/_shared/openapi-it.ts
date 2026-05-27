@@ -181,10 +181,23 @@ interface LogParams {
   durationMs?: number;
 }
 
+/**
+ * Ambiente OpenAPI corrente. Default: 'sandbox' (fail-safe: nessun costo reale).
+ * Solo quando OPENAPI_IT_ENV=production le chiamate generano costo reale.
+ */
+export function getOpenApiEnvironment(): "sandbox" | "production" {
+  const raw = (Deno.env.get("OPENAPI_IT_ENV") ?? "").trim().toLowerCase();
+  return raw === "production" ? "production" : "sandbox";
+}
+
 async function logCall(p: LogParams): Promise<void> {
   const sb = svcClient();
   if (!sb) return;
-  const cost = p.cacheHit ? 0 : (ESTIMATED_COST_EUR[p.endpoint] ?? 0);
+  const env = getOpenApiEnvironment();
+  const theoretical = p.cacheHit ? 0 : (ESTIMATED_COST_EUR[p.endpoint] ?? 0);
+  // In sandbox il costo reale è SEMPRE 0 (credito virtuale OpenAPI).
+  // estimated_cost_eur resta teorico per analisi forecast pre-produzione.
+  const realCost = env === "production" ? theoretical : 0;
   try {
     await sb.from("openapi_it_call_log").insert({
       endpoint: p.endpoint,
@@ -194,7 +207,9 @@ async function logCall(p: LogParams): Promise<void> {
       cache_hit: p.cacheHit,
       status: p.status,
       http_status: p.httpStatus ?? null,
-      estimated_cost_eur: cost,
+      estimated_cost_eur: theoretical,
+      real_cost_eur: realCost,
+      environment: env,
       debug_id: p.ctx.debugId ?? null,
       error_code: p.errorCode ?? null,
       duration_ms: p.durationMs ?? null,
@@ -233,13 +248,28 @@ async function callOpenApi<T = unknown>(
     return null;
   }
 
+  const env = getOpenApiEnvironment();
+  const sandboxEnabled = (Deno.env.get("OPENAPI_IT_SANDBOX_ENABLED") ?? "").trim().toLowerCase() === "true";
+
+  // Hard gate: se siamo in sandbox ma il flag esplicito è off, non chiamare.
+  if (env === "sandbox" && !sandboxEnabled) {
+    console.log("[openapi-it] sandbox env but OPENAPI_IT_SANDBOX_ENABLED!=true, skipping");
+    await logCall({ endpoint, ctx, cacheHit: false, status: "skipped", errorCode: "SANDBOX_DISABLED" });
+    return null;
+  }
+
   const token = (Deno.env.get("OPENAPI_IT_TOKEN") ?? "").trim();
-  const baseUrl = (Deno.env.get("OPENAPI_IT_BASE_URL") ?? "").trim();
+  // Base URL: in sandbox preferisce OPENAPI_IT_SANDBOX_BASE_URL se valorizzata,
+  // altrimenti fallback su OPENAPI_IT_BASE_URL (stessa URL finché OpenAPI non
+  // documenta un host sandbox dedicato — NON inventare endpoint).
+  const sandboxBaseUrl = (Deno.env.get("OPENAPI_IT_SANDBOX_BASE_URL") ?? "").trim();
+  const prodBaseUrl = (Deno.env.get("OPENAPI_IT_BASE_URL") ?? "").trim();
+  const baseUrl = env === "sandbox" ? (sandboxBaseUrl || prodBaseUrl) : prodBaseUrl;
+
   // Token sentinel "NOT_CONFIGURED" => trattato come assente, non come errore critico.
   const tokenConfigured = token.length > 0 && token.toUpperCase() !== "NOT_CONFIGURED";
   if (!tokenConfigured || !baseUrl) {
-    // Log non-error: la sorgente premium è semplicemente non attiva.
-    console.log("[openapi-it] premium source not configured, skipping HTTP call");
+    console.log(`[openapi-it] premium source not configured (env=${env}), skipping HTTP call`);
     await logCall({
       endpoint, ctx, cacheHit: false, status: "skipped",
       errorCode: !tokenConfigured ? "NOT_CONFIGURED_TOKEN" : "NOT_CONFIGURED_BASE_URL",

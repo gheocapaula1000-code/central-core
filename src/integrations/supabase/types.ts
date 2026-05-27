@@ -3572,10 +3572,12 @@ export type Database = {
           dossier_id: string | null
           duration_ms: number | null
           endpoint: string
+          environment: string
           error_code: string | null
           estimated_cost_eur: number
           http_status: number | null
           id: string
+          real_cost_eur: number
           status: string
           user_id: string | null
         }
@@ -3587,10 +3589,12 @@ export type Database = {
           dossier_id?: string | null
           duration_ms?: number | null
           endpoint: string
+          environment?: string
           error_code?: string | null
           estimated_cost_eur?: number
           http_status?: number | null
           id?: string
+          real_cost_eur?: number
           status: string
           user_id?: string | null
         }
@@ -3602,10 +3606,12 @@ export type Database = {
           dossier_id?: string | null
           duration_ms?: number | null
           endpoint?: string
+          environment?: string
           error_code?: string | null
           estimated_cost_eur?: number
           http_status?: number | null
           id?: string
+          real_cost_eur?: number
           status?: string
           user_id?: string | null
         }
