@@ -287,6 +287,7 @@ async function placesNearby(q: PlacesQuery, key: string): Promise<TerritoryRecor
       const name = String(place.name ?? "").trim();
       if (!placeId || !name) continue;
       const vicinity = String(place.vicinity ?? "");
+      if (!vicinity.toLowerCase().includes("padova")) continue;
       const areaLabel = vicinity.split(",")[0]?.trim() || null;
       const microzona = vicinity ? findZone(vicinity) : null;
       const scoring_reason = "Rilevato tramite dati geografici in zona " + (microzona ?? "Padova");
