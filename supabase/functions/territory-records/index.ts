@@ -41,6 +41,19 @@ function jsonResp(body: unknown, status: number, cors: Record<string, string>, e
   });
 }
 
+// ─── Geo ─────────────────────────────────────────────────────────────────
+function distanzaKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng/2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+const PADOVA_CENTER = { lat: 45.4064, lng: 11.8768 };
+const MAX_KM = 3.5;
+
 // ─── Types ───────────────────────────────────────────────────────────────
 type Category =
   | "cantiere"
@@ -272,7 +285,7 @@ async function placesNearby(q: PlacesQuery, key: string): Promise<TerritoryRecor
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 10_000);
   try {
-    const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=45.4064,11.8768&radius=4500&language=it&keyword=${encodeURIComponent(q.keyword)}&key=${key}`;
+    const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=45.4064,11.8768&radius=6000&language=it&keyword=${encodeURIComponent(q.keyword)}&key=${key}`;
     const res = await fetch(url, { signal: ctrl.signal });
     if (!res.ok) return [];
     const data = await res.json().catch(() => null);
@@ -287,7 +300,11 @@ async function placesNearby(q: PlacesQuery, key: string): Promise<TerritoryRecor
       const name = String(place.name ?? "").trim();
       if (!placeId || !name) continue;
       const vicinity = String(place.vicinity ?? "");
-      if (!vicinity.toLowerCase().includes("padova")) continue;
+      const geom = place.geometry as { location?: { lat?: number; lng?: number } } | undefined;
+      const placeLat = geom?.location?.lat;
+      const placeLng = geom?.location?.lng;
+      if (typeof placeLat !== "number" || typeof placeLng !== "number") continue;
+      if (distanzaKm(PADOVA_CENTER.lat, PADOVA_CENTER.lng, placeLat, placeLng) > MAX_KM) continue;
       const areaLabel = vicinity.split(",")[0]?.trim() || null;
       const microzona = vicinity ? findZone(vicinity) : null;
       const scoring_reason = "Rilevato tramite dati geografici in zona " + (microzona ?? "Padova");
