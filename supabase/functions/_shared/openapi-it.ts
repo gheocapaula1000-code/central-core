@@ -259,12 +259,12 @@ async function callOpenApi<T = unknown>(
   }
 
   const token = (Deno.env.get("OPENAPI_IT_TOKEN") ?? "").trim();
-  // Base URL: in sandbox preferisce OPENAPI_IT_SANDBOX_BASE_URL se valorizzata,
-  // altrimenti fallback su OPENAPI_IT_BASE_URL (stessa URL finché OpenAPI non
-  // documenta un host sandbox dedicato — NON inventare endpoint).
-  const sandboxBaseUrl = (Deno.env.get("OPENAPI_IT_SANDBOX_BASE_URL") ?? "").trim();
-  const prodBaseUrl = (Deno.env.get("OPENAPI_IT_BASE_URL") ?? "").trim();
-  const baseUrl = env === "sandbox" ? (sandboxBaseUrl || prodBaseUrl) : prodBaseUrl;
+  // Base URL resolution per ambiente (host separati documentati da OpenAPI):
+  //  - sandbox    -> OPENAPI_IT_SANDBOX_BASE_URL (es. https://test.realestate.openapi.com)
+  //  - production -> OPENAPI_IT_BASE_URL         (es. https://realestate.openapi.com)
+  // Regola hard: in sandbox NON si fa mai fallback all'host di produzione.
+  // Se la sandbox base URL non è configurata, la chiamata viene skippata.
+  const baseUrl = resolveOpenApiBaseUrl(env);
 
   // Token sentinel "NOT_CONFIGURED" => trattato come assente, non come errore critico.
   const tokenConfigured = token.length > 0 && token.toUpperCase() !== "NOT_CONFIGURED";
