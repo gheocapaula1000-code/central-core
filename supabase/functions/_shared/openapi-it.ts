@@ -406,6 +406,14 @@ export async function openapiItGetRMV<T = unknown>(
   params: Record<string, unknown>,
   ctx: OpenApiCallContext,
 ): Promise<T | null> {
+  return callOpenApi<T>("real_estate/rm-value", params, ctx);
+}
+
+/** Legacy endpoint /IT-rmv. Usato solo se richiesto esplicitamente. */
+export async function openapiItGetRMVLegacy<T = unknown>(
+  params: Record<string, unknown>,
+  ctx: OpenApiCallContext,
+): Promise<T | null> {
   return callOpenApi<T>("real_estate/rmv", params, ctx);
 }
 
