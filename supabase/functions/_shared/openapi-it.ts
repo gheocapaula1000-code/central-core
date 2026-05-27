@@ -248,13 +248,28 @@ async function callOpenApi<T = unknown>(
     return null;
   }
 
+  const env = getOpenApiEnvironment();
+  const sandboxEnabled = (Deno.env.get("OPENAPI_IT_SANDBOX_ENABLED") ?? "").trim().toLowerCase() === "true";
+
+  // Hard gate: se siamo in sandbox ma il flag esplicito è off, non chiamare.
+  if (env === "sandbox" && !sandboxEnabled) {
+    console.log("[openapi-it] sandbox env but OPENAPI_IT_SANDBOX_ENABLED!=true, skipping");
+    await logCall({ endpoint, ctx, cacheHit: false, status: "skipped", errorCode: "SANDBOX_DISABLED" });
+    return null;
+  }
+
   const token = (Deno.env.get("OPENAPI_IT_TOKEN") ?? "").trim();
-  const baseUrl = (Deno.env.get("OPENAPI_IT_BASE_URL") ?? "").trim();
+  // Base URL: in sandbox preferisce OPENAPI_IT_SANDBOX_BASE_URL se valorizzata,
+  // altrimenti fallback su OPENAPI_IT_BASE_URL (stessa URL finché OpenAPI non
+  // documenta un host sandbox dedicato — NON inventare endpoint).
+  const sandboxBaseUrl = (Deno.env.get("OPENAPI_IT_SANDBOX_BASE_URL") ?? "").trim();
+  const prodBaseUrl = (Deno.env.get("OPENAPI_IT_BASE_URL") ?? "").trim();
+  const baseUrl = env === "sandbox" ? (sandboxBaseUrl || prodBaseUrl) : prodBaseUrl;
+
   // Token sentinel "NOT_CONFIGURED" => trattato come assente, non come errore critico.
   const tokenConfigured = token.length > 0 && token.toUpperCase() !== "NOT_CONFIGURED";
   if (!tokenConfigured || !baseUrl) {
-    // Log non-error: la sorgente premium è semplicemente non attiva.
-    console.log("[openapi-it] premium source not configured, skipping HTTP call");
+    console.log(`[openapi-it] premium source not configured (env=${env}), skipping HTTP call`);
     await logCall({
       endpoint, ctx, cacheHit: false, status: "skipped",
       errorCode: !tokenConfigured ? "NOT_CONFIGURED_TOKEN" : "NOT_CONFIGURED_BASE_URL",
