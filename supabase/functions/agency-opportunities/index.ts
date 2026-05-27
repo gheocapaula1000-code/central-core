@@ -1,11 +1,14 @@
 // agency-opportunities
 // GET /functions/v1/agency-opportunities
-// Returns clean, PWA-safe commercial opportunities (mock data for now).
+// Returns real commercial opportunities aggregated from Firecrawl (listings
+// long on the market) and Perplexity (territorial intelligence).
+// PRINCIPLE: if APIs return nothing, response is []. No mocks, no invented data.
 // Auth: Bearer JWT required. Role: agency_user | admin | owner.
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 
+// ─── CORS ────────────────────────────────────────────────────────────────
 const ALLOWED_ORIGINS = [
   "https://civikoone.com",
   "https://www.civikoone.com",
@@ -41,6 +44,7 @@ function json(body: unknown, status: number, cors: Record<string, string>) {
 const OWNER_EMAILS = (Deno.env.get("OWNER_EMAILS") ?? "")
   .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 
+// ─── Types ───────────────────────────────────────────────────────────────
 interface Opportunity {
   id: string;
   title: string;
@@ -58,121 +62,275 @@ interface Opportunity {
   visible_to_agency: boolean;
 }
 
-const MOCK: Opportunity[] = [
-  {
-    id: "opp_pd_001",
-    title: "Quadrilocale da valorizzare",
-    territory: "Padova - Arcella",
-    property_type: "residenziale",
-    temperature: "caldo",
-    priority: "alta",
-    assignment_probability: 84,
-    estimated_value: 320000,
-    commission_potential: 9600,
-    window_label: "Finestra utile aperta",
-    commercial_reason: "Il proprietario può valutare una proposta concreta entro pochi giorni.",
-    next_action: "Prepara visita entro 48 ore",
-    dossier_status: "pronto",
-    visible_to_agency: true,
-  },
-  {
-    id: "opp_pd_002",
-    title: "Bicamere ristrutturato vicino centro",
-    territory: "Padova - Santo",
-    property_type: "residenziale",
-    temperature: "caldo",
-    priority: "alta",
-    assignment_probability: 78,
-    estimated_value: 245000,
-    commission_potential: 7350,
-    window_label: "Finestra utile aperta",
-    commercial_reason: "Segnali coerenti di apertura al cambio entro il trimestre.",
-    next_action: "Contatto telefonico entro 24 ore",
-    dossier_status: "pronto",
-    visible_to_agency: true,
-  },
-  {
-    id: "opp_pd_003",
-    title: "Villetta a schiera con giardino",
-    territory: "Selvazzano Dentro",
-    property_type: "residenziale",
-    temperature: "tiepido",
-    priority: "media",
-    assignment_probability: 62,
-    estimated_value: 410000,
-    commission_potential: 12300,
-    window_label: "Finestra in apertura",
-    commercial_reason: "Contesto familiare in evoluzione, valutazione interna in corso.",
-    next_action: "Inviare presentazione personalizzata",
-    dossier_status: "pronto",
-    visible_to_agency: true,
-  },
-  {
-    id: "opp_pd_004",
-    title: "Locale commerciale fronte strada",
-    territory: "Padova - Stanga",
-    property_type: "commerciale",
-    temperature: "tiepido",
-    priority: "media",
-    assignment_probability: 55,
-    estimated_value: 280000,
-    commission_potential: 8400,
-    window_label: "Finestra in apertura",
-    commercial_reason: "Attività in riorganizzazione, possibile rilascio entro 6 mesi.",
-    next_action: "Pianifica sopralluogo conoscitivo",
-    dossier_status: "in_preparazione",
-    visible_to_agency: true,
-  },
-  {
-    id: "opp_pd_005",
-    title: "Trilocale da rinfrescare",
-    territory: "Abano Terme",
-    property_type: "residenziale",
-    temperature: "caldo",
-    priority: "alta",
-    assignment_probability: 71,
-    estimated_value: 195000,
-    commission_potential: 5850,
-    window_label: "Finestra utile aperta",
-    commercial_reason: "Esigenza concreta di liquidità nel breve periodo.",
-    next_action: "Prepara incontro con stima rapida",
-    dossier_status: "pronto",
-    visible_to_agency: true,
-  },
-  {
-    id: "opp_pd_006",
-    title: "Appartamento con terrazzo",
-    territory: "Padova - Forcellini",
-    property_type: "residenziale",
-    temperature: "tiepido",
-    priority: "media",
-    assignment_probability: 58,
-    estimated_value: 265000,
-    commission_potential: 7950,
-    window_label: "Finestra in apertura",
-    commercial_reason: "Cambio progetto abitativo in valutazione.",
-    next_action: "Follow-up entro 7 giorni",
-    dossier_status: "pronto",
-    visible_to_agency: true,
-  },
-  {
-    id: "opp_pd_007",
-    title: "Casa indipendente con corte",
-    territory: "Cadoneghe",
-    property_type: "residenziale",
-    temperature: "freddo",
-    priority: "bassa",
-    assignment_probability: 34,
-    estimated_value: 220000,
-    commission_potential: 6600,
-    window_label: "Monitoraggio attivo",
-    commercial_reason: "Nessuna urgenza, ma profilo da mantenere caldo.",
-    next_action: "Inserire in piano nurturing trimestrale",
-    dossier_status: "in_preparazione",
-    visible_to_agency: true,
-  },
+const PADOVA_ZONES = [
+  "Arcella","Portello","Centro Storico","Forcellini","Guizza","Sacra Famiglia",
+  "Camin","Stanga","Albignasego","Selvazzano Dentro","Abano Terme","Cadoneghe",
+  "Limena","Vigodarzere","Rubano","Vigonza","Noventa Padovana","Montegrotto Terme",
+  "Zona Industriale","Voltabarozzo","Pontevigodarzere","Mortise","Santo",
 ];
 
+function findZone(text: string): string | null {
+  const lower = text.toLowerCase();
+  for (const z of PADOVA_ZONES) {
+    if (lower.includes(z.toLowerCase())) return z;
+  }
+  return null;
+}
+
+function shortId(prefix: string, seed: string, len = 16): string {
+  const b64 = btoa(unescape(encodeURIComponent(seed))).slice(0, len).replace(/[^a-z0-9]/gi, "");
+  return `${prefix}-${b64}`;
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// ─── FONTE A: Firecrawl listings ─────────────────────────────────────────
+async function firecrawlScrape(url: string, apiKey: string): Promise<string | null> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 14_000);
+  try {
+    const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    const md: string | undefined = data?.data?.markdown ?? data?.markdown;
+    if (!md || md.length < 100) return null;
+    return md.slice(0, 8000);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+const TYPOLOGIES = [
+  "appartamento","villa","trilocale","bilocale","quadrilocale",
+  "capannone","locale","negozio","ufficio","terreno",
+];
+
+function extractValue(block: string): number {
+  // Patterns: €  150.000  /  150.000 €  /  € 150.000,00
+  const patterns = [
+    /€\s*([\d\.]+(?:[.,]\d+)?)/,
+    /([\d\.]+(?:[.,]\d+)?)\s*€/,
+  ];
+  for (const re of patterns) {
+    const m = block.match(re);
+    if (m) {
+      const raw = m[1].replace(/\./g, "").replace(",", ".");
+      const n = parseFloat(raw);
+      if (!isNaN(n) && n > 0) return n;
+    }
+  }
+  return 0;
+}
+
+function extractDays(block: string): number {
+  const mDays = block.match(/(\d+)\s*(giorni?|days?)/i);
+  if (mDays) return parseInt(mDays[1], 10);
+  const mWeeks = block.match(/(\d+)\s*(settiman[ae]|weeks?)/i);
+  if (mWeeks) return parseInt(mWeeks[1], 10) * 7;
+  const mMonths = block.match(/(\d+)\s*(mes[ei]|months?)/i);
+  if (mMonths) return parseInt(mMonths[1], 10) * 30;
+  return 0;
+}
+
+function buildListingOpportunity(tipologia: string, zona: string | null, giorni: number, valore: number): Opportunity {
+  const territory = zona ? `Padova - ${zona}` : "Padova";
+  const propertyType: Opportunity["property_type"] =
+    ["capannone","ufficio","negozio","locale"].includes(tipologia) ? "commerciale"
+    : tipologia === "terreno" ? "terreno"
+    : "residenziale";
+
+  let temperature: Opportunity["temperature"] = "freddo";
+  let priority: Opportunity["priority"] = "bassa";
+  let assignment_probability = 45;
+  let window_label = "Da qualificare";
+  let commercial_reason = "Opportunità in monitoraggio. Da qualificare con primo contatto.";
+  let next_action = "Avvia monitoraggio e qualifica";
+
+  if (giorni > 180) {
+    temperature = "caldo"; priority = "alta"; assignment_probability = 78;
+    window_label = "Finestra utile: presente da oltre 6 mesi";
+    commercial_reason = "Immobile presente sul mercato da un periodo prolungato. Il proprietario potrebbe apprezzare una proposta strutturata con piano di valorizzazione.";
+    next_action = "Prepara dossier e primo contatto entro 48 ore";
+  } else if (giorni > 90) {
+    temperature = "tiepido"; priority = "media"; assignment_probability = 62;
+    window_label = "Finestra in apertura: oltre 3 mesi sul mercato";
+    commercial_reason = "L'immobile mostra una permanenza sul mercato superiore alla media della zona. Momento favorevole per una proposta con metodo.";
+    next_action = "Invia presentazione personalizzata";
+  }
+
+  const estimated_value = Math.round(valore / 1000) * 1000;
+  const commission_potential = Math.round(estimated_value * 0.03);
+
+  return {
+    id: shortId("fc-lst", territory + tipologia + String(valore)),
+    title: `${capitalize(tipologia)} · ${territory.replace("Padova - ", "")}`,
+    territory,
+    property_type: propertyType,
+    temperature,
+    priority,
+    assignment_probability,
+    estimated_value,
+    commission_potential,
+    window_label,
+    commercial_reason,
+    next_action,
+    dossier_status: assignment_probability >= 70 ? "pronto" : "in_preparazione",
+    visible_to_agency: true,
+  };
+}
+
+function parseListingsMarkdown(md: string, _sourceLabel: string): Opportunity[] {
+  const out: Opportunity[] = [];
+  const blocks: string[] = [];
+  for (let i = 0; i < md.length; i += 500) blocks.push(md.slice(i, i + 500));
+
+  for (const block of blocks) {
+    const lower = block.toLowerCase();
+    const hasTimeWord = /giorni|settiman|mes[ei]|days|weeks|months/i.test(block);
+    if (!hasTimeWord) continue;
+
+    const tipologia = TYPOLOGIES.find((t) => lower.includes(t));
+    if (!tipologia) continue;
+
+    const valore = extractValue(block);
+    if (!valore || valore < 50_000) continue;
+
+    const zona = findZone(block);
+    const giorni = extractDays(block);
+
+    out.push(buildListingOpportunity(tipologia, zona, giorni, valore));
+  }
+  return out;
+}
+
+async function fetchFirecrawlListings(): Promise<Opportunity[]> {
+  const key = Deno.env.get("FIRECRAWL_API_KEY");
+  if (!key) return [];
+  const sources: Array<{ url: string; label: string }> = [
+    { url: "https://www.immobiliare.it/vendita-case/padova/?criterio=dataModifica&ordine=asc", label: "immobiliare.it" },
+    { url: "https://www.idealista.it/vendita-immobili/padova-provincia/?ordine=publicazione-asc", label: "idealista.it" },
+    { url: "https://www.casa.it/vendita/residenziale/padova-pd/?order=date_asc", label: "casa.it" },
+  ];
+  const settled = await Promise.allSettled(sources.map((s) => firecrawlScrape(s.url, key)));
+  const all: Opportunity[] = [];
+  settled.forEach((r, i) => {
+    if (r.status === "fulfilled" && r.value) {
+      all.push(...parseListingsMarkdown(r.value, sources[i].label));
+    }
+  });
+  return all;
+}
+
+// ─── FONTE B: Perplexity ─────────────────────────────────────────────────
+const VALID_PERP_TYPES = new Set(["residenziale", "commerciale", "industriale"]);
+
+async function fetchPerplexityOpportunities(): Promise<Opportunity[]> {
+  const key = Deno.env.get("PERPLEXITY_API_KEY");
+  if (!key) return [];
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 20_000);
+  try {
+    const res = await fetch("https://api.perplexity.ai/chat/completions", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        model: "sonar-pro",
+        messages: [{
+          role: "user",
+          content: "Trova opportunità immobiliari concrete per un agente immobiliare nel Comune di Padova, Italia. Cerca: immobili in eredità aperta, aziende che dismissono sedi o capannoni, proprietari non residenti con immobili inutilizzati, immobili fermi sul mercato da oltre 6 mesi, riconversioni industriali in corso. Rispondi SOLO con array JSON valido, senza testo aggiuntivo: [{\"titolo\":\"descrizione anonima dell'immobile max 60 chars\",\"zona\":\"microzona Padova\",\"tipo\":\"residenziale|commerciale|industriale\",\"motivo\":\"perché è un'opportunità concreta per ottenere un incarico in esclusiva max 100 chars\",\"probabilita\":50,\"valore\":200000}]. Usa solo dati verificabili. Se non hai dati concreti, restituisci [].",
+        }],
+        temperature: 0.1,
+        max_tokens: 1000,
+      }),
+    });
+    if (!res.ok) return [];
+    const data = await res.json().catch(() => null);
+    let content: string | undefined = data?.choices?.[0]?.message?.content;
+    if (!content || typeof content !== "string") return [];
+    content = content.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+    let parsed: unknown;
+    try { parsed = JSON.parse(content); } catch { return []; }
+    if (!Array.isArray(parsed)) return [];
+
+    const out: Opportunity[] = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== "object") continue;
+      const e = item as Record<string, unknown>;
+      const titolo = typeof e.titolo === "string" ? e.titolo : "";
+      const zona = typeof e.zona === "string" ? e.zona : "";
+      const tipo = typeof e.tipo === "string" ? e.tipo : "";
+      const motivo = typeof e.motivo === "string" ? e.motivo : "";
+      const probabilita = typeof e.probabilita === "number" ? e.probabilita : 0;
+      const valore = typeof e.valore === "number" ? e.valore : 0;
+      if (!titolo || !zona || !tipo || !motivo) continue;
+      if (titolo.length < 8) continue;
+      if (probabilita < 40) continue;
+      if (valore < 50_000) continue;
+      if (!VALID_PERP_TYPES.has(tipo)) continue;
+
+      const prob = Math.min(88, Math.max(40, probabilita));
+      const estimated_value = Math.round(valore / 1000) * 1000;
+      const property_type: Opportunity["property_type"] =
+        tipo === "industriale" ? "commerciale" : (tipo as "residenziale" | "commerciale");
+      const temperature: Opportunity["temperature"] =
+        prob >= 72 ? "caldo" : prob >= 55 ? "tiepido" : "freddo";
+      const priority: Opportunity["priority"] =
+        prob >= 72 ? "alta" : prob >= 55 ? "media" : "bassa";
+
+      out.push({
+        id: shortId("perp-opp", titolo + zona, 14),
+        title: titolo,
+        territory: `Padova - ${zona}`,
+        property_type,
+        temperature,
+        priority,
+        assignment_probability: prob,
+        estimated_value,
+        commission_potential: Math.round(estimated_value * 0.03),
+        window_label: "Finestra utile identificata",
+        commercial_reason: motivo,
+        next_action: "Prepara dossier e primo contatto",
+        dossier_status: prob >= 65 ? "pronto" : "in_preparazione",
+        visible_to_agency: true,
+      });
+    }
+    return out;
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// ─── Dedup ───────────────────────────────────────────────────────────────
+function dedupe(records: Opportunity[]): Opportunity[] {
+  const kept: Opportunity[] = [];
+  for (const r of records) {
+    const dupIdx = kept.findIndex((k) =>
+      k.territory === r.territory &&
+      k.property_type === r.property_type &&
+      Math.abs(k.estimated_value - r.estimated_value) <= k.estimated_value * 0.15,
+    );
+    if (dupIdx === -1) {
+      kept.push(r);
+    } else if (r.assignment_probability > kept[dupIdx].assignment_probability) {
+      kept[dupIdx] = r;
+    }
+  }
+  return kept;
+}
+
+// ─── Handler ─────────────────────────────────────────────────────────────
 serve(async (req) => {
   const origin = req.headers.get("origin");
   const cors = corsFor(origin);
@@ -219,20 +377,33 @@ serve(async (req) => {
     return json({ error: "Forbidden" }, 403, cors);
   }
 
-  // Optional agency_id filter (mock: all opportunities are agency-agnostic for now)
   const url = new URL(req.url);
   const agencyId = url.searchParams.get("agency_id");
 
-  const items = MOCK.filter((o) => o.visible_to_agency);
+  // Parallel data collection
+  const [fcRes, ppRes] = await Promise.allSettled([
+    fetchFirecrawlListings(),
+    fetchPerplexityOpportunities(),
+  ]);
+  const all: Opportunity[] = [];
+  if (fcRes.status === "fulfilled") all.push(...fcRes.value);
+  if (ppRes.status === "fulfilled") all.push(...ppRes.value);
+
+  const items = dedupe(all)
+    .filter((o) => o.visible_to_agency)
+    .sort((a, b) => b.assignment_probability - a.assignment_probability)
+    .slice(0, 15);
 
   return new Response(JSON.stringify(items), {
     status: 200,
     headers: {
       ...cors,
       "Content-Type": "application/json",
-      "X-Core-Version": "v3.4.0",
+      "X-Core-Version": "v3.5.0",
       "X-Function": "agency-opportunities",
       "X-Agency-Filter": agencyId ?? "none",
+      "X-Source": items.length > 0 ? "live" : "empty",
+      "X-Record-Count": String(items.length),
     },
   });
 });
