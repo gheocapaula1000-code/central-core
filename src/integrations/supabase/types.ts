@@ -806,6 +806,66 @@ export type Database = {
         }
         Relationships: []
       }
+      civiko_data_sources: {
+        Row: {
+          base_url: string | null
+          category: string
+          code: string
+          coverage: string | null
+          created_at: string
+          description: string | null
+          display_order: number
+          env_var: string | null
+          estimated_cost_eur: number | null
+          id: string
+          is_active: boolean
+          label: string
+          notes: string | null
+          provider: string | null
+          requires_premium_consent: boolean
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          base_url?: string | null
+          category: string
+          code: string
+          coverage?: string | null
+          created_at?: string
+          description?: string | null
+          display_order?: number
+          env_var?: string | null
+          estimated_cost_eur?: number | null
+          id?: string
+          is_active?: boolean
+          label: string
+          notes?: string | null
+          provider?: string | null
+          requires_premium_consent?: boolean
+          status: string
+          updated_at?: string
+        }
+        Update: {
+          base_url?: string | null
+          category?: string
+          code?: string
+          coverage?: string | null
+          created_at?: string
+          description?: string | null
+          display_order?: number
+          env_var?: string | null
+          estimated_cost_eur?: number | null
+          id?: string
+          is_active?: boolean
+          label?: string
+          notes?: string | null
+          provider?: string | null
+          requires_premium_consent?: boolean
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       civiko_signal_policy: {
         Row: {
           created_at: string
@@ -904,6 +964,59 @@ export type Database = {
           visible_to_owner?: boolean
         }
         Relationships: []
+      }
+      civiko_source_ingestion_runs: {
+        Row: {
+          created_at: string
+          debug_id: string | null
+          duration_ms: number | null
+          error_code: string | null
+          error_message: string | null
+          finished_at: string | null
+          id: string
+          metadata: Json
+          rows_ingested: number | null
+          source_code: string
+          started_at: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          debug_id?: string | null
+          duration_ms?: number | null
+          error_code?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          metadata?: Json
+          rows_ingested?: number | null
+          source_code: string
+          started_at?: string
+          status: string
+        }
+        Update: {
+          created_at?: string
+          debug_id?: string | null
+          duration_ms?: number | null
+          error_code?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          metadata?: Json
+          rows_ingested?: number | null
+          source_code?: string
+          started_at?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "civiko_source_ingestion_runs_source_code_fkey"
+            columns: ["source_code"]
+            isOneToOne: false
+            referencedRelation: "civiko_data_sources"
+            referencedColumns: ["code"]
+          },
+        ]
       }
       classificazione_sismica: {
         Row: {
