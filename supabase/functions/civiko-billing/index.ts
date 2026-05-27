@@ -606,10 +606,27 @@ Deno.serve(async (req) => {
       return withIdentity(fail(req, 400, "INVALID_BODY", "Body must be a JSON object.", debugId), "error");
     }
 
-    if (pathname.endsWith("/create-checkout")) return await handleCreateCheckout(req, body, debugId);
-    if (pathname.endsWith("/customer-portal")) return await handleCustomerPortal(req, body, debugId);
-    if (pathname.endsWith("/check-subscription")) return await handleCheckSubscription(req, body, debugId);
-    if (pathname.endsWith("/record-usage")) return await handleRecordUsage(req, body, debugId);
+    // Legacy POST sub-paths — resolve agency from JWT (with spoofing protection)
+    // before invoking the handler, so PWA clients don't need to pass agencyId.
+    if (
+      pathname.endsWith("/create-checkout") ||
+      pathname.endsWith("/customer-portal") ||
+      pathname.endsWith("/check-subscription") ||
+      pathname.endsWith("/record-usage")
+    ) {
+      const auth = await authenticateDual(req, debugId);
+      if (!auth.ok) return auth.res;
+      const provided = String(body.agencyId ?? "").trim();
+      const resolved = await resolveAgencyForBilling(req, debugId, auth.userId, provided);
+      if (!resolved.ok) return resolved.res;
+      body.agencyId = resolved.agencyId;
+      if (auth.email && !body.email) body.email = auth.email;
+
+      if (pathname.endsWith("/create-checkout")) return await handleCreateCheckout(req, body, debugId);
+      if (pathname.endsWith("/customer-portal")) return await handleCustomerPortal(req, body, debugId);
+      if (pathname.endsWith("/check-subscription")) return await handleCheckSubscription(req, body, debugId);
+      if (pathname.endsWith("/record-usage")) return await handleRecordUsage(req, body, debugId);
+    }
 
     return withIdentity(fail(req, 404, "ROUTE_NOT_FOUND", `POST ${pathname}`, debugId), "error");
   } catch (err) {
