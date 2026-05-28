@@ -472,6 +472,7 @@ serve(async (req) => {
     if (req.method === "POST" && path === "/import/market-benchmark") return await importMarketBenchmark(req);
     if (req.method === "POST" && path === "/import/sue-permits") return await importSue(req);
     if (req.method === "POST" && path === "/import/separations") return await importSeparations(req);
+    if (req.method === "GET" && path === "/obituaries-aggregate") return await listObituariesAggregate(req);
     if (req.method === "POST" && path === "/import/obituaries-aggregate") return await importObituariesAggregate(req);
 
     return json({ ok: false, error: { code: "NOT_FOUND", message: `Unknown route ${req.method} ${path}` } }, 404);
