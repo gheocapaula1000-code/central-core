@@ -126,11 +126,33 @@ serve(async (req) => {
       error: connectors.filter((c) => c.status === "error").length,
     };
 
+    // Source registry health (read-only). Failures degrade to empty list.
+    let sources: Array<Record<string, unknown>> = [];
+    let sources_summary = { total: 0, live: 0, partial: 0, planned: 0, disabled: 0, manual_import: 0 };
+    try {
+      const { data } = await supabase
+        .from("civiko_source_registry")
+        .select("source_code, source_name, access_type, compliance_level, implementation_status, last_success_at, last_error, record_count, updated_at")
+        .order("source_code", { ascending: true });
+      if (Array.isArray(data)) {
+        sources = data;
+        for (const s of data) {
+          sources_summary.total++;
+          const st = String(s.implementation_status ?? "");
+          if (st in sources_summary) (sources_summary as Record<string, number>)[st]++;
+        }
+      }
+    } catch (e) {
+      console.warn("connector-status: source registry read failed", (e as Error).message);
+    }
+
     return json({
       ok: true,
       checked_at: new Date().toISOString(),
       summary,
       connectors,
+      sources_summary,
+      sources,
     });
   } catch (e) {
     console.error("connector-status unhandled:", e);
