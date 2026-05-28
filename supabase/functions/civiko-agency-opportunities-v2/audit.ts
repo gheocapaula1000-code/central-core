@@ -80,11 +80,18 @@ export interface CommercialAction {
 export interface DealOpportunity extends OpportunityFromEvidence {
   insight_type: "deal_opportunity";
   entity_granularity: EntityGranularity;
+  id: string;
+  title: string;
+  area_name: string | null;
+  microzone: string | null;
   target_type: string;
   target_ref?: string;
   target_url?: string;
   address?: string;
+  price_label: string | null;
+  urgency: "low" | "medium" | "high";
   next_action: string;
+  updated_at: string | null;
 }
 
 const norm = (s: string) => s.trim().toLowerCase();
@@ -227,15 +234,23 @@ export function runOpportunityAudit(
     }
 
     dist[opp.evidence_summary.confidence]++;
+    const meta = extractDealMeta(group);
     deal_opportunities.push({
       ...opp,
       insight_type: "deal_opportunity",
       entity_granularity,
+      id: key,
+      title: meta.title ?? key,
+      area_name: meta.area_name,
+      microzone: meta.microzone,
       target_type: target.target_type ?? "listing",
       target_ref: target.target_ref,
       target_url: target.target_url,
       address: target.address,
+      price_label: meta.price_label,
+      urgency: meta.urgency,
       next_action: nextActionFor(target.target_type ?? "listing"),
+      updated_at: meta.updated_at,
     });
   }
 
@@ -288,4 +303,58 @@ function nextActionFor(target_type: string): string {
     case "lead":     return "Qualifica lead e pianifica primo contatto";
     default:         return "Valuta opportunità e definisci prossimo passo";
   }
+}
+
+interface DealMeta {
+  title: string | null;
+  area_name: string | null;
+  microzone: string | null;
+  price_label: string | null;
+  urgency: "low" | "medium" | "high";
+  updated_at: string | null;
+}
+
+function extractDealMeta(group: EvidenceRow[]): DealMeta {
+  let title: string | null = null;
+  let area_name: string | null = null;
+  let microzone: string | null = null;
+  let ask_price: number | null = null;
+  let base_price: number | null = null;
+  let min_offer: number | null = null;
+  let updated_at: string | null = null;
+  let sale_date: string | null = null;
+  for (const r of group) {
+    const v = (r.evidence_value && typeof r.evidence_value === "object")
+      ? r.evidence_value as Record<string, unknown>
+      : {};
+    title ??= pickString(v, ["title"]);
+    area_name ??= pickString(v, ["municipality", "comune", "area_name"]);
+    microzone ??= pickString(v, ["microzone", "microzona"]);
+    ask_price ??= pickNum(v, ["ask_price"]);
+    base_price ??= pickNum(v, ["base_price_eur"]);
+    min_offer ??= pickNum(v, ["minimum_offer_eur"]);
+    sale_date ??= pickString(v, ["sale_date"]);
+    const last = pickString(v, ["last_seen_at"]) ?? r.observed_at;
+    if (!updated_at || (last && last > updated_at)) updated_at = last;
+  }
+  const price = ask_price ?? min_offer ?? base_price;
+  const price_label = price != null
+    ? new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(price)
+    : null;
+  let urgency: DealMeta["urgency"] = "low";
+  if (sale_date) {
+    const days = (new Date(sale_date).getTime() - Date.now()) / 86400_000;
+    if (days >= 0 && days <= 14) urgency = "high";
+    else if (days >= 0 && days <= 45) urgency = "medium";
+  }
+  return { title, area_name, microzone, price_label, urgency, updated_at };
+}
+
+function pickString(o: Record<string, unknown>, keys: string[]): string | null {
+  for (const k of keys) { const v = o[k]; if (typeof v === "string" && v.trim()) return v.trim(); }
+  return null;
+}
+function pickNum(o: Record<string, unknown>, keys: string[]): number | null {
+  for (const k of keys) { const v = o[k]; if (typeof v === "number" && Number.isFinite(v)) return v; }
+  return null;
 }
