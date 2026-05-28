@@ -29,6 +29,7 @@ export interface ActionableTarget {
   target_ref?: string;
   target_url?: string;
   address?: string;
+  title?: string;
 }
 
 export interface EntityClassification {
@@ -57,17 +58,22 @@ export function classifyEntityKey(entity_key: string): EntityClassification {
  * source. Returns ok=false when no listing url / auction id / property ref is
  * present.
  */
-export function extractActionableTarget(group: EvidenceRow[]): ActionableTarget {
+export function extractActionableTarget(group: EvidenceRow[], entity_key = ""): ActionableTarget {
+  const key = String(entity_key ?? "");
   for (const r of group) {
     if (!DEAL_ELIGIBLE_SOURCES.has(r.source_code)) continue;
     const v = evidenceValueAsRecord(r.evidence_value);
-    const url = pickStr(v, ["url", "listing_url", "target_url", "annuncio_url", "asset_url"]);
-    const ref = pickStr(v, ["auction_id", "listing_id", "property_ref", "asset_id", "pvp_id"])
-      ?? (typeof r.raw_ref_id === "string" ? r.raw_ref_id : null);
+    const url = pickStr(v, ["target_url", "listing_url", "url", "source_url", "auction_url", "link", "annuncio_url", "asset_url"]);
+    const ref = pickStr(v, ["target_ref", "raw_ref_id", "id", "auction_id", "listing_id", "property_ref", "asset_id", "pvp_id"])
+      ?? (typeof r.raw_ref_id === "string" && r.raw_ref_id.trim() ? r.raw_ref_id.trim() : null)
+      ?? (key.trim() ? key.trim() : null);
     const addr = pickStr(v, ["address", "indirizzo", "via"]);
-    if (url || ref || addr) {
+    const title = pickStr(v, ["title", "address", "name"]);
+    if (url || ref || addr || title) {
       const target_type: ActionableTarget["target_type"] =
-        r.source_code === "F16" ? "auction"
+        key.startsWith("op:") ? "listing"
+        : key.startsWith("auct:") ? "auction"
+        : r.source_code === "F16" ? "auction"
         : r.source_code === "F18" ? "property"
         : "listing";
       return {
@@ -76,6 +82,7 @@ export function extractActionableTarget(group: EvidenceRow[]): ActionableTarget 
         target_url: url ?? undefined,
         target_ref: ref ?? undefined,
         address: addr ?? undefined,
+        title: title ?? undefined,
       };
     }
   }
