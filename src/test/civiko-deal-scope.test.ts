@@ -50,7 +50,7 @@ describe("classifyDealZoneScope", () => {
   });
 
   it("comune_scope_only when agency has no microzones", () => {
-    const r = classifyDealZoneScope("op:padova:uuid", [ev()], { comuni: new Set(["padova"]), microzones: new Set() });
+    const r = classifyDealZoneScope("op:padova:uuid", [ev({})], { comuni: new Set(["padova"]), microzones: new Set() });
     expect(r.status).toBe("comune_scope_only");
   });
 
