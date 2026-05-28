@@ -576,10 +576,149 @@ serve(async (req) => {
   } catch { /* fonte fallita silenziosamente */ }
   all.push(...engineOpps);
 
+  // ─── FONTE F: PVP aste → opportunità dirette ─────────────────
+  const pvpKey = Deno.env.get("FIRECRAWL_API_KEY");
+  const pvpOpps: Opportunity[] = [];
+  if (pvpKey) {
+    const pvpUrls = [
+      "https://pvp.giustizia.it/pvp/it/list.wp?ricerca=true&comune=Padova&tipoAsta=IMMOBILIARE",
+      "https://pvp.giustizia.it/pvp/it/list.wp?ricerca=true&provincia=PD&tipoAsta=IMMOBILIARE",
+    ];
+    const pvpResults = await Promise.allSettled(
+      pvpUrls.map((u) => firecrawlScrape(u, pvpKey)),
+    );
+    for (const res of pvpResults) {
+      if (res.status !== "fulfilled" || !res.value) continue;
+      const md = res.value;
+      const blocks: string[] = [];
+      for (let i = 0; i < md.length; i += 500) blocks.push(md.slice(i, i + 500));
+      for (const block of blocks) {
+        const lower = block.toLowerCase();
+        if (!["lotto","prezzo base","udienza","asta","esecuzione"].some((k) => lower.includes(k))) continue;
+        if (!["immobile","appartamento","villa","capannone","terreno","ufficio","locale"].some((k) => lower.includes(k))) continue;
+        const valore = extractValue(block);
+        const zona = findZone(block);
+        const title = block.split("\n").map((l) => l.trim()).find((l) => l.length > 5) ?? "Asta giudiziaria Padova";
+        pvpOpps.push({
+          id: shortId("pvp", title + (zona ?? ""), 14),
+          title: title.slice(0, 70),
+          territory: "Padova" + (zona ? " - " + zona : ""),
+          property_type: lower.includes("capannone") || lower.includes("ufficio") ? "commerciale" : "residenziale",
+          temperature: "caldo",
+          priority: "alta",
+          assignment_probability: 85,
+          estimated_value: valore > 0 ? Math.round(valore / 1000) * 1000 : 0,
+          commission_potential: valore > 0 ? Math.round(valore * 0.03) : 0,
+          window_label: "Asta giudiziaria — finestra certa e imminente",
+          commercial_reason: "Immobile in asta giudiziaria sul Portale ufficiale del Ministero della Giustizia. Il proprietario ha perso il controllo della vendita — contatto preventivo ancora possibile.",
+          next_action: "Contatta il proprietario prima dell'udienza — proponi vendita volontaria",
+          dossier_status: "pronto",
+          visible_to_agency: true,
+          fonte_tipo: "asta",
+        });
+      }
+    }
+  }
+  all.push(...pvpOpps);
+
+  // ─── FONTE G: Subito.it + Bakeca.it → privati senza agenzia ──
+  const privatiOpps: Opportunity[] = [];
+  if (pvpKey) {
+    const privatiUrls = [
+      "https://www.subito.it/annunci-veneto/vendita/immobili/padova/",
+      "https://www.bakeca.it/annunci/vendita-case-appartamenti/padova/",
+    ];
+    const privatiResults = await Promise.allSettled(
+      privatiUrls.map((u) => firecrawlScrape(u, pvpKey)),
+    );
+    for (const res of privatiResults) {
+      if (res.status !== "fulfilled" || !res.value) continue;
+      const md = res.value;
+      const blocks: string[] = [];
+      for (let i = 0; i < md.length; i += 600) blocks.push(md.slice(i, i + 600));
+      for (const block of blocks) {
+        const lower = block.toLowerCase();
+        if (lower.includes("agenzia") || lower.includes("agenzia immobiliare")) continue;
+        const hasTipologia = TYPOLOGIES.some((t) => lower.includes(t));
+        if (!hasTipologia) continue;
+        const valore = extractValue(block);
+        if (valore < 50000) continue;
+        const zona = findZone(block);
+        const tipologia = TYPOLOGIES.find((t) => lower.includes(t)) ?? "immobile";
+        const giorni = extractDays(block);
+        privatiOpps.push({
+          id: shortId("priv", block.slice(0, 80), 14),
+          title: capitalize(tipologia) + " privato" + (zona ? " · " + zona : " · Padova"),
+          territory: "Padova" + (zona ? " - " + zona : ""),
+          property_type: ["capannone","ufficio","negozio","locale"].includes(tipologia) ? "commerciale" : "residenziale",
+          temperature: giorni > 90 ? "caldo" : "tiepido",
+          priority: giorni > 90 ? "alta" : "media",
+          assignment_probability: giorni > 90 ? 74 : 61,
+          estimated_value: Math.round(valore / 1000) * 1000,
+          commission_potential: Math.round(valore * 0.03),
+          window_label: "Privato senza agenzia — incarico da acquisire",
+          commercial_reason: "Proprietario che gestisce la vendita in autonomia" + (giorni > 90 ? " da oltre 3 mesi senza risultati" : "") + ". Alta probabilità di apertura a una proposta professionale strutturata.",
+          next_action: giorni > 90 ? "Contatta subito — proprietario frustrato dal fai-da-te" : "Prepara presentazione del metodo e primo contatto",
+          dossier_status: giorni > 90 ? "pronto" : "in_preparazione",
+          visible_to_agency: true,
+          fonte_tipo: giorni > 90 ? "invenduto" : "dismissione",
+        });
+      }
+    }
+  }
+  all.push(...privatiOpps);
+
+  // ─── FONTE H: Ribassi di prezzo → proprietari cedenti ────────
+  const ribassiOpps: Opportunity[] = [];
+  if (pvpKey) {
+    const ribassiUrls = [
+      "https://www.immobiliare.it/vendita-case/padova/?prezzoMinimo=&prezzoMassimo=&criterio=prezzoRibasso&ordine=desc",
+      "https://www.casa.it/vendita/residenziale/padova-pd/?price_action=reduced",
+    ];
+    const ribassiResults = await Promise.allSettled(
+      ribassiUrls.map((u) => firecrawlScrape(u, pvpKey)),
+    );
+    for (const res of ribassiResults) {
+      if (res.status !== "fulfilled" || !res.value) continue;
+      const md = res.value;
+      const blocks: string[] = [];
+      for (let i = 0; i < md.length; i += 600) blocks.push(md.slice(i, i + 600));
+      for (const block of blocks) {
+        const lower = block.toLowerCase();
+        const hasRibasso = lower.includes("ribasso") || lower.includes("prezzo ridotto") || lower.includes("riduzione") || lower.includes("abbassato") || lower.includes("trattabile");
+        if (!hasRibasso) continue;
+        const hasTipologia = TYPOLOGIES.some((t) => lower.includes(t));
+        if (!hasTipologia) continue;
+        const valore = extractValue(block);
+        if (valore < 50000) continue;
+        const zona = findZone(block);
+        const tipologia = TYPOLOGIES.find((t) => lower.includes(t)) ?? "immobile";
+        ribassiOpps.push({
+          id: shortId("rib", block.slice(0, 80), 14),
+          title: capitalize(tipologia) + " con ribasso" + (zona ? " · " + zona : " · Padova"),
+          territory: "Padova" + (zona ? " - " + zona : ""),
+          property_type: ["capannone","ufficio","negozio","locale"].includes(tipologia) ? "commerciale" : "residenziale",
+          temperature: "caldo",
+          priority: "alta",
+          assignment_probability: 79,
+          estimated_value: Math.round(valore / 1000) * 1000,
+          commission_potential: Math.round(valore * 0.03),
+          window_label: "Prezzo già ribassato — proprietario cedente",
+          commercial_reason: "Il proprietario ha già ribassato il prezzo almeno una volta — segnale chiaro di motivazione alla vendita e apertura alla negoziazione.",
+          next_action: "Contatto immediato — proprietario in fase cedente",
+          dossier_status: "pronto",
+          visible_to_agency: true,
+          fonte_tipo: "invenduto",
+        });
+      }
+    }
+  }
+  all.push(...ribassiOpps);
+
   const items = dedupe(all)
     .filter((o) => o.visible_to_agency)
     .sort((a, b) => b.assignment_probability - a.assignment_probability)
-    .slice(0, 15);
+    .slice(0, 20);
 
   return new Response(JSON.stringify(items), {
     status: 200,
