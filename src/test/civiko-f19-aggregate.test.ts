@@ -142,3 +142,85 @@ describe("F19 — appears in source health (connector-status)", () => {
     expect(code).toMatch(/civiko_source_registry/);
   });
 });
+
+describe("F19 — aggregate output contract envelope", () => {
+  const sql = loadMigrations();
+  const fn = read("supabase/functions/civiko-source-registry/index.ts");
+
+  it("aggregate table carries contract fields", () => {
+    expect(sql).toMatch(/source_code\s+TEXT[^,]*DEFAULT\s+'F19'/i);
+    expect(sql).toMatch(/confidence\s+TEXT[^,]*DEFAULT\s+'low'/i);
+    expect(sql).toMatch(/last_observed_at\s+TIMESTAMPTZ/i);
+    expect(sql).toMatch(/computed_at\s+TIMESTAMPTZ[^,]*DEFAULT\s+now\(\)/i);
+    expect(sql).toMatch(/visible_to_pwa\s+BOOLEAN[^,]*DEFAULT\s+false/i);
+  });
+
+  it("DB CHECKs lock source_code to F19 and visible_to_pwa to false", () => {
+    expect(sql).toMatch(/CHECK\s*\(\s*source_code\s*=\s*'F19'\s*\)/);
+    expect(sql).toMatch(/CHECK\s*\(\s*visible_to_pwa\s*=\s*false\s*\)/);
+    expect(sql).toMatch(/CHECK\s*\(\s*confidence\s+IN\s*\(\s*'low'\s*,\s*'medium'\s*,\s*'high'\s*\)\s*\)/i);
+  });
+
+  it("admin read endpoint exposes aggregate envelope only (no person-level fields)", () => {
+    expect(fn).toMatch(/\/obituaries-aggregate/);
+    expect(fn).toMatch(/listObituariesAggregate/);
+    const m = fn.match(/async function listObituariesAggregate[\s\S]*?\n\}/);
+    expect(m).not.toBeNull();
+    const body = (m![0] ?? "").toLowerCase();
+    const banned = ["first_name", "last_name", "full_name", "deceased", "address", "phone", "email", "codice_fiscale", "obituary_url", "source_url"];
+    for (const word of banned) {
+      expect(body.includes(word), `aggregate reader must not return "${word}"`).toBe(false);
+    }
+    // defence-in-depth: explicit k-threshold filter on read
+    expect(fn).toMatch(/\.gte\(\s*["']bucket_count["']\s*,\s*3\s*\)/);
+  });
+
+  it("admin read endpoint includes the contract envelope keys for downstream consumers", () => {
+    const m = fn.match(/async function listObituariesAggregate[\s\S]*?\n\}/)!;
+    const body = m[0];
+    for (const key of [
+      "area_key", "area_type", "time_window_days", "aggregate_count",
+      "last_observed_at", "computed_at", "confidence", "visible_to_pwa",
+      "source_code", "source_name",
+    ]) {
+      expect(body, `envelope must expose "${key}"`).toMatch(new RegExp(key));
+    }
+    expect(body).toMatch(/compliance_warning/);
+  });
+});
+
+describe("F19 — cannot generate person-level or property-level opportunities", () => {
+  const root = resolve(__dirname, "../..");
+  const opportunityFiles = readdirSync(resolve(root, "supabase/functions/_shared"))
+    .filter((f) => /opportun|opportunity/i.test(f))
+    .map((f) => read(`supabase/functions/_shared/${f}`));
+  const combined = opportunityFiles.join("\n\n");
+
+  it("no opportunity helper consumes obituaries_aggregate_padova or person obituary tables", () => {
+    expect(combined).not.toMatch(/obituaries_aggregate_padova/);
+    expect(combined).not.toMatch(/\bobituaries_seen\b/);
+    expect(combined).not.toMatch(/\bobituaries_sources\b/);
+  });
+
+  it("no shared opportunity helper references F19 as a direct trigger", () => {
+    // If F19 ever appears, it must be in an aggregate-only / weak-signal context.
+    if (/F19/.test(combined)) {
+      expect(combined).toMatch(/F19[\s\S]{0,200}(aggregate|weak|low)/i);
+    }
+  });
+});
+
+describe("F19 — registry only marks active because aggregate path exists", () => {
+  const sql = loadMigrations();
+
+  it("aggregate table migration precedes (or accompanies) F19 going live", () => {
+    // Both must appear; the table creation is the proof-of-path that justifies activation.
+    expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS public\.obituaries_aggregate_padova/);
+    expect(sql).toMatch(/UPDATE\s+public\.civiko_source_registry[\s\S]*'F19'[\s\S]*aggregate_only/);
+  });
+
+  it("freshness window is realistic and documented", () => {
+    expect(sql).toMatch(/freshness_days\s*=\s*(7|14|30|60|90)\b/);
+  });
+});
+
