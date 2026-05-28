@@ -514,6 +514,13 @@ function pickString(o: Record<string, unknown>, keys: string[]): string | null {
   for (const k of keys) { const v = o[k]; if (typeof v === "string" && v.trim()) return v.trim(); }
   return null;
 }
+function firstString(group: EvidenceRow[], keys: string[]): string | null {
+  for (const r of group) {
+    const picked = pickString(evidenceValueAsRecord(r.evidence_value), keys);
+    if (picked) return picked;
+  }
+  return null;
+}
 function pickNum(o: Record<string, unknown>, keys: string[]): number | null {
   for (const k of keys) { const v = o[k]; if (typeof v === "number" && Number.isFinite(v)) return v; }
   return null;
