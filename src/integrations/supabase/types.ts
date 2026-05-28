@@ -1018,6 +1018,57 @@ export type Database = {
           },
         ]
       }
+      civiko_source_registry: {
+        Row: {
+          access_type: string
+          compliance_level: string
+          created_at: string
+          id: string
+          implementation_status: string
+          last_error: string | null
+          last_success_at: string | null
+          notes: string | null
+          record_count: number
+          refresh_frequency: string | null
+          source_code: string
+          source_name: string
+          source_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          access_type: string
+          compliance_level: string
+          created_at?: string
+          id?: string
+          implementation_status: string
+          last_error?: string | null
+          last_success_at?: string | null
+          notes?: string | null
+          record_count?: number
+          refresh_frequency?: string | null
+          source_code: string
+          source_name: string
+          source_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          access_type?: string
+          compliance_level?: string
+          created_at?: string
+          id?: string
+          implementation_status?: string
+          last_error?: string | null
+          last_success_at?: string | null
+          notes?: string | null
+          record_count?: number
+          refresh_frequency?: string | null
+          source_code?: string
+          source_name?: string
+          source_url?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       classificazione_sismica: {
         Row: {
           codice_istat: string
@@ -1744,6 +1795,45 @@ export type Database = {
         }
         Relationships: []
       }
+      istat_apr4_mobility: {
+        Row: {
+          cancellati: number | null
+          comune: string
+          comune_istat: string
+          id: string
+          imported_at: string
+          iscritti: number | null
+          saldo_migratorio: number | null
+          source_url: string | null
+          transfer_rate: number | null
+          year: number
+        }
+        Insert: {
+          cancellati?: number | null
+          comune: string
+          comune_istat: string
+          id?: string
+          imported_at?: string
+          iscritti?: number | null
+          saldo_migratorio?: number | null
+          source_url?: string | null
+          transfer_rate?: number | null
+          year: number
+        }
+        Update: {
+          cancellati?: number | null
+          comune?: string
+          comune_istat?: string
+          id?: string
+          imported_at?: string
+          iscritti?: number | null
+          saldo_migratorio?: number | null
+          source_url?: string | null
+          transfer_rate?: number | null
+          year?: number
+        }
+        Relationships: []
+      }
       istat_comuni: {
         Row: {
           anno: number | null
@@ -1798,6 +1888,48 @@ export type Database = {
           popolazione?: number | null
           provincia?: string | null
           regione?: string | null
+        }
+        Relationships: []
+      }
+      istat_separations_padova: {
+        Row: {
+          comune: string
+          comune_istat: string
+          divorce_rate: number | null
+          divorces_count: number | null
+          id: string
+          imported_at: string
+          marriages_count: number | null
+          separation_rate: number | null
+          separations_count: number | null
+          source_url: string | null
+          year: number
+        }
+        Insert: {
+          comune: string
+          comune_istat: string
+          divorce_rate?: number | null
+          divorces_count?: number | null
+          id?: string
+          imported_at?: string
+          marriages_count?: number | null
+          separation_rate?: number | null
+          separations_count?: number | null
+          source_url?: string | null
+          year: number
+        }
+        Update: {
+          comune?: string
+          comune_istat?: string
+          divorce_rate?: number | null
+          divorces_count?: number | null
+          id?: string
+          imported_at?: string
+          marriages_count?: number | null
+          separation_rate?: number | null
+          separations_count?: number | null
+          source_url?: string | null
+          year?: number
         }
         Relationships: []
       }
@@ -2649,6 +2781,45 @@ export type Database = {
           municipality?: string | null
           payload?: Json
           province?: string | null
+        }
+        Relationships: []
+      }
+      market_benchmark_padova: {
+        Row: {
+          area_name: string
+          avg_price_eur_mq: number | null
+          id: string
+          imported_at: string
+          max_price_eur_mq: number | null
+          min_price_eur_mq: number | null
+          period: string
+          rent_eur_mq_month: number | null
+          source_name: string
+          source_url: string | null
+        }
+        Insert: {
+          area_name: string
+          avg_price_eur_mq?: number | null
+          id?: string
+          imported_at?: string
+          max_price_eur_mq?: number | null
+          min_price_eur_mq?: number | null
+          period: string
+          rent_eur_mq_month?: number | null
+          source_name: string
+          source_url?: string | null
+        }
+        Update: {
+          area_name?: string
+          avg_price_eur_mq?: number | null
+          id?: string
+          imported_at?: string
+          max_price_eur_mq?: number | null
+          min_price_eur_mq?: number | null
+          period?: string
+          rent_eur_mq_month?: number | null
+          source_name?: string
+          source_url?: string | null
         }
         Relationships: []
       }
@@ -3785,6 +3956,45 @@ export type Database = {
         }
         Relationships: []
       }
+      padova_elderly_population: {
+        Row: {
+          area_code: string | null
+          area_name: string
+          id: string
+          imported_at: string
+          over_65_count: number | null
+          over_75_count: number | null
+          over_75_rate: number | null
+          source_url: string | null
+          total_population: number | null
+          year: number
+        }
+        Insert: {
+          area_code?: string | null
+          area_name: string
+          id?: string
+          imported_at?: string
+          over_65_count?: number | null
+          over_75_count?: number | null
+          over_75_rate?: number | null
+          source_url?: string | null
+          total_population?: number | null
+          year: number
+        }
+        Update: {
+          area_code?: string | null
+          area_name?: string
+          id?: string
+          imported_at?: string
+          over_65_count?: number | null
+          over_75_count?: number | null
+          over_75_rate?: number | null
+          source_url?: string | null
+          total_population?: number | null
+          year?: number
+        }
+        Relationships: []
+      }
       padova_zone_radar_queue: {
         Row: {
           attempts: number
@@ -4225,6 +4435,51 @@ export type Database = {
         }
         Relationships: []
       }
+      restricted_report_audit: {
+        Row: {
+          agency_id: string | null
+          completed_at: string | null
+          cost_cents: number
+          error_message: string | null
+          feature_code: string
+          id: string
+          provider: string | null
+          provider_response_id: string | null
+          requested_at: string
+          status: string
+          target_ref: string
+          user_id: string
+        }
+        Insert: {
+          agency_id?: string | null
+          completed_at?: string | null
+          cost_cents?: number
+          error_message?: string | null
+          feature_code: string
+          id?: string
+          provider?: string | null
+          provider_response_id?: string | null
+          requested_at?: string
+          status?: string
+          target_ref: string
+          user_id: string
+        }
+        Update: {
+          agency_id?: string | null
+          completed_at?: string | null
+          cost_cents?: number
+          error_message?: string | null
+          feature_code?: string
+          id?: string
+          provider?: string | null
+          provider_response_id?: string | null
+          requested_at?: string
+          status?: string
+          target_ref?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       sottra_scans: {
         Row: {
           address: string | null
@@ -4429,6 +4684,42 @@ export type Database = {
           probability_score?: number
           province?: string | null
           region?: string
+        }
+        Relationships: []
+      }
+      sue_padova_permits: {
+        Row: {
+          address_public: string | null
+          area_name: string | null
+          compliance_verified: boolean
+          id: string
+          imported_at: string
+          practice_date: string | null
+          practice_type: string | null
+          source_url: string | null
+          status: string | null
+        }
+        Insert: {
+          address_public?: string | null
+          area_name?: string | null
+          compliance_verified?: boolean
+          id?: string
+          imported_at?: string
+          practice_date?: string | null
+          practice_type?: string | null
+          source_url?: string | null
+          status?: string | null
+        }
+        Update: {
+          address_public?: string | null
+          area_name?: string | null
+          compliance_verified?: boolean
+          id?: string
+          imported_at?: string
+          practice_date?: string | null
+          practice_type?: string | null
+          source_url?: string | null
+          status?: string | null
         }
         Relationships: []
       }

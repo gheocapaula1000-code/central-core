@@ -74,6 +74,7 @@ const archive: Item[] = [
   { title: "Dossier Agenzia", url: "/dossier-agenzia", icon: Briefcase },
   { title: "Sintesi Proprietario", url: "/sintesi-proprietario", icon: BookOpen },
   { title: "Motore Dati (Pilota PD)", url: "/data-engine", icon: Database },
+  { title: "Source Registry Padova", url: "/source-registry", icon: Database },
 ];
 
 function Group({ label, items, collapsed, muted }: { label: string; items: Item[]; collapsed: boolean; muted?: boolean }) {
