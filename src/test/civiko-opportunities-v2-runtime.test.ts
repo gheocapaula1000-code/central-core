@@ -244,8 +244,8 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
         compliance_visibility: "public",
       }),
     ] as unknown as EvidenceRow[];
-    const result = runOpportunityAudit(rows, arcellaAreas);
-    const data = buildResponseData(result, arcellaAreas);
+    const result = runOpportunityAudit(rows, allPadovaAreas);
+    const data = buildResponseData(result, allPadovaAreas);
     expect(Array.isArray(data.focus_area) ? data.focus_area.length : 0).toBeGreaterThan(0);
     expect(data.deal_opportunities.length).toBeGreaterThan(0);
   });
