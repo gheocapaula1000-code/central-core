@@ -1,11 +1,32 @@
 // civiko-agency-opportunities-v2/audit.ts
 // Pure pipeline logic — no Deno, no DB. Imported by the edge function and by
 // vitest. Builds a scope matcher from agency_operating_areas and produces a
-// full filter audit (candidates → removed_* → final + empty_reason).
+// FULL classification audit that splits:
+//   - focus_area          (comune-level insights)
+//   - hot_microzones      (microzone-level insights)
+//   - commercial_actions  (derived suggestions on top of area insights)
+//   - deal_opportunities  (listing / auction / property / address / lead)
+//
+// HARD CONTRACTS:
+//   - c:* / mz:* entities NEVER appear in deal_opportunities.
+//   - deal_opportunities require an actionable target AND a deal-eligible
+//     market source (F13/F14/F15/F16/F18/F21).
+//   - F19/F22 alone cannot drive a deal.
+//   - Restricted/aggregate-only evidence is filtered for audience=agency.
+//   - Geography is bounded by the agency's configured zones — never widened.
 
-import { buildOpportunityFromEvidence } from "../_shared/opportunityEngine.ts";
+import { buildOpportunityFromEvidence, type OpportunityFromEvidence } from "../_shared/opportunityEngine.ts";
 import type { EvidenceRow } from "../_shared/evidenceLedger.ts";
 import { microzoneKey, comuneKey } from "../_shared/entityKey.ts";
+import {
+  classifyEntityKey,
+  extractActionableTarget,
+  deriveCommercialActions,
+  DEAL_ELIGIBLE_SOURCES,
+  DEAL_FORBIDDEN_SOLO_SOURCES,
+  type EntityGranularity,
+  type InsightType,
+} from "../_shared/opportunityClassification.ts";
 
 export interface AgencyArea {
   agency_id: string | null;
@@ -16,6 +37,7 @@ export interface AgencyArea {
 }
 
 export interface OpportunityAudit {
+  // legacy fields (kept for backward compat with v2 callers)
   candidates_before_filters: number;
   removed_insufficient_evidence: number;
   removed_weak_only: number;
@@ -25,12 +47,44 @@ export interface OpportunityAudit {
   final_opportunities_count: number;
   confidence_distribution: { low: number; medium: number; high: number };
   empty_reason: string | null;
+
+  // new classification breakdown
+  area_insights_count: number;
+  commercial_actions_count: number;
+  deal_candidates_before_filters: number;
+  removed_area_only: number;
+  removed_no_actionable_target: number;
+  removed_insufficient_deal_evidence: number;
+  final_deal_opportunities_count: number;
 }
 
 export interface ScopeMatcher {
   comuni: Set<string>;
   microzones: Set<string>;
   expectedKeys: Set<string>;
+}
+
+export interface AreaInsight extends OpportunityFromEvidence {
+  insight_type: InsightType;
+  entity_granularity: EntityGranularity;
+}
+
+export interface CommercialAction {
+  entity_key: string;
+  entity_granularity: EntityGranularity;
+  action_code: string;
+  label: string;
+  rationale: string;
+}
+
+export interface DealOpportunity extends OpportunityFromEvidence {
+  insight_type: "deal_opportunity";
+  entity_granularity: EntityGranularity;
+  target_type: string;
+  target_ref?: string;
+  target_url?: string;
+  address?: string;
+  next_action: string;
 }
 
 const norm = (s: string) => s.trim().toLowerCase();
@@ -59,6 +113,17 @@ export function buildScopeMatcher(areas: AgencyArea[]): ScopeMatcher {
   return { comuni, microzones, expectedKeys };
 }
 
+function inScope(r: EvidenceRow, scope: ScopeMatcher): boolean {
+  // Area-level keys: match expectedKeys directly or by microzone suffix.
+  if (scope.expectedKeys.has(r.entity_key)) return true;
+  if ([...scope.microzones].some((mz) => r.entity_key.endsWith(`:${mz}`))) return true;
+  // Deal-level keys (p:/op:/auct:/addr:/lead:) typically embed the comune as
+  // the second segment. Accept when that segment matches a configured comune.
+  const parts = r.entity_key.split(":");
+  if (parts.length >= 2 && scope.comuni.has(norm(parts[1] ?? ""))) return true;
+  return false;
+}
+
 export function filterAndGroup(
   rows: EvidenceRow[],
   scope: ScopeMatcher,
@@ -68,9 +133,7 @@ export function filterAndGroup(
   let removed_outside_scope = 0;
   let removed_stale = 0;
   for (const r of rows) {
-    const inScope = scope.expectedKeys.has(r.entity_key) ||
-      [...scope.microzones].some((mz) => r.entity_key.endsWith(`:${mz}`));
-    if (!inScope) { removed_outside_scope++; continue; }
+    if (!inScope(r, scope)) { removed_outside_scope++; continue; }
     if (typeof r.freshness_days === "number" && r.freshness_days > staleAfterDays) {
       removed_stale++; continue;
     }
@@ -81,63 +144,148 @@ export function filterAndGroup(
   return { groups, removed_outside_scope, removed_stale };
 }
 
+export interface OpportunityAuditResult {
+  focus_area: AreaInsight[];
+  hot_microzones: AreaInsight[];
+  commercial_actions: CommercialAction[];
+  deal_opportunities: DealOpportunity[];
+  /** Backward-compat alias — contains ONLY deal_opportunities, never area insights. */
+  opportunities: DealOpportunity[];
+  audit: OpportunityAudit;
+}
+
 export function runOpportunityAudit(
   rows: EvidenceRow[],
   areas: AgencyArea[],
-): { opportunities: NonNullable<ReturnType<typeof buildOpportunityFromEvidence>>[]; audit: OpportunityAudit } {
+): OpportunityAuditResult {
   const scope = buildScopeMatcher(areas);
   const { groups, removed_outside_scope, removed_stale } = filterAndGroup(rows, scope);
+
+  const focus_area: AreaInsight[] = [];
+  const hot_microzones: AreaInsight[] = [];
+  const commercial_actions: CommercialAction[] = [];
+  const deal_opportunities: DealOpportunity[] = [];
 
   let candidates_before_filters = 0;
   let removed_insufficient_evidence = 0;
   let removed_weak_only = 0;
   let removed_restricted = 0;
+
+  let deal_candidates_before_filters = 0;
+  let removed_area_only = 0;
+  let removed_no_actionable_target = 0;
+  let removed_insufficient_deal_evidence = 0;
+
   const dist = { low: 0, medium: 0, high: 0 };
-  const final: NonNullable<ReturnType<typeof buildOpportunityFromEvidence>>[] = [];
 
   for (const [key, group] of groups) {
     candidates_before_filters++;
+    const { insight_type, entity_granularity } = classifyEntityKey(key);
     const entity_type = (group[0]?.entity_type ?? "area") as EvidenceRow["entity_type"];
     const opp = buildOpportunityFromEvidence(entity_type, key, group, "agency");
-    if (!opp) {
-      const hasOnlyRestricted = group.every((r) => r.compliance_visibility === "restricted" || r.compliance_visibility === "aggregate_only");
-      if (hasOnlyRestricted) { removed_restricted++; continue; }
-      const families = new Set(group.map((r) => r.source_code));
-      if (families.size < 2) { removed_insufficient_evidence++; continue; }
-      removed_weak_only++;
+
+    if (insight_type === "area_insight") {
+      // Area-level: NEVER a deal. Track as insight + derive actions.
+      removed_area_only++;
+      if (!opp) {
+        const hasOnlyRestricted = group.every((r) => r.compliance_visibility === "restricted" || r.compliance_visibility === "aggregate_only");
+        if (hasOnlyRestricted) removed_restricted++;
+        else if (new Set(group.map((r) => r.source_code)).size < 2) removed_insufficient_evidence++;
+        else removed_weak_only++;
+        continue;
+      }
+      const insight: AreaInsight = { ...opp, insight_type, entity_granularity };
+      if (entity_granularity === "comune") focus_area.push(insight);
+      else hot_microzones.push(insight);
+      for (const a of deriveCommercialActions(key, entity_granularity, group)) {
+        commercial_actions.push({ entity_key: key, entity_granularity, ...a });
+      }
       continue;
     }
+
+    // deal_opportunity path
+    deal_candidates_before_filters++;
+
+    // Forbidden-solo guard at the deal layer (F19/F22 alone never a deal).
+    const codes = new Set(group.map((r) => r.source_code));
+    const onlyForbidden = [...codes].every((c) => DEAL_FORBIDDEN_SOLO_SOURCES.has(c));
+    if (onlyForbidden) { removed_insufficient_deal_evidence++; continue; }
+
+    // Need at least one deal-eligible market source.
+    const hasMarketSrc = [...codes].some((c) => DEAL_ELIGIBLE_SOURCES.has(c));
+    if (!hasMarketSrc) { removed_insufficient_deal_evidence++; continue; }
+
+    // Actionable target required.
+    const target = extractActionableTarget(group);
+    if (!target.ok) { removed_no_actionable_target++; continue; }
+
+    if (!opp) {
+      const hasOnlyRestricted = group.every((r) => r.compliance_visibility === "restricted" || r.compliance_visibility === "aggregate_only");
+      if (hasOnlyRestricted) removed_restricted++;
+      else removed_insufficient_deal_evidence++;
+      continue;
+    }
+
     dist[opp.evidence_summary.confidence]++;
-    final.push(opp);
+    deal_opportunities.push({
+      ...opp,
+      insight_type: "deal_opportunity",
+      entity_granularity,
+      target_type: target.target_type ?? "listing",
+      target_ref: target.target_ref,
+      target_url: target.target_url,
+      address: target.address,
+      next_action: nextActionFor(target.target_type ?? "listing"),
+    });
   }
 
   let empty_reason: string | null = null;
-  if (final.length === 0) {
-    if (candidates_before_filters === 0 && removed_outside_scope === 0 && rows.length === 0) {
-      empty_reason = "evidence_ledger_empty";
-    } else if (candidates_before_filters === 0 && removed_outside_scope > 0) {
-      empty_reason = "no_evidence_inside_agency_scope";
-    } else if (removed_restricted > 0 && removed_weak_only === 0 && removed_insufficient_evidence === 0) {
-      empty_reason = "all_candidates_restricted";
-    } else if (removed_insufficient_evidence > 0 && removed_weak_only === 0 && removed_restricted === 0) {
-      empty_reason = "all_candidates_single_source";
-    } else {
-      empty_reason = "all_candidates_filtered";
-    }
+  if (deal_opportunities.length === 0) {
+    if (rows.length === 0) empty_reason = "evidence_ledger_empty";
+    else if (candidates_before_filters === 0 && removed_outside_scope > 0) empty_reason = "no_evidence_inside_agency_scope";
+    else if (deal_candidates_before_filters === 0) empty_reason = "no_deal_level_opportunities";
+    else if (removed_no_actionable_target > 0 && removed_insufficient_deal_evidence === 0) empty_reason = "no_actionable_target";
+    else if (removed_restricted > 0 && removed_insufficient_deal_evidence === 0 && removed_no_actionable_target === 0) empty_reason = "all_candidates_restricted";
+    else empty_reason = "no_deal_level_opportunities";
   }
 
-  return {
-    opportunities: final,
-    audit: {
-      candidates_before_filters,
-      removed_insufficient_evidence,
-      removed_weak_only,
-      removed_restricted,
-      removed_outside_scope,
-      removed_stale,
-      final_opportunities_count: final.length,
-      confidence_distribution: dist,
-      empty_reason,
-    },
+  const audit: OpportunityAudit = {
+    candidates_before_filters,
+    removed_insufficient_evidence,
+    removed_weak_only,
+    removed_restricted,
+    removed_outside_scope,
+    removed_stale,
+    final_opportunities_count: deal_opportunities.length,
+    confidence_distribution: dist,
+    empty_reason,
+
+    area_insights_count: focus_area.length + hot_microzones.length,
+    commercial_actions_count: commercial_actions.length,
+    deal_candidates_before_filters,
+    removed_area_only,
+    removed_no_actionable_target,
+    removed_insufficient_deal_evidence,
+    final_deal_opportunities_count: deal_opportunities.length,
   };
+
+  return {
+    focus_area,
+    hot_microzones,
+    commercial_actions,
+    deal_opportunities,
+    opportunities: deal_opportunities, // backward-compat alias
+    audit,
+  };
+}
+
+function nextActionFor(target_type: string): string {
+  switch (target_type) {
+    case "auction":  return "Verifica calendario asta e prepara dossier acquirente";
+    case "listing":  return "Contatta proprietario / agenzia di riferimento";
+    case "property": return "Verifica titolarità e pianifica visita";
+    case "address":  return "Avvia ricerca proprietario su pubblici registri";
+    case "lead":     return "Qualifica lead e pianifica primo contatto";
+    default:         return "Valuta opportunità e definisci prossimo passo";
+  }
 }
