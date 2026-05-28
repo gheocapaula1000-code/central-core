@@ -102,11 +102,35 @@ serve(async (req) => {
     }
 
     const baseUrl = `${Deno.env.get("SUPABASE_URL") ?? ""}/functions/v1`;
+    const supabase = svc();
+
+    // F11 needs lat/lng. Resolve via agency_operating_areas (Padova only is
+    // automated today). Returns null → runner skips with MISSING_COORDS.
+    const resolveCoords = async (code: string): Promise<{ lat: number; lng: number } | null> => {
+      if (code !== "F11") return null;
+      try {
+        const { data } = await supabase
+          .from("agency_operating_areas")
+          .select("comuni")
+          .contains("comuni", ["Padova"])
+          .limit(1)
+          .maybeSingle();
+        if (data) return { lat: 45.4064, lng: 11.8768 }; // Padova centroid
+      } catch { /* ignore */ }
+      return null;
+    };
+
     const result = await runScheduledSources(
       {
-        supabase: svc(),
+        supabase,
         baseUrl,
         jobSecret: Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "",
+        secrets: {
+          AI_CORE_SECRET_CIVIKO: Deno.env.get("AI_CORE_SECRET_CIVIKO") ?? "",
+          SUPABASE_SERVICE_ROLE_KEY: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+        },
+        resolveCoords,
+        attachEvidenceWriter: true,
       },
       { source_code, due_only, dry_run },
     );

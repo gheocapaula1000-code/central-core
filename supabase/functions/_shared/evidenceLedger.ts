@@ -81,3 +81,22 @@ export async function recordEvidence(supabase: any, inputs: EvidenceInput | Evid
   if (error) throw error;
   return { inserted: rows.length };
 }
+
+/**
+ * Idempotent upsert keyed on (entity_type, entity_key, source_code, evidence_type).
+ * Used by scheduled jobs so re-runs do not duplicate evidence rows.
+ */
+// deno-lint-ignore no-explicit-any
+export async function upsertEvidenceRows(supabase: any, rows: EvidenceRow[]): Promise<number> {
+  if (!rows.length) return 0;
+  let total = 0;
+  for (let i = 0; i < rows.length; i += 500) {
+    const slice = rows.slice(i, i + 500);
+    const { error } = await supabase
+      .from("civiko_evidence")
+      .upsert(slice, { onConflict: "entity_type,entity_key,source_code,evidence_type" });
+    if (error) throw error;
+    total += slice.length;
+  }
+  return total;
+}

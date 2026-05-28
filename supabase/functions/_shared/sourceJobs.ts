@@ -5,6 +5,7 @@
 // from the civiko-scheduler edge function.
 
 import { SOURCE_PLAN, nextRunAfter, isStale, type SourcePlan } from "./sourceScheduler.ts";
+import { hasEvidenceWriter, runEvidenceWriter } from "./sourceEvidenceWriters.ts";
 
 export type JobOutcome = "skipped" | "success" | "failed";
 
@@ -37,10 +38,72 @@ export interface RunDeps {
   baseUrl: string;
   /** Job secret to forward to internal endpoints. */
   jobSecret: string;
+  /** Secret pool for per-source auth headers (AI_CORE_SECRET_CIVIKO, SERVICE_ROLE, etc.). */
+  secrets?: {
+    AI_CORE_SECRET_CIVIKO?: string;
+    SUPABASE_SERVICE_ROLE_KEY?: string;
+  };
+  /** Optional resolver returning lat/lng for sources that require coords (F11). */
+  resolveCoords?: (sourceCode: string) => Promise<{ lat: number; lng: number } | null>;
+  /** When true, after a successful POST also run the per-source evidence writer. */
+  attachEvidenceWriter?: boolean;
 }
 
 /** Source codes that MUST NEVER be auto-scheduled. */
 export const FORBIDDEN_SCHEDULER_CODES = new Set(["F14", "F15"]);
+
+/**
+ * Per-source request shaping. Returns either request bits or a skip reason
+ * (e.g. F11 with no coords). Kept inline so the runner has no per-source
+ * branching scattered through it.
+ */
+export function buildRequestPlan(
+  plan: SourcePlan,
+  secrets: RunDeps["secrets"] | undefined,
+  jobSecret: string,
+  coords: { lat: number; lng: number } | null,
+): { headers: Record<string, string>; body: Record<string, unknown> } | { skip_reason: string } {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "x-job-secret": jobSecret,
+  };
+  const body: Record<string, unknown> = { triggered_by: "civiko-scheduler", source_code: plan.code };
+  const civikoSecret = secrets?.AI_CORE_SECRET_CIVIKO ?? "";
+  const serviceKey = secrets?.SUPABASE_SERVICE_ROLE_KEY ?? "";
+
+  switch (plan.code) {
+    case "F2":
+    case "F6":
+      // Protected by requireSecret() with segmented AI_CORE_SECRET_CIVIKO.
+      if (!civikoSecret) return { skip_reason: "missing_AI_CORE_SECRET_CIVIKO" };
+      headers["x-internal-secret"] = civikoSecret;
+      headers["x-source-app"] = "civiko";
+      break;
+    case "F5":
+      // Admin-Bearer endpoint. Pass service-role + job secret to use the
+      // job-secret bypass path (constant-time compared inside the function).
+      if (!serviceKey) return { skip_reason: "missing_SUPABASE_SERVICE_ROLE_KEY" };
+      headers["Authorization"] = `Bearer ${serviceKey}`;
+      headers["apikey"] = serviceKey;
+      break;
+    case "F19":
+      // Aggregate-only obituaries importer — same job-secret bypass path.
+      if (!serviceKey) return { skip_reason: "missing_SUPABASE_SERVICE_ROLE_KEY" };
+      headers["Authorization"] = `Bearer ${serviceKey}`;
+      headers["apikey"] = serviceKey;
+      break;
+    case "F11":
+      if (!coords) return { skip_reason: "MISSING_COORDS" };
+      body.lat = coords.lat;
+      body.lng = coords.lng;
+      body.radiusMeters = 1500;
+      break;
+    default:
+      // F7, F10, F13, F16, F21: default x-job-secret only.
+      break;
+  }
+  return { headers, body };
+}
 
 /** Returns the plan rows that are eligible for scheduled execution. */
 export function eligibleSourcePlans(): SourcePlan[] {
@@ -100,19 +163,32 @@ export async function runOne(
   const path = plan.ingestion_endpoint ?? `/${plan.job}`;
   const url = `${deps.baseUrl.replace(/\/+$/, "")}${path.startsWith("/") ? path : `/${path}`}`;
 
+  // Resolve coords up-front for sources that need them (F11).
+  let coords: { lat: number; lng: number } | null = null;
+  if (plan.code === "F11" && deps.resolveCoords) {
+    try { coords = await deps.resolveCoords(plan.code); } catch { coords = null; }
+  }
+
+  const planReq = buildRequestPlan(plan, deps.secrets, deps.jobSecret, coords);
+  if ("skip_reason" in planReq) {
+    return {
+      ...baseResult,
+      status: "skipped",
+      reason: planReq.skip_reason,
+      duration_ms: Date.now() - started,
+    };
+  }
+
   try {
     const r = await fetchImpl(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-job-secret": deps.jobSecret,
-      },
-      body: JSON.stringify({ triggered_by: "civiko-scheduler", source_code: plan.code }),
+      headers: planReq.headers,
+      body: JSON.stringify(planReq.body),
     });
     const text = await r.text();
     let parsed: Record<string, unknown> = {};
     try { parsed = text ? JSON.parse(text) : {}; } catch { /* non-JSON: keep empty */ }
-    const records =
+    let records =
       typeof parsed.records_processed === "number" ? parsed.records_processed :
       typeof (parsed.data as Record<string, unknown> | undefined)?.records_processed === "number"
         ? Number((parsed.data as Record<string, unknown>).records_processed)
@@ -124,8 +200,38 @@ export async function runOne(
       return { ...baseResult, status: "failed", error: msg, duration_ms: Date.now() - started };
     }
 
+    // Attach evidence writer for sources with no inline ledger step.
+    let evidence_rows_written = 0;
+    if (deps.attachEvidenceWriter !== false && hasEvidenceWriter(plan.code) && deps.supabase) {
+      try {
+        const w = await runEvidenceWriter(deps.supabase, plan.code);
+        evidence_rows_written = w.rows_written;
+      } catch (e) {
+        // Do not fail the source on writer errors — log via registry last_error
+        await safeUpdateRegistry(deps.supabase, plan.code, {
+          ok: true,
+          records: records || 0,
+          error: `evidence_writer:${(e as Error).message}`.slice(0, 500),
+        });
+        return {
+          ...baseResult,
+          status: "success",
+          records_processed: records,
+          error: `evidence_writer:${(e as Error).message}`.slice(0, 300),
+          duration_ms: Date.now() - started,
+        };
+      }
+      if (evidence_rows_written > records) records = evidence_rows_written;
+    }
+
     await safeUpdateRegistry(deps.supabase, plan.code, { ok: true, records });
-    return { ...baseResult, status: "success", records_processed: records, duration_ms: Date.now() - started };
+    return {
+      ...baseResult,
+      status: "success",
+      records_processed: records,
+      duration_ms: Date.now() - started,
+      reason: evidence_rows_written ? `evidence_rows:${evidence_rows_written}` : undefined,
+    };
   } catch (e) {
     const msg = (e as Error).message ?? String(e);
     await safeUpdateRegistry(deps.supabase, plan.code, { ok: false, error: msg });
