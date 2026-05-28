@@ -410,6 +410,52 @@ async function listSources() {
 }
 
 // ────────────────────────────────────────────────────────────
+// GET /obituaries-aggregate — admin-only read of F19 aggregate output.
+// All rows are guaranteed by the DB CHECK to have bucket_count >= 3.
+// Returns ONLY aggregate-safe columns. No person-level fields exist
+// in this table by schema. Each row carries the contract envelope:
+//   { source_code:'F19', area_key, area_type, time_window_days,
+//     aggregate_count, last_observed_at, computed_at, confidence,
+//     visible_to_pwa:false, compliance_warning }
+// ────────────────────────────────────────────────────────────
+async function listObituariesAggregate(req: Request) {
+  const supabase = svc();
+  const url = new URL(req.url);
+  const areaType = url.searchParams.get("area_type");
+  let q = supabase
+    .from("obituaries_aggregate_padova")
+    .select("source_code,area_type,area_code,window_start,window_end,window_days,bucket_count,confidence,last_observed_at,computed_at,visible_to_pwa")
+    .gte("bucket_count", 3) // defence-in-depth: DB CHECK already guarantees this
+    .order("computed_at", { ascending: false })
+    .limit(500);
+  if (areaType) q = q.eq("area_type", areaType);
+  const { data, error } = await q;
+  if (error) return json({ ok: false, error: { code: "DB_ERROR", message: error.message } }, 500);
+  const buckets = (data ?? []).map((r) => ({
+    source_code: "F19",
+    source_name: "Necrologi (aggregato)",
+    area_key: r.area_code,
+    area_type: r.area_type,
+    time_window_days: r.window_days,
+    aggregate_count: r.bucket_count,
+    last_observed_at: r.last_observed_at,
+    computed_at: r.computed_at,
+    confidence: r.confidence,
+    visible_to_pwa: r.visible_to_pwa,
+  }));
+  return json({
+    ok: true,
+    data: {
+      buckets,
+      k_anonymity_min: 3,
+      compliance: "aggregate_only",
+      compliance_warning: "Aggregato area-level con soglia k>=3. Nessun dato person-level.",
+    },
+  });
+}
+
+
+// ────────────────────────────────────────────────────────────
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
