@@ -105,13 +105,16 @@ describe("civiko-debug-opportunity-pipeline diagnostic", () => {
   });
 
   it("weak-only evidence does not produce a high-confidence opportunity", () => {
+    // F5 + F8 are both weak but in different families (open_geo, infrastructure).
     const evidence = [
       ev({ source_code: "F5", entity_key: "area:padova:35100:centro storico" }),
-      ev({ source_code: "F7", entity_key: "area:padova:35100:centro storico" }),
+      ev({ source_code: "F8", entity_key: "area:padova:35100:centro storico" }),
     ];
     const r = buildDiagnostic({ scope: padovaScope, registry: registry22, evidence });
     expect(r.opportunity_engine.confidence_distribution.high ?? 0).toBe(0);
-    expect(r.opportunity_engine.removed_weak_only + r.opportunity_engine.final_opportunities_count).toBeGreaterThan(0);
+    expect(r.opportunity_engine.removed_weak_only).toBeGreaterThan(0);
+    expect(r.opportunity_engine.final_opportunities_count).toBe(0);
+    expect(r.pwa_payload.empty_reason).toBe("only_weak_aggregate_sources");
   });
 
   it("F19 alone never creates an opportunity", () => {
