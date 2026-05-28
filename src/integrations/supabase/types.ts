@@ -866,6 +866,54 @@ export type Database = {
         }
         Relationships: []
       }
+      civiko_evidence: {
+        Row: {
+          compliance_visibility: string
+          confidence: string
+          created_at: string
+          entity_key: string
+          entity_type: string
+          evidence_type: string
+          evidence_value: Json | null
+          explanation: string | null
+          freshness_days: number | null
+          id: number
+          observed_at: string
+          raw_ref_id: string | null
+          source_code: string
+        }
+        Insert: {
+          compliance_visibility?: string
+          confidence: string
+          created_at?: string
+          entity_key: string
+          entity_type: string
+          evidence_type: string
+          evidence_value?: Json | null
+          explanation?: string | null
+          freshness_days?: number | null
+          id?: number
+          observed_at?: string
+          raw_ref_id?: string | null
+          source_code: string
+        }
+        Update: {
+          compliance_visibility?: string
+          confidence?: string
+          created_at?: string
+          entity_key?: string
+          entity_type?: string
+          evidence_type?: string
+          evidence_value?: Json | null
+          explanation?: string | null
+          freshness_days?: number | null
+          id?: number
+          observed_at?: string
+          raw_ref_id?: string | null
+          source_code?: string
+        }
+        Relationships: []
+      }
       civiko_signal_policy: {
         Row: {
           created_at: string
@@ -1022,55 +1070,73 @@ export type Database = {
         Row: {
           access_type: string
           activation_mode: string | null
+          automation_notes: string | null
+          automation_status: string | null
           compliance_level: string
           created_at: string
           freshness_days: number | null
           id: string
           implementation_status: string
           last_error: string | null
+          last_run_at: string | null
           last_success_at: string | null
+          next_run_at: string | null
           notes: string | null
           record_count: number
           refresh_frequency: string | null
+          scheduler_frequency: string | null
           source_code: string
           source_name: string
           source_url: string | null
+          stale_after_days: number | null
           updated_at: string
         }
         Insert: {
           access_type: string
           activation_mode?: string | null
+          automation_notes?: string | null
+          automation_status?: string | null
           compliance_level: string
           created_at?: string
           freshness_days?: number | null
           id?: string
           implementation_status: string
           last_error?: string | null
+          last_run_at?: string | null
           last_success_at?: string | null
+          next_run_at?: string | null
           notes?: string | null
           record_count?: number
           refresh_frequency?: string | null
+          scheduler_frequency?: string | null
           source_code: string
           source_name: string
           source_url?: string | null
+          stale_after_days?: number | null
           updated_at?: string
         }
         Update: {
           access_type?: string
           activation_mode?: string | null
+          automation_notes?: string | null
+          automation_status?: string | null
           compliance_level?: string
           created_at?: string
           freshness_days?: number | null
           id?: string
           implementation_status?: string
           last_error?: string | null
+          last_run_at?: string | null
           last_success_at?: string | null
+          next_run_at?: string | null
           notes?: string | null
           record_count?: number
           refresh_frequency?: string | null
+          scheduler_frequency?: string | null
           source_code?: string
           source_name?: string
           source_url?: string | null
+          stale_after_days?: number | null
           updated_at?: string
         }
         Relationships: []
