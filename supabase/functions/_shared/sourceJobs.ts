@@ -163,19 +163,32 @@ export async function runOne(
   const path = plan.ingestion_endpoint ?? `/${plan.job}`;
   const url = `${deps.baseUrl.replace(/\/+$/, "")}${path.startsWith("/") ? path : `/${path}`}`;
 
+  // Resolve coords up-front for sources that need them (F11).
+  let coords: { lat: number; lng: number } | null = null;
+  if (plan.code === "F11" && deps.resolveCoords) {
+    try { coords = await deps.resolveCoords(plan.code); } catch { coords = null; }
+  }
+
+  const planReq = buildRequestPlan(plan, deps.secrets, deps.jobSecret, coords);
+  if ("skip_reason" in planReq) {
+    return {
+      ...baseResult,
+      status: "skipped",
+      reason: planReq.skip_reason,
+      duration_ms: Date.now() - started,
+    };
+  }
+
   try {
     const r = await fetchImpl(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-job-secret": deps.jobSecret,
-      },
-      body: JSON.stringify({ triggered_by: "civiko-scheduler", source_code: plan.code }),
+      headers: planReq.headers,
+      body: JSON.stringify(planReq.body),
     });
     const text = await r.text();
     let parsed: Record<string, unknown> = {};
     try { parsed = text ? JSON.parse(text) : {}; } catch { /* non-JSON: keep empty */ }
-    const records =
+    let records =
       typeof parsed.records_processed === "number" ? parsed.records_processed :
       typeof (parsed.data as Record<string, unknown> | undefined)?.records_processed === "number"
         ? Number((parsed.data as Record<string, unknown>).records_processed)
@@ -187,8 +200,38 @@ export async function runOne(
       return { ...baseResult, status: "failed", error: msg, duration_ms: Date.now() - started };
     }
 
+    // Attach evidence writer for sources with no inline ledger step.
+    let evidence_rows_written = 0;
+    if (deps.attachEvidenceWriter !== false && hasEvidenceWriter(plan.code) && deps.supabase) {
+      try {
+        const w = await runEvidenceWriter(deps.supabase, plan.code);
+        evidence_rows_written = w.rows_written;
+      } catch (e) {
+        // Do not fail the source on writer errors — log via registry last_error
+        await safeUpdateRegistry(deps.supabase, plan.code, {
+          ok: true,
+          records: records || 0,
+          error: `evidence_writer:${(e as Error).message}`.slice(0, 500),
+        });
+        return {
+          ...baseResult,
+          status: "success",
+          records_processed: records,
+          error: `evidence_writer:${(e as Error).message}`.slice(0, 300),
+          duration_ms: Date.now() - started,
+        };
+      }
+      if (evidence_rows_written > records) records = evidence_rows_written;
+    }
+
     await safeUpdateRegistry(deps.supabase, plan.code, { ok: true, records });
-    return { ...baseResult, status: "success", records_processed: records, duration_ms: Date.now() - started };
+    return {
+      ...baseResult,
+      status: "success",
+      records_processed: records,
+      duration_ms: Date.now() - started,
+      reason: evidence_rows_written ? `evidence_rows:${evidence_rows_written}` : undefined,
+    };
   } catch (e) {
     const msg = (e as Error).message ?? String(e);
     await safeUpdateRegistry(deps.supabase, plan.code, { ok: false, error: msg });
