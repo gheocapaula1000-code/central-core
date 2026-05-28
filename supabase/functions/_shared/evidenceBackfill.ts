@@ -305,6 +305,8 @@ export async function backfillEvidence(supabase: Sb, opts: { dry_run?: boolean }
     normalized_opportunities: 0,
     early_warning_opportunities: 0,
     offmarket_opportunity_scores: 0,
+    deal_listings: 0,
+    deal_auctions: 0,
     total: 0,
     by_source_code: {},
   };
