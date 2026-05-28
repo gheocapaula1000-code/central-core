@@ -196,6 +196,9 @@ async function fetchFirecrawl(): Promise<TerritoryRecord[]> {
     "https://www.portaleaste.com/aste-immobili/padova",
     "https://www.tribunale.padova.giustizia.it/it/Content/Index/50",
     "https://www.immobiliare.it/aste-giudiziarie/padova/",
+    // PVP — Portale Vendite Pubbliche, Ministero della Giustizia (ufficiale)
+    "https://pvp.giustizia.it/pvp/it/homepage.wp",
+    "https://pvp.giustizia.it/pvp/it/risultati_ricerca.wp?testoRicerca=Padova",
   ];
   const settled = await Promise.allSettled(urls.map((u) => firecrawlScrape(u, key)));
   const records: TerritoryRecord[] = [];
@@ -205,6 +208,67 @@ async function fetchFirecrawl(): Promise<TerritoryRecord[]> {
     }
   });
   return records;
+}
+
+// ─── FONTE 4: Open Data Comune di Padova (permessi edilizi / cantieri) ───
+const EDILIZ_KEYWORDS = [
+  "permess", "ediliz", "cantier", "scia", "dia ", "cila",
+  "costruzion", "autorizzazion", "concessione",
+];
+
+function parseOpenDataPadovaMarkdown(md: string, sourceUrl: string): TerritoryRecord[] {
+  const out: TerritoryRecord[] = [];
+  // I dataset CKAN sono esposti come link markdown `[Titolo](url)`.
+  const linkRe = /\[([^\]]{8,160})\]\((https?:\/\/[^\s)]+)\)/g;
+  const seen = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = linkRe.exec(md)) !== null) {
+    const title = m[1].trim();
+    const href = m[2];
+    const lower = (title + " " + href).toLowerCase();
+    if (!EDILIZ_KEYWORDS.some((k) => lower.includes(k))) continue;
+    if (seen.has(href)) continue;
+    seen.add(href);
+
+    const microzona = findZone(title);
+    const category: Category = lower.includes("cantier")
+      ? "cantiere"
+      : "area_trasformazione";
+    const scoring_reason =
+      "Dataset open data Comune Padova su permessi edilizi/cantieri autorizzati";
+    const now = new Date().toISOString();
+    out.push({
+      id: shortId("opd", href),
+      title: title.slice(0, 80),
+      comune: "Padova",
+      microzona,
+      source_name: "opendata.comune.padova.it",
+      last_seen: now,
+      freshness: "recente",
+      priority_score: 70,
+      scoring_reason,
+      has_geo: false,
+      municipality: "Padova",
+      area_label: microzona,
+      category,
+      tags: [category, "Padova", "open_data", ...(microzona ? [microzona] : [])],
+      freshness_label: "",
+      priority_label: "",
+      reason_short: scoring_reason,
+    });
+    if (out.length >= 20) break;
+  }
+  void sourceUrl;
+  return out;
+}
+
+async function fetchOpenDataPadova(): Promise<TerritoryRecord[]> {
+  const key = Deno.env.get("FIRECRAWL_API_KEY");
+  if (!key) return [];
+  const url = "https://opendata.comune.padova.it/dataset?q=ediliz";
+  const md = await firecrawlScrape(url, key);
+  if (!md) return [];
+  return parseOpenDataPadovaMarkdown(md, url);
 }
 
 // ─── FONTE 2: Perplexity ─────────────────────────────────────────────────
