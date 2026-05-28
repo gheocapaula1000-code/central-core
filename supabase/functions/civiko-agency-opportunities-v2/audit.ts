@@ -57,6 +57,15 @@ export interface OpportunityAudit {
   removed_no_actionable_target: number;
   removed_insufficient_deal_evidence: number;
   final_deal_opportunities_count: number;
+
+  // deal-level scope breakdown (split from removed_outside_scope so the PWA
+  // can tell "outside comune" apart from "inside comune but no microzone").
+  removed_outside_comune: number;
+  removed_unmapped_zone: number;
+  removed_zone_mismatch: number;
+  deal_rows_missing_geo: number;
+  deal_rows_inside_comune_unmapped: number;
+  deal_rows_inside_agency_zone: number;
 }
 
 export interface ScopeMatcher {
