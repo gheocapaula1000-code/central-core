@@ -43,6 +43,13 @@ function svc() {
 }
 
 async function requireAdmin(req: Request): Promise<{ userId: string; email: string } | Response> {
+  // Path A: trusted scheduler job-secret (constant-time-ish compare).
+  const expectedJob = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+  const providedJob = req.headers.get("x-job-secret") ?? "";
+  if (expectedJob && providedJob.length === expectedJob.length && providedJob === expectedJob) {
+    return { userId: "scheduler", email: "scheduler@central-core" };
+  }
+
   const auth = req.headers.get("Authorization");
   if (!auth) return json({ ok: false, error: { code: "UNAUTHORIZED", message: "Missing Authorization" } }, 401);
   const supabase = svc();
