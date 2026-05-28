@@ -283,10 +283,13 @@ export async function scrapeAllPortals(
   for (const r of results) {
     if (r.status === "fulfilled") listings.push(...r.value);
   }
-  if (listings.length === 0) {
-    console.log("[portalScrapers] Firecrawl fallito, tentativo Apify per", municipality);
-    const apifyListings = await scrapeWithApify(municipality, provincia);
-    listings.push(...apifyListings);
-  }
+  // Apify fallback disabilitato: actor "misceres~immobiliare-it-scraper" non più disponibile (404).
+  // Lascio solo il fallback Firecrawl per evitare timeout su padova-daily-radar.
+  // if (listings.length === 0) {
+  //   console.log("[portalScrapers] Firecrawl fallito, tentativo Apify per", municipality);
+  //   const apifyListings = await scrapeWithApify(municipality, provincia);
+  //   listings.push(...apifyListings);
+  // }
+  void scrapeWithApify;
   return listings;
 }
