@@ -28,6 +28,7 @@ import {
   type InsightType,
 } from "../_shared/opportunityClassification.ts";
 import { classifyDealZoneScope, isDealKey, type DealScope } from "../_shared/dealZoneScope.ts";
+import { coversFullComune } from "../_shared/comuneRegistry.ts";
 
 export interface AgencyArea {
   agency_id: string | null;
