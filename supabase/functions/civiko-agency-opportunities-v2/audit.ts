@@ -234,15 +234,23 @@ export function runOpportunityAudit(
     }
 
     dist[opp.evidence_summary.confidence]++;
+    const meta = extractDealMeta(group);
     deal_opportunities.push({
       ...opp,
       insight_type: "deal_opportunity",
       entity_granularity,
+      id: key,
+      title: meta.title ?? key,
+      area_name: meta.area_name,
+      microzone: meta.microzone,
       target_type: target.target_type ?? "listing",
       target_ref: target.target_ref,
       target_url: target.target_url,
       address: target.address,
+      price_label: meta.price_label,
+      urgency: meta.urgency,
       next_action: nextActionFor(target.target_type ?? "listing"),
+      updated_at: meta.updated_at,
     });
   }
 
