@@ -101,17 +101,25 @@ export function buildScopeMatcher(areas: AgencyArea[]): ScopeMatcher {
   const microzones = new Set<string>();
   const expectedKeys = new Set<string>();
   for (const a of areas) {
-    for (const c of a.comuni ?? []) {
+    if (!a || typeof a !== "object") continue;
+    for (const c of (Array.isArray(a.comuni) ? a.comuni : [])) {
+      if (typeof c !== "string") continue;
       const cn = norm(c);
       if (!cn) continue;
       comuni.add(cn);
       expectedKeys.add(comuneKey({ comune: c }));
     }
-    for (const mz of [...(a.microzones ?? []), ...(a.quartieri ?? [])]) {
+    const configuredMicrozones = [
+      ...(Array.isArray(a.microzones) ? a.microzones : []),
+      ...(Array.isArray(a.quartieri) ? a.quartieri : []),
+    ];
+    for (const mz of configuredMicrozones) {
+      if (typeof mz !== "string") continue;
       const mn = norm(mz);
       if (!mn) continue;
       microzones.add(mn);
-      for (const c of a.comuni ?? []) {
+      for (const c of (Array.isArray(a.comuni) ? a.comuni : [])) {
+        if (typeof c !== "string") continue;
         expectedKeys.add(microzoneKey({ comune: c, microzona: mz }));
       }
       expectedKeys.add(microzoneKey({ comune: "", microzona: mz }));
@@ -140,6 +148,9 @@ export function filterAndGroup(
   let removed_outside_scope = 0;
   let removed_stale = 0;
   for (const r of rows) {
+    const safeRow = sanitizeEvidenceRow(r);
+    if (!safeRow) { removed_outside_scope++; continue; }
+    r = safeRow;
     if (!inScope(r, scope)) { removed_outside_scope++; continue; }
     if (typeof r.freshness_days === "number" && r.freshness_days > staleAfterDays) {
       removed_stale++; continue;
