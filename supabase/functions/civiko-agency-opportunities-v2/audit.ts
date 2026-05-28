@@ -598,3 +598,258 @@ function pickNum(o: Record<string, unknown>, keys: string[]): number | null {
   for (const k of keys) { const v = o[k]; if (typeof v === "number" && Number.isFinite(v)) return v; }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Quality + market + action helpers
+// ---------------------------------------------------------------------------
+
+const COOKIE_WALL_DOMAINS = ["asteimmobili.it", "astalegale.it", "astegiudiziarie.it"];
+
+export function classifySourceAccess(target_url: string | undefined): SourceAccess {
+  if (!target_url) return "unknown";
+  try {
+    const host = new URL(target_url).hostname.toLowerCase();
+    if (COOKIE_WALL_DOMAINS.some((d) => host.endsWith(d))) return "cookie_wall_possible";
+    return "direct";
+  } catch {
+    return "unknown";
+  }
+}
+
+export function nextActionsFor(target_type: string): string[] {
+  switch (target_type) {
+    case "auction": return [
+      "Verifica documenti, calendario e prezzo base",
+      "Prepara shortlist clienti interessati",
+      "Confronta base asta con valori di zona",
+    ];
+    case "listing": return [
+      "Verifica l'annuncio sul portale di origine",
+      "Confronta prezzo richiesto con valori OMI di zona",
+      "Prepara contatto con l'agenzia/inserzionista",
+    ];
+    case "property": return ["Verifica titolarità su pubblici registri", "Pianifica sopralluogo"];
+    case "address":  return ["Avvia ricerca proprietario su pubblici registri"];
+    case "lead":     return ["Qualifica lead e pianifica primo contatto"];
+    default:         return ["Valuta opportunità e definisci prossimo passo"];
+  }
+}
+
+export function argumentsToAvoidFor(target_type: string): string[] {
+  if (target_type === "auction") {
+    return [
+      "Non promettere contatto diretto con il proprietario",
+      "Non dichiarare sconto senza confronto OMI",
+      "Non dare certezze legali senza documenti",
+    ];
+  }
+  if (target_type === "listing") {
+    return [
+      "Non dichiarare sconto senza confronto OMI",
+      "Non promettere esclusiva senza mandato",
+    ];
+  }
+  return [];
+}
+
+export function extractNumericPrice(group: EvidenceRow[]): number | null {
+  let ask: number | null = null, base: number | null = null, min: number | null = null;
+  for (const r of group) {
+    const v = evidenceValueAsRecord(r.evidence_value);
+    ask ??= pickNum(v, ["ask_price", "price"]);
+    base ??= pickNum(v, ["base_price", "base_price_eur"]);
+    min ??= pickNum(v, ["minimum_offer_eur"]);
+  }
+  return ask ?? min ?? base ?? null;
+}
+
+export function lookupMarket(
+  ctx: MarketContext,
+  comune: string,
+  microzone: string | null,
+): { source: string; min: number | null; max: number | null; avg: number | null } | null {
+  const mz = microzone ? norm(microzone) : null;
+  if (mz && ctx.microzone_omi?.[mz]) {
+    const m = ctx.microzone_omi[mz]!;
+    return { source: `omi_microzone:${mz}`, min: m.min ?? null, max: m.max ?? null, avg: m.avg ?? null };
+  }
+  if (comune && ctx.comune_omi?.[comune]) {
+    const c = ctx.comune_omi[comune]!;
+    return { source: `omi_comune:${comune}`, min: c.min ?? null, max: c.max ?? null, avg: c.avg ?? null };
+  }
+  return null;
+}
+
+export function priceVsMarketLabel(
+  price: number | null,
+  market: { min: number | null; max: number | null; avg: number | null } | null,
+): string | null {
+  if (price == null || !market) return null;
+  const ref = market.avg ?? (market.min != null && market.max != null ? (market.min + market.max) / 2 : null);
+  if (ref == null || ref <= 0) return null;
+  const delta = (price - ref) / ref;
+  if (delta <= -0.15) return "sotto_mercato";
+  if (delta >= 0.15) return "sopra_mercato";
+  return "in_linea";
+}
+
+export function classifyDealQuality(input: {
+  target_type: string;
+  target_url?: string;
+  target_ref?: string;
+  title: string | null;
+  address: string | null;
+  microzone: string | null;
+  price_label: string | null;
+  numericPrice: number | null;
+  hasMarket: boolean;
+  source_access: SourceAccess;
+  sale_date: string | null;
+}): { bucket: QualityBucket; reasons: string[] } {
+  const reasons: string[] = [];
+  if (input.target_url) reasons.push("source_url_present");
+  if (input.numericPrice != null && input.target_type === "auction") reasons.push("auction_price_present");
+  else if (input.numericPrice != null) reasons.push("price_present");
+  if (input.microzone) reasons.push("microzone_known");
+  if (input.address || input.title) reasons.push("area_known");
+  if (input.hasMarket) reasons.push("market_context_available");
+  if (input.source_access === "cookie_wall_possible") reasons.push("cookie_wall_likely");
+  if (!input.address) reasons.push("missing_address");
+  if (!input.numericPrice && !input.title && !input.target_url) reasons.push("thin_record");
+
+  const hasPrice = input.numericPrice != null;
+  const hasUrl = !!input.target_url;
+  const hasContext = !!input.title || !!input.address;
+
+  let bucket: QualityBucket;
+  if (input.target_type === "auction" && hasPrice && hasUrl && input.sale_date) bucket = "work_today";
+  else if (hasPrice && hasUrl && hasContext) bucket = "work_today";
+  else if (hasUrl && hasContext) bucket = "verify";
+  else if (hasUrl || hasPrice || hasContext) bucket = "monitor";
+  else bucket = "low_value";
+
+  return { bucket, reasons };
+}
+
+// ---------------------------------------------------------------------------
+// Market context derivation from in-scope evidence (F1/F12 area scores)
+// ---------------------------------------------------------------------------
+
+export function deriveMarketContextFromEvidence(rows: EvidenceRow[]): MarketContext {
+  const comune_omi: NonNullable<MarketContext["comune_omi"]> = {};
+  const microzone_omi: NonNullable<MarketContext["microzone_omi"]> = {};
+  for (const r of rows) {
+    if (r.source_code !== "F1" && r.source_code !== "F12") continue;
+    const v = evidenceValueAsRecord(r.evidence_value);
+    const min = pickNum(v, ["omi_min", "min_eur_mq", "valore_min", "min"]);
+    const max = pickNum(v, ["omi_max", "max_eur_mq", "valore_max", "max"]);
+    const avg = pickNum(v, ["omi_avg", "avg_eur_mq", "valore_medio", "avg"]);
+    if (min == null && max == null && avg == null) continue;
+    if (r.entity_key.startsWith("c:")) {
+      const c = r.entity_key.slice(2);
+      comune_omi[c] = { min, max, avg };
+    } else if (r.entity_key.startsWith("mz:")) {
+      const parts = r.entity_key.split(":");
+      const mz = parts[2] ?? "";
+      if (mz) microzone_omi[mz] = { min, max, avg };
+    }
+  }
+  return { comune_omi, microzone_omi, computed_at: new Date().toISOString() };
+}
+
+// ---------------------------------------------------------------------------
+// Derived hot microzones + commercial actions from deal aggregates
+// ---------------------------------------------------------------------------
+
+export function buildDerivedHotMicrozones(
+  deals: DealOpportunity[],
+  scope: ScopeMatcher,
+): AreaInsight[] {
+  const counts = new Map<string, { count: number; comune: string }>();
+  for (const d of deals) {
+    if (!d.microzone) continue;
+    const mz = norm(d.microzone);
+    if (!scope.microzones.has(mz)) continue;
+    const comune = dealComuneSeg(d.id) || [...scope.comuni][0] || "";
+    const cur = counts.get(`${comune}:${mz}`) ?? { count: 0, comune };
+    cur.count++;
+    counts.set(`${comune}:${mz}`, cur);
+  }
+  const out: AreaInsight[] = [];
+  for (const [key, { count, comune }] of counts) {
+    if (count < 1) continue;
+    const mz = key.split(":")[1]!;
+    out.push({
+      entity_type: "microzone",
+      entity_key: `mz:${comune}:${mz}`,
+      audience: "agency",
+      insight_type: "area_insight",
+      entity_granularity: "microzone",
+      evidence_summary: {
+        source_count: 1,
+        source_families: ["deal_concentration"],
+        confidence: count >= 3 ? "medium" : "low",
+        score: Math.min(100, count * 10),
+        freshness_days: null,
+        explanation_bullets: [`[deal_concentration] ${count} deal attivi in ${mz}`],
+        contributing_sources: ["deal_aggregate"],
+        warnings: [],
+      },
+    });
+  }
+  return out;
+}
+
+export function buildDerivedCommercialActions(
+  deals: DealOpportunity[],
+  focus_area: AreaInsight[],
+  hot_microzones: AreaInsight[],
+  marketContext: MarketContext,
+): CommercialAction[] {
+  const out: CommercialAction[] = [];
+  const auctions = deals.filter((d) => d.target_type === "auction");
+  const listings = deals.filter((d) => d.target_type === "listing");
+  const listingsWithPrice = listings.filter((d) => d.price_label);
+  const comuneKeyGuess = focus_area[0]?.entity_key ?? (deals[0] ? `c:${dealComuneSeg(deals[0].id)}` : "c:padova");
+
+  if (auctions.length > 0) {
+    out.push({
+      entity_key: comuneKeyGuess,
+      entity_granularity: "comune",
+      action_code: "monitora_aste",
+      label: `Monitora ${auctions.length} aste immobiliari`,
+      rationale: `Rilevate ${auctions.length} aste attive con calendario e prezzo base.`,
+    });
+  }
+  if (listingsWithPrice.length > 0) {
+    out.push({
+      entity_key: comuneKeyGuess,
+      entity_granularity: "comune",
+      action_code: "verifica_annunci_prezzo",
+      label: `Verifica ${listingsWithPrice.length} annunci con prezzo disponibile`,
+      rationale: "Annunci con prezzo richiesto pronti per qualifica.",
+    });
+  }
+  const hasOmi = Object.keys(marketContext.comune_omi ?? {}).length > 0
+    || Object.keys(marketContext.microzone_omi ?? {}).length > 0;
+  if (hasOmi && (auctions.length > 0 || listings.length > 0)) {
+    out.push({
+      entity_key: comuneKeyGuess,
+      entity_granularity: "comune",
+      action_code: "confronta_omi",
+      label: "Confronta prezzi con valori OMI",
+      rationale: "Valori OMI disponibili per benchmark di zona.",
+    });
+  }
+  if (hot_microzones.length > 0) {
+    out.push({
+      entity_key: comuneKeyGuess,
+      entity_granularity: "comune",
+      action_code: "presidia_microzone_attive",
+      label: `Presidia ${hot_microzones.length} microzone con più segnali`,
+      rationale: "Microzone con maggior concentrazione di evidenze operative.",
+    });
+  }
+  return out;
+}
+
