@@ -7,6 +7,7 @@
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { getApifyToken } from "../_shared/apify.ts";
 
 // ─── CORS ────────────────────────────────────────────────────────────────
 const ALLOWED_ORIGINS = [
@@ -159,7 +160,7 @@ interface RawListing {
 }
 
 async function fetchApifyListings(): Promise<RawListing[]> {
-  const key = Deno.env.get("APIFY_API_KEY") ?? Deno.env.get("APIFY_API_TOKEN");
+  const key = getApifyToken();
   if (!key) return [];
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 25_000);

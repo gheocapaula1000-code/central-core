@@ -189,7 +189,8 @@ export async function runApifyPhotoEnrichment(
   provincia: string,
 ): Promise<TerritorialDocument[]> {
   try {
-    const token = Deno.env.get("APIFY_TOKEN") || Deno.env.get("APIFY_API_TOKEN");
+    const { getApifyToken } = await import("../_shared/apify.ts");
+    const token = getApifyToken();
     if (!token) return [];
     const sources = selectSources(provincia);
     if (sources.length === 0) return [];

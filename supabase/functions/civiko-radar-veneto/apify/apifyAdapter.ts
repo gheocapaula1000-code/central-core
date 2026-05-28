@@ -47,9 +47,10 @@ export async function runApifyForVenetoSource(opts: {
     return report;
   }
   report.allowed = true;
-  const apiKey = Deno.env.get("APIFY_API_KEY") ?? "";
+  const { getApifyToken } = await import("../../_shared/apify.ts");
+  const apiKey = getApifyToken();
   if (!apiKey) {
-    report.errors.push("APIFY_API_KEY missing");
+    report.errors.push("APIFY_API_TOKEN missing");
     return report;
   }
   if (opts.dryRun) {

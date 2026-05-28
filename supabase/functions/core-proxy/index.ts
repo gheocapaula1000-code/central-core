@@ -2,13 +2,13 @@
 // Proxy sicuro dalla PWA alle edge functions del Core.
 // La PWA non chiama mai direttamente le edge functions: passa sempre qui.
 // Whitelist esplicita: solo i path autorizzati vengono inoltrati.
+//
+// CORS hardening: l'origin viene validata via _shared/http.ts
+// (TRUSTED_APP_HOSTS, lovable.*, CORE_ALLOWED_ORIGINS). Le origin sconosciute
+// ricevono 403. Niente wildcard `*` in produzione.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { corsHeaders, isOriginAllowed, handleOptions } from "../_shared/http.ts";
 
 // Whitelist path autorizzati → nome edge function di destinazione
 const ROUTE_MAP: Record<string, string> = {
@@ -37,7 +37,6 @@ const ROUTE_MAP: Record<string, string> = {
   "connector-status":                    "connector-status",
 };
 
-// Path che usano ancora il vecchio router sottra (legacy V1)
 const SOTTRA_ROUTES = new Set([
   "civiko/property-source-profile",
   "civiko/property-hyperlocal-signals",
@@ -48,7 +47,18 @@ const SOTTRA_ROUTES = new Set([
 ]);
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method === "OPTIONS") return handleOptions(req);
+
+  const cors = corsHeaders(req);
+  const origin = req.headers.get("origin") ?? "";
+  // Server-to-server senza origin → consentito. Origin presente ma non
+  // ammessa → 403 esplicito.
+  if (origin && !isOriginAllowed(origin)) {
+    return new Response(
+      JSON.stringify({ error: true, code: "ORIGIN_NOT_ALLOWED", message: "Origin not in allowlist" }),
+      { status: 403, headers: { "Content-Type": "application/json", "Vary": "Origin" } },
+    );
+  }
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
   const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
@@ -58,12 +68,12 @@ serve(async (req) => {
   try {
     body = await req.json();
   } catch {
-    return new Response(JSON.stringify({ error: "Body JSON non valido" }), { status: 400, headers: { ...CORS, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: "Body JSON non valido" }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
   }
 
   const { endpoint, method = "POST", payload, timeout = 15000 } = body;
   if (!endpoint) {
-    return new Response(JSON.stringify({ error: "Campo 'endpoint' obbligatorio" }), { status: 400, headers: { ...CORS, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: "Campo 'endpoint' obbligatorio" }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
   }
 
   const normalizedEndpoint = endpoint.replace(/^\//, "");
@@ -71,7 +81,7 @@ serve(async (req) => {
 
   if (!targetFunction) {
     console.warn(`[core-proxy] endpoint non autorizzato: ${normalizedEndpoint}`);
-    return new Response(JSON.stringify({ error: "Endpoint non autorizzato", endpoint: normalizedEndpoint }), { status: 403, headers: { ...CORS, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: "Endpoint non autorizzato", endpoint: normalizedEndpoint }), { status: 403, headers: { ...cors, "Content-Type": "application/json" } });
   }
 
   const controller = new AbortController();
@@ -85,8 +95,6 @@ serve(async (req) => {
       targetUrl = `${SUPABASE_URL}/functions/v1/sottra`;
       requestBody = { route: normalizedEndpoint, ...(typeof payload === "object" && payload !== null ? payload as Record<string, unknown> : {}) };
     } else {
-      // Per civiko-billing il router interno discrimina per sub-path (es. /check-subscription).
-      // Preserva la coda dell'endpoint logico quando esiste (civiko/billing/<action>).
       let suffix = "";
       if (normalizedEndpoint.startsWith("civiko/billing/")) {
         suffix = "/" + normalizedEndpoint.substring("civiko/billing/".length);
@@ -103,24 +111,22 @@ serve(async (req) => {
     });
     clearTimeout(timer);
 
-    // Il dossier-pdf ritorna binary — inoltra così com'è preservando Content-Type
     if (targetFunction === "civiko-dossier-pdf") {
       const upstreamCT = res.headers.get("Content-Type") ?? "";
-      // Se l'upstream non è 2xx O non è application/pdf, passa attraverso come JSON di errore
       if (!res.ok || !upstreamCT.includes("application/pdf")) {
         const text = await res.text();
         let errBody: unknown;
         try { errBody = JSON.parse(text); } catch { errBody = { error: true, message: text || "PDF upstream error" }; }
         return new Response(JSON.stringify(errBody), {
           status: res.ok ? 502 : res.status,
-          headers: { ...CORS, "Content-Type": "application/json" },
+          headers: { ...cors, "Content-Type": "application/json" },
         });
       }
       const pdfBytes = await res.arrayBuffer();
       return new Response(pdfBytes, {
         status: res.status,
         headers: {
-          ...CORS,
+          ...cors,
           "Content-Type": "application/pdf",
           "Content-Disposition": res.headers.get("Content-Disposition") ?? `attachment; filename="civiko-dossier-padova.pdf"`,
           "Cache-Control": "no-store",
@@ -129,14 +135,14 @@ serve(async (req) => {
     }
 
     const data = await res.json();
-    return new Response(JSON.stringify(data), { status: res.status, headers: { ...CORS, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify(data), { status: res.status, headers: { ...cors, "Content-Type": "application/json" } });
 
   } catch (e) {
     clearTimeout(timer);
     const aborted = e instanceof DOMException && e.name === "AbortError";
     return new Response(
       JSON.stringify({ error: true, message: aborted ? "Il servizio non ha risposto in tempo. Riprova tra qualche istante." : (e instanceof Error ? e.message : "Errore proxy") }),
-      { status: aborted ? 504 : 500, headers: { ...CORS, "Content-Type": "application/json" } }
+      { status: aborted ? 504 : 500, headers: { ...cors, "Content-Type": "application/json" } }
     );
   }
 });
