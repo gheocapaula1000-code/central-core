@@ -30,7 +30,7 @@ const arcellaAreas: AgencyArea[] = [
 describe("civiko-agency-opportunities-v2 runtime safety", () => {
   it("buildResponseData survives null result", () => {
     const data = buildResponseData(null, []);
-    expect(data.focus_area).toEqual([]);
+    expect(data.focus_area).toBeNull();
     expect(data.hot_microzones).toEqual([]);
     expect(data.commercial_actions).toEqual([]);
     expect(data.deal_opportunities).toEqual([]);
@@ -41,7 +41,7 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
 
   it("buildResponseData survives undefined arrays inside result", () => {
     const data = buildResponseData({} as never, arcellaAreas);
-    expect(Array.isArray(data.focus_area)).toBe(true);
+    expect(data.focus_area).toBeNull();
     expect(Array.isArray(data.hot_microzones)).toBe(true);
     expect(Array.isArray(data.deal_opportunities)).toBe(true);
     expect(data.scope.comuni).toContain("Padova");
@@ -242,6 +242,7 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
 
   it("EMPTY_PAYLOAD matches documented defaults", () => {
     expect(EMPTY_PAYLOAD.focus_area).toEqual([]);
+    expect(EMPTY_PAYLOAD.focus_area).toBeNull();
     expect(EMPTY_PAYLOAD.hot_microzones).toEqual([]);
     expect(EMPTY_PAYLOAD.commercial_actions).toEqual([]);
     expect(EMPTY_PAYLOAD.deal_opportunities).toEqual([]);
@@ -254,13 +255,14 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
   });
 
   it("controlled error envelope shape is JSON-safe", () => {
-    const envelope = buildControlledErrorBody("test-debug-id", "STAGE_SCOPE", "boom");
+    const envelope = buildControlledErrorBody("test-debug-id", "STAGE_SCOPE", "boom", "Error");
     expect(() => JSON.stringify(envelope)).not.toThrow();
     const parsed = JSON.parse(JSON.stringify(envelope));
     expect(parsed.ok).toBe(false);
     expect(parsed.error_code).toBe("OPPORTUNITY_V2_RUNTIME_ERROR");
     expect(parsed.debug_id).toBe("test-debug-id");
     expect(parsed.error_stage).toBe("STAGE_SCOPE");
+    expect(parsed.error_name).toBe("Error");
     expect(parsed.error_message).toBe("boom");
     expect(parsed.deal_opportunities).toEqual([]);
   });
