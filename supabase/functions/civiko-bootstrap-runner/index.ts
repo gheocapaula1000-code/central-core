@@ -1,13 +1,29 @@
-// Temporary runner: invokes padova-bootstrap-cycle in background, returns immediately.
-// Final upstream JSON is logged via console.log so it shows up in edge_function_logs.
+// Temporary runner: forwards a single civiko-radar-veneto job call in background,
+// logging the upstream JSON response to edge_function_logs.
+//
+// POST body: { route: "/jobs/...", ...payload }
+// The "route" is appended to /functions/v1/civiko-radar-veneto and the rest
+// of the body is forwarded as JSON payload.
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 
-Deno.serve((req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  const diagSecret = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-  const url = (Deno.env.get("SUPABASE_URL") ?? "").replace(/\/$/, "") +
-    "/functions/v1/padova-bootstrap-cycle";
+  let body: Record<string, unknown> = {};
+  try { body = await req.json(); } catch { /* ignore */ }
+  const route = typeof body.route === "string" ? body.route : "";
+  if (!route.startsWith("/jobs/")) {
+    return new Response(JSON.stringify({ error: "missing or invalid 'route' (must start with /jobs/)" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+  const { route: _drop, ...payload } = body;
+
+  const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+  const base = (Deno.env.get("SUPABASE_URL") ?? "").replace(/\/$/, "");
+  const url = base + "/functions/v1/civiko-radar-veneto" + route;
+  const tag = route.replace(/^\/jobs\//, "");
 
   const task = (async () => {
     const started = Date.now();
@@ -16,22 +32,21 @@ Deno.serve((req) => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-diagnostic-secret": diagSecret,
+          "x-job-secret": jobSecret,
           "apikey": Deno.env.get("SUPABASE_ANON_KEY") ?? "",
         },
-        body: JSON.stringify({ city: "Padova", full: true }),
-        signal: AbortSignal.timeout(290000),
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(120000),
       });
       const text = await res.text();
-      console.log(`[BOOTSTRAP_RESULT] status=${res.status} duration_ms=${Date.now() - started}`);
-      // Chunk-log to avoid line truncation
-      const chunkSize = 1500;
-      for (let i = 0; i < text.length; i += chunkSize) {
-        console.log(`[BOOTSTRAP_BODY ${i}] ${text.slice(i, i + chunkSize)}`);
+      console.log(`[JOB_RESULT ${tag}] status=${res.status} duration_ms=${Date.now() - started} length=${text.length}`);
+      const chunk = 1400;
+      for (let i = 0; i < text.length; i += chunk) {
+        console.log(`[JOB_BODY ${tag} ${i}] ${text.slice(i, i + chunk)}`);
       }
-      console.log(`[BOOTSTRAP_END]`);
+      console.log(`[JOB_END ${tag}]`);
     } catch (e) {
-      console.error(`[BOOTSTRAP_ERROR] ${e instanceof Error ? e.message : String(e)} after ${Date.now() - started}ms`);
+      console.error(`[JOB_ERROR ${tag}] ${e instanceof Error ? e.message : String(e)} after ${Date.now() - started}ms`);
     }
   })();
 
@@ -41,10 +56,11 @@ Deno.serve((req) => {
 
   return new Response(JSON.stringify({
     accepted: true,
-    note: "Bootstrap started in background. Tail logs of civiko-bootstrap-runner for [BOOTSTRAP_RESULT]/[BOOTSTRAP_BODY] lines.",
+    job: tag,
     target_url: url,
-    diagnostic_secret_present: diagSecret.length > 0,
+    job_secret_present: jobSecret.length > 0,
     started_at: new Date().toISOString(),
+    note: "Tail civiko-bootstrap-runner logs and grep [JOB_RESULT]/[JOB_BODY]/[JOB_END]/[JOB_ERROR] for tag=" + tag,
   }, null, 2), {
     status: 202,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
