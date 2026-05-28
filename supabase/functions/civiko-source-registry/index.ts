@@ -15,6 +15,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { parseCsv, toIntOrNull, toNumberOrNull, type CsvRow } from "../_shared/csvImport.ts";
 import { assertAggregateOnly } from "../_shared/compliance.ts";
+import { backfillEvidence } from "../_shared/evidenceBackfill.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -474,6 +475,12 @@ serve(async (req) => {
     if (req.method === "POST" && path === "/import/separations") return await importSeparations(req);
     if (req.method === "GET" && path === "/obituaries-aggregate") return await listObituariesAggregate(req);
     if (req.method === "POST" && path === "/import/obituaries-aggregate") return await importObituariesAggregate(req);
+    if (req.method === "POST" && path === "/backfill-evidence") {
+      const url2 = new URL(req.url);
+      const dry = url2.searchParams.get("dry_run") === "1" || url2.searchParams.get("dry_run") === "true";
+      const counts = await backfillEvidence(svc(), { dry_run: dry });
+      return json({ ok: true, data: { dry_run: dry, ...counts } });
+    }
 
     return json({ ok: false, error: { code: "NOT_FOUND", message: `Unknown route ${req.method} ${path}` } }, 404);
   } catch (e) {
