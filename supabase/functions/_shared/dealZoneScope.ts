@@ -30,6 +30,10 @@ export type DealZoneStatus =
 export interface DealScope {
   comuni: Set<string>;     // normalized lowercase
   microzones: Set<string>; // normalized lowercase slugs/labels
+  /** Comuni whose scope covers the FULL canonical zone set (e.g. all Padova).
+   *  When set, deal rows inside the comune without a microzone hint are
+   *  treated as `comune_scope_only` instead of `inside_comune_unmapped`. */
+  fullComune?: Set<string>;
 }
 
 export interface DealZoneClassification {
