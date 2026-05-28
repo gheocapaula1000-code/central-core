@@ -174,6 +174,8 @@ serve(async (req) => {
       summary,
       connectors,
       sources_summary,
+      automation_summary,
+      stale_sources,
       sources,
     });
   } catch (e) {
