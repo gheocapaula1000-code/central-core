@@ -73,6 +73,7 @@ export interface ScopeMatcher {
   comuni: Set<string>;
   microzones: Set<string>;
   expectedKeys: Set<string>;
+  fullComune: Set<string>;
 }
 
 export interface AreaInsight extends OpportunityFromEvidence {
