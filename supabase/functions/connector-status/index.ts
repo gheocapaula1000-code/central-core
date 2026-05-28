@@ -140,7 +140,8 @@ serve(async (req) => {
         .from("civiko_source_registry")
         .select(
           "source_code, source_name, access_type, compliance_level, implementation_status, " +
-          "activation_mode, automation_status, scheduler_frequency, " +
+          "activation_mode, automation_status, scheduler_frequency, scheduler_job_name, " +
+          "ingestion_endpoint, cross_check_enabled, automation_todo, " +
           "next_run_at, last_run_at, last_success_at, last_error, " +
           "stale_after_days, record_count, automation_notes, updated_at",
         )
