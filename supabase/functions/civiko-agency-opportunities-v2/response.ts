@@ -22,6 +22,12 @@ export const DEFAULT_AUDIT = {
   removed_no_actionable_target: 0,
   removed_insufficient_deal_evidence: 0,
   final_deal_opportunities_count: 0,
+  removed_outside_comune: 0,
+  removed_unmapped_zone: 0,
+  removed_zone_mismatch: 0,
+  deal_rows_missing_geo: 0,
+  deal_rows_inside_comune_unmapped: 0,
+  deal_rows_inside_agency_zone: 0,
 };
 
 export const EMPTY_PAYLOAD = {

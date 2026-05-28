@@ -204,7 +204,7 @@ describe("agency-opportunities-v2 scope + classification", () => {
         entity_type: "opportunity",
         source_code: "F16",
         compliance_visibility: "admin_only",
-        evidence_value: { auction_id: "PVP-998", listing_url: "https://pvp.giustizia.it/PVP-998" },
+        evidence_value: { auction_id: "PVP-998", listing_url: "https://pvp.giustizia.it/PVP-998", microzone: "Arcella" },
       }),
     ];
     const r = runOpportunityAudit(rows, arcellaAreas);
