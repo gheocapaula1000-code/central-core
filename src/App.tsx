@@ -82,6 +82,7 @@ const App = () => (
                     <Route path="/dossier-agenzia" element={<DossierAgenziaPage />} />
                     <Route path="/sintesi-proprietario" element={<SintesiProprietarioPage />} />
                     <Route path="/data-engine" element={<DataEnginePage />} />
+                    <Route path="/source-registry" element={<SourceRegistryPage />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </main>
