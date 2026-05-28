@@ -75,6 +75,25 @@ function normalizeArea(row: Record<string, unknown>): AgencyArea {
   };
 }
 
+async function fetchEvidenceRows(supabase: ReturnType<typeof svc>): Promise<EvidenceRow[]> {
+  const select = "entity_type,entity_key,source_code,evidence_type,evidence_value,confidence,freshness_days,observed_at,explanation,raw_ref_id,compliance_visibility";
+  const pageSize = 1000;
+  const out: EvidenceRow[] = [];
+  for (let from = 0; from < 10_000; from += pageSize) {
+    const { data, error } = await supabase
+      .from("civiko_evidence")
+      .select(select)
+      .in("compliance_visibility", ["public", "admin_only"])
+      .order("observed_at", { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`evidence query failed: ${error.message}`);
+    const page = (data ?? []) as EvidenceRow[];
+    out.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return out;
+}
+
 serve(async (req) => {
   const debug_id = (globalThis.crypto?.randomUUID?.() ?? `dbg-${Date.now()}`);
   try {
@@ -167,16 +186,7 @@ serve(async (req) => {
       });
     }
 
-    const evidenceStage = await (async () => {
-      const { data: evidence, error: evErr } = await supabase
-        .from("civiko_evidence")
-        .select("entity_type,entity_key,source_code,evidence_type,evidence_value,confidence,freshness_days,observed_at,explanation,raw_ref_id,compliance_visibility")
-        .in("compliance_visibility", ["public", "admin_only"])
-        .order("observed_at", { ascending: false })
-        .limit(5000);
-      if (evErr) throw new Error(`evidence query failed: ${evErr.message}`);
-      return (evidence ?? []) as EvidenceRow[];
-    })().catch((err) => ({ error: err }));
+    const evidenceStage = await fetchEvidenceRows(supabase).catch((err) => ({ error: err }));
     if (!Array.isArray(evidenceStage)) return controlledError(debug_id, "STAGE_EVIDENCE_QUERY", evidenceStage.error, 200);
     logStage(debug_id, "STAGE_EVIDENCE_QUERY", true);
 
