@@ -147,7 +147,7 @@ export function filterAndGroup(
   const groups = new Map<string, EvidenceRow[]>();
   let removed_outside_scope = 0;
   let removed_stale = 0;
-  for (const r of rows) {
+  for (let r of rows) {
     const safeRow = sanitizeEvidenceRow(r);
     if (!safeRow) { removed_outside_scope++; continue; }
     r = safeRow;
