@@ -259,8 +259,9 @@ export interface SectionRunnerOptions {
 export function runOpportunityAudit(
   rows: EvidenceRow[],
   areas: AgencyArea[],
-  options: SectionRunnerOptions = {},
+  options: SectionRunnerOptions & { marketContext?: MarketContext } = {},
 ): OpportunityAuditResult {
+  const marketContext: MarketContext = options.marketContext ?? deriveMarketContextFromEvidence(rows);
   const scope = buildScopeMatcher(areas);
   const { groups, removed_outside_scope, removed_outside_comune, removed_stale } = filterAndGroup(rows, scope);
   const dealScope: DealScope = { comuni: scope.comuni, microzones: scope.microzones, fullComune: scope.fullComune };
