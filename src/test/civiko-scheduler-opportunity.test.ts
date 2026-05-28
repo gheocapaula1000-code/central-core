@@ -20,20 +20,25 @@ function fakeSupabase(initialRows: Array<{ source_code: string; last_run_at: str
   return {
     patches,
     from(_table: string) {
-      const ctx: Record<string, unknown> = {};
-      const chain = {
-        select(_cols?: string) { return chain; },
-        eq(col: string, val: string) { ctx[col] = val; return chain; },
-        async update(patch: Record<string, unknown>) {
-          const code = ctx.source_code as string;
-          patches[code] = { ...(patches[code] ?? {}), ...patch };
-          return { data: null, error: null };
-        },
+      const select = {
+        select(_cols?: string) { return select; },
         then(onFulfilled: (v: unknown) => unknown) {
           return Promise.resolve({ data: initialRows, error: null }).then(onFulfilled);
         },
       };
-      return chain;
+      return {
+        select(cols?: string) { return select.select(cols); },
+        update(patch: Record<string, unknown>) {
+          return {
+            async eq(col: string, val: string) {
+              if (col === "source_code") {
+                patches[val] = { ...(patches[val] ?? {}), ...patch };
+              }
+              return { data: null, error: null };
+            },
+          };
+        },
+      };
     },
   };
 }
