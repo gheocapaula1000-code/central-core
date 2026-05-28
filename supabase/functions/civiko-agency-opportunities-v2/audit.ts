@@ -419,6 +419,23 @@ export function runOpportunityAudit(
     }
   }
 
+  // Post-loop derivations: if we got deals but no area-level coverage,
+  // synthesize hot_microzones and commercial_actions from the deal aggregate
+  // so the PWA always has territorial intelligence when real evidence exists.
+  if (hot_microzones.length === 0) {
+    for (const insight of buildDerivedHotMicrozones(deal_opportunities, scope)) {
+      hot_microzones.push(insight);
+    }
+  }
+  if (commercial_actions.length === 0 || deal_opportunities.length > 0) {
+    for (const action of buildDerivedCommercialActions(deal_opportunities, focus_area, hot_microzones, marketContext)) {
+      // dedup by action_code+entity_key
+      if (!commercial_actions.some((a) => a.action_code === action.action_code && a.entity_key === action.entity_key)) {
+        commercial_actions.push(action);
+      }
+    }
+  }
+
   let empty_reason: string | null = null;
   if (deal_opportunities.length === 0) {
     if (rows.length === 0) empty_reason = "evidence_ledger_empty";
@@ -429,6 +446,7 @@ export function runOpportunityAudit(
     else if (removed_restricted > 0 && removed_insufficient_deal_evidence === 0 && removed_no_actionable_target === 0) empty_reason = "all_candidates_restricted";
     else empty_reason = "no_deal_level_opportunities";
   }
+
 
   const audit: OpportunityAudit = {
     candidates_before_filters,
