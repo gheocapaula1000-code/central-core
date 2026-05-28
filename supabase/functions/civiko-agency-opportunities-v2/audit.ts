@@ -243,7 +243,7 @@ export function runOpportunityAudit(
 ): OpportunityAuditResult {
   const scope = buildScopeMatcher(areas);
   const { groups, removed_outside_scope, removed_outside_comune, removed_stale } = filterAndGroup(rows, scope);
-  const dealScope: DealScope = { comuni: scope.comuni, microzones: scope.microzones };
+  const dealScope: DealScope = { comuni: scope.comuni, microzones: scope.microzones, fullComune: scope.fullComune };
 
   const focus_area: AreaInsight[] = [];
   const hot_microzones: AreaInsight[] = [];
