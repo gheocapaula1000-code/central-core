@@ -163,8 +163,8 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
         compliance_visibility: "admin_only",
       }),
     ];
-    expect(() => runOpportunityAudit(rows, arcellaAreas)).not.toThrow();
-    const result = runOpportunityAudit(rows, arcellaAreas);
+    expect(() => runOpportunityAudit(rows, allPadovaAreas)).not.toThrow();
+    const result = runOpportunityAudit(rows, allPadovaAreas);
     expect(result.deal_opportunities).toHaveLength(0);
     expect(result.audit.empty_reason).toBe("no_actionable_target");
   });
