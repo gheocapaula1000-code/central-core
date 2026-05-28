@@ -89,6 +89,18 @@ export interface CommercialAction {
   rationale: string;
 }
 
+export type QualityBucket = "work_today" | "verify" | "monitor" | "low_value";
+export type SourceAccess = "direct" | "cookie_wall_possible" | "unknown";
+
+export interface MarketContext {
+  /** map: comune (lowercased) → { min, max, avg } in EUR */
+  comune_omi?: Record<string, { min?: number | null; max?: number | null; avg?: number | null } | undefined>;
+  /** map: microzone (lowercased) → { min, max, avg } */
+  microzone_omi?: Record<string, { min?: number | null; max?: number | null; avg?: number | null } | undefined>;
+  /** ISO date when context was computed */
+  computed_at?: string;
+}
+
 export interface DealOpportunity extends OpportunityFromEvidence {
   insight_type: "deal_opportunity";
   entity_granularity: EntityGranularity;
@@ -103,7 +115,15 @@ export interface DealOpportunity extends OpportunityFromEvidence {
   price_label: string | null;
   urgency: "low" | "medium" | "high";
   next_action: string;
+  next_actions: string[];
+  arguments_to_avoid: string[];
   updated_at: string | null;
+  quality_bucket: QualityBucket;
+  quality_reasons: string[];
+  source_access: SourceAccess;
+  price_vs_market_label: string | null;
+  market_context: { source: string; min: number | null; max: number | null; avg: number | null } | null;
+  data_freshness: { days: number | null; observed_at: string | null };
 }
 
 const norm = (s: string) => s.trim().toLowerCase();
