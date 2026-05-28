@@ -153,8 +153,20 @@ export function classifyDealZoneScope(
   if (!comune_seg || !scope.comuni.has(comune_seg)) {
     return { status: "outside_comune", matched_zone: null, confidence: null, method: null };
   }
-  if (scope.microzones.size === 0) {
-    return { status: "comune_scope_only", matched_zone: null, confidence: null, method: null };
+  if (scope.microzones.size === 0 || scope.fullComune?.has(comune_seg)) {
+    // Full-comune scope: any deal inside the comune is eligible, with or
+    // without a microzone hint. If we have an inferred zone, surface it as
+    // metadata; otherwise proceed as comune_scope_only.
+    const inferred = inferDealZoneSlug(entity_key, group, comune_seg);
+    if (inferred && scope.microzones.has(inferred.slug)) {
+      return {
+        status: "inside_agency_zone",
+        matched_zone: inferred.slug,
+        confidence: inferred.confidence,
+        method: inferred.method,
+      };
+    }
+    return { status: "comune_scope_only", matched_zone: inferred?.slug ?? null, confidence: inferred?.confidence ?? null, method: inferred?.method ?? null };
   }
   const inferred = inferDealZoneSlug(entity_key, group, comune_seg);
   if (!inferred) {
