@@ -9,9 +9,10 @@
 import { describe, it, expect } from "vitest";
 import {
   buildResponseData,
+  buildControlledErrorBody,
   DEFAULT_AUDIT,
   EMPTY_PAYLOAD,
-} from "../../supabase/functions/civiko-agency-opportunities-v2/index.ts";
+} from "../../supabase/functions/civiko-agency-opportunities-v2/response.ts";
 import {
   runOpportunityAudit,
   type AgencyArea,
