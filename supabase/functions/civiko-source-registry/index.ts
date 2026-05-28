@@ -349,15 +349,21 @@ async function importObituariesAggregate(req: Request) {
       30,
       Math.round((Date.parse(windowEnd) - Date.parse(windowStart)) / 86_400_000) || F19_DEFAULT_WINDOW_DAYS,
     );
+    const nowIso = new Date().toISOString();
     records.push({
+      source_code: "F19",
       area_type: areaType,
       area_code: areaCode,
       window_start: windowStart,
       window_end: windowEnd,
       window_days: days,
       bucket_count: bucketCount,
+      confidence: "low",
+      last_observed_at: new Date(windowEnd).toISOString(),
+      computed_at: nowIso,
+      visible_to_pwa: false,
       source_url: sourceUrl,
-      imported_at: new Date().toISOString(),
+      imported_at: nowIso,
     });
   }
   if (records.length === 0) {
