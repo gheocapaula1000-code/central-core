@@ -111,7 +111,7 @@ serve(async (req) => {
       if (!allowed) return { response: json({ ok: false, error: { code: "FORBIDDEN" } }, 403) };
       return { supabase, user, membershipAgencyIds };
     })().catch((err) => ({ response: controlledError(debug_id, "STAGE_AUTH", err, 200) }));
-    if (authStage.response) return authStage.response;
+    if ("response" in authStage) return authStage.response;
     logStage(debug_id, "STAGE_AUTH", true);
 
     const { supabase, user, membershipAgencyIds } = authStage;
@@ -143,7 +143,7 @@ serve(async (req) => {
       }
       return [...dedup.values()];
     })().catch((err) => ({ error: err }));
-    if ("error" in scopeStage) return controlledError(debug_id, "STAGE_SCOPE", scopeStage.error, 200);
+    if (!Array.isArray(scopeStage)) return controlledError(debug_id, "STAGE_SCOPE", scopeStage.error, 200);
     logStage(debug_id, "STAGE_SCOPE", true);
 
     const areaList = scopeStage;
@@ -177,7 +177,7 @@ serve(async (req) => {
       if (evErr) throw new Error(`evidence query failed: ${evErr.message}`);
       return (evidence ?? []) as EvidenceRow[];
     })().catch((err) => ({ error: err }));
-    if ("error" in evidenceStage) return controlledError(debug_id, "STAGE_EVIDENCE_QUERY", evidenceStage.error, 200);
+    if (!Array.isArray(evidenceStage)) return controlledError(debug_id, "STAGE_EVIDENCE_QUERY", evidenceStage.error, 200);
     logStage(debug_id, "STAGE_EVIDENCE_QUERY", true);
 
     const sectionFailures: unknown[] = [];
