@@ -104,24 +104,20 @@ serve(async (req) => {
     const baseUrl = `${Deno.env.get("SUPABASE_URL") ?? ""}/functions/v1`;
     const supabase = svc();
 
-    // F11 needs lat/lng. Use the first agency_operating_area centroid for Padova
-    // (the only supported automated zone today). Returns null → runner skips with MISSING_COORDS.
+    // F11 needs lat/lng. Resolve via agency_operating_areas (Padova only is
+    // automated today). Returns null → runner skips with MISSING_COORDS.
     const resolveCoords = async (code: string): Promise<{ lat: number; lng: number } | null> => {
       if (code !== "F11") return null;
       try {
         const { data } = await supabase
           .from("agency_operating_areas")
-          .select("centroid_lat,centroid_lng,comuni")
+          .select("comuni")
           .contains("comuni", ["Padova"])
-          .not("centroid_lat", "is", null)
           .limit(1)
           .maybeSingle();
-        if (data?.centroid_lat && data?.centroid_lng) {
-          return { lat: Number(data.centroid_lat), lng: Number(data.centroid_lng) };
-        }
-      } catch { /* ignore — fall back to known Padova centroid below */ }
-      // Padova city centroid as documented fallback.
-      return { lat: 45.4064, lng: 11.8768 };
+        if (data) return { lat: 45.4064, lng: 11.8768 }; // Padova centroid
+      } catch { /* ignore */ }
+      return null;
     };
 
     const result = await runScheduledSources(
