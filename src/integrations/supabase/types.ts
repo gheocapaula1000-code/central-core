@@ -1021,8 +1021,10 @@ export type Database = {
       civiko_source_registry: {
         Row: {
           access_type: string
+          activation_mode: string | null
           compliance_level: string
           created_at: string
+          freshness_days: number | null
           id: string
           implementation_status: string
           last_error: string | null
@@ -1037,8 +1039,10 @@ export type Database = {
         }
         Insert: {
           access_type: string
+          activation_mode?: string | null
           compliance_level: string
           created_at?: string
+          freshness_days?: number | null
           id?: string
           implementation_status: string
           last_error?: string | null
@@ -1053,8 +1057,10 @@ export type Database = {
         }
         Update: {
           access_type?: string
+          activation_mode?: string | null
           compliance_level?: string
           created_at?: string
+          freshness_days?: number | null
           id?: string
           implementation_status?: string
           last_error?: string | null
