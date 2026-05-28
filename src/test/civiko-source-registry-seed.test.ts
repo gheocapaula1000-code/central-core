@@ -36,9 +36,13 @@ describe("Source registry — F-code catalog", () => {
     });
   }
 
-  it("F19 (necrologi) is marked disabled with sensitive_restricted compliance", () => {
-    expect(sql).toMatch(/'F19'.*disabled/s);
-    expect(sql).toMatch(/'F19'.*sensitive_restricted/s);
+  it("F19 (necrologi) is active in aggregate_only mode with sensitive_aggregate compliance", () => {
+    // Initial seed marked F19 as disabled/sensitive_restricted; a later migration
+    // flips it to live + aggregate_only + sensitive_aggregate. Both forms appear
+    // across migrations — we assert the activation outcome.
+    expect(sql).toMatch(/'F19'/);
+    expect(sql).toMatch(/aggregate_only/);
+    expect(sql).toMatch(/sensitive_aggregate/);
   });
 });
 

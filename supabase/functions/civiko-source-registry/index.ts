@@ -313,6 +313,84 @@ async function importSeparations(req: Request) {
 }
 
 // ────────────────────────────────────────────────────────────
+// F19 Obituaries aggregate-only (privacy-safe).
+// CSV/rows: area_type (cap|microzone|area), area_code, window_start (YYYY-MM-DD),
+//           window_end (YYYY-MM-DD), bucket_count
+// Hard rules enforced server-side:
+//   - assertAggregateOnly: rejects any person-level field
+//   - k-anonymity: bucket_count >= 3 (smaller buckets are silently suppressed)
+//   - window_days >= 30 (default 90)
+//   - No names, addresses, urls-to-records, no link to property/owner
+// ────────────────────────────────────────────────────────────
+export const F19_K_ANONYMITY_MIN = 3;
+export const F19_DEFAULT_WINDOW_DAYS = 90;
+
+async function importObituariesAggregate(req: Request) {
+  const body = await readBody(req);
+  const rows = body.rows ?? (body.csv ? parseCsv(body.csv) : []);
+  if (rows.length === 0) return json({ ok: false, error: { code: "EMPTY_INPUT", message: "csv or rows required" } }, 400);
+  const sourceUrl = body.source_url ?? null;
+
+  const records: Array<Record<string, unknown>> = [];
+  let suppressed = 0;
+  for (const r of rows) {
+    // Reject any person-level field outright (compliance guard).
+    assertAggregateOnly(r, "F19");
+    const areaType = String(r.area_type ?? "").trim().toLowerCase();
+    const areaCode = String(r.area_code ?? "").trim();
+    const windowStart = String(r.window_start ?? "").trim();
+    const windowEnd = String(r.window_end ?? "").trim();
+    const bucketCount = toIntOrNull(r.bucket_count);
+    if (!["cap", "microzone", "area"].includes(areaType)) continue;
+    if (!areaCode || !windowStart || !windowEnd || bucketCount == null) continue;
+    // K-anonymity: suppress buckets under threshold. Never persist them.
+    if (bucketCount < F19_K_ANONYMITY_MIN) { suppressed++; continue; }
+    const days = Math.max(
+      30,
+      Math.round((Date.parse(windowEnd) - Date.parse(windowStart)) / 86_400_000) || F19_DEFAULT_WINDOW_DAYS,
+    );
+    records.push({
+      area_type: areaType,
+      area_code: areaCode,
+      window_start: windowStart,
+      window_end: windowEnd,
+      window_days: days,
+      bucket_count: bucketCount,
+      source_url: sourceUrl,
+      imported_at: new Date().toISOString(),
+    });
+  }
+  if (records.length === 0) {
+    await updateRegistry("F19", false, 0, `No valid aggregate rows (suppressed=${suppressed} under k=${F19_K_ANONYMITY_MIN})`);
+    return json({
+      ok: false,
+      error: { code: "NO_VALID_ROWS", message: "All rows rejected or suppressed by k-anonymity threshold" },
+      data: { suppressed, k_anonymity_min: F19_K_ANONYMITY_MIN },
+    }, 400);
+  }
+  const supabase = svc();
+  const { error } = await supabase
+    .from("obituaries_aggregate_padova")
+    .upsert(records, { onConflict: "area_type,area_code,window_start,window_end" });
+  if (error) {
+    await updateRegistry("F19", false, 0, error.message);
+    return json({ ok: false, error: { code: "DB_ERROR", message: error.message } }, 500);
+  }
+  const { count } = await supabase.from("obituaries_aggregate_padova").select("*", { count: "exact", head: true });
+  await updateRegistry("F19", true, count ?? records.length);
+  return json({
+    ok: true,
+    data: {
+      imported: records.length,
+      suppressed,
+      k_anonymity_min: F19_K_ANONYMITY_MIN,
+      total: count ?? null,
+      compliance: "aggregate_only",
+    },
+  });
+}
+
+// ────────────────────────────────────────────────────────────
 // GET /sources
 // ────────────────────────────────────────────────────────────
 async function listSources() {
@@ -342,6 +420,7 @@ serve(async (req) => {
     if (req.method === "POST" && path === "/import/market-benchmark") return await importMarketBenchmark(req);
     if (req.method === "POST" && path === "/import/sue-permits") return await importSue(req);
     if (req.method === "POST" && path === "/import/separations") return await importSeparations(req);
+    if (req.method === "POST" && path === "/import/obituaries-aggregate") return await importObituariesAggregate(req);
 
     return json({ ok: false, error: { code: "NOT_FOUND", message: `Unknown route ${req.method} ${path}` } }, 404);
   } catch (e) {
