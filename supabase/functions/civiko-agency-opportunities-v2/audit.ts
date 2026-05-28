@@ -138,30 +138,50 @@ export function buildScopeMatcher(areas: AgencyArea[]): ScopeMatcher {
   return { comuni, microzones, expectedKeys };
 }
 
-function inScope(r: EvidenceRow, scope: ScopeMatcher): boolean {
+function inAreaScope(r: EvidenceRow, scope: ScopeMatcher): boolean {
   // Area-level keys: match expectedKeys directly or by microzone suffix.
   if (scope.expectedKeys.has(r.entity_key)) return true;
   if ([...scope.microzones].some((mz) => r.entity_key.endsWith(`:${mz}`))) return true;
-  // Deal-level keys (p:/op:/auct:/addr:/lead:) typically embed the comune as
-  // the second segment. Accept when that segment matches a configured comune.
-  const parts = r.entity_key.split(":");
-  if (parts.length >= 2 && scope.comuni.has(norm(parts[1] ?? ""))) return true;
   return false;
+}
+
+function dealComuneSeg(entity_key: string): string {
+  const parts = entity_key.split(":");
+  return norm(parts[1] ?? "");
 }
 
 export function filterAndGroup(
   rows: EvidenceRow[],
   scope: ScopeMatcher,
   staleAfterDays = 365,
-): { groups: Map<string, EvidenceRow[]>; removed_outside_scope: number; removed_stale: number } {
+): {
+  groups: Map<string, EvidenceRow[]>;
+  removed_outside_scope: number;
+  removed_outside_comune: number;
+  removed_stale: number;
+} {
   const groups = new Map<string, EvidenceRow[]>();
   let removed_outside_scope = 0;
+  let removed_outside_comune = 0;
   let removed_stale = 0;
   for (let r of rows) {
     const safeRow = sanitizeEvidenceRow(r);
     if (!safeRow) { removed_outside_scope++; continue; }
     r = safeRow;
-    if (!inScope(r, scope)) { removed_outside_scope++; continue; }
+    if (isDealKey(r.entity_key)) {
+      // Deal-level keys: comune segment must belong to the agency. Microzone
+      // verification happens later (per-group) in runOpportunityAudit so we
+      // can distinguish inside_comune_unmapped from outside_comune.
+      const comuneSeg = dealComuneSeg(r.entity_key);
+      if (!comuneSeg || !scope.comuni.has(comuneSeg)) {
+        removed_outside_comune++;
+        removed_outside_scope++;
+        continue;
+      }
+    } else if (!inAreaScope(r, scope)) {
+      removed_outside_scope++;
+      continue;
+    }
     if (typeof r.freshness_days === "number" && r.freshness_days > staleAfterDays) {
       removed_stale++; continue;
     }
@@ -169,7 +189,7 @@ export function filterAndGroup(
     arr.push(r);
     groups.set(r.entity_key, arr);
   }
-  return { groups, removed_outside_scope, removed_stale };
+  return { groups, removed_outside_scope, removed_outside_comune, removed_stale };
 }
 
 export interface OpportunityAuditResult {
