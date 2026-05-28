@@ -535,8 +535,46 @@ serve(async (req) => {
   } catch { /* fonte fallita silenziosamente */ }
   all.push(...radarOpps);
 
-
-
+  // ─── FONTE E: civiko-opportunity-engine ──────────────────────
+  const engineOpps: Opportunity[] = [];
+  try {
+    const engineUrl = (Deno.env.get("SUPABASE_URL") ?? "")
+      .replace(/\/$/, "") + "/functions/v1/civiko-opportunity-engine";
+    const engineRes = await fetch(engineUrl, {
+      method: "GET",
+      headers: {
+        "Authorization": req.headers.get("Authorization") ?? "",
+        "apikey": Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+      },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (engineRes.ok) {
+      const engineData = await engineRes.json().catch(() => null);
+      const items: any[] = Array.isArray(engineData) ? engineData : (engineData?.data ?? []);
+      for (const item of items) {
+        if (!item || typeof item.id !== "string") continue;
+        engineOpps.push({
+          id: "eng-" + item.id,
+          title: item.title ?? "Opportunità avanzata",
+          territory: item.territory ?? "Padova",
+          property_type: item.property_type ?? "residenziale",
+          temperature: item.temperature ?? "tiepido",
+          priority: item.priority ?? "media",
+          assignment_probability: item.assignment_probability ?? 55,
+          estimated_value: item.estimated_value ?? 0,
+          commission_potential: item.commission_potential ?? 0,
+          window_label: item.window_label ?? "Finestra identificata",
+          commercial_reason: item.commercial_reason ?? "",
+          next_action: item.next_action ?? "Qualifica opportunità",
+          dossier_status: (item.assignment_probability ?? 0) >= 70
+            ? "pronto" : "in_preparazione",
+          visible_to_agency: true,
+          fonte_tipo: item.signals?.[0] ?? undefined,
+        });
+      }
+    }
+  } catch { /* fonte fallita silenziosamente */ }
+  all.push(...engineOpps);
 
   const items = dedupe(all)
     .filter((o) => o.visible_to_agency)
