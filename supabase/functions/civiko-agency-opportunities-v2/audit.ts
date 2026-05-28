@@ -327,7 +327,7 @@ export function runOpportunityAudit(
       if (!hasMarketSrc) { removed_insufficient_deal_evidence++; continue; }
 
       // Actionable target required.
-      const target = extractActionableTarget(safeGroup);
+      const target = extractActionableTarget(safeGroup, key);
       if (!target.ok) { removed_no_actionable_target++; continue; }
 
       if (!opp) {
@@ -344,7 +344,7 @@ export function runOpportunityAudit(
         insight_type: "deal_opportunity",
         entity_granularity,
         id: key,
-        title: meta.title ?? key,
+        title: meta.title ?? target.title ?? key,
         area_name: meta.area_name,
         microzone: meta.microzone ?? zoneCls.matched_zone,
         target_type: target.target_type ?? "listing",
@@ -473,20 +473,21 @@ function extractDealMeta(group: EvidenceRow[]): DealMeta {
   let sale_date: string | null = null;
   for (const r of group) {
     const v = evidenceValueAsRecord(r.evidence_value);
-    title ??= pickString(v, ["title"]);
+    title ??= pickString(v, ["title", "address", "name"]);
     area_name ??= pickString(v, ["municipality", "comune", "area_name"]);
     microzone ??= pickString(v, ["microzone", "microzona"]);
-    ask_price ??= pickNum(v, ["ask_price"]);
-    base_price ??= pickNum(v, ["base_price_eur"]);
+    ask_price ??= pickNum(v, ["ask_price", "price"]);
+    base_price ??= pickNum(v, ["base_price", "base_price_eur"]);
     min_offer ??= pickNum(v, ["minimum_offer_eur"]);
     sale_date ??= pickString(v, ["sale_date"]);
     const last = pickString(v, ["last_seen_at"]) ?? r.observed_at;
     if (!updated_at || (last && last > updated_at)) updated_at = last;
   }
   const price = ask_price ?? min_offer ?? base_price;
-  const price_label = price != null
+  const explicit_price_label = firstString(group, ["price_label", "ask_price", "price", "base_price"]);
+  const price_label = explicit_price_label ?? (price != null
     ? new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(price)
-    : null;
+    : null);
   let urgency: DealMeta["urgency"] = "low";
   if (sale_date) {
     const days = (new Date(sale_date).getTime() - Date.now()) / 86400_000;
