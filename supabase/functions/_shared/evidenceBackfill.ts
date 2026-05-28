@@ -332,6 +332,19 @@ export async function backfillEvidence(supabase: Sb, opts: { dry_run?: boolean }
     counts.offmarket_opportunity_scores += Object.values(buckets).reduce((a, b) => a + b.length, 0) - before;
   }
 
+  // Deal-level: normalized_opportunities → op:<comune>:<id>
+  for (const r of (await fetchAll(supabase, "normalized_opportunities", "id,municipality,microzone,source_name,category,title,source_url,ask_price,surface_mq,address_text,freshness_days,priority_score,last_seen_at")) as NormalizedDealRow[]) {
+    const before = Object.values(buckets).reduce((a, b) => a + b.length, 0);
+    push(mapDealFromNormalized(r, "F13"));
+    counts.deal_listings += Object.values(buckets).reduce((a, b) => a + b.length, 0) - before;
+  }
+  // Deal-level: auction_signals → auct:<comune>:<fp>
+  for (const r of (await fetchAll(supabase, "auction_signals", "fingerprint,municipality,province,source_url,source_name,base_price_eur,minimum_offer_eur,sale_date,status,quality,is_active")) as AuctionDealRow[]) {
+    const before = Object.values(buckets).reduce((a, b) => a + b.length, 0);
+    push(mapDealFromAuction(r));
+    counts.deal_auctions += Object.values(buckets).reduce((a, b) => a + b.length, 0) - before;
+  }
+
   for (const [code, rows] of Object.entries(buckets)) {
     counts.by_source_code[code] = rows.length;
     counts.total += rows.length;
@@ -339,13 +352,9 @@ export async function backfillEvidence(supabase: Sb, opts: { dry_run?: boolean }
 
   if (opts.dry_run) return counts;
 
-  // Insert in chunks
+  // Idempotent upsert so re-runs don't duplicate.
   for (const rows of Object.values(buckets)) {
-    for (let i = 0; i < rows.length; i += 500) {
-      const slice = rows.slice(i, i + 500);
-      const { error } = await supabase.from("civiko_evidence").insert(slice);
-      if (error) throw error;
-    }
+    await upsertEvidenceRows(supabase, rows);
   }
   return counts;
 }
