@@ -38,10 +38,72 @@ export interface RunDeps {
   baseUrl: string;
   /** Job secret to forward to internal endpoints. */
   jobSecret: string;
+  /** Secret pool for per-source auth headers (AI_CORE_SECRET_CIVIKO, SERVICE_ROLE, etc.). */
+  secrets?: {
+    AI_CORE_SECRET_CIVIKO?: string;
+    SUPABASE_SERVICE_ROLE_KEY?: string;
+  };
+  /** Optional resolver returning lat/lng for sources that require coords (F11). */
+  resolveCoords?: (sourceCode: string) => Promise<{ lat: number; lng: number } | null>;
+  /** When true, after a successful POST also run the per-source evidence writer. */
+  attachEvidenceWriter?: boolean;
 }
 
 /** Source codes that MUST NEVER be auto-scheduled. */
 export const FORBIDDEN_SCHEDULER_CODES = new Set(["F14", "F15"]);
+
+/**
+ * Per-source request shaping. Returns either request bits or a skip reason
+ * (e.g. F11 with no coords). Kept inline so the runner has no per-source
+ * branching scattered through it.
+ */
+export function buildRequestPlan(
+  plan: SourcePlan,
+  secrets: RunDeps["secrets"] | undefined,
+  jobSecret: string,
+  coords: { lat: number; lng: number } | null,
+): { headers: Record<string, string>; body: Record<string, unknown> } | { skip_reason: string } {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "x-job-secret": jobSecret,
+  };
+  const body: Record<string, unknown> = { triggered_by: "civiko-scheduler", source_code: plan.code };
+  const civikoSecret = secrets?.AI_CORE_SECRET_CIVIKO ?? "";
+  const serviceKey = secrets?.SUPABASE_SERVICE_ROLE_KEY ?? "";
+
+  switch (plan.code) {
+    case "F2":
+    case "F6":
+      // Protected by requireSecret() with segmented AI_CORE_SECRET_CIVIKO.
+      if (!civikoSecret) return { skip_reason: "missing_AI_CORE_SECRET_CIVIKO" };
+      headers["x-internal-secret"] = civikoSecret;
+      headers["x-source-app"] = "civiko";
+      break;
+    case "F5":
+      // Admin-Bearer endpoint. Pass service-role + job secret to use the
+      // job-secret bypass path (constant-time compared inside the function).
+      if (!serviceKey) return { skip_reason: "missing_SUPABASE_SERVICE_ROLE_KEY" };
+      headers["Authorization"] = `Bearer ${serviceKey}`;
+      headers["apikey"] = serviceKey;
+      break;
+    case "F19":
+      // Aggregate-only obituaries importer — same job-secret bypass path.
+      if (!serviceKey) return { skip_reason: "missing_SUPABASE_SERVICE_ROLE_KEY" };
+      headers["Authorization"] = `Bearer ${serviceKey}`;
+      headers["apikey"] = serviceKey;
+      break;
+    case "F11":
+      if (!coords) return { skip_reason: "MISSING_COORDS" };
+      body.lat = coords.lat;
+      body.lng = coords.lng;
+      body.radiusMeters = 1500;
+      break;
+    default:
+      // F7, F10, F13, F16, F21: default x-job-secret only.
+      break;
+  }
+  return { headers, body };
+}
 
 /** Returns the plan rows that are eligible for scheduled execution. */
 export function eligibleSourcePlans(): SourcePlan[] {
