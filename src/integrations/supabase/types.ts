@@ -3182,6 +3182,42 @@ export type Database = {
           },
         ]
       }
+      obituaries_aggregate_padova: {
+        Row: {
+          area_code: string
+          area_type: string
+          bucket_count: number
+          id: number
+          imported_at: string
+          source_url: string | null
+          window_days: number
+          window_end: string
+          window_start: string
+        }
+        Insert: {
+          area_code: string
+          area_type: string
+          bucket_count: number
+          id?: number
+          imported_at?: string
+          source_url?: string | null
+          window_days: number
+          window_end: string
+          window_start: string
+        }
+        Update: {
+          area_code?: string
+          area_type?: string
+          bucket_count?: number
+          id?: number
+          imported_at?: string
+          source_url?: string | null
+          window_days?: number
+          window_end?: string
+          window_start?: string
+        }
+        Relationships: []
+      }
       obituaries_seen: {
         Row: {
           agency_private_only: boolean
