@@ -128,23 +128,45 @@ serve(async (req) => {
 
     // Source registry health (read-only). Failures degrade to empty list.
     let sources: Array<Record<string, unknown>> = [];
-    let sources_summary = { total: 0, live: 0, partial: 0, planned: 0, disabled: 0, manual_import: 0 };
+    const sources_summary: Record<string, number> = {
+      total: 0, live: 0, partial: 0, planned: 0, disabled: 0, manual_import: 0,
+    };
+    const automation_summary: Record<string, number> = {
+      automated: 0, semi_automated: 0, manual_fallback: 0, premium_on_demand: 0, disabled: 0,
+    };
+    let stale_sources = 0;
     try {
       const { data } = await supabase
         .from("civiko_source_registry")
-        .select("source_code, source_name, access_type, compliance_level, implementation_status, last_success_at, last_error, record_count, updated_at")
+        .select(
+          "source_code, source_name, access_type, compliance_level, implementation_status, " +
+          "activation_mode, automation_status, scheduler_frequency, " +
+          "next_run_at, last_run_at, last_success_at, last_error, " +
+          "stale_after_days, record_count, automation_notes, updated_at",
+        )
         .order("source_code", { ascending: true });
       if (Array.isArray(data)) {
-        sources = data;
-        for (const s of data) {
+        const now = Date.now();
+        sources = data.map((s) => {
+          const lastSuccess = s.last_success_at ? Date.parse(String(s.last_success_at)) : null;
+          const stale_days = s.stale_after_days ?? null;
+          const ageDays = lastSuccess ? Math.floor((now - lastSuccess) / 86_400_000) : null;
+          const is_stale = stale_days != null && ageDays != null && ageDays > Number(stale_days);
+          if (is_stale) stale_sources++;
+          return { ...s, age_days: ageDays, is_stale };
+        });
+        for (const s of sources) {
           sources_summary.total++;
           const st = String(s.implementation_status ?? "");
-          if (st in sources_summary) (sources_summary as Record<string, number>)[st]++;
+          if (st in sources_summary) sources_summary[st]++;
+          const auto = String(s.automation_status ?? "");
+          if (auto in automation_summary) automation_summary[auto]++;
         }
       }
     } catch (e) {
       console.warn("connector-status: source registry read failed", (e as Error).message);
     }
+
 
     return json({
       ok: true,
@@ -152,6 +174,8 @@ serve(async (req) => {
       summary,
       connectors,
       sources_summary,
+      automation_summary,
+      stale_sources,
       sources,
     });
   } catch (e) {
