@@ -124,6 +124,8 @@ describe("sourceJobs.runOne — outcome contracts", () => {
     const supabase = fakeSupabase();
     const r = await runOne(SOURCE_PLAN.F2, {
       supabase, baseUrl: "https://x.test", jobSecret: "s",
+      secrets: { AI_CORE_SECRET_CIVIKO: "civiko" },
+      attachEvidenceWriter: false,
       fetchImpl: () => Promise.resolve(new Response(JSON.stringify({ ok: true, records_processed: 42 }), { status: 200 })),
     });
     expect(r.status).toBe("success");
@@ -137,6 +139,8 @@ describe("sourceJobs.runOne — outcome contracts", () => {
     const supabase = fakeSupabase();
     const r = await runOne(SOURCE_PLAN.F2, {
       supabase, baseUrl: "https://x.test", jobSecret: "s",
+      secrets: { AI_CORE_SECRET_CIVIKO: "civiko" },
+      attachEvidenceWriter: false,
       fetchImpl: () => Promise.resolve(new Response("boom", { status: 500 })),
     });
     expect(r.status).toBe("failed");
@@ -149,6 +153,8 @@ describe("sourceJobs.runOne — outcome contracts", () => {
     const supabase = fakeSupabase();
     const r = await runOne(SOURCE_PLAN.F5, {
       supabase, baseUrl: "https://x.test", jobSecret: "s",
+      secrets: { SUPABASE_SERVICE_ROLE_KEY: "srv" },
+      attachEvidenceWriter: false,
       fetchImpl: () => Promise.reject(new Error("network down")),
     });
     expect(r.status).toBe("failed");
@@ -166,7 +172,12 @@ describe("sourceJobs.runScheduledSources — isolation + summary", () => {
       return Promise.resolve(new Response(JSON.stringify({ records_processed: 1 }), { status: 200 }));
     };
     const out = await runScheduledSources(
-      { supabase, baseUrl: "https://x.test", jobSecret: "s", fetchImpl },
+      {
+        supabase, baseUrl: "https://x.test", jobSecret: "s", fetchImpl,
+        secrets: { AI_CORE_SECRET_CIVIKO: "civiko", SUPABASE_SERVICE_ROLE_KEY: "srv" },
+        resolveCoords: async () => ({ lat: 45.4, lng: 11.8 }),
+        attachEvidenceWriter: false,
+      },
       {},
     );
     expect(out.summary.failed).toBeGreaterThanOrEqual(1);
