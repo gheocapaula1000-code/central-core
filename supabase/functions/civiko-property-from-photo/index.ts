@@ -829,15 +829,23 @@ async function orchestrate(body: RequestBody, debugId: string) {
     }
   }
 
-  // Static neighborhood heatmap (Mapbox Static API)
+  // Static neighborhood heatmap (Mapbox Static API).
+  // No placeholder fallback: if MAPBOX_API_KEY is missing we OMIT the URL
+  // (mappaCaloreUrl=null) and surface a structured warning. Calling Mapbox
+  // with an invalid placeholder token would 401 and leak the fake token.
   const lat = ctx.coords?.lat ?? 45.4064;
   const lng = ctx.coords?.lng ?? 11.8768;
-  const mapboxToken = Deno.env.get("MAPBOX_API_KEY") || "pk.eyJ1IjoiY2l2aWtvIiwiYSI6ImNsdHh6Y2Z6YjAwaW8ya3F5Z2Z6YjAifQ.placeholder";
-  const zoom = 14;
-  const width = 800;
-  const height = 400;
-  const marker = `pin-l-star+d4af37(${lng},${lat})`;
-  const mappaCaloreUrl = `https://api.mapbox.com/styles/v1/mapbox/dark-v11/static/${marker}/${lng},${lat},${zoom},0/${width}x${height}?access_token=${mapboxToken}`;
+  const mapboxToken = Deno.env.get("MAPBOX_API_KEY") ?? "";
+  let mappaCaloreUrl: string | null = null;
+  if (!mapboxToken) {
+    warnings.push("Mappa di calore non disponibile: MAPBOX_API_KEY non configurata.");
+  } else {
+    const zoom = 14;
+    const width = 800;
+    const height = 400;
+    const marker = `pin-l-star+d4af37(${lng},${lat})`;
+    mappaCaloreUrl = `https://api.mapbox.com/styles/v1/mapbox/dark-v11/static/${marker}/${lng},${lat},${zoom},0/${width}x${height}?access_token=${mapboxToken}`;
+  }
 
   // Veneto enrichment (additive — non rompe il contratto legacy).
   const venetoBundle = await buildVenetoEnrichment({
