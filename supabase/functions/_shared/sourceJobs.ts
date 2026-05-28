@@ -5,6 +5,7 @@
 // from the civiko-scheduler edge function.
 
 import { SOURCE_PLAN, nextRunAfter, isStale, type SourcePlan } from "./sourceScheduler.ts";
+import { hasEvidenceWriter, runEvidenceWriter } from "./sourceEvidenceWriters.ts";
 
 export type JobOutcome = "skipped" | "success" | "failed";
 
