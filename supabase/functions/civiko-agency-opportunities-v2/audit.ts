@@ -219,7 +219,8 @@ export function runOpportunityAudit(
   options: SectionRunnerOptions = {},
 ): OpportunityAuditResult {
   const scope = buildScopeMatcher(areas);
-  const { groups, removed_outside_scope, removed_stale } = filterAndGroup(rows, scope);
+  const { groups, removed_outside_scope, removed_outside_comune, removed_stale } = filterAndGroup(rows, scope);
+  const dealScope: DealScope = { comuni: scope.comuni, microzones: scope.microzones };
 
   const focus_area: AreaInsight[] = [];
   const hot_microzones: AreaInsight[] = [];
@@ -236,6 +237,13 @@ export function runOpportunityAudit(
   let removed_no_actionable_target = 0;
   let removed_insufficient_deal_evidence = 0;
 
+  // Deal-level scope breakdown
+  let removed_unmapped_zone = 0;
+  let removed_zone_mismatch = 0;
+  let deal_rows_missing_geo = 0;
+  let deal_rows_inside_comune_unmapped = 0;
+  let deal_rows_inside_agency_zone = 0;
+
   const dist = { low: 0, medium: 0, high: 0 };
 
   const warnings: string[] = [];
@@ -250,66 +258,81 @@ export function runOpportunityAudit(
       const opp = buildOpportunityFromEvidence(entity_type, key, safeGroup, "agency");
 
       if (insight_type === "area_insight") {
-      // Area-level: NEVER a deal. Track as insight + derive actions.
-      removed_area_only++;
+        // Area-level: NEVER a deal. Track as insight + derive actions.
+        removed_area_only++;
+        if (!opp) {
+          const hasOnlyRestricted = safeGroup.every((r) => r.compliance_visibility === "restricted" || r.compliance_visibility === "aggregate_only");
+          if (hasOnlyRestricted) removed_restricted++;
+          else if (new Set(safeGroup.map((r) => r.source_code)).size < 2) removed_insufficient_evidence++;
+          else removed_weak_only++;
+          continue;
+        }
+        const insight: AreaInsight = { ...opp, insight_type, entity_granularity };
+        if (entity_granularity === "comune") focus_area.push(insight);
+        else hot_microzones.push(insight);
+        for (const a of deriveCommercialActions(key, entity_granularity, safeGroup)) {
+          commercial_actions.push({ entity_key: key, entity_granularity, ...a });
+        }
+        continue;
+      }
+
+      // deal_opportunity path
+      deal_candidates_before_filters++;
+
+      // Zone-level scope verification (comune was already filtered upstream).
+      const zoneCls = classifyDealZoneScope(key, safeGroup, dealScope);
+      if (zoneCls.status === "inside_comune_unmapped") {
+        deal_rows_inside_comune_unmapped++;
+        deal_rows_missing_geo++;
+        removed_unmapped_zone++;
+        continue;
+      }
+      if (zoneCls.status === "zone_mismatch") {
+        removed_zone_mismatch++;
+        continue;
+      }
+      // inside_agency_zone OR comune_scope_only → proceed.
+      deal_rows_inside_agency_zone++;
+
+      // Forbidden-solo guard at the deal layer (F19/F22 alone never a deal).
+      const codes = new Set(safeGroup.map((r) => r.source_code));
+      const onlyForbidden = [...codes].every((c) => DEAL_FORBIDDEN_SOLO_SOURCES.has(c));
+      if (onlyForbidden) { removed_insufficient_deal_evidence++; continue; }
+
+      // Need at least one deal-eligible market source.
+      const hasMarketSrc = [...codes].some((c) => DEAL_ELIGIBLE_SOURCES.has(c));
+      if (!hasMarketSrc) { removed_insufficient_deal_evidence++; continue; }
+
+      // Actionable target required.
+      const target = extractActionableTarget(safeGroup);
+      if (!target.ok) { removed_no_actionable_target++; continue; }
+
       if (!opp) {
         const hasOnlyRestricted = safeGroup.every((r) => r.compliance_visibility === "restricted" || r.compliance_visibility === "aggregate_only");
         if (hasOnlyRestricted) removed_restricted++;
-        else if (new Set(safeGroup.map((r) => r.source_code)).size < 2) removed_insufficient_evidence++;
-        else removed_weak_only++;
+        else removed_insufficient_deal_evidence++;
         continue;
       }
-      const insight: AreaInsight = { ...opp, insight_type, entity_granularity };
-      if (entity_granularity === "comune") focus_area.push(insight);
-      else hot_microzones.push(insight);
-      for (const a of deriveCommercialActions(key, entity_granularity, safeGroup)) {
-        commercial_actions.push({ entity_key: key, entity_granularity, ...a });
-      }
-      continue;
-    }
 
-    // deal_opportunity path
-    deal_candidates_before_filters++;
-
-    // Forbidden-solo guard at the deal layer (F19/F22 alone never a deal).
-    const codes = new Set(safeGroup.map((r) => r.source_code));
-    const onlyForbidden = [...codes].every((c) => DEAL_FORBIDDEN_SOLO_SOURCES.has(c));
-    if (onlyForbidden) { removed_insufficient_deal_evidence++; continue; }
-
-    // Need at least one deal-eligible market source.
-    const hasMarketSrc = [...codes].some((c) => DEAL_ELIGIBLE_SOURCES.has(c));
-    if (!hasMarketSrc) { removed_insufficient_deal_evidence++; continue; }
-
-    // Actionable target required.
-    const target = extractActionableTarget(safeGroup);
-    if (!target.ok) { removed_no_actionable_target++; continue; }
-
-    if (!opp) {
-      const hasOnlyRestricted = safeGroup.every((r) => r.compliance_visibility === "restricted" || r.compliance_visibility === "aggregate_only");
-      if (hasOnlyRestricted) removed_restricted++;
-      else removed_insufficient_deal_evidence++;
-      continue;
-    }
-
-    dist[opp.evidence_summary.confidence]++;
-    const meta = extractDealMeta(safeGroup);
-    deal_opportunities.push({
-      ...opp,
-      insight_type: "deal_opportunity",
-      entity_granularity,
-      id: key,
-      title: meta.title ?? key,
-      area_name: meta.area_name,
-      microzone: meta.microzone,
-      target_type: target.target_type ?? "listing",
-      target_ref: target.target_ref,
-      target_url: target.target_url,
-      address: target.address,
-      price_label: meta.price_label,
-      urgency: meta.urgency,
-      next_action: nextActionFor(target.target_type ?? "listing"),
-      updated_at: meta.updated_at,
-    });
+      dist[opp.evidence_summary.confidence]++;
+      const meta = extractDealMeta(safeGroup);
+      deal_opportunities.push({
+        ...opp,
+        insight_type: "deal_opportunity",
+        entity_granularity,
+        id: key,
+        title: meta.title ?? key,
+        area_name: meta.area_name,
+        microzone: meta.microzone ?? zoneCls.matched_zone,
+        target_type: target.target_type ?? "listing",
+        target_ref: target.target_ref,
+        target_url: target.target_url,
+        address: target.address,
+        price_label: meta.price_label,
+        urgency: meta.urgency,
+        next_action: nextActionFor(target.target_type ?? "listing"),
+        updated_at: meta.updated_at,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       warnings.push(`classification_skipped:${key}:${message}`);
@@ -324,6 +347,7 @@ export function runOpportunityAudit(
     if (rows.length === 0) empty_reason = "evidence_ledger_empty";
     else if (candidates_before_filters === 0 && removed_outside_scope > 0) empty_reason = "no_evidence_inside_agency_scope";
     else if (deal_candidates_before_filters === 0) empty_reason = "no_deal_level_opportunities";
+    else if (removed_unmapped_zone > 0 && deal_rows_inside_agency_zone === 0) empty_reason = "deals_inside_comune_unmapped_to_agency_zone";
     else if (removed_no_actionable_target > 0 && removed_insufficient_deal_evidence === 0) empty_reason = "no_actionable_target";
     else if (removed_restricted > 0 && removed_insufficient_deal_evidence === 0 && removed_no_actionable_target === 0) empty_reason = "all_candidates_restricted";
     else empty_reason = "no_deal_level_opportunities";
@@ -347,6 +371,13 @@ export function runOpportunityAudit(
     removed_no_actionable_target,
     removed_insufficient_deal_evidence,
     final_deal_opportunities_count: deal_opportunities.length,
+
+    removed_outside_comune,
+    removed_unmapped_zone,
+    removed_zone_mismatch,
+    deal_rows_missing_geo,
+    deal_rows_inside_comune_unmapped,
+    deal_rows_inside_agency_zone,
   };
 
   return {
