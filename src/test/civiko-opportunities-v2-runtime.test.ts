@@ -26,6 +26,16 @@ import {
 const arcellaAreas: AgencyArea[] = [
   { agency_id: "a1", user_id: null, comuni: ["Padova"], microzones: ["Arcella"], quartieri: [] },
 ];
+// Full canonical Padova zones — used when tests need a Padova-wide scope so
+// deals without a specific microzone hint are still eligible.
+const ALL_PADOVA_MZ = [
+  "arcella","brusegana","camin","centro storico","chiesanuova","forcellini",
+  "guizza","mandria","mortise","pontevigodarzere","prato della valle",
+  "sacra famiglia","sant'osvaldo","stazione","voltabarozzo",
+];
+const allPadovaAreas: AgencyArea[] = [
+  { agency_id: "a1", user_id: null, comuni: ["Padova"], microzones: ALL_PADOVA_MZ, quartieri: ALL_PADOVA_MZ },
+];
 
 describe("civiko-agency-opportunities-v2 runtime safety", () => {
   it("buildResponseData survives null result", () => {
