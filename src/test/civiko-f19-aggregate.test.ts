@@ -216,7 +216,7 @@ describe("F19 — registry only marks active because aggregate path exists", () 
   it("aggregate table migration precedes (or accompanies) F19 going live", () => {
     // Both must appear; the table creation is the proof-of-path that justifies activation.
     expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS public\.obituaries_aggregate_padova/);
-    expect(sql).toMatch(/UPDATE\s+public\.civiko_source_registry[\s\S]*'F19'[\s\S]*aggregate_only/);
+    expect(sql).toMatch(/UPDATE\s+public\.civiko_source_registry[\s\S]*?aggregate_only[\s\S]*?'F19'/);
   });
 
   it("freshness window is realistic and documented", () => {
