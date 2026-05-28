@@ -27,6 +27,7 @@ import {
   type EntityGranularity,
   type InsightType,
 } from "../_shared/opportunityClassification.ts";
+import { classifyDealZoneScope, isDealKey, type DealScope } from "../_shared/dealZoneScope.ts";
 
 export interface AgencyArea {
   agency_id: string | null;
