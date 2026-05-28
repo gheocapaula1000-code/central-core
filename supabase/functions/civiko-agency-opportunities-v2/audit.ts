@@ -80,11 +80,18 @@ export interface CommercialAction {
 export interface DealOpportunity extends OpportunityFromEvidence {
   insight_type: "deal_opportunity";
   entity_granularity: EntityGranularity;
+  id: string;
+  title: string;
+  area_name: string | null;
+  microzone: string | null;
   target_type: string;
   target_ref?: string;
   target_url?: string;
   address?: string;
+  price_label: string | null;
+  urgency: "low" | "medium" | "high";
   next_action: string;
+  updated_at: string | null;
 }
 
 const norm = (s: string) => s.trim().toLowerCase();
