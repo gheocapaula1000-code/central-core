@@ -475,6 +475,12 @@ serve(async (req) => {
     if (req.method === "POST" && path === "/import/separations") return await importSeparations(req);
     if (req.method === "GET" && path === "/obituaries-aggregate") return await listObituariesAggregate(req);
     if (req.method === "POST" && path === "/import/obituaries-aggregate") return await importObituariesAggregate(req);
+    if (req.method === "POST" && path === "/backfill-evidence") {
+      const url2 = new URL(req.url);
+      const dry = url2.searchParams.get("dry_run") === "1" || url2.searchParams.get("dry_run") === "true";
+      const counts = await backfillEvidence(svc(), { dry_run: dry });
+      return json({ ok: true, data: { dry_run: dry, ...counts } });
+    }
 
     return json({ ok: false, error: { code: "NOT_FOUND", message: `Unknown route ${req.method} ${path}` } }, 404);
   } catch (e) {
