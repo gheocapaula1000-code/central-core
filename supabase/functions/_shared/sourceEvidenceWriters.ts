@@ -4,8 +4,14 @@
 // rows into civiko_evidence. Idempotent — relies on the unique index on
 // (entity_type, entity_key, source_code, evidence_type).
 //
-// Only attached for the F-codes that already have a real ingestion path
-// but no inline evidence-writer step: F7, F10, F13, F16, F21.
+// Only attached for F-codes with a real ingestion path but no inline
+// evidence-writer step: F7, F10, F13, F16, F21.
+//
+// Deal-eligible writers (F13/F16/F21) emit DEAL-LEVEL keys:
+//   - op:<comune>:<listing_id>     for normalized_opportunities with source_url
+//   - auct:<comune>:<fingerprint>  for auction_signals
+// Evidence_value carries the actionable target (url, title, price, address)
+// so extractActionableTarget can promote them into deal_opportunities.
 //
 // - No fabricated rows.
 // - No person-level data.
@@ -14,8 +20,12 @@
 import { buildEvidenceRow, upsertEvidenceRows, type EvidenceInput } from "./evidenceLedger.ts";
 import { microzoneKey, comuneKey } from "./entityKey.ts";
 import {
-  mapAreaScore, mapNormalizedOpportunity,
-  type AreaScoreRow, type NormalizedOppRow,
+  mapAreaScore,
+  mapDealFromNormalized,
+  mapDealFromAuction,
+  type AreaScoreRow,
+  type NormalizedDealRow,
+  type AuctionDealRow,
 } from "./evidenceBackfill.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -84,64 +94,49 @@ async function writeF7(supabase: Sb): Promise<WriterResult> {
   return { rows_written: await upsertEvidenceRows(supabase, inputs.map(buildEvidenceRow)) };
 }
 
-// ─── Generic portal/normalized_opportunities filtered by source token ──
-async function writeFromNormalized(
+// ─── Generic deal-level writer from normalized_opportunities ──────────
+async function writeDealsFromNormalized(
   supabase: Sb, sourceCode: string, matchTokens: string[],
 ): Promise<WriterResult> {
-  const rows = await paged<NormalizedOppRow & { source_name: string | null; category: string | null }>(
+  const rows = await paged<NormalizedDealRow>(
     supabase, "normalized_opportunities",
-    "municipality,microzone,source_name,category,title,freshness_days,priority_score",
+    "id,municipality,microzone,source_name,category,title,source_url,ask_price,surface_mq,address_text,freshness_days,priority_score,last_seen_at",
   );
   const lcTokens = matchTokens.map((t) => t.toLowerCase());
   const inputs: EvidenceInput[] = [];
   for (const r of rows) {
     const sig = `${r.source_name ?? ""} ${r.category ?? ""}`.toLowerCase();
-    if (!lcTokens.some((t) => sig.includes(t))) continue;
-    const mapped = mapNormalizedOpportunity(r);
+    if (lcTokens.length > 0 && !lcTokens.some((t) => sig.includes(t))) continue;
+    const mapped = mapDealFromNormalized(r, sourceCode);
     if (!mapped) continue;
-    // Force source_code attribution to the scheduled F-code
-    mapped.source_code = sourceCode;
     inputs.push(mapped);
   }
   return { rows_written: await upsertEvidenceRows(supabase, inputs.map(buildEvidenceRow)) };
 }
 
-// ─── F10 ANAC CKAN open-data ─────
-const writeF10 = (s: Sb) => writeFromNormalized(s, "F10", ["anac", "ckan", "opencup"]);
-// ─── F13 Immobiliare quotations (derived) ─────
-const writeF13 = (s: Sb) => writeFromNormalized(s, "F13", ["immobiliare", "quotation", "quotazion"]);
-// ─── F21 Portals (idealista/casa.it/immobiliare listings + ribassi) ─────
-const writeF21 = (s: Sb) => writeFromNormalized(s, "F21", ["idealista", "casa.it", "portal", "ribasso", "ribassi"]);
-
-// ─── F16 PVP auctions (auction_signals) ─────
-interface AuctionRow {
-  fingerprint: string; province: string | null; municipality: string | null;
-  base_price_eur: number | null; minimum_offer_eur: number | null;
-  sale_date: string | null; status: string | null; quality: string | null;
+// ─── F10 ANAC CKAN open-data (still area-level, no deal target) ─────
+async function writeF10(supabase: Sb): Promise<WriterResult> {
+  // ANAC opens are not deal-targets — keep as area-level signals only.
+  return { rows_written: 0, reason: "anac_area_level_only" };
 }
+
+// ─── F13 Immobiliare portal listings ─────
+const writeF13 = (s: Sb) => writeDealsFromNormalized(s, "F13", ["immobiliare", "quotation", "quotazion"]);
+// ─── F21 Generic portals (idealista/casa.it/portal/ribasso/osm cantieri) ─────
+const writeF21 = (s: Sb) => writeDealsFromNormalized(s, "F21", ["idealista", "casa.it", "portal", "ribasso", "ribassi", "osm"]);
+
+// ─── F16 PVP auctions (auction_signals → auct:<comune>:<fp>) ─────
 async function writeF16(supabase: Sb): Promise<WriterResult> {
-  const rows = await paged<AuctionRow>(
+  const rows = await paged<AuctionDealRow>(
     supabase, "auction_signals",
-    "fingerprint,province,municipality,base_price_eur,minimum_offer_eur,sale_date,status,quality,is_active",
+    "fingerprint,province,municipality,source_url,source_name,base_price_eur,minimum_offer_eur,sale_date,status,quality,is_active",
   );
   const inputs: EvidenceInput[] = [];
-  for (const r of rows as Array<AuctionRow & { is_active?: boolean }>) {
+  for (const r of rows) {
     if (r.is_active === false) continue;
-    if (!r.municipality) continue;
-    inputs.push({
-      entity_type: "comune",
-      entity_key: comuneKey({ comune: r.municipality }),
-      source_code: "F16",
-      evidence_type: `auction:${r.fingerprint}`,
-      evidence_value: {
-        base_price_eur: r.base_price_eur,
-        minimum_offer_eur: r.minimum_offer_eur,
-        sale_date: r.sale_date,
-        status: r.status,
-      },
-      confidence: clampConfidence(r.quality),
-      explanation: `PVP auction ${r.fingerprint} in ${r.municipality}`,
-    });
+    const mapped = mapDealFromAuction(r);
+    if (!mapped) continue;
+    inputs.push(mapped);
   }
   return { rows_written: await upsertEvidenceRows(supabase, inputs.map(buildEvidenceRow)) };
 }
@@ -165,7 +160,6 @@ export async function runEvidenceWriter(supabase: Sb, sourceCode: string): Promi
 }
 
 // Exposed for tests
-export const __testing = { writeFromNormalized, mapAreaScoreForTest: mapAreaScore };
-// suppress unused import warnings for re-exports used by tests
+export const __testing = { writeDealsFromNormalized, mapAreaScoreForTest: mapAreaScore };
 void mapAreaScore;
 export type { AreaScoreRow };
