@@ -236,12 +236,11 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
     ] as unknown as EvidenceRow[];
     const result = runOpportunityAudit(rows, arcellaAreas);
     const data = buildResponseData(result, arcellaAreas);
-    expect(data.focus_area.length).toBeGreaterThan(0);
+    expect(Array.isArray(data.focus_area) ? data.focus_area.length : 0).toBeGreaterThan(0);
     expect(data.deal_opportunities.length).toBeGreaterThan(0);
   });
 
   it("EMPTY_PAYLOAD matches documented defaults", () => {
-    expect(EMPTY_PAYLOAD.focus_area).toEqual([]);
     expect(EMPTY_PAYLOAD.focus_area).toBeNull();
     expect(EMPTY_PAYLOAD.hot_microzones).toEqual([]);
     expect(EMPTY_PAYLOAD.commercial_actions).toEqual([]);
