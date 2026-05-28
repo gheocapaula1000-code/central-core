@@ -360,6 +360,28 @@ export function runOpportunityAudit(
 
       dist[opp.evidence_summary.confidence]++;
       const meta = extractDealMeta(safeGroup);
+      const target_type = target.target_type ?? "listing";
+      const microzone = meta.microzone ?? zoneCls.matched_zone;
+      const comuneSeg = dealComuneSeg(key);
+      const market = lookupMarket(marketContext, comuneSeg, microzone);
+      const numericPrice = extractNumericPrice(safeGroup);
+      const price_vs_market_label = priceVsMarketLabel(numericPrice, market);
+      const source_access = classifySourceAccess(target.target_url);
+      const next_actions = nextActionsFor(target_type);
+      const arguments_to_avoid = argumentsToAvoidFor(target_type);
+      const quality = classifyDealQuality({
+        target_type,
+        target_url: target.target_url,
+        target_ref: target.target_ref,
+        title: meta.title ?? target.title ?? null,
+        address: target.address ?? null,
+        microzone,
+        price_label: meta.price_label,
+        numericPrice,
+        hasMarket: !!market,
+        source_access,
+        sale_date: meta.sale_date,
+      });
       deal_opportunities.push({
         ...opp,
         insight_type: "deal_opportunity",
@@ -367,16 +389,27 @@ export function runOpportunityAudit(
         id: key,
         title: meta.title ?? target.title ?? key,
         area_name: meta.area_name,
-        microzone: meta.microzone ?? zoneCls.matched_zone,
-        target_type: target.target_type ?? "listing",
+        microzone,
+        target_type,
         target_ref: target.target_ref,
         target_url: target.target_url,
         address: target.address,
         price_label: meta.price_label,
         urgency: meta.urgency,
-        next_action: nextActionFor(target.target_type ?? "listing"),
+        next_action: next_actions[0]!,
+        next_actions,
+        arguments_to_avoid,
         updated_at: meta.updated_at,
+        quality_bucket: quality.bucket,
+        quality_reasons: quality.reasons,
+        source_access,
+        price_vs_market_label,
+        market_context: market
+          ? { source: market.source, min: market.min ?? null, max: market.max ?? null, avg: market.avg ?? null }
+          : null,
+        data_freshness: { days: opp.evidence_summary.freshness_days, observed_at: meta.updated_at },
       });
+
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       warnings.push(`classification_skipped:${key}:${message}`);
