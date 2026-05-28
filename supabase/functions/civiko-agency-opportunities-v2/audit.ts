@@ -159,11 +159,23 @@ export interface OpportunityAuditResult {
   /** Backward-compat alias — contains ONLY deal_opportunities, never area insights. */
   opportunities: DealOpportunity[];
   audit: OpportunityAudit;
+  warnings?: string[];
+}
+
+export interface SectionFailure {
+  stage: string;
+  entity_key?: string;
+  message: string;
+}
+
+export interface SectionRunnerOptions {
+  onSectionFailure?: (failure: SectionFailure) => void;
 }
 
 export function runOpportunityAudit(
   rows: EvidenceRow[],
   areas: AgencyArea[],
+  options: SectionRunnerOptions = {},
 ): OpportunityAuditResult {
   const scope = buildScopeMatcher(areas);
   const { groups, removed_outside_scope, removed_stale } = filterAndGroup(rows, scope);
@@ -185,26 +197,31 @@ export function runOpportunityAudit(
 
   const dist = { low: 0, medium: 0, high: 0 };
 
+  const warnings: string[] = [];
+
   for (const [key, group] of groups) {
     candidates_before_filters++;
-    const { insight_type, entity_granularity } = classifyEntityKey(key);
-    const entity_type = (group[0]?.entity_type ?? "area") as EvidenceRow["entity_type"];
-    const opp = buildOpportunityFromEvidence(entity_type, key, group, "agency");
+    try {
+      const { insight_type, entity_granularity } = classifyEntityKey(key);
+      const entity_type = sanitizeEntityType(group[0]?.entity_type);
+      const safeGroup = group.map(sanitizeEvidenceRow).filter((r): r is EvidenceRow => !!r);
+      if (safeGroup.length === 0) { removed_insufficient_evidence++; continue; }
+      const opp = buildOpportunityFromEvidence(entity_type, key, safeGroup, "agency");
 
-    if (insight_type === "area_insight") {
+      if (insight_type === "area_insight") {
       // Area-level: NEVER a deal. Track as insight + derive actions.
       removed_area_only++;
       if (!opp) {
-        const hasOnlyRestricted = group.every((r) => r.compliance_visibility === "restricted" || r.compliance_visibility === "aggregate_only");
+        const hasOnlyRestricted = safeGroup.every((r) => r.compliance_visibility === "restricted" || r.compliance_visibility === "aggregate_only");
         if (hasOnlyRestricted) removed_restricted++;
-        else if (new Set(group.map((r) => r.source_code)).size < 2) removed_insufficient_evidence++;
+        else if (new Set(safeGroup.map((r) => r.source_code)).size < 2) removed_insufficient_evidence++;
         else removed_weak_only++;
         continue;
       }
       const insight: AreaInsight = { ...opp, insight_type, entity_granularity };
       if (entity_granularity === "comune") focus_area.push(insight);
       else hot_microzones.push(insight);
-      for (const a of deriveCommercialActions(key, entity_granularity, group)) {
+      for (const a of deriveCommercialActions(key, entity_granularity, safeGroup)) {
         commercial_actions.push({ entity_key: key, entity_granularity, ...a });
       }
       continue;
@@ -214,7 +231,7 @@ export function runOpportunityAudit(
     deal_candidates_before_filters++;
 
     // Forbidden-solo guard at the deal layer (F19/F22 alone never a deal).
-    const codes = new Set(group.map((r) => r.source_code));
+    const codes = new Set(safeGroup.map((r) => r.source_code));
     const onlyForbidden = [...codes].every((c) => DEAL_FORBIDDEN_SOLO_SOURCES.has(c));
     if (onlyForbidden) { removed_insufficient_deal_evidence++; continue; }
 
@@ -223,18 +240,18 @@ export function runOpportunityAudit(
     if (!hasMarketSrc) { removed_insufficient_deal_evidence++; continue; }
 
     // Actionable target required.
-    const target = extractActionableTarget(group);
+    const target = extractActionableTarget(safeGroup);
     if (!target.ok) { removed_no_actionable_target++; continue; }
 
     if (!opp) {
-      const hasOnlyRestricted = group.every((r) => r.compliance_visibility === "restricted" || r.compliance_visibility === "aggregate_only");
+      const hasOnlyRestricted = safeGroup.every((r) => r.compliance_visibility === "restricted" || r.compliance_visibility === "aggregate_only");
       if (hasOnlyRestricted) removed_restricted++;
       else removed_insufficient_deal_evidence++;
       continue;
     }
 
     dist[opp.evidence_summary.confidence]++;
-    const meta = extractDealMeta(group);
+    const meta = extractDealMeta(safeGroup);
     deal_opportunities.push({
       ...opp,
       insight_type: "deal_opportunity",
@@ -252,6 +269,13 @@ export function runOpportunityAudit(
       next_action: nextActionFor(target.target_type ?? "listing"),
       updated_at: meta.updated_at,
     });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      warnings.push(`classification_skipped:${key}:${message}`);
+      removed_insufficient_evidence++;
+      options.onSectionFailure?.({ stage: "STAGE_CLASSIFICATION", entity_key: key, message });
+      continue;
+    }
   }
 
   let empty_reason: string | null = null;
@@ -291,6 +315,35 @@ export function runOpportunityAudit(
     deal_opportunities,
     opportunities: deal_opportunities, // backward-compat alias
     audit,
+    warnings,
+  };
+}
+
+function sanitizeEntityType(value: unknown): EvidenceRow["entity_type"] {
+  return value === "property" || value === "area" || value === "microzone" || value === "comune" || value === "opportunity"
+    ? value
+    : "area";
+}
+
+function sanitizeEvidenceRow(row: EvidenceRow | null | undefined): EvidenceRow | null {
+  if (!row || typeof row !== "object") return null;
+  const source_code = typeof row.source_code === "string" && row.source_code.trim() ? row.source_code.trim() : null;
+  const entity_key = typeof row.entity_key === "string" && row.entity_key.trim() ? row.entity_key.trim() : null;
+  if (!source_code || !entity_key) return null;
+  return {
+    entity_type: sanitizeEntityType(row.entity_type),
+    entity_key,
+    source_code,
+    evidence_type: typeof row.evidence_type === "string" ? row.evidence_type : "unknown",
+    evidence_value: row.evidence_value ?? null,
+    confidence: row.confidence === "high" || row.confidence === "medium" || row.confidence === "low" ? row.confidence : "low",
+    freshness_days: typeof row.freshness_days === "number" && Number.isFinite(row.freshness_days) ? row.freshness_days : null,
+    observed_at: typeof row.observed_at === "string" && row.observed_at ? row.observed_at : new Date(0).toISOString(),
+    explanation: typeof row.explanation === "string" && row.explanation.trim() ? row.explanation.trim() : "Evidenza disponibile.",
+    raw_ref_id: typeof row.raw_ref_id === "string" ? row.raw_ref_id : null,
+    compliance_visibility: row.compliance_visibility === "public" || row.compliance_visibility === "admin_only" || row.compliance_visibility === "restricted" || row.compliance_visibility === "aggregate_only"
+      ? row.compliance_visibility
+      : "admin_only",
   };
 }
 
@@ -324,9 +377,7 @@ function extractDealMeta(group: EvidenceRow[]): DealMeta {
   let updated_at: string | null = null;
   let sale_date: string | null = null;
   for (const r of group) {
-    const v = (r.evidence_value && typeof r.evidence_value === "object")
-      ? r.evidence_value as Record<string, unknown>
-      : {};
+    const v = evidenceValueAsRecord(r.evidence_value);
     title ??= pickString(v, ["title"]);
     area_name ??= pickString(v, ["municipality", "comune", "area_name"]);
     microzone ??= pickString(v, ["microzone", "microzona"]);
@@ -348,6 +399,19 @@ function extractDealMeta(group: EvidenceRow[]): DealMeta {
     else if (days >= 0 && days <= 45) urgency = "medium";
   }
   return { title, area_name, microzone, price_label, urgency, updated_at };
+}
+
+function evidenceValueAsRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object") return value as Record<string, unknown>;
+  if (typeof value === "string" && value.trim().startsWith("{")) {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
 }
 
 function pickString(o: Record<string, unknown>, keys: string[]): string | null {

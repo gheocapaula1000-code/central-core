@@ -6,9 +6,21 @@
 import type { AgencyArea, OpportunityAuditResult } from "./audit.ts";
 
 export const DEFAULT_AUDIT = {
+  candidates_before_filters: 0,
+  removed_insufficient_evidence: 0,
+  removed_weak_only: 0,
+  removed_restricted: 0,
+  removed_outside_scope: 0,
+  removed_stale: 0,
+  final_opportunities_count: 0,
+  confidence_distribution: { low: 0, medium: 0, high: 0 },
+  empty_reason: null as string | null,
   area_insights_count: 0,
   commercial_actions_count: 0,
   deal_candidates_before_filters: 0,
+  removed_area_only: 0,
+  removed_no_actionable_target: 0,
+  removed_insufficient_deal_evidence: 0,
   final_deal_opportunities_count: 0,
 };
 
@@ -30,12 +42,13 @@ export function buildResponseData(
   result: Partial<OpportunityAuditResult> | null | undefined,
   areaList: AgencyArea[] | null | undefined,
 ) {
-  const focus_area = Array.isArray(result?.focus_area) ? result!.focus_area! : [];
-  const hot_microzones = Array.isArray(result?.hot_microzones) ? result!.hot_microzones! : [];
-  const commercial_actions = Array.isArray(result?.commercial_actions) ? result!.commercial_actions! : [];
-  const deal_opportunities = Array.isArray(result?.deal_opportunities) ? result!.deal_opportunities! : [];
-  const opportunities = Array.isArray(result?.opportunities) ? result!.opportunities! : deal_opportunities;
-  const audit = result?.audit && typeof result.audit === "object" ? result.audit : DEFAULT_AUDIT;
+  const focus_area = sanitizeArray(result?.focus_area);
+  const hot_microzones = sanitizeArray(result?.hot_microzones);
+  const commercial_actions = sanitizeArray(result?.commercial_actions);
+  const deal_opportunities = sanitizeArray(result?.deal_opportunities);
+  const opportunities = Array.isArray(result?.opportunities) ? sanitizeArray(result!.opportunities!) : deal_opportunities;
+  const audit = toJsonSafe(result?.audit && typeof result.audit === "object" ? result.audit : DEFAULT_AUDIT);
+  const warnings = sanitizeArray(result?.warnings);
 
   const hasDeals = deal_opportunities.length > 0;
   const hasArea = focus_area.length + hot_microzones.length > 0;
@@ -63,6 +76,7 @@ export function buildResponseData(
     deal_opportunities,
     opportunities,
     audit,
+    warnings,
     scope: {
       comuni: [...new Set(safeAreas.flatMap((a) => (Array.isArray(a.comuni) ? a.comuni : [])))],
       microzones: [
@@ -77,13 +91,36 @@ export function buildResponseData(
   };
 }
 
-export function buildControlledErrorBody(debug_id: string) {
+export function buildControlledErrorBody(debug_id: string, error_stage?: string, error_message?: string) {
   return {
     ok: false,
     data_status: "error",
     error_code: "OPPORTUNITY_V2_RUNTIME_ERROR",
     message: "Non riesco a caricare le opportunità in questo momento.",
     debug_id,
+    ...(error_stage ? { error_stage } : {}),
+    ...(error_message ? { error_message } : {}),
     ...EMPTY_PAYLOAD,
   };
+}
+
+function sanitizeArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value.map((item) => toJsonSafe(item)) : [];
+}
+
+export function toJsonSafe<T>(value: T, seen = new WeakSet<object>()): unknown {
+  if (typeof value === "bigint") return value.toString();
+  if (value instanceof Date) return value.toISOString();
+  if (!value || typeof value !== "object") return value;
+  if (seen.has(value as object)) return "[Circular]";
+  seen.add(value as object);
+  if (Array.isArray(value)) return value.map((item) => toJsonSafe(item, seen));
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = toJsonSafe(v, seen);
+  seen.delete(value as object);
+  return out;
+}
+
+export function safeStringify(value: unknown): string {
+  return JSON.stringify(toJsonSafe(value));
 }

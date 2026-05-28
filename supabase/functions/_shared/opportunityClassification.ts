@@ -62,9 +62,7 @@ export function classifyEntityKey(entity_key: string): EntityClassification {
 export function extractActionableTarget(group: EvidenceRow[]): ActionableTarget {
   for (const r of group) {
     if (!DEAL_ELIGIBLE_SOURCES.has(r.source_code)) continue;
-    const v = (r.evidence_value && typeof r.evidence_value === "object")
-      ? r.evidence_value as Record<string, unknown>
-      : {};
+    const v = evidenceValueAsRecord(r.evidence_value);
     const url = pickStr(v, ["url", "listing_url", "target_url", "annuncio_url", "asset_url"]);
     const ref = pickStr(v, ["auction_id", "listing_id", "property_ref", "asset_id", "pvp_id"])
       ?? (typeof r.raw_ref_id === "string" ? r.raw_ref_id : null);
@@ -84,6 +82,19 @@ export function extractActionableTarget(group: EvidenceRow[]): ActionableTarget 
     }
   }
   return { ok: false };
+}
+
+function evidenceValueAsRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object") return value as Record<string, unknown>;
+  if (typeof value === "string" && value.trim().startsWith("{")) {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
 }
 
 function pickStr(obj: Record<string, unknown>, keys: string[]): string | null {
