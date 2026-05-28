@@ -12,6 +12,7 @@ import {
   buildControlledErrorBody,
   DEFAULT_AUDIT,
   EMPTY_PAYLOAD,
+  safeStringify,
 } from "../../supabase/functions/civiko-agency-opportunities-v2/response.ts";
 import {
   runOpportunityAudit,
@@ -49,6 +50,19 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
   it("buildResponseData survives malformed areaList", () => {
     expect(() => buildResponseData(null, undefined as unknown as AgencyArea[])).not.toThrow();
     expect(() => buildResponseData(null, [null as unknown as AgencyArea])).not.toThrow();
+  });
+
+  it("missing zone_slugs column and null area arrays do not crash", () => {
+    const legacyArea = {
+      agency_id: "a1",
+      user_id: null,
+      comuni: null,
+      microzones: null,
+      quartieri: ["Arcella"],
+    } as unknown as AgencyArea;
+    const data = buildResponseData(null, [legacyArea]);
+    expect(data.scope.comuni).toEqual([]);
+    expect(data.scope.microzones).toEqual(["Arcella"]);
   });
 
   it("does not throw on empty evidence", () => {
@@ -98,6 +112,134 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
     expect(round.data_status).toBe(data.data_status);
   });
 
+  it("evidence JSON strings and objects are both handled", () => {
+    const rows: EvidenceRow[] = [
+      buildEvidenceRow({
+        entity_type: "opportunity",
+        entity_key: "op:padova:json-string",
+        source_code: "F13",
+        evidence_type: "listing",
+        evidence_value: JSON.stringify({ listing_url: "https://example.test/1", title: "String listing" }),
+        confidence: "medium",
+        explanation: "portal listing",
+        compliance_visibility: "admin_only",
+      }),
+      buildEvidenceRow({
+        entity_type: "opportunity",
+        entity_key: "op:padova:json-object",
+        source_code: "F13",
+        evidence_type: "listing",
+        evidence_value: { listing_url: "https://example.test/2", title: "Object listing" },
+        confidence: "medium",
+        explanation: "portal listing",
+        compliance_visibility: "admin_only",
+      }),
+    ];
+    const data = buildResponseData(runOpportunityAudit(rows, arcellaAreas), arcellaAreas);
+    expect(data.deal_opportunities.map((d) => (d as { title: string }).title)).toContain("String listing");
+    expect(data.deal_opportunities.map((d) => (d as { title: string }).title)).toContain("Object listing");
+  });
+
+  it("missing target_url does not crash and excludes the listing", () => {
+    const rows: EvidenceRow[] = [
+      buildEvidenceRow({
+        entity_type: "opportunity",
+        entity_key: "op:padova:no-target",
+        source_code: "F13",
+        evidence_type: "listing",
+        evidence_value: { title: "No target" },
+        confidence: "medium",
+        explanation: "portal listing",
+        compliance_visibility: "admin_only",
+      }),
+    ];
+    expect(() => runOpportunityAudit(rows, arcellaAreas)).not.toThrow();
+    const result = runOpportunityAudit(rows, arcellaAreas);
+    expect(result.deal_opportunities).toHaveLength(0);
+    expect(result.audit.empty_reason).toBe("no_actionable_target");
+  });
+
+  it("BigInt and Date values are serialization safe", () => {
+    const circular: Record<string, unknown> = { a: 1 };
+    circular.self = circular;
+    const body = buildResponseData({
+      focus_area: [{ count: 1n, when: new Date("2026-05-01T00:00:00Z"), circular }] as never,
+    }, arcellaAreas);
+    expect(() => safeStringify({ ok: true, data: body })).not.toThrow();
+    const parsed = JSON.parse(safeStringify(body));
+    expect(parsed.focus_area[0].count).toBe("1");
+    expect(parsed.focus_area[0].when).toBe("2026-05-01T00:00:00.000Z");
+  });
+
+  it("malformed single evidence row is skipped, not endpoint failure", () => {
+    const rows = [
+      { entity_key: "op:padova:bad", source_code: null },
+      buildEvidenceRow({
+        entity_type: "microzone",
+        entity_key: "mz:padova:arcella",
+        source_code: "F1",
+        evidence_type: "area_score",
+        evidence_value: { score: 70 },
+        confidence: "high",
+        explanation: "area score",
+        compliance_visibility: "public",
+      }),
+      buildEvidenceRow({
+        entity_type: "microzone",
+        entity_key: "mz:padova:arcella",
+        source_code: "F2",
+        evidence_type: "demographics",
+        evidence_value: { score: 60 },
+        confidence: "medium",
+        explanation: "demographics",
+        compliance_visibility: "public",
+      }),
+    ] as unknown as EvidenceRow[];
+    const result = runOpportunityAudit(rows, arcellaAreas);
+    expect(result.hot_microzones.length).toBeGreaterThan(0);
+    expect(result.deal_opportunities).toHaveLength(0);
+  });
+
+  it("partial classification failures still return available sections", () => {
+    const rows = [
+      { entity_key: "op:padova:malformed", source_code: "F13", evidence_value: { listing_url: "https://x" }, confidence: "broken" },
+      buildEvidenceRow({
+        entity_type: "opportunity",
+        entity_key: "op:padova:good",
+        source_code: "F13",
+        evidence_type: "listing",
+        evidence_value: { listing_url: "https://example.test/good", title: "Good listing" },
+        confidence: "medium",
+        explanation: "portal listing",
+        compliance_visibility: "admin_only",
+      }),
+      buildEvidenceRow({
+        entity_type: "comune",
+        entity_key: "c:padova",
+        source_code: "F1",
+        evidence_type: "area_score",
+        evidence_value: { score: 70 },
+        confidence: "high",
+        explanation: "area score",
+        compliance_visibility: "public",
+      }),
+      buildEvidenceRow({
+        entity_type: "comune",
+        entity_key: "c:padova",
+        source_code: "F2",
+        evidence_type: "demographics",
+        evidence_value: { score: 60 },
+        confidence: "medium",
+        explanation: "demographics",
+        compliance_visibility: "public",
+      }),
+    ] as unknown as EvidenceRow[];
+    const result = runOpportunityAudit(rows, arcellaAreas);
+    const data = buildResponseData(result, arcellaAreas);
+    expect(data.focus_area.length).toBeGreaterThan(0);
+    expect(data.deal_opportunities.length).toBeGreaterThan(0);
+  });
+
   it("EMPTY_PAYLOAD matches documented defaults", () => {
     expect(EMPTY_PAYLOAD.focus_area).toEqual([]);
     expect(EMPTY_PAYLOAD.hot_microzones).toEqual([]);
@@ -112,19 +254,14 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
   });
 
   it("controlled error envelope shape is JSON-safe", () => {
-    const envelope = {
-      ok: false,
-      data_status: "error",
-      error_code: "OPPORTUNITY_V2_RUNTIME_ERROR",
-      message: "Non riesco a caricare le opportunità in questo momento.",
-      debug_id: "test-debug-id",
-      ...EMPTY_PAYLOAD,
-    };
+    const envelope = buildControlledErrorBody("test-debug-id", "STAGE_SCOPE", "boom");
     expect(() => JSON.stringify(envelope)).not.toThrow();
     const parsed = JSON.parse(JSON.stringify(envelope));
     expect(parsed.ok).toBe(false);
     expect(parsed.error_code).toBe("OPPORTUNITY_V2_RUNTIME_ERROR");
     expect(parsed.debug_id).toBe("test-debug-id");
+    expect(parsed.error_stage).toBe("STAGE_SCOPE");
+    expect(parsed.error_message).toBe("boom");
     expect(parsed.deal_opportunities).toEqual([]);
   });
 });
