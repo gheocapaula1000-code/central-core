@@ -111,3 +111,48 @@ describe("runOpportunityAudit deal-level scope counters", () => {
     expect(r.deal_opportunities).toHaveLength(1);
   });
 });
+
+describe("all-Padova scope (canonical microzones)", () => {
+  const ALL_PADOVA = [
+    "arcella","brusegana","camin","centro storico","chiesanuova","forcellini",
+    "guizza","mandria","mortise","pontevigodarzere","prato della valle",
+    "sacra famiglia","sant'osvaldo","stazione","voltabarozzo",
+  ];
+  const allPadovaAreas = [{ agency_id: "a1", user_id: null, comuni: ["Padova"], microzones: ALL_PADOVA, quartieri: ALL_PADOVA }];
+
+  it("Padova listing with no microzone hint survives (full-comune scope)", () => {
+    const rows = [ev({ entity_key: "op:padova:uuidA", evidence_value: { listing_url: "https://x", title: "Trilocale" } })];
+    const r = runOpportunityAudit(rows, allPadovaAreas);
+    expect(r.deal_opportunities).toHaveLength(1);
+    expect(r.audit.deal_rows_inside_agency_zone).toBe(1);
+  });
+
+  it("Padova listing in Centro Storico survives (now in scope)", () => {
+    const rows = [ev({ entity_key: "op:padova:uuidB", evidence_value: { listing_url: "https://x", microzone: "Centro Storico" } })];
+    const r = runOpportunityAudit(rows, allPadovaAreas);
+    expect(r.deal_opportunities).toHaveLength(1);
+  });
+
+  it("auct:padova auction with no microzone hint survives", () => {
+    const rows = [ev({ entity_key: "auct:padova:fp-2", source_code: "F16", evidence_value: { listing_url: "https://pvp", title: "Asta" } })];
+    const r = runOpportunityAudit(rows, allPadovaAreas);
+    expect(r.deal_opportunities).toHaveLength(1);
+    expect(r.deal_opportunities[0]!.target_type).toBe("auction");
+  });
+
+  it("non-Padova listing still excluded (no widening to province)", () => {
+    const rows = [ev({ entity_key: "op:vicenza:uuid", evidence_value: { listing_url: "https://x" } })];
+    const r = runOpportunityAudit(rows, allPadovaAreas);
+    expect(r.deal_opportunities).toHaveLength(0);
+    expect(r.audit.removed_outside_comune).toBe(1);
+  });
+
+  it("c:* and mz:* never appear in deal_opportunities under all-Padova scope", () => {
+    const rows = [
+      ev({ entity_type: "comune", entity_key: "c:padova", evidence_value: {} }),
+      ev({ entity_type: "microzone", entity_key: "mz:padova:arcella", evidence_value: {} }),
+    ];
+    const r = runOpportunityAudit(rows, allPadovaAreas);
+    expect(r.deal_opportunities).toHaveLength(0);
+  });
+});

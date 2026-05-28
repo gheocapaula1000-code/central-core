@@ -26,6 +26,16 @@ import {
 const arcellaAreas: AgencyArea[] = [
   { agency_id: "a1", user_id: null, comuni: ["Padova"], microzones: ["Arcella"], quartieri: [] },
 ];
+// Full canonical Padova zones — used when tests need a Padova-wide scope so
+// deals without a specific microzone hint are still eligible.
+const ALL_PADOVA_MZ = [
+  "arcella","brusegana","camin","centro storico","chiesanuova","forcellini",
+  "guizza","mandria","mortise","pontevigodarzere","prato della valle",
+  "sacra famiglia","sant'osvaldo","stazione","voltabarozzo",
+];
+const allPadovaAreas: AgencyArea[] = [
+  { agency_id: "a1", user_id: null, comuni: ["Padova"], microzones: ALL_PADOVA_MZ, quartieri: ALL_PADOVA_MZ },
+];
 
 describe("civiko-agency-opportunities-v2 runtime safety", () => {
   it("buildResponseData survives null result", () => {
@@ -135,7 +145,7 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
         compliance_visibility: "admin_only",
       }),
     ];
-    const data = buildResponseData(runOpportunityAudit(rows, arcellaAreas), arcellaAreas);
+    const data = buildResponseData(runOpportunityAudit(rows, allPadovaAreas), allPadovaAreas);
     expect(data.deal_opportunities.map((d) => (d as { title: string }).title)).toContain("String listing");
     expect(data.deal_opportunities.map((d) => (d as { title: string }).title)).toContain("Object listing");
   });
@@ -153,8 +163,8 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
         compliance_visibility: "admin_only",
       }),
     ];
-    expect(() => runOpportunityAudit(rows, arcellaAreas)).not.toThrow();
-    const result = runOpportunityAudit(rows, arcellaAreas);
+    expect(() => runOpportunityAudit(rows, allPadovaAreas)).not.toThrow();
+    const result = runOpportunityAudit(rows, allPadovaAreas);
     expect(result.deal_opportunities).toHaveLength(0);
     expect(result.audit.empty_reason).toBe("no_actionable_target");
   });
@@ -234,8 +244,8 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
         compliance_visibility: "public",
       }),
     ] as unknown as EvidenceRow[];
-    const result = runOpportunityAudit(rows, arcellaAreas);
-    const data = buildResponseData(result, arcellaAreas);
+    const result = runOpportunityAudit(rows, allPadovaAreas);
+    const data = buildResponseData(result, allPadovaAreas);
     expect(Array.isArray(data.focus_area) ? data.focus_area.length : 0).toBeGreaterThan(0);
     expect(data.deal_opportunities.length).toBeGreaterThan(0);
   });

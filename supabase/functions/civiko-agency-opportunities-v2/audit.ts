@@ -28,6 +28,7 @@ import {
   type InsightType,
 } from "../_shared/opportunityClassification.ts";
 import { classifyDealZoneScope, isDealKey, type DealScope } from "../_shared/dealZoneScope.ts";
+import { coversFullComune } from "../_shared/comuneRegistry.ts";
 
 export interface AgencyArea {
   agency_id: string | null;
@@ -72,6 +73,7 @@ export interface ScopeMatcher {
   comuni: Set<string>;
   microzones: Set<string>;
   expectedKeys: Set<string>;
+  fullComune: Set<string>;
 }
 
 export interface AreaInsight extends OpportunityFromEvidence {
@@ -135,7 +137,28 @@ export function buildScopeMatcher(areas: AgencyArea[]): ScopeMatcher {
       expectedKeys.add(microzoneKey({ comune: "", microzona: mz }));
     }
   }
-  return { comuni, microzones, expectedKeys };
+  // Detect comuni whose configured zones cover the entire canonical comune.
+  const configuredByComune = new Map<string, Set<string>>();
+  for (const a of areas) {
+    if (!a || typeof a !== "object") continue;
+    const mzs = [
+      ...(Array.isArray(a.microzones) ? a.microzones : []),
+      ...(Array.isArray(a.quartieri) ? a.quartieri : []),
+    ].filter((m): m is string => typeof m === "string" && m.trim().length > 0);
+    for (const c of (Array.isArray(a.comuni) ? a.comuni : [])) {
+      if (typeof c !== "string") continue;
+      const cn = norm(c);
+      if (!cn) continue;
+      const set = configuredByComune.get(cn) ?? new Set<string>();
+      for (const m of mzs) set.add(norm(m));
+      configuredByComune.set(cn, set);
+    }
+  }
+  const fullComune = new Set<string>();
+  for (const [c, set] of configuredByComune) {
+    if (coversFullComune(c, set)) fullComune.add(c);
+  }
+  return { comuni, microzones, expectedKeys, fullComune };
 }
 
 function inAreaScope(r: EvidenceRow, scope: ScopeMatcher): boolean {
@@ -220,7 +243,7 @@ export function runOpportunityAudit(
 ): OpportunityAuditResult {
   const scope = buildScopeMatcher(areas);
   const { groups, removed_outside_scope, removed_outside_comune, removed_stale } = filterAndGroup(rows, scope);
-  const dealScope: DealScope = { comuni: scope.comuni, microzones: scope.microzones };
+  const dealScope: DealScope = { comuni: scope.comuni, microzones: scope.microzones, fullComune: scope.fullComune };
 
   const focus_area: AreaInsight[] = [];
   const hot_microzones: AreaInsight[] = [];
