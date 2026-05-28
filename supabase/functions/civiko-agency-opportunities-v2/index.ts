@@ -98,19 +98,22 @@ serve(async (req) => {
 
   const result = runOpportunityAudit((evidence ?? []) as EvidenceRow[], areaList);
 
-  const data_status = result.deal_opportunities.length > 0
-    ? "ok"
-    : (result.focus_area.length + result.hot_microzones.length > 0 ? "area_insights_only" : "empty");
-
-  const empty_message = result.deal_opportunities.length === 0
-    ? "Nessuna opportunità immobiliare specifica disponibile ora."
-    : null;
+  const hasDeals = result.deal_opportunities.length > 0;
+  const hasArea = result.focus_area.length + result.hot_microzones.length > 0;
+  const data_status = hasDeals ? "ok" : (hasArea ? "partial" : "empty");
+  const empty_reason = hasDeals ? null : (result.audit.empty_reason ?? "no_deal_level_opportunities");
+  const message = hasDeals
+    ? null
+    : hasArea
+      ? "Civiko ha rilevato segnali di zona, ma non ancora immobili o aste azionabili."
+      : "Nessuna evidenza disponibile per le zone configurate.";
 
   return json({
     ok: true,
     data: {
       data_status,
-      message: empty_message,
+      message,
+      empty_reason,
       focus_area: result.focus_area,
       hot_microzones: result.hot_microzones,
       commercial_actions: result.commercial_actions,
