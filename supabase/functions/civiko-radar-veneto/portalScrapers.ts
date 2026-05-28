@@ -211,7 +211,7 @@ async function scrapeWithApify(comune: string, provincia: string): Promise<Norma
     console.log("[scrapeWithApify] no APIFY_API_TOKEN configured");
     return [];
   }
-  const actorId = "misceres~immobiliare-it-scraper";
+  const actorId = "epctex/immobiliare-it-scraper";
   const runUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${APIFY_TOKEN}&timeout=60&memory=256`;
   const slug = municipalitySlug(comune);
   const startUrl = `https://www.immobiliare.it/vendita-case/${slug || comune.toLowerCase()}/`;
@@ -283,13 +283,11 @@ export async function scrapeAllPortals(
   for (const r of results) {
     if (r.status === "fulfilled") listings.push(...r.value);
   }
-  // Apify fallback disabilitato: actor "misceres~immobiliare-it-scraper" non più disponibile (404).
-  // Lascio solo il fallback Firecrawl per evitare timeout su padova-daily-radar.
-  // if (listings.length === 0) {
-  //   console.log("[portalScrapers] Firecrawl fallito, tentativo Apify per", municipality);
-  //   const apifyListings = await scrapeWithApify(municipality, provincia);
-  //   listings.push(...apifyListings);
-  // }
-  void scrapeWithApify;
+  // Fallback Apify riattivato con actor epctex/immobiliare-it-scraper.
+  if (listings.length === 0) {
+    console.log("[portalScrapers] Firecrawl fallito, tentativo Apify (epctex) per", municipality);
+    const apifyListings = await scrapeWithApify(municipality, provincia);
+    listings.push(...apifyListings);
+  }
   return listings;
 }
