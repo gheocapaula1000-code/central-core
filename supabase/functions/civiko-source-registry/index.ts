@@ -15,6 +15,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { parseCsv, toIntOrNull, toNumberOrNull, type CsvRow } from "../_shared/csvImport.ts";
 import { assertAggregateOnly } from "../_shared/compliance.ts";
+import { backfillEvidence } from "../_shared/evidenceBackfill.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
