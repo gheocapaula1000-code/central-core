@@ -14,6 +14,8 @@ import {
   mapNormalizedOpportunity,
   mapEarlyWarning,
   mapOffmarket,
+  mapDealFromNormalized,
+  mapDealFromAuction,
   sourceCodeFromDataBasis,
   sourceCodeFromPrimarySignal,
 } from "../../supabase/functions/_shared/evidenceBackfill.ts";
