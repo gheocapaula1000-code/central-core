@@ -9,6 +9,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { normalizePropertyType, type PropertyType } from "./listingIdentity.ts";
+import { getApifyToken } from "../_shared/apify.ts";
 
 export interface NormalizedListing {
   source: "immobiliare.it" | "idealista.it" | "casa.it";
@@ -206,7 +207,7 @@ async function scrapePortal(
 }
 
 async function scrapeWithApify(comune: string, provincia: string): Promise<NormalizedListing[]> {
-  const APIFY_TOKEN = Deno.env.get("APIFY_API_TOKEN") ?? Deno.env.get("APIFY_TOKEN");
+  const APIFY_TOKEN = getApifyToken();
   if (!APIFY_TOKEN) {
     console.log("[scrapeWithApify] no APIFY_API_TOKEN configured");
     return [];

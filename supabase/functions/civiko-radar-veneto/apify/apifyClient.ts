@@ -4,8 +4,10 @@
 const APIFY_BASE = "https://api.apify.com/v2";
 const DEFAULT_TIMEOUT_MS = 60_000;
 
+import { getApifyToken } from "../../_shared/apify.ts";
+
 function getToken(): string {
-  return Deno.env.get("APIFY_API_TOKEN") ?? "";
+  return getApifyToken();
 }
 
 export function isApifyConfigured(): boolean {

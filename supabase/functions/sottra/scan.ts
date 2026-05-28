@@ -4,6 +4,7 @@
 // Uses unified PUBLICATION_POLICY from shared.ts.
 
 import { ok, fail } from "../_shared/http.ts";
+import { getApifyToken } from "../_shared/apify.ts";
 import { callAIVision, parseJSON, reverseGeocode, classifyOMIPricing, PUBLICATION_POLICY } from "./shared.ts";
 import { lookupOMI, lookupOMIByCoordinates, type OMIResult } from "./omi-lookup.ts";
 import { resolveGeo } from "./geo-resolution.ts";
@@ -129,7 +130,7 @@ export async function handleScanIdentify(req: Request, body: Record<string, unkn
 
 /** POST /sottra/scan/cadastral — Apify + Perplexity cadastral zone estimate */
 export async function handleScanCadastral(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
-  const APIFY_TOKEN = Deno.env.get("APIFY_API_TOKEN") ?? Deno.env.get("APIFY_TOKEN");
+  const APIFY_TOKEN = getApifyToken();
   const _OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
   const address = ((body.address as string) ?? "").trim();
   const comune = ((body.comune as string) ?? "").trim();
@@ -392,7 +393,7 @@ export async function handleScanListings(req: Request, body: Record<string, unkn
 
 /** POST /sottra/scan/energy — Apify APE search + Perplexity zone energy estimate */
 export async function handleScanEnergy(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
-  const APIFY_TOKEN = Deno.env.get("APIFY_API_TOKEN") ?? Deno.env.get("APIFY_TOKEN");
+  const APIFY_TOKEN = getApifyToken();
   const PERPLEXITY_KEY = Deno.env.get("PERPLEXITY_API_KEY");
   const address = ((body.address as string) ?? "").trim();
   const comune = ((body.comune as string) ?? "").trim();
