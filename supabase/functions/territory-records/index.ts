@@ -496,15 +496,17 @@ serve(async (req) => {
     });
   }
 
-  const [fcRes, ppRes, gmRes] = await Promise.allSettled([
+  const [fcRes, ppRes, gmRes, odRes] = await Promise.allSettled([
     fetchFirecrawl(),
     fetchPerplexity(),
     fetchGooglePlaces(),
+    fetchOpenDataPadova(),
   ]);
   const all: TerritoryRecord[] = [];
   if (fcRes.status === "fulfilled") all.push(...fcRes.value);
   if (ppRes.status === "fulfilled") all.push(...ppRes.value);
   if (gmRes.status === "fulfilled") all.push(...gmRes.value);
+  if (odRes.status === "fulfilled") all.push(...odRes.value);
 
   let records = dedupe(all)
     .map((r) => ({
