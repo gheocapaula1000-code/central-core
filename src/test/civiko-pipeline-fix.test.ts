@@ -21,7 +21,7 @@ import {
   buildScopeMatcher,
   filterAndGroup,
   runOpportunityAudit,
-} from "../../supabase/functions/civiko-agency-opportunities-v2/index.ts";
+} from "../../supabase/functions/civiko-agency-opportunities-v2/audit.ts";
 import { buildEvidenceRow, type EvidenceRow } from "../../supabase/functions/_shared/evidenceLedger.ts";
 
 // vitest may try to evaluate the edge function's serve() at import time; guard
