@@ -69,7 +69,7 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
         evidence_value: { score: 70 },
         confidence: "high",
         observed_at: new Date().toISOString(),
-        compliance_visibility: "public",
+        explanation: "test", compliance_visibility: "public",
       }),
       buildEvidenceRow({
         entity_type: "microzone",
@@ -79,7 +79,7 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
         evidence_value: { score: 65 },
         confidence: "high",
         observed_at: new Date().toISOString(),
-        compliance_visibility: "public",
+        explanation: "test", compliance_visibility: "public",
       }),
     ];
     const result = runOpportunityAudit(rows, arcellaAreas);
