@@ -532,6 +532,7 @@ interface DealMeta {
   price_label: string | null;
   urgency: "low" | "medium" | "high";
   updated_at: string | null;
+  sale_date: string | null;
 }
 
 function extractDealMeta(group: EvidenceRow[]): DealMeta {
@@ -566,7 +567,7 @@ function extractDealMeta(group: EvidenceRow[]): DealMeta {
     if (days >= 0 && days <= 14) urgency = "high";
     else if (days >= 0 && days <= 45) urgency = "medium";
   }
-  return { title, area_name, microzone, price_label, urgency, updated_at };
+  return { title, area_name, microzone, price_label, urgency, updated_at, sale_date };
 }
 
 function evidenceValueAsRecord(value: unknown): Record<string, unknown> {
