@@ -4,7 +4,7 @@
 // fabricates rows, never touches person-level data, never bypasses
 // compliance_visibility defaults.
 
-import { buildEvidenceRow, type EvidenceInput, type EvidenceRow } from "./evidenceLedger.ts";
+import { buildEvidenceRow, type EvidenceInput, type EvidenceRow, upsertEvidenceRows } from "./evidenceLedger.ts";
 import { microzoneKey, comuneKey } from "./entityKey.ts";
 
 export interface BackfillRowsCounts {
@@ -12,6 +12,8 @@ export interface BackfillRowsCounts {
   normalized_opportunities: number;
   early_warning_opportunities: number;
   offmarket_opportunity_scores: number;
+  deal_listings: number;
+  deal_auctions: number;
   total: number;
   by_source_code: Record<string, number>;
 }
