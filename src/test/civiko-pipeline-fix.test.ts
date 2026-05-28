@@ -65,6 +65,42 @@ describe("evidenceBackfill mappers", () => {
     expect(ev.source_code).toBe("F1");
     expect(ev.entity_type).toBe("microzone");
   });
+
+  it("mapDealFromNormalized emits op:<comune>:<id> with listing_url", () => {
+    const ev = mapDealFromNormalized({
+      id: "abc-123", municipality: "Padova", microzone: null,
+      source_name: "immobiliare", category: "portal_listing",
+      title: "Trilocale", source_url: "https://immobiliare.it/abc-123",
+      ask_price: 250000, surface_mq: 90, address_text: "Via Roma 10",
+      priority_score: 80, last_seen_at: "2026-05-01T00:00:00Z",
+    })!;
+    expect(ev).not.toBeNull();
+    expect(ev.entity_key).toBe("op:padova:abc-123");
+    expect(ev.entity_type).toBe("opportunity");
+    expect(ev.source_code).toBe("F13");
+    expect((ev.evidence_value as Record<string, unknown>).listing_url).toBe("https://immobiliare.it/abc-123");
+  });
+
+  it("mapDealFromNormalized returns null without url and address", () => {
+    const ev = mapDealFromNormalized({
+      id: "x", municipality: "Padova", microzone: null,
+      source_name: null, category: null, title: "stub",
+      source_url: null, ask_price: null, surface_mq: null, address_text: null,
+    });
+    expect(ev).toBeNull();
+  });
+
+  it("mapDealFromAuction emits auct:<comune>:<fp> with listing_url", () => {
+    const ev = mapDealFromAuction({
+      fingerprint: "fp-9", municipality: "Padova", province: "PD",
+      source_url: "https://pvp.giustizia.it/fp-9", source_name: "pvp",
+      base_price_eur: 120000, minimum_offer_eur: 90000,
+      sale_date: "2026-06-15", status: "open", quality: "alta", is_active: true,
+    })!;
+    expect(ev.entity_key).toBe("auct:padova:fp-9");
+    expect(ev.source_code).toBe("F16");
+    expect((ev.evidence_value as Record<string, unknown>).listing_url).toBe("https://pvp.giustizia.it/fp-9");
+  });
 });
 
 function ev(overrides: Partial<EvidenceRow>): EvidenceRow {
