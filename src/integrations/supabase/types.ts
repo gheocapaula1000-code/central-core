@@ -3187,9 +3187,14 @@ export type Database = {
           area_code: string
           area_type: string
           bucket_count: number
+          computed_at: string
+          confidence: string
           id: number
           imported_at: string
+          last_observed_at: string | null
+          source_code: string
           source_url: string | null
+          visible_to_pwa: boolean
           window_days: number
           window_end: string
           window_start: string
@@ -3198,9 +3203,14 @@ export type Database = {
           area_code: string
           area_type: string
           bucket_count: number
+          computed_at?: string
+          confidence?: string
           id?: number
           imported_at?: string
+          last_observed_at?: string | null
+          source_code?: string
           source_url?: string | null
+          visible_to_pwa?: boolean
           window_days: number
           window_end: string
           window_start: string
@@ -3209,9 +3219,14 @@ export type Database = {
           area_code?: string
           area_type?: string
           bucket_count?: number
+          computed_at?: string
+          confidence?: string
           id?: number
           imported_at?: string
+          last_observed_at?: string | null
+          source_code?: string
           source_url?: string | null
+          visible_to_pwa?: boolean
           window_days?: number
           window_end?: string
           window_start?: string
