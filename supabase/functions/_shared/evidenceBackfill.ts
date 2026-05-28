@@ -177,6 +177,99 @@ export function mapOffmarket(row: OffmarketRow): EvidenceInput | null {
   };
 }
 
+// ─── deal-level mappers (op:<comune>:<id> / auct:<comune>:<fp>) ─────────
+const slug = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+
+export interface NormalizedDealRow {
+  id: string;
+  municipality: string | null;
+  microzone: string | null;
+  source_name: string | null;
+  category: string | null;
+  title: string | null;
+  source_url: string | null;
+  ask_price: number | null;
+  surface_mq: number | null;
+  address_text: string | null;
+  freshness_days?: number | null;
+  priority_score?: number | null;
+  last_seen_at?: string | null;
+}
+
+/** Promote a normalized_opportunity row into a DEAL-LEVEL evidence row.
+ *  Returns null when no actionable target (url + id) exists. */
+export function mapDealFromNormalized(row: NormalizedDealRow, sourceCode = "F13"): EvidenceInput | null {
+  if (!row.municipality || !row.id) return null;
+  if (!row.source_url && !row.address_text) return null;
+  const comune = slug(row.municipality);
+  const key = `op:${comune}:${row.id}`;
+  const conf: "low" | "medium" | "high" =
+    typeof row.priority_score === "number" && row.priority_score >= 70 ? "medium" : "low";
+  return {
+    entity_type: "opportunity",
+    entity_key: key,
+    source_code: sourceCode,
+    evidence_type: "deal_listing",
+    evidence_value: {
+      listing_id: row.id,
+      title: row.title ?? null,
+      listing_url: row.source_url ?? null,
+      address: row.address_text ?? null,
+      ask_price: row.ask_price ?? null,
+      surface_mq: row.surface_mq ?? null,
+      microzone: row.microzone ?? null,
+      municipality: row.municipality,
+      source_name: row.source_name ?? null,
+      last_seen_at: row.last_seen_at ?? null,
+    },
+    confidence: conf,
+    freshness_days: typeof row.freshness_days === "number" ? row.freshness_days : null,
+    raw_ref_id: row.id,
+    explanation: `Annuncio "${row.title ?? row.id}" da ${row.source_name ?? "portale"}`,
+  };
+}
+
+export interface AuctionDealRow {
+  fingerprint: string;
+  municipality: string | null;
+  province: string | null;
+  source_url: string | null;
+  source_name: string | null;
+  base_price_eur: number | null;
+  minimum_offer_eur: number | null;
+  sale_date: string | null;
+  status: string | null;
+  quality: string | null;
+  is_active?: boolean;
+}
+
+export function mapDealFromAuction(row: AuctionDealRow): EvidenceInput | null {
+  if (!row.municipality || !row.fingerprint) return null;
+  if (!row.source_url) return null;
+  const comune = slug(row.municipality);
+  const key = `auct:${comune}:${row.fingerprint}`;
+  return {
+    entity_type: "opportunity",
+    entity_key: key,
+    source_code: "F16",
+    evidence_type: "deal_auction",
+    evidence_value: {
+      auction_id: row.fingerprint,
+      listing_url: row.source_url,
+      base_price_eur: row.base_price_eur,
+      minimum_offer_eur: row.minimum_offer_eur,
+      sale_date: row.sale_date,
+      status: row.status,
+      municipality: row.municipality,
+      source_name: row.source_name ?? null,
+      title: `Asta ${row.fingerprint}`,
+    },
+    confidence: clampConfidence(row.quality),
+    raw_ref_id: row.fingerprint,
+    explanation: `Asta PVP ${row.fingerprint} in ${row.municipality}${row.sale_date ? ` (${row.sale_date})` : ""}`,
+  };
+}
+
 // ─── runner ──────────────────────────────────────────────────────────────
 // deno-lint-ignore no-explicit-any
 type Sb = any;
