@@ -36,8 +36,6 @@ export interface EntityClassification {
   entity_granularity: EntityGranularity;
 }
 
-const norm = (s: string) => s.trim().toLowerCase();
-
 /** Pure key-based classification. Does not look at evidence content. */
 export function classifyEntityKey(entity_key: string): EntityClassification {
   const key = String(entity_key ?? "");

@@ -32,7 +32,7 @@ const CORS = {
 const json = (b: unknown, status = 200) =>
   new Response(safeStringify(b), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 
-type StageName = "STAGE_AUTH" | "STAGE_SCOPE" | "STAGE_EVIDENCE_QUERY" | "STAGE_CLASSIFICATION" | "STAGE_SERIALIZATION";
+type StageName = "STAGE_REQUEST" | "STAGE_AUTH" | "STAGE_SCOPE" | "STAGE_EVIDENCE_QUERY" | "STAGE_CLASSIFICATION" | "STAGE_RESPONSE_SERIALIZATION";
 
 function errorInfo(err: unknown) {
   const e = err instanceof Error ? err : new Error(String(err));
@@ -57,8 +57,8 @@ const OWNER_EMAILS = (Deno.env.get("CORE_ADMIN_BOOTSTRAP_EMAILS") ?? "")
 
 function controlledError(debug_id: string, stage: StageName, err: unknown, status = 200) {
   logStage(debug_id, stage, false, err);
-  const { error_message } = errorInfo(err);
-  return json(buildControlledErrorBody(debug_id, stage, error_message), status);
+  const { error_name, error_message } = errorInfo(err);
+  return json(buildControlledErrorBody(debug_id, stage, error_message, error_name), status);
 }
 
 function asStringArray(value: unknown): string[] {
@@ -79,7 +79,8 @@ serve(async (req) => {
   const debug_id = (globalThis.crypto?.randomUUID?.() ?? `dbg-${Date.now()}`);
   try {
     if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-    if (req.method !== "GET") return json({ ok: false, error: { code: "METHOD_NOT_ALLOWED" } }, 405);
+    if (req.method !== "GET") return json({ ok: false, error: { code: "METHOD_NOT_ALLOWED" }, debug_id }, 405);
+    logStage(debug_id, "STAGE_REQUEST", true);
 
     const authStage = await (async () => {
       const auth = req.headers.get("Authorization") ?? "";
@@ -151,9 +152,9 @@ serve(async (req) => {
       areaList.length === 0 ||
       areaList.every(
         (a) =>
-          (a?.comuni?.length ?? 0) === 0 &&
-          (a?.microzones?.length ?? 0) === 0 &&
-          (a?.quartieri?.length ?? 0) === 0,
+          (Array.isArray(a?.comuni) ? a.comuni.length : 0) === 0 &&
+          (Array.isArray(a?.microzones) ? a.microzones.length : 0) === 0 &&
+          (Array.isArray(a?.quartieri) ? a.quartieri.length : 0) === 0,
       )
     ) {
       return json({
@@ -162,7 +163,6 @@ serve(async (req) => {
           data_status: "setup_required",
           message: "Configura le zone operative dell'agenzia per attivare il radar.",
           ...EMPTY_PAYLOAD,
-          audit: null,
         },
       });
     }
@@ -194,10 +194,10 @@ serve(async (req) => {
       const data = buildResponseData({ ...result, warnings: [...(result.warnings ?? []), ...sectionFailures.map((f) => String((f as { message?: string }).message ?? "section_failed"))] }, areaList);
       return safeStringify({ ok: true, data });
     })().catch((err) => ({ error: err }));
-    if (typeof serialized !== "string") return controlledError(debug_id, "STAGE_SERIALIZATION", serialized.error, 200);
-    logStage(debug_id, "STAGE_SERIALIZATION", true);
+    if (typeof serialized !== "string") return controlledError(debug_id, "STAGE_RESPONSE_SERIALIZATION", serialized.error, 200);
+    logStage(debug_id, "STAGE_RESPONSE_SERIALIZATION", true);
     return new Response(serialized, { status: 200, headers: { ...CORS, "Content-Type": "application/json" } });
   } catch (err) {
-    return controlledError(debug_id, "STAGE_SERIALIZATION", err, 200);
+    return controlledError(debug_id, "STAGE_RESPONSE_SERIALIZATION", err, 200);
   }
 });

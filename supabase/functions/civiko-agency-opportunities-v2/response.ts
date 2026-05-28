@@ -25,7 +25,7 @@ export const DEFAULT_AUDIT = {
 };
 
 export const EMPTY_PAYLOAD = {
-  focus_area: [] as unknown[],
+  focus_area: null as unknown[] | null,
   hot_microzones: [] as unknown[],
   commercial_actions: [] as unknown[],
   deal_opportunities: [] as unknown[],
@@ -42,7 +42,9 @@ export function buildResponseData(
   result: Partial<OpportunityAuditResult> | null | undefined,
   areaList: AgencyArea[] | null | undefined,
 ) {
-  const focus_area = sanitizeArray(result?.focus_area);
+  const focus_area = Array.isArray(result?.focus_area) && result.focus_area.length > 0
+    ? sanitizeArray(result.focus_area)
+    : null;
   const hot_microzones = sanitizeArray(result?.hot_microzones);
   const commercial_actions = sanitizeArray(result?.commercial_actions);
   const deal_opportunities = sanitizeArray(result?.deal_opportunities);
@@ -51,7 +53,7 @@ export function buildResponseData(
   const warnings = sanitizeArray(result?.warnings);
 
   const hasDeals = deal_opportunities.length > 0;
-  const hasArea = focus_area.length + hot_microzones.length > 0;
+  const hasArea = (Array.isArray(focus_area) ? focus_area.length : 0) + hot_microzones.length > 0;
   const data_status = hasDeals ? "ok" : (hasArea ? "partial" : "empty");
   const empty_reason = hasDeals
     ? null
@@ -91,7 +93,7 @@ export function buildResponseData(
   };
 }
 
-export function buildControlledErrorBody(debug_id: string, error_stage?: string, error_message?: string) {
+export function buildControlledErrorBody(debug_id: string, error_stage?: string, error_message?: string, error_name?: string) {
   return {
     ok: false,
     data_status: "error",
@@ -99,6 +101,7 @@ export function buildControlledErrorBody(debug_id: string, error_stage?: string,
     message: "Non riesco a caricare le opportunità in questo momento.",
     debug_id,
     ...(error_stage ? { error_stage } : {}),
+    ...(error_name ? { error_name } : {}),
     ...(error_message ? { error_message } : {}),
     ...EMPTY_PAYLOAD,
   };
