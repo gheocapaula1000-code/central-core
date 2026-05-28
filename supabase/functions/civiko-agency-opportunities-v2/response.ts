@@ -93,7 +93,7 @@ export function buildResponseData(
   };
 }
 
-export function buildControlledErrorBody(debug_id: string, error_stage?: string, error_message?: string) {
+export function buildControlledErrorBody(debug_id: string, error_stage?: string, error_message?: string, error_name?: string) {
   return {
     ok: false,
     data_status: "error",
@@ -101,6 +101,7 @@ export function buildControlledErrorBody(debug_id: string, error_stage?: string,
     message: "Non riesco a caricare le opportunità in questo momento.",
     debug_id,
     ...(error_stage ? { error_stage } : {}),
+    ...(error_name ? { error_name } : {}),
     ...(error_message ? { error_message } : {}),
     ...EMPTY_PAYLOAD,
   };
