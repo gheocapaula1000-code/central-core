@@ -145,7 +145,7 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
         compliance_visibility: "admin_only",
       }),
     ];
-    const data = buildResponseData(runOpportunityAudit(rows, arcellaAreas), arcellaAreas);
+    const data = buildResponseData(runOpportunityAudit(rows, allPadovaAreas), allPadovaAreas);
     expect(data.deal_opportunities.map((d) => (d as { title: string }).title)).toContain("String listing");
     expect(data.deal_opportunities.map((d) => (d as { title: string }).title)).toContain("Object listing");
   });
