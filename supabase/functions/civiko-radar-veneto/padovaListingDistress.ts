@@ -57,13 +57,14 @@ export async function runPadovaListingDistress(
   const out: PadovaListingDistressResult = {
     listings_processed: 0,
     evidence_rows_upserted: 0,
-    fermo: 0, molto_fermo: 0, ribasso: 0, ribasso_forte: 0, ripubblicato: 0, no_distress: 0,
+    fermo: 0, molto_fermo: 0, ribasso: 0, ribasso_forte: 0, ripubblicato: 0,
+    forte: 0, medio: 0, lieve: 0, nessuno: 0, no_distress: 0,
     confidenza: { alta: 0, media: 0, bassa: 0 },
   };
 
   const evidenceRows: EvidenceRow[] = [];
   for (const agg of aggs.values()) {
-    const m = computeListingDistress(agg.snapshots);
+    const m = computeListingDistress(agg.snapshots, new Date(), agg.identity_snapshots);
     if (!m) continue;
     out.listings_processed++;
     out.confidenza[m.confidenza] = (out.confidenza[m.confidenza] ?? 0) + 1;
@@ -72,7 +73,10 @@ export async function runPadovaListingDistress(
     if (m.ribasso_forte) out.ribasso_forte++;
     else if (m.ribasso) out.ribasso++;
     if (m.ripubblicato) out.ripubblicato++;
-    if (m.distress_strength === "nessuno") out.no_distress++;
+    if (m.distress_strength === "forte") out.forte++;
+    else if (m.distress_strength === "medio") out.medio++;
+    else if (m.distress_strength === "lieve") out.lieve++;
+    else { out.nessuno++; out.no_distress++; }
     for (const input of buildListingEvidence(agg, m)) {
       evidenceRows.push(buildEvidenceRow(input));
     }
