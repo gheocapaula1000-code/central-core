@@ -22,7 +22,9 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import type { EvidenceRow } from "../_shared/evidenceLedger.ts";
 import { runOpportunityAudit, type AgencyArea } from "./audit.ts";
-import { buildResponseData, buildControlledErrorBody, EMPTY_PAYLOAD, safeStringify } from "./response.ts";
+import { buildResponseData, buildControlledErrorBody, EMPTY_PAYLOAD, safeStringify, type EvidenceCounts } from "./response.ts";
+import { backfillEvidence } from "../_shared/evidenceBackfill.ts";
+
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
