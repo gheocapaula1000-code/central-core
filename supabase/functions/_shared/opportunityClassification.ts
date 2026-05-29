@@ -65,11 +65,12 @@ export function extractActionableTarget(group: EvidenceRow[], entity_key = ""): 
     const v = evidenceValueAsRecord(r.evidence_value);
     const url = pickStr(v, ["target_url", "listing_url", "url", "source_url", "auction_url", "link", "annuncio_url", "asset_url"]);
     const ref = pickStr(v, ["target_ref", "raw_ref_id", "id", "auction_id", "listing_id", "property_ref", "asset_id", "pvp_id"])
-      ?? (typeof r.raw_ref_id === "string" && r.raw_ref_id.trim() ? r.raw_ref_id.trim() : null)
-      ?? (key.trim() ? key.trim() : null);
+      ?? (typeof r.raw_ref_id === "string" && r.raw_ref_id.trim() ? r.raw_ref_id.trim() : null);
     const addr = pickStr(v, ["address", "indirizzo", "via"]);
-    const title = pickStr(v, ["title", "address", "name"]);
-    if (url || ref || addr || title) {
+    const title = pickStr(v, ["title", "name"]);
+    // ACTIONABLE = url OR ref OR address. Title alone is NOT actionable
+    // (a deal card without a link/ref/address would dead-end the agent).
+    if (url || ref || addr) {
       const target_type: ActionableTarget["target_type"] =
         key.startsWith("op:") ? "listing"
         : key.startsWith("auct:") ? "auction"

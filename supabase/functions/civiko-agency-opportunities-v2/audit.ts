@@ -369,6 +369,7 @@ export function runOpportunityAudit(
       const source_access = classifySourceAccess(target.target_url);
       const next_actions = nextActionsFor(target_type);
       const arguments_to_avoid = argumentsToAvoidFor(target_type);
+      const distress = extractDistressFromGroup(safeGroup);
       const quality = classifyDealQuality({
         target_type,
         target_url: target.target_url,
@@ -381,6 +382,8 @@ export function runOpportunityAudit(
         hasMarket: !!market,
         source_access,
         sale_date: meta.sale_date,
+        distress_strength: distress.strength,
+        has_velocity: distress.present,
       });
       deal_opportunities.push({
         ...opp,
@@ -693,6 +696,23 @@ export function priceVsMarketLabel(
   return "in_linea";
 }
 
+export function extractDistressFromGroup(group: EvidenceRow[]): {
+  present: boolean;
+  strength: "nessuno" | "lieve" | "medio" | "forte" | null;
+} {
+  for (const r of group) {
+    if (r.evidence_type !== "listing_velocity") continue;
+    const v = evidenceValueAsRecord(r.evidence_value);
+    const raw = v["distress_strength"];
+    const s = typeof raw === "string" ? raw : null;
+    const strength = (s === "forte" || s === "medio" || s === "lieve" || s === "nessuno") ? s : null;
+    return { present: true, strength };
+  }
+  return { present: false, strength: null };
+}
+
+
+
 export function classifyDealQuality(input: {
   target_type: string;
   target_url?: string;
@@ -705,6 +725,8 @@ export function classifyDealQuality(input: {
   hasMarket: boolean;
   source_access: SourceAccess;
   sale_date: string | null;
+  distress_strength?: "nessuno" | "lieve" | "medio" | "forte" | null;
+  has_velocity?: boolean;
 }): { bucket: QualityBucket; reasons: string[] } {
   const reasons: string[] = [];
   if (input.target_url) reasons.push("source_url_present");
@@ -716,6 +738,7 @@ export function classifyDealQuality(input: {
   if (input.source_access === "cookie_wall_possible") reasons.push("cookie_wall_likely");
   if (!input.address) reasons.push("missing_address");
   if (!input.numericPrice && !input.title && !input.target_url) reasons.push("thin_record");
+  if (input.distress_strength) reasons.push(`distress_${input.distress_strength}`);
 
   const hasPrice = input.numericPrice != null;
   const hasUrl = !!input.target_url;
@@ -727,6 +750,14 @@ export function classifyDealQuality(input: {
   else if (hasUrl && hasContext) bucket = "verify";
   else if (hasUrl || hasPrice || hasContext) bucket = "monitor";
   else bucket = "low_value";
+
+  // When listing-velocity evidence is present, only verified "forte" distress
+  // is allowed to surface in "Da lavorare oggi". Solo "ripubblicato" (medio)
+  // or weak signals are downgraded to "Da verificare".
+  if (input.has_velocity && bucket === "work_today" && input.distress_strength !== "forte") {
+    bucket = "verify";
+    reasons.push("downgraded_distress_below_forte");
+  }
 
   return { bucket, reasons };
 }
