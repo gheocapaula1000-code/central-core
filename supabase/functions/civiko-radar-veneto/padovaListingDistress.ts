@@ -26,6 +26,10 @@ export interface PadovaListingDistressResult {
   ribasso: number;
   ribasso_forte: number;
   ripubblicato: number;
+  forte: number;
+  medio: number;
+  lieve: number;
+  nessuno: number;
   no_distress: number;
   confidenza: Record<"alta" | "media" | "bassa", number>;
 }
