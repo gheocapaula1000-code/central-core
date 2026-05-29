@@ -316,11 +316,11 @@ export async function backfillEvidence(supabase: Sb, opts: { dry_run?: boolean }
     push(mapAreaScore(r));
     counts.area_opportunity_scores += Object.values(buckets).reduce((a, b) => a + b.length, 0) - before;
   }
-  for (const r of (await fetchAll(supabase, "normalized_opportunities", "municipality,microzone,source_name,category,title,freshness_days,priority_score")) as NormalizedOppRow[]) {
-    const before = Object.values(buckets).reduce((a, b) => a + b.length, 0);
-    push(mapNormalizedOpportunity(r));
-    counts.normalized_opportunities += Object.values(buckets).reduce((a, b) => a + b.length, 0) - before;
-  }
+  // NOTE: normalized_opportunities → area-level mapping REMOVED.
+  // mapNormalizedOpportunity was writing mz:* keys with F13 from listing rows
+  // that have no actionable target. These are not real area intelligence.
+  // normalized_opportunities feeds ONLY deal-level (op:) rows via mapDealFromNormalized below.
+  counts.normalized_opportunities = 0;
   for (const r of (await fetchAll(supabase, "early_warning_opportunities", "comune,microzona,primary_signal_type,early_acquisition_score,confidence,explanation")) as EarlyWarningRow[]) {
     const before = Object.values(buckets).reduce((a, b) => a + b.length, 0);
     push(mapEarlyWarning(r));
