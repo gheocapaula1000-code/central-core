@@ -125,6 +125,7 @@ export const EMPTY_PAYLOAD = {
 export function buildResponseData(
   result: Partial<OpportunityAuditResult> | null | undefined,
   areaList: AgencyArea[] | null | undefined,
+  opts: BuildOptions = {},
 ) {
   const focus_area = sanitizeArray(result?.focus_area);
 
@@ -135,16 +136,26 @@ export function buildResponseData(
   const audit = toJsonSafe(result?.audit && typeof result.audit === "object" ? result.audit : DEFAULT_AUDIT);
   const warnings = sanitizeArray(result?.warnings);
 
+  const frontend_readiness = buildFrontendReadiness(
+    { focus_area, hot_microzones, commercial_actions, deal_opportunities },
+    opts,
+  );
+
   const hasDeals = deal_opportunities.length > 0;
   const hasArea = (Array.isArray(focus_area) ? focus_area.length : 0) + hot_microzones.length > 0;
-  const data_status = hasDeals ? "ok" : (hasArea ? "partial" : "empty");
+  // Never claim "ok" if readiness is not satisfied — partial covers the gap.
+  let data_status: "ok" | "partial" | "empty";
+  if (frontend_readiness.ready) data_status = "ok";
+  else if (hasDeals || hasArea) data_status = "partial";
+  else data_status = "empty";
+
   const empty_reason = hasDeals
     ? null
     : ((audit as { empty_reason?: string | null })?.empty_reason ?? "no_deal_level_opportunities");
-  const message = hasDeals
+  const message = data_status === "ok"
     ? null
-    : hasArea
-      ? "Civiko ha rilevato segnali di zona, ma non ancora immobili o aste azionabili."
+    : data_status === "partial"
+      ? "Dati reali presenti ma copertura incompleta."
       : "Nessuna evidenza disponibile per le zone configurate.";
 
   const safeAreas = (Array.isArray(areaList) ? areaList : []).filter(
@@ -162,6 +173,7 @@ export function buildResponseData(
     opportunities,
     audit,
     warnings,
+    frontend_readiness,
     scope: {
       comuni: [...new Set(safeAreas.flatMap((a) => (Array.isArray(a.comuni) ? a.comuni : [])))],
       microzones: [
@@ -175,6 +187,7 @@ export function buildResponseData(
     },
   };
 }
+
 
 export function buildControlledErrorBody(debug_id: string, error_stage?: string, error_message?: string, error_name?: string) {
   return {
