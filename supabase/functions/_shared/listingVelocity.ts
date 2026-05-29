@@ -148,14 +148,42 @@ export function computeListingDistress(
   }
   const ripubblicato = offline_gap_days >= 14 || priceChangeAtGap;
 
-  // Price history (only positive numbers) — SAME listing_id only.
-  const priced = sortedByTime.filter((s) => typeof s.price_eur === "number" && (s.price_eur as number) > 0);
+  // Price history — SAME listing_id, SAME identity_hash, surface coherent (±15%).
+  // Same casa.it listing_id can serve multiple distinct adverts (scraper conflation);
+  // only snapshots that pin to the dominant identity_hash AND a stable surface_sqm
+  // represent the same property and can be compared for price drops.
+  const allPriced = sortedByTime.filter((s) => typeof s.price_eur === "number" && (s.price_eur as number) > 0);
+  const identityCounts = new Map<string, number>();
+  for (const s of allPriced) {
+    const h = s.identity_hash ?? "";
+    identityCounts.set(h, (identityCounts.get(h) ?? 0) + 1);
+  }
+  let dominantHash: string | null = null;
+  let dominantCount = -1;
+  for (const [h, c] of identityCounts) {
+    if (c > dominantCount && h) { dominantCount = c; dominantHash = h; }
+  }
+  const dominantSurfaces = allPriced
+    .filter((s) => s.identity_hash === dominantHash && typeof s.surface_sqm === "number" && (s.surface_sqm as number) > 0)
+    .map((s) => s.surface_sqm as number);
+  const refSurface = dominantSurfaces.length > 0 ? dominantSurfaces[0] : null;
+  const surfaceCoherent = (s: SnapshotRow): boolean => {
+    if (refSurface == null) return true;
+    if (typeof s.surface_sqm !== "number" || (s.surface_sqm as number) <= 0) return true;
+    const diff = Math.abs((s.surface_sqm as number) - refSurface) / refSurface;
+    return diff <= 0.15;
+  };
+  const priced = allPriced.filter((s) =>
+    (dominantHash == null || s.identity_hash === dominantHash) && surfaceCoherent(s)
+  );
   let prezzo_iniziale: number | null = null;
   let prezzo_corrente: number | null = null;
   let prezzo_iniziale_date: string | null = null;
   let prezzo_corrente_date: string | null = null;
   let ribasso_pct: number | null = null;
   let numero_ribassi = 0;
+  /** Raw drop ≥25% — declassed to "verify" with prudent copy. */
+  let ribasso_implausibile = false;
   if (priced.length > 0) {
     prezzo_iniziale = priced[0].price_eur as number;
     prezzo_iniziale_date = priced[0].captured_at ?? priced[0].first_seen_at ?? null;
@@ -165,7 +193,19 @@ export function computeListingDistress(
       if ((priced[i].price_eur as number) < (priced[i - 1].price_eur as number)) numero_ribassi++;
     }
     if (prezzo_iniziale > 0 && (prezzo_corrente as number) <= prezzo_iniziale) {
-      ribasso_pct = (prezzo_iniziale - (prezzo_corrente as number)) / prezzo_iniziale;
+      const rawPct = (prezzo_iniziale - (prezzo_corrente as number)) / prezzo_iniziale;
+      // Require ≥2 distinct prices on a ≥7-day span.
+      const distinctPrices = new Set(priced.map((p) => p.price_eur as number)).size;
+      const spanDays = Math.floor(
+        ((new Date(prezzo_corrente_date ?? 0).getTime()) - (new Date(prezzo_iniziale_date ?? 0).getTime())) / 86_400_000,
+      );
+      const enoughEvidence = distinctPrices >= 2 && spanDays >= 7;
+      if (rawPct >= 0.25) {
+        ribasso_implausibile = true;
+        ribasso_pct = rawPct;
+      } else if (enoughEvidence) {
+        ribasso_pct = rawPct;
+      }
     }
   }
 
@@ -186,20 +226,16 @@ export function computeListingDistress(
 
   const fermo = giorni_online >= 90 && giorni_online < 180;
   const molto_fermo = giorni_online >= 180;
-  const ribassoFlag = ribasso_pct != null && ribasso_pct >= 0.03;
-  const ribasso_forte = ribasso_pct != null && ribasso_pct >= 0.08;
+  const ribassoFlag = !ribasso_implausibile && ribasso_pct != null && ribasso_pct >= 0.03;
+  const ribasso_forte = !ribasso_implausibile && ribasso_pct != null && ribasso_pct >= 0.08;
 
-  // Strength tiers (conservative):
-  //   forte  → "Da lavorare oggi" eligible
-  //   medio  → repost-only (no fermo / no ribasso); NOT work_today
-  //   lieve  → fermo OR ribasso ≥3% alone
-  //   nessuno
   let distress_strength: DistressStrength = "nessuno";
-  const reposted_plus_drop = ripubblicato && ribasso_pct != null && ribasso_pct >= 0.03;
+  const reposted_plus_drop = ripubblicato && ribassoFlag;
   const reposted_plus_fermo = ripubblicato && (fermo || molto_fermo);
   if (molto_fermo || ribasso_forte || reposted_plus_drop || reposted_plus_fermo) {
     distress_strength = "forte";
-  } else if (ripubblicato) {
+  } else if (ripubblicato || ribasso_implausibile) {
+    // Implausible drops are surfaced as "verify", never as "forte" facts.
     distress_strength = "medio";
   } else if (fermo || ribassoFlag) {
     distress_strength = "lieve";
@@ -214,21 +250,23 @@ export function computeListingDistress(
   }
 
   let price_gap_label: string | null = null;
-  if (ribasso_pct != null && ribasso_pct >= 0.03) {
+  if (ribasso_implausibile) {
+    bullets.push("Prezzo in forte calo — verifica sul portale");
+    price_gap_label = "verifica prezzo";
+  } else if (ribasso_pct != null && ribasso_pct >= 0.03) {
     const pct = Math.round(ribasso_pct * 100);
     const monthLabel = fmtMonth(prezzo_iniziale_date);
     bullets.push(monthLabel ? `Ribasso del ${pct}% da ${monthLabel}` : `Ribasso del ${pct}%`);
     price_gap_label = monthLabel ? `−${pct}% da ${monthLabel}` : `−${pct}%`;
   }
   if (ripubblicato) {
-    // Verified repost only — no count of artifact first_seen dates.
     bullets.push(
       offline_gap_days >= 14
         ? `Ripubblicato dopo ${offline_gap_days} giorni offline`
         : `Ripubblicato con prezzo aggiornato`,
     );
   }
-  if (numero_ribassi >= 2) {
+  if (!ribasso_implausibile && numero_ribassi >= 2) {
     bullets.push(`${numero_ribassi} ribassi consecutivi`);
   }
 
