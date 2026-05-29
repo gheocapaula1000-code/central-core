@@ -270,6 +270,18 @@ export async function runPadovaDailyRadar(opts: DailyRadarOptions = {}) {
     warnings.push("perplexity_skipped");
   }
 
+  // Stage 3b — ping snapshot dei listing noti (max ~40, sequenziale 1.5s/req)
+  // Mantiene giorni_online monotòno e produce segnale di delisting dopo 2 fallimenti.
+  const sPing = await callStage(
+    "ping-padova-snapshots",
+    fnUrl("civiko-radar-veneto/jobs/ping-padova-snapshots"),
+    {},
+    jobSecret,
+    150_000,
+  );
+  stages.push(sPing);
+  if (!sPing.ok) warnings.push(`ping_snapshots_failed:${sPing.status}`);
+
   // Stage 4 — velocity engine (price drop / stale / repost dai snapshot)
   const sAdv = await callStage(
     "advanced-opportunities",
