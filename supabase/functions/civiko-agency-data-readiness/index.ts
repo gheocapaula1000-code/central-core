@@ -1,14 +1,12 @@
 // civiko-agency-data-readiness
 // GET /functions/v1/civiko-agency-data-readiness?agency_id=...
 // Admin/owner-only diagnostic: returns scope, evidence counts, readiness score,
-// missing arrays, last ingestion, auto-heal status, and a snapshot of v2 counts
-// for the given agency. Never widens scope, never fabricates data.
+// missing arrays, last ingestion, auto-heal status. Self-contained (no cross-
+// function imports) so the Supabase bundler can deploy it standalone.
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import type { EvidenceRow } from "../_shared/evidenceLedger.ts";
-import { runOpportunityAudit, type AgencyArea } from "../civiko-agency-opportunities-v2/audit.ts";
-import { buildFrontendReadiness, type EvidenceCounts } from "../civiko-agency-opportunities-v2/response.ts";
 import { backfillEvidence } from "../_shared/evidenceBackfill.ts";
 
 const CORS = {
@@ -30,6 +28,8 @@ function svc() {
 const OWNER_EMAILS = (Deno.env.get("CORE_ADMIN_BOOTSTRAP_EMAILS") ?? "")
   .split(/[,\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
 const DIAG_SECRET = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
+
+interface EvidenceCounts { area: number; microzone: number; deal: number; auction: number; listing: number }
 
 async function requireAdmin(req: Request): Promise<{ userId: string | null } | Response> {
   const diag = req.headers.get("x-diagnostic-secret") ?? "";
@@ -70,6 +70,32 @@ function computeCounts(rows: EvidenceRow[], scopeComuni: Set<string>): EvidenceC
   return c;
 }
 
+function buildReadiness(counts: EvidenceCounts, opts: { last_successful_ingestion_at: string | null; auto_heal_attempted: boolean }) {
+  const missing: string[] = [];
+  const required_actions: string[] = [];
+  if (counts.area < 1) { missing.push("focus_area"); required_actions.push("ingest_area_opportunity_scores"); }
+  if (counts.microzone < 1 && counts.deal < 1) { missing.push("hot_microzones"); required_actions.push("ingest_microzone_evidence"); }
+  if (counts.deal < 1) { missing.push("deal_opportunities"); required_actions.push("ingest_normalized_opportunities_and_auctions"); }
+  if (counts.area < 1 || counts.microzone < 1 || counts.deal < 1) {
+    missing.push("commercial_actions");
+    required_actions.push("derive_commercial_actions");
+  }
+  let score = 0;
+  if (counts.deal > 0) score += 40;
+  if (counts.area > 0) score += 20;
+  if (counts.microzone > 0 || counts.deal > 0) score += 20;
+  if (counts.area > 0 || counts.deal > 0) score += 20;
+  return {
+    ready: missing.length === 0,
+    score,
+    missing: [...new Set(missing)],
+    required_actions: [...new Set(required_actions)],
+    last_successful_ingestion_at: opts.last_successful_ingestion_at,
+    evidence_counts: counts,
+    auto_heal_attempted: opts.auto_heal_attempted,
+  };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "GET") return json({ ok: false, error: { code: "METHOD_NOT_ALLOWED" } }, 405);
@@ -80,7 +106,7 @@ serve(async (req) => {
   const url = new URL(req.url);
   const agency_id = url.searchParams.get("agency_id");
   const user_id = url.searchParams.get("user_id");
-  const auto_heal = url.searchParams.get("auto_heal") !== "false"; // default on
+  const auto_heal = url.searchParams.get("auto_heal") !== "false";
 
   const supabase = svc();
   const select = "agency_id,user_id,comuni,microzones,quartieri,is_active";
@@ -93,16 +119,16 @@ serve(async (req) => {
     areaRows = (data ?? []) as Record<string, unknown>[];
   }
 
-  const areaList: AgencyArea[] = areaRows.map((row) => ({
+  const areas = areaRows.map((row) => ({
     agency_id: typeof row.agency_id === "string" ? row.agency_id : null,
     user_id: typeof row.user_id === "string" ? row.user_id : null,
     comuni: asStringArray(row.comuni),
     microzones: asStringArray(row.microzones),
     quartieri: asStringArray(row.quartieri),
   }));
-  const scopeComuni = new Set(areaList.flatMap((a) => a.comuni).map((c) => c.toLowerCase().trim()));
+  const scopeComuni = new Set(areas.flatMap((a) => a.comuni).map((c) => c.toLowerCase().trim()));
 
-  async function fetchAllEvidence(): Promise<EvidenceRow[]> {
+  async function fetchEvidence(): Promise<EvidenceRow[]> {
     const out: EvidenceRow[] = [];
     for (let from = 0; from < 10_000; from += 1000) {
       const { data, error } = await supabase
@@ -119,65 +145,38 @@ serve(async (req) => {
     return out;
   }
 
-  let evidence = await fetchAllEvidence().catch(() => [] as EvidenceRow[]);
+  let evidence = await fetchEvidence().catch(() => [] as EvidenceRow[]);
   let counts = computeCounts(evidence, scopeComuni);
 
-  // Upstream real-source snapshot (no widening).
   const comuniCanonical = [...scopeComuni].map((c) => c.charAt(0).toUpperCase() + c.slice(1));
-  let upstream = { area: 0, deals: 0, auctions: 0 };
+  const upstream = { area: 0, deals: 0, auctions: 0 };
   if (comuniCanonical.length > 0) {
-    try {
-      const r1 = await supabase.from("area_opportunity_scores").select("*", { count: "exact", head: true }).in("municipality", comuniCanonical);
-      upstream.area = r1.count ?? 0;
-    } catch { /* ignore */ }
-    try {
-      const r2 = await supabase.from("normalized_opportunities").select("*", { count: "exact", head: true }).in("municipality", comuniCanonical);
-      upstream.deals = r2.count ?? 0;
-    } catch { /* ignore */ }
-    try {
-      const r3 = await supabase.from("auction_signals").select("*", { count: "exact", head: true }).in("municipality", comuniCanonical);
-      upstream.auctions = r3.count ?? 0;
-    } catch { /* ignore */ }
+    try { const r = await supabase.from("area_opportunity_scores").select("*", { count: "exact", head: true }).in("municipality", comuniCanonical); upstream.area = r.count ?? 0; } catch { /* ignore */ }
+    try { const r = await supabase.from("normalized_opportunities").select("*", { count: "exact", head: true }).in("municipality", comuniCanonical); upstream.deals = r.count ?? 0; } catch { /* ignore */ }
+    try { const r = await supabase.from("auction_signals").select("*", { count: "exact", head: true }).in("municipality", comuniCanonical); upstream.auctions = r.count ?? 0; } catch { /* ignore */ }
   }
 
   let auto_heal_attempted = false;
-  const totalInScope = counts.area + counts.microzone + counts.deal;
-  if (auto_heal && totalInScope < 1 && (upstream.area + upstream.deals + upstream.auctions) > 0) {
+  if (auto_heal && (counts.area + counts.microzone + counts.deal) < 1 && (upstream.area + upstream.deals + upstream.auctions) > 0) {
     auto_heal_attempted = true;
     await backfillEvidence(supabase).catch(() => null);
-    evidence = await fetchAllEvidence().catch(() => evidence);
+    evidence = await fetchEvidence().catch(() => evidence);
     counts = computeCounts(evidence, scopeComuni);
   }
 
-  const result = runOpportunityAudit(evidence, areaList);
   const { data: lastIngest } = await supabase
     .from("civiko_evidence").select("observed_at").order("observed_at", { ascending: false }).limit(1);
   const last_successful_ingestion_at = lastIngest?.[0]?.observed_at ?? null;
 
-  const readiness = buildFrontendReadiness(
-    {
-      focus_area: result.focus_area,
-      hot_microzones: result.hot_microzones,
-      commercial_actions: result.commercial_actions,
-      deal_opportunities: result.deal_opportunities,
-    },
-    { evidence_counts: counts, last_successful_ingestion_at, auto_heal_attempted },
-  );
+  const readiness = buildReadiness(counts, { last_successful_ingestion_at, auto_heal_attempted });
 
   return json({
     ok: true,
     data: {
-      scope: { comuni: [...scopeComuni], microzones: [...new Set(areaList.flatMap((a) => [...a.microzones, ...a.quartieri]))] },
-      areas: areaList,
+      scope: { comuni: [...scopeComuni], microzones: [...new Set(areas.flatMap((a) => [...a.microzones, ...a.quartieri]))] },
+      areas,
       evidence_counts: counts,
       upstream_real_sources: upstream,
-      v2_counts: {
-        focus_area: result.focus_area.length,
-        hot_microzones: result.hot_microzones.length,
-        commercial_actions: result.commercial_actions.length,
-        deal_opportunities: result.deal_opportunities.length,
-      },
-      audit: result.audit,
       frontend_readiness: readiness,
       auto_heal_attempted,
       last_successful_ingestion_at,
