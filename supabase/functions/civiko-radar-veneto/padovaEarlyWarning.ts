@@ -325,7 +325,7 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
     if (!r.identity_hash) continue;
     const key = `lh:${r.identity_hash}`;
     const meta = listingMeta.get(r.identity_hash) ?? {};
-    const agg = getAgg(key, { identity_hash: r.identity_hash, area_label: meta.area_label, property_type: meta.property_type });
+    const agg = getAgg(key, { identity_hash: r.identity_hash, microzona: meta.microzone, area_label: meta.area_label, property_type: meta.property_type });
     const w = SIGNAL_WEIGHTS[r.anomaly_type] ?? 10;
     agg.signals.push({
       identity_hash: r.identity_hash,
@@ -349,7 +349,7 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
     if (!ih) continue;
     const key = `lh:${ih}`;
     const meta = listingMeta.get(ih) ?? {};
-    const agg = getAgg(key, { identity_hash: ih, area_label: meta.area_label, property_type: meta.property_type });
+    const agg = getAgg(key, { identity_hash: ih, microzona: meta.microzone, area_label: meta.area_label, property_type: meta.property_type });
     let type = "velocity_fresh";
     if (r.price_drop_percent && Number(r.price_drop_percent) >= 5) type = "velocity_price_drop";
     else if (r.repost_detected) type = "velocity_repost";
@@ -378,7 +378,7 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
     if (!ih) continue;
     const key = `lh:${ih}`;
     const meta = listingMeta.get(ih) ?? {};
-    const agg = getAgg(key, { identity_hash: ih, area_label: meta.area_label, property_type: meta.property_type });
+    const agg = getAgg(key, { identity_hash: ih, microzona: meta.microzone, area_label: meta.area_label, property_type: meta.property_type });
     agg.signals.push({
       identity_hash: ih,
       type: "motivated_seller",
