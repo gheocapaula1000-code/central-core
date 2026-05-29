@@ -585,7 +585,12 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
     try {
       evidenceBackfill = await backfillEvidence(sb) as unknown as Record<string, unknown>;
     } catch (e) {
-      warnings.push(`evidence_backfill_failed:${e instanceof Error ? e.message : String(e)}`);
+      let msg: string;
+      if (e instanceof Error) msg = e.message;
+      else if (e && typeof e === "object") {
+        try { msg = JSON.stringify(e); } catch { msg = String(e); }
+      } else msg = String(e);
+      warnings.push(`evidence_backfill_failed:${msg}`);
     }
   }
 
