@@ -9,6 +9,8 @@
 //  - Each opportunity is rebuilt fully each run (idempotent upsert).
 // ═══════════════════════════════════════════════════════════════
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { backfillEvidence } from "../_shared/evidenceBackfill.ts";
+import { normalizePadovaCanonicalMicrozone, resolvePadovaCanonicalMicrozoneByPoint, type PadovaMicrozoneResolution } from "../_shared/padovaCanonicalMicrozones.ts";
 
 const COMUNE = "Padova";
 const PROV = "PD";
@@ -84,6 +86,17 @@ interface Aggregate {
   area_label: string | null;
   property_type: string | null;
   signals: RawSignal[];
+}
+
+interface ListingMeta {
+  microzone: string | null;
+  area_label: string | null;
+  property_type: string | null;
+  url: string | null;
+  source: string | null;
+  lat: number | null;
+  lng: number | null;
+  omi_zone?: string | null;
 }
 
 function clean(s: unknown): string | null {
@@ -173,11 +186,11 @@ function explanationFor(signals: RawSignal[], primary: string): string {
 // ─────────────────────────────────────────────────────────────
 // Loaders
 // ─────────────────────────────────────────────────────────────
-async function loadListingMeta(sb: SupabaseClient): Promise<Map<string, { microzone: string | null; area_label: string | null; property_type: string | null; url: string | null; source: string | null }>> {
-  const map = new Map<string, any>();
+async function loadListingMeta(sb: SupabaseClient): Promise<Map<string, ListingMeta>> {
+  const map = new Map<string, ListingMeta>();
   const { data } = await sb
     .from("listing_price_snapshots")
-    .select("identity_hash, url, source, property_type, raw_address")
+    .select("identity_hash, url, source, property_type, raw_address, lat, lng")
     .ilike("municipality", COMUNE)
     .not("identity_hash", "is", null)
     .limit(2000);
@@ -190,6 +203,8 @@ async function loadListingMeta(sb: SupabaseClient): Promise<Map<string, { microz
         property_type: r.property_type ?? null,
         url: r.url ?? null,
         source: r.source ?? null,
+        lat: typeof r.lat === "number" ? r.lat : null,
+        lng: typeof r.lng === "number" ? r.lng : null,
       });
     }
   }
