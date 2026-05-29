@@ -25,8 +25,14 @@ import { upsertEvidenceRows, buildEvidenceRow } from "../_shared/evidenceLedger.
 
 const COMUNE = "Padova";
 const DEFAULT_DELAY_MS = 1500;
-const DEFAULT_MAX_LISTINGS = 40;
-const DEFAULT_WALL_BUDGET_MS = 120_000;
+// Supabase edge function hard wall-clock cap is ~400s. We stay safely below
+// that (360s) so a single nightly run can chew through as many Padova listings
+// as possible without being killed mid-flight. With ~8s effective cost per
+// listing (1.5s politeness delay + ~6-7s Firecrawl scrape) this yields ~40-45
+// listings per run; the cron is configured to fire multiple times per night to
+// cover the full ~120 inventory.
+const DEFAULT_MAX_LISTINGS = 130;
+const DEFAULT_WALL_BUDGET_MS = 360_000;
 const FIRECRAWL_URL = "https://api.firecrawl.dev/v2/scrape";
 const SCRAPE_TIMEOUT_MS = 25_000;
 
