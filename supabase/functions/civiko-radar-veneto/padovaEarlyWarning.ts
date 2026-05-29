@@ -565,6 +565,7 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
 
   let upserted = 0;
   let evidenceBackfill: Record<string, unknown> | null = null;
+  let listingDistress: PadovaListingDistressResult | null = null;
   if (!req.dryRun && rows.length > 0) {
     // Upsert in chunks
     for (let i = 0; i < rows.length; i += 200) {
@@ -593,6 +594,18 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
         try { msg = JSON.stringify(e); } catch { msg = String(e); }
       } else msg = String(e);
       warnings.push(`evidence_backfill_failed:${msg}`);
+    }
+    // Listing-level distress stage: writes deal_listing + listing_velocity
+    // evidence on op:<comune>:<listing_id> from listing_price_snapshots.
+    try {
+      listingDistress = await runPadovaListingDistress(sb, { dryRun: false });
+    } catch (e) {
+      let msg: string;
+      if (e instanceof Error) msg = e.message;
+      else if (e && typeof e === "object") {
+        try { msg = JSON.stringify(e); } catch { msg = String(e); }
+      } else msg = String(e);
+      warnings.push(`listing_distress_failed:${msg}`);
     }
   }
 
