@@ -22,7 +22,9 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import type { EvidenceRow } from "../_shared/evidenceLedger.ts";
 import { runOpportunityAudit, type AgencyArea } from "./audit.ts";
-import { buildResponseData, buildControlledErrorBody, EMPTY_PAYLOAD, safeStringify } from "./response.ts";
+import { buildResponseData, buildControlledErrorBody, EMPTY_PAYLOAD, safeStringify, type EvidenceCounts } from "./response.ts";
+import { backfillEvidence } from "../_shared/evidenceBackfill.ts";
+
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -93,6 +95,62 @@ async function fetchEvidenceRows(supabase: ReturnType<typeof svc>): Promise<Evid
   }
   return out;
 }
+
+function computeEvidenceCounts(rows: EvidenceRow[], scopeComuni: Set<string>): EvidenceCounts {
+  const counts: EvidenceCounts = { area: 0, microzone: 0, deal: 0, auction: 0, listing: 0 };
+  const inScope = (comuneSeg: string) => scopeComuni.size === 0 || scopeComuni.has(comuneSeg);
+  for (const r of rows) {
+    const key = r.entity_key ?? "";
+    const parts = key.split(":");
+    const comuneSeg = (parts[1] ?? "").toLowerCase().trim();
+    if (key.startsWith("c:")) {
+      if (inScope((parts[1] ?? "").toLowerCase().trim())) counts.area++;
+    } else if (key.startsWith("mz:")) {
+      if (inScope(comuneSeg)) counts.microzone++;
+    } else if (key.startsWith("op:")) {
+      if (inScope(comuneSeg)) { counts.deal++; counts.listing++; }
+    } else if (key.startsWith("auct:")) {
+      if (inScope(comuneSeg)) { counts.deal++; counts.auction++; }
+    }
+  }
+  return counts;
+}
+
+async function countUpstreamRealData(
+  supabase: ReturnType<typeof svc>,
+  scopeComuni: Set<string>,
+): Promise<{ area: number; deals: number; auctions: number }> {
+  const comuni = [...scopeComuni].map((c) => c.charAt(0).toUpperCase() + c.slice(1));
+  const out = { area: 0, deals: 0, auctions: 0 };
+  if (comuni.length === 0) return out;
+  try {
+    const { count: areaCount } = await supabase
+      .from("area_opportunity_scores").select("*", { count: "exact", head: true }).in("municipality", comuni);
+    out.area = areaCount ?? 0;
+  } catch { /* table may not exist */ }
+  try {
+    const { count: dealCount } = await supabase
+      .from("normalized_opportunities").select("*", { count: "exact", head: true }).in("municipality", comuni);
+    out.deals = dealCount ?? 0;
+  } catch { /* table may not exist */ }
+  try {
+    const { count: auctionCount } = await supabase
+      .from("auction_signals").select("*", { count: "exact", head: true }).in("municipality", comuni);
+    out.auctions = auctionCount ?? 0;
+  } catch { /* table may not exist */ }
+  return out;
+}
+
+async function fetchLastIngestionAt(supabase: ReturnType<typeof svc>): Promise<string | null> {
+  try {
+    const { data } = await supabase
+      .from("civiko_evidence").select("observed_at").order("observed_at", { ascending: false }).limit(1);
+    return data?.[0]?.observed_at ?? null;
+  } catch {
+    return null;
+  }
+}
+
 
 serve(async (req) => {
   const debug_id = (globalThis.crypto?.randomUUID?.() ?? `dbg-${Date.now()}`);
@@ -186,12 +244,45 @@ serve(async (req) => {
       });
     }
 
-    const evidenceStage = await fetchEvidenceRows(supabase).catch((err) => ({ error: err }));
-    if (!Array.isArray(evidenceStage)) return controlledError(debug_id, "STAGE_EVIDENCE_QUERY", evidenceStage.error, 200);
+    let evidenceRows = await fetchEvidenceRows(supabase).catch((err) => ({ error: err }));
+    if (!Array.isArray(evidenceRows)) return controlledError(debug_id, "STAGE_EVIDENCE_QUERY", evidenceRows.error, 200);
     logStage(debug_id, "STAGE_EVIDENCE_QUERY", true);
 
+    const scopeComuni = new Set(
+      areaList.flatMap((a) => (Array.isArray(a.comuni) ? a.comuni : [])).map((c) => c.toLowerCase().trim()),
+    );
+
+    // Compute initial evidence counts scoped to the agency comuni.
+    let evidence_counts = computeEvidenceCounts(evidenceRows, scopeComuni);
+    let auto_heal_attempted = false;
+
+    // Auto-heal: if any in-scope category is thin but real source tables exist,
+    // lift them into civiko_evidence (idempotent) and re-query.
+    const thin = evidence_counts.area + evidence_counts.microzone + evidence_counts.deal + evidence_counts.auction + evidence_counts.listing < 1;
+    if (thin) {
+      try {
+        const upstream = await countUpstreamRealData(supabase, scopeComuni);
+        if (upstream.area + upstream.deals + upstream.auctions > 0) {
+          auto_heal_attempted = true;
+          console.log("[opportunities-v2] auto-heal", { debug_id, upstream });
+          await backfillEvidence(supabase).catch((err) => {
+            console.error("[opportunities-v2] auto-heal failed", { debug_id, ...errorInfo(err) });
+          });
+          const refreshed = await fetchEvidenceRows(supabase).catch(() => null);
+          if (Array.isArray(refreshed) && refreshed.length > evidenceRows.length) {
+            evidenceRows = refreshed;
+            evidence_counts = computeEvidenceCounts(evidenceRows, scopeComuni);
+          }
+        }
+      } catch (err) {
+        console.error("[opportunities-v2] auto-heal exception", { debug_id, ...errorInfo(err) });
+      }
+    }
+
+    const last_successful_ingestion_at = await fetchLastIngestionAt(supabase).catch(() => null);
+
     const sectionFailures: unknown[] = [];
-    const result = await (async () => runOpportunityAudit(evidenceStage, areaList, {
+    const result = await (async () => runOpportunityAudit(evidenceRows as EvidenceRow[], areaList, {
       onSectionFailure: (failure) => {
         sectionFailures.push(failure);
         console.error("[opportunities-v2] stage", { debug_id, stage: "STAGE_CLASSIFICATION", ok: false, ...failure });
@@ -201,7 +292,11 @@ serve(async (req) => {
     logStage(debug_id, "STAGE_CLASSIFICATION", true);
 
     const serialized = await (async () => {
-      const data = buildResponseData({ ...result, warnings: [...(result.warnings ?? []), ...sectionFailures.map((f) => String((f as { message?: string }).message ?? "section_failed"))] }, areaList);
+      const data = buildResponseData(
+        { ...result, warnings: [...(result.warnings ?? []), ...sectionFailures.map((f) => String((f as { message?: string }).message ?? "section_failed"))] },
+        areaList,
+        { evidence_counts, last_successful_ingestion_at, auto_heal_attempted },
+      );
       // Mirror intelligence arrays at top level for PWA compatibility (both shapes supported).
       return safeStringify({
         ok: true,
@@ -211,11 +306,13 @@ serve(async (req) => {
         commercial_actions: data.commercial_actions,
         deal_opportunities: data.deal_opportunities,
         opportunities: data.opportunities,
+        frontend_readiness: data.frontend_readiness,
       });
     })().catch((err) => ({ error: err }));
     if (typeof serialized !== "string") return controlledError(debug_id, "STAGE_RESPONSE_SERIALIZATION", serialized.error, 200);
     logStage(debug_id, "STAGE_RESPONSE_SERIALIZATION", true);
     return new Response(serialized, { status: 200, headers: { ...CORS, "Content-Type": "application/json" } });
+
   } catch (err) {
     return controlledError(debug_id, "STAGE_RESPONSE_SERIALIZATION", err, 200);
   }
