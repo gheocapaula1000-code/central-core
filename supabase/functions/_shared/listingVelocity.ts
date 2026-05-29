@@ -51,7 +51,7 @@ export interface SnapshotRow {
 }
 
 export type Confidenza = "alta" | "media" | "bassa";
-export type DistressStrength = "nessuno" | "lieve" | "forte";
+export type DistressStrength = "nessuno" | "lieve" | "medio" | "forte";
 
 export interface DistressMetrics {
   giorni_online: number;
@@ -61,6 +61,8 @@ export interface DistressMetrics {
   ribasso_pct: number | null;
   numero_ribassi: number;
   ripubblicato: boolean;
+  /** Max consecutive offline gap (days) detected in the identity history. */
+  offline_gap_days: number;
   confidenza: Confidenza;
   snapshot_count: number;
   arc_days: number;
