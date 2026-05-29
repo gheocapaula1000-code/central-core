@@ -376,6 +376,7 @@ export function buildListingEvidence(agg: ListingAggregate, m: DistressMetrics):
       ribasso_pct: m.ribasso_pct,
       numero_ribassi: m.numero_ribassi,
       ripubblicato: m.ripubblicato,
+      offline_gap_days: m.offline_gap_days,
       confidenza: m.confidenza,
       distress_strength: m.distress_strength,
       explanation_bullets: m.explanation_bullets,
