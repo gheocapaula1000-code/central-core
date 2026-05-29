@@ -229,8 +229,53 @@ export interface PadovaEarlyWarningResult {
   by_primary: Record<string, number>;
   rejected: number;
   rejected_reasons: Record<string, number>;
+  resolved_to_microzone: number;
+  evidence_backfill?: Record<string, unknown> | null;
   samples: Array<Record<string, unknown>>;
   warnings: string[];
+}
+
+async function resolveListingMetaMicrozones(sb: SupabaseClient, listingMeta: Map<string, ListingMeta>) {
+  const cache = new Map<string, PadovaMicrozoneResolution | null>();
+  let resolved = 0;
+  for (const meta of listingMeta.values()) {
+    const existing = normalizePadovaCanonicalMicrozone(meta.microzone);
+    if (existing) { meta.microzone = existing; continue; }
+    const key = `${meta.lat ?? ""},${meta.lng ?? ""}`;
+    if (!cache.has(key)) cache.set(key, await resolvePadovaCanonicalMicrozoneByPoint(sb, meta.lat, meta.lng));
+    const match = cache.get(key);
+    if (!match) continue;
+    meta.microzone = match.slug;
+    meta.omi_zone = match.omi_zone;
+    resolved++;
+  }
+  return resolved;
+}
+
+async function resolveNormalizedOpportunityMicrozones(sb: SupabaseClient) {
+  const { data } = await sb
+    .from("normalized_opportunities")
+    .select("id,latitude,longitude,microzone")
+    .ilike("municipality", COMUNE)
+    .is("microzone", null)
+    .not("latitude", "is", null)
+    .not("longitude", "is", null)
+    .range(0, 999);
+  const cache = new Map<string, PadovaMicrozoneResolution | null>();
+  let resolved = 0;
+  for (const r of (data ?? []) as any[]) {
+    const key = `${r.latitude ?? ""},${r.longitude ?? ""}`;
+    if (!cache.has(key)) cache.set(key, await resolvePadovaCanonicalMicrozoneByPoint(sb, r.latitude, r.longitude));
+    const match = cache.get(key);
+    if (!match) continue;
+    const { error } = await sb
+      .from("normalized_opportunities")
+      .update({ microzone: match.slug, updated_at: new Date().toISOString() })
+      .eq("id", r.id)
+      .is("microzone", null);
+    if (!error) resolved++;
+  }
+  return resolved;
 }
 
 export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {}): Promise<PadovaEarlyWarningResult> {
@@ -248,6 +293,8 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
   const runId = (runStart.data as any)?.id ?? null;
 
   const listingMeta = await loadListingMeta(sb);
+  const resolvedListingMeta = await resolveListingMetaMicrozones(sb, listingMeta);
+  const resolvedNormalized = req.dryRun === true ? 0 : await resolveNormalizedOpportunityMicrozones(sb);
 
   // Build per-identity_hash aggregates
   const aggMap = new Map<string, Aggregate>();
