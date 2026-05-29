@@ -89,9 +89,17 @@ export async function recordEvidence(supabase: any, inputs: EvidenceInput | Evid
 // deno-lint-ignore no-explicit-any
 export async function upsertEvidenceRows(supabase: any, rows: EvidenceRow[]): Promise<number> {
   if (!rows.length) return 0;
+  // Deduplicate by composite conflict key — last write wins. PostgREST upsert
+  // cannot affect the same row twice in a single statement, so collapse here.
+  const seen = new Map<string, EvidenceRow>();
+  for (const r of rows) {
+    const k = `${r.entity_type}|${r.entity_key}|${r.source_code}|${r.evidence_type}`;
+    seen.set(k, r);
+  }
+  const deduped = Array.from(seen.values());
   let total = 0;
-  for (let i = 0; i < rows.length; i += 500) {
-    const slice = rows.slice(i, i + 500);
+  for (let i = 0; i < deduped.length; i += 500) {
+    const slice = deduped.slice(i, i + 500);
     const { error } = await supabase
       .from("civiko_evidence")
       .upsert(slice, { onConflict: "entity_type,entity_key,source_code,evidence_type" });
