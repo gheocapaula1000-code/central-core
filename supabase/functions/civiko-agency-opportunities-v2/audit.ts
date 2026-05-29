@@ -617,6 +617,18 @@ function pickNum(o: Record<string, unknown>, keys: string[]): number | null {
   for (const k of keys) { const v = o[k]; if (typeof v === "number" && Number.isFinite(v)) return v; }
   return null;
 }
+function pickNumLoose(o: Record<string, unknown>, keys: string[]): number | null {
+  for (const k of keys) {
+    const v = o[k];
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    if (typeof v === "string") {
+      const cleaned = v.replace(/[€$\s.]/g, "").replace(",", ".");
+      const n = Number(cleaned);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Quality + market + action helpers
