@@ -10,7 +10,27 @@
 // All textual output passes through sanitizeCopy (forbidden vocabulary guard).
 // No personal data, no fabrication — only joins real snapshot rows.
 
-import { sanitizeCopy } from "./civiko.ts";
+// Local copy of the forbidden-vocabulary sanitizer. Mirrors FORBIDDEN_WORDS in
+// _shared/civiko.ts; duplicated here so this module stays vitest-importable
+// (civiko.ts pulls Deno/esm.sh imports that break under node).
+const FORBIDDEN_WORDS = [
+  "ai", "ia", "intelligenza", "intelligence", "machine learning",
+  "smart", "intelligent", "intelligente",
+  "stima", "perizia", "valutazione ufficiale", "valutazioni ufficiali",
+  "prezzo giusto", "prezzo corretto", "valore reale",
+  "garantito", "garantita",
+];
+const FORBIDDEN_RE = new RegExp(
+  "(?<![\\p{L}\\p{N}])(" +
+    FORBIDDEN_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") +
+    ")(?![\\p{L}\\p{N}])",
+  "giu",
+);
+function sanitizeCopy(value: string): string {
+  if (!value) return value;
+  return value.replace(FORBIDDEN_RE, "").replace(/\s{2,}/g, " ").trim();
+}
+
 import type { EvidenceInput } from "./evidenceLedger.ts";
 
 export interface SnapshotRow {
