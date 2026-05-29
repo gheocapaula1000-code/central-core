@@ -369,6 +369,7 @@ export function runOpportunityAudit(
       const source_access = classifySourceAccess(target.target_url);
       const next_actions = nextActionsFor(target_type);
       const arguments_to_avoid = argumentsToAvoidFor(target_type);
+      const distress = extractDistressFromGroup(safeGroup);
       const quality = classifyDealQuality({
         target_type,
         target_url: target.target_url,
@@ -381,6 +382,8 @@ export function runOpportunityAudit(
         hasMarket: !!market,
         source_access,
         sale_date: meta.sale_date,
+        distress_strength: distress.strength,
+        has_velocity: distress.present,
       });
       deal_opportunities.push({
         ...opp,
