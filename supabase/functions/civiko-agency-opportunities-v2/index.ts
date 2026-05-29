@@ -202,7 +202,16 @@ serve(async (req) => {
 
     const serialized = await (async () => {
       const data = buildResponseData({ ...result, warnings: [...(result.warnings ?? []), ...sectionFailures.map((f) => String((f as { message?: string }).message ?? "section_failed"))] }, areaList);
-      return safeStringify({ ok: true, data });
+      // Mirror intelligence arrays at top level for PWA compatibility (both shapes supported).
+      return safeStringify({
+        ok: true,
+        data,
+        focus_area: data.focus_area,
+        hot_microzones: data.hot_microzones,
+        commercial_actions: data.commercial_actions,
+        deal_opportunities: data.deal_opportunities,
+        opportunities: data.opportunities,
+      });
     })().catch((err) => ({ error: err }));
     if (typeof serialized !== "string") return controlledError(debug_id, "STAGE_RESPONSE_SERIALIZATION", serialized.error, 200);
     logStage(debug_id, "STAGE_RESPONSE_SERIALIZATION", true);
