@@ -96,6 +96,62 @@ async function fetchEvidenceRows(supabase: ReturnType<typeof svc>): Promise<Evid
   return out;
 }
 
+function computeEvidenceCounts(rows: EvidenceRow[], scopeComuni: Set<string>): EvidenceCounts {
+  const counts: EvidenceCounts = { area: 0, microzone: 0, deal: 0, auction: 0, listing: 0 };
+  const inScope = (comuneSeg: string) => scopeComuni.size === 0 || scopeComuni.has(comuneSeg);
+  for (const r of rows) {
+    const key = r.entity_key ?? "";
+    const parts = key.split(":");
+    const comuneSeg = (parts[1] ?? "").toLowerCase().trim();
+    if (key.startsWith("c:")) {
+      if (inScope((parts[1] ?? "").toLowerCase().trim())) counts.area++;
+    } else if (key.startsWith("mz:")) {
+      if (inScope(comuneSeg)) counts.microzone++;
+    } else if (key.startsWith("op:")) {
+      if (inScope(comuneSeg)) { counts.deal++; counts.listing++; }
+    } else if (key.startsWith("auct:")) {
+      if (inScope(comuneSeg)) { counts.deal++; counts.auction++; }
+    }
+  }
+  return counts;
+}
+
+async function countUpstreamRealData(
+  supabase: ReturnType<typeof svc>,
+  scopeComuni: Set<string>,
+): Promise<{ area: number; deals: number; auctions: number }> {
+  const comuni = [...scopeComuni].map((c) => c.charAt(0).toUpperCase() + c.slice(1));
+  const out = { area: 0, deals: 0, auctions: 0 };
+  if (comuni.length === 0) return out;
+  try {
+    const { count: areaCount } = await supabase
+      .from("area_opportunity_scores").select("*", { count: "exact", head: true }).in("municipality", comuni);
+    out.area = areaCount ?? 0;
+  } catch { /* table may not exist */ }
+  try {
+    const { count: dealCount } = await supabase
+      .from("normalized_opportunities").select("*", { count: "exact", head: true }).in("municipality", comuni);
+    out.deals = dealCount ?? 0;
+  } catch { /* table may not exist */ }
+  try {
+    const { count: auctionCount } = await supabase
+      .from("auction_signals").select("*", { count: "exact", head: true }).in("municipality", comuni);
+    out.auctions = auctionCount ?? 0;
+  } catch { /* table may not exist */ }
+  return out;
+}
+
+async function fetchLastIngestionAt(supabase: ReturnType<typeof svc>): Promise<string | null> {
+  try {
+    const { data } = await supabase
+      .from("civiko_evidence").select("observed_at").order("observed_at", { ascending: false }).limit(1);
+    return data?.[0]?.observed_at ?? null;
+  } catch {
+    return null;
+  }
+}
+
+
 serve(async (req) => {
   const debug_id = (globalThis.crypto?.randomUUID?.() ?? `dbg-${Date.now()}`);
   try {
