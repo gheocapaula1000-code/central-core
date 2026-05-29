@@ -1,0 +1,201 @@
+import { useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
+
+interface StageSummary {
+  stage: string;
+  ok: boolean;
+  status: number;
+  duration_ms: number;
+  summary?: Record<string, unknown>;
+  error?: string;
+}
+
+interface CycleReport {
+  cycle_ok?: boolean;
+  dry_run?: boolean;
+  total_duration_ms?: number;
+  stages?: StageSummary[];
+  notes?: string[];
+}
+
+interface ProxyResponse {
+  ok: boolean;
+  invoked_by?: string;
+  request_body?: { dryRun?: boolean; includeNeedsReview?: boolean };
+  cycle_status?: number;
+  cycle_error?: string | null;
+  cycle_report?: { data?: CycleReport; warnings?: string[]; debug_id?: string; error?: { message: string } } | CycleReport | string | null;
+  duration_ms?: number;
+  error?: string;
+}
+
+function extractCycle(resp: ProxyResponse): { cycle: CycleReport | null; warnings: string[] } {
+  const r = resp.cycle_report;
+  if (r && typeof r === "object" && "data" in r && r.data && typeof r.data === "object") {
+    return { cycle: r.data as CycleReport, warnings: (r as { warnings?: string[] }).warnings ?? [] };
+  }
+  if (r && typeof r === "object" && "stages" in r) {
+    return { cycle: r as CycleReport, warnings: [] };
+  }
+  return { cycle: null, warnings: [] };
+}
+
+export default function AdminAggiornaPadovaPage() {
+  const [running, setRunning] = useState(false);
+  const [response, setResponse] = useState<ProxyResponse | null>(null);
+
+  const run = async () => {
+    setRunning(true);
+    setResponse(null);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) {
+        toast.error("Sessione scaduta, effettua di nuovo il login.");
+        return;
+      }
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/padova-bootstrap-admin`;
+      const r = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ dryRun: false, includeNeedsReview: true }),
+      });
+      const json = (await r.json().catch(() => ({}))) as ProxyResponse;
+      setResponse(json);
+      if (json.ok) toast.success("Orchestratore eseguito");
+      else toast.error(json.error || "Esecuzione fallita");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(msg);
+      setResponse({ ok: false, error: msg });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const { cycle, warnings } = response ? extractCycle(response) : { cycle: null, warnings: [] };
+  const dryRunWarning = warnings.includes("dry_run_mode_real_build_skipped");
+
+  return (
+    <div className="space-y-6 max-w-5xl">
+      <div>
+        <h1 className="text-2xl font-semibold">Aggiorna intelligence Padova</h1>
+        <p className="text-sm text-muted-foreground">
+          Esegue l'orchestratore <code>padova-bootstrap-cycle</code> in modalità reale
+          ({" "}<code>dryRun:false, includeNeedsReview:true</code>{" "}). Il segreto diagnostico
+          resta lato server e non viene mai esposto al browser.
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Avvio ciclo</CardTitle>
+          <CardDescription>
+            Aggrega auctions, advanced opportunities, early-warning e readiness per Padova.
+            L'operazione è idempotente e può richiedere alcuni minuti.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button onClick={run} disabled={running}>
+            {running ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                In esecuzione…
+              </>
+            ) : (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Aggiorna intelligence Padova
+              </>
+            )}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {response && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              Report
+              {response.ok ? (
+                <Badge variant="default">OK</Badge>
+              ) : (
+                <Badge variant="destructive">ERRORE</Badge>
+              )}
+              {cycle?.dry_run !== undefined && (
+                <Badge variant="outline">dryRun: {String(cycle.dry_run)}</Badge>
+              )}
+            </CardTitle>
+            <CardDescription>
+              {response.invoked_by && <>Invocato da {response.invoked_by} · </>}
+              cycle_status {response.cycle_status} · durata totale {response.duration_ms} ms
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {dryRunWarning ? (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
+                ⚠ Warning <code>dry_run_mode_real_build_skipped</code> ancora presente.
+              </div>
+            ) : (
+              <div className="rounded-md border border-emerald-600/40 bg-emerald-600/10 p-3 text-sm">
+                ✓ Nessun warning <code>dry_run_mode_real_build_skipped</code>: build reale eseguito.
+              </div>
+            )}
+
+            {warnings.length > 0 && (
+              <div className="text-xs text-muted-foreground">
+                Warnings: {warnings.join(", ")}
+              </div>
+            )}
+
+            {cycle?.stages && cycle.stages.length > 0 && (
+              <div className="space-y-3">
+                {cycle.stages.map((s, i) => (
+                  <div key={i} className="rounded-md border p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-medium text-sm">{s.stage}</div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={s.ok ? "default" : "destructive"}>
+                          {s.ok ? "ok" : "errore"}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          HTTP {s.status} · {s.duration_ms} ms
+                        </span>
+                      </div>
+                    </div>
+                    {s.error && (
+                      <div className="mt-2 text-xs text-destructive">{s.error}</div>
+                    )}
+                    {s.summary && (
+                      <pre className="mt-2 max-h-64 overflow-auto rounded bg-muted p-2 text-xs">
+                        {JSON.stringify(s.summary, null, 2)}
+                      </pre>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <details className="text-xs">
+              <summary className="cursor-pointer text-muted-foreground">
+                Risposta completa (JSON)
+              </summary>
+              <pre className="mt-2 max-h-96 overflow-auto rounded bg-muted p-2">
+                {JSON.stringify(response, null, 2)}
+              </pre>
+            </details>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
