@@ -31,7 +31,7 @@ export const DEFAULT_AUDIT = {
 };
 
 export const EMPTY_PAYLOAD = {
-  focus_area: null as unknown[] | null,
+  focus_area: [] as unknown[],
   hot_microzones: [] as unknown[],
   commercial_actions: [] as unknown[],
   deal_opportunities: [] as unknown[],
