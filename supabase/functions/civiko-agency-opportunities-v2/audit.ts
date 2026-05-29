@@ -113,6 +113,9 @@ export interface DealOpportunity extends OpportunityFromEvidence {
   target_url?: string;
   address?: string;
   price_label: string | null;
+  ask_price: number | null;
+  surface_mq: number | null;
+  source_name: string | null;
   urgency: "low" | "medium" | "high";
   next_action: string;
   next_actions: string[];
