@@ -405,3 +405,74 @@ export async function loadDelistedKeys(sb: SupabaseClient): Promise<Set<string>>
   }
   return out;
 }
+
+/**
+ * Orchestrator: run the ping logic up to N times in sequence with a short pause
+ * between rounds. Thanks to same-day skip + stalest-first ordering, each round
+ * works on listings not yet pinged today, so 3 rounds cover the full Padova
+ * inventory (~120 listings) from a single trigger.
+ *
+ * Each round still respects its internal wallBudgetMs cap (default 360s, well
+ * under Supabase's ~400s hard limit) and politeness delay. The orchestrator
+ * exits early when a round reports 0 newly pinged listings (everything already
+ * covered today) — the work is fully idempotent against the existing ledger.
+ */
+export interface PadovaSnapshotPingOrchestratorResult {
+  ok: boolean;
+  rounds_run: number;
+  rounds_max: number;
+  early_exit: boolean;
+  totals: {
+    pinged: number;
+    ok_count: number;
+    removed_count: number;
+    error_count: number;
+    snapshots_inserted: number;
+    newly_delisted: number;
+    skipped_same_day: number;
+  };
+  rounds: PadovaSnapshotPingResult[];
+  duration_ms: number;
+}
+
+export async function runPadovaSnapshotPingOrchestrator(opts: {
+  maxRounds?: number;
+  pauseBetweenRoundsMs?: number;
+  round?: PadovaSnapshotPingOptions;
+} = {}): Promise<PadovaSnapshotPingOrchestratorResult> {
+  const started = Date.now();
+  const maxRounds = Math.max(1, Math.min(opts.maxRounds ?? 3, 6));
+  const pause = Math.max(0, opts.pauseBetweenRoundsMs ?? 5000);
+  const rounds: PadovaSnapshotPingResult[] = [];
+  const totals = { pinged: 0, ok_count: 0, removed_count: 0, error_count: 0, snapshots_inserted: 0, newly_delisted: 0, skipped_same_day: 0 };
+  let earlyExit = false;
+
+  for (let i = 0; i < maxRounds; i++) {
+    const r = await runPadovaSnapshotPing(opts.round ?? {});
+    rounds.push(r);
+    totals.pinged             += r.pinged;
+    totals.ok_count           += r.ok_count;
+    totals.removed_count      += r.removed_count;
+    totals.error_count        += r.error_count;
+    totals.snapshots_inserted += r.snapshots_inserted;
+    totals.newly_delisted     += r.newly_delisted;
+    totals.skipped_same_day   += r.skipped_same_day;
+
+    // Early exit: no listings left to ping today.
+    if (r.pinged === 0) { earlyExit = true; break; }
+    if (i < maxRounds - 1 && pause > 0) {
+      await new Promise((res) => setTimeout(res, pause));
+    }
+  }
+
+  return {
+    ok: rounds.every((r) => r.ok),
+    rounds_run: rounds.length,
+    rounds_max: maxRounds,
+    early_exit: earlyExit,
+    totals,
+    rounds,
+    duration_ms: Date.now() - started,
+  };
+}
+
