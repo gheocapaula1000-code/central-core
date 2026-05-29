@@ -57,6 +57,8 @@ export async function runPadovaListingDistress(
   }
 
   const aggs = aggregateSnapshots(all);
+  // Exclude listings already confirmed as delisted: they must not count as "active".
+  const delisted = await loadDelistedKeys(sb);
   const out: PadovaListingDistressResult = {
     listings_processed: 0,
     evidence_rows_upserted: 0,
@@ -67,6 +69,8 @@ export async function runPadovaListingDistress(
 
   const evidenceRows: EvidenceRow[] = [];
   for (const agg of aggs.values()) {
+    const entityKey = `op:${slugComune(agg.comune)}:${agg.listing_id}`;
+    if (delisted.has(entityKey)) continue;
     const m = computeListingDistress(agg.snapshots, new Date(), agg.identity_snapshots);
     if (!m) continue;
     out.listings_processed++;
