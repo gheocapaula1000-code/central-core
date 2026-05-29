@@ -226,20 +226,16 @@ export function computeListingDistress(
 
   const fermo = giorni_online >= 90 && giorni_online < 180;
   const molto_fermo = giorni_online >= 180;
-  const ribassoFlag = ribasso_pct != null && ribasso_pct >= 0.03;
-  const ribasso_forte = ribasso_pct != null && ribasso_pct >= 0.08;
+  const ribassoFlag = !ribasso_implausibile && ribasso_pct != null && ribasso_pct >= 0.03;
+  const ribasso_forte = !ribasso_implausibile && ribasso_pct != null && ribasso_pct >= 0.08;
 
-  // Strength tiers (conservative):
-  //   forte  → "Da lavorare oggi" eligible
-  //   medio  → repost-only (no fermo / no ribasso); NOT work_today
-  //   lieve  → fermo OR ribasso ≥3% alone
-  //   nessuno
   let distress_strength: DistressStrength = "nessuno";
-  const reposted_plus_drop = ripubblicato && ribasso_pct != null && ribasso_pct >= 0.03;
+  const reposted_plus_drop = ripubblicato && ribassoFlag;
   const reposted_plus_fermo = ripubblicato && (fermo || molto_fermo);
   if (molto_fermo || ribasso_forte || reposted_plus_drop || reposted_plus_fermo) {
     distress_strength = "forte";
-  } else if (ripubblicato) {
+  } else if (ripubblicato || ribasso_implausibile) {
+    // Implausible drops are surfaced as "verify", never as "forte" facts.
     distress_strength = "medio";
   } else if (fermo || ribassoFlag) {
     distress_strength = "lieve";
@@ -254,21 +250,23 @@ export function computeListingDistress(
   }
 
   let price_gap_label: string | null = null;
-  if (ribasso_pct != null && ribasso_pct >= 0.03) {
+  if (ribasso_implausibile) {
+    bullets.push("Prezzo in forte calo — verifica sul portale");
+    price_gap_label = "verifica prezzo";
+  } else if (ribasso_pct != null && ribasso_pct >= 0.03) {
     const pct = Math.round(ribasso_pct * 100);
     const monthLabel = fmtMonth(prezzo_iniziale_date);
     bullets.push(monthLabel ? `Ribasso del ${pct}% da ${monthLabel}` : `Ribasso del ${pct}%`);
     price_gap_label = monthLabel ? `−${pct}% da ${monthLabel}` : `−${pct}%`;
   }
   if (ripubblicato) {
-    // Verified repost only — no count of artifact first_seen dates.
     bullets.push(
       offline_gap_days >= 14
         ? `Ripubblicato dopo ${offline_gap_days} giorni offline`
         : `Ripubblicato con prezzo aggiornato`,
     );
   }
-  if (numero_ribassi >= 2) {
+  if (!ribasso_implausibile && numero_ribassi >= 2) {
     bullets.push(`${numero_ribassi} ribassi consecutivi`);
   }
 
