@@ -34,7 +34,7 @@ export function parseFirecrawlPing(raw: unknown): FirecrawlPingResult {
 
   const markdown = typeof data.markdown === "string" ? data.markdown : "";
   const removedHints = [
-    "non più disponibile",
+    "più disponibile",
     "non e' più disponibile",
     "annuncio non disponibile",
     "annuncio scaduto",
