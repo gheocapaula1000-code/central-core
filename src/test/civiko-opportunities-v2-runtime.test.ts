@@ -389,3 +389,58 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
     });
   });
 });
+
+describe("frontend_readiness contract", () => {
+  it("ready=false with missing reasons when no data and no evidence_counts", () => {
+    const data = buildResponseData(null, allPadovaAreas);
+    expect(data.frontend_readiness).toBeDefined();
+    expect(data.frontend_readiness.ready).toBe(false);
+    expect(data.frontend_readiness.missing).toEqual(
+      expect.arrayContaining(["focus_area", "hot_microzones", "commercial_actions", "deal_opportunities"]),
+    );
+    expect(data.frontend_readiness.score).toBe(0);
+    expect(data.data_status).toBe("empty");
+  });
+
+  it("data_status='partial' when area exists but no deals, readiness not ready", () => {
+    const data = buildResponseData(
+      {
+        focus_area: [{ entity_key: "c:padova" } as never],
+        hot_microzones: [],
+        commercial_actions: [],
+        deal_opportunities: [],
+        opportunities: [],
+        audit: DEFAULT_AUDIT,
+      } as never,
+      allPadovaAreas,
+      { evidence_counts: { area: 1, microzone: 0, deal: 0, auction: 0, listing: 0 } },
+    );
+    expect(data.data_status).toBe("partial");
+    expect(data.frontend_readiness.ready).toBe(false);
+    expect(data.frontend_readiness.missing).toContain("deal_opportunities");
+  });
+
+  it("ready=true and data_status='ok' when all four sections present", () => {
+    const data = buildResponseData(
+      {
+        focus_area: [{ entity_key: "c:padova" } as never],
+        hot_microzones: [{ entity_key: "mz:padova:arcella" } as never],
+        commercial_actions: [{ action_code: "monitora_aste" } as never],
+        deal_opportunities: [{ id: "op:padova:1" } as never],
+        opportunities: [{ id: "op:padova:1" } as never],
+        audit: DEFAULT_AUDIT,
+      } as never,
+      allPadovaAreas,
+      { evidence_counts: { area: 1, microzone: 1, deal: 1, auction: 0, listing: 1 }, last_successful_ingestion_at: "2026-05-29T00:00:00Z" },
+    );
+    expect(data.frontend_readiness.ready).toBe(true);
+    expect(data.frontend_readiness.score).toBe(100);
+    expect(data.data_status).toBe("ok");
+    expect(data.frontend_readiness.last_successful_ingestion_at).toBe("2026-05-29T00:00:00Z");
+  });
+
+  it("auto_heal_attempted flag is surfaced", () => {
+    const data = buildResponseData(null, allPadovaAreas, { auto_heal_attempted: true });
+    expect(data.frontend_readiness.auto_heal_attempted).toBe(true);
+  });
+});
