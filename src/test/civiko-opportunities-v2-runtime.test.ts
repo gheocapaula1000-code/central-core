@@ -40,7 +40,7 @@ const allPadovaAreas: AgencyArea[] = [
 describe("civiko-agency-opportunities-v2 runtime safety", () => {
   it("buildResponseData survives null result", () => {
     const data = buildResponseData(null, []);
-    expect(data.focus_area).toBeNull();
+    expect(data.focus_area).toEqual([]);
     expect(data.hot_microzones).toEqual([]);
     expect(data.commercial_actions).toEqual([]);
     expect(data.deal_opportunities).toEqual([]);
@@ -51,7 +51,7 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
 
   it("buildResponseData survives undefined arrays inside result", () => {
     const data = buildResponseData({} as never, arcellaAreas);
-    expect(data.focus_area).toBeNull();
+    expect(data.focus_area).toEqual([]);
     expect(Array.isArray(data.hot_microzones)).toBe(true);
     expect(Array.isArray(data.deal_opportunities)).toBe(true);
     expect(data.scope.comuni).toContain("Padova");
@@ -252,7 +252,7 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
   });
 
   it("EMPTY_PAYLOAD matches documented defaults", () => {
-    expect(EMPTY_PAYLOAD.focus_area).toBeNull();
+    expect(EMPTY_PAYLOAD.focus_area).toEqual([]);
     expect(EMPTY_PAYLOAD.hot_microzones).toEqual([]);
     expect(EMPTY_PAYLOAD.commercial_actions).toEqual([]);
     expect(EMPTY_PAYLOAD.deal_opportunities).toEqual([]);

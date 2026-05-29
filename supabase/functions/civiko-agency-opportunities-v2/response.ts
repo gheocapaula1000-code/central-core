@@ -31,7 +31,7 @@ export const DEFAULT_AUDIT = {
 };
 
 export const EMPTY_PAYLOAD = {
-  focus_area: null as unknown[] | null,
+  focus_area: [] as unknown[],
   hot_microzones: [] as unknown[],
   commercial_actions: [] as unknown[],
   deal_opportunities: [] as unknown[],
@@ -48,9 +48,8 @@ export function buildResponseData(
   result: Partial<OpportunityAuditResult> | null | undefined,
   areaList: AgencyArea[] | null | undefined,
 ) {
-  const focus_area = Array.isArray(result?.focus_area) && result.focus_area.length > 0
-    ? sanitizeArray(result.focus_area)
-    : null;
+  const focus_area = sanitizeArray(result?.focus_area);
+
   const hot_microzones = sanitizeArray(result?.hot_microzones);
   const commercial_actions = sanitizeArray(result?.commercial_actions);
   const deal_opportunities = sanitizeArray(result?.deal_opportunities);
