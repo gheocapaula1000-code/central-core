@@ -139,12 +139,17 @@ export function buildResponseData(
 ) {
   const focus_area = sanitizeArray(result?.focus_area);
 
-  const hot_microzones = sanitizeArray(result?.hot_microzones);
-  const commercial_actions = sanitizeArray(result?.commercial_actions);
+  const hot_microzones_raw = sanitizeArray(result?.hot_microzones);
+  const commercial_actions_raw = sanitizeArray(result?.commercial_actions);
   const deal_opportunities = sanitizeArray(result?.deal_opportunities);
   const opportunities = Array.isArray(result?.opportunities) ? sanitizeArray(result!.opportunities!) : deal_opportunities;
   const audit = toJsonSafe(result?.audit && typeof result.audit === "object" ? result.audit : DEFAULT_AUDIT);
   const warnings = sanitizeArray(result?.warnings);
+
+  // Enrich with frontend-readable fields derived from REAL signal counts
+  // (no fabricated text). title is always populated from the canonical slug.
+  const hot_microzones = hot_microzones_raw.map((mz) => enrichHotMicrozone(mz, deal_opportunities));
+  const commercial_actions = commercial_actions_raw.map((a) => enrichCommercialAction(a, hot_microzones));
 
   const frontend_readiness = buildFrontendReadiness(
     { focus_area, hot_microzones, commercial_actions, deal_opportunities },
@@ -232,4 +237,125 @@ export function toJsonSafe<T>(value: T, seen = new WeakSet<object>()): unknown {
 
 export function safeStringify(value: unknown): string {
   return JSON.stringify(toJsonSafe(value));
+}
+
+// ---------------------------------------------------------------------------
+// Frontend enrichment helpers — populate readable fields the PWA expects.
+// No fabricated data: numbers come from deal_opportunities, names from the
+// canonical Padova slug map.
+// ---------------------------------------------------------------------------
+
+const PADOVA_MZ_DISPLAY: Record<string, string> = {
+  "arcella": "Arcella",
+  "brusegana": "Brusegana",
+  "camin": "Camin",
+  "centro storico": "Centro Storico",
+  "chiesanuova": "Chiesanuova",
+  "forcellini": "Forcellini",
+  "guizza": "Guizza",
+  "mandria": "Mandria",
+  "mortise": "Mortise",
+  "pontevigodarzere": "Pontevigodarzere",
+  "prato della valle": "Prato della Valle",
+  "sacra famiglia": "Sacra Famiglia",
+  "sant'osvaldo": "Sant'Osvaldo",
+  "stazione": "Stazione",
+  "voltabarozzo": "Voltabarozzo",
+};
+
+function titleCaseFallback(slug: string): string {
+  return slug.split(" ").map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w)).join(" ");
+}
+
+function displayMicrozoneName(slug: string): string {
+  const key = String(slug ?? "").toLowerCase().trim();
+  if (!key) return "Microzona";
+  return PADOVA_MZ_DISPLAY[key] ?? titleCaseFallback(key);
+}
+
+function displayComuneName(slug: string): string {
+  const key = String(slug ?? "").toLowerCase().trim();
+  return key ? titleCaseFallback(key) : "";
+}
+
+function asRec(v: unknown): Record<string, unknown> {
+  return v && typeof v === "object" ? v as Record<string, unknown> : {};
+}
+
+function enrichHotMicrozone(item: unknown, deals: unknown[]): Record<string, unknown> {
+  const obj = { ...asRec(item) };
+  const parts = String(obj.entity_key ?? "").split(":");
+  const comuneSlug = (parts[1] ?? "").toLowerCase().trim();
+  const mzSlug = (parts[2] ?? "").toLowerCase().trim();
+  const title = displayMicrozoneName(mzSlug);
+
+  const mzDeals = deals.filter((d) => {
+    const dr = asRec(d);
+    const mz = typeof dr.microzone === "string" ? dr.microzone.toLowerCase().trim() : "";
+    return mz === mzSlug;
+  });
+  const auctions = mzDeals.filter((d) => asRec(d).target_type === "auction").length;
+  const listings = mzDeals.filter((d) => asRec(d).target_type === "listing").length;
+  const others = mzDeals.length - auctions - listings;
+
+  const signals: string[] = [];
+  if (auctions > 0) signals.push(`${auctions} ast${auctions === 1 ? "a giudiziaria" : "e giudiziarie"}`);
+  if (listings > 0) signals.push(`${listings} annunc${listings === 1 ? "io attivo" : "i attivi"}`);
+  if (others > 0) signals.push(`${others} altr${others === 1 ? "o segnale" : "i segnali"}`);
+
+  let summary = "";
+  if (mzDeals.length > 0) {
+    summary = `${signals.join(" e ")} rilevat${mzDeals.length === 1 ? "o" : "i"} in zona.`;
+  } else {
+    const bullets = asRec(obj.evidence_summary).explanation_bullets;
+    if (Array.isArray(bullets) && bullets.length > 0 && typeof bullets[0] === "string") {
+      summary = String(bullets[0]).replace(/^\[[^\]]+\]\s*/, "");
+    }
+  }
+
+  let next_action: string;
+  if (auctions > 0) next_action = "Prepara dossier acquirenti per le aste in calendario";
+  else if (listings > 0) next_action = "Contatta proprietari/agenzie degli annunci in zona";
+  else if (mzDeals.length > 0) next_action = "Qualifica i segnali rilevati e pianifica il presidio";
+  else next_action = "Avvia presidio territoriale su questa microzona";
+
+  return {
+    ...obj,
+    title,
+    name: title,
+    microzone: title,
+    comune: displayComuneName(comuneSlug),
+    area_label: comuneSlug ? `${title} · ${displayComuneName(comuneSlug)}` : title,
+    summary,
+    signals,
+    next_action,
+  };
+}
+
+function actionCtaFor(action_code: string): { cta_label: string; cta_to: string } {
+  switch (action_code) {
+    case "monitora_aste": return { cta_label: "Vedi aste", cta_to: "/opportunita?filter=auction" };
+    case "verifica_annunci_prezzo": return { cta_label: "Vedi annunci", cta_to: "/opportunita?filter=listing" };
+    case "confronta_omi": return { cta_label: "Apri benchmark OMI", cta_to: "/opportunita?view=market" };
+    case "presidia_microzone_attive": return { cta_label: "Apri microzone calde", cta_to: "/opportunita?view=microzones" };
+    default: return { cta_label: "Apri", cta_to: "/opportunita" };
+  }
+}
+
+function enrichCommercialAction(item: unknown, hot: unknown[]): Record<string, unknown> {
+  const obj = { ...asRec(item) };
+  const parts = String(obj.entity_key ?? "").split(":");
+  const granularity = obj.entity_granularity;
+  let area_label: string;
+  if (granularity === "microzone") {
+    area_label = `${displayMicrozoneName(parts[2] ?? "")}${parts[1] ? " · " + displayComuneName(parts[1]) : ""}`;
+  } else {
+    area_label = displayComuneName(parts[1] ?? "") || "Area operativa";
+  }
+  const title = typeof obj.label === "string" && obj.label.trim() ? String(obj.label) : "Azione consigliata";
+  const description = typeof obj.rationale === "string" && obj.rationale.trim()
+    ? String(obj.rationale)
+    : (hot.length > 0 ? "Suggerimento derivato dai segnali aggregati di zona." : "");
+  const { cta_label, cta_to } = actionCtaFor(String(obj.action_code ?? ""));
+  return { ...obj, title, area_label, description, cta_label, cta_to };
 }
