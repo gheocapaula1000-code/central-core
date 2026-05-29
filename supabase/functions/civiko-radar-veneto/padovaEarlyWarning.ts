@@ -11,6 +11,7 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { backfillEvidence } from "../_shared/evidenceBackfill.ts";
 import { normalizePadovaCanonicalMicrozone, resolvePadovaCanonicalMicrozoneByPoint, type PadovaMicrozoneResolution } from "../_shared/padovaCanonicalMicrozones.ts";
+import { runPadovaListingDistress, type PadovaListingDistressResult } from "./padovaListingDistress.ts";
 
 const COMUNE = "Padova";
 const PROV = "PD";
@@ -231,6 +232,7 @@ export interface PadovaEarlyWarningResult {
   rejected_reasons: Record<string, number>;
   resolved_to_microzone: number;
   evidence_backfill?: Record<string, unknown> | null;
+  listing_distress?: PadovaListingDistressResult | null;
   samples: Array<Record<string, unknown>>;
   warnings: string[];
 }
