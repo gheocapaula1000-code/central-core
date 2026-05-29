@@ -696,6 +696,23 @@ export function priceVsMarketLabel(
   return "in_linea";
 }
 
+export function extractDistressFromGroup(group: EvidenceRow[]): {
+  present: boolean;
+  strength: "nessuno" | "lieve" | "medio" | "forte" | null;
+} {
+  for (const r of group) {
+    if (r.evidence_type !== "listing_velocity") continue;
+    const v = evidenceValueAsRecord(r.evidence_value);
+    const raw = v["distress_strength"];
+    const s = typeof raw === "string" ? raw : null;
+    const strength = (s === "forte" || s === "medio" || s === "lieve" || s === "nessuno") ? s : null;
+    return { present: true, strength };
+  }
+  return { present: false, strength: null };
+}
+
+
+
 export function classifyDealQuality(input: {
   target_type: string;
   target_url?: string;
