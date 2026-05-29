@@ -11,6 +11,7 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { backfillEvidence } from "../_shared/evidenceBackfill.ts";
 import { normalizePadovaCanonicalMicrozone, resolvePadovaCanonicalMicrozoneByPoint, type PadovaMicrozoneResolution } from "../_shared/padovaCanonicalMicrozones.ts";
+import { runPadovaListingDistress, type PadovaListingDistressResult } from "./padovaListingDistress.ts";
 
 const COMUNE = "Padova";
 const PROV = "PD";
@@ -231,6 +232,7 @@ export interface PadovaEarlyWarningResult {
   rejected_reasons: Record<string, number>;
   resolved_to_microzone: number;
   evidence_backfill?: Record<string, unknown> | null;
+  listing_distress?: PadovaListingDistressResult | null;
   samples: Array<Record<string, unknown>>;
   warnings: string[];
 }
@@ -563,6 +565,7 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
 
   let upserted = 0;
   let evidenceBackfill: Record<string, unknown> | null = null;
+  let listingDistress: PadovaListingDistressResult | null = null;
   if (!req.dryRun && rows.length > 0) {
     // Upsert in chunks
     for (let i = 0; i < rows.length; i += 200) {
@@ -592,6 +595,18 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
       } else msg = String(e);
       warnings.push(`evidence_backfill_failed:${msg}`);
     }
+    // Listing-level distress stage: writes deal_listing + listing_velocity
+    // evidence on op:<comune>:<listing_id> from listing_price_snapshots.
+    try {
+      listingDistress = await runPadovaListingDistress(sb, { dryRun: false });
+    } catch (e) {
+      let msg: string;
+      if (e instanceof Error) msg = e.message;
+      else if (e && typeof e === "object") {
+        try { msg = JSON.stringify(e); } catch { msg = String(e); }
+      } else msg = String(e);
+      warnings.push(`listing_distress_failed:${msg}`);
+    }
   }
 
   const endedAt = new Date().toISOString();
@@ -602,7 +617,7 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
       rows_in: aggMap.size,
       rows_out: upserted,
       duration_ms: new Date(endedAt).getTime() - new Date(startedAt).getTime(),
-      report: { candidates: rows.length, upserted, multi_source: multiSource, high_confidence: highConfidence, non_auction: nonAuction, by_primary: byPrimary, resolved_to_microzone: resolvedListingMeta + resolvedNormalized, evidence_backfill: evidenceBackfill, dry_run: req.dryRun === true },
+      report: { candidates: rows.length, upserted, multi_source: multiSource, high_confidence: highConfidence, non_auction: nonAuction, by_primary: byPrimary, resolved_to_microzone: resolvedListingMeta + resolvedNormalized, evidence_backfill: evidenceBackfill, listing_distress: listingDistress, dry_run: req.dryRun === true },
       warnings,
     }).eq("id", runId);
   }
@@ -623,6 +638,7 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
     rejected_reasons,
     resolved_to_microzone: resolvedListingMeta + resolvedNormalized,
     evidence_backfill: evidenceBackfill,
+    listing_distress: listingDistress,
     samples,
     warnings,
   };
