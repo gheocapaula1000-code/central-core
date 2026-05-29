@@ -188,12 +188,45 @@ serve(async (req) => {
       });
     }
 
-    const evidenceStage = await fetchEvidenceRows(supabase).catch((err) => ({ error: err }));
-    if (!Array.isArray(evidenceStage)) return controlledError(debug_id, "STAGE_EVIDENCE_QUERY", evidenceStage.error, 200);
+    let evidenceRows = await fetchEvidenceRows(supabase).catch((err) => ({ error: err }));
+    if (!Array.isArray(evidenceRows)) return controlledError(debug_id, "STAGE_EVIDENCE_QUERY", evidenceRows.error, 200);
     logStage(debug_id, "STAGE_EVIDENCE_QUERY", true);
 
+    const scopeComuni = new Set(
+      areaList.flatMap((a) => (Array.isArray(a.comuni) ? a.comuni : [])).map((c) => c.toLowerCase().trim()),
+    );
+
+    // Compute initial evidence counts scoped to the agency comuni.
+    let evidence_counts = computeEvidenceCounts(evidenceRows, scopeComuni);
+    let auto_heal_attempted = false;
+
+    // Auto-heal: if any in-scope category is thin but real source tables exist,
+    // lift them into civiko_evidence (idempotent) and re-query.
+    const thin = evidence_counts.area + evidence_counts.microzone + evidence_counts.deal + evidence_counts.auction + evidence_counts.listing < 1;
+    if (thin) {
+      try {
+        const upstream = await countUpstreamRealData(supabase, scopeComuni);
+        if (upstream.area + upstream.deals + upstream.auctions > 0) {
+          auto_heal_attempted = true;
+          console.log("[opportunities-v2] auto-heal", { debug_id, upstream });
+          await backfillEvidence(supabase).catch((err) => {
+            console.error("[opportunities-v2] auto-heal failed", { debug_id, ...errorInfo(err) });
+          });
+          const refreshed = await fetchEvidenceRows(supabase).catch(() => null);
+          if (Array.isArray(refreshed) && refreshed.length > evidenceRows.length) {
+            evidenceRows = refreshed;
+            evidence_counts = computeEvidenceCounts(evidenceRows, scopeComuni);
+          }
+        }
+      } catch (err) {
+        console.error("[opportunities-v2] auto-heal exception", { debug_id, ...errorInfo(err) });
+      }
+    }
+
+    const last_successful_ingestion_at = await fetchLastIngestionAt(supabase).catch(() => null);
+
     const sectionFailures: unknown[] = [];
-    const result = await (async () => runOpportunityAudit(evidenceStage, areaList, {
+    const result = await (async () => runOpportunityAudit(evidenceRows as EvidenceRow[], areaList, {
       onSectionFailure: (failure) => {
         sectionFailures.push(failure);
         console.error("[opportunities-v2] stage", { debug_id, stage: "STAGE_CLASSIFICATION", ok: false, ...failure });
@@ -203,7 +236,11 @@ serve(async (req) => {
     logStage(debug_id, "STAGE_CLASSIFICATION", true);
 
     const serialized = await (async () => {
-      const data = buildResponseData({ ...result, warnings: [...(result.warnings ?? []), ...sectionFailures.map((f) => String((f as { message?: string }).message ?? "section_failed"))] }, areaList);
+      const data = buildResponseData(
+        { ...result, warnings: [...(result.warnings ?? []), ...sectionFailures.map((f) => String((f as { message?: string }).message ?? "section_failed"))] },
+        areaList,
+        { evidence_counts, last_successful_ingestion_at, auto_heal_attempted },
+      );
       // Mirror intelligence arrays at top level for PWA compatibility (both shapes supported).
       return safeStringify({
         ok: true,
@@ -213,11 +250,13 @@ serve(async (req) => {
         commercial_actions: data.commercial_actions,
         deal_opportunities: data.deal_opportunities,
         opportunities: data.opportunities,
+        frontend_readiness: data.frontend_readiness,
       });
     })().catch((err) => ({ error: err }));
     if (typeof serialized !== "string") return controlledError(debug_id, "STAGE_RESPONSE_SERIALIZATION", serialized.error, 200);
     logStage(debug_id, "STAGE_RESPONSE_SERIALIZATION", true);
     return new Response(serialized, { status: 200, headers: { ...CORS, "Content-Type": "application/json" } });
+
   } catch (err) {
     return controlledError(debug_id, "STAGE_RESPONSE_SERIALIZATION", err, 200);
   }
