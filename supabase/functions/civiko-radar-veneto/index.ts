@@ -1474,6 +1474,42 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Padova Snapshot Ping Orchestrator — single trigger that runs up to 3
+    // sequential rounds in the background so one nightly invocation covers the
+    // full Padova inventory (~120 listings). Returns 202 immediately; each
+    // internal round still respects the 360s wall-budget cap.
+    if (pathname.endsWith("/jobs/ping-padova-snapshots-orchestrator")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const { runPadovaSnapshotPingOrchestrator } = await import("./padovaSnapshotPing.ts");
+        const task = (async () => {
+          try {
+            const r = await runPadovaSnapshotPingOrchestrator({
+              maxRounds: typeof body?.maxRounds === "number" ? body.maxRounds : 3,
+              pauseBetweenRoundsMs: typeof body?.pauseBetweenRoundsMs === "number" ? body.pauseBetweenRoundsMs : 5000,
+              round: {
+                maxListings:  typeof body?.maxListings  === "number" ? body.maxListings  : undefined,
+                delayMs:      typeof body?.delayMs      === "number" ? body.delayMs      : undefined,
+                wallBudgetMs: typeof body?.wallBudgetMs === "number" ? body.wallBudgetMs : undefined,
+                lookbackDays: typeof body?.lookbackDays === "number" ? body.lookbackDays : undefined,
+                dryRun: body?.dryRun === true,
+              },
+            });
+            console.log(`[${FUNCTION_NAME}] ping orchestrator done`, JSON.stringify({ rounds_run: r.rounds_run, totals: r.totals, early_exit: r.early_exit }));
+          } catch (e) {
+            console.error(`[${FUNCTION_NAME}] ping orchestrator error:`, e instanceof Error ? e.message : String(e));
+          }
+        })();
+        const ert = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
+        if (ert?.waitUntil) ert.waitUntil(task); else task.catch(() => {});
+        return withIdentity(json(req, 202, { job: "ping-padova-snapshots-orchestrator", accepted: true, max_rounds: typeof body?.maxRounds === "number" ? body.maxRounds : 3 }, debugId), "job-padova-ping-orchestrator");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] ping orchestrator trigger error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Padova snapshot ping orchestrator failed to start", debugId), "job-error");
+      }
+    }
+
     // Padova Daily Radar — orchestrator multi-fonte (listing+aste+perplexity+EW)
     if (pathname.endsWith("/jobs/padova-daily-radar")) {
       const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
