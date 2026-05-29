@@ -150,7 +150,7 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
     expect(data.deal_opportunities.map((d) => (d as { title: string }).title)).toContain("Object listing");
   });
 
-  it("missing target_url does not crash and keeps listing when title/ref exists", () => {
+  it("missing actionable target (only title) does not crash and is excluded from deals", () => {
     const rows: EvidenceRow[] = [
       buildEvidenceRow({
         entity_type: "opportunity",
@@ -165,9 +165,9 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
     ];
     expect(() => runOpportunityAudit(rows, allPadovaAreas)).not.toThrow();
     const result = runOpportunityAudit(rows, allPadovaAreas);
-    expect(result.deal_opportunities).toHaveLength(1);
-    expect(result.deal_opportunities[0]!.target_ref).toBe("op:padova:no-target");
-    expect(result.deal_opportunities[0]!.title).toBe("No target");
+    // Title alone is NOT an actionable target → must be excluded from deals.
+    expect(result.deal_opportunities).toHaveLength(0);
+    expect(result.audit.removed_no_actionable_target).toBeGreaterThanOrEqual(1);
   });
 
   it("BigInt and Date values are serialization safe", () => {
