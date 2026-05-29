@@ -116,6 +116,7 @@ const ROUTES = [
  "POST /jobs/auction-discovery-status",
   "POST /jobs/import-auction-candidates",
   "POST /jobs/refresh-padova-auctions",
+  "POST /jobs/ping-padova-snapshots",
   "POST /jobs/padova-daily-radar",
   "POST /jobs/padova-zone-radar",
   "POST /jobs/padova-zone-radar-finalize",
@@ -1449,6 +1450,27 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] padova-early-warning error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Padova early warning failed", debugId), "job-error");
+      }
+    }
+
+    // Padova Snapshot Ping — re-check known listings so giorni_online stays monotonic
+    // and delisting (404) becomes itself a signal after 2 distinct-day failures.
+    if (pathname.endsWith("/jobs/ping-padova-snapshots")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const { runPadovaSnapshotPing } = await import("./padovaSnapshotPing.ts");
+        const r = await runPadovaSnapshotPing({
+          maxListings:  typeof body?.maxListings  === "number" ? body.maxListings  : undefined,
+          delayMs:      typeof body?.delayMs      === "number" ? body.delayMs      : undefined,
+          wallBudgetMs: typeof body?.wallBudgetMs === "number" ? body.wallBudgetMs : undefined,
+          lookbackDays: typeof body?.lookbackDays === "number" ? body.lookbackDays : undefined,
+          dryRun: body?.dryRun === true,
+        });
+        return withIdentity(json(req, r.ok ? 200 : 207, { job: "ping-padova-snapshots", ...r }, debugId), "job-padova-ping");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] ping-padova-snapshots error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Padova snapshot ping failed", debugId), "job-error");
       }
     }
 
