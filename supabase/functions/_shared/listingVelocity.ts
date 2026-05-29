@@ -272,13 +272,26 @@ export function sourceCodeForListing(source: string | null | undefined): string 
 
 export interface ListingAggregate {
   listing_id: string;
+  identity_hash: string | null;
   comune: string;
   representative: SnapshotRow;
   snapshots: SnapshotRow[];
+  /** All snapshots that share this listing's identity_hash (across listing_ids). */
+  identity_snapshots: SnapshotRow[];
 }
 
 /** Group snapshots by (comune, listing_id). Skips rows without both. */
 export function aggregateSnapshots(rows: SnapshotRow[]): Map<string, ListingAggregate> {
+  // Pre-index by identity_hash so we can attach the full identity history.
+  const byIdentity = new Map<string, SnapshotRow[]>();
+  for (const r of rows) {
+    const h = r.identity_hash?.trim();
+    if (!h) continue;
+    const a = byIdentity.get(h) ?? [];
+    a.push(r);
+    byIdentity.set(h, a);
+  }
+
   const out = new Map<string, ListingAggregate>();
   for (const r of rows) {
     const id = r.listing_id?.trim();
@@ -289,7 +302,12 @@ export function aggregateSnapshots(rows: SnapshotRow[]): Map<string, ListingAggr
     const key = `${slug(com)}|${id}`;
     const ex = out.get(key);
     if (ex) { ex.snapshots.push(r); continue; }
-    out.set(key, { listing_id: id, comune: com, representative: r, snapshots: [r] });
+    const identity_hash = r.identity_hash?.trim() ?? null;
+    const identity_snapshots = identity_hash ? (byIdentity.get(identity_hash) ?? []) : [];
+    out.set(key, {
+      listing_id: id, identity_hash, comune: com,
+      representative: r, snapshots: [r], identity_snapshots,
+    });
   }
   // Pick representative as the latest snapshot that has a URL (fallback: latest).
   for (const agg of out.values()) {
