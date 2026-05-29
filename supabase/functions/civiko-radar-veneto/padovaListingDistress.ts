@@ -15,6 +15,9 @@ import {
   type SnapshotRow,
 } from "../_shared/listingVelocity.ts";
 import { buildEvidenceRow, upsertEvidenceRows, type EvidenceRow } from "../_shared/evidenceLedger.ts";
+import { loadDelistedKeys } from "./padovaSnapshotPing.ts";
+
+const slugComune = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
 
 const COMUNE = "Padova";
 
