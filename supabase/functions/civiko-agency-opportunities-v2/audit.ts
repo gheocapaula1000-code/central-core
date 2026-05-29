@@ -538,7 +538,11 @@ interface DealMeta {
   title: string | null;
   area_name: string | null;
   microzone: string | null;
+  address: string | null;
   price_label: string | null;
+  ask_price: number | null;
+  surface_mq: number | null;
+  source_name: string | null;
   urgency: "low" | "medium" | "high";
   updated_at: string | null;
   sale_date: string | null;
@@ -548,25 +552,31 @@ function extractDealMeta(group: EvidenceRow[]): DealMeta {
   let title: string | null = null;
   let area_name: string | null = null;
   let microzone: string | null = null;
+  let address: string | null = null;
   let ask_price: number | null = null;
   let base_price: number | null = null;
   let min_offer: number | null = null;
+  let surface_mq: number | null = null;
+  let source_name: string | null = null;
   let updated_at: string | null = null;
   let sale_date: string | null = null;
   for (const r of group) {
     const v = evidenceValueAsRecord(r.evidence_value);
-    title ??= pickString(v, ["title", "address", "name"]);
+    title ??= pickString(v, ["title", "name"]);
     area_name ??= pickString(v, ["municipality", "comune", "area_name"]);
     microzone ??= pickString(v, ["microzone", "microzona"]);
-    ask_price ??= pickNum(v, ["ask_price", "price"]);
-    base_price ??= pickNum(v, ["base_price", "base_price_eur"]);
-    min_offer ??= pickNum(v, ["minimum_offer_eur"]);
+    address ??= pickString(v, ["address", "address_text"]);
+    ask_price ??= pickNumLoose(v, ["ask_price", "price"]);
+    base_price ??= pickNumLoose(v, ["base_price", "base_price_eur"]);
+    min_offer ??= pickNumLoose(v, ["minimum_offer_eur"]);
+    surface_mq ??= pickNumLoose(v, ["surface_mq", "surface_sqm", "surface"]);
+    source_name ??= pickString(v, ["source_name", "source"]);
     sale_date ??= pickString(v, ["sale_date"]);
     const last = pickString(v, ["last_seen_at"]) ?? r.observed_at;
     if (!updated_at || (last && last > updated_at)) updated_at = last;
   }
   const price = ask_price ?? min_offer ?? base_price;
-  const explicit_price_label = firstString(group, ["price_label", "ask_price", "price", "base_price"]);
+  const explicit_price_label = firstString(group, ["price_label"]);
   const price_label = explicit_price_label ?? (price != null
     ? new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(price)
     : null);
@@ -576,7 +586,7 @@ function extractDealMeta(group: EvidenceRow[]): DealMeta {
     if (days >= 0 && days <= 14) urgency = "high";
     else if (days >= 0 && days <= 45) urgency = "medium";
   }
-  return { title, area_name, microzone, price_label, urgency, updated_at, sale_date };
+  return { title, area_name, microzone, address, price_label, ask_price: price, surface_mq, source_name, urgency, updated_at, sale_date };
 }
 
 function evidenceValueAsRecord(value: unknown): Record<string, unknown> {
