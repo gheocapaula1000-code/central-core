@@ -252,7 +252,7 @@ describe("civiko-agency-opportunities-v2 runtime safety", () => {
   });
 
   it("EMPTY_PAYLOAD matches documented defaults", () => {
-    expect(EMPTY_PAYLOAD.focus_area).toBeNull();
+    expect(EMPTY_PAYLOAD.focus_area).toEqual([]);
     expect(EMPTY_PAYLOAD.hot_microzones).toEqual([]);
     expect(EMPTY_PAYLOAD.commercial_actions).toEqual([]);
     expect(EMPTY_PAYLOAD.deal_opportunities).toEqual([]);
