@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { PERPLEXITY_VENETO_SOURCES, pxRegistryStats } from "../firecrawl/perplexitySources.ts";
 import { runVenetoOpenDataImport } from "../openData/ckanImporter.ts";
 import { runMicrozoneSentiment, runTurnoverSignals } from "../intelligence/sentimentTurnover.ts";
+import { normalizePadovaCanonicalMicrozone, resolvePadovaCanonicalMicrozoneByPoint } from "../../_shared/padovaCanonicalMicrozones.ts";
 
 export interface OrchestratorOpts {
   dryRun: boolean;
@@ -104,7 +105,7 @@ export async function buildVenetoIntelligenceFromResearch(opts: OrchestratorOpts
   // 6) Area scores quick refresh: bump area_opportunity_scores for comuni with new sentiment/turnover data
   if (opts.runAreaScores && !opts.dryRun && opts.import) {
     try {
-      const { data: ms } = await sb.from("microzone_sentiment").select("comune,provincia,sentiment_score_total,confidence_score").range(0, 999);
+      const { data: ms } = await sb.from("microzone_sentiment").select("comune,provincia,area_label,lat,lng,sentiment_score_total,confidence_score").range(0, 999);
       const { data: tv } = await sb.from("turnover_signals").select("comune,provincia,turnover_potential_score,confidence_score").range(0, 999);
       const tvMap = new Map<string, any>();
       for (const r of (tv ?? [])) tvMap.set(`${r.provincia}:${String(r.comune).toLowerCase()}`, r);
@@ -115,9 +116,13 @@ export async function buildVenetoIntelligenceFromResearch(opts: OrchestratorOpts
         const sScore = Number(r.sentiment_score_total) || 0;
         const tScore = tov ? Number(tov.turnover_potential_score) || 0 : 0;
         const composite = Math.round((sScore * 0.55 + tScore * 0.45));
+        const resolvedMicrozone = normalizePadovaCanonicalMicrozone(r.area_label) ??
+          (String(r.comune ?? "").toLowerCase() === "padova"
+            ? (await resolvePadovaCanonicalMicrozoneByPoint(sb, r.lat, r.lng))?.slug ?? null
+            : null);
         inserts.push({
           region: "veneto", province: r.provincia, municipality: r.comune,
-          microzone: null, score: composite,
+          microzone: resolvedMicrozone, score: composite,
           temperature: composite >= 75 ? "molto_calda" : composite >= 55 ? "calda" : composite >= 30 ? "tiepida" : "fredda",
           components: { sentiment: sScore, turnover: tScore },
           data_basis: "microzone_sentiment+turnover_signals",
