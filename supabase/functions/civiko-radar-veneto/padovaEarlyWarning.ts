@@ -617,7 +617,7 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
       rows_in: aggMap.size,
       rows_out: upserted,
       duration_ms: new Date(endedAt).getTime() - new Date(startedAt).getTime(),
-      report: { candidates: rows.length, upserted, multi_source: multiSource, high_confidence: highConfidence, non_auction: nonAuction, by_primary: byPrimary, resolved_to_microzone: resolvedListingMeta + resolvedNormalized, evidence_backfill: evidenceBackfill, dry_run: req.dryRun === true },
+      report: { candidates: rows.length, upserted, multi_source: multiSource, high_confidence: highConfidence, non_auction: nonAuction, by_primary: byPrimary, resolved_to_microzone: resolvedListingMeta + resolvedNormalized, evidence_backfill: evidenceBackfill, listing_distress: listingDistress, dry_run: req.dryRun === true },
       warnings,
     }).eq("id", runId);
   }
@@ -638,6 +638,7 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
     rejected_reasons,
     resolved_to_microzone: resolvedListingMeta + resolvedNormalized,
     evidence_backfill: evidenceBackfill,
+    listing_distress: listingDistress,
     samples,
     warnings,
   };
