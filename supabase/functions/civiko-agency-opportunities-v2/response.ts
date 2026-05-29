@@ -139,12 +139,17 @@ export function buildResponseData(
 ) {
   const focus_area = sanitizeArray(result?.focus_area);
 
-  const hot_microzones = sanitizeArray(result?.hot_microzones);
-  const commercial_actions = sanitizeArray(result?.commercial_actions);
+  const hot_microzones_raw = sanitizeArray(result?.hot_microzones);
+  const commercial_actions_raw = sanitizeArray(result?.commercial_actions);
   const deal_opportunities = sanitizeArray(result?.deal_opportunities);
   const opportunities = Array.isArray(result?.opportunities) ? sanitizeArray(result!.opportunities!) : deal_opportunities;
   const audit = toJsonSafe(result?.audit && typeof result.audit === "object" ? result.audit : DEFAULT_AUDIT);
   const warnings = sanitizeArray(result?.warnings);
+
+  // Enrich with frontend-readable fields derived from REAL signal counts
+  // (no fabricated text). title is always populated from the canonical slug.
+  const hot_microzones = hot_microzones_raw.map((mz) => enrichHotMicrozone(mz, deal_opportunities));
+  const commercial_actions = commercial_actions_raw.map((a) => enrichCommercialAction(a, hot_microzones));
 
   const frontend_readiness = buildFrontendReadiness(
     { focus_area, hot_microzones, commercial_actions, deal_opportunities },
