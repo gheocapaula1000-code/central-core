@@ -9,6 +9,8 @@
 //  - Each opportunity is rebuilt fully each run (idempotent upsert).
 // ═══════════════════════════════════════════════════════════════
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { backfillEvidence } from "../_shared/evidenceBackfill.ts";
+import { normalizePadovaCanonicalMicrozone, resolvePadovaCanonicalMicrozoneByPoint, type PadovaMicrozoneResolution } from "../_shared/padovaCanonicalMicrozones.ts";
 
 const COMUNE = "Padova";
 const PROV = "PD";
@@ -84,6 +86,17 @@ interface Aggregate {
   area_label: string | null;
   property_type: string | null;
   signals: RawSignal[];
+}
+
+interface ListingMeta {
+  microzone: string | null;
+  area_label: string | null;
+  property_type: string | null;
+  url: string | null;
+  source: string | null;
+  lat: number | null;
+  lng: number | null;
+  omi_zone?: string | null;
 }
 
 function clean(s: unknown): string | null {
@@ -173,11 +186,11 @@ function explanationFor(signals: RawSignal[], primary: string): string {
 // ─────────────────────────────────────────────────────────────
 // Loaders
 // ─────────────────────────────────────────────────────────────
-async function loadListingMeta(sb: SupabaseClient): Promise<Map<string, { microzone: string | null; area_label: string | null; property_type: string | null; url: string | null; source: string | null }>> {
-  const map = new Map<string, any>();
+async function loadListingMeta(sb: SupabaseClient): Promise<Map<string, ListingMeta>> {
+  const map = new Map<string, ListingMeta>();
   const { data } = await sb
     .from("listing_price_snapshots")
-    .select("identity_hash, url, source, property_type, raw_address")
+    .select("identity_hash, url, source, property_type, raw_address, lat, lng")
     .ilike("municipality", COMUNE)
     .not("identity_hash", "is", null)
     .limit(2000);
@@ -190,6 +203,8 @@ async function loadListingMeta(sb: SupabaseClient): Promise<Map<string, { microz
         property_type: r.property_type ?? null,
         url: r.url ?? null,
         source: r.source ?? null,
+        lat: typeof r.lat === "number" ? r.lat : null,
+        lng: typeof r.lng === "number" ? r.lng : null,
       });
     }
   }
@@ -214,8 +229,53 @@ export interface PadovaEarlyWarningResult {
   by_primary: Record<string, number>;
   rejected: number;
   rejected_reasons: Record<string, number>;
+  resolved_to_microzone: number;
+  evidence_backfill?: Record<string, unknown> | null;
   samples: Array<Record<string, unknown>>;
   warnings: string[];
+}
+
+async function resolveListingMetaMicrozones(sb: SupabaseClient, listingMeta: Map<string, ListingMeta>) {
+  const cache = new Map<string, PadovaMicrozoneResolution | null>();
+  let resolved = 0;
+  for (const meta of listingMeta.values()) {
+    const existing = normalizePadovaCanonicalMicrozone(meta.microzone);
+    if (existing) { meta.microzone = existing; continue; }
+    const key = `${meta.lat ?? ""},${meta.lng ?? ""}`;
+    if (!cache.has(key)) cache.set(key, await resolvePadovaCanonicalMicrozoneByPoint(sb, meta.lat, meta.lng));
+    const match = cache.get(key);
+    if (!match) continue;
+    meta.microzone = match.slug;
+    meta.omi_zone = match.omi_zone;
+    resolved++;
+  }
+  return resolved;
+}
+
+async function resolveNormalizedOpportunityMicrozones(sb: SupabaseClient) {
+  const { data } = await sb
+    .from("normalized_opportunities")
+    .select("id,latitude,longitude,microzone")
+    .ilike("municipality", COMUNE)
+    .is("microzone", null)
+    .not("latitude", "is", null)
+    .not("longitude", "is", null)
+    .range(0, 999);
+  const cache = new Map<string, PadovaMicrozoneResolution | null>();
+  let resolved = 0;
+  for (const r of (data ?? []) as any[]) {
+    const key = `${r.latitude ?? ""},${r.longitude ?? ""}`;
+    if (!cache.has(key)) cache.set(key, await resolvePadovaCanonicalMicrozoneByPoint(sb, r.latitude, r.longitude));
+    const match = cache.get(key);
+    if (!match) continue;
+    const { error } = await sb
+      .from("normalized_opportunities")
+      .update({ microzone: match.slug, updated_at: new Date().toISOString() })
+      .eq("id", r.id)
+      .is("microzone", null);
+    if (!error) resolved++;
+  }
+  return resolved;
 }
 
 export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {}): Promise<PadovaEarlyWarningResult> {
@@ -233,6 +293,8 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
   const runId = (runStart.data as any)?.id ?? null;
 
   const listingMeta = await loadListingMeta(sb);
+  const resolvedListingMeta = await resolveListingMetaMicrozones(sb, listingMeta);
+  const resolvedNormalized = req.dryRun === true ? 0 : await resolveNormalizedOpportunityMicrozones(sb);
 
   // Build per-identity_hash aggregates
   const aggMap = new Map<string, Aggregate>();
@@ -263,7 +325,7 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
     if (!r.identity_hash) continue;
     const key = `lh:${r.identity_hash}`;
     const meta = listingMeta.get(r.identity_hash) ?? {};
-    const agg = getAgg(key, { identity_hash: r.identity_hash, area_label: meta.area_label, property_type: meta.property_type });
+    const agg = getAgg(key, { identity_hash: r.identity_hash, microzona: meta.microzone, area_label: meta.area_label, property_type: meta.property_type });
     const w = SIGNAL_WEIGHTS[r.anomaly_type] ?? 10;
     agg.signals.push({
       identity_hash: r.identity_hash,
@@ -287,7 +349,7 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
     if (!ih) continue;
     const key = `lh:${ih}`;
     const meta = listingMeta.get(ih) ?? {};
-    const agg = getAgg(key, { identity_hash: ih, area_label: meta.area_label, property_type: meta.property_type });
+    const agg = getAgg(key, { identity_hash: ih, microzona: meta.microzone, area_label: meta.area_label, property_type: meta.property_type });
     let type = "velocity_fresh";
     if (r.price_drop_percent && Number(r.price_drop_percent) >= 5) type = "velocity_price_drop";
     else if (r.repost_detected) type = "velocity_repost";
@@ -316,7 +378,7 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
     if (!ih) continue;
     const key = `lh:${ih}`;
     const meta = listingMeta.get(ih) ?? {};
-    const agg = getAgg(key, { identity_hash: ih, area_label: meta.area_label, property_type: meta.property_type });
+    const agg = getAgg(key, { identity_hash: ih, microzona: meta.microzone, area_label: meta.area_label, property_type: meta.property_type });
     agg.signals.push({
       identity_hash: ih,
       type: "motivated_seller",
@@ -500,6 +562,7 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
   }
 
   let upserted = 0;
+  let evidenceBackfill: Record<string, unknown> | null = null;
   if (!req.dryRun && rows.length > 0) {
     // Upsert in chunks
     for (let i = 0; i < rows.length; i += 200) {
@@ -519,6 +582,11 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
         .eq("comune", COMUNE)
         .not("fingerprint", "in", `(${fps.map((f) => `"${f}"`).join(",")})`);
     }
+    try {
+      evidenceBackfill = await backfillEvidence(sb) as unknown as Record<string, unknown>;
+    } catch (e) {
+      warnings.push(`evidence_backfill_failed:${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   const endedAt = new Date().toISOString();
@@ -529,7 +597,7 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
       rows_in: aggMap.size,
       rows_out: upserted,
       duration_ms: new Date(endedAt).getTime() - new Date(startedAt).getTime(),
-      report: { candidates: rows.length, upserted, multi_source: multiSource, high_confidence: highConfidence, non_auction: nonAuction, by_primary: byPrimary, dry_run: req.dryRun === true },
+      report: { candidates: rows.length, upserted, multi_source: multiSource, high_confidence: highConfidence, non_auction: nonAuction, by_primary: byPrimary, resolved_to_microzone: resolvedListingMeta + resolvedNormalized, evidence_backfill: evidenceBackfill, dry_run: req.dryRun === true },
       warnings,
     }).eq("id", runId);
   }
@@ -548,6 +616,8 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
     by_primary: byPrimary,
     rejected: Object.values(rejected_reasons).reduce((a, b) => a + b, 0),
     rejected_reasons,
+    resolved_to_microzone: resolvedListingMeta + resolvedNormalized,
+    evidence_backfill: evidenceBackfill,
     samples,
     warnings,
   };
