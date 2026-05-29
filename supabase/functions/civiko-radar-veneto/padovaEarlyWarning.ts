@@ -562,6 +562,7 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
   }
 
   let upserted = 0;
+  let evidenceBackfill: Record<string, unknown> | null = null;
   if (!req.dryRun && rows.length > 0) {
     // Upsert in chunks
     for (let i = 0; i < rows.length; i += 200) {
@@ -581,6 +582,11 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
         .eq("comune", COMUNE)
         .not("fingerprint", "in", `(${fps.map((f) => `"${f}"`).join(",")})`);
     }
+    try {
+      evidenceBackfill = await backfillEvidence(sb) as unknown as Record<string, unknown>;
+    } catch (e) {
+      warnings.push(`evidence_backfill_failed:${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   const endedAt = new Date().toISOString();
@@ -591,7 +597,7 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
       rows_in: aggMap.size,
       rows_out: upserted,
       duration_ms: new Date(endedAt).getTime() - new Date(startedAt).getTime(),
-      report: { candidates: rows.length, upserted, multi_source: multiSource, high_confidence: highConfidence, non_auction: nonAuction, by_primary: byPrimary, dry_run: req.dryRun === true },
+      report: { candidates: rows.length, upserted, multi_source: multiSource, high_confidence: highConfidence, non_auction: nonAuction, by_primary: byPrimary, resolved_to_microzone: resolvedListingMeta + resolvedNormalized, evidence_backfill: evidenceBackfill, dry_run: req.dryRun === true },
       warnings,
     }).eq("id", runId);
   }
@@ -610,6 +616,8 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
     by_primary: byPrimary,
     rejected: Object.values(rejected_reasons).reduce((a, b) => a + b, 0),
     rejected_reasons,
+    resolved_to_microzone: resolvedListingMeta + resolvedNormalized,
+    evidence_backfill: evidenceBackfill,
     samples,
     warnings,
   };
