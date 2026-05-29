@@ -96,8 +96,20 @@ function tsOf(r: SnapshotRow): number {
   return Number.isFinite(ms) ? ms : 0;
 }
 
-/** Compute distress metrics for ONE listing's snapshots. Returns null if input is empty. */
-export function computeListingDistress(snaps: SnapshotRow[], now: Date = new Date()): DistressMetrics | null {
+/**
+ * Compute distress metrics for ONE listing.
+ *
+ * @param snaps         Snapshots of this listing_id (ribassi counted here, same listing_id only).
+ * @param now           Reference clock.
+ * @param identitySnaps Optional: all snapshots that share this listing's identity_hash
+ *                     across multiple listing_ids. Used for repost detection ONLY.
+ *                     If omitted, falls back to `snaps`.
+ */
+export function computeListingDistress(
+  snaps: SnapshotRow[],
+  now: Date = new Date(),
+  identitySnaps?: SnapshotRow[],
+): DistressMetrics | null {
   const valid = snaps.filter((s) => s.captured_at || s.first_seen_at);
   if (valid.length === 0) return null;
 
@@ -112,16 +124,31 @@ export function computeListingDistress(snaps: SnapshotRow[], now: Date = new Dat
   const earliest = firstSeenList.length ? Math.min(...firstSeenList) : tsOf(sortedByTime[0]);
   const giorni_online = Math.max(0, Math.floor((now.getTime() - earliest) / 86_400_000));
 
-  // Distinct first_seen days → repost detection
-  const distinctFirstSeen = new Set(
-    valid
-      .map((s) => s.first_seen_at)
-      .filter((t): t is string => !!t)
-      .map((t) => new Date(t).toISOString().slice(0, 10)),
-  );
-  const ripubblicato = distinctFirstSeen.size >= 2;
+  // ── Repost detection (identity-level, offline-gap based) ───────────────
+  // Rule: ripubblicato iff there's a real offline gap ≥14 days between
+  // consecutive captured_at observations of the SAME identity, OR a gap ≥7d
+  // with a price change at reappearance. Ingest-churn (multiple listing_ids
+  // in <14d with same price) is NOT counted.
+  const identityPool = (identitySnaps && identitySnaps.length > 0) ? identitySnaps : valid;
+  const identitySorted = [...identityPool]
+    .filter((s) => s.captured_at || s.first_seen_at)
+    .sort((a, b) => tsOf(a) - tsOf(b));
+  let offline_gap_days = 0;
+  let priceChangeAtGap = false;
+  for (let i = 1; i < identitySorted.length; i++) {
+    const gapDays = Math.floor((tsOf(identitySorted[i]) - tsOf(identitySorted[i - 1])) / 86_400_000);
+    if (gapDays > offline_gap_days) offline_gap_days = gapDays;
+    if (gapDays >= 7) {
+      const p0 = identitySorted[i - 1].price_eur;
+      const p1 = identitySorted[i].price_eur;
+      if (typeof p0 === "number" && typeof p1 === "number" && p0 > 0 && p1 > 0 && p0 !== p1) {
+        priceChangeAtGap = true;
+      }
+    }
+  }
+  const ripubblicato = offline_gap_days >= 14 || priceChangeAtGap;
 
-  // Price history (only positive numbers)
+  // Price history (only positive numbers) — SAME listing_id only.
   const priced = sortedByTime.filter((s) => typeof s.price_eur === "number" && (s.price_eur as number) > 0);
   let prezzo_iniziale: number | null = null;
   let prezzo_corrente: number | null = null;
@@ -162,19 +189,27 @@ export function computeListingDistress(snaps: SnapshotRow[], now: Date = new Dat
   const ribassoFlag = ribasso_pct != null && ribasso_pct >= 0.03;
   const ribasso_forte = ribasso_pct != null && ribasso_pct >= 0.08;
 
+  // Strength tiers (conservative):
+  //   forte  → "Da lavorare oggi" eligible
+  //   medio  → repost-only (no fermo / no ribasso); NOT work_today
+  //   lieve  → fermo OR ribasso ≥3% alone
+  //   nessuno
   let distress_strength: DistressStrength = "nessuno";
-  if (molto_fermo || ribasso_forte || ripubblicato) distress_strength = "forte";
-  else if (fermo || ribassoFlag) distress_strength = "lieve";
+  const reposted_plus_drop = ripubblicato && ribasso_pct != null && ribasso_pct >= 0.03;
+  const reposted_plus_fermo = ripubblicato && (fermo || molto_fermo);
+  if (molto_fermo || ribasso_forte || reposted_plus_drop || reposted_plus_fermo) {
+    distress_strength = "forte";
+  } else if (ripubblicato) {
+    distress_strength = "medio";
+  } else if (fermo || ribassoFlag) {
+    distress_strength = "lieve";
+  }
 
   const bullets: string[] = [];
   if (molto_fermo) {
     const months = Math.max(1, Math.round(giorni_online / 30));
     bullets.push(`Online da ${months} mes${months === 1 ? "e" : "i"}`);
-  } else if (fermo) {
-    bullets.push(`Online da ${giorni_online} giorni`);
-  } else if (giorni_online > 0 && confidenza !== "bassa") {
-    bullets.push(`Online da ${giorni_online} giorni`);
-  } else if (giorni_online > 0 && confidenza === "bassa") {
+  } else if (giorni_online > 0) {
     bullets.push(`Online da ${giorni_online} giorni`);
   }
 
@@ -186,7 +221,12 @@ export function computeListingDistress(snaps: SnapshotRow[], now: Date = new Dat
     price_gap_label = monthLabel ? `−${pct}% da ${monthLabel}` : `−${pct}%`;
   }
   if (ripubblicato) {
-    bullets.push(`Ripubblicato ${distinctFirstSeen.size} volte`);
+    // Verified repost only — no count of artifact first_seen dates.
+    bullets.push(
+      offline_gap_days >= 14
+        ? `Ripubblicato dopo ${offline_gap_days} giorni offline`
+        : `Ripubblicato con prezzo aggiornato`,
+    );
   }
   if (numero_ribassi >= 2) {
     bullets.push(`${numero_ribassi} ribassi consecutivi`);
@@ -204,6 +244,7 @@ export function computeListingDistress(snaps: SnapshotRow[], now: Date = new Dat
     ribasso_pct,
     numero_ribassi,
     ripubblicato,
+    offline_gap_days,
     confidenza,
     snapshot_count: sortedByTime.length,
     arc_days,
