@@ -360,7 +360,9 @@ export function buildListingEvidence(agg: ListingAggregate, m: DistressMetrics):
   };
 
   const urgencyHint: "low" | "medium" | "high" =
-    m.distress_strength === "forte" ? "high" : m.distress_strength === "lieve" ? "medium" : "low";
+    m.distress_strength === "forte" ? "high"
+    : (m.distress_strength === "medio" || m.distress_strength === "lieve") ? "medium"
+    : "low";
 
   const velRow: EvidenceInput = {
     entity_type: "opportunity",
