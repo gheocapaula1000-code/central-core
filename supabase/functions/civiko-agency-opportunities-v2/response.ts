@@ -5,6 +5,84 @@
 
 import type { AgencyArea, OpportunityAuditResult } from "./audit.ts";
 
+export interface EvidenceCounts {
+  area: number;
+  microzone: number;
+  deal: number;
+  auction: number;
+  listing: number;
+}
+
+export interface FrontendReadiness {
+  ready: boolean;
+  score: number;
+  missing: string[];
+  required_actions: string[];
+  last_successful_ingestion_at: string | null;
+  evidence_counts: EvidenceCounts;
+  auto_heal_attempted: boolean;
+}
+
+export interface BuildOptions {
+  evidence_counts?: EvidenceCounts;
+  last_successful_ingestion_at?: string | null;
+  auto_heal_attempted?: boolean;
+}
+
+export function buildFrontendReadiness(
+  data: {
+    focus_area: unknown[];
+    hot_microzones: unknown[];
+    commercial_actions: unknown[];
+    deal_opportunities: unknown[];
+  },
+  opts: BuildOptions = {},
+): FrontendReadiness {
+  const counts: EvidenceCounts = opts.evidence_counts ?? { area: 0, microzone: 0, deal: 0, auction: 0, listing: 0 };
+  const missing: string[] = [];
+  const required_actions: string[] = [];
+
+  if ((data.focus_area?.length ?? 0) < 1) {
+    missing.push("focus_area");
+    if (counts.area === 0) required_actions.push("ingest_area_opportunity_scores");
+    else required_actions.push("auto_heal_area_evidence");
+  }
+  if ((data.hot_microzones?.length ?? 0) < 1) {
+    missing.push("hot_microzones");
+    if (counts.microzone === 0 && counts.deal === 0) required_actions.push("ingest_microzone_evidence");
+  }
+  if ((data.commercial_actions?.length ?? 0) < 1) {
+    missing.push("commercial_actions");
+    required_actions.push("derive_commercial_actions");
+  }
+  if ((data.deal_opportunities?.length ?? 0) < 1) {
+    missing.push("deal_opportunities");
+    if (counts.deal === 0 && counts.auction === 0 && counts.listing === 0) {
+      required_actions.push("ingest_normalized_opportunities_and_auctions");
+    } else {
+      required_actions.push("backfill_deal_evidence");
+    }
+  }
+
+  // Weighted score: deals 40, focus 20, microzones 20, actions 20
+  let score = 0;
+  if ((data.deal_opportunities?.length ?? 0) > 0) score += 40;
+  if ((data.focus_area?.length ?? 0) > 0) score += 20;
+  if ((data.hot_microzones?.length ?? 0) > 0) score += 20;
+  if ((data.commercial_actions?.length ?? 0) > 0) score += 20;
+
+  return {
+    ready: missing.length === 0,
+    score,
+    missing,
+    required_actions: [...new Set(required_actions)],
+    last_successful_ingestion_at: opts.last_successful_ingestion_at ?? null,
+    evidence_counts: counts,
+    auto_heal_attempted: !!opts.auto_heal_attempted,
+  };
+}
+
+
 export const DEFAULT_AUDIT = {
   candidates_before_filters: 0,
   removed_insufficient_evidence: 0,
