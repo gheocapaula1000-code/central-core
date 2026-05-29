@@ -115,7 +115,17 @@ export const EMPTY_PAYLOAD = {
   deal_opportunities: [] as unknown[],
   opportunities: [] as unknown[],
   audit: DEFAULT_AUDIT,
+  frontend_readiness: {
+    ready: false,
+    score: 0,
+    missing: ["focus_area", "hot_microzones", "commercial_actions", "deal_opportunities"],
+    required_actions: [],
+    last_successful_ingestion_at: null,
+    evidence_counts: { area: 0, microzone: 0, deal: 0, auction: 0, listing: 0 },
+    auto_heal_attempted: false,
+  } satisfies FrontendReadiness,
 };
+
 
 /**
  * Pure response-builder. Given audit result + scope, produce a JSON-safe payload.
