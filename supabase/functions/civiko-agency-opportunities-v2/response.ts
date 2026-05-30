@@ -27,6 +27,7 @@ export interface BuildOptions {
   evidence_counts?: EvidenceCounts;
   last_successful_ingestion_at?: string | null;
   auto_heal_attempted?: boolean;
+  evidence_rows?: unknown[];
 }
 
 export function buildFrontendReadiness(
