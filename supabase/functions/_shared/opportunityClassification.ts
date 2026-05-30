@@ -87,6 +87,42 @@ export function extractActionableTarget(group: EvidenceRow[], entity_key = ""): 
       };
     }
   }
+
+  // Segnali offmarket/legali: target ref è l'entity_key stesso,
+  // source_url preso dall'evidence_value
+  let bestUrl: string | null = null;
+  let bestRef: string | null = null;
+  let bestTitle: string | null = null;
+  let bestAddress: string | null = null;
+  let bestType: ActionableTarget["target_type"] | null = null;
+  if (!bestUrl && !bestRef) {
+    for (const r of group) {
+      const v = r.evidence_value as Record<string, unknown> | null;
+      if (!v) continue;
+      const u = (v as any).source_url ?? (v as any).listing_url ?? null;
+      const ref = (v as any).fingerprint ?? (v as any).dedupe_key ?? entity_key;
+      const title = (v as any).title ?? (v as any).area_label ?? null;
+      const addr = (v as any).area_label ?? (v as any).area_or_microzone ?? null;
+      if (ref) {
+        bestRef = typeof ref === "string" ? ref : entity_key;
+        bestUrl = typeof u === "string" ? u : null;
+        bestTitle = typeof title === "string" ? title : null;
+        bestAddress = typeof addr === "string" ? addr : null;
+        bestType = "listing";
+        break;
+      }
+    }
+  }
+  if (bestRef || bestUrl) {
+    return {
+      ok: true,
+      target_type: bestType ?? "listing",
+      target_url: bestUrl ?? undefined,
+      target_ref: bestRef ?? undefined,
+      address: bestAddress ?? undefined,
+      title: bestTitle ?? undefined,
+    };
+  }
   return { ok: false };
 }
 
