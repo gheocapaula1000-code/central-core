@@ -289,6 +289,72 @@ async function fetchAll(supabase: Sb, table: string, cols: string, pageSize = 10
   return out;
 }
 
+// ─── deal-level mappers for offmarket/legal signals ──────────────────────
+function mapEarlyWarningAsDeal(r: any): EvidenceInput | null {
+  if (!r.fingerprint || !r.comune) return null;
+  const comune = slug(r.comune);
+  const key = `ew:${comune}:${r.fingerprint}`;
+  const sc = sourceCodeFromPrimarySignal(r.primary_signal_type, "F5");
+  return {
+    entity_type: "opportunity",
+    entity_key: key,
+    source_code: sc,
+    evidence_type: r.primary_signal_type ?? "offmarket_signal",
+    evidence_value: {
+      fingerprint: r.fingerprint,
+      title: r.area_label ?? r.microzona ?? r.comune,
+      area_label: r.area_label ?? null,
+      microzone: r.microzona ?? null,
+      municipality: r.comune,
+      primary_signal_type: r.primary_signal_type ?? null,
+      signal_types: r.signal_types ?? [],
+      sources_count: r.sources_count ?? 1,
+      evidence_count: r.evidence_count ?? 1,
+      confidence: r.confidence ?? "bassa",
+      early_acquisition_score: r.early_acquisition_score ?? 0,
+      explanation: r.explanation ?? null,
+      source_url: r.source_url ?? null,
+    },
+    confidence: r.confidence === "alta" ? "high" : r.confidence === "media" ? "medium" : "low",
+    freshness_days: 1,
+    raw_ref_id: r.fingerprint,
+    explanation: r.explanation ?? `Segnale offmarket: ${r.primary_signal_type ?? "early_warning"}`,
+  };
+}
+
+function mapLegalEventAsDeal(r: any): EvidenceInput | null {
+  if (!r.dedupe_key || !r.municipality) return null;
+  const comune = slug(r.municipality);
+  const keyHash = String(r.dedupe_key).replace(/[^a-z0-9]/gi, "").slice(0, 24);
+  const key = `leg:${comune}:${keyHash}`;
+  const isAuction = /auction|asta|foreclo|pignor/i.test(r.signal_type ?? "");
+  const sc = isAuction ? "F16" : "F5";
+  return {
+    entity_type: "opportunity",
+    entity_key: key,
+    source_code: sc,
+    evidence_type: r.signal_type ?? "legal_signal",
+    evidence_value: {
+      title: r.area_or_microzone ?? r.municipality,
+      municipality: r.municipality,
+      area_label: r.area_or_microzone ?? null,
+      microzone: r.area_or_microzone ?? null,
+      signal_type: r.signal_type ?? null,
+      source_url: r.source_url ?? null,
+      listing_url: r.source_url ?? null,
+      property_hint: r.property_hint ?? null,
+      confidence: r.confidence ?? "bassa",
+      explanation: r.explanation ?? null,
+      event_date: r.event_date ?? null,
+      sale_date: r.event_date ?? null,
+    },
+    confidence: r.confidence === "alta" ? "high" : r.confidence === "media" ? "medium" : "low",
+    freshness_days: 1,
+    raw_ref_id: r.dedupe_key,
+    explanation: r.explanation ?? `Segnale legale: ${r.signal_type}`,
+  };
+}
+
 export async function backfillEvidence(supabase: Sb, opts: { dry_run?: boolean } = {}): Promise<BackfillRowsCounts> {
   const buckets: Record<string, EvidenceRow[]> = {};
 
