@@ -1,10 +1,30 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw, Database, PlayCircle } from "lucide-react";
 import { toast } from "sonner";
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+interface ReadinessData {
+  score?: number;
+  missing?: string[];
+  required_actions?: string[];
+  evidence_counts?: Record<string, number>;
+  last_successful_ingestion_at?: string | null;
+  [k: string]: unknown;
+}
+
+interface BackfillData {
+  area_opportunity_scores?: number;
+  deal_listings?: number;
+  deal_auctions?: number;
+  total?: number;
+  [k: string]: unknown;
+}
 
 interface StageSummary {
   stage: string;
