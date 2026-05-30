@@ -289,6 +289,72 @@ async function fetchAll(supabase: Sb, table: string, cols: string, pageSize = 10
   return out;
 }
 
+// ─── deal-level mappers for offmarket/legal signals ──────────────────────
+function mapEarlyWarningAsDeal(r: any): EvidenceInput | null {
+  if (!r.fingerprint || !r.comune) return null;
+  const comune = slug(r.comune);
+  const key = `ew:${comune}:${r.fingerprint}`;
+  const sc = sourceCodeFromPrimarySignal(r.primary_signal_type, "F5");
+  return {
+    entity_type: "opportunity",
+    entity_key: key,
+    source_code: sc,
+    evidence_type: r.primary_signal_type ?? "offmarket_signal",
+    evidence_value: {
+      fingerprint: r.fingerprint,
+      title: r.area_label ?? r.microzona ?? r.comune,
+      area_label: r.area_label ?? null,
+      microzone: r.microzona ?? null,
+      municipality: r.comune,
+      primary_signal_type: r.primary_signal_type ?? null,
+      signal_types: r.signal_types ?? [],
+      sources_count: r.sources_count ?? 1,
+      evidence_count: r.evidence_count ?? 1,
+      confidence: r.confidence ?? "bassa",
+      early_acquisition_score: r.early_acquisition_score ?? 0,
+      explanation: r.explanation ?? null,
+      source_url: r.source_url ?? null,
+    },
+    confidence: r.confidence === "alta" ? "high" : r.confidence === "media" ? "medium" : "low",
+    freshness_days: 1,
+    raw_ref_id: r.fingerprint,
+    explanation: r.explanation ?? `Segnale offmarket: ${r.primary_signal_type ?? "early_warning"}`,
+  };
+}
+
+function mapLegalEventAsDeal(r: any): EvidenceInput | null {
+  if (!r.dedupe_key || !r.municipality) return null;
+  const comune = slug(r.municipality);
+  const keyHash = String(r.dedupe_key).replace(/[^a-z0-9]/gi, "").slice(0, 24);
+  const key = `leg:${comune}:${keyHash}`;
+  const isAuction = /auction|asta|foreclo|pignor/i.test(r.signal_type ?? "");
+  const sc = isAuction ? "F16" : "F5";
+  return {
+    entity_type: "opportunity",
+    entity_key: key,
+    source_code: sc,
+    evidence_type: r.signal_type ?? "legal_signal",
+    evidence_value: {
+      title: r.area_or_microzone ?? r.municipality,
+      municipality: r.municipality,
+      area_label: r.area_or_microzone ?? null,
+      microzone: r.area_or_microzone ?? null,
+      signal_type: r.signal_type ?? null,
+      source_url: r.source_url ?? null,
+      listing_url: r.source_url ?? null,
+      property_hint: r.property_hint ?? null,
+      confidence: r.confidence ?? "bassa",
+      explanation: r.explanation ?? null,
+      event_date: r.event_date ?? null,
+      sale_date: r.event_date ?? null,
+    },
+    confidence: r.confidence === "alta" ? "high" : r.confidence === "media" ? "medium" : "low",
+    freshness_days: 1,
+    raw_ref_id: r.dedupe_key,
+    explanation: r.explanation ?? `Segnale legale: ${r.signal_type}`,
+  };
+}
+
 export async function backfillEvidence(supabase: Sb, opts: { dry_run?: boolean } = {}): Promise<BackfillRowsCounts> {
   const buckets: Record<string, EvidenceRow[]> = {};
 
@@ -332,8 +398,21 @@ export async function backfillEvidence(supabase: Sb, opts: { dry_run?: boolean }
     counts.offmarket_opportunity_scores += Object.values(buckets).reduce((a, b) => a + b.length, 0) - before;
   }
 
+  // Deal-level: early_warning_opportunities → ew:<comune>:<fp>
+  for (const r of (await fetchAll(supabase, "early_warning_opportunities",
+    "fingerprint,comune,microzona,area_label,primary_signal_type,signal_types,sources_count,evidence_count,confidence,early_acquisition_score,explanation,source_url,is_active,privacy_safe"
+  )).filter((r: any) => r.is_active && r.privacy_safe !== false)) {
+    push(mapEarlyWarningAsDeal(r as any));
+  }
+  // Deal-level: legal_life_event_signals → leg:<comune>:<hash>
+  for (const r of (await fetchAll(supabase, "legal_life_event_signals",
+    "dedupe_key,municipality,signal_type,source_url,area_or_microzone,property_hint,confidence,explanation,event_date,privacy_safe,is_active"
+  )).filter((r: any) => r.is_active && r.privacy_safe !== false)) {
+    push(mapLegalEventAsDeal(r as any));
+  }
   // Deal-level: normalized_opportunities → op:<comune>:<id>
-  for (const r of (await fetchAll(supabase, "normalized_opportunities", "id,municipality,microzone,source_name,category,title,source_url,ask_price,surface_mq,address_text,freshness_days,priority_score,last_seen_at")) as NormalizedDealRow[]) {
+  for (const r of (await fetchAll(supabase, "normalized_opportunities", "id,municipality,microzone,source_name,category,title,source_url,ask_price,surface_mq,address_text,freshness_days,priority_score,last_seen_at,agency_name")) as NormalizedDealRow[]) {
+    if ((r as any).agency_name) continue;
     const before = Object.values(buckets).reduce((a, b) => a + b.length, 0);
     push(mapDealFromNormalized(r, "F13"));
     counts.deal_listings += Object.values(buckets).reduce((a, b) => a + b.length, 0) - before;

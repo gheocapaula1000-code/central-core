@@ -484,12 +484,35 @@ export function runOpportunityAudit(
     deal_rows_inside_agency_zone,
   };
 
+  function dealPriority(o: DealOpportunity): number {
+    const k = o.id ?? "";
+    if (k.startsWith("ew:") || k.startsWith("leg:")) return 100;
+    if (k.startsWith("auct:")) {
+      const sd = (o as any).data_freshness?.observed_at ?? null;
+      if (sd) {
+        const days = (new Date(sd).getTime() - Date.now()) / 86_400_000;
+        if (days >= 0 && days <= 60) return 80;
+      }
+      return 60;
+    }
+    if (k.startsWith("op:")) {
+      if (o.quality_bucket === "work_today") return 40;
+      if (o.quality_bucket === "verify") return 20;
+    }
+    return 5;
+  }
+  deal_opportunities.sort((a, b) => dealPriority(b) - dealPriority(a));
+  const KEEP_ALL_THRESHOLD = 20;
+  const filtered = deal_opportunities.length > KEEP_ALL_THRESHOLD
+    ? deal_opportunities.filter((o) => dealPriority(o) > 5)
+    : deal_opportunities;
+
   return {
     focus_area,
     hot_microzones,
     commercial_actions,
-    deal_opportunities,
-    opportunities: deal_opportunities, // backward-compat alias
+    deal_opportunities: filtered,
+    opportunities: filtered, // backward-compat alias
     audit,
     warnings,
   };
