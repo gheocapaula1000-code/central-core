@@ -427,8 +427,7 @@ export async function backfillEvidence(supabase: Sb, opts: { dry_run?: boolean }
     // non bloccare il backfill se questa tabella fallisce
   }
   // Deal-level: normalized_opportunities → op:<comune>:<id>
-  for (const r of (await fetchAll(supabase, "normalized_opportunities", "id,municipality,microzone,source_name,category,title,source_url,ask_price,surface_mq,address_text,freshness_days,priority_score,last_seen_at,agency_name")) as NormalizedDealRow[]) {
-    if ((r as any).agency_name) continue;
+  for (const r of (await fetchAll(supabase, "normalized_opportunities", "id,municipality,microzone,source_name,category,title,source_url,ask_price,surface_mq,address_text,freshness_days,priority_score,last_seen_at")) as NormalizedDealRow[]) {
     const before = Object.values(buckets).reduce((a, b) => a + b.length, 0);
     push(mapDealFromNormalized(r, "F13"));
     counts.deal_listings += Object.values(buckets).reduce((a, b) => a + b.length, 0) - before;
