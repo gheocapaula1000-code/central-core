@@ -399,16 +399,32 @@ export async function backfillEvidence(supabase: Sb, opts: { dry_run?: boolean }
   }
 
   // Deal-level: early_warning_opportunities → ew:<comune>:<fp>
-  for (const r of (await fetchAll(supabase, "early_warning_opportunities",
-    "fingerprint,comune,microzona,area_label,primary_signal_type,signal_types,sources_count,evidence_count,confidence,early_acquisition_score,explanation,source_url,is_active,privacy_safe"
-  )).filter((r: any) => r.is_active && r.privacy_safe !== false)) {
-    push(mapEarlyWarningAsDeal(r as any));
+  try {
+    const ewRows = await fetchAll(
+      supabase,
+      "early_warning_opportunities",
+      "fingerprint,comune,microzona,area_label,primary_signal_type,signal_types,sources_count,evidence_count,confidence,early_acquisition_score,explanation,source_url,is_active,privacy_safe"
+    ) as Array<Record<string, unknown>>;
+    for (const r of ewRows) {
+      if (!r.is_active || r.privacy_safe === false) continue;
+      try { push(mapEarlyWarningAsDeal(r)); } catch (_) { /* skip bad row */ }
+    }
+  } catch (_ewErr) {
+    // non bloccare il backfill se questa tabella fallisce
   }
   // Deal-level: legal_life_event_signals → leg:<comune>:<hash>
-  for (const r of (await fetchAll(supabase, "legal_life_event_signals",
-    "dedupe_key,municipality,signal_type,source_url,area_or_microzone,property_hint,confidence,explanation,event_date,privacy_safe,is_active"
-  )).filter((r: any) => r.is_active && r.privacy_safe !== false)) {
-    push(mapLegalEventAsDeal(r as any));
+  try {
+    const legRows = await fetchAll(
+      supabase,
+      "legal_life_event_signals",
+      "dedupe_key,municipality,signal_type,source_url,area_or_microzone,property_hint,confidence,explanation,event_date,privacy_safe,is_active"
+    ) as Array<Record<string, unknown>>;
+    for (const r of legRows) {
+      if (!r.is_active || r.privacy_safe === false) continue;
+      try { push(mapLegalEventAsDeal(r)); } catch (_) { /* skip bad row */ }
+    }
+  } catch (_legErr) {
+    // non bloccare il backfill se questa tabella fallisce
   }
   // Deal-level: normalized_opportunities → op:<comune>:<id>
   for (const r of (await fetchAll(supabase, "normalized_opportunities", "id,municipality,microzone,source_name,category,title,source_url,ask_price,surface_mq,address_text,freshness_days,priority_score,last_seen_at,agency_name")) as NormalizedDealRow[]) {
