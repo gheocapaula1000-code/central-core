@@ -282,6 +282,19 @@ function asRec(v: unknown): Record<string, unknown> {
   return v && typeof v === "object" ? v as Record<string, unknown> : {};
 }
 
+function dealEvidenceText(d: Record<string, unknown>): string {
+  const es = asRec(d.evidence_summary);
+  const parts: string[] = [];
+  const fams = es.source_families;
+  if (Array.isArray(fams)) parts.push(...fams.map((x) => String(x)));
+  const contrib = es.contributing_sources;
+  if (Array.isArray(contrib)) parts.push(...contrib.map((x) => String(x)));
+  const bullets = es.explanation_bullets;
+  if (Array.isArray(bullets)) parts.push(...bullets.map((x) => String(x)));
+  if (typeof d.urgency === "string") parts.push(d.urgency);
+  return parts.join(" | ").toLowerCase();
+}
+
 function enrichHotMicrozone(item: unknown, deals: unknown[]): Record<string, unknown> {
   const obj = { ...asRec(item) };
   const parts = String(obj.entity_key ?? "").split(":");
@@ -293,15 +306,52 @@ function enrichHotMicrozone(item: unknown, deals: unknown[]): Record<string, unk
     const dr = asRec(d);
     const mz = typeof dr.microzone === "string" ? dr.microzone.toLowerCase().trim() : "";
     return mz === mzSlug;
-  });
-  const auctions = mzDeals.filter((d) => asRec(d).target_type === "auction").length;
-  const listings = mzDeals.filter((d) => asRec(d).target_type === "listing").length;
+  }).map((d) => asRec(d));
+
+  const auctions = mzDeals.filter((d) => d.target_type === "auction").length;
+  const listings = mzDeals.filter((d) => d.target_type === "listing").length;
   const others = mzDeals.length - auctions - listings;
+
+  // Derive signal-family counters from deal evidence already in payload.
+  let pressure_signals = 0;
+  let velocity_signals = 0;
+  let motivated_sellers = 0;
+  let urgent_count = 0;
+  for (const d of mzDeals) {
+    const id = String(d.id ?? "");
+    const text = dealEvidenceText(d);
+    const bucket = typeof d.quality_bucket === "string" ? d.quality_bucket : "";
+    const isEw = id.startsWith("ew:");
+
+    if (text.includes("microzone_pressure") || text.includes("stock_anomalo") || text.includes("pressione")) {
+      pressure_signals++;
+    } else if (isEw && !text.includes("offmarket") && !text.includes("motivated") && !text.includes("listing_velocity")) {
+      pressure_signals++;
+    }
+    if (text.includes("listing_velocity") || text.includes("velocity") || text.includes("offmarket_discovery") || text.includes("offmarket") || bucket === "work_today") {
+      velocity_signals++;
+    }
+    if (text.includes("motivated_seller") || text.includes("motivated")) {
+      motivated_sellers++;
+    }
+    if (text.includes("urgent") || text.includes("urgente") || bucket === "work_today") {
+      urgent_count++;
+    }
+  }
 
   const signals: string[] = [];
   if (auctions > 0) signals.push(`${auctions} ast${auctions === 1 ? "a giudiziaria" : "e giudiziarie"}`);
   if (listings > 0) signals.push(`${listings} annunc${listings === 1 ? "io attivo" : "i attivi"}`);
   if (others > 0) signals.push(`${others} altr${others === 1 ? "o segnale" : "i segnali"}`);
+
+  // Top signal label: pick the strongest family present.
+  let top_signal_label: string | null = null;
+  if (urgent_count > 0) top_signal_label = "Opportunità urgente";
+  else if (motivated_sellers > 0) top_signal_label = "Venditore motivato rilevato";
+  else if (velocity_signals > 0) top_signal_label = "Prezzi in calo veloce";
+  else if (pressure_signals > 0) top_signal_label = "Pressione acquirenti alta";
+  else if (auctions > 0) top_signal_label = "Asta giudiziaria in calendario";
+  else if (listings > 0) top_signal_label = "Annunci attivi in zona";
 
   let summary = "";
   if (mzDeals.length > 0) {
@@ -314,7 +364,10 @@ function enrichHotMicrozone(item: unknown, deals: unknown[]): Record<string, unk
   }
 
   let next_action: string;
-  if (auctions > 0) next_action = "Prepara dossier acquirenti per le aste in calendario";
+  if (urgent_count > 0) next_action = "Contatta subito le opportunità urgenti rilevate";
+  else if (motivated_sellers > 0) next_action = "Qualifica i venditori motivati segnalati";
+  else if (auctions > 0) next_action = "Prepara dossier acquirenti per le aste in calendario";
+  else if (velocity_signals > 0) next_action = "Verifica annunci con calo prezzo rapido";
   else if (listings > 0) next_action = "Contatta proprietari/agenzie degli annunci in zona";
   else if (mzDeals.length > 0) next_action = "Qualifica i segnali rilevati e pianifica il presidio";
   else next_action = "Avvia presidio territoriale su questa microzona";
@@ -329,6 +382,11 @@ function enrichHotMicrozone(item: unknown, deals: unknown[]): Record<string, unk
     summary,
     signals,
     next_action,
+    pressure_signals,
+    velocity_signals,
+    motivated_sellers,
+    urgent_count,
+    top_signal_label,
   };
 }
 
