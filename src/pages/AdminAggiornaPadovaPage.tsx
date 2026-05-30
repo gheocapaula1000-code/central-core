@@ -65,12 +65,14 @@ function extractCycle(resp: ProxyResponse): { cycle: CycleReport | null; warning
   return { cycle: null, warnings: [] };
 }
 
+type CycleMode = "base" | "offmarket";
+
 export default function AdminAggiornaPadovaPage() {
-  const [running, setRunning] = useState(false);
+  const [runningMode, setRunningMode] = useState<CycleMode | null>(null);
   const [response, setResponse] = useState<ProxyResponse | null>(null);
 
-  const run = async () => {
-    setRunning(true);
+  const run = async (mode: CycleMode) => {
+    setRunningMode(mode);
     setResponse(null);
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -79,6 +81,10 @@ export default function AdminAggiornaPadovaPage() {
         toast.error("Sessione scaduta, effettua di nuovo il login.");
         return;
       }
+      const payload =
+        mode === "base"
+          ? { dryRun: false, includeNeedsReview: true, skipPerplexity: true, skipListingRefresh: true }
+          : { dryRun: false, includeNeedsReview: true, onlyPerplexity: true };
       const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/padova-bootstrap-admin`;
       const r = await fetch(url, {
         method: "POST",
@@ -87,20 +93,21 @@ export default function AdminAggiornaPadovaPage() {
           apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ dryRun: false, includeNeedsReview: true }),
+        body: JSON.stringify(payload),
       });
       const json = (await r.json().catch(() => ({}))) as ProxyResponse;
       setResponse(json);
-      if (json.ok) toast.success("Orchestratore eseguito");
+      if (json.ok) toast.success(mode === "base" ? "Step 1 completato" : "Step 2 completato");
       else toast.error(json.error || "Esecuzione fallita");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       toast.error(msg);
       setResponse({ ok: false, error: msg });
     } finally {
-      setRunning(false);
+      setRunningMode(null);
     }
   };
+  const running = runningMode !== null;
 
   // ─────────── Pannello Dati Padova ───────────
   const [readiness, setReadiness] = useState<ReadinessData | null>(null);
