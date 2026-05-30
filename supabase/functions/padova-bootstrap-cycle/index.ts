@@ -104,11 +104,14 @@ serve(async (req) => {
   const dryRun = body.dryRun === true;
   const includeNeedsReview = body.includeNeedsReview === true;
   const onlyPerplexity = body.onlyPerplexity === true;
-  // When onlyPerplexity, force-skip listing refresh; otherwise honor explicit flags.
-  const skipListingRefresh = onlyPerplexity || body.skipListingRefresh === true;
-  // skipPerplexity skips the advanced-veneto-opportunities stage.
-  // onlyPerplexity inverts: skip everything EXCEPT perplexity+early-warning.
-  const skipPerplexity = !onlyPerplexity && body.skipPerplexity === true;
+  // Stage gating:
+  //   skipListingRefresh => skip refresh-padova-auctions
+  //   skipPerplexity     => skip build-advanced-veneto-opportunities (the discovery stage)
+  //   onlyPerplexity     => run ONLY the discovery stage + early-warning aggregator
+  //                        (skips listing refresh and final readiness snapshot)
+  const runListingRefresh = !onlyPerplexity && body.skipListingRefresh !== true;
+  const runAdvanced = onlyPerplexity || body.skipPerplexity !== true;
+  const runReadiness = !onlyPerplexity;
 
   const stages: StageResult[] = [];
   const jobHeaders = {
