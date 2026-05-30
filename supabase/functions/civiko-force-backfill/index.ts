@@ -41,3 +41,4 @@ serve(async (req) => {
     backfill_report = { ok: false, error: message };
   }
   return json(backfill_report, backfill_report.ok ? 200 : 500);
+});
