@@ -90,13 +90,25 @@ serve(async (req) => {
     }, ["job_secret_missing"], debugId);
   }
 
-  // Parse optional body { dryRun?: boolean, includeNeedsReview?: boolean }
-  let body: { dryRun?: boolean; includeNeedsReview?: boolean } = {};
+  // Parse optional body
+  let body: {
+    dryRun?: boolean;
+    includeNeedsReview?: boolean;
+    skipPerplexity?: boolean;
+    skipListingRefresh?: boolean;
+    onlyPerplexity?: boolean;
+  } = {};
   try {
     if (req.method === "POST") body = await req.json();
   } catch { /* ignore */ }
   const dryRun = body.dryRun === true;
   const includeNeedsReview = body.includeNeedsReview === true;
+  const onlyPerplexity = body.onlyPerplexity === true;
+  // When onlyPerplexity, force-skip listing refresh; otherwise honor explicit flags.
+  const skipListingRefresh = onlyPerplexity || body.skipListingRefresh === true;
+  // skipPerplexity skips the advanced-veneto-opportunities stage.
+  // onlyPerplexity inverts: skip everything EXCEPT perplexity+early-warning.
+  const skipPerplexity = !onlyPerplexity && body.skipPerplexity === true;
 
   const stages: StageResult[] = [];
   const jobHeaders = {
