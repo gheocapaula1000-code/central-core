@@ -26,13 +26,19 @@ serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     { auth: { persistSession: false } },
   );
+  let backfill_report: Record<string, unknown>;
   try {
-    const counts = await backfillEvidence(supabase, { dry_run: false });
-    return json({ ok: true, data: counts });
-  } catch (e) {
-    return json(
-      { ok: false, error: e instanceof Error ? e.message : String(e) },
-      500,
-    );
+    const result = await backfillEvidence(supabase);
+    backfill_report = { ok: true, data: result };
+  } catch (err) {
+    const message = err instanceof Error
+      ? `${err.name}: ${err.message}`
+      : typeof err === "string"
+        ? err
+        : JSON.stringify(err) !== "{}"
+          ? JSON.stringify(err)
+          : "unknown_error";
+    backfill_report = { ok: false, error: message };
   }
+  return json(backfill_report, backfill_report.ok ? 200 : 500);
 });
