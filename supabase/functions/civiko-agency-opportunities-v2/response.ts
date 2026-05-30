@@ -442,15 +442,7 @@ function enrichHotMicrozone(
     }
   }
 
-  let summary = "";
-  if (mzDeals.length > 0) {
-    summary = `${signals.join(" e ")} rilevat${mzDeals.length === 1 ? "o" : "i"} in zona.`;
-  } else {
-    const bullets = asRec(obj.evidence_summary).explanation_bullets;
-    if (Array.isArray(bullets) && bullets.length > 0 && typeof bullets[0] === "string") {
-      summary = String(bullets[0]).replace(/^\[[^\]]+\]\s*/, "");
-    }
-  }
+
 
   let next_action: string;
   if (urgent_count > 0) next_action = "Contatta subito le opportunità urgenti rilevate";
