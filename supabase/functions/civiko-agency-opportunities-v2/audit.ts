@@ -331,6 +331,8 @@ export function runOpportunityAudit(
 
       // deal_opportunity path
       deal_candidates_before_filters++;
+      if (key.startsWith("ew:")) ew_candidates_found++;
+      if (key.startsWith("leg:")) leg_candidates_found++;
 
       // Zone-level scope verification (comune was already filtered upstream).
       const zoneCls = classifyDealZoneScope(key, safeGroup, dealScope);
