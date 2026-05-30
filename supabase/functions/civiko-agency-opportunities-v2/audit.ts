@@ -492,6 +492,11 @@ export function runOpportunityAudit(
     deal_rows_missing_geo,
     deal_rows_inside_comune_unmapped,
     deal_rows_inside_agency_zone,
+    ew_candidates_found,
+    leg_candidates_found,
+    ew_removed_no_market,
+    ew_removed_no_target,
+    ew_passed,
   };
 
   function dealPriority(o: DealOpportunity): number {
