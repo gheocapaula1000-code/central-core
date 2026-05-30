@@ -138,7 +138,7 @@ export function buildResponseData(
   areaList: AgencyArea[] | null | undefined,
   opts: BuildOptions = {},
 ) {
-  const focus_area = sanitizeArray(result?.focus_area);
+  const focus_area_raw = sanitizeArray(result?.focus_area);
 
   const hot_microzones_raw = sanitizeArray(result?.hot_microzones);
   const commercial_actions_raw = sanitizeArray(result?.commercial_actions);
@@ -151,6 +151,7 @@ export function buildResponseData(
   // (no fabricated text). title is always populated from the canonical slug.
   const evidenceRows = Array.isArray(opts.evidence_rows) ? opts.evidence_rows : [];
   const comuneAgg = buildComuneEvidenceAggregates(evidenceRows, deal_opportunities, hot_microzones_raw);
+  const focus_area = focus_area_raw.map((fa) => enrichFocusArea(fa, comuneAgg));
   const hot_microzones = hot_microzones_raw.map((mz) => enrichHotMicrozone(mz, deal_opportunities, comuneAgg));
   const commercial_actions = commercial_actions_raw.map((a) => enrichCommercialAction(a, hot_microzones));
 
@@ -192,6 +193,16 @@ export function buildResponseData(
     audit,
     warnings,
     frontend_readiness,
+    signal_counts: Object.fromEntries(
+      [...comuneAgg.entries()].map(([c, a]) => [c, {
+        succession_pressure_count: a.succession_pressure_count,
+        revaluation_count: a.revaluation_count,
+        pressure_total: a.pressure_total,
+        velocity_total: a.velocity_total,
+        motivated_total: a.motivated_total,
+        urgent_total: a.urgent_total,
+      }]),
+    ),
     scope: {
       comuni: [...new Set(safeAreas.flatMap((a) => (Array.isArray(a.comuni) ? a.comuni : [])))],
       microzones: [
@@ -310,14 +321,20 @@ interface ComuneAgg {
   ew_leg_total: number;     // ew:* + leg:* combined (for label fallback)
   mz_count: number;         // number of hot_microzones in this comune
   totalDeals: number;       // deal_opportunities tally per comune
+  succession_pressure_count: number; // leg:* OR evidence_type SUCCESSION_PRESSURE/LEGAL_EVENT/INHERITANCE_SIGNAL
+  revaluation_count: number;         // evidence_type MICROZONE_PRESSURE/VELOCITY_ANOMALY/PRICE_REVALUATION
 }
 
 function newAgg(): ComuneAgg {
   return {
     pressure_total: 0, velocity_total: 0, motivated_total: 0, urgent_total: 0,
     ew_leg_total: 0, mz_count: 0, totalDeals: 0,
+    succession_pressure_count: 0, revaluation_count: 0,
   };
 }
+
+const SUCCESSION_TYPES = new Set(["SUCCESSION_PRESSURE", "LEGAL_EVENT", "INHERITANCE_SIGNAL"]);
+const REVALUATION_TYPES = new Set(["MICROZONE_PRESSURE", "VELOCITY_ANOMALY", "PRICE_REVALUATION"]);
 
 function buildComuneEvidenceAggregates(
   evidenceRows: unknown[],
@@ -334,19 +351,22 @@ function buildComuneEvidenceAggregates(
   for (const raw of evidenceRows) {
     const r = asRec(raw);
     const k = String(r.entity_key ?? "");
+    const t = String(r.evidence_type ?? "");
     const isEw = k.startsWith("ew:");
     const isLeg = k.startsWith("leg:");
-    if (!isEw && !isLeg) continue;
     const comune = slugify(k.split(":")[1]);
     if (!comune) continue;
     const agg = getOrCreate(comune);
-    agg.ew_leg_total++;
-    if (isEw) agg.pressure_total++;
-    const t = String(r.evidence_type ?? "");
-    if (t === "OFFMARKET_DISCOVERY") agg.velocity_total++;
-    if (t === "MOTIVATED_SELLER") agg.motivated_total++;
-    const urgency = slugify(asRec(r.evidence_value).urgency);
-    if (urgency === "urgent") agg.urgent_total++;
+    if (isEw || isLeg) {
+      agg.ew_leg_total++;
+      if (isEw) agg.pressure_total++;
+      if (t === "OFFMARKET_DISCOVERY") agg.velocity_total++;
+      if (t === "MOTIVATED_SELLER") agg.motivated_total++;
+      const urgency = slugify(asRec(r.evidence_value).urgency);
+      if (urgency === "urgent") agg.urgent_total++;
+    }
+    if (isLeg || SUCCESSION_TYPES.has(t)) agg.succession_pressure_count++;
+    if (REVALUATION_TYPES.has(t)) agg.revaluation_count++;
   }
 
   for (const d of deals) {
@@ -366,6 +386,22 @@ function buildComuneEvidenceAggregates(
 
   return map;
 }
+
+function enrichFocusArea(
+  item: unknown,
+  comuneAgg: Map<string, ComuneAgg>,
+): Record<string, unknown> {
+  const obj = { ...asRec(item) };
+  const parts = String(obj.entity_key ?? "").split(":");
+  const comuneSlug = slugify(parts[1] ?? obj.comune ?? obj.municipality);
+  const agg = comuneSlug ? comuneAgg.get(comuneSlug) : undefined;
+  return {
+    ...obj,
+    succession_pressure_count: agg?.succession_pressure_count ?? 0,
+    revaluation_count: agg?.revaluation_count ?? 0,
+  };
+}
+
 
 function enrichHotMicrozone(
   item: unknown,
