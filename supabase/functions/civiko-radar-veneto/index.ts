@@ -1512,6 +1512,22 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Padova Successioni — aggregate-only succession_pressure evidence.
+    // Sources: ISTAT + OMI + auction_signals aggregati + succession_heatmap_cap
+    // aggregato + area_opportunity_scores (no person-level data, k >= 3).
+    if (pathname.endsWith("/jobs/padova-successioni")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const { runPadovaSuccessioni } = await import("./padovaSuccessioni.ts");
+        const r = await runPadovaSuccessioni({ dryRun: body?.dryRun === true });
+        return withIdentity(json(req, r.ok ? 200 : 207, { job: "padova-successioni", ...r }, debugId), "job-padova-successioni");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] padova-successioni error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Padova successioni failed", debugId), "job-error");
+      }
+    }
+
     // Padova Daily Radar — orchestrator multi-fonte (listing+aste+perplexity+EW)
     if (pathname.endsWith("/jobs/padova-daily-radar")) {
       const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
