@@ -357,6 +357,7 @@ export function runOpportunityAudit(
       // Need at least one deal-eligible market source.
       const hasMarketSrc = [...codes].some((c) => DEAL_ELIGIBLE_SOURCES.has(c));
       if (!hasMarketSrc) { removed_insufficient_deal_evidence++; continue; }
+      if (key.startsWith("ew:") && !hasMarketSrc) ew_removed_no_market++;
 
       // Actionable target required.
       const target = extractActionableTarget(safeGroup, key);
