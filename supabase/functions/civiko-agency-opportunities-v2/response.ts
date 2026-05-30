@@ -150,7 +150,7 @@ export function buildResponseData(
   // Enrich with frontend-readable fields derived from REAL signal counts
   // (no fabricated text). title is always populated from the canonical slug.
   const evidenceRows = Array.isArray(opts.evidence_rows) ? opts.evidence_rows : [];
-  const comuneAgg = buildComuneEvidenceAggregates(evidenceRows, deal_opportunities);
+  const comuneAgg = buildComuneEvidenceAggregates(evidenceRows, deal_opportunities, hot_microzones_raw);
   const hot_microzones = hot_microzones_raw.map((mz) => enrichHotMicrozone(mz, deal_opportunities, comuneAgg));
   const commercial_actions = commercial_actions_raw.map((a) => enrichCommercialAction(a, hot_microzones));
 
