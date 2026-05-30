@@ -67,6 +67,13 @@ export interface OpportunityAudit {
   deal_rows_missing_geo: number;
   deal_rows_inside_comune_unmapped: number;
   deal_rows_inside_agency_zone: number;
+
+  // debug counters (temporary)
+  ew_candidates_found?: number;
+  leg_candidates_found?: number;
+  ew_removed_no_market?: number;
+  ew_removed_no_target?: number;
+  ew_passed?: number;
 }
 
 export interface ScopeMatcher {
