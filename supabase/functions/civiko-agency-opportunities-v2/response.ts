@@ -27,6 +27,7 @@ export interface BuildOptions {
   evidence_counts?: EvidenceCounts;
   last_successful_ingestion_at?: string | null;
   auto_heal_attempted?: boolean;
+  evidence_rows?: unknown[];
 }
 
 export function buildFrontendReadiness(
@@ -148,7 +149,8 @@ export function buildResponseData(
 
   // Enrich with frontend-readable fields derived from REAL signal counts
   // (no fabricated text). title is always populated from the canonical slug.
-  const hot_microzones = hot_microzones_raw.map((mz) => enrichHotMicrozone(mz, deal_opportunities));
+  const evidenceRows = Array.isArray(opts.evidence_rows) ? opts.evidence_rows : [];
+  const hot_microzones = hot_microzones_raw.map((mz) => enrichHotMicrozone(mz, deal_opportunities, evidenceRows));
   const commercial_actions = commercial_actions_raw.map((a) => enrichCommercialAction(a, hot_microzones));
 
   const frontend_readiness = buildFrontendReadiness(
@@ -295,16 +297,35 @@ function dealEvidenceText(d: Record<string, unknown>): string {
   return parts.join(" | ").toLowerCase();
 }
 
-function enrichHotMicrozone(item: unknown, deals: unknown[]): Record<string, unknown> {
+function slugify(s: unknown): string {
+  return String(s ?? "").toLowerCase().trim();
+}
+
+function evidenceMatchesMicrozone(ev: Record<string, unknown>, comuneSlug: string, mzSlug: string): boolean {
+  const key = String(ev.entity_key ?? "");
+  const parts = key.split(":");
+  const keyComune = slugify(parts[1]);
+  const keyMz = slugify(parts[2]);
+  if (keyComune && comuneSlug && keyComune !== comuneSlug) return false;
+  if (keyMz && mzSlug && keyMz === mzSlug) return true;
+  const val = asRec(ev.evidence_value);
+  const vMz = slugify(val.microzone);
+  const vArea = slugify(val.area_label);
+  if (vMz && (vMz === mzSlug || vMz.includes(mzSlug))) return true;
+  if (vArea && vArea.includes(mzSlug)) return true;
+  return false;
+}
+
+function enrichHotMicrozone(item: unknown, deals: unknown[], evidenceRows: unknown[]): Record<string, unknown> {
   const obj = { ...asRec(item) };
   const parts = String(obj.entity_key ?? "").split(":");
-  const comuneSlug = (parts[1] ?? "").toLowerCase().trim();
-  const mzSlug = (parts[2] ?? "").toLowerCase().trim();
+  const comuneSlug = slugify(parts[1]);
+  const mzSlug = slugify(parts[2]);
   const title = displayMicrozoneName(mzSlug);
 
   const mzDeals = deals.filter((d) => {
     const dr = asRec(d);
-    const mz = typeof dr.microzone === "string" ? dr.microzone.toLowerCase().trim() : "";
+    const mz = slugify(dr.microzone);
     return mz === mzSlug;
   }).map((d) => asRec(d));
 
@@ -312,30 +333,38 @@ function enrichHotMicrozone(item: unknown, deals: unknown[]): Record<string, unk
   const listings = mzDeals.filter((d) => d.target_type === "listing").length;
   const others = mzDeals.length - auctions - listings;
 
-  // Derive signal-family counters from deal evidence already in payload.
+  // Read signal counts DIRECTLY from civiko_evidence (ew:/leg:) instead of
+  // relying on already-filtered deal_opportunities.
+  const mzEvidence = evidenceRows
+    .map((r) => asRec(r))
+    .filter((r) => {
+      const k = String(r.entity_key ?? "");
+      if (!(k.startsWith("ew:") || k.startsWith("leg:"))) return false;
+      return evidenceMatchesMicrozone(r, comuneSlug, mzSlug);
+    });
+
   let pressure_signals = 0;
   let velocity_signals = 0;
   let motivated_sellers = 0;
   let urgent_count = 0;
-  for (const d of mzDeals) {
-    const id = String(d.id ?? "");
-    const text = dealEvidenceText(d);
-    const bucket = typeof d.quality_bucket === "string" ? d.quality_bucket : "";
-    const isEw = id.startsWith("ew:");
+  let firstExplanation: string | null = null;
 
-    if (text.includes("microzone_pressure") || text.includes("stock_anomalo") || text.includes("pressione")) {
-      pressure_signals++;
-    } else if (isEw && !text.includes("offmarket") && !text.includes("motivated") && !text.includes("listing_velocity")) {
-      pressure_signals++;
-    }
-    if (text.includes("listing_velocity") || text.includes("velocity") || text.includes("offmarket_discovery") || text.includes("offmarket") || bucket === "work_today") {
-      velocity_signals++;
-    }
-    if (text.includes("motivated_seller") || text.includes("motivated")) {
-      motivated_sellers++;
-    }
-    if (text.includes("urgent") || text.includes("urgente") || bucket === "work_today") {
-      urgent_count++;
+  for (const ev of mzEvidence) {
+    const t = String(ev.evidence_type ?? "");
+    const val = asRec(ev.evidence_value);
+    if (t === "MICROZONE_PRESSURE") pressure_signals++;
+    if (t === "OFFMARKET_DISCOVERY") velocity_signals++;
+    if (t === "MOTIVATED_SELLER") motivated_sellers++;
+    const urgency = slugify(val.urgency);
+    const bucket = String(val.quality_bucket ?? "");
+    if (urgency === "urgent" || bucket === "A") urgent_count++;
+    if (!firstExplanation) {
+      const bullets = val.explanation_bullets;
+      if (Array.isArray(bullets) && bullets.length > 0 && typeof bullets[0] === "string") {
+        firstExplanation = String(bullets[0]).trim() || null;
+      } else if (typeof ev.explanation === "string" && ev.explanation.trim()) {
+        firstExplanation = ev.explanation.trim();
+      }
     }
   }
 
@@ -344,14 +373,17 @@ function enrichHotMicrozone(item: unknown, deals: unknown[]): Record<string, unk
   if (listings > 0) signals.push(`${listings} annunc${listings === 1 ? "io attivo" : "i attivi"}`);
   if (others > 0) signals.push(`${others} altr${others === 1 ? "o segnale" : "i segnali"}`);
 
-  // Top signal label: pick the strongest family present.
-  let top_signal_label: string | null = null;
-  if (urgent_count > 0) top_signal_label = "Opportunità urgente";
-  else if (motivated_sellers > 0) top_signal_label = "Venditore motivato rilevato";
-  else if (velocity_signals > 0) top_signal_label = "Prezzi in calo veloce";
-  else if (pressure_signals > 0) top_signal_label = "Pressione acquirenti alta";
-  else if (auctions > 0) top_signal_label = "Asta giudiziaria in calendario";
-  else if (listings > 0) top_signal_label = "Annunci attivi in zona";
+  // top_signal_label: prefer the first explanation bullet found, otherwise
+  // fall back to a fixed label based on the dominant signal family.
+  let top_signal_label: string | null = firstExplanation;
+  if (!top_signal_label) {
+    if (pressure_signals > 0) top_signal_label = "Pressione acquirenti rilevata";
+    else if (motivated_sellers > 0) top_signal_label = "Venditore motivato identificato";
+    else if (velocity_signals > 0) top_signal_label = "Velocità di vendita anomala";
+    else if (urgent_count > 0) top_signal_label = "Opportunità urgente";
+    else if (auctions > 0) top_signal_label = "Asta giudiziaria in calendario";
+    else if (listings > 0) top_signal_label = "Annunci attivi in zona";
+  }
 
   let summary = "";
   if (mzDeals.length > 0) {
@@ -387,21 +419,6 @@ function enrichHotMicrozone(item: unknown, deals: unknown[]): Record<string, unk
     motivated_sellers,
     urgent_count,
     top_signal_label,
-    _debug: {
-      comune_slug: comuneSlug,
-      mz_slug: mzSlug,
-      total_deals_for_mz: mzDeals.length,
-      auctions,
-      listings,
-      others,
-      pressure_signals,
-      velocity_signals,
-      motivated_sellers,
-      urgent_count,
-      top_signal_label,
-      sample_deal_ids: mzDeals.slice(0, 5).map((d) => String(d.id ?? "")),
-      sample_evidence_texts: mzDeals.slice(0, 5).map((d) => dealEvidenceText(d).slice(0, 200)),
-    },
   };
 }
 

@@ -295,7 +295,7 @@ serve(async (req) => {
       const data = buildResponseData(
         { ...result, warnings: [...(result.warnings ?? []), ...sectionFailures.map((f) => String((f as { message?: string }).message ?? "section_failed"))] },
         areaList,
-        { evidence_counts, last_successful_ingestion_at, auto_heal_attempted },
+        { evidence_counts, last_successful_ingestion_at, auto_heal_attempted, evidence_rows: evidenceRows as unknown[] },
       );
       // Mirror intelligence arrays at top level for PWA compatibility (both shapes supported).
       return safeStringify({
