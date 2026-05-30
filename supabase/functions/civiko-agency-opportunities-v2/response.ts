@@ -138,7 +138,7 @@ export function buildResponseData(
   areaList: AgencyArea[] | null | undefined,
   opts: BuildOptions = {},
 ) {
-  const focus_area = sanitizeArray(result?.focus_area);
+  const focus_area_raw = sanitizeArray(result?.focus_area);
 
   const hot_microzones_raw = sanitizeArray(result?.hot_microzones);
   const commercial_actions_raw = sanitizeArray(result?.commercial_actions);
@@ -151,6 +151,7 @@ export function buildResponseData(
   // (no fabricated text). title is always populated from the canonical slug.
   const evidenceRows = Array.isArray(opts.evidence_rows) ? opts.evidence_rows : [];
   const comuneAgg = buildComuneEvidenceAggregates(evidenceRows, deal_opportunities, hot_microzones_raw);
+  const focus_area = focus_area_raw.map((fa) => enrichFocusArea(fa, comuneAgg));
   const hot_microzones = hot_microzones_raw.map((mz) => enrichHotMicrozone(mz, deal_opportunities, comuneAgg));
   const commercial_actions = commercial_actions_raw.map((a) => enrichCommercialAction(a, hot_microzones));
 
