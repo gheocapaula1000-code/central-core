@@ -362,6 +362,7 @@ export function runOpportunityAudit(
       // Actionable target required.
       const target = extractActionableTarget(safeGroup, key);
       if (!target.ok) { removed_no_actionable_target++; continue; }
+      if (key.startsWith("ew:")) { if (!target.ok) ew_removed_no_target++; else ew_passed++; }
 
       if (!opp) {
         const hasOnlyRestricted = safeGroup.every((r) => r.compliance_visibility === "restricted" || r.compliance_visibility === "aggregate_only");
