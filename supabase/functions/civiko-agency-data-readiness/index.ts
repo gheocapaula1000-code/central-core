@@ -55,6 +55,9 @@ function asStringArray(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.trim().length > 0) : [];
 }
 
+const SUCCESSION_TYPES = new Set(["SUCCESSION_PRESSURE", "LEGAL_EVENT", "INHERITANCE_SIGNAL"]);
+const REVALUATION_TYPES = new Set(["MICROZONE_PRESSURE", "VELOCITY_ANOMALY", "PRICE_REVALUATION"]);
+
 function computeCounts(rows: EvidenceRow[], scopeComuni: Set<string>): EvidenceCounts {
   const c: EvidenceCounts = { area: 0, microzone: 0, deal: 0, auction: 0, listing: 0 };
   for (const r of rows) {
@@ -69,6 +72,23 @@ function computeCounts(rows: EvidenceRow[], scopeComuni: Set<string>): EvidenceC
   }
   return c;
 }
+
+function computeSignalCounts(rows: EvidenceRow[], scopeComuni: Set<string>): Record<string, { succession_pressure_count: number; revaluation_count: number }> {
+  const out: Record<string, { succession_pressure_count: number; revaluation_count: number }> = {};
+  for (const r of rows) {
+    const k = r.entity_key ?? "";
+    const t = String((r as { evidence_type?: string }).evidence_type ?? "");
+    const parts = k.split(":");
+    const seg = (parts[1] ?? "").toLowerCase().trim();
+    if (!seg) continue;
+    if (scopeComuni.size > 0 && !scopeComuni.has(seg)) continue;
+    if (!out[seg]) out[seg] = { succession_pressure_count: 0, revaluation_count: 0 };
+    if (k.startsWith("leg:") || SUCCESSION_TYPES.has(t)) out[seg].succession_pressure_count++;
+    if (REVALUATION_TYPES.has(t)) out[seg].revaluation_count++;
+  }
+  return out;
+}
+
 
 function buildReadiness(counts: EvidenceCounts, opts: { last_successful_ingestion_at: string | null; auto_heal_attempted: boolean }) {
   const missing: string[] = [];
