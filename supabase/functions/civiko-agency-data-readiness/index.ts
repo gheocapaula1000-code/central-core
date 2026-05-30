@@ -190,12 +190,15 @@ serve(async (req) => {
 
   const readiness = buildReadiness(counts, { last_successful_ingestion_at, auto_heal_attempted });
 
+  const signal_counts = computeSignalCounts(evidence, scopeComuni);
+
   return json({
     ok: true,
     data: {
       scope: { comuni: [...scopeComuni], microzones: [...new Set(areas.flatMap((a) => [...a.microzones, ...a.quartieri]))] },
       areas,
       evidence_counts: counts,
+      signal_counts,
       upstream_real_sources: upstream,
       frontend_readiness: readiness,
       auto_heal_attempted,
