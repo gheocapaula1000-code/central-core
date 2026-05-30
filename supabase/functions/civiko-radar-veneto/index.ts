@@ -118,6 +118,7 @@ const ROUTES = [
   "POST /jobs/refresh-padova-auctions",
   "POST /jobs/ping-padova-snapshots",
   "POST /jobs/ping-padova-snapshots-orchestrator",
+  "POST /jobs/padova-successioni",
   "POST /jobs/padova-daily-radar",
   "POST /jobs/padova-zone-radar",
   "POST /jobs/padova-zone-radar-finalize",
@@ -1508,6 +1509,22 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] ping orchestrator trigger error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Padova snapshot ping orchestrator failed to start", debugId), "job-error");
+      }
+    }
+
+    // Padova Successioni — aggregate-only succession_pressure evidence.
+    // Sources: ISTAT + OMI + auction_signals aggregati + succession_heatmap_cap
+    // aggregato + area_opportunity_scores (no person-level data, k >= 3).
+    if (pathname.endsWith("/jobs/padova-successioni")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const { runPadovaSuccessioni } = await import("./padovaSuccessioni.ts");
+        const r = await runPadovaSuccessioni({ dryRun: body?.dryRun === true });
+        return withIdentity(json(req, r.ok ? 200 : 207, { job: "padova-successioni", ...r }, debugId), "job-padova-successioni");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] padova-successioni error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "Padova successioni failed", debugId), "job-error");
       }
     }
 
