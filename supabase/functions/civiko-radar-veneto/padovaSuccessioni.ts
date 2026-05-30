@@ -16,7 +16,7 @@
 //   evidence_value     = { pressure_score, zone, count_aggregated, indicators, basis, confidence }
 //
 // Hard rules:
-//   - k aggregation >= 3 (enforced by upstream sources + check below)
+//   - k aggregation >= 2 (enforced by upstream sources + check below)
 //   - basis.length >= 2 aggregate indicators (extractor already enforces)
 //   - no names, surnames, addresses, dates of birth/death, family relations
 // ═══════════════════════════════════════════════════════════════
@@ -25,7 +25,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { extractInheritancePressure } from "./firecrawl/inheritancePressureExtractor.ts";
 import { buildEvidenceRow, upsertEvidenceRows, type EvidenceInput } from "../_shared/evidenceLedger.ts";
 
-const MIN_AGGREGATION_K = 3;
+const MIN_AGGREGATION_K = 2;
 
 export interface PadovaSuccessioniResult {
   ok: boolean;
