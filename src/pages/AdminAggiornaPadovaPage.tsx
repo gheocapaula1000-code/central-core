@@ -206,6 +206,128 @@ export default function AdminAggiornaPadovaPage() {
         </p>
       </div>
 
+      {/* ─── Pannello Dati Padova ─── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Database className="h-5 w-5" />
+            Pannello Dati Padova — Stato
+            {readiness?.score !== undefined && (
+              <Badge variant={scoreVariant(readiness.score)} className={scoreClass(readiness.score)}>
+                score {readiness.score}/100
+              </Badge>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto"
+              onClick={loadReadiness}
+              disabled={readinessLoading}
+            >
+              {readinessLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            </Button>
+          </CardTitle>
+          <CardDescription>
+            Letto in tempo reale da <code>civiko-agency-data-readiness</code>.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          {readinessError && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs">
+              {readinessError}
+            </div>
+          )}
+          {readiness && (
+            <>
+              {readiness.last_successful_ingestion_at && (
+                <div className="text-xs text-muted-foreground">
+                  Ultima ingestione riuscita: {new Date(readiness.last_successful_ingestion_at).toLocaleString()}
+                </div>
+              )}
+              {readiness.evidence_counts && (
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(readiness.evidence_counts).map(([k, v]) => (
+                    <Badge key={k} variant="outline">{k}: {v}</Badge>
+                  ))}
+                </div>
+              )}
+              {readiness.missing && readiness.missing.length > 0 && (
+                <div>
+                  <div className="font-medium text-xs mb-1">Missing</div>
+                  <ul className="list-disc list-inside text-xs text-muted-foreground">
+                    {readiness.missing.map((m, i) => <li key={i}>{m}</li>)}
+                  </ul>
+                </div>
+              )}
+              {readiness.required_actions && readiness.required_actions.length > 0 && (
+                <div>
+                  <div className="font-medium text-xs mb-1">Azioni richieste</div>
+                  <ul className="list-disc list-inside text-xs text-muted-foreground">
+                    {readiness.required_actions.map((m, i) => <li key={i}>{m}</li>)}
+                  </ul>
+                </div>
+              )}
+              <details className="text-xs">
+                <summary className="cursor-pointer text-muted-foreground">Risposta completa</summary>
+                <pre className="mt-2 max-h-64 overflow-auto rounded bg-muted p-2">
+                  {JSON.stringify(readiness, null, 2)}
+                </pre>
+              </details>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <PlayCircle className="h-5 w-5" />
+            Sincronizza Evidence
+          </CardTitle>
+          <CardDescription>
+            Esegue <code>civiko-force-backfill</code> via proxy admin. Lanciare dopo il bootstrap
+            per consolidare deal, auction e area scores nel ledger evidence.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button onClick={runBackfill} disabled={backfillRunning} variant="secondary">
+            {backfillRunning ? (
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sincronizzazione…</>
+            ) : (
+              <><RefreshCw className="mr-2 h-4 w-4" /> Sincronizza Evidence</>
+            )}
+          </Button>
+          {backfillResponse && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Badge variant={backfillResponse.ok ? "default" : "destructive"}>
+                  {backfillResponse.ok ? "OK" : "ERRORE"}
+                </Badge>
+                {backfillData?.total !== undefined && (
+                  <span className="text-xs text-muted-foreground">
+                    Total evidence righe: {backfillData.total}
+                  </span>
+                )}
+              </div>
+              {backfillData && (
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <Badge variant="outline">area_opportunity_scores: {backfillData.area_opportunity_scores ?? 0}</Badge>
+                  <Badge variant="outline">deal_listings: {backfillData.deal_listings ?? 0}</Badge>
+                  <Badge variant="outline">deal_auctions: {backfillData.deal_auctions ?? 0}</Badge>
+                </div>
+              )}
+              <details className="text-xs">
+                <summary className="cursor-pointer text-muted-foreground">Risposta completa</summary>
+                <pre className="mt-2 max-h-64 overflow-auto rounded bg-muted p-2">
+                  {JSON.stringify(backfillResponse, null, 2)}
+                </pre>
+              </details>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+
       <Card>
         <CardHeader>
           <CardTitle>Avvio ciclo</CardTitle>
