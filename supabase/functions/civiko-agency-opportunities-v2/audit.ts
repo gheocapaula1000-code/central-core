@@ -293,6 +293,12 @@ export function runOpportunityAudit(
 
   const dist = { low: 0, medium: 0, high: 0 };
 
+  let ew_candidates_found = 0;
+  let leg_candidates_found = 0;
+  let ew_removed_no_market = 0;
+  let ew_removed_no_target = 0;
+  let ew_passed = 0;
+
   const warnings: string[] = [];
 
   for (const [key, group] of groups) {
