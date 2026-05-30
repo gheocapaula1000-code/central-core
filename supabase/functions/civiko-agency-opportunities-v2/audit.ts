@@ -293,6 +293,12 @@ export function runOpportunityAudit(
 
   const dist = { low: 0, medium: 0, high: 0 };
 
+  let ew_candidates_found = 0;
+  let leg_candidates_found = 0;
+  let ew_removed_no_market = 0;
+  let ew_removed_no_target = 0;
+  let ew_passed = 0;
+
   const warnings: string[] = [];
 
   for (const [key, group] of groups) {
@@ -325,6 +331,8 @@ export function runOpportunityAudit(
 
       // deal_opportunity path
       deal_candidates_before_filters++;
+      if (key.startsWith("ew:")) ew_candidates_found++;
+      if (key.startsWith("leg:")) leg_candidates_found++;
 
       // Zone-level scope verification (comune was already filtered upstream).
       const zoneCls = classifyDealZoneScope(key, safeGroup, dealScope);
@@ -349,10 +357,12 @@ export function runOpportunityAudit(
       // Need at least one deal-eligible market source.
       const hasMarketSrc = [...codes].some((c) => DEAL_ELIGIBLE_SOURCES.has(c));
       if (!hasMarketSrc) { removed_insufficient_deal_evidence++; continue; }
+      if (key.startsWith("ew:") && !hasMarketSrc) ew_removed_no_market++;
 
       // Actionable target required.
       const target = extractActionableTarget(safeGroup, key);
       if (!target.ok) { removed_no_actionable_target++; continue; }
+      if (key.startsWith("ew:")) { if (!target.ok) ew_removed_no_target++; else ew_passed++; }
 
       if (!opp) {
         const hasOnlyRestricted = safeGroup.every((r) => r.compliance_visibility === "restricted" || r.compliance_visibility === "aggregate_only");
@@ -482,6 +492,11 @@ export function runOpportunityAudit(
     deal_rows_missing_geo,
     deal_rows_inside_comune_unmapped,
     deal_rows_inside_agency_zone,
+    ew_candidates_found,
+    leg_candidates_found,
+    ew_removed_no_market,
+    ew_removed_no_target,
+    ew_passed,
   };
 
   function dealPriority(o: DealOpportunity): number {
