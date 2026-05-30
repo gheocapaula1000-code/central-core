@@ -337,23 +337,37 @@ export default function AdminAggiornaPadovaPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Avvio ciclo</CardTitle>
+          <CardTitle>Avvio ciclo (in due step)</CardTitle>
           <CardDescription>
-            Aggrega auctions, advanced opportunities, early-warning e readiness per Padova.
-            L'operazione è idempotente e può richiedere alcuni minuti.
+            Step 1 aggrega auctions e advanced opportunities (~30-40s). Step 2 esegue
+            il discovery offmarket Perplexity + early-warning aggregator. Eseguirli
+            separatamente evita il timeout di 150s delle edge function.
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <Button onClick={run} disabled={running}>
-            {running ? (
+        <CardContent className="flex flex-wrap gap-3">
+          <Button onClick={() => run("base")} disabled={running}>
+            {runningMode === "base" ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                In esecuzione…
+                Step 1 in esecuzione…
               </>
             ) : (
               <>
                 <RefreshCw className="mr-2 h-4 w-4" />
-                Aggiorna intelligence Padova
+                Step 1 — Aggiorna dati base
+              </>
+            )}
+          </Button>
+          <Button onClick={() => run("offmarket")} disabled={running} variant="secondary">
+            {runningMode === "offmarket" ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Step 2 in esecuzione…
+              </>
+            ) : (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Step 2 — Aggiorna segnali offmarket
               </>
             )}
           </Button>
