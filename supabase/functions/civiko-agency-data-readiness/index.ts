@@ -192,6 +192,15 @@ serve(async (req) => {
 
   const signal_counts = computeSignalCounts(evidence, scopeComuni);
 
+  let succession_pressure_count = 0;
+  let revaluation_count = 0;
+  for (const r of evidence) {
+    const k = (r.entity_key ?? "").toLowerCase();
+    const t = String((r as { evidence_type?: string }).evidence_type ?? "");
+    if (k.startsWith("leg:") || SUCCESSION_TYPES.has(t)) succession_pressure_count++;
+    if (REVALUATION_TYPES.has(t)) revaluation_count++;
+  }
+
   return json({
     ok: true,
     data: {
@@ -199,6 +208,8 @@ serve(async (req) => {
       areas,
       evidence_counts: counts,
       signal_counts,
+      succession_pressure_count,
+      revaluation_count,
       upstream_real_sources: upstream,
       frontend_readiness: readiness,
       auto_heal_attempted,
