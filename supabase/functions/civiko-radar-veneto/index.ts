@@ -118,6 +118,7 @@ const ROUTES = [
   "POST /jobs/refresh-padova-auctions",
   "POST /jobs/ping-padova-snapshots",
   "POST /jobs/ping-padova-snapshots-orchestrator",
+  "POST /jobs/padova-successioni",
   "POST /jobs/padova-daily-radar",
   "POST /jobs/padova-zone-radar",
   "POST /jobs/padova-zone-radar-finalize",
