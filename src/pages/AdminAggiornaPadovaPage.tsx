@@ -102,6 +102,96 @@ export default function AdminAggiornaPadovaPage() {
     }
   };
 
+  // ─────────── Pannello Dati Padova ───────────
+  const [readiness, setReadiness] = useState<ReadinessData | null>(null);
+  const [readinessLoading, setReadinessLoading] = useState(false);
+  const [readinessError, setReadinessError] = useState<string | null>(null);
+  const [backfillRunning, setBackfillRunning] = useState(false);
+  const [backfillResponse, setBackfillResponse] = useState<{
+    ok: boolean;
+    backfill_report?: { data?: BackfillData; error?: { message: string } };
+    error?: string;
+  } | null>(null);
+
+  const getToken = useCallback(async () => {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token ?? null;
+  }, []);
+
+  const loadReadiness = useCallback(async () => {
+    setReadinessLoading(true);
+    setReadinessError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Sessione scaduta");
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/civiko-agency-data-readiness`, {
+        method: "GET",
+        headers: {
+          apikey: SUPABASE_ANON,
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j?.error?.message || `HTTP ${r.status}`);
+      setReadiness((j?.data ?? j) as ReadinessData);
+    } catch (e) {
+      setReadinessError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setReadinessLoading(false);
+    }
+  }, [getToken]);
+
+  useEffect(() => {
+    loadReadiness();
+  }, [loadReadiness]);
+
+  const runBackfill = async () => {
+    setBackfillRunning(true);
+    setBackfillResponse(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Sessione scaduta");
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/civiko-force-backfill-admin`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SUPABASE_ANON,
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({}),
+      });
+      const j = await r.json().catch(() => ({}));
+      setBackfillResponse(j);
+      if (j.ok) {
+        toast.success("Evidence sincronizzata");
+        loadReadiness();
+      } else {
+        toast.error(j.error || j?.backfill_report?.error?.message || "Backfill fallito");
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(msg);
+      setBackfillResponse({ ok: false, error: msg });
+    } finally {
+      setBackfillRunning(false);
+    }
+  };
+
+  const scoreVariant = (score?: number) => {
+    if (score === undefined || score === null) return "outline";
+    if (score >= 80) return "default";
+    if (score >= 40) return "secondary";
+    return "destructive";
+  };
+  const scoreClass = (score?: number) => {
+    if (score === undefined || score === null) return "";
+    if (score >= 80) return "bg-emerald-600 hover:bg-emerald-600";
+    if (score >= 40) return "bg-amber-500 hover:bg-amber-500 text-black";
+    return "";
+  };
+
+  const backfillData: BackfillData | undefined = backfillResponse?.backfill_report?.data;
+
   const { cycle, warnings } = response ? extractCycle(response) : { cycle: null, warnings: [] };
   const dryRunWarning = warnings.includes("dry_run_mode_real_build_skipped");
 
