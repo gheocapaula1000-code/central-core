@@ -18,7 +18,7 @@ export type EntityGranularity =
   | "address" | "listing" | "auction" | "property" | "lead";
 
 /** Market sources whose evidence may carry an actionable deal target. */
-export const DEAL_ELIGIBLE_SOURCES = new Set(["F13", "F14", "F15", "F16", "F18", "F21"]);
+export const DEAL_ELIGIBLE_SOURCES = new Set(["F5", "F11", "F13", "F14", "F15", "F16", "F18", "F21"]);
 
 /** Sensitive/aggregate sources that can never drive a deal alone. */
 export const DEAL_FORBIDDEN_SOLO_SOURCES = new Set(["F19", "F22"]);
