@@ -193,6 +193,16 @@ export function buildResponseData(
     audit,
     warnings,
     frontend_readiness,
+    signal_counts: Object.fromEntries(
+      [...comuneAgg.entries()].map(([c, a]) => [c, {
+        succession_pressure_count: a.succession_pressure_count,
+        revaluation_count: a.revaluation_count,
+        pressure_total: a.pressure_total,
+        velocity_total: a.velocity_total,
+        motivated_total: a.motivated_total,
+        urgent_total: a.urgent_total,
+      }]),
+    ),
     scope: {
       comuni: [...new Set(safeAreas.flatMap((a) => (Array.isArray(a.comuni) ? a.comuni : [])))],
       microzones: [
