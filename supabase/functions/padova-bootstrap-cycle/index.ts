@@ -183,7 +183,9 @@ serve(async (req) => {
   }
 
   // Stage 4: final readiness snapshot
-  if (diagSecret) {
+  if (!runReadiness) {
+    warnings.push("stage_readiness_skipped");
+  } else if (diagSecret) {
     const s4 = await runStage(
       "padova-readiness",
       functionUrl("padova-readiness"),
