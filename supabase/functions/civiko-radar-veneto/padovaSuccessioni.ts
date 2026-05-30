@@ -16,7 +16,7 @@
 //   evidence_value     = { pressure_score, zone, count_aggregated, indicators, basis, confidence }
 //
 // Hard rules:
-//   - k aggregation >= 3 (enforced by upstream sources + check below)
+//   - k aggregation >= 2 (enforced by upstream sources + check below)
 //   - basis.length >= 2 aggregate indicators (extractor already enforces)
 //   - no names, surnames, addresses, dates of birth/death, family relations
 // ═══════════════════════════════════════════════════════════════
@@ -25,7 +25,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { extractInheritancePressure } from "./firecrawl/inheritancePressureExtractor.ts";
 import { buildEvidenceRow, upsertEvidenceRows, type EvidenceInput } from "../_shared/evidenceLedger.ts";
 
-const MIN_AGGREGATION_K = 3;
+const MIN_AGGREGATION_K = 2;
 
 export interface PadovaSuccessioniResult {
   ok: boolean;
@@ -43,19 +43,18 @@ function getServiceClient() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-/** Choose a defensible aggregated count (k >= 3) from upstream indicators. */
+/** Choose a defensible aggregated count (k >= 2) from upstream indicators. */
 function pickCountAggregated(indicators: Record<string, unknown>): number | null {
   const candidates: number[] = [];
   const shc = Number(indicators.succession_heatmap_avg);
-  // succession_heatmap_cap is itself filtered at >=3 obituaries per CAP, so its
-  // mere presence means k>=3 upstream. Use heatmap "n CAPs aggregated" proxy
-  // via aste_attive_aggregate is wrong; use a sentinel of 3 when only
+  // succession_heatmap_cap is itself filtered upstream, so its mere presence
+  // means k>=2 upstream. Use a sentinel of MIN_AGGREGATION_K when only
   // heatmap is present (we cannot expose obituary counts here).
   if (Number.isFinite(shc) && shc > 0) candidates.push(MIN_AGGREGATION_K);
   const aste = Number(indicators.aste_attive_aggregate);
   if (Number.isFinite(aste) && aste >= MIN_AGGREGATION_K) candidates.push(aste);
-  // ISTAT comune-level indicators imply a comune-wide aggregate (k >> 3 by
-  // construction): if no other count is available, fall back to 3 sentinel.
+  // ISTAT comune-level indicators imply a comune-wide aggregate (k >> 2 by
+  // construction): if no other count is available, fall back to sentinel.
   const hasIstat = ["indice_vecchiaia", "percentuale_over65", "percentuale_over85"]
     .some((k) => typeof indicators[k] === "number");
   if (hasIstat && candidates.length === 0) candidates.push(MIN_AGGREGATION_K);
