@@ -90,13 +90,28 @@ serve(async (req) => {
     }, ["job_secret_missing"], debugId);
   }
 
-  // Parse optional body { dryRun?: boolean, includeNeedsReview?: boolean }
-  let body: { dryRun?: boolean; includeNeedsReview?: boolean } = {};
+  // Parse optional body
+  let body: {
+    dryRun?: boolean;
+    includeNeedsReview?: boolean;
+    skipPerplexity?: boolean;
+    skipListingRefresh?: boolean;
+    onlyPerplexity?: boolean;
+  } = {};
   try {
     if (req.method === "POST") body = await req.json();
   } catch { /* ignore */ }
   const dryRun = body.dryRun === true;
   const includeNeedsReview = body.includeNeedsReview === true;
+  const onlyPerplexity = body.onlyPerplexity === true;
+  // Stage gating:
+  //   skipListingRefresh => skip refresh-padova-auctions
+  //   skipPerplexity     => skip build-advanced-veneto-opportunities (the discovery stage)
+  //   onlyPerplexity     => run ONLY the discovery stage + early-warning aggregator
+  //                        (skips listing refresh and final readiness snapshot)
+  const runListingRefresh = !onlyPerplexity && body.skipListingRefresh !== true;
+  const runAdvanced = onlyPerplexity || body.skipPerplexity !== true;
+  const runReadiness = !onlyPerplexity;
 
   const stages: StageResult[] = [];
   const jobHeaders = {
@@ -105,34 +120,38 @@ serve(async (req) => {
   };
 
   // Stage 1: refresh auctions
-  const s1 = await runStage(
-    "refresh-padova-auctions",
-    functionUrl("civiko-radar-veneto/jobs/refresh-padova-auctions"),
-    {
-      method: "POST",
-      headers: jobHeaders,
-      body: JSON.stringify({ dryRun, includeNeedsReview, maxPagesPerSource: 8 }),
-    },
-  );
-  stages.push(s1);
-  if (!s1.ok) warnings.push(`stage_refresh_auctions_failed:${s1.status}`);
+  if (runListingRefresh) {
+    const s1 = await runStage(
+      "refresh-padova-auctions",
+      functionUrl("civiko-radar-veneto/jobs/refresh-padova-auctions"),
+      {
+        method: "POST",
+        headers: jobHeaders,
+        body: JSON.stringify({ dryRun, includeNeedsReview, maxPagesPerSource: 8 }),
+      },
+    );
+    stages.push(s1);
+    if (!s1.ok) warnings.push(`stage_refresh_auctions_failed:${s1.status}`);
+  } else {
+    warnings.push("stage_refresh_auctions_skipped");
+  }
 
-  // Stage 2: advanced-veneto-opportunities — DB-derived velocity/pricing engine.
-  // Reads accumulated listing_price_snapshots (e.g. casa.it daily ingest) and
-  // produces listing_velocity_signals (stale, price_drop, repost) + motivated_sellers.
-  // This is what makes PRICE_DROP_DISTRESS / STALE_LISTING / RELISTING_PATTERN
-  // emerge in the next early-warning build.
-  const s2 = await runStage(
-    "build-advanced-veneto-opportunities",
-    functionUrl("civiko-radar-veneto/jobs/build-advanced-veneto-opportunities"),
-    {
-      method: "POST",
-      headers: jobHeaders,
-      body: JSON.stringify({ doImport: true, province: ["PD"] }),
-    },
-  );
-  stages.push(s2);
-  if (!s2.ok) warnings.push(`stage_advanced_opportunities_failed:${s2.status}`);
+  // Stage 2: advanced-veneto-opportunities — discovery/velocity engine.
+  if (runAdvanced) {
+    const s2 = await runStage(
+      "build-advanced-veneto-opportunities",
+      functionUrl("civiko-radar-veneto/jobs/build-advanced-veneto-opportunities"),
+      {
+        method: "POST",
+        headers: jobHeaders,
+        body: JSON.stringify({ doImport: true, province: ["PD"] }),
+      },
+    );
+    stages.push(s2);
+    if (!s2.ok) warnings.push(`stage_advanced_opportunities_failed:${s2.status}`);
+  } else {
+    warnings.push("stage_advanced_opportunities_skipped");
+  }
 
   // Stage 3: dry_run early-warning (sanity)
   const s2b = await runStage(
@@ -164,7 +183,9 @@ serve(async (req) => {
   }
 
   // Stage 4: final readiness snapshot
-  if (diagSecret) {
+  if (!runReadiness) {
+    warnings.push("stage_readiness_skipped");
+  } else if (diagSecret) {
     const s4 = await runStage(
       "padova-readiness",
       functionUrl("padova-readiness"),

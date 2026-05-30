@@ -65,7 +65,13 @@ serve(async (req) => {
   }
 
   // 3. Parse body (passthrough)
-  let body: { dryRun?: boolean; includeNeedsReview?: boolean } = {
+  let body: {
+    dryRun?: boolean;
+    includeNeedsReview?: boolean;
+    skipPerplexity?: boolean;
+    skipListingRefresh?: boolean;
+    onlyPerplexity?: boolean;
+  } = {
     dryRun: false,
     includeNeedsReview: true,
   };
