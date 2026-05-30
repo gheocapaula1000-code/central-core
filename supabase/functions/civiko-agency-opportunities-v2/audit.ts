@@ -485,10 +485,11 @@ export function runOpportunityAudit(
   };
 
   function dealPriority(o: DealOpportunity): number {
-    const k = o.id ?? "";
+    // Controlla sia id che entity_key perché dipende da come viene mappato
+    const k = (o as any).entity_key ?? (o as any).id ?? "";
     if (k.startsWith("ew:") || k.startsWith("leg:")) return 100;
     if (k.startsWith("auct:")) {
-      const sd = (o as any).data_freshness?.observed_at ?? null;
+      const sd = (o as any).sale_date ?? (o as any).data_freshness?.observed_at ?? null;
       if (sd) {
         const days = (new Date(sd).getTime() - Date.now()) / 86_400_000;
         if (days >= 0 && days <= 60) return 80;
@@ -496,8 +497,9 @@ export function runOpportunityAudit(
       return 60;
     }
     if (k.startsWith("op:")) {
-      if (o.quality_bucket === "work_today") return 40;
-      if (o.quality_bucket === "verify") return 20;
+      if ((o as any).quality_bucket === "work_today") return 40;
+      if ((o as any).quality_bucket === "verify") return 20;
+      return 10;
     }
     return 5;
   }
