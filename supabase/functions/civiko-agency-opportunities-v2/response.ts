@@ -387,6 +387,21 @@ function enrichHotMicrozone(item: unknown, deals: unknown[]): Record<string, unk
     motivated_sellers,
     urgent_count,
     top_signal_label,
+    _debug: {
+      comune_slug: comuneSlug,
+      mz_slug: mzSlug,
+      total_deals_for_mz: mzDeals.length,
+      auctions,
+      listings,
+      others,
+      pressure_signals,
+      velocity_signals,
+      motivated_sellers,
+      urgent_count,
+      top_signal_label,
+      sample_deal_ids: mzDeals.slice(0, 5).map((d) => String(d.id ?? "")),
+      sample_evidence_texts: mzDeals.slice(0, 5).map((d) => dealEvidenceText(d).slice(0, 200)),
+    },
   };
 }
 
