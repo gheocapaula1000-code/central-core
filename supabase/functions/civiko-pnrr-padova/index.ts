@@ -145,4 +145,19 @@ serve(async (req) => {
     }), warnings, debugId),
     { function: FUNCTION_NAME, route: "/" }
   );
+  } catch (err) {
+    console.error(`[${FUNCTION_NAME}] fatal error debug_id=${debugId}:`, err);
+    // Fail-safe: mai crashare. Risposta 200 con fallback e corsHeaders.
+    return addIdentityHeaders(
+      ok(req, sanitizeOutgoing({
+        status: "timeout_handled",
+        opereVicine: [],
+        data: [],
+        warnings: ["Dati PNRR temporaneamente non disponibili."],
+        sources: [{ name: "OpenPNRR Open Data", url: "https://openpnrr.it/opendata/" }],
+      }), ["Dati PNRR temporaneamente non disponibili."], debugId),
+      { function: FUNCTION_NAME, route: "/" }
+    );
+  }
 });
+
