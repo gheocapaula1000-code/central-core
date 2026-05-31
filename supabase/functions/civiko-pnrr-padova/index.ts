@@ -13,7 +13,7 @@ import { sanitizeOutgoing, isPadovaCoord, haversineMeters, PADOVA_COMUNE_ISTAT_S
 const FUNCTION_NAME = "civiko-pnrr-padova";
 const BASE_PATH = "/functions/v1/civiko-pnrr-padova";
 const ISTAT_PADOVA = PADOVA_COMUNE_ISTAT_SHORT; // "028060"
-const TIMEOUT_MS = 8000;
+const TIMEOUT_MS = 4000;
 
 interface PnrrProject {
   titolo: string;
@@ -70,6 +70,9 @@ async function fetchFromOpenPNRR(): Promise<PnrrProject[] | null> {
 serve(async (req) => {
   const debugId = makeDebugId();
   if (req.method === "OPTIONS") return handleOptions(req);
+
+  try {
+
 
   const url = new URL(req.url);
   const path = url.pathname.replace(BASE_PATH, "") || "/";
@@ -142,4 +145,19 @@ serve(async (req) => {
     }), warnings, debugId),
     { function: FUNCTION_NAME, route: "/" }
   );
+  } catch (err) {
+    console.error(`[${FUNCTION_NAME}] fatal error debug_id=${debugId}:`, err);
+    // Fail-safe: mai crashare. Risposta 200 con fallback e corsHeaders.
+    return addIdentityHeaders(
+      ok(req, sanitizeOutgoing({
+        status: "timeout_handled",
+        opereVicine: [],
+        data: [],
+        warnings: ["Dati PNRR temporaneamente non disponibili."],
+        sources: [{ name: "OpenPNRR Open Data", url: "https://openpnrr.it/opendata/" }],
+      }), ["Dati PNRR temporaneamente non disponibili."], debugId),
+      { function: FUNCTION_NAME, route: "/" }
+    );
+  }
 });
+

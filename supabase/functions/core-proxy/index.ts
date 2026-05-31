@@ -112,7 +112,17 @@ serve(async (req) => {
 
       const res = await fetch(targetUrl, {
         method,
-        headers: { "Content-Type": "application/json", "Authorization": authHeader, "apikey": ANON_KEY },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": authHeader,
+          "apikey": ANON_KEY,
+          // Inject server-side l'auth segmentata richiesta dalle edge functions civiko/*.
+          // La PWA non possiede né deve possedere il secret per-app.
+          ...(normalizedEndpoint.startsWith("civiko/") ? {
+            "x-source-app": "civiko",
+            "x-app-secret": Deno.env.get("AI_CORE_SECRET_CIVIKO") ?? Deno.env.get("AI_CORE_SECRET") ?? "",
+          } : {}),
+        },
         body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
