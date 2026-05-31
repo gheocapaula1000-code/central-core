@@ -71,6 +71,9 @@ serve(async (req) => {
   const debugId = makeDebugId();
   if (req.method === "OPTIONS") return handleOptions(req);
 
+  try {
+
+
   const url = new URL(req.url);
   const path = url.pathname.replace(BASE_PATH, "") || "/";
 
