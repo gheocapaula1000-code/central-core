@@ -53,103 +53,110 @@ const SOTTRA_ROUTES = new Set([
   "civiko/property-owner-report",
 ]);
 
+function jsonResponse(status: number, body: unknown, extraHeaders: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...CORS_HEADERS, "Content-Type": "application/json", ...extraHeaders },
+  });
+}
+
 serve(async (req) => {
-  if (req.method === "OPTIONS") return handleOptions(req);
-
-  const cors = corsHeaders(req);
-  const origin = req.headers.get("origin") ?? "";
-  // Server-to-server senza origin → consentito. Origin presente ma non
-  // ammessa → 403 esplicito.
-  if (origin && !isOriginAllowed(origin)) {
-    return new Response(
-      JSON.stringify({ error: true, code: "ORIGIN_NOT_ALLOWED", message: "Origin not in allowlist" }),
-      { status: 403, headers: { "Content-Type": "application/json", "Vary": "Origin" } },
-    );
+  // Preflight CORS: rispondi sempre 200 con header espliciti.
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { status: 200, headers: CORS_HEADERS });
   }
-
-  const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-  const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-  const authHeader = req.headers.get("Authorization") ?? `Bearer ${ANON_KEY}`;
-
-  let body: { endpoint?: string; method?: string; payload?: unknown; timeout?: number } = {};
-  try {
-    body = await req.json();
-  } catch {
-    return new Response(JSON.stringify({ error: "Body JSON non valido" }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
-  }
-
-  const { endpoint, method = "POST", payload, timeout = 15000 } = body;
-  if (!endpoint) {
-    return new Response(JSON.stringify({ error: "Campo 'endpoint' obbligatorio" }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
-  }
-
-  const normalizedEndpoint = endpoint.replace(/^\//, "");
-  const targetFunction = ROUTE_MAP[normalizedEndpoint];
-
-  if (!targetFunction) {
-    console.warn(`[core-proxy] endpoint non autorizzato: ${normalizedEndpoint}`);
-    return new Response(JSON.stringify({ error: "Endpoint non autorizzato", endpoint: normalizedEndpoint }), { status: 403, headers: { ...cors, "Content-Type": "application/json" } });
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout + 2000);
 
   try {
-    let targetUrl: string;
-    let requestBody: unknown;
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+    const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+    const authHeader = req.headers.get("Authorization") ?? `Bearer ${ANON_KEY}`;
 
-    if (SOTTRA_ROUTES.has(normalizedEndpoint)) {
-      targetUrl = `${SUPABASE_URL}/functions/v1/sottra`;
-      requestBody = { route: normalizedEndpoint, ...(typeof payload === "object" && payload !== null ? payload as Record<string, unknown> : {}) };
-    } else {
-      let suffix = "";
-      if (normalizedEndpoint.startsWith("civiko/billing/")) {
-        suffix = "/" + normalizedEndpoint.substring("civiko/billing/".length);
-      }
-      targetUrl = `${SUPABASE_URL}/functions/v1/${targetFunction}${suffix}`;
-      requestBody = payload ?? {};
+    let body: { endpoint?: string; method?: string; payload?: unknown; timeout?: number } = {};
+    try {
+      body = await req.json();
+    } catch {
+      return jsonResponse(400, { error: "Body JSON non valido" });
     }
 
-    const res = await fetch(targetUrl, {
-      method,
-      headers: { "Content-Type": "application/json", "Authorization": authHeader, "apikey": ANON_KEY },
-      body: JSON.stringify(requestBody),
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
+    const { endpoint, method = "POST", payload, timeout = 15000 } = body;
+    if (!endpoint) {
+      return jsonResponse(400, { error: "Campo 'endpoint' obbligatorio" });
+    }
 
-    if (targetFunction === "civiko-dossier-pdf") {
-      const upstreamCT = res.headers.get("Content-Type") ?? "";
-      if (!res.ok || !upstreamCT.includes("application/pdf")) {
-        const text = await res.text();
-        let errBody: unknown;
-        try { errBody = JSON.parse(text); } catch { errBody = { error: true, message: text || "PDF upstream error" }; }
-        return new Response(JSON.stringify(errBody), {
-          status: res.ok ? 502 : res.status,
-          headers: { ...cors, "Content-Type": "application/json" },
+    const normalizedEndpoint = endpoint.replace(/^\//, "");
+    const targetFunction = ROUTE_MAP[normalizedEndpoint];
+
+    if (!targetFunction) {
+      console.warn(`[core-proxy] endpoint non autorizzato: ${normalizedEndpoint}`);
+      return jsonResponse(403, { error: "Endpoint non autorizzato", endpoint: normalizedEndpoint });
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout + 2000);
+
+    try {
+      let targetUrl: string;
+      let requestBody: unknown;
+
+      if (SOTTRA_ROUTES.has(normalizedEndpoint)) {
+        targetUrl = `${SUPABASE_URL}/functions/v1/sottra`;
+        requestBody = { route: normalizedEndpoint, ...(typeof payload === "object" && payload !== null ? payload as Record<string, unknown> : {}) };
+      } else {
+        let suffix = "";
+        if (normalizedEndpoint.startsWith("civiko/billing/")) {
+          suffix = "/" + normalizedEndpoint.substring("civiko/billing/".length);
+        }
+        targetUrl = `${SUPABASE_URL}/functions/v1/${targetFunction}${suffix}`;
+        requestBody = payload ?? {};
+      }
+
+      const res = await fetch(targetUrl, {
+        method,
+        headers: { "Content-Type": "application/json", "Authorization": authHeader, "apikey": ANON_KEY },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      if (targetFunction === "civiko-dossier-pdf") {
+        const upstreamCT = res.headers.get("Content-Type") ?? "";
+        if (!res.ok || !upstreamCT.includes("application/pdf")) {
+          const text = await res.text();
+          let errBody: unknown;
+          try { errBody = JSON.parse(text); } catch { errBody = { error: true, message: text || "PDF upstream error" }; }
+          return jsonResponse(res.ok ? 502 : res.status, errBody);
+        }
+        const pdfBytes = await res.arrayBuffer();
+        return new Response(pdfBytes, {
+          status: res.status,
+          headers: {
+            ...CORS_HEADERS,
+            "Content-Type": "application/pdf",
+            "Content-Disposition": res.headers.get("Content-Disposition") ?? `attachment; filename="civiko-dossier-padova.pdf"`,
+            "Cache-Control": "no-store",
+          },
         });
       }
-      const pdfBytes = await res.arrayBuffer();
-      return new Response(pdfBytes, {
-        status: res.status,
-        headers: {
-          ...cors,
-          "Content-Type": "application/pdf",
-          "Content-Disposition": res.headers.get("Content-Disposition") ?? `attachment; filename="civiko-dossier-padova.pdf"`,
-          "Cache-Control": "no-store",
-        },
+
+      const data = await res.json();
+      return jsonResponse(res.status, data);
+
+    } catch (e) {
+      clearTimeout(timer);
+      const aborted = e instanceof DOMException && e.name === "AbortError";
+      return jsonResponse(aborted ? 504 : 500, {
+        error: true,
+        message: aborted
+          ? "Il servizio non ha risposto in tempo. Riprova tra qualche istante."
+          : (e instanceof Error ? e.message : "Errore proxy"),
       });
     }
-
-    const data = await res.json();
-    return new Response(JSON.stringify(data), { status: res.status, headers: { ...cors, "Content-Type": "application/json" } });
-
-  } catch (e) {
-    clearTimeout(timer);
-    const aborted = e instanceof DOMException && e.name === "AbortError";
-    return new Response(
-      JSON.stringify({ error: true, message: aborted ? "Il servizio non ha risposto in tempo. Riprova tra qualche istante." : (e instanceof Error ? e.message : "Errore proxy") }),
-      { status: aborted ? 504 : 500, headers: { ...cors, "Content-Type": "application/json" } }
-    );
+  } catch (outer) {
+    // Safety net: qualunque eccezione non gestita deve comunque uscire con CORS.
+    console.error("[core-proxy] unhandled error", outer);
+    return jsonResponse(500, {
+      error: true,
+      message: outer instanceof Error ? outer.message : "Errore interno proxy",
+    });
   }
 });
