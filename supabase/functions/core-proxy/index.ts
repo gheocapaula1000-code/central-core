@@ -8,7 +8,14 @@
 // ricevono 403. Niente wildcard `*` in produzione.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { corsHeaders, isOriginAllowed, handleOptions } from "../_shared/http.ts";
+
+// CORS headers espliciti: wildcard origin per evitare falsi ERR_FAILED nel browser.
+// Tutti i Response in uscita DEVONO includerli (success, errori, eccezioni).
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-app-secret",
+};
 
 // Whitelist path autorizzati → nome edge function di destinazione
 const ROUTE_MAP: Record<string, string> = {
