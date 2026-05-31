@@ -13,7 +13,7 @@ import { sanitizeOutgoing, isPadovaCoord, haversineMeters, PADOVA_COMUNE_ISTAT_S
 const FUNCTION_NAME = "civiko-pnrr-padova";
 const BASE_PATH = "/functions/v1/civiko-pnrr-padova";
 const ISTAT_PADOVA = PADOVA_COMUNE_ISTAT_SHORT; // "028060"
-const TIMEOUT_MS = 8000;
+const TIMEOUT_MS = 4000;
 
 interface PnrrProject {
   titolo: string;
