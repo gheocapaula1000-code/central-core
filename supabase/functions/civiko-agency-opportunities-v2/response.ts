@@ -142,15 +142,20 @@ export function buildResponseData(
 
   const hot_microzones_raw = sanitizeArray(result?.hot_microzones);
   const commercial_actions_raw = sanitizeArray(result?.commercial_actions);
-  const deal_opportunities = sanitizeArray(result?.deal_opportunities);
-  const opportunities = Array.isArray(result?.opportunities) ? sanitizeArray(result!.opportunities!) : deal_opportunities;
+  const deal_opportunities_raw = sanitizeArray(result?.deal_opportunities);
+  const opportunities_raw = Array.isArray(result?.opportunities) ? sanitizeArray(result!.opportunities!) : deal_opportunities_raw;
   const audit = toJsonSafe(result?.audit && typeof result.audit === "object" ? result.audit : DEFAULT_AUDIT);
   const warnings = sanitizeArray(result?.warnings);
 
   // Enrich with frontend-readable fields derived from REAL signal counts
   // (no fabricated text). title is always populated from the canonical slug.
   const evidenceRows = Array.isArray(opts.evidence_rows) ? opts.evidence_rows : [];
-  const comuneAgg = buildComuneEvidenceAggregates(evidenceRows, deal_opportunities, hot_microzones_raw);
+  const comuneAgg = buildComuneEvidenceAggregates(evidenceRows, deal_opportunities_raw, hot_microzones_raw);
+  const enrichmentBuckets = buildEnrichmentBuckets(evidenceRows);
+  const deal_opportunities = deal_opportunities_raw.map((d) => enrichDealOpportunity(d, enrichmentBuckets));
+  const opportunities = opportunities_raw === deal_opportunities_raw
+    ? deal_opportunities
+    : opportunities_raw.map((d) => enrichDealOpportunity(d, enrichmentBuckets));
   const focus_area = focus_area_raw.map((fa) => enrichFocusArea(fa, comuneAgg));
   const hot_microzones = hot_microzones_raw.map((mz) => enrichHotMicrozone(mz, deal_opportunities, comuneAgg));
   const commercial_actions = commercial_actions_raw.map((a) => enrichCommercialAction(a, hot_microzones));
