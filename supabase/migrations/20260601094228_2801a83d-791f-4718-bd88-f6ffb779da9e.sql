@@ -1,0 +1,2 @@
+REVOKE EXECUTE ON FUNCTION public.log_cron_http_invocation(TEXT, TEXT, JSONB) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.log_cron_http_invocation(TEXT, TEXT, JSONB) TO service_role, postgres;

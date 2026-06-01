@@ -1225,6 +1225,45 @@ export type Database = {
         }
         Relationships: []
       }
+      cron_executions_log: {
+        Row: {
+          completed_at: string | null
+          duration_ms: number | null
+          error_message: string | null
+          http_request_id: number | null
+          http_status: number | null
+          id: number
+          job_name: string
+          response_excerpt: string | null
+          status: string
+          triggered_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          duration_ms?: number | null
+          error_message?: string | null
+          http_request_id?: number | null
+          http_status?: number | null
+          id?: number
+          job_name: string
+          response_excerpt?: string | null
+          status: string
+          triggered_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          duration_ms?: number | null
+          error_message?: string | null
+          http_request_id?: number | null
+          http_status?: number | null
+          id?: number
+          job_name?: string
+          response_excerpt?: string | null
+          status?: string
+          triggered_at?: string
+        }
+        Relationships: []
+      }
       data_sources: {
         Row: {
           allowed_paths: string[]
@@ -5216,6 +5255,10 @@ export type Database = {
       }
       is_agency_admin: { Args: { target_agency_id: string }; Returns: boolean }
       is_agency_member: { Args: { target_agency_id: string }; Returns: boolean }
+      log_cron_http_invocation: {
+        Args: { p_body?: Json; p_job_name: string; p_url: string }
+        Returns: number
+      }
       omi_zone_by_point: {
         Args: { p_lat: number; p_lng: number }
         Returns: {
