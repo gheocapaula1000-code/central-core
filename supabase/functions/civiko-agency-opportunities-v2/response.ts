@@ -714,8 +714,11 @@ export function enrichDealOpportunity(
   const microzone = slugify(obj.microzone ?? parts[2]);
 
   let bucket: EnrichmentBucket | undefined;
-  if (comune && microzone) bucket = buckets.get(bucketKey(comune, microzone));
-  if (!bucket && comune) bucket = buckets.get(bucketKey(comune, null));
+  if (comune && microzone) {
+    bucket = buckets.get(bucketKey(comune, microzone));
+  } else if (comune) {
+    bucket = buckets.get(bucketKey(comune, null));
+  }
 
   return {
     ...obj,
