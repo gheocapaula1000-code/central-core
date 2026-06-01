@@ -726,10 +726,3 @@ export function enrichDealOpportunity(
   };
 }
 
-  const title = typeof obj.label === "string" && obj.label.trim() ? String(obj.label) : "Azione consigliata";
-  const description = typeof obj.rationale === "string" && obj.rationale.trim()
-    ? String(obj.rationale)
-    : (hot.length > 0 ? "Suggerimento derivato dai segnali aggregati di zona." : "");
-  const { cta_label, cta_to } = actionCtaFor(String(obj.action_code ?? ""));
-  return { ...obj, title, area_label, description, cta_label, cta_to };
-}
