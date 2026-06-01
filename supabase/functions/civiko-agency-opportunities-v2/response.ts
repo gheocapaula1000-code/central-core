@@ -531,7 +531,16 @@ function enrichCommercialAction(item: unknown, hot: unknown[]): Record<string, u
     area_label = `${displayMicrozoneName(parts[2] ?? "")}${parts[1] ? " · " + displayComuneName(parts[1]) : ""}`;
   } else {
     area_label = displayComuneName(parts[1] ?? "") || "Area operativa";
+  }
+  const title = typeof obj.label === "string" && obj.label.trim() ? String(obj.label) : "Azione consigliata";
+  const description = typeof obj.rationale === "string" && obj.rationale.trim()
+    ? String(obj.rationale)
+    : (hot.length > 0 ? "Suggerimento derivato dai segnali aggregati di zona." : "");
+  const { cta_label, cta_to } = actionCtaFor(String(obj.action_code ?? ""));
+  return { ...obj, title, area_label, description, cta_label, cta_to };
 }
+
+
 
 // ---------------------------------------------------------------------------
 // Opportunity enrichment — 4 contract-extension fields:
