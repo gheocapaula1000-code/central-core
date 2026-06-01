@@ -444,3 +444,60 @@ describe("frontend_readiness contract", () => {
     expect(data.frontend_readiness.auto_heal_attempted).toBe(true);
   });
 });
+
+describe("civiko-agency-opportunities-v2 contract extension (4 enrichment fields)", () => {
+  it("each deal_opportunity exposes environmental_data/market_sentiment/urban_development/offmarket_signals", () => {
+    const deals = [
+      { id: "op:padova:arcella:1", entity_key: "op:padova:arcella:1", municipality: "Padova", microzone: "arcella", target_type: "listing" },
+      { id: "op:padova:guizza:2", entity_key: "op:padova:guizza:2", municipality: "Padova", microzone: "guizza", target_type: "auction" },
+    ];
+    const evidence_rows = [
+      { entity_key: "mz:padova:arcella", evidence_type: "brownfield", source_code: "F2", observed_at: "2026-05-10T00:00:00Z", explanation: "x" },
+      { entity_key: "mz:padova:arcella", evidence_type: "MICROZONE_PRESSURE", source_code: "F1", observed_at: "2026-05-20T00:00:00Z" },
+      { entity_key: "mz:padova:arcella", evidence_type: "listing_velocity", source_code: "F1", observed_at: "2026-05-22T00:00:00Z" },
+      { entity_key: "mz:padova:arcella", evidence_type: "cantiere_edilizio", source_code: "F5", observed_at: "2026-05-18T00:00:00Z" },
+      { entity_key: "mz:padova:arcella", evidence_type: "OFFMARKET_DISCOVERY", source_code: "F13", observed_at: "2026-05-25T00:00:00Z", explanation: "off1" },
+    ];
+    const data = buildResponseData(
+      { deal_opportunities: deals, opportunities: deals, focus_area: [], hot_microzones: [], commercial_actions: [], audit: DEFAULT_AUDIT, warnings: [] } as never,
+      allPadovaAreas,
+      { evidence_rows },
+    );
+    expect(data.deal_opportunities).toHaveLength(2);
+    for (const d of data.deal_opportunities as Array<Record<string, unknown>>) {
+      expect(d).toHaveProperty("environmental_data");
+      expect(d).toHaveProperty("market_sentiment");
+      expect(d).toHaveProperty("urban_development");
+      expect(d).toHaveProperty("offmarket_signals");
+      expect(Array.isArray(d.offmarket_signals)).toBe(true);
+    }
+    const arcella = (data.deal_opportunities as Array<Record<string, unknown>>).find((d) => String(d.microzone).toLowerCase() === "arcella")!;
+    expect(arcella.environmental_data).not.toBeNull();
+    expect((arcella.environmental_data as { brownfield_count: number }).brownfield_count).toBe(1);
+    expect(arcella.market_sentiment).not.toBeNull();
+    expect(arcella.urban_development).not.toBeNull();
+    expect((arcella.offmarket_signals as unknown[]).length).toBe(1);
+
+    const guizza = (data.deal_opportunities as Array<Record<string, unknown>>).find((d) => String(d.microzone).toLowerCase() === "guizza")!;
+    // no evidence for guizza → null/[] fallback (tolerant)
+    expect(guizza.environmental_data).toBeNull();
+    expect(guizza.market_sentiment).toBeNull();
+    expect(guizza.urban_development).toBeNull();
+    expect(guizza.offmarket_signals).toEqual([]);
+  });
+
+  it("empty evidence keeps all four fields as null/[] without throwing", () => {
+    const deals = [{ id: "op:padova:camin:9", entity_key: "op:padova:camin:9", municipality: "Padova", microzone: "camin" }];
+    const data = buildResponseData(
+      { deal_opportunities: deals, opportunities: deals, focus_area: [], hot_microzones: [], commercial_actions: [], audit: DEFAULT_AUDIT, warnings: [] } as never,
+      allPadovaAreas,
+      { evidence_rows: [] },
+    );
+    const d = (data.deal_opportunities as Array<Record<string, unknown>>)[0];
+    expect(d.environmental_data).toBeNull();
+    expect(d.market_sentiment).toBeNull();
+    expect(d.urban_development).toBeNull();
+    expect(d.offmarket_signals).toEqual([]);
+  });
+});
+
