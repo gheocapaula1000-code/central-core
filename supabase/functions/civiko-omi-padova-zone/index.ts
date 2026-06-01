@@ -40,50 +40,121 @@ const OMI_ZONES: OmiZone[] = [
   { zoneCode: "E2", zoneName: "Ovest / Rubano", centroid: { lat: 45.4010, lng: 11.8380 }, polygon: null, tipologie: ["Abitazioni civili", "Ville e Villini"], lastSemestre: "2024-2", quotazioniRange: { min: 1400, max: 2200, unita: "€/mq" }, sourceOwner: SOURCE_OWNER },
 ];
 
-serve(async (req) => {
-  const debugId = makeDebugId();
-  if (req.method === "OPTIONS") return handleOptions(req);
+const REQUEST_TIMEOUT_MS = 8000;
 
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Content-Type": "application/json; charset=utf-8",
+};
+
+function envelope(
+  status: number,
+  body: { ok: boolean; data: unknown; error: { code: string; message: string } | null; warnings?: string[]; debug_id: string },
+): Response {
+  let payload: string;
+  try {
+    payload = JSON.stringify(body);
+  } catch {
+    payload = JSON.stringify({
+      ok: false,
+      data: null,
+      error: { code: "SERIALIZATION_ERROR", message: "Risposta non serializzabile" },
+      debug_id: body.debug_id,
+    });
+  }
+  return new Response(payload, { status, headers: CORS_HEADERS });
+}
+
+function controlledError(debugId: string, code: string, message: string, status = 200): Response {
+  return envelope(status, { ok: false, data: null, error: { code, message }, debug_id: debugId });
+}
+
+async function handleRequest(req: Request, debugId: string): Promise<Response> {
   const url = new URL(req.url);
   const rawPath = url.pathname.replace(BASE_PATH, "") || "/";
 
   if (rawPath === "/health" && req.method === "GET") {
-    return addIdentityHeaders(ok(req, { status: "ok", function: FUNCTION_NAME, version: CORE_VERSION }, [], debugId), { function: FUNCTION_NAME, route: "/health" });
+    return addIdentityHeaders(
+      ok(req, { status: "ok", function: FUNCTION_NAME, version: CORE_VERSION }, [], debugId),
+      { function: FUNCTION_NAME, route: "/health" },
+    );
   }
   if (rawPath === "/manifest" && req.method === "GET") {
-    return addIdentityHeaders(ok(req, buildManifest({
-      functionName: FUNCTION_NAME,
-      serviceKind: "padova-data",
-      expectedBasePath: BASE_PATH,
-      routes: ["GET /health", "GET /manifest", "GET /geojson", "POST /"],
-    }), [], debugId), { function: FUNCTION_NAME, route: "/manifest" });
+    return addIdentityHeaders(
+      ok(req, buildManifest({
+        functionName: FUNCTION_NAME,
+        serviceKind: "padova-data",
+        expectedBasePath: BASE_PATH,
+        routes: ["GET /health", "GET /manifest", "GET /geojson", "POST /"],
+      }), [], debugId),
+      { function: FUNCTION_NAME, route: "/manifest" },
+    );
   }
 
   if (rawPath === "/geojson" && req.method === "GET") {
     const zoneCode = url.searchParams.get("zoneCode");
-    const zone = OMI_ZONES.find(z => z.zoneCode === zoneCode);
+    const zone = OMI_ZONES.find((z) => z.zoneCode === zoneCode);
     if (!zone) return fail(req, 404, "ZONE_NOT_FOUND", `Zona ${zoneCode} non trovata`, debugId);
     return addIdentityHeaders(
-      ok(req, { zoneCode: zone.zoneCode, zoneName: zone.zoneName, polygon: zone.polygon, note: zone.polygon ? null : "Poligono non ancora disponibile. TODO: caricare da Geopoi OMI." }, [], debugId),
-      { function: FUNCTION_NAME, route: "/geojson" }
+      ok(req, {
+        zoneCode: zone.zoneCode,
+        zoneName: zone.zoneName,
+        polygon: zone.polygon,
+        note: zone.polygon ? null : "Poligono non ancora disponibile. TODO: caricare da Geopoi OMI.",
+      }, [], debugId),
+      { function: FUNCTION_NAME, route: "/geojson" },
+    );
+  }
+
+  // GET /  → equivalent of {listAll:true} so the FE sidebar can fetch zones
+  // with a plain GET (no body), and never gets stuck on a 405.
+  if (rawPath === "/" && req.method === "GET") {
+    return addIdentityHeaders(
+      ok(req, sanitizeOutgoing({
+        status: "ok",
+        zones: OMI_ZONES.map((z) => ({
+          zoneCode: z.zoneCode,
+          zoneName: z.zoneName,
+          centroid: z.centroid,
+          hasPolygon: false,
+          hasOmiRange: z.quotazioniRange !== null,
+        })),
+        availableZonesCount: OMI_ZONES.length,
+        officialTotalCount: null,
+        warnings: ["Dataset scheletro con 10 zone principali."],
+      }), [], debugId),
+      { function: FUNCTION_NAME, route: "/" },
     );
   }
 
   if (req.method !== "POST") return fail(req, 405, "METHOD_NOT_ALLOWED", "Usa POST", debugId);
 
   let body: { lat?: number; lng?: number; listAll?: boolean } = {};
-  try { body = await req.json(); } catch { return fail(req, 400, "INVALID_JSON", "Body JSON non valido", debugId); }
+  try {
+    const text = await req.text();
+    body = text ? JSON.parse(text) : {};
+  } catch {
+    return fail(req, 400, "INVALID_JSON", "Body JSON non valido", debugId);
+  }
 
   if (body.listAll === true) {
     return addIdentityHeaders(
       ok(req, sanitizeOutgoing({
         status: "ok",
-        zones: OMI_ZONES.map(z => ({ zoneCode: z.zoneCode, zoneName: z.zoneName, centroid: z.centroid, hasPolygon: false, hasOmiRange: z.quotazioniRange !== null })),
+        zones: OMI_ZONES.map((z) => ({
+          zoneCode: z.zoneCode,
+          zoneName: z.zoneName,
+          centroid: z.centroid,
+          hasPolygon: false,
+          hasOmiRange: z.quotazioniRange !== null,
+        })),
         availableZonesCount: OMI_ZONES.length,
         officialTotalCount: null,
         warnings: ["Dataset scheletro con 10 zone principali. TODO: completare le zone mancanti e aggiungere poligoni GeoJSON."],
       }), [], debugId),
-      { function: FUNCTION_NAME, route: "/" }
+      { function: FUNCTION_NAME, route: "/" },
     );
   }
 
@@ -95,10 +166,10 @@ serve(async (req) => {
     return fail(req, 400, "OUT_OF_PADOVA", "Coordinate fuori dal Comune di Padova", debugId);
   }
 
-  const withDist = OMI_ZONES.map(z => ({ ...z, distMeters: haversineMeters(lat, lng, z.centroid.lat, z.centroid.lng) }));
+  const withDist = OMI_ZONES.map((z) => ({ ...z, distMeters: haversineMeters(lat, lng, z.centroid.lat, z.centroid.lng) }));
   withDist.sort((a, b) => a.distMeters - b.distMeters);
   const nearest = withDist[0];
-  const neighboring = withDist.slice(1, 4).map(z => ({ zoneCode: z.zoneCode, zoneName: z.zoneName, distanceMeters: Math.round(z.distMeters) }));
+  const neighboring = withDist.slice(1, 4).map((z) => ({ zoneCode: z.zoneCode, zoneName: z.zoneName, distanceMeters: Math.round(z.distMeters) }));
 
   const warnings = ["Zona identificata per prossimità al centroide. I poligoni ufficiali OMI sono in attesa di integrazione da Geopoi Agenzia delle Entrate."];
 
@@ -121,6 +192,29 @@ serve(async (req) => {
         { name: "Dataset storico OMI onData", url: "https://github.com/ondata/quotazioni-immobiliari-agenzia-entrate" },
       ],
     }), warnings, debugId),
-    { function: FUNCTION_NAME, route: "/" }
+    { function: FUNCTION_NAME, route: "/" },
   );
+}
+
+serve(async (req) => {
+  const debugId = makeDebugId();
+
+  if (req.method === "OPTIONS") {
+    try { return handleOptions(req); }
+    catch { return new Response("ok", { status: 204, headers: CORS_HEADERS }); }
+  }
+
+  try {
+    const timeoutPromise = new Promise<Response>((resolve) => {
+      setTimeout(() => {
+        resolve(controlledError(debugId, "REQUEST_TIMEOUT", "La richiesta ha superato il tempo limite. Riprova più tardi.", 200));
+      }, REQUEST_TIMEOUT_MS);
+    });
+    return await Promise.race([handleRequest(req, debugId), timeoutPromise]);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Errore interno non identificato";
+    console.error(`[${FUNCTION_NAME}] uncaught`, { debug_id: debugId, error: msg });
+    return controlledError(debugId, "INTERNAL_ERROR", "Errore interno del servizio. Dati momentaneamente non disponibili.", 200);
+  }
 });
+
