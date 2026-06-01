@@ -142,15 +142,20 @@ export function buildResponseData(
 
   const hot_microzones_raw = sanitizeArray(result?.hot_microzones);
   const commercial_actions_raw = sanitizeArray(result?.commercial_actions);
-  const deal_opportunities = sanitizeArray(result?.deal_opportunities);
-  const opportunities = Array.isArray(result?.opportunities) ? sanitizeArray(result!.opportunities!) : deal_opportunities;
+  const deal_opportunities_raw = sanitizeArray(result?.deal_opportunities);
+  const opportunities_raw = Array.isArray(result?.opportunities) ? sanitizeArray(result!.opportunities!) : deal_opportunities_raw;
   const audit = toJsonSafe(result?.audit && typeof result.audit === "object" ? result.audit : DEFAULT_AUDIT);
   const warnings = sanitizeArray(result?.warnings);
 
   // Enrich with frontend-readable fields derived from REAL signal counts
   // (no fabricated text). title is always populated from the canonical slug.
   const evidenceRows = Array.isArray(opts.evidence_rows) ? opts.evidence_rows : [];
-  const comuneAgg = buildComuneEvidenceAggregates(evidenceRows, deal_opportunities, hot_microzones_raw);
+  const comuneAgg = buildComuneEvidenceAggregates(evidenceRows, deal_opportunities_raw, hot_microzones_raw);
+  const enrichmentBuckets = buildEnrichmentBuckets(evidenceRows);
+  const deal_opportunities = deal_opportunities_raw.map((d) => enrichDealOpportunity(d, enrichmentBuckets));
+  const opportunities = opportunities_raw === deal_opportunities_raw
+    ? deal_opportunities
+    : opportunities_raw.map((d) => enrichDealOpportunity(d, enrichmentBuckets));
   const focus_area = focus_area_raw.map((fa) => enrichFocusArea(fa, comuneAgg));
   const hot_microzones = hot_microzones_raw.map((mz) => enrichHotMicrozone(mz, deal_opportunities, comuneAgg));
   const commercial_actions = commercial_actions_raw.map((a) => enrichCommercialAction(a, hot_microzones));
@@ -534,3 +539,193 @@ function enrichCommercialAction(item: unknown, hot: unknown[]): Record<string, u
   const { cta_label, cta_to } = actionCtaFor(String(obj.action_code ?? ""));
   return { ...obj, title, area_label, description, cta_label, cta_to };
 }
+
+
+
+// ---------------------------------------------------------------------------
+// Opportunity enrichment — 4 contract-extension fields:
+//   environmental_data, market_sentiment, urban_development, offmarket_signals
+// All fields tolerate missing data: null (objects) or [] (signals array).
+// ---------------------------------------------------------------------------
+
+export interface EnvironmentalData {
+  brownfield_count: number;
+  demolition_count: number;
+  transformation_count: number;
+  last_observed_at: string | null;
+  sources: string[];
+}
+
+export interface MarketSentiment {
+  pressure_score: number;          // 0..100, derived from MICROZONE_PRESSURE + area_opportunity_score
+  stale_listings: number;
+  velocity_anomalies: number;
+  delisted_count: number;
+  trend: "rising" | "stable" | "cooling" | "unknown";
+  last_observed_at: string | null;
+}
+
+export interface UrbanDevelopment {
+  active_sites: number;            // cantiere_edilizio
+  transformation_areas: number;    // area_trasformazione
+  concession_signals: number;      // CONCESSION_OR_LEASE_SIGNAL
+  demographic_signals: number;     // segnale_demografico
+  last_observed_at: string | null;
+  sources: string[];
+}
+
+export interface OffmarketSignal {
+  type: string;
+  observed_at: string | null;
+  source_code: string | null;
+  explanation: string | null;
+}
+
+interface EnrichmentBucket {
+  environmental_data: EnvironmentalData | null;
+  market_sentiment: MarketSentiment | null;
+  urban_development: UrbanDevelopment | null;
+  offmarket_signals: OffmarketSignal[];
+}
+
+const ENV_TYPES = new Set(["brownfield", "demolizione", "area_trasformazione"]);
+const SENTIMENT_TYPES = new Set([
+  "MICROZONE_PRESSURE", "listing_velocity", "STALE_LISTING",
+  "listing_ping_state", "listing_delisted", "area_opportunity_score",
+]);
+const URBAN_TYPES = new Set([
+  "cantiere_edilizio", "area_trasformazione",
+  "CONCESSION_OR_LEASE_SIGNAL", "segnale_demografico",
+]);
+const OFFMARKET_TYPES = new Set([
+  "OFFMARKET_DISCOVERY", "offmarket_potential",
+  "succession_pressure", "POSSIBLE_SUCCESSION_SIGNAL",
+  "AUCTION_CONFIRMATION",
+]);
+
+function laterIso(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a > b ? a : b;
+}
+
+function bucketKey(comune: string, microzone: string | null): string {
+  return microzone ? `${comune}::${microzone}` : `${comune}::*`;
+}
+
+function buildEnrichmentBuckets(evidenceRows: unknown[]): Map<string, EnrichmentBucket> {
+  const map = new Map<string, EnrichmentBucket>();
+  const ensure = (key: string): EnrichmentBucket => {
+    let b = map.get(key);
+    if (!b) {
+      b = {
+        environmental_data: null,
+        market_sentiment: null,
+        urban_development: null,
+        offmarket_signals: [],
+      };
+      map.set(key, b);
+    }
+    return b;
+  };
+
+  for (const raw of evidenceRows) {
+    const r = asRec(raw);
+    const k = String(r.entity_key ?? "");
+    const parts = k.split(":");
+    const comune = slugify(parts[1]);
+    if (!comune) continue;
+    const microzone = parts[2] ? slugify(parts[2]) : null;
+    const evType = String(r.evidence_type ?? "");
+    const sourceCode = typeof r.source_code === "string" ? r.source_code : null;
+    const observedAt = typeof r.observed_at === "string" ? r.observed_at : null;
+    const explanation = typeof r.explanation === "string" ? r.explanation : null;
+
+    const targets: EnrichmentBucket[] = [ensure(bucketKey(comune, null))];
+    if (microzone) targets.push(ensure(bucketKey(comune, microzone)));
+
+    for (const b of targets) {
+      if (ENV_TYPES.has(evType)) {
+        if (!b.environmental_data) {
+          b.environmental_data = { brownfield_count: 0, demolition_count: 0, transformation_count: 0, last_observed_at: null, sources: [] };
+        }
+        if (evType === "brownfield") b.environmental_data.brownfield_count++;
+        if (evType === "demolizione") b.environmental_data.demolition_count++;
+        if (evType === "area_trasformazione") b.environmental_data.transformation_count++;
+        b.environmental_data.last_observed_at = laterIso(b.environmental_data.last_observed_at, observedAt);
+        if (sourceCode && !b.environmental_data.sources.includes(sourceCode)) b.environmental_data.sources.push(sourceCode);
+      }
+      if (SENTIMENT_TYPES.has(evType)) {
+        if (!b.market_sentiment) {
+          b.market_sentiment = { pressure_score: 0, stale_listings: 0, velocity_anomalies: 0, delisted_count: 0, trend: "unknown", last_observed_at: null };
+        }
+        if (evType === "MICROZONE_PRESSURE") b.market_sentiment.pressure_score = Math.min(100, b.market_sentiment.pressure_score + 20);
+        if (evType === "area_opportunity_score") {
+          const v = Number(asRec(r.evidence_value).score ?? asRec(r.evidence_value).value ?? 0);
+          if (Number.isFinite(v) && v > 0) b.market_sentiment.pressure_score = Math.max(b.market_sentiment.pressure_score, Math.min(100, Math.round(v)));
+        }
+        if (evType === "STALE_LISTING") b.market_sentiment.stale_listings++;
+        if (evType === "listing_velocity") b.market_sentiment.velocity_anomalies++;
+        if (evType === "listing_delisted") b.market_sentiment.delisted_count++;
+        b.market_sentiment.last_observed_at = laterIso(b.market_sentiment.last_observed_at, observedAt);
+      }
+      if (URBAN_TYPES.has(evType)) {
+        if (!b.urban_development) {
+          b.urban_development = { active_sites: 0, transformation_areas: 0, concession_signals: 0, demographic_signals: 0, last_observed_at: null, sources: [] };
+        }
+        if (evType === "cantiere_edilizio") b.urban_development.active_sites++;
+        if (evType === "area_trasformazione") b.urban_development.transformation_areas++;
+        if (evType === "CONCESSION_OR_LEASE_SIGNAL") b.urban_development.concession_signals++;
+        if (evType === "segnale_demografico") b.urban_development.demographic_signals++;
+        b.urban_development.last_observed_at = laterIso(b.urban_development.last_observed_at, observedAt);
+        if (sourceCode && !b.urban_development.sources.includes(sourceCode)) b.urban_development.sources.push(sourceCode);
+      }
+      if (OFFMARKET_TYPES.has(evType)) {
+        b.offmarket_signals.push({ type: evType, observed_at: observedAt, source_code: sourceCode, explanation });
+      }
+    }
+  }
+
+  // Finalize trend on market_sentiment using pressure_score vs velocity/delisting.
+  for (const b of map.values()) {
+    if (b.market_sentiment) {
+      const ms = b.market_sentiment;
+      if (ms.pressure_score >= 60 && ms.velocity_anomalies > 0) ms.trend = "rising";
+      else if (ms.stale_listings > ms.velocity_anomalies && ms.stale_listings > 0) ms.trend = "cooling";
+      else if (ms.pressure_score > 0 || ms.velocity_anomalies > 0) ms.trend = "stable";
+    }
+    // Cap offmarket_signals to most recent 10 per bucket.
+    if (b.offmarket_signals.length > 1) {
+      b.offmarket_signals.sort((a, c) => String(c.observed_at ?? "").localeCompare(String(a.observed_at ?? "")));
+      b.offmarket_signals = b.offmarket_signals.slice(0, 10);
+    }
+  }
+
+  return map;
+}
+
+export function enrichDealOpportunity(
+  item: unknown,
+  buckets: Map<string, EnrichmentBucket>,
+): Record<string, unknown> {
+  const obj = { ...asRec(item) };
+  const parts = String(obj.entity_key ?? obj.id ?? "").split(":");
+  const comune = slugify(parts[1] ?? obj.municipality);
+  const microzone = slugify(obj.microzone ?? parts[2]);
+
+  let bucket: EnrichmentBucket | undefined;
+  if (comune && microzone) {
+    bucket = buckets.get(bucketKey(comune, microzone));
+  } else if (comune) {
+    bucket = buckets.get(bucketKey(comune, null));
+  }
+
+  return {
+    ...obj,
+    environmental_data: bucket?.environmental_data ?? null,
+    market_sentiment: bucket?.market_sentiment ?? null,
+    urban_development: bucket?.urban_development ?? null,
+    offmarket_signals: bucket ? bucket.offmarket_signals : [],
+  };
+}
+
