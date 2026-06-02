@@ -1363,8 +1363,8 @@ Deno.serve(async (req) => {
         await withTimeout("recent_evidence", (async () => {
           const { data, error } = await supa
             .from("civiko_evidence")
-            .select("id, source_type, comune, microzona, score, created_at")
-            .in("source_type", OFF_TYPES)
+            .select("id, evidence_type, entity_key, source_code, confidence, observed_at, created_at")
+            .in("evidence_type", OFF_TYPES)
             .order("created_at", { ascending: false })
             .limit(10);
           if (error) throw new Error(error.message);
