@@ -354,6 +354,8 @@ serve(async (req) => {
     if ("error" in result) return controlledError(debug_id, "STAGE_CLASSIFICATION", result.error, 200);
     logStage(debug_id, "STAGE_CLASSIFICATION", true);
 
+    const offmarket_signals = await fetchOffmarketSignals(supabase, scopeComuni);
+
     const serialized = await (async () => {
       const data = buildResponseData(
         { ...result, warnings: [...(result.warnings ?? []), ...sectionFailures.map((f) => String((f as { message?: string }).message ?? "section_failed"))] },
@@ -363,13 +365,14 @@ serve(async (req) => {
       // Mirror intelligence arrays at top level for PWA compatibility (both shapes supported).
       return safeStringify({
         ok: true,
-        data,
+        data: { ...data, offmarket_signals },
         focus_area: data.focus_area,
         hot_microzones: data.hot_microzones,
         commercial_actions: data.commercial_actions,
         deal_opportunities: data.deal_opportunities,
         opportunities: data.opportunities,
         frontend_readiness: data.frontend_readiness,
+        offmarket_signals,
       });
     })().catch((err) => ({ error: err }));
     if (typeof serialized !== "string") return controlledError(debug_id, "STAGE_RESPONSE_SERIALIZATION", serialized.error, 200);
