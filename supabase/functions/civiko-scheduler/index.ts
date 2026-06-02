@@ -121,6 +121,10 @@ serve(async (req) => {
       return null;
     };
 
+    if (isRunSource && !source_code) {
+      return json({ ok: false, error: { code: "BAD_REQUEST", message: "source_code required for /run-source" }, debug_id }, 400);
+    }
+
     const result = await runScheduledSources(
       {
         supabase,
@@ -133,8 +137,16 @@ serve(async (req) => {
         resolveCoords,
         attachEvidenceWriter: true,
       },
-      { source_code, due_only, dry_run },
+      isRunSource
+        ? { source_code, due_only: false, dry_run: false }
+        : { source_code, due_only, dry_run },
     );
+
+    // /run-source: return immediately without triggering off-market pipelines
+    if (isRunSource) {
+      console.log("[civiko-scheduler] run-source", source_code, JSON.stringify(result.results).slice(0, 800));
+      return json({ ok: true, data: result, debug_id });
+    }
 
     // ── Off-market pipelines (civiko-radar-veneto) — daily, skipped on dry_run ──
     const offmarket_pipelines: Array<{ job: string; ok: boolean; status?: number; summary?: unknown; error?: string; duration_ms: number }> = [];
