@@ -1295,6 +1295,7 @@ Deno.serve(async (req) => {
         return withIdentity(json(req, 200, { job: "offmarket-padova", ...r }, debugId), "job-offmarket-padova");
       } catch (e) {
         return withIdentity(fail(req, 500, "JOB_FAILED", e instanceof Error ? e.message : String(e), debugId), "job-error");
+      }
     }
 
     if (pathname.endsWith("/jobs/offmarket-diagnostics")) {
