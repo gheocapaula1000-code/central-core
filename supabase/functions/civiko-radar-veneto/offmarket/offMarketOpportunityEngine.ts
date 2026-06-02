@@ -588,7 +588,7 @@ export async function runOffMarketOpportunityEngine(req: OffMarketRequest): Prom
     .map((p) => p.toUpperCase());
   const minConf = req.minConfidence ?? 0.45;
   const dryRun = req.dryRun !== false;
-  const doImport = req.import === true && !dryRun;
+  const doImport = (req.import === true || req.commit === true) && !dryRun;
 
   const supa = svc();
   const report: OffMarketReport = {
