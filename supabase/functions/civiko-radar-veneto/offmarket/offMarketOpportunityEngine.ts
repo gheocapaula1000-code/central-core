@@ -96,6 +96,7 @@ export interface OffMarketReport {
   records_scoreable: number;
   records_skipped: number;
   records_upserted: number;
+  evidence_upserted?: number;
   avg_off_market_potential: number;
   avg_acquisition_priority: number;
   avg_microzone_heat: number;
