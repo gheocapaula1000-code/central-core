@@ -151,6 +151,69 @@ async function fetchLastIngestionAt(supabase: ReturnType<typeof svc>): Promise<s
   }
 }
 
+// Off-market signals: dedicated query that bypasses compliance_visibility
+// filter so 'aggregate_only' rows (e.g. offmarket_potential) are also visible
+// to the agency. Returns the most recent rows for the configured types,
+// scoped to the agency comuni via entity_key substring match.
+const OFFMARKET_EVIDENCE_TYPES = [
+  "offmarket_potential",
+  "offmarket_discovery",
+  "succession_pressure",
+  "OFFMARKET_DISCOVERY",
+  "MICROZONE_PRESSURE",
+];
+const CONF_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
+
+type OffmarketSignalRow = {
+  evidence_type: string;
+  entity_key: string;
+  confidence: string;
+  explanation: string | null;
+  observed_at: string | null;
+};
+
+async function fetchOffmarketSignals(
+  supabase: ReturnType<typeof svc>,
+  scopeComuni: Set<string>,
+): Promise<{ count: number; top_signals: OffmarketSignalRow[]; has_succession_pressure: boolean }> {
+  const empty = { count: 0, top_signals: [] as OffmarketSignalRow[], has_succession_pressure: false };
+  try {
+    const { data, error } = await supabase
+      .from("civiko_evidence")
+      .select("evidence_type,entity_key,confidence,explanation,observed_at")
+      .in("evidence_type", OFFMARKET_EVIDENCE_TYPES)
+      .order("observed_at", { ascending: false })
+      .limit(500);
+    if (error || !Array.isArray(data)) return empty;
+
+    const rows = (data as OffmarketSignalRow[]).filter((r) => {
+      if (scopeComuni.size === 0) return true;
+      const key = String(r.entity_key ?? "").toLowerCase();
+      for (const c of scopeComuni) {
+        if (c && key.includes(c)) return true;
+      }
+      return false;
+    });
+
+    const has_succession_pressure = rows.some(
+      (r) => r.evidence_type === "succession_pressure" || r.evidence_type === "offmarket_potential",
+    );
+
+    const top_signals = [...rows]
+      .sort((a, b) => {
+        const ra = CONF_RANK[String(a.confidence)] ?? 0;
+        const rb = CONF_RANK[String(b.confidence)] ?? 0;
+        if (rb !== ra) return rb - ra;
+        return String(b.observed_at ?? "").localeCompare(String(a.observed_at ?? ""));
+      })
+      .slice(0, 5);
+
+    return { count: rows.length, top_signals, has_succession_pressure };
+  } catch {
+    return empty;
+  }
+}
+
 
 serve(async (req) => {
   const debug_id = (globalThis.crypto?.randomUUID?.() ?? `dbg-${Date.now()}`);
