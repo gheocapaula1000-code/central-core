@@ -85,13 +85,16 @@ export function buildRequestPlan(
     case "F5": {
       // connector-osm-cantieri: Path A (x-job-secret bypass) handles auth
       // inside the function. The Supabase platform gateway still requires
-      // an Authorization Bearer + apikey on every functions/v1 call — we
-      // send the publishable anon JWT so the gateway accepts the request
-      // (the function ignores it and falls back to x-job-secret Path A).
-      const anon = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-      if (anon) {
-        headers["Authorization"] = `Bearer ${anon}`;
-        headers["apikey"] = anon;
+      // a JWT-format Authorization Bearer + apikey on every functions/v1
+      // call. Under the signing-keys system SUPABASE_ANON_KEY may be the
+      // non-JWT sb_publishable_ token, so prefer SUPABASE_PUBLISHABLE_KEY
+      // (legacy JWT format) when available.
+      const pub = Deno.env.get("SUPABASE_PUBLISHABLE_KEY")
+        ?? Deno.env.get("SUPABASE_ANON_KEY")
+        ?? "";
+      if (pub) {
+        headers["Authorization"] = `Bearer ${pub}`;
+        headers["apikey"] = pub;
       }
       break;
     }
