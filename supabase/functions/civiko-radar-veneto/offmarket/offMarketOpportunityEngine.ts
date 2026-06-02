@@ -17,6 +17,7 @@ import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supa
 export interface OffMarketRequest {
   dryRun?: boolean;
   import?: boolean;
+  commit?: boolean;
   province?: string[];
   comuni?: string[];
   minConfidence?: number;
