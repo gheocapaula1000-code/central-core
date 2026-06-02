@@ -82,22 +82,13 @@ export function buildRequestPlan(
       headers["x-internal-secret"] = civikoSecret;
       headers["x-source-app"] = "civiko";
       break;
-    case "F5": {
-      // connector-osm-cantieri: Path A (x-job-secret bypass) handles auth
-      // inside the function. The Supabase platform gateway still requires
-      // a JWT-format Authorization Bearer + apikey on every functions/v1
-      // call. Under the signing-keys system SUPABASE_ANON_KEY may be the
-      // non-JWT sb_publishable_ token, so prefer SUPABASE_PUBLISHABLE_KEY
-      // (legacy JWT format) when available.
-      const pub = Deno.env.get("SUPABASE_PUBLISHABLE_KEY")
-        ?? Deno.env.get("SUPABASE_ANON_KEY")
-        ?? "";
-      if (pub) {
-        headers["Authorization"] = `Bearer ${pub}`;
-        headers["apikey"] = pub;
-      }
+    case "F5":
+      // connector-osm-cantieri: verify_jwt is disabled at platform level
+      // (see supabase/config.toml). The function itself authorizes via
+      // x-job-secret (Path A) — already in `headers`. No extra header
+      // needed; sending SUPABASE_ANON_KEY would fail because under the
+      // signing-keys system it is sb_publishable_ (not a JWT).
       break;
-    }
     case "F19":
       // civiko-source-registry/import/obituaries-aggregate requires a CSV
       // or rows[] payload that the scheduler does not generate. The job
