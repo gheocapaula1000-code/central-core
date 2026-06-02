@@ -1363,8 +1363,8 @@ Deno.serve(async (req) => {
         await withTimeout("recent_evidence", (async () => {
           const { data, error } = await supa
             .from("civiko_evidence")
-            .select("id, source_type, comune, microzona, score, created_at")
-            .in("source_type", OFF_TYPES)
+            .select("id, evidence_type, entity_key, source_code, confidence, observed_at, created_at")
+            .in("evidence_type", OFF_TYPES)
             .order("created_at", { ascending: false })
             .limit(10);
           if (error) throw new Error(error.message);
@@ -1400,8 +1400,8 @@ Deno.serve(async (req) => {
           const { count, error } = await supa
             .from("civiko_evidence")
             .select("id", { count: "exact", head: true })
-            .in("source_type", OFF_TYPES)
-            .ilike("comune", "Padova");
+            .in("evidence_type", OFF_TYPES)
+            .ilike("entity_key", "%padova%");
           if (error) throw new Error(error.message);
           (result.summary as Record<string, unknown>).evidence_offmarket_in_db = count ?? 0;
         })());
