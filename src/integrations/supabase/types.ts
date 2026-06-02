@@ -3208,9 +3208,11 @@ export type Database = {
         Row: {
           address_text: string | null
           ask_price: number | null
+          cap: string | null
           category: string | null
           completeness_score: number
           created_at: string
+          data_rilevamento: string
           dedupe_key: string | null
           external_ref: string | null
           first_seen_at: string
@@ -3222,23 +3224,30 @@ export type Database = {
           microzone: string | null
           municipality: string | null
           possible_duplicate: boolean
+          priority: string | null
           priority_score: number
           property_type: string | null
+          quality_bucket: string | null
           raw_id: string | null
           scoring_reason: string | null
           source_name: string
           source_url: string | null
+          status: string | null
           surface_mq: number | null
           tags: string[]
           title: string
           updated_at: string
+          valore_omi_max: number | null
+          valore_omi_min: number | null
         }
         Insert: {
           address_text?: string | null
           ask_price?: number | null
+          cap?: string | null
           category?: string | null
           completeness_score?: number
           created_at?: string
+          data_rilevamento?: string
           dedupe_key?: string | null
           external_ref?: string | null
           first_seen_at?: string
@@ -3250,23 +3259,30 @@ export type Database = {
           microzone?: string | null
           municipality?: string | null
           possible_duplicate?: boolean
+          priority?: string | null
           priority_score?: number
           property_type?: string | null
+          quality_bucket?: string | null
           raw_id?: string | null
           scoring_reason?: string | null
           source_name: string
           source_url?: string | null
+          status?: string | null
           surface_mq?: number | null
           tags?: string[]
           title: string
           updated_at?: string
+          valore_omi_max?: number | null
+          valore_omi_min?: number | null
         }
         Update: {
           address_text?: string | null
           ask_price?: number | null
+          cap?: string | null
           category?: string | null
           completeness_score?: number
           created_at?: string
+          data_rilevamento?: string
           dedupe_key?: string | null
           external_ref?: string | null
           first_seen_at?: string
@@ -3278,16 +3294,21 @@ export type Database = {
           microzone?: string | null
           municipality?: string | null
           possible_duplicate?: boolean
+          priority?: string | null
           priority_score?: number
           property_type?: string | null
+          quality_bucket?: string | null
           raw_id?: string | null
           scoring_reason?: string | null
           source_name?: string
           source_url?: string | null
+          status?: string | null
           surface_mq?: number | null
           tags?: string[]
           title?: string
           updated_at?: string
+          valore_omi_max?: number | null
+          valore_omi_min?: number | null
         }
         Relationships: [
           {
@@ -5229,7 +5250,16 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      omi_microzone_range: {
+        Row: {
+          comune_key: string | null
+          microzone: string | null
+          omi_max: number | null
+          omi_min: number | null
+          semestre_ultimo: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       clear_omi_geometry: { Args: never; Returns: undefined }
