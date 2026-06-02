@@ -3224,6 +3224,7 @@ export type Database = {
           microzone: string | null
           municipality: string | null
           possible_duplicate: boolean
+          predictive_insight: string | null
           priority: string | null
           priority_score: number
           property_type: string | null
@@ -3259,6 +3260,7 @@ export type Database = {
           microzone?: string | null
           municipality?: string | null
           possible_duplicate?: boolean
+          predictive_insight?: string | null
           priority?: string | null
           priority_score?: number
           property_type?: string | null
@@ -3294,6 +3296,7 @@ export type Database = {
           microzone?: string | null
           municipality?: string | null
           possible_duplicate?: boolean
+          predictive_insight?: string | null
           priority?: string | null
           priority_score?: number
           property_type?: string | null
@@ -5273,6 +5276,10 @@ export type Database = {
         Returns: boolean
       }
       clear_omi_geometry: { Args: never; Returns: undefined }
+      generate_predictive_insight: {
+        Args: { p_opportunity_id: string }
+        Returns: string
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
