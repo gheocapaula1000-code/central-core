@@ -128,6 +128,7 @@ const ROUTES = [
   "POST /jobs/firecrawl-offmarket-microzone-discovery",
   "POST /jobs/discover-early-offmarket-signals",
   "POST /jobs/offmarket-padova",
+  "POST /jobs/offmarket-diagnostics",
   "POST /jobs/rescore-early-offmarket-candidates",
   "POST /jobs/promote-early-signal-candidate",
   "POST /jobs/promote-batch",
