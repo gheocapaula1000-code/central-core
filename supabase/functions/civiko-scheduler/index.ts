@@ -209,6 +209,7 @@ serve(async (req) => {
       // Phase 2: scoring (sequential, after phase 1)
       const scoring = await callRadar("/jobs/build-offmarket-opportunity-scores", {
         comuni: ["Padova"], triggered_by: "civiko-scheduler",
+        dryRun: false, import: true, commit: true,
       });
       offmarket_pipelines.push(scoring);
     }

@@ -17,6 +17,7 @@ import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supa
 export interface OffMarketRequest {
   dryRun?: boolean;
   import?: boolean;
+  commit?: boolean;
   province?: string[];
   comuni?: string[];
   minConfidence?: number;
@@ -95,6 +96,7 @@ export interface OffMarketReport {
   records_scoreable: number;
   records_skipped: number;
   records_upserted: number;
+  evidence_upserted?: number;
   avg_off_market_potential: number;
   avg_acquisition_priority: number;
   avg_microzone_heat: number;
@@ -586,7 +588,7 @@ export async function runOffMarketOpportunityEngine(req: OffMarketRequest): Prom
     .map((p) => p.toUpperCase());
   const minConf = req.minConfidence ?? 0.45;
   const dryRun = req.dryRun !== false;
-  const doImport = req.import === true && !dryRun;
+  const doImport = (req.import === true || req.commit === true) && !dryRun;
 
   const supa = svc();
   const report: OffMarketReport = {
@@ -693,6 +695,57 @@ export async function runOffMarketOpportunityEngine(req: OffMarketRequest): Prom
       else upserted += count ?? chunk.length;
     }
     report.records_upserted = upserted;
+
+    // Mirror per-comune scores into civiko_evidence (aggregate-only, no PII)
+    const nowIso = new Date().toISOString();
+    const evidenceRows = scored.map(({ row, scores }) => {
+      const normalized = Math.round((scores.off_market_potential_score / 100) * 1000) / 1000;
+      const confBand = scores.confidence_score >= 75 ? "high"
+        : scores.confidence_score >= 50 ? "medium" : "low";
+      const provLc = (row.provincia || "").toLowerCase();
+      const comLc = (row.comune || "").toLowerCase().replace(/\s+/g, "_");
+      const entityKey = `${provLc}::${comLc}`;
+      const explanation =
+        `Off-market potential ${scores.off_market_potential_score}/100 ` +
+        `(norm ${normalized}) per ${row.comune} (${row.provincia}). ` +
+        `Acquisition ${scores.acquisition_priority_score}, ` +
+        `microzone heat ${scores.microzone_heat_score}, ` +
+        `quality ${scores.quality}, confidence ${scores.confidence_score}.` +
+        (scores.positive_factors.length ? ` Positivi: ${scores.positive_factors.slice(0, 4).join("; ")}.` : "") +
+        (scores.missing_factors.length ? ` Mancanti: ${scores.missing_factors.slice(0, 4).join(", ")}.` : "");
+      return {
+        entity_type: "comune",
+        entity_key: entityKey,
+        source_code: "offmarket_engine",
+        evidence_type: "offmarket_potential",
+        evidence_value: {
+          normalized,
+          off_market_potential_score: scores.off_market_potential_score,
+          acquisition_priority_score: scores.acquisition_priority_score,
+          microzone_heat_score: scores.microzone_heat_score,
+          family_attractiveness_score: scores.family_attractiveness_score,
+          investor_attractiveness_score: scores.investor_attractiveness_score,
+          confidence_score: scores.confidence_score,
+          quality: scores.quality,
+          comune: row.comune,
+          provincia: row.provincia,
+        },
+        confidence: confBand,
+        freshness_days: 0,
+        observed_at: nowIso,
+        explanation,
+        compliance_visibility: "aggregate_only",
+      };
+    });
+    let evUpserted = 0;
+    for (let i = 0; i < evidenceRows.length; i += 200) {
+      const chunk = evidenceRows.slice(i, i + 200);
+      const { error, count } = await supa.from("civiko_evidence")
+        .upsert(chunk, { onConflict: "entity_type,entity_key,source_code,evidence_type", count: "exact" });
+      if (error) errors.push(`evidence_upsert: ${error.message}`);
+      else evUpserted += count ?? chunk.length;
+    }
+    report.evidence_upserted = evUpserted;
   } else if (!doImport) {
     warnings.push("dryRun/import=false: candidati non scritti.");
   }
