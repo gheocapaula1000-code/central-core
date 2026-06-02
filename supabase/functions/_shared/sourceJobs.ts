@@ -83,20 +83,18 @@ export function buildRequestPlan(
       headers["x-source-app"] = "civiko";
       break;
     case "F5":
-      // Admin-Bearer endpoint. Pass service-role + job secret to use the
-      // job-secret bypass path (constant-time compared inside the function).
-      if (!serviceKey) return { skip_reason: "missing_SUPABASE_SERVICE_ROLE_KEY" };
-      headers["Authorization"] = `Bearer ${serviceKey}`;
-      headers["apikey"] = serviceKey;
+      // connector-osm-cantieri: verify_jwt is disabled at platform level
+      // (see supabase/config.toml). The function itself authorizes via
+      // x-job-secret (Path A) — already in `headers`. No extra header
+      // needed; sending SUPABASE_ANON_KEY would fail because under the
+      // signing-keys system it is sb_publishable_ (not a JWT).
       break;
     case "F19":
-      // Aggregate-only obituaries importer — same job-secret bypass path.
-      if (!serviceKey) return { skip_reason: "missing_SUPABASE_SERVICE_ROLE_KEY" };
-      headers["Authorization"] = `Bearer ${serviceKey}`;
-      headers["apikey"] = serviceKey;
-      // Default payload so the function doesn't reject with EMPTY_INPUT.
-      body.mode = "aggregate_only";
-      break;
+      // civiko-source-registry/import/obituaries-aggregate requires a CSV
+      // or rows[] payload that the scheduler does not generate. The job
+      // must be manually triggered with a real aggregate CSV (k>=3),
+      // so the scheduler skips it cleanly instead of failing.
+      return { skip_reason: "f19_requires_manual_aggregate_csv" };
     case "F11":
       if (!coords) return { skip_reason: "MISSING_COORDS" };
       body.lat = coords.lat;

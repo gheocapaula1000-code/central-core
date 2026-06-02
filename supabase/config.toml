@@ -119,7 +119,10 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.connector-osm-cantieri]
-verify_jwt = true
+# Auth handled inside the function: Path A x-job-secret (scheduler bypass)
+# or Path B admin Bearer JWT. Platform-level verify_jwt would reject
+# scheduler calls because SUPABASE_ANON_KEY is now sb_publishable_ (non-JWT).
+verify_jwt = false
 
 [functions.territory-records]
 verify_jwt = true
