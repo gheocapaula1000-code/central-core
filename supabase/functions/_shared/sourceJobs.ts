@@ -82,13 +82,16 @@ export function buildRequestPlan(
       headers["x-internal-secret"] = civikoSecret;
       headers["x-source-app"] = "civiko";
       break;
-    case "F5":
-      // connector-osm-cantieri: Path A (job-secret bypass) is sufficient.
-      // Do NOT send Authorization/apikey with SERVICE_ROLE_KEY because under
-      // the signing-keys system that token is not a valid JWT and the
-      // platform gateway rejects the request with UNAUTHORIZED_INVALID_JWT_FORMAT
-      // before the function even runs. x-job-secret is already in `headers`.
+    case "F5": {
+      // connector-osm-cantieri: Path A (x-job-secret bypass) handles auth
+      // inside the function. The Supabase gateway, however, still requires
+      // an apikey header on every functions/v1 call — so we send the public
+      // anon key (publishable JWT) which the platform accepts without
+      // triggering UNAUTHORIZED_INVALID_JWT_FORMAT.
+      const anon = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+      if (anon) headers["apikey"] = anon;
       break;
+    }
     case "F19":
       // civiko-source-registry/import/obituaries-aggregate requires a CSV
       // or rows[] payload that the scheduler does not generate. The job
