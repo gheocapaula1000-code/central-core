@@ -5262,6 +5262,16 @@ export type Database = {
       }
     }
     Functions: {
+      check_if_marketed: {
+        Args: {
+          p_address: string
+          p_cap: string
+          p_microzone?: string
+          p_municipality?: string
+          p_surface_mq?: number
+        }
+        Returns: boolean
+      }
       clear_omi_geometry: { Args: never; Returns: undefined }
       has_role: {
         Args: {

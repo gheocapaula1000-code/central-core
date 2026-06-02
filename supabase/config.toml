@@ -136,6 +136,13 @@ verify_jwt = true
 [functions.luxuradar-scan]
 verify_jwt = false
 
+[functions.fetch-albo-pretorio]
+verify_jwt = false
+
+[functions.fetch-aste-nascoste]
+verify_jwt = false
+
+
 
 
 
