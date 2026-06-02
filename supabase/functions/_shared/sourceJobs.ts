@@ -75,7 +75,10 @@ export function buildRequestPlan(
     case "F2":
     case "F6":
       // Protected by requireSecret() with segmented AI_CORE_SECRET_CIVIKO.
-      if (!civikoSecret) return { skip_reason: "missing_AI_CORE_SECRET_CIVIKO" };
+      if (!civikoSecret) {
+        console.warn("[scheduler] F2/F6: AI_CORE_SECRET_CIVIKO is empty");
+        return { skip_reason: "missing_AI_CORE_SECRET_CIVIKO" };
+      }
       headers["x-internal-secret"] = civikoSecret;
       headers["x-source-app"] = "civiko";
       break;
@@ -91,6 +94,8 @@ export function buildRequestPlan(
       if (!serviceKey) return { skip_reason: "missing_SUPABASE_SERVICE_ROLE_KEY" };
       headers["Authorization"] = `Bearer ${serviceKey}`;
       headers["apikey"] = serviceKey;
+      // Default payload so the function doesn't reject with EMPTY_INPUT.
+      body.mode = "aggregate_only";
       break;
     case "F11":
       if (!coords) return { skip_reason: "MISSING_COORDS" };
