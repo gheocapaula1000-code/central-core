@@ -128,7 +128,7 @@ Deno.serve(async (req) => {
           if (!md) continue;
           stats.scraped += 1;
 
-          const ext = await perplexityExtract(md, fcKey === pxKey ? "" : pxKey);
+          const ext = await perplexityExtract(md, pxKey);
           if (!ext || !ext.type || ext.type === "altro") continue;
           stats.extracted += 1;
 
