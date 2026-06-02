@@ -135,7 +135,72 @@ serve(async (req) => {
       { source_code, due_only, dry_run },
     );
 
-    return json({ ok: true, data: result, debug_id });
+    // ── Off-market pipelines (civiko-radar-veneto) — daily, skipped on dry_run ──
+    const offmarket_pipelines: Array<{ job: string; ok: boolean; status?: number; summary?: unknown; error?: string; duration_ms: number }> = [];
+    if (!dry_run) {
+      const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+      const callRadar = async (route: string, body: Record<string, unknown>) => {
+        const started = Date.now();
+        const url = `${baseUrl}/civiko-radar-veneto${route}`;
+        try {
+          const res = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-job-secret": jobSecret,
+              "apikey": Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+            },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(180_000),
+          });
+          let parsed: unknown = null;
+          const text = await res.text();
+          try { parsed = JSON.parse(text); } catch { parsed = text.slice(0, 500); }
+          const summary = (parsed && typeof parsed === "object" && "data" in (parsed as Record<string, unknown>))
+            ? (parsed as Record<string, unknown>).data
+            : parsed;
+          const entry = {
+            job: route,
+            ok: res.ok,
+            status: res.status,
+            summary,
+            duration_ms: Date.now() - started,
+          };
+          console.log("[civiko-scheduler] offmarket pipeline:", route, JSON.stringify(summary).slice(0, 800));
+          return entry;
+        } catch (e) {
+          const err = e instanceof Error ? e.message : String(e);
+          console.log("[civiko-scheduler] offmarket pipeline:", route, "ERROR", err);
+          return { job: route, ok: false, error: err, duration_ms: Date.now() - started };
+        }
+      };
+
+      // Phase 1: discover/ingest in parallel
+      const phase1 = await Promise.allSettled([
+        callRadar("/jobs/discover-early-offmarket-signals", {
+          comuni: ["Padova"], saveCandidates: true, usePerplexityDiscovery: true,
+          useFirecrawl: true, maxSources: 20, dryRun: false,
+        }),
+        callRadar("/jobs/offmarket-padova", {
+          comuni: ["Padova"], saveCandidates: true, dryRun: false,
+        }),
+        callRadar("/jobs/padova-successioni", {
+          triggered_by: "civiko-scheduler",
+        }),
+      ]);
+      for (const p of phase1) {
+        if (p.status === "fulfilled") offmarket_pipelines.push(p.value);
+        else offmarket_pipelines.push({ job: "unknown", ok: false, error: String(p.reason), duration_ms: 0 });
+      }
+
+      // Phase 2: scoring (sequential, after phase 1)
+      const scoring = await callRadar("/jobs/build-offmarket-opportunity-scores", {
+        comuni: ["Padova"], triggered_by: "civiko-scheduler",
+      });
+      offmarket_pipelines.push(scoring);
+    }
+
+    return json({ ok: true, data: { ...result, offmarket_pipelines }, debug_id });
   } catch (e) {
     console.error("civiko-scheduler error", (e as Error).message);
     return json({ ok: false, error: { code: "INTERNAL_ERROR", message: "Errore temporaneo" }, debug_id }, 500);
