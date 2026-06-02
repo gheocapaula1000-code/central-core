@@ -1405,6 +1405,84 @@ Deno.serve(async (req) => {
           if (error) throw new Error(error.message);
           (result.summary as Record<string, unknown>).evidence_offmarket_in_db = count ?? 0;
         })());
+
+        // ---- db_snapshot (read-only diagnostics) ----
+        const dbSnapshot: Record<string, unknown> = {
+          evidence_types_distinct: [] as string[],
+          evidence_by_type: [] as Array<{ evidence_type: string | null; count: number }>,
+          source_registry: [] as unknown[],
+          tables_exist: {} as Record<string, boolean>,
+        };
+
+        // evidence_types_distinct + evidence_by_type (aggregate client-side)
+        await withTimeout("evidence_types_aggregate", (async () => {
+          const { data, error } = await supa
+            .from("civiko_evidence")
+            .select("evidence_type")
+            .limit(5000);
+          if (error) throw new Error(error.message);
+          const rows = (data ?? []) as Array<{ evidence_type: string | null }>;
+          const counts = new Map<string, number>();
+          for (const r of rows) {
+            const k = r.evidence_type ?? "__null__";
+            counts.set(k, (counts.get(k) ?? 0) + 1);
+          }
+          const sorted = [...counts.entries()]
+            .map(([evidence_type, count]) => ({
+              evidence_type: evidence_type === "__null__" ? null : evidence_type,
+              count,
+            }))
+            .sort((a, b) => b.count - a.count);
+          dbSnapshot.evidence_by_type = sorted;
+          dbSnapshot.evidence_types_distinct = sorted
+            .map((r) => r.evidence_type)
+            .filter((v): v is string => typeof v === "string")
+            .slice(0, 30);
+        })());
+
+        // full source_registry (all rows, all listed fields)
+        await withTimeout("source_registry_full", (async () => {
+          const { data, error } = await supa
+            .from("civiko_source_registry")
+            .select("source_code, last_run_at, last_success_at, last_error, record_count")
+            .order("source_code", { ascending: true });
+          if (error) throw new Error(error.message);
+          dbSnapshot.source_registry = data ?? [];
+        })());
+
+        // tables_exist: probe each table with HEAD; if PostgREST returns
+        // a "does not exist" / not found error, mark false.
+        const TABLES_TO_PROBE = [
+          "early_offmarket_signal_candidates",
+          "auction_signals",
+          "normalized_opportunities",
+          "territorial_signals",
+          "succession_heatmap_cap",
+        ];
+        const tablesExist: Record<string, boolean> = {};
+        await Promise.all(
+          TABLES_TO_PROBE.map(async (t) => {
+            try {
+              const { error } = await supa.from(t).select("*", { count: "exact", head: true }).limit(1);
+              if (!error) { tablesExist[t] = true; return; }
+              const msg = (error.message || "").toLowerCase();
+              const code = (error as { code?: string }).code || "";
+              const missing =
+                code === "42P01" ||
+                msg.includes("does not exist") ||
+                msg.includes("not found") ||
+                msg.includes("could not find the table");
+              tablesExist[t] = !missing;
+              if (!missing) errors[`tables_exist:${t}`] = error.message;
+            } catch (e) {
+              tablesExist[t] = false;
+              errors[`tables_exist:${t}`] = e instanceof Error ? e.message : String(e);
+            }
+          }),
+        );
+        dbSnapshot.tables_exist = tablesExist;
+
+        (result as Record<string, unknown>).db_snapshot = dbSnapshot;
       }
 
       if (Object.keys(errors).length > 0) {
