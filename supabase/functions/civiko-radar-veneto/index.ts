@@ -128,6 +128,7 @@ const ROUTES = [
   "POST /jobs/firecrawl-offmarket-microzone-discovery",
   "POST /jobs/discover-early-offmarket-signals",
   "POST /jobs/offmarket-padova",
+  "POST /jobs/offmarket-diagnostics",
   "POST /jobs/rescore-early-offmarket-candidates",
   "POST /jobs/promote-early-signal-candidate",
   "POST /jobs/promote-batch",
@@ -1294,8 +1295,124 @@ Deno.serve(async (req) => {
         return withIdentity(json(req, 200, { job: "offmarket-padova", ...r }, debugId), "job-offmarket-padova");
       } catch (e) {
         return withIdentity(fail(req, 500, "JOB_FAILED", e instanceof Error ? e.message : String(e), debugId), "job-error");
-      }
     }
+
+    if (pathname.endsWith("/jobs/offmarket-diagnostics")) {
+      const _auth = authorizeJob(req, debugId); if (_auth) return _auth;
+      const startedAt = new Date().toISOString();
+      const result: Record<string, unknown> = {
+        ok: true,
+        timestamp: startedAt,
+        early_discovery_dry_run: null as unknown,
+        recent_candidates: [] as unknown[],
+        recent_evidence: [] as unknown[],
+        source_registry_status: [] as unknown[],
+        summary: {
+          candidates_in_db: 0,
+          evidence_offmarket_in_db: 0,
+          sources_never_run: [] as string[],
+          sources_with_errors: [] as string[],
+        },
+      };
+      const errors: Record<string, string> = {};
+
+      const withTimeout = async <T>(label: string, p: Promise<T>): Promise<T | null> => {
+        try {
+          return await Promise.race([
+            p,
+            new Promise<T>((_, rej) => setTimeout(() => rej(new Error("timeout 30s")), 30_000)),
+          ]);
+        } catch (e) {
+          errors[label] = e instanceof Error ? e.message : String(e);
+          return null;
+        }
+      };
+
+      // a) dry-run early discovery
+      result.early_discovery_dry_run = await withTimeout("early_discovery_dry_run",
+        runEarlyOffmarketDiscovery({
+          comuni: ["Padova"],
+          dryRun: true,
+          usePerplexityDiscovery: true,
+          useFirecrawl: true,
+          maxSources: 5,
+          maxPagesPerSource: 2,
+          saveCandidates: false,
+        }),
+      );
+
+      const supa = getServiceClient();
+      const OFF_TYPES = ["off_market","succession_pressure","public_asset_disposal","urban_regeneration","motivated_seller"];
+      const SOURCE_CODES = ["F5","F7","F10","F11","F13","F19","F21"];
+
+      if (!supa) {
+        errors.db = "SUPABASE_SERVICE_ROLE_KEY missing";
+      } else {
+        // b) recent candidates
+        await withTimeout("recent_candidates", (async () => {
+          const { data, error } = await supa
+            .from("early_offmarket_signal_candidates")
+            .select("id, comune, signal_type, title, confidence_score, import_recommendation, created_at")
+            .order("created_at", { ascending: false })
+            .limit(10);
+          if (error) throw new Error(error.message);
+          result.recent_candidates = data ?? [];
+        })());
+
+        // c) recent evidence (off-market types)
+        await withTimeout("recent_evidence", (async () => {
+          const { data, error } = await supa
+            .from("civiko_evidence")
+            .select("id, source_type, comune, microzona, score, created_at")
+            .in("source_type", OFF_TYPES)
+            .order("created_at", { ascending: false })
+            .limit(10);
+          if (error) throw new Error(error.message);
+          result.recent_evidence = data ?? [];
+        })());
+
+        // d) source registry
+        await withTimeout("source_registry_status", (async () => {
+          const { data, error } = await supa
+            .from("civiko_source_registry")
+            .select("source_code, last_run_at, last_success_at, last_error, record_count")
+            .in("source_code", SOURCE_CODES);
+          if (error) throw new Error(error.message);
+          const rows = data ?? [];
+          result.source_registry_status = rows;
+          (result.summary as Record<string, unknown>).sources_never_run =
+            rows.filter((r: Record<string, unknown>) => r.last_run_at == null).map((r: Record<string, unknown>) => r.source_code as string);
+          (result.summary as Record<string, unknown>).sources_with_errors =
+            rows.filter((r: Record<string, unknown>) => r.last_error != null).map((r: Record<string, unknown>) => r.source_code as string);
+        })());
+
+        // summary counts
+        await withTimeout("candidates_in_db", (async () => {
+          const { count, error } = await supa
+            .from("early_offmarket_signal_candidates")
+            .select("id", { count: "exact", head: true })
+            .ilike("comune", "Padova");
+          if (error) throw new Error(error.message);
+          (result.summary as Record<string, unknown>).candidates_in_db = count ?? 0;
+        })());
+
+        await withTimeout("evidence_offmarket_in_db", (async () => {
+          const { count, error } = await supa
+            .from("civiko_evidence")
+            .select("id", { count: "exact", head: true })
+            .in("source_type", OFF_TYPES)
+            .ilike("comune", "Padova");
+          if (error) throw new Error(error.message);
+          (result.summary as Record<string, unknown>).evidence_offmarket_in_db = count ?? 0;
+        })());
+      }
+
+      if (Object.keys(errors).length > 0) {
+        (result as Record<string, unknown>).warnings = errors;
+      }
+      return withIdentity(json(req, 200, { job: "offmarket-diagnostics", ...result }, debugId), "job-offmarket-diag");
+    }
+
 
     // Rescore existing early off-market candidates with new classifier
     if (pathname.endsWith("/jobs/rescore-early-offmarket-candidates")) {
