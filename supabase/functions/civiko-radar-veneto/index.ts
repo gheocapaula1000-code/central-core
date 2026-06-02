@@ -1400,8 +1400,8 @@ Deno.serve(async (req) => {
           const { count, error } = await supa
             .from("civiko_evidence")
             .select("id", { count: "exact", head: true })
-            .in("source_type", OFF_TYPES)
-            .ilike("comune", "Padova");
+            .in("evidence_type", OFF_TYPES)
+            .ilike("entity_key", "%padova%");
           if (error) throw new Error(error.message);
           (result.summary as Record<string, unknown>).evidence_offmarket_in_db = count ?? 0;
         })());
