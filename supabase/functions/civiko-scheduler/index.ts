@@ -80,7 +80,8 @@ serve(async (req) => {
   try {
     const url = new URL(req.url);
     const path = url.pathname.replace(/^\/civiko-scheduler/, "").replace(/\/+$/, "") || "/run-scheduled";
-    if (req.method !== "POST" || path !== "/run-scheduled") {
+    const isRunSource = path === "/run-source";
+    if (req.method !== "POST" || (path !== "/run-scheduled" && !isRunSource)) {
       return json({ ok: false, error: { code: "NOT_FOUND", message: `Unknown route ${req.method} ${path}` }, debug_id }, 404);
     }
 
