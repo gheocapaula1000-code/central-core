@@ -321,29 +321,56 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
         warnings.push("save skipped: SUPABASE_SERVICE_ROLE_KEY missing");
       } else {
         const sb = createClient(url, svc, { auth: { persistSession: false } });
-        const rows = deduped.map((c) => {
-          const isPadova = (c.comune || "").trim().toLowerCase() === "padova";
-          const microzona = isPadova
-            ? matchPadovaMicrozona(c.title, c.summary, (c as { location_detail?: string }).location_detail)
-            : null;
-          return {
-            run_id, comune: c.comune, provincia: c.provincia,
-            signal_type: c.signal_type, title: c.title, summary: c.summary,
-            why_it_matters: c.why_it_matters, possible_agent_action: c.possible_agent_action,
-            timing: c.timing, source_url: c.source_url, source_name: c.source_name,
-            confidence_score: c.confidence_score, quality: c.quality, data_basis: c.data_basis,
-            privacy_safe: c.privacy_safe, needs_review: c.needs_review,
-            import_recommendation: c.import_recommendation, reject_reason: c.reject_reason ?? null,
-            location_detail: (c as { location_detail?: string }).location_detail ?? null,
-            payload: { matched_keywords: [], dryRun, microzona },
-            fingerprint: c.fingerprint,
-          };
-        });
-        const { error, count } = await sb
-          .from("early_offmarket_signal_candidates")
-          .upsert(rows, { onConflict: "fingerprint", count: "exact", ignoreDuplicates: false });
-        if (error) warnings.push(`save error: ${error.message}`);
-        else saved_candidates = count ?? rows.length;
+
+        // Dedup per title contro la tabella: niente duplicati di title già presenti.
+        const incomingTitles = Array.from(new Set(deduped.map((c) => c.title).filter(Boolean)));
+        const existingTitles = new Set<string>();
+        if (incomingTitles.length > 0) {
+          try {
+            const { data: existing } = await sb
+              .from("early_offmarket_signal_candidates")
+              .select("title")
+              .in("title", incomingTitles);
+            for (const r of (existing ?? []) as Array<{ title: string }>) {
+              if (r.title) existingTitles.add(r.title);
+            }
+          } catch { /* fallback: niente dedup per title se la query fallisce */ }
+        }
+
+        const rows = deduped
+          .filter((c) => !existingTitles.has(c.title))
+          .map((c) => {
+            const ext = c as { __microzona?: string; __location_detail?: string };
+            const isPadova = (c.comune || "").trim().toLowerCase() === "padova";
+            const microzona = ext.__microzona ?? (isPadova
+              ? matchPadovaMicrozona(c.title, c.summary, (c as { location_detail?: string }).location_detail)
+              : null);
+            const locDetail = ext.__location_detail
+              ?? (c as { location_detail?: string }).location_detail
+              ?? null;
+            return {
+              run_id, comune: c.comune, provincia: c.provincia,
+              signal_type: c.signal_type, title: c.title, summary: c.summary,
+              why_it_matters: c.why_it_matters, possible_agent_action: c.possible_agent_action,
+              timing: c.timing, source_url: c.source_url, source_name: c.source_name,
+              confidence_score: c.confidence_score, quality: c.quality, data_basis: c.data_basis,
+              privacy_safe: c.privacy_safe, needs_review: c.needs_review,
+              import_recommendation: c.import_recommendation, reject_reason: c.reject_reason ?? null,
+              location_detail: locDetail,
+              payload: { matched_keywords: [], dryRun, microzona },
+              fingerprint: c.fingerprint,
+            };
+          });
+
+        if (rows.length === 0) {
+          saved_candidates = 0;
+        } else {
+          const { error, count } = await sb
+            .from("early_offmarket_signal_candidates")
+            .upsert(rows, { onConflict: "fingerprint", count: "exact", ignoreDuplicates: false });
+          if (error) warnings.push(`save error: ${error.message}`);
+          else saved_candidates = count ?? rows.length;
+        }
       }
     } catch (e) {
       warnings.push(`save exception: ${e instanceof Error ? e.message : String(e)}`);
