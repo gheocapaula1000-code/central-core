@@ -746,6 +746,143 @@ export async function runOffMarketOpportunityEngine(req: OffMarketRequest): Prom
       else evUpserted += count ?? chunk.length;
     }
     report.evidence_upserted = evUpserted;
+
+    // ── Per-microzona evidence rows (additivo: non sostituisce l'aggregato pd::padova) ──
+    // Hard rule: nessun dato inventato. Una microzona viene scritta SOLO se ha
+    //   - sentiment locale (microzone_sentiment.area_label ≠ comune) oppure
+    //   - una zona OMI canonica (omi_zone_geometry) per quel comune
+    // E SOLO se signals_count >= 2 (early_offmarket_signal_candidates matchati) e normalized >= 0.1.
+    const slug = (s: string) => String(s).toLowerCase().trim()
+      .replace(/['’]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    const microRows: Array<Record<string, unknown>> = [];
+    for (const { row, scores } of scored) {
+      const comuneLc = (row.comune || "").toLowerCase();
+      const provLc = (row.provincia || "").toLowerCase();
+      const comuneNorm = comuneLc.trim();
+
+      // 1) microzone locali (sentiment per area_label distinto dal comune)
+      const microSet = new Map<string, { label: string; sentiment: number | null; conf: number | null }>();
+      try {
+        const { data: msRows } = await supa.from("microzone_sentiment")
+          .select("area_label,sentiment_score_total,confidence_score")
+          .eq("provincia", row.provincia)
+          .ilike("comune", row.comune || "")
+          .limit(500);
+        for (const m of (msRows ?? []) as Array<Record<string, unknown>>) {
+          const label = String(m.area_label ?? "").trim();
+          if (!label || label.toLowerCase() === comuneNorm) continue;
+          const s = slug(label);
+          if (!s) continue;
+          if (!microSet.has(s)) microSet.set(s, {
+            label,
+            sentiment: m.sentiment_score_total != null ? Number(m.sentiment_score_total) : null,
+            conf: m.confidence_score != null ? Number(m.confidence_score) : null,
+          });
+        }
+      } catch { /* ignore */ }
+
+      // 2) fallback: zone OMI canoniche
+      if (microSet.size === 0) {
+        try {
+          const { data: omiRows } = await supa.from("omi_zone_geometry")
+            .select("zona,zona_descr")
+            .ilike("comune_descrizione", row.comune || "")
+            .limit(500);
+          const seen = new Set<string>();
+          for (const z of (omiRows ?? []) as Array<Record<string, unknown>>) {
+            const label = String(z.zona_descr ?? z.zona ?? "").trim();
+            if (!label) continue;
+            const s = slug(label);
+            if (!s || seen.has(s)) continue;
+            seen.add(s);
+            microSet.set(s, { label, sentiment: null, conf: null });
+          }
+        } catch { /* ignore */ }
+      }
+
+      if (microSet.size === 0) continue;
+
+      // 3) candidates per quel comune con location_detail/title/summary
+      let candidates: Array<{ loc: string; conf: number | null }> = [];
+      try {
+        const { data: cands } = await supa.from("early_offmarket_signal_candidates")
+          .select("location_detail,title,summary,confidence_score")
+          .ilike("comune", row.comune || "")
+          .limit(1000);
+        candidates = ((cands ?? []) as Array<Record<string, unknown>>).map((c) => ({
+          loc: [c.location_detail, c.title, c.summary].filter(Boolean).join(" | ").toLowerCase(),
+          conf: c.confidence_score != null ? Number(c.confidence_score) : null,
+        }));
+      } catch { /* ignore */ }
+
+      const comuneNormalized = Math.round((scores.off_market_potential_score / 100) * 1000) / 1000;
+
+      for (const [microSlug, info] of microSet) {
+        const needle = info.label.toLowerCase();
+        const matched = candidates.filter((c) => c.loc.includes(needle) || c.loc.includes(microSlug.replace(/-/g, " ")));
+        const signalsCount = matched.length;
+
+        // microzone_heat: usa sentiment locale (0-100) se disponibile, altrimenti scala con signals
+        const microzoneHeat = info.sentiment != null
+          ? Math.round(info.sentiment)
+          : Math.min(100, signalsCount * 15);
+
+        // normalized: media tra normalized del comune e quota signals (capped)
+        const signalsScore = Math.min(1, signalsCount / 10);
+        const normalized = Math.round(((comuneNormalized + signalsScore) / 2) * 1000) / 1000;
+
+        // confidence: media confidence candidates + sentiment confidence (0..1)
+        const confSamples: number[] = [];
+        if (info.conf != null) confSamples.push(info.conf);
+        for (const m of matched) if (m.conf != null) confSamples.push(m.conf);
+        const confidenceScore = confSamples.length
+          ? Math.round((confSamples.reduce((a, b) => a + b, 0) / confSamples.length) * 100) / 100
+          : 0.5;
+
+        // hard filter: niente rumore
+        if (normalized < 0.1 || signalsCount < 2) continue;
+
+        const acquisitionPriority = Math.round((normalized * 60 + signalsScore * 40));
+        const confBand = confidenceScore >= 0.75 ? "high" : confidenceScore >= 0.5 ? "medium" : "low";
+
+        microRows.push({
+          entity_type: "microzona",
+          entity_key: `${provLc}::${microSlug}`,
+          source_code: "offmarket_engine",
+          evidence_type: "offmarket_potential",
+          evidence_value: {
+            normalized,
+            confidence_score: confidenceScore,
+            microzone_heat: microzoneHeat,
+            acquisition_priority: acquisitionPriority,
+            signals_count: signalsCount,
+            comune: row.comune,
+            provincia: row.provincia,
+            area_label: info.label,
+          },
+          confidence: confBand,
+          freshness_days: 0,
+          observed_at: nowIso,
+          explanation:
+            `Microzona ${info.label} (${row.comune}): normalized ${normalized}, ` +
+            `${signalsCount} segnali off-market, heat ${microzoneHeat}/100, ` +
+            `confidence ${confidenceScore}.`,
+          compliance_visibility: "aggregate_only",
+        });
+      }
+    }
+
+    let microUpserted = 0;
+    for (let i = 0; i < microRows.length; i += 200) {
+      const chunk = microRows.slice(i, i + 200);
+      const { error, count } = await supa.from("civiko_evidence")
+        .upsert(chunk, { onConflict: "entity_type,entity_key,source_code,evidence_type", count: "exact" });
+      if (error) errors.push(`microzona_evidence_upsert: ${error.message}`);
+      else microUpserted += count ?? chunk.length;
+    }
+    report.evidence_upserted = (report.evidence_upserted ?? 0) + microUpserted;
   } else if (!doImport) {
     warnings.push("dryRun/import=false: candidati non scritti.");
   }
