@@ -217,6 +217,7 @@ async function fetchOffmarketSignals(
       })
       .slice(0, 5);
 
+    console.log("[offmarket] rows found:", data?.length, "after filter:", rows?.length, "top5:", top_signals?.length);
     return { count: rows.length, top_signals, has_succession_pressure };
   } catch {
     return empty;
