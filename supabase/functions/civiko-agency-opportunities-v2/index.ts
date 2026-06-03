@@ -365,7 +365,6 @@ serve(async (req) => {
     logStage(debug_id, "STAGE_CLASSIFICATION", true);
 
     const offmarket_signals = await fetchOffmarketSignals(supabase, scopeComuni);
-    console.log("[v2 final response] offmarket_signals:", JSON.stringify(offmarket_signals));
 
     const serialized = await (async () => {
       const data = buildResponseData(
