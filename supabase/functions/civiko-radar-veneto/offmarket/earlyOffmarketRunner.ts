@@ -399,7 +399,7 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
     sample_importable: deduped.filter((c) => c.import_recommendation === "importable").slice(0, 5),
     sample_needs_review: deduped.filter((c) => c.import_recommendation === "needs_review").slice(0, 5),
     estimated_value_for_radar: value,
-    cost_estimate: { firecrawl_credits: fcCredits, apify_runs: 0, perplexity_queries: perplexityQueries },
+    cost_estimate: { firecrawl_credits: fcCredits, apify_runs: 0, perplexity_queries: perplexityQueries + microzonaQueries },
     warnings, errors,
   };
 }
