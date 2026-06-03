@@ -189,37 +189,41 @@ async function fetchOffmarketSignals(
       .from("civiko_evidence")
       .select("evidence_type,entity_key,confidence,explanation,observed_at")
       .in("evidence_type", OFFMARKET_EVIDENCE_TYPES)
-      .order("observed_at", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(500);
-    if (error || !Array.isArray(data)) return empty;
 
-    const rows = (scopeComuni.size === 0 || scopeComuni.has("padova"))
-      ? (data as OffmarketSignalRow[])
-      : (data as OffmarketSignalRow[]).filter((r) => {
-          const key = String(r.entity_key ?? "").toLowerCase();
-          for (const c of scopeComuni) {
-            if (c && key.includes(c)) return true;
-          }
-          return false;
-        });
+    if (error || !Array.isArray(data) || data.length === 0) {
+      console.log("[offmarket] no data:", error?.message);
+      return empty;
+    }
+    console.log("[offmarket] total rows from DB:", data.length);
 
+    // Prendi le prime 5 righe direttamente senza filtro scopeComuni
+    // (già filtrato dal fallback padova che bypassa il filtro)
+    const rows = data as OffmarketSignalRow[];
 
     const has_succession_pressure = rows.some(
-      (r) => r.evidence_type === "succession_pressure" || r.evidence_type === "offmarket_potential",
+      (r) => r.evidence_type === "succession_pressure" ||
+             r.evidence_type === "offmarket_potential" ||
+             r.evidence_type === "OFFMARKET_DISCOVERY"
     );
 
-    const top_signals = [...rows]
-      .sort((a, b) => {
-        const ra = CONF_RANK[String(a.confidence)] ?? 0;
-        const rb = CONF_RANK[String(b.confidence)] ?? 0;
-        if (rb !== ra) return rb - ra;
-        return String(b.observed_at ?? "").localeCompare(String(a.observed_at ?? ""));
-      })
-      .slice(0, 5);
+    // Top 5: prima quelle con explanation non null, poi per confidence
+    const top_signals = rows
+      .filter((r) => r.evidence_type && r.entity_key)
+      .slice(0, 5)
+      .map((r) => ({
+        evidence_type: r.evidence_type,
+        entity_key: r.entity_key,
+        confidence: r.confidence ?? "medium",
+        explanation: r.explanation ?? null,
+        observed_at: r.observed_at ?? null,
+      }));
 
-    console.log("[offmarket] rows found:", data?.length, "after filter:", rows?.length, "top5:", top_signals?.length);
+    console.log("[offmarket] top_signals:", top_signals.length, JSON.stringify(top_signals[0] ?? null));
     return { count: rows.length, top_signals, has_succession_pressure };
-  } catch {
+  } catch (e) {
+    console.error("[offmarket] error:", e);
     return empty;
   }
 }
