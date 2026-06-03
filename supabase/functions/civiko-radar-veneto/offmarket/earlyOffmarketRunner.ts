@@ -18,6 +18,7 @@ import {
 import { classifyEarlySignal, type EarlySignalType } from "./earlySignalClassifier.ts";
 import { perplexityAvailable, runPerplexityDiscovery, type DiscoveryHit } from "./perplexityDiscovery.ts";
 import { matchPadovaMicrozona } from "./padovaMicrozoneMatcher.ts";
+import { runPadovaMicrozonaDiscovery } from "./padovaMicrozonaPerplexity.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 export interface DiscoveryBody {
@@ -248,6 +249,47 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
     }
   }
 
+  // ── Fase 2: Perplexity microzona-per-microzona (solo Padova, top-5) ──
+  // 5 chiamate in sequenza con 500ms di pausa. Confidence base 0.4.
+  // Dedup per title contro early_offmarket_signal_candidates a valle (vedi save block).
+  const isPadovaTargeted =
+    !body.comuni || body.comuni.length === 0 ||
+    body.comuni.some((c) => c.toLowerCase().trim() === "padova");
+  let microzonaQueries = 0;
+  if (usePplx && pplxAvail && isPadovaTargeted) {
+    try {
+      const mz = await runPadovaMicrozonaDiscovery();
+      microzonaQueries = mz.queries_run;
+      if (mz.errors.length > 0) warnings.push(`perplexity_microzona: ${mz.errors.length} errori`);
+      for (const h of mz.hits) {
+        const cand: CandidateEarlySignal & { __microzona?: string; __location_detail?: string } = {
+          comune: "Padova", provincia: "PD",
+          signal_type: h.signal_type,
+          title: h.title,
+          summary: h.snippet || `Segnale ${h.signal_type} per microzona ${h.microzona_label}`,
+          why_it_matters: `Microzona prioritaria ${h.microzona_label}: monitoraggio diretto su vendite private/successioni.`,
+          possible_agent_action: `Verificare manualmente la fonte e contattare l'area ${h.microzona_label}.`,
+          timing: "monitoring",
+          source_url: h.source_url,
+          source_name: `perplexity_microzona:${h.microzona_label}`,
+          confidence_score: h.confidence,
+          quality: "bassa",
+          data_basis: `perplexity_microzona:${h.microzona_slug}`,
+          privacy_safe: true,
+          needs_review: true,
+          import_recommendation: reco(h.confidence, true),
+          fingerprint: fingerprint(h.source_url, `microzona:${h.microzona_slug}`),
+        };
+        cand.__microzona = h.microzona_slug;
+        cand.__location_detail = h.microzona_label;
+        candidates.push(cand);
+      }
+    } catch (e) {
+      warnings.push(`perplexity_microzona exception: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+
   // dedup by fingerprint, keep highest confidence
   const map = new Map<string, CandidateEarlySignal>();
   for (const c of candidates) {
@@ -279,29 +321,56 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
         warnings.push("save skipped: SUPABASE_SERVICE_ROLE_KEY missing");
       } else {
         const sb = createClient(url, svc, { auth: { persistSession: false } });
-        const rows = deduped.map((c) => {
-          const isPadova = (c.comune || "").trim().toLowerCase() === "padova";
-          const microzona = isPadova
-            ? matchPadovaMicrozona(c.title, c.summary, (c as { location_detail?: string }).location_detail)
-            : null;
-          return {
-            run_id, comune: c.comune, provincia: c.provincia,
-            signal_type: c.signal_type, title: c.title, summary: c.summary,
-            why_it_matters: c.why_it_matters, possible_agent_action: c.possible_agent_action,
-            timing: c.timing, source_url: c.source_url, source_name: c.source_name,
-            confidence_score: c.confidence_score, quality: c.quality, data_basis: c.data_basis,
-            privacy_safe: c.privacy_safe, needs_review: c.needs_review,
-            import_recommendation: c.import_recommendation, reject_reason: c.reject_reason ?? null,
-            location_detail: (c as { location_detail?: string }).location_detail ?? null,
-            payload: { matched_keywords: [], dryRun, microzona },
-            fingerprint: c.fingerprint,
-          };
-        });
-        const { error, count } = await sb
-          .from("early_offmarket_signal_candidates")
-          .upsert(rows, { onConflict: "fingerprint", count: "exact", ignoreDuplicates: false });
-        if (error) warnings.push(`save error: ${error.message}`);
-        else saved_candidates = count ?? rows.length;
+
+        // Dedup per title contro la tabella: niente duplicati di title già presenti.
+        const incomingTitles = Array.from(new Set(deduped.map((c) => c.title).filter(Boolean)));
+        const existingTitles = new Set<string>();
+        if (incomingTitles.length > 0) {
+          try {
+            const { data: existing } = await sb
+              .from("early_offmarket_signal_candidates")
+              .select("title")
+              .in("title", incomingTitles);
+            for (const r of (existing ?? []) as Array<{ title: string }>) {
+              if (r.title) existingTitles.add(r.title);
+            }
+          } catch { /* fallback: niente dedup per title se la query fallisce */ }
+        }
+
+        const rows = deduped
+          .filter((c) => !existingTitles.has(c.title))
+          .map((c) => {
+            const ext = c as { __microzona?: string; __location_detail?: string };
+            const isPadova = (c.comune || "").trim().toLowerCase() === "padova";
+            const microzona = ext.__microzona ?? (isPadova
+              ? matchPadovaMicrozona(c.title, c.summary, (c as { location_detail?: string }).location_detail)
+              : null);
+            const locDetail = ext.__location_detail
+              ?? (c as { location_detail?: string }).location_detail
+              ?? null;
+            return {
+              run_id, comune: c.comune, provincia: c.provincia,
+              signal_type: c.signal_type, title: c.title, summary: c.summary,
+              why_it_matters: c.why_it_matters, possible_agent_action: c.possible_agent_action,
+              timing: c.timing, source_url: c.source_url, source_name: c.source_name,
+              confidence_score: c.confidence_score, quality: c.quality, data_basis: c.data_basis,
+              privacy_safe: c.privacy_safe, needs_review: c.needs_review,
+              import_recommendation: c.import_recommendation, reject_reason: c.reject_reason ?? null,
+              location_detail: locDetail,
+              payload: { matched_keywords: [], dryRun, microzona },
+              fingerprint: c.fingerprint,
+            };
+          });
+
+        if (rows.length === 0) {
+          saved_candidates = 0;
+        } else {
+          const { error, count } = await sb
+            .from("early_offmarket_signal_candidates")
+            .upsert(rows, { onConflict: "fingerprint", count: "exact", ignoreDuplicates: false });
+          if (error) warnings.push(`save error: ${error.message}`);
+          else saved_candidates = count ?? rows.length;
+        }
       }
     } catch (e) {
       warnings.push(`save exception: ${e instanceof Error ? e.message : String(e)}`);
@@ -330,7 +399,7 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
     sample_importable: deduped.filter((c) => c.import_recommendation === "importable").slice(0, 5),
     sample_needs_review: deduped.filter((c) => c.import_recommendation === "needs_review").slice(0, 5),
     estimated_value_for_radar: value,
-    cost_estimate: { firecrawl_credits: fcCredits, apify_runs: 0, perplexity_queries: perplexityQueries },
+    cost_estimate: { firecrawl_credits: fcCredits, apify_runs: 0, perplexity_queries: perplexityQueries + microzonaQueries },
     warnings, errors,
   };
 }
