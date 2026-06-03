@@ -1,3 +1,4 @@
+// v2.1 - fixed fetchOffmarketSignals top_signals
 // civiko-agency-opportunities-v2
 // GET /functions/v1/civiko-agency-opportunities-v2
 // Reads civiko_evidence scoped to the caller's agency_operating_areas and
