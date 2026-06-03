@@ -128,6 +128,8 @@ export interface ListBody {
   limit?: number;
   run_id?: string | null;
   includeUnsafe?: boolean;
+  comune?: string | null;
+  provincia?: string | null;
 }
 
 const LIST_FIELDS = [
@@ -157,6 +159,8 @@ export async function runListEarlyCandidates(body: ListBody) {
   else q = q.neq("status", "rejected");
   if (body.run_id) q = q.eq("run_id", body.run_id);
   if (!includeUnsafe) q = q.eq("privacy_safe", true);
+  if (body.comune && body.comune.trim()) q = q.ilike("comune", body.comune.trim());
+  if (body.provincia && body.provincia.trim()) q = q.ilike("provincia", body.provincia.trim());
 
   const { data, error } = await q;
   if (error) throw new Error(`list candidates: ${error.message}`);
