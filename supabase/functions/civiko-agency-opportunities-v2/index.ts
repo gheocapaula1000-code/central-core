@@ -288,31 +288,15 @@ serve(async (req) => {
     logStage(debug_id, "STAGE_SCOPE", true);
 
     const areaList = scopeStage;
-    if (
-      areaList.length === 0 ||
-      areaList.every(
-        (a) =>
-          (Array.isArray(a?.comuni) ? a.comuni.length : 0) === 0 &&
-          (Array.isArray(a?.microzones) ? a.microzones.length : 0) === 0 &&
-          (Array.isArray(a?.quartieri) ? a.quartieri.length : 0) === 0,
-      )
-    ) {
-      return json({
-        ok: true,
-        data: {
-          data_status: "setup_required",
-          message: "Configura le zone operative dell'agenzia per attivare il radar.",
-          ...EMPTY_PAYLOAD,
-        },
-      });
-    }
 
     let evidenceRows = await fetchEvidenceRows(supabase).catch((err) => ({ error: err }));
     if (!Array.isArray(evidenceRows)) return controlledError(debug_id, "STAGE_EVIDENCE_QUERY", evidenceRows.error, 200);
     logStage(debug_id, "STAGE_EVIDENCE_QUERY", true);
 
     const scopeComuni = new Set(
-      areaList.flatMap((a) => (Array.isArray(a.comuni) ? a.comuni : [])).map((c) => c.toLowerCase().trim()),
+      areaList.length === 0 || areaList.every((a) => (Array.isArray(a?.comuni) ? a.comuni.length : 0) === 0)
+        ? ["padova"]
+        : areaList.flatMap((a) => (Array.isArray(a.comuni) ? a.comuni : [])).map((c) => c.toLowerCase().trim()),
     );
 
     // Compute initial evidence counts scoped to the agency comuni.
