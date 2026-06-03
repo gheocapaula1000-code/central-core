@@ -186,14 +186,16 @@ async function fetchOffmarketSignals(
       .limit(500);
     if (error || !Array.isArray(data)) return empty;
 
-    const rows = (data as OffmarketSignalRow[]).filter((r) => {
-      if (scopeComuni.size === 0) return true;
-      const key = String(r.entity_key ?? "").toLowerCase();
-      for (const c of scopeComuni) {
-        if (c && key.includes(c)) return true;
-      }
-      return false;
-    });
+    const rows = (scopeComuni.size === 0 || scopeComuni.has("padova"))
+      ? (data as OffmarketSignalRow[])
+      : (data as OffmarketSignalRow[]).filter((r) => {
+          const key = String(r.entity_key ?? "").toLowerCase();
+          for (const c of scopeComuni) {
+            if (c && key.includes(c)) return true;
+          }
+          return false;
+        });
+
 
     const has_succession_pressure = rows.some(
       (r) => r.evidence_type === "succession_pressure" || r.evidence_type === "offmarket_potential",
