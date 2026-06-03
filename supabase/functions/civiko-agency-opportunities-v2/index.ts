@@ -293,10 +293,19 @@ serve(async (req) => {
     if (!Array.isArray(evidenceRows)) return controlledError(debug_id, "STAGE_EVIDENCE_QUERY", evidenceRows.error, 200);
     logStage(debug_id, "STAGE_EVIDENCE_QUERY", true);
 
-    const scopeComuni = new Set(
-      areaList.length === 0 || areaList.every((a) => (Array.isArray(a?.comuni) ? a.comuni.length : 0) === 0)
+    // Fallback: se nessuna zona configurata, usa Padova di default
+    const scopeComuni = new Set<string>(
+      areaList.length === 0 ||
+      areaList.every(
+        (a) =>
+          (Array.isArray(a?.comuni) ? a.comuni.length : 0) === 0 &&
+          (Array.isArray(a?.microzones) ? a.microzones.length : 0) === 0 &&
+          (Array.isArray(a?.quartieri) ? a.quartieri.length : 0) === 0,
+      )
         ? ["padova"]
-        : areaList.flatMap((a) => (Array.isArray(a.comuni) ? a.comuni : [])).map((c) => c.toLowerCase().trim()),
+        : areaList
+            .flatMap((a) => (Array.isArray(a.comuni) ? a.comuni : []))
+            .map((c) => c.toLowerCase().trim()),
     );
 
     // Compute initial evidence counts scoped to the agency comuni.
