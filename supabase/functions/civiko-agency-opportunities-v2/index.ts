@@ -161,7 +161,14 @@ const OFFMARKET_EVIDENCE_TYPES = [
   "succession_pressure",
   "OFFMARKET_DISCOVERY",
   "MICROZONE_PRESSURE",
+  "area_opportunity_score",
+  "area_trasformazione",
+  "segnale_demografico",
+  "brownfield",
+  "demolizione",
+  "STALE_LISTING",
 ];
+
 const CONF_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
 
 type OffmarketSignalRow = {
