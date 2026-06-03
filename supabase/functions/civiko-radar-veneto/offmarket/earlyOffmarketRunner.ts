@@ -17,6 +17,7 @@ import {
 } from "./earlySignalsRegistry.ts";
 import { classifyEarlySignal, type EarlySignalType } from "./earlySignalClassifier.ts";
 import { perplexityAvailable, runPerplexityDiscovery, type DiscoveryHit } from "./perplexityDiscovery.ts";
+import { matchPadovaMicrozona } from "./padovaMicrozoneMatcher.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 export interface DiscoveryBody {
@@ -278,17 +279,24 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
         warnings.push("save skipped: SUPABASE_SERVICE_ROLE_KEY missing");
       } else {
         const sb = createClient(url, svc, { auth: { persistSession: false } });
-        const rows = deduped.map((c) => ({
-          run_id, comune: c.comune, provincia: c.provincia,
-          signal_type: c.signal_type, title: c.title, summary: c.summary,
-          why_it_matters: c.why_it_matters, possible_agent_action: c.possible_agent_action,
-          timing: c.timing, source_url: c.source_url, source_name: c.source_name,
-          confidence_score: c.confidence_score, quality: c.quality, data_basis: c.data_basis,
-          privacy_safe: c.privacy_safe, needs_review: c.needs_review,
-          import_recommendation: c.import_recommendation, reject_reason: c.reject_reason ?? null,
-          payload: { matched_keywords: [], dryRun },
-          fingerprint: c.fingerprint,
-        }));
+        const rows = deduped.map((c) => {
+          const isPadova = (c.comune || "").trim().toLowerCase() === "padova";
+          const microzona = isPadova
+            ? matchPadovaMicrozona(c.title, c.summary, (c as { location_detail?: string }).location_detail)
+            : null;
+          return {
+            run_id, comune: c.comune, provincia: c.provincia,
+            signal_type: c.signal_type, title: c.title, summary: c.summary,
+            why_it_matters: c.why_it_matters, possible_agent_action: c.possible_agent_action,
+            timing: c.timing, source_url: c.source_url, source_name: c.source_name,
+            confidence_score: c.confidence_score, quality: c.quality, data_basis: c.data_basis,
+            privacy_safe: c.privacy_safe, needs_review: c.needs_review,
+            import_recommendation: c.import_recommendation, reject_reason: c.reject_reason ?? null,
+            location_detail: (c as { location_detail?: string }).location_detail ?? null,
+            payload: { matched_keywords: [], dryRun, microzona },
+            fingerprint: c.fingerprint,
+          };
+        });
         const { error, count } = await sb
           .from("early_offmarket_signal_candidates")
           .upsert(rows, { onConflict: "fingerprint", count: "exact", ignoreDuplicates: false });
