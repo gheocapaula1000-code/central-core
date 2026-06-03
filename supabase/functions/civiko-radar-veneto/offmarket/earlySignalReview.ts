@@ -128,6 +128,8 @@ export interface ListBody {
   limit?: number;
   run_id?: string | null;
   includeUnsafe?: boolean;
+  comune?: string | null;
+  provincia?: string | null;
 }
 
 const LIST_FIELDS = [
