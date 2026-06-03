@@ -18,6 +18,7 @@ import {
 import { classifyEarlySignal, type EarlySignalType } from "./earlySignalClassifier.ts";
 import { perplexityAvailable, runPerplexityDiscovery, type DiscoveryHit } from "./perplexityDiscovery.ts";
 import { matchPadovaMicrozona } from "./padovaMicrozoneMatcher.ts";
+import { runPadovaMicrozonaDiscovery } from "./padovaMicrozonaPerplexity.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 export interface DiscoveryBody {
