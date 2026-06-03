@@ -235,18 +235,6 @@ serve(async (req) => {
   try {
     if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
-    // Test endpoint senza autenticazione per debug fetchOffmarketSignals
-    const _url = new URL(req.url);
-    if (req.method === "GET" && _url.pathname.endsWith("/test-offmarket")) {
-      try {
-        const supabase = svc();
-        const result = await fetchOffmarketSignals(supabase, new Set<string>(["padova"]));
-        console.log("[test-offmarket] result:", JSON.stringify(result));
-        return json({ ok: true, debug_id, result });
-      } catch (e) {
-        return json({ ok: false, debug_id, error: String(e) }, 200);
-      }
-    }
 
     if (req.method !== "GET") return json({ ok: false, error: { code: "METHOD_NOT_ALLOWED" }, debug_id }, 405);
     logStage(debug_id, "STAGE_REQUEST", true);
@@ -377,7 +365,6 @@ serve(async (req) => {
     logStage(debug_id, "STAGE_CLASSIFICATION", true);
 
     const offmarket_signals = await fetchOffmarketSignals(supabase, scopeComuni);
-    console.log("[v2 final response] offmarket_signals:", JSON.stringify(offmarket_signals));
 
     const serialized = await (async () => {
       const data = buildResponseData(
