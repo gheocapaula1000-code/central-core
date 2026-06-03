@@ -249,6 +249,47 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
     }
   }
 
+  // ── Fase 2: Perplexity microzona-per-microzona (solo Padova, top-5) ──
+  // 5 chiamate in sequenza con 500ms di pausa. Confidence base 0.4.
+  // Dedup per title contro early_offmarket_signal_candidates a valle (vedi save block).
+  const isPadovaTargeted =
+    !body.comuni || body.comuni.length === 0 ||
+    body.comuni.some((c) => c.toLowerCase().trim() === "padova");
+  let microzonaQueries = 0;
+  if (usePplx && pplxAvail && isPadovaTargeted) {
+    try {
+      const mz = await runPadovaMicrozonaDiscovery();
+      microzonaQueries = mz.queries_run;
+      if (mz.errors.length > 0) warnings.push(`perplexity_microzona: ${mz.errors.length} errori`);
+      for (const h of mz.hits) {
+        const cand: CandidateEarlySignal & { __microzona?: string; __location_detail?: string } = {
+          comune: "Padova", provincia: "PD",
+          signal_type: h.signal_type,
+          title: h.title,
+          summary: h.snippet || `Segnale ${h.signal_type} per microzona ${h.microzona_label}`,
+          why_it_matters: `Microzona prioritaria ${h.microzona_label}: monitoraggio diretto su vendite private/successioni.`,
+          possible_agent_action: `Verificare manualmente la fonte e contattare l'area ${h.microzona_label}.`,
+          timing: "monitoring",
+          source_url: h.source_url,
+          source_name: `perplexity_microzona:${h.microzona_label}`,
+          confidence_score: h.confidence,
+          quality: "bassa",
+          data_basis: `perplexity_microzona:${h.microzona_slug}`,
+          privacy_safe: true,
+          needs_review: true,
+          import_recommendation: reco(h.confidence, true),
+          fingerprint: fingerprint(h.source_url, `microzona:${h.microzona_slug}`),
+        };
+        cand.__microzona = h.microzona_slug;
+        cand.__location_detail = h.microzona_label;
+        candidates.push(cand);
+      }
+    } catch (e) {
+      warnings.push(`perplexity_microzona exception: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+
   // dedup by fingerprint, keep highest confidence
   const map = new Map<string, CandidateEarlySignal>();
   for (const c of candidates) {
