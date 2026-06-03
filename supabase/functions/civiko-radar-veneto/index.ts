@@ -977,10 +977,54 @@ Deno.serve(async (req) => {
     }
     if (req.method !== "POST") return withIdentity(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), "error");
 
-    // Agency CRUD endpoints (proxy → x-job-secret + x-user-id)
+    // Agency CRUD endpoints (proxy → x-job-secret + x-user-id,
+    // OR direct PWA call → Authorization: Bearer <supabase jwt>)
     if (pathname.includes("/agency/") && !pathname.includes("/jobs/")) {
-      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
-      const handled = await handleAgencyCrudRoute(req, pathname, debugId);
+      let agencyReq: Request = req;
+      let jwtAuthOk = false;
+
+      // JWT path enabled only for create + list (PWA-facing routes).
+      const jwtEligible =
+        pathname.endsWith("/agency/operating-areas/create") ||
+        pathname.endsWith("/agency/operating-areas/list");
+
+      if (jwtEligible) {
+        const authH = req.headers.get("authorization") ?? req.headers.get("Authorization") ?? "";
+        const m = authH.match(/^Bearer\s+(.+)$/i);
+        if (m) {
+          const token = m[1].trim();
+          try {
+            const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2.45.0");
+            const supaUrl = Deno.env.get("SUPABASE_URL") ?? "";
+            const svcKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+            if (supaUrl && svcKey) {
+              const supabaseAdmin = createClient(supaUrl, svcKey, { auth: { persistSession: false } });
+              const { data, error } = await supabaseAdmin.auth.getUser(token);
+              if (!error && data?.user?.id) {
+                // Build a new Request with x-user-id injected (and email if available),
+                // since req.headers is immutable.
+                const newHeaders = new Headers(req.headers);
+                newHeaders.set("x-user-id", data.user.id);
+                if (data.user.email) newHeaders.set("x-user-email", data.user.email);
+                const bodyText = await req.text();
+                agencyReq = new Request(req.url, {
+                  method: req.method,
+                  headers: newHeaders,
+                  body: bodyText,
+                });
+                jwtAuthOk = true;
+              }
+            }
+          } catch (e) {
+            console.warn(`[${FUNCTION_NAME}] agency JWT verify error:`, e instanceof Error ? e.message : String(e));
+          }
+        }
+      }
+
+      if (!jwtAuthOk) {
+        const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      }
+      const handled = await handleAgencyCrudRoute(agencyReq, pathname, debugId);
       if (handled) {
         return withIdentity(json(req, handled.status, handled.body, debugId), "agency-crud");
       }
