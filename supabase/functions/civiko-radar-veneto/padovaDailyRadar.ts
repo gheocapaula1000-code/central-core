@@ -250,7 +250,7 @@ export async function runPadovaDailyRadar(opts: DailyRadarOptions = {}) {
     fnUrl("civiko-radar-veneto/jobs/refresh-padova-auctions"),
     { dryRun: opts.dryRun === true, includeNeedsReview: false, maxPagesPerSource: 6 },
     jobSecret,
-    180_000,
+    90_000,
   );
   stages.push(sAuc);
   if (!sAuc.ok) warnings.push(`auctions_refresh_failed:${sAuc.status}`);
@@ -262,7 +262,7 @@ export async function runPadovaDailyRadar(opts: DailyRadarOptions = {}) {
       fnUrl("civiko-radar-veneto/jobs/perplexity-deep-padova"),
       {},
       jobSecret,
-      120_000,
+      60_000,
     );
     stages.push(sPx);
     if (!sPx.ok) warnings.push(`perplexity_discovery_failed:${sPx.status}`);
@@ -291,7 +291,7 @@ export async function runPadovaDailyRadar(opts: DailyRadarOptions = {}) {
     fnUrl("civiko-radar-veneto/jobs/build-advanced-veneto-opportunities"),
     { doImport: !opts.dryRun, province: ["PD"] },
     jobSecret,
-    120_000,
+    60_000,
   );
   stages.push(sAdv);
   if (!sAdv.ok) warnings.push(`advanced_opportunities_failed:${sAdv.status}`);
@@ -325,7 +325,7 @@ export async function runPadovaDailyRadar(opts: DailyRadarOptions = {}) {
     fnUrl("civiko-radar-veneto/jobs/build-padova-early-warning"),
     { dryRun: opts.dryRun === true },
     jobSecret,
-    120_000,
+    60_000,
   );
   stages.push(sEw);
   if (!sEw.ok) warnings.push(`early_warning_failed:${sEw.status}`);
