@@ -202,20 +202,21 @@ serve(async (req) => {
         dryRun: false, import: true, commit: true,
       });
 
-      // Phase 3: arricchimento in parallel
+      // Phase 3a: Zone radar — elabora 3 zone per volta (no timeout)
+      await callRadar("/jobs/padova-zone-radar", {
+        mode: "next",
+        max_zones: 3,
+        dryRun: false,
+      });
+
+      // Phase 3b: Finalize zone radar
+      await callRadar("/jobs/padova-zone-radar-finalize", {});
+
+      // Phase 3c: parallel enrichment
       await Promise.allSettled([
-        callRadar("/jobs/padova-daily-radar", {
-          dryRun: false,
-          skipListingRefresh: true,
-          skipPerplexity: false,
-        }),
-        callRadar("/jobs/firecrawl-microzone-opportunity-signals", {
-          import: true,
-        }),
+        callRadar("/jobs/firecrawl-microzone-opportunity-signals", { import: true }),
         callRadar("/jobs/refresh-padova-legal-life-events", {}),
-        callRadar("/jobs/enrich-microzone-sentiment-from-territorial-signals", {
-          dryRun: false,
-        }),
+        callRadar("/jobs/enrich-microzone-sentiment-from-territorial-signals", { dryRun: false }),
       ]);
 
       console.log("[civiko-scheduler] all phases completed");
