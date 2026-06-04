@@ -563,13 +563,25 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
     }
   }
 
+  // Deduplica per fingerprint: se la stessa batch genera due row con lo stesso
+  // fingerprint (es. due lle:arcella con stessi tipi), l'upsert PostgreSQL fallisce.
+  // Teniamo l'ultima occorrenza (quella con score maggiore).
+  const rowsByFingerprint = new Map<string, typeof rows[0]>();
+  for (const r of rows) {
+    const existing = rowsByFingerprint.get(r.fingerprint);
+    if (!existing || r.early_acquisition_score > existing.early_acquisition_score) {
+      rowsByFingerprint.set(r.fingerprint, r);
+    }
+  }
+  const deduped = Array.from(rowsByFingerprint.values());
+
   let upserted = 0;
   let evidenceBackfill: Record<string, unknown> | null = null;
   let listingDistress: PadovaListingDistressResult | null = null;
-  if (!req.dryRun && rows.length > 0) {
+  if (!req.dryRun && deduped.length > 0) {
     // Upsert in chunks
-    for (let i = 0; i < rows.length; i += 200) {
-      const chunk = rows.slice(i, i + 200);
+    for (let i = 0; i < deduped.length; i += 200) {
+      const chunk = deduped.slice(i, i + 200);
       const { error, count } = await sb
         .from("early_warning_opportunities")
         .upsert(chunk, { onConflict: "fingerprint", count: "exact" });
@@ -577,7 +589,7 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
       else { upserted += count ?? chunk.length; }
     }
     // Mark older opportunities not refreshed in this run as inactive
-    const fps = rows.map((r) => r.fingerprint);
+    const fps = deduped.map((r) => r.fingerprint);
     if (fps.length > 0) {
       await sb
         .from("early_warning_opportunities")
