@@ -505,13 +505,21 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
     if (sourceSet.size < 2) warns.push("Singola fonte: confidence limitata.");
 
     const fingerprint = fingerprintFor(agg);
-    const title = primary === "AUCTION_CONFIRMATION"
-      ? `Conferma asta a Padova${agg.area_label ? " · " + agg.area_label : ""}`
-      : primary === "OFFMARKET_DISCOVERY"
-      ? `Opportunità off-market a Padova${agg.area_label ? " · " + agg.area_label : ""}`
-      : primary === "POSSIBLE_INHERITANCE_SIGNAL"
-      ? `Pressione successoria area Padova${agg.area_label ? " · " + agg.area_label : ""}`
-      : `${primary.replace(/_/g, " ").toLowerCase()} a Padova${agg.area_label ? " · " + agg.area_label : ""}`;
+    const areaStr = agg.area_label ?? agg.microzona ?? null;
+    const title =
+      primary === "AUCTION_CONFIRMATION"
+        ? `Asta giudiziaria${areaStr ? " · " + areaStr : " a Padova"}`
+        : primary === "OFFMARKET_DISCOVERY"
+        ? `Opportunità off-market${areaStr ? " · " + areaStr : " a Padova"}`
+        : primary === "POSSIBLE_INHERITANCE_SIGNAL"
+        ? `Pressione successoria${areaStr ? " · " + areaStr : " area Padova"}`
+        : primary === "MICROZONE_PRESSURE"
+        ? `Zona sotto pressione · ${areaStr ?? "Padova"}`
+        : primary === "STALE_LISTING"
+        ? `Listing stagnante${areaStr ? " · " + areaStr : " a Padova"}`
+        : primary === "URBAN_PLANNING_SIGNAL"
+        ? `Segnale urbanistico${areaStr ? " · " + areaStr : " a Padova"}`
+        : `${primary.replace(/_/g, " ").toLowerCase()}${areaStr ? " · " + areaStr : " · Padova"}`;
 
     const row = {
       fingerprint,
