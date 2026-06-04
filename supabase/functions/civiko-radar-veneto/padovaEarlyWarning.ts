@@ -471,7 +471,7 @@ export async function runPadovaEarlyWarning(req: PadovaEarlyWarningRequest = {})
     // reuse the existing `auc:<fingerprint>` key so they merge with auction_signals evidence.
     const key = t === "auction_confirmation"
       ? r.dedupe_key                                  // already "auc:<fingerprint>"
-      : `lle:${r.area_or_microzone ?? "padova"}`;
+      : `lle:${r.area_or_microzone ?? "padova"}:${r.source_name ?? "legal_life_event"}`;
     const agg = getAgg(key, { identity_hash: null, area_label: r.area_or_microzone ?? null });
     agg.signals.push({
       identity_hash: null,
