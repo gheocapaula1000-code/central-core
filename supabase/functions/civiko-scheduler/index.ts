@@ -148,9 +148,8 @@ serve(async (req) => {
       return json({ ok: true, data: result, debug_id });
     }
 
-    // ── Off-market pipelines (civiko-radar-veneto) — daily, skipped on dry_run ──
-    // Executed in the background to avoid the 150s gateway idle timeout.
-    if (!dry_run) {
+    // Risposta immediata 202 — tutto il lavoro gira in background
+    const backgroundWork = async () => {
       const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
       const callRadar = async (route: string, body: Record<string, unknown>) => {
         const started = Date.now();
@@ -172,98 +171,63 @@ serve(async (req) => {
           const summary = (parsed && typeof parsed === "object" && "data" in (parsed as Record<string, unknown>))
             ? (parsed as Record<string, unknown>).data
             : parsed;
-          const entry = {
-            job: route,
-            ok: res.ok,
-            status: res.status,
-            summary,
-            duration_ms: Date.now() - started,
-          };
-          console.log("[civiko-scheduler] offmarket pipeline:", route, JSON.stringify(summary).slice(0, 800));
-          return entry;
+          console.log("[civiko-scheduler] pipeline:", route, JSON.stringify(summary).slice(0, 800));
+          return { job: route, ok: res.ok, status: res.status, summary, duration_ms: Date.now() - started };
         } catch (e) {
           const err = e instanceof Error ? e.message : String(e);
-          console.log("[civiko-scheduler] offmarket pipeline:", route, "ERROR", err);
+          console.log("[civiko-scheduler] pipeline ERROR:", route, err);
           return { job: route, ok: false, error: err, duration_ms: Date.now() - started };
         }
       };
 
-      const offmarketTask = (async () => {
-        const offmarket_pipelines: Array<unknown> = [];
-        console.log(`[civiko-scheduler] offmarket background start debug_id=${debug_id}`);
+      if (dry_run) return;
 
-        // Phase 1: discover/ingest in parallel
-        const phase1 = await Promise.allSettled([
-          callRadar("/jobs/discover-early-offmarket-signals", {
-            comuni: ["Padova"], saveCandidates: true, usePerplexityDiscovery: true,
-            useFirecrawl: true, maxSources: 20, dryRun: false,
-          }),
-          callRadar("/jobs/offmarket-padova", {
-            comuni: ["Padova"], saveCandidates: true, dryRun: false,
-          }),
-          callRadar("/jobs/padova-successioni", {
-            triggered_by: "civiko-scheduler",
-          }),
-        ]);
-        for (const p of phase1) {
-          if (p.status === "fulfilled") offmarket_pipelines.push(p.value);
-          else offmarket_pipelines.push({ job: "phase1-unknown", ok: false, error: String(p.reason), duration_ms: 0 });
-        }
+      // Phase 1: ingest in parallel
+      await Promise.allSettled([
+        callRadar("/jobs/discover-early-offmarket-signals", {
+          comuni: ["Padova"], saveCandidates: true, usePerplexityDiscovery: true,
+          useFirecrawl: true, maxSources: 20, dryRun: false,
+        }),
+        callRadar("/jobs/offmarket-padova", {
+          comuni: ["Padova"], saveCandidates: true, dryRun: false,
+        }),
+        callRadar("/jobs/padova-successioni", {
+          triggered_by: "civiko-scheduler",
+        }),
+      ]);
 
-        // Phase 2: scoring (sequential, after phase 1)
-        const scoring = await callRadar("/jobs/build-offmarket-opportunity-scores", {
-          comuni: ["Padova"], triggered_by: "civiko-scheduler",
-          dryRun: false, import: true, commit: true,
-        });
-        offmarket_pipelines.push(scoring);
+      // Phase 2: scoring (sequential)
+      await callRadar("/jobs/build-offmarket-opportunity-scores", {
+        comuni: ["Padova"], triggered_by: "civiko-scheduler",
+        dryRun: false, import: true, commit: true,
+      });
 
-        // Phase 3: enrichment microzone + predictive signals (parallel, after phase 2)
-        const phase3 = await Promise.allSettled([
-          callRadar("/jobs/padova-daily-radar", {
-            triggered_by: "civiko-scheduler",
-            mode: "incremental",
-          }),
-          callRadar("/jobs/firecrawl-microzone-opportunity-signals", {
-            comuni: ["Padova"],
-            triggered_by: "civiko-scheduler",
-            dryRun: false,
-            import: true,
-          }),
-          callRadar("/jobs/refresh-padova-legal-life-events", {
-            triggered_by: "civiko-scheduler",
-            province: ["PD"],
-          }),
-          callRadar("/jobs/enrich-microzone-sentiment-from-territorial-signals", {
-            triggered_by: "civiko-scheduler",
-            comuni: ["Padova"],
-            dryRun: false,
-          }),
-        ]);
-        for (const p of phase3) {
-          if (p.status === "fulfilled") offmarket_pipelines.push(p.value);
-          else offmarket_pipelines.push({ job: "phase3-unknown", ok: false, error: String(p.reason), duration_ms: 0 });
-        }
+      // Phase 3: arricchimento in parallel
+      await Promise.allSettled([
+        callRadar("/jobs/padova-daily-radar", {
+          dryRun: false,
+          skipListingRefresh: true,
+          skipPerplexity: false,
+        }),
+        callRadar("/jobs/firecrawl-microzone-opportunity-signals", {
+          import: true,
+        }),
+        callRadar("/jobs/refresh-padova-legal-life-events", {}),
+        callRadar("/jobs/enrich-microzone-sentiment-from-territorial-signals", {
+          dryRun: false,
+        }),
+      ]);
 
-        console.log(`[civiko-scheduler] offmarket background done debug_id=${debug_id} jobs=${offmarket_pipelines.length}`);
-      })();
+      console.log("[civiko-scheduler] all phases completed");
+    };
 
-      // @ts-ignore EdgeRuntime is available in Deno Deploy
-      const ert = (globalThis as any).EdgeRuntime;
-      if (ert?.waitUntil) ert.waitUntil(offmarketTask);
-      else offmarketTask.catch((e) => console.error("[civiko-scheduler] offmarket task crash", e));
+    // @ts-ignore — Deno-specific API
+    EdgeRuntime.waitUntil(backgroundWork());
 
-      return json({
-        ok: true,
-        data: {
-          ...result,
-          offmarket_pipelines: "accepted_background",
-          note: "Off-market Phase 1/2/3 in esecuzione in background. Tail dei log con prefisso '[civiko-scheduler] offmarket pipeline:' per i risultati.",
-        },
-        debug_id,
-      }, 202);
-    }
-
-    return json({ ok: true, data: { ...result, offmarket_pipelines: [] }, debug_id });
+    return new Response(
+      JSON.stringify({ ok: true, data: { ran_at: new Date().toISOString(), mode: "background_202", debug_id }, debug_id }),
+      { status: 202, headers: { ...CORS, "Content-Type": "application/json; charset=utf-8" } },
+    );
 
   } catch (e) {
     console.error("civiko-scheduler error", (e as Error).message);
