@@ -212,6 +212,31 @@ serve(async (req) => {
         dryRun: false, import: true, commit: true,
       });
       offmarket_pipelines.push(scoring);
+
+      // Phase 3: enrichment microzone + predictive signals (parallel, after phase 2)
+      const phase3 = await Promise.allSettled([
+        callRadar("/jobs/padova-daily-radar", {
+          triggered_by: "civiko-scheduler",
+          mode: "incremental",
+        }),
+        callRadar("/jobs/firecrawl-microzone-opportunity-signals", {
+          comuni: ["Padova"],
+          triggered_by: "civiko-scheduler",
+          dryRun: false,
+        }),
+        callRadar("/jobs/refresh-padova-legal-life-events", {
+          triggered_by: "civiko-scheduler",
+          province: ["PD"],
+        }),
+        callRadar("/jobs/enrich-microzone-sentiment-from-territorial-signals", {
+          triggered_by: "civiko-scheduler",
+          comuni: ["Padova"],
+        }),
+      ]);
+      for (const p of phase3) {
+        if (p.status === "fulfilled") offmarket_pipelines.push(p.value);
+        else offmarket_pipelines.push({ job: "phase3-unknown", ok: false, error: String(p.reason), duration_ms: 0 });
+      }
     }
 
     return json({ ok: true, data: { ...result, offmarket_pipelines }, debug_id });
