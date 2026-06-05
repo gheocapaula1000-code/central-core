@@ -17,6 +17,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { toast } from "@/hooks/use-toast";
 import { AlertTriangle, RefreshCw, Loader2, Info } from "lucide-react";
 import IngestionRunsSection from "@/components/cron-health/IngestionRunsSection";
+import SourceRegistrySection from "@/components/cron-health/SourceRegistrySection";
 
 const MAIN_JOB = "nightly-data-refresh-master";
 
@@ -298,6 +299,7 @@ export default function CronHealthPage() {
       </Card>
 
       <IngestionRunsSection />
+      <SourceRegistrySection />
     </div>
   );
 }
