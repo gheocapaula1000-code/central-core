@@ -73,6 +73,27 @@ async function fetchStat(spec: TableSpec): Promise<Stat> {
   }
 }
 
+type ChainStep = {
+  job: string;
+  http_status: number;
+  ok: boolean;
+  excerpt?: string;
+  error?: string;
+  duration_ms: number;
+};
+
+type ChainResult = {
+  ok: boolean;
+  invoked_by?: string;
+  steps?: ChainStep[];
+  total_duration_ms?: number;
+  error?: string;
+};
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+const SUPABASE_ANON = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  import.meta.env.VITE_SUPABASE_ANON_KEY) as string;
+
 export default function DerivedSignalsSection() {
   const [stats, setStats] = useState<Stat[]>([]);
   const [loading, setLoading] = useState(false);
