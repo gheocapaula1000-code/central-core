@@ -194,35 +194,32 @@ export default function DerivedSignalsSection() {
           </Alert>
         )}
 
-        {chainResult?.steps && (
-          <Card className="bg-muted/30">
-            <CardContent className="pt-6 space-y-2">
-              <div className="text-xs uppercase text-muted-foreground">
-                Esito catena · {chainResult.invoked_by ?? "—"}
-                {chainResult.total_duration_ms != null &&
-                  ` · ${(chainResult.total_duration_ms / 1000).toFixed(1)}s`}
+        {chainResult?.started && (
+          <Alert className="border-blue-500/50 text-blue-700 dark:text-blue-400 [&>svg]:text-blue-500">
+            <CheckCircle2 className="h-4 w-4" />
+            <AlertTitle>Catena off-market avviata</AlertTitle>
+            <AlertDescription className="space-y-3">
+              <div>
+                {chainResult.message ??
+                  "Catena off-market avviata in background. I 5 job girano lato server (alcuni minuti). Ricarica i contatori tra qualche minuto."}
               </div>
-              <ul className="space-y-1.5">
-                {chainResult.steps.map((s) => (
-                  <li key={s.job} className="flex items-start gap-2 text-sm">
-                    {s.ok ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
-                    ) : (
-                      <XCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="font-mono text-xs">{s.job}</div>
-                      <div className="text-xs text-muted-foreground break-words">
-                        HTTP {s.http_status} · {(s.duration_ms / 1000).toFixed(1)}s
-                        {s.error && ` · ${s.error}`}
-                        {!s.ok && s.excerpt && ` · ${s.excerpt.slice(0, 200)}`}
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
+              {chainResult.invoked_by && (
+                <div className="text-xs opacity-80">Avviata da: {chainResult.invoked_by}</div>
+              )}
+              {chainResult.jobs && (
+                <ul className="text-xs font-mono opacity-80 list-disc pl-5">
+                  {chainResult.jobs.map((j) => <li key={j}>{j}</li>)}
+                </ul>
+              )}
+              <Button size="sm" variant="outline" onClick={fetchAll} disabled={loading}>
+                {loading ? (
+                  <><Loader2 className="h-3 w-3 mr-2 animate-spin" />Aggiornamento…</>
+                ) : (
+                  "Aggiorna contatori"
+                )}
+              </Button>
+            </AlertDescription>
+          </Alert>
         )}
 
         {loading && (
