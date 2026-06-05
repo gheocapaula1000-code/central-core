@@ -19,6 +19,7 @@ import {
   Gem,
   Flag,
   Archive,
+  HeartPulse,
 } from "lucide-react";
 import coreIcon from "@/assets/core-icon.png";
 import { NavLink } from "@/components/NavLink";
