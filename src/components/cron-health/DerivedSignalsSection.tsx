@@ -141,7 +141,6 @@ export default function DerivedSignalsSection() {
       setChainError(e instanceof Error ? e.message : "Errore di rete");
     } finally {
       setRunning(false);
-      await fetchAll();
     }
   }, [fetchAll]);
 
