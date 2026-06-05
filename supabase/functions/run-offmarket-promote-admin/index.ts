@@ -98,9 +98,11 @@ serve(async (req) => {
   // STEP A — sync jobs
   const rescore = await callJob(base, JOB_SECRET, "rescore-early-offmarket-candidates", {
     triggered_by: "manual_admin",
+    dryRun: false,
   });
   const promote = await callJob(base, JOB_SECRET, "promote-batch", {
     triggered_by: "manual_admin",
+    min_priority: 0,
   });
 
   // Extract promoted count if present
