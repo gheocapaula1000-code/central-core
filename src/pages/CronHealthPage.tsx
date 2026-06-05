@@ -296,6 +296,8 @@ export default function CronHealthPage() {
           </div>
         </CardContent>
       </Card>
+
+      <IngestionRunsSection />
     </div>
   );
 }
