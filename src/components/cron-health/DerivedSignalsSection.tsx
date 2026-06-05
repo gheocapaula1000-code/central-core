@@ -177,6 +177,63 @@ export default function DerivedSignalsSection() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
+          <div className="text-sm text-muted-foreground">
+            Lancia subito la catena di derivazione senza aspettare il cron notturno.
+          </div>
+          <Button onClick={runChain} disabled={running}>
+            {running ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Generazione in corso… (può richiedere alcuni minuti)
+              </>
+            ) : (
+              <>
+                <PlayCircle className="h-4 w-4 mr-2" />
+                Genera off-market ora
+              </>
+            )}
+          </Button>
+        </div>
+
+        {chainError && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{chainError}</AlertDescription>
+          </Alert>
+        )}
+
+        {chainResult?.steps && (
+          <Card className="bg-muted/30">
+            <CardContent className="pt-6 space-y-2">
+              <div className="text-xs uppercase text-muted-foreground">
+                Esito catena · {chainResult.invoked_by ?? "—"}
+                {chainResult.total_duration_ms != null &&
+                  ` · ${(chainResult.total_duration_ms / 1000).toFixed(1)}s`}
+              </div>
+              <ul className="space-y-1.5">
+                {chainResult.steps.map((s) => (
+                  <li key={s.job} className="flex items-start gap-2 text-sm">
+                    {s.ok ? (
+                      <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                    ) : (
+                      <XCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-mono text-xs">{s.job}</div>
+                      <div className="text-xs text-muted-foreground break-words">
+                        HTTP {s.http_status} · {(s.duration_ms / 1000).toFixed(1)}s
+                        {s.error && ` · ${s.error}`}
+                        {!s.ok && s.excerpt && ` · ${s.excerpt.slice(0, 200)}`}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+
         {loading && (
           <div className="flex items-center text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin mr-2" /> Caricamento…
