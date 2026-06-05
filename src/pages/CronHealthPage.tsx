@@ -299,6 +299,7 @@ export default function CronHealthPage() {
       </Card>
 
       <IngestionRunsSection />
+      <SourceRegistrySection />
     </div>
   );
 }
