@@ -156,6 +156,47 @@ export default function DerivedSignalsSection() {
     }
   }, [fetchAll]);
 
+  const runPromote = useCallback(async () => {
+    setPromoting(true);
+    setPromoteResult(null);
+    setPromoteError(null);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) {
+        setPromoteError("Sessione scaduta, rifai login.");
+        setPromoting(false);
+        return;
+      }
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/run-offmarket-promote-admin`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          apikey: SUPABASE_ANON,
+        },
+        body: JSON.stringify({}),
+      });
+      const txt = await resp.text();
+      let body: PromoteResult | null = null;
+      try { body = JSON.parse(txt); } catch { /* ignore */ }
+      if (resp.status === 401) {
+        setPromoteError("Sessione scaduta, rifai login.");
+      } else if (resp.status === 403) {
+        setPromoteError("Accesso riservato agli admin.");
+      } else if (!resp.ok) {
+        setPromoteError(body?.error || `Errore HTTP ${resp.status}`);
+      } else {
+        setPromoteResult(body);
+      }
+    } catch (e) {
+      setPromoteError(e instanceof Error ? e.message : "Errore di rete");
+    } finally {
+      setPromoting(false);
+    }
+  }, []);
+
+
 
   const total = stats.reduce((s, x) => s + (x.count ?? 0), 0);
   const mostRecent = stats.reduce<string | null>((max, x) => {
