@@ -2057,6 +2057,150 @@ Deno.serve(async (req) => {
     }
 
     // Cluster dossier — output operativo per agente (marker + talking points + potere contrattuale)
+    // ─────────────────────────────────────────────────────────────
+    // Contendibili — case pubblicizzate da PIÙ agenzie (no esclusiva)
+    // READ-ONLY: solo SELECT su listing_identity + listing_price_snapshots + market_anomalies.
+    // ─────────────────────────────────────────────────────────────
+    if (pathname.endsWith("/contendibili")) {
+      const _auth = authorizeJob(req, debugId); if (_auth) return _auth;
+      const rlC = rateLimit(req, `${FUNCTION_NAME}:contendibili`, { windowMs: 60_000, max: 60 });
+      if (!rlC.ok) {
+        const r = fail(req, 429, "RATE_LIMITED", "Troppe richieste, riprovare a breve.", debugId);
+        r.headers.set("Retry-After", String(rlC.retryAfter));
+        return withIdentity(r, "rate-limited");
+      }
+      let body: Record<string, unknown> = {};
+      try { body = (await req.json()) ?? {}; }
+      catch { return withIdentity(fail(req, 400, "INVALID_JSON", "Body is not valid JSON", debugId), "error"); }
+
+      const municipality = typeof body.municipality === "string" ? body.municipality.trim() : "";
+      if (!municipality) {
+        return withIdentity(fail(req, 400, "MISSING_MUNICIPALITY", "Field 'municipality' is required.", debugId), "error");
+      }
+      const province = typeof body.province === "string" ? body.province.trim() : null;
+      const minAgenciesRaw = Number(body.min_agencies);
+      const min_agencies = Number.isFinite(minAgenciesRaw) && minAgenciesRaw >= 2 ? Math.floor(minAgenciesRaw) : 2;
+      const limitRaw = Number(body.limit);
+      const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(100, Math.floor(limitRaw)) : 50;
+
+      const supa = getServiceClient();
+      if (!supa) return withIdentity(fail(req, 503, "DB_UNAVAILABLE", "No DB client", debugId), "error");
+
+      try {
+        // 1) listing_identity con >=min_agencies agenzie diverse nel comune.
+        // Filtraggio min_agencies fatto client-side (Supabase non espone array_length nella PostgREST select chain).
+        const { data: identities, error: idErr } = await supa
+          .from("listing_identity")
+          .select("identity_hash, agencies_seen, sources_seen, listing_ids_seen, observation_count, surface_sqm, rooms, property_type, last_seen_at")
+          .ilike("municipality", municipality)
+          .gt("observation_count", 1)
+          .order("last_seen_at", { ascending: false })
+          .limit(500);
+        if (idErr) {
+          console.error(`[${FUNCTION_NAME}] contendibili identity err: ${idErr.message}`);
+          return withIdentity(fail(req, 500, "DB_ERROR", "Lookup failed", debugId), "error");
+        }
+
+        const filtered = (identities ?? [])
+          .map((r) => ({
+            ...r,
+            _agencies: Array.isArray(r.agencies_seen) ? (r.agencies_seen as string[]).filter((a) => typeof a === "string" && a.trim().length > 0) : [],
+            _sources: Array.isArray(r.sources_seen) ? (r.sources_seen as string[]) : [],
+          }))
+          .filter((r) => r._agencies.length >= min_agencies)
+          .sort((a, b) => {
+            if (b._agencies.length !== a._agencies.length) return b._agencies.length - a._agencies.length;
+            return new Date(b.last_seen_at ?? 0).getTime() - new Date(a.last_seen_at ?? 0).getTime();
+          })
+          .slice(0, limit);
+
+        const items = await Promise.all(filtered.map(async (row) => {
+          const hash = row.identity_hash as string;
+
+          // Snapshots: per drops/days_online + last/initial price + raw fields
+          const { data: snaps } = await supa
+            .from("listing_price_snapshots")
+            .select("price_eur, captured_at, first_seen_at, raw_address, raw_title")
+            .eq("identity_hash", hash)
+            .order("captured_at", { ascending: true })
+            .limit(300);
+
+          const snapsArr = snaps ?? [];
+          const pricesAsc = snapsArr
+            .map((s) => ({ p: Number(s.price_eur), t: new Date(s.captured_at).getTime(), first: s.first_seen_at }))
+            .filter((x) => Number.isFinite(x.p) && x.p > 0);
+
+          let drops_count = 0;
+          for (let i = 1; i < pricesAsc.length; i++) {
+            const prev = pricesAsc[i - 1].p, cur = pricesAsc[i].p;
+            if (prev > 0 && ((prev - cur) / prev) * 100 >= 1) drops_count++;
+          }
+
+          const initial_price_eur = pricesAsc.length > 0 ? pricesAsc[0].p : null;
+          const last_price_eur = pricesAsc.length > 0 ? pricesAsc[pricesAsc.length - 1].p : null;
+          const total_drop_pct = initial_price_eur && last_price_eur && initial_price_eur > 0
+            ? Math.round(((initial_price_eur - last_price_eur) / initial_price_eur) * 10000) / 100
+            : null;
+
+          let earliest = Date.now();
+          for (const s of snapsArr) {
+            const t = s.first_seen_at ? new Date(s.first_seen_at).getTime() : new Date(s.captured_at).getTime();
+            if (Number.isFinite(t)) earliest = Math.min(earliest, t);
+          }
+          const days_online = snapsArr.length > 0 ? Math.max(0, Math.floor((Date.now() - earliest) / 86_400_000)) : 0;
+
+          const latest = snapsArr[snapsArr.length - 1];
+          const address = (latest?.raw_address as string | null) ?? municipality;
+          const title = (latest?.raw_title as string | null) ?? null;
+
+          // Anomalie
+          const { data: anomRows } = await supa
+            .from("market_anomalies")
+            .select("anomaly_type, confidence, detected_at, is_active")
+            .eq("identity_hash", hash)
+            .eq("is_active", true)
+            .in("anomaly_type", ["agency_swap", "cross_portal_reappear"])
+            .order("detected_at", { ascending: false })
+            .limit(10);
+          const anomalies = (anomRows ?? []).map((a) => ({
+            type: a.anomaly_type,
+            confidence: a.confidence,
+            detected_at: a.detected_at,
+          }));
+
+          return {
+            identity_hash: hash,
+            address,
+            title,
+            property_type: row.property_type ?? null,
+            surface_sqm: row.surface_sqm ?? null,
+            rooms: row.rooms ?? null,
+            agencies_count: row._agencies.length,
+            agencies_seen: row._agencies,
+            sources_seen: row._sources,
+            days_online,
+            last_price_eur,
+            initial_price_eur,
+            total_drop_pct,
+            drops_count,
+            anomalies,
+            last_seen_at: row.last_seen_at,
+          };
+        }));
+
+        return withIdentity(json(req, 200, {
+          municipality,
+          province,
+          min_agencies,
+          count: items.length,
+          items,
+        }, debugId), "contendibili");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] contendibili error: ${e instanceof Error ? e.message : String(e)}`);
+        return withIdentity(fail(req, 500, "CONTENDIBILI_FAILED", "Contendibili lookup failed", debugId), "error");
+      }
+    }
+
     if (pathname.endsWith("/cluster-dossier")) {
       const rlD = rateLimit(req, `${FUNCTION_NAME}:dossier`, { windowMs: 60_000, max: 60 });
       if (!rlD.ok) {
