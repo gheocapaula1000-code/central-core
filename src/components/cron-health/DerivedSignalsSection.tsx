@@ -82,6 +82,15 @@ type ChainResult = {
   error?: string;
 };
 
+type PromoteResult = {
+  ok: boolean;
+  invoked_by?: string;
+  rescore?: { status: number; result?: any };
+  promote?: { status: number; promoted?: number | null; result?: any };
+  data_engine?: { status: number; mode?: string; note?: string };
+  error?: string;
+};
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
   import.meta.env.VITE_SUPABASE_ANON_KEY) as string;
@@ -92,6 +101,9 @@ export default function DerivedSignalsSection() {
   const [running, setRunning] = useState(false);
   const [chainResult, setChainResult] = useState<ChainResult | null>(null);
   const [chainError, setChainError] = useState<string | null>(null);
+  const [promoting, setPromoting] = useState(false);
+  const [promoteResult, setPromoteResult] = useState<PromoteResult | null>(null);
+  const [promoteError, setPromoteError] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
