@@ -97,6 +97,9 @@ const SUPABASE_ANON = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
 export default function DerivedSignalsSection() {
   const [stats, setStats] = useState<Stat[]>([]);
   const [loading, setLoading] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [chainResult, setChainResult] = useState<ChainResult | null>(null);
+  const [chainError, setChainError] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -108,6 +111,48 @@ export default function DerivedSignalsSection() {
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
+
+  const runChain = useCallback(async () => {
+    setRunning(true);
+    setChainResult(null);
+    setChainError(null);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) {
+        setChainError("Sessione scaduta, rifai login.");
+        setRunning(false);
+        return;
+      }
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/run-offmarket-chain-admin`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          apikey: SUPABASE_ANON,
+        },
+        body: JSON.stringify({}),
+      });
+      const txt = await resp.text();
+      let body: ChainResult | null = null;
+      try { body = JSON.parse(txt); } catch { /* ignore */ }
+      if (resp.status === 401) {
+        setChainError("Sessione scaduta, rifai login.");
+      } else if (resp.status === 403) {
+        setChainError("Accesso riservato agli admin.");
+      } else if (!resp.ok) {
+        setChainError(body?.error || `Errore HTTP ${resp.status}`);
+      } else {
+        setChainResult(body);
+      }
+    } catch (e) {
+      setChainError(e instanceof Error ? e.message : "Errore di rete");
+    } finally {
+      setRunning(false);
+      await fetchAll();
+    }
+  }, [fetchAll]);
+
 
   const total = stats.reduce((s, x) => s + (x.count ?? 0), 0);
   const mostRecent = stats.reduce<string | null>((max, x) => {
