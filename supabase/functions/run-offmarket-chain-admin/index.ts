@@ -1,7 +1,6 @@
 // run-offmarket-chain-admin
-// Admin-protected proxy: verifies the caller is an authenticated admin via JWT,
-// then invokes the 5 off-market derivation jobs sequentially server-side
-// using CENTRAL_CORE_JOB_SECRET so the browser never sees the secret.
+// Admin-protected fire-and-forget proxy: verifies admin via JWT, then queues
+// the 5 off-market derivation jobs in background and returns immediately.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -27,8 +26,6 @@ const JOBS = [
   "offmarket-padova",
   "build-offmarket-opportunity-scores",
 ];
-
-const JOB_TIMEOUT_MS = 240_000; // 4 minutes per job
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -74,59 +71,46 @@ serve(async (req) => {
   }
 
   const base = SUPABASE_URL.replace(/\/+$/, "");
-  const t0 = Date.now();
-  const steps: Array<{
-    job: string;
-    http_status: number;
-    ok: boolean;
-    excerpt?: string;
-    error?: string;
-    duration_ms: number;
-  }> = [];
+  const invokedBy = userData.user.email ?? userId;
 
-  for (const job of JOBS) {
-    const url = `${base}/functions/v1/civiko-radar-veneto/jobs/${job}`;
-    const start = Date.now();
-    const controller = new AbortController();
-    const to = setTimeout(() => controller.abort(), JOB_TIMEOUT_MS);
-    try {
-      const r = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-job-secret": JOB_SECRET,
-        },
-        body: JSON.stringify({ triggered_by: "manual_admin_chain" }),
-        signal: controller.signal,
-      });
-      const txt = await r.text();
-      steps.push({
-        job,
-        http_status: r.status,
-        ok: r.status >= 200 && r.status < 300,
-        excerpt: txt.slice(0, 500),
-        duration_ms: Date.now() - start,
-      });
-    } catch (e) {
-      steps.push({
-        job,
-        http_status: 0,
-        ok: false,
-        error: e instanceof Error ? e.message : String(e),
-        duration_ms: Date.now() - start,
-      });
-    } finally {
-      clearTimeout(to);
+  const runChain = async () => {
+    console.log(`[offmarket-chain] start invoked_by=${invokedBy}`);
+    for (const job of JOBS) {
+      const url = `${base}/functions/v1/civiko-radar-veneto/jobs/${job}`;
+      const start = Date.now();
+      try {
+        const r = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-job-secret": JOB_SECRET,
+          },
+          body: JSON.stringify({ triggered_by: "manual_admin_chain" }),
+        });
+        const txt = await r.text();
+        console.log(
+          `[offmarket-chain] job=${job} status=${r.status} ok=${r.ok} duration_ms=${Date.now() - start} excerpt=${txt.slice(0, 300)}`,
+        );
+      } catch (e) {
+        console.error(
+          `[offmarket-chain] job=${job} ERROR after ${Date.now() - start}ms: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
     }
-  }
+    console.log(`[offmarket-chain] done invoked_by=${invokedBy}`);
+  };
 
-  return json(
-    {
-      ok: steps.every((s) => s.ok),
-      invoked_by: userData.user.email ?? userId,
-      steps,
-      total_duration_ms: Date.now() - t0,
-    },
-    200,
-  );
+  const task = runChain();
+  // @ts-ignore EdgeRuntime available in Supabase Edge Runtime
+  const ert = (globalThis as any).EdgeRuntime;
+  if (ert?.waitUntil) ert.waitUntil(task); else task.catch(() => {});
+
+  return json({
+    ok: true,
+    started: true,
+    invoked_by: invokedBy,
+    message:
+      "Catena off-market avviata in background. I 5 job girano lato server (alcuni minuti). Ricarica i contatori tra qualche minuto.",
+    jobs: JOBS,
+  }, 202);
 });
