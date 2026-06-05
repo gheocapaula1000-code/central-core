@@ -301,6 +301,7 @@ export default function CronHealthPage() {
 
       <IngestionRunsSection />
       <SourceRegistrySection />
+      <DerivedSignalsSection />
     </div>
   );
 }
