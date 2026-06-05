@@ -86,6 +86,7 @@ const App = () => (
                     <Route path="/data-engine" element={<DataEnginePage />} />
                     <Route path="/source-registry" element={<SourceRegistryPage />} />
                     <Route path="/admin/aggiorna-padova" element={<AdminAggiornaPadovaPage />} />
+                    <Route path="/admin/cron-health" element={<CronHealthPage />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </main>
