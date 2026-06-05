@@ -73,20 +73,12 @@ async function fetchStat(spec: TableSpec): Promise<Stat> {
   }
 }
 
-type ChainStep = {
-  job: string;
-  http_status: number;
-  ok: boolean;
-  excerpt?: string;
-  error?: string;
-  duration_ms: number;
-};
-
 type ChainResult = {
   ok: boolean;
+  started?: boolean;
   invoked_by?: string;
-  steps?: ChainStep[];
-  total_duration_ms?: number;
+  message?: string;
+  jobs?: string[];
   error?: string;
 };
 
