@@ -225,20 +225,90 @@ export default function DerivedSignalsSection() {
           <div className="text-sm text-muted-foreground">
             Lancia subito la catena di derivazione senza aspettare il cron notturno.
           </div>
-          <Button onClick={runChain} disabled={running}>
-            {running ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Generazione in corso… (può richiedere alcuni minuti)
-              </>
-            ) : (
-              <>
-                <PlayCircle className="h-4 w-4 mr-2" />
-                Genera off-market ora
-              </>
-            )}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={runChain} disabled={running || promoting}>
+              {running ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Generazione in corso…
+                </>
+              ) : (
+                <>
+                  <PlayCircle className="h-4 w-4 mr-2" />
+                  Genera off-market ora
+                </>
+              )}
+            </Button>
+            <Button onClick={runPromote} disabled={promoting || running} variant="secondary">
+              {promoting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Promozione candidati e avvio data engine…
+                </>
+              ) : (
+                <>
+                  <PlayCircle className="h-4 w-4 mr-2" />
+                  Promuovi + Data Engine
+                </>
+              )}
+            </Button>
+          </div>
         </div>
+
+        {promoteError && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{promoteError}</AlertDescription>
+          </Alert>
+        )}
+
+        {promoteResult?.ok && (
+          <Alert className="border-blue-500/50 text-blue-700 dark:text-blue-400 [&>svg]:text-blue-500">
+            <CheckCircle2 className="h-4 w-4" />
+            <AlertTitle>Promozione + data engine eseguiti</AlertTitle>
+            <AlertDescription className="space-y-2">
+              <div>
+                Candidati promossi:{" "}
+                <strong>
+                  {typeof promoteResult.promote?.promoted === "number"
+                    ? numFmt.format(promoteResult.promote.promoted)
+                    : "—"}
+                </strong>
+                {promoteResult.promote?.status != null && (
+                  <span className="opacity-70"> (HTTP {promoteResult.promote.status})</span>
+                )}
+              </div>
+              <div>
+                Rescore candidati:{" "}
+                <strong>
+                  {promoteResult.rescore?.status === 200 ? "ok" : `HTTP ${promoteResult.rescore?.status ?? "?"}`}
+                </strong>
+              </div>
+              <div>
+                Data engine:{" "}
+                <strong>
+                  {promoteResult.data_engine?.mode === "background"
+                    ? "avviato in background"
+                    : `HTTP ${promoteResult.data_engine?.status ?? "?"}`}
+                </strong>{" "}
+                — i risultati compaiono tra qualche minuto.
+              </div>
+              <div className="text-xs opacity-80">
+                Ricarica la pagina tra 2-3 minuti per vedere i contatori aggiornati.
+              </div>
+              {promoteResult.invoked_by && (
+                <div className="text-xs opacity-80">Avviata da: {promoteResult.invoked_by}</div>
+              )}
+              <Button size="sm" variant="outline" onClick={fetchAll} disabled={loading}>
+                {loading ? (
+                  <><Loader2 className="h-3 w-3 mr-2 animate-spin" />Aggiornamento…</>
+                ) : (
+                  "Aggiorna contatori"
+                )}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
 
         {chainError && (
           <Alert variant="destructive">
