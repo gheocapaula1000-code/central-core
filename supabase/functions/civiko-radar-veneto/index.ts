@@ -83,6 +83,7 @@ const ROUTES = [
   "POST /civiko/radar-veneto",
   "POST /agent-radar",
   "POST /cluster-dossier",
+  "POST /contendibili",
   "POST /generate-hook",
   "POST /jobs/recompute-succession-heatmap",
   "POST /jobs/recompute-price-resistance",
