@@ -19,6 +19,7 @@ import {
   Gem,
   Flag,
   Archive,
+  HeartPulse,
 } from "lucide-react";
 import coreIcon from "@/assets/core-icon.png";
 import { NavLink } from "@/components/NavLink";
@@ -46,6 +47,7 @@ const coreOps: Item[] = [
   { title: "Metrics", url: "/metrics", icon: BarChart3 },
   { title: "Self-Test", url: "/selftest", icon: ShieldCheck },
   { title: "Centro Crediti API", url: "/api-credits", icon: Wallet },
+  { title: "Salute Cron", url: "/admin/cron-health", icon: HeartPulse },
   { title: "Jobs Dev", url: "/dev/jobs", icon: ClipboardList },
   { title: "Task Registry (legacy)", url: "/tasks", icon: ClipboardList },
 ];
