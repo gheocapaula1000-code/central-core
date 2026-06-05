@@ -28,6 +28,7 @@ import SintesiProprietarioPage from "@/pages/SintesiProprietarioPage";
 import DataEnginePage from "@/pages/DataEnginePage";
 import SourceRegistryPage from "@/pages/SourceRegistryPage";
 import AdminAggiornaPadovaPage from "@/pages/AdminAggiornaPadovaPage";
+import CronHealthPage from "@/pages/CronHealthPage";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
