@@ -2122,7 +2122,7 @@ Deno.serve(async (req) => {
         // Filtraggio min_agencies fatto client-side (Supabase non espone array_length nella PostgREST select chain).
         const { data: identities, error: idErr } = await supa
           .from("listing_identity")
-          .select("identity_hash, agencies_seen, sources_seen, listing_ids_seen, observation_count, surface_sqm, rooms, property_type, last_seen_at")
+          .select("identity_hash, agencies_seen, sources_seen, listing_ids_seen, observation_count, surface_sqm, rooms, property_type, last_seen_at, lat_rounded, lng_rounded")
           .ilike("municipality", municipality)
           .gt("observation_count", 1)
           .order("last_seen_at", { ascending: false })
@@ -2258,6 +2258,9 @@ Deno.serve(async (req) => {
             price_inconsistent,
             anomalies,
             last_seen_at: row.last_seen_at,
+            lat_rounded: (row as { lat_rounded?: number | null }).lat_rounded ?? null,
+            lng_rounded: (row as { lng_rounded?: number | null }).lng_rounded ?? null,
+            diag_last_price_eur: last_price_eur,
           };
         }));
 
