@@ -2093,7 +2093,7 @@ Deno.serve(async (req) => {
     // READ-ONLY: solo SELECT su listing_identity + listing_price_snapshots + market_anomalies.
     // ─────────────────────────────────────────────────────────────
     if (pathname.endsWith("/contendibili")) {
-      const _auth = authorizeJob(req, debugId); if (_auth) return _auth;
+      const _auth = authorizeContendibili(req, debugId); if (_auth) return _auth;
       const rlC = rateLimit(req, `${FUNCTION_NAME}:contendibili`, { windowMs: 60_000, max: 60 });
       if (!rlC.ok) {
         const r = fail(req, 429, "RATE_LIMITED", "Troppe richieste, riprovare a breve.", debugId);
