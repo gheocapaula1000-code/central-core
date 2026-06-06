@@ -2258,6 +2258,9 @@ Deno.serve(async (req) => {
             price_inconsistent,
             anomalies,
             last_seen_at: row.last_seen_at,
+            lat_rounded: (row as { lat_rounded?: number | null }).lat_rounded ?? null,
+            lng_rounded: (row as { lng_rounded?: number | null }).lng_rounded ?? null,
+            diag_last_price_eur: last_price_eur,
           };
         }));
 
