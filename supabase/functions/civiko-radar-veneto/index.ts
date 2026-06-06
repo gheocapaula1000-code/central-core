@@ -321,6 +321,37 @@ function authorizeJob(req: Request, debugId: string): Response | null {
   return null;
 }
 
+/**
+ * Authorization specific to /contendibili: accepts EITHER
+ *   - x-job-secret == CENTRAL_CORE_JOB_SECRET (legacy/diag fallback supported)
+ *   - x-internal-secret == CORE_INTERNAL_SECRET (used by client core-proxy)
+ * All other endpoints remain on authorizeJob (x-job-secret only).
+ */
+function authorizeContendibili(req: Request, debugId: string): Response | null {
+  const jobPrimary = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+  const jobFallback = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
+  const internal = Deno.env.get("CORE_INTERNAL_SECRET") ?? "";
+  if (!jobPrimary && !jobFallback && !internal) {
+    return withIdentity(
+      fail(req, 500, "CONFIG_ERROR", "No authorization secret configured", debugId),
+      "job-auth",
+    );
+  }
+  const providedJob = req.headers.get("x-job-secret") ?? "";
+  const providedInternal = req.headers.get("x-internal-secret") ?? "";
+  const okJob =
+    (providedJob && jobPrimary && providedJob === jobPrimary) ||
+    (providedJob && jobFallback && providedJob === jobFallback);
+  const okInternal = providedInternal && internal && providedInternal === internal;
+  if (!okJob && !okInternal) {
+    return withIdentity(
+      fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret / x-internal-secret", debugId),
+      "job-auth",
+    );
+  }
+  return null;
+}
+
 function emptySignal(label: string): ZoneSignal {
   return { label, livello: "non_disponibile", nota: "Riscontro non disponibile in questo momento.", fonte: "Fonte da Collegare", fonte_certificata: "non_certificata" };
 }
