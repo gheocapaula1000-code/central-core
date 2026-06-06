@@ -2132,23 +2132,55 @@ Deno.serve(async (req) => {
           return withIdentity(fail(req, 500, "DB_ERROR", "Lookup failed", debugId), "error");
         }
 
-        const filtered = (identities ?? [])
-          .map((r) => ({
-            ...r,
-            _agencies: Array.isArray(r.agencies_seen) ? (r.agencies_seen as string[]).filter((a) => typeof a === "string" && a.trim().length > 0) : [],
-            _sources: Array.isArray(r.sources_seen) ? (r.sources_seen as string[]) : [],
-          }))
-          .filter((r) => r._agencies.length >= min_agencies)
+        // Normalizzazione nome agenzia per deduplica
+        const normalizeAgency = (raw: string): string => {
+          let s = raw.toLowerCase();
+          s = s.replace(/[.,()\[\]"']/g, " ");
+          s = s.replace(/\bs\s*\.?\s*r\s*\.?\s*l\s*\.?\s*s?\b/g, " "); // srl, s.r.l, srls
+          s = s.replace(/\bs\s*\.?\s*a\s*\.?\s*s\s*\.?\b/g, " "); // sas, s.a.s
+          s = s.replace(/\bs\s*\.?\s*n\s*\.?\s*c\s*\.?\b/g, " "); // snc
+          s = s.replace(/\bs\s*\.?\s*p\s*\.?\s*a\s*\.?\b/g, " "); // spa
+          s = s.replace(/\bsede\s+di\s+\S+/g, " ");
+          s = s.replace(/\bdi\s+[a-z]+(?:\s+[a-z])?\s*(?:&\s*c\.?)?/g, " ");
+          s = s.replace(/&\s*c\.?/g, " ");
+          s = s.replace(/\s+/g, " ").trim();
+          return s;
+        };
+
+        // Filtro geografico: nomi di altre città/province venete da escludere
+        const OTHER_VENETO = ["belluno", "verona", "vicenza", "treviso", "rovigo", "venezia", "mestre", "padova"];
+        const municipalityLc = municipality.toLowerCase();
+        const forbiddenLocs = OTHER_VENETO.filter((n) => !municipalityLc.includes(n) && n !== municipalityLc);
+
+        const prefiltered = (identities ?? [])
+          .map((r) => {
+            const rawAgencies = Array.isArray(r.agencies_seen)
+              ? (r.agencies_seen as string[]).filter((a) => typeof a === "string" && a.trim().length > 0)
+              : [];
+            const normMap = new Map<string, string>(); // norm -> first original
+            for (const a of rawAgencies) {
+              const n = normalizeAgency(a);
+              if (n && !normMap.has(n)) normMap.set(n, a);
+            }
+            return {
+              ...r,
+              _agencies: rawAgencies,
+              _agenciesUniqueCount: normMap.size,
+              _sources: Array.isArray(r.sources_seen) ? (r.sources_seen as string[]) : [],
+            };
+          })
+          .filter((r) => r._agenciesUniqueCount >= min_agencies)
           .sort((a, b) => {
-            if (b._agencies.length !== a._agencies.length) return b._agencies.length - a._agencies.length;
+            if (b._agenciesUniqueCount !== a._agenciesUniqueCount) return b._agenciesUniqueCount - a._agenciesUniqueCount;
             return new Date(b.last_seen_at ?? 0).getTime() - new Date(a.last_seen_at ?? 0).getTime();
           })
-          .slice(0, limit);
+          .slice(0, Math.min(200, limit * 4));
 
-        const items = await Promise.all(filtered.map(async (row) => {
+        let excluded_count = 0;
+
+        const builtItems = await Promise.all(prefiltered.map(async (row) => {
           const hash = row.identity_hash as string;
 
-          // Snapshots: per drops/days_online + last/initial price + raw fields
           const { data: snaps } = await supa
             .from("listing_price_snapshots")
             .select("price_eur, captured_at, first_seen_at, raw_address, raw_title")
@@ -2169,9 +2201,6 @@ Deno.serve(async (req) => {
 
           const initial_price_eur = pricesAsc.length > 0 ? pricesAsc[0].p : null;
           const last_price_eur = pricesAsc.length > 0 ? pricesAsc[pricesAsc.length - 1].p : null;
-          const total_drop_pct = initial_price_eur && last_price_eur && initial_price_eur > 0
-            ? Math.round(((initial_price_eur - last_price_eur) / initial_price_eur) * 10000) / 100
-            : null;
 
           let earliest = Date.now();
           for (const s of snapsArr) {
@@ -2199,6 +2228,18 @@ Deno.serve(async (req) => {
             detected_at: a.detected_at,
           }));
 
+          // total_drop_pct coerente (no rialzi)
+          let total_drop_pct: number | null = null;
+          let price_inconsistent = false;
+          if (initial_price_eur && last_price_eur && initial_price_eur > 0) {
+            if (last_price_eur > initial_price_eur) {
+              total_drop_pct = 0;
+              price_inconsistent = true;
+            } else {
+              total_drop_pct = Math.round(((initial_price_eur - last_price_eur) / initial_price_eur) * 10000) / 100;
+            }
+          }
+
           return {
             identity_hash: hash,
             address,
@@ -2206,7 +2247,7 @@ Deno.serve(async (req) => {
             property_type: row.property_type ?? null,
             surface_sqm: row.surface_sqm ?? null,
             rooms: row.rooms ?? null,
-            agencies_count: row._agencies.length,
+            agencies_count: row._agenciesUniqueCount,
             agencies_seen: row._agencies,
             sources_seen: row._sources,
             days_online,
@@ -2214,18 +2255,42 @@ Deno.serve(async (req) => {
             initial_price_eur,
             total_drop_pct,
             drops_count,
+            price_inconsistent,
             anomalies,
             last_seen_at: row.last_seen_at,
           };
         }));
+
+        // Filtri post-build
+        const cleaned = builtItems.filter((it) => {
+          // Prezzo last fuori soglia o nullo
+          if (it.last_price_eur === null || it.last_price_eur <= 20000 || it.last_price_eur > 5000000) {
+            excluded_count++; return false;
+          }
+          // Rialzo > 25% → identity_hash collassato su immobili diversi
+          if (it.initial_price_eur && it.last_price_eur > it.initial_price_eur * 1.25) {
+            excluded_count++; return false;
+          }
+          // Provincia/città incompatibile nell'address
+          const addrLc = (it.address ?? "").toLowerCase();
+          if (forbiddenLocs.some((loc) => addrLc.includes(loc))) {
+            excluded_count++; return false;
+          }
+          return true;
+        });
+
+        cleaned.sort((a, b) => b.agencies_count - a.agencies_count);
+        const items = cleaned.slice(0, limit);
 
         return withIdentity(json(req, 200, {
           municipality,
           province,
           min_agencies,
           count: items.length,
+          excluded_count,
           items,
         }, debugId), "contendibili");
+
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] contendibili error: ${e instanceof Error ? e.message : String(e)}`);
         return withIdentity(fail(req, 500, "CONTENDIBILI_FAILED", "Contendibili lookup failed", debugId), "error");
