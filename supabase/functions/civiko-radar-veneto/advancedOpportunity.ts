@@ -641,6 +641,7 @@ async function refreshMotivatedSellers(supa: SupabaseClient, velocity: VelocityC
     if (fpHashes.has(v.listing_hash)) continue;
     fpHashes.add(v.listing_hash);
 
+    const fatigueLabel = score >= 75 ? "caldissimo" : score >= 60 ? "caldo" : "tiepido";
     rows.push({
       identity_hash: v.listing_hash,
       listing_id: v.listing_hash.slice(0, 50),
@@ -654,9 +655,9 @@ async function refreshMotivatedSellers(supa: SupabaseClient, velocity: VelocityC
       drops_count: v.price_drop_percent ? 1 : 0,
       days_online: v.days_online,
       fatigue_score: score,
-      fatigue_label: label,
+      fatigue_label: fatigueLabel,
       detected_at: now, is_active: true,
-      payload: { quality: "parziale", data_basis: v.data_basis, velocity_type: v.velocity_type },
+      payload: { quality: "parziale", data_basis: v.data_basis, velocity_type: v.velocity_type, raw_label: label },
     });
   }
   for (const p of pricing) {
