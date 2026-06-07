@@ -2358,8 +2358,12 @@ Deno.serve(async (req) => {
     // Agent Radar — output operativo Veneto-only per MVP Civiko One / Acquisition Radar
     if (pathname.endsWith("/agent-radar") || pathname.endsWith("/agentRadar")) {
       // Auth obbligatoria: x-source-app + x-internal-secret (per-app)
-      const authFail = requireSecret(req, debugId);
-      if (authFail) return withIdentity(authFail, "agent-radar-unauthorized");
+      // Dual auth: accept x-job-secret (same as /contendibili) OR x-source-app + x-internal-secret
+      const jobAuthFail = authorizeContendibili(req, debugId);
+      if (jobAuthFail) {
+        const internalAuthFail = requireSecret(req, debugId);
+        if (internalAuthFail) return withIdentity(internalAuthFail, "agent-radar-unauthorized");
+      }
       const rlA = rateLimit(req, `${FUNCTION_NAME}:agent-radar`, { windowMs: 60_000, max: 60 });
       if (!rlA.ok) {
         const r = fail(req, 429, "RATE_LIMITED", "Troppe richieste, riprovare a breve.", debugId);
