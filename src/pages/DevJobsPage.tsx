@@ -79,6 +79,9 @@ export default function DevJobsPage() {
             <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/offmarket-padova")}>
               Off-Market Firecrawl Padova
             </Button>
+            <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/build-advanced-veneto-opportunities", { triggered_by: "dev_jobs_ui", import: true, dryRun: false })}>
+              Opportunità Urgenti + Motivati
+            </Button>
             <Button size="sm" disabled={!jobSecret || jobLoading} onClick={() => runJob("/jobs/discover-early-offmarket-signals", {
               comuni: ["Padova","Vigonza","Selvazzano Dentro","Rubano","Abano Terme","Noventa Padovana","Albignasego","Cadoneghe","Limena","Mestrino","Montegrotto Terme"],
               province: ["PD"],

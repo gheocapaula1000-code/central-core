@@ -25,6 +25,7 @@ const JOBS = [
   "discover-early-offmarket-signals",
   "offmarket-padova",
   "build-offmarket-opportunity-scores",
+  "build-advanced-veneto-opportunities",
 ];
 
 serve(async (req) => {
@@ -80,7 +81,14 @@ serve(async (req) => {
       const start = Date.now();
       const needsWriteParams =
         job === "discover-early-offmarket-signals" || job === "offmarket-padova";
-      const jobBody = needsWriteParams
+      const isAdvanced = job === "build-advanced-veneto-opportunities";
+      const jobBody = isAdvanced
+        ? {
+            triggered_by: "manual_admin_chain",
+            import: true,
+            dryRun: false,
+          }
+        : needsWriteParams
         ? {
             triggered_by: "manual_admin_chain",
             saveCandidates: true,
