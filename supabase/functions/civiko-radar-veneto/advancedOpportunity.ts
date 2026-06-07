@@ -641,6 +641,7 @@ async function refreshMotivatedSellers(supa: SupabaseClient, velocity: VelocityC
     if (fpHashes.has(v.listing_hash)) continue;
     fpHashes.add(v.listing_hash);
 
+    const fatigueLabel = score >= 75 ? "caldissimo" : score >= 60 ? "caldo" : "tiepido";
     rows.push({
       identity_hash: v.listing_hash,
       listing_id: v.listing_hash.slice(0, 50),
@@ -654,9 +655,9 @@ async function refreshMotivatedSellers(supa: SupabaseClient, velocity: VelocityC
       drops_count: v.price_drop_percent ? 1 : 0,
       days_online: v.days_online,
       fatigue_score: score,
-      fatigue_label: label,
+      fatigue_label: fatigueLabel,
       detected_at: now, is_active: true,
-      payload: { quality: "parziale", data_basis: v.data_basis, velocity_type: v.velocity_type },
+      payload: { quality: "parziale", data_basis: v.data_basis, velocity_type: v.velocity_type, raw_label: label },
     });
   }
   for (const p of pricing) {
@@ -670,9 +671,9 @@ async function refreshMotivatedSellers(supa: SupabaseClient, velocity: VelocityC
       municipality: p.comune, province: p.provincia,
       first_seen_at: now, last_price_eur: p.price_eur,
       drops_count: 0, days_online: 90,
-      fatigue_score: p.score, fatigue_label: "over_omi_stale",
+      fatigue_score: p.score, fatigue_label: p.score >= 75 ? "caldissimo" : p.score >= 60 ? "caldo" : "tiepido",
       detected_at: now, is_active: true,
-      payload: { quality: "parziale", data_basis: p.data_basis },
+      payload: { quality: "parziale", data_basis: p.data_basis, raw_label: "over_omi_stale" },
     });
   }
 
@@ -680,11 +681,19 @@ async function refreshMotivatedSellers(supa: SupabaseClient, velocity: VelocityC
   if (!doImport) return rows.length;
 
   // Upsert by identity_hash
+  let failed = 0;
+  let lastError = "";
   for (const row of rows) {
     const { error } = await supa.from("motivated_sellers")
       .upsert(row, { onConflict: "identity_hash" });
-    if (error) warnings.push(`motivated_upsert: ${error.message}`);
-    else count++;
+    if (error) {
+      failed++;
+      lastError = error.message;
+      warnings.push(`motivated_upsert: ${error.message}`);
+    } else count++;
+  }
+  if (rows.length > 0 && count === 0) {
+    warnings.push(`ERROR: motivated_sellers ALL ${rows.length} upserts FAILED. last_error="${lastError}"`);
   }
   return count;
 }
