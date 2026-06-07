@@ -81,7 +81,14 @@ serve(async (req) => {
       const start = Date.now();
       const needsWriteParams =
         job === "discover-early-offmarket-signals" || job === "offmarket-padova";
-      const jobBody = needsWriteParams
+      const isAdvanced = job === "build-advanced-veneto-opportunities";
+      const jobBody = isAdvanced
+        ? {
+            triggered_by: "manual_admin_chain",
+            import: true,
+            dryRun: false,
+          }
+        : needsWriteParams
         ? {
             triggered_by: "manual_admin_chain",
             saveCandidates: true,
