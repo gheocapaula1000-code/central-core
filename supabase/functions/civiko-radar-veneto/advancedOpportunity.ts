@@ -680,11 +680,19 @@ async function refreshMotivatedSellers(supa: SupabaseClient, velocity: VelocityC
   if (!doImport) return rows.length;
 
   // Upsert by identity_hash
+  let failed = 0;
+  let lastError = "";
   for (const row of rows) {
     const { error } = await supa.from("motivated_sellers")
       .upsert(row, { onConflict: "identity_hash" });
-    if (error) warnings.push(`motivated_upsert: ${error.message}`);
-    else count++;
+    if (error) {
+      failed++;
+      lastError = error.message;
+      warnings.push(`motivated_upsert: ${error.message}`);
+    } else count++;
+  }
+  if (rows.length > 0 && count === 0) {
+    warnings.push(`ERROR: motivated_sellers ALL ${rows.length} upserts FAILED. last_error="${lastError}"`);
   }
   return count;
 }
