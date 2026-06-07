@@ -25,6 +25,7 @@ const JOBS = [
   "discover-early-offmarket-signals",
   "offmarket-padova",
   "build-offmarket-opportunity-scores",
+  "build-advanced-veneto-opportunities",
 ];
 
 serve(async (req) => {
