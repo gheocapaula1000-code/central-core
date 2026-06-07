@@ -1,0 +1,1 @@
+ALTER TABLE public.motivated_sellers ADD CONSTRAINT motivated_sellers_identity_hash_key UNIQUE (identity_hash);
