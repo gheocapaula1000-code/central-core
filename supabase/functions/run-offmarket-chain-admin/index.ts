@@ -78,6 +78,16 @@ serve(async (req) => {
     for (const job of JOBS) {
       const url = `${base}/functions/v1/civiko-radar-veneto/jobs/${job}`;
       const start = Date.now();
+      const needsWriteParams =
+        job === "discover-early-offmarket-signals" || job === "offmarket-padova";
+      const jobBody = needsWriteParams
+        ? {
+            triggered_by: "manual_admin_chain",
+            saveCandidates: true,
+            dryRun: false,
+            usePerplexityDiscovery: true,
+          }
+        : { triggered_by: "manual_admin_chain" };
       try {
         const r = await fetch(url, {
           method: "POST",
@@ -85,7 +95,7 @@ serve(async (req) => {
             "Content-Type": "application/json",
             "x-job-secret": JOB_SECRET,
           },
-          body: JSON.stringify({ triggered_by: "manual_admin_chain" }),
+          body: JSON.stringify(jobBody),
         });
         const txt = await r.text();
         console.log(
