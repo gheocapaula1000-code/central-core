@@ -1,0 +1,2 @@
+DELETE FROM public.radar_signals a USING public.radar_signals b WHERE a.fingerprint = b.fingerprint AND a.ctid < b.ctid;
+ALTER TABLE public.radar_signals ADD CONSTRAINT radar_signals_fingerprint_key UNIQUE (fingerprint);
