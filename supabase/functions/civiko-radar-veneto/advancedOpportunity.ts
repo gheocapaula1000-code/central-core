@@ -671,9 +671,9 @@ async function refreshMotivatedSellers(supa: SupabaseClient, velocity: VelocityC
       municipality: p.comune, province: p.provincia,
       first_seen_at: now, last_price_eur: p.price_eur,
       drops_count: 0, days_online: 90,
-      fatigue_score: p.score, fatigue_label: "over_omi_stale",
+      fatigue_score: p.score, fatigue_label: p.score >= 75 ? "caldissimo" : p.score >= 60 ? "caldo" : "tiepido",
       detected_at: now, is_active: true,
-      payload: { quality: "parziale", data_basis: p.data_basis },
+      payload: { quality: "parziale", data_basis: p.data_basis, raw_label: "over_omi_stale" },
     });
   }
 
