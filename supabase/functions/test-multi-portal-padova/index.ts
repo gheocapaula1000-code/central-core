@@ -514,14 +514,19 @@ async function orchestrate(
   };
 
   try {
-    // 1) Build the FIXED queue for immobiliare + idealista.
+    // 1) Build queues. Reuse pre-fetched datasets when plan says so.
     const queue: ApifyChunk[] = [];
-    if (plan.immo_mode === "single") {
+    const reuseResults: ApifyChunkResult[] = [];
+    if (plan.immo_mode === "reuse" && plan.immo_reuse?.dataset_id) {
+      reuseResults.push(await reuseDatasetAsChunk("immobiliare", plan.immo_reuse.dataset_id, plan.immo_reuse.run_id, plan.immo_reuse.cost_usd ?? 0, token));
+    } else if (plan.immo_mode === "single") {
       queue.push(buildImmoSingle(plan.immo_single_max));
     } else {
       for (const b of FIXED_BANDS_8) queue.push(buildImmoChunk(b, perChunkMax));
     }
-    if (plan.ide_mode === "single") {
+    if (plan.ide_mode === "reuse" && plan.ide_reuse?.dataset_id) {
+      reuseResults.push(await reuseDatasetAsChunk("idealista", plan.ide_reuse.dataset_id, plan.ide_reuse.run_id, plan.ide_reuse.cost_usd ?? 0, token));
+    } else if (plan.ide_mode === "single") {
       queue.push(buildIdealistaSingle(plan.ide_single_max));
     } else {
       for (const b of FIXED_BANDS_8) queue.push(buildIdealistaChunk(b, perChunkMax));
@@ -530,6 +535,7 @@ async function orchestrate(
     const apifyMainCount = queue.length;
     const apifyTotalPlanned = apifyMainCount + (plan.include_subito ? 1 : 0);
     progress.apify_runs_planned = apifyTotalPlanned;
+    progress.reused_datasets = reuseResults.map((r) => ({ portal: r.portal, raw_count: r.raw_count, source: "cap_check_dataset" }));
 
     if (apifyTotalPlanned > MAX_RUNS_TOTAL) {
       throw new Error(`run_cap_exceeded: planned=${apifyTotalPlanned} > MAX_RUNS_TOTAL=${MAX_RUNS_TOTAL}`);
