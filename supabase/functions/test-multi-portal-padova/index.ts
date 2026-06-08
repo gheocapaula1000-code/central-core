@@ -43,7 +43,7 @@ const PORTALS = (maxItems: number): PortalConfig[] => [
       startUrls: ["https://www.idealista.it/vendita-case/padova-padova/"],
       maxItems,
       scrapeAgencies: false,
-      splitByPrice: false,
+      splitByPrice: true,
       proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
     },
   },
@@ -63,6 +63,54 @@ const PORTALS = (maxItems: number): PortalConfig[] => [
     firecrawl_url: "https://www.casa.it/vendita/residenziale/padova",
   },
 ];
+
+// Parse a publication date from various actor field shapes → ISO string or null.
+function parsePubDate(it: Record<string, any>): string | null {
+  const cands = [
+    it.publishedDate, it.publishedAt, it.published_at, it.creationDate, it.createdAt,
+    it.date, it.dateInsertion, it.firstSeenAt, it.firstActivationDate,
+    it.properties?.[0]?.publishedDate, it.basicInfo?.creationDate,
+  ];
+  for (const c of cands) {
+    if (!c) continue;
+    if (typeof c === "number") {
+      const d = new Date(c < 1e12 ? c * 1000 : c);
+      if (!isNaN(+d)) return d.toISOString();
+    }
+    if (typeof c === "string") {
+      const d = new Date(c);
+      if (!isNaN(+d)) return d.toISOString();
+    }
+  }
+  return null;
+}
+
+// Normalize Italian street address → "via_norm|civic"
+function normalizeAddressKey(addr: string | null | undefined): { street: string; civic: string | null } {
+  if (!addr) return { street: "", civic: null };
+  let s = String(addr).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  s = s.replace(/[.,;:()]/g, " ").replace(/\s+/g, " ").trim();
+  // Strip city/region tails
+  s = s.split(/\bpadova\b|\bpd\b/i)[0].trim();
+  // Normalize prefixes
+  const prefixMap: Array<[RegExp, string]> = [
+    [/^v\.?le\b|^viale\b/, "viale"],
+    [/^v\.?\b|^via\b/, "via"],
+    [/^p\.?zza\b|^piazza\b|^p\.za\b/, "piazza"],
+    [/^c\.?so\b|^corso\b/, "corso"],
+    [/^l\.?go\b|^largo\b/, "largo"],
+    [/^str\.?\b|^strada\b/, "strada"],
+    [/^vic\.?\b|^vicolo\b/, "vicolo"],
+    [/^p\.?le\b|^piazzale\b/, "piazzale"],
+  ];
+  for (const [re, rep] of prefixMap) s = s.replace(re, rep);
+  // Extract civic (first number sequence after street name)
+  const civicMatch = s.match(/\b(\d{1,4}[a-z]?)\b/);
+  const civic = civicMatch ? civicMatch[1] : null;
+  // Street = remove civic and everything after
+  const street = (civicMatch ? s.slice(0, civicMatch.index) : s).replace(/\s+/g, " ").trim();
+  return { street, civic };
+}
 
 function num(v: unknown): number | null {
   if (v == null) return null;
