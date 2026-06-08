@@ -2387,18 +2387,22 @@ Deno.serve(async (req) => {
         });
 
         if (scon) {
-          rows.push({
-            quartiere: String(scon.quartiere ?? "Sconosciuta (Padova città)"),
-            omi: String(scon.codice_omi ?? "—"),
-            tot_annunci: Number(scon.annunci_tot ?? 0),
-            contendibili: Number(scon.contendibili ?? 0),
-            privati: Number(scon.privati ?? 0),
-            privati_stanchi: Number(scon.privati_stanchi ?? 0),
-            ribassi: Number(scon.ribassi ?? 0),
-            agenzie_distinte: Number(scon.agenzie_distinte ?? 0),
-            fascia: "NON_VENDIBILE",
-            prezzo_esclusiva_mese: 0,
-          });
+          const sconQ = String(scon.quartiere ?? "Sconosciuta (Padova città)");
+          const already = rows.some((r) => r.quartiere.toLowerCase() === sconQ.toLowerCase());
+          if (!already) {
+            rows.push({
+              quartiere: sconQ,
+              omi: String(scon.codice_omi ?? "—"),
+              tot_annunci: Number(scon.annunci_tot ?? 0),
+              contendibili: Number(scon.contendibili ?? 0),
+              privati: Number(scon.privati ?? 0),
+              privati_stanchi: Number(scon.privati_stanchi ?? 0),
+              ribassi: Number(scon.ribassi ?? 0),
+              agenzie_distinte: Number(scon.agenzie_distinte ?? 0),
+              fascia: "NON_VENDIBILE",
+              prezzo_esclusiva_mese: 0,
+            });
+          }
         }
 
         rows.sort((a, b) => b.contendibili - a.contendibili);
