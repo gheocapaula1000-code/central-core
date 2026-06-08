@@ -909,6 +909,44 @@ Deno.serve(async (req) => {
     return json({ ok: true, job_id: jobId, ...data });
   }
 
+  if (action === "apify_diag") {
+    const actorFilter = body.actor ? `&actorId=${encodeURIComponent(String(body.actor))}` : "";
+    const limit = Math.min(Number(body.limit ?? 15), 50);
+    const listRes = await fetch(`https://api.apify.com/v2/actor-runs?limit=${limit}&desc=true${actorFilter}&token=${encodeURIComponent(token)}`);
+    const lj = await listRes.json().catch(() => ({}));
+    const items = (lj?.data?.items ?? []) as any[];
+    const enriched = await Promise.all(items.slice(0, 10).map(async (r) => {
+      let count: number | null = null;
+      if (r.defaultDatasetId) {
+        const h = await fetch(`https://api.apify.com/v2/datasets/${encodeURIComponent(r.defaultDatasetId)}?token=${encodeURIComponent(token)}`);
+        if (h.ok) { const hj = await h.json(); count = hj?.data?.itemCount ?? null; }
+      }
+      const started = r.startedAt ? new Date(r.startedAt).getTime() : null;
+      const finished = r.finishedAt ? new Date(r.finishedAt).getTime() : null;
+      const durSec = started ? Math.round(((finished ?? Date.now()) - started) / 1000) : null;
+      return {
+        run_id: r.id, actor: r.actId, status: r.status,
+        startedAt: r.startedAt, finishedAt: r.finishedAt, duration_sec: durSec,
+        usageTotalUsd: r.usageTotalUsd ?? null,
+        dataset_id: r.defaultDatasetId, item_count: count,
+        stats: r.stats ? {
+          inputBodyLen: r.stats.inputBodyLen,
+          restartCount: r.stats.restartCount,
+          resurrectCount: r.stats.resurrectCount,
+          memMaxBytes: r.stats.memMaxBytes,
+          computeUnits: r.stats.computeUnits,
+        } : null,
+      };
+    }));
+    // Account limits
+    let limits: any = null;
+    try {
+      const u = await fetch(`https://api.apify.com/v2/users/me/limits?token=${encodeURIComponent(token)}`);
+      if (u.ok) limits = (await u.json())?.data ?? null;
+    } catch { /* ignore */ }
+    return json({ ok: true, action: "apify_diag", runs: enriched, limits });
+  }
+
   // ACTION: abort → aborts ALL currently-running Apify runs on the account.
   // Editing/redeploying this file also kills the background orchestrator isolate.
   if (action === "abort") {
