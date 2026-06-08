@@ -430,14 +430,70 @@ async function runSubito(perChunkMax: number, token: string): Promise<ApifyChunk
 // ───── Background orchestrator ─────
 // Plan is FIXED before launch. NO auto-split: saturated bands are flagged but
 // never re-divided. The total number of Apify runs is bounded by MAX_RUNS_TOTAL.
-type PortalMode = "single" | "bands";
+type PortalMode = "single" | "bands" | "reuse";
 interface OrchestratePlan {
   immo_mode: PortalMode;
   ide_mode: PortalMode;
   immo_single_max: number;
   ide_single_max: number;
+  immo_reuse?: { run_id?: string; dataset_id: string; cost_usd?: number | null } | null;
+  ide_reuse?: { run_id?: string; dataset_id: string; cost_usd?: number | null } | null;
   include_subito: boolean;
   include_casa: boolean;
+}
+
+// Fetch items from an existing Apify dataset (reuse pattern, no new run).
+async function reuseDatasetAsChunk(
+  portal: Portal, datasetId: string, runId: string | undefined, costUsd: number | null | undefined, token: string,
+): Promise<ApifyChunkResult> {
+  try {
+    const dRes = await apifyJson(
+      `/datasets/${encodeURIComponent(datasetId)}/items?clean=true&limit=5000`,
+      { method: "GET" }, 90_000, token,
+    );
+    if (!dRes.ok) {
+      return { portal, band_label: "reuse", status: "ERRORE", raw_count: 0, items: [], cost_usd: 0, saturated: false, error: `dataset_${dRes.status}` };
+    }
+    const raw = await dRes.json() as Record<string, unknown>[];
+    const items = raw.map((r) => ({ ...normalizeRaw(portal, r), source_chunk: "reuse" }));
+    return {
+      portal, band_label: "reuse(cap_check)", status: items.length > 0 ? "OK" : "BLOCCATO",
+      run_id: runId, run_status: "REUSED",
+      raw_count: raw.length, items,
+      cost_usd: 0, // reuse → no new spend in this job
+      saturated: raw.length >= 1990,
+    };
+  } catch (e) {
+    return { portal, band_label: "reuse", status: "ERRORE", raw_count: 0, items: [], cost_usd: 0, saturated: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// Find the most recent SUCCEEDED run of an actor with itemCount above a threshold.
+async function findReusableRun(actorId: string, minItems: number, token: string, maxAgeMin = 240): Promise<{ run_id: string; dataset_id: string; itemCount: number; usageTotalUsd: number | null; startedAt: string } | null> {
+  try {
+    const r = await fetch(
+      `https://api.apify.com/v2/acts/${encodeURIComponent(actorId)}/runs?status=SUCCEEDED&limit=10&desc=true&token=${encodeURIComponent(token)}`,
+    );
+    if (!r.ok) return null;
+    const j = await r.json();
+    const items = (j?.data?.items ?? []) as Array<any>;
+    const cutoff = Date.now() - maxAgeMin * 60_000;
+    for (const it of items) {
+      const startedMs = +new Date(it.startedAt ?? it.finishedAt ?? 0);
+      if (startedMs < cutoff) continue;
+      const dsId = it.defaultDatasetId;
+      if (!dsId) continue;
+      // get item count
+      const h = await fetch(`https://api.apify.com/v2/datasets/${encodeURIComponent(dsId)}?token=${encodeURIComponent(token)}`);
+      if (!h.ok) continue;
+      const hj = await h.json();
+      const itemCount = Number(hj?.data?.itemCount ?? 0);
+      if (itemCount >= minItems) {
+        return { run_id: it.id, dataset_id: dsId, itemCount, usageTotalUsd: typeof it.usageTotalUsd === "number" ? it.usageTotalUsd : null, startedAt: it.startedAt };
+      }
+    }
+    return null;
+  } catch { return null; }
 }
 
 async function orchestrate(
