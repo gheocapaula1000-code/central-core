@@ -948,24 +948,51 @@ Deno.serve(async (req) => {
   }
 
 
-  // action === "run"
+  // action === "run" | "run_fixed"  — requires explicit plan, NO auto-split.
   const perChunkMax = Math.min(Number(body.perChunkMax ?? 200), 250);
   const poolSize = Math.min(Math.max(Number(body.poolSize ?? 3), 1), 6);
 
+  const planIn = (body.plan ?? {}) as Record<string, unknown>;
+  const plan: OrchestratePlan = {
+    immo_mode: (planIn.immo_mode === "single" ? "single" : "bands"),
+    ide_mode: (planIn.ide_mode === "single" ? "single" : "bands"),
+    immo_single_max: Math.min(Number(planIn.immo_single_max ?? 2000), 5000),
+    ide_single_max: Math.min(Number(planIn.ide_single_max ?? 2000), 5000),
+    include_subito: planIn.include_subito !== false,
+    include_casa: planIn.include_casa !== false,
+  };
+
+  // Hard ceiling check BEFORE inserting / launching.
+  const apifyPlanned =
+    (plan.immo_mode === "single" ? 1 : FIXED_BANDS_8.length) +
+    (plan.ide_mode === "single" ? 1 : FIXED_BANDS_8.length) +
+    (plan.include_subito ? 1 : 0);
+  if (apifyPlanned > MAX_RUNS_TOTAL) {
+    return json({
+      ok: false, error: "run_cap_exceeded",
+      apify_runs_planned: apifyPlanned,
+      tetto_max_runs_apify: MAX_RUNS_TOTAL,
+      plan,
+      hint: "Riduci a 'single' almeno un portale o disattiva subito.",
+    }, 400);
+  }
+
   const { data: ins, error: insErr } = await sb.from("test_padova_full_run")
-    .insert({ state: "running", progress: { queued: true, pool_size: poolSize, per_chunk_max: perChunkMax } })
+    .insert({ state: "running", progress: { queued: true, pool_size: poolSize, per_chunk_max: perChunkMax, plan, apify_runs_planned: apifyPlanned } })
     .select("id").single();
   if (insErr || !ins) return json({ ok: false, error: insErr?.message ?? "insert_failed" }, 500);
   const jobId = ins.id as string;
 
   // Fire-and-forget orchestration.
   // @ts-ignore EdgeRuntime is provided by Supabase runtime
-  EdgeRuntime.waitUntil(orchestrate(jobId, perChunkMax, poolSize));
+  EdgeRuntime.waitUntil(orchestrate(jobId, perChunkMax, poolSize, plan));
 
   return json({
-    ok: true, job_id: jobId,
+    ok: true, job_id: jobId, plan,
+    apify_runs_planned: apifyPlanned, tetto_max_runs_apify: MAX_RUNS_TOTAL,
     poll: `POST {"action":"status","job_id":"${jobId}"} every 30-60s until state="done"`,
     pool_size: poolSize, per_chunk_max: perChunkMax,
-    expected_duration: "10-25 minuti (serializzato con auto-split)",
+    expected_duration: "5-20 minuti (NO auto-split, run count fisso)",
   });
 });
+
