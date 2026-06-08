@@ -596,6 +596,8 @@ async function orchestrate(
         await updateProgress(progress);
       }
     };
+    await Promise.all(Array.from({ length: poolSize }, (_, i) => worker(i + 1)));
+
     // Push reused datasets into results pool.
     results.push(...reuseResults);
 
