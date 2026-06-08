@@ -829,7 +829,8 @@ Deno.serve(async (req) => {
   }
 
   // ACTION: cap_check → one Apify run per portal with high maxItems.
-  // Tests whether the 200 cap is hard. No DB write, no Subito/Casa.
+  // ACTION: cap_check → fire 1 Apify run per portal, return run_ids immediately.
+  // Poll later with action "cap_check_status" {run_ids:[{portal,actor,run_id,dataset_id}]}.
   if (action === "cap_check") {
     const maxItems = Math.min(Number(body.maxItems ?? 2000), 5000);
     const tests = [
@@ -854,58 +855,58 @@ Deno.serve(async (req) => {
         },
       },
     ];
-
-    const runOne = async (t: typeof tests[number]) => {
-      const t0 = Date.now();
-      const startRes = await fetch(
+    const started = await Promise.all(tests.map(async (t) => {
+      const r = await fetch(
         `https://api.apify.com/v2/acts/${encodeURIComponent(t.actor)}/runs?token=${encodeURIComponent(token)}`,
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(t.input) },
       );
-      if (!startRes.ok) {
-        const txt = await startRes.text().catch(() => "");
-        return { portal: t.portal, actor: t.actor, ok: false, stage: "start", status: startRes.status, error: txt.slice(0, 300) };
+      if (!r.ok) {
+        const txt = await r.text().catch(() => "");
+        return { portal: t.portal, actor: t.actor, ok: false, status: r.status, error: txt.slice(0, 300) };
       }
-      const started = await startRes.json();
-      const runId = started?.data?.id;
-      const datasetId = started?.data?.defaultDatasetId;
-      let runStatus = "RUNNING";
-      let cost: number | null = null;
-      const deadline = Date.now() + 480_000;
-      while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 10_000));
-        const s = await fetch(`https://api.apify.com/v2/actor-runs/${encodeURIComponent(runId)}?token=${encodeURIComponent(token)}`);
-        if (!s.ok) continue;
-        const sj = await s.json();
-        runStatus = sj?.data?.status ?? "unknown";
-        cost = typeof sj?.data?.usageTotalUsd === "number" ? sj.data.usageTotalUsd : null;
-        if (["SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"].includes(runStatus)) break;
-      }
-      let rawCount: number | null = null;
-      if (datasetId) {
-        const head = await fetch(`https://api.apify.com/v2/datasets/${encodeURIComponent(datasetId)}?token=${encodeURIComponent(token)}`);
-        if (head.ok) { const hj = await head.json(); rawCount = hj?.data?.itemCount ?? null; }
-      }
+      const j = await r.json();
       return {
         portal: t.portal, actor: t.actor, param_used: t.param_used,
-        run_id: runId, dataset_id: datasetId, run_status: runStatus,
-        raw_count: rawCount, cost_usd: cost,
-        duration_s: Math.round((Date.now() - t0) / 1000),
+        run_id: j?.data?.id, dataset_id: j?.data?.defaultDatasetId, started_at: j?.data?.startedAt,
+      };
+    }));
+    return json({
+      ok: true, action: "cap_check", maxItems_requested: maxItems, started,
+      poll: `POST {"action":"cap_check_status","runs":[...started]}`,
+    });
+  }
+
+  if (action === "cap_check_status") {
+    const runs = (body.runs ?? []) as Array<{ portal: string; actor: string; param_used?: string; run_id: string; dataset_id?: string }>;
+    const results = await Promise.all(runs.map(async (r) => {
+      const s = await fetch(`https://api.apify.com/v2/actor-runs/${encodeURIComponent(r.run_id)}?token=${encodeURIComponent(token)}`);
+      if (!s.ok) return { ...r, error: `status_${s.status}` };
+      const sj = await s.json();
+      const runStatus = sj?.data?.status ?? "unknown";
+      const cost = typeof sj?.data?.usageTotalUsd === "number" ? sj.data.usageTotalUsd : null;
+      const dsId = sj?.data?.defaultDatasetId ?? r.dataset_id;
+      let rawCount: number | null = null;
+      if (dsId) {
+        const h = await fetch(`https://api.apify.com/v2/datasets/${encodeURIComponent(dsId)}?token=${encodeURIComponent(token)}`);
+        if (h.ok) { const hj = await h.json(); rawCount = hj?.data?.itemCount ?? null; }
+      }
+      return {
+        portal: r.portal, actor: r.actor, param_used: r.param_used,
+        run_id: r.run_id, run_status: runStatus, raw_count: rawCount, cost_usd: cost,
         hit_200_wall: rawCount != null && rawCount > 0 && rawCount <= 210,
         went_beyond_200: rawCount != null && rawCount > 210,
       };
-    };
-
-    const results = await Promise.all(tests.map(runOne));
-    const totalCost = results.reduce((s, r: any) => s + (typeof r.cost_usd === "number" ? r.cost_usd : 0), 0);
+    }));
+    const totalCost = results.reduce((s, x: any) => s + (typeof x.cost_usd === "number" ? x.cost_usd : 0), 0);
     return json({
-      ok: true, action: "cap_check", maxItems_requested: maxItems,
-      results, total_cost_usd: Number(totalCost.toFixed(4)),
+      ok: true, action: "cap_check_status", results, total_cost_usd: Number(totalCost.toFixed(4)),
       verdict: results.map((r: any) =>
         r.went_beyond_200 ? `${r.portal}: ✅ cap superabile (${r.raw_count})`
         : r.hit_200_wall ? `${r.portal}: ❌ muro 200 (${r.raw_count})`
-        : `${r.portal}: ⚠️ ${r.run_status ?? r.error ?? "?"}`),
+        : `${r.portal}: ⏳ ${r.run_status ?? r.error ?? "?"}`),
     });
   }
+
 
   // action === "run"
   const perChunkMax = Math.min(Number(body.perChunkMax ?? 200), 250);
