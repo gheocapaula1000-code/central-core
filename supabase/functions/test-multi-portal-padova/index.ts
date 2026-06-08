@@ -1458,8 +1458,22 @@ Deno.serve(async (req) => {
     const ideDsId = prog.ide_reuse_dataset as string | undefined;
     const ideCostPrev = Number(prog.ide_reuse_cost_usd ?? 1.707);
     const casaCrawlId = prog.casa_crawl_id as string | undefined;
+    const subitoRunIdCol = prog.subito_run_id as string | undefined;
+    const subitoDsId = prog.subito_dataset_id as string | undefined;
     if (!immoRunId || !immoDsId || !ideDsId) {
       return json({ ok: false, error: "missing_dataset_ids_in_job_progress", progress: prog }, 400);
+    }
+
+    // Fetch subito run usage (optional)
+    let subitoCost: number | null = null;
+    if (subitoRunIdCol) {
+      try {
+        const sr = await fetch(`https://api.apify.com/v2/actor-runs/${encodeURIComponent(subitoRunIdCol)}?token=${encodeURIComponent(token)}`);
+        if (sr.ok) {
+          const sj = await sr.json();
+          subitoCost = typeof sj?.data?.usageTotalUsd === "number" ? sj.data.usageTotalUsd : null;
+        }
+      } catch { /* noop */ }
     }
 
     const runRes = await fetch(`https://api.apify.com/v2/actor-runs/${encodeURIComponent(immoRunId)}?token=${encodeURIComponent(token)}`);
