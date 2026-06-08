@@ -1378,8 +1378,9 @@ Deno.serve(async (req) => {
 
     // ── 2) CASA.IT via Firecrawl (start crawl, fire-and-forget) ──
     const fcKey = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
-    const casaLimit = Math.min(Number(body.casa_limit ?? 500), 2000);
-    const casaUrl = "https://www.casa.it/vendita/residenziale/padova";
+    const casaLimit = Math.min(Number(body.casa_limit ?? 120), 2000);
+    const casaUrl = String(body.casa_url ?? "https://www.casa.it/vendita/residenziale/padova");
+    const casaOnlyMain = body.casa_only_main === true; // default false → cattura le card
     let casaOut: Record<string, unknown> = { ok: false };
     if (skipCasa) {
       casaOut = { ok: true, skipped: true, reason: "casa già avviato in chiamata precedente", crawl_id: prog.casa_crawl_id };
@@ -1393,10 +1394,11 @@ Deno.serve(async (req) => {
           body: JSON.stringify({
             url: casaUrl,
             limit: casaLimit,
-            includePaths: ["/immobili/", "/vendita/"],
-            scrapeOptions: { formats: ["markdown", "html"], onlyMainContent: true },
+            includePaths: ["/vendita/residenziale/padova"],
+            scrapeOptions: { formats: ["markdown", "html"], onlyMainContent: casaOnlyMain },
           }),
         });
+
         const cj = await cRes.json().catch(() => ({}));
         if (!cRes.ok) {
           casaOut = { ok: false, error: "firecrawl_start_failed", status: cRes.status, body: JSON.stringify(cj).slice(0, 300) };
