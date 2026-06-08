@@ -1077,6 +1077,7 @@ Deno.serve(async (req) => {
       first_30_urls: urls,
       sample_listing_url: sampleListing?.metadata?.sourceURL ?? null,
       sample_listing_md_head: (sampleListing?.markdown ?? "").slice(0, 1500),
+      first_page_md_head: (data[0]?.markdown ?? "").slice(0, 3000),
     });
   }
 
