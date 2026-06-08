@@ -320,7 +320,7 @@ Deno.serve(async (req) => {
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { /* allow empty */ }
   const action = String(body.action ?? "start").toLowerCase();
-  const maxItems = Math.min(Number(body.maxItems ?? 150), 200);
+  const maxItems = Math.min(Number(body.maxItems ?? 2000), 3000);
   const json = (b: unknown, status = 200) =>
     new Response(JSON.stringify(b, null, 2), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
