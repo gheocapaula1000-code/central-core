@@ -1978,6 +1978,14 @@ Deno.serve(async (req) => {
           agenzie_distinte: new Set(items.filter((i) => i.agency).map((i) => i.agency!.toLowerCase())).size,
         })).sort((a, b) => b.annunci_tot - a.annunci_tot);
 
+        const per_portal_summary = (["immobiliare", "idealista", "subito", "casa"] as Portal[]).map((p) => ({
+          portal: p,
+          annunci_dedup: enriched.filter((i) => i.portal === p).length,
+          privati: enriched.filter((i) => i.portal === p && i.isPrivate).length,
+          padova_citta: enriched.filter((i) => i.portal === p && i.bucket === "padova_citta").length,
+          fuori_padova: enriched.filter((i) => i.portal === p && i.bucket === "fuori_padova").length,
+          non_classificabili: enriched.filter((i) => i.portal === p && i.bucket === "non_classificabile").length,
+        }));
 
         const totalCost = (immoCost ?? 0) + ideCostPrev + (subitoCost ?? 0);
         const finalResult = {
