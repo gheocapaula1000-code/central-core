@@ -1442,9 +1442,9 @@ Deno.serve(async (req) => {
     if (job.state === "collecting") {
       return json({ ok: true, action: "collect", job_id: jobId, state: "collecting", hint: "raccolta già in corso, usa action:status" });
     }
-    if (job.state === "done") {
+    if (job.state === "done" && !body.force) {
       const { data: d } = await sb.from("test_padova_full_run").select("result").eq("id", jobId).maybeSingle();
-      return json({ ok: true, action: "collect", job_id: jobId, state: "done", result: d?.result ?? null });
+      return json({ ok: true, action: "collect", job_id: jobId, state: "done", result: d?.result ?? null, hint: "passa force:true per re-collect" });
     }
     await sb.from("test_padova_full_run").update({ state: "collecting" }).eq("id", jobId);
 
