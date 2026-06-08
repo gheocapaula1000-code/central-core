@@ -1929,7 +1929,7 @@ Deno.serve(async (req) => {
               }
             }
           }
-          return { ...it, quartiere, omi_code: omiCode, prezzo_divergente, tipo_lead, contendibile: isContendibile, first_seen_at: firstSeenIso ?? null, bucket, bucket_comune };
+          return { ...it, quartiere, omi_code: omiCode, prezzo_divergente, tipo_lead, contendibile: isContendibile, first_seen_at: firstSeenIso ?? null, bucket, bucket_comune, cluster_key: itemToClusterKey.get(it) ?? null };
         });
 
         // ───── VISTA 1: PADOVA CITTÀ ─────
