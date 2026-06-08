@@ -208,6 +208,7 @@ function normalizeSubito(it: Record<string, any>): NormItem {
     lat: nz(num(coords.latitude)), lng: nz(num(coords.longitude)),
     cap: null,
     url: it.page_url ?? it.request_url ?? null,
+    publishedAt: parsePubDate(it),
   };
 }
 
