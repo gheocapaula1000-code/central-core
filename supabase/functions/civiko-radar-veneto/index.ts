@@ -2324,6 +2324,278 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // /zone-quartieri — aggregato per quartiere (Padova città).
+    // Legge l'ultimo collect_v2 done da public.test_padova_full_run.
+    // NON ri-crawla. Aggiunge fascia commerciale + prezzo esclusiva mese.
+    // ─────────────────────────────────────────────────────────────
+    if (pathname.endsWith("/zone-quartieri")) {
+      const _auth = authorizeJob(req, debugId); if (_auth) return _auth;
+      let body: Record<string, unknown> = {};
+      try { body = (await req.json()) ?? {}; }
+      catch { return withIdentity(fail(req, 400, "INVALID_JSON", "Body is not valid JSON", debugId), "error"); }
+      const municipality = typeof body.municipality === "string" ? body.municipality.trim() : "Padova";
+      if (municipality.toLowerCase() !== "padova") {
+        return withIdentity(fail(req, 400, "UNSUPPORTED_MUNICIPALITY", "Solo Padova è supportato in questa release.", debugId), "error");
+      }
+      const supa = getServiceClient();
+      if (!supa) return withIdentity(fail(req, 503, "DB_UNAVAILABLE", "No DB client", debugId), "error");
+      try {
+        const { data: jobs, error: jErr } = await supa
+          .from("test_padova_full_run")
+          .select("id, finished_at, started_at, result")
+          .eq("state", "done")
+          .order("finished_at", { ascending: false, nullsFirst: false })
+          .limit(5);
+        if (jErr) return withIdentity(fail(req, 500, "DB_ERROR", jErr.message, debugId), "error");
+        const latest = (jobs ?? []).find((j) => {
+          const r = j.result as Record<string, unknown> | null;
+          return !!(r && r.mode === "collect_v2" && r.padova_citta && typeof r.padova_citta === "object");
+        });
+        if (!latest) return withIdentity(fail(req, 404, "NO_COLLECT", "Nessun collect_v2 done disponibile.", debugId), "error");
+        const result = latest.result as Record<string, unknown>;
+        const padova = result.padova_citta as Record<string, unknown>;
+        const tabella = Array.isArray(padova.tabella_per_quartiere) ? padova.tabella_per_quartiere as Array<Record<string, unknown>> : [];
+        const scon = padova.sconosciuta_residua as Record<string, unknown> | undefined;
+        const conteggi = (padova.conteggi_tipo_lead ?? {}) as Record<string, number>;
+
+        const PREMIUM_OMI = new Set(["B1", "B2", "C3"]);
+        const computeFascia = (omi: string, contendibili: number): { fascia: string; prezzo: number } => {
+          if (PREMIUM_OMI.has(omi) && contendibili >= 130) return { fascia: "PREMIUM", prezzo: 1800 };
+          if (contendibili >= 80) return { fascia: "ALTA", prezzo: 1500 };
+          if (contendibili >= 45) return { fascia: "STANDARD", prezzo: 1200 };
+          if (contendibili >= 17) return { fascia: "BASE", prezzo: 1000 };
+          return { fascia: "NON_VENDIBILE", prezzo: 0 };
+        };
+
+        const rows = tabella.map((r) => {
+          const omi = String(r.codice_omi ?? "—");
+          const contendibili = Number(r.contendibili ?? 0);
+          const { fascia, prezzo } = computeFascia(omi, contendibili);
+          return {
+            quartiere: String(r.quartiere ?? ""),
+            omi,
+            tot_annunci: Number(r.annunci_tot ?? 0),
+            contendibili,
+            privati: Number(r.privati ?? 0),
+            privati_stanchi: Number(r.privati_stanchi ?? 0),
+            ribassi: Number(r.ribassi ?? 0),
+            agenzie_distinte: Number(r.agenzie_distinte ?? 0),
+            fascia,
+            prezzo_esclusiva_mese: prezzo,
+          };
+        });
+
+        if (scon) {
+          rows.push({
+            quartiere: String(scon.quartiere ?? "Sconosciuta (Padova città)"),
+            omi: String(scon.codice_omi ?? "—"),
+            tot_annunci: Number(scon.annunci_tot ?? 0),
+            contendibili: Number(scon.contendibili ?? 0),
+            privati: Number(scon.privati ?? 0),
+            privati_stanchi: Number(scon.privati_stanchi ?? 0),
+            ribassi: Number(scon.ribassi ?? 0),
+            agenzie_distinte: Number(scon.agenzie_distinte ?? 0),
+            fascia: "NON_VENDIBILE",
+            prezzo_esclusiva_mese: 0,
+          });
+        }
+
+        rows.sort((a, b) => b.contendibili - a.contendibili);
+
+        const totali = {
+          annunci: Number(padova.annunci_tot ?? 0),
+          contendibili: Number(padova.contendibili_totali ?? conteggi.contendibile ?? 0),
+          privati: Number(conteggi.privato ?? 0),
+          privati_stanchi: Number(conteggi.privato_stanco ?? 0),
+          ribassi: Number(conteggi.ribasso ?? 0),
+          agenzie_distinte: rows.reduce((s, r) => Math.max(s, r.agenzie_distinte), 0),
+        };
+
+        return withIdentity(json(req, 200, {
+          municipality: "Padova",
+          updated_at: latest.finished_at ?? latest.started_at,
+          job_id: latest.id,
+          totali,
+          quartieri: rows,
+        }, debugId), "zone-quartieri");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] zone-quartieri error: ${e instanceof Error ? e.message : String(e)}`);
+        return withIdentity(fail(req, 500, "ZONE_QUARTIERI_FAILED", "Aggregato per quartiere fallito", debugId), "error");
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // /lead-quartiere — drill-down lead per un singolo quartiere Padova.
+    // Filtra listing_identity tramite omi_zones_by_points (batch RPC), poi
+    // arricchisce con snapshot prezzi (drops, days_online, tipo_lead).
+    // ─────────────────────────────────────────────────────────────
+    if (pathname.endsWith("/lead-quartiere")) {
+      const _auth = authorizeJob(req, debugId); if (_auth) return _auth;
+      let body: Record<string, unknown> = {};
+      try { body = (await req.json()) ?? {}; }
+      catch { return withIdentity(fail(req, 400, "INVALID_JSON", "Body is not valid JSON", debugId), "error"); }
+      const municipality = typeof body.municipality === "string" ? body.municipality.trim() : "Padova";
+      const quartiereReq = typeof body.quartiere === "string" ? body.quartiere.trim() : null;
+      const omiReq = typeof body.omi === "string" ? body.omi.trim().toUpperCase() : null;
+      const filterTipo = typeof body.tipo_lead === "string" ? body.tipo_lead.trim() : null;
+      const limitRaw = Number(body.limit);
+      const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(500, Math.floor(limitRaw)) : 200;
+      if (!quartiereReq && !omiReq) {
+        return withIdentity(fail(req, 400, "MISSING_FILTER", "Fornire 'quartiere' o 'omi'.", debugId), "error");
+      }
+      const supa = getServiceClient();
+      if (!supa) return withIdentity(fail(req, 503, "DB_UNAVAILABLE", "No DB client", debugId), "error");
+
+      try {
+        const omiCodes = new Set<string>();
+        if (omiReq) omiCodes.add(omiReq);
+        if (quartiereReq) {
+          const { data: jobs } = await supa
+            .from("test_padova_full_run")
+            .select("result")
+            .eq("state", "done")
+            .order("finished_at", { ascending: false, nullsFirst: false })
+            .limit(5);
+          const latest = (jobs ?? []).find((j) => {
+            const r = j.result as Record<string, unknown> | null;
+            return !!(r && r.mode === "collect_v2" && r.padova_citta);
+          });
+          if (latest) {
+            const tab = ((latest.result as Record<string, any>).padova_citta?.tabella_per_quartiere ?? []) as Array<Record<string, unknown>>;
+            for (const r of tab) {
+              if (String(r.quartiere ?? "").toLowerCase() === quartiereReq.toLowerCase()) {
+                const c = String(r.codice_omi ?? "").toUpperCase();
+                if (c && c !== "—") omiCodes.add(c);
+              }
+            }
+          }
+          if (omiCodes.size === 0) {
+            return withIdentity(fail(req, 404, "QUARTIERE_NOT_FOUND", `Quartiere '${quartiereReq}' non trovato.`, debugId), "error");
+          }
+        }
+
+        const { data: identities, error: idErr } = await supa
+          .from("listing_identity")
+          .select("identity_hash, agencies_seen, sources_seen, surface_sqm, rooms, property_type, last_seen_at, lat_rounded, lng_rounded, observation_count")
+          .ilike("municipality", municipality)
+          .not("lat_rounded", "is", null)
+          .not("lng_rounded", "is", null)
+          .order("last_seen_at", { ascending: false })
+          .limit(5000);
+        if (idErr) return withIdentity(fail(req, 500, "DB_ERROR", idErr.message, debugId), "error");
+
+        const all = identities ?? [];
+        if (all.length === 0) {
+          return withIdentity(json(req, 200, { municipality, quartiere: quartiereReq, omi: Array.from(omiCodes), count: 0, total_in_zone: 0, items: [] }, debugId), "lead-quartiere");
+        }
+
+        const lats = all.map((r) => Number(r.lat_rounded));
+        const lngs = all.map((r) => Number(r.lng_rounded));
+        const { data: zones, error: zErr } = await supa.rpc("omi_zones_by_points", { p_lats: lats, p_lngs: lngs });
+        if (zErr) return withIdentity(fail(req, 500, "RPC_ERROR", zErr.message, debugId), "error");
+        const idxToZone = new Map<number, string>();
+        for (const z of (zones ?? []) as Array<{ idx: number; zona: string | null }>) {
+          if (z.zona) idxToZone.set(Number(z.idx), String(z.zona).toUpperCase());
+        }
+
+        const matched = all
+          .map((row, i) => ({ row, omi: idxToZone.get(i + 1) ?? null }))
+          .filter((x) => x.omi && omiCodes.has(x.omi));
+
+        if (matched.length === 0) {
+          return withIdentity(json(req, 200, { municipality, quartiere: quartiereReq, omi: Array.from(omiCodes), count: 0, total_in_zone: 0, items: [] }, debugId), "lead-quartiere");
+        }
+
+        const capped = matched.slice(0, Math.min(matched.length, Math.max(limit, 200)));
+        const PRIVATE_SOURCES = new Set(["subito", "subito.it", "kijiji", "bakeca"]);
+
+        const items = await Promise.all(capped.map(async ({ row, omi }) => {
+          const hash = row.identity_hash as string;
+          const { data: snaps } = await supa
+            .from("listing_price_snapshots")
+            .select("price_eur, captured_at, first_seen_at, raw_address, raw_title")
+            .eq("identity_hash", hash)
+            .order("captured_at", { ascending: true })
+            .limit(100);
+          const snapsArr = snaps ?? [];
+          const pricesAsc = snapsArr
+            .map((s) => ({ p: Number(s.price_eur) }))
+            .filter((x) => Number.isFinite(x.p) && x.p > 0);
+          let drops_count = 0;
+          for (let i = 1; i < pricesAsc.length; i++) {
+            const prev = pricesAsc[i - 1].p, cur = pricesAsc[i].p;
+            if (prev > 0 && ((prev - cur) / prev) * 100 >= 1) drops_count++;
+          }
+          const initial_price_eur = pricesAsc.length > 0 ? pricesAsc[0].p : null;
+          const last_price_eur = pricesAsc.length > 0 ? pricesAsc[pricesAsc.length - 1].p : null;
+          let total_drop_pct: number | null = null;
+          if (initial_price_eur && last_price_eur && initial_price_eur > 0 && last_price_eur <= initial_price_eur) {
+            total_drop_pct = Math.round(((initial_price_eur - last_price_eur) / initial_price_eur) * 10000) / 100;
+          }
+          let earliest = Date.now();
+          for (const s of snapsArr) {
+            const t = s.first_seen_at ? new Date(s.first_seen_at).getTime() : new Date(s.captured_at).getTime();
+            if (Number.isFinite(t)) earliest = Math.min(earliest, t);
+          }
+          const days_online = snapsArr.length > 0 ? Math.max(0, Math.floor((Date.now() - earliest) / 86_400_000)) : 0;
+          const latestSnap = snapsArr[snapsArr.length - 1];
+          const address = (latestSnap?.raw_address as string | null) ?? municipality;
+          const title = (latestSnap?.raw_title as string | null) ?? null;
+
+          const agencies = Array.isArray(row.agencies_seen) ? (row.agencies_seen as string[]).filter((a) => typeof a === "string" && a.trim().length > 0) : [];
+          const sources = Array.isArray(row.sources_seen) ? (row.sources_seen as string[]) : [];
+          const agencies_count = new Set(agencies.map((a) => a.toLowerCase().trim())).size;
+          const priv = agencies_count === 0 || sources.some((s) => PRIVATE_SOURCES.has(String(s).toLowerCase()));
+
+          let tipo_lead: "contendibile" | "privato_stanco" | "ribasso" | "privato" | "standard" = "standard";
+          if (agencies_count >= 2) tipo_lead = "contendibile";
+          else if (total_drop_pct !== null && total_drop_pct >= 5) tipo_lead = "ribasso";
+          else if (priv && days_online >= 60) tipo_lead = "privato_stanco";
+          else if (priv) tipo_lead = "privato";
+
+          return {
+            identity_hash: hash,
+            address,
+            title,
+            property_type: row.property_type ?? null,
+            surface_sqm: row.surface_sqm ?? null,
+            rooms: row.rooms ?? null,
+            agencies_count,
+            agencies_seen: agencies,
+            sources_seen: sources,
+            days_online,
+            last_price_eur,
+            initial_price_eur,
+            total_drop_pct,
+            drops_count,
+            tipo_lead,
+            last_seen_at: row.last_seen_at,
+            lat_rounded: row.lat_rounded ?? null,
+            lng_rounded: row.lng_rounded ?? null,
+            omi,
+          };
+        }));
+
+        let out = items;
+        if (filterTipo) out = out.filter((i) => i.tipo_lead === filterTipo);
+        out.sort((a, b) => b.days_online - a.days_online);
+        out = out.slice(0, limit);
+
+        return withIdentity(json(req, 200, {
+          municipality,
+          quartiere: quartiereReq,
+          omi: Array.from(omiCodes),
+          count: out.length,
+          total_in_zone: matched.length,
+          items: out,
+        }, debugId), "lead-quartiere");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] lead-quartiere error: ${e instanceof Error ? e.message : String(e)}`);
+        return withIdentity(fail(req, 500, "LEAD_QUARTIERE_FAILED", "Drill-down quartiere fallito", debugId), "error");
+      }
+    }
+
     // Generate Hook — gancio testuale + perdita immagine + WhatsApp message per un singolo lead
     if (pathname.endsWith("/generate-hook")) {
       const rlH = rateLimit(req, `${FUNCTION_NAME}:hook`, { windowMs: 60_000, max: 60 });
