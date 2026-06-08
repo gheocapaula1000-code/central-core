@@ -1860,6 +1860,7 @@ Deno.serve(async (req) => {
         const idContendibili = [...idGroups.values()].filter((c) => c.portals.size >= 2 || c.agencies.size >= 2);
 
         const omiUnmapped = new Set<string>();
+        type Bucket = "padova_citta" | "fuori_padova" | "non_classificabile";
         const enriched = annotated.map((it) => {
           const cluster = itemToCluster.get(it);
           let prezzo_divergente: { min: number; max: number; delta_pct: number } | null = null;
@@ -1880,20 +1881,67 @@ Deno.serve(async (req) => {
           else if (prezzo_divergente && prezzo_divergente.delta_pct >= 5) tipo_lead = "ribasso";
           else if (isStanco) tipo_lead = "privato_stanco";
           else if (it.isPrivate) tipo_lead = "privato";
-          const omiCode = /^[A-Z]\d/.test(it.zone) ? it.zone : null;
+
+          // ───── Bucket Padova città vs Fuori Padova ─────
+          let omiCode = /^[A-Z]\d/.test(it.zone) ? it.zone : null;
+          let bucket: Bucket;
+          let bucket_comune: string | null = null;
           let quartiere: string;
-          if (omiCode && OMI_QUARTIERE[omiCode]) quartiere = OMI_QUARTIERE[omiCode];
-          else if (omiCode) { quartiere = "(non mappato)"; omiUnmapped.add(omiCode); }
-          else quartiere = it.zone;
-          return { ...it, quartiere, omi_code: omiCode, prezzo_divergente, tipo_lead, contendibile: isContendibile, first_seen_at: firstSeenIso ?? null };
+
+          if (omiCode) {
+            // Polygon match (Padova): zona OMI valida
+            bucket = "padova_citta";
+            quartiere = OMI_QUARTIERE[omiCode] ?? "(non mappato)";
+            if (!OMI_QUARTIERE[omiCode]) omiUnmapped.add(omiCode);
+          } else {
+            // No polygon: prova classificazione via address text
+            const cls = classifyComune(it.address, it.cap);
+            if (cls && typeof cls === "object" && "fuori" in cls) {
+              bucket = "fuori_padova";
+              bucket_comune = cls.fuori;
+              quartiere = cls.fuori;
+            } else if (cls === "padova") {
+              // Padova città senza polygon match → fallback via/microhint → OMI
+              bucket = "padova_citta";
+              const inferred = inferOmiFromText(it.address) ?? inferOmiFromText(it.title) ?? (it.portal === "casa" ? inferOmiFromText((it as any).microzona_hint) : null);
+              if (inferred && OMI_QUARTIERE[inferred]) {
+                omiCode = inferred;
+                quartiere = OMI_QUARTIERE[inferred];
+              } else {
+                quartiere = "Sconosciuta (Padova città)";
+              }
+            } else {
+              // Né comune limitrofo né "padova": prova fallback anche su casa (per casa _root, hint nullo)
+              if (it.portal === "casa") {
+                const inferred = inferOmiFromText(it.address) ?? inferOmiFromText(it.title) ?? inferOmiFromText((it as any).microzona_hint);
+                if (inferred && OMI_QUARTIERE[inferred]) {
+                  bucket = "padova_citta";
+                  omiCode = inferred;
+                  quartiere = OMI_QUARTIERE[inferred];
+                } else {
+                  bucket = "non_classificabile";
+                  quartiere = "Sconosciuta";
+                }
+              } else {
+                bucket = "non_classificabile";
+                quartiere = "Sconosciuta";
+              }
+            }
+          }
+          return { ...it, quartiere, omi_code: omiCode, prezzo_divergente, tipo_lead, contendibile: isContendibile, first_seen_at: firstSeenIso ?? null, bucket, bucket_comune };
         });
 
-        const byQ = new Map<string, typeof enriched>();
-        for (const e of enriched) {
-          const key = `${e.omi_code ?? e.zone}|${e.quartiere}`;
-          const arr = byQ.get(key) ?? []; arr.push(e); byQ.set(key, arr);
+        // ───── VISTA 1: PADOVA CITTÀ ─────
+        const padovaCitta = enriched.filter((e) => e.bucket === "padova_citta");
+        const fuoriPadova = enriched.filter((e) => e.bucket === "fuori_padova");
+        const nonClassificabili = enriched.filter((e) => e.bucket === "non_classificabile");
+
+        const byQ_pad = new Map<string, typeof padovaCitta>();
+        for (const e of padovaCitta) {
+          const key = `${e.omi_code ?? "—"}|${e.quartiere}`;
+          const arr = byQ_pad.get(key) ?? []; arr.push(e); byQ_pad.set(key, arr);
         }
-        const tabella_per_quartiere = [...byQ.entries()].map(([key, items]) => {
+        const tabella_per_quartiere_padova = [...byQ_pad.entries()].map(([key, items]) => {
           const [omi, quartiere] = key.split("|");
           return {
             codice_omi: omi, quartiere,
@@ -1906,19 +1954,30 @@ Deno.serve(async (req) => {
           };
         }).sort((a, b) => b.contendibili - a.contendibili || b.annunci_tot - a.annunci_tot);
 
-        const conteggi_tipo_lead = {
-          contendibile: enriched.filter((e) => e.tipo_lead === "contendibile").length,
-          privato_stanco: enriched.filter((e) => e.tipo_lead === "privato_stanco").length,
-          ribasso: enriched.filter((e) => e.tipo_lead === "ribasso").length,
-          privato: enriched.filter((e) => e.tipo_lead === "privato").length,
-          standard: enriched.filter((e) => e.tipo_lead === "standard").length,
+        const conteggi_tipo_lead_padova = {
+          contendibile: padovaCitta.filter((e) => e.tipo_lead === "contendibile").length,
+          privato_stanco: padovaCitta.filter((e) => e.tipo_lead === "privato_stanco").length,
+          ribasso: padovaCitta.filter((e) => e.tipo_lead === "ribasso").length,
+          privato: padovaCitta.filter((e) => e.tipo_lead === "privato").length,
+          standard: padovaCitta.filter((e) => e.tipo_lead === "standard").length,
         };
+        const contendibili_padova_cluster = new Set(padovaCitta.filter((e) => e.contendibile).map((e) => itemToCluster.get(e))).size;
+        const contendibili_padova_divergenti = padovaCitta.filter((e) => e.contendibile && e.prezzo_divergente).length;
 
-        const per_portal_summary = (["immobiliare", "idealista", "subito", "casa"] as Portal[]).map((p) => ({
-          portal: p,
-          annunci_dedup: enriched.filter((i) => i.portal === p).length,
-          privati: enriched.filter((i) => i.portal === p && i.isPrivate).length,
-        }));
+        // ───── VISTA 2: FUORI PADOVA ─────
+        const byComune = new Map<string, typeof fuoriPadova>();
+        for (const e of fuoriPadova) {
+          const k = e.bucket_comune ?? "Sconosciuto";
+          const arr = byComune.get(k) ?? []; arr.push(e); byComune.set(k, arr);
+        }
+        const tabella_fuori_padova = [...byComune.entries()].map(([comune, items]) => ({
+          comune,
+          annunci_tot: items.length,
+          contendibili: items.filter((i) => i.contendibile).length,
+          privati: items.filter((i) => i.isPrivate).length,
+          agenzie_distinte: new Set(items.filter((i) => i.agency).map((i) => i.agency!.toLowerCase())).size,
+        })).sort((a, b) => b.annunci_tot - a.annunci_tot);
+
 
         const totalCost = (immoCost ?? 0) + ideCostPrev + (subitoCost ?? 0);
         const finalResult = {
