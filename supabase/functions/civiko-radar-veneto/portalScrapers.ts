@@ -10,6 +10,9 @@
 
 import { normalizePropertyType, type PropertyType } from "./listingIdentity.ts";
 import { getApifyToken } from "../_shared/apify.ts";
+import { canSpendApify, recordApifySpend } from "../_shared/apifyBudget.ts";
+
+export type RadarMode = "soft" | "full";
 
 export interface NormalizedListing {
   source: "immobiliare.it" | "idealista.it" | "casa.it";
@@ -206,10 +209,22 @@ async function scrapePortal(
   }
 }
 
-async function scrapeWithApify(comune: string, provincia: string): Promise<NormalizedListing[]> {
+async function scrapeWithApify(
+  comune: string,
+  provincia: string,
+  mode: RadarMode = "soft",
+): Promise<NormalizedListing[]> {
   const APIFY_TOKEN = getApifyToken();
   if (!APIFY_TOKEN) {
     console.log("[scrapeWithApify] no APIFY_API_TOKEN configured");
+    return [];
+  }
+  const maxItems = mode === "full" ? 200 : 50;
+  // Conservative estimate: $1.50 for a 200-item full run, $0.50 for a 50-item soft run.
+  const estCost = mode === "full" ? 1.5 : 0.5;
+  const budget = await canSpendApify(estCost);
+  if (!budget.ok) {
+    console.warn(`[scrapeWithApify] apify_cap_reached spent=$${budget.spent.toFixed(2)} cap=$${budget.cap} skip mode=${mode}`);
     return [];
   }
   const actorId = "epctex/immobiliare-it-scraper";
@@ -218,10 +233,10 @@ async function scrapeWithApify(comune: string, provincia: string): Promise<Norma
   const startUrl = `https://www.immobiliare.it/vendita-case/${slug || comune.toLowerCase()}/`;
   const body = {
     startUrls: [startUrl],
-    maxItems: 50,
+    maxItems,
     proxyConfiguration: { useApifyProxy: true },
   };
-  console.log("[scrapeWithApify] calling Apify actor:", actorId, "startUrl:", startUrl);
+  console.log(`[scrapeWithApify] mode=${mode} maxItems=${maxItems} actor=${actorId} startUrl=${startUrl}`);
   try {
     const res = await fetch(runUrl, {
       method: "POST",
@@ -232,16 +247,18 @@ async function scrapeWithApify(comune: string, provincia: string): Promise<Norma
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
       console.warn(`[scrapeWithApify] HTTP ${res.status} body: ${txt.slice(0, 200)}`);
+      await recordApifySpend(estCost * 0.2); // partial charge for failed run
       return [];
     }
     const items = await res.json();
+    await recordApifySpend(estCost);
     if (!Array.isArray(items)) {
       console.warn("[scrapeWithApify] response is not an array");
       return [];
     }
-    console.log(`[scrapeWithApify] received ${items.length} raw items for ${comune} (${provincia})`);
+    console.log(`[scrapeWithApify] received ${items.length} raw items for ${comune} (${provincia}) mode=${mode}`);
     const out: NormalizedListing[] = [];
-    for (const item of items.slice(0, 50)) {
+    for (const item of items.slice(0, maxItems)) {
       if (!item || typeof item !== "object") continue;
       const r = item as Record<string, unknown>;
       const url = typeof r.url === "string" ? r.url : null;
@@ -275,6 +292,7 @@ export async function scrapeAllPortals(
   municipality: string,
   firecrawlKey: string,
   provincia: string = "",
+  mode: RadarMode = "soft",
 ): Promise<NormalizedListing[]> {
   if (!municipality) return [];
   const results = await Promise.allSettled(
@@ -284,10 +302,10 @@ export async function scrapeAllPortals(
   for (const r of results) {
     if (r.status === "fulfilled") listings.push(...r.value);
   }
-  // Fallback Apify riattivato con actor epctex/immobiliare-it-scraper.
+  // Fallback Apify (epctex) — only if Firecrawl returned nothing.
   if (listings.length === 0) {
-    console.log("[portalScrapers] Firecrawl fallito, tentativo Apify (epctex) per", municipality);
-    const apifyListings = await scrapeWithApify(municipality, provincia);
+    console.log(`[portalScrapers] Firecrawl 0 results, Apify fallback for ${municipality} mode=${mode}`);
+    const apifyListings = await scrapeWithApify(municipality, provincia, mode);
     listings.push(...apifyListings);
   }
   return listings;

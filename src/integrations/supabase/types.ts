@@ -315,6 +315,27 @@ export type Database = {
         }
         Relationships: []
       }
+      apify_spend_daily: {
+        Row: {
+          calls: number
+          day_utc: string
+          est_usd: number
+          updated_at: string
+        }
+        Insert: {
+          calls?: number
+          day_utc: string
+          est_usd?: number
+          updated_at?: string
+        }
+        Update: {
+          calls?: number
+          day_utc?: string
+          est_usd?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       area_opportunity_scores: {
         Row: {
           area_label: string | null

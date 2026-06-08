@@ -26,6 +26,20 @@ export interface DailyRadarOptions {
   dryRun?: boolean;
   skipListingRefresh?: boolean;
   skipPerplexity?: boolean;
+  /** "soft" (default ogni notte) o "full" (re-scan completo, ogni 3 notti). */
+  mode?: "soft" | "full";
+}
+
+/**
+ * Modalità ciclica: 2 notti soft + 1 notte full ogni 3 notti.
+ * Calcolata sul day-of-year UTC: doy % 3 === 0 ⇒ "full".
+ */
+function decideMode(): "soft" | "full" {
+  const now = new Date();
+  const start = Date.UTC(now.getUTCFullYear(), 0, 0);
+  const diff = now.getTime() - start;
+  const doy = Math.floor(diff / 86_400_000);
+  return doy % 3 === 0 ? "full" : "soft";
 }
 
 interface StageResult {
@@ -205,12 +219,19 @@ export async function runPadovaDailyRadar(opts: DailyRadarOptions = {}) {
 
   const stages: StageResult[] = [];
 
-  // Stage 1 — refresh listing portali (Firecrawl + fallback Apify) per Padova
+  // Modalità soft/full: parametro esplicito vince, altrimenti ciclo automatico
+  // "2 soft + 1 full" basato sul day-of-year UTC.
+  const radarMode: "soft" | "full" = opts.mode === "full" || opts.mode === "soft"
+    ? opts.mode
+    : decideMode();
+  console.log(`[padova-daily-radar] mode=${radarMode}`);
+
+  // Stage 1 — refresh listing portali (Firecrawl + fallback Apify cap-protetto) per Padova
   if (!opts.skipListingRefresh) {
     const s = await callStage(
       "refresh-listings",
       fnUrl("civiko-radar-veneto/jobs/deep-scan-padova"),
-      { comune: "Padova" },
+      { comune: "Padova", mode: radarMode },
       jobSecret,
       120_000,
     );
@@ -368,6 +389,7 @@ export async function runPadovaDailyRadar(opts: DailyRadarOptions = {}) {
     ok: status !== "FAILED",
     job: "padova-daily-radar",
     run_at: startedAt,
+    mode: radarMode,
     status,
     summary: {
       new_opportunities: newOpps,
