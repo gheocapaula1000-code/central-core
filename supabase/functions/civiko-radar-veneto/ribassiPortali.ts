@@ -217,8 +217,9 @@ export async function scrapeRibassiPortali(
   municipality: string,
   coords: { lat: number; lng: number } | null,
   province?: string,
+  mode: "soft" | "full" = "soft",
 ): Promise<OpportunitaOffMarket[]> {
-  console.log("[DEBUG ribassiPortali] input:", { municipality, province: province ?? null, hasCoords: !!coords });
+  console.log("[DEBUG ribassiPortali] input:", { municipality, province: province ?? null, hasCoords: !!coords, mode });
   const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY");
   if (!firecrawlKey || !municipality) {
     console.log("[DEBUG ribassiPortali] early-exit:", { hasKey: !!firecrawlKey, hasMunicipality: !!municipality });
@@ -231,7 +232,7 @@ export async function scrapeRibassiPortali(
     return [];
   }
 
-  const listings = await scrapeAllPortals(municipality, firecrawlKey, province ?? "");
+  const listings = await scrapeAllPortals(municipality, firecrawlKey, province ?? "", mode);
   console.log("[DEBUG ribassiPortali] scrapeAllPortals returned:", {
     municipality,
     total: listings.length,

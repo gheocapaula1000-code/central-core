@@ -1098,13 +1098,15 @@ Deno.serve(async (req) => {
         const body = await req.json().catch(() => ({}));
         const comuneTarget = body.comune ?? "Padova";
         const provinciaTarget = "PD";
+        const mode: "soft" | "full" = body?.mode === "full" ? "full" : "soft";
 
-        const resOpps = await scrapeRibassiPortali(comuneTarget, null, provinciaTarget);
+        const resOpps = await scrapeRibassiPortali(comuneTarget, null, provinciaTarget, mode);
 
         return withIdentity(json(req, 200, {
           job: "deep-scan-padova",
           ok: true,
           comune: comuneTarget,
+          mode,
           opportunita_residenziale: resOpps.filter(o => o.categoria === "residenziale").length,
           opportunita_commerciale: resOpps.filter(o => o.categoria === "commerciale").length,
           opportunita_terreno: resOpps.filter(o => o.categoria === "terreno").length,
