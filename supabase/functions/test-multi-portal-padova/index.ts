@@ -230,6 +230,7 @@ function normalizeCasa(it: Record<string, any>): NormItem {
     lat, lng,
     cap: it.cap ? String(it.cap).replace(/\D/g, "").slice(0, 5) || null : null,
     url: it.url ?? null,
+    publishedAt: parsePubDate(it),
   };
 }
 
