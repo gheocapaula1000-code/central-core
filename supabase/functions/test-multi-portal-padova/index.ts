@@ -1591,16 +1591,20 @@ Deno.serve(async (req) => {
         }
       }
       const isContendibile = !!cluster && (cluster.portals.size >= 2 || cluster.agencies.size >= 2);
+      const firstSeenIso = it.url ? firstSeenByUrl.get(it.url) : undefined;
+      const ageMs = firstSeenIso ? (nowMs - Date.parse(firstSeenIso)) : null;
+      const isStanco = !!it.isPrivate && ageMs != null && ageMs >= STANCO_MS;
       let tipo_lead: "contendibile" | "privato_stanco" | "ribasso" | "privato" | "standard" = "standard";
       if (isContendibile) tipo_lead = "contendibile";
       else if (prezzo_divergente && prezzo_divergente.delta_pct >= 5) tipo_lead = "ribasso";
+      else if (isStanco) tipo_lead = "privato_stanco";
       else if (it.isPrivate) tipo_lead = "privato";
       const omiCode = /^[A-Z]\d/.test(it.zone) ? it.zone : null;
       let quartiere: string;
       if (omiCode && OMI_QUARTIERE[omiCode]) quartiere = OMI_QUARTIERE[omiCode];
       else if (omiCode) { quartiere = "(non mappato)"; omiUnmapped.add(omiCode); }
       else quartiere = it.zone;
-      return { ...it, quartiere, omi_code: omiCode, prezzo_divergente, tipo_lead, contendibile: isContendibile };
+      return { ...it, quartiere, omi_code: omiCode, prezzo_divergente, tipo_lead, contendibile: isContendibile, first_seen_at: firstSeenIso ?? null };
     });
 
     const byQ = new Map<string, typeof enriched>();
