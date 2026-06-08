@@ -1833,6 +1833,7 @@ Deno.serve(async (req) => {
       conteggi_tipo_lead,
       tabella_per_quartiere,
       omi_quartiere: { mappa_utilizzata: OMI_QUARTIERE, codici_omi_non_mappati: [...omiUnmapped].sort() },
+      casa_slug_non_mappati: [...casaSlugUnmapped].sort(),
       note: "privato_stanco = privato con first_seen_at (test_listing_first_seen) >= 60 giorni. casa.it parsato da Firecrawl crawl markdown.",
     };
 
