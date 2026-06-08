@@ -1169,6 +1169,163 @@ Deno.serve(async (req) => {
     });
   }
 
+  // ────────────────────────────────────────────────────────────────
+  // ACTION: start_subito_casa
+  // Adds SUBITO (Apify) + CASA (Firecrawl) to an existing job.
+  // Fire-and-forget: starts both, verifies subito is RUNNING on Apify,
+  // saves ids into progress, returns immediately. NO collect, NO aggregation.
+  // ────────────────────────────────────────────────────────────────
+  if (action === "start_subito_casa") {
+    const jobId = String(body.job_id ?? "");
+    if (!jobId) return json({ ok: false, error: "missing_job_id" }, 400);
+    const { data: job, error: jerr } = await sb.from("test_padova_full_run")
+      .select("id,state,progress").eq("id", jobId).maybeSingle();
+    if (jerr) return json({ ok: false, error: jerr.message }, 500);
+    if (!job) return json({ ok: false, error: "job_not_found" }, 404);
+    const prog = { ...((job.progress as Record<string, any>) ?? {}) };
+
+    const skipSubito = !!prog.subito_run_id;
+    const skipCasa = !!prog.casa_crawl_id;
+    if (skipSubito && skipCasa) {
+      return json({
+        ok: false, error: "already_started",
+        subito: { run_id: prog.subito_run_id, dataset_id: prog.subito_dataset_id },
+        casa: { crawl_id: prog.casa_crawl_id },
+      }, 409);
+    }
+
+    // ── 1) SUBITO via Apify (fire-and-forget, then verify RUNNING) ──
+    const subitoActor = "emastra~subito-it-immobili";
+    const subitoMaxItems = Math.min(Number(body.subito_max ?? 2000), 5000);
+    const subitoSearch = "https://www.subito.it/annunci-veneto/vendita/immobili/padova/";
+
+    let subitoOut: Record<string, unknown> = { ok: false };
+    if (skipSubito) {
+      subitoOut = { ok: true, skipped: true, reason: "subito già avviato in chiamata precedente", run_id: prog.subito_run_id, dataset_id: prog.subito_dataset_id };
+    } else {
+    try {
+      const sRes = await fetch(
+        `https://api.apify.com/v2/acts/${encodeURIComponent(subitoActor)}/runs?token=${encodeURIComponent(token)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            startUrls: [{ url: subitoSearch }],
+            maxItems: subitoMaxItems,
+            resultsLimit: subitoMaxItems,
+            maxRequestsPerCrawl: subitoMaxItems + 50,
+          }),
+        },
+      );
+      if (!sRes.ok) {
+        const txt = await sRes.text().catch(() => "");
+        subitoOut = { ok: false, error: "apify_start_failed", status: sRes.status, body: txt.slice(0, 300) };
+      } else {
+        const sj = await sRes.json();
+        const runId = sj?.data?.id as string | undefined;
+        const datasetId = sj?.data?.defaultDatasetId as string | undefined;
+        const startedAt = sj?.data?.startedAt as string | undefined;
+        let liveStatus = sj?.data?.status as string | undefined;
+        // Verify RUNNING (poll up to 3 times)
+        for (let i = 0; i < 3 && runId; i++) {
+          await new Promise((r) => setTimeout(r, 1500));
+          try {
+            const vr = await fetch(`https://api.apify.com/v2/actor-runs/${encodeURIComponent(runId)}?token=${encodeURIComponent(token)}`);
+            if (vr.ok) {
+              const vj = await vr.json();
+              liveStatus = vj?.data?.status ?? liveStatus;
+              if (liveStatus === "RUNNING" || liveStatus === "SUCCEEDED") break;
+              if (liveStatus === "FAILED" || liveStatus === "ABORTED" || liveStatus === "TIMED-OUT") break;
+            }
+          } catch { /* ignore */ }
+        }
+        if (!runId || !datasetId) {
+          subitoOut = { ok: false, error: "apify_response_missing_ids", raw: sj };
+        } else {
+          prog.subito_actor = subitoActor;
+          prog.subito_run_id = runId;
+          prog.subito_dataset_id = datasetId;
+          prog.subito_max_items = subitoMaxItems;
+          prog.subito_started_at = startedAt;
+          prog.subito_live_status = liveStatus;
+          subitoOut = {
+            ok: true, actor: subitoActor, run_id: runId, dataset_id: datasetId,
+            live_status_apify: liveStatus, started_at: startedAt, maxItems: subitoMaxItems,
+            verified_running: liveStatus === "RUNNING",
+          };
+        }
+      }
+    } catch (e) {
+      subitoOut = { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+    } // end !skipSubito
+
+    // ── 2) CASA.IT via Firecrawl (start crawl, fire-and-forget) ──
+    const fcKey = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
+    const casaLimit = Math.min(Number(body.casa_limit ?? 500), 2000);
+    const casaUrl = "https://www.casa.it/vendita/residenziale/padova";
+    let casaOut: Record<string, unknown> = { ok: false };
+    if (skipCasa) {
+      casaOut = { ok: true, skipped: true, reason: "casa già avviato in chiamata precedente", crawl_id: prog.casa_crawl_id };
+    } else if (!fcKey) {
+      casaOut = { ok: false, error: "FIRECRAWL_API_KEY_missing" };
+    } else {
+      try {
+        const cRes = await fetch("https://api.firecrawl.dev/v2/crawl", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${fcKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: casaUrl,
+            limit: casaLimit,
+            includePaths: ["/immobili/", "/vendita/"],
+            scrapeOptions: { formats: ["markdown", "html"], onlyMainContent: true },
+          }),
+        });
+        const cj = await cRes.json().catch(() => ({}));
+        if (!cRes.ok) {
+          casaOut = { ok: false, error: "firecrawl_start_failed", status: cRes.status, body: JSON.stringify(cj).slice(0, 300) };
+        } else {
+          const crawlId = cj?.id ?? cj?.data?.id ?? cj?.jobId;
+          const crawlUrl = cj?.url ?? cj?.data?.url;
+          if (!crawlId) {
+            casaOut = { ok: false, error: "firecrawl_response_missing_id", raw: cj };
+          } else {
+            prog.casa_provider = "firecrawl";
+            prog.casa_crawl_id = crawlId;
+            prog.casa_crawl_url = crawlUrl;
+            prog.casa_start_url = casaUrl;
+            prog.casa_limit = casaLimit;
+            prog.casa_started_at = new Date().toISOString();
+            casaOut = {
+              ok: true, provider: "firecrawl", crawl_id: crawlId, crawl_status_url: crawlUrl,
+              start_url: casaUrl, limit: casaLimit, status: "scraping",
+            };
+          }
+        }
+      } catch (e) {
+        casaOut = { ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+    }
+
+    // Persist
+    prog.apify_runs_started = Number(prog.apify_runs_started ?? 1) + (subitoOut.ok ? 1 : 0);
+    prog.subito_casa_added_at = new Date().toISOString();
+    await sb.from("test_padova_full_run").update({ progress: prog }).eq("id", jobId);
+
+    return json({
+      ok: true,
+      action: "start_subito_casa",
+      job_id: jobId,
+      subito: subitoOut,
+      casa: casaOut,
+      invariati: {
+        immobiliare: { run_id: prog.immo_run_id, dataset_id: prog.immo_dataset_id, status: "SUCCEEDED (precedente)" },
+        idealista: { mode: "reuse", dataset_id: prog.ide_reuse_dataset, cost_usd_new: 0 },
+      },
+      apify_runs_started_total: prog.apify_runs_started,
+    });
+  }
+
   if (action === "collect") {
     const jobId = String(body.job_id ?? "");
     if (!jobId) return json({ ok: false, error: "missing_job_id" }, 400);
