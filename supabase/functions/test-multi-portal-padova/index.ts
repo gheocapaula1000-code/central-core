@@ -127,8 +127,111 @@ const OMI_QUARTIERE: Record<string, string> = {
   E2: "Camin sud",
   E3: "Salboro",
   R1: "rurale nord",
+  R2: "rurale / periferia R2",
   R3: "rurale sud / Guizza",
 };
+
+// ───── Via Padova → OMI code (fallback per immobiliare/idealista senza polygon match e casa senza slug-zona) ─────
+// Compilato sulla base di ZONE_KEYWORDS.padova in _shared/dealZoneScope.ts + top vie viste nel residuo casa.
+const PADOVA_VIA_TO_OMI: Array<[RegExp, string]> = [
+  // Centro Storico B1
+  [/\bvia (del santo|santa lucia|altinate|dante|roma|santa sofia|s\.? sofia|cesare battisti|umberto i|marsala|niccolo tommaseo|tommaseo|cavalletto|carlo leoni|daniele manin|francesco squarcione|san filippo benizzi|emanuele filiberto)/i, "B1"],
+  [/\bpiazza (dei signori|duomo|cavour|eremitani|garibaldi|delle erbe|della frutta|insurrezione)\b/i, "B1"],
+  [/\briviera (dei ponti romani|tito livio|san benedetto|albertino mussato|paleocapa|ruzzante)/i, "B1"],
+  [/\bvicolo giordano bruno\b/i, "B1"],
+  // Prato della Valle B2
+  [/\bprato della valle\b|\bvia belzoni\b|\bvia trieste\b|\bvia luca belludi\b|\bvia pontecorvo\b|\bvia papafava\b|\bvia santo stefano\b/i, "B2"],
+  // Portello / Stazione C1
+  [/\bvia (ospedale|gattamelata|tiepolo|paolo sarpi|venezia)\b|\bportello\b|\bospedale militare\b|\bpiazza mazzini\b|\bporta trento\b/i, "C1"],
+  // Stazione C2
+  [/\bpiazzale stazione\b|\bvia (corsica|trieste|cavalletto|del bosco|niccolo tommaseo)\b|\bcorso del popolo\b/i, "C2"],
+  // Arcella C3
+  [/\barcella\b|\bvia (aspetti|tiziano aspetti|guido reni|reni|curzola|jacopo da montagnana|jacopo crescini|crescini|sebastiano giacomelli|giacomelli|fra' giovanni|isonzo|piave)\b|\bsan bellino\b|\bsan carlo\b|\bss\.? trinit[aà]\b|\baltichero\b|\bsacro cuore\b/i, "C3"],
+  // Stanga / Pio X C4
+  [/\bstanga\b|\bpio x\b|\bfiera\b|\bvia (san lazzaro|venezia|emilia|romagna)\b/i, "C4"],
+  // Sant'Osvaldo C5
+  [/\bsant'?osvaldo\b|\bvia (s\.? osvaldo|sant'?osvaldo|jacopo facciolati|facciolati|dei salici|dei tigli|madonna pellegrina)\b/i, "C5"],
+  // Sacra Famiglia C6
+  [/\bsacra famiglia\b|\bvia (s\.? sofia|santa sofia|papa giovanni|paoli|venezia)\b/i, "C6"],
+  // Chiesanuova D1
+  [/\bchiesanuova\b|\bbrentelle\b|\bbrusegana\b|\bvia (chiesanuova|brentelle|brusegana|monte grappa|croce rossa|degli zabarella)\b/i, "D1"],
+  // Mandria D2
+  [/\bmandria\b|\bsavonarola\b|\bpaltana\b|\bvia (mandria|monselice|giovanni canestrini|canestrini|san gregorio barbarico|savonarola)\b/i, "D2"],
+  // Voltabarozzo / Guizza D3
+  [/\bvoltabarozzo\b|\bguizza\b|\bcrocefisso\b|\bvia (voltabarozzo|guizza|guizza conselvana|belli|brenta vecchia|del cimitero|bassanello|navigazione interna|dello sport)\b/i, "D3"],
+  // Camin / San Marco D4
+  [/\bcamin\b|\bsan marco\b|\bgranze\b|\bvia (camin|del plebiscito|roncaglia|del commissario|ponte di brenta|torre)\b/i, "D4"],
+  // Pontevigodarzere D5/D6
+  [/\bpontevigodarzere ovest\b|\bmont[àa] sant'?ignazio\b|\bvia (san mario)\b/i, "D5"],
+  [/\bpontevigodarzere\b|\bvia vigodarzere\b/i, "D6"],
+  // Mortise D7
+  [/\bmortise\b|\bvia (mortise|dalmazia|monte ortigara|monte nero|monte san gabriele)\b/i, "D7"],
+  // Forcellini D8
+  [/\bforcellini\b|\bterranegra\b|\bnazareth\b|\bsan camillo\b|\bvia (forcellini|euganea|terranegra|dei colli|domenico turazza|ulisse dini|delle rose|nazareth|garigliano|divisione folgore|luigi bottazzo|elena valmarana|giuseppe comino|francesco de lazara|oderzo|rovereto)\b/i, "D8"],
+];
+
+// ───── Microzona_hint testuale (casa.it) → OMI code (Padova) ─────
+const CASA_MICROHINT_TO_OMI: Array<[RegExp, string]> = [
+  [/piazze|duomo|santo\b|santa sofia|altinate|riviere|san giuseppe|specola|san giovanni/i, "B1"],
+  [/prato della valle|pontecorvo|citt[àa] giardino|santa croce/i, "B2"],
+  [/portello|ospedali|stazione/i, "C1"],
+  [/fiera|stanga|san lazzaro/i, "C4"],
+  [/sant'?osvaldo|facciolati|madonna pellegrina/i, "C5"],
+  [/sacra famiglia/i, "C6"],
+  [/brentelle|chiesanuova|cave|brusegana/i, "D1"],
+  [/paltana|mandria|savonarola/i, "D2"],
+  [/guizza|voltabarozzo|salboro|crocefisso/i, "D3"],
+  [/camin|granze|san marco|ponte di brenta|torre/i, "D4"],
+  [/mont[àa] (sant'?)?ignazio/i, "D5"],
+  [/pontevigodarzere/i, "D6"],
+  [/mortise/i, "D7"],
+  [/forcellini|terranegra|nazareth|san camillo|astada/i, "D8"],
+  [/san carlo|arcella|san bellino|altichero|sacro cuore|ponterotto/i, "C3"],
+];
+
+function inferOmiFromText(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const s = String(text).toLowerCase();
+  for (const [re, code] of PADOVA_VIA_TO_OMI) if (re.test(s)) return code;
+  for (const [re, code] of CASA_MICROHINT_TO_OMI) if (re.test(s)) return code;
+  return null;
+}
+
+// ───── Comuni limitrofi di Padova (per separare "Fuori Padova") ─────
+const COMUNE_LIMITROFI: Array<[RegExp, string]> = [
+  [/\balbignasego\b/i, "Albignasego"],
+  [/\bselvazzano( dentro)?\b/i, "Selvazzano Dentro"],
+  [/\bcadoneghe\b/i, "Cadoneghe"],
+  [/\bvigonza\b/i, "Vigonza"],
+  [/\brubano\b/i, "Rubano"],
+  [/\bponte san nicol[oò]\b/i, "Ponte San Nicolò"],
+  [/\bnoventa padovana\b|\bnoventa\b/i, "Noventa Padovana"],
+  [/\babano terme\b|\babano\b/i, "Abano Terme"],
+  [/\bmontegrotto\b/i, "Montegrotto Terme"],
+  [/\blimena\b/i, "Limena"],
+  [/\bvigodarzere\b/i, "Vigodarzere"],
+  [/\bmestrino\b/i, "Mestrino"],
+  [/\bsaonara\b/i, "Saonara"],
+  [/\bmaserà\b|\bmasera\b/i, "Maserà di Padova"],
+  [/\bcasalserugo\b/i, "Casalserugo"],
+  [/\bpolverara\b/i, "Polverara"],
+  [/\btorreglia\b/i, "Torreglia"],
+  [/\bteolo\b/i, "Teolo"],
+  [/\bvilla del conte\b/i, "Villa del Conte"],
+  [/\btencarola\b/i, "Selvazzano Dentro"], // frazione
+  [/\bsarmeola\b/i, "Rubano"], // frazione
+  [/\bbusiago\b|\bcampodarsego\b/i, "Campodarsego"],
+];
+
+const PADOVA_CAP_RE = /\b35(1[0-3]\d|14[0-3]|100)\b/; // 35100..35143
+function classifyComune(address: string | null | undefined, cap: string | null | undefined): "padova" | { fuori: string } | null {
+  const addr = String(address ?? "");
+  for (const [re, name] of COMUNE_LIMITROFI) if (re.test(addr)) return { fuori: name };
+  if (/\bpadova\b/i.test(addr)) return "padova";
+  if (cap && PADOVA_CAP_RE.test(cap)) return "padova";
+  return null;
+}
+
 
 // ───── casa.it neighbourhood-slug → OMI code (Padova) ─────
 // Mappa basata sui 26 slug effettivamente visti nel crawl 019ea797 (120 list-page).
