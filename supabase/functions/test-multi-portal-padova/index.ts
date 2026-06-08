@@ -163,6 +163,7 @@ function normalizeImmobiliare(it: Record<string, any>): NormItem {
     lat: nz(num(loc.latitude)), lng: nz(num(loc.longitude)),
     cap: null,
     url: it.directLink ?? (it.id ? `https://www.immobiliare.it/annunci/${it.id}` : null),
+    publishedAt: parsePubDate(it),
   };
 }
 
