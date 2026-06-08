@@ -1482,6 +1482,357 @@ Deno.serve(async (req) => {
     });
   }
 
+  // ACTION: collect_v2 — RAM-safe collect.
+  //  - Casa.it parsato in streaming dalla tabella public.test_casa_raw_pages
+  //    (popolata in batch da test-casa-ingest-batch). 1 markdown alla volta in RAM.
+  //  - Apify dataset (immobiliare → idealista → subito) fetchati SEQUENZIALMENTE,
+  //    eliminando il Promise.all che causava il peak RAM / OOM.
+  //  - Stessa logica di aggregazione/matching/quartieri di collect.
+  if (action === "collect_v2") {
+    const jobId = String(body.job_id ?? "");
+    if (!jobId) return json({ ok: false, error: "missing_job_id" }, 400);
+    const { data: job, error: jerr } = await sb.from("test_padova_full_run")
+      .select("id,state,progress").eq("id", jobId).maybeSingle();
+    if (jerr) return json({ ok: false, error: jerr.message }, 500);
+    if (!job) return json({ ok: false, error: "job_not_found" }, 404);
+    const prog = (job.progress ?? {}) as Record<string, any>;
+    const immoRunId = prog.immo_run_id as string | undefined;
+    const immoDsId = prog.immo_dataset_id as string | undefined;
+    const ideDsId = prog.ide_reuse_dataset as string | undefined;
+    const ideCostPrev = Number(prog.ide_reuse_cost_usd ?? 1.707);
+    const casaCrawlId = prog.casa_crawl_id as string | undefined;
+    const subitoRunIdCol = prog.subito_run_id as string | undefined;
+    const subitoDsId = prog.subito_dataset_id as string | undefined;
+    if (!immoDsId || !ideDsId) {
+      return json({ ok: false, error: "missing_dataset_ids_in_job_progress", progress: prog }, 400);
+    }
+
+    if (job.state === "collecting" && !body.force) {
+      return json({ ok: true, action: "collect_v2", job_id: jobId, state: "collecting", hint: "raccolta già in corso, usa action:status (oppure force:true per riavviare)" });
+    }
+    if (job.state === "done" && !body.force) {
+      const { data: d } = await sb.from("test_padova_full_run").select("result").eq("id", jobId).maybeSingle();
+      return json({ ok: true, action: "collect_v2", job_id: jobId, state: "done", result: d?.result ?? null, hint: "passa force:true per re-collect" });
+    }
+    await sb.from("test_padova_full_run").update({ state: "collecting" }).eq("id", jobId);
+
+    const bgWork = (async () => {
+      try {
+        // ── Apify costs (best-effort) ──
+        let immoCost: number | null = null;
+        if (immoRunId) {
+          try {
+            const r = await fetch(`${APIFY_BASE}/actor-runs/${encodeURIComponent(immoRunId)}?token=${encodeURIComponent(token)}`);
+            if (r.ok) { const j = await r.json(); immoCost = typeof j?.data?.usageTotalUsd === "number" ? j.data.usageTotalUsd : null; }
+          } catch { /* noop */ }
+        }
+        let subitoCost: number | null = null;
+        if (subitoRunIdCol) {
+          try {
+            const sr = await fetch(`${APIFY_BASE}/actor-runs/${encodeURIComponent(subitoRunIdCol)}?token=${encodeURIComponent(token)}`);
+            if (sr.ok) { const sj = await sr.json(); subitoCost = typeof sj?.data?.usageTotalUsd === "number" ? sj.data.usageTotalUsd : null; }
+          } catch { /* noop */ }
+        }
+
+        // ── Sequential Apify dataset fetch (one portal at a time) ──
+        async function fetchDatasetSeq(dsId: string, portal: Portal): Promise<NormItem[]> {
+          const out: NormItem[] = [];
+          const pageSize = 500;
+          for (let offset = 0; offset < 50_000; offset += pageSize) {
+            const r = await fetch(`${APIFY_BASE}/datasets/${encodeURIComponent(dsId)}/items?clean=true&format=json&limit=${pageSize}&offset=${offset}&token=${encodeURIComponent(token)}`);
+            if (!r.ok) break;
+            const arr = await r.json().catch(() => []);
+            if (!Array.isArray(arr) || arr.length === 0) break;
+            for (const it of arr) out.push(normalizeRaw(portal, it as Record<string, unknown>));
+            if (arr.length < pageSize) break;
+          }
+          return out;
+        }
+
+        const immoItems = await fetchDatasetSeq(immoDsId, "immobiliare");
+        const ideItems = await fetchDatasetSeq(ideDsId, "idealista");
+        const subitoItems = subitoDsId ? await fetchDatasetSeq(subitoDsId, "subito") : [];
+
+        await sb.from("test_padova_full_run").update({
+          progress: { ...prog, v2_phase: "apify_done", v2_immo: immoItems.length, v2_ide: ideItems.length, v2_subito: subitoItems.length, v2_ts: new Date().toISOString() },
+        }).eq("id", jobId);
+
+        // ── Casa.it parsed in streaming from DB (1 page at a time) ──
+        const casaSlugUnmapped = new Set<string>();
+        const casaItems: NormItem[] = [];
+        const seenCasaIds = new Set<string>();
+        const CARD_LINK_RE = /\[([^\]]+?)\]\(https:\/\/www\.casa\.it\/immobili\/(\d+)\/[^)]*\)/g;
+        const PAGE_BATCH = 10;
+        let pageCursor = 0;
+        let totalCasaPages = 0;
+        while (true) {
+          const { data: pages, error: perr } = await sb
+            .from("test_casa_raw_pages")
+            .select("page_index,url,markdown")
+            .eq("job_id", jobId)
+            .order("page_index", { ascending: true })
+            .gte("page_index", pageCursor)
+            .lt("page_index", pageCursor + PAGE_BATCH);
+          if (perr) throw new Error(`casa_db_read: ${perr.message}`);
+          if (!pages || pages.length === 0) break;
+          totalCasaPages += pages.length;
+          for (const p of pages) {
+            const md: string = String(p.markdown ?? "");
+            const srcUrl: string = String(p.url ?? "");
+            if (!/casa\.it\/vendita\/residenziale\/padova/i.test(srcUrl)) continue;
+            const slugM = srcUrl.match(/casa\.it\/vendita\/residenziale\/padova(?:\/([^/?#]+))?\/?/i);
+            const slug = slugM?.[1] ?? "_root";
+            let omiHint: string | null | undefined = CASA_SLUG_TO_OMI[slug];
+            if (omiHint === undefined) { omiHint = null; casaSlugUnmapped.add(slug); }
+            const cardPositions: Array<{ id: string; titolo: string; pos: number }> = [];
+            const seenIdsInPage = new Set<string>();
+            CARD_LINK_RE.lastIndex = 0;
+            let m: RegExpExecArray | null;
+            while ((m = CARD_LINK_RE.exec(md)) !== null) {
+              const id = m[2];
+              const titolo = m[1].trim();
+              if (seenIdsInPage.has(id)) continue;
+              if (/Immagine \d+ di \d+/i.test(titolo)) continue;
+              seenIdsInPage.add(id);
+              cardPositions.push({ id, titolo, pos: m.index });
+            }
+            for (let i = 0; i < cardPositions.length; i++) {
+              const card = cardPositions[i];
+              const nextPos = (i + 1 < cardPositions.length) ? cardPositions[i + 1].pos : Math.min(md.length, card.pos + 2500);
+              const block = md.slice(card.pos, nextPos);
+              const listingId = `casa-${card.id}`;
+              if (seenCasaIds.has(listingId)) continue;
+              seenCasaIds.add(listingId);
+              const priceM = block.match(/€[\s\u00a0]*([\d][\d.\u00a0\s]{2,15})/);
+              let price: number | null = null;
+              if (priceM) {
+                const cleaned = priceM[1].replace(/[.\u00a0\s]/g, "").replace(",", ".");
+                const n = Number(cleaned);
+                if (Number.isFinite(n) && n >= 10000 && n < 100_000_000) price = n;
+              }
+              const mqM = block.match(/(\d{2,4})\s?m(?:²|q|2)\b/i);
+              const mq = mqM ? Number(mqM[1]) : null;
+              const roomsM = block.match(/(\d+)\s*local[ei]/i);
+              const rooms = roomsM ? Number(roomsM[1]) : null;
+              const agM = block.match(/\[([^\]]{2,80})\]\(https:\/\/www\.casa\.it\/agenzie\/[^)]+\)/);
+              const agency = agM ? agM[1].trim().slice(0, 120) : null;
+              const blockLower = block.toLowerCase();
+              const isPrivate = !agency && /\bprivato\b/i.test(block) && !/agenzia|immobiliare|tecnocasa|gabetti|remax|engel/i.test(blockLower);
+              let microzona_hint: string | null = null;
+              if (priceM) {
+                const beforePrice = block.slice(0, priceM.index ?? 0);
+                const lines = beforePrice.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("[") && !l.startsWith("!") && l.length < 120);
+                if (lines.length) microzona_hint = lines[lines.length - 1];
+              }
+              casaItems.push({
+                portal: "casa",
+                url: `https://www.casa.it/immobili/${card.id}/`,
+                title: card.titolo.slice(0, 200),
+                address: (microzona_hint ?? card.titolo).slice(0, 200),
+                price, mq, rooms, agency, isPrivate,
+                lat: null, lng: null, cap: null, publishedAt: null,
+                casaOmiHint: omiHint ?? null,
+                casaSlug: slug,
+              });
+            }
+          }
+          if (pages.length < PAGE_BATCH) break;
+          pageCursor += PAGE_BATCH;
+        }
+
+        await sb.from("test_padova_full_run").update({
+          progress: { ...prog, v2_phase: "casa_parsed", v2_immo: immoItems.length, v2_ide: ideItems.length, v2_subito: subitoItems.length, v2_casa_pages: totalCasaPages, v2_casa_items: casaItems.length, v2_ts: new Date().toISOString() },
+        }).eq("id", jobId);
+
+        // ── Dedup global ──
+        const seen = new Set<string>();
+        const allRaw: NormItem[] = [];
+        for (const it of [...immoItems, ...ideItems, ...subitoItems, ...casaItems]) {
+          const k = it.url ?? `${it.portal}:${it.address}:${it.mq}:${it.price}`;
+          if (seen.has(k)) continue;
+          seen.add(k);
+          allRaw.push(it);
+        }
+
+        // ── Join first_seen ──
+        const firstSeenByUrl = new Map<string, string>();
+        const urls = allRaw.map((i) => i.url).filter((u): u is string => !!u);
+        const CHUNK = 500;
+        for (let i = 0; i < urls.length; i += CHUNK) {
+          const slice = urls.slice(i, i + CHUNK);
+          const { data: rows } = await sb.from("test_listing_first_seen")
+            .select("url,first_seen_at").in("url", slice);
+          for (const r of (rows ?? [])) firstSeenByUrl.set(String(r.url), String(r.first_seen_at));
+        }
+        const STANCO_MS = 60 * 24 * 3600 * 1000;
+        const nowMs = Date.now();
+
+        // ── Zone resolve (lat/lng → OMI, casa → casaOmiHint) ──
+        const zoneCache = new Map<string, string>();
+        const resolveZone = async (lat: number | null, lng: number | null, cap: string | null): Promise<string> => {
+          if (lat != null && lng != null) {
+            const k = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+            if (zoneCache.has(k)) return zoneCache.get(k)!;
+            try {
+              const { data } = await sb.rpc("omi_zone_by_point", { p_lat: lat, p_lng: lng });
+              const z = Array.isArray(data) && data[0]?.zona ? String(data[0].zona) : (cap ? `CAP ${cap}` : "Sconosciuta");
+              zoneCache.set(k, z);
+              return z;
+            } catch { return cap ? `CAP ${cap}` : "Sconosciuta"; }
+          }
+          return cap ? `CAP ${cap}` : "Sconosciuta";
+        };
+
+        type Annotated = NormItem & { zone: string };
+        const annotated: Annotated[] = [];
+        const BATCH = 25;
+        for (let i = 0; i < allRaw.length; i += BATCH) {
+          const slice = allRaw.slice(i, i + BATCH);
+          const zones = await Promise.all(slice.map((it) => it.portal === "casa" ? Promise.resolve(it.casaOmiHint ?? "Sconosciuta") : resolveZone(it.lat, it.lng, it.cap)));
+          for (let j = 0; j < slice.length; j++) annotated.push({ ...slice[j], zone: zones[j] });
+        }
+
+        // ── Identity clustering (street+civic+mq±8%) ──
+        type IdCluster = { items: Annotated[]; portals: Set<string>; agencies: Set<string> };
+        const idGroups = new Map<string, IdCluster>();
+        for (const it of annotated) {
+          const { street, civic } = normalizeAddressKey(it.address);
+          if (!street || street.length < 4) continue;
+          const baseKey = `${street}|${civic ?? "_"}`;
+          let matched: IdCluster | null = null;
+          for (const [k, c] of idGroups) {
+            if (!k.startsWith(baseKey + "|")) continue;
+            const ref = c.items[0];
+            const mqOk = it.mq == null || ref.mq == null ||
+              Math.abs((it.mq - ref.mq) / Math.max(ref.mq, 1)) <= 0.08;
+            if (mqOk) { matched = c; break; }
+          }
+          if (matched) {
+            matched.items.push(it); matched.portals.add(it.portal);
+            if (it.agency) matched.agencies.add(it.agency.toLowerCase());
+          } else {
+            const mqBucket = it.mq != null ? Math.round(it.mq / 10) : "x";
+            idGroups.set(`${baseKey}|${mqBucket}`, {
+              items: [it], portals: new Set([it.portal]),
+              agencies: new Set(it.agency ? [it.agency.toLowerCase()] : []),
+            });
+          }
+        }
+        const itemToCluster = new Map<NormItem, IdCluster>();
+        for (const c of idGroups.values()) for (const it of c.items) itemToCluster.set(it, c);
+        const idContendibili = [...idGroups.values()].filter((c) => c.portals.size >= 2 || c.agencies.size >= 2);
+
+        const omiUnmapped = new Set<string>();
+        const enriched = annotated.map((it) => {
+          const cluster = itemToCluster.get(it);
+          let prezzo_divergente: { min: number; max: number; delta_pct: number } | null = null;
+          if (cluster && cluster.items.length >= 2) {
+            const prices = cluster.items.map((x) => x.price).filter((p): p is number => p != null && p > 0);
+            if (prices.length >= 2) {
+              const min = Math.min(...prices), max = Math.max(...prices);
+              const delta_pct = Math.round(((max - min) / min) * 1000) / 10;
+              if (delta_pct >= 1) prezzo_divergente = { min, max, delta_pct };
+            }
+          }
+          const isContendibile = !!cluster && (cluster.portals.size >= 2 || cluster.agencies.size >= 2);
+          const firstSeenIso = it.url ? firstSeenByUrl.get(it.url) : undefined;
+          const ageMs = firstSeenIso ? (nowMs - Date.parse(firstSeenIso)) : null;
+          const isStanco = !!it.isPrivate && ageMs != null && ageMs >= STANCO_MS;
+          let tipo_lead: "contendibile" | "privato_stanco" | "ribasso" | "privato" | "standard" = "standard";
+          if (isContendibile) tipo_lead = "contendibile";
+          else if (prezzo_divergente && prezzo_divergente.delta_pct >= 5) tipo_lead = "ribasso";
+          else if (isStanco) tipo_lead = "privato_stanco";
+          else if (it.isPrivate) tipo_lead = "privato";
+          const omiCode = /^[A-Z]\d/.test(it.zone) ? it.zone : null;
+          let quartiere: string;
+          if (omiCode && OMI_QUARTIERE[omiCode]) quartiere = OMI_QUARTIERE[omiCode];
+          else if (omiCode) { quartiere = "(non mappato)"; omiUnmapped.add(omiCode); }
+          else quartiere = it.zone;
+          return { ...it, quartiere, omi_code: omiCode, prezzo_divergente, tipo_lead, contendibile: isContendibile, first_seen_at: firstSeenIso ?? null };
+        });
+
+        const byQ = new Map<string, typeof enriched>();
+        for (const e of enriched) {
+          const key = `${e.omi_code ?? e.zone}|${e.quartiere}`;
+          const arr = byQ.get(key) ?? []; arr.push(e); byQ.set(key, arr);
+        }
+        const tabella_per_quartiere = [...byQ.entries()].map(([key, items]) => {
+          const [omi, quartiere] = key.split("|");
+          return {
+            codice_omi: omi, quartiere,
+            annunci_tot: items.length,
+            contendibili: items.filter((i) => i.contendibile).length,
+            privati: items.filter((i) => i.isPrivate).length,
+            privati_stanchi: items.filter((i) => i.tipo_lead === "privato_stanco").length,
+            ribassi: items.filter((i) => i.tipo_lead === "ribasso").length,
+            agenzie_distinte: new Set(items.filter((i) => i.agency).map((i) => i.agency!.toLowerCase())).size,
+          };
+        }).sort((a, b) => b.contendibili - a.contendibili || b.annunci_tot - a.annunci_tot);
+
+        const conteggi_tipo_lead = {
+          contendibile: enriched.filter((e) => e.tipo_lead === "contendibile").length,
+          privato_stanco: enriched.filter((e) => e.tipo_lead === "privato_stanco").length,
+          ribasso: enriched.filter((e) => e.tipo_lead === "ribasso").length,
+          privato: enriched.filter((e) => e.tipo_lead === "privato").length,
+          standard: enriched.filter((e) => e.tipo_lead === "standard").length,
+        };
+
+        const per_portal_summary = (["immobiliare", "idealista", "subito", "casa"] as Portal[]).map((p) => ({
+          portal: p,
+          annunci_dedup: enriched.filter((i) => i.portal === p).length,
+          privati: enriched.filter((i) => i.portal === p && i.isPrivate).length,
+        }));
+
+        const totalCost = (immoCost ?? 0) + ideCostPrev + (subitoCost ?? 0);
+        const finalResult = {
+          ok: true,
+          mode: "collect_v2",
+          aggregato: {
+            annunci_totali_dedup: enriched.length,
+            cost_immobiliare_usd: immoCost,
+            cost_idealista_reuse_usd: ideCostPrev,
+            cost_subito_usd: subitoCost,
+            cost_casa_firecrawl_usd: null,
+            cost_totale_usd: Number(totalCost.toFixed(4)),
+            subito_items_raw: subitoItems.length,
+            casa_items_raw: casaItems.length,
+            casa_pages_read_from_db: totalCasaPages,
+          },
+          riepilogo_per_portale: per_portal_summary,
+          matching: {
+            metodo: "IDENTITA via+civico+mq8% (prezzo NON usato come filtro)",
+            contendibili_totali: idContendibili.length,
+            contendibili_con_prezzo_divergente: enriched.filter((e) => e.contendibile && e.prezzo_divergente).length,
+          },
+          conteggi_tipo_lead,
+          tabella_per_quartiere,
+          omi_quartiere: { mappa_utilizzata: OMI_QUARTIERE, codici_omi_non_mappati: [...omiUnmapped].sort() },
+          casa_slug_non_mappati: [...casaSlugUnmapped].sort(),
+          note: "collect_v2: casa parsato in streaming da public.test_casa_raw_pages; Apify dataset fetchati sequenzialmente.",
+        };
+
+        await sb.from("test_padova_full_run")
+          .update({ state: "done", finished_at: new Date().toISOString(), result: finalResult })
+          .eq("id", jobId);
+      } catch (e) {
+        await sb.from("test_padova_full_run").update({
+          state: "failed",
+          finished_at: new Date().toISOString(),
+          result: { ok: false, mode: "collect_v2", error: e instanceof Error ? e.message : String(e) },
+        }).eq("id", jobId);
+      }
+    })();
+
+    // @ts-ignore EdgeRuntime
+    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+      // @ts-ignore
+      EdgeRuntime.waitUntil(bgWork);
+    } else {
+      bgWork.catch(() => {});
+    }
+    return json({ ok: true, action: "collect_v2", job_id: jobId, state: "collecting", hint: "collect_v2 avviato in background. Polla action:status." });
+  }
+
   if (action === "collect") {
     const jobId = String(body.job_id ?? "");
     if (!jobId) return json({ ok: false, error: "missing_job_id" }, 400);
