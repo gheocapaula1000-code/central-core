@@ -910,8 +910,9 @@ Deno.serve(async (req) => {
   }
 
   if (action === "apify_diag") {
-    // Read-only diagnose: recent runs + monthly usage. No actor invocation.
-    const listRes = await fetch(`https://api.apify.com/v2/actor-runs?limit=15&desc=true&token=${encodeURIComponent(token)}`);
+    const actorFilter = body.actor ? `&actorId=${encodeURIComponent(String(body.actor))}` : "";
+    const limit = Math.min(Number(body.limit ?? 15), 50);
+    const listRes = await fetch(`https://api.apify.com/v2/actor-runs?limit=${limit}&desc=true${actorFilter}&token=${encodeURIComponent(token)}`);
     const lj = await listRes.json().catch(() => ({}));
     const items = (lj?.data?.items ?? []) as any[];
     const enriched = await Promise.all(items.slice(0, 10).map(async (r) => {
