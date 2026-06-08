@@ -103,6 +103,7 @@ function buildIdealistaSingle(maxItems: number): ApifyChunk {
       proxy: { useApifyProxy: true },
     },
   };
+}
 
 // ───── OMI → quartiere (Padova) ─────
 const OMI_QUARTIERE: Record<string, string> = {
