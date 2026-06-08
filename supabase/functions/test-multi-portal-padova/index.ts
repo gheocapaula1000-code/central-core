@@ -1,9 +1,7 @@
 // test-multi-portal-padova
-// ONE-SHOT controlled multi-portal test on Padova.
-// Portals: immobiliare.it (Apify), idealista.it (Apify), subito.it (Apify, privati),
-//          casa.it (Firecrawl, baseline).
-// Pattern: action=start launches Apify runs in parallel + runs Firecrawl casa.it
-// synchronously. action=results polls remaining runs + aggregates everything.
+// ONE-SHOT multi-portal test on Padova with per-portal URL chunking,
+// first_seen_at historization (staging table), and identity matching
+// (street+civic+mq) WITHOUT price as a filter (price = signal only).
 //
 // Does NOT write to production tables. Returns JSON.
 // Auth: x-job-secret OR a valid Supabase Bearer JWT.
@@ -17,54 +15,92 @@ const FIRECRAWL_BASE = "https://api.firecrawl.dev";
 
 type Portal = "immobiliare" | "idealista" | "subito" | "casa";
 
-interface PortalConfig {
+// Price bands (EUR) used to split immobiliare.it / idealista.it crawls and bypass
+// the actors' internal ~200-item paging cap. 10 bands × 200 items ≈ 2000/portal.
+const PRICE_BANDS: Array<{ label: string; min: number; max: number | null }> = [
+  { label: "0-100k",      min: 0,       max: 100000  },
+  { label: "100-150k",    min: 100000,  max: 150000  },
+  { label: "150-200k",    min: 150000,  max: 200000  },
+  { label: "200-250k",    min: 200000,  max: 250000  },
+  { label: "250-300k",    min: 250000,  max: 300000  },
+  { label: "300-400k",    min: 300000,  max: 400000  },
+  { label: "400-500k",    min: 400000,  max: 500000  },
+  { label: "500-700k",    min: 500000,  max: 700000  },
+  { label: "700k-1M",     min: 700000,  max: 1000000 },
+  { label: "1M+",         min: 1000000, max: null    },
+];
+
+interface PortalChunk {
   portal: Portal;
   engine: "apify" | "firecrawl";
+  label: string;
   actor?: string;
   input?: Record<string, unknown>;
   firecrawl_url?: string;
 }
 
-const PORTALS = (maxItems: number): PortalConfig[] => [
-  {
-    portal: "immobiliare",
-    engine: "apify",
-    actor: "azzouzana~immobiliare-it-listing-page-scraper-by-search-url",
-    input: {
-      startUrl: "https://www.immobiliare.it/vendita-case/padova/",
-      maxItems,
-    },
-  },
-  {
-    portal: "idealista",
-    engine: "apify",
-    actor: "memo23~idealista-scraper",
-    input: {
-      startUrls: ["https://www.idealista.it/vendita-case/padova-padova/"],
-      maxItems,
-      scrapeAgencies: false,
-      splitByPrice: true,
-      proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
-    },
-  },
-  {
+function buildImmobiliareUrl(band: { min: number; max: number | null }): string {
+  const u = new URL("https://www.immobiliare.it/vendita-case/padova/");
+  u.searchParams.set("criterio", "rilevanza");
+  u.searchParams.set("prezzoMinimo", String(band.min));
+  if (band.max != null) u.searchParams.set("prezzoMassimo", String(band.max));
+  return u.toString();
+}
+function buildIdealistaUrl(band: { min: number; max: number | null }): string {
+  // Idealista URL pattern: /con-prezzo-min_X,prezzo-max_Y/  (price slice in path).
+  const parts: string[] = [];
+  if (band.min > 0) parts.push(`prezzo-min_${band.min}`);
+  if (band.max != null) parts.push(`prezzo-max_${band.max}`);
+  const slice = parts.length ? `con-${parts.join(",")}/` : "";
+  return `https://www.idealista.it/vendita-case/padova-padova/${slice}`;
+}
+
+function buildChunks(perChunkMax: number): PortalChunk[] {
+  const out: PortalChunk[] = [];
+  for (const b of PRICE_BANDS) {
+    out.push({
+      portal: "immobiliare",
+      engine: "apify",
+      label: b.label,
+      actor: "azzouzana~immobiliare-it-listing-page-scraper-by-search-url",
+      input: { startUrl: buildImmobiliareUrl(b), maxItems: perChunkMax },
+    });
+    out.push({
+      portal: "idealista",
+      engine: "apify",
+      label: b.label,
+      actor: "memo23~idealista-scraper",
+      input: {
+        startUrls: [buildIdealistaUrl(b)],
+        maxItems: perChunkMax,
+        scrapeAgencies: false,
+        proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
+      },
+    });
+  }
+  // subito.it: keep as single URL (privati only).
+  out.push({
     portal: "subito",
     engine: "apify",
+    label: "all",
     actor: "emastra~subito-it-immobili",
     input: {
       startUrls: ["https://www.subito.it/annunci-veneto/vendita/appartamenti/padova/padova/"],
-      maxResultItems: maxItems,
+      maxResultItems: perChunkMax * 2,
       onlyPrivate: true,
     },
-  },
-  {
+  });
+  // casa.it: Firecrawl baseline.
+  out.push({
     portal: "casa",
     engine: "firecrawl",
+    label: "baseline",
     firecrawl_url: "https://www.casa.it/vendita/residenziale/padova",
-  },
-];
+  });
+  return out;
+}
 
-// Parse a publication date from various actor field shapes → ISO string or null.
+// Parse a publication date (rarely present in these actors) → ISO string or null.
 function parsePubDate(it: Record<string, any>): string | null {
   const cands = [
     it.publishedDate, it.publishedAt, it.published_at, it.creationDate, it.createdAt,
@@ -73,26 +109,18 @@ function parsePubDate(it: Record<string, any>): string | null {
   ];
   for (const c of cands) {
     if (!c) continue;
-    if (typeof c === "number") {
-      const d = new Date(c < 1e12 ? c * 1000 : c);
-      if (!isNaN(+d)) return d.toISOString();
-    }
-    if (typeof c === "string") {
-      const d = new Date(c);
-      if (!isNaN(+d)) return d.toISOString();
-    }
+    if (typeof c === "number") { const d = new Date(c < 1e12 ? c * 1000 : c); if (!isNaN(+d)) return d.toISOString(); }
+    if (typeof c === "string") { const d = new Date(c); if (!isNaN(+d)) return d.toISOString(); }
   }
   return null;
 }
 
-// Normalize Italian street address → "via_norm|civic"
+// Normalize Italian street address → {street, civic}
 function normalizeAddressKey(addr: string | null | undefined): { street: string; civic: string | null } {
   if (!addr) return { street: "", civic: null };
   let s = String(addr).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   s = s.replace(/[.,;:()]/g, " ").replace(/\s+/g, " ").trim();
-  // Strip city/region tails
   s = s.split(/\bpadova\b|\bpd\b/i)[0].trim();
-  // Normalize prefixes
   const prefixMap: Array<[RegExp, string]> = [
     [/^v\.?le\b|^viale\b/, "viale"],
     [/^v\.?\b|^via\b/, "via"],
@@ -104,10 +132,8 @@ function normalizeAddressKey(addr: string | null | undefined): { street: string;
     [/^p\.?le\b|^piazzale\b/, "piazzale"],
   ];
   for (const [re, rep] of prefixMap) s = s.replace(re, rep);
-  // Extract civic (first number sequence after street name)
   const civicMatch = s.match(/\b(\d{1,4}[a-z]?)\b/);
   const civic = civicMatch ? civicMatch[1] : null;
-  // Street = remove civic and everything after
   const street = (civicMatch ? s.slice(0, civicMatch.index) : s).replace(/\s+/g, " ").trim();
   return { street, civic };
 }
@@ -135,6 +161,7 @@ interface NormItem {
   lat: number | null; lng: number | null; cap: string | null;
   url: string | null;
   publishedAt: string | null;
+  source_chunk?: string;
 }
 
 function nz(n: number | null): number | null {
@@ -166,7 +193,6 @@ function normalizeImmobiliare(it: Record<string, any>): NormItem {
     publishedAt: parsePubDate(it),
   };
 }
-
 function normalizeIdealista(it: Record<string, any>): NormItem {
   const b = it.basicInfo ?? it ?? {};
   const ci = b.contactInfo ?? {};
@@ -188,7 +214,6 @@ function normalizeIdealista(it: Record<string, any>): NormItem {
     publishedAt: parsePubDate(it),
   };
 }
-
 function normalizeSubito(it: Record<string, any>): NormItem {
   const loc = it.location ?? {};
   const coords = loc.coordinates ?? {};
@@ -211,9 +236,7 @@ function normalizeSubito(it: Record<string, any>): NormItem {
     publishedAt: parsePubDate(it),
   };
 }
-
 function normalizeCasa(it: Record<string, any>): NormItem {
-  // Firecrawl-extracted shape (flat fields).
   const lat = nz(num(it.latitude ?? it.lat));
   const lng = nz(num(it.longitude ?? it.lng));
   const agency = it.agency && String(it.agency).trim() && !/^priv/i.test(String(it.agency)) ? String(it.agency).slice(0, 120) : null;
@@ -233,7 +256,6 @@ function normalizeCasa(it: Record<string, any>): NormItem {
     publishedAt: parsePubDate(it),
   };
 }
-
 function normalizeRaw(portal: Portal, it: Record<string, unknown>): NormItem {
   const r = it as Record<string, any>;
   switch (portal) {
@@ -244,7 +266,6 @@ function normalizeRaw(portal: Portal, it: Record<string, unknown>): NormItem {
   }
 }
 
-// ───────── Firecrawl casa.it scraper ─────────
 async function scrapeCasaFirecrawl(url: string, maxItems: number): Promise<{ items: NormItem[]; status: string; cost_usd: number | null; error?: string }> {
   const key = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
   if (!key) return { items: [], status: "ERRORE", cost_usd: null, error: "FIRECRAWL_API_KEY_missing" };
@@ -257,25 +278,15 @@ async function scrapeCasaFirecrawl(url: string, maxItems: number): Promise<{ ite
         url,
         formats: [{
           type: "json",
-          prompt: `Estrai fino a ${maxItems} annunci di vendita di appartamenti residenziali a Padova. Per ciascuno: titolo, indirizzo (via + zona/quartiere), prezzo in euro, superficie in mq, locali, nome dell'agenzia (o "privato" se è un privato), URL dell'annuncio, latitudine e longitudine se presenti, CAP.`,
-          schema: {
-            type: "object",
+          prompt: `Estrai fino a ${maxItems} annunci di vendita di appartamenti residenziali a Padova. Per ciascuno: titolo, indirizzo, prezzo in euro, superficie in mq, locali, nome dell'agenzia (o "privato"), URL, lat/lng se presenti, CAP.`,
+          schema: { type: "object", properties: { listings: { type: "array", items: { type: "object",
             properties: {
-              listings: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    title: { type: "string" }, address: { type: "string" },
-                    price: { type: "number" }, surface: { type: "number" }, rooms: { type: "number" },
-                    agency: { type: "string" }, isPrivate: { type: "boolean" },
-                    latitude: { type: "number" }, longitude: { type: "number" },
-                    cap: { type: "string" }, url: { type: "string" },
-                  },
-                },
-              },
-            },
-          },
+              title: { type: "string" }, address: { type: "string" },
+              price: { type: "number" }, surface: { type: "number" }, rooms: { type: "number" },
+              agency: { type: "string" }, isPrivate: { type: "boolean" },
+              latitude: { type: "number" }, longitude: { type: "number" },
+              cap: { type: "string" }, url: { type: "string" },
+            } } } } },
         }],
       }),
     });
@@ -286,7 +297,6 @@ async function scrapeCasaFirecrawl(url: string, maxItems: number): Promise<{ ite
     const j = await res.json();
     const listings = (j?.data?.json?.listings ?? []) as Record<string, unknown>[];
     const items = listings.slice(0, maxItems).map((r) => normalizeRaw("casa", r));
-    // Firecrawl cost: ~1 credit per scrape (~$0.003 on Standard plan; not exact)
     return { items, status: items.length > 0 ? "OK" : "BLOCCATO", cost_usd: 0.003 };
   } catch (e) {
     return { items: [], status: "ERRORE", cost_usd: null, error: e instanceof Error ? e.message : String(e) };
@@ -296,7 +306,6 @@ async function scrapeCasaFirecrawl(url: string, maxItems: number): Promise<{ ite
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  // Auth
   const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
   const hasJobSecret = jobSecret && req.headers.get("x-job-secret") === jobSecret;
   const authHeader = req.headers.get("Authorization") ?? "";
@@ -320,141 +329,142 @@ Deno.serve(async (req) => {
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { /* allow empty */ }
   const action = String(body.action ?? "start").toLowerCase();
-  const maxItems = Math.min(Number(body.maxItems ?? 2000), 3000);
+  const perChunkMax = Math.min(Number(body.perChunkMax ?? 200), 250);
   const json = (b: unknown, status = 200) =>
     new Response(JSON.stringify(b, null, 2), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-  // ───────── ACTION: dump_raw (debug) ─────────
-  if (action === "dump_raw") {
-    const runs = (body.runs ?? {}) as Record<string, string>;
-    const limit = Math.min(Number(body.limit ?? 2), 5);
-    const out: Record<string, unknown> = {};
-    for (const [portal, runId] of Object.entries(runs)) {
-      try {
-        const sRes = await apifyJson(`/actor-runs/${encodeURIComponent(runId)}`, { method: "GET" }, 15_000, token);
-        const sj = await sRes.json();
-        const status = sj?.data?.status;
-        const datasetId = sj?.data?.defaultDatasetId;
-        if (!["SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"].includes(status)) {
-          out[portal] = { status, note: "still running" }; continue;
-        }
-        const dRes = await apifyJson(`/datasets/${encodeURIComponent(datasetId)}/items?clean=true&limit=${limit}`, { method: "GET" }, 30_000, token);
-        const raw = dRes.ok ? await dRes.json() : [];
-        out[portal] = { status, items: raw, top_level_keys: Array.isArray(raw) && raw[0] ? Object.keys(raw[0]) : [] };
-      } catch (e) {
-        out[portal] = { error: e instanceof Error ? e.message : String(e) };
-      }
-    }
-    return json({ ok: true, action: "dump_raw", portals: out });
-  }
-
   // ───────── ACTION: start ─────────
   if (action === "start") {
-    const configs = PORTALS(maxItems);
-    type StartResult = {
-      portal: Portal; engine: string; actor?: string;
+    const chunks = buildChunks(perChunkMax);
+    type Started = {
+      portal: Portal; label: string; engine: string; actor?: string;
       status: "OK_STARTED" | "OK_FINISHED" | "ERRORE" | "BLOCCATO";
-      run_id?: string; dataset_id?: string;
-      items?: NormItem[]; cost_usd?: number | null; error?: string;
+      run_id?: string; items?: NormItem[]; cost_usd?: number | null; error?: string;
     };
-    const started: StartResult[] = await Promise.all(configs.map(async (c): Promise<StartResult> => {
+    const started: Started[] = await Promise.all(chunks.map(async (c): Promise<Started> => {
       if (c.engine === "firecrawl") {
-        const r = await scrapeCasaFirecrawl(c.firecrawl_url!, maxItems);
-        return { portal: c.portal, engine: "firecrawl", status: r.status === "OK" ? "OK_FINISHED" : (r.error ? "ERRORE" : "BLOCCATO"),
-                 items: r.items, cost_usd: r.cost_usd, error: r.error };
+        const r = await scrapeCasaFirecrawl(c.firecrawl_url!, perChunkMax);
+        return { portal: c.portal, label: c.label, engine: "firecrawl",
+          status: r.status === "OK" ? "OK_FINISHED" : (r.error ? "ERRORE" : "BLOCCATO"),
+          items: r.items, cost_usd: r.cost_usd, error: r.error };
       }
       try {
         const res = await apifyJson(`/acts/${encodeURIComponent(c.actor!)}/runs`,
           { method: "POST", body: JSON.stringify(c.input ?? {}) }, 30_000, token);
         if (!res.ok) {
           const txt = await res.text().catch(() => "");
-          const hint = res.status === 402 ? "actor_requires_paid_plan_or_rental"
+          const hint = res.status === 402 ? "actor_requires_paid_plan"
                      : res.status === 404 ? "actor_not_found"
                      : res.status === 401 ? "apify_token_invalid"
                      : `apify_${res.status}`;
-          return { portal: c.portal, engine: "apify", actor: c.actor, status: "ERRORE",
+          return { portal: c.portal, label: c.label, engine: "apify", actor: c.actor, status: "ERRORE",
                    error: `${hint}: ${txt.slice(0, 200).replace(/token=[^&\s]+/gi, "token=[redacted]")}` };
         }
         const sj = await res.json();
-        return { portal: c.portal, engine: "apify", actor: c.actor, status: "OK_STARTED",
-                 run_id: sj?.data?.id, dataset_id: sj?.data?.defaultDatasetId };
+        return { portal: c.portal, label: c.label, engine: "apify", actor: c.actor,
+                 status: "OK_STARTED", run_id: sj?.data?.id };
       } catch (e) {
-        return { portal: c.portal, engine: "apify", actor: c.actor, status: "ERRORE", error: e instanceof Error ? e.message : String(e) };
+        return { portal: c.portal, label: c.label, engine: "apify", actor: c.actor,
+                 status: "ERRORE", error: e instanceof Error ? e.message : String(e) };
       }
     }));
 
+    // runs map: { immobiliare: [{label, run_id}, ...], idealista: [...], subito: [...] }
+    const runsMap: Record<string, Array<{ label: string; run_id: string }>> = {};
+    for (const s of started) {
+      if (!s.run_id) continue;
+      (runsMap[s.portal] ??= []).push({ label: s.label, run_id: s.run_id });
+    }
+
     return json({
       ok: true, action: "start",
-      portals: started.map((s) => ({
-        portal: s.portal, engine: s.engine, status: s.status,
-        run_id: s.run_id, dataset_id: s.dataset_id, actor: s.actor,
-        firecrawl_items: s.items?.length, cost_usd: s.cost_usd, error: s.error,
+      chunks_launched: started.map((s) => ({
+        portal: s.portal, label: s.label, engine: s.engine, status: s.status,
+        run_id: s.run_id, error: s.error, firecrawl_items: s.items?.length,
       })),
-      next: `POST {"action":"results","runs":{...}} with the apify run_ids returned above (~90-180s after start)`,
-      runs_for_results: Object.fromEntries(started.filter((s) => s.run_id).map((s) => [s.portal, s.run_id!])),
-      firecrawl_snapshot: started.filter((s) => s.engine === "firecrawl").map((s) => ({ portal: s.portal, items: s.items?.length ?? 0 })),
-      _firecrawl_items_passthrough: started.filter((s) => s.engine === "firecrawl").flatMap((s) => s.items ?? []),
+      runs_for_results: runsMap,
+      firecrawl_passthrough: started.filter((s) => s.engine === "firecrawl").flatMap((s) => s.items ?? []),
+      next: `POST {"action":"results","runs":<runs_for_results>,"firecrawl_items":<firecrawl_passthrough>} after ~3-5 min`,
     });
   }
 
   // ───────── ACTION: results ─────────
-  const runs = (body.runs ?? {}) as Record<Portal, string>;
+  // runs[portal] is now an array of { label, run_id }
+  const runsIn = (body.runs ?? {}) as Record<Portal, Array<{ label: string; run_id: string }>>;
   const firecrawlPassthrough = (body.firecrawl_items ?? []) as NormItem[];
 
-  type PortalResult = {
-    portal: Portal; engine: "apify" | "firecrawl";
+  type RunResult = {
+    portal: Portal; engine: "apify" | "firecrawl"; label: string;
     status: "OK" | "BLOCCATO" | "ERRORE" | "RUNNING";
     items: NormItem[]; run_status?: string; cost_usd: number | null;
     raw_count?: number; error?: string;
   };
-  const portalResults: PortalResult[] = [];
+  const runResults: RunResult[] = [];
 
-  // Casa.it (re-fetch via Firecrawl in case passthrough wasn't preserved across calls).
+  // casa.it (Firecrawl baseline) — single entry.
   if (firecrawlPassthrough.length > 0) {
-    portalResults.push({ portal: "casa", engine: "firecrawl", status: "OK",
-      items: firecrawlPassthrough, cost_usd: 0.003, raw_count: firecrawlPassthrough.length });
+    runResults.push({ portal: "casa", engine: "firecrawl", label: "baseline",
+      status: "OK", items: firecrawlPassthrough.map((i) => ({ ...i, source_chunk: "baseline" })),
+      cost_usd: 0.003, raw_count: firecrawlPassthrough.length });
   } else {
-    const r = await scrapeCasaFirecrawl("https://www.casa.it/vendita/residenziale/padova", maxItems);
-    portalResults.push({ portal: "casa", engine: "firecrawl",
+    const r = await scrapeCasaFirecrawl("https://www.casa.it/vendita/residenziale/padova", perChunkMax);
+    runResults.push({ portal: "casa", engine: "firecrawl", label: "baseline",
       status: r.status === "OK" ? "OK" : (r.error ? "ERRORE" : "BLOCCATO"),
-      items: r.items, cost_usd: r.cost_usd, raw_count: r.items.length, error: r.error });
+      items: r.items.map((i) => ({ ...i, source_chunk: "baseline" })),
+      cost_usd: r.cost_usd, raw_count: r.items.length, error: r.error });
   }
 
-  // Apify portals — fetch run status + dataset items.
+  // Apify portals — iterate ALL chunks per portal.
   for (const portal of ["immobiliare", "idealista", "subito"] as Portal[]) {
-    const runId = runs[portal];
-    if (!runId) {
-      portalResults.push({ portal, engine: "apify", status: "ERRORE", items: [], cost_usd: null, error: "missing_run_id" });
+    const list = runsIn[portal] ?? [];
+    if (!Array.isArray(list) || list.length === 0) {
+      runResults.push({ portal, engine: "apify", label: "_missing_", status: "ERRORE",
+        items: [], cost_usd: null, error: "missing_run_ids" });
       continue;
     }
-    try {
-      const sRes = await apifyJson(`/actor-runs/${encodeURIComponent(runId)}`, { method: "GET" }, 15_000, token);
-      if (!sRes.ok) {
-        const t = await sRes.text().catch(() => "");
-        portalResults.push({ portal, engine: "apify", status: "ERRORE", items: [], cost_usd: null, error: `run_status_${sRes.status}:${t.slice(0, 150)}` });
-        continue;
+    // Fetch all chunk runs in parallel (max 10).
+    const fetched = await Promise.all(list.map(async (chunk): Promise<RunResult> => {
+      try {
+        const sRes = await apifyJson(`/actor-runs/${encodeURIComponent(chunk.run_id)}`, { method: "GET" }, 15_000, token);
+        if (!sRes.ok) {
+          const t = await sRes.text().catch(() => "");
+          return { portal, engine: "apify", label: chunk.label, status: "ERRORE",
+            items: [], cost_usd: null, error: `run_status_${sRes.status}:${t.slice(0, 120)}` };
+        }
+        const sj = await sRes.json();
+        const status: string = sj?.data?.status ?? "unknown";
+        const datasetId: string | undefined = sj?.data?.defaultDatasetId;
+        const cost: number | null = typeof sj?.data?.usageTotalUsd === "number" ? sj.data.usageTotalUsd : null;
+        if (!["SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"].includes(status)) {
+          return { portal, engine: "apify", label: chunk.label, status: "RUNNING",
+            items: [], cost_usd: cost, run_status: status };
+        }
+        let raw: Record<string, unknown>[] = [];
+        if (datasetId) {
+          const dRes = await apifyJson(`/datasets/${encodeURIComponent(datasetId)}/items?clean=true&limit=${perChunkMax}`, { method: "GET" }, 60_000, token);
+          if (dRes.ok) raw = await dRes.json();
+        }
+        const items = raw.slice(0, perChunkMax).map((r) => ({ ...normalizeRaw(portal, r), source_chunk: chunk.label }));
+        return { portal, engine: "apify", label: chunk.label,
+          status: status === "SUCCEEDED" ? (items.length > 0 ? "OK" : "BLOCCATO") : "ERRORE",
+          items, run_status: status, cost_usd: cost, raw_count: raw.length };
+      } catch (e) {
+        return { portal, engine: "apify", label: chunk.label, status: "ERRORE",
+          items: [], cost_usd: null, error: e instanceof Error ? e.message : String(e) };
       }
-      const sj = await sRes.json();
-      const status: string = sj?.data?.status ?? "unknown";
-      const datasetId: string | undefined = sj?.data?.defaultDatasetId;
-      const cost: number | null = typeof sj?.data?.usageTotalUsd === "number" ? sj.data.usageTotalUsd : null;
-      if (!["SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"].includes(status)) {
-        portalResults.push({ portal, engine: "apify", status: "RUNNING", items: [], cost_usd: cost, run_status: status });
-        continue;
-      }
-      let raw: Record<string, unknown>[] = [];
-      if (datasetId) {
-        const dRes = await apifyJson(`/datasets/${encodeURIComponent(datasetId)}/items?clean=true&limit=${maxItems}`, { method: "GET" }, 60_000, token);
-        if (dRes.ok) raw = await dRes.json();
-      }
-      const items = raw.slice(0, maxItems).map((r) => normalizeRaw(portal, r));
-      portalResults.push({
-        portal, engine: "apify",
-        status: status === "SUCCEEDED" ? (items.length > 0 ? "OK" : "BLOCCATO") : "ERRORE",
-        items, run_status: status, cost_usd: cost, raw_count: raw.length,
-      });
-    } catch (e) {
-      portalResults.push({ portal, engine: "apify", status: "ERRORE", items: [], cost_usd: null, error: e instanceof Error ? e.message : String(e) });
+    }));
+    runResults.push(...fetched);
+  }
+
+  // Dedupe within each portal by URL (price-band overlap is rare but possible).
+  const seenUrl = new Set<string>();
+  const allRaw: NormItem[] = [];
+  for (const r of runResults) {
+    for (const it of r.items) {
+      const k = it.url ?? `${it.portal}:${it.address}:${it.mq}:${it.price}`;
+      if (seenUrl.has(k)) continue;
+      seenUrl.add(k);
+      allRaw.push(it);
     }
   }
 
@@ -471,20 +481,15 @@ Deno.serve(async (req) => {
       const j = await res.json();
       const loc = j?.results?.[0]?.geometry?.location;
       if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng)) {
-        // ensure it's in/near Padova (lat 45.3-45.5, lng 11.7-12.0)
-        if (loc.lat > 45.25 && loc.lat < 45.55 && loc.lng > 11.6 && loc.lng < 12.1) {
-          return { lat: loc.lat, lng: loc.lng };
-        }
+        if (loc.lat > 45.25 && loc.lat < 45.55 && loc.lng > 11.6 && loc.lng < 12.1) return { lat: loc.lat, lng: loc.lng };
       }
       return null;
     } catch { return null; }
   };
 
-  // Collect items needing geocoding.
-  const allItemsRaw: NormItem[] = portalResults.flatMap((r) => r.items);
-  const needGeo = allItemsRaw.filter((i) => (i.lat == null || i.lng == null) && !!i.address);
+  const needGeo = allRaw.filter((i) => (i.lat == null || i.lng == null) && !!i.address);
+  const senzaGeoPre = needGeo.length;
   let geocodedOk = 0; let geocodedFail = 0;
-  // Run geocoding with concurrency 5.
   const conc = 5;
   for (let i = 0; i < needGeo.length; i += conc) {
     const slice = needGeo.slice(i, i + conc);
@@ -493,11 +498,43 @@ Deno.serve(async (req) => {
       if (r) { it.lat = r.lat; it.lng = r.lng; geocodedOk++; } else { geocodedFail++; }
     }));
   }
-  const senzaGeoTotPre = allItemsRaw.filter((i) => i.lat == null || i.lng == null).length + geocodedOk;
-  const senzaGeoTotPost = allItemsRaw.filter((i) => i.lat == null || i.lng == null).length;
+  const senzaGeoPost = allRaw.filter((i) => i.lat == null || i.lng == null).length;
+
+  // ─────── first_seen_at historization (staging table) ───────
+  const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
+  const firstSeenMap = new Map<string, string>(); // url → ISO
+  let fsInserted = 0, fsExisting = 0, fsErrors = 0;
+  const itemsWithUrl = allRaw.filter((i) => !!i.url);
+  // Lookup existing
+  const urls = itemsWithUrl.map((i) => i.url!) ;
+  // chunked SELECTs to avoid URL length issues
+  for (let i = 0; i < urls.length; i += 200) {
+    const slice = urls.slice(i, i + 200);
+    const { data, error } = await sb
+      .from("test_listing_first_seen")
+      .select("url,first_seen_at")
+      .in("url", slice);
+    if (error) { fsErrors++; continue; }
+    for (const row of (data ?? [])) firstSeenMap.set(row.url, row.first_seen_at);
+  }
+  // Upsert
+  const upsertRows = itemsWithUrl.map((i) => ({
+    url: i.url!, portal: i.portal, last_seen_at: new Date().toISOString(),
+  }));
+  for (let i = 0; i < upsertRows.length; i += 500) {
+    const slice = upsertRows.slice(i, i + 500);
+    const { data, error } = await sb
+      .from("test_listing_first_seen")
+      .upsert(slice, { onConflict: "url", ignoreDuplicates: false })
+      .select("url,first_seen_at");
+    if (error) { fsErrors++; continue; }
+    for (const row of (data ?? [])) {
+      if (!firstSeenMap.has(row.url)) { firstSeenMap.set(row.url, row.first_seen_at); fsInserted++; }
+      else { fsExisting++; }
+    }
+  }
 
   // ─────── Zone resolution ───────
-  const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
   const zoneCache = new Map<string, string>();
   const zoneFor = async (lat: number, lng: number): Promise<string> => {
     const k = `${lat.toFixed(4)},${lng.toFixed(4)}`;
@@ -509,92 +546,62 @@ Deno.serve(async (req) => {
     } catch { zoneCache.set(k, "Sconosciuta"); return "Sconosciuta"; }
   };
 
-  type Annotated = NormItem & { zone: string };
+  type Annotated = NormItem & { zone: string; first_seen_at: string | null; giorni_online: number | null };
+  const now = Date.now();
   const allItems: Annotated[] = [];
-  for (const it of allItemsRaw) {
+  for (const it of allRaw) {
     let zone = "Sconosciuta";
     if (it.lat != null && it.lng != null) zone = await zoneFor(it.lat, it.lng);
     if (zone === "Sconosciuta" && it.cap) zone = `CAP ${it.cap}`;
-    allItems.push({ ...it, zone });
+    const fs = it.url ? firstSeenMap.get(it.url) ?? null : null;
+    const giorni_online = fs ? Math.floor((now - +new Date(fs)) / 86400000) : null;
+    allItems.push({ ...it, zone, first_seen_at: fs, giorni_online });
   }
 
-  // Per-portal summary.
-  const perPortalSummary = portalResults.map((r) => {
-    const annotated = allItems.filter((i) => i.portal === r.portal);
+  // ─────── Per-chunk + per-portal summary (PRIMA vs DOPO split) ───────
+  const perChunkSummary = runResults.map((r) => ({
+    portal: r.portal, chunk: r.label, status: r.status, run_status: r.run_status,
+    annunci: r.items.length, raw: r.raw_count, cost_usd: r.cost_usd, error: r.error,
+  }));
+  const perPortalSummary = (["immobiliare", "idealista", "subito", "casa"] as Portal[]).map((p) => {
+    const annotated = allItems.filter((i) => i.portal === p);
+    const runs = runResults.filter((r) => r.portal === p);
+    const cost = runs.reduce((s, r) => s + (r.cost_usd ?? 0), 0);
     return {
-      portal: r.portal, engine: r.engine, status: r.status, run_status: r.run_status,
-      annunci: annotated.length, raw_dataset_items: r.raw_count,
+      portal: p,
+      n_chunks: runs.length,
+      annunci_DOPO_split_dedup: annotated.length,
+      annunci_PRIMA_singolo_url_riferimento: p === "immobiliare" || p === "idealista" ? 200 : (p === "subito" ? 70 : 10),
       con_agenzia: annotated.filter((i) => !i.isPrivate && i.agency).length,
       privati: annotated.filter((i) => i.isPrivate).length,
       con_coords: annotated.filter((i) => i.lat != null && i.lng != null).length,
-      con_zona_reale: annotated.filter((i) => i.zone !== "Sconosciuta" && !i.zone.startsWith("CAP ")).length,
-      con_url: annotated.filter((i) => !!i.url).length,
-      cost_usd: r.cost_usd, error: r.error,
+      cost_usd: Number(cost.toFixed(4)),
+      chunks_running: runs.filter((r) => r.status === "RUNNING").length,
+      chunks_error: runs.filter((r) => r.status === "ERRORE").length,
     };
   });
 
-  // ─────── Clustering at 3 thresholds (distance + mq tolerance) ───────
-  // Greedy O(N^2) — N<=500.
-  const haversine = (a: Annotated, b: Annotated): number => {
-    const R = 6371000;
-    const toRad = (x: number) => (x * Math.PI) / 180;
-    const dLat = toRad(b.lat! - a.lat!); const dLng = toRad(b.lng! - a.lng!);
-    const s = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat!))*Math.cos(toRad(b.lat!))*Math.sin(dLng/2)**2;
-    return 2 * R * Math.asin(Math.sqrt(s));
-  };
-  const itemsGeo = allItems.filter((i) => i.lat != null && i.lng != null);
-
-  type Cluster = { items: Annotated[]; portals: Set<string>; agencies: Set<string> };
-  const clusterAt = (radiusM: number, mqTol: number) => {
-    const n = itemsGeo.length;
-    const parent = Array.from({ length: n }, (_, i) => i);
-    const find = (i: number): number => parent[i] === i ? i : (parent[i] = find(parent[i]));
-    const uni = (a: number, b: number) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        const a = itemsGeo[i], b = itemsGeo[j];
-        if (Math.abs((a.lat! - b.lat!)) > 0.003) continue;
-        if (haversine(a, b) > radiusM) continue;
-        if (a.mq != null && b.mq != null && Math.abs(a.mq - b.mq) > mqTol) continue;
-        uni(i, j);
-      }
-    }
-    const groups = new Map<number, Cluster>();
-    for (let i = 0; i < n; i++) {
-      const r = find(i); const it = itemsGeo[i];
-      const slot = groups.get(r) ?? { items: [], portals: new Set<string>(), agencies: new Set<string>() };
-      slot.items.push(it); slot.portals.add(it.portal); if (it.agency) slot.agencies.add(it.agency.toLowerCase());
-      groups.set(r, slot);
-    }
-    const contendibili = [...groups.values()].filter((c) => c.portals.size >= 2 || c.agencies.size >= 2);
-    return { totale: contendibili.length, clusters: contendibili };
-  };
-
-  const sogliaMedia = clusterAt(150, 8); // metodo RAGGIO (riferimento)
-
-  // ─────── Metodo IDENTITÀ — stessa via+civico + mq ±8% + prezzo ±10% ───────
+  // ─────── Identity matching: street+civic + mq ±8%  (NO price filter) ───────
   type IdCluster = { items: Annotated[]; portals: Set<string>; agencies: Set<string>; key: string };
   const idGroups = new Map<string, IdCluster>();
   for (const it of allItems) {
     const { street, civic } = normalizeAddressKey(it.address);
     if (!street || street.length < 4) continue;
-    // bucket: street + civic (if present) + mq bucket of 10 + price bucket of 20k
-    const mqBucket = it.mq != null ? Math.round(it.mq / 10) : "x";
-    const priceBucket = it.price != null ? Math.round(it.price / 20000) : "x";
     const baseKey = `${street}|${civic ?? "_"}`;
-    // find an existing cluster within tolerance
     let matched: IdCluster | null = null;
     for (const [k, c] of idGroups) {
       if (!k.startsWith(baseKey + "|")) continue;
       const ref = c.items[0];
-      const mqOk = it.mq == null || ref.mq == null || Math.abs((it.mq - ref.mq) / Math.max(ref.mq, 1)) <= 0.08;
-      const prOk = it.price == null || ref.price == null || Math.abs((it.price - ref.price) / Math.max(ref.price, 1)) <= 0.10;
-      if (mqOk && prOk) { matched = c; break; }
+      const mqOk = it.mq == null || ref.mq == null ||
+        Math.abs((it.mq - ref.mq) / Math.max(ref.mq, 1)) <= 0.08;
+      if (mqOk) { matched = c; break; }
     }
     if (matched) {
-      matched.items.push(it); matched.portals.add(it.portal); if (it.agency) matched.agencies.add(it.agency.toLowerCase());
+      matched.items.push(it); matched.portals.add(it.portal);
+      if (it.agency) matched.agencies.add(it.agency.toLowerCase());
     } else {
-      const key = `${baseKey}|${mqBucket}|${priceBucket}`;
+      const mqBucket = it.mq != null ? Math.round(it.mq / 10) : "x";
+      const key = `${baseKey}|${mqBucket}`;
       idGroups.set(key, {
         items: [it], portals: new Set([it.portal]),
         agencies: new Set(it.agency ? [it.agency.toLowerCase()] : []),
@@ -604,29 +611,11 @@ Deno.serve(async (req) => {
   }
   const idContendibili = [...idGroups.values()].filter((c) => c.portals.size >= 2 || c.agencies.size >= 2);
 
-  // Confronto metodi: cluster dove differiscono
-  const raggioKeys = new Set(sogliaMedia.clusters.map((c) =>
-    c.items.map((i) => i.url ?? `${i.portal}:${i.address}`).sort().join("||")
-  ));
-  const identityKeys = new Set(idContendibili.map((c) =>
-    c.items.map((i) => i.url ?? `${i.portal}:${i.address}`).sort().join("||")
-  ));
-  const onlyInIdentity = idContendibili.filter((c) =>
-    !raggioKeys.has(c.items.map((i) => i.url ?? `${i.portal}:${i.address}`).sort().join("||"))
-  ).slice(0, 5);
-  const onlyInRaggio = sogliaMedia.clusters.filter((c) =>
-    !identityKeys.has(c.items.map((i) => i.url ?? `${i.portal}:${i.address}`).sort().join("||"))
-  ).slice(0, 5);
+  // map item → identity cluster (for enrichment)
+  const itemToCluster = new Map<NormItem, IdCluster>();
+  for (const c of idGroups.values()) for (const it of c.items) itemToCluster.set(it, c);
 
-  const fmtCluster = (c: { items: Annotated[]; portals: Set<string>; agencies: Set<string> }) => ({
-    portals: [...c.portals], agencies: [...c.agencies],
-    members: c.items.map((i) => ({
-      portal: i.portal, address: i.address?.slice(0, 90),
-      mq: i.mq, price: i.price, agency: i.agency, url: i.url,
-    })),
-  });
-
-  // ─────── OMI → quartiere (descr + vie campione) ───────
+  // ─────── OMI → quartiere ───────
   const uniqueOmi = [...new Set(allItems.map((i) => i.zone).filter((z) => /^[A-Z]\d/.test(z)))];
   const omiDescrMap = new Map<string, string>();
   if (uniqueOmi.length) {
@@ -638,38 +627,10 @@ Deno.serve(async (req) => {
       if (r.zona && r.zona_descr && !omiDescrMap.has(r.zona)) omiDescrMap.set(r.zona, r.zona_descr);
     }
   }
-  // Sample streets per zone
-  const sampleStreets = new Map<string, string[]>();
-  for (const it of allItems) {
-    if (!/^[A-Z]\d/.test(it.zone)) continue;
-    const { street } = normalizeAddressKey(it.address);
-    if (!street || street.length < 4) continue;
-    const arr = sampleStreets.get(it.zone) ?? [];
-    if (arr.length < 5 && !arr.includes(street)) arr.push(street);
-    sampleStreets.set(it.zone, arr);
-  }
-  const mappa_omi_quartiere = uniqueOmi.map((z) => ({
-    omi: z,
-    quartiere: omiDescrMap.get(z) ?? "(descr non disponibile)",
-    vie_campione: sampleStreets.get(z) ?? [],
-  }));
 
-  // ─────── ENRICHMENT: giorni_online, ribasso, prezzo_divergente, tipo_lead ───────
-  // Build url→identity-cluster map for cross-portal price divergence
-  const itemToIdCluster = new Map<string, IdCluster>();
-  for (const c of idGroups.values()) {
-    for (const it of c.items) {
-      const k = it.url ?? `${it.portal}:${it.address}:${it.mq}`;
-      itemToIdCluster.set(k, c);
-    }
-  }
-  const now = Date.now();
+  // ─────── Enrichment: tipo_lead, prezzo_divergente ───────
   const enriched = allItems.map((it) => {
-    const giorni_online = it.publishedAt
-      ? Math.floor((now - +new Date(it.publishedAt)) / 86400000)
-      : null;
-    const k = it.url ?? `${it.portal}:${it.address}:${it.mq}`;
-    const cluster = itemToIdCluster.get(k);
+    const cluster = itemToCluster.get(it);
     let prezzo_divergente: { min: number; max: number; delta_pct: number } | null = null;
     if (cluster && cluster.items.length >= 2) {
       const prices = cluster.items.map((x) => x.price).filter((p): p is number => p != null && p > 0);
@@ -680,8 +641,7 @@ Deno.serve(async (req) => {
       }
     }
     const isContendibile = !!cluster && (cluster.portals.size >= 2 || cluster.agencies.size >= 2);
-    const privato_stanco = it.isPrivate && giorni_online != null && giorni_online > 60;
-    // tipo_lead priority
+    const privato_stanco = it.isPrivate && it.giorni_online != null && it.giorni_online > 60;
     let tipo_lead: "contendibile" | "privato_stanco" | "ribasso" | "privato" | "standard" = "standard";
     if (isContendibile) tipo_lead = "contendibile";
     else if (privato_stanco) tipo_lead = "privato_stanco";
@@ -690,7 +650,6 @@ Deno.serve(async (req) => {
     return {
       ...it,
       quartiere: omiDescrMap.get(it.zone) ?? it.zone,
-      giorni_online,
       privato_stanco,
       prezzo_divergente,
       tipo_lead,
@@ -698,7 +657,7 @@ Deno.serve(async (req) => {
     };
   });
 
-  // ─────── Tabella riepilogo per QUARTIERE ───────
+  // ─────── Tabella per QUARTIERE ───────
   const byQ = new Map<string, typeof enriched>();
   for (const e of enriched) {
     const key = `${e.zone}|${e.quartiere}`;
@@ -726,64 +685,54 @@ Deno.serve(async (req) => {
     standard: enriched.filter((e) => e.tipo_lead === "standard").length,
   };
 
-  const totalCost = perPortalSummary.reduce((s, p) => s + (p.cost_usd ?? 0), 0);
-  const includeRecords = body.includeRecords === true;
+  const totalCost = runResults.reduce((s, r) => s + (r.cost_usd ?? 0), 0);
+
+  // Esempi cluster contendibili (max 10)
+  const esempi_contendibili = idContendibili.slice(0, 10).map((c) => ({
+    portals: [...c.portals], agencies_distinct: c.agencies.size,
+    n_items: c.items.length,
+    address_sample: c.items[0].address?.slice(0, 90),
+    quartiere: omiDescrMap.get(c.items[0].zone) ?? c.items[0].zone,
+    members: c.items.map((i) => ({
+      portal: i.portal, mq: i.mq, price: i.price, agency: i.agency, url: i.url,
+    })),
+  }));
 
   return json({
     ok: true,
     geocoding: {
-      candidati_senza_geo_iniziali: senzaGeoTotPre,
+      candidati_senza_geo_iniziali: senzaGeoPre,
       geocodati_ok: geocodedOk, geocodati_falliti: geocodedFail,
-      ancora_senza_geo_dopo_tentativo: senzaGeoTotPost,
+      ancora_senza_geo: senzaGeoPost,
       provider: gKey ? "google_maps" : "none",
     },
-    riepilogo_per_portale: perPortalSummary,
-    matching_confronto: {
-      raggio_150m_mq8: { contendibili: sogliaMedia.totale },
-      identita_via_civico_mq8_prezzo10: { contendibili: idContendibili.length },
-      esempi_solo_identita: onlyInIdentity.map(fmtCluster),
-      esempi_solo_raggio: onlyInRaggio.map(fmtCluster),
-      metodo_consigliato: "identita",
-      motivazione: "L'identità via+civico+mq+prezzo elimina i falsi positivi del raggio nei centri densi e cattura veri duplicati anche con geocoding impreciso. Il raggio resta come conferma secondaria.",
+    first_seen_at: {
+      tabella_staging: "public.test_listing_first_seen",
+      annunci_con_url: itemsWithUrl.length,
+      nuovi_inseriti_oggi: fsInserted,
+      gia_esistenti_storicizzati: fsExisting,
+      errori_db: fsErrors,
+      nota: "Da questa run il contatore parte. giorni_online resta ~0 finché non ripassiamo a giorni di distanza.",
     },
-    mappa_omi_quartiere,
+    chunking: {
+      perChunkMax,
+      bands: PRICE_BANDS.map((b) => b.label),
+      per_chunk: perChunkSummary,
+    },
+    riepilogo_per_portale: perPortalSummary,
+    matching: {
+      metodo: "IDENTITA via+civico+mq8% (prezzo NON usato come filtro)",
+      contendibili_totali: idContendibili.length,
+      contendibili_con_prezzo_divergente: enriched.filter((e) => e.contendibile && e.prezzo_divergente).length,
+      esempi: esempi_contendibili,
+    },
     tabella_per_quartiere,
     conteggi_tipo_lead,
-    schema_dati_pwa_proposto: {
-      record: {
-        id: "string (hash url o portal+id)",
-        portal: "immobiliare|idealista|subito|casa",
-        url: "string|null",
-        title: "string|null",
-        indirizzo: "string|null",
-        via_norm: "string (per merge)",
-        civico: "string|null",
-        quartiere: "string (nome OMI descr)",
-        omi: "string (codice zona)",
-        lat: "number|null", lng: "number|null",
-        prezzo: "number|null",
-        mq: "number|null",
-        locali: "number|null",
-        agenzia: "string|null",
-        privato: "boolean",
-        pubblicato_il: "ISO date|null",
-        giorni_online: "number|null",
-        tipo_lead: "contendibile|privato_stanco|ribasso|privato|standard",
-        contendibile: "boolean",
-        privato_stanco: "boolean",
-        prezzo_divergente: "{min,max,delta_pct}|null",
-        fonti_correlate: "string[] (urls in stesso cluster identità)",
-      },
-      indici_consigliati: ["quartiere", "tipo_lead", "giorni_online", "prezzo", "mq", "privato"],
-      filtri_pwa: ["quartiere", "tipo_lead", "min/max prezzo", "min/max mq", "giorni_online > X", "solo privati", "solo contendibili", "drop_pct > Y"],
-    },
     aggregato: {
-      annunci_totali: enriched.length,
-      con_coords_finali: itemsGeo.length,
+      annunci_totali_dedup: enriched.length,
+      con_coords_finali: enriched.filter((i) => i.lat != null && i.lng != null).length,
       privati_totali: enriched.filter((i) => i.isPrivate).length,
-      con_data_pubblicazione: enriched.filter((i) => i.publishedAt).length,
       cost_totale_usd: Number(totalCost.toFixed(4)),
     },
-    records: includeRecords ? enriched : undefined,
   });
 });
