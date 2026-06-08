@@ -1184,7 +1184,9 @@ Deno.serve(async (req) => {
     if (!job) return json({ ok: false, error: "job_not_found" }, 404);
     const prog = { ...((job.progress as Record<string, any>) ?? {}) };
 
-    if (prog.subito_run_id || prog.casa_crawl_id) {
+    const skipSubito = !!prog.subito_run_id;
+    const skipCasa = !!prog.casa_crawl_id;
+    if (skipSubito && skipCasa) {
       return json({
         ok: false, error: "already_started",
         subito: { run_id: prog.subito_run_id, dataset_id: prog.subito_dataset_id },
