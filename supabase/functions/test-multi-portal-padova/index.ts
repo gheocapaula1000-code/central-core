@@ -88,37 +88,107 @@ interface NormItem {
   url: string | null;
 }
 
-function normalizeRaw(portal: Portal, it: Record<string, unknown>): NormItem {
-  const g = (k: string): unknown => it[k];
-  const lat = num(g("latitude") ?? g("lat") ?? (g("location") as any)?.latitude ?? (g("geo") as any)?.lat ?? (g("properties") as any)?.location?.latitude);
-  const lng = num(g("longitude") ?? g("lng") ?? g("lon") ?? (g("location") as any)?.longitude ?? (g("geo") as any)?.lng ?? (g("properties") as any)?.location?.longitude);
-  const cap = String(g("cap") ?? g("zip") ?? g("postalCode") ?? (g("location") as any)?.zip ?? "").replace(/\D/g, "").slice(0, 5) || null;
-  const address = (g("address") as string) || (g("location") as any)?.address || (g("street") as string) || (g("indirizzo") as string) || null;
-  const title = (g("title") as string) || (g("titolo") as string) || null;
-  const price = num(g("price") ?? (g("price") as any)?.value ?? (g("priceInfo") as any)?.formattedPrice ?? g("prezzo"));
-  const mq = num(g("surface") ?? g("area") ?? g("size") ?? (g("properties") as any)?.surface ?? g("mq"));
-  const rooms = num(g("rooms") ?? g("locali") ?? (g("properties") as any)?.rooms);
-  const url = (g("url") as string) || (g("link") as string) || null;
+function nz(n: number | null): number | null {
+  return n != null && Number.isFinite(n) && n !== 0 ? n : null;
+}
 
-  // Agency detection — varies per portal.
-  let agency: string | null = null;
-  let isPrivate = false;
-  const advName = (g("advertiser") as any)?.agency?.displayName
-    ?? (g("advertiser") as any)?.agency?.name
-    ?? (g("advertiser") as any)?.name
-    ?? (g("agency") as any)?.name
-    ?? (g("agencyName") as string)
-    ?? (g("agency") as string)
-    ?? (g("contact") as any)?.name
-    ?? null;
-  if (advName && typeof advName === "string" && advName.trim().length > 1) agency = advName.trim().slice(0, 120);
-  const advType = (g("advertiser") as any)?.type ?? (g("contact") as any)?.type ?? "";
-  if (it["isPrivate"] === true || /priv/i.test(String(advType)) || (portal === "subito" && !agency)) {
-    isPrivate = true;
+function normalizeImmobiliare(it: Record<string, any>): NormItem {
+  const p = Array.isArray(it.properties) ? it.properties[0] ?? {} : {};
+  const loc = p.location ?? {};
+  const adv = it.advertiser ?? {};
+  const ag = adv.agency ?? {};
+  const fl: any[] = Array.isArray(p.featureList) ? p.featureList : [];
+  const surfFeat = fl.find((f) => f?.type === "surface");
+  const roomsFeat = fl.find((f) => f?.type === "rooms");
+  const surf = surfFeat ? num(String(surfFeat.label ?? surfFeat.compactLabel ?? "").replace(/[^\d]/g, "")) : null;
+  const rooms = roomsFeat ? num(String(roomsFeat.compactLabel ?? roomsFeat.label ?? "").split(/[-–]/)[0]) : null;
+  const agency = ag.displayName ? String(ag.displayName).slice(0, 120) : null;
+  const isPrivate = (ag.type === "private") || (adv.label === "privato") || (!agency && !ag.id);
+  return {
+    portal: "immobiliare",
+    title: p.caption ? String(p.caption).slice(0, 200) : null,
+    address: loc.address ? String(loc.address).slice(0, 200) : null,
+    price: num(it.price?.value ?? it.price?.minValue ?? it.price?.formattedValue),
+    mq: surf, rooms,
+    agency, isPrivate,
+    lat: nz(num(loc.latitude)), lng: nz(num(loc.longitude)),
+    cap: null,
+    url: it.directLink ?? (it.id ? `https://www.immobiliare.it/annunci/${it.id}` : null),
+  };
+}
+
+function normalizeIdealista(it: Record<string, any>): NormItem {
+  const b = it.basicInfo ?? it ?? {};
+  const ci = b.contactInfo ?? {};
+  const userType = String(ci.userType ?? "").toLowerCase();
+  const agency = (ci.commercialName ?? ci.contactName ?? null) as string | null;
+  const isPrivate = userType === "private" || userType === "particular";
+  return {
+    portal: "idealista",
+    title: b.suggestedTexts?.title ?? b.address ?? null,
+    address: b.address ?? null,
+    price: num(b.price ?? b.priceInfo?.price?.amount),
+    mq: num(b.size),
+    rooms: num(b.rooms),
+    agency: agency ? String(agency).slice(0, 120) : null,
+    isPrivate: isPrivate || (!agency && userType !== "professional"),
+    lat: nz(num(b.latitude)), lng: nz(num(b.longitude)),
+    cap: null,
+    url: b.url ?? (b.propertyCode ? `https://www.idealista.it/immobile/${b.propertyCode}/` : null),
+  };
+}
+
+function normalizeSubito(it: Record<string, any>): NormItem {
+  const loc = it.location ?? {};
+  const coords = loc.coordinates ?? {};
+  const f = it.features ?? {};
+  const adv = it.advertiser ?? {};
+  const advType = String(adv.type ?? "").toLowerCase();
+  const isPrivate = it.isPrivateAdvertiser === true || advType === "privato" || advType === "private";
+  return {
+    portal: "subito",
+    title: it.title ?? it.seo_title ?? null,
+    address: it.title ?? null,
+    price: num(it.price?.value),
+    mq: num(f.size_sqm?.value),
+    rooms: num(f.rooms?.value),
+    agency: isPrivate ? null : (adv.name ? String(adv.name).slice(0, 120) : null),
+    isPrivate,
+    lat: nz(num(coords.latitude)), lng: nz(num(coords.longitude)),
+    cap: null,
+    url: it.page_url ?? it.request_url ?? null,
+  };
+}
+
+function normalizeCasa(it: Record<string, any>): NormItem {
+  // Firecrawl-extracted shape (flat fields).
+  const lat = nz(num(it.latitude ?? it.lat));
+  const lng = nz(num(it.longitude ?? it.lng));
+  const agency = it.agency && String(it.agency).trim() && !/^priv/i.test(String(it.agency)) ? String(it.agency).slice(0, 120) : null;
+  const isPrivate = it.isPrivate === true || /^priv/i.test(String(it.agency ?? ""));
+  return {
+    portal: "casa",
+    title: it.title ?? null,
+    address: it.address ?? null,
+    price: num(it.price),
+    mq: num(it.surface ?? it.mq),
+    rooms: num(it.rooms),
+    agency,
+    isPrivate,
+    lat, lng,
+    cap: it.cap ? String(it.cap).replace(/\D/g, "").slice(0, 5) || null : null,
+    url: it.url ?? null,
+  };
+}
+
+function normalizeRaw(portal: Portal, it: Record<string, unknown>): NormItem {
+  const r = it as Record<string, any>;
+  switch (portal) {
+    case "immobiliare": return normalizeImmobiliare(r);
+    case "idealista":   return normalizeIdealista(r);
+    case "subito":      return normalizeSubito(r);
+    case "casa":        return normalizeCasa(r);
   }
-  // Subito: by definition with onlyPrivate=true, everything is private.
-  if (portal === "subito") isPrivate = true;
-  return { portal, title, address, price, mq, rooms, agency, isPrivate, lat, lng, cap, url };
 }
 
 // ───────── Firecrawl casa.it scraper ─────────
@@ -200,6 +270,30 @@ Deno.serve(async (req) => {
   const maxItems = Math.min(Number(body.maxItems ?? 150), 200);
   const json = (b: unknown, status = 200) =>
     new Response(JSON.stringify(b, null, 2), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+  // ───────── ACTION: dump_raw (debug) ─────────
+  if (action === "dump_raw") {
+    const runs = (body.runs ?? {}) as Record<string, string>;
+    const limit = Math.min(Number(body.limit ?? 2), 5);
+    const out: Record<string, unknown> = {};
+    for (const [portal, runId] of Object.entries(runs)) {
+      try {
+        const sRes = await apifyJson(`/actor-runs/${encodeURIComponent(runId)}`, { method: "GET" }, 15_000, token);
+        const sj = await sRes.json();
+        const status = sj?.data?.status;
+        const datasetId = sj?.data?.defaultDatasetId;
+        if (!["SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"].includes(status)) {
+          out[portal] = { status, note: "still running" }; continue;
+        }
+        const dRes = await apifyJson(`/datasets/${encodeURIComponent(datasetId)}/items?clean=true&limit=${limit}`, { method: "GET" }, 30_000, token);
+        const raw = dRes.ok ? await dRes.json() : [];
+        out[portal] = { status, items: raw, top_level_keys: Array.isArray(raw) && raw[0] ? Object.keys(raw[0]) : [] };
+      } catch (e) {
+        out[portal] = { error: e instanceof Error ? e.message : String(e) };
+      }
+    }
+    return json({ ok: true, action: "dump_raw", portals: out });
+  }
 
   // ───────── ACTION: start ─────────
   if (action === "start") {
@@ -336,16 +430,18 @@ Deno.serve(async (req) => {
     allItems.push(...batch);
   }
 
-  // Per-portal summary.
+  // Per-portal summary (joined with zone data).
   const perPortalSummary = portalResults.map((r) => {
-    const items = r.items;
+    const annotated = allItems.filter((i) => i.portal === r.portal);
     return {
       portal: r.portal, engine: r.engine, status: r.status, run_status: r.run_status,
-      annunci: items.length, raw_dataset_items: r.raw_count,
-      con_agenzia: items.filter((i) => !i.isPrivate && i.agency).length,
-      privati: items.filter((i) => i.isPrivate).length,
-      con_coords: items.filter((i) => i.lat != null && i.lng != null).length,
-      con_url: items.filter((i) => !!i.url).length,
+      annunci: annotated.length, raw_dataset_items: r.raw_count,
+      con_agenzia: annotated.filter((i) => !i.isPrivate && i.agency).length,
+      privati: annotated.filter((i) => i.isPrivate).length,
+      con_coords: annotated.filter((i) => i.lat != null && i.lng != null).length,
+      con_zona_reale: annotated.filter((i) => i.zone !== "Sconosciuta" && !i.zone.startsWith("CAP ")).length,
+      con_zona_qualunque: annotated.filter((i) => i.zone !== "Sconosciuta").length,
+      con_url: annotated.filter((i) => !!i.url).length,
       cost_usd: r.cost_usd, error: r.error,
     };
   });
