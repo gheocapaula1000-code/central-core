@@ -1413,6 +1413,7 @@ Deno.serve(async (req) => {
             prog.casa_crawl_url = crawlUrl;
             prog.casa_start_url = casaUrl;
             prog.casa_limit = casaLimit;
+            prog.casa_only_main = casaOnlyMain;
             prog.casa_started_at = new Date().toISOString();
             casaOut = {
               ok: true, provider: "firecrawl", crawl_id: crawlId, crawl_status_url: crawlUrl,
