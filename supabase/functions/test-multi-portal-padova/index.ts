@@ -103,6 +103,7 @@ function buildIdealistaSingle(maxItems: number): ApifyChunk {
       proxy: { useApifyProxy: true },
     },
   };
+}
 
 // ───── OMI → quartiere (Padova) ─────
 const OMI_QUARTIERE: Record<string, string> = {
@@ -430,14 +431,70 @@ async function runSubito(perChunkMax: number, token: string): Promise<ApifyChunk
 // ───── Background orchestrator ─────
 // Plan is FIXED before launch. NO auto-split: saturated bands are flagged but
 // never re-divided. The total number of Apify runs is bounded by MAX_RUNS_TOTAL.
-type PortalMode = "single" | "bands";
+type PortalMode = "single" | "bands" | "reuse";
 interface OrchestratePlan {
   immo_mode: PortalMode;
   ide_mode: PortalMode;
   immo_single_max: number;
   ide_single_max: number;
+  immo_reuse?: { run_id?: string; dataset_id: string; cost_usd?: number | null } | null;
+  ide_reuse?: { run_id?: string; dataset_id: string; cost_usd?: number | null } | null;
   include_subito: boolean;
   include_casa: boolean;
+}
+
+// Fetch items from an existing Apify dataset (reuse pattern, no new run).
+async function reuseDatasetAsChunk(
+  portal: Portal, datasetId: string, runId: string | undefined, costUsd: number | null | undefined, token: string,
+): Promise<ApifyChunkResult> {
+  try {
+    const dRes = await apifyJson(
+      `/datasets/${encodeURIComponent(datasetId)}/items?clean=true&limit=5000`,
+      { method: "GET" }, 90_000, token,
+    );
+    if (!dRes.ok) {
+      return { portal, band_label: "reuse", status: "ERRORE", raw_count: 0, items: [], cost_usd: 0, saturated: false, error: `dataset_${dRes.status}` };
+    }
+    const raw = await dRes.json() as Record<string, unknown>[];
+    const items = raw.map((r) => ({ ...normalizeRaw(portal, r), source_chunk: "reuse" }));
+    return {
+      portal, band_label: "reuse(cap_check)", status: items.length > 0 ? "OK" : "BLOCCATO",
+      run_id: runId, run_status: "REUSED",
+      raw_count: raw.length, items,
+      cost_usd: 0, // reuse → no new spend in this job
+      saturated: raw.length >= 1990,
+    };
+  } catch (e) {
+    return { portal, band_label: "reuse", status: "ERRORE", raw_count: 0, items: [], cost_usd: 0, saturated: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// Find the most recent SUCCEEDED run of an actor with itemCount above a threshold.
+async function findReusableRun(actorId: string, minItems: number, token: string, maxAgeMin = 240): Promise<{ run_id: string; dataset_id: string; itemCount: number; usageTotalUsd: number | null; startedAt: string } | null> {
+  try {
+    const r = await fetch(
+      `https://api.apify.com/v2/acts/${encodeURIComponent(actorId)}/runs?status=SUCCEEDED&limit=10&desc=true&token=${encodeURIComponent(token)}`,
+    );
+    if (!r.ok) return null;
+    const j = await r.json();
+    const items = (j?.data?.items ?? []) as Array<any>;
+    const cutoff = Date.now() - maxAgeMin * 60_000;
+    for (const it of items) {
+      const startedMs = +new Date(it.startedAt ?? it.finishedAt ?? 0);
+      if (startedMs < cutoff) continue;
+      const dsId = it.defaultDatasetId;
+      if (!dsId) continue;
+      // get item count
+      const h = await fetch(`https://api.apify.com/v2/datasets/${encodeURIComponent(dsId)}?token=${encodeURIComponent(token)}`);
+      if (!h.ok) continue;
+      const hj = await h.json();
+      const itemCount = Number(hj?.data?.itemCount ?? 0);
+      if (itemCount >= minItems) {
+        return { run_id: it.id, dataset_id: dsId, itemCount, usageTotalUsd: typeof it.usageTotalUsd === "number" ? it.usageTotalUsd : null, startedAt: it.startedAt };
+      }
+    }
+    return null;
+  } catch { return null; }
 }
 
 async function orchestrate(
@@ -458,14 +515,19 @@ async function orchestrate(
   };
 
   try {
-    // 1) Build the FIXED queue for immobiliare + idealista.
+    // 1) Build queues. Reuse pre-fetched datasets when plan says so.
     const queue: ApifyChunk[] = [];
-    if (plan.immo_mode === "single") {
+    const reuseResults: ApifyChunkResult[] = [];
+    if (plan.immo_mode === "reuse" && plan.immo_reuse?.dataset_id) {
+      reuseResults.push(await reuseDatasetAsChunk("immobiliare", plan.immo_reuse.dataset_id, plan.immo_reuse.run_id, plan.immo_reuse.cost_usd ?? 0, token));
+    } else if (plan.immo_mode === "single") {
       queue.push(buildImmoSingle(plan.immo_single_max));
     } else {
       for (const b of FIXED_BANDS_8) queue.push(buildImmoChunk(b, perChunkMax));
     }
-    if (plan.ide_mode === "single") {
+    if (plan.ide_mode === "reuse" && plan.ide_reuse?.dataset_id) {
+      reuseResults.push(await reuseDatasetAsChunk("idealista", plan.ide_reuse.dataset_id, plan.ide_reuse.run_id, plan.ide_reuse.cost_usd ?? 0, token));
+    } else if (plan.ide_mode === "single") {
       queue.push(buildIdealistaSingle(plan.ide_single_max));
     } else {
       for (const b of FIXED_BANDS_8) queue.push(buildIdealistaChunk(b, perChunkMax));
@@ -474,6 +536,7 @@ async function orchestrate(
     const apifyMainCount = queue.length;
     const apifyTotalPlanned = apifyMainCount + (plan.include_subito ? 1 : 0);
     progress.apify_runs_planned = apifyTotalPlanned;
+    progress.reused_datasets = reuseResults.map((r) => ({ portal: r.portal, raw_count: r.raw_count, source: "cap_check_dataset" }));
 
     if (apifyTotalPlanned > MAX_RUNS_TOTAL) {
       throw new Error(`run_cap_exceeded: planned=${apifyTotalPlanned} > MAX_RUNS_TOTAL=${MAX_RUNS_TOTAL}`);
@@ -536,6 +599,8 @@ async function orchestrate(
     };
     await Promise.all(Array.from({ length: poolSize }, (_, i) => worker(i + 1)));
 
+    // Push reused datasets into results pool.
+    results.push(...reuseResults);
 
     // 4) Join side jobs.
     const sideResults = await sidePromise;
@@ -947,6 +1012,53 @@ Deno.serve(async (req) => {
     });
   }
 
+  // ACTION: run_reuse_or_single → FASE 2 Option A with cap_check dataset reuse.
+  // Auto-discovery: scans recent SUCCEEDED runs (last 4h) for both actors with
+  // itemCount >= 1900. If found → reuse dataset (cost=$0). Else → new single run.
+  if (action === "run_reuse_or_single") {
+    const IMMO_ACTOR = "azzouzana~immobiliare-it-listing-page-scraper-by-search-url";
+    const IDE_ACTOR = "memo23~idealista-scraper";
+    const immoReuse = await findReusableRun(IMMO_ACTOR, 1900, token, 360);
+    const ideReuse = await findReusableRun(IDE_ACTOR, 1900, token, 360);
+
+    const perChunkMax2 = 200;
+    const poolSize2 = 2;
+    const plan2: OrchestratePlan = {
+      immo_mode: immoReuse ? "reuse" : "single",
+      ide_mode: ideReuse ? "reuse" : "single",
+      immo_single_max: 2000,
+      ide_single_max: 2000,
+      immo_reuse: immoReuse ? { run_id: immoReuse.run_id, dataset_id: immoReuse.dataset_id, cost_usd: immoReuse.usageTotalUsd } : null,
+      ide_reuse: ideReuse ? { run_id: ideReuse.run_id, dataset_id: ideReuse.dataset_id, cost_usd: ideReuse.usageTotalUsd } : null,
+      include_subito: true,
+      include_casa: true,
+    };
+    const apifyPlanned2 =
+      (plan2.immo_mode === "reuse" ? 0 : 1) +
+      (plan2.ide_mode === "reuse" ? 0 : 1) +
+      (plan2.include_subito ? 1 : 0);
+    if (apifyPlanned2 > 4) {
+      return json({ ok: false, error: "run_cap_exceeded", apify_runs_planned: apifyPlanned2, hint: "max 4" }, 400);
+    }
+
+    const { data: ins2, error: insErr2 } = await sb.from("test_padova_full_run")
+      .insert({ state: "running", progress: { queued: true, mode: "reuse_or_single", plan: plan2, apify_runs_planned: apifyPlanned2,
+        reuse_discovery: { immobiliare: immoReuse, idealista: ideReuse } } })
+      .select("id").single();
+    if (insErr2 || !ins2) return json({ ok: false, error: insErr2?.message ?? "insert_failed" }, 500);
+    const jobId2 = ins2.id as string;
+    // @ts-ignore EdgeRuntime is provided by Supabase runtime
+    EdgeRuntime.waitUntil(orchestrate(jobId2, perChunkMax2, poolSize2, plan2));
+    return json({
+      ok: true, job_id: jobId2, action: "run_reuse_or_single", plan: plan2,
+      apify_runs_planned: apifyPlanned2, tetto_max_runs_apify: 4,
+      reuse_discovery: {
+        immobiliare: immoReuse ? { ...immoReuse, decision: "REUSE (no new spend)" } : { decision: "NEW RUN single 2000 (no eligible recent dataset)" },
+        idealista: ideReuse ? { ...ideReuse, decision: "REUSE (no new spend)" } : { decision: "NEW RUN single 2000 (no eligible recent dataset)" },
+      },
+      poll: `POST {"action":"status","job_id":"${jobId2}"} every 30-60s`,
+    });
+  }
 
   // action === "run" | "run_fixed"  — requires explicit plan, NO auto-split.
   const perChunkMax = Math.min(Number(body.perChunkMax ?? 200), 250);
