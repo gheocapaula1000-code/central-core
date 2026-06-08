@@ -1291,11 +1291,14 @@ Deno.serve(async (req) => {
     if (!job) return json({ ok: false, error: "job_not_found" }, 404);
     const prog = { ...((job.progress as Record<string, any>) ?? {}) };
 
-    const skipSubito = !!prog.subito_run_id;
-    const skipCasa = !!prog.casa_crawl_id;
+    const forceSubito = body.force_subito === true || body.force === true;
+    const forceCasa = body.force_casa === true || body.force === true;
+    const skipSubito = !!prog.subito_run_id && !forceSubito;
+    const skipCasa = !!prog.casa_crawl_id && !forceCasa;
     if (skipSubito && skipCasa) {
       return json({
         ok: false, error: "already_started",
+        hint: "pass force_subito:true / force_casa:true / force:true to re-launch",
         subito: { run_id: prog.subito_run_id, dataset_id: prog.subito_dataset_id },
         casa: { crawl_id: prog.casa_crawl_id },
       }, 409);
@@ -1304,26 +1307,32 @@ Deno.serve(async (req) => {
     // ── 1) SUBITO via Apify (fire-and-forget, then verify RUNNING) ──
     const subitoActor = "emastra~subito-it-immobili";
     const subitoMaxItems = Math.min(Number(body.subito_max ?? 2000), 5000);
-    const subitoSearch = "https://www.subito.it/annunci-veneto/vendita/immobili/padova/";
+    // CORRECT search URL: /vendita/appartamenti/padova/padova/ (NOT /vendita/immobili/)
+    const subitoSearch = String(
+      body.subito_url ?? "https://www.subito.it/annunci-veneto/vendita/appartamenti/padova/padova/",
+    );
+    const subitoOnlyPrivate = body.subito_only_private !== false; // default true
 
     let subitoOut: Record<string, unknown> = { ok: false };
     if (skipSubito) {
       subitoOut = { ok: true, skipped: true, reason: "subito già avviato in chiamata precedente", run_id: prog.subito_run_id, dataset_id: prog.subito_dataset_id };
     } else {
     try {
+      // CORRECT input: startUrls as STRING[], maxResultItems (not maxItems), onlyPrivate
+      const subitoInput = {
+        startUrls: [subitoSearch],
+        maxResultItems: subitoMaxItems,
+        onlyPrivate: subitoOnlyPrivate,
+      };
       const sRes = await fetch(
         `https://api.apify.com/v2/acts/${encodeURIComponent(subitoActor)}/runs?token=${encodeURIComponent(token)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            startUrls: [{ url: subitoSearch }],
-            maxItems: subitoMaxItems,
-            resultsLimit: subitoMaxItems,
-            maxRequestsPerCrawl: subitoMaxItems + 50,
-          }),
+          body: JSON.stringify(subitoInput),
         },
       );
+
       if (!sRes.ok) {
         const txt = await sRes.text().catch(() => "");
         subitoOut = { ok: false, error: "apify_start_failed", status: sRes.status, body: txt.slice(0, 300) };
@@ -1369,8 +1378,9 @@ Deno.serve(async (req) => {
 
     // ── 2) CASA.IT via Firecrawl (start crawl, fire-and-forget) ──
     const fcKey = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
-    const casaLimit = Math.min(Number(body.casa_limit ?? 500), 2000);
-    const casaUrl = "https://www.casa.it/vendita/residenziale/padova";
+    const casaLimit = Math.min(Number(body.casa_limit ?? 120), 2000);
+    const casaUrl = String(body.casa_url ?? "https://www.casa.it/vendita/residenziale/padova");
+    const casaOnlyMain = body.casa_only_main === true; // default false → cattura le card
     let casaOut: Record<string, unknown> = { ok: false };
     if (skipCasa) {
       casaOut = { ok: true, skipped: true, reason: "casa già avviato in chiamata precedente", crawl_id: prog.casa_crawl_id };
@@ -1384,10 +1394,11 @@ Deno.serve(async (req) => {
           body: JSON.stringify({
             url: casaUrl,
             limit: casaLimit,
-            includePaths: ["/immobili/", "/vendita/"],
-            scrapeOptions: { formats: ["markdown", "html"], onlyMainContent: true },
+            includePaths: ["/vendita/residenziale/padova"],
+            scrapeOptions: { formats: ["markdown", "html"], onlyMainContent: casaOnlyMain },
           }),
         });
+
         const cj = await cRes.json().catch(() => ({}));
         if (!cRes.ok) {
           casaOut = { ok: false, error: "firecrawl_start_failed", status: cRes.status, body: JSON.stringify(cj).slice(0, 300) };
@@ -1402,6 +1413,7 @@ Deno.serve(async (req) => {
             prog.casa_crawl_url = crawlUrl;
             prog.casa_start_url = casaUrl;
             prog.casa_limit = casaLimit;
+            prog.casa_only_main = casaOnlyMain;
             prog.casa_started_at = new Date().toISOString();
             casaOut = {
               ok: true, provider: "firecrawl", crawl_id: crawlId, crawl_status_url: crawlUrl,
