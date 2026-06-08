@@ -803,6 +803,110 @@ Deno.serve(async (req) => {
     return json({ ok: true, job_id: jobId, ...data });
   }
 
+  // ACTION: abort → aborts ALL currently-running Apify runs on the account.
+  // Editing/redeploying this file also kills the background orchestrator isolate.
+  if (action === "abort") {
+    const jobId = String(body.job_id ?? "");
+    const listRes = await fetch(
+      `https://api.apify.com/v2/actor-runs?status=RUNNING&limit=100&token=${encodeURIComponent(token)}`,
+    );
+    const listJson = await listRes.json().catch(() => ({}));
+    const items = (listJson?.data?.items ?? []) as Array<{ id: string; actId: string }>;
+    const aborted: Array<{ id: string; actId: string; status: number }> = [];
+    for (const it of items) {
+      const a = await fetch(
+        `https://api.apify.com/v2/actor-runs/${encodeURIComponent(it.id)}/abort?token=${encodeURIComponent(token)}`,
+        { method: "POST" },
+      );
+      aborted.push({ id: it.id, actId: it.actId, status: a.status });
+    }
+    if (jobId) {
+      await sb.from("test_padova_full_run")
+        .update({ state: "aborted", finished_at: new Date().toISOString() })
+        .eq("id", jobId);
+    }
+    return json({ ok: true, action: "abort", aborted_count: aborted.length, aborted, job_id: jobId || null });
+  }
+
+  // ACTION: cap_check → one Apify run per portal with high maxItems.
+  // Tests whether the 200 cap is hard. No DB write, no Subito/Casa.
+  if (action === "cap_check") {
+    const maxItems = Math.min(Number(body.maxItems ?? 2000), 5000);
+    const tests = [
+      {
+        portal: "immobiliare",
+        actor: "azzouzana~immobiliare-it-listing-page-scraper-by-search-url",
+        param_used: "maxItems+resultsLimit+maxRequestsPerCrawl",
+        input: {
+          startUrls: [{ url: "https://www.immobiliare.it/vendita-case/padova/" }],
+          maxItems, resultsLimit: maxItems, maxRequestsPerCrawl: maxItems + 50,
+          proxy: { useApifyProxy: true },
+        },
+      },
+      {
+        portal: "idealista",
+        actor: "memo23~idealista-scraper",
+        param_used: "maxItems+resultsLimit+maxRequestsPerCrawl",
+        input: {
+          startUrls: [{ url: "https://www.idealista.it/vendita-case/padova-padova/" }],
+          maxItems, resultsLimit: maxItems, maxRequestsPerCrawl: maxItems + 50,
+          proxy: { useApifyProxy: true },
+        },
+      },
+    ];
+
+    const runOne = async (t: typeof tests[number]) => {
+      const t0 = Date.now();
+      const startRes = await fetch(
+        `https://api.apify.com/v2/acts/${encodeURIComponent(t.actor)}/runs?token=${encodeURIComponent(token)}`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(t.input) },
+      );
+      if (!startRes.ok) {
+        const txt = await startRes.text().catch(() => "");
+        return { portal: t.portal, actor: t.actor, ok: false, stage: "start", status: startRes.status, error: txt.slice(0, 300) };
+      }
+      const started = await startRes.json();
+      const runId = started?.data?.id;
+      const datasetId = started?.data?.defaultDatasetId;
+      let runStatus = "RUNNING";
+      let cost: number | null = null;
+      const deadline = Date.now() + 480_000;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 10_000));
+        const s = await fetch(`https://api.apify.com/v2/actor-runs/${encodeURIComponent(runId)}?token=${encodeURIComponent(token)}`);
+        if (!s.ok) continue;
+        const sj = await s.json();
+        runStatus = sj?.data?.status ?? "unknown";
+        cost = typeof sj?.data?.usageTotalUsd === "number" ? sj.data.usageTotalUsd : null;
+        if (["SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"].includes(runStatus)) break;
+      }
+      let rawCount: number | null = null;
+      if (datasetId) {
+        const head = await fetch(`https://api.apify.com/v2/datasets/${encodeURIComponent(datasetId)}?token=${encodeURIComponent(token)}`);
+        if (head.ok) { const hj = await head.json(); rawCount = hj?.data?.itemCount ?? null; }
+      }
+      return {
+        portal: t.portal, actor: t.actor, param_used: t.param_used,
+        run_id: runId, dataset_id: datasetId, run_status: runStatus,
+        raw_count: rawCount, cost_usd: cost,
+        duration_s: Math.round((Date.now() - t0) / 1000),
+        hit_200_wall: rawCount != null && rawCount > 0 && rawCount <= 210,
+        went_beyond_200: rawCount != null && rawCount > 210,
+      };
+    };
+
+    const results = await Promise.all(tests.map(runOne));
+    const totalCost = results.reduce((s, r: any) => s + (typeof r.cost_usd === "number" ? r.cost_usd : 0), 0);
+    return json({
+      ok: true, action: "cap_check", maxItems_requested: maxItems,
+      results, total_cost_usd: Number(totalCost.toFixed(4)),
+      verdict: results.map((r: any) =>
+        r.went_beyond_200 ? `${r.portal}: ✅ cap superabile (${r.raw_count})`
+        : r.hit_200_wall ? `${r.portal}: ❌ muro 200 (${r.raw_count})`
+        : `${r.portal}: ⚠️ ${r.run_status ?? r.error ?? "?"}`),
+    });
+  }
+
   // action === "run"
   const perChunkMax = Math.min(Number(body.perChunkMax ?? 200), 250);
   const poolSize = Math.min(Math.max(Number(body.poolSize ?? 3), 1), 6);
