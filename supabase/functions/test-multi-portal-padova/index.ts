@@ -1079,6 +1079,287 @@ Deno.serve(async (req) => {
     });
   }
 
+  // ════════════════════════════════════════════════════════════════
+  // FASE 3 — LIGHT actions: cleanup_zombies / start / collect
+  // Separates Apify trigger (start) from heavy aggregation (collect).
+  // No EdgeRuntime.waitUntil. No in-process waits. No memory blowups.
+  // ════════════════════════════════════════════════════════════════
+
+  if (action === "cleanup_zombies") {
+    const ids = Array.isArray(body.job_ids)
+      ? (body.job_ids as unknown[]).filter((x): x is string => typeof x === "string" && x.length > 0)
+      : [];
+    if (ids.length === 0) return json({ ok: false, error: "missing_job_ids" }, 400);
+    const reason = String(body.reason ?? "zombie - worker morto per memory limit");
+    const results: Array<{ id: string; updated: boolean; prev_state?: string }> = [];
+    for (const id of ids) {
+      const { data: row } = await sb.from("test_padova_full_run")
+        .select("state,progress").eq("id", id).maybeSingle();
+      if (!row) { results.push({ id, updated: false }); continue; }
+      const newProgress = { ...((row.progress as Record<string, unknown>) ?? {}), abort_reason: reason };
+      const { error } = await sb.from("test_padova_full_run")
+        .update({ state: "aborted", finished_at: new Date().toISOString(), progress: newProgress })
+        .eq("id", id);
+      results.push({ id, updated: !error, prev_state: row.state });
+    }
+    return json({ ok: true, action: "cleanup_zombies", reason, results });
+  }
+
+  if (action === "start") {
+    const immoActor = "azzouzana~immobiliare-it-listing-page-scraper-by-search-url";
+    const maxItems = Math.min(Number(body.maxItems ?? 2000), 5000);
+    const ideReuseDataset = String(body.ide_reuse_dataset ?? "obzXbDsh8zeIQJYry");
+    const ideReuseCost = Number(body.ide_reuse_cost_usd ?? 1.707);
+
+    const startRes = await fetch(
+      `https://api.apify.com/v2/acts/${encodeURIComponent(immoActor)}/runs?token=${encodeURIComponent(token)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startUrl: "https://www.immobiliare.it/vendita-case/padova/?criterio=rilevanza",
+          maxItems, resultsLimit: maxItems, maxRequestsPerCrawl: maxItems + 50,
+        }),
+      },
+    );
+    if (!startRes.ok) {
+      const txt = await startRes.text().catch(() => "");
+      return json({ ok: false, error: "apify_start_failed", status: startRes.status, body: txt.slice(0, 300) }, 502);
+    }
+    const sj = await startRes.json();
+    const runId = sj?.data?.id as string | undefined;
+    const datasetId = sj?.data?.defaultDatasetId as string | undefined;
+    const status = sj?.data?.status as string | undefined;
+    const startedAt = sj?.data?.startedAt as string | undefined;
+    if (!runId || !datasetId) {
+      return json({ ok: false, error: "apify_response_missing_ids", raw: sj }, 502);
+    }
+
+    const { data: ins, error: insErr } = await sb.from("test_padova_full_run")
+      .insert({
+        state: "running",
+        progress: {
+          mode: "start_collect",
+          immo_actor: immoActor,
+          immo_run_id: runId,
+          immo_dataset_id: datasetId,
+          immo_max_items: maxItems,
+          immo_initial_status: status,
+          immo_started_at: startedAt,
+          ide_reuse_dataset: ideReuseDataset,
+          ide_reuse_cost_usd: ideReuseCost,
+          apify_runs_started: 1,
+          hard_cap_runs: 1,
+        },
+      })
+      .select("id").single();
+    if (insErr || !ins) {
+      return json({ ok: false, error: insErr?.message ?? "insert_failed", immo_run_id: runId, immo_dataset_id: datasetId }, 500);
+    }
+
+    return json({
+      ok: true, action: "start", job_id: ins.id,
+      immobiliare: { actor: immoActor, run_id: runId, dataset_id: datasetId, status, started_at: startedAt, maxItems },
+      idealista: { mode: "reuse", dataset_id: ideReuseDataset, cost_usd_new: 0, cost_usd_already_paid: ideReuseCost },
+      apify_runs_started: 1, hard_cap_runs: 1,
+      next: {
+        poll_status: `POST {"action":"status","job_id":"${ins.id}"} every 30-60s`,
+        when_succeeded: `POST {"action":"collect","job_id":"${ins.id}"}`,
+      },
+    });
+  }
+
+  if (action === "collect") {
+    const jobId = String(body.job_id ?? "");
+    if (!jobId) return json({ ok: false, error: "missing_job_id" }, 400);
+    const { data: job, error: jerr } = await sb.from("test_padova_full_run")
+      .select("id,state,progress").eq("id", jobId).maybeSingle();
+    if (jerr) return json({ ok: false, error: jerr.message }, 500);
+    if (!job) return json({ ok: false, error: "job_not_found" }, 404);
+    const prog = (job.progress ?? {}) as Record<string, any>;
+    const immoRunId = prog.immo_run_id as string | undefined;
+    const immoDsId = prog.immo_dataset_id as string | undefined;
+    const ideDsId = prog.ide_reuse_dataset as string | undefined;
+    const ideCostPrev = Number(prog.ide_reuse_cost_usd ?? 1.707);
+    if (!immoRunId || !immoDsId || !ideDsId) {
+      return json({ ok: false, error: "missing_dataset_ids_in_job_progress", progress: prog }, 400);
+    }
+
+    const runRes = await fetch(`https://api.apify.com/v2/actor-runs/${encodeURIComponent(immoRunId)}?token=${encodeURIComponent(token)}`);
+    if (!runRes.ok) return json({ ok: false, error: "apify_run_fetch_failed", status: runRes.status }, 502);
+    const rj = await runRes.json();
+    const immoStatus = rj?.data?.status as string;
+    const immoCost = typeof rj?.data?.usageTotalUsd === "number" ? rj.data.usageTotalUsd : null;
+    if (immoStatus !== "SUCCEEDED") {
+      return json({ ok: false, error: "immobiliare_not_succeeded", immo_status: immoStatus, hint: "attendi SUCCEEDED prima di chiamare collect" }, 409);
+    }
+
+    async function fetchAllDataset(dsId: string, portal: Portal): Promise<NormItem[]> {
+      const out: NormItem[] = [];
+      const pageSize = 500;
+      for (let offset = 0; offset < 50_000; offset += pageSize) {
+        const r = await fetch(`https://api.apify.com/v2/datasets/${encodeURIComponent(dsId)}/items?clean=true&format=json&limit=${pageSize}&offset=${offset}&token=${encodeURIComponent(token)}`);
+        if (!r.ok) break;
+        const arr = await r.json().catch(() => []);
+        if (!Array.isArray(arr) || arr.length === 0) break;
+        for (const it of arr) out.push(normalizeRaw(portal, it as Record<string, unknown>));
+        if (arr.length < pageSize) break;
+      }
+      return out;
+    }
+
+    const [immoItems, ideItems] = await Promise.all([
+      fetchAllDataset(immoDsId, "immobiliare"),
+      fetchAllDataset(ideDsId, "idealista"),
+    ]);
+
+    const seen = new Set<string>();
+    const allRaw: NormItem[] = [];
+    for (const it of [...immoItems, ...ideItems]) {
+      const k = it.url ?? `${it.portal}:${it.address}:${it.mq}:${it.price}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      allRaw.push(it);
+    }
+
+    const zoneCache = new Map<string, string>();
+    const resolveZone = async (lat: number | null, lng: number | null, cap: string | null): Promise<string> => {
+      if (lat != null && lng != null) {
+        const k = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+        if (zoneCache.has(k)) return zoneCache.get(k)!;
+        try {
+          const { data } = await sb.rpc("omi_zone_by_point", { p_lat: lat, p_lng: lng });
+          const z = Array.isArray(data) && data[0]?.zona ? String(data[0].zona) : (cap ? `CAP ${cap}` : "Sconosciuta");
+          zoneCache.set(k, z);
+          return z;
+        } catch { return cap ? `CAP ${cap}` : "Sconosciuta"; }
+      }
+      return cap ? `CAP ${cap}` : "Sconosciuta";
+    };
+
+    type Annotated = NormItem & { zone: string };
+    const annotated: Annotated[] = [];
+    for (const it of allRaw) {
+      const zone = await resolveZone(it.lat, it.lng, it.cap);
+      annotated.push({ ...it, zone });
+    }
+
+    type IdCluster = { items: Annotated[]; portals: Set<string>; agencies: Set<string> };
+    const idGroups = new Map<string, IdCluster>();
+    for (const it of annotated) {
+      const { street, civic } = normalizeAddressKey(it.address);
+      if (!street || street.length < 4) continue;
+      const baseKey = `${street}|${civic ?? "_"}`;
+      let matched: IdCluster | null = null;
+      for (const [k, c] of idGroups) {
+        if (!k.startsWith(baseKey + "|")) continue;
+        const ref = c.items[0];
+        const mqOk = it.mq == null || ref.mq == null ||
+          Math.abs((it.mq - ref.mq) / Math.max(ref.mq, 1)) <= 0.08;
+        if (mqOk) { matched = c; break; }
+      }
+      if (matched) {
+        matched.items.push(it); matched.portals.add(it.portal);
+        if (it.agency) matched.agencies.add(it.agency.toLowerCase());
+      } else {
+        const mqBucket = it.mq != null ? Math.round(it.mq / 10) : "x";
+        idGroups.set(`${baseKey}|${mqBucket}`, {
+          items: [it], portals: new Set([it.portal]),
+          agencies: new Set(it.agency ? [it.agency.toLowerCase()] : []),
+        });
+      }
+    }
+    const itemToCluster = new Map<NormItem, IdCluster>();
+    for (const c of idGroups.values()) for (const it of c.items) itemToCluster.set(it, c);
+    const idContendibili = [...idGroups.values()].filter((c) => c.portals.size >= 2 || c.agencies.size >= 2);
+
+    const omiUnmapped = new Set<string>();
+    const enriched = annotated.map((it) => {
+      const cluster = itemToCluster.get(it);
+      let prezzo_divergente: { min: number; max: number; delta_pct: number } | null = null;
+      if (cluster && cluster.items.length >= 2) {
+        const prices = cluster.items.map((x) => x.price).filter((p): p is number => p != null && p > 0);
+        if (prices.length >= 2) {
+          const min = Math.min(...prices), max = Math.max(...prices);
+          const delta_pct = Math.round(((max - min) / min) * 1000) / 10;
+          if (delta_pct >= 1) prezzo_divergente = { min, max, delta_pct };
+        }
+      }
+      const isContendibile = !!cluster && (cluster.portals.size >= 2 || cluster.agencies.size >= 2);
+      let tipo_lead: "contendibile" | "privato_stanco" | "ribasso" | "privato" | "standard" = "standard";
+      if (isContendibile) tipo_lead = "contendibile";
+      else if (prezzo_divergente && prezzo_divergente.delta_pct >= 5) tipo_lead = "ribasso";
+      else if (it.isPrivate) tipo_lead = "privato";
+      const omiCode = /^[A-Z]\d/.test(it.zone) ? it.zone : null;
+      let quartiere: string;
+      if (omiCode && OMI_QUARTIERE[omiCode]) quartiere = OMI_QUARTIERE[omiCode];
+      else if (omiCode) { quartiere = "(non mappato)"; omiUnmapped.add(omiCode); }
+      else quartiere = it.zone;
+      return { ...it, quartiere, omi_code: omiCode, prezzo_divergente, tipo_lead, contendibile: isContendibile };
+    });
+
+    const byQ = new Map<string, typeof enriched>();
+    for (const e of enriched) {
+      const key = `${e.omi_code ?? e.zone}|${e.quartiere}`;
+      const arr = byQ.get(key) ?? []; arr.push(e); byQ.set(key, arr);
+    }
+    const tabella_per_quartiere = [...byQ.entries()].map(([key, items]) => {
+      const [omi, quartiere] = key.split("|");
+      return {
+        codice_omi: omi, quartiere,
+        annunci_tot: items.length,
+        contendibili: items.filter((i) => i.contendibile).length,
+        privati: items.filter((i) => i.isPrivate).length,
+        privati_stanchi: 0,
+        ribassi: items.filter((i) => i.tipo_lead === "ribasso").length,
+        agenzie_distinte: new Set(items.filter((i) => i.agency).map((i) => i.agency!.toLowerCase())).size,
+      };
+    }).sort((a, b) => b.contendibili - a.contendibili || b.annunci_tot - a.annunci_tot);
+
+    const conteggi_tipo_lead = {
+      contendibile: enriched.filter((e) => e.tipo_lead === "contendibile").length,
+      privato_stanco: 0,
+      ribasso: enriched.filter((e) => e.tipo_lead === "ribasso").length,
+      privato: enriched.filter((e) => e.tipo_lead === "privato").length,
+      standard: enriched.filter((e) => e.tipo_lead === "standard").length,
+    };
+
+    const per_portal_summary = (["immobiliare", "idealista", "subito", "casa"] as Portal[]).map((p) => ({
+      portal: p,
+      annunci_dedup: enriched.filter((i) => i.portal === p).length,
+      privati: enriched.filter((i) => i.portal === p && i.isPrivate).length,
+    }));
+
+    const totalCost = (immoCost ?? 0) + ideCostPrev;
+    const finalResult = {
+      ok: true,
+      mode: "start_collect",
+      aggregato: {
+        annunci_totali_dedup: enriched.length,
+        cost_immobiliare_usd: immoCost,
+        cost_idealista_reuse_usd: ideCostPrev,
+        cost_totale_usd: Number(totalCost.toFixed(4)),
+      },
+      riepilogo_per_portale: per_portal_summary,
+      matching: {
+        metodo: "IDENTITA via+civico+mq8% (prezzo NON usato come filtro)",
+        contendibili_totali: idContendibili.length,
+        contendibili_con_prezzo_divergente: enriched.filter((e) => e.contendibile && e.prezzo_divergente).length,
+      },
+      conteggi_tipo_lead,
+      tabella_per_quartiere,
+      omi_quartiere: { mappa_utilizzata: OMI_QUARTIERE, codici_omi_non_mappati: [...omiUnmapped].sort() },
+      note: "privato_stanco non calcolato in modalità start_collect (manca first_seen_at)",
+    };
+
+    await sb.from("test_padova_full_run")
+      .update({ state: "done", finished_at: new Date().toISOString(), result: finalResult })
+      .eq("id", jobId);
+
+    return json({ ok: true, action: "collect", job_id: jobId, result: finalResult });
+  }
+
+
   // ACTION: run_reuse_or_single → FASE 2 Option A with cap_check dataset reuse.
   // Auto-discovery: scans recent SUCCEEDED runs (last 4h) for both actors with
   // itemCount >= 1900. If found → reuse dataset (cost=$0). Else → new single run.
