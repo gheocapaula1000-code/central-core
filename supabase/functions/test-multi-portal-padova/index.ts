@@ -81,6 +81,29 @@ function buildIdealistaChunk(b: Band, perChunkMax: number): ApifyChunk {
   };
 }
 
+// Single-run builders (whole Padova, high maxItems) — used when cap_check
+// proved that portal can return >200 in one shot.
+function buildImmoSingle(maxItems: number): ApifyChunk {
+  return {
+    portal: "immobiliare", band: { min: 0, max: null },
+    actor: "azzouzana~immobiliare-it-listing-page-scraper-by-search-url",
+    input: {
+      startUrl: "https://www.immobiliare.it/vendita-case/padova/?criterio=rilevanza",
+      maxItems, resultsLimit: maxItems, maxRequestsPerCrawl: maxItems + 50,
+    },
+  };
+}
+function buildIdealistaSingle(maxItems: number): ApifyChunk {
+  return {
+    portal: "idealista", band: { min: 0, max: null },
+    actor: "memo23~idealista-scraper",
+    input: {
+      startUrls: [{ url: "https://www.idealista.it/vendita-case/padova-padova/" }],
+      maxItems, resultsLimit: maxItems, maxRequestsPerCrawl: maxItems + 50,
+      proxy: { useApifyProxy: true },
+    },
+  };
+
 // ───── OMI → quartiere (Padova) ─────
 const OMI_QUARTIERE: Record<string, string> = {
   B1: "Centro Storico",
