@@ -83,7 +83,17 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
-  if (!jobSecret || req.headers.get("x-job-secret") !== jobSecret) {
+  const hasJobSecret = jobSecret && req.headers.get("x-job-secret") === jobSecret;
+  const authHeader = req.headers.get("Authorization") ?? "";
+  let hasAuthedUser = false;
+  if (!hasJobSecret && authHeader.startsWith("Bearer ")) {
+    try {
+      const sbAuth = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
+      const { data } = await sbAuth.auth.getClaims(authHeader.replace("Bearer ", ""));
+      if (data?.claims?.sub) hasAuthedUser = true;
+    } catch { /* ignore */ }
+  }
+  if (!hasJobSecret && !hasAuthedUser) {
     return new Response(JSON.stringify({ ok: false, error: "unauthorized" }),
       { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
