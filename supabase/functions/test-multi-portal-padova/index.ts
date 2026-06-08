@@ -130,6 +130,41 @@ const OMI_QUARTIERE: Record<string, string> = {
   R3: "rurale sud / Guizza",
 };
 
+// ───── casa.it neighbourhood-slug → OMI code (Padova) ─────
+// Mappa basata sui 26 slug effettivamente visti nel crawl 019ea797 (120 list-page).
+// Slug "con-*" sono filter-page senza zona specifica (intera Padova); "_root" idem.
+// Le card di queste pagine sono dedup-ate per listing_id, quindi non perdiamo dati,
+// vanno solo in "Sconosciuta" se non hanno match diretto.
+const CASA_SLUG_TO_OMI: Record<string, string | null> = {
+  _root: null,
+  "altichero-ponterotto-sacro-cuore": "C3",                                   // Arcella nord-ovest
+  "arcella-san-bellino-pontevigodarzere-san-carlo": "C3",                    // Arcella nord
+  "brentelle-chiesanuova-cave": "D1",                                         // Chiesanuova/Brentelle
+  "brusegana": "D1",                                                          // ovest, contiguo a Chiesanuova
+  "camin-granze-zona-industriale": "D4",                                      // Camin/San Marco
+  "centro-storico": "B1",
+  "citta-giardino-santa-croce-prato-della-valle-pontecorvo-santo": "B2",     // Prato della Valle
+  "crocefisso-guizza-salboro-voltabarozzo": "D3",                            // Voltabarozzo/Guizza
+  "fiera": "C4",                                                              // Stanga/Pio X / Fiera
+  "forcellini-terranegra-nazareth-san-camillo": "D8",                        // Forcellini
+  "monta-sant-ignazio": "D5",                                                 // nord-ovest / Pontevigodarzere ovest
+  "mortise": "D7",                                                            // Mortise/Arcella est
+  "ospedale-militare-piazza-mazzini-porta-trento": "C1",                     // Portello/Ognissanti area
+  "paltana-mandria-sacra-famiglia": "D2",                                    // Mandria/Savonarola
+  "ponte-di-brenta-torre": "D4",                                              // est, Camin/San Marco
+  "portello-ospedali-stazione": "C1",                                          // Portello/Ognissanti
+  "riviere-san-giuseppe-specola-san-giovanni": "B1",                          // Centro storico
+  "san-lazzaro-stanga": "C4",                                                 // Stanga/Pio X
+  // filter-page (caratteristica, non zona) → nessuna attribuzione
+  "con-ascensore": null,
+  "con-balcone": null,
+  "con-box-posto-auto": null,
+  "con-da-privati": null,
+  "con-giardino": null,
+  "con-riscaldamento-autonomo": null,
+  "con-terrazzo": null,
+};
+
 // ───── Normalisation helpers (unchanged from previous run) ─────
 function parsePubDate(it: Record<string, any>): string | null {
   const cands = [
