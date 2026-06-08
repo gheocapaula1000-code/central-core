@@ -1258,13 +1258,16 @@ Deno.serve(async (req) => {
     } catch (e) {
       subitoOut = { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
+    } // end !skipSubito
 
     // ── 2) CASA.IT via Firecrawl (start crawl, fire-and-forget) ──
     const fcKey = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
     const casaLimit = Math.min(Number(body.casa_limit ?? 500), 2000);
     const casaUrl = "https://www.casa.it/vendita/residenziale/padova";
     let casaOut: Record<string, unknown> = { ok: false };
-    if (!fcKey) {
+    if (skipCasa) {
+      casaOut = { ok: true, skipped: true, reason: "casa già avviato in chiamata precedente", crawl_id: prog.casa_crawl_id };
+    } else if (!fcKey) {
       casaOut = { ok: false, error: "FIRECRAWL_API_KEY_missing" };
     } else {
       try {
@@ -1274,7 +1277,6 @@ Deno.serve(async (req) => {
           body: JSON.stringify({
             url: casaUrl,
             limit: casaLimit,
-            maxDepth: 3,
             includePaths: ["/immobili/", "/vendita/"],
             scrapeOptions: { formats: ["markdown", "html"], onlyMainContent: true },
           }),
