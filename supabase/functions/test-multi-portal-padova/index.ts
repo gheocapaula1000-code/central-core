@@ -1011,6 +1011,53 @@ Deno.serve(async (req) => {
     });
   }
 
+  // ACTION: run_reuse_or_single → FASE 2 Option A with cap_check dataset reuse.
+  // Auto-discovery: scans recent SUCCEEDED runs (last 4h) for both actors with
+  // itemCount >= 1900. If found → reuse dataset (cost=$0). Else → new single run.
+  if (action === "run_reuse_or_single") {
+    const IMMO_ACTOR = "azzouzana~immobiliare-it-listing-page-scraper-by-search-url";
+    const IDE_ACTOR = "memo23~idealista-scraper";
+    const immoReuse = await findReusableRun(IMMO_ACTOR, 1900, token, 360);
+    const ideReuse = await findReusableRun(IDE_ACTOR, 1900, token, 360);
+
+    const perChunkMax2 = 200;
+    const poolSize2 = 2;
+    const plan2: OrchestratePlan = {
+      immo_mode: immoReuse ? "reuse" : "single",
+      ide_mode: ideReuse ? "reuse" : "single",
+      immo_single_max: 2000,
+      ide_single_max: 2000,
+      immo_reuse: immoReuse ? { run_id: immoReuse.run_id, dataset_id: immoReuse.dataset_id, cost_usd: immoReuse.usageTotalUsd } : null,
+      ide_reuse: ideReuse ? { run_id: ideReuse.run_id, dataset_id: ideReuse.dataset_id, cost_usd: ideReuse.usageTotalUsd } : null,
+      include_subito: true,
+      include_casa: true,
+    };
+    const apifyPlanned2 =
+      (plan2.immo_mode === "reuse" ? 0 : 1) +
+      (plan2.ide_mode === "reuse" ? 0 : 1) +
+      (plan2.include_subito ? 1 : 0);
+    if (apifyPlanned2 > 4) {
+      return json({ ok: false, error: "run_cap_exceeded", apify_runs_planned: apifyPlanned2, hint: "max 4" }, 400);
+    }
+
+    const { data: ins2, error: insErr2 } = await sb.from("test_padova_full_run")
+      .insert({ state: "running", progress: { queued: true, mode: "reuse_or_single", plan: plan2, apify_runs_planned: apifyPlanned2,
+        reuse_discovery: { immobiliare: immoReuse, idealista: ideReuse } } })
+      .select("id").single();
+    if (insErr2 || !ins2) return json({ ok: false, error: insErr2?.message ?? "insert_failed" }, 500);
+    const jobId2 = ins2.id as string;
+    // @ts-ignore EdgeRuntime is provided by Supabase runtime
+    EdgeRuntime.waitUntil(orchestrate(jobId2, perChunkMax2, poolSize2, plan2));
+    return json({
+      ok: true, job_id: jobId2, action: "run_reuse_or_single", plan: plan2,
+      apify_runs_planned: apifyPlanned2, tetto_max_runs_apify: 4,
+      reuse_discovery: {
+        immobiliare: immoReuse ? { ...immoReuse, decision: "REUSE (no new spend)" } : { decision: "NEW RUN single 2000 (no eligible recent dataset)" },
+        idealista: ideReuse ? { ...ideReuse, decision: "REUSE (no new spend)" } : { decision: "NEW RUN single 2000 (no eligible recent dataset)" },
+      },
+      poll: `POST {"action":"status","job_id":"${jobId2}"} every 30-60s`,
+    });
+  }
 
   // action === "run" | "run_fixed"  — requires explicit plan, NO auto-split.
   const perChunkMax = Math.min(Number(body.perChunkMax ?? 200), 250);
