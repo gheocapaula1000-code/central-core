@@ -1709,7 +1709,15 @@ Deno.serve(async (req) => {
     for (let i = 0; i < allRaw.length; i += BATCH) {
       const slice = allRaw.slice(i, i + BATCH);
       const zones = await Promise.all(slice.map((it) => resolveZone(it.lat, it.lng, it.cap)));
-      for (let j = 0; j < slice.length; j++) annotated.push({ ...slice[j], zone: zones[j] });
+      for (let j = 0; j < slice.length; j++) {
+        const it = slice[j];
+        let zone = zones[j];
+        // casa.it: zona derivata dallo slug list-page (no lat/lng/cap disponibili).
+        if (it.portal === "casa") {
+          zone = it.casaOmiHint ?? "Sconosciuta";
+        }
+        annotated.push({ ...it, zone });
+      }
     }
 
     type IdCluster = { items: Annotated[]; portals: Set<string>; agencies: Set<string> };
