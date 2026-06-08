@@ -1856,7 +1856,8 @@ Deno.serve(async (req) => {
           }
         }
         const itemToCluster = new Map<NormItem, IdCluster>();
-        for (const c of idGroups.values()) for (const it of c.items) itemToCluster.set(it, c);
+        const itemToClusterKey = new Map<NormItem, string>();
+        for (const [k, c] of idGroups) for (const it of c.items) { itemToCluster.set(it, c); itemToClusterKey.set(it, k); }
         const idContendibili = [...idGroups.values()].filter((c) => c.portals.size >= 2 || c.agencies.size >= 2);
 
         const omiUnmapped = new Set<string>();
