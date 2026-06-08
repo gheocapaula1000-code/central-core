@@ -134,6 +134,7 @@ interface NormItem {
   agency: string | null; isPrivate: boolean;
   lat: number | null; lng: number | null; cap: string | null;
   url: string | null;
+  publishedAt: string | null;
 }
 
 function nz(n: number | null): number | null {
