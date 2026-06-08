@@ -1194,6 +1194,19 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: "immobiliare_not_succeeded", immo_status: immoStatus, hint: "attendi SUCCEEDED prima di chiamare collect" }, 409);
     }
 
+    // Already-collecting guard: avoid concurrent background runs
+    if (job.state === "collecting") {
+      return json({ ok: true, action: "collect", job_id: jobId, state: "collecting", hint: "raccolta già in corso, usa action:status" });
+    }
+    if (job.state === "done") {
+      const { data: d } = await sb.from("test_padova_full_run").select("result").eq("id", jobId).maybeSingle();
+      return json({ ok: true, action: "collect", job_id: jobId, state: "done", result: d?.result ?? null });
+    }
+    await sb.from("test_padova_full_run").update({ state: "collecting" }).eq("id", jobId);
+
+    const bgWork = (async () => {
+      try {
+
     async function fetchAllDataset(dsId: string, portal: Portal): Promise<NormItem[]> {
       const out: NormItem[] = [];
       const pageSize = 500;
@@ -1239,9 +1252,11 @@ Deno.serve(async (req) => {
 
     type Annotated = NormItem & { zone: string };
     const annotated: Annotated[] = [];
-    for (const it of allRaw) {
-      const zone = await resolveZone(it.lat, it.lng, it.cap);
-      annotated.push({ ...it, zone });
+    const BATCH = 25;
+    for (let i = 0; i < allRaw.length; i += BATCH) {
+      const slice = allRaw.slice(i, i + BATCH);
+      const zones = await Promise.all(slice.map((it) => resolveZone(it.lat, it.lng, it.cap)));
+      for (let j = 0; j < slice.length; j++) annotated.push({ ...slice[j], zone: zones[j] });
     }
 
     type IdCluster = { items: Annotated[]; portals: Set<string>; agencies: Set<string> };
@@ -1352,11 +1367,26 @@ Deno.serve(async (req) => {
       note: "privato_stanco non calcolato in modalità start_collect (manca first_seen_at)",
     };
 
-    await sb.from("test_padova_full_run")
-      .update({ state: "done", finished_at: new Date().toISOString(), result: finalResult })
-      .eq("id", jobId);
+        await sb.from("test_padova_full_run")
+          .update({ state: "done", finished_at: new Date().toISOString(), result: finalResult })
+          .eq("id", jobId);
+      } catch (e) {
+        await sb.from("test_padova_full_run").update({
+          state: "failed",
+          finished_at: new Date().toISOString(),
+          result: { ok: false, error: e instanceof Error ? e.message : String(e) },
+        }).eq("id", jobId);
+      }
+    })();
 
-    return json({ ok: true, action: "collect", job_id: jobId, result: finalResult });
+    // @ts-ignore EdgeRuntime
+    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+      // @ts-ignore
+      EdgeRuntime.waitUntil(bgWork);
+    } else {
+      bgWork.catch(() => {});
+    }
+    return json({ ok: true, action: "collect", job_id: jobId, state: "collecting", hint: "raccolta avviata in background. Polla action:status." });
   }
 
 
