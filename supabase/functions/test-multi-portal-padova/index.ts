@@ -1962,7 +1962,7 @@ Deno.serve(async (req) => {
           privato: padovaCitta.filter((e) => e.tipo_lead === "privato").length,
           standard: padovaCitta.filter((e) => e.tipo_lead === "standard").length,
         };
-        const contendibili_padova_cluster = new Set(padovaCitta.filter((e) => e.contendibile).map((e) => itemToCluster.get(e))).size;
+        const contendibili_padova_cluster = new Set(padovaCitta.filter((e) => e.contendibile && e.cluster_key).map((e) => e.cluster_key)).size;
         const contendibili_padova_divergenti = padovaCitta.filter((e) => e.contendibile && e.prezzo_divergente).length;
 
         // ───── VISTA 2: FUORI PADOVA ─────
