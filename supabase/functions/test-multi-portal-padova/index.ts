@@ -1239,9 +1239,11 @@ Deno.serve(async (req) => {
 
     type Annotated = NormItem & { zone: string };
     const annotated: Annotated[] = [];
-    for (const it of allRaw) {
-      const zone = await resolveZone(it.lat, it.lng, it.cap);
-      annotated.push({ ...it, zone });
+    const BATCH = 25;
+    for (let i = 0; i < allRaw.length; i += BATCH) {
+      const slice = allRaw.slice(i, i + BATCH);
+      const zones = await Promise.all(slice.map((it) => resolveZone(it.lat, it.lng, it.cap)));
+      for (let j = 0; j < slice.length; j++) annotated.push({ ...slice[j], zone: zones[j] });
     }
 
     type IdCluster = { items: Annotated[]; portals: Set<string>; agencies: Set<string> };
