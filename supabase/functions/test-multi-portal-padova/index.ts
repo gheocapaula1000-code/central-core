@@ -1458,8 +1458,22 @@ Deno.serve(async (req) => {
     const ideDsId = prog.ide_reuse_dataset as string | undefined;
     const ideCostPrev = Number(prog.ide_reuse_cost_usd ?? 1.707);
     const casaCrawlId = prog.casa_crawl_id as string | undefined;
+    const subitoRunIdCol = prog.subito_run_id as string | undefined;
+    const subitoDsId = prog.subito_dataset_id as string | undefined;
     if (!immoRunId || !immoDsId || !ideDsId) {
       return json({ ok: false, error: "missing_dataset_ids_in_job_progress", progress: prog }, 400);
+    }
+
+    // Fetch subito run usage (optional)
+    let subitoCost: number | null = null;
+    if (subitoRunIdCol) {
+      try {
+        const sr = await fetch(`https://api.apify.com/v2/actor-runs/${encodeURIComponent(subitoRunIdCol)}?token=${encodeURIComponent(token)}`);
+        if (sr.ok) {
+          const sj = await sr.json();
+          subitoCost = typeof sj?.data?.usageTotalUsd === "number" ? sj.data.usageTotalUsd : null;
+        }
+      } catch { /* noop */ }
     }
 
     const runRes = await fetch(`https://api.apify.com/v2/actor-runs/${encodeURIComponent(immoRunId)}?token=${encodeURIComponent(token)}`);
@@ -1471,9 +1485,9 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: "immobiliare_not_succeeded", immo_status: immoStatus, hint: "attendi SUCCEEDED prima di chiamare collect" }, 409);
     }
 
-    // Already-collecting guard: avoid concurrent background runs
-    if (job.state === "collecting") {
-      return json({ ok: true, action: "collect", job_id: jobId, state: "collecting", hint: "raccolta già in corso, usa action:status" });
+    // Already-collecting guard: avoid concurrent background runs (force bypasses)
+    if (job.state === "collecting" && !body.force) {
+      return json({ ok: true, action: "collect", job_id: jobId, state: "collecting", hint: "raccolta già in corso, usa action:status (oppure force:true per riavviare)" });
     }
     if (job.state === "done" && !body.force) {
       const { data: d } = await sb.from("test_padova_full_run").select("result").eq("id", jobId).maybeSingle();
@@ -1560,15 +1574,16 @@ Deno.serve(async (req) => {
       return out;
     }
 
-    const [immoItems, ideItems, casaItems] = await Promise.all([
+    const [immoItems, ideItems, subitoItems, casaItems] = await Promise.all([
       fetchAllDataset(immoDsId, "immobiliare"),
       fetchAllDataset(ideDsId, "idealista"),
+      subitoDsId ? fetchAllDataset(subitoDsId, "subito") : Promise.resolve([] as NormItem[]),
       casaCrawlId ? fetchCasaCrawl(casaCrawlId) : Promise.resolve([] as NormItem[]),
     ]);
 
     const seen = new Set<string>();
     const allRaw: NormItem[] = [];
-    for (const it of [...immoItems, ...ideItems, ...casaItems]) {
+    for (const it of [...immoItems, ...ideItems, ...subitoItems, ...casaItems]) {
       const k = it.url ?? `${it.portal}:${it.address}:${it.mq}:${it.price}`;
       if (seen.has(k)) continue;
       seen.add(k);
@@ -1702,7 +1717,7 @@ Deno.serve(async (req) => {
       privati: enriched.filter((i) => i.portal === p && i.isPrivate).length,
     }));
 
-    const totalCost = (immoCost ?? 0) + ideCostPrev;
+    const totalCost = (immoCost ?? 0) + ideCostPrev + (subitoCost ?? 0);
     const finalResult = {
       ok: true,
       mode: "start_collect",
@@ -1710,7 +1725,11 @@ Deno.serve(async (req) => {
         annunci_totali_dedup: enriched.length,
         cost_immobiliare_usd: immoCost,
         cost_idealista_reuse_usd: ideCostPrev,
+        cost_subito_usd: subitoCost,
+        cost_casa_firecrawl_usd: null,
         cost_totale_usd: Number(totalCost.toFixed(4)),
+        subito_items_raw: subitoItems.length,
+        casa_items_raw: casaItems.length,
       },
       riepilogo_per_portale: per_portal_summary,
       matching: {
@@ -1721,7 +1740,7 @@ Deno.serve(async (req) => {
       conteggi_tipo_lead,
       tabella_per_quartiere,
       omi_quartiere: { mappa_utilizzata: OMI_QUARTIERE, codici_omi_non_mappati: [...omiUnmapped].sort() },
-      note: "privato_stanco = privato con first_seen_at (test_listing_first_seen) >= 60 giorni. casa.it parsato da Firecrawl crawl markdown. subito escluso (0 items in run precedente).",
+      note: "privato_stanco = privato con first_seen_at (test_listing_first_seen) >= 60 giorni. casa.it parsato da Firecrawl crawl markdown.",
     };
 
         await sb.from("test_padova_full_run")
