@@ -1395,6 +1395,7 @@ Deno.serve(async (req) => {
     const immoDsId = prog.immo_dataset_id as string | undefined;
     const ideDsId = prog.ide_reuse_dataset as string | undefined;
     const ideCostPrev = Number(prog.ide_reuse_cost_usd ?? 1.707);
+    const casaCrawlId = prog.casa_crawl_id as string | undefined;
     if (!immoRunId || !immoDsId || !ideDsId) {
       return json({ ok: false, error: "missing_dataset_ids_in_job_progress", progress: prog }, 400);
     }
