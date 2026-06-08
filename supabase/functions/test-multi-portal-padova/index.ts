@@ -24,32 +24,24 @@ type Portal = "immobiliare" | "idealista" | "subito" | "casa";
 
 interface Band { min: number; max: number | null }
 
-// Minimal-chunk strategy: start with 5 WIDE bands per portale.
-// Auto-split only saturates → keeps total Apify run count low (~10-14 vs ~32).
-const INITIAL_BANDS: Band[] = [
-  { min: 0,       max: 150000  },
-  { min: 150000,  max: 250000  },
-  { min: 250000,  max: 400000  },
-  { min: 400000,  max: 700000  },
+// FIXED 8-band plan (pre-calibrated). NO auto-split: saturated bands are
+// reported but never re-divided. Run count is fixed and predictable.
+const FIXED_BANDS_8: Band[] = [
+  { min: 0,       max: 80000   },
+  { min: 80000,   max: 130000  },
+  { min: 130000,  max: 180000  },
+  { min: 180000,  max: 230000  },
+  { min: 230000,  max: 300000  },
+  { min: 300000,  max: 450000  },
+  { min: 450000,  max: 700000  },
   { min: 700000,  max: null    },
 ];
-
-const MIN_BAND_WIDTH = 20000; // do not split below 20k EUR
+// HARD CEILING — total Apify runs in a single "run_fixed" job MUST be <= this.
+const MAX_RUNS_TOTAL = 20;
 
 function bandLabel(b: Band): string {
   const fmt = (n: number) => n >= 1000 ? `${Math.round(n/1000)}k` : `${n}`;
   return `${fmt(b.min)}-${b.max == null ? "∞" : fmt(b.max)}`;
-}
-
-function splitBand(b: Band): Band[] | null {
-  if (b.max == null) {
-    // Open-ended: split at 1.5M, 2M, 3M progressively
-    return [{ min: b.min, max: b.min + 500000 }, { min: b.min + 500000, max: null }];
-  }
-  const width = b.max - b.min;
-  if (width < MIN_BAND_WIDTH * 2) return null;
-  const mid = b.min + Math.round(width / 2);
-  return [{ min: b.min, max: mid }, { min: mid, max: b.max }];
 }
 
 interface ApifyChunk {
@@ -88,6 +80,29 @@ function buildIdealistaChunk(b: Band, perChunkMax: number): ApifyChunk {
     },
   };
 }
+
+// Single-run builders (whole Padova, high maxItems) — used when cap_check
+// proved that portal can return >200 in one shot.
+function buildImmoSingle(maxItems: number): ApifyChunk {
+  return {
+    portal: "immobiliare", band: { min: 0, max: null },
+    actor: "azzouzana~immobiliare-it-listing-page-scraper-by-search-url",
+    input: {
+      startUrl: "https://www.immobiliare.it/vendita-case/padova/?criterio=rilevanza",
+      maxItems, resultsLimit: maxItems, maxRequestsPerCrawl: maxItems + 50,
+    },
+  };
+}
+function buildIdealistaSingle(maxItems: number): ApifyChunk {
+  return {
+    portal: "idealista", band: { min: 0, max: null },
+    actor: "memo23~idealista-scraper",
+    input: {
+      startUrls: [{ url: "https://www.idealista.it/vendita-case/padova-padova/" }],
+      maxItems, resultsLimit: maxItems, maxRequestsPerCrawl: maxItems + 50,
+      proxy: { useApifyProxy: true },
+    },
+  };
 
 // ───── OMI → quartiere (Padova) ─────
 const OMI_QUARTIERE: Record<string, string> = {
@@ -413,7 +428,21 @@ async function runSubito(perChunkMax: number, token: string): Promise<ApifyChunk
 }
 
 // ───── Background orchestrator ─────
-async function orchestrate(jobId: string, perChunkMax: number, poolSize: number) {
+// Plan is FIXED before launch. NO auto-split: saturated bands are flagged but
+// never re-divided. The total number of Apify runs is bounded by MAX_RUNS_TOTAL.
+type PortalMode = "single" | "bands";
+interface OrchestratePlan {
+  immo_mode: PortalMode;
+  ide_mode: PortalMode;
+  immo_single_max: number;
+  ide_single_max: number;
+  include_subito: boolean;
+  include_casa: boolean;
+}
+
+async function orchestrate(
+  jobId: string, perChunkMax: number, poolSize: number, plan: OrchestratePlan,
+) {
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
   const token = getApifyToken();
   const updateProgress = async (patch: Record<string, unknown>) => {
@@ -422,27 +451,48 @@ async function orchestrate(jobId: string, perChunkMax: number, poolSize: number)
   const progress: Record<string, any> = {
     started_at: new Date().toISOString(),
     pool_size: poolSize, per_chunk_max: perChunkMax,
+    plan,
     chunks: [] as ApifyChunkResult[],
     queue_remaining: 0, active: 0, splits: 0,
+    auto_split_disabled: true,
   };
 
   try {
-    // 1) Build initial queue for immobiliare + idealista.
+    // 1) Build the FIXED queue for immobiliare + idealista.
     const queue: ApifyChunk[] = [];
-    for (const b of INITIAL_BANDS) queue.push(buildImmoChunk(b, perChunkMax));
-    for (const b of INITIAL_BANDS) queue.push(buildIdealistaChunk(b, perChunkMax));
+    if (plan.immo_mode === "single") {
+      queue.push(buildImmoSingle(plan.immo_single_max));
+    } else {
+      for (const b of FIXED_BANDS_8) queue.push(buildImmoChunk(b, perChunkMax));
+    }
+    if (plan.ide_mode === "single") {
+      queue.push(buildIdealistaSingle(plan.ide_single_max));
+    } else {
+      for (const b of FIXED_BANDS_8) queue.push(buildIdealistaChunk(b, perChunkMax));
+    }
+
+    const apifyMainCount = queue.length;
+    const apifyTotalPlanned = apifyMainCount + (plan.include_subito ? 1 : 0);
+    progress.apify_runs_planned = apifyTotalPlanned;
+
+    if (apifyTotalPlanned > MAX_RUNS_TOTAL) {
+      throw new Error(`run_cap_exceeded: planned=${apifyTotalPlanned} > MAX_RUNS_TOTAL=${MAX_RUNS_TOTAL}`);
+    }
 
     // 2) Launch subito + casa in parallel (background).
     const sidePromise = (async () => {
-      const [subitoRes, casaRes] = await Promise.allSettled([
-        runSubito(perChunkMax, token),
-        scrapeCasaFirecrawl("https://www.casa.it/vendita/residenziale/padova", perChunkMax),
-      ]);
+      const subitoP = plan.include_subito
+        ? runSubito(perChunkMax, token)
+        : Promise.resolve<ApifyChunkResult>({ portal: "subito", band_label: "skipped", status: "BLOCCATO", raw_count: 0, items: [], cost_usd: 0, saturated: false });
+      const casaP = plan.include_casa
+        ? scrapeCasaFirecrawl("https://www.casa.it/vendita/residenziale/padova", perChunkMax)
+        : Promise.resolve({ items: [], status: "BLOCCATO", cost_usd: 0 } as { items: NormItem[]; status: string; cost_usd: number | null; error?: string });
+      const [subitoRes, casaRes] = await Promise.allSettled([subitoP, casaP]);
       const out: ApifyChunkResult[] = [];
-      if (subitoRes.status === "fulfilled") out.push(subitoRes.value);
+      if (subitoRes.status === "fulfilled") out.push(subitoRes.value as ApifyChunkResult);
       else out.push({ portal: "subito", band_label: "all", status: "ERRORE", raw_count: 0, items: [], cost_usd: null, saturated: false, error: String(subitoRes.reason) });
       if (casaRes.status === "fulfilled") {
-        const r = casaRes.value;
+        const r = casaRes.value as { items: NormItem[]; status: string; cost_usd: number | null; error?: string };
         out.push({
           portal: "casa", band_label: "baseline",
           status: r.status === "OK" ? "OK" : (r.error ? "ERRORE" : "BLOCCATO"),
@@ -455,7 +505,7 @@ async function orchestrate(jobId: string, perChunkMax: number, poolSize: number)
       return out;
     })();
 
-    // 3) Worker pool with dynamic queue (auto-split saturated chunks).
+    // 3) Worker pool — STRICTLY no auto-split. Saturated bands are recorded.
     const results: ApifyChunkResult[] = [];
     let active = 0;
     const worker = async (workerIdx: number) => {
@@ -475,21 +525,8 @@ async function orchestrate(jobId: string, perChunkMax: number, poolSize: number)
           cost_usd: res.cost_usd, error: res.error, worker: workerIdx,
         });
 
-        // Auto-split logic
-        if (res.saturated && res.status === "OK") {
-          const sub = splitBand(chunk.band);
-          if (sub) {
-            for (const b of sub) {
-              queue.push(chunk.portal === "immobiliare" ? buildImmoChunk(b, perChunkMax) : buildIdealistaChunk(b, perChunkMax));
-            }
-            progress.splits++;
-          }
-        }
-        // On memory-limit: requeue once (after short pause) so it isn't lost
-        if (res.status === "MEMORY_LIMIT") {
-          await new Promise((r) => setTimeout(r, 15_000));
-          queue.push(chunk);
-        }
+        // NOTE: NO auto-split. Saturated bands are flagged in results only.
+        // NOTE: NO requeue on memory-limit either (would breach the run cap).
 
         active--;
         progress.queue_remaining = queue.length;
@@ -498,6 +535,7 @@ async function orchestrate(jobId: string, perChunkMax: number, poolSize: number)
       }
     };
     await Promise.all(Array.from({ length: poolSize }, (_, i) => worker(i + 1)));
+
 
     // 4) Join side jobs.
     const sideResults = await sidePromise;
@@ -721,10 +759,13 @@ async function orchestrate(jobId: string, perChunkMax: number, poolSize: number)
       chunking: {
         per_chunk_max: perChunkMax,
         pool_size: poolSize,
+        plan,
+        auto_split_disabled: true,
+        tetto_max_runs_apify: MAX_RUNS_TOTAL,
+        apify_runs_eseguite_totali: results.filter((r) => r.portal !== "casa").length,
         chunks_totali: results.filter((r) => r.portal === "immobiliare" || r.portal === "idealista").length,
         chunks_completati_ok: results.filter((r) => (r.portal === "immobiliare" || r.portal === "idealista") && (r.status === "OK" || r.status === "BLOCCATO")).length,
-        chunks_ancora_saturi: results.filter((r) => r.saturated).length,
-        splits_eseguiti: progress.splits,
+        bande_sature_non_divise: results.filter((r) => r.saturated).map((r) => ({ portal: r.portal, band: r.band_label, raw: r.raw_count })),
         dettaglio: results
           .filter((r) => r.portal === "immobiliare" || r.portal === "idealista")
           .map((r) => ({ portal: r.portal, band: r.band_label, status: r.status, raw: r.raw_count, saturated: r.saturated, cost_usd: r.cost_usd, error: r.error })),
@@ -907,24 +948,51 @@ Deno.serve(async (req) => {
   }
 
 
-  // action === "run"
+  // action === "run" | "run_fixed"  — requires explicit plan, NO auto-split.
   const perChunkMax = Math.min(Number(body.perChunkMax ?? 200), 250);
   const poolSize = Math.min(Math.max(Number(body.poolSize ?? 3), 1), 6);
 
+  const planIn = (body.plan ?? {}) as Record<string, unknown>;
+  const plan: OrchestratePlan = {
+    immo_mode: (planIn.immo_mode === "single" ? "single" : "bands"),
+    ide_mode: (planIn.ide_mode === "single" ? "single" : "bands"),
+    immo_single_max: Math.min(Number(planIn.immo_single_max ?? 2000), 5000),
+    ide_single_max: Math.min(Number(planIn.ide_single_max ?? 2000), 5000),
+    include_subito: planIn.include_subito !== false,
+    include_casa: planIn.include_casa !== false,
+  };
+
+  // Hard ceiling check BEFORE inserting / launching.
+  const apifyPlanned =
+    (plan.immo_mode === "single" ? 1 : FIXED_BANDS_8.length) +
+    (plan.ide_mode === "single" ? 1 : FIXED_BANDS_8.length) +
+    (plan.include_subito ? 1 : 0);
+  if (apifyPlanned > MAX_RUNS_TOTAL) {
+    return json({
+      ok: false, error: "run_cap_exceeded",
+      apify_runs_planned: apifyPlanned,
+      tetto_max_runs_apify: MAX_RUNS_TOTAL,
+      plan,
+      hint: "Riduci a 'single' almeno un portale o disattiva subito.",
+    }, 400);
+  }
+
   const { data: ins, error: insErr } = await sb.from("test_padova_full_run")
-    .insert({ state: "running", progress: { queued: true, pool_size: poolSize, per_chunk_max: perChunkMax } })
+    .insert({ state: "running", progress: { queued: true, pool_size: poolSize, per_chunk_max: perChunkMax, plan, apify_runs_planned: apifyPlanned } })
     .select("id").single();
   if (insErr || !ins) return json({ ok: false, error: insErr?.message ?? "insert_failed" }, 500);
   const jobId = ins.id as string;
 
   // Fire-and-forget orchestration.
   // @ts-ignore EdgeRuntime is provided by Supabase runtime
-  EdgeRuntime.waitUntil(orchestrate(jobId, perChunkMax, poolSize));
+  EdgeRuntime.waitUntil(orchestrate(jobId, perChunkMax, poolSize, plan));
 
   return json({
-    ok: true, job_id: jobId,
+    ok: true, job_id: jobId, plan,
+    apify_runs_planned: apifyPlanned, tetto_max_runs_apify: MAX_RUNS_TOTAL,
     poll: `POST {"action":"status","job_id":"${jobId}"} every 30-60s until state="done"`,
     pool_size: poolSize, per_chunk_max: perChunkMax,
-    expected_duration: "10-25 minuti (serializzato con auto-split)",
+    expected_duration: "5-20 minuti (NO auto-split, run count fisso)",
   });
 });
+
