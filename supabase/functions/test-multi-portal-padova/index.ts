@@ -1619,7 +1619,7 @@ Deno.serve(async (req) => {
         annunci_tot: items.length,
         contendibili: items.filter((i) => i.contendibile).length,
         privati: items.filter((i) => i.isPrivate).length,
-        privati_stanchi: 0,
+        privati_stanchi: items.filter((i) => i.tipo_lead === "privato_stanco").length,
         ribassi: items.filter((i) => i.tipo_lead === "ribasso").length,
         agenzie_distinte: new Set(items.filter((i) => i.agency).map((i) => i.agency!.toLowerCase())).size,
       };
@@ -1627,7 +1627,7 @@ Deno.serve(async (req) => {
 
     const conteggi_tipo_lead = {
       contendibile: enriched.filter((e) => e.tipo_lead === "contendibile").length,
-      privato_stanco: 0,
+      privato_stanco: enriched.filter((e) => e.tipo_lead === "privato_stanco").length,
       ribasso: enriched.filter((e) => e.tipo_lead === "ribasso").length,
       privato: enriched.filter((e) => e.tipo_lead === "privato").length,
       standard: enriched.filter((e) => e.tipo_lead === "standard").length,
