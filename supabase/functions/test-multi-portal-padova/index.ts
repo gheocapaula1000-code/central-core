@@ -1995,16 +1995,28 @@ Deno.serve(async (req) => {
             casa_pages_read_from_db: totalCasaPages,
           },
           riepilogo_per_portale: per_portal_summary,
-          matching: {
+          padova_citta: {
+            annunci_tot: padovaCitta.length,
+            conteggi_tipo_lead: conteggi_tipo_lead_padova,
+            contendibili_totali: contendibili_padova_cluster,
+            contendibili_con_prezzo_divergente: contendibili_padova_divergenti,
+            tabella_per_quartiere: tabella_per_quartiere_padova,
+            sconosciuta_residua: tabella_per_quartiere_padova.find((r) => r.quartiere === "Sconosciuta (Padova città)") ?? null,
+          },
+          fuori_padova: {
+            annunci_tot: fuoriPadova.length,
+            tabella_per_comune: tabella_fuori_padova,
+          },
+          non_classificabili: { annunci_tot: nonClassificabili.length },
+          matching_globale: {
             metodo: "IDENTITA via+civico+mq8% (prezzo NON usato come filtro)",
-            contendibili_totali: idContendibili.length,
+            contendibili_totali_cluster: idContendibili.length,
             contendibili_con_prezzo_divergente: enriched.filter((e) => e.contendibile && e.prezzo_divergente).length,
           },
-          conteggi_tipo_lead,
-          tabella_per_quartiere,
           omi_quartiere: { mappa_utilizzata: OMI_QUARTIERE, codici_omi_non_mappati: [...omiUnmapped].sort() },
           casa_slug_non_mappati: [...casaSlugUnmapped].sort(),
-          note: "collect_v2: casa parsato in streaming da public.test_casa_raw_pages; Apify dataset fetchati sequenzialmente.",
+          note: "collect_v2: vista Padova città + bucket Fuori Padova. Fallback via→OMI per casa _root e non-casa senza polygon match.",
+
         };
 
         await sb.from("test_padova_full_run")
