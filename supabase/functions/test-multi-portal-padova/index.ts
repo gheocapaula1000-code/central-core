@@ -1200,6 +1200,9 @@ Deno.serve(async (req) => {
     const subitoSearch = "https://www.subito.it/annunci-veneto/vendita/immobili/padova/";
 
     let subitoOut: Record<string, unknown> = { ok: false };
+    if (skipSubito) {
+      subitoOut = { ok: true, skipped: true, reason: "subito già avviato in chiamata precedente", run_id: prog.subito_run_id, dataset_id: prog.subito_dataset_id };
+    } else {
     try {
       const sRes = await fetch(
         `https://api.apify.com/v2/acts/${encodeURIComponent(subitoActor)}/runs?token=${encodeURIComponent(token)}`,
