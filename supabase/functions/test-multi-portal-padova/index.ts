@@ -1490,7 +1490,8 @@ Deno.serve(async (req) => {
             cap: capM ? capM[1] : null,
             rooms: null,
             title: address || null,
-          } as NormItem);
+            publishedAt: null,
+          });
         }
         nextUrl = (j?.next as string | undefined) ?? null;
       }
