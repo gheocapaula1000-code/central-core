@@ -5002,6 +5002,33 @@ export type Database = {
         }
         Relationships: []
       }
+      test_casa_raw_pages: {
+        Row: {
+          crawl_id: string
+          fetched_at: string
+          job_id: string
+          markdown: string | null
+          page_index: number
+          url: string | null
+        }
+        Insert: {
+          crawl_id: string
+          fetched_at?: string
+          job_id: string
+          markdown?: string | null
+          page_index: number
+          url?: string | null
+        }
+        Update: {
+          crawl_id?: string
+          fetched_at?: string
+          job_id?: string
+          markdown?: string | null
+          page_index?: number
+          url?: string | null
+        }
+        Relationships: []
+      }
       test_listing_first_seen: {
         Row: {
           first_seen_at: string
