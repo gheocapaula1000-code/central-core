@@ -5023,6 +5023,33 @@ export type Database = {
         }
         Relationships: []
       }
+      test_padova_full_run: {
+        Row: {
+          finished_at: string | null
+          id: string
+          progress: Json
+          result: Json | null
+          started_at: string
+          state: string
+        }
+        Insert: {
+          finished_at?: string | null
+          id?: string
+          progress?: Json
+          result?: Json | null
+          started_at?: string
+          state?: string
+        }
+        Update: {
+          finished_at?: string | null
+          id?: string
+          progress?: Json
+          result?: Json | null
+          started_at?: string
+          state?: string
+        }
+        Relationships: []
+      }
       turnover_signals: {
         Row: {
           area_label: string | null
