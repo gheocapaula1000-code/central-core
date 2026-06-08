@@ -428,7 +428,21 @@ async function runSubito(perChunkMax: number, token: string): Promise<ApifyChunk
 }
 
 // ───── Background orchestrator ─────
-async function orchestrate(jobId: string, perChunkMax: number, poolSize: number) {
+// Plan is FIXED before launch. NO auto-split: saturated bands are flagged but
+// never re-divided. The total number of Apify runs is bounded by MAX_RUNS_TOTAL.
+type PortalMode = "single" | "bands";
+interface OrchestratePlan {
+  immo_mode: PortalMode;
+  ide_mode: PortalMode;
+  immo_single_max: number;
+  ide_single_max: number;
+  include_subito: boolean;
+  include_casa: boolean;
+}
+
+async function orchestrate(
+  jobId: string, perChunkMax: number, poolSize: number, plan: OrchestratePlan,
+) {
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
   const token = getApifyToken();
   const updateProgress = async (patch: Record<string, unknown>) => {
@@ -437,27 +451,48 @@ async function orchestrate(jobId: string, perChunkMax: number, poolSize: number)
   const progress: Record<string, any> = {
     started_at: new Date().toISOString(),
     pool_size: poolSize, per_chunk_max: perChunkMax,
+    plan,
     chunks: [] as ApifyChunkResult[],
     queue_remaining: 0, active: 0, splits: 0,
+    auto_split_disabled: true,
   };
 
   try {
-    // 1) Build initial queue for immobiliare + idealista.
+    // 1) Build the FIXED queue for immobiliare + idealista.
     const queue: ApifyChunk[] = [];
-    for (const b of INITIAL_BANDS) queue.push(buildImmoChunk(b, perChunkMax));
-    for (const b of INITIAL_BANDS) queue.push(buildIdealistaChunk(b, perChunkMax));
+    if (plan.immo_mode === "single") {
+      queue.push(buildImmoSingle(plan.immo_single_max));
+    } else {
+      for (const b of FIXED_BANDS_8) queue.push(buildImmoChunk(b, perChunkMax));
+    }
+    if (plan.ide_mode === "single") {
+      queue.push(buildIdealistaSingle(plan.ide_single_max));
+    } else {
+      for (const b of FIXED_BANDS_8) queue.push(buildIdealistaChunk(b, perChunkMax));
+    }
+
+    const apifyMainCount = queue.length;
+    const apifyTotalPlanned = apifyMainCount + (plan.include_subito ? 1 : 0);
+    progress.apify_runs_planned = apifyTotalPlanned;
+
+    if (apifyTotalPlanned > MAX_RUNS_TOTAL) {
+      throw new Error(`run_cap_exceeded: planned=${apifyTotalPlanned} > MAX_RUNS_TOTAL=${MAX_RUNS_TOTAL}`);
+    }
 
     // 2) Launch subito + casa in parallel (background).
     const sidePromise = (async () => {
-      const [subitoRes, casaRes] = await Promise.allSettled([
-        runSubito(perChunkMax, token),
-        scrapeCasaFirecrawl("https://www.casa.it/vendita/residenziale/padova", perChunkMax),
-      ]);
+      const subitoP = plan.include_subito
+        ? runSubito(perChunkMax, token)
+        : Promise.resolve<ApifyChunkResult>({ portal: "subito", band_label: "skipped", status: "BLOCCATO", raw_count: 0, items: [], cost_usd: 0, saturated: false });
+      const casaP = plan.include_casa
+        ? scrapeCasaFirecrawl("https://www.casa.it/vendita/residenziale/padova", perChunkMax)
+        : Promise.resolve({ items: [], status: "BLOCCATO", cost_usd: 0 } as { items: NormItem[]; status: string; cost_usd: number | null; error?: string });
+      const [subitoRes, casaRes] = await Promise.allSettled([subitoP, casaP]);
       const out: ApifyChunkResult[] = [];
-      if (subitoRes.status === "fulfilled") out.push(subitoRes.value);
+      if (subitoRes.status === "fulfilled") out.push(subitoRes.value as ApifyChunkResult);
       else out.push({ portal: "subito", band_label: "all", status: "ERRORE", raw_count: 0, items: [], cost_usd: null, saturated: false, error: String(subitoRes.reason) });
       if (casaRes.status === "fulfilled") {
-        const r = casaRes.value;
+        const r = casaRes.value as { items: NormItem[]; status: string; cost_usd: number | null; error?: string };
         out.push({
           portal: "casa", band_label: "baseline",
           status: r.status === "OK" ? "OK" : (r.error ? "ERRORE" : "BLOCCATO"),
@@ -470,7 +505,7 @@ async function orchestrate(jobId: string, perChunkMax: number, poolSize: number)
       return out;
     })();
 
-    // 3) Worker pool with dynamic queue (auto-split saturated chunks).
+    // 3) Worker pool — STRICTLY no auto-split. Saturated bands are recorded.
     const results: ApifyChunkResult[] = [];
     let active = 0;
     const worker = async (workerIdx: number) => {
@@ -490,21 +525,8 @@ async function orchestrate(jobId: string, perChunkMax: number, poolSize: number)
           cost_usd: res.cost_usd, error: res.error, worker: workerIdx,
         });
 
-        // Auto-split logic
-        if (res.saturated && res.status === "OK") {
-          const sub = splitBand(chunk.band);
-          if (sub) {
-            for (const b of sub) {
-              queue.push(chunk.portal === "immobiliare" ? buildImmoChunk(b, perChunkMax) : buildIdealistaChunk(b, perChunkMax));
-            }
-            progress.splits++;
-          }
-        }
-        // On memory-limit: requeue once (after short pause) so it isn't lost
-        if (res.status === "MEMORY_LIMIT") {
-          await new Promise((r) => setTimeout(r, 15_000));
-          queue.push(chunk);
-        }
+        // NOTE: NO auto-split. Saturated bands are flagged in results only.
+        // NOTE: NO requeue on memory-limit either (would breach the run cap).
 
         active--;
         progress.queue_remaining = queue.length;
@@ -513,6 +535,7 @@ async function orchestrate(jobId: string, perChunkMax: number, poolSize: number)
       }
     };
     await Promise.all(Array.from({ length: poolSize }, (_, i) => worker(i + 1)));
+
 
     // 4) Join side jobs.
     const sideResults = await sidePromise;
