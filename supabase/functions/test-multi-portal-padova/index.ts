@@ -1061,6 +1061,26 @@ Deno.serve(async (req) => {
     });
   }
 
+  if (action === "casa_crawl_diag") {
+    const fcKey = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
+    const crawlId = String(body.crawl_id ?? "");
+    if (!fcKey || !crawlId) return json({ ok: false, error: "missing_key_or_crawl_id" }, 400);
+    const r = await fetch(`https://api.firecrawl.dev/v2/crawl/${encodeURIComponent(crawlId)}`, { headers: { Authorization: `Bearer ${fcKey}` } });
+    const j = await r.json().catch(() => ({}));
+    const data = Array.isArray((j as any)?.data) ? (j as any).data : [];
+    const urls = data.slice(0, 30).map((p: any) => p?.metadata?.sourceURL ?? p?.metadata?.url ?? null);
+    const sampleListing = data.find((p: any) => /casa\.it\/immobili\//i.test(String(p?.metadata?.sourceURL ?? "")));
+    return json({
+      ok: true, action: "casa_crawl_diag",
+      status: (j as any)?.status, completed: (j as any)?.completed, total: (j as any)?.total,
+      pages_in_first_batch: data.length, next: (j as any)?.next ?? null,
+      first_30_urls: urls,
+      sample_listing_url: sampleListing?.metadata?.sourceURL ?? null,
+      sample_listing_md_head: (sampleListing?.markdown ?? "").slice(0, 1500),
+    });
+  }
+
+
 
   // ACTION: abort → aborts ALL currently-running Apify runs on the account.
   // Editing/redeploying this file also kills the background orchestrator isolate.
