@@ -389,6 +389,7 @@ export async function runPadovaDailyRadar(opts: DailyRadarOptions = {}) {
     ok: status !== "FAILED",
     job: "padova-daily-radar",
     run_at: startedAt,
+    mode: radarMode,
     status,
     summary: {
       new_opportunities: newOpps,
