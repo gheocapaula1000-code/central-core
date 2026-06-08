@@ -1559,8 +1559,8 @@ Deno.serve(async (req) => {
 
         // ── Casa.it parsed in streaming from DB (1 page at a time) ──
         const casaSlugUnmapped = new Set<string>();
-        const casaItems: NormItem[] = [];
-        const seenCasaIds = new Set<string>();
+        // Strada A: 2-pass. Map id → best item (slug-zona vince su null di _root/con-*)
+        const casaItemsById = new Map<string, NormItem>();
         const CARD_LINK_RE = /\[([^\]]+?)\]\(https:\/\/www\.casa\.it\/immobili\/(\d+)\/[^)]*\)/g;
         const PAGE_BATCH = 10;
         let pageCursor = 0;
@@ -1601,8 +1601,15 @@ Deno.serve(async (req) => {
               const nextPos = (i + 1 < cardPositions.length) ? cardPositions[i + 1].pos : Math.min(md.length, card.pos + 2500);
               const block = md.slice(card.pos, nextPos);
               const listingId = `casa-${card.id}`;
-              if (seenCasaIds.has(listingId)) continue;
-              seenCasaIds.add(listingId);
+              const existing = casaItemsById.get(listingId);
+              if (existing) {
+                // Upgrade hint: non-null wins su null (es. listing visto su _root poi su slug zona)
+                if (!existing.casaOmiHint && omiHint) {
+                  existing.casaOmiHint = omiHint;
+                  existing.casaSlug = slug;
+                }
+                continue;
+              }
               const priceM = block.match(/€[\s\u00a0]*([\d][\d.\u00a0\s]{2,15})/);
               let price: number | null = null;
               if (priceM) {
@@ -1624,11 +1631,15 @@ Deno.serve(async (req) => {
                 const lines = beforePrice.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("[") && !l.startsWith("!") && l.length < 120);
                 if (lines.length) microzona_hint = lines[lines.length - 1];
               }
-              casaItems.push({
+              // Address dal titolo card: "Casa indipendente in Via Saetta 6" → "Via Saetta 6"
+              const titoloAddrM = card.titolo.match(/\b(?:in|a)\s+((?:via|viale|piazza|piazzale|corso|largo|strada|vicolo|v\.le|v\.|p\.zza|p\.za|c\.so|l\.go)\s+[^,;|]{2,80})/i);
+              const addrFromTitolo = titoloAddrM ? titoloAddrM[1].trim() : null;
+              const address = (addrFromTitolo ?? microzona_hint ?? card.titolo).slice(0, 200);
+              casaItemsById.set(listingId, {
                 portal: "casa",
                 url: `https://www.casa.it/immobili/${card.id}/`,
                 title: card.titolo.slice(0, 200),
-                address: (microzona_hint ?? card.titolo).slice(0, 200),
+                address,
                 price, mq, rooms, agency, isPrivate,
                 lat: null, lng: null, cap: null, publishedAt: null,
                 casaOmiHint: omiHint ?? null,
@@ -1639,6 +1650,7 @@ Deno.serve(async (req) => {
           if (pages.length < PAGE_BATCH) break;
           pageCursor += PAGE_BATCH;
         }
+        const casaItems: NormItem[] = [...casaItemsById.values()];
 
         await sb.from("test_padova_full_run").update({
           progress: { ...prog, v2_phase: "casa_parsed", v2_immo: immoItems.length, v2_ide: ideItems.length, v2_subito: subitoItems.length, v2_casa_pages: totalCasaPages, v2_casa_items: casaItems.length, v2_ts: new Date().toISOString() },
