@@ -1667,30 +1667,52 @@ Deno.serve(async (req) => {
         const STANCO_MS = 60 * 24 * 3600 * 1000;
         const nowMs = Date.now();
 
-        // ── Zone resolve (lat/lng → OMI, casa → casaOmiHint) ──
-        const zoneCache = new Map<string, string>();
-        const resolveZone = async (lat: number | null, lng: number | null, cap: string | null): Promise<string> => {
-          if (lat != null && lng != null) {
-            const k = `${lat.toFixed(4)},${lng.toFixed(4)}`;
-            if (zoneCache.has(k)) return zoneCache.get(k)!;
-            try {
-              const { data } = await sb.rpc("omi_zone_by_point", { p_lat: lat, p_lng: lng });
-              const z = Array.isArray(data) && data[0]?.zona ? String(data[0].zona) : (cap ? `CAP ${cap}` : "Sconosciuta");
-              zoneCache.set(k, z);
-              return z;
-            } catch { return cap ? `CAP ${cap}` : "Sconosciuta"; }
-          }
-          return cap ? `CAP ${cap}` : "Sconosciuta";
-        };
-
+        // ── Zone resolve (BATCH via omi_zones_by_points: 1 RPC totale) ──
         type Annotated = NormItem & { zone: string };
-        const annotated: Annotated[] = [];
-        const BATCH = 25;
-        for (let i = 0; i < allRaw.length; i += BATCH) {
-          const slice = allRaw.slice(i, i + BATCH);
-          const zones = await Promise.all(slice.map((it) => it.portal === "casa" ? Promise.resolve(it.casaOmiHint ?? "Sconosciuta") : resolveZone(it.lat, it.lng, it.cap)));
-          for (let j = 0; j < slice.length; j++) annotated.push({ ...slice[j], zone: zones[j] });
+        const annotated: Annotated[] = new Array(allRaw.length);
+        const distinctPts = new Map<string, { lat: number; lng: number }>();
+        const itemPtKey: (string | null)[] = new Array(allRaw.length);
+        for (let i = 0; i < allRaw.length; i++) {
+          const it = allRaw[i];
+          if (it.portal === "casa") { itemPtKey[i] = null; continue; }
+          if (it.lat == null || it.lng == null) { itemPtKey[i] = null; continue; }
+          const k = `${it.lat.toFixed(5)},${it.lng.toFixed(5)}`;
+          itemPtKey[i] = k;
+          if (!distinctPts.has(k)) distinctPts.set(k, { lat: it.lat, lng: it.lng });
         }
+        const ptKeys = [...distinctPts.keys()];
+        const zoneByKey = new Map<string, string>();
+        const PT_BATCH = 1500;
+        for (let off = 0; off < ptKeys.length; off += PT_BATCH) {
+          const slice = ptKeys.slice(off, off + PT_BATCH);
+          const lats: number[] = slice.map((k) => distinctPts.get(k)!.lat);
+          const lngs: number[] = slice.map((k) => distinctPts.get(k)!.lng);
+          try {
+            const { data, error } = await sb.rpc("omi_zones_by_points", { p_lats: lats, p_lngs: lngs });
+            if (error) throw new Error(error.message);
+            for (const row of ((data as Array<{ idx: number; zona: string | null }>) ?? [])) {
+              const k = slice[(row.idx ?? 1) - 1];
+              if (k) zoneByKey.set(k, row.zona ? String(row.zona) : "Sconosciuta");
+            }
+          } catch (_e) {
+            for (const k of slice) if (!zoneByKey.has(k)) zoneByKey.set(k, "Sconosciuta");
+          }
+        }
+        for (let i = 0; i < allRaw.length; i++) {
+          const it = allRaw[i];
+          let zone: string;
+          if (it.portal === "casa") {
+            zone = it.casaOmiHint ?? "Sconosciuta";
+          } else {
+            const k = itemPtKey[i];
+            zone = k ? (zoneByKey.get(k) ?? "Sconosciuta") : (it.cap ? `CAP ${it.cap}` : "Sconosciuta");
+          }
+          annotated[i] = { ...it, zone };
+        }
+
+        await sb.from("test_padova_full_run").update({
+          progress: { ...prog, v2_phase: "zones_resolved", v2_distinct_points: ptKeys.length, v2_ts: new Date().toISOString() },
+        }).eq("id", jobId);
 
         // ── Identity clustering (street+civic+mq±8%) ──
         type IdCluster = { items: Annotated[]; portals: Set<string>; agencies: Set<string> };

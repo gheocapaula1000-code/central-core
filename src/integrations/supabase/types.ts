@@ -5392,6 +5392,13 @@ export type Database = {
           zona_descr: string
         }[]
       }
+      omi_zones_by_points: {
+        Args: { p_lats: number[]; p_lngs: number[] }
+        Returns: {
+          idx: number
+          zona: string
+        }[]
+      }
       property_registry_lookup: {
         Args: { p_opaque_id: string }
         Returns: {
