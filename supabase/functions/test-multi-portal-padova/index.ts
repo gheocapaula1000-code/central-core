@@ -1471,9 +1471,9 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: "immobiliare_not_succeeded", immo_status: immoStatus, hint: "attendi SUCCEEDED prima di chiamare collect" }, 409);
     }
 
-    // Already-collecting guard: avoid concurrent background runs
-    if (job.state === "collecting") {
-      return json({ ok: true, action: "collect", job_id: jobId, state: "collecting", hint: "raccolta già in corso, usa action:status" });
+    // Already-collecting guard: avoid concurrent background runs (force bypasses)
+    if (job.state === "collecting" && !body.force) {
+      return json({ ok: true, action: "collect", job_id: jobId, state: "collecting", hint: "raccolta già in corso, usa action:status (oppure force:true per riavviare)" });
     }
     if (job.state === "done" && !body.force) {
       const { data: d } = await sb.from("test_padova_full_run").select("result").eq("id", jobId).maybeSingle();
