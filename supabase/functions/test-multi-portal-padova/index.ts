@@ -24,17 +24,14 @@ type Portal = "immobiliare" | "idealista" | "subito" | "casa";
 
 interface Band { min: number; max: number | null }
 
+// Minimal-chunk strategy: start with 5 WIDE bands per portale.
+// Auto-split only saturates → keeps total Apify run count low (~10-14 vs ~32).
 const INITIAL_BANDS: Band[] = [
-  { min: 0,       max: 100000  },
-  { min: 100000,  max: 150000  },
-  { min: 150000,  max: 200000  },
-  { min: 200000,  max: 250000  },
-  { min: 250000,  max: 300000  },
-  { min: 300000,  max: 400000  },
-  { min: 400000,  max: 500000  },
-  { min: 500000,  max: 700000  },
-  { min: 700000,  max: 1000000 },
-  { min: 1000000, max: null    },
+  { min: 0,       max: 150000  },
+  { min: 150000,  max: 250000  },
+  { min: 250000,  max: 400000  },
+  { min: 400000,  max: 700000  },
+  { min: 700000,  max: null    },
 ];
 
 const MIN_BAND_WIDTH = 20000; // do not split below 20k EUR
