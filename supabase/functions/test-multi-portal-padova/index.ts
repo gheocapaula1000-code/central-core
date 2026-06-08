@@ -839,9 +839,8 @@ Deno.serve(async (req) => {
         actor: "azzouzana~immobiliare-it-listing-page-scraper-by-search-url",
         param_used: "maxItems+resultsLimit+maxRequestsPerCrawl",
         input: {
-          startUrls: [{ url: "https://www.immobiliare.it/vendita-case/padova/" }],
+          startUrl: "https://www.immobiliare.it/vendita-case/padova/?criterio=rilevanza",
           maxItems, resultsLimit: maxItems, maxRequestsPerCrawl: maxItems + 50,
-          proxy: { useApifyProxy: true },
         },
       },
       {
