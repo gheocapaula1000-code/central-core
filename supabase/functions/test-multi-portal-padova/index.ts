@@ -906,7 +906,36 @@ Deno.serve(async (req) => {
       .select("id,started_at,finished_at,state,progress,result").eq("id", jobId).maybeSingle();
     if (error) return json({ ok: false, error: error.message }, 500);
     if (!data) return json({ ok: false, error: "job_not_found" }, 404);
-    return json({ ok: true, job_id: jobId, ...data });
+    // If job carries an Apify immo_run_id, attach a live Apify status snapshot.
+    let apify_immo: any = null;
+    const prog = (data.progress ?? {}) as any;
+    const immoRunId = prog?.immo_run_id as string | undefined;
+    if (immoRunId) {
+      try {
+        const r = await fetch(`https://api.apify.com/v2/actor-runs/${encodeURIComponent(immoRunId)}?token=${encodeURIComponent(token)}`);
+        if (r.ok) {
+          const rj = await r.json();
+          const d = rj?.data ?? {};
+          let itemCount: number | null = null;
+          if (d.defaultDatasetId) {
+            const h = await fetch(`https://api.apify.com/v2/datasets/${encodeURIComponent(d.defaultDatasetId)}?token=${encodeURIComponent(token)}`);
+            if (h.ok) { const hj = await h.json(); itemCount = hj?.data?.itemCount ?? null; }
+          }
+          const started = d.startedAt ? +new Date(d.startedAt) : null;
+          const finished = d.finishedAt ? +new Date(d.finishedAt) : null;
+          apify_immo = {
+            run_id: immoRunId, status: d.status, started_at: d.startedAt, finished_at: d.finishedAt,
+            elapsed_min: started ? Math.round(((finished ?? Date.now()) - started) / 60000) : null,
+            item_count: itemCount, dataset_id: d.defaultDatasetId, usage_total_usd: d.usageTotalUsd ?? null,
+          };
+        } else {
+          apify_immo = { run_id: immoRunId, error: `apify_status_${r.status}` };
+        }
+      } catch (e) {
+        apify_immo = { run_id: immoRunId, error: e instanceof Error ? e.message : String(e) };
+      }
+    }
+    return json({ ok: true, job_id: jobId, ...data, apify_immo });
   }
 
   if (action === "apify_diag") {
