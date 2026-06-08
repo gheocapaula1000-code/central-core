@@ -218,6 +218,8 @@ interface NormItem {
   lat: number | null; lng: number | null; cap: string | null;
   url: string | null; publishedAt: string | null;
   source_chunk?: string;
+  casaOmiHint?: string | null;   // OMI code derivato dallo slug list-page casa.it
+  casaSlug?: string | null;       // slug originale (per debug / unmapped report)
 }
 
 function normalizeImmobiliare(it: Record<string, any>): NormItem {
