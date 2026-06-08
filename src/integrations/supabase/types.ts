@@ -5002,6 +5002,27 @@ export type Database = {
         }
         Relationships: []
       }
+      test_listing_first_seen: {
+        Row: {
+          first_seen_at: string
+          last_seen_at: string
+          portal: string
+          url: string
+        }
+        Insert: {
+          first_seen_at?: string
+          last_seen_at?: string
+          portal: string
+          url: string
+        }
+        Update: {
+          first_seen_at?: string
+          last_seen_at?: string
+          portal?: string
+          url?: string
+        }
+        Relationships: []
+      }
       turnover_signals: {
         Row: {
           area_label: string | null
