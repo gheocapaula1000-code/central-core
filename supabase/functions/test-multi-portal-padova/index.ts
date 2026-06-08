@@ -130,6 +130,41 @@ const OMI_QUARTIERE: Record<string, string> = {
   R3: "rurale sud / Guizza",
 };
 
+// ───── casa.it neighbourhood-slug → OMI code (Padova) ─────
+// Mappa basata sui 26 slug effettivamente visti nel crawl 019ea797 (120 list-page).
+// Slug "con-*" sono filter-page senza zona specifica (intera Padova); "_root" idem.
+// Le card di queste pagine sono dedup-ate per listing_id, quindi non perdiamo dati,
+// vanno solo in "Sconosciuta" se non hanno match diretto.
+const CASA_SLUG_TO_OMI: Record<string, string | null> = {
+  _root: null,
+  "altichero-ponterotto-sacro-cuore": "C3",                                   // Arcella nord-ovest
+  "arcella-san-bellino-pontevigodarzere-san-carlo": "C3",                    // Arcella nord
+  "brentelle-chiesanuova-cave": "D1",                                         // Chiesanuova/Brentelle
+  "brusegana": "D1",                                                          // ovest, contiguo a Chiesanuova
+  "camin-granze-zona-industriale": "D4",                                      // Camin/San Marco
+  "centro-storico": "B1",
+  "citta-giardino-santa-croce-prato-della-valle-pontecorvo-santo": "B2",     // Prato della Valle
+  "crocefisso-guizza-salboro-voltabarozzo": "D3",                            // Voltabarozzo/Guizza
+  "fiera": "C4",                                                              // Stanga/Pio X / Fiera
+  "forcellini-terranegra-nazareth-san-camillo": "D8",                        // Forcellini
+  "monta-sant-ignazio": "D5",                                                 // nord-ovest / Pontevigodarzere ovest
+  "mortise": "D7",                                                            // Mortise/Arcella est
+  "ospedale-militare-piazza-mazzini-porta-trento": "C1",                     // Portello/Ognissanti area
+  "paltana-mandria-sacra-famiglia": "D2",                                    // Mandria/Savonarola
+  "ponte-di-brenta-torre": "D4",                                              // est, Camin/San Marco
+  "portello-ospedali-stazione": "C1",                                          // Portello/Ognissanti
+  "riviere-san-giuseppe-specola-san-giovanni": "B1",                          // Centro storico
+  "san-lazzaro-stanga": "C4",                                                 // Stanga/Pio X
+  // filter-page (caratteristica, non zona) → nessuna attribuzione
+  "con-ascensore": null,
+  "con-balcone": null,
+  "con-box-posto-auto": null,
+  "con-da-privati": null,
+  "con-giardino": null,
+  "con-riscaldamento-autonomo": null,
+  "con-terrazzo": null,
+};
+
 // ───── Normalisation helpers (unchanged from previous run) ─────
 function parsePubDate(it: Record<string, any>): string | null {
   const cands = [
@@ -183,6 +218,8 @@ interface NormItem {
   lat: number | null; lng: number | null; cap: string | null;
   url: string | null; publishedAt: string | null;
   source_chunk?: string;
+  casaOmiHint?: string | null;   // OMI code derivato dallo slug list-page casa.it
+  casaSlug?: string | null;       // slug originale (per debug / unmapped report)
 }
 
 function normalizeImmobiliare(it: Record<string, any>): NormItem {
@@ -1513,12 +1550,20 @@ Deno.serve(async (req) => {
     }
 
     // ── Fetch casa.it pages from Firecrawl crawl (paginated) ──
-    async function fetchCasaCrawl(crawlId: string): Promise<NormItem[]> {
+    // Re-parser v2: il crawl contiene SOLO list-page (/vendita/residenziale/padova/<slug>/),
+    // NON detail-page (/immobili/<id>/). Le card sono dentro il markdown della list-page.
+    // Pattern card (osservato): `[<titolo>](https://www.casa.it/immobili/<id>/ "<titolo>")` +
+    //   eventuale riga microzona + `€ NNN.NNN` + `<mq> m²<rooms> locali<bagni> bagni...` +
+    //   descrizione + `Espandi` + opzionale `[<agenzia>](https://www.casa.it/agenzie/...)`.
+    // Dedup per listing_id (casa-<id>): le card si ripetono tra slug overlap, va bene.
+    async function fetchCasaCrawl(crawlId: string, slugUnmapped: Set<string>): Promise<NormItem[]> {
       const fcKey = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
       if (!fcKey) return [];
       const out: NormItem[] = [];
+      const seenCasaIds = new Set<string>();
       let nextUrl: string | null = `https://api.firecrawl.dev/v2/crawl/${encodeURIComponent(crawlId)}`;
       let safety = 0;
+      const CARD_LINK_RE = /\[([^\]]+?)\]\(https:\/\/www\.casa\.it\/immobili\/(\d+)\/[^)]*\)/g;
       while (nextUrl && safety < 30) {
         safety++;
         const r: Response = await fetch(nextUrl, { headers: { Authorization: `Bearer ${fcKey}` } });
@@ -1529,56 +1574,96 @@ Deno.serve(async (req) => {
           const md: string = String(p?.markdown ?? "");
           const meta: any = p?.metadata ?? {};
           const srcUrl: string = String(meta?.sourceURL ?? meta?.url ?? "");
-          // Only listing detail pages
-          if (!/casa\.it\/immobili\//i.test(srcUrl)) continue;
-          // Price: first € NNN.NNN or €NNN.NNN,XX
-          const priceM = md.match(/€\s*([\d][\d.\s]{2,})/);
-          let price: number | null = null;
-          if (priceM) {
-            const n = Number(priceM[1].replace(/[.\s]/g, "").replace(",", "."));
-            if (Number.isFinite(n) && n >= 10000) price = n;
+          if (!/casa\.it\/vendita\/residenziale\/padova/i.test(srcUrl)) continue;
+          // Slug della list-page → OMI hint
+          const slugM = srcUrl.match(/casa\.it\/vendita\/residenziale\/padova(?:\/([^/?#]+))?\/?/i);
+          const slug = slugM?.[1] ?? "_root";
+          let omiHint: string | null | undefined = CASA_SLUG_TO_OMI[slug];
+          if (omiHint === undefined) { omiHint = null; slugUnmapped.add(slug); }
+          // Identifica i blocchi card sulla list-page.
+          // Strategia: trova tutte le posizioni dei link "Titolo→/immobili/<id>/" (prima occorrenza
+          // di ciascun id), poi per ogni id prendi la finestra di testo fino al prossimo id
+          // oppure fino a ~2000 char dopo. Estrai prezzo/mq/rooms/bagni dentro quella finestra.
+          const cardPositions: Array<{ id: string; titolo: string; pos: number }> = [];
+          const seenIdsInPage = new Set<string>();
+          CARD_LINK_RE.lastIndex = 0;
+          let m: RegExpExecArray | null;
+          while ((m = CARD_LINK_RE.exec(md)) !== null) {
+            const id = m[2];
+            const titolo = m[1].trim();
+            // Considera solo la PRIMA occorrenza per id E solo se il titolo non è "Immagine X di Y"
+            if (seenIdsInPage.has(id)) continue;
+            if (/Immagine \d+ di \d+/i.test(titolo)) continue;
+            seenIdsInPage.add(id);
+            cardPositions.push({ id, titolo, pos: m.index });
           }
-          // Surface mq
-          const mqM = md.match(/(\d{2,4})\s*m(?:²|q|2)\b/i);
-          const mq = mqM ? Number(mqM[1]) : null;
-          // Address: title h1 or meta title
-          const h1 = md.match(/^#\s+(.+)$/m);
-          const address = String(meta?.ogTitle ?? meta?.title ?? h1?.[1] ?? "").replace(/\s+\|\s+Casa\.it.*$/i, "").trim();
-          // Private vs agency
-          const lower = md.toLowerCase() + " " + String(meta?.description ?? "").toLowerCase();
-          const isPrivate = /\bprivato\b/.test(lower) && !/agenzia|immobiliare s\.?r\.?l|tecnocasa|gabetti|remax|engel/i.test(lower);
-          // Try agency name
-          let agency: string | null = null;
-          const agM = md.match(/(?:Annuncio di|Agenzia[:\s])\s*([A-Z][A-Za-z0-9 .&'-]{2,60})/);
-          if (agM && !isPrivate) agency = agM[1].trim();
-          // CAP
-          const capM = md.match(/\b(35\d{3})\b/);
-          out.push({
-            portal: "casa",
-            url: srcUrl,
-            address: address || null,
-            mq,
-            price,
-            agency,
-            isPrivate,
-            lat: null,
-            lng: null,
-            cap: capM ? capM[1] : null,
-            rooms: null,
-            title: address || null,
-            publishedAt: null,
-          });
+          for (let i = 0; i < cardPositions.length; i++) {
+            const card = cardPositions[i];
+            const nextPos = (i + 1 < cardPositions.length) ? cardPositions[i + 1].pos : Math.min(md.length, card.pos + 2500);
+            const block = md.slice(card.pos, nextPos);
+            const listingId = `casa-${card.id}`;
+            if (seenCasaIds.has(listingId)) continue; // dedup global tra list-page overlap
+            seenCasaIds.add(listingId);
+            // Prezzo: `€\s*NNN.NNN` (NBSP \u00a0 incluso, separatori . e spazio)
+            const priceM = block.match(/€[\s\u00a0]*([\d][\d.\u00a0\s]{2,15})/);
+            let price: number | null = null;
+            if (priceM) {
+              const cleaned = priceM[1].replace(/[.\u00a0\s]/g, "").replace(",", ".");
+              const n = Number(cleaned);
+              if (Number.isFinite(n) && n >= 10000 && n < 100_000_000) price = n;
+            }
+            // mq: `NNN m²` o `NNN mq`
+            const mqM = block.match(/(\d{2,4})\s?m(?:²|q|2)\b/i);
+            const mq = mqM ? Number(mqM[1]) : null;
+            // rooms / bagni
+            const roomsM = block.match(/(\d+)\s*local[ei]/i);
+            const rooms = roomsM ? Number(roomsM[1]) : null;
+            // Agenzia: link `casa.it/agenzie/<slug>-<id>/` con label = nome agenzia
+            const agM = block.match(/\[([^\]]{2,80})\]\(https:\/\/www\.casa\.it\/agenzie\/[^)]+\)/);
+            const agency = agM ? agM[1].trim().slice(0, 120) : null;
+            // Privato vs agenzia: casa.it è agenzie-first; privato solo se NO link agenzia
+            // E la parola "Privato" appare nel blocco.
+            const blockLower = block.toLowerCase();
+            const isPrivate = !agency && /\bprivato\b/i.test(block) && !/agenzia|immobiliare|tecnocasa|gabetti|remax|engel/i.test(blockLower);
+            // Microzona hint (riga corta non vuota tra titolo e prezzo) — non usata per OMI,
+            // solo per debug. La zona OMI viene dallo slug.
+            let microzona_hint: string | null = null;
+            if (priceM) {
+              const beforePrice = block.slice(0, priceM.index ?? 0);
+              const lines = beforePrice.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("[") && !l.startsWith("!") && l.length < 120);
+              if (lines.length) microzona_hint = lines[lines.length - 1];
+            }
+            // CAP non presente sulle list-page (sta solo su detail) → null
+            out.push({
+              portal: "casa",
+              url: `https://www.casa.it/immobili/${card.id}/`,
+              title: card.titolo.slice(0, 200),
+              address: (microzona_hint ?? card.titolo).slice(0, 200),
+              price,
+              mq,
+              rooms,
+              agency,
+              isPrivate,
+              lat: null,
+              lng: null,
+              cap: null,
+              publishedAt: null,
+              casaOmiHint: omiHint ?? null,
+              casaSlug: slug,
+            });
+          }
         }
         nextUrl = (j?.next as string | undefined) ?? null;
       }
       return out;
     }
 
+    const casaSlugUnmapped = new Set<string>();
     const [immoItems, ideItems, subitoItems, casaItems] = await Promise.all([
       fetchAllDataset(immoDsId, "immobiliare"),
       fetchAllDataset(ideDsId, "idealista"),
       subitoDsId ? fetchAllDataset(subitoDsId, "subito") : Promise.resolve([] as NormItem[]),
-      casaCrawlId ? fetchCasaCrawl(casaCrawlId) : Promise.resolve([] as NormItem[]),
+      casaCrawlId ? fetchCasaCrawl(casaCrawlId, casaSlugUnmapped) : Promise.resolve([] as NormItem[]),
     ]);
 
     const seen = new Set<string>();
@@ -1624,7 +1709,15 @@ Deno.serve(async (req) => {
     for (let i = 0; i < allRaw.length; i += BATCH) {
       const slice = allRaw.slice(i, i + BATCH);
       const zones = await Promise.all(slice.map((it) => resolveZone(it.lat, it.lng, it.cap)));
-      for (let j = 0; j < slice.length; j++) annotated.push({ ...slice[j], zone: zones[j] });
+      for (let j = 0; j < slice.length; j++) {
+        const it = slice[j];
+        let zone = zones[j];
+        // casa.it: zona derivata dallo slug list-page (no lat/lng/cap disponibili).
+        if (it.portal === "casa") {
+          zone = it.casaOmiHint ?? "Sconosciuta";
+        }
+        annotated.push({ ...it, zone });
+      }
     }
 
     type IdCluster = { items: Annotated[]; portals: Set<string>; agencies: Set<string> };
@@ -1740,6 +1833,7 @@ Deno.serve(async (req) => {
       conteggi_tipo_lead,
       tabella_per_quartiere,
       omi_quartiere: { mappa_utilizzata: OMI_QUARTIERE, codici_omi_non_mappati: [...omiUnmapped].sort() },
+      casa_slug_non_mappati: [...casaSlugUnmapped].sort(),
       note: "privato_stanco = privato con first_seen_at (test_listing_first_seen) >= 60 giorni. casa.it parsato da Firecrawl crawl markdown.",
     };
 
