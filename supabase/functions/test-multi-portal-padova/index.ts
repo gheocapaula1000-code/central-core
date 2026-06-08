@@ -1033,6 +1033,56 @@ Deno.serve(async (req) => {
     return json({ ok: true, action: "apify_diag", runs: enriched, limits });
   }
 
+  if (action === "subito_input_diag") {
+    const runId = String(body.run_id ?? "VDk5TTQEi0azkmme6");
+    const rr = await fetch(`https://api.apify.com/v2/actor-runs/${encodeURIComponent(runId)}?token=${encodeURIComponent(token)}`);
+    const rj = await rr.json().catch(() => ({}));
+    const run = rj?.data ?? null;
+    const inpRes = await fetch(`https://api.apify.com/v2/actor-runs/${encodeURIComponent(runId)}/key-value-store/records/INPUT?token=${encodeURIComponent(token)}`);
+    const inputText = await inpRes.text().catch(() => "");
+    let input: any = null; try { input = JSON.parse(inputText); } catch { input = inputText; }
+    const logRes = await fetch(`https://api.apify.com/v2/actor-runs/${encodeURIComponent(runId)}/log?token=${encodeURIComponent(token)}`);
+    const logTxt = (await logRes.text().catch(() => "")).slice(-3000);
+    let actorSchema: any = null;
+    try {
+      const ar = await fetch(`https://api.apify.com/v2/acts/emastra~subito-it-immobili/versions?token=${encodeURIComponent(token)}`);
+      const aj = await ar.json().catch(() => ({}));
+      const versions = aj?.data?.items ?? [];
+      const latest = versions[versions.length - 1] ?? null;
+      actorSchema = latest?.inputSchema ? JSON.parse(latest.inputSchema) : (latest ?? null);
+    } catch { /* ignore */ }
+    return json({
+      ok: true, action: "subito_input_diag", run_id: runId,
+      run_status: run?.status, exitCode: run?.exitCode, statusMessage: run?.statusMessage,
+      startedAt: run?.startedAt, finishedAt: run?.finishedAt,
+      input_passed: input,
+      actor_input_schema: actorSchema,
+      log_tail: logTxt,
+    });
+  }
+
+  if (action === "casa_crawl_diag") {
+    const fcKey = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
+    const crawlId = String(body.crawl_id ?? "");
+    if (!fcKey || !crawlId) return json({ ok: false, error: "missing_key_or_crawl_id" }, 400);
+    const r = await fetch(`https://api.firecrawl.dev/v2/crawl/${encodeURIComponent(crawlId)}`, { headers: { Authorization: `Bearer ${fcKey}` } });
+    const j = await r.json().catch(() => ({}));
+    const data = Array.isArray((j as any)?.data) ? (j as any).data : [];
+    const urls = data.slice(0, 30).map((p: any) => p?.metadata?.sourceURL ?? p?.metadata?.url ?? null);
+    const sampleListing = data.find((p: any) => /casa\.it\/immobili\//i.test(String(p?.metadata?.sourceURL ?? "")));
+    return json({
+      ok: true, action: "casa_crawl_diag",
+      status: (j as any)?.status, completed: (j as any)?.completed, total: (j as any)?.total,
+      pages_in_first_batch: data.length, next: (j as any)?.next ?? null,
+      first_30_urls: urls,
+      sample_listing_url: sampleListing?.metadata?.sourceURL ?? null,
+      sample_listing_md_head: (sampleListing?.markdown ?? "").slice(0, 1500),
+      first_page_md_head: (data[0]?.markdown ?? "").slice(0, 3000),
+    });
+  }
+
+
+
   // ACTION: abort → aborts ALL currently-running Apify runs on the account.
   // Editing/redeploying this file also kills the background orchestrator isolate.
   if (action === "abort") {
@@ -1395,6 +1445,7 @@ Deno.serve(async (req) => {
     const immoDsId = prog.immo_dataset_id as string | undefined;
     const ideDsId = prog.ide_reuse_dataset as string | undefined;
     const ideCostPrev = Number(prog.ide_reuse_cost_usd ?? 1.707);
+    const casaCrawlId = prog.casa_crawl_id as string | undefined;
     if (!immoRunId || !immoDsId || !ideDsId) {
       return json({ ok: false, error: "missing_dataset_ids_in_job_progress", progress: prog }, 400);
     }
@@ -1412,9 +1463,9 @@ Deno.serve(async (req) => {
     if (job.state === "collecting") {
       return json({ ok: true, action: "collect", job_id: jobId, state: "collecting", hint: "raccolta già in corso, usa action:status" });
     }
-    if (job.state === "done") {
+    if (job.state === "done" && !body.force) {
       const { data: d } = await sb.from("test_padova_full_run").select("result").eq("id", jobId).maybeSingle();
-      return json({ ok: true, action: "collect", job_id: jobId, state: "done", result: d?.result ?? null });
+      return json({ ok: true, action: "collect", job_id: jobId, state: "done", result: d?.result ?? null, hint: "passa force:true per re-collect" });
     }
     await sb.from("test_padova_full_run").update({ state: "collecting" }).eq("id", jobId);
 
@@ -1435,19 +1486,95 @@ Deno.serve(async (req) => {
       return out;
     }
 
-    const [immoItems, ideItems] = await Promise.all([
+    // ── Fetch casa.it pages from Firecrawl crawl (paginated) ──
+    async function fetchCasaCrawl(crawlId: string): Promise<NormItem[]> {
+      const fcKey = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
+      if (!fcKey) return [];
+      const out: NormItem[] = [];
+      let nextUrl: string | null = `https://api.firecrawl.dev/v2/crawl/${encodeURIComponent(crawlId)}`;
+      let safety = 0;
+      while (nextUrl && safety < 30) {
+        safety++;
+        const r: Response = await fetch(nextUrl, { headers: { Authorization: `Bearer ${fcKey}` } });
+        if (!r.ok) break;
+        const j: any = await r.json().catch(() => ({}));
+        const pages: any[] = Array.isArray(j?.data) ? j.data : [];
+        for (const p of pages) {
+          const md: string = String(p?.markdown ?? "");
+          const meta: any = p?.metadata ?? {};
+          const srcUrl: string = String(meta?.sourceURL ?? meta?.url ?? "");
+          // Only listing detail pages
+          if (!/casa\.it\/immobili\//i.test(srcUrl)) continue;
+          // Price: first € NNN.NNN or €NNN.NNN,XX
+          const priceM = md.match(/€\s*([\d][\d.\s]{2,})/);
+          let price: number | null = null;
+          if (priceM) {
+            const n = Number(priceM[1].replace(/[.\s]/g, "").replace(",", "."));
+            if (Number.isFinite(n) && n >= 10000) price = n;
+          }
+          // Surface mq
+          const mqM = md.match(/(\d{2,4})\s*m(?:²|q|2)\b/i);
+          const mq = mqM ? Number(mqM[1]) : null;
+          // Address: title h1 or meta title
+          const h1 = md.match(/^#\s+(.+)$/m);
+          const address = String(meta?.ogTitle ?? meta?.title ?? h1?.[1] ?? "").replace(/\s+\|\s+Casa\.it.*$/i, "").trim();
+          // Private vs agency
+          const lower = md.toLowerCase() + " " + String(meta?.description ?? "").toLowerCase();
+          const isPrivate = /\bprivato\b/.test(lower) && !/agenzia|immobiliare s\.?r\.?l|tecnocasa|gabetti|remax|engel/i.test(lower);
+          // Try agency name
+          let agency: string | null = null;
+          const agM = md.match(/(?:Annuncio di|Agenzia[:\s])\s*([A-Z][A-Za-z0-9 .&'-]{2,60})/);
+          if (agM && !isPrivate) agency = agM[1].trim();
+          // CAP
+          const capM = md.match(/\b(35\d{3})\b/);
+          out.push({
+            portal: "casa",
+            url: srcUrl,
+            address: address || null,
+            mq,
+            price,
+            agency,
+            isPrivate,
+            lat: null,
+            lng: null,
+            cap: capM ? capM[1] : null,
+            rooms: null,
+            title: address || null,
+            publishedAt: null,
+          });
+        }
+        nextUrl = (j?.next as string | undefined) ?? null;
+      }
+      return out;
+    }
+
+    const [immoItems, ideItems, casaItems] = await Promise.all([
       fetchAllDataset(immoDsId, "immobiliare"),
       fetchAllDataset(ideDsId, "idealista"),
+      casaCrawlId ? fetchCasaCrawl(casaCrawlId) : Promise.resolve([] as NormItem[]),
     ]);
 
     const seen = new Set<string>();
     const allRaw: NormItem[] = [];
-    for (const it of [...immoItems, ...ideItems]) {
+    for (const it of [...immoItems, ...ideItems, ...casaItems]) {
       const k = it.url ?? `${it.portal}:${it.address}:${it.mq}:${it.price}`;
       if (seen.has(k)) continue;
       seen.add(k);
       allRaw.push(it);
     }
+
+    // ── Join with test_listing_first_seen (read-only) ──
+    const firstSeenByUrl = new Map<string, string>();
+    const urls = allRaw.map((i) => i.url).filter((u): u is string => !!u);
+    const CHUNK = 500;
+    for (let i = 0; i < urls.length; i += CHUNK) {
+      const slice = urls.slice(i, i + CHUNK);
+      const { data: rows } = await sb.from("test_listing_first_seen")
+        .select("url,first_seen_at").in("url", slice);
+      for (const r of (rows ?? [])) firstSeenByUrl.set(String(r.url), String(r.first_seen_at));
+    }
+    const STANCO_MS = 60 * 24 * 3600 * 1000;
+    const nowMs = Date.now();
 
     const zoneCache = new Map<string, string>();
     const resolveZone = async (lat: number | null, lng: number | null, cap: string | null): Promise<string> => {
@@ -1515,16 +1642,20 @@ Deno.serve(async (req) => {
         }
       }
       const isContendibile = !!cluster && (cluster.portals.size >= 2 || cluster.agencies.size >= 2);
+      const firstSeenIso = it.url ? firstSeenByUrl.get(it.url) : undefined;
+      const ageMs = firstSeenIso ? (nowMs - Date.parse(firstSeenIso)) : null;
+      const isStanco = !!it.isPrivate && ageMs != null && ageMs >= STANCO_MS;
       let tipo_lead: "contendibile" | "privato_stanco" | "ribasso" | "privato" | "standard" = "standard";
       if (isContendibile) tipo_lead = "contendibile";
       else if (prezzo_divergente && prezzo_divergente.delta_pct >= 5) tipo_lead = "ribasso";
+      else if (isStanco) tipo_lead = "privato_stanco";
       else if (it.isPrivate) tipo_lead = "privato";
       const omiCode = /^[A-Z]\d/.test(it.zone) ? it.zone : null;
       let quartiere: string;
       if (omiCode && OMI_QUARTIERE[omiCode]) quartiere = OMI_QUARTIERE[omiCode];
       else if (omiCode) { quartiere = "(non mappato)"; omiUnmapped.add(omiCode); }
       else quartiere = it.zone;
-      return { ...it, quartiere, omi_code: omiCode, prezzo_divergente, tipo_lead, contendibile: isContendibile };
+      return { ...it, quartiere, omi_code: omiCode, prezzo_divergente, tipo_lead, contendibile: isContendibile, first_seen_at: firstSeenIso ?? null };
     });
 
     const byQ = new Map<string, typeof enriched>();
@@ -1539,7 +1670,7 @@ Deno.serve(async (req) => {
         annunci_tot: items.length,
         contendibili: items.filter((i) => i.contendibile).length,
         privati: items.filter((i) => i.isPrivate).length,
-        privati_stanchi: 0,
+        privati_stanchi: items.filter((i) => i.tipo_lead === "privato_stanco").length,
         ribassi: items.filter((i) => i.tipo_lead === "ribasso").length,
         agenzie_distinte: new Set(items.filter((i) => i.agency).map((i) => i.agency!.toLowerCase())).size,
       };
@@ -1547,7 +1678,7 @@ Deno.serve(async (req) => {
 
     const conteggi_tipo_lead = {
       contendibile: enriched.filter((e) => e.tipo_lead === "contendibile").length,
-      privato_stanco: 0,
+      privato_stanco: enriched.filter((e) => e.tipo_lead === "privato_stanco").length,
       ribasso: enriched.filter((e) => e.tipo_lead === "ribasso").length,
       privato: enriched.filter((e) => e.tipo_lead === "privato").length,
       standard: enriched.filter((e) => e.tipo_lead === "standard").length,
@@ -1578,7 +1709,7 @@ Deno.serve(async (req) => {
       conteggi_tipo_lead,
       tabella_per_quartiere,
       omi_quartiere: { mappa_utilizzata: OMI_QUARTIERE, codici_omi_non_mappati: [...omiUnmapped].sort() },
-      note: "privato_stanco non calcolato in modalità start_collect (manca first_seen_at)",
+      note: "privato_stanco = privato con first_seen_at (test_listing_first_seen) >= 60 giorni. casa.it parsato da Firecrawl crawl markdown. subito escluso (0 items in run precedente).",
     };
 
         await sb.from("test_padova_full_run")
