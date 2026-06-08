@@ -570,68 +570,220 @@ Deno.serve(async (req) => {
     return { totale: contendibili.length, clusters: contendibili };
   };
 
-  const sogliaStretta = clusterAt(110, 5);
-  const sogliaMedia   = clusterAt(150, 8);
-  const sogliaLarga   = clusterAt(200, 10);
+  const sogliaMedia = clusterAt(150, 8); // metodo RAGGIO (riferimento)
 
-  const sampleClusters = (cs: Cluster[]) => cs.slice(0, 3).map((c) => ({
-    size: c.items.length, portals: [...c.portals], agencies: [...c.agencies],
+  // ─────── Metodo IDENTITÀ — stessa via+civico + mq ±8% + prezzo ±10% ───────
+  type IdCluster = { items: Annotated[]; portals: Set<string>; agencies: Set<string>; key: string };
+  const idGroups = new Map<string, IdCluster>();
+  for (const it of allItems) {
+    const { street, civic } = normalizeAddressKey(it.address);
+    if (!street || street.length < 4) continue;
+    // bucket: street + civic (if present) + mq bucket of 10 + price bucket of 20k
+    const mqBucket = it.mq != null ? Math.round(it.mq / 10) : "x";
+    const priceBucket = it.price != null ? Math.round(it.price / 20000) : "x";
+    const baseKey = `${street}|${civic ?? "_"}`;
+    // find an existing cluster within tolerance
+    let matched: IdCluster | null = null;
+    for (const [k, c] of idGroups) {
+      if (!k.startsWith(baseKey + "|")) continue;
+      const ref = c.items[0];
+      const mqOk = it.mq == null || ref.mq == null || Math.abs((it.mq - ref.mq) / Math.max(ref.mq, 1)) <= 0.08;
+      const prOk = it.price == null || ref.price == null || Math.abs((it.price - ref.price) / Math.max(ref.price, 1)) <= 0.10;
+      if (mqOk && prOk) { matched = c; break; }
+    }
+    if (matched) {
+      matched.items.push(it); matched.portals.add(it.portal); if (it.agency) matched.agencies.add(it.agency.toLowerCase());
+    } else {
+      const key = `${baseKey}|${mqBucket}|${priceBucket}`;
+      idGroups.set(key, {
+        items: [it], portals: new Set([it.portal]),
+        agencies: new Set(it.agency ? [it.agency.toLowerCase()] : []),
+        key,
+      });
+    }
+  }
+  const idContendibili = [...idGroups.values()].filter((c) => c.portals.size >= 2 || c.agencies.size >= 2);
+
+  // Confronto metodi: cluster dove differiscono
+  const raggioKeys = new Set(sogliaMedia.clusters.map((c) =>
+    c.items.map((i) => i.url ?? `${i.portal}:${i.address}`).sort().join("||")
+  ));
+  const identityKeys = new Set(idContendibili.map((c) =>
+    c.items.map((i) => i.url ?? `${i.portal}:${i.address}`).sort().join("||")
+  ));
+  const onlyInIdentity = idContendibili.filter((c) =>
+    !raggioKeys.has(c.items.map((i) => i.url ?? `${i.portal}:${i.address}`).sort().join("||"))
+  ).slice(0, 5);
+  const onlyInRaggio = sogliaMedia.clusters.filter((c) =>
+    !identityKeys.has(c.items.map((i) => i.url ?? `${i.portal}:${i.address}`).sort().join("||"))
+  ).slice(0, 5);
+
+  const fmtCluster = (c: { items: Annotated[]; portals: Set<string>; agencies: Set<string> }) => ({
+    portals: [...c.portals], agencies: [...c.agencies],
     members: c.items.map((i) => ({
-      portal: i.portal, address: i.address?.slice(0, 90), title: i.title?.slice(0, 70),
+      portal: i.portal, address: i.address?.slice(0, 90),
       mq: i.mq, price: i.price, agency: i.agency, url: i.url,
     })),
+  });
+
+  // ─────── OMI → quartiere (descr + vie campione) ───────
+  const uniqueOmi = [...new Set(allItems.map((i) => i.zone).filter((z) => /^[A-Z]\d/.test(z)))];
+  const omiDescrMap = new Map<string, string>();
+  if (uniqueOmi.length) {
+    const { data } = await sb.from("omi_zone_geometry")
+      .select("zona,zona_descr")
+      .ilike("comune_descrizione", "padova")
+      .in("zona", uniqueOmi);
+    for (const r of (data ?? [])) {
+      if (r.zona && r.zona_descr && !omiDescrMap.has(r.zona)) omiDescrMap.set(r.zona, r.zona_descr);
+    }
+  }
+  // Sample streets per zone
+  const sampleStreets = new Map<string, string[]>();
+  for (const it of allItems) {
+    if (!/^[A-Z]\d/.test(it.zone)) continue;
+    const { street } = normalizeAddressKey(it.address);
+    if (!street || street.length < 4) continue;
+    const arr = sampleStreets.get(it.zone) ?? [];
+    if (arr.length < 5 && !arr.includes(street)) arr.push(street);
+    sampleStreets.set(it.zone, arr);
+  }
+  const mappa_omi_quartiere = uniqueOmi.map((z) => ({
+    omi: z,
+    quartiere: omiDescrMap.get(z) ?? "(descr non disponibile)",
+    vie_campione: sampleStreets.get(z) ?? [],
   }));
 
-  // ─────── Tabella A — contendibili per zona (soglia MEDIA) ───────
-  const tabellaA = new Map<string, { tot: number; portals: Set<string>; agencies: Set<string>; cont: Set<number> }>();
-  for (const it of allItems) {
-    const s = tabellaA.get(it.zone) ?? { tot: 0, portals: new Set<string>(), agencies: new Set<string>(), cont: new Set<number>() };
-    s.tot++; s.portals.add(it.portal); if (it.agency) s.agencies.add(it.agency.toLowerCase());
-    tabellaA.set(it.zone, s);
+  // ─────── ENRICHMENT: giorni_online, ribasso, prezzo_divergente, tipo_lead ───────
+  // Build url→identity-cluster map for cross-portal price divergence
+  const itemToIdCluster = new Map<string, IdCluster>();
+  for (const c of idGroups.values()) {
+    for (const it of c.items) {
+      const k = it.url ?? `${it.portal}:${it.address}:${it.mq}`;
+      itemToIdCluster.set(k, c);
+    }
   }
-  sogliaMedia.clusters.forEach((c, idx) => {
-    const z = c.items[0].zone;
-    const s = tabellaA.get(z); if (s) s.cont.add(idx);
-  });
-  const tabella_A_contendibili = [...tabellaA.entries()].map(([zona, v]) => ({
-    zona, annunci_tot: v.tot, portali: v.portals.size, agenzie_distinte: v.agencies.size, contendibili: v.cont.size,
-  })).sort((a, b) => b.contendibili - a.contendibili || b.annunci_tot - a.annunci_tot);
-
-  // ─────── Tabella B — volume / privati per zona ───────
-  const tabella_B_volume = [...tabellaA.entries()].map(([zona, v]) => {
-    const items = allItems.filter((i) => i.zone === zona);
+  const now = Date.now();
+  const enriched = allItems.map((it) => {
+    const giorni_online = it.publishedAt
+      ? Math.floor((now - +new Date(it.publishedAt)) / 86400000)
+      : null;
+    const k = it.url ?? `${it.portal}:${it.address}:${it.mq}`;
+    const cluster = itemToIdCluster.get(k);
+    let prezzo_divergente: { min: number; max: number; delta_pct: number } | null = null;
+    if (cluster && cluster.items.length >= 2) {
+      const prices = cluster.items.map((x) => x.price).filter((p): p is number => p != null && p > 0);
+      if (prices.length >= 2) {
+        const min = Math.min(...prices), max = Math.max(...prices);
+        const delta_pct = Math.round(((max - min) / min) * 1000) / 10;
+        if (delta_pct >= 1) prezzo_divergente = { min, max, delta_pct };
+      }
+    }
+    const isContendibile = !!cluster && (cluster.portals.size >= 2 || cluster.agencies.size >= 2);
+    const privato_stanco = it.isPrivate && giorni_online != null && giorni_online > 60;
+    // tipo_lead priority
+    let tipo_lead: "contendibile" | "privato_stanco" | "ribasso" | "privato" | "standard" = "standard";
+    if (isContendibile) tipo_lead = "contendibile";
+    else if (privato_stanco) tipo_lead = "privato_stanco";
+    else if (prezzo_divergente && prezzo_divergente.delta_pct >= 5) tipo_lead = "ribasso";
+    else if (it.isPrivate) tipo_lead = "privato";
     return {
-      zona, annunci_tot: v.tot,
-      agenzie_attive_distinte: v.agencies.size,
-      privati: items.filter((i) => i.isPrivate).length,
-      densita: v.tot,
+      ...it,
+      quartiere: omiDescrMap.get(it.zone) ?? it.zone,
+      giorni_online,
+      privato_stanco,
+      prezzo_divergente,
+      tipo_lead,
+      contendibile: isContendibile,
     };
-  }).sort((a, b) => b.privati - a.privati || b.annunci_tot - a.annunci_tot);
+  });
+
+  // ─────── Tabella riepilogo per QUARTIERE ───────
+  const byQ = new Map<string, typeof enriched>();
+  for (const e of enriched) {
+    const key = `${e.zone}|${e.quartiere}`;
+    const arr = byQ.get(key) ?? [];
+    arr.push(e); byQ.set(key, arr);
+  }
+  const tabella_per_quartiere = [...byQ.entries()].map(([key, items]) => {
+    const [omi, quartiere] = key.split("|");
+    return {
+      omi, quartiere,
+      annunci_tot: items.length,
+      contendibili: items.filter((i) => i.contendibile).length,
+      privati: items.filter((i) => i.isPrivate).length,
+      privati_stanchi: items.filter((i) => i.privato_stanco).length,
+      ribassi: items.filter((i) => i.tipo_lead === "ribasso").length,
+      agenzie_distinte: new Set(items.filter((i) => i.agency).map((i) => i.agency!.toLowerCase())).size,
+    };
+  }).sort((a, b) => b.contendibili - a.contendibili || b.annunci_tot - a.annunci_tot);
+
+  const conteggi_tipo_lead = {
+    contendibile: enriched.filter((e) => e.tipo_lead === "contendibile").length,
+    privato_stanco: enriched.filter((e) => e.tipo_lead === "privato_stanco").length,
+    ribasso: enriched.filter((e) => e.tipo_lead === "ribasso").length,
+    privato: enriched.filter((e) => e.tipo_lead === "privato").length,
+    standard: enriched.filter((e) => e.tipo_lead === "standard").length,
+  };
 
   const totalCost = perPortalSummary.reduce((s, p) => s + (p.cost_usd ?? 0), 0);
+  const includeRecords = body.includeRecords === true;
 
   return json({
     ok: true,
     geocoding: {
       candidati_senza_geo_iniziali: senzaGeoTotPre,
-      geocodati_ok: geocodedOk,
-      geocodati_falliti: geocodedFail,
+      geocodati_ok: geocodedOk, geocodati_falliti: geocodedFail,
       ancora_senza_geo_dopo_tentativo: senzaGeoTotPost,
       provider: gKey ? "google_maps" : "none",
     },
     riepilogo_per_portale: perPortalSummary,
-    contendibili_per_soglia: {
-      stretta_110m_mq5:  { totale: sogliaStretta.totale, esempi: sampleClusters(sogliaStretta.clusters) },
-      media_150m_mq8:    { totale: sogliaMedia.totale,   esempi: sampleClusters(sogliaMedia.clusters) },
-      larga_200m_mq10:   { totale: sogliaLarga.totale,   esempi: sampleClusters(sogliaLarga.clusters) },
+    matching_confronto: {
+      raggio_150m_mq8: { contendibili: sogliaMedia.totale },
+      identita_via_civico_mq8_prezzo10: { contendibili: idContendibili.length },
+      esempi_solo_identita: onlyInIdentity.map(fmtCluster),
+      esempi_solo_raggio: onlyInRaggio.map(fmtCluster),
+      metodo_consigliato: "identita",
+      motivazione: "L'identità via+civico+mq+prezzo elimina i falsi positivi del raggio nei centri densi e cattura veri duplicati anche con geocoding impreciso. Il raggio resta come conferma secondaria.",
     },
-    tabella_A_contendibili_per_zona_soglia_media: tabella_A_contendibili,
-    tabella_B_volume_e_privati_per_zona: tabella_B_volume,
+    mappa_omi_quartiere,
+    tabella_per_quartiere,
+    conteggi_tipo_lead,
+    schema_dati_pwa_proposto: {
+      record: {
+        id: "string (hash url o portal+id)",
+        portal: "immobiliare|idealista|subito|casa",
+        url: "string|null",
+        title: "string|null",
+        indirizzo: "string|null",
+        via_norm: "string (per merge)",
+        civico: "string|null",
+        quartiere: "string (nome OMI descr)",
+        omi: "string (codice zona)",
+        lat: "number|null", lng: "number|null",
+        prezzo: "number|null",
+        mq: "number|null",
+        locali: "number|null",
+        agenzia: "string|null",
+        privato: "boolean",
+        pubblicato_il: "ISO date|null",
+        giorni_online: "number|null",
+        tipo_lead: "contendibile|privato_stanco|ribasso|privato|standard",
+        contendibile: "boolean",
+        privato_stanco: "boolean",
+        prezzo_divergente: "{min,max,delta_pct}|null",
+        fonti_correlate: "string[] (urls in stesso cluster identità)",
+      },
+      indici_consigliati: ["quartiere", "tipo_lead", "giorni_online", "prezzo", "mq", "privato"],
+      filtri_pwa: ["quartiere", "tipo_lead", "min/max prezzo", "min/max mq", "giorni_online > X", "solo privati", "solo contendibili", "drop_pct > Y"],
+    },
     aggregato: {
-      annunci_totali: allItems.length,
+      annunci_totali: enriched.length,
       con_coords_finali: itemsGeo.length,
-      privati_totali: allItems.filter((i) => i.isPrivate).length,
+      privati_totali: enriched.filter((i) => i.isPrivate).length,
+      con_data_pubblicazione: enriched.filter((i) => i.publishedAt).length,
       cost_totale_usd: Number(totalCost.toFixed(4)),
     },
+    records: includeRecords ? enriched : undefined,
   });
 });
