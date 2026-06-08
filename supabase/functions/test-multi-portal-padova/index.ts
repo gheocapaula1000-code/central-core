@@ -935,8 +935,65 @@ Deno.serve(async (req) => {
         apify_immo = { run_id: immoRunId, error: e instanceof Error ? e.message : String(e) };
       }
     }
-    return json({ ok: true, job_id: jobId, ...data, apify_immo });
+
+    // Live status: subito (Apify) + casa (Firecrawl crawl)
+    let apify_subito: any = null;
+    const subitoRunId = prog?.subito_run_id as string | undefined;
+    if (subitoRunId) {
+      try {
+        const r = await fetch(`https://api.apify.com/v2/actor-runs/${encodeURIComponent(subitoRunId)}?token=${encodeURIComponent(token)}`);
+        if (r.ok) {
+          const d = (await r.json())?.data ?? {};
+          let itemCount: number | null = null;
+          if (d.defaultDatasetId) {
+            const h = await fetch(`https://api.apify.com/v2/datasets/${encodeURIComponent(d.defaultDatasetId)}?token=${encodeURIComponent(token)}`);
+            if (h.ok) itemCount = (await h.json())?.data?.itemCount ?? null;
+          }
+          const started = d.startedAt ? +new Date(d.startedAt) : null;
+          const finished = d.finishedAt ? +new Date(d.finishedAt) : null;
+          apify_subito = {
+            run_id: subitoRunId, status: d.status, started_at: d.startedAt, finished_at: d.finishedAt,
+            elapsed_min: started ? Math.round(((finished ?? Date.now()) - started) / 60000) : null,
+            item_count: itemCount, dataset_id: d.defaultDatasetId, usage_total_usd: d.usageTotalUsd ?? null,
+            stats: d.stats ?? null,
+          };
+        } else {
+          apify_subito = { run_id: subitoRunId, error: `apify_status_${r.status}` };
+        }
+      } catch (e) {
+        apify_subito = { run_id: subitoRunId, error: e instanceof Error ? e.message : String(e) };
+      }
+    }
+
+    let firecrawl_casa: any = null;
+    const casaCrawlId = prog?.casa_crawl_id as string | undefined;
+    if (casaCrawlId) {
+      const fcKey = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
+      try {
+        const r = await fetch(`https://api.firecrawl.dev/v2/crawl/${encodeURIComponent(casaCrawlId)}`, {
+          headers: { Authorization: `Bearer ${fcKey}` },
+        });
+        const txt = await r.text();
+        let body: any = null;
+        try { body = JSON.parse(txt); } catch { /* */ }
+        const startedIso = prog?.casa_started_at as string | undefined;
+        const startedMs = startedIso ? +new Date(startedIso) : null;
+        firecrawl_casa = {
+          crawl_id: casaCrawlId, http_status: r.status,
+          status: body?.status ?? null, completed: body?.completed ?? null, total: body?.total ?? null,
+          credits_used: body?.creditsUsed ?? null, expires_at: body?.expiresAt ?? null,
+          started_at: startedIso ?? null,
+          elapsed_min: startedMs ? Math.round((Date.now() - startedMs) / 60000) : null,
+          raw_preview: r.ok ? null : txt.slice(0, 300),
+        };
+      } catch (e) {
+        firecrawl_casa = { crawl_id: casaCrawlId, error: e instanceof Error ? e.message : String(e) };
+      }
+    }
+
+    return json({ ok: true, job_id: jobId, ...data, apify_immo, apify_subito, firecrawl_casa });
   }
+
 
   if (action === "apify_diag") {
     const actorFilter = body.actor ? `&actorId=${encodeURIComponent(String(body.actor))}` : "";
