@@ -1436,19 +1436,94 @@ Deno.serve(async (req) => {
       return out;
     }
 
-    const [immoItems, ideItems] = await Promise.all([
+    // ── Fetch casa.it pages from Firecrawl crawl (paginated) ──
+    async function fetchCasaCrawl(crawlId: string): Promise<NormItem[]> {
+      const fcKey = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
+      if (!fcKey) return [];
+      const out: NormItem[] = [];
+      let nextUrl: string | null = `https://api.firecrawl.dev/v2/crawl/${encodeURIComponent(crawlId)}`;
+      let safety = 0;
+      while (nextUrl && safety < 30) {
+        safety++;
+        const r: Response = await fetch(nextUrl, { headers: { Authorization: `Bearer ${fcKey}` } });
+        if (!r.ok) break;
+        const j: any = await r.json().catch(() => ({}));
+        const pages: any[] = Array.isArray(j?.data) ? j.data : [];
+        for (const p of pages) {
+          const md: string = String(p?.markdown ?? "");
+          const meta: any = p?.metadata ?? {};
+          const srcUrl: string = String(meta?.sourceURL ?? meta?.url ?? "");
+          // Only listing detail pages
+          if (!/casa\.it\/immobili\//i.test(srcUrl)) continue;
+          // Price: first € NNN.NNN or €NNN.NNN,XX
+          const priceM = md.match(/€\s*([\d][\d.\s]{2,})/);
+          let price: number | null = null;
+          if (priceM) {
+            const n = Number(priceM[1].replace(/[.\s]/g, "").replace(",", "."));
+            if (Number.isFinite(n) && n >= 10000) price = n;
+          }
+          // Surface mq
+          const mqM = md.match(/(\d{2,4})\s*m(?:²|q|2)\b/i);
+          const mq = mqM ? Number(mqM[1]) : null;
+          // Address: title h1 or meta title
+          const h1 = md.match(/^#\s+(.+)$/m);
+          const address = String(meta?.ogTitle ?? meta?.title ?? h1?.[1] ?? "").replace(/\s+\|\s+Casa\.it.*$/i, "").trim();
+          // Private vs agency
+          const lower = md.toLowerCase() + " " + String(meta?.description ?? "").toLowerCase();
+          const isPrivate = /\bprivato\b/.test(lower) && !/agenzia|immobiliare s\.?r\.?l|tecnocasa|gabetti|remax|engel/i.test(lower);
+          // Try agency name
+          let agency: string | null = null;
+          const agM = md.match(/(?:Annuncio di|Agenzia[:\s])\s*([A-Z][A-Za-z0-9 .&'-]{2,60})/);
+          if (agM && !isPrivate) agency = agM[1].trim();
+          // CAP
+          const capM = md.match(/\b(35\d{3})\b/);
+          out.push({
+            portal: "casa",
+            url: srcUrl,
+            address: address || null,
+            mq,
+            price,
+            agency,
+            isPrivate,
+            lat: null,
+            lng: null,
+            cap: capM ? capM[1] : null,
+            rooms: null,
+            title: address || null,
+          } as NormItem);
+        }
+        nextUrl = (j?.next as string | undefined) ?? null;
+      }
+      return out;
+    }
+
+    const [immoItems, ideItems, casaItems] = await Promise.all([
       fetchAllDataset(immoDsId, "immobiliare"),
       fetchAllDataset(ideDsId, "idealista"),
+      casaCrawlId ? fetchCasaCrawl(casaCrawlId) : Promise.resolve([] as NormItem[]),
     ]);
 
     const seen = new Set<string>();
     const allRaw: NormItem[] = [];
-    for (const it of [...immoItems, ...ideItems]) {
+    for (const it of [...immoItems, ...ideItems, ...casaItems]) {
       const k = it.url ?? `${it.portal}:${it.address}:${it.mq}:${it.price}`;
       if (seen.has(k)) continue;
       seen.add(k);
       allRaw.push(it);
     }
+
+    // ── Join with test_listing_first_seen (read-only) ──
+    const firstSeenByUrl = new Map<string, string>();
+    const urls = allRaw.map((i) => i.url).filter((u): u is string => !!u);
+    const CHUNK = 500;
+    for (let i = 0; i < urls.length; i += CHUNK) {
+      const slice = urls.slice(i, i + CHUNK);
+      const { data: rows } = await sb.from("test_listing_first_seen")
+        .select("url,first_seen_at").in("url", slice);
+      for (const r of (rows ?? [])) firstSeenByUrl.set(String(r.url), String(r.first_seen_at));
+    }
+    const STANCO_MS = 60 * 24 * 3600 * 1000;
+    const nowMs = Date.now();
 
     const zoneCache = new Map<string, string>();
     const resolveZone = async (lat: number | null, lng: number | null, cap: string | null): Promise<string> => {
