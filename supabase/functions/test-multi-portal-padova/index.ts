@@ -405,7 +405,45 @@ Deno.serve(async (req) => {
     }
   }
 
-  // ─────── Zone resolution + aggregation ───────
+  // ─────── Geocoding (Google Maps) for items missing lat/lng ───────
+  const gKey = Deno.env.get("GOOGLE_MAPS_API_KEY") ?? "";
+  const geocodeAddr = async (addr: string): Promise<{ lat: number; lng: number } | null> => {
+    if (!gKey || !addr || addr.length < 5) return null;
+    try {
+      const q = `${addr}, Padova, Italia`;
+      const u = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(q)}&region=it&key=${gKey}`;
+      const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 6000);
+      const res = await fetch(u, { signal: ctrl.signal }); clearTimeout(t);
+      if (!res.ok) return null;
+      const j = await res.json();
+      const loc = j?.results?.[0]?.geometry?.location;
+      if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng)) {
+        // ensure it's in/near Padova (lat 45.3-45.5, lng 11.7-12.0)
+        if (loc.lat > 45.25 && loc.lat < 45.55 && loc.lng > 11.6 && loc.lng < 12.1) {
+          return { lat: loc.lat, lng: loc.lng };
+        }
+      }
+      return null;
+    } catch { return null; }
+  };
+
+  // Collect items needing geocoding.
+  const allItemsRaw: NormItem[] = portalResults.flatMap((r) => r.items);
+  const needGeo = allItemsRaw.filter((i) => (i.lat == null || i.lng == null) && !!i.address);
+  let geocodedOk = 0; let geocodedFail = 0;
+  // Run geocoding with concurrency 5.
+  const conc = 5;
+  for (let i = 0; i < needGeo.length; i += conc) {
+    const slice = needGeo.slice(i, i + conc);
+    await Promise.all(slice.map(async (it) => {
+      const r = await geocodeAddr(it.address!);
+      if (r) { it.lat = r.lat; it.lng = r.lng; geocodedOk++; } else { geocodedFail++; }
+    }));
+  }
+  const senzaGeoTotPre = allItemsRaw.filter((i) => i.lat == null || i.lng == null).length + geocodedOk;
+  const senzaGeoTotPost = allItemsRaw.filter((i) => i.lat == null || i.lng == null).length;
+
+  // ─────── Zone resolution ───────
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
   const zoneCache = new Map<string, string>();
   const zoneFor = async (lat: number, lng: number): Promise<string> => {
@@ -420,17 +458,14 @@ Deno.serve(async (req) => {
 
   type Annotated = NormItem & { zone: string };
   const allItems: Annotated[] = [];
-  for (const r of portalResults) {
-    const batch = await Promise.all(r.items.map(async (n) => {
-      let zone = "Sconosciuta";
-      if (n.lat != null && n.lng != null) zone = await zoneFor(n.lat, n.lng);
-      if (zone === "Sconosciuta" && n.cap) zone = `CAP ${n.cap}`;
-      return { ...n, zone };
-    }));
-    allItems.push(...batch);
+  for (const it of allItemsRaw) {
+    let zone = "Sconosciuta";
+    if (it.lat != null && it.lng != null) zone = await zoneFor(it.lat, it.lng);
+    if (zone === "Sconosciuta" && it.cap) zone = `CAP ${it.cap}`;
+    allItems.push({ ...it, zone });
   }
 
-  // Per-portal summary (joined with zone data).
+  // Per-portal summary.
   const perPortalSummary = portalResults.map((r) => {
     const annotated = allItems.filter((i) => i.portal === r.portal);
     return {
@@ -440,68 +475,110 @@ Deno.serve(async (req) => {
       privati: annotated.filter((i) => i.isPrivate).length,
       con_coords: annotated.filter((i) => i.lat != null && i.lng != null).length,
       con_zona_reale: annotated.filter((i) => i.zone !== "Sconosciuta" && !i.zone.startsWith("CAP ")).length,
-      con_zona_qualunque: annotated.filter((i) => i.zone !== "Sconosciuta").length,
       con_url: annotated.filter((i) => !!i.url).length,
       cost_usd: r.cost_usd, error: r.error,
     };
   });
 
-  // Cross-portal cluster: group by ~60m bucket (lat 4dp ≈ 11m, lng 4dp ≈ 8m at 45°).
-  // Cluster key: rounded lat/lng (3dp ≈ 110m) + mq bucket of 5.
-  const clusters = new Map<string, { items: Annotated[]; portals: Set<string>; agencies: Set<string> }>();
-  for (const it of allItems) {
-    if (it.lat == null || it.lng == null) continue;
-    const key = `${it.lat.toFixed(3)}|${it.lng.toFixed(3)}|${it.mq != null ? Math.round(it.mq / 5) : "x"}`;
-    const slot = clusters.get(key) ?? { items: [], portals: new Set<string>(), agencies: new Set<string>() };
-    slot.items.push(it); slot.portals.add(it.portal); if (it.agency) slot.agencies.add(it.agency.toLowerCase());
-    clusters.set(key, slot);
-  }
-  const contendibiliClusters = [...clusters.values()].filter((c) => c.portals.size >= 2 || c.agencies.size >= 2);
+  // ─────── Clustering at 3 thresholds (distance + mq tolerance) ───────
+  // Greedy O(N^2) — N<=500.
+  const haversine = (a: Annotated, b: Annotated): number => {
+    const R = 6371000;
+    const toRad = (x: number) => (x * Math.PI) / 180;
+    const dLat = toRad(b.lat! - a.lat!); const dLng = toRad(b.lng! - a.lng!);
+    const s = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat!))*Math.cos(toRad(b.lat!))*Math.sin(dLng/2)**2;
+    return 2 * R * Math.asin(Math.sqrt(s));
+  };
+  const itemsGeo = allItems.filter((i) => i.lat != null && i.lng != null);
 
-  // Per-zone aggregation.
-  const byZone = new Map<string, {
-    total: number; perPortal: Record<string, number>; privati: number; agencies: Set<string>; clusters: Set<string>;
-  }>();
+  type Cluster = { items: Annotated[]; portals: Set<string>; agencies: Set<string> };
+  const clusterAt = (radiusM: number, mqTol: number) => {
+    const n = itemsGeo.length;
+    const parent = Array.from({ length: n }, (_, i) => i);
+    const find = (i: number): number => parent[i] === i ? i : (parent[i] = find(parent[i]));
+    const uni = (a: number, b: number) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const a = itemsGeo[i], b = itemsGeo[j];
+        if (Math.abs((a.lat! - b.lat!)) > 0.003) continue;
+        if (haversine(a, b) > radiusM) continue;
+        if (a.mq != null && b.mq != null && Math.abs(a.mq - b.mq) > mqTol) continue;
+        uni(i, j);
+      }
+    }
+    const groups = new Map<number, Cluster>();
+    for (let i = 0; i < n; i++) {
+      const r = find(i); const it = itemsGeo[i];
+      const slot = groups.get(r) ?? { items: [], portals: new Set<string>(), agencies: new Set<string>() };
+      slot.items.push(it); slot.portals.add(it.portal); if (it.agency) slot.agencies.add(it.agency.toLowerCase());
+      groups.set(r, slot);
+    }
+    const contendibili = [...groups.values()].filter((c) => c.portals.size >= 2 || c.agencies.size >= 2);
+    return { totale: contendibili.length, clusters: contendibili };
+  };
+
+  const sogliaStretta = clusterAt(110, 5);
+  const sogliaMedia   = clusterAt(150, 8);
+  const sogliaLarga   = clusterAt(200, 10);
+
+  const sampleClusters = (cs: Cluster[]) => cs.slice(0, 3).map((c) => ({
+    size: c.items.length, portals: [...c.portals], agencies: [...c.agencies],
+    members: c.items.map((i) => ({
+      portal: i.portal, address: i.address?.slice(0, 90), title: i.title?.slice(0, 70),
+      mq: i.mq, price: i.price, agency: i.agency, url: i.url,
+    })),
+  }));
+
+  // ─────── Tabella A — contendibili per zona (soglia MEDIA) ───────
+  const tabellaA = new Map<string, { tot: number; portals: Set<string>; agencies: Set<string>; cont: Set<number> }>();
   for (const it of allItems) {
-    const slot = byZone.get(it.zone) ?? { total: 0, perPortal: {}, privati: 0, agencies: new Set<string>(), clusters: new Set<string>() };
-    slot.total++; slot.perPortal[it.portal] = (slot.perPortal[it.portal] ?? 0) + 1;
-    if (it.isPrivate) slot.privati++;
-    if (it.agency) slot.agencies.add(it.agency.toLowerCase());
-    byZone.set(it.zone, slot);
+    const s = tabellaA.get(it.zone) ?? { tot: 0, portals: new Set<string>(), agencies: new Set<string>(), cont: new Set<number>() };
+    s.tot++; s.portals.add(it.portal); if (it.agency) s.agencies.add(it.agency.toLowerCase());
+    tabellaA.set(it.zone, s);
   }
-  // Map contendibili clusters → zona (pick zone of first item in cluster).
-  for (const c of contendibiliClusters) {
+  sogliaMedia.clusters.forEach((c, idx) => {
     const z = c.items[0].zone;
-    const slot = byZone.get(z); if (slot) slot.clusters.add(c.items[0].lat + "," + c.items[0].lng);
-  }
-  const vendibilita = [...byZone.entries()].map(([zona, v]) => ({
-    zona, tot_annunci: v.total,
-    portali_che_coprono: Object.keys(v.perPortal).length,
-    breakdown_portali: v.perPortal,
-    contendibili_post_merge: v.clusters.size,
-    privati: v.privati,
-    agenzie_distinte: v.agencies.size,
-  })).sort((a, b) => b.contendibili_post_merge - a.contendibili_post_merge || b.tot_annunci - a.tot_annunci);
+    const s = tabellaA.get(z); if (s) s.cont.add(idx);
+  });
+  const tabella_A_contendibili = [...tabellaA.entries()].map(([zona, v]) => ({
+    zona, annunci_tot: v.tot, portali: v.portals.size, agenzie_distinte: v.agencies.size, contendibili: v.cont.size,
+  })).sort((a, b) => b.contendibili - a.contendibili || b.annunci_tot - a.annunci_tot);
+
+  // ─────── Tabella B — volume / privati per zona ───────
+  const tabella_B_volume = [...tabellaA.entries()].map(([zona, v]) => {
+    const items = allItems.filter((i) => i.zone === zona);
+    return {
+      zona, annunci_tot: v.tot,
+      agenzie_attive_distinte: v.agencies.size,
+      privati: items.filter((i) => i.isPrivate).length,
+      densita: v.tot,
+    };
+  }).sort((a, b) => b.privati - a.privati || b.annunci_tot - a.annunci_tot);
 
   const totalCost = perPortalSummary.reduce((s, p) => s + (p.cost_usd ?? 0), 0);
 
-  // Sample of 8 items across portals.
-  const sample = allItems.slice(0, 8).map((i) => ({
-    portal: i.portal, title: i.title?.slice(0, 70), address: i.address?.slice(0, 80),
-    price: i.price, mq: i.mq, rooms: i.rooms, agency: i.agency, isPrivate: i.isPrivate,
-    zone: i.zone, url: i.url,
-  }));
-
   return json({
     ok: true,
+    geocoding: {
+      candidati_senza_geo_iniziali: senzaGeoTotPre,
+      geocodati_ok: geocodedOk,
+      geocodati_falliti: geocodedFail,
+      ancora_senza_geo_dopo_tentativo: senzaGeoTotPost,
+      provider: gKey ? "google_maps" : "none",
+    },
     riepilogo_per_portale: perPortalSummary,
+    contendibili_per_soglia: {
+      stretta_110m_mq5:  { totale: sogliaStretta.totale, esempi: sampleClusters(sogliaStretta.clusters) },
+      media_150m_mq8:    { totale: sogliaMedia.totale,   esempi: sampleClusters(sogliaMedia.clusters) },
+      larga_200m_mq10:   { totale: sogliaLarga.totale,   esempi: sampleClusters(sogliaLarga.clusters) },
+    },
+    tabella_A_contendibili_per_zona_soglia_media: tabella_A_contendibili,
+    tabella_B_volume_e_privati_per_zona: tabella_B_volume,
     aggregato: {
       annunci_totali: allItems.length,
-      contendibili_totali_post_merge: contendibiliClusters.length,
+      con_coords_finali: itemsGeo.length,
       privati_totali: allItems.filter((i) => i.isPrivate).length,
       cost_totale_usd: Number(totalCost.toFixed(4)),
     },
-    vendibilita_per_zona: vendibilita,
-    sample_annunci: sample,
   });
 });
