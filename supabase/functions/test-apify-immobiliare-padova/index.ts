@@ -107,12 +107,13 @@ Deno.serve(async (req) => {
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { /* allow empty */ }
   const maxItems = Math.min(Number(body.maxItems ?? 150), 200);
-  const actorId = String(body.actor ?? "epctex~immobiliare-it-scraper");
+  const actorId = String(body.actor ?? "memo23~immobiliare-scraper");
 
   const input = {
-    startUrls: [{ url: "https://www.immobiliare.it/vendita-case/padova/" }],
+    startUrls: ["https://www.immobiliare.it/vendita-case/padova/"],
     maxItems,
-    proxy: { useApifyProxy: true },
+    includeAgencyDetails: false,
+    proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
   };
 
   // 1) Run actor synchronously and fetch dataset items.
