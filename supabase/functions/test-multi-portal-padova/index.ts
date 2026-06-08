@@ -759,10 +759,13 @@ async function orchestrate(
       chunking: {
         per_chunk_max: perChunkMax,
         pool_size: poolSize,
+        plan,
+        auto_split_disabled: true,
+        tetto_max_runs_apify: MAX_RUNS_TOTAL,
+        apify_runs_eseguite_totali: results.filter((r) => r.portal !== "casa").length,
         chunks_totali: results.filter((r) => r.portal === "immobiliare" || r.portal === "idealista").length,
         chunks_completati_ok: results.filter((r) => (r.portal === "immobiliare" || r.portal === "idealista") && (r.status === "OK" || r.status === "BLOCCATO")).length,
-        chunks_ancora_saturi: results.filter((r) => r.saturated).length,
-        splits_eseguiti: progress.splits,
+        bande_sature_non_divise: results.filter((r) => r.saturated).map((r) => ({ portal: r.portal, band: r.band_label, raw: r.raw_count })),
         dettaglio: results
           .filter((r) => r.portal === "immobiliare" || r.portal === "idealista")
           .map((r) => ({ portal: r.portal, band: r.band_label, status: r.status, raw: r.raw_count, saturated: r.saturated, cost_usd: r.cost_usd, error: r.error })),
