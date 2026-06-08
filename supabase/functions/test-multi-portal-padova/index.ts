@@ -127,8 +127,111 @@ const OMI_QUARTIERE: Record<string, string> = {
   E2: "Camin sud",
   E3: "Salboro",
   R1: "rurale nord",
+  R2: "rurale / periferia R2",
   R3: "rurale sud / Guizza",
 };
+
+// ───── Via Padova → OMI code (fallback per immobiliare/idealista senza polygon match e casa senza slug-zona) ─────
+// Compilato sulla base di ZONE_KEYWORDS.padova in _shared/dealZoneScope.ts + top vie viste nel residuo casa.
+const PADOVA_VIA_TO_OMI: Array<[RegExp, string]> = [
+  // Centro Storico B1
+  [/\bvia (del santo|santa lucia|altinate|dante|roma|santa sofia|s\.? sofia|cesare battisti|umberto i|marsala|niccolo tommaseo|tommaseo|cavalletto|carlo leoni|daniele manin|francesco squarcione|san filippo benizzi|emanuele filiberto)/i, "B1"],
+  [/\bpiazza (dei signori|duomo|cavour|eremitani|garibaldi|delle erbe|della frutta|insurrezione)\b/i, "B1"],
+  [/\briviera (dei ponti romani|tito livio|san benedetto|albertino mussato|paleocapa|ruzzante)/i, "B1"],
+  [/\bvicolo giordano bruno\b/i, "B1"],
+  // Prato della Valle B2
+  [/\bprato della valle\b|\bvia belzoni\b|\bvia trieste\b|\bvia luca belludi\b|\bvia pontecorvo\b|\bvia papafava\b|\bvia santo stefano\b/i, "B2"],
+  // Portello / Stazione C1
+  [/\bvia (ospedale|gattamelata|tiepolo|paolo sarpi|venezia)\b|\bportello\b|\bospedale militare\b|\bpiazza mazzini\b|\bporta trento\b/i, "C1"],
+  // Stazione C2
+  [/\bpiazzale stazione\b|\bvia (corsica|trieste|cavalletto|del bosco|niccolo tommaseo)\b|\bcorso del popolo\b/i, "C2"],
+  // Arcella C3
+  [/\barcella\b|\bvia (aspetti|tiziano aspetti|guido reni|reni|curzola|jacopo da montagnana|jacopo crescini|crescini|sebastiano giacomelli|giacomelli|fra' giovanni|isonzo|piave)\b|\bsan bellino\b|\bsan carlo\b|\bss\.? trinit[aà]\b|\baltichero\b|\bsacro cuore\b/i, "C3"],
+  // Stanga / Pio X C4
+  [/\bstanga\b|\bpio x\b|\bfiera\b|\bvia (san lazzaro|venezia|emilia|romagna)\b/i, "C4"],
+  // Sant'Osvaldo C5
+  [/\bsant'?osvaldo\b|\bvia (s\.? osvaldo|sant'?osvaldo|jacopo facciolati|facciolati|dei salici|dei tigli|madonna pellegrina)\b/i, "C5"],
+  // Sacra Famiglia C6
+  [/\bsacra famiglia\b|\bvia (s\.? sofia|santa sofia|papa giovanni|paoli|venezia)\b/i, "C6"],
+  // Chiesanuova D1
+  [/\bchiesanuova\b|\bbrentelle\b|\bbrusegana\b|\bvia (chiesanuova|brentelle|brusegana|monte grappa|croce rossa|degli zabarella)\b/i, "D1"],
+  // Mandria D2
+  [/\bmandria\b|\bsavonarola\b|\bpaltana\b|\bvia (mandria|monselice|giovanni canestrini|canestrini|san gregorio barbarico|savonarola)\b/i, "D2"],
+  // Voltabarozzo / Guizza D3
+  [/\bvoltabarozzo\b|\bguizza\b|\bcrocefisso\b|\bvia (voltabarozzo|guizza|guizza conselvana|belli|brenta vecchia|del cimitero|bassanello|navigazione interna|dello sport)\b/i, "D3"],
+  // Camin / San Marco D4
+  [/\bcamin\b|\bsan marco\b|\bgranze\b|\bvia (camin|del plebiscito|roncaglia|del commissario|ponte di brenta|torre)\b/i, "D4"],
+  // Pontevigodarzere D5/D6
+  [/\bpontevigodarzere ovest\b|\bmont[àa] sant'?ignazio\b|\bvia (san mario)\b/i, "D5"],
+  [/\bpontevigodarzere\b|\bvia vigodarzere\b/i, "D6"],
+  // Mortise D7
+  [/\bmortise\b|\bvia (mortise|dalmazia|monte ortigara|monte nero|monte san gabriele)\b/i, "D7"],
+  // Forcellini D8
+  [/\bforcellini\b|\bterranegra\b|\bnazareth\b|\bsan camillo\b|\bvia (forcellini|euganea|terranegra|dei colli|domenico turazza|ulisse dini|delle rose|nazareth|garigliano|divisione folgore|luigi bottazzo|elena valmarana|giuseppe comino|francesco de lazara|oderzo|rovereto)\b/i, "D8"],
+];
+
+// ───── Microzona_hint testuale (casa.it) → OMI code (Padova) ─────
+const CASA_MICROHINT_TO_OMI: Array<[RegExp, string]> = [
+  [/piazze|duomo|santo\b|santa sofia|altinate|riviere|san giuseppe|specola|san giovanni/i, "B1"],
+  [/prato della valle|pontecorvo|citt[àa] giardino|santa croce/i, "B2"],
+  [/portello|ospedali|stazione/i, "C1"],
+  [/fiera|stanga|san lazzaro/i, "C4"],
+  [/sant'?osvaldo|facciolati|madonna pellegrina/i, "C5"],
+  [/sacra famiglia/i, "C6"],
+  [/brentelle|chiesanuova|cave|brusegana/i, "D1"],
+  [/paltana|mandria|savonarola/i, "D2"],
+  [/guizza|voltabarozzo|salboro|crocefisso/i, "D3"],
+  [/camin|granze|san marco|ponte di brenta|torre/i, "D4"],
+  [/mont[àa] (sant'?)?ignazio/i, "D5"],
+  [/pontevigodarzere/i, "D6"],
+  [/mortise/i, "D7"],
+  [/forcellini|terranegra|nazareth|san camillo|astada/i, "D8"],
+  [/san carlo|arcella|san bellino|altichero|sacro cuore|ponterotto/i, "C3"],
+];
+
+function inferOmiFromText(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const s = String(text).toLowerCase();
+  for (const [re, code] of PADOVA_VIA_TO_OMI) if (re.test(s)) return code;
+  for (const [re, code] of CASA_MICROHINT_TO_OMI) if (re.test(s)) return code;
+  return null;
+}
+
+// ───── Comuni limitrofi di Padova (per separare "Fuori Padova") ─────
+const COMUNE_LIMITROFI: Array<[RegExp, string]> = [
+  [/\balbignasego\b/i, "Albignasego"],
+  [/\bselvazzano( dentro)?\b/i, "Selvazzano Dentro"],
+  [/\bcadoneghe\b/i, "Cadoneghe"],
+  [/\bvigonza\b/i, "Vigonza"],
+  [/\brubano\b/i, "Rubano"],
+  [/\bponte san nicol[oò]\b/i, "Ponte San Nicolò"],
+  [/\bnoventa padovana\b|\bnoventa\b/i, "Noventa Padovana"],
+  [/\babano terme\b|\babano\b/i, "Abano Terme"],
+  [/\bmontegrotto\b/i, "Montegrotto Terme"],
+  [/\blimena\b/i, "Limena"],
+  [/\bvigodarzere\b/i, "Vigodarzere"],
+  [/\bmestrino\b/i, "Mestrino"],
+  [/\bsaonara\b/i, "Saonara"],
+  [/\bmaserà\b|\bmasera\b/i, "Maserà di Padova"],
+  [/\bcasalserugo\b/i, "Casalserugo"],
+  [/\bpolverara\b/i, "Polverara"],
+  [/\btorreglia\b/i, "Torreglia"],
+  [/\bteolo\b/i, "Teolo"],
+  [/\bvilla del conte\b/i, "Villa del Conte"],
+  [/\btencarola\b/i, "Selvazzano Dentro"], // frazione
+  [/\bsarmeola\b/i, "Rubano"], // frazione
+  [/\bbusiago\b|\bcampodarsego\b/i, "Campodarsego"],
+];
+
+const PADOVA_CAP_RE = /\b35(1[0-3]\d|14[0-3]|100)\b/; // 35100..35143
+function classifyComune(address: string | null | undefined, cap: string | null | undefined): "padova" | { fuori: string } | null {
+  const addr = String(address ?? "");
+  for (const [re, name] of COMUNE_LIMITROFI) if (re.test(addr)) return { fuori: name };
+  if (/\bpadova\b/i.test(addr)) return "padova";
+  if (cap && PADOVA_CAP_RE.test(cap)) return "padova";
+  return null;
+}
+
 
 // ───── casa.it neighbourhood-slug → OMI code (Padova) ─────
 // Mappa basata sui 26 slug effettivamente visti nel crawl 019ea797 (120 list-page).
@@ -1753,10 +1856,12 @@ Deno.serve(async (req) => {
           }
         }
         const itemToCluster = new Map<NormItem, IdCluster>();
-        for (const c of idGroups.values()) for (const it of c.items) itemToCluster.set(it, c);
+        const itemToClusterKey = new Map<NormItem, string>();
+        for (const [k, c] of idGroups) for (const it of c.items) { itemToCluster.set(it, c); itemToClusterKey.set(it, k); }
         const idContendibili = [...idGroups.values()].filter((c) => c.portals.size >= 2 || c.agencies.size >= 2);
 
         const omiUnmapped = new Set<string>();
+        type Bucket = "padova_citta" | "fuori_padova" | "non_classificabile";
         const enriched = annotated.map((it) => {
           const cluster = itemToCluster.get(it);
           let prezzo_divergente: { min: number; max: number; delta_pct: number } | null = null;
@@ -1777,20 +1882,67 @@ Deno.serve(async (req) => {
           else if (prezzo_divergente && prezzo_divergente.delta_pct >= 5) tipo_lead = "ribasso";
           else if (isStanco) tipo_lead = "privato_stanco";
           else if (it.isPrivate) tipo_lead = "privato";
-          const omiCode = /^[A-Z]\d/.test(it.zone) ? it.zone : null;
+
+          // ───── Bucket Padova città vs Fuori Padova ─────
+          let omiCode = /^[A-Z]\d/.test(it.zone) ? it.zone : null;
+          let bucket: Bucket;
+          let bucket_comune: string | null = null;
           let quartiere: string;
-          if (omiCode && OMI_QUARTIERE[omiCode]) quartiere = OMI_QUARTIERE[omiCode];
-          else if (omiCode) { quartiere = "(non mappato)"; omiUnmapped.add(omiCode); }
-          else quartiere = it.zone;
-          return { ...it, quartiere, omi_code: omiCode, prezzo_divergente, tipo_lead, contendibile: isContendibile, first_seen_at: firstSeenIso ?? null };
+
+          if (omiCode) {
+            // Polygon match (Padova): zona OMI valida
+            bucket = "padova_citta";
+            quartiere = OMI_QUARTIERE[omiCode] ?? "(non mappato)";
+            if (!OMI_QUARTIERE[omiCode]) omiUnmapped.add(omiCode);
+          } else {
+            // No polygon: prova classificazione via address text
+            const cls = classifyComune(it.address, it.cap);
+            if (cls && typeof cls === "object" && "fuori" in cls) {
+              bucket = "fuori_padova";
+              bucket_comune = cls.fuori;
+              quartiere = cls.fuori;
+            } else if (cls === "padova") {
+              // Padova città senza polygon match → fallback via/microhint → OMI
+              bucket = "padova_citta";
+              const inferred = inferOmiFromText(it.address) ?? inferOmiFromText(it.title) ?? (it.portal === "casa" ? inferOmiFromText((it as any).microzona_hint) : null);
+              if (inferred && OMI_QUARTIERE[inferred]) {
+                omiCode = inferred;
+                quartiere = OMI_QUARTIERE[inferred];
+              } else {
+                quartiere = "Sconosciuta (Padova città)";
+              }
+            } else {
+              // Né comune limitrofo né "padova": prova fallback anche su casa (per casa _root, hint nullo)
+              if (it.portal === "casa") {
+                const inferred = inferOmiFromText(it.address) ?? inferOmiFromText(it.title) ?? inferOmiFromText((it as any).microzona_hint);
+                if (inferred && OMI_QUARTIERE[inferred]) {
+                  bucket = "padova_citta";
+                  omiCode = inferred;
+                  quartiere = OMI_QUARTIERE[inferred];
+                } else {
+                  bucket = "non_classificabile";
+                  quartiere = "Sconosciuta";
+                }
+              } else {
+                bucket = "non_classificabile";
+                quartiere = "Sconosciuta";
+              }
+            }
+          }
+          return { ...it, quartiere, omi_code: omiCode, prezzo_divergente, tipo_lead, contendibile: isContendibile, first_seen_at: firstSeenIso ?? null, bucket, bucket_comune, cluster_key: itemToClusterKey.get(it) ?? null };
         });
 
-        const byQ = new Map<string, typeof enriched>();
-        for (const e of enriched) {
-          const key = `${e.omi_code ?? e.zone}|${e.quartiere}`;
-          const arr = byQ.get(key) ?? []; arr.push(e); byQ.set(key, arr);
+        // ───── VISTA 1: PADOVA CITTÀ ─────
+        const padovaCitta = enriched.filter((e) => e.bucket === "padova_citta");
+        const fuoriPadova = enriched.filter((e) => e.bucket === "fuori_padova");
+        const nonClassificabili = enriched.filter((e) => e.bucket === "non_classificabile");
+
+        const byQ_pad = new Map<string, typeof padovaCitta>();
+        for (const e of padovaCitta) {
+          const key = `${e.omi_code ?? "—"}|${e.quartiere}`;
+          const arr = byQ_pad.get(key) ?? []; arr.push(e); byQ_pad.set(key, arr);
         }
-        const tabella_per_quartiere = [...byQ.entries()].map(([key, items]) => {
+        const tabella_per_quartiere_padova = [...byQ_pad.entries()].map(([key, items]) => {
           const [omi, quartiere] = key.split("|");
           return {
             codice_omi: omi, quartiere,
@@ -1803,18 +1955,37 @@ Deno.serve(async (req) => {
           };
         }).sort((a, b) => b.contendibili - a.contendibili || b.annunci_tot - a.annunci_tot);
 
-        const conteggi_tipo_lead = {
-          contendibile: enriched.filter((e) => e.tipo_lead === "contendibile").length,
-          privato_stanco: enriched.filter((e) => e.tipo_lead === "privato_stanco").length,
-          ribasso: enriched.filter((e) => e.tipo_lead === "ribasso").length,
-          privato: enriched.filter((e) => e.tipo_lead === "privato").length,
-          standard: enriched.filter((e) => e.tipo_lead === "standard").length,
+        const conteggi_tipo_lead_padova = {
+          contendibile: padovaCitta.filter((e) => e.tipo_lead === "contendibile").length,
+          privato_stanco: padovaCitta.filter((e) => e.tipo_lead === "privato_stanco").length,
+          ribasso: padovaCitta.filter((e) => e.tipo_lead === "ribasso").length,
+          privato: padovaCitta.filter((e) => e.tipo_lead === "privato").length,
+          standard: padovaCitta.filter((e) => e.tipo_lead === "standard").length,
         };
+        const contendibili_padova_cluster = new Set(padovaCitta.filter((e) => e.contendibile && e.cluster_key).map((e) => e.cluster_key)).size;
+        const contendibili_padova_divergenti = padovaCitta.filter((e) => e.contendibile && e.prezzo_divergente).length;
+
+        // ───── VISTA 2: FUORI PADOVA ─────
+        const byComune = new Map<string, typeof fuoriPadova>();
+        for (const e of fuoriPadova) {
+          const k = e.bucket_comune ?? "Sconosciuto";
+          const arr = byComune.get(k) ?? []; arr.push(e); byComune.set(k, arr);
+        }
+        const tabella_fuori_padova = [...byComune.entries()].map(([comune, items]) => ({
+          comune,
+          annunci_tot: items.length,
+          contendibili: items.filter((i) => i.contendibile).length,
+          privati: items.filter((i) => i.isPrivate).length,
+          agenzie_distinte: new Set(items.filter((i) => i.agency).map((i) => i.agency!.toLowerCase())).size,
+        })).sort((a, b) => b.annunci_tot - a.annunci_tot);
 
         const per_portal_summary = (["immobiliare", "idealista", "subito", "casa"] as Portal[]).map((p) => ({
           portal: p,
           annunci_dedup: enriched.filter((i) => i.portal === p).length,
           privati: enriched.filter((i) => i.portal === p && i.isPrivate).length,
+          padova_citta: enriched.filter((i) => i.portal === p && i.bucket === "padova_citta").length,
+          fuori_padova: enriched.filter((i) => i.portal === p && i.bucket === "fuori_padova").length,
+          non_classificabili: enriched.filter((i) => i.portal === p && i.bucket === "non_classificabile").length,
         }));
 
         const totalCost = (immoCost ?? 0) + ideCostPrev + (subitoCost ?? 0);
@@ -1833,16 +2004,28 @@ Deno.serve(async (req) => {
             casa_pages_read_from_db: totalCasaPages,
           },
           riepilogo_per_portale: per_portal_summary,
-          matching: {
+          padova_citta: {
+            annunci_tot: padovaCitta.length,
+            conteggi_tipo_lead: conteggi_tipo_lead_padova,
+            contendibili_totali: contendibili_padova_cluster,
+            contendibili_con_prezzo_divergente: contendibili_padova_divergenti,
+            tabella_per_quartiere: tabella_per_quartiere_padova,
+            sconosciuta_residua: tabella_per_quartiere_padova.find((r) => r.quartiere === "Sconosciuta (Padova città)") ?? null,
+          },
+          fuori_padova: {
+            annunci_tot: fuoriPadova.length,
+            tabella_per_comune: tabella_fuori_padova,
+          },
+          non_classificabili: { annunci_tot: nonClassificabili.length },
+          matching_globale: {
             metodo: "IDENTITA via+civico+mq8% (prezzo NON usato come filtro)",
-            contendibili_totali: idContendibili.length,
+            contendibili_totali_cluster: idContendibili.length,
             contendibili_con_prezzo_divergente: enriched.filter((e) => e.contendibile && e.prezzo_divergente).length,
           },
-          conteggi_tipo_lead,
-          tabella_per_quartiere,
           omi_quartiere: { mappa_utilizzata: OMI_QUARTIERE, codici_omi_non_mappati: [...omiUnmapped].sort() },
           casa_slug_non_mappati: [...casaSlugUnmapped].sort(),
-          note: "collect_v2: casa parsato in streaming da public.test_casa_raw_pages; Apify dataset fetchati sequenzialmente.",
+          note: "collect_v2: vista Padova città + bucket Fuori Padova. Fallback via→OMI per casa _root e non-casa senza polygon match.",
+
         };
 
         await sb.from("test_padova_full_run")
