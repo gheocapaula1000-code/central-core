@@ -185,6 +185,7 @@ function normalizeIdealista(it: Record<string, any>): NormItem {
     lat: nz(num(b.latitude)), lng: nz(num(b.longitude)),
     cap: null,
     url: b.url ?? (b.propertyCode ? `https://www.idealista.it/immobile/${b.propertyCode}/` : null),
+    publishedAt: parsePubDate(it),
   };
 }
 
