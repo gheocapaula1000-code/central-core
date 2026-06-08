@@ -1033,6 +1033,35 @@ Deno.serve(async (req) => {
     return json({ ok: true, action: "apify_diag", runs: enriched, limits });
   }
 
+  if (action === "subito_input_diag") {
+    const runId = String(body.run_id ?? "VDk5TTQEi0azkmme6");
+    const rr = await fetch(`https://api.apify.com/v2/actor-runs/${encodeURIComponent(runId)}?token=${encodeURIComponent(token)}`);
+    const rj = await rr.json().catch(() => ({}));
+    const run = rj?.data ?? null;
+    const inpRes = await fetch(`https://api.apify.com/v2/actor-runs/${encodeURIComponent(runId)}/key-value-store/records/INPUT?token=${encodeURIComponent(token)}`);
+    const inputText = await inpRes.text().catch(() => "");
+    let input: any = null; try { input = JSON.parse(inputText); } catch { input = inputText; }
+    const logRes = await fetch(`https://api.apify.com/v2/actor-runs/${encodeURIComponent(runId)}/log?token=${encodeURIComponent(token)}`);
+    const logTxt = (await logRes.text().catch(() => "")).slice(-3000);
+    let actorSchema: any = null;
+    try {
+      const ar = await fetch(`https://api.apify.com/v2/acts/emastra~subito-it-immobili/versions?token=${encodeURIComponent(token)}`);
+      const aj = await ar.json().catch(() => ({}));
+      const versions = aj?.data?.items ?? [];
+      const latest = versions[versions.length - 1] ?? null;
+      actorSchema = latest?.inputSchema ? JSON.parse(latest.inputSchema) : (latest ?? null);
+    } catch { /* ignore */ }
+    return json({
+      ok: true, action: "subito_input_diag", run_id: runId,
+      run_status: run?.status, exitCode: run?.exitCode, statusMessage: run?.statusMessage,
+      startedAt: run?.startedAt, finishedAt: run?.finishedAt,
+      input_passed: input,
+      actor_input_schema: actorSchema,
+      log_tail: logTxt,
+    });
+  }
+
+
   // ACTION: abort → aborts ALL currently-running Apify runs on the account.
   // Editing/redeploying this file also kills the background orchestrator isolate.
   if (action === "abort") {
