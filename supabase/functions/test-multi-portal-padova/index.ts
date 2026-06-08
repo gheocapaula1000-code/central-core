@@ -1367,11 +1367,26 @@ Deno.serve(async (req) => {
       note: "privato_stanco non calcolato in modalità start_collect (manca first_seen_at)",
     };
 
-    await sb.from("test_padova_full_run")
-      .update({ state: "done", finished_at: new Date().toISOString(), result: finalResult })
-      .eq("id", jobId);
+        await sb.from("test_padova_full_run")
+          .update({ state: "done", finished_at: new Date().toISOString(), result: finalResult })
+          .eq("id", jobId);
+      } catch (e) {
+        await sb.from("test_padova_full_run").update({
+          state: "failed",
+          finished_at: new Date().toISOString(),
+          result: { ok: false, error: e instanceof Error ? e.message : String(e) },
+        }).eq("id", jobId);
+      }
+    })();
 
-    return json({ ok: true, action: "collect", job_id: jobId, result: finalResult });
+    // @ts-ignore EdgeRuntime
+    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+      // @ts-ignore
+      EdgeRuntime.waitUntil(bgWork);
+    } else {
+      bgWork.catch(() => {});
+    }
+    return json({ ok: true, action: "collect", job_id: jobId, state: "collecting", hint: "raccolta avviata in background. Polla action:status." });
   }
 
 
