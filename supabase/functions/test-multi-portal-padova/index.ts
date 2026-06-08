@@ -24,32 +24,24 @@ type Portal = "immobiliare" | "idealista" | "subito" | "casa";
 
 interface Band { min: number; max: number | null }
 
-// Minimal-chunk strategy: start with 5 WIDE bands per portale.
-// Auto-split only saturates → keeps total Apify run count low (~10-14 vs ~32).
-const INITIAL_BANDS: Band[] = [
-  { min: 0,       max: 150000  },
-  { min: 150000,  max: 250000  },
-  { min: 250000,  max: 400000  },
-  { min: 400000,  max: 700000  },
+// FIXED 8-band plan (pre-calibrated). NO auto-split: saturated bands are
+// reported but never re-divided. Run count is fixed and predictable.
+const FIXED_BANDS_8: Band[] = [
+  { min: 0,       max: 80000   },
+  { min: 80000,   max: 130000  },
+  { min: 130000,  max: 180000  },
+  { min: 180000,  max: 230000  },
+  { min: 230000,  max: 300000  },
+  { min: 300000,  max: 450000  },
+  { min: 450000,  max: 700000  },
   { min: 700000,  max: null    },
 ];
-
-const MIN_BAND_WIDTH = 20000; // do not split below 20k EUR
+// HARD CEILING — total Apify runs in a single "run_fixed" job MUST be <= this.
+const MAX_RUNS_TOTAL = 20;
 
 function bandLabel(b: Band): string {
   const fmt = (n: number) => n >= 1000 ? `${Math.round(n/1000)}k` : `${n}`;
   return `${fmt(b.min)}-${b.max == null ? "∞" : fmt(b.max)}`;
-}
-
-function splitBand(b: Band): Band[] | null {
-  if (b.max == null) {
-    // Open-ended: split at 1.5M, 2M, 3M progressively
-    return [{ min: b.min, max: b.min + 500000 }, { min: b.min + 500000, max: null }];
-  }
-  const width = b.max - b.min;
-  if (width < MIN_BAND_WIDTH * 2) return null;
-  const mid = b.min + Math.round(width / 2);
-  return [{ min: b.min, max: mid }, { min: mid, max: b.max }];
 }
 
 interface ApifyChunk {
