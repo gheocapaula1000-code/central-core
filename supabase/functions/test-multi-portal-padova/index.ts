@@ -1658,11 +1658,12 @@ Deno.serve(async (req) => {
       return out;
     }
 
+    const casaSlugUnmapped = new Set<string>();
     const [immoItems, ideItems, subitoItems, casaItems] = await Promise.all([
       fetchAllDataset(immoDsId, "immobiliare"),
       fetchAllDataset(ideDsId, "idealista"),
       subitoDsId ? fetchAllDataset(subitoDsId, "subito") : Promise.resolve([] as NormItem[]),
-      casaCrawlId ? fetchCasaCrawl(casaCrawlId) : Promise.resolve([] as NormItem[]),
+      casaCrawlId ? fetchCasaCrawl(casaCrawlId, casaSlugUnmapped) : Promise.resolve([] as NormItem[]),
     ]);
 
     const seen = new Set<string>();
