@@ -1574,15 +1574,16 @@ Deno.serve(async (req) => {
       return out;
     }
 
-    const [immoItems, ideItems, casaItems] = await Promise.all([
+    const [immoItems, ideItems, subitoItems, casaItems] = await Promise.all([
       fetchAllDataset(immoDsId, "immobiliare"),
       fetchAllDataset(ideDsId, "idealista"),
+      subitoDsId ? fetchAllDataset(subitoDsId, "subito") : Promise.resolve([] as NormItem[]),
       casaCrawlId ? fetchCasaCrawl(casaCrawlId) : Promise.resolve([] as NormItem[]),
     ]);
 
     const seen = new Set<string>();
     const allRaw: NormItem[] = [];
-    for (const it of [...immoItems, ...ideItems, ...casaItems]) {
+    for (const it of [...immoItems, ...ideItems, ...subitoItems, ...casaItems]) {
       const k = it.url ?? `${it.portal}:${it.address}:${it.mq}:${it.price}`;
       if (seen.has(k)) continue;
       seen.add(k);
