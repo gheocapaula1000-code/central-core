@@ -1717,7 +1717,7 @@ Deno.serve(async (req) => {
       privati: enriched.filter((i) => i.portal === p && i.isPrivate).length,
     }));
 
-    const totalCost = (immoCost ?? 0) + ideCostPrev;
+    const totalCost = (immoCost ?? 0) + ideCostPrev + (subitoCost ?? 0);
     const finalResult = {
       ok: true,
       mode: "start_collect",
@@ -1725,7 +1725,11 @@ Deno.serve(async (req) => {
         annunci_totali_dedup: enriched.length,
         cost_immobiliare_usd: immoCost,
         cost_idealista_reuse_usd: ideCostPrev,
+        cost_subito_usd: subitoCost,
+        cost_casa_firecrawl_usd: null,
         cost_totale_usd: Number(totalCost.toFixed(4)),
+        subito_items_raw: subitoItems.length,
+        casa_items_raw: casaItems.length,
       },
       riepilogo_per_portale: per_portal_summary,
       matching: {
@@ -1736,7 +1740,7 @@ Deno.serve(async (req) => {
       conteggi_tipo_lead,
       tabella_per_quartiere,
       omi_quartiere: { mappa_utilizzata: OMI_QUARTIERE, codici_omi_non_mappati: [...omiUnmapped].sort() },
-      note: "privato_stanco = privato con first_seen_at (test_listing_first_seen) >= 60 giorni. casa.it parsato da Firecrawl crawl markdown. subito escluso (0 items in run precedente).",
+      note: "privato_stanco = privato con first_seen_at (test_listing_first_seen) >= 60 giorni. casa.it parsato da Firecrawl crawl markdown.",
     };
 
         await sb.from("test_padova_full_run")
