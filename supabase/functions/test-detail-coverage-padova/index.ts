@@ -149,17 +149,20 @@ Deno.serve(async (req) => {
     }
   }
 
-  // 2. Scrape ciascuno con Firecrawl
+  // 2. Scrape in parallelo (concurrency 8) — riduce wall time sotto i 150s edge timeout
   const results: { portale: string; url: string; ok: boolean; extracted: Extracted | null; error?: string }[] = [];
   const t0 = Date.now();
-  for (const s of samples) {
-    const r = await fcScrape(s.url, { timeoutMs: 30_000, formats: ["markdown"] });
-    if (!r.ok || !r.markdown) {
-      results.push({ portale: s.portal, url: s.url, ok: false, extracted: null, error: r.error ?? "no_markdown" });
-      continue;
-    }
-    const ex = extractFromMarkdown(r.markdown);
-    results.push({ portale: s.portal, url: s.url, ok: true, extracted: ex });
+  const CONC = 8;
+  for (let i = 0; i < samples.length; i += CONC) {
+    const batch = samples.slice(i, i + CONC);
+    const batchRes = await Promise.all(batch.map(async (s) => {
+      const r = await fcScrape(s.url, { timeoutMs: 25_000, formats: ["markdown"] });
+      if (!r.ok || !r.markdown) {
+        return { portale: s.portal, url: s.url, ok: false, extracted: null, error: r.error ?? "no_markdown" };
+      }
+      return { portale: s.portal, url: s.url, ok: true, extracted: extractFromMarkdown(r.markdown) };
+    }));
+    results.push(...batchRes);
   }
   const elapsedMs = Date.now() - t0;
 
