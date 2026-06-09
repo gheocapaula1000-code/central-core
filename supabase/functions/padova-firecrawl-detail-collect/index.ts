@@ -265,14 +265,18 @@ async function pMap<T, R>(items: T[], conc: number, fn: (t: T) => Promise<R>): P
 async function processBatch(jobId: string, batchSize = BATCH): Promise<{ remaining: number; processed: number }> {
   const c = sb();
 
-  // pick next rows from source job that don't have mq yet (not processed)
+  // pick next rows: only rows that have NEVER been scraped (raw_json IS NULL)
+  // This naturally excludes parsing_vuoto (has raw_json.md) and hard_fail (has raw_json.error),
+  // preventing infinite re-scraping loops.
   const { data: rows } = await c
     .from("padova_collect_v2_items")
     .select("id, url")
     .eq("job_id", SOURCE_JOB_ID)
     .is("mq", null)
+    .is("raw_json", null)
     .not("url", "is", null)
     .limit(batchSize);
+
 
   if (!rows || rows.length === 0) {
     await c
