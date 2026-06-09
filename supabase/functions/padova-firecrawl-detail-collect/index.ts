@@ -342,7 +342,7 @@ async function processBatch(jobId: string, batchSize = BATCH): Promise<{ remaini
       .eq("job_id", jobId);
   }
 
-  return { remaining: rows.length === BATCH ? -1 : 0 };
+  return { remaining: rows.length >= batchSize ? -1 : 0, processed: rows.length };
 }
 
 async function selfInvoke(jobId: string) {
