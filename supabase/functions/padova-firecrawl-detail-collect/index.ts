@@ -601,6 +601,118 @@ Deno.serve(async (req) => {
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
+  // ── reextract_empty: re-parse rows with raw_json present but mq=null (free, no scraping) ──
+  if (action === "reextract_empty") {
+    const portal = String(body?.portal ?? "immobiliare");
+    const urlFilter = portal === "immobiliare" ? "%immobiliare%"
+                    : portal === "idealista" ? "%idealista%"
+                    : portal === "casa" ? "%casa.it%"
+                    : portal === "subito" ? "%subito%" : "%";
+    const { data: rows } = await c
+      .from("padova_collect_v2_items")
+      .select("id, url, raw_json")
+      .eq("job_id", SOURCE_JOB_ID)
+      .is("mq", null)
+      .not("raw_json", "is", null)
+      .ilike("url", urlFilter)
+      .limit(500);
+
+    let recovered = 0, gone = 0, still_empty = 0;
+    for (const r of (rows ?? []) as Array<{ id: number; url: string; raw_json: { md?: string; html?: string; error?: string } }>) {
+      const md = r.raw_json?.md ?? "";
+      const html = r.raw_json?.html ?? "";
+      if (!md && !html) { still_empty++; continue; }
+      const f = extractFromContent(md, html);
+      if (f._gone) {
+        gone++;
+        await c.from("padova_collect_v2_items")
+          .update({ raw_json: { ...r.raw_json, parse_status: "gone_404" } })
+          .eq("id", r.id);
+        continue;
+      }
+      if (f.mq) {
+        recovered++;
+        const { data: ck } = await c.rpc("compute_cluster_key", {
+          p_via: null, p_civico: (f.civico as string) ?? null,
+          p_mq: (f.mq as number) ?? null, p_locali: (f.locali as number) ?? null,
+        });
+        await c.from("padova_collect_v2_items").update({
+          mq: f.mq ?? null, locali: f.locali ?? null, piano: f.piano ?? null,
+          bagni: f.bagni ?? null, agency: f.agency ?? null, civico: f.civico ?? null,
+          tipologia: f.tipologia ?? null, riscaldamento: f.riscaldamento ?? null,
+          stato: f.stato ?? null, anno_costruzione: f.anno_costruzione ?? null,
+          lat: f.lat ?? null, lng: f.lng ?? null,
+          cluster_key: typeof ck === "string" ? ck : null,
+        }).eq("id", r.id);
+      } else {
+        still_empty++;
+        await c.from("padova_collect_v2_items")
+          .update({ raw_json: { ...r.raw_json, parse_status: "empty" } })
+          .eq("id", r.id);
+      }
+    }
+    return new Response(JSON.stringify({
+      ok: true, portal, scanned: rows?.length ?? 0, recovered, gone_404: gone, still_empty,
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
+  // ── retry_idealista_apify: retry hard_fail idealista rows via Apify fallback ──
+  if (action === "retry_idealista_apify") {
+    const { data: rows } = await c
+      .from("padova_collect_v2_items")
+      .select("id, url, raw_json")
+      .eq("job_id", SOURCE_JOB_ID)
+      .is("mq", null)
+      .not("raw_json", "is", null)
+      .ilike("url", "%idealista%")
+      .limit(50);
+
+    const targets = (rows ?? []).filter((r: { raw_json: { error?: string } }) => r.raw_json?.error);
+    let recovered = 0, apify_attempted = 0, apify_spent = 0;
+
+    for (const r of targets as Array<{ id: number; url: string; raw_json: Record<string, unknown> }>) {
+      const budget = await canSpendApify(APIFY_COST_PER_FALLBACK);
+      if (!budget.ok) break;
+      apify_attempted++;
+      const af = await apifyDetailFallback(r.url);
+      apify_spent += APIFY_COST_PER_FALLBACK;
+      if (!af) {
+        await c.from("padova_collect_v2_items")
+          .update({ raw_json: { ...r.raw_json, apify_retry: "failed", at: new Date().toISOString() } })
+          .eq("id", r.id);
+        continue;
+      }
+      const f = extractFromContent(af.md, af.html);
+      const raw_json = { md: af.md.slice(0, 6000), html: af.html.slice(0, 12000), via: "apify_retry" };
+      if (f.mq) {
+        recovered++;
+        const { data: ck } = await c.rpc("compute_cluster_key", {
+          p_via: null, p_civico: (f.civico as string) ?? null,
+          p_mq: (f.mq as number) ?? null, p_locali: (f.locali as number) ?? null,
+        });
+        await c.from("padova_collect_v2_items").update({
+          mq: f.mq ?? null, locali: f.locali ?? null, piano: f.piano ?? null,
+          bagni: f.bagni ?? null, agency: f.agency ?? null, civico: f.civico ?? null,
+          tipologia: f.tipologia ?? null, riscaldamento: f.riscaldamento ?? null,
+          stato: f.stato ?? null, anno_costruzione: f.anno_costruzione ?? null,
+          lat: f.lat ?? null, lng: f.lng ?? null, raw_json,
+          cluster_key: typeof ck === "string" ? ck : null,
+        }).eq("id", r.id);
+      } else {
+        await c.from("padova_collect_v2_items")
+          .update({ raw_json: { ...raw_json, parse_status: "empty_after_apify" } })
+          .eq("id", r.id);
+      }
+    }
+    return new Response(JSON.stringify({
+      ok: true,
+      idealista_hard_fail_totali: targets.length,
+      apify_tentati: apify_attempted,
+      recuperati: recovered,
+      spesa_apify_usd: Number(apify_spent.toFixed(4)),
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
   return new Response(JSON.stringify({ ok: false, error: "unknown_action" }), {
     status: 400,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
