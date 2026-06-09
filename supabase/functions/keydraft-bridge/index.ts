@@ -37,18 +37,21 @@ function healthPayload() {
 
 async function callInternal(targetFn: string, route: string, body: unknown, debugId: string) {
   const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/${targetFn}${route}`;
-  const { secret, mode } = resolveInternalSecret("civiko");
-  if (!secret) {
-    throw new Error(`internal secret missing for ${targetFn} (mode=${mode})`);
+  const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+  if (!jobSecret) {
+    throw new Error(`CENTRAL_CORE_JOB_SECRET not configured (target=${targetFn})`);
   }
+  const { secret } = resolveInternalSecret("civiko");
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "x-job-secret": jobSecret,
+    "x-source-app": "civiko",
+    "x-debug-id": debugId,
+  };
+  if (secret) headers["x-internal-secret"] = secret;
   const res = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-internal-secret": secret,
-      "x-source-app": "civiko",
-      "x-debug-id": debugId,
-    },
+    headers,
     body: JSON.stringify(body ?? {}),
   });
   const text = await res.text();
@@ -56,6 +59,7 @@ async function callInternal(targetFn: string, route: string, body: unknown, debu
   try { parsed = JSON.parse(text); } catch { parsed = { raw: text }; }
   return { status: res.status, body: parsed };
 }
+
 
 Deno.serve(async (req) => {
   const debugId = makeDebugId();
