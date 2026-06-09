@@ -1395,8 +1395,11 @@ Deno.serve(async (req) => {
     const status = sj?.data?.status as string | undefined;
     const startedAt = sj?.data?.startedAt as string | undefined;
     if (!runId || !datasetId) {
+      await recordApifySpend(immoEstCost * 0.1);
       return json({ ok: false, error: "apify_response_missing_ids", raw: sj }, 502);
     }
+    // Record estimated spend (actual reconciled later via /actor-runs/<id> usage info).
+    await recordApifySpend(immoEstCost);
 
     const { data: ins, error: insErr } = await sb.from("test_padova_full_run")
       .insert({
