@@ -541,7 +541,8 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({
       ok: true,
-      batch_processati_ora: processed,
+      batch_avviato_in_background: n,
+      note: "il batch gira in background ~5-6 min; richiama status o run_batch per riprendere",
       annunci_processati_totali: cur?.annunci_processati ?? 0,
       annunci_ok: cur?.annunci_ok ?? 0,
       annunci_fail: cur?.annunci_fail ?? 0,
