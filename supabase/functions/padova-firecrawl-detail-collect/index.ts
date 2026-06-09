@@ -231,24 +231,24 @@ async function pMap<T, R>(items: T[], conc: number, fn: (t: T) => Promise<R>): P
   return out;
 }
 
-async function processBatch(jobId: string): Promise<{ remaining: number }> {
+async function processBatch(jobId: string, batchSize = BATCH): Promise<{ remaining: number; processed: number }> {
   const c = sb();
 
-  // pick next BATCH rows from source job that don't have raw_json yet
+  // pick next rows from source job that don't have mq yet (not processed)
   const { data: rows } = await c
     .from("padova_collect_v2_items")
     .select("id, url")
     .eq("job_id", SOURCE_JOB_ID)
-    .is("raw_json", null)
+    .is("mq", null)
     .not("url", "is", null)
-    .limit(BATCH);
+    .limit(batchSize);
 
   if (!rows || rows.length === 0) {
     await c
       .from("padova_firecrawl_jobs")
       .update({ status: "done", finished_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq("job_id", jobId);
-    return { remaining: 0 };
+    return { remaining: 0, processed: 0 };
   }
 
   const results = await pMap(rows as { id: number; url: string }[], CONC, processOne);
