@@ -161,3 +161,8 @@ verify_jwt = false
 [functions.test-apify-immobiliare-padova]
 verify_jwt = false
 
+[functions.keydraft-bridge]
+verify_jwt = false
+
+
+
