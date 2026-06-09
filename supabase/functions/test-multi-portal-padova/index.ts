@@ -16,6 +16,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { getApifyToken } from "../_shared/apify.ts";
+import { canSpendApify, recordApifySpend, APIFY_DAILY_CAP_USD } from "../_shared/apifyBudget.ts";
 
 const APIFY_BASE = "https://api.apify.com/v2";
 const FIRECRAWL_BASE = "https://api.firecrawl.dev";
