@@ -231,24 +231,24 @@ async function pMap<T, R>(items: T[], conc: number, fn: (t: T) => Promise<R>): P
   return out;
 }
 
-async function processBatch(jobId: string): Promise<{ remaining: number }> {
+async function processBatch(jobId: string, batchSize = BATCH): Promise<{ remaining: number; processed: number }> {
   const c = sb();
 
-  // pick next BATCH rows from source job that don't have raw_json yet
+  // pick next rows from source job that don't have mq yet (not processed)
   const { data: rows } = await c
     .from("padova_collect_v2_items")
     .select("id, url")
     .eq("job_id", SOURCE_JOB_ID)
-    .is("raw_json", null)
+    .is("mq", null)
     .not("url", "is", null)
-    .limit(BATCH);
+    .limit(batchSize);
 
   if (!rows || rows.length === 0) {
     await c
       .from("padova_firecrawl_jobs")
       .update({ status: "done", finished_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq("job_id", jobId);
-    return { remaining: 0 };
+    return { remaining: 0, processed: 0 };
   }
 
   const results = await pMap(rows as { id: number; url: string }[], CONC, processOne);
@@ -342,7 +342,7 @@ async function processBatch(jobId: string): Promise<{ remaining: number }> {
       .eq("job_id", jobId);
   }
 
-  return { remaining: rows.length === BATCH ? -1 : 0 };
+  return { remaining: rows.length >= batchSize ? -1 : 0, processed: rows.length };
 }
 
 async function selfInvoke(jobId: string) {
@@ -489,6 +489,79 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+  }
+
+  if (action === "run_batch") {
+    const jobId = String(body?.job_id ?? "");
+    const n = Math.min(Math.max(Number(body?.n ?? 600), 10), 1500);
+    if (!jobId) {
+      return new Response(JSON.stringify({ ok: false, error: "job_id_required" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Run mini-batches in background; respond immediately so client doesn't time out.
+    const runWork = async () => {
+      const deadline = Date.now() + 380_000; // ~6.3 min CPU budget
+      let done = 0;
+      while (done < n && Date.now() < deadline) {
+        try {
+          const r = await processBatch(jobId, Math.min(60, n - done));
+          done += r.processed;
+          if (r.processed === 0) break; // nothing left
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          await c.from("padova_firecrawl_jobs")
+            .update({ last_error: msg.slice(0, 500), updated_at: new Date().toISOString() })
+            .eq("job_id", jobId);
+          break;
+        }
+      }
+    };
+    // @ts-ignore EdgeRuntime
+    EdgeRuntime.waitUntil(runWork());
+
+
+    // count truly remaining (mq IS NULL)
+    const { count: leftCount } = await c
+      .from("padova_collect_v2_items")
+      .select("id", { count: "exact", head: true })
+      .eq("job_id", SOURCE_JOB_ID)
+      .is("mq", null)
+      .not("url", "is", null);
+
+    const { data: cur } = await c.from("padova_firecrawl_jobs").select("*").eq("job_id", jobId).maybeSingle();
+    const p = cur?.annunci_processati || 1;
+    const stato = (leftCount ?? 0) === 0 ? "done" : "running";
+    if (stato === "done") {
+      await c.from("padova_firecrawl_jobs")
+        .update({ status: "done", finished_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq("job_id", jobId);
+    }
+
+    return new Response(JSON.stringify({
+      ok: true,
+      batch_avviato_in_background: n,
+      note: "il batch gira in background ~5-6 min; richiama status o run_batch per riprendere",
+      annunci_processati_totali: cur?.annunci_processati ?? 0,
+      annunci_ok: cur?.annunci_ok ?? 0,
+      annunci_fail: cur?.annunci_fail ?? 0,
+      rimanenti: leftCount ?? 0,
+      spesa_firecrawl_usd_totale: Number(cur?.spesa_firecrawl_usd ?? 0),
+      spesa_apify_usd_totale: Number(cur?.spesa_apify_usd ?? 0),
+      fallback_apify_usati: cur?.fallback_apify_usati ?? 0,
+      copertura_campi_percentuale: cur ? {
+        mq: Math.round((cur.cov_mq / p) * 100),
+        locali: Math.round((cur.cov_locali / p) * 100),
+        piano: Math.round((cur.cov_piano / p) * 100),
+        bagni: Math.round((cur.cov_bagni / p) * 100),
+        civico: Math.round((cur.cov_civico / p) * 100),
+        agency: Math.round((cur.cov_agency / p) * 100),
+        tipologia: Math.round((cur.cov_tipologia / p) * 100),
+        lat_lng: Math.round((cur.cov_latlng / p) * 100),
+      } : {},
+      stato,
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
   return new Response(JSON.stringify({ ok: false, error: "unknown_action" }), {
