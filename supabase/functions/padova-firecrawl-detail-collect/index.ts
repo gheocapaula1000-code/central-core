@@ -89,61 +89,92 @@ function intOnly(s: string | null | undefined): number | null {
 }
 
 function extractFromContent(markdown: string, html: string): Record<string, unknown> {
-  const text = `${markdown}\n${html.replace(/<[^>]+>/g, " ")}`.toLowerCase();
+  const rawText = `${markdown}\n${html.replace(/<[^>]+>/g, " ")}`;
+  const text = rawText.toLowerCase();
   const out: Record<string, unknown> = {};
 
-  // mq / superficie
-  const mqM = text.match(/(?:superficie|mq|m²|m2)[^0-9]{0,15}(\d{2,4})\s*(?:mq|m²|m2)?/);
-  if (mqM) out.mq = intOnly(mqM[1]);
-  if (!out.mq) {
-    const m2 = text.match(/(\d{2,4})\s*(?:mq|m²|m2)\b/);
-    if (m2) out.mq = intOnly(m2[1]);
+  // detect 404 / removed (immobiliare)
+  if (/la pagina che stai cercando non è presente|non è più disponibile/i.test(rawText)) {
+    out._gone = true;
   }
 
-  // locali
-  const lM = text.match(/(\d{1,2})\s*(?:loca(?:li|le)|stanze|vani|camere)\b/);
-  if (lM) out.locali = intOnly(lM[1]);
+  // JSON-LD blocks (schema.org)
+  try {
+    const ldBlocks = html.match(/<script[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi) ?? [];
+    for (const block of ldBlocks) {
+      const inner = block.replace(/^[\s\S]*?>/, "").replace(/<\/script>\s*$/i, "");
+      try {
+        const obj = JSON.parse(inner);
+        const items = Array.isArray(obj) ? obj : [obj];
+        for (const it of items) {
+          const fs = it?.floorSize?.value ?? it?.floorSize;
+          if (fs && !out.mq) out.mq = intOnly(String(fs));
+          const nr = it?.numberOfRooms ?? it?.numberOfRoomsTotal;
+          if (nr && !out.locali) out.locali = intOnly(String(nr));
+          const nb = it?.numberOfBathroomsTotal ?? it?.numberOfBathrooms;
+          if (nb && !out.bagni) out.bagni = intOnly(String(nb));
+          const ag = it?.realEstateAgent?.name ?? it?.provider?.name ?? it?.seller?.name;
+          if (ag && !out.agency) out.agency = clean(String(ag)).slice(0, 120);
+          const lat = it?.geo?.latitude ?? it?.address?.geo?.latitude;
+          const lng = it?.geo?.longitude ?? it?.address?.geo?.longitude;
+          if (lat && lng && !out.lat) { out.lat = Number(lat); out.lng = Number(lng); }
+        }
+      } catch { /* skip block */ }
+    }
+  } catch { /* ignore */ }
 
-  // bagni
-  const bM = text.match(/(\d{1,2})\s*bagn[io]\b/);
-  if (bM) out.bagni = intOnly(bM[1]);
+  // mq — digits BEFORE unit (most common), then keyword-based
+  if (!out.mq) {
+    const patterns = [
+      /(\d{2,4})\s*(?:mq|m²|m2|metri quadr)/i,
+      /\bda\s+(\d{2,4})\s*m[²2 ]/i,
+      /(?:superficie|dimensione)[^0-9]{0,20}(\d{2,4})/i,
+    ];
+    for (const p of patterns) {
+      const m = text.match(p);
+      if (m) { out.mq = intOnly(m[1]); if (out.mq) break; }
+    }
+  }
 
-  // piano
+  if (!out.locali) {
+    const lM = text.match(/(\d{1,2})\s*(?:loca(?:li|le)|stanze|vani|camere)\b/);
+    if (lM) out.locali = intOnly(lM[1]);
+  }
+
+  if (!out.bagni) {
+    const bM = text.match(/(\d{1,2})\s*bagn[io]\b/);
+    if (bM) out.bagni = intOnly(bM[1]);
+  }
+
   const piM = text.match(/piano[:\s]+([a-z0-9°\-\s]{1,30})/);
   if (piM) out.piano = clean(piM[1]).slice(0, 60);
 
-  // tipologia
   const tipoM = text.match(/\b(appartamento|attico|villa|villetta|bilocale|trilocale|quadrilocale|monolocale|loft|mansarda|rustico|casa indipendente|porzione di casa)\b/);
   if (tipoM) out.tipologia = tipoM[1];
 
-  // riscaldamento
   const rM = text.match(/riscaldamento[:\s]+([a-z0-9,\s\-]{3,60})/);
   if (rM) out.riscaldamento = clean(rM[1]).slice(0, 80);
 
-  // stato
   const sM = text.match(/\bstato[:\s]+([a-z\s]{3,40})/);
   if (sM) out.stato = clean(sM[1]).slice(0, 60);
 
-  // anno
   const aM = text.match(/\banno (?:di )?costruzione[:\s]+(\d{4})/);
   if (aM) out.anno_costruzione = intOnly(aM[1]);
 
-  // civico
   const cM = text.match(/\b(?:via|viale|piazza|corso|largo|vicolo|strada|borgo|riviera|lungargine|calle|contr[aà]|stradella)\s+[a-zà-ù'.\s]{3,40}[, ]+(\d{1,4}[a-z]?)\b/i);
   if (cM) out.civico = cM[1];
 
-  // agency
-  const agM = html.match(/agenz[ia][^<]{0,80}<[^>]+>([^<]{3,80})/i)
-           ?? html.match(/data-agency[^>]*>([^<]{3,80})/i)
-           ?? markdown.match(/agenz[ia][^\n]{0,80}\n([^\n]{3,80})/i);
-  if (agM) out.agency = clean(agM[1]).slice(0, 120);
+  if (!out.agency) {
+    const agM = html.match(/agenz[ia][^<]{0,80}<[^>]+>([^<]{3,80})/i)
+             ?? html.match(/data-agency[^>]*>([^<]{3,80})/i)
+             ?? markdown.match(/agenz[ia][^\n]{0,80}\n([^\n]{3,80})/i);
+    if (agM) out.agency = clean(agM[1]).slice(0, 120);
+  }
 
-  // lat/lng from JSON-LD or scripts
-  const llM = html.match(/"latitude"\s*:\s*"?(-?\d+\.\d+)"?[\s\S]{0,80}?"longitude"\s*:\s*"?(-?\d+\.\d+)"?/)
-           ?? html.match(/"lat"\s*:\s*(-?\d+\.\d+)[\s\S]{0,80}?"l[no]g(?:itude)?"\s*:\s*(-?\d+\.\d+)/i);
-  if (llM) {
-    out.lat = Number(llM[1]);
-    out.lng = Number(llM[2]);
+  if (!out.lat) {
+    const llM = html.match(/"latitude"\s*:\s*"?(-?\d+\.\d+)"?[\s\S]{0,80}?"longitude"\s*:\s*"?(-?\d+\.\d+)"?/)
+             ?? html.match(/"lat"\s*:\s*(-?\d+\.\d+)[\s\S]{0,80}?"l[no]g(?:itude)?"\s*:\s*(-?\d+\.\d+)/i);
+    if (llM) { out.lat = Number(llM[1]); out.lng = Number(llM[2]); }
   }
 
   return out;
@@ -234,14 +265,18 @@ async function pMap<T, R>(items: T[], conc: number, fn: (t: T) => Promise<R>): P
 async function processBatch(jobId: string, batchSize = BATCH): Promise<{ remaining: number; processed: number }> {
   const c = sb();
 
-  // pick next rows from source job that don't have mq yet (not processed)
+  // pick next rows: only rows that have NEVER been scraped (raw_json IS NULL)
+  // This naturally excludes parsing_vuoto (has raw_json.md) and hard_fail (has raw_json.error),
+  // preventing infinite re-scraping loops.
   const { data: rows } = await c
     .from("padova_collect_v2_items")
     .select("id, url")
     .eq("job_id", SOURCE_JOB_ID)
     .is("mq", null)
+    .is("raw_json", null)
     .not("url", "is", null)
     .limit(batchSize);
+
 
   if (!rows || rows.length === 0) {
     await c
@@ -522,13 +557,15 @@ Deno.serve(async (req) => {
     EdgeRuntime.waitUntil(runWork());
 
 
-    // count truly remaining (mq IS NULL)
+    // count truly unprocessed (mq IS NULL AND raw_json IS NULL)
     const { count: leftCount } = await c
       .from("padova_collect_v2_items")
       .select("id", { count: "exact", head: true })
       .eq("job_id", SOURCE_JOB_ID)
       .is("mq", null)
+      .is("raw_json", null)
       .not("url", "is", null);
+
 
     const { data: cur } = await c.from("padova_firecrawl_jobs").select("*").eq("job_id", jobId).maybeSingle();
     const p = cur?.annunci_processati || 1;
@@ -561,6 +598,118 @@ Deno.serve(async (req) => {
         lat_lng: Math.round((cur.cov_latlng / p) * 100),
       } : {},
       stato,
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
+  // ── reextract_empty: re-parse rows with raw_json present but mq=null (free, no scraping) ──
+  if (action === "reextract_empty") {
+    const portal = String(body?.portal ?? "immobiliare");
+    const urlFilter = portal === "immobiliare" ? "%immobiliare%"
+                    : portal === "idealista" ? "%idealista%"
+                    : portal === "casa" ? "%casa.it%"
+                    : portal === "subito" ? "%subito%" : "%";
+    const { data: rows } = await c
+      .from("padova_collect_v2_items")
+      .select("id, url, raw_json")
+      .eq("job_id", SOURCE_JOB_ID)
+      .is("mq", null)
+      .not("raw_json", "is", null)
+      .ilike("url", urlFilter)
+      .limit(500);
+
+    let recovered = 0, gone = 0, still_empty = 0;
+    for (const r of (rows ?? []) as Array<{ id: number; url: string; raw_json: { md?: string; html?: string; error?: string } }>) {
+      const md = r.raw_json?.md ?? "";
+      const html = r.raw_json?.html ?? "";
+      if (!md && !html) { still_empty++; continue; }
+      const f = extractFromContent(md, html);
+      if (f._gone) {
+        gone++;
+        await c.from("padova_collect_v2_items")
+          .update({ raw_json: { ...r.raw_json, parse_status: "gone_404" } })
+          .eq("id", r.id);
+        continue;
+      }
+      if (f.mq) {
+        recovered++;
+        const { data: ck } = await c.rpc("compute_cluster_key", {
+          p_via: null, p_civico: (f.civico as string) ?? null,
+          p_mq: (f.mq as number) ?? null, p_locali: (f.locali as number) ?? null,
+        });
+        await c.from("padova_collect_v2_items").update({
+          mq: f.mq ?? null, locali: f.locali ?? null, piano: f.piano ?? null,
+          bagni: f.bagni ?? null, agency: f.agency ?? null, civico: f.civico ?? null,
+          tipologia: f.tipologia ?? null, riscaldamento: f.riscaldamento ?? null,
+          stato: f.stato ?? null, anno_costruzione: f.anno_costruzione ?? null,
+          lat: f.lat ?? null, lng: f.lng ?? null,
+          cluster_key: typeof ck === "string" ? ck : null,
+        }).eq("id", r.id);
+      } else {
+        still_empty++;
+        await c.from("padova_collect_v2_items")
+          .update({ raw_json: { ...r.raw_json, parse_status: "empty" } })
+          .eq("id", r.id);
+      }
+    }
+    return new Response(JSON.stringify({
+      ok: true, portal, scanned: rows?.length ?? 0, recovered, gone_404: gone, still_empty,
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
+  // ── retry_idealista_apify: retry hard_fail idealista rows via Apify fallback ──
+  if (action === "retry_idealista_apify") {
+    const { data: rows } = await c
+      .from("padova_collect_v2_items")
+      .select("id, url, raw_json")
+      .eq("job_id", SOURCE_JOB_ID)
+      .is("mq", null)
+      .not("raw_json", "is", null)
+      .ilike("url", "%idealista%")
+      .limit(50);
+
+    const targets = (rows ?? []).filter((r: { raw_json: { error?: string } }) => r.raw_json?.error);
+    let recovered = 0, apify_attempted = 0, apify_spent = 0;
+
+    for (const r of targets as Array<{ id: number; url: string; raw_json: Record<string, unknown> }>) {
+      const budget = await canSpendApify(APIFY_COST_PER_FALLBACK);
+      if (!budget.ok) break;
+      apify_attempted++;
+      const af = await apifyDetailFallback(r.url);
+      apify_spent += APIFY_COST_PER_FALLBACK;
+      if (!af) {
+        await c.from("padova_collect_v2_items")
+          .update({ raw_json: { ...r.raw_json, apify_retry: "failed", at: new Date().toISOString() } })
+          .eq("id", r.id);
+        continue;
+      }
+      const f = extractFromContent(af.md, af.html);
+      const raw_json = { md: af.md.slice(0, 6000), html: af.html.slice(0, 12000), via: "apify_retry" };
+      if (f.mq) {
+        recovered++;
+        const { data: ck } = await c.rpc("compute_cluster_key", {
+          p_via: null, p_civico: (f.civico as string) ?? null,
+          p_mq: (f.mq as number) ?? null, p_locali: (f.locali as number) ?? null,
+        });
+        await c.from("padova_collect_v2_items").update({
+          mq: f.mq ?? null, locali: f.locali ?? null, piano: f.piano ?? null,
+          bagni: f.bagni ?? null, agency: f.agency ?? null, civico: f.civico ?? null,
+          tipologia: f.tipologia ?? null, riscaldamento: f.riscaldamento ?? null,
+          stato: f.stato ?? null, anno_costruzione: f.anno_costruzione ?? null,
+          lat: f.lat ?? null, lng: f.lng ?? null, raw_json,
+          cluster_key: typeof ck === "string" ? ck : null,
+        }).eq("id", r.id);
+      } else {
+        await c.from("padova_collect_v2_items")
+          .update({ raw_json: { ...raw_json, parse_status: "empty_after_apify" } })
+          .eq("id", r.id);
+      }
+    }
+    return new Response(JSON.stringify({
+      ok: true,
+      idealista_hard_fail_totali: targets.length,
+      apify_tentati: apify_attempted,
+      recuperati: recovered,
+      spesa_apify_usd: Number(apify_spent.toFixed(4)),
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
