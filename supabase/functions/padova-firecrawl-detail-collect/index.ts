@@ -64,6 +64,7 @@ const APIFY_COST_PER_FALLBACK = 0.0025;
 
 const SB_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const SB_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
 const INTERNAL_TOKEN = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "internal";
 const FN_URL = `${SB_URL}/functions/v1/padova-firecrawl-detail-collect`;
 
@@ -345,15 +346,21 @@ async function processBatch(jobId: string): Promise<{ remaining: number }> {
 }
 
 async function selfInvoke(jobId: string) {
+  const gatewayKey = SB_ANON_KEY || SB_KEY;
   try {
-    await fetch(FN_URL, {
+    const res = await fetch(FN_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""}`,
+        "Authorization": `Bearer ${gatewayKey}`,
+        "apikey": gatewayKey,
+        "x-internal-secret": INTERNAL_TOKEN,
       },
       body: JSON.stringify({ action: "process", job_id: jobId, _internal_token: INTERNAL_TOKEN }),
+      signal: AbortSignal.timeout(10_000),
     });
+    const text = await res.text().catch(() => "");
+    if (!res.ok) console.warn("selfInvoke non-ok:", res.status, text.slice(0, 300));
   } catch (e) {
     console.warn("selfInvoke error:", String(e));
   }
