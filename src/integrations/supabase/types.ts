@@ -4310,6 +4310,81 @@ export type Database = {
         }
         Relationships: []
       }
+      padova_firecrawl_jobs: {
+        Row: {
+          annunci_fail: number
+          annunci_ok: number
+          annunci_processati: number
+          annunci_totali: number
+          cov_agency: number
+          cov_bagni: number
+          cov_civico: number
+          cov_latlng: number
+          cov_locali: number
+          cov_mq: number
+          cov_piano: number
+          cov_tipologia: number
+          fallback_apify_usati: number
+          finished_at: string | null
+          job_id: string
+          last_error: string | null
+          source_job_id: string | null
+          spesa_apify_usd: number
+          spesa_firecrawl_usd: number
+          started_at: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          annunci_fail?: number
+          annunci_ok?: number
+          annunci_processati?: number
+          annunci_totali?: number
+          cov_agency?: number
+          cov_bagni?: number
+          cov_civico?: number
+          cov_latlng?: number
+          cov_locali?: number
+          cov_mq?: number
+          cov_piano?: number
+          cov_tipologia?: number
+          fallback_apify_usati?: number
+          finished_at?: string | null
+          job_id: string
+          last_error?: string | null
+          source_job_id?: string | null
+          spesa_apify_usd?: number
+          spesa_firecrawl_usd?: number
+          started_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          annunci_fail?: number
+          annunci_ok?: number
+          annunci_processati?: number
+          annunci_totali?: number
+          cov_agency?: number
+          cov_bagni?: number
+          cov_civico?: number
+          cov_latlng?: number
+          cov_locali?: number
+          cov_mq?: number
+          cov_piano?: number
+          cov_tipologia?: number
+          fallback_apify_usati?: number
+          finished_at?: string | null
+          job_id?: string
+          last_error?: string | null
+          source_job_id?: string | null
+          spesa_apify_usd?: number
+          spesa_firecrawl_usd?: number
+          started_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       padova_zone_radar_queue: {
         Row: {
           attempts: number
