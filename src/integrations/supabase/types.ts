@@ -4177,60 +4177,96 @@ export type Database = {
       }
       padova_collect_v2_items: {
         Row: {
+          agency: string | null
+          anno_costruzione: number | null
+          bagni: number | null
           cap: string | null
           citta: string | null
+          civico: string | null
+          cluster_key: string | null
           created_at: string
           id: number
           job_id: string
           lat: number | null
           listing_id: string | null
           lng: number | null
+          locali: number | null
+          mq: number | null
           n_agenzie: number | null
           omi_zone: string | null
+          piano: string | null
           portal: string
           prezzo: number | null
           prezzo_iniziale: number | null
           quartiere: string | null
           raw_address: string | null
+          raw_json: Json | null
+          riscaldamento: string | null
+          stato: string | null
           tipo_lead: string | null
+          tipologia: string | null
           url: string | null
         }
         Insert: {
+          agency?: string | null
+          anno_costruzione?: number | null
+          bagni?: number | null
           cap?: string | null
           citta?: string | null
+          civico?: string | null
+          cluster_key?: string | null
           created_at?: string
           id?: number
           job_id: string
           lat?: number | null
           listing_id?: string | null
           lng?: number | null
+          locali?: number | null
+          mq?: number | null
           n_agenzie?: number | null
           omi_zone?: string | null
+          piano?: string | null
           portal: string
           prezzo?: number | null
           prezzo_iniziale?: number | null
           quartiere?: string | null
           raw_address?: string | null
+          raw_json?: Json | null
+          riscaldamento?: string | null
+          stato?: string | null
           tipo_lead?: string | null
+          tipologia?: string | null
           url?: string | null
         }
         Update: {
+          agency?: string | null
+          anno_costruzione?: number | null
+          bagni?: number | null
           cap?: string | null
           citta?: string | null
+          civico?: string | null
+          cluster_key?: string | null
           created_at?: string
           id?: number
           job_id?: string
           lat?: number | null
           listing_id?: string | null
           lng?: number | null
+          locali?: number | null
+          mq?: number | null
           n_agenzie?: number | null
           omi_zone?: string | null
+          piano?: string | null
           portal?: string
           prezzo?: number | null
           prezzo_iniziale?: number | null
           quartiere?: string | null
           raw_address?: string | null
+          raw_json?: Json | null
+          riscaldamento?: string | null
+          stato?: string | null
           tipo_lead?: string | null
+          tipologia?: string | null
           url?: string | null
         }
         Relationships: []
@@ -5432,6 +5468,15 @@ export type Database = {
         Returns: boolean
       }
       clear_omi_geometry: { Args: never; Returns: undefined }
+      compute_cluster_key: {
+        Args: {
+          p_civico: string
+          p_locali: number
+          p_mq: number
+          p_via: string
+        }
+        Returns: string
+      }
       generate_predictive_insight: {
         Args: { p_opportunity_id: string }
         Returns: string
