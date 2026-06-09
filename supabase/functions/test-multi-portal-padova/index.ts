@@ -16,6 +16,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { getApifyToken } from "../_shared/apify.ts";
+import { canSpendApify, recordApifySpend, APIFY_DAILY_CAP_USD } from "../_shared/apifyBudget.ts";
 
 const APIFY_BASE = "https://api.apify.com/v2";
 const FIRECRAWL_BASE = "https://api.firecrawl.dev";
@@ -1358,6 +1359,20 @@ Deno.serve(async (req) => {
     const ideReuseDataset = String(body.ide_reuse_dataset ?? "obzXbDsh8zeIQJYry");
     const ideReuseCost = Number(body.ide_reuse_cost_usd ?? 1.707);
 
+    // Apify cap guard (shared $8/day cap). Conservative estimate for immobiliare full run.
+    const immoEstCost = Number(body.immo_est_cost_usd ?? (maxItems >= 1000 ? 2.5 : 1.0));
+    const budget = await canSpendApify(immoEstCost);
+    if (!budget.ok) {
+      console.warn(`[start] apify_cap_reached spent=$${budget.spent.toFixed(2)} cap=$${budget.cap} est=$${immoEstCost}`);
+      return json({
+        ok: false, error: "apify_cap_reached",
+        speso_oggi: Number(budget.spent.toFixed(3)),
+        cap: budget.cap,
+        est_cost_usd: immoEstCost,
+        actor: immoActor,
+      }, 429);
+    }
+
     const startRes = await fetch(
       `https://api.apify.com/v2/acts/${encodeURIComponent(immoActor)}/runs?token=${encodeURIComponent(token)}`,
       {
@@ -1371,6 +1386,7 @@ Deno.serve(async (req) => {
     );
     if (!startRes.ok) {
       const txt = await startRes.text().catch(() => "");
+      await recordApifySpend(immoEstCost * 0.1); // partial charge for failed start
       return json({ ok: false, error: "apify_start_failed", status: startRes.status, body: txt.slice(0, 300) }, 502);
     }
     const sj = await startRes.json();
@@ -1379,8 +1395,11 @@ Deno.serve(async (req) => {
     const status = sj?.data?.status as string | undefined;
     const startedAt = sj?.data?.startedAt as string | undefined;
     if (!runId || !datasetId) {
+      await recordApifySpend(immoEstCost * 0.1);
       return json({ ok: false, error: "apify_response_missing_ids", raw: sj }, 502);
     }
+    // Record estimated spend (actual reconciled later via /actor-runs/<id> usage info).
+    await recordApifySpend(immoEstCost);
 
     const { data: ins, error: insErr } = await sb.from("test_padova_full_run")
       .insert({
@@ -1454,8 +1473,22 @@ Deno.serve(async (req) => {
     const subitoOnlyPrivate = body.subito_only_private !== false; // default true
 
     let subitoOut: Record<string, unknown> = { ok: false };
+    let subitoEstCost = 0;
     if (skipSubito) {
       subitoOut = { ok: true, skipped: true, reason: "subito già avviato in chiamata precedente", run_id: prog.subito_run_id, dataset_id: prog.subito_dataset_id };
+    } else {
+    // Apify cap guard
+    subitoEstCost = Number(body.subito_est_cost_usd ?? (subitoMaxItems >= 1000 ? 1.5 : 0.6));
+    const sb_budget = await canSpendApify(subitoEstCost);
+    if (!sb_budget.ok) {
+      console.warn(`[start_subito_casa] apify_cap_reached spent=$${sb_budget.spent.toFixed(2)} cap=$${sb_budget.cap} est=$${subitoEstCost}`);
+      subitoOut = {
+        ok: false, error: "apify_cap_reached",
+        speso_oggi: Number(sb_budget.spent.toFixed(3)),
+        cap: sb_budget.cap,
+        est_cost_usd: subitoEstCost,
+        actor: subitoActor,
+      };
     } else {
     try {
       // CORRECT input: startUrls as STRING[], maxResultItems (not maxItems), onlyPrivate
@@ -1514,6 +1547,11 @@ Deno.serve(async (req) => {
     } catch (e) {
       subitoOut = { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
+    // Record Apify spend (full est on ok, partial 10% on failure to start)
+    if (subitoEstCost > 0) {
+      await recordApifySpend((subitoOut as any).ok ? subitoEstCost : subitoEstCost * 0.1);
+    }
+    } // end budget ok
     } // end !skipSubito
 
     // ── 2) CASA.IT via Firecrawl (start crawl, fire-and-forget) ──
