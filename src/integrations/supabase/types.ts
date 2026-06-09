@@ -5623,6 +5623,7 @@ export type Database = {
           omi_zone: string
         }[]
       }
+      tick_padova_firecrawl_collect: { Args: never; Returns: undefined }
       vault_create_secret_if_missing: {
         Args: { p_name: string; p_value: string }
         Returns: Json
