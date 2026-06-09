@@ -499,18 +499,28 @@ Deno.serve(async (req) => {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    let processed = 0;
-    let remaining = -1;
-    try {
-      const r = await processBatch(jobId, n);
-      processed = r.processed;
-      remaining = r.remaining;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      await c.from("padova_firecrawl_jobs")
-        .update({ last_error: msg.slice(0, 500), updated_at: new Date().toISOString() })
-        .eq("job_id", jobId);
-    }
+
+    // Run mini-batches in background; respond immediately so client doesn't time out.
+    const runWork = async () => {
+      const deadline = Date.now() + 380_000; // ~6.3 min CPU budget
+      let done = 0;
+      while (done < n && Date.now() < deadline) {
+        try {
+          const r = await processBatch(jobId, Math.min(60, n - done));
+          done += r.processed;
+          if (r.processed === 0) break; // nothing left
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          await c.from("padova_firecrawl_jobs")
+            .update({ last_error: msg.slice(0, 500), updated_at: new Date().toISOString() })
+            .eq("job_id", jobId);
+          break;
+        }
+      }
+    };
+    // @ts-ignore EdgeRuntime
+    EdgeRuntime.waitUntil(runWork());
+
 
     // count truly remaining (mq IS NULL)
     const { count: leftCount } = await c
