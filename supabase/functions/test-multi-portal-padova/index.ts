@@ -1473,8 +1473,22 @@ Deno.serve(async (req) => {
     const subitoOnlyPrivate = body.subito_only_private !== false; // default true
 
     let subitoOut: Record<string, unknown> = { ok: false };
+    let subitoEstCost = 0;
     if (skipSubito) {
       subitoOut = { ok: true, skipped: true, reason: "subito già avviato in chiamata precedente", run_id: prog.subito_run_id, dataset_id: prog.subito_dataset_id };
+    } else {
+    // Apify cap guard
+    subitoEstCost = Number(body.subito_est_cost_usd ?? (subitoMaxItems >= 1000 ? 1.5 : 0.6));
+    const sb_budget = await canSpendApify(subitoEstCost);
+    if (!sb_budget.ok) {
+      console.warn(`[start_subito_casa] apify_cap_reached spent=$${sb_budget.spent.toFixed(2)} cap=$${sb_budget.cap} est=$${subitoEstCost}`);
+      subitoOut = {
+        ok: false, error: "apify_cap_reached",
+        speso_oggi: Number(sb_budget.spent.toFixed(3)),
+        cap: sb_budget.cap,
+        est_cost_usd: subitoEstCost,
+        actor: subitoActor,
+      };
     } else {
     try {
       // CORRECT input: startUrls as STRING[], maxResultItems (not maxItems), onlyPrivate
