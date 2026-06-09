@@ -112,13 +112,28 @@ Deno.serve(async (req) => {
 
       case "zone-quartieri": {
         const r = await callInternal("civiko-radar-veneto", "/zone-quartieri", payload, debugId);
-        return respond(req, r.status, r.body, debugId);
+        if (r.status < 200 || r.status >= 300) {
+          return respond(req, 502, {
+            ok: false,
+            error: { code: "UPSTREAM_ERROR", message: "civiko-radar-veneto/zone-quartieri failed", upstream_status: r.status, upstream_body: r.body },
+            debug_id: debugId,
+          }, debugId);
+        }
+        return respond(req, 200, r.body, debugId);
       }
 
       case "lead-quartiere": {
         const r = await callInternal("civiko-radar-veneto", "/lead-quartiere", payload, debugId);
-        return respond(req, r.status, r.body, debugId);
+        if (r.status < 200 || r.status >= 300) {
+          return respond(req, 502, {
+            ok: false,
+            error: { code: "UPSTREAM_ERROR", message: "civiko-radar-veneto/lead-quartiere failed", upstream_status: r.status, upstream_body: r.body },
+            debug_id: debugId,
+          }, debugId);
+        }
+        return respond(req, 200, r.body, debugId);
       }
+
 
       default:
         return failEnv(req, 400, "UNKNOWN_ACTION", `Action '${action}' not supported`, debugId);
