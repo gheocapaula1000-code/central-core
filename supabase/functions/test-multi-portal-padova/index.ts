@@ -1359,6 +1359,20 @@ Deno.serve(async (req) => {
     const ideReuseDataset = String(body.ide_reuse_dataset ?? "obzXbDsh8zeIQJYry");
     const ideReuseCost = Number(body.ide_reuse_cost_usd ?? 1.707);
 
+    // Apify cap guard (shared $8/day cap). Conservative estimate for immobiliare full run.
+    const immoEstCost = Number(body.immo_est_cost_usd ?? (maxItems >= 1000 ? 2.5 : 1.0));
+    const budget = await canSpendApify(immoEstCost);
+    if (!budget.ok) {
+      console.warn(`[start] apify_cap_reached spent=$${budget.spent.toFixed(2)} cap=$${budget.cap} est=$${immoEstCost}`);
+      return json({
+        ok: false, error: "apify_cap_reached",
+        speso_oggi: Number(budget.spent.toFixed(3)),
+        cap: budget.cap,
+        est_cost_usd: immoEstCost,
+        actor: immoActor,
+      }, 429);
+    }
+
     const startRes = await fetch(
       `https://api.apify.com/v2/acts/${encodeURIComponent(immoActor)}/runs?token=${encodeURIComponent(token)}`,
       {
@@ -1372,6 +1386,7 @@ Deno.serve(async (req) => {
     );
     if (!startRes.ok) {
       const txt = await startRes.text().catch(() => "");
+      await recordApifySpend(immoEstCost * 0.1); // partial charge for failed start
       return json({ ok: false, error: "apify_start_failed", status: startRes.status, body: txt.slice(0, 300) }, 502);
     }
     const sj = await startRes.json();
