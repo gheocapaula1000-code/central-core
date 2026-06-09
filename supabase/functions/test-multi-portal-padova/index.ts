@@ -1929,8 +1929,47 @@ Deno.serve(async (req) => {
               }
             }
           }
-          return { ...it, quartiere, omi_code: omiCode, prezzo_divergente, tipo_lead, contendibile: isContendibile, first_seen_at: firstSeenIso ?? null, bucket, bucket_comune, cluster_key: itemToClusterKey.get(it) ?? null };
+          const _cluster = itemToCluster.get(it);
+          const n_agenzie = _cluster ? _cluster.agencies.size : (it.agency ? 1 : 0);
+          return { ...it, quartiere, omi_code: omiCode, prezzo_divergente, tipo_lead, contendibile: isContendibile, first_seen_at: firstSeenIso ?? null, bucket, bucket_comune, cluster_key: itemToClusterKey.get(it) ?? null, n_agenzie };
         });
+
+        // ── PERSIST per-listing rows in padova_collect_v2_items ──
+        // Policy: ultima fotografia. Cancello prima tutto (tabella Padova-only), poi insert a batch da 500.
+        try {
+          const { error: delErr } = await sb.from("padova_collect_v2_items").delete().neq("id", 0);
+          if (delErr) console.warn(`[collect_v2] persist delete warn: ${delErr.message}`);
+        } catch (e) { console.warn(`[collect_v2] persist delete exception: ${e instanceof Error ? e.message : String(e)}`); }
+        let persistedTotal = 0;
+        const PERSIST_BATCH = 500;
+        for (let i = 0; i < enriched.length; i += PERSIST_BATCH) {
+          const slice = enriched.slice(i, i + PERSIST_BATCH).map((e) => {
+            const listingId = e.url ? (e.url.match(/(\d{5,})/)?.[1] ?? null) : null;
+            return {
+              job_id: jobId,
+              portal: e.portal,
+              listing_id: listingId,
+              url: e.url ?? null,
+              raw_address: e.address ?? null,
+              citta: e.bucket === "padova_citta" ? "Padova" : (e.bucket_comune ?? null),
+              cap: e.cap ?? null,
+              lat: e.lat ?? null,
+              lng: e.lng ?? null,
+              omi_zone: e.omi_code ?? null,
+              quartiere: e.quartiere ?? null,
+              tipo_lead: e.tipo_lead ?? null,
+              n_agenzie: (e as any).n_agenzie ?? null,
+              prezzo: e.price ?? null,
+              prezzo_iniziale: null,
+            };
+          });
+          const { error: insErr } = await sb.from("padova_collect_v2_items").insert(slice);
+          if (insErr) { console.warn(`[collect_v2] persist insert error offset=${i}: ${insErr.message}`); }
+          else { persistedTotal += slice.length; }
+        }
+        await sb.from("test_padova_full_run").update({
+          progress: { ...prog, v2_phase: "persisted", v2_persisted_rows: persistedTotal, v2_ts: new Date().toISOString() },
+        }).eq("id", jobId);
 
         // ───── VISTA 1: PADOVA CITTÀ ─────
         const padovaCitta = enriched.filter((e) => e.bucket === "padova_citta");
