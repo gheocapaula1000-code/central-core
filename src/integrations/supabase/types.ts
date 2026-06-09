@@ -4175,6 +4175,66 @@ export type Database = {
         }
         Relationships: []
       }
+      padova_collect_v2_items: {
+        Row: {
+          cap: string | null
+          citta: string | null
+          created_at: string
+          id: number
+          job_id: string
+          lat: number | null
+          listing_id: string | null
+          lng: number | null
+          n_agenzie: number | null
+          omi_zone: string | null
+          portal: string
+          prezzo: number | null
+          prezzo_iniziale: number | null
+          quartiere: string | null
+          raw_address: string | null
+          tipo_lead: string | null
+          url: string | null
+        }
+        Insert: {
+          cap?: string | null
+          citta?: string | null
+          created_at?: string
+          id?: number
+          job_id: string
+          lat?: number | null
+          listing_id?: string | null
+          lng?: number | null
+          n_agenzie?: number | null
+          omi_zone?: string | null
+          portal: string
+          prezzo?: number | null
+          prezzo_iniziale?: number | null
+          quartiere?: string | null
+          raw_address?: string | null
+          tipo_lead?: string | null
+          url?: string | null
+        }
+        Update: {
+          cap?: string | null
+          citta?: string | null
+          created_at?: string
+          id?: number
+          job_id?: string
+          lat?: number | null
+          listing_id?: string | null
+          lng?: number | null
+          n_agenzie?: number | null
+          omi_zone?: string | null
+          portal?: string
+          prezzo?: number | null
+          prezzo_iniziale?: number | null
+          quartiere?: string | null
+          raw_address?: string | null
+          tipo_lead?: string | null
+          url?: string | null
+        }
+        Relationships: []
+      }
       padova_elderly_population: {
         Row: {
           area_code: string | null
