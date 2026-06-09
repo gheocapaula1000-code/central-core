@@ -1547,6 +1547,11 @@ Deno.serve(async (req) => {
     } catch (e) {
       subitoOut = { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
+    // Record Apify spend (full est on ok, partial 10% on failure to start)
+    if (subitoEstCost > 0) {
+      await recordApifySpend((subitoOut as any).ok ? subitoEstCost : subitoEstCost * 0.1);
+    }
+    } // end budget ok
     } // end !skipSubito
 
     // ── 2) CASA.IT via Firecrawl (start crawl, fire-and-forget) ──
