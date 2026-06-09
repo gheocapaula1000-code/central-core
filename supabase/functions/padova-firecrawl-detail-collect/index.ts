@@ -529,11 +529,33 @@ Deno.serve(async (req) => {
   if (action === "run_batch") {
     const jobId = String(body?.job_id ?? "");
     const n = Math.min(Math.max(Number(body?.n ?? 600), 10), 1500);
+    const SPEND_CAP_USD = Number(body?.spend_cap_usd ?? 15);
     if (!jobId) {
       return new Response(JSON.stringify({ ok: false, error: "job_id_required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // GUARDS: spend cap + concurrency
+    const { data: pre } = await c.from("padova_firecrawl_jobs").select("*").eq("job_id", jobId).maybeSingle();
+    const spent = Number(pre?.spesa_firecrawl_usd ?? 0);
+    if (spent >= SPEND_CAP_USD) {
+      await c.from("padova_firecrawl_jobs")
+        .update({ status: "stopped_spend_cap", last_error: `spend_cap_reached_${spent}`, updated_at: new Date().toISOString() })
+        .eq("job_id", jobId);
+      return new Response(JSON.stringify({ ok: false, skipped: "spend_cap", spesa_firecrawl_usd: spent, cap: SPEND_CAP_USD }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const lastUpd = pre?.updated_at ? new Date(pre.updated_at as string).getTime() : 0;
+    if (Date.now() - lastUpd < 90_000 && pre?.status === "running") {
+      return new Response(JSON.stringify({ ok: true, skipped: "another_batch_in_progress", last_update_age_ms: Date.now() - lastUpd }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    await c.from("padova_firecrawl_jobs")
+      .update({ status: "running", updated_at: new Date().toISOString() })
+      .eq("job_id", jobId);
 
     // Run mini-batches in background; respond immediately so client doesn't time out.
     const runWork = async () => {
@@ -541,6 +563,8 @@ Deno.serve(async (req) => {
       let done = 0;
       while (done < n && Date.now() < deadline) {
         try {
+          const { data: liveJob } = await c.from("padova_firecrawl_jobs").select("spesa_firecrawl_usd").eq("job_id", jobId).maybeSingle();
+          if (Number(liveJob?.spesa_firecrawl_usd ?? 0) >= SPEND_CAP_USD) break;
           const r = await processBatch(jobId, Math.min(60, n - done));
           done += r.processed;
           if (r.processed === 0) break; // nothing left
