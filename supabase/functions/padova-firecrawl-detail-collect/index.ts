@@ -557,13 +557,15 @@ Deno.serve(async (req) => {
     EdgeRuntime.waitUntil(runWork());
 
 
-    // count truly remaining (mq IS NULL)
+    // count truly unprocessed (mq IS NULL AND raw_json IS NULL)
     const { count: leftCount } = await c
       .from("padova_collect_v2_items")
       .select("id", { count: "exact", head: true })
       .eq("job_id", SOURCE_JOB_ID)
       .is("mq", null)
+      .is("raw_json", null)
       .not("url", "is", null);
+
 
     const { data: cur } = await c.from("padova_firecrawl_jobs").select("*").eq("job_id", jobId).maybeSingle();
     const p = cur?.annunci_processati || 1;
