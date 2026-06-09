@@ -12,8 +12,42 @@
 // Salvataggio a blocchi: aggiorna ogni riga subito; batch da BATCH per invocation.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { fcScrape } from "../civiko-radar-veneto/firecrawl/firecrawlClient.ts";
 import { canSpendApify, recordApifySpend } from "../_shared/apifyBudget.ts";
+
+// inline fcScrape (no cross-function imports)
+async function fcScrape(
+  url: string,
+  opts: { timeoutMs?: number; formats?: string[] } = {},
+): Promise<{ ok: boolean; markdown?: string; html?: string; error?: string }> {
+  const key = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
+  if (!key) return { ok: false, error: "FIRECRAWL_API_KEY missing" };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 30_000);
+  try {
+    const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url,
+        formats: opts.formats ?? ["markdown", "html"],
+        onlyMainContent: false,
+      }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    const data = await res.json().catch(() => ({}));
+    const root = data?.data ?? data;
+    return {
+      ok: true,
+      markdown: typeof root?.markdown === "string" ? root.markdown.slice(0, 10000) : "",
+      html: typeof root?.html === "string" ? root.html.slice(0, 20000) : "",
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 import { getApifyToken } from "../_shared/apify.ts";
 
 const corsHeaders = {
