@@ -136,7 +136,8 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    if (status !== "SUCCEEDED") {
+    const isFinalWithData = status === "SUCCEEDED" || status === "TIMED-OUT";
+    if (!isFinalWithData) {
       await sb.from("padova_apify_runs").update({ status, cost_usd: cost }).eq("id", r.id);
       out.push({ portal, run_id: runId, status, cost_usd: cost });
       continue;
@@ -146,7 +147,8 @@ Deno.serve(async (req) => {
     if ((r.imported as number) > 0) {
       // già processata; ritorna sommario senza re-import
     } else if (datasetId) {
-      const items = await fetchDataset(datasetId, token, portal === "idealista" ? 5000 : 50);
+      const bigPortals = portal === "idealista" || portal === "casa_full" || portal === "subito_full";
+      const items = await fetchDataset(datasetId, token, bigPortals ? 5000 : 50);
 
       if (portal === "idealista") {
         const rows = items.map(parseIdealista);
