@@ -31,6 +31,9 @@ const ROUTE_MAP: Record<string, string> = {
   "civiko/places-padova":                "civiko-places-padova",
   "civiko/dossier-padova":               "civiko-dossier-padova",
   "civiko/dossier-pdf":                  "civiko-dossier-pdf",
+  // ── Padova contendibili ──
+  "padova-contendibili-list":            "padova-contendibili-list",
+  "padova-quartieri-stats":              "padova-quartieri-stats",
   // ── Diagnostica ──
   "health":                              "health",
   "core-status":                         "core-status",
