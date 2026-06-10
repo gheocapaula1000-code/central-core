@@ -190,6 +190,16 @@ Deno.serve(async (req) => {
           status, cost_usd: cost, items_count: items.length, imported: rows.length,
           finished_at: new Date().toISOString(),
         }).eq("id", r.id);
+      } else if (portal === "subito_full") {
+        const rows = items.map((it) => ({ raw_json: it }));
+        for (let i = 0; i < rows.length; i += 500) {
+          const chunk = rows.slice(i, i + 500);
+          await sb.from("padova_subito_staging").insert(chunk);
+        }
+        await sb.from("padova_apify_runs").update({
+          status, cost_usd: cost, items_count: items.length, imported: rows.length,
+          finished_at: new Date().toISOString(),
+        }).eq("id", r.id);
       }
     }
 
