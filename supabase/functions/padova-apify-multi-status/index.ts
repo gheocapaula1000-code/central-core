@@ -52,9 +52,11 @@ function parseIdealista(it: Record<string, unknown>) {
   const contact = (it.contactInfo ?? {}) as Record<string, unknown>;
   const more = (it.moreCharacteristics ?? {}) as Record<string, unknown>;
   const ubi = (it.ubication ?? {}) as Record<string, unknown>;
+  const pid = it.propertyId ?? it.adid;
+  const urlFinal = (it.originalUrl as string) ?? (it.detailWebLink as string) ?? (it.link as string) ?? (pid ? `https://www.idealista.it/immobile/${pid}/` : null);
   const professional = contact.professional;
   return {
-    url: (it.url as string) ?? null,
+    url: urlFinal,
     agency: (contact.commercialName as string) ?? null,
     tipo_lead: professional === false ? "PRIVATO" : (professional === true ? "AGENZIA" : null),
     mq: num(more.constructedArea),
