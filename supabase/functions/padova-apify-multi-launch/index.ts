@@ -159,6 +159,18 @@ Deno.serve(async (req) => {
     });
   }
 
+  if (body.subito_full) {
+    specs.push({
+      portal: "subito_full",
+      actor_id: "azzouzana/subito-scraper-pro-by-search-url",
+      cost_cap_usd: body.subito_full.cost_cap_usd ?? 1.00,
+      input: {
+        searchUrl: body.subito_full.search_url ?? "https://www.subito.it/annunci-padova/vendita/immobili/padova/",
+        maxItems: body.subito_full.max_items ?? 1000,
+      },
+    });
+  }
+
 
 
   if (specs.length === 0) {
