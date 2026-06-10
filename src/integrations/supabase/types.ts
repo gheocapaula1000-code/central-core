@@ -5971,6 +5971,7 @@ export type Database = {
         Args: { p_body?: Json; p_job_name: string; p_url: string }
         Returns: number
       }
+      norm_agency: { Args: { p: string }; Returns: string }
       norm_via: { Args: { p: string }; Returns: string }
       omi_zone_by_point: {
         Args: { p_lat: number; p_lng: number }
