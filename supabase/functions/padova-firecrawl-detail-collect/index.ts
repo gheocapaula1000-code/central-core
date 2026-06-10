@@ -523,6 +523,7 @@ async function processBatch(
     .select("id", { count: "exact", head: true })
     .eq("job_id", SOURCE_JOB_ID)
     .not("url", "is", null)
+    .lt("attempts", 2)
     .or("processed_at.is.null,parse_status.in.(failed_processed_unknown,error)");
 
   return { remaining: remainingCount ?? 0, processed: rows.length, outcomes, latlng: cov.latlng };
