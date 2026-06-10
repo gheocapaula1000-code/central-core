@@ -4541,6 +4541,57 @@ export type Database = {
         }
         Relationships: []
       }
+      padova_immobiliare_detail_staging: {
+        Row: {
+          agency: string | null
+          bagni: number | null
+          fetched_at: string
+          id: number
+          indirizzo: string | null
+          lat: number | null
+          lng: number | null
+          locali: number | null
+          mq: number | null
+          prezzo: number | null
+          raw_json: Json | null
+          run_id: string | null
+          tipo_lead: string | null
+          url: string | null
+        }
+        Insert: {
+          agency?: string | null
+          bagni?: number | null
+          fetched_at?: string
+          id?: number
+          indirizzo?: string | null
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          prezzo?: number | null
+          raw_json?: Json | null
+          run_id?: string | null
+          tipo_lead?: string | null
+          url?: string | null
+        }
+        Update: {
+          agency?: string | null
+          bagni?: number | null
+          fetched_at?: string
+          id?: number
+          indirizzo?: string | null
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          prezzo?: number | null
+          raw_json?: Json | null
+          run_id?: string | null
+          tipo_lead?: string | null
+          url?: string | null
+        }
+        Relationships: []
+      }
       padova_listings: {
         Row: {
           agency: string | null
