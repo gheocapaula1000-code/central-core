@@ -4556,6 +4556,7 @@ export type Database = {
           prezzo: number | null
           quartiere: string | null
           raw_json: Json | null
+          tag_legacy: string | null
           telefono: string | null
           tipo_lead: string | null
           url: string | null
@@ -4574,6 +4575,7 @@ export type Database = {
           prezzo?: number | null
           quartiere?: string | null
           raw_json?: Json | null
+          tag_legacy?: string | null
           telefono?: string | null
           tipo_lead?: string | null
           url?: string | null
@@ -4592,6 +4594,7 @@ export type Database = {
           prezzo?: number | null
           quartiere?: string | null
           raw_json?: Json | null
+          tag_legacy?: string | null
           telefono?: string | null
           tipo_lead?: string | null
           url?: string | null
