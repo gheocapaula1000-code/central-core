@@ -613,13 +613,13 @@ Deno.serve(async (req) => {
 
     const [totRes, notYetRes, processedRes, doneOkRes, dead404Res, emptyRes, errorRes, failedUnkRes] = await Promise.all([
       baseFilter(),
-      baseFilter().is("raw_json", null),
-      baseFilter().not("raw_json", "is", null),
-      baseFilter().not("mq", "is", null),
-      baseFilter().filter("raw_json->>parse_status", "eq", "dead_404"),
-      baseFilter().filter("raw_json->>parse_status", "eq", "empty_parse"),
-      baseFilter().filter("raw_json->>parse_status", "eq", "error"),
-      baseFilter().or("raw_json->>parse_status.eq.failed_processed_unknown,raw_json->>error.eq.scrape_failed").is("mq", null),
+      baseFilter().is("processed_at", null),
+      baseFilter().not("processed_at", "is", null),
+      baseFilter().eq("parse_status", "done_ok"),
+      baseFilter().eq("parse_status", "dead_404"),
+      baseFilter().eq("parse_status", "empty_parse"),
+      baseFilter().eq("parse_status", "error"),
+      baseFilter().eq("parse_status", "failed_processed_unknown"),
     ]);
 
     const job = await c.from("padova_firecrawl_jobs").select("*").eq("job_id", jobId).maybeSingle();
@@ -640,6 +640,58 @@ Deno.serve(async (req) => {
       spesa_firecrawl_usd: Number(jobData?.spesa_firecrawl_usd ?? 0),
       spesa_apify_usd: Number(jobData?.spesa_apify_usd ?? 0),
       updated_at: jobData?.updated_at ?? null,
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
+  if (action === "run_one_batch") {
+    const jobId = String(body?.job_id ?? JOB_ID_DEFAULT);
+
+    const { data: existing } = await c.from("padova_firecrawl_jobs").select("*").eq("job_id", jobId).maybeSingle();
+    if (!existing) {
+      await c.from("padova_firecrawl_jobs").insert({
+        job_id: jobId,
+        status: "running",
+        source_job_id: SOURCE_JOB_ID,
+        annunci_totali: 0,
+      });
+    } else if (existing.status !== "running") {
+      await c.from("padova_firecrawl_jobs")
+        .update({ status: "running", updated_at: new Date().toISOString() })
+        .eq("job_id", jobId);
+    }
+
+    let result: { remaining: number; processed: number; outcomes: BatchOutcomes; latlng: number };
+    try {
+      result = await processBatch(jobId, 40);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      await c.from("padova_firecrawl_jobs")
+        .update({ status: "running", last_error: msg.slice(0, 500), updated_at: new Date().toISOString() })
+        .eq("job_id", jobId);
+      return new Response(JSON.stringify({ ok: false, processate: 0, rimaste: null, error: msg.slice(0, 500) }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    let cronAutoSpento = false;
+    if (result.remaining === 0) {
+      const { data: unscheduled } = await c.rpc("unschedule_padova_detail_chain");
+      cronAutoSpento = Boolean(unscheduled);
+      await c.from("padova_firecrawl_jobs")
+        .update({ status: "done", finished_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq("job_id", jobId);
+    }
+
+    return new Response(JSON.stringify({
+      ok: true,
+      job_id: jobId,
+      processate: result.processed,
+      rimaste: result.remaining,
+      esiti_batch: result.outcomes,
+      lat_lng_recuperati_nel_batch: result.latlng,
+      cron_auto_spento: cronAutoSpento,
+      stato: result.remaining === 0 ? "done" : "running",
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
@@ -695,7 +747,7 @@ Deno.serve(async (req) => {
 
     // Process ONE batch synchronously
     let processed = 0;
-    const outcomes: BatchOutcomes = { done_ok: 0, dead_404: 0, timeout: 0, anti_bot: 0, empty_parse: 0, network_error: 0 };
+    const outcomes: BatchOutcomes = { done_ok: 0, dead_404: 0, timeout: 0, anti_bot: 0, empty_parse: 0, network_error: 0, error: 0 };
     let writeError: string | null = null;
     try {
       const r = await processBatch(jobId, BATCH_SIZE);
@@ -839,7 +891,7 @@ Deno.serve(async (req) => {
       .eq("job_id", jobId);
 
     // Run mini-batches SYNCHRONOUSLY (so we can return per-reason outcomes)
-    const totals: BatchOutcomes = { done_ok: 0, dead_404: 0, timeout: 0, anti_bot: 0, empty_parse: 0, network_error: 0 };
+    const totals: BatchOutcomes = { done_ok: 0, dead_404: 0, timeout: 0, anti_bot: 0, empty_parse: 0, network_error: 0, error: 0 };
     let totalProcessed = 0;
     let totalLatLng = 0;
     const deadline = Date.now() + 300_000; // 5 min hard deadline
