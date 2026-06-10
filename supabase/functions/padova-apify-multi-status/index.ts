@@ -241,6 +241,59 @@ Deno.serve(async (req) => {
         items_received: arr.length, target: 5,
         raw_samples: arr.map((x) => x.raw_json),
       });
+    } else if (portal === "casa_full") {
+      const { count } = await sb
+        .from("padova_casa_staging")
+        .select("*", { count: "exact", head: true });
+      const { data: stg } = await sb
+        .from("padova_casa_staging")
+        .select("raw_json")
+        .order("id", { ascending: false })
+        .limit(3);
+      const arr = (stg ?? []) as Array<{ raw_json: Record<string, unknown> }>;
+      const summarize = (j: Record<string, unknown>) => {
+        const feat = (j.features ?? {}) as Record<string, unknown>;
+        const loc = (j.location ?? {}) as Record<string, unknown>;
+        const coords = (loc.coordinates ?? {}) as Record<string, unknown>;
+        const title = (j.title ?? {}) as Record<string, unknown>;
+        return {
+          publisherName: j.publisherName, publisherPhone: j.publisherPhone,
+          price: j.price, mq: feat.squareMeters, rooms: feat.rooms, bathrooms: feat.bathrooms,
+          lat: coords.lat, lon: coords.lon, city: loc.city,
+          propertyType: j.propertyType, title: title.main, url: j.url,
+        };
+      };
+      // Count quality across full staging
+      const { data: all } = await sb.from("padova_casa_staging").select("raw_json");
+      const allArr = (all ?? []) as Array<{ raw_json: Record<string, unknown> }>;
+      const withName = allArr.filter((x) => !!x.raw_json?.publisherName).length;
+      const withPhone = allArr.filter((x) => !!x.raw_json?.publisherPhone).length;
+      const withMq = allArr.filter((x) => !!((x.raw_json?.features as Record<string,unknown>)?.squareMeters)).length;
+      const withPrice = allArr.filter((x) => x.raw_json?.price != null).length;
+      const withCoord = allArr.filter((x) => {
+        const c = (x.raw_json?.location as Record<string,unknown>)?.coordinates as Record<string,unknown>;
+        return c?.lat != null && c?.lon != null;
+      }).length;
+      out.push({
+        portal, run_id: runId, status, cost_usd: cost, cost_cap_usd: costCap,
+        items_found_apify: run.stats?.inputBodyLen ? undefined : (run as Record<string, unknown>).itemCount,
+        items_in_staging: count ?? allArr.length,
+        with_publisherName: withName, with_publisherPhone: withPhone,
+        with_mq: withMq, with_price: withPrice, with_lat_lon: withCoord,
+        esempi: arr.map((x) => summarize(x.raw_json)),
+      });
+    } else if (portal === "subito2") {
+      const { data: stg } = await sb
+        .from("padova_subito_test2")
+        .select("raw_json")
+        .order("id", { ascending: false })
+        .limit(5);
+      const arr = (stg ?? []) as Array<{ raw_json: unknown }>;
+      out.push({
+        portal, run_id: runId, status, cost_usd: cost, cost_cap_usd: costCap,
+        items_received: arr.length, target: 5,
+        raw_samples: arr.map((x) => x.raw_json),
+      });
     }
   }
 
