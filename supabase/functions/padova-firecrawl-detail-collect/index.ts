@@ -397,7 +397,7 @@ async function processBatch(
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i] as { id: number; url: string; attempts: number };
     const res = results[i];
-    const nextAttempts = (r.attempts ?? 0) + 1;
+    const nextAttempts = r.attempts ?? 1; // already incremented by claim_padova_detail_batch
     outcomes[res.parseStatus] = (outcomes[res.parseStatus] ?? 0) + 1;
     const persistedStatus = storedStatus(res.parseStatus, nextAttempts);
     if (persistedStatus === "error" || persistedStatus === "dead_unrecoverable") outcomes.error++;
