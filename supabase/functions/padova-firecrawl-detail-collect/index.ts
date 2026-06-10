@@ -349,10 +349,12 @@ type BatchOutcomes = {
   error: number;
 };
 
-type StoredParseStatus = "done_ok" | "dead_404" | "empty_parse" | "error";
+type StoredParseStatus = "done_ok" | "dead_404" | "empty_parse" | "error" | "dead_unrecoverable";
 
-function storedStatus(status: ParseStatus): StoredParseStatus {
+function storedStatus(status: ParseStatus, nextAttempts: number): StoredParseStatus {
   if (status === "done_ok" || status === "dead_404" || status === "empty_parse") return status;
+  // error/timeout/anti_bot/network_error: dead_unrecoverable se attempts esauriti
+  if (nextAttempts >= 2) return "dead_unrecoverable";
   return "error";
 }
 
