@@ -136,7 +136,8 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    if (status !== "SUCCEEDED") {
+    const isFinalWithData = status === "SUCCEEDED" || status === "TIMED-OUT";
+    if (!isFinalWithData) {
       await sb.from("padova_apify_runs").update({ status, cost_usd: cost }).eq("id", r.id);
       out.push({ portal, run_id: runId, status, cost_usd: cost });
       continue;
