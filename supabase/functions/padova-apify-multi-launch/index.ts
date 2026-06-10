@@ -65,14 +65,43 @@ Deno.serve(async (req) => {
 
   const specs: Spec[] = [];
 
-  if (body.idealista?.url_list?.length) {
+  let idealistaUrls: string[] = body.idealista?.url_list ?? [];
+  let idealistaFromDbCount = 0;
+  if (body.idealista && (!idealistaUrls.length) && body.idealista.from_db) {
+    const cap = body.idealista.max_urls ?? 40;
+    const { data: rows } = await sb
+      .from("padova_collect_v2_items")
+      .select("url")
+      .ilike("url", "%idealista.it%")
+      .ilike("url", "%/immobile/%")
+      .order("url", { ascending: true })
+      .limit(cap);
+    idealistaUrls = (rows ?? []).map((r: { url: string }) => r.url).filter(Boolean);
+    idealistaFromDbCount = idealistaUrls.length;
+  }
+
+  if (idealistaUrls.length) {
     specs.push({
       portal: "idealista",
       actor_id: "dz_omar/idealista-scraper-api",
-      cost_cap_usd: body.idealista.cost_cap_usd ?? 0.20,
+      cost_cap_usd: body.idealista?.cost_cap_usd ?? 0.20,
       input: {
-        Property_urls: body.idealista.url_list.map((u) => ({ url: u })),
-        desiredResults: body.idealista.url_list.length,
+        Property_urls: idealistaUrls.map((u) => ({ url: u })),
+        desiredResults: idealistaUrls.length,
+      },
+    });
+  }
+
+  if (body.casa?.search_url) {
+    specs.push({
+      portal: "casa",
+      actor_id: "skebby/casa-it-scraper",
+      cost_cap_usd: body.casa.cost_cap_usd ?? 0.05,
+      input: {
+        searchUrl: body.casa.search_url,
+        maxItems: body.casa.max_items ?? 5,
+        maxPages: 1,
+        proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"], apifyProxyCountry: "IT" },
       },
     });
   }
