@@ -6,7 +6,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
-export const APIFY_DAILY_CAP_USD = Number(Deno.env.get("APIFY_DAILY_CAP_USD") ?? "8");
+export const APIFY_DAILY_CAP_USD = Number(Deno.env.get("APIFY_DAILY_CAP_USD") ?? "25");
 
 function sb() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
