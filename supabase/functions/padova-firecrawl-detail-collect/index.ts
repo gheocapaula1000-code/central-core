@@ -107,27 +107,37 @@ function extractFromContent(markdown: string, html: string): Record<string, unkn
     out._gone = true;
   }
 
-  // JSON-LD blocks (schema.org)
+  // JSON-LD blocks (schema.org) — walk @graph recursively
   try {
     const ldBlocks = html.match(/<script[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi) ?? [];
+    const walk = (it: Record<string, unknown> | null | undefined) => {
+      if (!it || typeof it !== "object") return;
+      const fs = (it as { floorSize?: { value?: unknown } | unknown }).floorSize as { value?: unknown } | unknown;
+      const fsv = (fs && typeof fs === "object" && "value" in (fs as Record<string, unknown>)) ? (fs as { value?: unknown }).value : fs;
+      if (fsv && !out.mq) out.mq = intOnly(String(fsv));
+      const nr = (it as Record<string, unknown>).numberOfRooms ?? (it as Record<string, unknown>).numberOfRoomsTotal;
+      if (nr && !out.locali) out.locali = intOnly(String(nr));
+      const nb = (it as Record<string, unknown>).numberOfBathroomsTotal ?? (it as Record<string, unknown>).numberOfBathrooms;
+      if (nb && !out.bagni) out.bagni = intOnly(String(nb));
+      const ag = (it as { realEstateAgent?: { name?: string }; provider?: { name?: string }; seller?: { name?: string } });
+      const agName = ag?.realEstateAgent?.name ?? ag?.provider?.name ?? ag?.seller?.name;
+      if (agName && !out.agency) out.agency = clean(String(agName)).slice(0, 120);
+      const geo = (it as { geo?: { latitude?: unknown; longitude?: unknown }; address?: { geo?: { latitude?: unknown; longitude?: unknown } } });
+      const lat = geo?.geo?.latitude ?? geo?.address?.geo?.latitude;
+      const lng = geo?.geo?.longitude ?? geo?.address?.geo?.longitude;
+      if (lat != null && lng != null && !out.lat) {
+        const la = Number(lat), lo = Number(lng);
+        if (Number.isFinite(la) && Number.isFinite(lo)) { out.lat = la; out.lng = lo; }
+      }
+      const graph = (it as { ["@graph"]?: unknown[] })["@graph"];
+      if (Array.isArray(graph)) for (const g of graph) walk(g as Record<string, unknown>);
+    };
     for (const block of ldBlocks) {
       const inner = block.replace(/^[\s\S]*?>/, "").replace(/<\/script>\s*$/i, "");
       try {
         const obj = JSON.parse(inner);
         const items = Array.isArray(obj) ? obj : [obj];
-        for (const it of items) {
-          const fs = it?.floorSize?.value ?? it?.floorSize;
-          if (fs && !out.mq) out.mq = intOnly(String(fs));
-          const nr = it?.numberOfRooms ?? it?.numberOfRoomsTotal;
-          if (nr && !out.locali) out.locali = intOnly(String(nr));
-          const nb = it?.numberOfBathroomsTotal ?? it?.numberOfBathrooms;
-          if (nb && !out.bagni) out.bagni = intOnly(String(nb));
-          const ag = it?.realEstateAgent?.name ?? it?.provider?.name ?? it?.seller?.name;
-          if (ag && !out.agency) out.agency = clean(String(ag)).slice(0, 120);
-          const lat = it?.geo?.latitude ?? it?.address?.geo?.latitude;
-          const lng = it?.geo?.longitude ?? it?.address?.geo?.longitude;
-          if (lat && lng && !out.lat) { out.lat = Number(lat); out.lng = Number(lng); }
-        }
+        for (const it of items) walk(it as Record<string, unknown>);
       } catch { /* skip block */ }
     }
   } catch { /* ignore */ }
@@ -181,9 +191,22 @@ function extractFromContent(markdown: string, html: string): Record<string, unkn
   }
 
   if (!out.lat) {
-    const llM = html.match(/"latitude"\s*:\s*"?(-?\d+\.\d+)"?[\s\S]{0,80}?"longitude"\s*:\s*"?(-?\d+\.\d+)"?/)
-             ?? html.match(/"lat"\s*:\s*(-?\d+\.\d+)[\s\S]{0,80}?"l[no]g(?:itude)?"\s*:\s*(-?\d+\.\d+)/i);
-    if (llM) { out.lat = Number(llM[1]); out.lng = Number(llM[2]); }
+    const blob = html + "\n" + markdown;
+    const tries: Array<RegExpMatchArray | null> = [
+      blob.match(/"latitude"\s*:\s*"?(-?\d+\.\d{3,})"?[\s\S]{0,120}?"longitude"\s*:\s*"?(-?\d+\.\d{3,})"?/i),
+      blob.match(/"lat"\s*:\s*"?(-?\d+\.\d{3,})"?[\s\S]{0,120}?"l(?:o?n|ng)g?(?:itude)?"\s*:\s*"?(-?\d+\.\d{3,})"?/i),
+      blob.match(/lat[=:]\s*(-?\d+\.\d{3,})[\s\S]{0,40}?l(?:o?n|ng)g?[=:]\s*(-?\d+\.\d{3,})/i),
+      blob.match(/data-lat(?:itude)?\s*=\s*"(-?\d+\.\d{3,})"[\s\S]{0,200}?data-l(?:o?n|ng)g?(?:itude)?\s*=\s*"(-?\d+\.\d{3,})"/i),
+      blob.match(/@(-?\d+\.\d{4,}),(-?\d+\.\d{4,})/), // google maps style
+    ];
+    for (const m of tries) {
+      if (m) {
+        const la = Number(m[1]), lo = Number(m[2]);
+        if (Number.isFinite(la) && Number.isFinite(lo) && la > 35 && la < 48 && lo > 6 && lo < 19) {
+          out.lat = la; out.lng = lo; break;
+        }
+      }
+    }
   }
 
   return out;
@@ -452,9 +475,12 @@ async function processBatch(
   return { remaining: rows.length >= batchSize ? -1 : 0, processed: rows.length, outcomes, latlng: cov.latlng };
 }
 
-async function selfInvoke(jobId: string) {
+async function selfInvoke(jobId: string, action: "process" | "run_full" = "process") {
   const gatewayKey = SB_ANON_KEY || SB_KEY;
   try {
+    const body = action === "run_full"
+      ? { action: "run_full", job_id: jobId, _chain: true, _internal_token: INTERNAL_TOKEN }
+      : { action: "process", job_id: jobId, _internal_token: INTERNAL_TOKEN };
     const res = await fetch(FN_URL, {
       method: "POST",
       headers: {
@@ -463,7 +489,7 @@ async function selfInvoke(jobId: string) {
         "apikey": gatewayKey,
         "x-internal-secret": INTERNAL_TOKEN,
       },
-      body: JSON.stringify({ action: "process", job_id: jobId, _internal_token: INTERNAL_TOKEN }),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(10_000),
     });
     const text = await res.text().catch(() => "");
@@ -472,6 +498,9 @@ async function selfInvoke(jobId: string) {
     console.warn("selfInvoke error:", String(e));
   }
 }
+
+const JOB_ID_DEFAULT = "01a1368e-d0b1-4b85-8778-f197891efe1a";
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // ───────────────────────── handler ──────────────────────────
 Deno.serve(async (req) => {
@@ -521,42 +550,152 @@ Deno.serve(async (req) => {
   }
 
   if (action === "status") {
-    const jobId = String(body?.job_id ?? "");
-    const { data } = await c.from("padova_firecrawl_jobs").select("*").eq("job_id", jobId).maybeSingle();
-    if (!data) {
-      return new Response(JSON.stringify({ ok: false, error: "job_not_found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    const p = data.annunci_processati || 1;
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        job_id: data.job_id,
-        annunci_totali: data.annunci_totali,
-        annunci_processati: data.annunci_processati,
-        annunci_ok: data.annunci_ok,
-        annunci_fail: data.annunci_fail,
-        fallback_apify_usati: data.fallback_apify_usati,
-        spesa_firecrawl_usd: Number(data.spesa_firecrawl_usd),
-        spesa_apify_usd: Number(data.spesa_apify_usd),
-        copertura_campi_percentuale: {
-          mq: Math.round((data.cov_mq / p) * 100),
-          locali: Math.round((data.cov_locali / p) * 100),
-          piano: Math.round((data.cov_piano / p) * 100),
-          bagni: Math.round((data.cov_bagni / p) * 100),
-          civico: Math.round((data.cov_civico / p) * 100),
-          agency: Math.round((data.cov_agency / p) * 100),
-          tipologia: Math.round((data.cov_tipologia / p) * 100),
-          lat_lng: Math.round((data.cov_latlng / p) * 100),
-        },
-        stato: data.status,
-        updated_at: data.updated_at,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    const jobId = String(body?.job_id ?? JOB_ID_DEFAULT);
+
+    // DB-grounded counters (source of truth)
+    const countWhere = async (
+      build: (q: ReturnType<typeof c.from> extends infer T ? T : never) => unknown,
+    ): Promise<number> => {
+      // helper unused — we inline below for typing simplicity
+      return 0;
+    };
+    void countWhere;
+
+    const baseFilter = () =>
+      c.from("padova_collect_v2_items").select("id", { count: "exact", head: true })
+        .eq("job_id", SOURCE_JOB_ID).not("url", "is", null);
+
+    const [totRes, notYetRes, processedRes, doneOkRes, dead404Res, emptyRes, errorRes, failedUnkRes] = await Promise.all([
+      baseFilter(),
+      baseFilter().is("raw_json", null),
+      baseFilter().not("raw_json", "is", null),
+      baseFilter().not("mq", "is", null),
+      baseFilter().filter("raw_json->>parse_status", "eq", "dead_404"),
+      baseFilter().filter("raw_json->>parse_status", "eq", "empty_parse"),
+      baseFilter().filter("raw_json->>parse_status", "eq", "error"),
+      baseFilter().or("raw_json->>parse_status.eq.failed_processed_unknown,raw_json->>error.eq.scrape_failed").is("mq", null),
+    ]);
+
+    const job = await c.from("padova_firecrawl_jobs").select("*").eq("job_id", jobId).maybeSingle();
+    const jobData = job.data;
+
+    return new Response(JSON.stringify({
+      ok: true,
+      job_id: jobId,
+      totale: totRes.count ?? 0,
+      not_yet: notYetRes.count ?? 0,
+      processed_at_pieni: processedRes.count ?? 0,
+      done_ok: doneOkRes.count ?? 0,
+      dead_404: dead404Res.count ?? 0,
+      empty_parse: emptyRes.count ?? 0,
+      error: errorRes.count ?? 0,
+      failed_processed_unknown_residui: failedUnkRes.count ?? 0,
+      stato: jobData?.status ?? "unknown",
+      spesa_firecrawl_usd: Number(jobData?.spesa_firecrawl_usd ?? 0),
+      spesa_apify_usd: Number(jobData?.spesa_apify_usd ?? 0),
+      updated_at: jobData?.updated_at ?? null,
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
+
+  // ── run_full: process one 40-row batch sync, then self-chain via SUPABASE_ANON_KEY ──
+  if (action === "run_full") {
+    const jobId = String(body?.job_id ?? JOB_ID_DEFAULT);
+    const BATCH_SIZE = Math.min(Math.max(Number(body?.batch_size ?? 40), 5), 80);
+    const resetFailedUnknown = body?.reset_failed_unknown === true;
+    const isChain = body?._chain === true;
+
+    // STEP 0: reset failed_processed_unknown rows (only on first non-chain call)
+    let resetCount = 0;
+    if (resetFailedUnknown && !isChain) {
+      const { data: toReset } = await c
+        .from("padova_collect_v2_items")
+        .select("id, raw_json")
+        .eq("job_id", SOURCE_JOB_ID)
+        .is("mq", null)
+        .not("raw_json", "is", null)
+        .limit(10000);
+      const ids: number[] = [];
+      for (const r of (toReset ?? []) as Array<{ id: number; raw_json: Record<string, unknown> }>) {
+        const rj = r.raw_json ?? {};
+        const ps = String(rj.parse_status ?? "");
+        const keep = ["done_ok", "dead_404", "empty_parse", "anti_bot", "gone_404", "empty", "empty_after_apify"];
+        if (!keep.includes(ps)) ids.push(r.id);
+      }
+      for (let i = 0; i < ids.length; i += 500) {
+        await c.from("padova_collect_v2_items").update({ raw_json: null }).in("id", ids.slice(i, i + 500));
+      }
+      resetCount = ids.length;
+    }
+
+    // Ensure job row exists & running
+    const { data: existing } = await c.from("padova_firecrawl_jobs").select("*").eq("job_id", jobId).maybeSingle();
+    if (!existing) {
+      await c.from("padova_firecrawl_jobs").insert({
+        job_id: jobId, status: "running", source_job_id: SOURCE_JOB_ID, annunci_totali: 0,
+      });
+    } else if (existing.status !== "running") {
+      await c.from("padova_firecrawl_jobs")
+        .update({ status: "running", updated_at: new Date().toISOString() })
+        .eq("job_id", jobId);
+    }
+
+    // Count remaining BEFORE processing
+    const { count: beforeCount } = await c
+      .from("padova_collect_v2_items")
+      .select("id", { count: "exact", head: true })
+      .eq("job_id", SOURCE_JOB_ID).is("mq", null).is("raw_json", null).not("url", "is", null);
+    const daProcessareTotale = beforeCount ?? 0;
+    console.log(`[run_full] job=${jobId} chain=${isChain} da_processare_totale=${daProcessareTotale} reset=${resetCount}`);
+
+    // Process ONE batch synchronously
+    let processed = 0;
+    const outcomes: BatchOutcomes = { done_ok: 0, dead_404: 0, timeout: 0, anti_bot: 0, empty_parse: 0, network_error: 0 };
+    let writeError: string | null = null;
+    try {
+      const r = await processBatch(jobId, BATCH_SIZE);
+      processed = r.processed;
+      for (const k of Object.keys(outcomes) as (keyof BatchOutcomes)[]) outcomes[k] += r.outcomes[k] ?? 0;
+    } catch (e) {
+      writeError = e instanceof Error ? e.message : String(e);
+      await c.from("padova_firecrawl_jobs")
+        .update({ last_error: writeError.slice(0, 500), updated_at: new Date().toISOString() })
+        .eq("job_id", jobId);
+    }
+
+    // Count remaining AFTER
+    const { count: afterCount } = await c
+      .from("padova_collect_v2_items")
+      .select("id", { count: "exact", head: true })
+      .eq("job_id", SOURCE_JOB_ID).is("mq", null).is("raw_json", null).not("url", "is", null);
+    const rimanenti = afterCount ?? 0;
+
+    let chaining = false;
+    if (!writeError && rimanenti > 0 && processed > 0) {
+      await sleep(800);
+      // @ts-ignore EdgeRuntime
+      EdgeRuntime.waitUntil(selfInvoke(jobId, "run_full"));
+      chaining = true;
+    } else if (rimanenti === 0) {
+      await c.from("padova_firecrawl_jobs")
+        .update({ status: "done", finished_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq("job_id", jobId);
+    }
+
+    return new Response(JSON.stringify({
+      ok: !writeError,
+      job_id: jobId,
+      da_processare_totale: daProcessareTotale,
+      batch_size: BATCH_SIZE,
+      batch_processato_ora: processed,
+      esiti_batch: outcomes,
+      rimanenti: rimanenti,
+      failed_unknown_rimessi_in_coda: resetCount,
+      chaining: chaining ? "avviato" : (rimanenti === 0 ? "completato" : "fermo"),
+      stato: rimanenti === 0 ? "done" : "running",
+      error: writeError,
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
 
   if (action === "process") {
     if (String(body?._internal_token ?? "") !== INTERNAL_TOKEN) {
