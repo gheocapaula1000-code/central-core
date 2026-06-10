@@ -370,15 +370,10 @@ async function processBatch(
 ): Promise<{ remaining: number; processed: number; outcomes: BatchOutcomes; latlng: number }> {
   const c = sb();
 
-  const { data: rows } = await c
-    .from("padova_collect_v2_items")
-    .select("id, url, attempts")
-    .eq("job_id", SOURCE_JOB_ID)
-    .not("url", "is", null)
-    .lt("attempts", 2)
-    .or("processed_at.is.null,parse_status.in.(failed_processed_unknown,error)")
-    .order("id", { ascending: true })
-    .limit(batchSize);
+  // Atomic claim with FOR UPDATE SKIP LOCKED + attempts++ to avoid double-processing
+  // across parallel cron invocations.
+  const { data: claimed } = await c.rpc("claim_padova_detail_batch", { p_size: batchSize });
+  const rows = (claimed ?? []) as { id: number; url: string; attempts: number }[];
 
   const empty: BatchOutcomes = { done_ok: 0, dead_404: 0, timeout: 0, anti_bot: 0, empty_parse: 0, network_error: 0, error: 0 };
 
@@ -389,6 +384,7 @@ async function processBatch(
       .eq("job_id", jobId);
     return { remaining: 0, processed: 0, outcomes: empty, latlng: 0 };
   }
+
 
   const results = await pMap(rows as { id: number; url: string; attempts: number }[], CONC, processOne);
 
