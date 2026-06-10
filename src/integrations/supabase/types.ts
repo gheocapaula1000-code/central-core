@@ -5557,6 +5557,14 @@ export type Database = {
         }
         Returns: boolean
       }
+      claim_padova_detail_batch: {
+        Args: { p_size?: number }
+        Returns: {
+          attempts: number
+          id: number
+          url: string
+        }[]
+      }
       clear_omi_geometry: { Args: never; Returns: undefined }
       compute_cluster_key: {
         Args: {
