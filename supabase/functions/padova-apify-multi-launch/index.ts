@@ -12,11 +12,13 @@ const APIFY = "https://api.apify.com/v2";
 interface LaunchBody {
   idealista?: { url_list?: string[]; from_db?: boolean; max_urls?: number; cost_cap_usd?: number };
   casa?: { search_url: string; cost_cap_usd?: number; max_items?: number };
+  casa_full?: { search_location?: string; cost_cap_usd?: number; max_results?: number };
   subito?: { search_url: string; cost_cap_usd?: number; max_items?: number; only_private?: boolean };
+  subito2?: { search_url?: string; cost_cap_usd?: number; max_items?: number };
 }
 
 interface Spec {
-  portal: "idealista" | "casa" | "subito";
+  portal: "idealista" | "casa" | "casa_full" | "subito" | "subito2";
   actor_id: string;
   input: Record<string, unknown>;
   cost_cap_usd: number;
@@ -106,15 +108,18 @@ Deno.serve(async (req) => {
     });
   }
 
-  if (body.casa?.search_url) {
+  if (body.casa_full) {
+    const maxR = body.casa_full.max_results ?? 1000;
     specs.push({
-      portal: "casa",
-      actor_id: "skebby/casa-it-scraper",
-      cost_cap_usd: body.casa.cost_cap_usd ?? 0.05,
+      portal: "casa_full",
+      actor_id: "solidcode/casa-property-search-scraper",
+      cost_cap_usd: body.casa_full.cost_cap_usd ?? 0.40,
       input: {
-        searchUrl: body.casa.search_url,
-        maxItems: body.casa.max_items ?? 5,
-        maxPages: 1,
+        searchLocation: body.casa_full.search_location ?? "Padova",
+        propertyType: "all",
+        maxResultsPerUrl: maxR,
+        maxResults: maxR,
+        language: "it",
       },
     });
   }
@@ -131,6 +136,20 @@ Deno.serve(async (req) => {
       },
     });
   }
+
+  if (body.subito2) {
+    specs.push({
+      portal: "subito2",
+      actor_id: "azzouzana/subito-scraper-pro-by-search-url",
+      cost_cap_usd: body.subito2.cost_cap_usd ?? 0.05,
+      input: {
+        searchUrl: body.subito2.search_url ?? "https://www.subito.it/annunci-veneto/vendita/immobili/padova/",
+        maxItems: body.subito2.max_items ?? 5,
+      },
+    });
+  }
+
+
 
   if (specs.length === 0) {
     return new Response(JSON.stringify({ ok: false, error: "no_specs_provided" }),
