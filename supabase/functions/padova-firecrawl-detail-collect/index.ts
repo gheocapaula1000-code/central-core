@@ -346,7 +346,21 @@ type BatchOutcomes = {
   anti_bot: number;
   empty_parse: number;
   network_error: number;
+  error: number;
 };
+
+type StoredParseStatus = "done_ok" | "dead_404" | "empty_parse" | "error";
+
+function storedStatus(status: ParseStatus): StoredParseStatus {
+  if (status === "done_ok" || status === "dead_404" || status === "empty_parse") return status;
+  return "error";
+}
+
+function logReason(status: ParseStatus, error?: string): string | null {
+  if (status === "done_ok") return null;
+  if (error) return `${status}:${error}`.slice(0, 500);
+  return status;
+}
 
 async function processBatch(
   jobId: string,
@@ -358,12 +372,12 @@ async function processBatch(
     .from("padova_collect_v2_items")
     .select("id, url")
     .eq("job_id", SOURCE_JOB_ID)
-    .is("mq", null)
-    .is("raw_json", null)
     .not("url", "is", null)
+    .or("processed_at.is.null,parse_status.in.(failed_processed_unknown,error)")
+    .order("id", { ascending: true })
     .limit(batchSize);
 
-  const empty: BatchOutcomes = { done_ok: 0, dead_404: 0, timeout: 0, anti_bot: 0, empty_parse: 0, network_error: 0 };
+  const empty: BatchOutcomes = { done_ok: 0, dead_404: 0, timeout: 0, anti_bot: 0, empty_parse: 0, network_error: 0, error: 0 };
 
   if (!rows || rows.length === 0) {
     await c
@@ -385,35 +399,18 @@ async function processBatch(
     const r = rows[i] as { id: number; url: string };
     const res = results[i];
     outcomes[res.parseStatus] = (outcomes[res.parseStatus] ?? 0) + 1;
-
-    if (!res.ok) {
-      fail++;
-      // mark processed with reason so we never re-pick it
-      await c
-        .from("padova_collect_v2_items")
-        .update({
-          raw_json: res.fields.raw_json ?? {
-            error: "scrape_failed",
-            parse_status: res.parseStatus,
-            http_status: res.httpStatus ?? null,
-            error_message: res.error ?? null,
-            processed_at: new Date().toISOString(),
-          },
-        })
-        .eq("id", r.id);
-      continue;
-    }
-    ok++;
-    if (res.apifyUsed) apifyUsed++;
+    const persistedStatus = storedStatus(res.parseStatus);
+    if (persistedStatus === "error") outcomes.error++;
     const f = res.fields;
-    if (f.mq) cov.mq++;
-    if (f.locali) cov.locali++;
-    if (f.piano) cov.piano++;
-    if (f.bagni) cov.bagni++;
-    if (f.civico) cov.civico++;
-    if (f.agency) cov.agency++;
-    if (f.tipologia) cov.tipologia++;
-    if (f.lat && f.lng) cov.latlng++;
+    const nowIso = new Date().toISOString();
+    const raw_json = {
+      ...(typeof f.raw_json === "object" && f.raw_json ? f.raw_json as Record<string, unknown> : {}),
+      parse_status: persistedStatus,
+      detected_status: res.parseStatus,
+      http_status: res.httpStatus ?? null,
+      log_reason: logReason(res.parseStatus, res.error),
+      processed_at: nowIso,
+    };
 
     const { data: ckRow } = await c.rpc("compute_cluster_key", {
       p_via: null,
@@ -422,6 +419,44 @@ async function processBatch(
       p_locali: (f.locali as number | undefined) ?? null,
     });
     const cluster_key = typeof ckRow === "string" ? ckRow : null;
+
+    if (!res.ok) {
+      fail++;
+      await c
+        .from("padova_collect_v2_items")
+        .update({
+          mq: f.mq ?? null,
+          locali: f.locali ?? null,
+          piano: f.piano ?? null,
+          bagni: f.bagni ?? null,
+          agency: f.agency ?? null,
+          civico: f.civico ?? null,
+          tipologia: f.tipologia ?? null,
+          riscaldamento: f.riscaldamento ?? null,
+          stato: f.stato ?? null,
+          anno_costruzione: f.anno_costruzione ?? null,
+          lat: f.lat ?? null,
+          lng: f.lng ?? null,
+          raw_json,
+          cluster_key,
+          parse_status: persistedStatus,
+          http_status: res.httpStatus ?? null,
+          log_reason: logReason(res.parseStatus, res.error),
+          processed_at: nowIso,
+        })
+        .eq("id", r.id);
+      continue;
+    }
+    ok++;
+    if (res.apifyUsed) apifyUsed++;
+    if (f.mq) cov.mq++;
+    if (f.locali) cov.locali++;
+    if (f.piano) cov.piano++;
+    if (f.bagni) cov.bagni++;
+    if (f.civico) cov.civico++;
+    if (f.agency) cov.agency++;
+    if (f.tipologia) cov.tipologia++;
+    if (f.lat && f.lng) cov.latlng++;
 
     await c
       .from("padova_collect_v2_items")
@@ -438,8 +473,12 @@ async function processBatch(
         anno_costruzione: f.anno_costruzione ?? null,
         lat: f.lat ?? null,
         lng: f.lng ?? null,
-        raw_json: f.raw_json,
+        raw_json,
         cluster_key,
+        parse_status: persistedStatus,
+        http_status: res.httpStatus ?? null,
+        log_reason: null,
+        processed_at: nowIso,
       })
       .eq("id", r.id);
   }
@@ -472,7 +511,14 @@ async function processBatch(
       .eq("job_id", jobId);
   }
 
-  return { remaining: rows.length >= batchSize ? -1 : 0, processed: rows.length, outcomes, latlng: cov.latlng };
+  const { count: remainingCount } = await c
+    .from("padova_collect_v2_items")
+    .select("id", { count: "exact", head: true })
+    .eq("job_id", SOURCE_JOB_ID)
+    .not("url", "is", null)
+    .or("processed_at.is.null,parse_status.in.(failed_processed_unknown,error)");
+
+  return { remaining: remainingCount ?? 0, processed: rows.length, outcomes, latlng: cov.latlng };
 }
 
 async function selfInvoke(jobId: string, action: "process" | "run_full" = "process") {
