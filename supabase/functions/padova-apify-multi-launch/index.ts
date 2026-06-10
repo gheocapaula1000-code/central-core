@@ -157,7 +157,7 @@ Deno.serve(async (req) => {
     return { portal: s.portal, started: true, run_id: r.run_id, dataset_id: r.dataset_id, status: r.status };
   }));
 
-  return new Response(JSON.stringify({ ok: true, launched: results }, null, 2), {
+  return new Response(JSON.stringify({ ok: true, idealista_urls_from_db: idealistaFromDbCount, launched: results }, null, 2), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
