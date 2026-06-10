@@ -1,0 +1,134 @@
+// padova-apify-multi-launch
+// Lancia in ASYNC fino a 3 actor Apify (idealista full, casa test, subito test).
+// NON aspetta la fine: salva run_id + dataset_id in padova_apify_runs e ritorna.
+// Auth: x-job-secret == CENTRAL_CORE_JOB_SECRET.
+
+import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { createClient } from "npm:@supabase/supabase-js@2";
+import { getApifyToken } from "../_shared/apify.ts";
+
+const APIFY = "https://api.apify.com/v2";
+
+interface LaunchBody {
+  idealista?: { url_list: string[]; cost_cap_usd?: number };
+  casa?: { search_url: string; cost_cap_usd?: number; max_items?: number };
+  subito?: { search_url: string; cost_cap_usd?: number; max_items?: number; only_private?: boolean };
+}
+
+interface Spec {
+  portal: "idealista" | "casa" | "subito";
+  actor_id: string;
+  input: Record<string, unknown>;
+  cost_cap_usd: number;
+}
+
+async function startActor(actor: string, input: Record<string, unknown>, token: string) {
+  const url = `${APIFY}/acts/${encodeURIComponent(actor)}/runs?token=${encodeURIComponent(token)}`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const txt = await r.text();
+  if (!r.ok) {
+    return { ok: false, error: `apify_${r.status}: ${txt.slice(0, 300)}` };
+  }
+  let j: Record<string, unknown> = {};
+  try { j = JSON.parse(txt); } catch { /* ignore */ }
+  const d = (j as { data?: { id?: string; defaultDatasetId?: string; status?: string } }).data ?? {};
+  return { ok: true, run_id: d.id, dataset_id: d.defaultDatasetId, status: d.status };
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+  if (!jobSecret || req.headers.get("x-job-secret") !== jobSecret) {
+    return new Response(JSON.stringify({ ok: false, error: "unauthorized" }),
+      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
+  const token = getApifyToken();
+  if (!token) {
+    return new Response(JSON.stringify({ ok: false, error: "APIFY_API_TOKEN_missing" }),
+      { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
+  const sb = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    { auth: { persistSession: false } },
+  );
+
+  let body: LaunchBody = {};
+  try { body = await req.json(); } catch { /* allow empty */ }
+
+  const specs: Spec[] = [];
+
+  if (body.idealista?.url_list?.length) {
+    specs.push({
+      portal: "idealista",
+      actor_id: "dz_omar/idealista-scraper-api",
+      cost_cap_usd: body.idealista.cost_cap_usd ?? 0.20,
+      input: {
+        Property_urls: body.idealista.url_list.map((u) => ({ url: u })),
+        desiredResults: body.idealista.url_list.length,
+      },
+    });
+  }
+
+  if (body.casa?.search_url) {
+    specs.push({
+      portal: "casa",
+      actor_id: "skebby/casa-it-scraper",
+      cost_cap_usd: body.casa.cost_cap_usd ?? 0.05,
+      input: {
+        searchUrl: body.casa.search_url,
+        maxItems: body.casa.max_items ?? 5,
+        maxPages: 1,
+      },
+    });
+  }
+
+  if (body.subito?.search_url) {
+    specs.push({
+      portal: "subito",
+      actor_id: "emastra/subito-it-immobili",
+      cost_cap_usd: body.subito.cost_cap_usd ?? 0.05,
+      input: {
+        searchUrl: body.subito.search_url,
+        maxItems: body.subito.max_items ?? 5,
+        onlyPrivate: body.subito.only_private ?? true,
+      },
+    });
+  }
+
+  if (specs.length === 0) {
+    return new Response(JSON.stringify({ ok: false, error: "no_specs_provided" }),
+      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
+  const results = await Promise.all(specs.map(async (s) => {
+    const r = await startActor(s.actor_id, s.input, token);
+    if (!r.ok || !r.run_id) {
+      await sb.from("padova_apify_runs").insert({
+        portal: s.portal, actor_id: s.actor_id, run_id: "ERROR",
+        status: "FAILED_TO_START", cost_cap_usd: s.cost_cap_usd, error: r.error ?? "unknown",
+      });
+      return { portal: s.portal, started: false, error: r.error };
+    }
+    await sb.from("padova_apify_runs").insert({
+      portal: s.portal,
+      actor_id: s.actor_id,
+      run_id: r.run_id,
+      dataset_id: r.dataset_id ?? null,
+      status: r.status ?? "RUNNING",
+      cost_cap_usd: s.cost_cap_usd,
+    });
+    return { portal: s.portal, started: true, run_id: r.run_id, dataset_id: r.dataset_id, status: r.status };
+  }));
+
+  return new Response(JSON.stringify({ ok: true, launched: results }, null, 2), {
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+});

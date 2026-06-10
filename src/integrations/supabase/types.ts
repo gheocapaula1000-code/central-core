@@ -4103,6 +4103,72 @@ export type Database = {
         }
         Relationships: []
       }
+      padova_apify_runs: {
+        Row: {
+          actor_id: string
+          cost_cap_usd: number
+          cost_usd: number | null
+          dataset_id: string | null
+          error: string | null
+          finished_at: string | null
+          id: number
+          imported: number | null
+          items_count: number | null
+          portal: string
+          run_id: string
+          started_at: string
+          status: string
+        }
+        Insert: {
+          actor_id: string
+          cost_cap_usd: number
+          cost_usd?: number | null
+          dataset_id?: string | null
+          error?: string | null
+          finished_at?: string | null
+          id?: number
+          imported?: number | null
+          items_count?: number | null
+          portal: string
+          run_id: string
+          started_at?: string
+          status?: string
+        }
+        Update: {
+          actor_id?: string
+          cost_cap_usd?: number
+          cost_usd?: number | null
+          dataset_id?: string | null
+          error?: string | null
+          finished_at?: string | null
+          id?: number
+          imported?: number | null
+          items_count?: number | null
+          portal?: string
+          run_id?: string
+          started_at?: string
+          status?: string
+        }
+        Relationships: []
+      }
+      padova_casa_test: {
+        Row: {
+          fetched_at: string
+          id: number
+          raw_json: Json | null
+        }
+        Insert: {
+          fetched_at?: string
+          id?: number
+          raw_json?: Json | null
+        }
+        Update: {
+          fetched_at?: string
+          id?: number
+          raw_json?: Json | null
+        }
+        Relationships: []
+      }
       padova_civici: {
         Row: {
           cap: string | null
@@ -4406,6 +4472,72 @@ export type Database = {
           started_at?: string
           status?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      padova_idealista_staging: {
+        Row: {
+          agency: string | null
+          bagni: number | null
+          fetched_at: string
+          id: number
+          indirizzo: string | null
+          lat: number | null
+          lng: number | null
+          locali: number | null
+          mq: number | null
+          prezzo: number | null
+          raw_json: Json | null
+          tipo_lead: string | null
+          url: string | null
+        }
+        Insert: {
+          agency?: string | null
+          bagni?: number | null
+          fetched_at?: string
+          id?: number
+          indirizzo?: string | null
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          prezzo?: number | null
+          raw_json?: Json | null
+          tipo_lead?: string | null
+          url?: string | null
+        }
+        Update: {
+          agency?: string | null
+          bagni?: number | null
+          fetched_at?: string
+          id?: number
+          indirizzo?: string | null
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          prezzo?: number | null
+          raw_json?: Json | null
+          tipo_lead?: string | null
+          url?: string | null
+        }
+        Relationships: []
+      }
+      padova_subito_test: {
+        Row: {
+          fetched_at: string
+          id: number
+          raw_json: Json | null
+        }
+        Insert: {
+          fetched_at?: string
+          id?: number
+          raw_json?: Json | null
+        }
+        Update: {
+          fetched_at?: string
+          id?: number
+          raw_json?: Json | null
         }
         Relationships: []
       }
