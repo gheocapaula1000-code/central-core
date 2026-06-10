@@ -191,9 +191,22 @@ function extractFromContent(markdown: string, html: string): Record<string, unkn
   }
 
   if (!out.lat) {
-    const llM = html.match(/"latitude"\s*:\s*"?(-?\d+\.\d+)"?[\s\S]{0,80}?"longitude"\s*:\s*"?(-?\d+\.\d+)"?/)
-             ?? html.match(/"lat"\s*:\s*(-?\d+\.\d+)[\s\S]{0,80}?"l[no]g(?:itude)?"\s*:\s*(-?\d+\.\d+)/i);
-    if (llM) { out.lat = Number(llM[1]); out.lng = Number(llM[2]); }
+    const blob = html + "\n" + markdown;
+    const tries: Array<RegExpMatchArray | null> = [
+      blob.match(/"latitude"\s*:\s*"?(-?\d+\.\d{3,})"?[\s\S]{0,120}?"longitude"\s*:\s*"?(-?\d+\.\d{3,})"?/i),
+      blob.match(/"lat"\s*:\s*"?(-?\d+\.\d{3,})"?[\s\S]{0,120}?"l(?:o?n|ng)g?(?:itude)?"\s*:\s*"?(-?\d+\.\d{3,})"?/i),
+      blob.match(/lat[=:]\s*(-?\d+\.\d{3,})[\s\S]{0,40}?l(?:o?n|ng)g?[=:]\s*(-?\d+\.\d{3,})/i),
+      blob.match(/data-lat(?:itude)?\s*=\s*"(-?\d+\.\d{3,})"[\s\S]{0,200}?data-l(?:o?n|ng)g?(?:itude)?\s*=\s*"(-?\d+\.\d{3,})"/i),
+      blob.match(/@(-?\d+\.\d{4,}),(-?\d+\.\d{4,})/), // google maps style
+    ];
+    for (const m of tries) {
+      if (m) {
+        const la = Number(m[1]), lo = Number(m[2]);
+        if (Number.isFinite(la) && Number.isFinite(lo) && la > 35 && la < 48 && lo > 6 && lo < 19) {
+          out.lat = la; out.lng = lo; break;
+        }
+      }
+    }
   }
 
   return out;
