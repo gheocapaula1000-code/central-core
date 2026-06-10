@@ -106,9 +106,10 @@ Deno.serve(async (req) => {
       { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
-  let body: { test_urls?: Record<string, string[]> } = {};
+  let body: { test_urls?: Record<string, string[]>; only?: string } = {};
   try { body = await req.json(); } catch { /* allow empty */ }
   const tu = body.test_urls ?? {};
+  const onlyPortal = body.only ?? null;
   const casaUrls = tu.casa ?? [];
   const subitoUrls = tu.subito ?? [];
   const idealistaUrls = tu.idealista ?? [];
