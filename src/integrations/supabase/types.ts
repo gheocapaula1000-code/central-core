@@ -4379,6 +4379,66 @@ export type Database = {
         }
         Relationships: []
       }
+      padova_contendibili: {
+        Row: {
+          agenzie: string[]
+          bagni: number | null
+          chiave_match: string
+          confidenza: string
+          created_at: string
+          fonti: string[]
+          id: number
+          lat: number | null
+          lng: number | null
+          locali: number | null
+          mq: number | null
+          n_agenzie: number
+          n_annunci: number
+          prezzo_max: number | null
+          prezzo_min: number | null
+          quartiere: string | null
+          urls: string[]
+        }
+        Insert: {
+          agenzie: string[]
+          bagni?: number | null
+          chiave_match: string
+          confidenza: string
+          created_at?: string
+          fonti: string[]
+          id?: number
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          n_agenzie: number
+          n_annunci: number
+          prezzo_max?: number | null
+          prezzo_min?: number | null
+          quartiere?: string | null
+          urls: string[]
+        }
+        Update: {
+          agenzie?: string[]
+          bagni?: number | null
+          chiave_match?: string
+          confidenza?: string
+          created_at?: string
+          fonti?: string[]
+          id?: number
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          n_agenzie?: number
+          n_annunci?: number
+          prezzo_max?: number | null
+          prezzo_min?: number | null
+          quartiere?: string | null
+          urls?: string[]
+        }
+        Relationships: []
+      }
       padova_elderly_population: {
         Row: {
           area_code: string | null
@@ -5949,6 +6009,7 @@ export type Database = {
         Args: { p_job_id?: string }
         Returns: Json
       }
+      recompute_padova_listings_contendibili: { Args: never; Returns: Json }
       resolve_padova_geo_level: {
         Args: { p_lat: number; p_lng: number }
         Returns: {
