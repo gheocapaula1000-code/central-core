@@ -4185,6 +4185,9 @@ export type Database = {
           citta: string | null
           civico: string | null
           cluster_key: string | null
+          contendibile: boolean | null
+          contendibile_confidenza: string | null
+          contendibile_group_id: string | null
           created_at: string
           http_status: number | null
           id: number
@@ -4221,6 +4224,9 @@ export type Database = {
           citta?: string | null
           civico?: string | null
           cluster_key?: string | null
+          contendibile?: boolean | null
+          contendibile_confidenza?: string | null
+          contendibile_group_id?: string | null
           created_at?: string
           http_status?: number | null
           id?: number
@@ -4257,6 +4263,9 @@ export type Database = {
           citta?: string | null
           civico?: string | null
           cluster_key?: string | null
+          contendibile?: boolean | null
+          contendibile_confidenza?: string | null
+          contendibile_group_id?: string | null
           created_at?: string
           http_status?: number | null
           id?: number
@@ -5605,6 +5614,7 @@ export type Database = {
         Args: { p_body?: Json; p_job_name: string; p_url: string }
         Returns: number
       }
+      norm_via: { Args: { p: string }; Returns: string }
       omi_zone_by_point: {
         Args: { p_lat: number; p_lng: number }
         Returns: {
@@ -5637,6 +5647,10 @@ export type Database = {
           p_opaque_id: string
         }
         Returns: string
+      }
+      recompute_padova_contendibili: {
+        Args: { p_job_id?: string }
+        Returns: Json
       }
       resolve_padova_geo_level: {
         Args: { p_lat: number; p_lng: number }
