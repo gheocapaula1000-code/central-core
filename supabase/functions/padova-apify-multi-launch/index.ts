@@ -125,7 +125,7 @@ Deno.serve(async (req) => {
       actor_id: "emastra/subito-it-immobili",
       cost_cap_usd: body.subito.cost_cap_usd ?? 0.05,
       input: {
-        searchUrl: body.subito.search_url,
+        startUrls: [{ url: body.subito.search_url }],
         maxItems: body.subito.max_items ?? 5,
         onlyPrivate: body.subito.only_private ?? true,
       },
