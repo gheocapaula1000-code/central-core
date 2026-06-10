@@ -108,15 +108,18 @@ Deno.serve(async (req) => {
     });
   }
 
-  if (body.casa?.search_url) {
+  if (body.casa_full) {
+    const maxR = body.casa_full.max_results ?? 1000;
     specs.push({
-      portal: "casa",
-      actor_id: "skebby/casa-it-scraper",
-      cost_cap_usd: body.casa.cost_cap_usd ?? 0.05,
+      portal: "casa_full",
+      actor_id: "solidcode/casa-property-search-scraper",
+      cost_cap_usd: body.casa_full.cost_cap_usd ?? 0.40,
       input: {
-        searchUrl: body.casa.search_url,
-        maxItems: body.casa.max_items ?? 5,
-        maxPages: 1,
+        searchLocation: body.casa_full.search_location ?? "Padova",
+        propertyType: "all",
+        maxResultsPerUrl: maxR,
+        maxResults: maxR,
+        language: "it",
       },
     });
   }
