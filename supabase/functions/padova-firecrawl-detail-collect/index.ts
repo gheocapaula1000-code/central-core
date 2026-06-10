@@ -390,7 +390,7 @@ async function processBatch(
     return { remaining: 0, processed: 0, outcomes: empty, latlng: 0 };
   }
 
-  const results = await pMap(rows as { id: number; url: string }[], CONC, processOne);
+  const results = await pMap(rows as { id: number; url: string; attempts: number }[], CONC, processOne);
 
   let ok = 0,
     fail = 0,
