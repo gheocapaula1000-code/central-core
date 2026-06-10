@@ -4185,19 +4185,23 @@ export type Database = {
           civico: string | null
           cluster_key: string | null
           created_at: string
+          http_status: number | null
           id: number
           job_id: string
           lat: number | null
           listing_id: string | null
           lng: number | null
           locali: number | null
+          log_reason: string | null
           mq: number | null
           n_agenzie: number | null
           omi_zone: string | null
+          parse_status: string | null
           piano: string | null
           portal: string
           prezzo: number | null
           prezzo_iniziale: number | null
+          processed_at: string | null
           quartiere: string | null
           raw_address: string | null
           raw_json: Json | null
@@ -4216,19 +4220,23 @@ export type Database = {
           civico?: string | null
           cluster_key?: string | null
           created_at?: string
+          http_status?: number | null
           id?: number
           job_id: string
           lat?: number | null
           listing_id?: string | null
           lng?: number | null
           locali?: number | null
+          log_reason?: string | null
           mq?: number | null
           n_agenzie?: number | null
           omi_zone?: string | null
+          parse_status?: string | null
           piano?: string | null
           portal: string
           prezzo?: number | null
           prezzo_iniziale?: number | null
+          processed_at?: string | null
           quartiere?: string | null
           raw_address?: string | null
           raw_json?: Json | null
@@ -4247,19 +4255,23 @@ export type Database = {
           civico?: string | null
           cluster_key?: string | null
           created_at?: string
+          http_status?: number | null
           id?: number
           job_id?: string
           lat?: number | null
           listing_id?: string | null
           lng?: number | null
           locali?: number | null
+          log_reason?: string | null
           mq?: number | null
           n_agenzie?: number | null
           omi_zone?: string | null
+          parse_status?: string | null
           piano?: string | null
           portal?: string
           prezzo?: number | null
           prezzo_iniziale?: number | null
+          processed_at?: string | null
           quartiere?: string | null
           raw_address?: string | null
           raw_json?: Json | null
@@ -5624,6 +5636,7 @@ export type Database = {
         }[]
       }
       tick_padova_firecrawl_collect: { Args: never; Returns: undefined }
+      unschedule_padova_detail_chain: { Args: never; Returns: boolean }
       vault_create_secret_if_missing: {
         Args: { p_name: string; p_value: string }
         Returns: Json
