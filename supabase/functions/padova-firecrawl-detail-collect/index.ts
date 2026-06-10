@@ -370,15 +370,10 @@ async function processBatch(
 ): Promise<{ remaining: number; processed: number; outcomes: BatchOutcomes; latlng: number }> {
   const c = sb();
 
-  const { data: rows } = await c
-    .from("padova_collect_v2_items")
-    .select("id, url, attempts")
-    .eq("job_id", SOURCE_JOB_ID)
-    .not("url", "is", null)
-    .lt("attempts", 2)
-    .or("processed_at.is.null,parse_status.in.(failed_processed_unknown,error)")
-    .order("id", { ascending: true })
-    .limit(batchSize);
+  // Atomic claim with FOR UPDATE SKIP LOCKED + attempts++ to avoid double-processing
+  // across parallel cron invocations.
+  const { data: claimed } = await c.rpc("claim_padova_detail_batch", { p_size: batchSize });
+  const rows = (claimed ?? []) as { id: number; url: string; attempts: number }[];
 
   const empty: BatchOutcomes = { done_ok: 0, dead_404: 0, timeout: 0, anti_bot: 0, empty_parse: 0, network_error: 0, error: 0 };
 
@@ -389,6 +384,7 @@ async function processBatch(
       .eq("job_id", jobId);
     return { remaining: 0, processed: 0, outcomes: empty, latlng: 0 };
   }
+
 
   const results = await pMap(rows as { id: number; url: string; attempts: number }[], CONC, processOne);
 
@@ -401,7 +397,7 @@ async function processBatch(
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i] as { id: number; url: string; attempts: number };
     const res = results[i];
-    const nextAttempts = (r.attempts ?? 0) + 1;
+    const nextAttempts = r.attempts ?? 1; // already incremented by claim_padova_detail_batch
     outcomes[res.parseStatus] = (outcomes[res.parseStatus] ?? 0) + 1;
     const persistedStatus = storedStatus(res.parseStatus, nextAttempts);
     if (persistedStatus === "error" || persistedStatus === "dead_unrecoverable") outcomes.error++;
@@ -674,7 +670,7 @@ Deno.serve(async (req) => {
 
     let result: { remaining: number; processed: number; outcomes: BatchOutcomes; latlng: number };
     try {
-      result = await processBatch(jobId, 40);
+      result = await processBatch(jobId, 8);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       await c.from("padova_firecrawl_jobs")
