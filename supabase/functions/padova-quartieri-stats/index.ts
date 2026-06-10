@@ -108,6 +108,7 @@ serve(async (req) => {
       tot_contesi_3plus: contendibili.filter((c) => c.n_agenzie >= 3).length,
       tot_agenzie: totAgenzieGlobal.size,
       tot_quartieri: quartieri.length,
+      tot_quartieri_con_contendibili: quartieri.filter((q) => q.n_contendibili > 0).length,
     };
 
     return new Response(JSON.stringify({
