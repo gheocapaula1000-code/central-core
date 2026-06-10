@@ -12,7 +12,7 @@ const APIFY = "https://api.apify.com/v2";
 interface LaunchBody {
   idealista?: { url_list?: string[]; from_db?: boolean; max_urls?: number; cost_cap_usd?: number };
   casa?: { search_url: string; cost_cap_usd?: number; max_items?: number };
-  casa_full?: { search_location?: string; cost_cap_usd?: number; max_results?: number };
+  casa_full?: { search_location?: string; start_urls?: string[]; cost_cap_usd?: number; max_results?: number };
   subito?: { search_url: string; cost_cap_usd?: number; max_items?: number; only_private?: boolean };
   subito2?: { search_url?: string; cost_cap_usd?: number; max_items?: number };
   subito_full?: { search_url?: string; cost_cap_usd?: number; max_items?: number };
@@ -120,17 +120,25 @@ Deno.serve(async (req) => {
 
   if (body.casa_full) {
     const maxR = body.casa_full.max_results ?? 1000;
+    const startUrls = body.casa_full.start_urls ?? [];
+    const input: Record<string, unknown> = {
+      propertyType: "all",
+      maxResultsPerUrl: maxR,
+      maxResults: 0,
+      ignoreUrlFailures: true,
+      language: "it",
+    };
+    if (startUrls.length > 0) {
+      input.startUrls = startUrls.map((u) => ({ url: u }));
+    } else {
+      input.searchLocation = body.casa_full.search_location ?? "Padova";
+      input.maxResults = maxR;
+    }
     specs.push({
       portal: "casa_full",
       actor_id: "solidcode/casa-property-search-scraper",
       cost_cap_usd: body.casa_full.cost_cap_usd ?? 0.40,
-      input: {
-        searchLocation: body.casa_full.search_location ?? "Padova",
-        propertyType: "all",
-        maxResultsPerUrl: maxR,
-        maxResults: maxR,
-        language: "it",
-      },
+      input,
     });
   }
 
