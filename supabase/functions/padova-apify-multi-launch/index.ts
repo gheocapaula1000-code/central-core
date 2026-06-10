@@ -10,7 +10,7 @@ import { getApifyToken } from "../_shared/apify.ts";
 const APIFY = "https://api.apify.com/v2";
 
 interface LaunchBody {
-  idealista?: { url_list: string[]; cost_cap_usd?: number };
+  idealista?: { url_list?: string[]; from_db?: boolean; max_urls?: number; cost_cap_usd?: number };
   casa?: { search_url: string; cost_cap_usd?: number; max_items?: number };
   subito?: { search_url: string; cost_cap_usd?: number; max_items?: number; only_private?: boolean };
 }
@@ -65,14 +65,43 @@ Deno.serve(async (req) => {
 
   const specs: Spec[] = [];
 
-  if (body.idealista?.url_list?.length) {
+  let idealistaUrls: string[] = body.idealista?.url_list ?? [];
+  let idealistaFromDbCount = 0;
+  if (body.idealista && (!idealistaUrls.length) && body.idealista.from_db) {
+    const cap = body.idealista.max_urls ?? 40;
+    const { data: rows } = await sb
+      .from("padova_collect_v2_items")
+      .select("url")
+      .ilike("url", "%idealista.it%")
+      .ilike("url", "%/immobile/%")
+      .order("url", { ascending: true })
+      .limit(cap);
+    idealistaUrls = (rows ?? []).map((r: { url: string }) => r.url).filter(Boolean);
+    idealistaFromDbCount = idealistaUrls.length;
+  }
+
+  if (idealistaUrls.length) {
     specs.push({
       portal: "idealista",
       actor_id: "dz_omar/idealista-scraper-api",
-      cost_cap_usd: body.idealista.cost_cap_usd ?? 0.20,
+      cost_cap_usd: body.idealista?.cost_cap_usd ?? 0.20,
       input: {
-        Property_urls: body.idealista.url_list.map((u) => ({ url: u })),
-        desiredResults: body.idealista.url_list.length,
+        Property_urls: idealistaUrls.map((u) => ({ url: u })),
+        desiredResults: idealistaUrls.length,
+      },
+    });
+  }
+
+  if (body.casa?.search_url) {
+    specs.push({
+      portal: "casa",
+      actor_id: "skebby/casa-it-scraper",
+      cost_cap_usd: body.casa.cost_cap_usd ?? 0.05,
+      input: {
+        searchUrl: body.casa.search_url,
+        maxItems: body.casa.max_items ?? 5,
+        maxPages: 1,
+        proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"], apifyProxyCountry: "IT" },
       },
     });
   }
@@ -96,7 +125,7 @@ Deno.serve(async (req) => {
       actor_id: "emastra/subito-it-immobili",
       cost_cap_usd: body.subito.cost_cap_usd ?? 0.05,
       input: {
-        searchUrl: body.subito.search_url,
+        startUrls: [{ url: body.subito.search_url }],
         maxItems: body.subito.max_items ?? 5,
         onlyPrivate: body.subito.only_private ?? true,
       },
@@ -128,7 +157,7 @@ Deno.serve(async (req) => {
     return { portal: s.portal, started: true, run_id: r.run_id, dataset_id: r.dataset_id, status: r.status };
   }));
 
-  return new Response(JSON.stringify({ ok: true, launched: results }, null, 2), {
+  return new Response(JSON.stringify({ ok: true, idealista_urls_from_db: idealistaFromDbCount, launched: results }, null, 2), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
