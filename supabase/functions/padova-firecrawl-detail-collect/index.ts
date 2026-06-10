@@ -18,9 +18,9 @@ import { canSpendApify, recordApifySpend } from "../_shared/apifyBudget.ts";
 async function fcScrape(
   url: string,
   opts: { timeoutMs?: number; formats?: string[] } = {},
-): Promise<{ ok: boolean; markdown?: string; html?: string; error?: string }> {
+): Promise<{ ok: boolean; markdown?: string; html?: string; error?: string; httpStatus?: number; errorKind?: "timeout" | "http" | "network" | "missing_key" }> {
   const key = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
-  if (!key) return { ok: false, error: "FIRECRAWL_API_KEY missing" };
+  if (!key) return { ok: false, error: "FIRECRAWL_API_KEY missing", errorKind: "missing_key" };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 30_000);
   try {
@@ -34,16 +34,25 @@ async function fcScrape(
       }),
       signal: ctrl.signal,
     });
-    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     const data = await res.json().catch(() => ({}));
     const root = data?.data ?? data;
+    const upstreamStatus: number | undefined =
+      Number(root?.metadata?.statusCode) ||
+      Number(data?.metadata?.statusCode) ||
+      undefined;
+    if (!res.ok) {
+      return { ok: false, error: `HTTP ${res.status}`, httpStatus: upstreamStatus ?? res.status, errorKind: "http" };
+    }
     return {
       ok: true,
       markdown: typeof root?.markdown === "string" ? root.markdown.slice(0, 10000) : "",
       html: typeof root?.html === "string" ? root.html.slice(0, 20000) : "",
+      httpStatus: upstreamStatus,
     };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    const msg = e instanceof Error ? e.message : String(e);
+    const isTimeout = /abort|timeout/i.test(msg);
+    return { ok: false, error: msg, errorKind: isTimeout ? "timeout" : "network" };
   } finally {
     clearTimeout(timer);
   }
