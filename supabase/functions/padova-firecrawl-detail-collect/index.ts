@@ -670,7 +670,7 @@ Deno.serve(async (req) => {
 
     let result: { remaining: number; processed: number; outcomes: BatchOutcomes; latlng: number };
     try {
-      result = await processBatch(jobId, 40);
+      result = await processBatch(jobId, 8);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       await c.from("padova_firecrawl_jobs")
