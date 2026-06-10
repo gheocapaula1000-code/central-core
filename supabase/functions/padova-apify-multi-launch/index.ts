@@ -10,7 +10,7 @@ import { getApifyToken } from "../_shared/apify.ts";
 const APIFY = "https://api.apify.com/v2";
 
 interface LaunchBody {
-  idealista?: { url_list: string[]; cost_cap_usd?: number };
+  idealista?: { url_list?: string[]; from_db?: boolean; max_urls?: number; cost_cap_usd?: number };
   casa?: { search_url: string; cost_cap_usd?: number; max_items?: number };
   subito?: { search_url: string; cost_cap_usd?: number; max_items?: number; only_private?: boolean };
 }
