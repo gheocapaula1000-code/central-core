@@ -12,11 +12,13 @@ const APIFY = "https://api.apify.com/v2";
 interface LaunchBody {
   idealista?: { url_list?: string[]; from_db?: boolean; max_urls?: number; cost_cap_usd?: number };
   casa?: { search_url: string; cost_cap_usd?: number; max_items?: number };
+  casa_full?: { search_location?: string; cost_cap_usd?: number; max_results?: number };
   subito?: { search_url: string; cost_cap_usd?: number; max_items?: number; only_private?: boolean };
+  subito2?: { search_url?: string; cost_cap_usd?: number; max_items?: number };
 }
 
 interface Spec {
-  portal: "idealista" | "casa" | "subito";
+  portal: "idealista" | "casa" | "casa_full" | "subito" | "subito2";
   actor_id: string;
   input: Record<string, unknown>;
   cost_cap_usd: number;
