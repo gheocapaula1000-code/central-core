@@ -304,6 +304,49 @@ Deno.serve(async (req) => {
         items_received: arr.length, target: 5,
         raw_samples: arr.map((x) => x.raw_json),
       });
+    } else if (portal === "subito_full") {
+      const { data: all } = await sb.from("padova_subito_staging").select("raw_json");
+      const allArr = (all ?? []) as Array<{ raw_json: Record<string, unknown> }>;
+      const totalItems = allArr.length;
+      const padovaCity = allArr.filter((x) => {
+        const t = (x.raw_json?.geo_town_value as string) ?? "";
+        return t.toLowerCase().startsWith("padova");
+      });
+      const isAgency = (j: Record<string, unknown>) => j.advertiser_company === true || String(j.advertiser_company) === "true";
+      const hasPhone = (j: Record<string, unknown>) => {
+        const p = j.phone_number;
+        return p != null && String(p) !== "0" && String(p).trim() !== "";
+      };
+      const agenzia = padovaCity.filter((x) => isAgency(x.raw_json)).length;
+      const privato = padovaCity.filter((x) => !isAgency(x.raw_json)).length;
+      const withTel = padovaCity.filter((x) => hasPhone(x.raw_json)).length;
+      const complete = padovaCity.filter((x) => {
+        const j = x.raw_json;
+        return j.features_size_values != null && j.features_room_values != null &&
+               j.features_price_values != null && j.geo_map_latitude != null && j.geo_map_longitude != null;
+      }).length;
+      const summarize = (j: Record<string, unknown>) => ({
+        url: j.urls_default, advertiser_name: j.advertiser_name,
+        agenzia: isAgency(j), phone: j.phone_number,
+        mq: j.features_size_values, locali: j.features_room_values, bagni: j.features_bathrooms_values,
+        prezzo: j.features_price_values, lat: j.geo_map_latitude, lng: j.geo_map_longitude,
+        address: j.geo_map_address, town: j.geo_town_value,
+      });
+      const privCity = padovaCity.filter((x) => !isAgency(x.raw_json));
+      const privWithTel = privCity.filter((x) => hasPhone(x.raw_json));
+      const esempi: Record<string, unknown>[] = [];
+      if (privWithTel[0]) esempi.push(summarize(privWithTel[0].raw_json));
+      for (const x of padovaCity) {
+        if (esempi.length >= 3) break;
+        const s = summarize(x.raw_json);
+        if (!esempi.some((e) => e.url === s.url)) esempi.push(s);
+      }
+      out.push({
+        portal, run_id: runId, status, cost_usd: cost, cost_cap_usd: costCap,
+        items_total: totalItems, items_padova_city: padovaCity.length,
+        privato, agenzia, with_phone: withTel, with_mq_locali_prezzo_latlng: complete,
+        esempi,
+      });
     }
   }
 
