@@ -15,10 +15,11 @@ interface LaunchBody {
   casa_full?: { search_location?: string; cost_cap_usd?: number; max_results?: number };
   subito?: { search_url: string; cost_cap_usd?: number; max_items?: number; only_private?: boolean };
   subito2?: { search_url?: string; cost_cap_usd?: number; max_items?: number };
+  subito_full?: { search_url?: string; cost_cap_usd?: number; max_items?: number };
 }
 
 interface Spec {
-  portal: "idealista" | "casa" | "casa_full" | "subito" | "subito2";
+  portal: "idealista" | "casa" | "casa_full" | "subito" | "subito2" | "subito_full";
   actor_id: string;
   input: Record<string, unknown>;
   cost_cap_usd: number;
