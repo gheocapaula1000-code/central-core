@@ -147,7 +147,8 @@ Deno.serve(async (req) => {
     if ((r.imported as number) > 0) {
       // già processata; ritorna sommario senza re-import
     } else if (datasetId) {
-      const items = await fetchDataset(datasetId, token, portal === "idealista" ? 5000 : 50);
+      const bigPortals = portal === "idealista" || portal === "casa_full" || portal === "subito_full";
+      const items = await fetchDataset(datasetId, token, bigPortals ? 5000 : 50);
 
       if (portal === "idealista") {
         const rows = items.map(parseIdealista);
