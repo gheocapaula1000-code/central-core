@@ -4541,6 +4541,24 @@ export type Database = {
         }
         Relationships: []
       }
+      padova_subito_staging: {
+        Row: {
+          fetched_at: string
+          id: number
+          raw_json: Json | null
+        }
+        Insert: {
+          fetched_at?: string
+          id?: number
+          raw_json?: Json | null
+        }
+        Update: {
+          fetched_at?: string
+          id?: number
+          raw_json?: Json | null
+        }
+        Relationships: []
+      }
       padova_subito_test: {
         Row: {
           fetched_at: string

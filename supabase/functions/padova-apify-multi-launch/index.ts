@@ -15,10 +15,11 @@ interface LaunchBody {
   casa_full?: { search_location?: string; cost_cap_usd?: number; max_results?: number };
   subito?: { search_url: string; cost_cap_usd?: number; max_items?: number; only_private?: boolean };
   subito2?: { search_url?: string; cost_cap_usd?: number; max_items?: number };
+  subito_full?: { search_url?: string; cost_cap_usd?: number; max_items?: number };
 }
 
 interface Spec {
-  portal: "idealista" | "casa" | "casa_full" | "subito" | "subito2";
+  portal: "idealista" | "casa" | "casa_full" | "subito" | "subito2" | "subito_full";
   actor_id: string;
   input: Record<string, unknown>;
   cost_cap_usd: number;
@@ -154,6 +155,18 @@ Deno.serve(async (req) => {
       input: {
         searchUrl: body.subito2.search_url ?? "https://www.subito.it/annunci-veneto/vendita/immobili/padova/",
         maxItems: body.subito2.max_items ?? 5,
+      },
+    });
+  }
+
+  if (body.subito_full) {
+    specs.push({
+      portal: "subito_full",
+      actor_id: "azzouzana/subito-scraper-pro-by-search-url",
+      cost_cap_usd: body.subito_full.cost_cap_usd ?? 1.00,
+      input: {
+        searchUrl: body.subito_full.search_url ?? "https://www.subito.it/annunci-padova/vendita/immobili/padova/",
+        maxItems: body.subito_full.max_items ?? 1000,
       },
     });
   }
