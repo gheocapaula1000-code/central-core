@@ -189,8 +189,9 @@ Deno.serve(async (req) => {
     },
   ];
 
-  // Run all 3 in parallel
-  const results = await Promise.all(portals.map(async (p) => {
+  const filtered = onlyPortal ? portals.filter((p) => p.portal === onlyPortal) : portals;
+  // Run in parallel (or single if only=...)
+  const results = await Promise.all(filtered.map(async (p) => {
     if (p.mode === "url-list" && Array.isArray((p.input.startUrls ?? p.input.Property_urls ?? p.input.urls) as unknown[]) && ((p.input.startUrls ?? p.input.Property_urls ?? p.input.urls) as unknown[]).length === 0) {
       return { portal: p.portal, actor: p.actor_id, error: "no_test_urls_provided", items_raw: [], normalized: [], cost_usd: 0 };
     }
