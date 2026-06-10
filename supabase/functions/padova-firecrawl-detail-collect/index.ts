@@ -600,15 +600,45 @@ Deno.serve(async (req) => {
 
   if (action === "run_batch") {
     const jobId = String(body?.job_id ?? "");
-    const n = Math.min(Math.max(Number(body?.n ?? 600), 10), 1500);
-    const SPEND_CAP_USD = Number(body?.spend_cap_usd ?? 15);
+    const n = Math.min(Math.max(Number(body?.n ?? 400), 10), 1500);
+    const SPEND_CAP_USD = Number(body?.spend_cap_usd ?? 1000); // crediti abbondanti, no cap stretto
+    const resetFailedUnknown = body?.reset_failed_unknown === true;
     if (!jobId) {
       return new Response(JSON.stringify({ ok: false, error: "job_id_required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // GUARDS: spend cap + concurrency
+    // STEP 0: reset failed_processed_unknown rows so they get retried.
+    // These are rows with raw_json.error == 'scrape_failed' but NO explicit parse_status
+    // (dead_404, anti_bot, timeout). Confirmed dead_404 / anti_bot / etc. stay marked.
+    let resetCount = 0;
+    if (resetFailedUnknown) {
+      const { data: toReset } = await c
+        .from("padova_collect_v2_items")
+        .select("id, raw_json")
+        .eq("job_id", SOURCE_JOB_ID)
+        .is("mq", null)
+        .not("raw_json", "is", null)
+        .limit(5000);
+      const idsToReset: number[] = [];
+      for (const r of (toReset ?? []) as Array<{ id: number; raw_json: Record<string, unknown> }>) {
+        const rj = r.raw_json ?? {};
+        const ps = String(rj.parse_status ?? "");
+        // Reset if it's a generic scrape_failed with no specific classification.
+        // Keep: dead_404, anti_bot, gone_404, empty (already parsed)
+        if (rj.error === "scrape_failed" && !["dead_404", "anti_bot", "gone_404", "empty", "empty_after_apify"].includes(ps)) {
+          idsToReset.push(r.id);
+        }
+      }
+      // chunked update
+      for (let i = 0; i < idsToReset.length; i += 500) {
+        const chunk = idsToReset.slice(i, i + 500);
+        await c.from("padova_collect_v2_items").update({ raw_json: null }).in("id", chunk);
+      }
+      resetCount = idsToReset.length;
+    }
+
     const { data: pre } = await c.from("padova_firecrawl_jobs").select("*").eq("job_id", jobId).maybeSingle();
     const spent = Number(pre?.spesa_firecrawl_usd ?? 0);
     if (spent >= SPEND_CAP_USD) {
@@ -619,41 +649,33 @@ Deno.serve(async (req) => {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const lastUpd = pre?.updated_at ? new Date(pre.updated_at as string).getTime() : 0;
-    if (Date.now() - lastUpd < 90_000 && pre?.status === "running") {
-      return new Response(JSON.stringify({ ok: true, skipped: "another_batch_in_progress", last_update_age_ms: Date.now() - lastUpd }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
     await c.from("padova_firecrawl_jobs")
       .update({ status: "running", updated_at: new Date().toISOString() })
       .eq("job_id", jobId);
 
-    // Run mini-batches in background; respond immediately so client doesn't time out.
-    const runWork = async () => {
-      const deadline = Date.now() + 380_000; // ~6.3 min CPU budget
-      let done = 0;
-      while (done < n && Date.now() < deadline) {
-        try {
-          const { data: liveJob } = await c.from("padova_firecrawl_jobs").select("spesa_firecrawl_usd").eq("job_id", jobId).maybeSingle();
-          if (Number(liveJob?.spesa_firecrawl_usd ?? 0) >= SPEND_CAP_USD) break;
-          const r = await processBatch(jobId, Math.min(60, n - done));
-          done += r.processed;
-          if (r.processed === 0) break; // nothing left
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          await c.from("padova_firecrawl_jobs")
-            .update({ last_error: msg.slice(0, 500), updated_at: new Date().toISOString() })
-            .eq("job_id", jobId);
-          break;
+    // Run mini-batches SYNCHRONOUSLY (so we can return per-reason outcomes)
+    const totals: BatchOutcomes = { done_ok: 0, dead_404: 0, timeout: 0, anti_bot: 0, empty_parse: 0, network_error: 0 };
+    let totalProcessed = 0;
+    let totalLatLng = 0;
+    const deadline = Date.now() + 300_000; // 5 min hard deadline
+    while (totalProcessed < n && Date.now() < deadline) {
+      try {
+        const r = await processBatch(jobId, Math.min(60, n - totalProcessed));
+        totalProcessed += r.processed;
+        totalLatLng += r.latlng;
+        for (const k of Object.keys(totals) as (keyof BatchOutcomes)[]) {
+          totals[k] += r.outcomes[k] ?? 0;
         }
+        if (r.processed === 0) break;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await c.from("padova_firecrawl_jobs")
+          .update({ last_error: msg.slice(0, 500), updated_at: new Date().toISOString() })
+          .eq("job_id", jobId);
+        break;
       }
-    };
-    // @ts-ignore EdgeRuntime
-    EdgeRuntime.waitUntil(runWork());
+    }
 
-
-    // count truly unprocessed (mq IS NULL AND raw_json IS NULL)
     const { count: leftCount } = await c
       .from("padova_collect_v2_items")
       .select("id", { count: "exact", head: true })
@@ -661,7 +683,6 @@ Deno.serve(async (req) => {
       .is("mq", null)
       .is("raw_json", null)
       .not("url", "is", null);
-
 
     const { data: cur } = await c.from("padova_firecrawl_jobs").select("*").eq("job_id", jobId).maybeSingle();
     const p = cur?.annunci_processati || 1;
@@ -672,14 +693,18 @@ Deno.serve(async (req) => {
         .eq("job_id", jobId);
     }
 
+    const latLngPct = totalProcessed > 0 ? Math.round((totalLatLng / totalProcessed) * 100) : 0;
+
     return new Response(JSON.stringify({
       ok: true,
-      batch_avviato_in_background: n,
-      note: "il batch gira in background ~5-6 min; richiama status o run_batch per riprendere",
+      failed_unknown_rimessi_da_fare: resetCount,
+      batch_processati_ora: totalProcessed,
+      esiti_batch: totals,
+      lat_lng_recuperati_nel_batch_pct: latLngPct,
+      rimanenti_da_fare: leftCount ?? 0,
+      done_ok_totali: cur?.annunci_ok ?? 0,
       annunci_processati_totali: cur?.annunci_processati ?? 0,
-      annunci_ok: cur?.annunci_ok ?? 0,
       annunci_fail: cur?.annunci_fail ?? 0,
-      rimanenti: leftCount ?? 0,
       spesa_firecrawl_usd_totale: Number(cur?.spesa_firecrawl_usd ?? 0),
       spesa_apify_usd_totale: Number(cur?.spesa_apify_usd ?? 0),
       fallback_apify_usati: cur?.fallback_apify_usati ?? 0,
@@ -696,6 +721,7 @@ Deno.serve(async (req) => {
       stato,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
+
 
   // ── reextract_empty: re-parse rows with raw_json present but mq=null (free, no scraping) ──
   if (action === "reextract_empty") {
