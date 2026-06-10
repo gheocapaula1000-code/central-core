@@ -475,9 +475,12 @@ async function processBatch(
   return { remaining: rows.length >= batchSize ? -1 : 0, processed: rows.length, outcomes, latlng: cov.latlng };
 }
 
-async function selfInvoke(jobId: string) {
+async function selfInvoke(jobId: string, action: "process" | "run_full" = "process") {
   const gatewayKey = SB_ANON_KEY || SB_KEY;
   try {
+    const body = action === "run_full"
+      ? { action: "run_full", job_id: jobId, _chain: true, _internal_token: INTERNAL_TOKEN }
+      : { action: "process", job_id: jobId, _internal_token: INTERNAL_TOKEN };
     const res = await fetch(FN_URL, {
       method: "POST",
       headers: {
@@ -486,7 +489,7 @@ async function selfInvoke(jobId: string) {
         "apikey": gatewayKey,
         "x-internal-secret": INTERNAL_TOKEN,
       },
-      body: JSON.stringify({ action: "process", job_id: jobId, _internal_token: INTERNAL_TOKEN }),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(10_000),
     });
     const text = await res.text().catch(() => "");
@@ -495,6 +498,9 @@ async function selfInvoke(jobId: string) {
     console.warn("selfInvoke error:", String(e));
   }
 }
+
+const JOB_ID_DEFAULT = "01a1368e-d0b1-4b85-8778-f197891efe1a";
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // ───────────────────────── handler ──────────────────────────
 Deno.serve(async (req) => {
