@@ -372,9 +372,10 @@ async function processBatch(
 
   const { data: rows } = await c
     .from("padova_collect_v2_items")
-    .select("id, url")
+    .select("id, url, attempts")
     .eq("job_id", SOURCE_JOB_ID)
     .not("url", "is", null)
+    .lt("attempts", 2)
     .or("processed_at.is.null,parse_status.in.(failed_processed_unknown,error)")
     .order("id", { ascending: true })
     .limit(batchSize);
