@@ -18,9 +18,9 @@ import { canSpendApify, recordApifySpend } from "../_shared/apifyBudget.ts";
 async function fcScrape(
   url: string,
   opts: { timeoutMs?: number; formats?: string[] } = {},
-): Promise<{ ok: boolean; markdown?: string; html?: string; error?: string }> {
+): Promise<{ ok: boolean; markdown?: string; html?: string; error?: string; httpStatus?: number; errorKind?: "timeout" | "http" | "network" | "missing_key" }> {
   const key = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
-  if (!key) return { ok: false, error: "FIRECRAWL_API_KEY missing" };
+  if (!key) return { ok: false, error: "FIRECRAWL_API_KEY missing", errorKind: "missing_key" };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 30_000);
   try {
@@ -34,16 +34,25 @@ async function fcScrape(
       }),
       signal: ctrl.signal,
     });
-    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     const data = await res.json().catch(() => ({}));
     const root = data?.data ?? data;
+    const upstreamStatus: number | undefined =
+      Number(root?.metadata?.statusCode) ||
+      Number(data?.metadata?.statusCode) ||
+      undefined;
+    if (!res.ok) {
+      return { ok: false, error: `HTTP ${res.status}`, httpStatus: upstreamStatus ?? res.status, errorKind: "http" };
+    }
     return {
       ok: true,
       markdown: typeof root?.markdown === "string" ? root.markdown.slice(0, 10000) : "",
       html: typeof root?.html === "string" ? root.html.slice(0, 20000) : "",
+      httpStatus: upstreamStatus,
     };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    const msg = e instanceof Error ? e.message : String(e);
+    const isTimeout = /abort|timeout/i.test(msg);
+    return { ok: false, error: msg, errorKind: isTimeout ? "timeout" : "network" };
   } finally {
     clearTimeout(timer);
   }
@@ -216,35 +225,80 @@ async function apifyDetailFallback(url: string): Promise<{ md: string; html: str
 }
 
 // ───────────────────────── processing ──────────────────────────
+type ParseStatus = "done_ok" | "dead_404" | "timeout" | "anti_bot" | "empty_parse" | "network_error";
+
 async function processOne(row: { id: number; url: string }): Promise<{
   ok: boolean;
   apifyUsed: boolean;
   fields: Record<string, unknown>;
+  parseStatus: ParseStatus;
+  httpStatus?: number;
+  error?: string;
 }> {
   let md = "";
   let html = "";
   let apifyUsed = false;
+  let httpStatus: number | undefined;
+  let lastError: string | undefined;
+  let firecrawlErrorKind: string | undefined;
 
   const fc = await fcScrape(row.url, { formats: ["markdown", "html"], timeoutMs: 30_000 });
-  if (fc.ok && (fc.markdown || (fc as { html?: string }).html)) {
+  httpStatus = fc.httpStatus;
+  if (fc.ok && (fc.markdown || fc.html)) {
     md = fc.markdown ?? "";
-    html = ((fc as unknown) as { html?: string }).html ?? "";
+    html = fc.html ?? "";
   } else {
-    const af = await apifyDetailFallback(row.url);
-    if (af) {
-      md = af.md;
-      html = af.html;
-      apifyUsed = true;
+    lastError = fc.error;
+    firecrawlErrorKind = fc.errorKind;
+    // Try apify fallback only for non-404 errors
+    if (!(httpStatus && httpStatus >= 400 && httpStatus < 500 && httpStatus !== 429 && httpStatus !== 403)) {
+      const af = await apifyDetailFallback(row.url);
+      if (af) {
+        md = af.md;
+        html = af.html;
+        apifyUsed = true;
+      }
     }
   }
 
   if (!md && !html) {
-    return { ok: false, apifyUsed, fields: {} };
+    // classify failure
+    let parseStatus: ParseStatus;
+    if (httpStatus && httpStatus >= 400 && httpStatus < 600 && httpStatus !== 429 && httpStatus !== 403) {
+      parseStatus = "dead_404";
+    } else if (httpStatus === 403 || httpStatus === 429) {
+      parseStatus = "anti_bot";
+    } else if (firecrawlErrorKind === "timeout") {
+      parseStatus = "timeout";
+    } else {
+      parseStatus = "network_error";
+    }
+    return { ok: false, apifyUsed, fields: {}, parseStatus, httpStatus, error: lastError };
   }
 
   const fields = extractFromContent(md, html);
-  fields.raw_json = { md: md.slice(0, 6000), html: html.slice(0, 12000) };
-  return { ok: true, apifyUsed, fields };
+  // Detect 404 pages that returned 200 with "page not found" content
+  if (fields._gone) {
+    fields.raw_json = { md: md.slice(0, 2000), html: html.slice(0, 4000), parse_status: "dead_404", http_status: httpStatus, processed_at: new Date().toISOString() };
+    return { ok: false, apifyUsed, fields, parseStatus: "dead_404", httpStatus };
+  }
+  // Detect anti-bot pages (cloudflare/captcha shells)
+  const lowText = (md + " " + html).toLowerCase();
+  if (!fields.mq && /captcha|access denied|cloudflare|just a moment|enable javascript and cookies/.test(lowText) && html.length < 5000) {
+    fields.raw_json = { md: md.slice(0, 2000), html: html.slice(0, 4000), parse_status: "anti_bot", http_status: httpStatus, processed_at: new Date().toISOString() };
+    return { ok: false, apifyUsed, fields, parseStatus: "anti_bot", httpStatus };
+  }
+
+  const parseStatus: ParseStatus = fields.mq ? "done_ok" : "empty_parse";
+  fields.raw_json = {
+    md: md.slice(0, 6000),
+    html: html.slice(0, 12000),
+    parse_status: parseStatus,
+    http_status: httpStatus,
+    processed_at: new Date().toISOString(),
+    via: apifyUsed ? "apify_fallback" : "firecrawl",
+  };
+  return { ok: parseStatus === "done_ok", apifyUsed, fields, parseStatus, httpStatus };
 }
 
 async function pMap<T, R>(items: T[], conc: number, fn: (t: T) => Promise<R>): Promise<R[]> {
@@ -262,12 +316,21 @@ async function pMap<T, R>(items: T[], conc: number, fn: (t: T) => Promise<R>): P
   return out;
 }
 
-async function processBatch(jobId: string, batchSize = BATCH): Promise<{ remaining: number; processed: number }> {
+type BatchOutcomes = {
+  done_ok: number;
+  dead_404: number;
+  timeout: number;
+  anti_bot: number;
+  empty_parse: number;
+  network_error: number;
+};
+
+async function processBatch(
+  jobId: string,
+  batchSize = BATCH,
+): Promise<{ remaining: number; processed: number; outcomes: BatchOutcomes; latlng: number }> {
   const c = sb();
 
-  // pick next rows: only rows that have NEVER been scraped (raw_json IS NULL)
-  // This naturally excludes parsing_vuoto (has raw_json.md) and hard_fail (has raw_json.error),
-  // preventing infinite re-scraping loops.
   const { data: rows } = await c
     .from("padova_collect_v2_items")
     .select("id, url")
@@ -277,13 +340,14 @@ async function processBatch(jobId: string, batchSize = BATCH): Promise<{ remaini
     .not("url", "is", null)
     .limit(batchSize);
 
+  const empty: BatchOutcomes = { done_ok: 0, dead_404: 0, timeout: 0, anti_bot: 0, empty_parse: 0, network_error: 0 };
 
   if (!rows || rows.length === 0) {
     await c
       .from("padova_firecrawl_jobs")
       .update({ status: "done", finished_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq("job_id", jobId);
-    return { remaining: 0, processed: 0 };
+    return { remaining: 0, processed: 0, outcomes: empty, latlng: 0 };
   }
 
   const results = await pMap(rows as { id: number; url: string }[], CONC, processOne);
@@ -292,17 +356,27 @@ async function processBatch(jobId: string, batchSize = BATCH): Promise<{ remaini
     fail = 0,
     apifyUsed = 0;
   const cov = { mq: 0, locali: 0, piano: 0, bagni: 0, civico: 0, agency: 0, tipologia: 0, latlng: 0 };
+  const outcomes: BatchOutcomes = { ...empty };
 
-  // update rows individually (so partial failures don't lose batch)
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i] as { id: number; url: string };
     const res = results[i];
+    outcomes[res.parseStatus] = (outcomes[res.parseStatus] ?? 0) + 1;
+
     if (!res.ok) {
       fail++;
-      // mark as processed-with-empty to avoid infinite retry
+      // mark processed with reason so we never re-pick it
       await c
         .from("padova_collect_v2_items")
-        .update({ raw_json: { error: "scrape_failed", at: new Date().toISOString() } })
+        .update({
+          raw_json: res.fields.raw_json ?? {
+            error: "scrape_failed",
+            parse_status: res.parseStatus,
+            http_status: res.httpStatus ?? null,
+            error_message: res.error ?? null,
+            processed_at: new Date().toISOString(),
+          },
+        })
         .eq("id", r.id);
       continue;
     }
@@ -318,7 +392,6 @@ async function processBatch(jobId: string, batchSize = BATCH): Promise<{ remaini
     if (f.tipologia) cov.tipologia++;
     if (f.lat && f.lng) cov.latlng++;
 
-    // compute cluster_key via RPC-less direct call
     const { data: ckRow } = await c.rpc("compute_cluster_key", {
       p_via: null,
       p_civico: (f.civico as string | undefined) ?? null,
@@ -348,7 +421,6 @@ async function processBatch(jobId: string, batchSize = BATCH): Promise<{ remaini
       .eq("id", r.id);
   }
 
-  // increment counters
   const { data: cur } = await c
     .from("padova_firecrawl_jobs")
     .select("*")
@@ -377,7 +449,7 @@ async function processBatch(jobId: string, batchSize = BATCH): Promise<{ remaini
       .eq("job_id", jobId);
   }
 
-  return { remaining: rows.length >= batchSize ? -1 : 0, processed: rows.length };
+  return { remaining: rows.length >= batchSize ? -1 : 0, processed: rows.length, outcomes, latlng: cov.latlng };
 }
 
 async function selfInvoke(jobId: string) {
@@ -528,15 +600,45 @@ Deno.serve(async (req) => {
 
   if (action === "run_batch") {
     const jobId = String(body?.job_id ?? "");
-    const n = Math.min(Math.max(Number(body?.n ?? 600), 10), 1500);
-    const SPEND_CAP_USD = Number(body?.spend_cap_usd ?? 15);
+    const n = Math.min(Math.max(Number(body?.n ?? 400), 10), 1500);
+    const SPEND_CAP_USD = Number(body?.spend_cap_usd ?? 1000); // crediti abbondanti, no cap stretto
+    const resetFailedUnknown = body?.reset_failed_unknown === true;
     if (!jobId) {
       return new Response(JSON.stringify({ ok: false, error: "job_id_required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // GUARDS: spend cap + concurrency
+    // STEP 0: reset failed_processed_unknown rows so they get retried.
+    // These are rows with raw_json.error == 'scrape_failed' but NO explicit parse_status
+    // (dead_404, anti_bot, timeout). Confirmed dead_404 / anti_bot / etc. stay marked.
+    let resetCount = 0;
+    if (resetFailedUnknown) {
+      const { data: toReset } = await c
+        .from("padova_collect_v2_items")
+        .select("id, raw_json")
+        .eq("job_id", SOURCE_JOB_ID)
+        .is("mq", null)
+        .not("raw_json", "is", null)
+        .limit(5000);
+      const idsToReset: number[] = [];
+      for (const r of (toReset ?? []) as Array<{ id: number; raw_json: Record<string, unknown> }>) {
+        const rj = r.raw_json ?? {};
+        const ps = String(rj.parse_status ?? "");
+        // Reset if it's a generic scrape_failed with no specific classification.
+        // Keep: dead_404, anti_bot, gone_404, empty (already parsed)
+        if (rj.error === "scrape_failed" && !["dead_404", "anti_bot", "gone_404", "empty", "empty_after_apify"].includes(ps)) {
+          idsToReset.push(r.id);
+        }
+      }
+      // chunked update
+      for (let i = 0; i < idsToReset.length; i += 500) {
+        const chunk = idsToReset.slice(i, i + 500);
+        await c.from("padova_collect_v2_items").update({ raw_json: null }).in("id", chunk);
+      }
+      resetCount = idsToReset.length;
+    }
+
     const { data: pre } = await c.from("padova_firecrawl_jobs").select("*").eq("job_id", jobId).maybeSingle();
     const spent = Number(pre?.spesa_firecrawl_usd ?? 0);
     if (spent >= SPEND_CAP_USD) {
@@ -547,41 +649,33 @@ Deno.serve(async (req) => {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const lastUpd = pre?.updated_at ? new Date(pre.updated_at as string).getTime() : 0;
-    if (Date.now() - lastUpd < 90_000 && pre?.status === "running") {
-      return new Response(JSON.stringify({ ok: true, skipped: "another_batch_in_progress", last_update_age_ms: Date.now() - lastUpd }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
     await c.from("padova_firecrawl_jobs")
       .update({ status: "running", updated_at: new Date().toISOString() })
       .eq("job_id", jobId);
 
-    // Run mini-batches in background; respond immediately so client doesn't time out.
-    const runWork = async () => {
-      const deadline = Date.now() + 380_000; // ~6.3 min CPU budget
-      let done = 0;
-      while (done < n && Date.now() < deadline) {
-        try {
-          const { data: liveJob } = await c.from("padova_firecrawl_jobs").select("spesa_firecrawl_usd").eq("job_id", jobId).maybeSingle();
-          if (Number(liveJob?.spesa_firecrawl_usd ?? 0) >= SPEND_CAP_USD) break;
-          const r = await processBatch(jobId, Math.min(60, n - done));
-          done += r.processed;
-          if (r.processed === 0) break; // nothing left
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          await c.from("padova_firecrawl_jobs")
-            .update({ last_error: msg.slice(0, 500), updated_at: new Date().toISOString() })
-            .eq("job_id", jobId);
-          break;
+    // Run mini-batches SYNCHRONOUSLY (so we can return per-reason outcomes)
+    const totals: BatchOutcomes = { done_ok: 0, dead_404: 0, timeout: 0, anti_bot: 0, empty_parse: 0, network_error: 0 };
+    let totalProcessed = 0;
+    let totalLatLng = 0;
+    const deadline = Date.now() + 300_000; // 5 min hard deadline
+    while (totalProcessed < n && Date.now() < deadline) {
+      try {
+        const r = await processBatch(jobId, Math.min(60, n - totalProcessed));
+        totalProcessed += r.processed;
+        totalLatLng += r.latlng;
+        for (const k of Object.keys(totals) as (keyof BatchOutcomes)[]) {
+          totals[k] += r.outcomes[k] ?? 0;
         }
+        if (r.processed === 0) break;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await c.from("padova_firecrawl_jobs")
+          .update({ last_error: msg.slice(0, 500), updated_at: new Date().toISOString() })
+          .eq("job_id", jobId);
+        break;
       }
-    };
-    // @ts-ignore EdgeRuntime
-    EdgeRuntime.waitUntil(runWork());
+    }
 
-
-    // count truly unprocessed (mq IS NULL AND raw_json IS NULL)
     const { count: leftCount } = await c
       .from("padova_collect_v2_items")
       .select("id", { count: "exact", head: true })
@@ -589,7 +683,6 @@ Deno.serve(async (req) => {
       .is("mq", null)
       .is("raw_json", null)
       .not("url", "is", null);
-
 
     const { data: cur } = await c.from("padova_firecrawl_jobs").select("*").eq("job_id", jobId).maybeSingle();
     const p = cur?.annunci_processati || 1;
@@ -600,14 +693,18 @@ Deno.serve(async (req) => {
         .eq("job_id", jobId);
     }
 
+    const latLngPct = totalProcessed > 0 ? Math.round((totalLatLng / totalProcessed) * 100) : 0;
+
     return new Response(JSON.stringify({
       ok: true,
-      batch_avviato_in_background: n,
-      note: "il batch gira in background ~5-6 min; richiama status o run_batch per riprendere",
+      failed_unknown_rimessi_da_fare: resetCount,
+      batch_processati_ora: totalProcessed,
+      esiti_batch: totals,
+      lat_lng_recuperati_nel_batch_pct: latLngPct,
+      rimanenti_da_fare: leftCount ?? 0,
+      done_ok_totali: cur?.annunci_ok ?? 0,
       annunci_processati_totali: cur?.annunci_processati ?? 0,
-      annunci_ok: cur?.annunci_ok ?? 0,
       annunci_fail: cur?.annunci_fail ?? 0,
-      rimanenti: leftCount ?? 0,
       spesa_firecrawl_usd_totale: Number(cur?.spesa_firecrawl_usd ?? 0),
       spesa_apify_usd_totale: Number(cur?.spesa_apify_usd ?? 0),
       fallback_apify_usati: cur?.fallback_apify_usati ?? 0,
@@ -624,6 +721,7 @@ Deno.serve(async (req) => {
       stato,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
+
 
   // ── reextract_empty: re-parse rows with raw_json present but mq=null (free, no scraping) ──
   if (action === "reextract_empty") {
