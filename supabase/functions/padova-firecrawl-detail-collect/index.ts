@@ -550,42 +550,152 @@ Deno.serve(async (req) => {
   }
 
   if (action === "status") {
-    const jobId = String(body?.job_id ?? "");
-    const { data } = await c.from("padova_firecrawl_jobs").select("*").eq("job_id", jobId).maybeSingle();
-    if (!data) {
-      return new Response(JSON.stringify({ ok: false, error: "job_not_found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    const p = data.annunci_processati || 1;
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        job_id: data.job_id,
-        annunci_totali: data.annunci_totali,
-        annunci_processati: data.annunci_processati,
-        annunci_ok: data.annunci_ok,
-        annunci_fail: data.annunci_fail,
-        fallback_apify_usati: data.fallback_apify_usati,
-        spesa_firecrawl_usd: Number(data.spesa_firecrawl_usd),
-        spesa_apify_usd: Number(data.spesa_apify_usd),
-        copertura_campi_percentuale: {
-          mq: Math.round((data.cov_mq / p) * 100),
-          locali: Math.round((data.cov_locali / p) * 100),
-          piano: Math.round((data.cov_piano / p) * 100),
-          bagni: Math.round((data.cov_bagni / p) * 100),
-          civico: Math.round((data.cov_civico / p) * 100),
-          agency: Math.round((data.cov_agency / p) * 100),
-          tipologia: Math.round((data.cov_tipologia / p) * 100),
-          lat_lng: Math.round((data.cov_latlng / p) * 100),
-        },
-        stato: data.status,
-        updated_at: data.updated_at,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    const jobId = String(body?.job_id ?? JOB_ID_DEFAULT);
+
+    // DB-grounded counters (source of truth)
+    const countWhere = async (
+      build: (q: ReturnType<typeof c.from> extends infer T ? T : never) => unknown,
+    ): Promise<number> => {
+      // helper unused — we inline below for typing simplicity
+      return 0;
+    };
+    void countWhere;
+
+    const baseFilter = () =>
+      c.from("padova_collect_v2_items").select("id", { count: "exact", head: true })
+        .eq("job_id", SOURCE_JOB_ID).not("url", "is", null);
+
+    const [totRes, notYetRes, processedRes, doneOkRes, dead404Res, emptyRes, errorRes, failedUnkRes] = await Promise.all([
+      baseFilter(),
+      baseFilter().is("raw_json", null),
+      baseFilter().not("raw_json", "is", null),
+      baseFilter().not("mq", "is", null),
+      baseFilter().filter("raw_json->>parse_status", "eq", "dead_404"),
+      baseFilter().filter("raw_json->>parse_status", "eq", "empty_parse"),
+      baseFilter().filter("raw_json->>parse_status", "eq", "error"),
+      baseFilter().or("raw_json->>parse_status.eq.failed_processed_unknown,raw_json->>error.eq.scrape_failed").is("mq", null),
+    ]);
+
+    const job = await c.from("padova_firecrawl_jobs").select("*").eq("job_id", jobId).maybeSingle();
+    const jobData = job.data;
+
+    return new Response(JSON.stringify({
+      ok: true,
+      job_id: jobId,
+      totale: totRes.count ?? 0,
+      not_yet: notYetRes.count ?? 0,
+      processed_at_pieni: processedRes.count ?? 0,
+      done_ok: doneOkRes.count ?? 0,
+      dead_404: dead404Res.count ?? 0,
+      empty_parse: emptyRes.count ?? 0,
+      error: errorRes.count ?? 0,
+      failed_processed_unknown_residui: failedUnkRes.count ?? 0,
+      stato: jobData?.status ?? "unknown",
+      spesa_firecrawl_usd: Number(jobData?.spesa_firecrawl_usd ?? 0),
+      spesa_apify_usd: Number(jobData?.spesa_apify_usd ?? 0),
+      updated_at: jobData?.updated_at ?? null,
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
+
+  // ── run_full: process one 40-row batch sync, then self-chain via SUPABASE_ANON_KEY ──
+  if (action === "run_full") {
+    const jobId = String(body?.job_id ?? JOB_ID_DEFAULT);
+    const BATCH_SIZE = Math.min(Math.max(Number(body?.batch_size ?? 40), 5), 80);
+    const resetFailedUnknown = body?.reset_failed_unknown === true;
+    const isChain = body?._chain === true;
+
+    // STEP 0: reset failed_processed_unknown rows (only on first non-chain call)
+    let resetCount = 0;
+    if (resetFailedUnknown && !isChain) {
+      const { data: toReset } = await c
+        .from("padova_collect_v2_items")
+        .select("id, raw_json")
+        .eq("job_id", SOURCE_JOB_ID)
+        .is("mq", null)
+        .not("raw_json", "is", null)
+        .limit(10000);
+      const ids: number[] = [];
+      for (const r of (toReset ?? []) as Array<{ id: number; raw_json: Record<string, unknown> }>) {
+        const rj = r.raw_json ?? {};
+        const ps = String(rj.parse_status ?? "");
+        const keep = ["done_ok", "dead_404", "empty_parse", "anti_bot", "gone_404", "empty", "empty_after_apify"];
+        if (!keep.includes(ps)) ids.push(r.id);
+      }
+      for (let i = 0; i < ids.length; i += 500) {
+        await c.from("padova_collect_v2_items").update({ raw_json: null }).in("id", ids.slice(i, i + 500));
+      }
+      resetCount = ids.length;
+    }
+
+    // Ensure job row exists & running
+    const { data: existing } = await c.from("padova_firecrawl_jobs").select("*").eq("job_id", jobId).maybeSingle();
+    if (!existing) {
+      await c.from("padova_firecrawl_jobs").insert({
+        job_id: jobId, status: "running", source_job_id: SOURCE_JOB_ID, annunci_totali: 0,
+      });
+    } else if (existing.status !== "running") {
+      await c.from("padova_firecrawl_jobs")
+        .update({ status: "running", updated_at: new Date().toISOString() })
+        .eq("job_id", jobId);
+    }
+
+    // Count remaining BEFORE processing
+    const { count: beforeCount } = await c
+      .from("padova_collect_v2_items")
+      .select("id", { count: "exact", head: true })
+      .eq("job_id", SOURCE_JOB_ID).is("mq", null).is("raw_json", null).not("url", "is", null);
+    const daProcessareTotale = beforeCount ?? 0;
+    console.log(`[run_full] job=${jobId} chain=${isChain} da_processare_totale=${daProcessareTotale} reset=${resetCount}`);
+
+    // Process ONE batch synchronously
+    let processed = 0;
+    const outcomes: BatchOutcomes = { done_ok: 0, dead_404: 0, timeout: 0, anti_bot: 0, empty_parse: 0, network_error: 0 };
+    let writeError: string | null = null;
+    try {
+      const r = await processBatch(jobId, BATCH_SIZE);
+      processed = r.processed;
+      for (const k of Object.keys(outcomes) as (keyof BatchOutcomes)[]) outcomes[k] += r.outcomes[k] ?? 0;
+    } catch (e) {
+      writeError = e instanceof Error ? e.message : String(e);
+      await c.from("padova_firecrawl_jobs")
+        .update({ last_error: writeError.slice(0, 500), updated_at: new Date().toISOString() })
+        .eq("job_id", jobId);
+    }
+
+    // Count remaining AFTER
+    const { count: afterCount } = await c
+      .from("padova_collect_v2_items")
+      .select("id", { count: "exact", head: true })
+      .eq("job_id", SOURCE_JOB_ID).is("mq", null).is("raw_json", null).not("url", "is", null);
+    const rimanenti = afterCount ?? 0;
+
+    let chaining = false;
+    if (!writeError && rimanenti > 0 && processed > 0) {
+      await sleep(800);
+      // @ts-ignore EdgeRuntime
+      EdgeRuntime.waitUntil(selfInvoke(jobId, "run_full"));
+      chaining = true;
+    } else if (rimanenti === 0) {
+      await c.from("padova_firecrawl_jobs")
+        .update({ status: "done", finished_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq("job_id", jobId);
+    }
+
+    return new Response(JSON.stringify({
+      ok: !writeError,
+      job_id: jobId,
+      da_processare_totale: daProcessareTotale,
+      batch_size: BATCH_SIZE,
+      batch_processato_ora: processed,
+      esiti_batch: outcomes,
+      rimanenti: rimanenti,
+      failed_unknown_rimessi_in_coda: resetCount,
+      chaining: chaining ? "avviato" : (rimanenti === 0 ? "completato" : "fermo"),
+      stato: rimanenti === 0 ? "done" : "running",
+      error: writeError,
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
 
   if (action === "process") {
     if (String(body?._internal_token ?? "") !== INTERNAL_TOKEN) {
