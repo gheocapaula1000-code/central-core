@@ -4151,6 +4151,24 @@ export type Database = {
         }
         Relationships: []
       }
+      padova_casa_staging: {
+        Row: {
+          fetched_at: string
+          id: number
+          raw_json: Json
+        }
+        Insert: {
+          fetched_at?: string
+          id?: number
+          raw_json: Json
+        }
+        Update: {
+          fetched_at?: string
+          id?: number
+          raw_json?: Json
+        }
+        Relationships: []
+      }
       padova_casa_test: {
         Row: {
           fetched_at: string
@@ -4538,6 +4556,24 @@ export type Database = {
           fetched_at?: string
           id?: number
           raw_json?: Json | null
+        }
+        Relationships: []
+      }
+      padova_subito_test2: {
+        Row: {
+          fetched_at: string
+          id: number
+          raw_json: Json
+        }
+        Insert: {
+          fetched_at?: string
+          id?: number
+          raw_json: Json
+        }
+        Update: {
+          fetched_at?: string
+          id?: number
+          raw_json?: Json
         }
         Relationships: []
       }
