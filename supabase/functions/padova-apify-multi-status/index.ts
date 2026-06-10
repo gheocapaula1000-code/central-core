@@ -56,7 +56,7 @@ function parseIdealista(it: Record<string, unknown>) {
   const urlFinal = (it.originalUrl as string) ?? (it.detailWebLink as string) ?? (it.link as string) ?? (pid ? `https://www.idealista.it/immobile/${pid}/` : null);
   const professional = contact.professional;
   return {
-    url: (it.url as string) ?? null,
+    url: urlFinal,
     agency: (contact.commercialName as string) ?? null,
     tipo_lead: professional === false ? "PRIVATO" : (professional === true ? "AGENZIA" : null),
     mq: num(more.constructedArea),
