@@ -1,0 +1,1 @@
+ALTER TABLE public.padova_listings ADD COLUMN IF NOT EXISTS tag_legacy text;
