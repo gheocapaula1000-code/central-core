@@ -399,11 +399,12 @@ async function processBatch(
   const outcomes: BatchOutcomes = { ...empty };
 
   for (let i = 0; i < rows.length; i++) {
-    const r = rows[i] as { id: number; url: string };
+    const r = rows[i] as { id: number; url: string; attempts: number };
     const res = results[i];
+    const nextAttempts = (r.attempts ?? 0) + 1;
     outcomes[res.parseStatus] = (outcomes[res.parseStatus] ?? 0) + 1;
-    const persistedStatus = storedStatus(res.parseStatus);
-    if (persistedStatus === "error") outcomes.error++;
+    const persistedStatus = storedStatus(res.parseStatus, nextAttempts);
+    if (persistedStatus === "error" || persistedStatus === "dead_unrecoverable") outcomes.error++;
     const f = res.fields;
     const nowIso = new Date().toISOString();
     const raw_json = {
@@ -413,6 +414,7 @@ async function processBatch(
       http_status: res.httpStatus ?? null,
       log_reason: logReason(res.parseStatus, res.error),
       processed_at: nowIso,
+      attempts: nextAttempts,
     };
 
     const { data: ckRow } = await c.rpc("compute_cluster_key", {
@@ -446,6 +448,7 @@ async function processBatch(
           http_status: res.httpStatus ?? null,
           log_reason: logReason(res.parseStatus, res.error),
           processed_at: nowIso,
+          attempts: nextAttempts,
         })
         .eq("id", r.id);
       continue;
@@ -482,6 +485,7 @@ async function processBatch(
         http_status: res.httpStatus ?? null,
         log_reason: null,
         processed_at: nowIso,
+        attempts: nextAttempts,
       })
       .eq("id", r.id);
   }
