@@ -71,14 +71,23 @@ Deno.serve(async (req) => {
   let idealistaFromDbCount = 0;
   if (body.idealista && (!idealistaUrls.length) && body.idealista.from_db) {
     const cap = body.idealista.max_urls ?? 40;
-    const { data: rows } = await sb
-      .from("padova_collect_v2_items")
-      .select("url")
-      .ilike("url", "%idealista.it%")
-      .ilike("url", "%/immobile/%")
-      .order("url", { ascending: true })
-      .limit(cap);
-    idealistaUrls = (rows ?? []).map((r: { url: string }) => r.url).filter(Boolean);
+    // Paginate explicitly with .range() to bypass Supabase's 1000-row default.
+    const collected: string[] = [];
+    const pageSize = 1000;
+    for (let from = 0; from < cap && collected.length < cap; from += pageSize) {
+      const to = Math.min(from + pageSize - 1, cap - 1);
+      const { data: rows } = await sb
+        .from("padova_collect_v2_items")
+        .select("url")
+        .ilike("url", "%idealista.it%")
+        .ilike("url", "%/immobile/%")
+        .order("url", { ascending: true })
+        .range(from, to);
+      const page = (rows ?? []).map((r: { url: string }) => r.url).filter(Boolean);
+      collected.push(...page);
+      if (page.length < pageSize) break;
+    }
+    idealistaUrls = collected;
     idealistaFromDbCount = idealistaUrls.length;
   }
 
