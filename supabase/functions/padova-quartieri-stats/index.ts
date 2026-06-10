@@ -113,6 +113,8 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({
       ok: true,
+      quartieri,
+      ...totals,
       data: { quartieri, totals },
       debug_id: did,
     }), { status: 200, headers: CORS });
