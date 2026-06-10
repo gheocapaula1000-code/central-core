@@ -107,27 +107,37 @@ function extractFromContent(markdown: string, html: string): Record<string, unkn
     out._gone = true;
   }
 
-  // JSON-LD blocks (schema.org)
+  // JSON-LD blocks (schema.org) — walk @graph recursively
   try {
     const ldBlocks = html.match(/<script[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi) ?? [];
+    const walk = (it: Record<string, unknown> | null | undefined) => {
+      if (!it || typeof it !== "object") return;
+      const fs = (it as { floorSize?: { value?: unknown } | unknown }).floorSize as { value?: unknown } | unknown;
+      const fsv = (fs && typeof fs === "object" && "value" in (fs as Record<string, unknown>)) ? (fs as { value?: unknown }).value : fs;
+      if (fsv && !out.mq) out.mq = intOnly(String(fsv));
+      const nr = (it as Record<string, unknown>).numberOfRooms ?? (it as Record<string, unknown>).numberOfRoomsTotal;
+      if (nr && !out.locali) out.locali = intOnly(String(nr));
+      const nb = (it as Record<string, unknown>).numberOfBathroomsTotal ?? (it as Record<string, unknown>).numberOfBathrooms;
+      if (nb && !out.bagni) out.bagni = intOnly(String(nb));
+      const ag = (it as { realEstateAgent?: { name?: string }; provider?: { name?: string }; seller?: { name?: string } });
+      const agName = ag?.realEstateAgent?.name ?? ag?.provider?.name ?? ag?.seller?.name;
+      if (agName && !out.agency) out.agency = clean(String(agName)).slice(0, 120);
+      const geo = (it as { geo?: { latitude?: unknown; longitude?: unknown }; address?: { geo?: { latitude?: unknown; longitude?: unknown } } });
+      const lat = geo?.geo?.latitude ?? geo?.address?.geo?.latitude;
+      const lng = geo?.geo?.longitude ?? geo?.address?.geo?.longitude;
+      if (lat != null && lng != null && !out.lat) {
+        const la = Number(lat), lo = Number(lng);
+        if (Number.isFinite(la) && Number.isFinite(lo)) { out.lat = la; out.lng = lo; }
+      }
+      const graph = (it as { ["@graph"]?: unknown[] })["@graph"];
+      if (Array.isArray(graph)) for (const g of graph) walk(g as Record<string, unknown>);
+    };
     for (const block of ldBlocks) {
       const inner = block.replace(/^[\s\S]*?>/, "").replace(/<\/script>\s*$/i, "");
       try {
         const obj = JSON.parse(inner);
         const items = Array.isArray(obj) ? obj : [obj];
-        for (const it of items) {
-          const fs = it?.floorSize?.value ?? it?.floorSize;
-          if (fs && !out.mq) out.mq = intOnly(String(fs));
-          const nr = it?.numberOfRooms ?? it?.numberOfRoomsTotal;
-          if (nr && !out.locali) out.locali = intOnly(String(nr));
-          const nb = it?.numberOfBathroomsTotal ?? it?.numberOfBathrooms;
-          if (nb && !out.bagni) out.bagni = intOnly(String(nb));
-          const ag = it?.realEstateAgent?.name ?? it?.provider?.name ?? it?.seller?.name;
-          if (ag && !out.agency) out.agency = clean(String(ag)).slice(0, 120);
-          const lat = it?.geo?.latitude ?? it?.address?.geo?.latitude;
-          const lng = it?.geo?.longitude ?? it?.address?.geo?.longitude;
-          if (lat && lng && !out.lat) { out.lat = Number(lat); out.lng = Number(lng); }
-        }
+        for (const it of items) walk(it as Record<string, unknown>);
       } catch { /* skip block */ }
     }
   } catch { /* ignore */ }
