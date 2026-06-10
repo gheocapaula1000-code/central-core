@@ -4179,6 +4179,7 @@ export type Database = {
         Row: {
           agency: string | null
           anno_costruzione: number | null
+          attempts: number
           bagni: number | null
           cap: string | null
           citta: string | null
@@ -4214,6 +4215,7 @@ export type Database = {
         Insert: {
           agency?: string | null
           anno_costruzione?: number | null
+          attempts?: number
           bagni?: number | null
           cap?: string | null
           citta?: string | null
@@ -4249,6 +4251,7 @@ export type Database = {
         Update: {
           agency?: string | null
           anno_costruzione?: number | null
+          attempts?: number
           bagni?: number | null
           cap?: string | null
           citta?: string | null

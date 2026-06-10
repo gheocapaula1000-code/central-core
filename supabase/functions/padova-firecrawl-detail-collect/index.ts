@@ -349,10 +349,12 @@ type BatchOutcomes = {
   error: number;
 };
 
-type StoredParseStatus = "done_ok" | "dead_404" | "empty_parse" | "error";
+type StoredParseStatus = "done_ok" | "dead_404" | "empty_parse" | "error" | "dead_unrecoverable";
 
-function storedStatus(status: ParseStatus): StoredParseStatus {
+function storedStatus(status: ParseStatus, nextAttempts: number): StoredParseStatus {
   if (status === "done_ok" || status === "dead_404" || status === "empty_parse") return status;
+  // error/timeout/anti_bot/network_error: dead_unrecoverable se attempts esauriti
+  if (nextAttempts >= 2) return "dead_unrecoverable";
   return "error";
 }
 
@@ -370,9 +372,10 @@ async function processBatch(
 
   const { data: rows } = await c
     .from("padova_collect_v2_items")
-    .select("id, url")
+    .select("id, url, attempts")
     .eq("job_id", SOURCE_JOB_ID)
     .not("url", "is", null)
+    .lt("attempts", 2)
     .or("processed_at.is.null,parse_status.in.(failed_processed_unknown,error)")
     .order("id", { ascending: true })
     .limit(batchSize);
@@ -387,7 +390,7 @@ async function processBatch(
     return { remaining: 0, processed: 0, outcomes: empty, latlng: 0 };
   }
 
-  const results = await pMap(rows as { id: number; url: string }[], CONC, processOne);
+  const results = await pMap(rows as { id: number; url: string; attempts: number }[], CONC, processOne);
 
   let ok = 0,
     fail = 0,
@@ -396,11 +399,12 @@ async function processBatch(
   const outcomes: BatchOutcomes = { ...empty };
 
   for (let i = 0; i < rows.length; i++) {
-    const r = rows[i] as { id: number; url: string };
+    const r = rows[i] as { id: number; url: string; attempts: number };
     const res = results[i];
+    const nextAttempts = (r.attempts ?? 0) + 1;
     outcomes[res.parseStatus] = (outcomes[res.parseStatus] ?? 0) + 1;
-    const persistedStatus = storedStatus(res.parseStatus);
-    if (persistedStatus === "error") outcomes.error++;
+    const persistedStatus = storedStatus(res.parseStatus, nextAttempts);
+    if (persistedStatus === "error" || persistedStatus === "dead_unrecoverable") outcomes.error++;
     const f = res.fields;
     const nowIso = new Date().toISOString();
     const raw_json = {
@@ -410,6 +414,7 @@ async function processBatch(
       http_status: res.httpStatus ?? null,
       log_reason: logReason(res.parseStatus, res.error),
       processed_at: nowIso,
+      attempts: nextAttempts,
     };
 
     const { data: ckRow } = await c.rpc("compute_cluster_key", {
@@ -443,6 +448,7 @@ async function processBatch(
           http_status: res.httpStatus ?? null,
           log_reason: logReason(res.parseStatus, res.error),
           processed_at: nowIso,
+          attempts: nextAttempts,
         })
         .eq("id", r.id);
       continue;
@@ -479,6 +485,7 @@ async function processBatch(
         http_status: res.httpStatus ?? null,
         log_reason: null,
         processed_at: nowIso,
+        attempts: nextAttempts,
       })
       .eq("id", r.id);
   }
@@ -516,6 +523,7 @@ async function processBatch(
     .select("id", { count: "exact", head: true })
     .eq("job_id", SOURCE_JOB_ID)
     .not("url", "is", null)
+    .lt("attempts", 2)
     .or("processed_at.is.null,parse_status.in.(failed_processed_unknown,error)");
 
   return { remaining: remainingCount ?? 0, processed: rows.length, outcomes, latlng: cov.latlng };
@@ -611,7 +619,7 @@ Deno.serve(async (req) => {
       c.from("padova_collect_v2_items").select("id", { count: "exact", head: true })
         .eq("job_id", SOURCE_JOB_ID).not("url", "is", null);
 
-    const [totRes, notYetRes, processedRes, doneOkRes, dead404Res, emptyRes, errorRes, failedUnkRes] = await Promise.all([
+    const [totRes, notYetRes, processedRes, doneOkRes, dead404Res, emptyRes, errorRes, failedUnkRes, deadUnrecRes, codaRes] = await Promise.all([
       baseFilter(),
       baseFilter().is("processed_at", null),
       baseFilter().not("processed_at", "is", null),
@@ -620,6 +628,8 @@ Deno.serve(async (req) => {
       baseFilter().eq("parse_status", "empty_parse"),
       baseFilter().eq("parse_status", "error"),
       baseFilter().eq("parse_status", "failed_processed_unknown"),
+      baseFilter().eq("parse_status", "dead_unrecoverable"),
+      baseFilter().lt("attempts", 2).or("processed_at.is.null,parse_status.in.(failed_processed_unknown,error)"),
     ]);
 
     const job = await c.from("padova_firecrawl_jobs").select("*").eq("job_id", jobId).maybeSingle();
@@ -629,10 +639,12 @@ Deno.serve(async (req) => {
       ok: true,
       job_id: jobId,
       totale: totRes.count ?? 0,
+      coda_rimasta: codaRes.count ?? 0,
       not_yet: notYetRes.count ?? 0,
       processed_at_pieni: processedRes.count ?? 0,
       done_ok: doneOkRes.count ?? 0,
       dead_404: dead404Res.count ?? 0,
+      dead_unrecoverable: deadUnrecRes.count ?? 0,
       empty_parse: emptyRes.count ?? 0,
       error: errorRes.count ?? 0,
       failed_processed_unknown_residui: failedUnkRes.count ?? 0,
