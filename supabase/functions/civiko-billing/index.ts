@@ -741,6 +741,19 @@ Deno.serve(async (req) => {
       return await handleStripeWebhook(req, raw, debugId);
     }
 
+    // ── /create-checkout-direct (Civiko One consumer checkout) ──
+    if (pathname.endsWith("/create-checkout-direct")) {
+      const authFail = authCheckoutDirect(req, debugId);
+      if (authFail) return withIdentity(authFail, "auth-rejected");
+      let body: Record<string, unknown> = {};
+      try { body = (await req.json()) as Record<string, unknown>; }
+      catch { return withIdentity(fail(req, 400, "INVALID_JSON", "Body is not valid JSON", debugId), "error"); }
+      if (body == null || typeof body !== "object" || Array.isArray(body)) {
+        return withIdentity(fail(req, 400, "INVALID_BODY", "Body must be a JSON object.", debugId), "error");
+      }
+      return await handleCreateCheckoutDirect(req, body, debugId);
+    }
+
     let body: Record<string, unknown> = {};
     try { body = (await req.json()) as Record<string, unknown>; }
     catch { return withIdentity(fail(req, 400, "INVALID_JSON", "Body is not valid JSON", debugId), "error"); }
