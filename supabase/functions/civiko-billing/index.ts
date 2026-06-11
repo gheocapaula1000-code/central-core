@@ -39,7 +39,97 @@ const ROUTES = [
   "POST /civiko/billing/record-usage",
   "POST /civiko/billing/stripe-webhook",
   "POST /create-checkout-direct",
+  "POST /create-portal-session",
 ];
+
+// ── /create-portal-session ───────────────────────────────────
+// Civiko One — Stripe Billing Portal session, keyed by supabase_user_id.
+// Auth: same as /create-checkout-direct.
+async function handleCreatePortalSession(
+  req: Request,
+  body: Record<string, unknown>,
+  debugId: string,
+): Promise<Response> {
+  const route = "create-portal-session";
+  const secretKey = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
+  if (!secretKey) {
+    return withIdentity(fail(req, 503, "BILLING_NOT_CONFIGURED", "Stripe non configurato sul Core.", debugId), route);
+  }
+
+  const supabaseUserId = String(body.supabase_user_id ?? "").trim();
+  const returnUrl = String(body.return_url ?? "").trim();
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  if (!uuidRe.test(supabaseUserId)) {
+    return withIdentity(fail(req, 400, "INVALID_BODY", "supabase_user_id non è un UUID valido.", debugId), route);
+  }
+  if (!returnUrl || !/^https?:\/\//i.test(returnUrl)) {
+    return withIdentity(fail(req, 400, "INVALID_BODY", "return_url non valido.", debugId), route);
+  }
+
+  // 1) Try DB lookup (billing_customers / billing_subscriptions metadata)
+  let customerId: string | null = null;
+  const sb = getServiceSupabase();
+  if (sb) {
+    try {
+      const { data: bc } = await sb
+        .from("billing_customers")
+        .select("stripe_customer_id, metadata")
+        .contains("metadata", { supabase_user_id: supabaseUserId, app: "civiko" })
+        .limit(1)
+        .maybeSingle();
+      if (bc?.stripe_customer_id) customerId = String(bc.stripe_customer_id);
+    } catch (_) { /* ignore */ }
+
+    if (!customerId) {
+      try {
+        const { data: bs } = await sb
+          .from("billing_subscriptions")
+          .select("stripe_customer_id, metadata")
+          .contains("metadata", { supabase_user_id: supabaseUserId, app: "civiko" })
+          .limit(1)
+          .maybeSingle();
+        if (bs?.stripe_customer_id) customerId = String(bs.stripe_customer_id);
+      } catch (_) { /* ignore */ }
+    }
+  }
+
+  // 2) Fallback: stripe.customers.search
+  if (!customerId) {
+    try {
+      const q = encodeURIComponent(`metadata['supabase_user_id']:'${supabaseUserId}' AND metadata['app']:'civiko'`);
+      const searchRes = await fetch(`https://api.stripe.com/v1/customers/search?query=${q}&limit=1`, {
+        headers: { "Authorization": `Bearer ${secretKey}` },
+      });
+      if (searchRes.ok) {
+        const sr = await searchRes.json() as { data?: Array<{ id?: string }> };
+        customerId = sr.data?.[0]?.id ?? null;
+      } else {
+        const t = await searchRes.text();
+        console.warn(`[${FUNCTION_NAME}] portal customers/search failed status=${searchRes.status} body=${t.slice(0, 200)} debug_id=${debugId}`);
+      }
+    } catch (e) {
+      console.warn(`[${FUNCTION_NAME}] portal customers/search exception debug_id=${debugId}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  if (!customerId) {
+    return withIdentity(fail(req, 404, "CUSTOMER_NOT_FOUND", "Nessun customer Stripe trovato", debugId), route);
+  }
+
+  // 3) Create portal session
+  const r = await stripeForm(secretKey, "billing_portal/sessions", {
+    customer: customerId,
+    return_url: returnUrl,
+    locale: "it",
+  });
+  if (!r.ok || !r.data?.url) {
+    console.error(`[${FUNCTION_NAME}] billing_portal.sessions.create failed status=${r.status} debug_id=${debugId}`);
+    return withIdentity(fail(req, 502, "STRIPE_ERROR", `Portal non disponibile. Riferimento: ${debugId}`, debugId), route);
+  }
+
+  return withIdentity(json(req, 200, { ok: true, url: String(r.data.url) }, debugId), route);
+}
 
 // ── /create-checkout-direct ───────────────────────────────────
 // Civiko One — direct Stripe Checkout for the consumer plan
@@ -742,7 +832,7 @@ Deno.serve(async (req) => {
     }
 
     // ── /create-checkout-direct (Civiko One consumer checkout) ──
-    if (pathname.endsWith("/create-checkout-direct")) {
+    if (pathname.endsWith("/create-checkout-direct") || pathname.endsWith("/create-portal-session")) {
       const authFail = authCheckoutDirect(req, debugId);
       if (authFail) return withIdentity(authFail, "auth-rejected");
       let body: Record<string, unknown> = {};
@@ -750,6 +840,9 @@ Deno.serve(async (req) => {
       catch { return withIdentity(fail(req, 400, "INVALID_JSON", "Body is not valid JSON", debugId), "error"); }
       if (body == null || typeof body !== "object" || Array.isArray(body)) {
         return withIdentity(fail(req, 400, "INVALID_BODY", "Body must be a JSON object.", debugId), "error");
+      }
+      if (pathname.endsWith("/create-portal-session")) {
+        return await handleCreatePortalSession(req, body, debugId);
       }
       return await handleCreateCheckoutDirect(req, body, debugId);
     }
