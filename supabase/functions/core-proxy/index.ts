@@ -34,6 +34,7 @@ const ROUTE_MAP: Record<string, string> = {
   // ── Padova contendibili ──
   "padova-contendibili-list":            "padova-contendibili-list",
   "padova-quartieri-stats":              "padova-quartieri-stats",
+  "padova-privati-list":                 "padova-privati-list",
   // ── Diagnostica ──
   "health":                              "health",
   "core-status":                         "core-status",
