@@ -216,6 +216,8 @@ async function handleCreateCheckoutDirect(
   const form: Record<string, string> = {
     "mode": "subscription",
     "customer": customerId,
+    "customer_update[name]": "auto",
+    "customer_update[address]": "auto",
     "line_items[0][price]": priceId,
     "line_items[0][quantity]": "1",
     "success_url": successUrl,
@@ -235,8 +237,10 @@ async function handleCreateCheckoutDirect(
   };
   const r = await stripeForm(secretKey, "checkout/sessions", form);
   if (!r.ok || !r.data?.url) {
-    console.error(`[${FUNCTION_NAME}] checkout.sessions.create failed status=${r.status} debug_id=${debugId}`);
-    return withIdentity(fail(req, 502, "STRIPE_ERROR", `Checkout non disponibile. Riferimento: ${debugId}`, debugId), route);
+    const stripeMsg = (r.data as { error?: { message?: string } } | null)?.error?.message ?? null;
+    console.error(`[${FUNCTION_NAME}] checkout.sessions.create failed status=${r.status} debug_id=${debugId} stripe_error=${stripeMsg ?? "(none)"}`);
+    const detailSuffix = stripeMsg ? ` Dettaglio: ${stripeMsg}` : "";
+    return withIdentity(fail(req, 502, "STRIPE_ERROR", `Checkout non disponibile. Riferimento: ${debugId}.${detailSuffix}`, debugId), route);
   }
 
   return withIdentity(json(req, 200, {
