@@ -832,7 +832,7 @@ Deno.serve(async (req) => {
     }
 
     // ── /create-checkout-direct (Civiko One consumer checkout) ──
-    if (pathname.endsWith("/create-checkout-direct")) {
+    if (pathname.endsWith("/create-checkout-direct") || pathname.endsWith("/create-portal-session")) {
       const authFail = authCheckoutDirect(req, debugId);
       if (authFail) return withIdentity(authFail, "auth-rejected");
       let body: Record<string, unknown> = {};
@@ -840,6 +840,9 @@ Deno.serve(async (req) => {
       catch { return withIdentity(fail(req, 400, "INVALID_JSON", "Body is not valid JSON", debugId), "error"); }
       if (body == null || typeof body !== "object" || Array.isArray(body)) {
         return withIdentity(fail(req, 400, "INVALID_BODY", "Body must be a JSON object.", debugId), "error");
+      }
+      if (pathname.endsWith("/create-portal-session")) {
+        return await handleCreatePortalSession(req, body, debugId);
       }
       return await handleCreateCheckoutDirect(req, body, debugId);
     }
