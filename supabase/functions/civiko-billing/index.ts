@@ -38,7 +38,149 @@ const ROUTES = [
   "POST /civiko/billing/check-subscription",
   "POST /civiko/billing/record-usage",
   "POST /civiko/billing/stripe-webhook",
+  "POST /create-checkout-direct",
 ];
+
+// ── /create-checkout-direct ───────────────────────────────────
+// Civiko One — direct Stripe Checkout for the consumer plan
+// (monthly/yearly), keyed by supabase_user_id (NOT agency_id).
+// Auth: x-source-app: civiko + (x-internal-secret | x-job-secret) = AI_CORE_SECRET_CIVIKO
+async function handleCreateCheckoutDirect(
+  req: Request,
+  body: Record<string, unknown>,
+  debugId: string,
+): Promise<Response> {
+  const route = "create-checkout-direct";
+  const secretKey = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
+  if (!secretKey) {
+    return withIdentity(fail(req, 503, "BILLING_NOT_CONFIGURED", "Stripe non configurato sul Core.", debugId), route);
+  }
+
+  const plan = String(body.plan ?? "").trim().toLowerCase();
+  const supabaseUserId = String(body.supabase_user_id ?? "").trim();
+  const email = String(body.email ?? "").trim();
+  const workspaceId = String(body.workspace_id ?? "").trim();
+  const successUrl = String(body.success_url ?? "").trim();
+  const cancelUrl = String(body.cancel_url ?? "").trim();
+
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  if (plan !== "monthly" && plan !== "yearly") {
+    return withIdentity(fail(req, 400, "INVALID_BODY", "plan deve essere 'monthly' o 'yearly'.", debugId), route);
+  }
+  if (!uuidRe.test(supabaseUserId)) {
+    return withIdentity(fail(req, 400, "INVALID_BODY", "supabase_user_id non è un UUID valido.", debugId), route);
+  }
+  if (!uuidRe.test(workspaceId)) {
+    return withIdentity(fail(req, 400, "INVALID_BODY", "workspace_id non è un UUID valido.", debugId), route);
+  }
+  if (!emailRe.test(email)) {
+    return withIdentity(fail(req, 400, "INVALID_BODY", "email non valida.", debugId), route);
+  }
+  if (!successUrl || !cancelUrl) {
+    return withIdentity(fail(req, 400, "INVALID_BODY", "success_url e cancel_url sono obbligatori.", debugId), route);
+  }
+
+  const priceId = plan === "monthly"
+    ? (Deno.env.get("STRIPE_PRICE_CIVIKO_MONTHLY") ?? "")
+    : (Deno.env.get("STRIPE_PRICE_CIVIKO_YEARLY") ?? "");
+  if (!priceId) {
+    return withIdentity(fail(req, 503, "PRICE_NOT_CONFIGURED", `Price Stripe per piano ${plan} non configurato.`, debugId), route);
+  }
+
+  // 1) Find existing customer by metadata.supabase_user_id (Stripe search)
+  let customerId: string | null = null;
+  try {
+    const q = encodeURIComponent(`metadata['supabase_user_id']:'${supabaseUserId}'`);
+    const searchRes = await fetch(`https://api.stripe.com/v1/customers/search?query=${q}&limit=1`, {
+      headers: { "Authorization": `Bearer ${secretKey}` },
+    });
+    if (searchRes.ok) {
+      const sr = await searchRes.json() as { data?: Array<{ id?: string }> };
+      customerId = sr.data?.[0]?.id ?? null;
+    } else {
+      const t = await searchRes.text();
+      console.warn(`[${FUNCTION_NAME}] customers/search failed status=${searchRes.status} body=${t.slice(0, 200)} debug_id=${debugId}`);
+    }
+  } catch (e) {
+    console.warn(`[${FUNCTION_NAME}] customers/search exception debug_id=${debugId}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // 2) Create customer if missing
+  if (!customerId) {
+    const r = await stripeForm(secretKey, "customers", {
+      email,
+      "metadata[supabase_user_id]": supabaseUserId,
+      "metadata[workspace_id]": workspaceId,
+      "metadata[app]": "civiko",
+    });
+    if (!r.ok || !r.data?.id) {
+      console.error(`[${FUNCTION_NAME}] customers.create failed status=${r.status} debug_id=${debugId}`);
+      return withIdentity(fail(req, 502, "STRIPE_ERROR", `Creazione customer fallita. Riferimento: ${debugId}`, debugId), route);
+    }
+    customerId = String(r.data.id);
+  }
+
+  // 3) Create Checkout Session
+  const form: Record<string, string> = {
+    "mode": "subscription",
+    "customer": customerId,
+    "line_items[0][price]": priceId,
+    "line_items[0][quantity]": "1",
+    "success_url": successUrl,
+    "cancel_url": cancelUrl,
+    "locale": "it",
+    "allow_promotion_codes": "true",
+    "billing_address_collection": "required",
+    "tax_id_collection[enabled]": "true",
+    "subscription_data[metadata][supabase_user_id]": supabaseUserId,
+    "subscription_data[metadata][workspace_id]": workspaceId,
+    "subscription_data[metadata][app]": "civiko",
+    "subscription_data[metadata][plan]": plan,
+    "metadata[supabase_user_id]": supabaseUserId,
+    "metadata[workspace_id]": workspaceId,
+    "metadata[app]": "civiko",
+    "metadata[plan]": plan,
+  };
+  const r = await stripeForm(secretKey, "checkout/sessions", form);
+  if (!r.ok || !r.data?.url) {
+    console.error(`[${FUNCTION_NAME}] checkout.sessions.create failed status=${r.status} debug_id=${debugId}`);
+    return withIdentity(fail(req, 502, "STRIPE_ERROR", `Checkout non disponibile. Riferimento: ${debugId}`, debugId), route);
+  }
+
+  return withIdentity(json(req, 200, {
+    ok: true,
+    url: String(r.data.url),
+    session_id: String(r.data.id ?? ""),
+  }, debugId), route);
+}
+
+// Lightweight auth for /create-checkout-direct:
+// accepts x-internal-secret OR x-job-secret matched against AI_CORE_SECRET_CIVIKO.
+function authCheckoutDirect(req: Request, debugId: string): Response | null {
+  const sourceApp = (req.headers.get("x-source-app") ?? "").toLowerCase().trim();
+  if (sourceApp !== "civiko") {
+    return fail(req, 401, "APP_SECRET_REQUIRED", "x-source-app: civiko richiesto", debugId);
+  }
+  const expected = Deno.env.get("AI_CORE_SECRET_CIVIKO") ?? "";
+  if (!expected) {
+    return fail(req, 500, "CONFIG_ERROR", "AI_CORE_SECRET_CIVIKO non configurato", debugId);
+  }
+  const incoming = (
+    req.headers.get("x-internal-secret") ??
+    req.headers.get("x-job-secret") ??
+    req.headers.get("x-app-secret") ??
+    ""
+  ).trim();
+  if (!incoming) return fail(req, 401, "APP_SECRET_REQUIRED", "Missing x-internal-secret / x-job-secret", debugId);
+  // constant-time compare
+  if (incoming.length !== expected.length) return fail(req, 401, "APP_SECRET_REJECTED", "Invalid secret", debugId);
+  let diff = 0;
+  for (let i = 0; i < incoming.length; i++) diff |= incoming.charCodeAt(i) ^ expected.charCodeAt(i);
+  if (diff !== 0) return fail(req, 401, "APP_SECRET_REJECTED", "Invalid secret", debugId);
+  return null;
+}
 
 function withIdentity(res: Response, route: string) {
   return addIdentityHeaders(res, { function: FUNCTION_NAME, route });
@@ -597,6 +739,19 @@ Deno.serve(async (req) => {
     if (pathname.endsWith("/stripe-webhook")) {
       const raw = await req.text();
       return await handleStripeWebhook(req, raw, debugId);
+    }
+
+    // ── /create-checkout-direct (Civiko One consumer checkout) ──
+    if (pathname.endsWith("/create-checkout-direct")) {
+      const authFail = authCheckoutDirect(req, debugId);
+      if (authFail) return withIdentity(authFail, "auth-rejected");
+      let body: Record<string, unknown> = {};
+      try { body = (await req.json()) as Record<string, unknown>; }
+      catch { return withIdentity(fail(req, 400, "INVALID_JSON", "Body is not valid JSON", debugId), "error"); }
+      if (body == null || typeof body !== "object" || Array.isArray(body)) {
+        return withIdentity(fail(req, 400, "INVALID_BODY", "Body must be a JSON object.", debugId), "error");
+      }
+      return await handleCreateCheckoutDirect(req, body, debugId);
     }
 
     let body: Record<string, unknown> = {};
