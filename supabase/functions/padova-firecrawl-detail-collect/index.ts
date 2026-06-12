@@ -120,6 +120,22 @@ function looksLikeAgencyName(s: string | null | undefined): boolean {
   return true;
 }
 
+// Valida un telefono italiano normalizzato (solo cifre + opzionale +)
+function isValidItalianPhone(tel: string): boolean {
+  if (!tel) return false;
+  const digits = tel.replace(/^\+/, "").replace(/^39/, "");
+  const PIVA_BLACKLIST = [
+    "08435221000", // Immobiliare.it
+    "06647441",    // Casa.it (esempio, verificare)
+  ];
+  if (PIVA_BLACKLIST.includes(digits) || PIVA_BLACKLIST.includes(tel.replace(/[^\d]/g, ""))) return false;
+  if (digits.length < 6 || digits.length > 11) return false;
+  if (/^3\d{8,9}$/.test(digits)) return true;
+  if (/^0\d{5,9}$/.test(digits)) return true;
+  return false;
+}
+
+
 function extractFromContent(markdown: string, html: string): Record<string, unknown> {
   const rawText = `${markdown}\n${html.replace(/<[^>]+>/g, " ")}`;
   const text = rawText.toLowerCase();
