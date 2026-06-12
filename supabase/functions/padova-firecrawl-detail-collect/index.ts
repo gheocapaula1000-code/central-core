@@ -97,6 +97,29 @@ function intOnly(s: string | null | undefined): number | null {
   return n == null ? null : Math.round(n);
 }
 
+// Helper: rifiuta valori che NON sono nomi di agenzia reali
+function looksLikeAgencyName(s: string | null | undefined): boolean {
+  if (!s) return false;
+  const v = s.trim();
+  if (v.length < 3 || v.length > 120) return false;
+  if (/[\[\]()]/.test(v)) return false;
+  if (/https?:\/\//i.test(v)) return false;
+  if (/\bwww\./i.test(v)) return false;
+  if (/[<>]/.test(v)) return false;
+  const blacklist = [
+    "agenzie", "agenzia", "trova agenzia", "trova agenzie",
+    "cerca agenzia", "scopri agenzia", "vedi agenzia",
+    "annuncio privato", "privato", "venditore privato",
+    "contatta", "richiedi info", "richiedi informazioni",
+    "scopri di piu", "scopri di più", "leggi di piu", "leggi di più",
+    "agente immobiliare", "immobiliare",
+  ];
+  const norm = v.toLowerCase().replace(/[^\p{L}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  if (blacklist.includes(norm)) return false;
+  if (!/\p{L}/u.test(v)) return false;
+  return true;
+}
+
 function extractFromContent(markdown: string, html: string): Record<string, unknown> {
   const rawText = `${markdown}\n${html.replace(/<[^>]+>/g, " ")}`;
   const text = rawText.toLowerCase();
@@ -122,6 +145,12 @@ function extractFromContent(markdown: string, html: string): Record<string, unkn
       const ag = (it as { realEstateAgent?: { name?: string }; provider?: { name?: string }; seller?: { name?: string } });
       const agName = ag?.realEstateAgent?.name ?? ag?.provider?.name ?? ag?.seller?.name;
       if (agName && !out.agency) out.agency = clean(String(agName)).slice(0, 120);
+      const agAny = ag as Record<string, { telephone?: unknown } | undefined>;
+      const agPhone = agAny?.realEstateAgent?.telephone ?? agAny?.provider?.telephone ?? agAny?.seller?.telephone;
+      if (agPhone && !out.agency_phone) {
+        const tel = String(agPhone).replace(/[^\d+]/g, "");
+        if (tel.length >= 6 && tel.length <= 20) out.agency_phone = tel;
+      }
       const geo = (it as { geo?: { latitude?: unknown; longitude?: unknown }; address?: { geo?: { latitude?: unknown; longitude?: unknown } } });
       const lat = geo?.geo?.latitude ?? geo?.address?.geo?.latitude;
       const lng = geo?.geo?.longitude ?? geo?.address?.geo?.longitude;
@@ -184,10 +213,34 @@ function extractFromContent(markdown: string, html: string): Record<string, unkn
   if (cM) out.civico = cM[1];
 
   if (!out.agency) {
-    const agM = html.match(/agenz[ia][^<]{0,80}<[^>]+>([^<]{3,80})/i)
-             ?? html.match(/data-agency[^>]*>([^<]{3,80})/i)
-             ?? markdown.match(/agenz[ia][^\n]{0,80}\n([^\n]{3,80})/i);
-    if (agM) out.agency = clean(agM[1]).slice(0, 120);
+    const candidates: string[] = [];
+    const m1 = html.match(/class="[^"]*agen[a-z\-_]*name[^"]*"[^>]*>([^<]{3,120})</i);
+    if (m1) candidates.push(m1[1]);
+    const m2 = html.match(/data-agency[a-z\-]*=["']([^"']{3,120})["']/i);
+    if (m2) candidates.push(m2[1]);
+    const m3 = html.match(/itemtype="[^"]*RealEstateAgent[^"]*"[\s\S]{0,500}?itemprop="name"[^>]*>([^<]{3,120})</i);
+    if (m3) candidates.push(m3[1]);
+    const m4 = html.match(/<meta[^>]+name=["'](?:publisher|author)["'][^>]+content=["']([^"']{3,120})["']/i);
+    if (m4) candidates.push(m4[1]);
+    for (const cand of candidates) {
+      const cleaned = clean(cand).slice(0, 120);
+      if (looksLikeAgencyName(cleaned)) { out.agency = cleaned; break; }
+    }
+  }
+
+  // Validazione finale agency
+  if (out.agency && !looksLikeAgencyName(String(out.agency))) {
+    out.agency = null;
+  }
+
+  // Fallback telefono agenzia da HTML
+  if (!out.agency_phone) {
+    const telM = html.match(/href="tel:([^"]{6,20})"/i)
+              ?? html.match(/\b(\+?39[\s.\-]?)?(0\d{1,3}[\s.\-]?\d{5,8}|3\d{2}[\s.\-]?\d{6,7})\b/);
+    if (telM) {
+      const tel = (telM[1] ?? telM[0]).replace(/[^\d+]/g, "");
+      if (tel.length >= 6 && tel.length <= 20) out.agency_phone = tel;
+    }
   }
 
   if (!out.lat) {
@@ -391,7 +444,7 @@ async function processBatch(
   let ok = 0,
     fail = 0,
     apifyUsed = 0;
-  const cov = { mq: 0, locali: 0, piano: 0, bagni: 0, civico: 0, agency: 0, tipologia: 0, latlng: 0 };
+  const cov = { mq: 0, locali: 0, piano: 0, bagni: 0, civico: 0, agency: 0, agency_phone: 0, tipologia: 0, latlng: 0 };
   const outcomes: BatchOutcomes = { ...empty };
 
   for (let i = 0; i < rows.length; i++) {
@@ -431,6 +484,7 @@ async function processBatch(
           piano: f.piano ?? null,
           bagni: f.bagni ?? null,
           agency: f.agency ?? null,
+          agency_phone: (f.agency_phone as string | null) ?? null,
           civico: f.civico ?? null,
           tipologia: f.tipologia ?? null,
           riscaldamento: f.riscaldamento ?? null,
@@ -457,6 +511,7 @@ async function processBatch(
     if (f.bagni) cov.bagni++;
     if (f.civico) cov.civico++;
     if (f.agency) cov.agency++;
+    if (f.agency_phone) cov.agency_phone++;
     if (f.tipologia) cov.tipologia++;
     if (f.lat && f.lng) cov.latlng++;
 
@@ -468,6 +523,7 @@ async function processBatch(
         piano: f.piano ?? null,
         bagni: f.bagni ?? null,
         agency: f.agency ?? null,
+        agency_phone: (f.agency_phone as string | null) ?? null,
         civico: f.civico ?? null,
         tipologia: f.tipologia ?? null,
         riscaldamento: f.riscaldamento ?? null,
@@ -1005,7 +1061,7 @@ Deno.serve(async (req) => {
         });
         await c.from("padova_collect_v2_items").update({
           mq: f.mq ?? null, locali: f.locali ?? null, piano: f.piano ?? null,
-          bagni: f.bagni ?? null, agency: f.agency ?? null, civico: f.civico ?? null,
+          bagni: f.bagni ?? null, agency: f.agency ?? null, agency_phone: (f.agency_phone as string | null) ?? null, civico: f.civico ?? null,
           tipologia: f.tipologia ?? null, riscaldamento: f.riscaldamento ?? null,
           stato: f.stato ?? null, anno_costruzione: f.anno_costruzione ?? null,
           lat: f.lat ?? null, lng: f.lng ?? null,
@@ -1059,7 +1115,7 @@ Deno.serve(async (req) => {
         });
         await c.from("padova_collect_v2_items").update({
           mq: f.mq ?? null, locali: f.locali ?? null, piano: f.piano ?? null,
-          bagni: f.bagni ?? null, agency: f.agency ?? null, civico: f.civico ?? null,
+          bagni: f.bagni ?? null, agency: f.agency ?? null, agency_phone: (f.agency_phone as string | null) ?? null, civico: f.civico ?? null,
           tipologia: f.tipologia ?? null, riscaldamento: f.riscaldamento ?? null,
           stato: f.stato ?? null, anno_costruzione: f.anno_costruzione ?? null,
           lat: f.lat ?? null, lng: f.lng ?? null, raw_json,

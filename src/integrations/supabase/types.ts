@@ -4271,6 +4271,7 @@ export type Database = {
       padova_collect_v2_items: {
         Row: {
           agency: string | null
+          agency_phone: string | null
           anno_costruzione: number | null
           attempts: number
           bagni: number | null
@@ -4310,6 +4311,7 @@ export type Database = {
         }
         Insert: {
           agency?: string | null
+          agency_phone?: string | null
           anno_costruzione?: number | null
           attempts?: number
           bagni?: number | null
@@ -4349,6 +4351,7 @@ export type Database = {
         }
         Update: {
           agency?: string | null
+          agency_phone?: string | null
           anno_costruzione?: number | null
           attempts?: number
           bagni?: number | null

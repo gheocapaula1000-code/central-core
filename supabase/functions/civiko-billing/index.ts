@@ -57,7 +57,7 @@ async function handleSalesProspectsList(req: Request, debugId: string): Promise<
 
   const { data, error } = await sb
     .from("padova_collect_v2_items")
-    .select("agency, omi_zone, quartiere")
+    .select("agency, agency_phone, omi_zone, quartiere")
     .eq("contendibile", true)
     .not("agency", "is", null);
 
@@ -66,20 +66,21 @@ async function handleSalesProspectsList(req: Request, debugId: string): Promise<
     return withIdentity(fail(req, 500, "DB_ERROR", `Database error. Reference: ${debugId}`, debugId), route);
   }
 
-  const byAgency = new Map<string, { name: string; zones: Map<string, number> }>();
-  for (const row of (data as Array<{ agency: string | null; omi_zone: string | null; quartiere: string | null }> ?? [])) {
+  const byAgency = new Map<string, { name: string; phone: string | null; zones: Map<string, number> }>();
+  for (const row of (data as Array<{ agency: string | null; agency_phone: string | null; omi_zone: string | null; quartiere: string | null }> ?? [])) {
     const name = (row.agency ?? "").trim();
     if (!name) continue;
     const zona = (row.omi_zone ?? row.quartiere ?? "N/D").toString();
     const key = name.toLowerCase();
-    if (!byAgency.has(key)) byAgency.set(key, { name, zones: new Map() });
+    if (!byAgency.has(key)) byAgency.set(key, { name, phone: null, zones: new Map() });
     const entry = byAgency.get(key)!;
     entry.zones.set(zona, (entry.zones.get(zona) ?? 0) + 1);
+    if (!entry.phone && row.agency_phone) entry.phone = row.agency_phone;
   }
 
   const agenzie: Array<Record<string, unknown>> = [];
   let totalContendibili = 0;
-  for (const { name, zones } of byAgency.values()) {
+  for (const { name, phone, zones } of byAgency.values()) {
     const zoneArr = Array.from(zones.entries())
       .map(([zona, n]) => ({ zona, n_immobili: n }))
       .sort((a, b) => b.n_immobili - a.n_immobili);
@@ -92,7 +93,7 @@ async function handleSalesProspectsList(req: Request, debugId: string): Promise<
     agenzie.push({
       id,
       agenzia_nome: name,
-      agenzia_telefono: null,
+      agenzia_telefono: phone,
       n_contendibili_totali: totale,
       zone_attive: zoneArr,
       concentrazione_top_zona: Math.round(concentrazione * 10000) / 10000,
@@ -124,7 +125,7 @@ async function handleSalesProspectsDetail(req: Request, prospectId: string, debu
 
   const { data: distinctRows, error: e1 } = await sb
     .from("padova_collect_v2_items")
-    .select("agency")
+    .select("agency, agency_phone")
     .eq("contendibile", true)
     .not("agency", "is", null);
   if (e1) {
@@ -132,10 +133,13 @@ async function handleSalesProspectsDetail(req: Request, prospectId: string, debu
     return withIdentity(fail(req, 500, "DB_ERROR", `Database error. Reference: ${debugId}`, debugId), route);
   }
 
+  const phoneByName = new Map<string, string>();
   const names = new Set<string>();
-  for (const r of (distinctRows as Array<{ agency: string | null }> ?? [])) {
+  for (const r of (distinctRows as Array<{ agency: string | null; agency_phone: string | null }> ?? [])) {
     const n = (r.agency ?? "").trim();
-    if (n) names.add(n);
+    if (!n) continue;
+    names.add(n);
+    if (r.agency_phone && !phoneByName.has(n)) phoneByName.set(n, r.agency_phone);
   }
   let matchedAgency: string | null = null;
   for (const name of names) {
@@ -145,7 +149,7 @@ async function handleSalesProspectsDetail(req: Request, prospectId: string, debu
 
   const { data: immobili, error: e2 } = await sb
     .from("padova_collect_v2_items")
-    .select("id, raw_address, civico, omi_zone, quartiere, prezzo, prezzo_iniziale, mq, locali, bagni, piano, url, created_at")
+    .select("id, raw_address, civico, omi_zone, quartiere, prezzo, prezzo_iniziale, mq, locali, bagni, piano, url, created_at, agency_phone")
     .eq("contendibile", true)
     .eq("agency", matchedAgency)
     .order("created_at", { ascending: false });
@@ -155,10 +159,12 @@ async function handleSalesProspectsDetail(req: Request, prospectId: string, debu
   }
 
   const totale = immobili?.length ?? 0;
+  const phoneFromImmobili = ((immobili as Array<{ agency_phone: string | null }>) ?? []).find((r) => r.agency_phone)?.agency_phone ?? null;
+  const agenziaTelefono = phoneByName.get(matchedAgency) ?? phoneFromImmobili ?? null;
   return withIdentity(json(req, 200, sanitizeOutgoing({
     ok: true,
     data: {
-      agenzia: { id: prospectId, agenzia_nome: matchedAgency, agenzia_telefono: null, n_contendibili_totali: totale },
+      agenzia: { id: prospectId, agenzia_nome: matchedAgency, agenzia_telefono: agenziaTelefono, n_contendibili_totali: totale },
       immobili: ((immobili as Array<Record<string, unknown>>) ?? []).map((r) => {
         const prezzo = r.prezzo as number | null;
         const prezzoIniz = r.prezzo_iniziale as number | null;
