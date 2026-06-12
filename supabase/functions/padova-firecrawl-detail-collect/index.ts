@@ -97,6 +97,29 @@ function intOnly(s: string | null | undefined): number | null {
   return n == null ? null : Math.round(n);
 }
 
+// Helper: rifiuta valori che NON sono nomi di agenzia reali
+function looksLikeAgencyName(s: string | null | undefined): boolean {
+  if (!s) return false;
+  const v = s.trim();
+  if (v.length < 3 || v.length > 120) return false;
+  if (/[\[\]()]/.test(v)) return false;
+  if (/https?:\/\//i.test(v)) return false;
+  if (/\bwww\./i.test(v)) return false;
+  if (/[<>]/.test(v)) return false;
+  const blacklist = [
+    "agenzie", "agenzia", "trova agenzia", "trova agenzie",
+    "cerca agenzia", "scopri agenzia", "vedi agenzia",
+    "annuncio privato", "privato", "venditore privato",
+    "contatta", "richiedi info", "richiedi informazioni",
+    "scopri di piu", "scopri di più", "leggi di piu", "leggi di più",
+    "agente immobiliare", "immobiliare",
+  ];
+  const norm = v.toLowerCase().replace(/[^\p{L}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  if (blacklist.includes(norm)) return false;
+  if (!/\p{L}/u.test(v)) return false;
+  return true;
+}
+
 function extractFromContent(markdown: string, html: string): Record<string, unknown> {
   const rawText = `${markdown}\n${html.replace(/<[^>]+>/g, " ")}`;
   const text = rawText.toLowerCase();
