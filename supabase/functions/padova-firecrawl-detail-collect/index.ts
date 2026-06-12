@@ -444,7 +444,7 @@ async function processBatch(
   let ok = 0,
     fail = 0,
     apifyUsed = 0;
-  const cov = { mq: 0, locali: 0, piano: 0, bagni: 0, civico: 0, agency: 0, tipologia: 0, latlng: 0 };
+  const cov = { mq: 0, locali: 0, piano: 0, bagni: 0, civico: 0, agency: 0, agency_phone: 0, tipologia: 0, latlng: 0 };
   const outcomes: BatchOutcomes = { ...empty };
 
   for (let i = 0; i < rows.length; i++) {
