@@ -45,8 +45,8 @@ async function fcScrape(
     }
     return {
       ok: true,
-      markdown: typeof root?.markdown === "string" ? root.markdown.slice(0, 10000) : "",
-      html: typeof root?.html === "string" ? root.html.slice(0, 20000) : "",
+      markdown: typeof root?.markdown === "string" ? root.markdown.slice(0, 25000) : "",
+      html: typeof root?.html === "string" ? root.html.slice(0, 80000) : "",
       httpStatus: upstreamStatus,
     };
   } catch (e) {
@@ -367,8 +367,8 @@ async function processOne(row: { id: number; url: string }): Promise<{
 
   const parseStatus: ParseStatus = fields.mq ? "done_ok" : "empty_parse";
   fields.raw_json = {
-    md: md.slice(0, 6000),
-    html: html.slice(0, 12000),
+    md: md.slice(0, 20000),
+    html: html.slice(0, 60000),
     parse_status: parseStatus,
     http_status: httpStatus,
     processed_at: new Date().toISOString(),
@@ -1225,6 +1225,76 @@ Deno.serve(async (req) => {
       ok: true, action: "reextract_agency", dry_run: dryRun,
       scanned: rows?.length ?? 0,
       updated: updatedCount, unchanged: unchangedCount, skipped_no_content: skippedNoContent,
+      results,
+    }, null, 2), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
+  if (action === "recrawl_ids") {
+    const sbc = sb();
+    const idsRaw = Array.isArray(body?.ids) ? body.ids : [];
+    const ids = idsRaw
+      .map((x: unknown) => Number(x))
+      .filter((n: number) => Number.isInteger(n) && n > 0);
+    if (ids.length === 0 || ids.length > 10) {
+      return new Response(JSON.stringify({
+        ok: false, error: "INVALID_IDS",
+        message: "ids must be a non-empty array of integers, max 10",
+      }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    const { data: rows, error: selErr } = await sbc
+      .from("padova_collect_v2_items")
+      .select("id, url, contendibile")
+      .in("id", ids)
+      .eq("contendibile", true)
+      .not("url", "is", null);
+
+    if (selErr) {
+      return new Response(JSON.stringify({ ok: false, error: "DB_ERROR", message: selErr.message }), {
+        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const results: Array<{ id: number; url: string | null; ok: boolean; md_len_new?: number; html_len_new?: number; error?: string }> = [];
+
+    for (const row of (rows ?? []) as Array<{ id: number; url: string; contendibile: boolean }>) {
+      try {
+        const fc = await fcScrape(row.url, { timeoutMs: 30_000, formats: ["markdown", "html"] });
+        if (!fc.ok) {
+          results.push({ id: row.id, url: row.url, ok: false, error: fc.error ?? "scrape_failed" });
+          continue;
+        }
+        const md = fc.markdown ?? "";
+        const html = fc.html ?? "";
+        const newRaw = {
+          md: md.slice(0, 20000),
+          html: html.slice(0, 60000),
+          recrawled_at: new Date().toISOString(),
+          via: "recrawl_ids",
+        };
+        const { error: updErr } = await sbc
+          .from("padova_collect_v2_items")
+          .update({ raw_json: newRaw })
+          .eq("id", row.id);
+        if (updErr) {
+          results.push({ id: row.id, url: row.url, ok: false, error: `update_error: ${updErr.message}` });
+          continue;
+        }
+        results.push({
+          id: row.id, url: row.url, ok: true,
+          md_len_new: newRaw.md.length,
+          html_len_new: newRaw.html.length,
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        results.push({ id: row.id, url: row.url, ok: false, error: msg });
+      }
+    }
+
+    const notFound = ids.filter((id) => !(rows ?? []).some((r: { id: number }) => r.id === id));
+    return new Response(JSON.stringify({
+      ok: true, action: "recrawl_ids",
+      requested: ids.length, processed: results.length, not_found_or_not_contendibile: notFound,
       results,
     }, null, 2), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
