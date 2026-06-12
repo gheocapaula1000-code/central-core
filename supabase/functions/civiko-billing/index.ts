@@ -961,6 +961,12 @@ Deno.serve(async (req) => {
     }
 
     if (req.method === "GET") {
+      // GET /my-zone — Civiko PWA dashboard data (job-secret auth)
+      if (pathname.endsWith("/my-zone")) {
+        const authFail = authCheckoutDirect(req, debugId);
+        if (authFail) return withIdentity(authFail, "auth-rejected");
+        return await handleMyZone(req, debugId);
+      }
       if (pathname.endsWith("/health") || pathname === "/" || pathname === EXPECTED_BASE_PATH) {
         return withIdentity(json(req, 200, {
           status: "healthy", function: FUNCTION_NAME, version: CORE_VERSION,
