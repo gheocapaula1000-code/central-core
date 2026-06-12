@@ -151,6 +151,7 @@ function extractFromContent(markdown: string, html: string): Record<string, unkn
         const tel = String(agPhone).replace(/[^\d+]/g, "");
         if (tel.length >= 6 && tel.length <= 20) out.agency_phone = tel;
       }
+      const geo = (it as { geo?: { latitude?: unknown; longitude?: unknown }; address?: { geo?: { latitude?: unknown; longitude?: unknown } } });
       const lat = geo?.geo?.latitude ?? geo?.address?.geo?.latitude;
       const lng = geo?.geo?.longitude ?? geo?.address?.geo?.longitude;
       if (lat != null && lng != null && !out.lat) {
