@@ -1100,6 +1100,16 @@ Deno.serve(async (req) => {
     }
 
     if (req.method === "GET") {
+      // GET /sales-prospects and /sales-prospects/:id (sha1 = 40 hex)
+      const isProspectsList = pathname.endsWith("/sales-prospects");
+      const prospectsDetailMatch = pathname.match(/\/sales-prospects\/([a-f0-9]{40})$/);
+      if (isProspectsList || prospectsDetailMatch) {
+        const auth = await authenticateDual(req, debugId);
+        if (!auth.ok) return auth.res;
+        if (isProspectsList) return await handleSalesProspectsList(req, debugId);
+        return await handleSalesProspectsDetail(req, prospectsDetailMatch![1], debugId);
+      }
+
       // GET /my-zone — Civiko PWA dashboard data (job-secret auth)
       if (pathname.endsWith("/my-zone")) {
         const authFail = authCheckoutDirect(req, debugId);
