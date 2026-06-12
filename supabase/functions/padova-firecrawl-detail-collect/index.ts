@@ -511,6 +511,7 @@ async function processBatch(
     if (f.bagni) cov.bagni++;
     if (f.civico) cov.civico++;
     if (f.agency) cov.agency++;
+    if (f.agency_phone) cov.agency_phone++;
     if (f.tipologia) cov.tipologia++;
     if (f.lat && f.lng) cov.latlng++;
 
