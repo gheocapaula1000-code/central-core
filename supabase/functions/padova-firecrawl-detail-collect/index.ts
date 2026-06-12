@@ -229,10 +229,15 @@ function extractFromContent(markdown: string, html: string): Record<string, unkn
   }
 
   // Pattern immobiliare.it: link markdown a /agenzie-immobiliari/<id>/<slug>/
+  // Cattura il nome PRIMA del ]( ancorando sull'URL agenzia
   if (!out.agency) {
-    const mIm = markdown.match(/\[([^\]]{3,120})\]\(https?:\/\/(?:www\.)?immobiliare\.it\/agenzie-immobiliari\/\d+\/[^)]+\)/i);
+    const mIm = markdown.match(/([^\[\]\n]{3,120})\]\(https?:\/\/(?:www\.)?immobiliare\.it\/agenzie-immobiliari\/\d+\/[^)]+\)/i);
     if (mIm) {
-      const cand = clean(mIm[1]).slice(0, 120);
+      const cand = clean(
+        mIm[1]
+          .replace(/\\+/g, " ")
+          .replace(/^[\s\W]+|[\s\W]+$/g, "")
+      ).slice(0, 120);
       if (looksLikeAgencyName(cand)) out.agency = cand;
     }
   }
@@ -244,11 +249,20 @@ function extractFromContent(markdown: string, html: string): Record<string, unkn
 
   // Fallback telefono agenzia da HTML
   if (!out.agency_phone) {
-    const telM = html.match(/href="tel:([^"]{6,20})"/i)
-              ?? html.match(/\b(\+?39[\s.\-]?)?(0\d{1,3}[\s.\-]?\d{5,8}|3\d{2}[\s.\-]?\d{6,7})\b/);
-    if (telM) {
-      const tel = (telM[1] ?? telM[0]).replace(/[^\d+]/g, "");
-      if (tel.length >= 6 && tel.length <= 20) out.agency_phone = tel;
+    // Priorità 1: href="tel:..." → quasi sempre affidabile
+    const telLink = html.match(/href="tel:([^"]{6,20})"/i);
+    if (telLink) {
+      const tel = telLink[1].replace(/[^\d+]/g, "");
+      if (isValidItalianPhone(tel)) out.agency_phone = tel;
+    }
+
+    // Priorità 2: regex generica con guardrail anti-P.IVA (richiede separatori)
+    if (!out.agency_phone) {
+      const telM = html.match(/(?:\+?39[\s.\-]+)?(?:0\d{1,3}[\s.\-]+\d{5,8}|3\d{2}[\s.\-]+\d{6,7})/);
+      if (telM) {
+        const tel = telM[0].replace(/[^\d+]/g, "");
+        if (isValidItalianPhone(tel)) out.agency_phone = tel;
+      }
     }
   }
 
