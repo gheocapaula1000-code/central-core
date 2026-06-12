@@ -1146,7 +1146,12 @@ Deno.serve(async (req) => {
       .from("padova_collect_v2_items")
       .select("id, url, agency, agency_phone, raw_json")
       .eq("contendibile", true)
-      .ilike("url", "%immobiliare%")
+      .ilike("url",
+        body?.portal_filter === "casa" ? "%casa.it%" :
+        body?.portal_filter === "idealista" ? "%idealista%" :
+        body?.portal_filter === "subito" ? "%subito%" :
+        "%immobiliare%"
+      )
       .not("raw_json", "is", null)
       .order("created_at", { ascending: false })
       .limit(limit);
