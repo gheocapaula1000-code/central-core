@@ -213,10 +213,34 @@ function extractFromContent(markdown: string, html: string): Record<string, unkn
   if (cM) out.civico = cM[1];
 
   if (!out.agency) {
-    const agM = html.match(/agenz[ia][^<]{0,80}<[^>]+>([^<]{3,80})/i)
-             ?? html.match(/data-agency[^>]*>([^<]{3,80})/i)
-             ?? markdown.match(/agenz[ia][^\n]{0,80}\n([^\n]{3,80})/i);
-    if (agM) out.agency = clean(agM[1]).slice(0, 120);
+    const candidates: string[] = [];
+    const m1 = html.match(/class="[^"]*agen[a-z\-_]*name[^"]*"[^>]*>([^<]{3,120})</i);
+    if (m1) candidates.push(m1[1]);
+    const m2 = html.match(/data-agency[a-z\-]*=["']([^"']{3,120})["']/i);
+    if (m2) candidates.push(m2[1]);
+    const m3 = html.match(/itemtype="[^"]*RealEstateAgent[^"]*"[\s\S]{0,500}?itemprop="name"[^>]*>([^<]{3,120})</i);
+    if (m3) candidates.push(m3[1]);
+    const m4 = html.match(/<meta[^>]+name=["'](?:publisher|author)["'][^>]+content=["']([^"']{3,120})["']/i);
+    if (m4) candidates.push(m4[1]);
+    for (const cand of candidates) {
+      const cleaned = clean(cand).slice(0, 120);
+      if (looksLikeAgencyName(cleaned)) { out.agency = cleaned; break; }
+    }
+  }
+
+  // Validazione finale agency
+  if (out.agency && !looksLikeAgencyName(String(out.agency))) {
+    out.agency = null;
+  }
+
+  // Fallback telefono agenzia da HTML
+  if (!out.agency_phone) {
+    const telM = html.match(/href="tel:([^"]{6,20})"/i)
+              ?? html.match(/\b(\+?39[\s.\-]?)?(0\d{1,3}[\s.\-]?\d{5,8}|3\d{2}[\s.\-]?\d{6,7})\b/);
+    if (telM) {
+      const tel = (telM[1] ?? telM[0]).replace(/[^\d+]/g, "");
+      if (tel.length >= 6 && tel.length <= 20) out.agency_phone = tel;
+    }
   }
 
   if (!out.lat) {
