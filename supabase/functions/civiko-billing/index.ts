@@ -262,8 +262,8 @@ function authCheckoutDirect(req: Request, debugId: string): Response | null {
     return fail(req, 500, "CONFIG_ERROR", "AI_CORE_SECRET_CIVIKO non configurato", debugId);
   }
   const incoming = (
-    req.headers.get("x-internal-secret") ??
     req.headers.get("x-job-secret") ??
+    req.headers.get("x-internal-secret") ??
     req.headers.get("x-app-secret") ??
     ""
   ).trim();
