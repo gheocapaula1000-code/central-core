@@ -80,7 +80,7 @@ async function handleSalesProspectsList(req: Request, debugId: string): Promise<
 
   const agenzie: Array<Record<string, unknown>> = [];
   let totalContendibili = 0;
-  for (const { name, zones } of byAgency.values()) {
+  for (const { name, phone, zones } of byAgency.values()) {
     const zoneArr = Array.from(zones.entries())
       .map(([zona, n]) => ({ zona, n_immobili: n }))
       .sort((a, b) => b.n_immobili - a.n_immobili);
@@ -93,7 +93,7 @@ async function handleSalesProspectsList(req: Request, debugId: string): Promise<
     agenzie.push({
       id,
       agenzia_nome: name,
-      agenzia_telefono: null,
+      agenzia_telefono: phone,
       n_contendibili_totali: totale,
       zone_attive: zoneArr,
       concentrazione_top_zona: Math.round(concentrazione * 10000) / 10000,
