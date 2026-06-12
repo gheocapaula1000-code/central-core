@@ -166,3 +166,6 @@ verify_jwt = false
 
 
 
+
+[functions.civiko-billing-diag]
+verify_jwt = false
