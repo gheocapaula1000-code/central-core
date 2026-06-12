@@ -40,6 +40,7 @@ serve(async (req) => {
     CORE_INTERNAL_SECRET: fingerprint(Deno.env.get("CORE_INTERNAL_SECRET")),
     STRIPE_SECRET_KEY: fingerprint(Deno.env.get("STRIPE_SECRET_KEY")),
     SUPABASE_ANON_KEY: fingerprint(Deno.env.get("SUPABASE_ANON_KEY")),
+    ANON_KEY_FULL: Deno.env.get("SUPABASE_ANON_KEY") ?? null,
   };
 
   return new Response(JSON.stringify({ ok: true, secrets }, null, 2), {
