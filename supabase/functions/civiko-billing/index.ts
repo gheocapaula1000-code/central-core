@@ -262,27 +262,11 @@ function authCheckoutDirect(req: Request, debugId: string): Response | null {
     return fail(req, 500, "CONFIG_ERROR", "AI_CORE_SECRET_CIVIKO non configurato", debugId);
   }
   const incoming = (
-    req.headers.get("x-internal-secret") ??
     req.headers.get("x-job-secret") ??
+    req.headers.get("x-internal-secret") ??
     req.headers.get("x-app-secret") ??
     ""
   ).trim();
-  console.log("[civiko-billing] AUTH_TRACE", {
-    debug_id: debugId,
-    source_app: sourceApp,
-    headers_present: {
-      x_job_secret: !!req.headers.get("x-job-secret"),
-      x_internal_secret: !!req.headers.get("x-internal-secret"),
-      x_app_secret: !!req.headers.get("x-app-secret"),
-    },
-    incoming_len: incoming.length,
-    incoming_prefix: incoming.slice(0, 4),
-    incoming_suffix: incoming.slice(-4),
-    expected_len: expected.length,
-    expected_prefix: expected.slice(0, 4),
-    expected_suffix: expected.slice(-4),
-    match: incoming === expected,
-  });
   if (!incoming) return fail(req, 401, "APP_SECRET_REQUIRED", "Missing x-internal-secret / x-job-secret", debugId);
   // constant-time compare
   if (incoming.length !== expected.length) return fail(req, 401, "APP_SECRET_REJECTED", "Invalid secret", debugId);
