@@ -228,6 +228,15 @@ function extractFromContent(markdown: string, html: string): Record<string, unkn
     }
   }
 
+  // Pattern immobiliare.it: link markdown a /agenzie-immobiliari/<id>/<slug>/
+  if (!out.agency) {
+    const mIm = markdown.match(/\[([^\]]{3,120})\]\(https?:\/\/(?:www\.)?immobiliare\.it\/agenzie-immobiliari\/\d+\/[^)]+\)/i);
+    if (mIm) {
+      const cand = clean(mIm[1]).slice(0, 120);
+      if (looksLikeAgencyName(cand)) out.agency = cand;
+    }
+  }
+
   // Validazione finale agency
   if (out.agency && !looksLikeAgencyName(String(out.agency))) {
     out.agency = null;
