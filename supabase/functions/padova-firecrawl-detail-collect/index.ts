@@ -1061,7 +1061,7 @@ Deno.serve(async (req) => {
         });
         await c.from("padova_collect_v2_items").update({
           mq: f.mq ?? null, locali: f.locali ?? null, piano: f.piano ?? null,
-          bagni: f.bagni ?? null, agency: f.agency ?? null, civico: f.civico ?? null,
+          bagni: f.bagni ?? null, agency: f.agency ?? null, agency_phone: (f.agency_phone as string | null) ?? null, civico: f.civico ?? null,
           tipologia: f.tipologia ?? null, riscaldamento: f.riscaldamento ?? null,
           stato: f.stato ?? null, anno_costruzione: f.anno_costruzione ?? null,
           lat: f.lat ?? null, lng: f.lng ?? null,
