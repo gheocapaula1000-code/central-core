@@ -252,6 +252,26 @@ serve(async (req) => {
     return jsonRes({ ok: true, idempotent: true });
   }
 
+  // Surface every event with civiko detector (covers session/sub/invoice payloads)
+  const _evObj = (event.data?.object ?? {}) as Record<string, unknown>;
+  const _evMeta = ((_evObj.metadata ?? {}) as Record<string, string>) || {};
+  const _evApp = (_evMeta.app || "").toLowerCase();
+  const _evSource = (_evMeta.source || "").toLowerCase();
+  const _isCivikoEvent = _evSource === "civiko" || _evApp === "civiko" || _evApp === "civiko_one";
+  console.log("[stripe-webhook]", {
+    type: event.type,
+    id: event.id,
+    livemode: event.livemode,
+    civiko: _isCivikoEvent,
+  });
+
+  // Drop foreign-project events (same Stripe account, different product) → 200 OK so Stripe doesn't retry
+  if (!_isCivikoEvent && (event.type.startsWith("checkout.") || event.type.startsWith("customer.subscription.") || event.type.startsWith("invoice."))) {
+    log("info", { outcome: "skip_non_civiko", event: event.type, id: event.id });
+    await supabase.from("stripe_webhook_events").insert({ id: event.id, type: event.type });
+    return jsonRes({ received: true, skipped: "non_civiko" });
+  }
+
   log("info", { event: event.type, id: event.id, mode: cfg.mode });
 
   try {
@@ -261,8 +281,8 @@ serve(async (req) => {
         if (s.mode !== "subscription") break;
 
         const meta = (s.metadata ?? {}) as Record<string, string>;
-        const app = meta.app || "civiko_one";
-        const isCiviko = app === "civiko" || app === "civiko_one";
+        const app = meta.app || (meta.source === "civiko" ? "civiko_one" : "civiko_one");
+        const isCiviko = app === "civiko" || app === "civiko_one" || meta.source === "civiko";
         const stripeCustomerId = typeof s.customer === "string" ? s.customer : s.customer?.id ?? null;
         const agencyId = await resolveAgencyId(stripeCustomerId, meta.workspace_id, meta.supabase_user_id || meta.user_id);
 
