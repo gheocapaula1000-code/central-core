@@ -57,7 +57,7 @@ async function handleSalesProspectsList(req: Request, debugId: string): Promise<
 
   const { data, error } = await sb
     .from("padova_collect_v2_items")
-    .select("agency, omi_zone, quartiere")
+    .select("agency, agency_phone, omi_zone, quartiere")
     .eq("contendibile", true)
     .not("agency", "is", null);
 
@@ -66,15 +66,16 @@ async function handleSalesProspectsList(req: Request, debugId: string): Promise<
     return withIdentity(fail(req, 500, "DB_ERROR", `Database error. Reference: ${debugId}`, debugId), route);
   }
 
-  const byAgency = new Map<string, { name: string; zones: Map<string, number> }>();
-  for (const row of (data as Array<{ agency: string | null; omi_zone: string | null; quartiere: string | null }> ?? [])) {
+  const byAgency = new Map<string, { name: string; phone: string | null; zones: Map<string, number> }>();
+  for (const row of (data as Array<{ agency: string | null; agency_phone: string | null; omi_zone: string | null; quartiere: string | null }> ?? [])) {
     const name = (row.agency ?? "").trim();
     if (!name) continue;
     const zona = (row.omi_zone ?? row.quartiere ?? "N/D").toString();
     const key = name.toLowerCase();
-    if (!byAgency.has(key)) byAgency.set(key, { name, zones: new Map() });
+    if (!byAgency.has(key)) byAgency.set(key, { name, phone: null, zones: new Map() });
     const entry = byAgency.get(key)!;
     entry.zones.set(zona, (entry.zones.get(zona) ?? 0) + 1);
+    if (!entry.phone && row.agency_phone) entry.phone = row.agency_phone;
   }
 
   const agenzie: Array<Record<string, unknown>> = [];
