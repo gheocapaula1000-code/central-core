@@ -367,8 +367,8 @@ async function processOne(row: { id: number; url: string }): Promise<{
 
   const parseStatus: ParseStatus = fields.mq ? "done_ok" : "empty_parse";
   fields.raw_json = {
-    md: md.slice(0, 6000),
-    html: html.slice(0, 12000),
+    md: md.slice(0, 20000),
+    html: html.slice(0, 60000),
     parse_status: parseStatus,
     http_status: httpStatus,
     processed_at: new Date().toISOString(),
