@@ -125,7 +125,7 @@ async function handleSalesProspectsDetail(req: Request, prospectId: string, debu
 
   const { data: distinctRows, error: e1 } = await sb
     .from("padova_collect_v2_items")
-    .select("agency")
+    .select("agency, agency_phone")
     .eq("contendibile", true)
     .not("agency", "is", null);
   if (e1) {
@@ -133,10 +133,13 @@ async function handleSalesProspectsDetail(req: Request, prospectId: string, debu
     return withIdentity(fail(req, 500, "DB_ERROR", `Database error. Reference: ${debugId}`, debugId), route);
   }
 
+  const phoneByName = new Map<string, string>();
   const names = new Set<string>();
-  for (const r of (distinctRows as Array<{ agency: string | null }> ?? [])) {
+  for (const r of (distinctRows as Array<{ agency: string | null; agency_phone: string | null }> ?? [])) {
     const n = (r.agency ?? "").trim();
-    if (n) names.add(n);
+    if (!n) continue;
+    names.add(n);
+    if (r.agency_phone && !phoneByName.has(n)) phoneByName.set(n, r.agency_phone);
   }
   let matchedAgency: string | null = null;
   for (const name of names) {
@@ -146,7 +149,7 @@ async function handleSalesProspectsDetail(req: Request, prospectId: string, debu
 
   const { data: immobili, error: e2 } = await sb
     .from("padova_collect_v2_items")
-    .select("id, raw_address, civico, omi_zone, quartiere, prezzo, prezzo_iniziale, mq, locali, bagni, piano, url, created_at")
+    .select("id, raw_address, civico, omi_zone, quartiere, prezzo, prezzo_iniziale, mq, locali, bagni, piano, url, created_at, agency_phone")
     .eq("contendibile", true)
     .eq("agency", matchedAgency)
     .order("created_at", { ascending: false });
@@ -156,10 +159,12 @@ async function handleSalesProspectsDetail(req: Request, prospectId: string, debu
   }
 
   const totale = immobili?.length ?? 0;
+  const phoneFromImmobili = ((immobili as Array<{ agency_phone: string | null }>) ?? []).find((r) => r.agency_phone)?.agency_phone ?? null;
+  const agenziaTelefono = phoneByName.get(matchedAgency) ?? phoneFromImmobili ?? null;
   return withIdentity(json(req, 200, sanitizeOutgoing({
     ok: true,
     data: {
-      agenzia: { id: prospectId, agenzia_nome: matchedAgency, agenzia_telefono: null, n_contendibili_totali: totale },
+      agenzia: { id: prospectId, agenzia_nome: matchedAgency, agenzia_telefono: agenziaTelefono, n_contendibili_totali: totale },
       immobili: ((immobili as Array<Record<string, unknown>>) ?? []).map((r) => {
         const prezzo = r.prezzo as number | null;
         const prezzoIniz = r.prezzo_iniziale as number | null;
