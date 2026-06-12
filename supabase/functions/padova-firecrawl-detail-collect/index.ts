@@ -1136,6 +1136,94 @@ Deno.serve(async (req) => {
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
+  if (action === "reextract_agency") {
+    const sbc = sb();
+    const requestedLimit = Number(body?.limit ?? 20);
+    const limit = Math.max(1, Math.min(100, Number.isFinite(requestedLimit) ? requestedLimit : 20));
+    const dryRun = body?.dry_run === true;
+
+    const { data: rows, error: selErr } = await sbc
+      .from("padova_collect_v2_items")
+      .select("id, url, agency, agency_phone, raw_json")
+      .eq("contendibile", true)
+      .ilike("url", "%immobiliare%")
+      .not("raw_json", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (selErr) {
+      return new Response(JSON.stringify({ ok: false, error: "DB_ERROR", message: selErr.message }), {
+        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const results: Array<{
+      id: number; url: string | null;
+      agency_before: string | null; agency_after: string | null;
+      phone_before: string | null; phone_after: string | null;
+      updated: boolean; skipped_reason?: string;
+    }> = [];
+    let updatedCount = 0, unchangedCount = 0, skippedNoContent = 0;
+
+    for (const row of (rows ?? []) as Array<{ id: number; url: string | null; agency: string | null; agency_phone: string | null; raw_json: Record<string, unknown> | null }>) {
+      const raw = row.raw_json;
+      const md = (raw?.md as string) ?? (raw?.markdown as string) ?? (raw?.content as string) ?? "";
+      const html = (raw?.html as string) ?? (raw?.rawHtml as string) ?? "";
+
+      if (!md && !html) {
+        skippedNoContent++;
+        results.push({
+          id: row.id, url: row.url,
+          agency_before: row.agency, agency_after: row.agency,
+          phone_before: row.agency_phone, phone_after: row.agency_phone,
+          updated: false, skipped_reason: "no_markdown_no_html_in_raw_json",
+        });
+        continue;
+      }
+
+      const extracted = extractFromContent(md, html);
+      const newAgency = (extracted.agency as string | null | undefined) ?? null;
+      const newPhone = (extracted.agency_phone as string | null | undefined) ?? null;
+
+      const finalAgency = newAgency ?? row.agency;
+      const finalPhone = newPhone ?? row.agency_phone;
+      const changed = finalAgency !== row.agency || finalPhone !== row.agency_phone;
+
+      if (changed && !dryRun) {
+        const { error: updErr } = await sbc
+          .from("padova_collect_v2_items")
+          .update({ agency: finalAgency, agency_phone: finalPhone })
+          .eq("id", row.id);
+        if (updErr) {
+          results.push({
+            id: row.id, url: row.url,
+            agency_before: row.agency, agency_after: row.agency,
+            phone_before: row.agency_phone, phone_after: row.agency_phone,
+            updated: false, skipped_reason: `update_error: ${updErr.message}`,
+          });
+          continue;
+        }
+        updatedCount++;
+      } else if (!changed) {
+        unchangedCount++;
+      }
+
+      results.push({
+        id: row.id, url: row.url,
+        agency_before: row.agency, agency_after: finalAgency,
+        phone_before: row.agency_phone, phone_after: finalPhone,
+        updated: changed && !dryRun,
+      });
+    }
+
+    return new Response(JSON.stringify({
+      ok: true, action: "reextract_agency", dry_run: dryRun,
+      scanned: rows?.length ?? 0,
+      updated: updatedCount, unchanged: unchangedCount, skipped_no_content: skippedNoContent,
+      results,
+    }, null, 2), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
   return new Response(JSON.stringify({ ok: false, error: "unknown_action" }), {
     status: 400,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
