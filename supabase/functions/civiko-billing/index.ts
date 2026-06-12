@@ -97,10 +97,8 @@ async function handleMyZone(req: Request, debugId: string): Promise<Response> {
     // Geometry from omi_zone_geometry (match by zona_descr, comune Padova)
     let geojson: unknown = null;
     let centro: { lat: number; lng: number } | null = null;
-    try {
-      const { data: geoRows } = await sb.rpc("omi_zone_by_point", { p_lat: 0, p_lng: 0 }).select().limit(0);
-      void geoRows;
-    } catch (_) { /* rpc unused, kept for compat */ }
+
+
 
     const { data: geomRow, error: geomErr } = await sb
       .from("omi_zone_geometry")
