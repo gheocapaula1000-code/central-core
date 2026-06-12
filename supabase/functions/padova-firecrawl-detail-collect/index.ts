@@ -45,8 +45,8 @@ async function fcScrape(
     }
     return {
       ok: true,
-      markdown: typeof root?.markdown === "string" ? root.markdown.slice(0, 10000) : "",
-      html: typeof root?.html === "string" ? root.html.slice(0, 20000) : "",
+      markdown: typeof root?.markdown === "string" ? root.markdown.slice(0, 25000) : "",
+      html: typeof root?.html === "string" ? root.html.slice(0, 80000) : "",
       httpStatus: upstreamStatus,
     };
   } catch (e) {
