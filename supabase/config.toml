@@ -167,3 +167,6 @@ verify_jwt = false
 
 
 
+
+[functions.secret-fingerprint]
+verify_jwt = false
