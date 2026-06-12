@@ -6046,6 +6046,14 @@ export type Database = {
           omi_zone: string
         }[]
       }
+      st_zone_geojson_by_descr: {
+        Args: { p_descr: string }
+        Returns: {
+          geojson: string
+          lat: number
+          lng: number
+        }[]
+      }
       tick_padova_firecrawl_collect: { Args: never; Returns: undefined }
       unschedule_padova_detail_chain: { Args: never; Returns: boolean }
       vault_create_secret_if_missing: {

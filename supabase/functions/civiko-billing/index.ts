@@ -31,6 +31,7 @@ const ROUTES = [
   "GET  /health",
   "GET  /manifest",
   "GET  /subscription",
+  "GET  /my-zone",
   "POST /checkout",
   "POST /portal",
   "POST /civiko/billing/create-checkout",
@@ -41,6 +42,153 @@ const ROUTES = [
   "POST /create-checkout-direct",
   "POST /create-portal-session",
 ];
+
+// ── GET /my-zone ─────────────────────────────────────────────
+// Returns the active workspace's subscription state + assigned zone
+// (geometry, KPIs). Auth: x-job-secret = AI_CORE_SECRET_CIVIKO (alias
+// CIVIKO_BILLING_SECRET on the PWA side) + x-source-app: civiko.
+// Required headers: x-workspace-id, x-user-id.
+async function handleMyZone(req: Request, debugId: string): Promise<Response> {
+  const route = "my-zone";
+  const workspaceId = (req.headers.get("x-workspace-id") ?? "").trim();
+  const userId = (req.headers.get("x-user-id") ?? "").trim();
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  if (!workspaceId || !uuidRe.test(workspaceId)) {
+    return withIdentity(fail(req, 401, "NO_WORKSPACE", "workspace_id required", debugId), route);
+  }
+  if (!userId || !uuidRe.test(userId)) {
+    return withIdentity(fail(req, 401, "NO_USER", "user_id required", debugId), route);
+  }
+
+  const sb = getServiceSupabase();
+  if (!sb) {
+    return withIdentity(fail(req, 503, "DB_UNAVAILABLE", "Service DB client not configured", debugId), route);
+  }
+
+  const warnings: string[] = [];
+  const empty = {
+    status: null, plan: null, zona_status: null, zona_assegnata: null,
+    started_at: null, current_period_end: null,
+  };
+
+  const { data: sub, error: subErr } = await sb
+    .from("billing_subscriptions")
+    .select("status, plan_key, billing_interval, zona_status, zona_assegnata, created_at, current_period_end")
+    .eq("agency_id", workspaceId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (subErr) {
+    console.warn(`[${FUNCTION_NAME}] my-zone subscription lookup error debug_id=${debugId}: ${subErr.message}`);
+    return withIdentity(json(req, 200, { data: empty, warnings: ["billing_lookup_failed"] }, debugId), route);
+  }
+  if (!sub) {
+    return withIdentity(json(req, 200, { data: empty, warnings: [] }, debugId), route);
+  }
+
+  const plan = sub.billing_interval ?? sub.plan_key ?? null;
+  let zonaAssegnata: Record<string, unknown> | null = null;
+
+  if (sub.zona_status === "assegnata" && sub.zona_assegnata) {
+    const zonaName = String(sub.zona_assegnata).trim();
+
+    // Geometry from omi_zone_geometry (match by zona_descr, comune Padova)
+    let geojson: unknown = null;
+    let centro: { lat: number; lng: number } | null = null;
+
+
+
+    const { data: geomRow, error: geomErr } = await sb
+      .from("omi_zone_geometry")
+      .select("zona, zona_descr")
+      .ilike("zona_descr", zonaName)
+      .eq("comune_descrizione", "padova")
+      .limit(1)
+      .maybeSingle();
+    if (geomErr || !geomRow) {
+      warnings.push("zone_geometry_not_found");
+    } else {
+      // Fetch geojson + centroid via SQL function call using a dedicated query
+      const { data: geomFull } = await sb
+        .rpc("st_zone_geojson_by_descr", { p_descr: zonaName })
+        .single() as { data: { geojson: string; lat: number; lng: number } | null };
+      if (geomFull?.geojson) {
+        try { geojson = JSON.parse(geomFull.geojson); } catch { /* ignore */ }
+        if (typeof geomFull.lat === "number" && typeof geomFull.lng === "number") {
+          centro = { lat: geomFull.lat, lng: geomFull.lng };
+        }
+      } else {
+        warnings.push("zone_geometry_geojson_unavailable");
+      }
+    }
+
+    // KPI: opportunita_30gg
+    let opportunita_30gg: number | null = null;
+    try {
+      const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+      const { count, error } = await sb
+        .from("early_warning_opportunities")
+        .select("id", { count: "exact", head: true })
+        .ilike("microzona", zonaName)
+        .gte("detected_at", since)
+        .eq("is_active", true);
+      if (error) { warnings.push("opportunita_30gg_query_error"); }
+      else opportunita_30gg = count ?? 0;
+    } catch { warnings.push("opportunita_30gg_unavailable"); }
+
+    // KPI: lead_caldi — confidence='alta' as proxy (no priorita/stato columns in DB)
+    let lead_caldi: number | null = null;
+    try {
+      const { count, error } = await sb
+        .from("early_warning_opportunities")
+        .select("id", { count: "exact", head: true })
+        .ilike("microzona", zonaName)
+        .eq("is_active", true)
+        .eq("confidence", "alta");
+      if (error) { warnings.push("lead_caldi_query_error"); }
+      else lead_caldi = count ?? 0;
+    } catch { warnings.push("lead_caldi_unavailable"); }
+
+    // KPI: ultimo_radar — radar_run_log has no zone column; use municipality=padova proxy
+    let ultimo_radar: string | null = null;
+    try {
+      const { data: r } = await sb
+        .from("radar_run_log")
+        .select("completed_at")
+        .ilike("municipality", "padova")
+        .eq("status", "success")
+        .order("completed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      ultimo_radar = r?.completed_at ?? null;
+      warnings.push("ultimo_radar_proxy_municipality"); // signal: not zone-scoped
+    } catch { warnings.push("ultimo_radar_unavailable"); }
+
+    zonaAssegnata = {
+      nome: zonaName,
+      codice_quartiere: zonaName, // no codice column in DB; use name as identifier
+      geojson,
+      centro,
+      opportunita_30gg,
+      lead_caldi,
+      ultimo_radar,
+    };
+  }
+
+  return withIdentity(json(req, 200, {
+    data: {
+      status: sub.status ?? null,
+      plan,
+      zona_status: sub.zona_status ?? null,
+      zona_assegnata: zonaAssegnata,
+      started_at: sub.created_at ?? null,
+      current_period_end: sub.current_period_end ?? null,
+    },
+    warnings,
+  }, debugId), route);
+}
 
 // ── /create-portal-session ───────────────────────────────────
 // Civiko One — Stripe Billing Portal session, keyed by supabase_user_id.
@@ -811,6 +959,12 @@ Deno.serve(async (req) => {
     }
 
     if (req.method === "GET") {
+      // GET /my-zone — Civiko PWA dashboard data (job-secret auth)
+      if (pathname.endsWith("/my-zone")) {
+        const authFail = authCheckoutDirect(req, debugId);
+        if (authFail) return withIdentity(authFail, "auth-rejected");
+        return await handleMyZone(req, debugId);
+      }
       if (pathname.endsWith("/health") || pathname === "/" || pathname === EXPECTED_BASE_PATH) {
         return withIdentity(json(req, 200, {
           status: "healthy", function: FUNCTION_NAME, version: CORE_VERSION,
