@@ -32,6 +32,8 @@ const ROUTES = [
   "GET  /manifest",
   "GET  /subscription",
   "GET  /my-zone",
+  "GET  /sales-prospects",
+  "GET  /sales-prospects/:id",
   "POST /checkout",
   "POST /portal",
   "POST /civiko/billing/create-checkout",
@@ -42,6 +44,145 @@ const ROUTES = [
   "POST /create-checkout-direct",
   "POST /create-portal-session",
 ];
+
+async function sha1Hex(s: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function handleSalesProspectsList(req: Request, debugId: string): Promise<Response> {
+  const route = "sales-prospects-list";
+  const sb = getServiceSupabase();
+  if (!sb) return withIdentity(fail(req, 503, "STORAGE_UNAVAILABLE", "Backend not configured.", debugId), route);
+
+  const { data, error } = await sb
+    .from("padova_collect_v2_items")
+    .select("agency, omi_zone, quartiere")
+    .eq("contendibile", true)
+    .not("agency", "is", null);
+
+  if (error) {
+    console.error(`[${FUNCTION_NAME}] sales-prospects db error debug_id=${debugId}: ${error.message}`);
+    return withIdentity(fail(req, 500, "DB_ERROR", `Database error. Reference: ${debugId}`, debugId), route);
+  }
+
+  const byAgency = new Map<string, { name: string; zones: Map<string, number> }>();
+  for (const row of (data as Array<{ agency: string | null; omi_zone: string | null; quartiere: string | null }> ?? [])) {
+    const name = (row.agency ?? "").trim();
+    if (!name) continue;
+    const zona = (row.omi_zone ?? row.quartiere ?? "N/D").toString();
+    const key = name.toLowerCase();
+    if (!byAgency.has(key)) byAgency.set(key, { name, zones: new Map() });
+    const entry = byAgency.get(key)!;
+    entry.zones.set(zona, (entry.zones.get(zona) ?? 0) + 1);
+  }
+
+  const agenzie: Array<Record<string, unknown>> = [];
+  let totalContendibili = 0;
+  for (const { name, zones } of byAgency.values()) {
+    const zoneArr = Array.from(zones.entries())
+      .map(([zona, n]) => ({ zona, n_immobili: n }))
+      .sort((a, b) => b.n_immobili - a.n_immobili);
+    const totale = zoneArr.reduce((s, z) => s + z.n_immobili, 0);
+    if (totale < 2) continue;
+    const topCount = zoneArr[0].n_immobili;
+    const concentrazione = totale > 0 ? topCount / totale : 0;
+    const score = Math.min(100, Math.round(totale * 6 + concentrazione * 30));
+    const id = await sha1Hex(name.toLowerCase());
+    agenzie.push({
+      id,
+      agenzia_nome: name,
+      agenzia_telefono: null,
+      n_contendibili_totali: totale,
+      zone_attive: zoneArr,
+      concentrazione_top_zona: Math.round(concentrazione * 10000) / 10000,
+      score_priorita: score,
+    });
+    totalContendibili += totale;
+  }
+
+  agenzie.sort((a, b) =>
+    (b.score_priorita as number) - (a.score_priorita as number) ||
+    (b.n_contendibili_totali as number) - (a.n_contendibili_totali as number)
+  );
+
+  return withIdentity(json(req, 200, sanitizeOutgoing({
+    ok: true,
+    data: {
+      aggiornato_al: new Date().toISOString(),
+      totale_agenzie: agenzie.length,
+      totale_contendibili_padova: totalContendibili,
+      agenzie,
+    },
+  }), debugId), route);
+}
+
+async function handleSalesProspectsDetail(req: Request, prospectId: string, debugId: string): Promise<Response> {
+  const route = "sales-prospects-detail";
+  const sb = getServiceSupabase();
+  if (!sb) return withIdentity(fail(req, 503, "STORAGE_UNAVAILABLE", "Backend not configured.", debugId), route);
+
+  const { data: distinctRows, error: e1 } = await sb
+    .from("padova_collect_v2_items")
+    .select("agency")
+    .eq("contendibile", true)
+    .not("agency", "is", null);
+  if (e1) {
+    console.error(`[${FUNCTION_NAME}] sales-prospects detail db error debug_id=${debugId}: ${e1.message}`);
+    return withIdentity(fail(req, 500, "DB_ERROR", `Database error. Reference: ${debugId}`, debugId), route);
+  }
+
+  const names = new Set<string>();
+  for (const r of (distinctRows as Array<{ agency: string | null }> ?? [])) {
+    const n = (r.agency ?? "").trim();
+    if (n) names.add(n);
+  }
+  let matchedAgency: string | null = null;
+  for (const name of names) {
+    if (await sha1Hex(name.toLowerCase()) === prospectId) { matchedAgency = name; break; }
+  }
+  if (!matchedAgency) return withIdentity(fail(req, 404, "NOT_FOUND", "Agenzia non trovata.", debugId), route);
+
+  const { data: immobili, error: e2 } = await sb
+    .from("padova_collect_v2_items")
+    .select("id, raw_address, civico, omi_zone, quartiere, prezzo, prezzo_iniziale, mq, locali, bagni, piano, url, created_at")
+    .eq("contendibile", true)
+    .eq("agency", matchedAgency)
+    .order("created_at", { ascending: false });
+  if (e2) {
+    console.error(`[${FUNCTION_NAME}] sales-prospects detail listings error debug_id=${debugId}: ${e2.message}`);
+    return withIdentity(fail(req, 500, "DB_ERROR", `Database error. Reference: ${debugId}`, debugId), route);
+  }
+
+  const totale = immobili?.length ?? 0;
+  return withIdentity(json(req, 200, sanitizeOutgoing({
+    ok: true,
+    data: {
+      agenzia: { id: prospectId, agenzia_nome: matchedAgency, agenzia_telefono: null, n_contendibili_totali: totale },
+      immobili: ((immobili as Array<Record<string, unknown>>) ?? []).map((r) => {
+        const prezzo = r.prezzo as number | null;
+        const prezzoIniz = r.prezzo_iniziale as number | null;
+        const mq = r.mq as number | null;
+        return {
+          id: r.id,
+          indirizzo: [r.raw_address, r.civico].filter(Boolean).join(" "),
+          zona_omi: r.omi_zone,
+          quartiere: r.quartiere,
+          prezzo_richiesto: prezzo,
+          prezzo_iniziale: prezzoIniz,
+          n_ribassi: (prezzoIniz && prezzo && prezzoIniz > prezzo) ? 1 : 0,
+          mq,
+          prezzo_al_mq: (prezzo && mq) ? Math.round(prezzo / mq) : null,
+          locali: r.locali,
+          bagni: r.bagni,
+          piano: r.piano,
+          link_annuncio: r.url,
+          data_prima_pubblicazione: r.created_at,
+        };
+      }),
+    },
+  }), debugId), route);
+}
 
 // ── GET /my-zone ─────────────────────────────────────────────
 // Returns the active workspace's subscription state + assigned zone
