@@ -484,6 +484,7 @@ async function processBatch(
           piano: f.piano ?? null,
           bagni: f.bagni ?? null,
           agency: f.agency ?? null,
+          agency_phone: (f.agency_phone as string | null) ?? null,
           civico: f.civico ?? null,
           tipologia: f.tipologia ?? null,
           riscaldamento: f.riscaldamento ?? null,
