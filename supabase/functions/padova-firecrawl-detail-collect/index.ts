@@ -145,7 +145,12 @@ function extractFromContent(markdown: string, html: string): Record<string, unkn
       const ag = (it as { realEstateAgent?: { name?: string }; provider?: { name?: string }; seller?: { name?: string } });
       const agName = ag?.realEstateAgent?.name ?? ag?.provider?.name ?? ag?.seller?.name;
       if (agName && !out.agency) out.agency = clean(String(agName)).slice(0, 120);
-      const geo = (it as { geo?: { latitude?: unknown; longitude?: unknown }; address?: { geo?: { latitude?: unknown; longitude?: unknown } } });
+      const agAny = ag as Record<string, { telephone?: unknown } | undefined>;
+      const agPhone = agAny?.realEstateAgent?.telephone ?? agAny?.provider?.telephone ?? agAny?.seller?.telephone;
+      if (agPhone && !out.agency_phone) {
+        const tel = String(agPhone).replace(/[^\d+]/g, "");
+        if (tel.length >= 6 && tel.length <= 20) out.agency_phone = tel;
+      }
       const lat = geo?.geo?.latitude ?? geo?.address?.geo?.latitude;
       const lng = geo?.geo?.longitude ?? geo?.address?.geo?.longitude;
       if (lat != null && lng != null && !out.lat) {
