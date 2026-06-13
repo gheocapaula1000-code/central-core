@@ -48,7 +48,13 @@ function formatDate(iso: string | null): string {
 
 async function fetchStat(spec: TableSpec): Promise<Stat> {
   try {
-    const countRes = await (supabase as any)
+    const countRes = await (supabase as unknown as {
+      from: (t: string) => {
+        select: (c: string, o: { count: "exact"; head: true }) => {
+          eq: (col: string, val: boolean) => Promise<{ count: number | null; error: unknown }>;
+        };
+      };
+    })
       .from(spec.table)
       .select("id", { count: "exact", head: true })
       .eq("is_active", true);
@@ -57,7 +63,17 @@ async function fetchStat(spec: TableSpec): Promise<Stat> {
 
     let lastAt: string | null = null;
     if (count > 0) {
-      const lastRes = await (supabase as any)
+      const lastRes = await (supabase as unknown as {
+        from: (t: string) => {
+          select: (c: string) => {
+            eq: (col: string, val: boolean) => {
+              order: (c: string, o: { ascending: boolean }) => {
+                limit: (n: number) => Promise<{ data: Array<Record<string, string | null>> | null; error: unknown }>;
+              };
+            };
+          };
+        };
+      })
         .from(spec.table)
         .select(spec.dateField)
         .eq("is_active", true)
