@@ -6,7 +6,14 @@ import tseslint from "typescript-eslint";
 import prettier from "eslint-config-prettier";
 
 export default tseslint.config(
-  { ignores: ["dist"] },
+  {
+    // Ignore build output and the Deno edge-functions tree.
+    // Edge functions run on Deno runtime with npm:/https: imports and have
+    // their own Deno-based verification path; linting them with the browser/Vite
+    // ESLint config produces ~380 false-positive errors. Active backend code
+    // is validated via Deno tests + runtime contract tests in src/test/.
+    ignores: ["dist", "supabase/functions/**"],
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended, prettier],
     files: ["**/*.{ts,tsx}"],
