@@ -170,3 +170,12 @@ verify_jwt = false
 
 [functions.secret-fingerprint]
 verify_jwt = false
+
+[functions.public-padova-quartieri-stats]
+verify_jwt = false
+
+[functions.public-padova-contendibili-stats]
+verify_jwt = false
+
+[functions.public-padova-privati-stats]
+verify_jwt = false
