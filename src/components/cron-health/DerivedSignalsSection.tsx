@@ -101,8 +101,8 @@ type ChainResult = {
 type PromoteResult = {
   ok: boolean;
   invoked_by?: string;
-  rescore?: { status: number; result?: any };
-  promote?: { status: number; promoted?: number | null; result?: any };
+  rescore?: { status: number; result?: unknown };
+  promote?: { status: number; promoted?: number | null; result?: unknown };
   data_engine?: { status: number; mode?: string; note?: string };
   error?: string;
 };
