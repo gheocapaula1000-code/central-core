@@ -189,7 +189,7 @@ export default function ApiCreditsPage() {
       }
       toast({ title: "Soglie salvate", description: `Provider: ${t.provider}` });
       updateLocal(t.provider, { source: "persisted", updated_at: new Date().toISOString() });
-    } catch (e) {
+    } catch (_e) {
       toast({ title: "Salvataggio non riuscito", description: "Errore imprevisto. Riprova più tardi." });
     } finally { setSavingProvider(null); }
   }

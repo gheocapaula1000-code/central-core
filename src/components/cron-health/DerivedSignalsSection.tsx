@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, Loader2, PlayCircle, CheckCircle2, XCircle } from "lucide-react";
+import { AlertTriangle, Loader2, PlayCircle, CheckCircle2 } from "lucide-react";
 
 type TableSpec = {
   table: string;
@@ -48,7 +48,13 @@ function formatDate(iso: string | null): string {
 
 async function fetchStat(spec: TableSpec): Promise<Stat> {
   try {
-    const countRes = await (supabase as any)
+    const countRes = await (supabase as unknown as {
+      from: (t: string) => {
+        select: (c: string, o: { count: "exact"; head: true }) => {
+          eq: (col: string, val: boolean) => Promise<{ count: number | null; error: unknown }>;
+        };
+      };
+    })
       .from(spec.table)
       .select("id", { count: "exact", head: true })
       .eq("is_active", true);
@@ -57,7 +63,17 @@ async function fetchStat(spec: TableSpec): Promise<Stat> {
 
     let lastAt: string | null = null;
     if (count > 0) {
-      const lastRes = await (supabase as any)
+      const lastRes = await (supabase as unknown as {
+        from: (t: string) => {
+          select: (c: string) => {
+            eq: (col: string, val: boolean) => {
+              order: (c: string, o: { ascending: boolean }) => {
+                limit: (n: number) => Promise<{ data: Array<Record<string, string | null>> | null; error: unknown }>;
+              };
+            };
+          };
+        };
+      })
         .from(spec.table)
         .select(spec.dateField)
         .eq("is_active", true)
@@ -85,8 +101,8 @@ type ChainResult = {
 type PromoteResult = {
   ok: boolean;
   invoked_by?: string;
-  rescore?: { status: number; result?: any };
-  promote?: { status: number; promoted?: number | null; result?: any };
+  rescore?: { status: number; result?: unknown };
+  promote?: { status: number; promoted?: number | null; result?: unknown };
   data_engine?: { status: number; mode?: string; note?: string };
   error?: string;
 };
@@ -154,7 +170,7 @@ export default function DerivedSignalsSection() {
     } finally {
       setRunning(false);
     }
-  }, [fetchAll]);
+  }, []);
 
   const runPromote = useCallback(async () => {
     setPromoting(true);

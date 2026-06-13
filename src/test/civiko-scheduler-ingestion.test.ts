@@ -46,7 +46,7 @@ function fakeSupabase() {
   };
 }
 
-const okFetch = vi.fn(async (_url: string, init?: RequestInit) => {
+const okFetch = vi.fn(async (_url: string, _init?: RequestInit) => {
   return new Response(JSON.stringify({ ok: true, data: { records_processed: 0 } }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
