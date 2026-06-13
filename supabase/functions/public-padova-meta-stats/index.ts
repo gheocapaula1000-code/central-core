@@ -3,14 +3,37 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import {
-  pickAllowedOrigin,
   publicHeaders,
   checkRateLimit,
   rateLimited,
 } from "../_shared/public-stats-utils.ts";
 
-const VERSION = "v3.4.0";
+const VERSION = "v3.4.1";
 const CONTRACT = "central-core-v3";
+
+function computeNextCron6h(): string {
+  // Matches cron '0 */6 * * *' (00:00, 06:00, 12:00, 18:00 UTC).
+  const now = new Date();
+  const next = new Date(now);
+  next.setUTCMinutes(0, 0, 0);
+  const h = now.getUTCHours();
+  const nextHour = (Math.floor(h / 6) + 1) * 6;
+  if (nextHour >= 24) {
+    next.setUTCDate(next.getUTCDate() + 1);
+    next.setUTCHours(nextHour - 24);
+  } else {
+    next.setUTCHours(nextHour);
+  }
+  return next.toISOString();
+}
+
+function healthBucket(hrs: number | null): "fresh" | "ok" | "stale" | "critical" | "unknown" {
+  if (hrs == null) return "unknown";
+  if (hrs < 12) return "fresh";
+  if (hrs < 24) return "ok";
+  if (hrs < 72) return "stale";
+  return "critical";
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -32,7 +55,7 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Last scrape run: take MAX across the two scraper run tables.
+    // Last scrape run: MAX across the two scraper run tables.
     const [apifyRes, firecrawlRes] = await Promise.all([
       supabase
         .from("padova_apify_runs")
@@ -76,15 +99,23 @@ Deno.serve(async (req: Request) => {
       freshnessHours = Math.round((diffMs / 3_600_000) * 10) / 10;
     }
 
-    // Aggregate counts in parallel.
+    // Aggregate counts — queries copied from the other public-padova-* endpoints
+    // to guarantee identical values.
+    //  - total_listings_padova  ← public-padova-quartieri-stats.tot_annunci  (padova_listings count)
+    //  - total_contendibili     ← public-padova-contendibili-stats.total    (padova_contendibili count)
+    //  - total_privati          ← public-padova-privati-stats.total         (padova_listings WHERE tipo_lead='PRIVATO')
+    //  - total_quartieri        ← public-padova-quartieri-stats.tot_quartieri_con_contendibili (distinct quartiere in padova_contendibili)
     const [listingsRes, contRes, privRes, quartRes] = await Promise.all([
-      supabase.from("padova_collect_v2_items").select("id", { count: "exact", head: true }),
-      supabase.from("padova_contendibili").select("id", { count: "exact", head: true }),
+      supabase.from("padova_listings").select("id", { count: "exact", head: true }),
+      supabase.from("padova_contendibili").select("chiave_match", { count: "exact", head: true }),
       supabase
-        .from("padova_collect_v2_items")
+        .from("padova_listings")
         .select("id", { count: "exact", head: true })
-        .is("agency", null),
-      supabase.from("padova_collect_v2_items").select("quartiere").not("quartiere", "is", null),
+        .eq("tipo_lead", "PRIVATO"),
+      supabase
+        .from("padova_contendibili")
+        .select("quartiere")
+        .not("quartiere", "is", null),
     ]);
 
     const quartieriUnique = quartRes.data
@@ -101,12 +132,13 @@ Deno.serve(async (req: Request) => {
       version: VERSION,
       last_scrape_run_at: lastRunAt,
       last_scrape_status: lastRunStatus,
-      next_scheduled_run_at: null as string | null, // cron expression not centrally exposed
+      next_scheduled_run_at: computeNextCron6h(),
       total_listings_padova: listingsRes.count ?? 0,
       total_contendibili: contRes.count ?? 0,
       total_privati: privRes.count ?? 0,
       total_quartieri: quartieriUnique,
       data_freshness_hours: freshnessHours,
+      health_bucket: healthBucket(freshnessHours),
       updated_at: new Date().toISOString(),
     };
 
@@ -122,6 +154,3 @@ Deno.serve(async (req: Request) => {
     );
   }
 });
-
-// pickAllowedOrigin import kept for tree-shaking parity with other public endpoints
-void pickAllowedOrigin;
