@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, Loader2, PlayCircle, CheckCircle2, XCircle } from "lucide-react";
+import { AlertTriangle, Loader2, PlayCircle, CheckCircle2 } from "lucide-react";
 
 type TableSpec = {
   table: string;
