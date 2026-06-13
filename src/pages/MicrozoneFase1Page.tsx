@@ -8,7 +8,7 @@ import {
   CLUSTER_LABEL,
   FASE_LABEL,
   type Microzona,
-  type FasePilota,
+  
 } from "@/data/civiko-one-territori";
 import { OPPORTUNITA_PILOTA } from "@/data/civiko-one-opportunita-pilota";
 import { DOSSIER_AGENZIA } from "@/data/civiko-one-dossier-agenzia";
