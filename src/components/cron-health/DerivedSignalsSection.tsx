@@ -170,7 +170,7 @@ export default function DerivedSignalsSection() {
     } finally {
       setRunning(false);
     }
-  }, [fetchAll]);
+  }, []);
 
   const runPromote = useCallback(async () => {
     setPromoting(true);
