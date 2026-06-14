@@ -1,0 +1,1 @@
+SELECT public.tick_padova_firecrawl_collect();

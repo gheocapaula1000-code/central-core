@@ -28,10 +28,11 @@ function computeNextCron6h(): string {
 }
 
 function healthBucket(hrs: number | null): "fresh" | "ok" | "stale" | "critical" | "unknown" {
+  // Refresh cadence: 1× daily (cron 0 1 * * * UTC). Thresholds tuned accordingly.
   if (hrs == null) return "unknown";
-  if (hrs < 12) return "fresh";
-  if (hrs < 24) return "ok";
-  if (hrs < 72) return "stale";
+  if (hrs < 30) return "fresh";
+  if (hrs < 50) return "ok";
+  if (hrs < 100) return "stale";
   return "critical";
 }
 
