@@ -19,6 +19,7 @@ const ROUTE_MAP: Record<string, string> = {
   "civiko/property-piano-esclusiva":     "civiko-property-piano-esclusiva",
   "civiko/property-objection-plan":      "civiko-property-objection-plan",
   "civiko/property-owner-report":        "civiko-property-owner-report",
+  "civiko/property-marketing-pack":      "property-marketing-pack",
   "civiko/billing/create-checkout":      "civiko-billing",
   "civiko/billing/customer-portal":      "civiko-billing",
   "civiko/billing/check-subscription":   "civiko-billing",
