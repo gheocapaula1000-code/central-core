@@ -108,9 +108,37 @@ serve(async (req) => {
       requestBody = payload ?? {};
     }
 
+    // Base headers. Note: x-internal-secret is NEVER forwarded from the
+    // client — it is injected server-side only for routes that require it.
+    const upstreamHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Authorization": authHeader,
+      "apikey": ANON_KEY,
+    };
+
+    // Server-side secret injection for property-marketing-pack (Civiko One).
+    if (normalizedEndpoint === "civiko/property-marketing-pack") {
+      const civikoSecret = Deno.env.get("AI_CORE_SECRET_CIVIKO") ?? "";
+      if (!civikoSecret) {
+        clearTimeout(timer);
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            data: null,
+            warnings: [],
+            debug_id: crypto.randomUUID().replace(/-/g, "").slice(0, 12),
+            error: { code: "UPSTREAM_AUTH_NOT_CONFIGURED", message: "Upstream authentication for this route is not configured." },
+          }),
+          { status: 503, headers: { ...cors, "Content-Type": "application/json" } },
+        );
+      }
+      upstreamHeaders["x-internal-secret"] = civikoSecret;
+      upstreamHeaders["x-source-app"] = "civiko";
+    }
+
     const res = await fetch(targetUrl, {
       method,
-      headers: { "Content-Type": "application/json", "Authorization": authHeader, "apikey": ANON_KEY },
+      headers: upstreamHeaders,
       body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
