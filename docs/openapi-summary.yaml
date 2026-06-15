@@ -304,3 +304,22 @@ paths:
         "200": { description: Retry successful }
         "409": { description: Job not retryable }
         "429": { description: Max retries exceeded }
+
+  /property-marketing-pack:
+    get:
+      summary: Health / manifest for white-label marketing pack
+      tags: [property-marketing-pack]
+      responses:
+        "200": { description: Health or manifest payload }
+    post:
+      summary: Generate a white-label property marketing pack ("Studio Immobile Civiko")
+      description: |
+        Returns a marketing-pack payload (listing_text_long/short, owner_message,
+        social_variants, highlights, objection_answers, next_best_action, confidence).
+        The response NEVER exposes the internal pipeline brand name.
+      tags: [property-marketing-pack]
+      security: [{ CoreSecret: [] }]
+      responses:
+        "200": { description: Marketing pack envelope { ok, data, warnings, debug_id } }
+        "400": { description: Invalid body / missing property }
+        "401": { description: Missing or invalid x-internal-secret }
