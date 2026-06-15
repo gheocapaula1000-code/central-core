@@ -550,3 +550,42 @@ These endpoints are intentionally scaffolded but return `sourceType: "unavailabl
 | [Release Acceptance](./release-acceptance-checklist.md) | Pre/post-release gate checklist |
 | [Changelog](./changelog.md) | Version history |
 | [OpenAPI Summary](./openapi-summary.yaml) | API surface summary |
+
+---
+
+## Endpoint: property-marketing-pack (white-label)
+
+- **Path:** `POST /functions/v1/property-marketing-pack`
+- **Auth:** `x-internal-secret` (per-app secret resolution via `requireSecret`)
+- **Public naming:** `Studio Immobile Civiko` / `property_marketing_pack`
+- **Brand isolation:** the response NEVER contains the internal pipeline brand name. A `deepScrub` pass over the payload rewrites any leaked occurrence and the contract test `src/test/property-marketing-pack-contract.test.ts` enforces this invariant.
+- **Health/Manifest:** `GET /health`, `GET /manifest` (public, no secret).
+- **Input:**
+  ```json
+  {
+    "source_app": "civiko",
+    "workspace_id": "...",
+    "opportunity_id": "...",
+    "property": {
+      "title": "...", "address": "...", "comune": "...", "province": "...",
+      "property_type": "...", "estimated_value": 250000,
+      "rooms": 3, "bathrooms": 2, "mq": 95,
+      "photos_summary": "...", "strengths": ["..."], "objections": ["..."], "urgency": "..."
+    }
+  }
+  ```
+- **Output envelope:** `{ ok, data, warnings, debug_id }` where `data` is:
+  ```json
+  {
+    "studio_name": "Studio Immobile Civiko",
+    "listing_text_long": "...",
+    "listing_text_short": "...",
+    "owner_message": "...",
+    "social_variants": [{ "channel": "facebook|instagram|linkedin|whatsapp", "tone": "professionale|caldo|diretto", "text": "..." }],
+    "highlights": ["..."],
+    "objection_answers": [{ "objection": "...", "answer": "..." }],
+    "next_best_action": "...",
+    "confidence": "alta|media|bassa",
+    "warnings": ["..."]
+  }
+  ```
