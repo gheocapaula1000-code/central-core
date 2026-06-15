@@ -1,0 +1,1 @@
+UPDATE public.padova_apify_runs SET status='ABORTED', finished_at=NOW(), error='manually aborted - stuck >2h' WHERE status='RUNNING' AND started_at < NOW() - INTERVAL '2 hours';
