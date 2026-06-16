@@ -89,21 +89,26 @@ export function extractActionableTarget(group: EvidenceRow[], entity_key = ""): 
   }
 
   // Segnali offmarket/legali: target ref è l'entity_key stesso,
-  // source_url preso dall'evidence_value
+  // source_url preso dall'evidence_value. Si applica SOLO a chiavi ew:/leg:
+  // (early-warning / legal life events). Per i listing standard (op:, p:,
+  // auct:, addr:, lead:) un titolo da solo NON è un target azionabile e il
+  // deal deve essere escluso.
   let bestUrl: string | null = null;
   let bestRef: string | null = null;
   let bestTitle: string | null = null;
   let bestAddress: string | null = null;
   let bestType: ActionableTarget["target_type"] | null = null;
-  if (!bestUrl && !bestRef) {
+  const isSignalKey = key.startsWith("ew:") || key.startsWith("leg:");
+  if (isSignalKey) {
     for (const r of group) {
       const v = r.evidence_value as Record<string, unknown> | null;
       if (!v) continue;
       const u = (v as any).source_url ?? (v as any).listing_url ?? null;
-      const ref = (v as any).fingerprint ?? (v as any).dedupe_key ?? entity_key;
+      const realRef = (v as any).fingerprint ?? (v as any).dedupe_key ?? null;
+      const ref = realRef ?? entity_key;
       const title = (v as any).title ?? (v as any).area_label ?? null;
       const addr = (v as any).area_label ?? (v as any).area_or_microzone ?? null;
-      if (ref) {
+      if (u || realRef) {
         bestRef = typeof ref === "string" ? ref : entity_key;
         bestUrl = typeof u === "string" ? u : null;
         bestTitle = typeof title === "string" ? title : null;
