@@ -1,0 +1,31 @@
+# Comandi manuali Radar (da usare da terminale, NON da Lovable)
+
+## 1. Sync del vault (acquisitionradar_service_role_key)
+
+Sostituisci <SERVICE_ROLE_KEY_CORRENTE> con la service-role-key reale del progetto Supabase.
+
+curl -i -X POST \
+  "https://jpunnzgixcghuydstdlt.supabase.co/functions/v1/radar-cron?action=sync_vault" \
+  -H "Authorization: Bearer <SERVICE_ROLE_KEY_CORRENTE>" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"sync_vault"}'
+
+Atteso se ok:
+- HTTP 200
+- JSON con ok:true e un campo tipo synced:true/updated:true
+
+## 2. Run manuale standard del Radar
+
+curl -i -X POST \
+  "https://jpunnzgixcghuydstdlt.supabase.co/functions/v1/radar-cron" \
+  -H "Authorization: Bearer <SERVICE_ROLE_KEY_CORRENTE>" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+
+Atteso se ok:
+- HTTP 200
+- JSON con ok:true, data:{...}, debug_id:"..."
+
+Note:
+- HTTP 401 → chiave sbagliata / vault non allineato (rifare prima sync_vault).
+- HTTP 200 con warnings[] → auth ok, provider parzialmente down.
