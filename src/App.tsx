@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -11,25 +12,27 @@ import { AdminSidebar } from "@/components/AdminSidebar";
 import { AuthGate } from "@/components/AuthGate";
 import Dashboard from "@/pages/Dashboard";
 import AppsPage from "@/pages/AppsPage";
-import ProvidersPage from "@/pages/ProvidersPage";
-import ProviderDiagnosticsPage from "@/pages/ProviderDiagnosticsPage";
-import TasksPage from "@/pages/TasksPage";
-import SecurityPage from "@/pages/SecurityPage";
-import MetricsPage from "@/pages/MetricsPage";
-import SelftestPage from "@/pages/SelftestPage";
-import ApiCreditsPage from "@/pages/ApiCreditsPage";
-import DevJobsPage from "@/pages/DevJobsPage";
-import TerritoriPage from "@/pages/TerritoriPage";
-import MicrozoneFase1Page from "@/pages/MicrozoneFase1Page";
-import ChecklistMicrozonaEsempioPage from "@/pages/ChecklistMicrozonaEsempioPage";
-import OpportunitaPilotaPage from "@/pages/OpportunitaPilotaPage";
-import DossierAgenziaPage from "@/pages/DossierAgenziaPage";
-import SintesiProprietarioPage from "@/pages/SintesiProprietarioPage";
-import DataEnginePage from "@/pages/DataEnginePage";
-import SourceRegistryPage from "@/pages/SourceRegistryPage";
-import AdminAggiornaPadovaPage from "@/pages/AdminAggiornaPadovaPage";
-import CronHealthPage from "@/pages/CronHealthPage";
 import NotFound from "@/pages/NotFound";
+
+// Lazy-loaded heavy pages to keep main bundle < 500kB
+const ProvidersPage = lazy(() => import("@/pages/ProvidersPage"));
+const ProviderDiagnosticsPage = lazy(() => import("@/pages/ProviderDiagnosticsPage"));
+const TasksPage = lazy(() => import("@/pages/TasksPage"));
+const SecurityPage = lazy(() => import("@/pages/SecurityPage"));
+const MetricsPage = lazy(() => import("@/pages/MetricsPage"));
+const SelftestPage = lazy(() => import("@/pages/SelftestPage"));
+const ApiCreditsPage = lazy(() => import("@/pages/ApiCreditsPage"));
+const DevJobsPage = lazy(() => import("@/pages/DevJobsPage"));
+const TerritoriPage = lazy(() => import("@/pages/TerritoriPage"));
+const MicrozoneFase1Page = lazy(() => import("@/pages/MicrozoneFase1Page"));
+const ChecklistMicrozonaEsempioPage = lazy(() => import("@/pages/ChecklistMicrozonaEsempioPage"));
+const OpportunitaPilotaPage = lazy(() => import("@/pages/OpportunitaPilotaPage"));
+const DossierAgenziaPage = lazy(() => import("@/pages/DossierAgenziaPage"));
+const SintesiProprietarioPage = lazy(() => import("@/pages/SintesiProprietarioPage"));
+const DataEnginePage = lazy(() => import("@/pages/DataEnginePage"));
+const SourceRegistryPage = lazy(() => import("@/pages/SourceRegistryPage"));
+const AdminAggiornaPadovaPage = lazy(() => import("@/pages/AdminAggiornaPadovaPage"));
+const CronHealthPage = lazy(() => import("@/pages/CronHealthPage"));
 
 const queryClient = new QueryClient();
 
