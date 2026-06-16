@@ -84,17 +84,26 @@ export function buildRequestPlan(
       break;
     case "F5":
       // connector-osm-cantieri: verify_jwt is disabled at platform level
-      // (see supabase/config.toml). The function itself authorizes via
-      // x-job-secret (Path A) — already in `headers`. No extra header
-      // needed; sending SUPABASE_ANON_KEY would fail because under the
-      // signing-keys system it is sb_publishable_ (not a JWT).
+      // (see supabase/config.toml). The function still authorizes via
+      // x-job-secret (Path A). We also send Bearer service-role so that
+      // any internal helper that re-checks Authorization keeps working.
+      if (!serviceKey) {
+        console.warn("[scheduler] F5: SUPABASE_SERVICE_ROLE_KEY is empty");
+        return { skip_reason: "missing_SUPABASE_SERVICE_ROLE_KEY" };
+      }
+      headers["Authorization"] = `Bearer ${serviceKey}`;
       break;
     case "F19":
-      // civiko-source-registry/import/obituaries-aggregate requires a CSV
-      // or rows[] payload that the scheduler does not generate. The job
-      // must be manually triggered with a real aggregate CSV (k>=3),
-      // so the scheduler skips it cleanly instead of failing.
-      return { skip_reason: "f19_requires_manual_aggregate_csv" };
+      // civiko-source-registry/import/obituaries-aggregate: protected by
+      // service-role Bearer + x-job-secret. The scheduler only pings the
+      // endpoint; if no CSV/rows[] payload is available the function
+      // returns a clean no-op (it does NOT fabricate aggregate data).
+      if (!serviceKey) {
+        console.warn("[scheduler] F19: SUPABASE_SERVICE_ROLE_KEY is empty");
+        return { skip_reason: "missing_SUPABASE_SERVICE_ROLE_KEY" };
+      }
+      headers["Authorization"] = `Bearer ${serviceKey}`;
+      break;
     case "F11":
       if (!coords) return { skip_reason: "MISSING_COORDS" };
       body.lat = coords.lat;
