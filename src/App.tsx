@@ -68,30 +68,32 @@ const App = () => (
                   <span className="font-semibold md:hidden">Central Core V3</span>
                 </header>
                 <main className="flex-1 p-4 md:p-6 overflow-auto min-w-0">
-                  <Routes>
-                    <Route path="/" element={<Dashboard />} />
-                    <Route path="/apps" element={<AppsPage />} />
-                    <Route path="/providers" element={<ProvidersPage />} />
-                    <Route path="/provider-diagnostics" element={<ProviderDiagnosticsPage />} />
-                    <Route path="/tasks" element={<TasksPage />} />
-                    <Route path="/security" element={<SecurityPage />} />
-                    <Route path="/metrics" element={<MetricsPage />} />
-                    <Route path="/selftest" element={<SelftestPage />} />
-                    <Route path="/api-credits" element={<ApiCreditsPage />} />
-                    <Route path="/dev/jobs" element={<DevJobsPage />} />
-                    <Route path="/territori" element={<TerritoriPage />} />
-                    <Route path="/microzone-fase-1" element={<MicrozoneFase1Page />} />
-                    <Route path="/checklist-microzona-esempio" element={<ChecklistMicrozonaEsempioPage />} />
-                    <Route path="/test-reale-arcella" element={<Navigate to="/checklist-microzona-esempio" replace />} />
-                    <Route path="/opportunita-pilota" element={<OpportunitaPilotaPage />} />
-                    <Route path="/dossier-agenzia" element={<DossierAgenziaPage />} />
-                    <Route path="/sintesi-proprietario" element={<SintesiProprietarioPage />} />
-                    <Route path="/data-engine" element={<DataEnginePage />} />
-                    <Route path="/source-registry" element={<SourceRegistryPage />} />
-                    <Route path="/admin/aggiorna-padova" element={<AdminAggiornaPadovaPage />} />
-                    <Route path="/admin/cron-health" element={<CronHealthPage />} />
-                    <Route path="*" element={<NotFound />} />
-                  </Routes>
+                  <Suspense fallback={<div className="p-8 text-muted-foreground">Caricamento…</div>}>
+                    <Routes>
+                      <Route path="/" element={<Dashboard />} />
+                      <Route path="/apps" element={<AppsPage />} />
+                      <Route path="/providers" element={<ProvidersPage />} />
+                      <Route path="/provider-diagnostics" element={<ProviderDiagnosticsPage />} />
+                      <Route path="/tasks" element={<TasksPage />} />
+                      <Route path="/security" element={<SecurityPage />} />
+                      <Route path="/metrics" element={<MetricsPage />} />
+                      <Route path="/selftest" element={<SelftestPage />} />
+                      <Route path="/api-credits" element={<ApiCreditsPage />} />
+                      <Route path="/dev/jobs" element={<DevJobsPage />} />
+                      <Route path="/territori" element={<TerritoriPage />} />
+                      <Route path="/microzone-fase-1" element={<MicrozoneFase1Page />} />
+                      <Route path="/checklist-microzona-esempio" element={<ChecklistMicrozonaEsempioPage />} />
+                      <Route path="/test-reale-arcella" element={<Navigate to="/checklist-microzona-esempio" replace />} />
+                      <Route path="/opportunita-pilota" element={<OpportunitaPilotaPage />} />
+                      <Route path="/dossier-agenzia" element={<DossierAgenziaPage />} />
+                      <Route path="/sintesi-proprietario" element={<SintesiProprietarioPage />} />
+                      <Route path="/data-engine" element={<DataEnginePage />} />
+                      <Route path="/source-registry" element={<SourceRegistryPage />} />
+                      <Route path="/admin/aggiorna-padova" element={<AdminAggiornaPadovaPage />} />
+                      <Route path="/admin/cron-health" element={<CronHealthPage />} />
+                      <Route path="*" element={<NotFound />} />
+                    </Routes>
+                  </Suspense>
                 </main>
               </div>
             </div>
