@@ -37,8 +37,12 @@ export async function getApifySpendToday(): Promise<{ calls: number; est_usd: nu
   };
 }
 
-/** Returns true if we have budget for est_usd more spend today. */
-export async function canSpendApify(estUsd: number): Promise<{ ok: boolean; spent: number; cap: number }> {
+/** Returns true if we have budget for est_usd more spend today AND monthly cap not reached. */
+export async function canSpendApify(estUsd: number): Promise<{ ok: boolean; spent: number; cap: number; reason?: string }> {
+  const monthly = await isMonthlyCapReached();
+  if (monthly.reached) {
+    return { ok: false, spent: monthly.total, cap: monthly.cap, reason: "monthly_cap_reached" };
+  }
   const cap = APIFY_DAILY_CAP_USD;
   const { est_usd } = await getApifySpendToday();
   return { ok: est_usd + estUsd <= cap, spent: est_usd, cap };
