@@ -1062,6 +1062,61 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ─── Heavy cron gate ────────────────────────────────────────────
+    // Skip-and-log se la modalita' operativa dice di saltare oggi
+    // o se il cap mensile e' stato raggiunto. Solo per i job pesanti.
+    {
+      const HEAVY_JOBS = new Set([
+        "/jobs/padova-daily-radar",
+        "/jobs/padova-zone-radar",
+        "/jobs/padova-zone-radar-finalize",
+        "/jobs/deep-scan-padova",
+        "/jobs/perplexity-deep-padova",
+        "/jobs/microzone-padova",
+        "/jobs/padova-institutional-sources",
+        "/jobs/padova-successioni",
+        "/jobs/refresh-padova-auctions",
+        "/jobs/refresh-padova-legal-life-events",
+        "/jobs/firecrawl-deep-veneto",
+        "/jobs/firecrawl-microzone-opportunity-signals",
+        "/jobs/firecrawl-offmarket-microzone-discovery",
+        "/jobs/discover-early-offmarket-signals",
+        "/jobs/offmarket-padova",
+        "/jobs/build-offmarket-opportunity-scores",
+        "/jobs/build-advanced-veneto-opportunities",
+        "/jobs/build-padova-early-warning",
+        "/jobs/discover-veneto-auctions",
+        "/jobs/import-veneto-auctions",
+        "/jobs/build-civiko-veneto-data-engine",
+      ]);
+      const isHeavy = [...HEAVY_JOBS].some((p) => pathname.endsWith(p));
+      if (isHeavy && req.method === "POST") {
+        try {
+          const { shouldRunHeavyCron } = await import("../_shared/heavyCronGate.ts");
+          const { isMonthlyCapReached } = await import("../_shared/monthlyBudget.ts");
+          const gate = await shouldRunHeavyCron();
+          if (!gate.run) {
+            console.log(`[heavy-cron-gate] skip path=${pathname} reason=${gate.reason} mode=${gate.mode}`);
+            return withIdentity(json(req, 200, {
+              skipped: true, reason: gate.reason, mode: gate.mode, doy: gate.doy,
+              every_n_days: gate.every_n,
+            }, debugId), "heavy-cron-gate");
+          }
+          const monthly = await isMonthlyCapReached();
+          if (monthly.reached) {
+            console.warn(`[heavy-cron-gate] monthly_cap_reached total=$${monthly.total.toFixed(2)} cap=$${monthly.cap}`);
+            return withIdentity(json(req, 200, {
+              skipped: true, reason: "monthly_cap_reached",
+              total_usd: Number(monthly.total.toFixed(2)), cap_usd: monthly.cap,
+            }, debugId), "heavy-cron-gate");
+          }
+        } catch (e) {
+          // Fail-open: se il gate stesso fallisce, lascia passare (preferiamo running che bloccare).
+          console.warn(`[heavy-cron-gate] check error, fail-open:`, e instanceof Error ? e.message : String(e));
+        }
+      }
+    }
+
     // Job endpoints (cron-driven, protetti da CENTRAL_CORE_JOB_SECRET, fallback DIAGNOSTIC_SECRET)
     if (pathname.endsWith("/jobs/activate-veneto")) {
       const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;

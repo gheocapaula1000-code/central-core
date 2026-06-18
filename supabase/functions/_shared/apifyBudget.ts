@@ -1,10 +1,14 @@
 // Apify daily spend cap — shared across edge functions.
 //
-// Hard cap: APIFY_DAILY_CAP_USD (default $8). Before any Apify run, call
+// Hard cap: APIFY_DAILY_CAP_USD (default $25). Before any Apify run, call
 // canSpendApify(estUsd). After the run, call recordApifySpend(estUsd).
 // Persisted in public.apify_spend_daily (one row per UTC day).
+//
+// Inoltre rispetta il cap MENSILE aggregato gestito da operational_mode
+// (vedi monthlyBudget.ts) come kill-switch trasversale.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { isMonthlyCapReached } from "./monthlyBudget.ts";
 
 export const APIFY_DAILY_CAP_USD = Number(Deno.env.get("APIFY_DAILY_CAP_USD") ?? "25");
 
@@ -33,8 +37,12 @@ export async function getApifySpendToday(): Promise<{ calls: number; est_usd: nu
   };
 }
 
-/** Returns true if we have budget for est_usd more spend today. */
-export async function canSpendApify(estUsd: number): Promise<{ ok: boolean; spent: number; cap: number }> {
+/** Returns true if we have budget for est_usd more spend today AND monthly cap not reached. */
+export async function canSpendApify(estUsd: number): Promise<{ ok: boolean; spent: number; cap: number; reason?: string }> {
+  const monthly = await isMonthlyCapReached();
+  if (monthly.reached) {
+    return { ok: false, spent: monthly.total, cap: monthly.cap, reason: "monthly_cap_reached" };
+  }
   const cap = APIFY_DAILY_CAP_USD;
   const { est_usd } = await getApifySpendToday();
   return { ok: est_usd + estUsd <= cap, spent: est_usd, cap };

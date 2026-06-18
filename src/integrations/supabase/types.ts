@@ -279,6 +279,36 @@ export type Database = {
           },
         ]
       }
+      ai_spend_daily: {
+        Row: {
+          calls: number
+          day_utc: string
+          est_usd: number
+          input_tokens: number
+          output_tokens: number
+          provider: string
+          updated_at: string
+        }
+        Insert: {
+          calls?: number
+          day_utc: string
+          est_usd?: number
+          input_tokens?: number
+          output_tokens?: number
+          provider: string
+          updated_at?: string
+        }
+        Update: {
+          calls?: number
+          day_utc?: string
+          est_usd?: number
+          input_tokens?: number
+          output_tokens?: number
+          provider?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       api_credit_thresholds: {
         Row: {
           block_threshold_eur: number
@@ -1255,6 +1285,33 @@ export type Database = {
         }
         Relationships: []
       }
+      cron_alerts_pending: {
+        Row: {
+          acknowledged_at: string | null
+          created_at: string
+          id: number
+          message: string
+          severity: string
+          source: string | null
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          created_at?: string
+          id?: number
+          message: string
+          severity?: string
+          source?: string | null
+        }
+        Update: {
+          acknowledged_at?: string | null
+          created_at?: string
+          id?: number
+          message?: string
+          severity?: string
+          source?: string | null
+        }
+        Relationships: []
+      }
       cron_executions_log: {
         Row: {
           completed_at: string | null
@@ -1716,6 +1773,30 @@ export type Database = {
           priority_rank?: number
           privacy_class?: string
           source_name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      firecrawl_spend_daily: {
+        Row: {
+          calls: number
+          day_utc: string
+          est_usd: number
+          pages: number
+          updated_at: string
+        }
+        Insert: {
+          calls?: number
+          day_utc: string
+          est_usd?: number
+          pages?: number
+          updated_at?: string
+        }
+        Update: {
+          calls?: number
+          day_utc?: string
+          est_usd?: number
+          pages?: number
           updated_at?: string
         }
         Relationships: []
@@ -4016,6 +4097,42 @@ export type Database = {
         }
         Relationships: []
       }
+      operational_mode: {
+        Row: {
+          ai_daily_cap_usd: number
+          firecrawl_daily_cap_credits: number
+          heavy_cron_every_n_days: number
+          id: number
+          mode: string
+          monthly_cap_usd: number
+          test_ends_at: string | null
+          test_started_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          ai_daily_cap_usd?: number
+          firecrawl_daily_cap_credits?: number
+          heavy_cron_every_n_days?: number
+          id?: number
+          mode?: string
+          monthly_cap_usd?: number
+          test_ends_at?: string | null
+          test_started_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          ai_daily_cap_usd?: number
+          firecrawl_daily_cap_credits?: number
+          heavy_cron_every_n_days?: number
+          id?: number
+          mode?: string
+          monthly_cap_usd?: number
+          test_ends_at?: string | null
+          test_started_at?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       opportunity_evidence: {
         Row: {
           anticipatory_or_confirmation: string
@@ -5938,6 +6055,15 @@ export type Database = {
           omi_max: number | null
           omi_min: number | null
           semestre_ultimo: string | null
+        }
+        Relationships: []
+      }
+      total_spend_current_month: {
+        Row: {
+          ai_usd: number | null
+          apify_usd: number | null
+          firecrawl_usd: number | null
+          month_start: string | null
         }
         Relationships: []
       }
