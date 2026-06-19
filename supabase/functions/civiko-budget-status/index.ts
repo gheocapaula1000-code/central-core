@@ -3,6 +3,7 @@
 
 import { getOperationalMode } from "../_shared/operationalMode.ts";
 import { getMonthlyTotalUsd } from "../_shared/monthlyBudget.ts";
+import { getPrivateLeadsBudget } from "../_shared/privateLeadsBudget.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -18,6 +19,7 @@ Deno.serve(async (req) => {
   try {
     const mode = await getOperationalMode();
     const { total, apify, firecrawl, ai } = await getMonthlyTotalUsd();
+    const private_leads = await getPrivateLeadsBudget();
 
     const days_remaining = mode.test_ends_at
       ? Math.max(0, Math.ceil((new Date(mode.test_ends_at).getTime() - Date.now()) / 86_400_000))
@@ -47,6 +49,15 @@ Deno.serve(async (req) => {
         ai_eur: Number((ai * USD_EUR).toFixed(2)),
         total_usd: Number(total.toFixed(2)),
         total_eur: Number((total * USD_EUR).toFixed(2)),
+      },
+      private_leads_subito_bakeca: {
+        year_month: private_leads.year_month,
+        cap_usd: private_leads.cap_usd,
+        cap_eur: Number((private_leads.cap_usd * USD_EUR).toFixed(2)),
+        spent_usd: Number(private_leads.total_usd.toFixed(2)),
+        spent_eur: Number((private_leads.total_usd * USD_EUR).toFixed(2)),
+        remaining_usd: Number(private_leads.remaining_usd.toFixed(2)),
+        reached: private_leads.reached,
       },
       status,
     };

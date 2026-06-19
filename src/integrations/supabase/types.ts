@@ -5081,6 +5081,69 @@ export type Database = {
         }
         Relationships: []
       }
+      private_leads_run_status: {
+        Row: {
+          created_at: string
+          duration_ms: number | null
+          error_message: string | null
+          id: number
+          last_run_at: string
+          notes: Json | null
+          opportunita_totali: number
+          privato_stanco_count: number
+          source: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          duration_ms?: number | null
+          error_message?: string | null
+          id?: number
+          last_run_at?: string
+          notes?: Json | null
+          opportunita_totali?: number
+          privato_stanco_count?: number
+          source: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          duration_ms?: number | null
+          error_message?: string | null
+          id?: number
+          last_run_at?: string
+          notes?: Json | null
+          opportunita_totali?: number
+          privato_stanco_count?: number
+          source?: string
+          status?: string
+        }
+        Relationships: []
+      }
+      private_leads_spend_monthly: {
+        Row: {
+          apify_usd: number
+          firecrawl_usd: number
+          total_usd: number | null
+          updated_at: string
+          year_month: string
+        }
+        Insert: {
+          apify_usd?: number
+          firecrawl_usd?: number
+          total_usd?: number | null
+          updated_at?: string
+          year_month: string
+        }
+        Update: {
+          apify_usd?: number
+          firecrawl_usd?: number
+          total_usd?: number | null
+          updated_at?: string
+          year_month?: string
+        }
+        Relationships: []
+      }
       property_id_registry: {
         Row: {
           created_at: string
