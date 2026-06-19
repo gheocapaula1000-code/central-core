@@ -38,13 +38,13 @@ Deno.serve(async (req) => {
   const result: Record<string, unknown> = {};
 
   // Heavy cron gate (saving mode rispetta heavy_cron_every_n_days)
-  const gate = await shouldRunHeavyCron("civiko-private-leads-nightly");
-  if (!gate.allowed) {
+  const gate = await shouldRunHeavyCron();
+  if (!gate.run) {
     await sb.from("private_leads_run_status").insert([
       { source: "subito", opportunita_totali: 0, privato_stanco_count: 0, status: "skipped", error_message: `gate: ${gate.reason}`, duration_ms: 0 },
       { source: "bakeca", opportunita_totali: 0, privato_stanco_count: 0, status: "skipped", error_message: `gate: ${gate.reason}`, duration_ms: 0 },
     ]);
-    return new Response(JSON.stringify({ ok: true, skipped: true, reason: gate.reason }), {
+    return new Response(JSON.stringify({ ok: true, skipped: true, reason: gate.reason, gate }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
