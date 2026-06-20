@@ -79,6 +79,39 @@ function purgeExpiredBuckets() {
 const SAFE_ID = /^[a-z0-9_]+$/;
 
 // ═══════════════════════════════════════════════════════════════
+// SSRF guard for /web/scrape — block private/loopback/link-local
+// ═══════════════════════════════════════════════════════════════
+function isAllowedUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (!["http:", "https:"].includes(u.protocol)) return false;
+    const host = u.hostname.toLowerCase();
+    if (host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1") return false;
+    if (/^10\./.test(host)) return false;
+    if (/^192\.168\./.test(host)) return false;
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
+    if (/^169\.254\./.test(host)) return false;
+    if (host.startsWith("fc") || host.startsWith("fd")) return false;
+    if (host.startsWith("fe80:")) return false;
+    return true;
+  } catch { return false; }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Wyloni user_context — prepend a contextual preface to AI prompts
+// (only used for Wyloni-bound routes; Civiko/AcquisitionRadar unaffected)
+// ═══════════════════════════════════════════════════════════════
+function extractUserContext(body: Record<string, unknown>): string {
+  const raw = body?.user_context;
+  return typeof raw === "string" ? raw.slice(0, 2000) : "";
+}
+function withUserContext(userContext: string, prompt: string): string {
+  if (!userContext) return prompt;
+  return `Contesto utente Wyloni: ${userContext}\n\n${prompt}`;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
 // Pipeline config (from pipeline files)
 // ═══════════════════════════════════════════════════════════════
 const PIPELINES: Record<string, { maxTokens: number; temperature: number }> = {
