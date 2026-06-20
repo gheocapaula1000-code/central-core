@@ -1,10 +1,13 @@
 // Budget guard fonti lead privati.
-// Cap soft mensile: $8 USD. Stato 2026-06-20: dedicato a Subito (Bakeca disattivata).
+// Cap soft mensile: $25 USD. Stato 2026-06-20: dedicato a Subito (Bakeca disattivata).
+// Calendario settimanale: full pull (1200 items, ~$1.80) lunedì + giovedì,
+// incremental (200 items, ~$0.30) negli altri 5 giorni. Costo stimato ≈ $20/mese.
 // Se superato, salta il run successivo e logga. Non blocca l'intero cron, solo Subito.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
-export const PRIVATE_LEADS_MONTHLY_CAP_USD = 8;
+export const PRIVATE_LEADS_MONTHLY_CAP_USD = 25;
+
 
 
 function sb() {
