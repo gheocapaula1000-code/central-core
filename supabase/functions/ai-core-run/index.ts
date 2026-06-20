@@ -874,11 +874,16 @@ ISTRUZIONI:
     if (!prompt) return withIdentity(fail(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId), "run");
     if (prompt.length > 15_000) return withIdentity(fail(req, 400, "PROMPT_TOO_LONG", `Prompt exceeds 15000 characters`, debugId), "run");
 
+    // Inject Wyloni user_context only when traffic is from Wyloni (Simplex, alchemist, ai_bandi, ...)
+    const userContextGeneric = sourceApp === "wyloni" ? extractUserContext(body) : "";
+    if (userContextGeneric) console.log(`[ai] user_context length: ${userContextGeneric.length} route=run task=${task}`);
+    const promptFinal = withUserContext(userContextGeneric, prompt);
+
     console.log(`[ai-core-run] domain=${domain} task=${task} prompt_len=${prompt.length} source_app=${sourceApp} debug_id=${debugId}`);
 
     const output = WEB_TASKS.has(task)
-      ? await runWebAI(prompt, domain, task)
-      : await runAI(prompt, domain, task);
+      ? await runWebAI(promptFinal, domain, task)
+      : await runAI(promptFinal, domain, task);
 
     const parsed = parseOutput(output);
 
