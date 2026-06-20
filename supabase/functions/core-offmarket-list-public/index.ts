@@ -53,6 +53,53 @@ Deno.serve(async (req) => {
 
   try {
     // 1) Legal life events (Padova, privacy-safe attivi)
+    // Esclusione esplicita di tutte le aste: ci sono verticali dedicati e Civiko One
+    // serve agenti generalisti, non operatori d'asta.
+    const AUCTION_DOMAINS = [
+      "asteimmobili.it",
+      "astalegale.net",
+      "astagiudiziaria",
+      "astetelematiche",
+      "portalevenditepubbliche",
+      "spazioaste",
+      "gobidaste",
+      "garaimmobiliare",
+    ];
+    const AUCTION_KEYWORDS = [
+      "asta",
+      "aste",
+      "vendita giudiziaria",
+      "vendite giudiziarie",
+      "esecuzione immobiliare",
+      "esecuzioni immobiliari",
+      "perizia",
+      "lotto",
+      "tribunale",
+      "procedura esecutiva",
+      "fallimentare",
+      "concordato",
+    ];
+    const isAuctionRecord = (r: {
+      signal_type?: string | null;
+      source_name?: string | null;
+      source_url?: string | null;
+      explanation?: string | null;
+      property_hint?: string | null;
+    }) => {
+      if ((r.signal_type ?? "").toUpperCase().includes("AUCTION")) return true;
+      const haystack = [
+        r.source_name ?? "",
+        r.source_url ?? "",
+        r.explanation ?? "",
+        r.property_hint ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      if (AUCTION_DOMAINS.some((d) => haystack.includes(d))) return true;
+      if (AUCTION_KEYWORDS.some((k) => new RegExp(`\\b${k}\\b`, "i").test(haystack))) return true;
+      return false;
+    };
+
     const { data: lle } = await supabase
       .from("legal_life_event_signals")
       .select("id, signal_type, source_name, source_url, event_date, detected_at, area_or_microzone, property_hint, explanation")
@@ -64,7 +111,12 @@ Deno.serve(async (req) => {
       .order("detected_at", { ascending: false })
       .limit(500);
 
+    let lleAuctionExcluded = 0;
     for (const r of lle ?? []) {
+      if (isAuctionRecord(r)) {
+        lleAuctionExcluded++;
+        continue;
+      }
       items.push({
         id: `lle-${r.id}`,
         fonte: "legal_life_events",
@@ -80,6 +132,7 @@ Deno.serve(async (req) => {
       });
       totals.legal_life_events++;
     }
+    (totals as Record<string, number>).legal_life_events_auction_excluded = lleAuctionExcluded;
 
     // 2) Successioni potenziali (inheritance_pressure_signals)
     const { data: succ } = await supabase
