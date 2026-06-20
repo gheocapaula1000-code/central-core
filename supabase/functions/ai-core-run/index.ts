@@ -79,6 +79,39 @@ function purgeExpiredBuckets() {
 const SAFE_ID = /^[a-z0-9_]+$/;
 
 // ═══════════════════════════════════════════════════════════════
+// SSRF guard for /web/scrape — block private/loopback/link-local
+// ═══════════════════════════════════════════════════════════════
+function isAllowedUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (!["http:", "https:"].includes(u.protocol)) return false;
+    const host = u.hostname.toLowerCase();
+    if (host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1") return false;
+    if (/^10\./.test(host)) return false;
+    if (/^192\.168\./.test(host)) return false;
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
+    if (/^169\.254\./.test(host)) return false;
+    if (host.startsWith("fc") || host.startsWith("fd")) return false;
+    if (host.startsWith("fe80:")) return false;
+    return true;
+  } catch { return false; }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Wyloni user_context — prepend a contextual preface to AI prompts
+// (only used for Wyloni-bound routes; Civiko/AcquisitionRadar unaffected)
+// ═══════════════════════════════════════════════════════════════
+function extractUserContext(body: Record<string, unknown>): string {
+  const raw = body?.user_context;
+  return typeof raw === "string" ? raw.slice(0, 2000) : "";
+}
+function withUserContext(userContext: string, prompt: string): string {
+  if (!userContext) return prompt;
+  return `Contesto utente Wyloni: ${userContext}\n\n${prompt}`;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
 // Pipeline config (from pipeline files)
 // ═══════════════════════════════════════════════════════════════
 const PIPELINES: Record<string, { maxTokens: number; temperature: number }> = {
@@ -138,7 +171,7 @@ async function callPerplexityWithSystem(prompt: string, task: string, domain: st
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "sonar",
+        model: "sonar-pro",
         max_tokens: maxTokens,
         temperature: 0.0,
         messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
@@ -588,7 +621,9 @@ Deno.serve(async (req: Request) => {
         return withIdentity(fail(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId), "web/scrape");
       }
       const url = (body.url as string) ?? "";
-      if (!url || !url.startsWith("http")) return withIdentity(fail(req, 400, "MISSING_URL", "Provide a valid url field", debugId), "web/scrape");
+      if (!isAllowedUrl(url)) {
+        return withIdentity(fail(req, 400, "INVALID_URL", "URL non consentito", debugId), "web/scrape");
+      }
       const format = (body.format as string) || "markdown";
       console.log(`[ai-core-run] web/scrape url=${url.slice(0, 100)} format=${format} debug_id=${debugId}`);
       const result = await firecrawlExtract(url);
@@ -641,11 +676,14 @@ Deno.serve(async (req: Request) => {
       const prompt = (body.prompt as string) || (body.text as string) || "";
       if (!prompt) return withIdentity(fail(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId), "tariffs/compare");
       if (prompt.length > 15_000) return withIdentity(fail(req, 400, "PROMPT_TOO_LONG", "Prompt exceeds 15000 characters", debugId), "tariffs/compare");
+      const userContext = extractUserContext(body);
+      if (userContext) console.log(`[ai] user_context length: ${userContext.length} route=tariffs/compare`);
       console.log(`[ai-core-run] tariffs/compare debug_id=${debugId}`);
-      const output = await runAI(prompt, "wyloni_bandi");
+      const output = await runAI(withUserContext(userContext, prompt), "wyloni_bandi");
       const parsed = parseOutput(output) as Record<string, unknown> | null;
       return withIdentity(ok(req, { final_output: output, data: parsed, offers: parsed?.offers ?? [], debug_id: debugId }, [], debugId), "tariffs/compare");
     }
+
 
     // ── Documents analyze ──────────────────────────────────────
     if (pathname.endsWith("/documents/analyze")) {
@@ -656,6 +694,8 @@ Deno.serve(async (req: Request) => {
       const fuel = (body.fuel as string) || "auto";
       const commodityHint = (body.selectedCommodityHint as string) || "auto";
       const sourceTag = (body.source as string) || "unknown";
+      const userContext = extractUserContext(body);
+      if (userContext) console.log(`[ai] user_context length: ${userContext.length} route=documents/analyze`);
 
       const hasText = !!(text && text.trim().length >= 20);
       const hasImages = fileUrls.length > 0;
@@ -713,17 +753,17 @@ Hint da Wyloni (puoi usarlo o ignorarlo se l'evidenza dice altro): commodity_hin
         if (hasImages && !hasText) {
           mode = "vision";
           const visionPrompt = `${extractPromptCore}\n\nAnalizza l'immagine della bolletta e produci il JSON.`;
-          const out = await runAIVision(visionPrompt, fileUrls, "wyloni_bandi", "documents_analyze_vision");
+          const out = await runAIVision(withUserContext(userContext, visionPrompt), fileUrls, "wyloni_bandi", "documents_analyze_vision");
           extracted = parseOutput(out) ?? {};
         } else if (hasImages && hasText) {
           mode = "hybrid";
           const hybridPrompt = `${extractPromptCore}\n\nTesto estratto parzialmente dal PDF (potrebbe essere incompleto/sporco):\n${text.slice(0, 6000)}\n\nUsa anche l'immagine allegata per completare i campi mancanti e validare. Produci il JSON.`;
-          const out = await runAIVision(hybridPrompt, fileUrls, "wyloni_bandi", "documents_analyze_hybrid");
+          const out = await runAIVision(withUserContext(userContext, hybridPrompt), fileUrls, "wyloni_bandi", "documents_analyze_hybrid");
           extracted = parseOutput(out) ?? {};
         } else {
           mode = "text";
           const textPrompt = `${extractPromptCore}\n\nTesto bolletta:\n${text.slice(0, 12000)}`;
-          const out = await runAI(textPrompt, "wyloni_bandi", "documents_analyze_text");
+          const out = await runAI(withUserContext(userContext, textPrompt), "wyloni_bandi", "documents_analyze_text");
           extracted = parseOutput(out) ?? {};
         }
 
@@ -834,11 +874,16 @@ ISTRUZIONI:
     if (!prompt) return withIdentity(fail(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId), "run");
     if (prompt.length > 15_000) return withIdentity(fail(req, 400, "PROMPT_TOO_LONG", `Prompt exceeds 15000 characters`, debugId), "run");
 
+    // Inject Wyloni user_context only when traffic is from Wyloni (Simplex, alchemist, ai_bandi, ...)
+    const userContextGeneric = sourceApp === "wyloni" ? extractUserContext(body) : "";
+    if (userContextGeneric) console.log(`[ai] user_context length: ${userContextGeneric.length} route=run task=${task}`);
+    const promptFinal = withUserContext(userContextGeneric, prompt);
+
     console.log(`[ai-core-run] domain=${domain} task=${task} prompt_len=${prompt.length} source_app=${sourceApp} debug_id=${debugId}`);
 
     const output = WEB_TASKS.has(task)
-      ? await runWebAI(prompt, domain, task)
-      : await runAI(prompt, domain, task);
+      ? await runWebAI(promptFinal, domain, task)
+      : await runAI(promptFinal, domain, task);
 
     const parsed = parseOutput(output);
 

@@ -27,6 +27,8 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+function corsHeaders(_req: Request) { return CORS; }
+
 function jsonRes(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -53,6 +55,26 @@ serve(async (req) => {
   const authFail = requireSecret(req, debugId);
   if (authFail) return authFail;
 
+  // ── JWT utente obbligatorio ──
+  const authHeader = req.headers.get("Authorization") || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  if (!token) {
+    logEvent("warn", { debug_id: debugId, outcome: "missing_user_jwt" });
+    return jsonRes({ error: "missing_user_jwt", message: "Missing user JWT" }, 401);
+  }
+
+  const userClient = createClient(
+    Deno.env.get("SUPABASE_URL") ?? "",
+    Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+    { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { persistSession: false } },
+  );
+  const { data: userData, error: userErr } = await userClient.auth.getUser(token);
+  if (userErr || !userData?.user) {
+    logEvent("warn", { debug_id: debugId, outcome: "invalid_user_jwt", msg: userErr?.message });
+    return jsonRes({ error: "invalid_user_jwt", message: "Invalid user JWT" }, 401);
+  }
+  const userId = userData.user.id;
+
   const cfg = getStripeConfig();
   if (!cfg.configured || !cfg.secretKey) {
     logEvent("error", { debug_id: debugId, outcome: "billing_not_configured" });
@@ -63,6 +85,7 @@ serve(async (req) => {
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+    { auth: { persistSession: false } },
   );
 
   let body: Record<string, unknown> = {};
@@ -77,6 +100,30 @@ serve(async (req) => {
     logEvent("warn", { debug_id: debugId, outcome: "missing_workspace_id" });
     return jsonRes({ error: "missing_workspace_id", message: "workspace_id obbligatorio (body o header x-workspace-id)" }, 400);
   }
+
+  // ── Ownership/membership check: user must be active member of the agency ──
+  try {
+    const { data: member, error: memberErr } = await supabase
+      .from("agency_memberships")
+      .select("role, status")
+      .eq("agency_id", workspace_id)
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .maybeSingle();
+    if (memberErr) {
+      logEvent("error", { debug_id: debugId, outcome: "membership_query_error", workspace_id, user_id: userId, msg: memberErr.message });
+      return jsonRes({ error: "db_error" }, 500);
+    }
+    if (!member) {
+      console.warn(`[customer-portal] forbidden user=${userId} workspace=${workspace_id}`);
+      logEvent("warn", { debug_id: debugId, outcome: "forbidden_not_member", workspace_id, user_id: userId });
+      return jsonRes({ error: "forbidden", message: "User is not a member of this workspace" }, 403);
+    }
+  } catch (e) {
+    logEvent("error", { debug_id: debugId, outcome: "membership_exception", workspace_id, user_id: userId, msg: e instanceof Error ? e.message : "unknown" });
+    return jsonRes({ error: "db_exception" }, 500);
+  }
+
 
   // ── Lookup stripe_customer_id da billing_customers (acquisitionradar) ──
   let stripeCustomerId: string | null = null;
