@@ -621,7 +621,9 @@ Deno.serve(async (req: Request) => {
         return withIdentity(fail(req, 400, "INVALID_JSON", "Body must be valid JSON", debugId), "web/scrape");
       }
       const url = (body.url as string) ?? "";
-      if (!url || !url.startsWith("http")) return withIdentity(fail(req, 400, "MISSING_URL", "Provide a valid url field", debugId), "web/scrape");
+      if (!isAllowedUrl(url)) {
+        return withIdentity(fail(req, 400, "INVALID_URL", "URL non consentito", debugId), "web/scrape");
+      }
       const format = (body.format as string) || "markdown";
       console.log(`[ai-core-run] web/scrape url=${url.slice(0, 100)} format=${format} debug_id=${debugId}`);
       const result = await firecrawlExtract(url);
