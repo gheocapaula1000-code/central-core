@@ -71,6 +71,18 @@ Deno.serve(async (req) => {
     bakeca_padova_privati: "Solo 14 annunci privati su tutta Padova provincia: volume troppo basso per giustificare il costo.",
   };
 
+  // Calendario settimanale di sampling Subito (UTC)
+  const giorniIt = ["domenica","lunedì","martedì","mercoledì","giovedì","venerdì","sabato"];
+  const fullDays = new Set([1, 4]);
+  const calendario_settimanale = giorniIt.map((g, i) => ({
+    giorno: g,
+    dow_utc: i,
+    modalita: fullDays.has(i) ? "full" : "incremental",
+    max_annunci: fullDays.has(i) ? 1200 : 200,
+    costo_stimato_usd: fullDays.has(i) ? 1.80 : 0.30,
+  }));
+  const dowOggi = new Date().getUTCDay();
+
   return new Response(JSON.stringify({
     ok: true,
     generated_at: new Date().toISOString(),
@@ -83,7 +95,16 @@ Deno.serve(async (req) => {
         ?? "Mercato verticale già presidiato. Aste non producono incarichi di vendita per agenti immobiliari.",
       disattivata_il: r.updated_at,
     })),
+    sampling_subito: {
+      strategia: "Full pull lunedì + giovedì (1200 annunci, ~$1.80). Incremental martedì-mercoledì-venerdì-sabato-domenica (200 annunci, ~$0.30).",
+      costo_mensile_stimato_usd: 20,
+      cap_mensile_usd: budget.cap_usd,
+      calendario_settimanale,
+      modalita_oggi: fullDays.has(dowOggi) ? "full" : "incremental",
+      prossimo_orario_utc: "02:25",
+    },
     budget_mensile_subito: budget,
   }, null, 2), { headers: { ...CORS, "Content-Type": "application/json" } });
 });
+
 
