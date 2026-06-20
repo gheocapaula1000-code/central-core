@@ -38,8 +38,8 @@ serve(async (req) => {
 
     let q = supabase
       .from("padova_listings")
-      .select("fonte,url,telefono,mq,locali,bagni,prezzo,lat,lng,indirizzo,quartiere,imported_at", { count: "exact" })
-      .eq("tipo_lead", "PRIVATO");
+      .select("fonte,url,telefono,mq,locali,bagni,prezzo,lat,lng,indirizzo,quartiere,imported_at,tipo_lead", { count: "exact" })
+      .in("tipo_lead", ["PRIVATO", "privato", "privato_stanco"]);
 
     if (payload.quartiere) q = q.eq("quartiere", payload.quartiere);
     if (payload.solo_con_telefono) q = q.not("telefono", "is", null);
