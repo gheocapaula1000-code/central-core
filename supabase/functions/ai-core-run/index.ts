@@ -676,11 +676,14 @@ Deno.serve(async (req: Request) => {
       const prompt = (body.prompt as string) || (body.text as string) || "";
       if (!prompt) return withIdentity(fail(req, 400, "MISSING_PROMPT", "Provide prompt field", debugId), "tariffs/compare");
       if (prompt.length > 15_000) return withIdentity(fail(req, 400, "PROMPT_TOO_LONG", "Prompt exceeds 15000 characters", debugId), "tariffs/compare");
+      const userContext = extractUserContext(body);
+      if (userContext) console.log(`[ai] user_context length: ${userContext.length} route=tariffs/compare`);
       console.log(`[ai-core-run] tariffs/compare debug_id=${debugId}`);
-      const output = await runAI(prompt, "wyloni_bandi");
+      const output = await runAI(withUserContext(userContext, prompt), "wyloni_bandi");
       const parsed = parseOutput(output) as Record<string, unknown> | null;
       return withIdentity(ok(req, { final_output: output, data: parsed, offers: parsed?.offers ?? [], debug_id: debugId }, [], debugId), "tariffs/compare");
     }
+
 
     // ── Documents analyze ──────────────────────────────────────
     if (pathname.endsWith("/documents/analyze")) {
