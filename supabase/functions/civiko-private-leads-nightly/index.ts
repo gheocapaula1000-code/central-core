@@ -183,8 +183,10 @@ Deno.serve(async (req) => {
   return new Response(JSON.stringify({
     ok: true,
     duration_ms: Date.now() - started,
+    sampling: { mode: sampling.mode, max_items: sampling.max_items, est_usd: sampling.est_cost, day_utc: new Date().getUTCDay() },
     budget_before: budget,
     result,
     bakeca_disabled_since: "2026-06-20",
   }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 });
+
