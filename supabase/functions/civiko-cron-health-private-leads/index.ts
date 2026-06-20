@@ -103,6 +103,11 @@ Deno.serve(async (req) => {
       modalita_oggi: fullDays.has(dowOggi) ? "full" : "incremental",
       prossimo_orario_utc: "02:25",
     },
+    classificazione_subito: {
+      job: "civiko-private-leads-classify",
+      orario_utc: "02:50",
+      descrizione: "Classifica i lead privati estratti da Subito in 'privato' o 'privato_stanco' (anzianità >=60 giorni o ribasso >=5%) e li sincronizza nell'elenco lead Padova prima delle 05:00.",
+    },
     budget_mensile_subito: budget,
   }, null, 2), { headers: { ...CORS, "Content-Type": "application/json" } });
 });
