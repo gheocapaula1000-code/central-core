@@ -4568,6 +4568,69 @@ export type Database = {
         }
         Relationships: []
       }
+      padova_contendibili_quarantena: {
+        Row: {
+          agenzie: string[] | null
+          bagni: number | null
+          chiave_match: string | null
+          confidenza: string | null
+          fonti: string[] | null
+          id: number
+          lat: number | null
+          lng: number | null
+          locali: number | null
+          motivo: string
+          mq: number | null
+          n_agenzie: number | null
+          n_annunci: number | null
+          prezzo_max: number | null
+          prezzo_min: number | null
+          quarantined_at: string
+          quartiere: string | null
+          urls: string[] | null
+        }
+        Insert: {
+          agenzie?: string[] | null
+          bagni?: number | null
+          chiave_match?: string | null
+          confidenza?: string | null
+          fonti?: string[] | null
+          id?: number
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          motivo: string
+          mq?: number | null
+          n_agenzie?: number | null
+          n_annunci?: number | null
+          prezzo_max?: number | null
+          prezzo_min?: number | null
+          quarantined_at?: string
+          quartiere?: string | null
+          urls?: string[] | null
+        }
+        Update: {
+          agenzie?: string[] | null
+          bagni?: number | null
+          chiave_match?: string | null
+          confidenza?: string | null
+          fonti?: string[] | null
+          id?: number
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          motivo?: string
+          mq?: number | null
+          n_agenzie?: number | null
+          n_annunci?: number | null
+          prezzo_max?: number | null
+          prezzo_min?: number | null
+          quarantined_at?: string
+          quartiere?: string | null
+          urls?: string[] | null
+        }
+        Relationships: []
+      }
       padova_elderly_population: {
         Row: {
           area_code: string | null
@@ -6132,6 +6195,8 @@ export type Database = {
       }
     }
     Functions: {
+      canon_quartiere: { Args: { p: string }; Returns: string }
+      canon_url: { Args: { p: string }; Returns: string }
       check_if_marketed: {
         Args: {
           p_address: string
@@ -6190,6 +6255,7 @@ export type Database = {
         Args: { p_body?: Json; p_job_name: string; p_url: string }
         Returns: number
       }
+      merge_padova_contendibili: { Args: never; Returns: Json }
       norm_agency: { Args: { p: string }; Returns: string }
       norm_via: { Args: { p: string }; Returns: string }
       omi_zone_by_point: {
