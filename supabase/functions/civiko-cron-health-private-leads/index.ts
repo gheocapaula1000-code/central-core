@@ -38,44 +38,52 @@ Deno.serve(async (req) => {
         status: "in_attesa_primo_run",
         error_message: null,
         duration_ms: null,
-        display_label: source === "subito"
-          ? "Subito Padova: in attesa primo run"
-          : "Bakeca Padova: in attesa primo run",
+        display_label: "Subito Padova: in attesa primo run",
       };
     }
     // deno-lint-ignore no-explicit-any
     const d = data as any;
     const tot = d.opportunita_totali ?? 0;
     const st = d.privato_stanco_count ?? 0;
-    const label = source === "subito"
-      ? `Subito Padova: ${tot} opportunità trovate, ${st} privato_stanco`
-      : `Bakeca Padova: ${tot} opportunità trovate, ${st} privato_stanco`;
+    const label = `Subito Padova: ${tot} opportunità trovate, ${st} privato_stanco`;
     return { source, ...d, display_label: label };
   }
 
-  // Aste disattivate (esposte come tile)
-  const { data: asteRows } = await sb
+  // Fonti disattivate (esposte come tile informativo)
+  const { data: disattivateRows } = await sb
     .from("civiko_data_sources")
     .select("code, label, is_active, notes, updated_at")
-    .in("code", ["aste_giudiziarie", "aste_giudiziarie_veneto", "tribunale_padova", "tribunale_venezia", "tribunale_verona"]);
+    .in("code", [
+      "aste_giudiziarie",
+      "aste_giudiziarie_veneto",
+      "tribunale_padova",
+      "tribunale_venezia",
+      "tribunale_verona",
+      "bakeca_padova_privati",
+    ]);
 
-  const [subito, bakeca, budget] = await Promise.all([
+  const [subito, budget] = await Promise.all([
     lastRun("subito"),
-    lastRun("bakeca"),
     getPrivateLeadsBudget(),
   ]);
+
+  const motiviDisattivazione: Record<string, string> = {
+    bakeca_padova_privati: "Solo 14 annunci privati su tutta Padova provincia: volume troppo basso per giustificare il costo.",
+  };
 
   return new Response(JSON.stringify({
     ok: true,
     generated_at: new Date().toISOString(),
-    fonti_attive: [subito, bakeca],
-    fonti_disattivate: (asteRows ?? []).map((r) => ({
+    fonti_attive: [subito],
+    fonti_disattivate: (disattivateRows ?? []).map((r) => ({
       code: r.code,
       label: r.label,
       stato: r.is_active ? "attiva" : "disattivata",
-      motivo: "Mercato verticale già presidiato. Aste non producono incarichi di vendita per agenti immobiliari.",
+      motivo: motiviDisattivazione[r.code]
+        ?? "Mercato verticale già presidiato. Aste non producono incarichi di vendita per agenti immobiliari.",
       disattivata_il: r.updated_at,
     })),
-    budget_mensile_combinato: budget,
+    budget_mensile_subito: budget,
   }, null, 2), { headers: { ...CORS, "Content-Type": "application/json" } });
 });
+
