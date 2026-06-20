@@ -6308,6 +6308,16 @@ export type Database = {
           zona: string
         }[]
       }
+      padova_listings_price_drop_candidates: {
+        Args: { p_drop_pct?: number; p_min_age_days?: number }
+        Returns: {
+          history_days: number
+          listing_id: number
+          prezzo_max: number
+          prezzo_min: number
+          ribasso_pct: number
+        }[]
+      }
       property_registry_lookup: {
         Args: { p_opaque_id: string }
         Returns: {
