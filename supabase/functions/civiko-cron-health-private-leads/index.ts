@@ -108,6 +108,11 @@ Deno.serve(async (req) => {
       orario_utc: "02:50",
       descrizione: "Classifica i lead privati estratti da Subito in 'privato' o 'privato_stanco' (anzianità >=60 giorni o ribasso >=5%) e li sincronizza nell'elenco lead Padova prima delle 05:00.",
     },
+    snapshot_prezzi_subito: {
+      job: "civiko-private-leads-price-snapshot",
+      orario_utc: "03:00",
+      descrizione: "Salva lo snapshot giornaliero del prezzo dei lead Subito e promuove a 'privato_stanco' gli annunci con almeno 7 giorni di storia e ribasso cumulato >=5% dal massimo storico.",
+    },
     budget_mensile_subito: budget,
   }, null, 2), { headers: { ...CORS, "Content-Type": "application/json" } });
 });
