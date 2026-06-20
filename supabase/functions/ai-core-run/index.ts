@@ -1,6 +1,6 @@
 import { makeDebugId, handleOptions, ok, fail, requireSecret, requireDiagnosticSecret, CORE_VERSION, CORE_CONTRACT, enforceOriginPolicy, addIdentityHeaders, buildManifest, checkBootstrapAdmin } from "../_shared/http.ts";
-import { callOpenAI } from "./providers/openai.ts";
-import { callAnthropic } from "./providers/anthropic.ts";
+import { callOpenAI, callOpenAIVision } from "./providers/openai.ts";
+import { callAnthropic, callAnthropicVision } from "./providers/anthropic.ts";
 import { firecrawlExtract } from "./providers/firecrawl.ts";
 import { recordCall, recordFallback, getMetrics } from "./metrics.ts";
 
@@ -98,6 +98,9 @@ const TASK_TOKEN_OVERRIDES: Record<string, number> = {
   ai_bandi: 2000,
   contratto_analisi: 2000,
   keydraft_engine: 2500,
+  documents_analyze_text: 1200,
+  documents_analyze_vision: 1600,
+  documents_analyze_hybrid: 1600,
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -184,6 +187,33 @@ async function runAI(prompt: string, domain: string, task?: string): Promise<str
     } catch (e2) {
       recordCall({ provider: "anthropic", task: taskName, domain, latencyMs: 0, outputLen: 0, inputLen: prompt.length, maxTokens, success: false, error: String(e2).slice(0, 200) });
       throw new Error(`All AI providers failed. OpenAI: ${String(e1).slice(0, 100)}. Anthropic: ${String(e2).slice(0, 100)}`);
+    }
+  }
+}
+
+async function runAIVision(
+  prompt: string,
+  imageUrls: string[],
+  domain: string,
+  task?: string,
+): Promise<string> {
+  const { maxTokens: baseTokens, temperature } = getPipeline(domain);
+  const maxTokens = (task && TASK_TOKEN_OVERRIDES[task]) || baseTokens;
+  const taskName = task || "vision";
+  try {
+    const result = await callOpenAIVision(prompt, imageUrls, temperature, maxTokens);
+    recordCall({ provider: "openai", task: taskName, domain, latencyMs: result.latencyMs, outputLen: result.output.length, inputLen: prompt.length, maxTokens, success: true });
+    return result.output;
+  } catch (e1) {
+    recordCall({ provider: "openai", task: taskName, domain, latencyMs: 0, outputLen: 0, inputLen: prompt.length, maxTokens, success: false, error: String(e1).slice(0, 200) });
+    recordFallback();
+    try {
+      const result = await callAnthropicVision(prompt, imageUrls, temperature, maxTokens);
+      recordCall({ provider: "anthropic", task: taskName, domain, latencyMs: result.latencyMs, outputLen: result.output.length, inputLen: prompt.length, maxTokens, success: true });
+      return result.output;
+    } catch (e2) {
+      recordCall({ provider: "anthropic", task: taskName, domain, latencyMs: 0, outputLen: 0, inputLen: prompt.length, maxTokens, success: false, error: String(e2).slice(0, 200) });
+      throw new Error(`All vision providers failed. OpenAI: ${String(e1).slice(0, 100)}. Anthropic: ${String(e2).slice(0, 100)}`);
     }
   }
 }
@@ -576,8 +606,8 @@ Deno.serve(async (req: Request) => {
 
     // Parse body first (needed for caller key construction)
     const rawBody = await req.text();
-    if (rawBody.length > 100_000) {
-      return withIdentity(fail(req, 413, "PAYLOAD_TOO_LARGE", "Request body exceeds 100KB limit", debugId), "error");
+    if (rawBody.length > 15 * 1024 * 1024) {
+      return withIdentity(fail(req, 413, "PAYLOAD_TOO_LARGE", "Request body exceeds 15MB limit", debugId), "error");
     }
     let body: Record<string, unknown> = {};
     try { body = JSON.parse(rawBody); } catch {
@@ -620,13 +650,119 @@ Deno.serve(async (req: Request) => {
     // ── Documents analyze ──────────────────────────────────────
     if (pathname.endsWith("/documents/analyze")) {
       const text = (body.text as string) ?? (body.pdf_text as string) ?? (body.prompt as string) ?? "";
-      if (!text || text.trim().length < 20) {
-        return withIdentity(ok(req, { status: "NOT_READABLE", extracted: {}, quality: { gate: "NOT_READABLE", score: 0, notes: ["No text"] } }, [], debugId), "documents/analyze");
+      const fileUrls = Array.isArray(body.file_urls)
+        ? (body.file_urls as unknown[]).filter((u): u is string => typeof u === "string" && u.length > 0)
+        : [];
+      const fuel = (body.fuel as string) || "auto";
+      const commodityHint = (body.selectedCommodityHint as string) || "auto";
+      const sourceTag = (body.source as string) || "unknown";
+
+      const hasText = !!(text && text.trim().length >= 20);
+      const hasImages = fileUrls.length > 0;
+
+      if (!hasText && !hasImages) {
+        return withIdentity(
+          ok(req, { status: "NOT_READABLE", extracted: {}, quality: { gate: "NOT_READABLE", score: 0, notes: ["No text and no images provided"] } }, [], debugId),
+          "documents/analyze",
+        );
       }
-      const extractPrompt = `Estrai i dati dalla bolletta italiana e rispondi SOLO in JSON:\n{"periodo":{"from":"DD/MM/YYYY","to":"DD/MM/YYYY"},"fornitore":{"label":"nome fornitore"},"consumi":{"totale_kwh":null,"unit":"kWh"},"importi":{"totale_da_pagare_eur":null,"bonus_sociale":{"presente":false,"eur":null}}}\n\nBolletta:\n${text.slice(0, 8000)}`;
+
+      const extractPromptCore = `Sei un estrattore esperto di bollette italiane (luce, gas, luce+gas dual fuel).
+Estrai i dati e rispondi SOLO con un oggetto JSON valido (no markdown, no commenti, no testo extra) con questo schema:
+
+{
+  "doc_kind": "bolletta" | "altro",
+  "commodity": "luce" | "gas" | "luce_gas" | "altro",
+  "fornitore": { "label": "nome fornitore (es. Eni Plenitude, Enel Energia, A2A, Iren, Edison, Sorgenia, Acea, Hera Comm, Iberdrola, Octopus Energy, Iren Mercato, ...)" },
+  "periodo": { "from": "DD/MM/YYYY", "to": "DD/MM/YYYY" },
+  "scadenza": "DD/MM/YYYY",
+  "luce": {
+    "consumo_kwh": { "totale": number_or_null, "F1": number_or_null, "F2": number_or_null, "F3": number_or_null },
+    "importo_eur": number_or_null,
+    "pod": "string_or_null",
+    "potenza_kw": number_or_null
+  },
+  "gas": {
+    "consumo_smc": number_or_null,
+    "importo_eur": number_or_null,
+    "pdr": "string_or_null"
+  },
+  "canone_tv": { "presente": boolean, "eur": number_or_null },
+  "bonus_sociale": { "presente": boolean, "eur": number_or_null },
+  "importi": { "totale_da_pagare_eur": number, "totale_bolletta_eur": number_or_null },
+  "note": "stringa breve sulle particolarità (es. bolletta riepilogativa, conguaglio, rateazione)"
+}
+
+REGOLE:
+- "totale_da_pagare_eur" è l'importo da bonificare (di solito accanto a "Totale da pagare entro").
+- Se è una bolletta solo luce metti "gas" tutto null. Se è solo gas, metti "luce" tutto null. Se è dual fuel compila entrambi.
+- Per fasce F1/F2/F3: estrai solo i kWh del periodo corrente (non annuali).
+- I numeri usano il punto decimale (es. 464.89, non 464,89). Niente simbolo € nei valori.
+- Se non sei sicuro di un campo, metti null. Non inventare.
+- Se l'immagine/testo non è una bolletta italiana, "doc_kind": "altro".
+
+Hint da Wyloni (puoi usarlo o ignorarlo se l'evidenza dice altro): commodity_hint=${commodityHint}, fuel=${fuel}.`;
+
       let extracted: unknown = {};
-      try { const out = await runAI(extractPrompt, "wyloni_bandi"); extracted = parseOutput(out) ?? {}; } catch (e) { console.warn("[documents/analyze] extraction failed:", String(e).slice(0, 150)); }
-      return withIdentity(ok(req, { status: "READY", extracted, quality: { gate: "READY", score: 80, notes: ["estrazione automatica"] } }, [], debugId), "documents/analyze");
+      let qualityNotes: string[] = [];
+      let qualityGate: "READY" | "PARTIAL" | "NOT_READABLE" = "NOT_READABLE";
+      let qualityScore = 0;
+      let mode: "text" | "vision" | "hybrid" = "text";
+
+      try {
+        if (hasImages && !hasText) {
+          mode = "vision";
+          const visionPrompt = `${extractPromptCore}\n\nAnalizza l'immagine della bolletta e produci il JSON.`;
+          const out = await runAIVision(visionPrompt, fileUrls, "wyloni_bandi", "documents_analyze_vision");
+          extracted = parseOutput(out) ?? {};
+        } else if (hasImages && hasText) {
+          mode = "hybrid";
+          const hybridPrompt = `${extractPromptCore}\n\nTesto estratto parzialmente dal PDF (potrebbe essere incompleto/sporco):\n${text.slice(0, 6000)}\n\nUsa anche l'immagine allegata per completare i campi mancanti e validare. Produci il JSON.`;
+          const out = await runAIVision(hybridPrompt, fileUrls, "wyloni_bandi", "documents_analyze_hybrid");
+          extracted = parseOutput(out) ?? {};
+        } else {
+          mode = "text";
+          const textPrompt = `${extractPromptCore}\n\nTesto bolletta:\n${text.slice(0, 12000)}`;
+          const out = await runAI(textPrompt, "wyloni_bandi", "documents_analyze_text");
+          extracted = parseOutput(out) ?? {};
+        }
+
+        const ex = (extracted ?? {}) as Record<string, any>;
+        const totale = ex?.importi?.totale_da_pagare_eur;
+        const fornitore = ex?.fornitore?.label;
+        const hasLuceKwh = typeof ex?.luce?.consumo_kwh?.totale === "number" && ex.luce.consumo_kwh.totale > 0;
+        const hasGasSmc = typeof ex?.gas?.consumo_smc === "number" && ex.gas.consumo_smc > 0;
+        const hasAnyConsumption = hasLuceKwh || hasGasSmc;
+
+        if (typeof totale === "number" && totale > 0 && fornitore && hasAnyConsumption) {
+          qualityGate = "READY";
+          qualityScore = 90;
+          qualityNotes = [`mode=${mode}`, "totale ok", "fornitore ok", "consumi ok"];
+        } else if (typeof totale === "number" && totale > 0 && (fornitore || hasAnyConsumption)) {
+          qualityGate = "PARTIAL";
+          qualityScore = 60;
+          qualityNotes = [`mode=${mode}`, "alcuni campi mancanti"];
+        } else {
+          qualityGate = "NOT_READABLE";
+          qualityScore = 20;
+          qualityNotes = [`mode=${mode}`, "campi chiave non estratti"];
+        }
+      } catch (e) {
+        console.warn(`[documents/analyze] extraction failed mode=${mode} source=${sourceTag}:`, String(e).slice(0, 250));
+        qualityGate = "NOT_READABLE";
+        qualityScore = 0;
+        qualityNotes = [`mode=${mode}`, `errore: ${String(e).slice(0, 150)}`];
+      }
+
+      return withIdentity(
+        ok(req, {
+          status: qualityGate === "NOT_READABLE" ? "NOT_READABLE" : "READY",
+          extracted,
+          quality: { gate: qualityGate, score: qualityScore, notes: qualityNotes },
+          mode,
+        }, [], debugId),
+        "documents/analyze",
+      );
     }
 
     // ── Generic AI run ─────────────────────────────────────────
