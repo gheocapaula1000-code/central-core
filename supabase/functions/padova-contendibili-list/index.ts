@@ -45,7 +45,7 @@ serve(async (req) => {
 
     let q = supabase
       .from("padova_contendibili")
-      .select("chiave_match, n_agenzie, agenzie, fonti, confidenza, prezzo_min, prezzo_max, mq, locali, bagni, quartiere, lat, lng, urls", { count: "exact" })
+      .select("chiave_match, n_agenzie, agenzie, fonti, confidenza, prezzo_min, prezzo_max, mq, locali, bagni, quartiere, lat, lng, urls, prezzo_medio_zona_eur_mq, prezzo_immobile_eur_mq, differenza_zona_pct, giorni_sul_mercato, data_primo_annuncio", { count: "exact" })
       .gte("n_agenzie", min_agenzie);
     if (quartiere) q = q.eq("quartiere", quartiere);
 

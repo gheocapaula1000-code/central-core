@@ -4515,7 +4515,10 @@ export type Database = {
           chiave_match: string
           confidenza: string
           created_at: string
+          data_primo_annuncio: string | null
+          differenza_zona_pct: number | null
           fonti: string[]
+          giorni_sul_mercato: number | null
           id: number
           lat: number | null
           lng: number | null
@@ -4523,7 +4526,9 @@ export type Database = {
           mq: number | null
           n_agenzie: number
           n_annunci: number
+          prezzo_immobile_eur_mq: number | null
           prezzo_max: number | null
+          prezzo_medio_zona_eur_mq: number | null
           prezzo_min: number | null
           quartiere: string | null
           urls: string[]
@@ -4534,7 +4539,10 @@ export type Database = {
           chiave_match: string
           confidenza: string
           created_at?: string
+          data_primo_annuncio?: string | null
+          differenza_zona_pct?: number | null
           fonti: string[]
+          giorni_sul_mercato?: number | null
           id?: number
           lat?: number | null
           lng?: number | null
@@ -4542,7 +4550,9 @@ export type Database = {
           mq?: number | null
           n_agenzie: number
           n_annunci: number
+          prezzo_immobile_eur_mq?: number | null
           prezzo_max?: number | null
+          prezzo_medio_zona_eur_mq?: number | null
           prezzo_min?: number | null
           quartiere?: string | null
           urls: string[]
@@ -4553,7 +4563,10 @@ export type Database = {
           chiave_match?: string
           confidenza?: string
           created_at?: string
+          data_primo_annuncio?: string | null
+          differenza_zona_pct?: number | null
           fonti?: string[]
+          giorni_sul_mercato?: number | null
           id?: number
           lat?: number | null
           lng?: number | null
@@ -4561,7 +4574,9 @@ export type Database = {
           mq?: number | null
           n_agenzie?: number
           n_annunci?: number
+          prezzo_immobile_eur_mq?: number | null
           prezzo_max?: number | null
+          prezzo_medio_zona_eur_mq?: number | null
           prezzo_min?: number | null
           quartiere?: string | null
           urls?: string[]
@@ -6337,6 +6352,7 @@ export type Database = {
         Args: { p_job_id?: string }
         Returns: Json
       }
+      recompute_padova_contendibili_extras: { Args: never; Returns: Json }
       recompute_padova_listings_contendibili: { Args: never; Returns: Json }
       resolve_padova_geo_level: {
         Args: { p_lat: number; p_lng: number }
