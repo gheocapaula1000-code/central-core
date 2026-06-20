@@ -171,7 +171,7 @@ async function callPerplexityWithSystem(prompt: string, task: string, domain: st
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "sonar",
+        model: "sonar-pro",
         max_tokens: maxTokens,
         temperature: 0.0,
         messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
