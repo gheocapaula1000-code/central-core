@@ -94,6 +94,14 @@ Deno.serve(async (req) => {
     });
   }
 
+  // Determina modalità (full lun/gio, incremental altri giorni)
+  let modeOverride: string | undefined;
+  try {
+    const body = await req.json();
+    modeOverride = typeof body?.mode === "string" ? body.mode : undefined;
+  } catch { /* body opzionale */ }
+  const sampling = pickMode(modeOverride);
+
   // --- Subito tramite padova-apify-multi-launch ---
   try {
     const r = await fetch(`${supaUrl}/functions/v1/padova-apify-multi-launch`, {
@@ -102,8 +110,8 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         subito_full: {
           search_url: SUBITO_URL,
-          max_items: 1200,
-          cost_cap_usd: 1.5,
+          max_items: sampling.max_items,
+          cost_cap_usd: sampling.cost_cap,
         },
       }),
     });
@@ -111,7 +119,7 @@ Deno.serve(async (req) => {
     result.subito = j;
 
     if (r.ok && Array.isArray((j as { launched?: unknown[] }).launched)) {
-      await recordPrivateLeadsSpend("apify", SUBITO_EST_COST);
+      await recordPrivateLeadsSpend("apify", sampling.est_cost);
       // Conteggi reali arrivano async dall'actor → status iniziale
       await sb.from("private_leads_run_status").insert({
         source: "subito",
@@ -120,7 +128,14 @@ Deno.serve(async (req) => {
         status: "launched",
         error_message: null,
         duration_ms: Date.now() - started,
-        notes: { launched: j, only_private_url: true, search_url: SUBITO_URL, est_usd: SUBITO_EST_COST },
+        notes: {
+          launched: j,
+          only_private_url: true,
+          search_url: SUBITO_URL,
+          sampling_mode: sampling.mode,
+          max_items: sampling.max_items,
+          est_usd: sampling.est_cost,
+        },
       });
     } else {
       await sb.from("private_leads_run_status").insert({
@@ -130,7 +145,7 @@ Deno.serve(async (req) => {
         status: "error",
         error_message: `launch_failed_${r.status}`,
         duration_ms: Date.now() - started,
-        notes: j,
+        notes: { ...j, sampling_mode: sampling.mode },
       });
     }
   } catch (e) {
@@ -143,8 +158,10 @@ Deno.serve(async (req) => {
       status: "error",
       error_message: msg.slice(0, 500),
       duration_ms: Date.now() - started,
+      notes: { sampling_mode: sampling.mode },
     });
   }
+
 
   // --- Bakeca DISATTIVATA 2026-06-20 ---
   // Motivazione: solo 14 annunci privati totali su Padova provincia (verificato sul vivo).
