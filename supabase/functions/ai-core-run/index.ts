@@ -753,17 +753,17 @@ Hint da Wyloni (puoi usarlo o ignorarlo se l'evidenza dice altro): commodity_hin
         if (hasImages && !hasText) {
           mode = "vision";
           const visionPrompt = `${extractPromptCore}\n\nAnalizza l'immagine della bolletta e produci il JSON.`;
-          const out = await runAIVision(visionPrompt, fileUrls, "wyloni_bandi", "documents_analyze_vision");
+          const out = await runAIVision(withUserContext(userContext, visionPrompt), fileUrls, "wyloni_bandi", "documents_analyze_vision");
           extracted = parseOutput(out) ?? {};
         } else if (hasImages && hasText) {
           mode = "hybrid";
           const hybridPrompt = `${extractPromptCore}\n\nTesto estratto parzialmente dal PDF (potrebbe essere incompleto/sporco):\n${text.slice(0, 6000)}\n\nUsa anche l'immagine allegata per completare i campi mancanti e validare. Produci il JSON.`;
-          const out = await runAIVision(hybridPrompt, fileUrls, "wyloni_bandi", "documents_analyze_hybrid");
+          const out = await runAIVision(withUserContext(userContext, hybridPrompt), fileUrls, "wyloni_bandi", "documents_analyze_hybrid");
           extracted = parseOutput(out) ?? {};
         } else {
           mode = "text";
           const textPrompt = `${extractPromptCore}\n\nTesto bolletta:\n${text.slice(0, 12000)}`;
-          const out = await runAI(textPrompt, "wyloni_bandi", "documents_analyze_text");
+          const out = await runAI(withUserContext(userContext, textPrompt), "wyloni_bandi", "documents_analyze_text");
           extracted = parseOutput(out) ?? {};
         }
 
