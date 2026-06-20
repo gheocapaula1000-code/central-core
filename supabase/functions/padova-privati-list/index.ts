@@ -56,7 +56,7 @@ serve(async (req) => {
     let telQ = supabase
       .from("padova_listings")
       .select("id", { count: "exact", head: true })
-      .eq("tipo_lead", "PRIVATO")
+      .in("tipo_lead", ["PRIVATO", "privato", "privato_stanco"])
       .not("telefono", "is", null);
     if (payload.quartiere) telQ = telQ.eq("quartiere", payload.quartiere);
     const { count: conTel } = await telQ;
