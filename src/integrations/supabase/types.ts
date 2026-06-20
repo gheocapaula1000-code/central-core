@@ -4904,6 +4904,38 @@ export type Database = {
         }
         Relationships: []
       }
+      padova_listings_price_history: {
+        Row: {
+          created_at: string
+          id: number
+          listing_id: number
+          prezzo: number
+          snapshot_date: string
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          listing_id: number
+          prezzo: number
+          snapshot_date?: string
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          listing_id?: number
+          prezzo?: number
+          snapshot_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "padova_listings_price_history_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
+            referencedRelation: "padova_listings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       padova_subito_staging: {
         Row: {
           fetched_at: string
