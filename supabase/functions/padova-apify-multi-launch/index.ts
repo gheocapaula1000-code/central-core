@@ -171,13 +171,17 @@ Deno.serve(async (req) => {
     specs.push({
       portal: "subito_full",
       actor_id: "azzouzana/subito-scraper-pro-by-search-url",
-      cost_cap_usd: body.subito_full.cost_cap_usd ?? 1.00,
+      cost_cap_usd: body.subito_full.cost_cap_usd ?? 1.50,
       input: {
-        searchUrl: body.subito_full.search_url ?? "https://www.subito.it/annunci-padova/vendita/immobili/padova/",
-        maxItems: body.subito_full.max_items ?? 1000,
+        // URL già filtrato lato Subito (?is=t = solo annunci di privati), percorso regionale
+        // Veneto con filtro città Padova (l'unico path verificato funzionante 2026-06-20).
+        searchUrl: body.subito_full.search_url ?? "https://www.subito.it/annunci-veneto/vendita/immobili/padova/?is=t",
+        maxItems: body.subito_full.max_items ?? 1200,
       },
     });
   }
+
+
 
 
 

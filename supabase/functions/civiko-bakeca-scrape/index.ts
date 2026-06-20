@@ -72,12 +72,26 @@ function parseListingsFromMarkdown(md: string): ParsedListing[] {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  // DISATTIVATA 2026-06-20.
+  // Motivazione: solo 14 annunci di privati su tutta Padova provincia (verifica sul vivo).
+  // Volume troppo basso per giustificare il costo Firecrawl. Parser preservato sotto
+  // (parseListingsFromMarkdown) per eventuale riattivazione futura: basta rimuovere
+  // questo short-circuit e ripristinare is_active=true in civiko_data_sources.
+  return new Response(JSON.stringify({
+    ok: true,
+    disabled: true,
+    since: "2026-06-20",
+    reason: "Volume troppo basso (14 annunci privati su Padova provincia). Parser conservato.",
+  }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+  // deno-lint-ignore no-unreachable
   const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
   if (!jobSecret || req.headers.get("x-job-secret") !== jobSecret) {
     return new Response(JSON.stringify({ ok: false, error: "unauthorized" }), {
       status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
+
 
   const fcKey = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
   if (!fcKey) {

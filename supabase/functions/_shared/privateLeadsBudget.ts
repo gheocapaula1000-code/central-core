@@ -1,10 +1,11 @@
-// Budget guard combinato Subito + Bakeca.
-// Cap soft mensile: $8 USD. Se superato, salta il run successivo e logga.
-// Non blocca l'intero cron, solo queste due fonti.
+// Budget guard fonti lead privati.
+// Cap soft mensile: $8 USD. Stato 2026-06-20: dedicato a Subito (Bakeca disattivata).
+// Se superato, salta il run successivo e logga. Non blocca l'intero cron, solo Subito.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 export const PRIVATE_LEADS_MONTHLY_CAP_USD = 8;
+
 
 function sb() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
