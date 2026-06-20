@@ -694,6 +694,8 @@ Deno.serve(async (req: Request) => {
       const fuel = (body.fuel as string) || "auto";
       const commodityHint = (body.selectedCommodityHint as string) || "auto";
       const sourceTag = (body.source as string) || "unknown";
+      const userContext = extractUserContext(body);
+      if (userContext) console.log(`[ai] user_context length: ${userContext.length} route=documents/analyze`);
 
       const hasText = !!(text && text.trim().length >= 20);
       const hasImages = fileUrls.length > 0;
