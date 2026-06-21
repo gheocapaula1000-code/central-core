@@ -89,15 +89,24 @@ Deno.serve(async (req) => {
     const STALE_HOURS = 36;
     const alerts: { job: string; ore: number }[] = [];
 
+    const STUCK_MINUTES = 30;
     const jobs = CORE_JOBS.map((j) => {
       const last = lastByJob.get(j.jobname);
       const lastTs = last?.triggered_at ? new Date(last.triggered_at).getTime() : null;
       const ageH = lastTs ? (nowMs - lastTs) / 3_600_000 : null;
       const lastOk = last?.status === "success";
+      const lastFailed = last?.status === "failure";
+      // run rimasto in 'started' troppo a lungo: trattalo come fallito stuck
+      const isStuck = last?.status === "started" && lastTs !== null && (nowMs - lastTs) / 60_000 > STUCK_MINUTES;
+      const effectiveError = lastFailed
+        ? (last?.error_message ?? "Errore registrato senza messaggio")
+        : isStuck
+          ? `Run bloccato in stato "started" da oltre ${STUCK_MINUTES} min — worker probabilmente interrotto o timeout senza cattura.`
+          : null;
       let stato: "SANO" | "WARNING" | "CRITICO";
       if (!lastTs) stato = "WARNING";
-      else if (ageH! > STALE_HOURS || !lastOk) stato = "CRITICO";
-      else if (ageH! > 26) stato = "WARNING";
+      else if (ageH! > STALE_HOURS || lastFailed || isStuck) stato = "CRITICO";
+      else if (ageH! > 26 || last?.status === "started") stato = "WARNING";
       else stato = "SANO";
 
       if (ageH !== null && ageH > STALE_HOURS) alerts.push({ job: j.jobname, ore: Math.round(ageH) });
@@ -141,8 +150,8 @@ Deno.serve(async (req) => {
         schedule_cron: j.schedule_attesa,
         prossima_esecuzione_utc: nextRunUtc(j.schedule_attesa),
         ultima_esecuzione_utc: last?.triggered_at ?? null,
-        ultima_esecuzione_esito: last ? (lastOk ? "OK" : "FAILED") : null,
-        ultimo_errore: last?.error_message ?? null,
+        ultima_esecuzione_esito: last ? (lastOk ? "OK" : (lastFailed ? "FAILED" : (isStuck ? "STUCK" : "IN_CORSO"))) : null,
+        ultimo_errore: effectiveError,
         stato,
         ultimi_7gg_risultati: ultimi7gg,
       };
