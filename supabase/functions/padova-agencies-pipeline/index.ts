@@ -244,16 +244,17 @@ Deno.serve(async (req) => {
       const urls = await pickUrlsFromDb(client, "immobiliare", cap);
       if (urls.length > 0) {
         const costCap = mode === "full" ? COSTS.immobiliare.full : COSTS.immobiliare.soft;
-        const r = await startActor("epctex/immobiliare-it-scraper", {
+        const r = await startActor("memo23~immobiliare-scraper", {
           startUrls: urls,
           maxItems: urls.length,
-          proxyConfiguration: { useApifyProxy: true },
+          includeAgencyDetails: false,
+          proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
         }, token);
         if (r.ok && r.run_id) {
           sources.push("immobiliare");
           apifyRunIds.push(r.run_id);
           await client.from("padova_apify_runs").insert({
-            portal: "immobiliare", actor_id: "epctex/immobiliare-it-scraper",
+            portal: "immobiliare", actor_id: "memo23~immobiliare-scraper",
             run_id: r.run_id, dataset_id: r.dataset_id ?? null,
             status: r.status ?? "RUNNING", cost_cap_usd: costCap,
           });
