@@ -6359,6 +6359,16 @@ export type Database = {
         Args: { p_opportunity_id: string }
         Returns: string
       }
+      get_cron_job_last_runs: {
+        Args: { p_job_names: string[] }
+        Returns: {
+          end_time: string
+          jobname: string
+          return_message: string
+          start_time: string
+          status: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
