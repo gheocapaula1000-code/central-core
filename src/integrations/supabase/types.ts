@@ -4863,15 +4863,18 @@ export type Database = {
         Row: {
           agency: string | null
           bagni: number | null
+          expired_at: string | null
           fonte: string
           id: number
           imported_at: string
           indirizzo: string | null
+          last_seen_at: string
           lat: number | null
           lng: number | null
           locali: number | null
           mq: number | null
           prezzo: number | null
+          published_at_portal: string | null
           quartiere: string | null
           raw_json: Json | null
           tag_legacy: string | null
@@ -4882,15 +4885,18 @@ export type Database = {
         Insert: {
           agency?: string | null
           bagni?: number | null
+          expired_at?: string | null
           fonte: string
           id?: number
           imported_at?: string
           indirizzo?: string | null
+          last_seen_at?: string
           lat?: number | null
           lng?: number | null
           locali?: number | null
           mq?: number | null
           prezzo?: number | null
+          published_at_portal?: string | null
           quartiere?: string | null
           raw_json?: Json | null
           tag_legacy?: string | null
@@ -4901,15 +4907,18 @@ export type Database = {
         Update: {
           agency?: string | null
           bagni?: number | null
+          expired_at?: string | null
           fonte?: string
           id?: number
           imported_at?: string
           indirizzo?: string | null
+          last_seen_at?: string
           lat?: number | null
           lng?: number | null
           locali?: number | null
           mq?: number | null
           prezzo?: number | null
+          published_at_portal?: string | null
           quartiere?: string | null
           raw_json?: Json | null
           tag_legacy?: string | null
@@ -5062,6 +5071,69 @@ export type Database = {
           updated_at?: string
           zone_name?: string
           zone_type?: string | null
+        }
+        Relationships: []
+      }
+      pipeline_runs: {
+        Row: {
+          apify_run_ids: string[]
+          cost_usd: number
+          created_at: string
+          duration_ms: number | null
+          error_message: string | null
+          finished_at: string | null
+          id: number
+          mode: string
+          monthly_cap_usd: number | null
+          monthly_spent_usd_at_start: number | null
+          per_source_stats: Json
+          pipeline_name: string
+          sources: string[]
+          started_at: string
+          status: string
+          trigger_source: string
+          updated_at: string
+          warnings: string[]
+        }
+        Insert: {
+          apify_run_ids?: string[]
+          cost_usd?: number
+          created_at?: string
+          duration_ms?: number | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: number
+          mode: string
+          monthly_cap_usd?: number | null
+          monthly_spent_usd_at_start?: number | null
+          per_source_stats?: Json
+          pipeline_name: string
+          sources?: string[]
+          started_at?: string
+          status?: string
+          trigger_source?: string
+          updated_at?: string
+          warnings?: string[]
+        }
+        Update: {
+          apify_run_ids?: string[]
+          cost_usd?: number
+          created_at?: string
+          duration_ms?: number | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: number
+          mode?: string
+          monthly_cap_usd?: number | null
+          monthly_spent_usd_at_start?: number | null
+          per_source_stats?: Json
+          pipeline_name?: string
+          sources?: string[]
+          started_at?: string
+          status?: string
+          trigger_source?: string
+          updated_at?: string
+          warnings?: string[]
         }
         Relationships: []
       }
@@ -6242,6 +6314,13 @@ export type Database = {
       }
     }
     Functions: {
+      _safe_float: { Args: { p: string }; Returns: number }
+      _safe_int: { Args: { p: string }; Returns: number }
+      agency_pipeline_budget_check: {
+        Args: { p_cap_usd?: number }
+        Returns: Json
+      }
+      agency_pipeline_monthly_spent_usd: { Args: never; Returns: number }
       canon_quartiere: { Args: { p: string }; Returns: string }
       canon_url: { Args: { p: string }; Returns: string }
       check_if_marketed: {
@@ -6271,6 +6350,10 @@ export type Database = {
           p_via: string
         }
         Returns: string
+      }
+      expire_padova_agency_listings: {
+        Args: { p_seen_since: string }
+        Returns: Json
       }
       generate_predictive_insight: {
         Args: { p_opportunity_id: string }
@@ -6332,6 +6415,10 @@ export type Database = {
           prezzo_min: number
           ribasso_pct: number
         }[]
+      }
+      promote_padova_agencies_listings: {
+        Args: { p_since?: string }
+        Returns: Json
       }
       property_registry_lookup: {
         Args: { p_opaque_id: string }
