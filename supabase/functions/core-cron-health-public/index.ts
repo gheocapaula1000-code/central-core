@@ -150,8 +150,8 @@ Deno.serve(async (req) => {
         schedule_cron: j.schedule_attesa,
         prossima_esecuzione_utc: nextRunUtc(j.schedule_attesa),
         ultima_esecuzione_utc: last?.triggered_at ?? null,
-        ultima_esecuzione_esito: last ? (lastOk ? "OK" : "FAILED") : null,
-        ultimo_errore: last?.error_message ?? null,
+        ultima_esecuzione_esito: last ? (lastOk ? "OK" : (lastFailed ? "FAILED" : (isStuck ? "STUCK" : "IN_CORSO"))) : null,
+        ultimo_errore: effectiveError,
         stato,
         ultimi_7gg_risultati: ultimi7gg,
       };
