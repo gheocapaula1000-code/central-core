@@ -6314,6 +6314,8 @@ export type Database = {
       }
     }
     Functions: {
+      _safe_float: { Args: { p: string }; Returns: number }
+      _safe_int: { Args: { p: string }; Returns: number }
       agency_pipeline_budget_check: {
         Args: { p_cap_usd?: number }
         Returns: Json
