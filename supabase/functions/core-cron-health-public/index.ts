@@ -10,31 +10,65 @@ const CORS = {
   "Access-Control-Allow-Methods": "GET, OPTIONS",
 };
 
+type JobKind = "daily" | "frequent" | "weekly";
+
 type CoreJob = {
   jobname: string;
   descrizione_leggibile: string;
   schedule_attesa: string;
+  kind: JobKind;
+  warning_ore: number;
+  critico_ore: number;
+  source: "executions_log" | "cron_catalog";
 };
 
 const CORE_JOBS: CoreJob[] = [
-  { jobname: "nightly-data-refresh-master",       descrizione_leggibile: "Aggiornamento notturno dati master",         schedule_attesa: "0 2 * * *" },
-  { jobname: "padova-daily-radar",                descrizione_leggibile: "Radar giornaliero Padova",                  schedule_attesa: "5 2 * * *" },
-  { jobname: "padova-contendibili-recompute",     descrizione_leggibile: "Ricalcolo immobili contendibili Padova",    schedule_attesa: "15 3 * * *" },
-  { jobname: "civiko-private-leads-nightly",      descrizione_leggibile: "Estrazione notturna lead privati",          schedule_attesa: "25 2 * * *" },
-  { jobname: "civiko-private-leads-classify",     descrizione_leggibile: "Classificazione lead privati",              schedule_attesa: "50 2 * * *" },
-  { jobname: "civiko-private-leads-price-snapshot", descrizione_leggibile: "Fotografia prezzi lead privati",          schedule_attesa: "0 3 * * *" },
+  // ─── Cron Core storici (executions_log) ──────────────────────────────────
+  { jobname: "nightly-data-refresh-master",         descrizione_leggibile: "Aggiornamento notturno dati master",     schedule_attesa: "0 2 * * *",   kind: "daily",    warning_ore: 26, critico_ore: 36, source: "executions_log" },
+  { jobname: "padova-daily-radar",                  descrizione_leggibile: "Radar giornaliero Padova",               schedule_attesa: "5 2 * * *",   kind: "daily",    warning_ore: 26, critico_ore: 36, source: "executions_log" },
+  { jobname: "padova-contendibili-recompute",       descrizione_leggibile: "Ricalcolo immobili contendibili Padova", schedule_attesa: "15 3 * * *",  kind: "daily",    warning_ore: 26, critico_ore: 36, source: "executions_log" },
+  { jobname: "civiko-private-leads-nightly",        descrizione_leggibile: "Estrazione notturna lead privati",       schedule_attesa: "25 2 * * *",  kind: "daily",    warning_ore: 26, critico_ore: 36, source: "executions_log" },
+  { jobname: "civiko-private-leads-classify",       descrizione_leggibile: "Classificazione lead privati",           schedule_attesa: "50 2 * * *",  kind: "daily",    warning_ore: 26, critico_ore: 36, source: "executions_log" },
+  { jobname: "civiko-private-leads-price-snapshot", descrizione_leggibile: "Fotografia prezzi lead privati",         schedule_attesa: "0 3 * * *",   kind: "daily",    warning_ore: 26, critico_ore: 36, source: "executions_log" },
+  // ─── Cron pipeline agenzie (catalogo cron) ───────────────────────────────
+  { jobname: "padova-agencies-soft-0400",   descrizione_leggibile: "Pipeline agenzie — soft 04:00 (Roma)",            schedule_attesa: "0 2 * * *",   kind: "daily",    warning_ore: 26,     critico_ore: 30,     source: "cron_catalog" },
+  { jobname: "padova-agencies-soft-1100",   descrizione_leggibile: "Pipeline agenzie — soft 11:00 (Roma)",            schedule_attesa: "0 9 * * *",   kind: "daily",    warning_ore: 26,     critico_ore: 30,     source: "cron_catalog" },
+  { jobname: "padova-agencies-soft-1530",   descrizione_leggibile: "Pipeline agenzie — soft 15:30 (Roma)",            schedule_attesa: "30 13 * * *", kind: "daily",    warning_ore: 26,     critico_ore: 30,     source: "cron_catalog" },
+  { jobname: "padova-agencies-full-sunday", descrizione_leggibile: "Pipeline agenzie — full settimanale (domenica)",  schedule_attesa: "0 1 * * 0",   kind: "weekly",   warning_ore: 24 * 8, critico_ore: 24 * 9, source: "cron_catalog" },
+  { jobname: "padova-agencies-finalize",    descrizione_leggibile: "Pipeline agenzie — finalize (ogni 20 min)",       schedule_attesa: "*/20 * * * *",kind: "frequent", warning_ore: 40 / 60, critico_ore: 1,     source: "cron_catalog" },
 ];
 
-// piccolo decoder per i pattern usati dai cron Core (tutti minuti/ore fissi)
+// decoder per i pattern usati dai cron Core
 function nextRunUtc(schedule: string): string | null {
-  const m = schedule.trim().match(/^(\d+)\s+(\d+)\s+\*\s+\*\s+\*$/);
-  if (!m) return null;
-  const mm = parseInt(m[1], 10);
-  const hh = parseInt(m[2], 10);
-  const now = new Date();
-  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hh, mm, 0, 0));
-  if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 1);
-  return next.toISOString();
+  const s = schedule.trim();
+  const every = s.match(/^\*\/(\d+)\s+\*\s+\*\s+\*\s+\*$/);
+  if (every) {
+    const step = parseInt(every[1], 10);
+    const now = new Date();
+    const nextMin = (Math.floor(now.getUTCMinutes() / step) + 1) * step;
+    const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), now.getUTCHours(), 0, 0, 0));
+    next.setUTCMinutes(nextMin);
+    return next.toISOString();
+  }
+  const daily = s.match(/^(\d+)\s+(\d+)\s+\*\s+\*\s+\*$/);
+  if (daily) {
+    const mm = parseInt(daily[1], 10), hh = parseInt(daily[2], 10);
+    const now = new Date();
+    const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hh, mm, 0, 0));
+    if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 1);
+    return next.toISOString();
+  }
+  const weekly = s.match(/^(\d+)\s+(\d+)\s+\*\s+\*\s+(\d)$/);
+  if (weekly) {
+    const mm = parseInt(weekly[1], 10), hh = parseInt(weekly[2], 10), dow = parseInt(weekly[3], 10);
+    const now = new Date();
+    const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hh, mm, 0, 0));
+    const delta = (dow - next.getUTCDay() + 7) % 7;
+    next.setUTCDate(next.getUTCDate() + delta);
+    if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 7);
+    return next.toISOString();
+  }
+  return null;
 }
 
 Deno.serve(async (req) => {
