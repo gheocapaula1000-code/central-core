@@ -1,0 +1,1 @@
+DROP FUNCTION IF EXISTS public.test_radar_cron_post();
