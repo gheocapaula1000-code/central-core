@@ -114,6 +114,13 @@ Deno.serve(async (req) => {
     }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
+  // default: action=run (legacy GET querystring mode)
+  const portal = (u.searchParams.get("portal") ?? "idealista").toLowerCase();
+  const searchUrl = u.searchParams.get("url");
+  const maxItems = Number(u.searchParams.get("maxItems") ?? "200");
+  if (!searchUrl) return new Response(JSON.stringify({ ok: false, error: "missing_url" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+
 
   let actor = "";
   let input: Record<string, unknown> = {};
