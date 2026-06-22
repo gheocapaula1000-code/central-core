@@ -63,15 +63,68 @@ function extractUrl(item: Record<string, unknown>, hostRe: RegExp): string | nul
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  // diag-only endpoint, no auth (temp, will be removed)
+  // diag-only endpoint, no auth (temp)
   const token = getApifyToken();
   if (!token) return new Response(JSON.stringify({ ok: false, error: "no_apify_token" }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   const u = new URL(req.url);
+  const action = u.searchParams.get("action") ?? "run";
+
+  if (action === "account") {
+    const [meR, limitsR] = await Promise.all([
+      fetch(`${APIFY}/users/me?token=${encodeURIComponent(token)}`),
+      fetch(`${APIFY}/users/me/limits?token=${encodeURIComponent(token)}`),
+    ]);
+    const me = meR.ok ? await meR.json() : { error: `me_${meR.status}`, text: await meR.text() };
+    const limits = limitsR.ok ? await limitsR.json() : { error: `limits_${limitsR.status}`, text: await limitsR.text() };
+    return new Response(JSON.stringify({ ok: true, me, limits }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
+  if (action === "raw_start") {
+    const bodyJson = await req.json().catch(() => null);
+    if (!bodyJson || typeof bodyJson !== "object") {
+      return new Response(JSON.stringify({ ok: false, error: "missing_body_json" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    const actor = String((bodyJson as Record<string, unknown>).actor ?? "");
+    const input = (bodyJson as Record<string, unknown>).input as Record<string, unknown>;
+    if (!actor || !input) return new Response(JSON.stringify({ ok: false, error: "need_actor_and_input" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const launched = await startActor(actor, input, token);
+    return new Response(JSON.stringify({ launched, actor, input }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
+  if (action === "raw_fetch") {
+    const runId = u.searchParams.get("run_id");
+    const hostStr = u.searchParams.get("hostRe") ?? "idealista\\.it/(?:it/)?(?:immobile|inserzione|annuncio)";
+    const hostRe = new RegExp(hostStr, "i");
+    if (!runId) return new Response(JSON.stringify({ ok: false, error: "missing_run_id" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const run = await getRun(runId, token);
+    const status = (run?.status as string) ?? "UNKNOWN";
+    const cost = Number(run?.usageTotalUsd ?? 0);
+    const datasetId = run?.defaultDatasetId as string | undefined;
+    const items = datasetId ? await fetchDataset(datasetId, token, 2000) : [];
+    const urls = new Set<string>();
+    const sample: string[] = [];
+    for (const it of items) {
+      const url = extractUrl(it, hostRe);
+      if (url) { if (!urls.has(url) && sample.length < 10) sample.push(url); urls.add(url); }
+    }
+    return new Response(JSON.stringify({
+      ok: true, run_id: runId, status, cost_usd: cost, dataset_id: datasetId,
+      items_in_dataset: items.length, distinct_urls: urls.size, sample_urls: sample,
+      stats: run?.stats ?? null,
+      exit_code: run?.exitCode ?? null,
+      build_id: run?.buildId ?? null,
+      first_item_preview: items[0] ?? null,
+    }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
+  // default: action=run (legacy GET querystring mode)
   const portal = (u.searchParams.get("portal") ?? "idealista").toLowerCase();
   const searchUrl = u.searchParams.get("url");
   const maxItems = Number(u.searchParams.get("maxItems") ?? "200");
   if (!searchUrl) return new Response(JSON.stringify({ ok: false, error: "missing_url" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+
 
   let actor = "";
   let input: Record<string, unknown> = {};
