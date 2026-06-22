@@ -137,14 +137,13 @@ async function discoverPortal(
   if (portal === "idealista") {
     actor = "dz_omar/idealista-scraper-api";
     input = {
-      Search_urls: [{ url: IDEALISTA_SEARCH_URL }],
-      desiredResults: MAX_NEW_PER_PORTAL * 2,
+      Property_urls: [{ url: IDEALISTA_SEARCH_URL, desiredResults: MAX_NEW_PER_PORTAL * 2 }],
     };
-    hostRe = /idealista\.it\/(?:immobile|inserzione|annuncio)/i;
+    hostRe = /idealista\.it\/(?:it\/)?(?:immobile|inserzione|annuncio)/i;
   } else {
     actor = "azzouzana/immobiliare-it-listing-page-scraper-by-search-url";
     input = {
-      searchUrls: [{ url: IMMOBILIARE_SEARCH_URL }],
+      startUrl: IMMOBILIARE_SEARCH_URL,
       maxItems: MAX_NEW_PER_PORTAL * 2,
     };
     hostRe = /immobiliare\.it\/(?:annunci|nuove_costruzioni)/i;
