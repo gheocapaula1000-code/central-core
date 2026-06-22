@@ -63,15 +63,57 @@ function extractUrl(item: Record<string, unknown>, hostRe: RegExp): string | nul
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  // diag-only endpoint, no auth (temp, will be removed)
+  // diag-only endpoint, no auth (temp)
   const token = getApifyToken();
   if (!token) return new Response(JSON.stringify({ ok: false, error: "no_apify_token" }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   const u = new URL(req.url);
-  const portal = (u.searchParams.get("portal") ?? "idealista").toLowerCase();
-  const searchUrl = u.searchParams.get("url");
-  const maxItems = Number(u.searchParams.get("maxItems") ?? "200");
-  if (!searchUrl) return new Response(JSON.stringify({ ok: false, error: "missing_url" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  const action = u.searchParams.get("action") ?? "run";
+
+  if (action === "account") {
+    const [meR, limitsR] = await Promise.all([
+      fetch(`${APIFY}/users/me?token=${encodeURIComponent(token)}`),
+      fetch(`${APIFY}/users/me/limits?token=${encodeURIComponent(token)}`),
+    ]);
+    const me = meR.ok ? await meR.json() : { error: `me_${meR.status}`, text: await meR.text() };
+    const limits = limitsR.ok ? await limitsR.json() : { error: `limits_${limitsR.status}`, text: await limitsR.text() };
+    return new Response(JSON.stringify({ ok: true, me, limits }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
+  if (action === "raw") {
+    // run with raw input passed in body
+    const bodyJson = await req.json().catch(() => null);
+    if (!bodyJson || typeof bodyJson !== "object") {
+      return new Response(JSON.stringify({ ok: false, error: "missing_body_json" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    const actor = String((bodyJson as Record<string, unknown>).actor ?? "");
+    const input = (bodyJson as Record<string, unknown>).input as Record<string, unknown>;
+    const hostStr = String((bodyJson as Record<string, unknown>).hostRe ?? "idealista\\.it/(?:it/)?(?:immobile|inserzione|annuncio)");
+    const hostRe = new RegExp(hostStr, "i");
+    if (!actor || !input) return new Response(JSON.stringify({ ok: false, error: "need_actor_and_input" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const t0 = Date.now();
+    const launched = await startActor(actor, input, token);
+    if (!launched.ok) return new Response(JSON.stringify({ ok: false, error: launched.error, actor, input }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const final = await pollUntilDone(launched.run_id, token);
+    const status = (final?.status as string) ?? "TIMEOUT";
+    const cost = Number(final?.usageTotalUsd ?? 0);
+    const datasetId = (final?.defaultDatasetId as string) ?? launched.dataset_id;
+    const items = datasetId ? await fetchDataset(datasetId, token, 2000) : [];
+    const urls = new Set<string>();
+    const sample: string[] = [];
+    for (const it of items) {
+      const url = extractUrl(it, hostRe);
+      if (url) { if (!urls.has(url) && sample.length < 10) sample.push(url); urls.add(url); }
+    }
+    return new Response(JSON.stringify({
+      ok: true, actor, input, run_id: launched.run_id, dataset_id: datasetId, status,
+      elapsed_ms: Date.now() - t0, cost_usd: cost,
+      items_in_dataset: items.length, distinct_urls: urls.size, sample_urls: sample,
+      first_item_keys: items.length > 0 ? Object.keys(items[0]) : [],
+      first_item_preview: items[0] ?? null,
+    }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
 
   let actor = "";
   let input: Record<string, unknown> = {};
