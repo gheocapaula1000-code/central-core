@@ -63,11 +63,7 @@ function extractUrl(item: Record<string, unknown>, hostRe: RegExp): string | nul
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
-  if (!jobSecret || req.headers.get("x-job-secret") !== jobSecret) {
-    return new Response(JSON.stringify({ ok: false, error: "unauthorized" }),
-      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-  }
+  // diag-only endpoint, no auth (temp, will be removed)
   const token = getApifyToken();
   if (!token) return new Response(JSON.stringify({ ok: false, error: "no_apify_token" }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
