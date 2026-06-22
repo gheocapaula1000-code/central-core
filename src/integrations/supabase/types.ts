@@ -6467,15 +6467,6 @@ export type Database = {
           lng: number
         }[]
       }
-      test_radar_cron_post: {
-        Args: never
-        Returns: {
-          content_excerpt: string
-          error_msg: string
-          request_id: number
-          status_code: number
-        }[]
-      }
       tick_padova_firecrawl_collect: { Args: never; Returns: undefined }
       unschedule_padova_detail_chain: { Args: never; Returns: boolean }
       vault_create_secret_if_missing: {
