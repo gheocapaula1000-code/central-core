@@ -80,24 +80,27 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ ok: true, me, limits }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
-  if (action === "raw") {
-    // run with raw input passed in body
+  if (action === "raw_start") {
     const bodyJson = await req.json().catch(() => null);
     if (!bodyJson || typeof bodyJson !== "object") {
       return new Response(JSON.stringify({ ok: false, error: "missing_body_json" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     const actor = String((bodyJson as Record<string, unknown>).actor ?? "");
     const input = (bodyJson as Record<string, unknown>).input as Record<string, unknown>;
-    const hostStr = String((bodyJson as Record<string, unknown>).hostRe ?? "idealista\\.it/(?:it/)?(?:immobile|inserzione|annuncio)");
-    const hostRe = new RegExp(hostStr, "i");
     if (!actor || !input) return new Response(JSON.stringify({ ok: false, error: "need_actor_and_input" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    const t0 = Date.now();
     const launched = await startActor(actor, input, token);
-    if (!launched.ok) return new Response(JSON.stringify({ ok: false, error: launched.error, actor, input }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    const final = await pollUntilDone(launched.run_id, token);
-    const status = (final?.status as string) ?? "TIMEOUT";
-    const cost = Number(final?.usageTotalUsd ?? 0);
-    const datasetId = (final?.defaultDatasetId as string) ?? launched.dataset_id;
+    return new Response(JSON.stringify({ launched, actor, input }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
+  if (action === "raw_fetch") {
+    const runId = u.searchParams.get("run_id");
+    const hostStr = u.searchParams.get("hostRe") ?? "idealista\\.it/(?:it/)?(?:immobile|inserzione|annuncio)";
+    const hostRe = new RegExp(hostStr, "i");
+    if (!runId) return new Response(JSON.stringify({ ok: false, error: "missing_run_id" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const run = await getRun(runId, token);
+    const status = (run?.status as string) ?? "UNKNOWN";
+    const cost = Number(run?.usageTotalUsd ?? 0);
+    const datasetId = run?.defaultDatasetId as string | undefined;
     const items = datasetId ? await fetchDataset(datasetId, token, 2000) : [];
     const urls = new Set<string>();
     const sample: string[] = [];
@@ -106,10 +109,11 @@ Deno.serve(async (req) => {
       if (url) { if (!urls.has(url) && sample.length < 10) sample.push(url); urls.add(url); }
     }
     return new Response(JSON.stringify({
-      ok: true, actor, input, run_id: launched.run_id, dataset_id: datasetId, status,
-      elapsed_ms: Date.now() - t0, cost_usd: cost,
+      ok: true, run_id: runId, status, cost_usd: cost, dataset_id: datasetId,
       items_in_dataset: items.length, distinct_urls: urls.size, sample_urls: sample,
-      first_item_keys: items.length > 0 ? Object.keys(items[0]) : [],
+      stats: run?.stats ?? null,
+      exit_code: run?.exitCode ?? null,
+      build_id: run?.buildId ?? null,
       first_item_preview: items[0] ?? null,
     }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
