@@ -31,7 +31,7 @@ const POLL_TIMEOUT_MS = 110_000;   // edge function ceiling ~150s, leave headroo
 const POLL_INTERVAL_MS = 4_000;
 
 const IDEALISTA_SEARCH_URL =
-  "https://www.idealista.it/vendita-case/padova-padova/con-ultime-settimane_1/";
+  "https://www.idealista.it/vendita-case/padova-padova/con-ultime-2-settimane_1/";
 const IMMOBILIARE_SEARCH_URL =
   "https://www.immobiliare.it/vendita-case/padova/?criterio=dataModifica&ordine=desc";
 
