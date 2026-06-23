@@ -8,6 +8,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { getOperationalMode } from "./operationalMode.ts";
+import { isRadarMonthlyHardCapReached, recordProviderUsage } from "./radarBudget.ts";
 
 // Costo blended (input+output) per 1M token. Volutamente prudente.
 export const AI_COST_PER_1M: Record<string, number> = {
