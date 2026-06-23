@@ -1026,6 +1026,7 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
     .filter((z) => z.score >= minScore && z.quality !== "demo")
     .slice(0, maxOpps)
     .map((z, i) => {
+      const basis: string[] = [];
       if (z.metrics.ribassi30gg) basis.push("market_anomalies");
       if (z.metrics.venditoriMotivati) basis.push("motivated_sellers");
       if (z.metrics.aste) basis.push("radar_signals");
