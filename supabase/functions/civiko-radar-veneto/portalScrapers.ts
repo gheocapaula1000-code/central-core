@@ -311,8 +311,23 @@ export async function scrapeAllPortals(
   mode: RadarMode = "soft",
 ): Promise<NormalizedListing[]> {
   if (!municipality) return [];
+  // Budget guard Firecrawl: stima pagine = numero portali * (1 soft / 2 full)
+  try {
+    const { canSpendFirecrawl, recordFirecrawlSpend } = await import("../_shared/firecrawlBudget.ts");
+    const estPages = PORTAL_CONFIGS.length * (mode === "full" ? 2 : 1);
+    const fb = await canSpendFirecrawl(estPages);
+    if (!fb.ok) {
+      console.warn(`[portalScrapers] firecrawl_cap_reached spent=${fb.spent} cap=${fb.cap} skip mode=${mode}`);
+      // Skip Firecrawl, try Apify fallback only
+      const apifyListings = await scrapeWithApify(municipality, provincia, mode);
+      return apifyListings;
+    }
+    // Pre-record budget; actual count may differ but it's a guard.
+    await recordFirecrawlSpend(estPages, PORTAL_CONFIGS.length).catch(() => {});
+  } catch (_) { /* budget module optional */ }
+
   const results = await Promise.allSettled(
-    PORTAL_CONFIGS.map((c) => scrapePortal(c, municipality, firecrawlKey)),
+    PORTAL_CONFIGS.map((c) => scrapePortal(c, municipality, firecrawlKey, mode)),
   );
   const listings: NormalizedListing[] = [];
   for (const r of results) {
