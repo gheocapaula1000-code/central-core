@@ -1020,11 +1020,12 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   const topZones = zones.slice(0, maxZones);
 
   // ── Opportunities da top zones ──────────────────────────────
+  const minScore = Math.max(0, Math.min(100, req.minZoneScore ?? 30));
+  const maxOpps = Math.max(1, Math.min(60, req.maxOpportunities ?? 6));
   const opportunities: AgentRadarOpportunity[] = topZones
-    .filter((z) => z.score >= 30 && z.quality !== "demo")
-    .slice(0, 6)
+    .filter((z) => z.score >= minScore && z.quality !== "demo")
+    .slice(0, maxOpps)
     .map((z, i) => {
-      const basis: string[] = [];
       if (z.metrics.ribassi30gg) basis.push("market_anomalies");
       if (z.metrics.venditoriMotivati) basis.push("motivated_sellers");
       if (z.metrics.aste) basis.push("radar_signals");
