@@ -40,7 +40,10 @@ export async function getFirecrawlSpendToday(): Promise<{ calls: number; pages: 
   };
 }
 
-export async function canSpendFirecrawl(estPages: number): Promise<{ ok: boolean; spent: number; cap: number }> {
+export async function canSpendFirecrawl(estPages: number): Promise<{ ok: boolean; spent: number; cap: number; reason?: string }> {
+  if (await isRadarMonthlyHardCapReached()) {
+    return { ok: false, spent: 0, cap: 0, reason: "radar_monthly_eur_cap_reached" };
+  }
   const mode = await getOperationalMode();
   const cap = mode.firecrawl_daily_cap_credits;
   const { pages } = await getFirecrawlSpendToday();
