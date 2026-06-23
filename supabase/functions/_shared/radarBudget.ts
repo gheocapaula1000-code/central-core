@@ -193,6 +193,53 @@ function runBudgetFromDay(dailyBudget: number, intent: RadarIntent | string): nu
 }
 
 // ── Public API ──────────────────────────────────────────────────
+
+/**
+ * Costruisce un cost_report safe-default con shape completa e provider_costs
+ * con tutte le chiavi obbligatorie (apify/firecrawl/perplexity/openai) a 0.
+ * Usato come fallback quando computeBudgetState() fallisce o non viene chiamato.
+ */
+export function emptyCostReport(extraWarnings: string[] = []): Record<string, unknown> {
+  const monthly = getMonthlyBudgetEur();
+  return {
+    budget_mode: "normal",
+    monthly_budget_eur: monthly,
+    monthly_spent_eur: 0,
+    monthly_remaining_eur: monthly,
+    weekly_budget_eur: 0,
+    weekly_spent_eur: 0,
+    daily_budget_eur: 0,
+    daily_spent_eur: 0,
+    run_budget_eur: 0,
+    run_spent_eur: 0,
+    provider_costs: { apify: 0, firecrawl: 0, perplexity: 0, openai: 0 },
+    warnings: ["cost_report_fallback", ...extraWarnings],
+    pacing: { day_weight: todayWeight(), weights_remaining_in_month: weightsRemainingInMonth(), eur_per_weight: 0 },
+  };
+}
+
+/**
+ * Normalizza un cost_report assicurando che tutti i campi obbligatori e
+ * tutte le chiavi provider (apify/firecrawl/perplexity/openai) siano presenti.
+ */
+export function ensureCostReport(report?: Record<string, unknown> | null, extraWarnings: string[] = []): Record<string, unknown> {
+  const base = emptyCostReport(extraWarnings);
+  if (!report || typeof report !== "object") return base;
+  const merged: Record<string, unknown> = { ...base, ...report };
+  const pc = (report as Record<string, unknown>).provider_costs;
+  const pcObj = (pc && typeof pc === "object") ? pc as Record<string, number> : {};
+  merged.provider_costs = {
+    apify: Number(pcObj.apify ?? 0),
+    firecrawl: Number(pcObj.firecrawl ?? 0),
+    perplexity: Number(pcObj.perplexity ?? 0),
+    openai: Number(pcObj.openai ?? 0),
+    ...pcObj,
+  };
+  if (!Array.isArray(merged.warnings)) merged.warnings = [];
+  if (!merged.pacing || typeof merged.pacing !== "object") merged.pacing = base.pacing;
+  return merged;
+}
+
 export async function computeBudgetState(meta: RadarRunMeta = {}): Promise<BudgetState> {
   const enabled = isEnabled();
   const monthly_budget_eur = getMonthlyBudgetEur();
