@@ -8,6 +8,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { getOperationalMode } from "./operationalMode.ts";
+import { isRadarMonthlyHardCapReached, recordProviderUsage } from "./radarBudget.ts";
 
 // Costo blended (input+output) per 1M token. Volutamente prudente.
 export const AI_COST_PER_1M: Record<string, number> = {
@@ -40,7 +41,10 @@ export async function getAiSpendToday(): Promise<number> {
 export async function canSpendAi(
   estTokens: number,
   provider: string,
-): Promise<{ ok: boolean; spent: number; cap: number }> {
+): Promise<{ ok: boolean; spent: number; cap: number; reason?: string }> {
+  if (await isRadarMonthlyHardCapReached()) {
+    return { ok: false, spent: 0, cap: 0, reason: "radar_monthly_eur_cap_reached" };
+  }
   const mode = await getOperationalMode();
   const cap = mode.ai_daily_cap_usd;
   const spent = await getAiSpendToday();
@@ -78,4 +82,15 @@ export async function recordAiSpend(
     },
     { onConflict: "day_utc,provider" },
   );
+  try {
+    await recordProviderUsage({
+      provider,
+      api_name: "completion",
+      operation: "tokens",
+      input_tokens: inputTokens ?? 0,
+      output_tokens: outputTokens ?? 0,
+      estimated_cost_usd: usd,
+      cost_basis: "estimate",
+    });
+  } catch { /* best effort */ }
 }

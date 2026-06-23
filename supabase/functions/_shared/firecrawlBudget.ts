@@ -8,6 +8,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { getOperationalMode } from "./operationalMode.ts";
+import { isRadarMonthlyHardCapReached, recordProviderUsage } from "./radarBudget.ts";
 
 export const FIRECRAWL_USD_PER_PAGE = 0.001;
 
@@ -39,7 +40,10 @@ export async function getFirecrawlSpendToday(): Promise<{ calls: number; pages: 
   };
 }
 
-export async function canSpendFirecrawl(estPages: number): Promise<{ ok: boolean; spent: number; cap: number }> {
+export async function canSpendFirecrawl(estPages: number): Promise<{ ok: boolean; spent: number; cap: number; reason?: string }> {
+  if (await isRadarMonthlyHardCapReached()) {
+    return { ok: false, spent: 0, cap: 0, reason: "radar_monthly_eur_cap_reached" };
+  }
   const mode = await getOperationalMode();
   const cap = mode.firecrawl_daily_cap_credits;
   const { pages } = await getFirecrawlSpendToday();
@@ -62,4 +66,15 @@ export async function recordFirecrawlSpend(pages: number, calls = 1): Promise<vo
     },
     { onConflict: "day_utc" },
   );
+  try {
+    await recordProviderUsage({
+      provider: "firecrawl",
+      api_name: "scrape",
+      operation: "pages",
+      calls_count: calls,
+      items_processed: pages,
+      estimated_cost_usd: addUsd,
+      cost_basis: "estimate",
+    });
+  } catch { /* best effort */ }
 }

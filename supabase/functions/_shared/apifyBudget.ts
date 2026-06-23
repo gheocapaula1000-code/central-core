@@ -9,6 +9,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { isMonthlyCapReached } from "./monthlyBudget.ts";
+import { isRadarMonthlyHardCapReached, recordProviderUsage } from "./radarBudget.ts";
 
 export const APIFY_DAILY_CAP_USD = Number(Deno.env.get("APIFY_DAILY_CAP_USD") ?? "25");
 
@@ -39,6 +40,9 @@ export async function getApifySpendToday(): Promise<{ calls: number; est_usd: nu
 
 /** Returns true if we have budget for est_usd more spend today AND monthly cap not reached. */
 export async function canSpendApify(estUsd: number): Promise<{ ok: boolean; spent: number; cap: number; reason?: string }> {
+  if (await isRadarMonthlyHardCapReached()) {
+    return { ok: false, spent: 0, cap: 0, reason: "radar_monthly_eur_cap_reached" };
+  }
   const monthly = await isMonthlyCapReached();
   if (monthly.reached) {
     return { ok: false, spent: monthly.total, cap: monthly.cap, reason: "monthly_cap_reached" };
@@ -59,4 +63,15 @@ export async function recordApifySpend(estUsd: number, calls = 1): Promise<void>
     est_usd: Number((cur.est_usd + estUsd).toFixed(3)),
     updated_at: new Date().toISOString(),
   }, { onConflict: "day_utc" });
+  // Mirror sul ledger EUR per il radar budget manager
+  try {
+    await recordProviderUsage({
+      provider: "apify",
+      api_name: "actor_run",
+      operation: "scrape",
+      calls_count: calls,
+      estimated_cost_usd: estUsd,
+      cost_basis: "estimate",
+    });
+  } catch { /* best effort */ }
 }

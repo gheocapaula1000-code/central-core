@@ -5436,6 +5436,96 @@ export type Database = {
         }
         Relationships: []
       }
+      radar_budget_ledger: {
+        Row: {
+          api_name: string | null
+          budget_mode: string | null
+          calls_count: number
+          compute_units: number
+          cost_basis: string
+          created_at: string
+          day_key: string
+          estimated_cost_eur: number
+          estimated_cost_usd: number
+          id: string
+          input_tokens: number
+          intent: string | null
+          items_processed: number
+          metadata: Json
+          mode: string | null
+          month_key: string
+          operation: string | null
+          output_tokens: number
+          provider: string
+          proxy_gb: number
+          request_id: string | null
+          run_id: string | null
+          scope: string | null
+          source: string | null
+          target: string | null
+          triggered_by: string | null
+          week_key: string
+        }
+        Insert: {
+          api_name?: string | null
+          budget_mode?: string | null
+          calls_count?: number
+          compute_units?: number
+          cost_basis?: string
+          created_at?: string
+          day_key: string
+          estimated_cost_eur?: number
+          estimated_cost_usd?: number
+          id?: string
+          input_tokens?: number
+          intent?: string | null
+          items_processed?: number
+          metadata?: Json
+          mode?: string | null
+          month_key: string
+          operation?: string | null
+          output_tokens?: number
+          provider: string
+          proxy_gb?: number
+          request_id?: string | null
+          run_id?: string | null
+          scope?: string | null
+          source?: string | null
+          target?: string | null
+          triggered_by?: string | null
+          week_key: string
+        }
+        Update: {
+          api_name?: string | null
+          budget_mode?: string | null
+          calls_count?: number
+          compute_units?: number
+          cost_basis?: string
+          created_at?: string
+          day_key?: string
+          estimated_cost_eur?: number
+          estimated_cost_usd?: number
+          id?: string
+          input_tokens?: number
+          intent?: string | null
+          items_processed?: number
+          metadata?: Json
+          mode?: string | null
+          month_key?: string
+          operation?: string | null
+          output_tokens?: number
+          provider?: string
+          proxy_gb?: number
+          request_id?: string | null
+          run_id?: string | null
+          scope?: string | null
+          source?: string | null
+          target?: string | null
+          triggered_by?: string | null
+          week_key?: string
+        }
+        Relationships: []
+      }
       radar_run_log: {
         Row: {
           agency_id: string | null
@@ -6300,6 +6390,16 @@ export type Database = {
           omi_max: number | null
           omi_min: number | null
           semestre_ultimo: string | null
+        }
+        Relationships: []
+      }
+      radar_budget_monthly_spend: {
+        Row: {
+          entries: number | null
+          month_key: string | null
+          runs: number | null
+          spent_eur: number | null
+          spent_usd: number | null
         }
         Relationships: []
       }
