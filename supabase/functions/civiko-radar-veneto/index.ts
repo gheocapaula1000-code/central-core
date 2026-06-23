@@ -29,7 +29,7 @@ import { computePriceResistanceIndex } from "./priceResistance.ts";
 import { buildRadarClusterDossier, generateHook, buildHookContextForMarker, type DossierMarker } from "./clusterDossier.ts";
 import { scrapeRibassiPortali } from "./ribassiPortali.ts";
 import { buildAgentRadar, type AgentRadarRequest } from "./agentRadar.ts";
-import { computeBudgetState, isRadarMonthlyHardCapReached, type RadarRunMeta } from "../_shared/radarBudget.ts";
+import { computeBudgetState, isRadarMonthlyHardCapReached, ensureCostReport, type RadarRunMeta } from "../_shared/radarBudget.ts";
 import { deriveAllSignals } from "./deriveSignals.ts";
 import { buildVenetoDataEngine } from "./dataEngine.ts";
 import { importVenetoAuctions } from "./auctionImport.ts";
