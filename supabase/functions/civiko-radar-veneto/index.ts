@@ -2762,26 +2762,31 @@ Deno.serve(async (req) => {
       }
       const capReached = budgetState?.budget_mode === "capped" || await isRadarMonthlyHardCapReached().catch(() => false);
       if (capReached) {
+        const cappedReport = ensureCostReport(budgetState?.cost_report ?? null, ["budget_cap_reached"]);
+        (cappedReport as Record<string, unknown>).budget_mode = "capped";
         return withIdentity(json(req, 200, {
           ok: true, scopeMode, configured: true,
           budget_mode: "capped",
           summary: { totalSignals: 0, hotZones: 0, priceDrops: 0, auctions: 0, motivatedSellers: 0, dataQuality: "parziale" as const },
           zones: [], opportunities: [],
           dataQuality: { real: [], partial: [], missing: [], warnings: ["budget_cap_reached"] },
-          cost_report: budgetState?.cost_report ?? { budget_mode: "capped", warnings: ["budget_cap_reached"] },
+          cost_report: cappedReport,
+          data: { cost_report: cappedReport },
         }, debugId), "agent-radar-capped");
       }
 
       try {
         const out = await buildAgentRadar(body as AgentRadarRequest);
-        let cost_report = budgetState?.cost_report;
+        let rawReport = budgetState?.cost_report;
         try {
           const post = await computeBudgetState(radarMeta);
-          cost_report = post.cost_report;
+          rawReport = post.cost_report;
         } catch { /* ignore */ }
-        return withIdentity(json(req, 200, { ...out, scopeMode, ok: true, cost_report }, debugId), "agent-radar");
+        const cost_report = ensureCostReport(rawReport ?? null);
+        return withIdentity(json(req, 200, { ...out, scopeMode, ok: true, cost_report, data: { ...((out as any)?.data ?? {}), cost_report } }, debugId), "agent-radar");
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] agent-radar error: ${e instanceof Error ? e.message : String(e)}`);
+        const errReport = ensureCostReport(budgetState?.cost_report ?? null, ["agent_radar_error"]);
         const fallback = {
           ok: false, scopeMode,
           configured: false,
@@ -2790,7 +2795,8 @@ Deno.serve(async (req) => {
           zones: [],
           opportunities: [],
           dataQuality: { real: [], partial: [], missing: [], warnings: ["Errore interno: " + (e instanceof Error ? e.message : String(e))] },
-          cost_report: budgetState?.cost_report,
+          cost_report: errReport,
+          data: { cost_report: errReport },
         };
         return withIdentity(json(req, 200, fallback, debugId), "agent-radar-fallback");
       }
