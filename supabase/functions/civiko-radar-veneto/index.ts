@@ -2779,14 +2779,56 @@ Deno.serve(async (req) => {
       }
 
       try {
-        const out = await buildAgentRadar(body as AgentRadarRequest);
+        // ── Ingestion phase: alimenta listing_price_snapshots + segnali PRIMA di leggere ──
+        // Triggered when intent ∈ {soft, full} and a comune is in scope. Budget-gated.
+        const intentRaw = String((body as any).intent ?? "").toLowerCase();
+        const shouldIngest = intentRaw === "soft" || intentRaw === "full";
+        const comuniList: string[] = Array.isArray((body as any).comuni) && (body as any).comuni.length > 0
+          ? (body as any).comuni
+          : ((body as any).comune ? [(body as any).comune] : []);
+        const ingestionReport: Array<{ comune: string; opportunities: number; mode: string; skipped?: string }> = [];
+        if (shouldIngest && comuniList.length > 0 && budgetState?.budget_mode !== "capped") {
+          const ingestMode: "soft" | "full" = intentRaw === "full" ? "full" : "soft";
+          // In economy mode riduciamo profondità (soft anche se richiesto full).
+          const effectiveMode: "soft" | "full" = budgetState?.budget_mode === "economy" ? "soft" : ingestMode;
+          for (const c of comuniList.slice(0, 5)) {
+            try {
+              const opps = await scrapeRibassiPortali(c, null, (body as any).provincia ?? "PD", effectiveMode);
+              ingestionReport.push({ comune: c, opportunities: opps.length, mode: effectiveMode });
+            } catch (ingErr) {
+              console.warn(`[${FUNCTION_NAME}] ingestion error for ${c}:`, ingErr instanceof Error ? ingErr.message : String(ingErr));
+              ingestionReport.push({ comune: c, opportunities: 0, mode: effectiveMode, skipped: "error" });
+            }
+          }
+        } else if (shouldIngest && budgetState?.budget_mode === "capped") {
+          ingestionReport.push({ comune: comuniList[0] ?? "—", opportunities: 0, mode: "skipped", skipped: "budget_capped" });
+        }
+
+        // Adatta i limiti agentRadar a soft/full se Civiko non li passa esplicitamente.
+        const enrichedReq: AgentRadarRequest = { ...(body as AgentRadarRequest) };
+        if (intentRaw === "soft") {
+          if (enrichedReq.maxOpportunities == null) (enrichedReq as any).maxOpportunities = 30;
+          if (enrichedReq.minZoneScore == null) (enrichedReq as any).minZoneScore = 15;
+        } else if (intentRaw === "full") {
+          if (enrichedReq.maxOpportunities == null) (enrichedReq as any).maxOpportunities = 60;
+          if (enrichedReq.minZoneScore == null) (enrichedReq as any).minZoneScore = 10;
+        }
+
+        const out = await buildAgentRadar(enrichedReq);
         let rawReport = budgetState?.cost_report;
         try {
           const post = await computeBudgetState(radarMeta);
           rawReport = post.cost_report;
         } catch { /* ignore */ }
         const cost_report = ensureCostReport(rawReport ?? null);
-        return withIdentity(json(req, 200, { ...out, scopeMode, ok: true, cost_report, data: { ...((out as any)?.data ?? {}), cost_report } }, debugId), "agent-radar");
+        return withIdentity(json(req, 200, {
+          ...out,
+          scopeMode,
+          ok: true,
+          cost_report,
+          ingestion: ingestionReport,
+          data: { ...((out as any)?.data ?? {}), cost_report, ingestion: ingestionReport },
+        }, debugId), "agent-radar");
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] agent-radar error: ${e instanceof Error ? e.message : String(e)}`);
         const errReport = ensureCostReport(budgetState?.cost_report ?? null, ["agent_radar_error"]);
