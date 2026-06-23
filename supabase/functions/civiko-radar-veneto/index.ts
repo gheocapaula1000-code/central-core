@@ -2724,11 +2724,14 @@ Deno.serve(async (req) => {
         const provArr = Array.isArray((body as any).province) ? (body as any).province : (typeof (body as any).province === "string" ? [(body as any).province] : []);
         const hasArea = !!body.operating_area_id || (provArr.length > 0) || ((body.comuni?.length ?? 0) > 0) || !!(body as any).comune || !!(body as any).provincia;
         if (!hasArea) {
+          const naReport = ensureCostReport(null, ["needs_operating_area"]);
           return withIdentity(json(req, 200, {
             ok: false, scopeMode: "agency_area", needsOperatingArea: true,
             message: "Configura la tua zona di lavoro per ricevere il Radar.",
             summary: { totalSignals: 0, hotZones: 0, priceDrops: 0, auctions: 0, motivatedSellers: 0, dataQuality: "mancante" as const },
             zones: [], opportunities: [],
+            cost_report: naReport,
+            data: { cost_report: naReport },
           }, debugId), "agent-radar-needs-area");
         }
         if (body.operating_area_id) {
