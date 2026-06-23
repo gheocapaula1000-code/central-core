@@ -51,6 +51,10 @@ export interface AgentRadarRequest {
   comune?: string;
   allowDemo?: boolean;
   maxZones?: number;
+  /** Cap finale opportunità (default 6). Soft cron Civiko One usa 30. */
+  maxOpportunities?: number;
+  /** Soglia minima score zona (default 30). Soft può abbassare a 15. */
+  minZoneScore?: number;
   /** AcquisitionRadar Padova microzone labels (or ids). Empty = no filter. */
   microzones?: string[];
 }
