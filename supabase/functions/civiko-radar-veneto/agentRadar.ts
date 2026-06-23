@@ -51,6 +51,10 @@ export interface AgentRadarRequest {
   comune?: string;
   allowDemo?: boolean;
   maxZones?: number;
+  /** Cap finale opportunità (default 6). Soft cron Civiko One usa 30. */
+  maxOpportunities?: number;
+  /** Soglia minima score zona (default 30). Soft può abbassare a 15. */
+  minZoneScore?: number;
   /** AcquisitionRadar Padova microzone labels (or ids). Empty = no filter. */
   microzones?: string[];
 }
@@ -1016,9 +1020,11 @@ export async function buildAgentRadar(req: AgentRadarRequest): Promise<AgentRada
   const topZones = zones.slice(0, maxZones);
 
   // ── Opportunities da top zones ──────────────────────────────
+  const minScore = Math.max(0, Math.min(100, req.minZoneScore ?? 30));
+  const maxOpps = Math.max(1, Math.min(60, req.maxOpportunities ?? 6));
   const opportunities: AgentRadarOpportunity[] = topZones
-    .filter((z) => z.score >= 30 && z.quality !== "demo")
-    .slice(0, 6)
+    .filter((z) => z.score >= minScore && z.quality !== "demo")
+    .slice(0, maxOpps)
     .map((z, i) => {
       const basis: string[] = [];
       if (z.metrics.ribassi30gg) basis.push("market_anomalies");

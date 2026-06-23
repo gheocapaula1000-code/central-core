@@ -15,7 +15,7 @@ import { canSpendApify, recordApifySpend } from "../_shared/apifyBudget.ts";
 export type RadarMode = "soft" | "full";
 
 export interface NormalizedListing {
-  source: "immobiliare.it" | "idealista.it" | "casa.it";
+  source: "immobiliare.it" | "idealista.it" | "casa.it" | "subito.it";
   listing_id: string;             // id univoco lato sorgente
   url: string;
   title: string;
@@ -25,13 +25,15 @@ export interface NormalizedListing {
   rooms: number | null;
   property_type: PropertyType;
   agency_name: string | null;
+  is_private?: boolean;           // true se annuncio da privato (Subito tipico)
   lat: number | null;
   lng: number | null;
 }
 
 const FIRECRAWL_URL = "https://api.firecrawl.dev/v2/scrape";
 const SCRAPE_TIMEOUT_MS = 55_000;
-const MAX_LISTINGS_PER_PORTAL = 25;
+const MAX_LISTINGS_PER_PORTAL_SOFT = 25;
+const MAX_LISTINGS_PER_PORTAL_FULL = 60;
 
 // Pool di User-Agent per rotazione (Firecrawl li forwarda)
 const UA_POOL = [
@@ -86,8 +88,9 @@ const PORTAL_CONFIGS: PortalConfig[] = [
   },
   {
     source: "idealista.it",
-    buildUrl: (slug) => `https://www.idealista.it/vendita-case/${slug}-comune/`,
-    prompt: "Estrai la lista degli annunci di vendita immobiliare presenti nella pagina. Per ciascuno: titolo, indirizzo, prezzo numerico in euro, superficie in metri quadri, numero locali, tipologia, nome agenzia, latitudine e longitudine, link assoluto. Solo dati realmente presenti.",
+    // Fix: l'URL `vendita-case/${slug}-comune/` restituiva 404 → uso pattern semplice.
+    buildUrl: (slug) => `https://www.idealista.it/vendita-case/${slug}/`,
+    prompt: "Estrai TUTTI gli annunci di vendita immobiliare presenti nella pagina dei risultati. Per ciascuno: titolo, indirizzo, prezzo numerico in euro, superficie in metri quadri, numero locali, tipologia, nome agenzia o 'Privato' se annuncio privato, latitudine e longitudine, link assoluto (https://www.idealista.it/...). Solo dati realmente presenti.",
     schema: standardSchema(),
     idFromLink: (l) => { const m = l.match(/\/immobile\/(\d{5,})/); return m ? `idl-${m[1]}` : null; },
   },
@@ -97,6 +100,14 @@ const PORTAL_CONFIGS: PortalConfig[] = [
     prompt: "Estrai la lista degli annunci di vendita immobiliare. Per ciascuno: titolo, indirizzo, prezzo numerico in euro, superficie in metri quadri, numero locali, tipologia, nome agenzia, latitudine, longitudine, link assoluto. Solo dati realmente presenti.",
     schema: standardSchema(),
     idFromLink: (l) => { const m = l.match(/\/(\d{6,})(?:[/?]|$)/); return m ? `casa-${m[1]}` : null; },
+  },
+  {
+    source: "subito.it",
+    // Subito: vendita case privati + agenzie, scope Padova.
+    buildUrl: (slug) => `https://www.subito.it/annunci-veneto/vendita/case/${slug}/`,
+    prompt: "Estrai TUTTI gli annunci di vendita case e appartamenti presenti nella pagina. Per ciascuno indica esplicitamente se è da 'Privato' o 'Agenzia' nel campo agency. Estrai: titolo, indirizzo o zona, prezzo numerico in euro, superficie in metri quadri, numero locali, tipologia, agency (nome agenzia oppure 'Privato'), latitudine, longitudine, link assoluto subito.it. Solo dati realmente presenti.",
+    schema: standardSchema(),
+    idFromLink: (l) => { const m = l.match(/-(\d{6,})\.htm/); return m ? `sub-${m[1]}` : null; },
   },
 ];
 
@@ -131,14 +142,16 @@ async function scrapePortal(
   config: PortalConfig,
   municipality: string,
   firecrawlKey: string,
+  mode: RadarMode = "soft",
 ): Promise<NormalizedListing[]> {
+  const maxItems = mode === "full" ? MAX_LISTINGS_PER_PORTAL_FULL : MAX_LISTINGS_PER_PORTAL_SOFT;
   const slug = municipalitySlug(municipality);
   if (!slug) {
     console.log(`[DEBUG portalScrapers] ${config.source}: empty slug for "${municipality}"`);
     return [];
   }
   const url = config.buildUrl(slug);
-  console.log(`[DEBUG portalScrapers] ${config.source} URL:`, url);
+  console.log(`[DEBUG portalScrapers] ${config.source} URL:`, url, `mode=${mode} cap=${maxItems}`);
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), SCRAPE_TIMEOUT_MS);
@@ -154,7 +167,6 @@ async function scrapePortal(
         url,
         formats: [{ type: "json", prompt: config.prompt, schema: config.schema }],
         onlyMainContent: true,
-        // header rotation per ridurre profiling
         headers: {
           "User-Agent": pickUA(),
           "Accept-Language": pickLang(),
@@ -184,6 +196,9 @@ async function scrapePortal(
       if (!id) continue;
       const lat = typeof r.lat === "number" && Number.isFinite(r.lat) ? r.lat : null;
       const lng = typeof r.lng === "number" && Number.isFinite(r.lng) ? r.lng : null;
+      const rawAgency = typeof r.agency === "string" ? r.agency.trim() : "";
+      const looksPrivate = /privat[oi]/i.test(rawAgency) || rawAgency === "" && config.source === "subito.it";
+      const agency_name = rawAgency && !looksPrivate ? rawAgency.slice(0, 150) : null;
       out.push({
         source: config.source,
         listing_id: id,
@@ -194,11 +209,12 @@ async function scrapePortal(
         surface_sqm: parseInt0(r.surface_sqm),
         rooms: parseInt0(r.rooms),
         property_type: normalizePropertyType(typeof r.property_type === "string" ? r.property_type : null),
-        agency_name: typeof r.agency === "string" ? r.agency.slice(0, 150) : null,
+        agency_name,
+        is_private: looksPrivate,
         lat,
         lng,
       });
-      if (out.length >= MAX_LISTINGS_PER_PORTAL) break;
+      if (out.length >= maxItems) break;
     }
     return out;
   } catch (e) {
@@ -295,8 +311,23 @@ export async function scrapeAllPortals(
   mode: RadarMode = "soft",
 ): Promise<NormalizedListing[]> {
   if (!municipality) return [];
+  // Budget guard Firecrawl: stima pagine = numero portali * (1 soft / 2 full)
+  try {
+    const { canSpendFirecrawl, recordFirecrawlSpend } = await import("../_shared/firecrawlBudget.ts");
+    const estPages = PORTAL_CONFIGS.length * (mode === "full" ? 2 : 1);
+    const fb = await canSpendFirecrawl(estPages);
+    if (!fb.ok) {
+      console.warn(`[portalScrapers] firecrawl_cap_reached spent=${fb.spent} cap=${fb.cap} skip mode=${mode}`);
+      // Skip Firecrawl, try Apify fallback only
+      const apifyListings = await scrapeWithApify(municipality, provincia, mode);
+      return apifyListings;
+    }
+    // Pre-record budget; actual count may differ but it's a guard.
+    await recordFirecrawlSpend(estPages, PORTAL_CONFIGS.length).catch(() => {});
+  } catch (_) { /* budget module optional */ }
+
   const results = await Promise.allSettled(
-    PORTAL_CONFIGS.map((c) => scrapePortal(c, municipality, firecrawlKey)),
+    PORTAL_CONFIGS.map((c) => scrapePortal(c, municipality, firecrawlKey, mode)),
   );
   const listings: NormalizedListing[] = [];
   for (const r of results) {
