@@ -88,8 +88,9 @@ const PORTAL_CONFIGS: PortalConfig[] = [
   },
   {
     source: "idealista.it",
-    buildUrl: (slug) => `https://www.idealista.it/vendita-case/${slug}-comune/`,
-    prompt: "Estrai la lista degli annunci di vendita immobiliare presenti nella pagina. Per ciascuno: titolo, indirizzo, prezzo numerico in euro, superficie in metri quadri, numero locali, tipologia, nome agenzia, latitudine e longitudine, link assoluto. Solo dati realmente presenti.",
+    // Fix: l'URL `vendita-case/${slug}-comune/` restituiva 404 → uso pattern semplice.
+    buildUrl: (slug) => `https://www.idealista.it/vendita-case/${slug}/`,
+    prompt: "Estrai TUTTI gli annunci di vendita immobiliare presenti nella pagina dei risultati. Per ciascuno: titolo, indirizzo, prezzo numerico in euro, superficie in metri quadri, numero locali, tipologia, nome agenzia o 'Privato' se annuncio privato, latitudine e longitudine, link assoluto (https://www.idealista.it/...). Solo dati realmente presenti.",
     schema: standardSchema(),
     idFromLink: (l) => { const m = l.match(/\/immobile\/(\d{5,})/); return m ? `idl-${m[1]}` : null; },
   },
@@ -99,6 +100,14 @@ const PORTAL_CONFIGS: PortalConfig[] = [
     prompt: "Estrai la lista degli annunci di vendita immobiliare. Per ciascuno: titolo, indirizzo, prezzo numerico in euro, superficie in metri quadri, numero locali, tipologia, nome agenzia, latitudine, longitudine, link assoluto. Solo dati realmente presenti.",
     schema: standardSchema(),
     idFromLink: (l) => { const m = l.match(/\/(\d{6,})(?:[/?]|$)/); return m ? `casa-${m[1]}` : null; },
+  },
+  {
+    source: "subito.it",
+    // Subito: vendita case privati + agenzie, scope Padova.
+    buildUrl: (slug) => `https://www.subito.it/annunci-veneto/vendita/case/${slug}/`,
+    prompt: "Estrai TUTTI gli annunci di vendita case e appartamenti presenti nella pagina. Per ciascuno indica esplicitamente se è da 'Privato' o 'Agenzia' nel campo agency. Estrai: titolo, indirizzo o zona, prezzo numerico in euro, superficie in metri quadri, numero locali, tipologia, agency (nome agenzia oppure 'Privato'), latitudine, longitudine, link assoluto subito.it. Solo dati realmente presenti.",
+    schema: standardSchema(),
+    idFromLink: (l) => { const m = l.match(/-(\d{6,})\.htm/); return m ? `sub-${m[1]}` : null; },
   },
 ];
 
