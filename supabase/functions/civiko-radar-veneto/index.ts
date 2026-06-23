@@ -2745,9 +2745,41 @@ Deno.serve(async (req) => {
           if (!(body as any).comune && body.comuni?.[0]) (body as any).comune = body.comuni[0];
         }
       }
+      // ── Budget manager: stato + kill-switch hard cap mensile ───
+      const radarMeta: RadarRunMeta = {
+        run_id: (body as any).run_id ?? (body as any).request_id ?? debugId,
+        request_id: (body as any).request_id ?? debugId,
+        source: (body as any).source ?? "central-core",
+        target: (body as any).target ?? "civiko-one",
+        triggered_by: (body as any).triggered_by ?? req.headers.get("x-source-app") ?? null,
+        mode: (body as any).mode ?? null,
+        intent: ((body as any).intent ?? "unknown") as any,
+        scope: requestedScope || (body as any).scope || null,
+      };
+      let budgetState;
+      try { budgetState = await computeBudgetState(radarMeta); } catch (e) {
+        console.warn(`[${FUNCTION_NAME}] budget state failed:`, e instanceof Error ? e.message : String(e));
+      }
+      const capReached = budgetState?.budget_mode === "capped" || await isRadarMonthlyHardCapReached().catch(() => false);
+      if (capReached) {
+        return withIdentity(json(req, 200, {
+          ok: true, scopeMode, configured: true,
+          budget_mode: "capped",
+          summary: { totalSignals: 0, hotZones: 0, priceDrops: 0, auctions: 0, motivatedSellers: 0, dataQuality: "parziale" as const },
+          zones: [], opportunities: [],
+          dataQuality: { real: [], partial: [], missing: [], warnings: ["budget_cap_reached"] },
+          cost_report: budgetState?.cost_report ?? { budget_mode: "capped", warnings: ["budget_cap_reached"] },
+        }, debugId), "agent-radar-capped");
+      }
+
       try {
         const out = await buildAgentRadar(body as AgentRadarRequest);
-        return withIdentity(json(req, 200, { ...out, scopeMode, ok: true }, debugId), "agent-radar");
+        let cost_report = budgetState?.cost_report;
+        try {
+          const post = await computeBudgetState(radarMeta);
+          cost_report = post.cost_report;
+        } catch { /* ignore */ }
+        return withIdentity(json(req, 200, { ...out, scopeMode, ok: true, cost_report }, debugId), "agent-radar");
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] agent-radar error: ${e instanceof Error ? e.message : String(e)}`);
         const fallback = {
@@ -2758,6 +2790,7 @@ Deno.serve(async (req) => {
           zones: [],
           opportunities: [],
           dataQuality: { real: [], partial: [], missing: [], warnings: ["Errore interno: " + (e instanceof Error ? e.message : String(e))] },
+          cost_report: budgetState?.cost_report,
         };
         return withIdentity(json(req, 200, fallback, debugId), "agent-radar-fallback");
       }
