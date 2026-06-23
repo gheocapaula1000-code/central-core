@@ -82,4 +82,15 @@ export async function recordAiSpend(
     },
     { onConflict: "day_utc,provider" },
   );
+  try {
+    await recordProviderUsage({
+      provider,
+      api_name: "completion",
+      operation: "tokens",
+      input_tokens: inputTokens ?? 0,
+      output_tokens: outputTokens ?? 0,
+      estimated_cost_usd: usd,
+      cost_basis: "estimate",
+    });
+  } catch { /* best effort */ }
 }
