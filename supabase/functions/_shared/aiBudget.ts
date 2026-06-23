@@ -41,7 +41,10 @@ export async function getAiSpendToday(): Promise<number> {
 export async function canSpendAi(
   estTokens: number,
   provider: string,
-): Promise<{ ok: boolean; spent: number; cap: number }> {
+): Promise<{ ok: boolean; spent: number; cap: number; reason?: string }> {
+  if (await isRadarMonthlyHardCapReached()) {
+    return { ok: false, spent: 0, cap: 0, reason: "radar_monthly_eur_cap_reached" };
+  }
   const mode = await getOperationalMode();
   const cap = mode.ai_daily_cap_usd;
   const spent = await getAiSpendToday();
