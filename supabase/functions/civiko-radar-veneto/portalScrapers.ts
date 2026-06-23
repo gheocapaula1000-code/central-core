@@ -142,14 +142,16 @@ async function scrapePortal(
   config: PortalConfig,
   municipality: string,
   firecrawlKey: string,
+  mode: RadarMode = "soft",
 ): Promise<NormalizedListing[]> {
+  const maxItems = mode === "full" ? MAX_LISTINGS_PER_PORTAL_FULL : MAX_LISTINGS_PER_PORTAL_SOFT;
   const slug = municipalitySlug(municipality);
   if (!slug) {
     console.log(`[DEBUG portalScrapers] ${config.source}: empty slug for "${municipality}"`);
     return [];
   }
   const url = config.buildUrl(slug);
-  console.log(`[DEBUG portalScrapers] ${config.source} URL:`, url);
+  console.log(`[DEBUG portalScrapers] ${config.source} URL:`, url, `mode=${mode} cap=${maxItems}`);
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), SCRAPE_TIMEOUT_MS);
@@ -165,7 +167,6 @@ async function scrapePortal(
         url,
         formats: [{ type: "json", prompt: config.prompt, schema: config.schema }],
         onlyMainContent: true,
-        // header rotation per ridurre profiling
         headers: {
           "User-Agent": pickUA(),
           "Accept-Language": pickLang(),
@@ -195,6 +196,9 @@ async function scrapePortal(
       if (!id) continue;
       const lat = typeof r.lat === "number" && Number.isFinite(r.lat) ? r.lat : null;
       const lng = typeof r.lng === "number" && Number.isFinite(r.lng) ? r.lng : null;
+      const rawAgency = typeof r.agency === "string" ? r.agency.trim() : "";
+      const looksPrivate = /privat[oi]/i.test(rawAgency) || rawAgency === "" && config.source === "subito.it";
+      const agency_name = rawAgency && !looksPrivate ? rawAgency.slice(0, 150) : null;
       out.push({
         source: config.source,
         listing_id: id,
@@ -205,11 +209,12 @@ async function scrapePortal(
         surface_sqm: parseInt0(r.surface_sqm),
         rooms: parseInt0(r.rooms),
         property_type: normalizePropertyType(typeof r.property_type === "string" ? r.property_type : null),
-        agency_name: typeof r.agency === "string" ? r.agency.slice(0, 150) : null,
+        agency_name,
+        is_private: looksPrivate,
         lat,
         lng,
       });
-      if (out.length >= MAX_LISTINGS_PER_PORTAL) break;
+      if (out.length >= maxItems) break;
     }
     return out;
   } catch (e) {
