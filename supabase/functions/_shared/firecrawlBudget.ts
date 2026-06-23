@@ -66,4 +66,15 @@ export async function recordFirecrawlSpend(pages: number, calls = 1): Promise<vo
     },
     { onConflict: "day_utc" },
   );
+  try {
+    await recordProviderUsage({
+      provider: "firecrawl",
+      api_name: "scrape",
+      operation: "pages",
+      calls_count: calls,
+      items_processed: pages,
+      estimated_cost_usd: addUsd,
+      cost_basis: "estimate",
+    });
+  } catch { /* best effort */ }
 }
