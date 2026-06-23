@@ -15,7 +15,7 @@ import { canSpendApify, recordApifySpend } from "../_shared/apifyBudget.ts";
 export type RadarMode = "soft" | "full";
 
 export interface NormalizedListing {
-  source: "immobiliare.it" | "idealista.it" | "casa.it";
+  source: "immobiliare.it" | "idealista.it" | "casa.it" | "subito.it";
   listing_id: string;             // id univoco lato sorgente
   url: string;
   title: string;
@@ -25,13 +25,15 @@ export interface NormalizedListing {
   rooms: number | null;
   property_type: PropertyType;
   agency_name: string | null;
+  is_private?: boolean;           // true se annuncio da privato (Subito tipico)
   lat: number | null;
   lng: number | null;
 }
 
 const FIRECRAWL_URL = "https://api.firecrawl.dev/v2/scrape";
 const SCRAPE_TIMEOUT_MS = 55_000;
-const MAX_LISTINGS_PER_PORTAL = 25;
+const MAX_LISTINGS_PER_PORTAL_SOFT = 25;
+const MAX_LISTINGS_PER_PORTAL_FULL = 60;
 
 // Pool di User-Agent per rotazione (Firecrawl li forwarda)
 const UA_POOL = [
