@@ -63,4 +63,15 @@ export async function recordApifySpend(estUsd: number, calls = 1): Promise<void>
     est_usd: Number((cur.est_usd + estUsd).toFixed(3)),
     updated_at: new Date().toISOString(),
   }, { onConflict: "day_utc" });
+  // Mirror sul ledger EUR per il radar budget manager
+  try {
+    await recordProviderUsage({
+      provider: "apify",
+      api_name: "actor_run",
+      operation: "scrape",
+      calls_count: calls,
+      estimated_cost_usd: estUsd,
+      cost_basis: "estimate",
+    });
+  } catch { /* best effort */ }
 }
