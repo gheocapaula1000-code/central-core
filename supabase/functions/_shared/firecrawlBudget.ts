@@ -50,7 +50,7 @@ export async function canSpendFirecrawl(estPages: number): Promise<{ ok: boolean
   return { ok: pages + estPages <= cap, spent: pages, cap };
 }
 
-export async function recordFirecrawlSpend(pages: number, calls = 1): Promise<void> {
+export async function recordFirecrawlSpend(pages: number, calls = 1, meta?: RadarRunMeta): Promise<void> {
   const c = sb();
   if (!c) return;
   const day = today();
@@ -75,6 +75,6 @@ export async function recordFirecrawlSpend(pages: number, calls = 1): Promise<vo
       items_processed: pages,
       estimated_cost_usd: addUsd,
       cost_basis: "estimate",
-    });
+    }, meta ?? {});
   } catch { /* best effort */ }
 }
