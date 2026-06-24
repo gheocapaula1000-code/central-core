@@ -8,7 +8,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { getOperationalMode } from "./operationalMode.ts";
-import { isRadarMonthlyHardCapReached, recordProviderUsage } from "./radarBudget.ts";
+import { isRadarMonthlyHardCapReached, recordProviderUsage, type RadarRunMeta } from "./radarBudget.ts";
 
 export const FIRECRAWL_USD_PER_PAGE = 0.001;
 
