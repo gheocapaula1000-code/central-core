@@ -2484,7 +2484,7 @@ Deno.serve(async (req) => {
           const { data: lastSnap } = await supa
             .from("listing_price_snapshots")
             .select("captured_at")
-            .in("municipality", municipalitiesScan)
+            .or(municipalitiesScan.map((m) => `municipality.ilike.${m}`).join(","))
             .order("captured_at", { ascending: false })
             .limit(1);
           lastSourceRefreshAt = lastSnap?.[0]?.captured_at ?? null;
