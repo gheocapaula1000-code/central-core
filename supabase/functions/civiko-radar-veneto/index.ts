@@ -2466,7 +2466,7 @@ Deno.serve(async (req) => {
           if (!hash) continue;
           if (seenIdentityHashes.has(hash)) {
             if (debugCandidates && duplicateSample.length < 20) {
-              duplicateSample.push(toDebugRow(row as Record<string, unknown>, row._agenciesUniqueCount, hash));
+              duplicateSample.push(toDebugRow(row as Record<string, unknown>, row._agenciesUniqueCount, undefined, hash));
             }
           } else {
             seenIdentityHashes.add(hash);
