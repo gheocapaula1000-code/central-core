@@ -9,7 +9,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { isMonthlyCapReached } from "./monthlyBudget.ts";
-import { isRadarMonthlyHardCapReached, recordProviderUsage } from "./radarBudget.ts";
+import { isRadarMonthlyHardCapReached, recordProviderUsage, type RadarRunMeta } from "./radarBudget.ts";
 
 export const APIFY_DAILY_CAP_USD = Number(Deno.env.get("APIFY_DAILY_CAP_USD") ?? "25");
 
