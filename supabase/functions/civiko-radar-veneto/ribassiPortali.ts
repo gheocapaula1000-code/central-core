@@ -16,7 +16,8 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import type { OpportunitaOffMarket } from "./radarOpportunita.ts";
-import { scrapeAllPortals, type NormalizedListing } from "./portalScrapers.ts";
+import { scrapeAllPortals, type NormalizedListing, type IngestionStats } from "./portalScrapers.ts";
+import type { RadarRunMeta } from "../_shared/radarBudget.ts";
 import { computeIdentityHash, roundCoord } from "./listingIdentity.ts";
 
 const MIN_DROP_PERCENT = 10;
@@ -218,11 +219,14 @@ export async function scrapeRibassiPortali(
   coords: { lat: number; lng: number } | null,
   province?: string,
   mode: "soft" | "full" = "soft",
+  meta?: RadarRunMeta,
+  stats?: IngestionStats,
 ): Promise<OpportunitaOffMarket[]> {
   console.log("[DEBUG ribassiPortali] input:", { municipality, province: province ?? null, hasCoords: !!coords, mode });
   const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY");
   if (!firecrawlKey || !municipality) {
     console.log("[DEBUG ribassiPortali] early-exit:", { hasKey: !!firecrawlKey, hasMunicipality: !!municipality });
+    if (stats && !firecrawlKey) stats.firecrawl_skipped_reason = "no_firecrawl_key";
     return [];
   }
 
@@ -232,7 +236,7 @@ export async function scrapeRibassiPortali(
     return [];
   }
 
-  const listings = await scrapeAllPortals(municipality, firecrawlKey, province ?? "", mode);
+  const listings = await scrapeAllPortals(municipality, firecrawlKey, province ?? "", mode, meta, stats);
   console.log("[DEBUG ribassiPortali] scrapeAllPortals returned:", {
     municipality,
     total: listings.length,

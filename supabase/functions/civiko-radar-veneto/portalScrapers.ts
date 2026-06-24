@@ -11,6 +11,19 @@
 import { normalizePropertyType, type PropertyType } from "./listingIdentity.ts";
 import { getApifyToken } from "../_shared/apify.ts";
 import { canSpendApify, recordApifySpend } from "../_shared/apifyBudget.ts";
+import type { RadarRunMeta } from "../_shared/radarBudget.ts";
+
+export interface PortalIngestionStat {
+  source: NormalizedListing["source"] | "apify_fallback";
+  raw: number;
+  reason?: string;
+}
+export interface IngestionStats {
+  perPortal: PortalIngestionStat[];
+  rotation?: string;
+  firecrawl_pages_estimated?: number;
+  firecrawl_skipped_reason?: string;
+}
 
 export type RadarMode = "soft" | "full";
 
@@ -225,22 +238,26 @@ async function scrapePortal(
   }
 }
 
+
 async function scrapeWithApify(
   comune: string,
   provincia: string,
   mode: RadarMode = "soft",
+  meta?: RadarRunMeta,
+  stats?: IngestionStats,
 ): Promise<NormalizedListing[]> {
   const APIFY_TOKEN = getApifyToken();
   if (!APIFY_TOKEN) {
     console.log("[scrapeWithApify] no APIFY_API_TOKEN configured");
+    stats?.perPortal.push({ source: "apify_fallback", raw: 0, reason: "no_apify_token" });
     return [];
   }
   const maxItems = mode === "full" ? 200 : 50;
-  // Conservative estimate: $1.50 for a 200-item full run, $0.50 for a 50-item soft run.
   const estCost = mode === "full" ? 1.5 : 0.5;
   const budget = await canSpendApify(estCost);
   if (!budget.ok) {
     console.warn(`[scrapeWithApify] apify_cap_reached spent=$${budget.spent.toFixed(2)} cap=$${budget.cap} skip mode=${mode}`);
+    stats?.perPortal.push({ source: "apify_fallback", raw: 0, reason: budget.reason ?? "apify_cap_reached" });
     return [];
   }
   const actorId = "epctex/immobiliare-it-scraper";
@@ -263,13 +280,15 @@ async function scrapeWithApify(
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
       console.warn(`[scrapeWithApify] HTTP ${res.status} body: ${txt.slice(0, 200)}`);
-      await recordApifySpend(estCost * 0.2); // partial charge for failed run
+      await recordApifySpend(estCost * 0.2, 1, meta);
+      stats?.perPortal.push({ source: "apify_fallback", raw: 0, reason: `apify_http_${res.status}` });
       return [];
     }
     const items = await res.json();
-    await recordApifySpend(estCost);
+    await recordApifySpend(estCost, 1, meta);
     if (!Array.isArray(items)) {
       console.warn("[scrapeWithApify] response is not an array");
+      stats?.perPortal.push({ source: "apify_fallback", raw: 0, reason: "apify_bad_response" });
       return [];
     }
     console.log(`[scrapeWithApify] received ${items.length} raw items for ${comune} (${provincia}) mode=${mode}`);
@@ -297,11 +316,42 @@ async function scrapeWithApify(
         lng: typeof r.lng === "number" ? r.lng : (typeof r.longitude === "number" ? r.longitude : null),
       });
     }
+    stats?.perPortal.push({ source: "apify_fallback", raw: out.length });
     return out;
   } catch (e) {
     console.error("[scrapeWithApify] error:", e instanceof Error ? e.message : String(e));
+    stats?.perPortal.push({ source: "apify_fallback", raw: 0, reason: "apify_exception" });
     return [];
   }
+}
+
+/**
+ * Rotazione fonti soft per Roma-hour:
+ *  - 00-07 → casa.it + immobiliare.it
+ *  - 08-13 → subito.it + casa.it
+ *  - 14-19 → immobiliare.it + idealista.it + subito.it
+ *  - 20-23 → casa.it + immobiliare.it
+ * In full mode usa tutti i portali.
+ */
+function selectPortalsForMode(mode: RadarMode): { configs: PortalConfig[]; rotationKey: string } {
+  if (mode === "full") return { configs: PORTAL_CONFIGS, rotationKey: "full_all" };
+  const romaHour = Number(
+    new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Europe/Rome" })
+      .format(new Date()),
+  );
+  let allow: Array<NormalizedListing["source"]>;
+  let key: string;
+  if (romaHour >= 8 && romaHour < 14) {
+    allow = ["subito.it", "casa.it"];
+    key = "soft_morning";
+  } else if (romaHour >= 14 && romaHour < 20) {
+    allow = ["immobiliare.it", "idealista.it", "subito.it"];
+    key = "soft_afternoon";
+  } else {
+    allow = ["casa.it", "immobiliare.it"];
+    key = "soft_night";
+  }
+  return { configs: PORTAL_CONFIGS.filter((c) => allow.includes(c.source)), rotationKey: key };
 }
 
 export async function scrapeAllPortals(
@@ -309,34 +359,44 @@ export async function scrapeAllPortals(
   firecrawlKey: string,
   provincia: string = "",
   mode: RadarMode = "soft",
+  meta?: RadarRunMeta,
+  stats?: IngestionStats,
 ): Promise<NormalizedListing[]> {
   if (!municipality) return [];
-  // Budget guard Firecrawl: stima pagine = numero portali * (1 soft / 2 full)
+  const { configs, rotationKey } = selectPortalsForMode(mode);
+  if (stats) stats.rotation = rotationKey;
+  // Budget guard Firecrawl: stima pagine = numero portali selezionati * (1 soft / 2 full)
   try {
     const { canSpendFirecrawl, recordFirecrawlSpend } = await import("../_shared/firecrawlBudget.ts");
-    const estPages = PORTAL_CONFIGS.length * (mode === "full" ? 2 : 1);
+    const estPages = configs.length * (mode === "full" ? 2 : 1);
+    if (stats) stats.firecrawl_pages_estimated = estPages;
     const fb = await canSpendFirecrawl(estPages);
     if (!fb.ok) {
       console.warn(`[portalScrapers] firecrawl_cap_reached spent=${fb.spent} cap=${fb.cap} skip mode=${mode}`);
-      // Skip Firecrawl, try Apify fallback only
-      const apifyListings = await scrapeWithApify(municipality, provincia, mode);
+      if (stats) stats.firecrawl_skipped_reason = fb.reason ?? "firecrawl_cap_reached";
+      const apifyListings = await scrapeWithApify(municipality, provincia, mode, meta, stats);
       return apifyListings;
     }
-    // Pre-record budget; actual count may differ but it's a guard.
-    await recordFirecrawlSpend(estPages, PORTAL_CONFIGS.length).catch(() => {});
+    await recordFirecrawlSpend(estPages, configs.length, meta).catch(() => {});
   } catch (_) { /* budget module optional */ }
 
   const results = await Promise.allSettled(
-    PORTAL_CONFIGS.map((c) => scrapePortal(c, municipality, firecrawlKey, mode)),
+    configs.map((c) => scrapePortal(c, municipality, firecrawlKey, mode)),
   );
   const listings: NormalizedListing[] = [];
-  for (const r of results) {
-    if (r.status === "fulfilled") listings.push(...r.value);
-  }
+  results.forEach((r, idx) => {
+    const src = configs[idx].source;
+    if (r.status === "fulfilled") {
+      listings.push(...r.value);
+      stats?.perPortal.push({ source: src, raw: r.value.length });
+    } else {
+      stats?.perPortal.push({ source: src, raw: 0, reason: "scrape_rejected" });
+    }
+  });
   // Fallback Apify (epctex) — only if Firecrawl returned nothing.
   if (listings.length === 0) {
     console.log(`[portalScrapers] Firecrawl 0 results, Apify fallback for ${municipality} mode=${mode}`);
-    const apifyListings = await scrapeWithApify(municipality, provincia, mode);
+    const apifyListings = await scrapeWithApify(municipality, provincia, mode, meta, stats);
     listings.push(...apifyListings);
   }
   return listings;

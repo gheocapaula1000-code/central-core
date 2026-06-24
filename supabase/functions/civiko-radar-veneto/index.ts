@@ -2883,28 +2883,44 @@ Deno.serve(async (req) => {
 
       try {
         // ── Ingestion phase: alimenta listing_price_snapshots + segnali PRIMA di leggere ──
-        // Triggered when intent ∈ {soft, full} and a comune is in scope. Budget-gated.
         const intentRaw = String((body as any).intent ?? "").toLowerCase();
         const shouldIngest = intentRaw === "soft" || intentRaw === "full";
         const comuniList: string[] = Array.isArray((body as any).comuni) && (body as any).comuni.length > 0
           ? (body as any).comuni
           : ((body as any).comune ? [(body as any).comune] : []);
-        const ingestionReport: Array<{ comune: string; opportunities: number; mode: string; skipped?: string }> = [];
-        if (shouldIngest && comuniList.length > 0 && budgetState?.budget_mode !== "capped") {
+        const ingestionReport: Array<{ comune: string; opportunities: number; mode: string; skipped?: string; portals?: unknown; rotation?: string }> = [];
+        const ingestionWarnings: string[] = [];
+        const aggregateStats = { perPortal: [] as Array<{ source: string; raw: number; reason?: string }>, rotation: undefined as string | undefined };
+
+        if (!shouldIngest) {
+          ingestionWarnings.push("soft_ingestion_skipped_not_applicable");
+        } else if (comuniList.length === 0) {
+          ingestionWarnings.push("soft_ingestion_skipped_no_comuni");
+        } else if (budgetState?.budget_mode === "capped") {
+          ingestionWarnings.push("soft_ingestion_skipped_budget_capped");
+          ingestionReport.push({ comune: comuniList[0] ?? "—", opportunities: 0, mode: "skipped", skipped: "budget_capped" });
+        } else if (!Deno.env.get("FIRECRAWL_API_KEY")) {
+          ingestionWarnings.push("soft_ingestion_skipped_no_firecrawl_key");
+        } else {
           const ingestMode: "soft" | "full" = intentRaw === "full" ? "full" : "soft";
-          // In economy mode riduciamo profondità (soft anche se richiesto full).
           const effectiveMode: "soft" | "full" = budgetState?.budget_mode === "economy" ? "soft" : ingestMode;
           for (const c of comuniList.slice(0, 5)) {
+            const perCallStats = { perPortal: [] as Array<{ source: string; raw: number; reason?: string }>, rotation: undefined as string | undefined, firecrawl_skipped_reason: undefined as string | undefined };
             try {
-              const opps = await scrapeRibassiPortali(c, null, (body as any).provincia ?? "PD", effectiveMode);
-              ingestionReport.push({ comune: c, opportunities: opps.length, mode: effectiveMode });
+              const opps = await scrapeRibassiPortali(c, null, (body as any).provincia ?? "PD", effectiveMode, radarMeta, perCallStats as any);
+              ingestionReport.push({ comune: c, opportunities: opps.length, mode: effectiveMode, portals: perCallStats.perPortal, rotation: perCallStats.rotation });
+              aggregateStats.perPortal.push(...perCallStats.perPortal);
+              aggregateStats.rotation = perCallStats.rotation;
+              if (perCallStats.firecrawl_skipped_reason) ingestionWarnings.push(`soft_ingestion_${perCallStats.firecrawl_skipped_reason}`);
             } catch (ingErr) {
               console.warn(`[${FUNCTION_NAME}] ingestion error for ${c}:`, ingErr instanceof Error ? ingErr.message : String(ingErr));
               ingestionReport.push({ comune: c, opportunities: 0, mode: effectiveMode, skipped: "error" });
+              ingestionWarnings.push("soft_ingestion_error");
             }
           }
-        } else if (shouldIngest && budgetState?.budget_mode === "capped") {
-          ingestionReport.push({ comune: comuniList[0] ?? "—", opportunities: 0, mode: "skipped", skipped: "budget_capped" });
+          const totalRaw = aggregateStats.perPortal.reduce((s, p) => s + p.raw, 0);
+          if (totalRaw === 0) ingestionWarnings.push("soft_ingestion_zero_results");
+          else ingestionWarnings.push(`soft_ingestion_completed_${totalRaw}_listings`);
         }
 
         // Adatta i limiti agentRadar a soft/full se Civiko non li passa esplicitamente.
@@ -2923,7 +2939,12 @@ Deno.serve(async (req) => {
           const post = await computeBudgetState(radarMeta);
           rawReport = post.cost_report;
         } catch { /* ignore */ }
-        const cost_report = ensureCostReport(rawReport ?? null);
+        const cost_report = ensureCostReport(rawReport ?? null, ingestionWarnings);
+        (cost_report as Record<string, unknown>).ingestion = {
+          perPortal: aggregateStats.perPortal,
+          rotation: aggregateStats.rotation,
+          comuni_processed: ingestionReport.length,
+        };
         return withIdentity(json(req, 200, {
           ...out,
           scopeMode,
