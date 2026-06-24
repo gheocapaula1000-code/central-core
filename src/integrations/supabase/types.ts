@@ -974,6 +974,287 @@ export type Database = {
         }
         Relationships: []
       }
+      civiko_one_generated_outputs: {
+        Row: {
+          agency_id: string
+          case_id: string
+          content_jsonb: Json
+          cost_eur: number | null
+          created_at: string
+          generated_by: string | null
+          id: string
+          kind: Database["public"]["Enums"]["civiko_one_output_kind"]
+          model_used: string | null
+          storage_path: string | null
+          version: number
+          warnings: Json
+        }
+        Insert: {
+          agency_id: string
+          case_id: string
+          content_jsonb?: Json
+          cost_eur?: number | null
+          created_at?: string
+          generated_by?: string | null
+          id?: string
+          kind: Database["public"]["Enums"]["civiko_one_output_kind"]
+          model_used?: string | null
+          storage_path?: string | null
+          version?: number
+          warnings?: Json
+        }
+        Update: {
+          agency_id?: string
+          case_id?: string
+          content_jsonb?: Json
+          cost_eur?: number | null
+          created_at?: string
+          generated_by?: string | null
+          id?: string
+          kind?: Database["public"]["Enums"]["civiko_one_output_kind"]
+          model_used?: string | null
+          storage_path?: string | null
+          version?: number
+          warnings?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "civiko_one_generated_outputs_agency_id_fkey"
+            columns: ["agency_id"]
+            isOneToOne: false
+            referencedRelation: "agencies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "civiko_one_generated_outputs_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "civiko_one_property_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      civiko_one_property_cases: {
+        Row: {
+          address_text: string | null
+          agency_id: string
+          ask_price: number | null
+          assigned_agent_id: string | null
+          bathrooms: number | null
+          cap: string | null
+          civico: string | null
+          created_at: string
+          created_by: string
+          draft_jsonb: Json
+          energy_class: string | null
+          floor: string | null
+          id: string
+          lat: number | null
+          lng: number | null
+          microzone: string | null
+          municipality: string | null
+          notes: string | null
+          property_type: string | null
+          province: string | null
+          rooms: number | null
+          status: Database["public"]["Enums"]["civiko_one_case_status"]
+          surface_mq: number | null
+          title: string
+          updated_at: string
+          year_built: number | null
+        }
+        Insert: {
+          address_text?: string | null
+          agency_id: string
+          ask_price?: number | null
+          assigned_agent_id?: string | null
+          bathrooms?: number | null
+          cap?: string | null
+          civico?: string | null
+          created_at?: string
+          created_by: string
+          draft_jsonb?: Json
+          energy_class?: string | null
+          floor?: string | null
+          id?: string
+          lat?: number | null
+          lng?: number | null
+          microzone?: string | null
+          municipality?: string | null
+          notes?: string | null
+          property_type?: string | null
+          province?: string | null
+          rooms?: number | null
+          status?: Database["public"]["Enums"]["civiko_one_case_status"]
+          surface_mq?: number | null
+          title: string
+          updated_at?: string
+          year_built?: number | null
+        }
+        Update: {
+          address_text?: string | null
+          agency_id?: string
+          ask_price?: number | null
+          assigned_agent_id?: string | null
+          bathrooms?: number | null
+          cap?: string | null
+          civico?: string | null
+          created_at?: string
+          created_by?: string
+          draft_jsonb?: Json
+          energy_class?: string | null
+          floor?: string | null
+          id?: string
+          lat?: number | null
+          lng?: number | null
+          microzone?: string | null
+          municipality?: string | null
+          notes?: string | null
+          property_type?: string | null
+          province?: string | null
+          rooms?: number | null
+          status?: Database["public"]["Enums"]["civiko_one_case_status"]
+          surface_mq?: number | null
+          title?: string
+          updated_at?: string
+          year_built?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "civiko_one_property_cases_agency_id_fkey"
+            columns: ["agency_id"]
+            isOneToOne: false
+            referencedRelation: "agencies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      civiko_one_property_documents: {
+        Row: {
+          agency_id: string
+          case_id: string
+          created_at: string
+          display_name: string
+          doc_type: string
+          id: string
+          notes: string | null
+          required: boolean
+          status: Database["public"]["Enums"]["civiko_one_doc_status"]
+          storage_path: string | null
+          updated_at: string
+          uploaded_by: string | null
+          verified_at: string | null
+          verified_by: string | null
+        }
+        Insert: {
+          agency_id: string
+          case_id: string
+          created_at?: string
+          display_name: string
+          doc_type: string
+          id?: string
+          notes?: string | null
+          required?: boolean
+          status?: Database["public"]["Enums"]["civiko_one_doc_status"]
+          storage_path?: string | null
+          updated_at?: string
+          uploaded_by?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Update: {
+          agency_id?: string
+          case_id?: string
+          created_at?: string
+          display_name?: string
+          doc_type?: string
+          id?: string
+          notes?: string | null
+          required?: boolean
+          status?: Database["public"]["Enums"]["civiko_one_doc_status"]
+          storage_path?: string | null
+          updated_at?: string
+          uploaded_by?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "civiko_one_property_documents_agency_id_fkey"
+            columns: ["agency_id"]
+            isOneToOne: false
+            referencedRelation: "agencies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "civiko_one_property_documents_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "civiko_one_property_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      civiko_one_property_photos: {
+        Row: {
+          agency_id: string
+          bytes: number | null
+          caption: string | null
+          case_id: string
+          created_at: string
+          height: number | null
+          id: string
+          is_cover: boolean
+          sort_order: number
+          storage_path: string
+          uploaded_by: string
+          width: number | null
+        }
+        Insert: {
+          agency_id: string
+          bytes?: number | null
+          caption?: string | null
+          case_id: string
+          created_at?: string
+          height?: number | null
+          id?: string
+          is_cover?: boolean
+          sort_order?: number
+          storage_path: string
+          uploaded_by: string
+          width?: number | null
+        }
+        Update: {
+          agency_id?: string
+          bytes?: number | null
+          caption?: string | null
+          case_id?: string
+          created_at?: string
+          height?: number | null
+          id?: string
+          is_cover?: boolean
+          sort_order?: number
+          storage_path?: string
+          uploaded_by?: string
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "civiko_one_property_photos_agency_id_fkey"
+            columns: ["agency_id"]
+            isOneToOne: false
+            referencedRelation: "agencies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "civiko_one_property_photos_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "civiko_one_property_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       civiko_signal_policy: {
         Row: {
           created_at: string
@@ -6576,6 +6857,22 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
+      civiko_one_case_status:
+        | "draft"
+        | "active"
+        | "listed"
+        | "negotiating"
+        | "sold"
+        | "withdrawn"
+        | "archived"
+      civiko_one_doc_status: "missing" | "uploaded" | "verified" | "rejected"
+      civiko_one_output_kind:
+        | "owner_dossier"
+        | "listing_casa"
+        | "listing_immobiliare"
+        | "listing_idealista"
+        | "listing_subito"
+        | "promo_plan"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -6704,6 +7001,24 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "moderator", "user"],
+      civiko_one_case_status: [
+        "draft",
+        "active",
+        "listed",
+        "negotiating",
+        "sold",
+        "withdrawn",
+        "archived",
+      ],
+      civiko_one_doc_status: ["missing", "uploaded", "verified", "rejected"],
+      civiko_one_output_kind: [
+        "owner_dossier",
+        "listing_casa",
+        "listing_immobiliare",
+        "listing_idealista",
+        "listing_subito",
+        "promo_plan",
+      ],
     },
   },
 } as const
