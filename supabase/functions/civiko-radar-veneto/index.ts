@@ -324,16 +324,20 @@ function authorizeJob(req: Request, debugId: string): Response | null {
 }
 
 /**
- * Authorization specific to /contendibili: accepts EITHER
- *   - x-job-secret == CENTRAL_CORE_JOB_SECRET (legacy/diag fallback supported)
- *   - x-internal-secret == CORE_INTERNAL_SECRET (used by client core-proxy)
- * All other endpoints remain on authorizeJob (x-job-secret only).
+ * Authorization Civiko One → central-core (canonical contract).
+ * Accepts in priority order:
+ *   1. x-internal-secret == CENTRAL_CORE_JOB_SECRET   (CANONICAL — single shared key)
+ *   2. x-job-secret      == CENTRAL_CORE_JOB_SECRET   (retro-compat with /contendibili)
+ *   3. x-job-secret      == DIAGNOSTIC_SECRET         (diag fallback)
+ *   4. x-internal-secret == CORE_INTERNAL_SECRET      (retro-compat with client core-proxy)
+ * Required companion header: x-source-app (e.g. "civiko-one").
+ * Never logs secret values, only header presence + length.
  */
 function authorizeContendibili(req: Request, debugId: string): Response | null {
   const jobPrimary = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
   const jobFallback = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
-  const internal = Deno.env.get("CORE_INTERNAL_SECRET") ?? "";
-  if (!jobPrimary && !jobFallback && !internal) {
+  const internalLegacy = Deno.env.get("CORE_INTERNAL_SECRET") ?? "";
+  if (!jobPrimary && !jobFallback && !internalLegacy) {
     return withIdentity(
       fail(req, 500, "CONFIG_ERROR", "No authorization secret configured", debugId),
       "job-auth",
@@ -341,13 +345,20 @@ function authorizeContendibili(req: Request, debugId: string): Response | null {
   }
   const providedJob = req.headers.get("x-job-secret") ?? "";
   const providedInternal = req.headers.get("x-internal-secret") ?? "";
+  const sourceApp = (req.headers.get("x-source-app") ?? "").trim();
+
+  // Canonical: x-internal-secret == CENTRAL_CORE_JOB_SECRET
+  const okInternalCanonical = providedInternal && jobPrimary && providedInternal === jobPrimary;
+  // Retro-compat branches
   const okJob =
     (providedJob && jobPrimary && providedJob === jobPrimary) ||
     (providedJob && jobFallback && providedJob === jobFallback);
-  const okInternal = providedInternal && internal && providedInternal === internal;
-  if (!okJob && !okInternal) {
+  const okInternalLegacy = providedInternal && internalLegacy && providedInternal === internalLegacy;
+
+  if (!okInternalCanonical && !okJob && !okInternalLegacy) {
+    console.warn(`[authorizeContendibili] rejected source_app=${sourceApp || "(empty)"} has_internal=${!!providedInternal} has_job=${!!providedJob}`);
     return withIdentity(
-      fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret / x-internal-secret", debugId),
+      fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-internal-secret (expected: CENTRAL_CORE_JOB_SECRET)", debugId),
       "job-auth",
     );
   }
