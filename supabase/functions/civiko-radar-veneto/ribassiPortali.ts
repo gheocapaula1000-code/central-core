@@ -219,11 +219,14 @@ export async function scrapeRibassiPortali(
   coords: { lat: number; lng: number } | null,
   province?: string,
   mode: "soft" | "full" = "soft",
+  meta?: RadarRunMeta,
+  stats?: IngestionStats,
 ): Promise<OpportunitaOffMarket[]> {
   console.log("[DEBUG ribassiPortali] input:", { municipality, province: province ?? null, hasCoords: !!coords, mode });
   const firecrawlKey = Deno.env.get("FIRECRAWL_API_KEY");
   if (!firecrawlKey || !municipality) {
     console.log("[DEBUG ribassiPortali] early-exit:", { hasKey: !!firecrawlKey, hasMunicipality: !!municipality });
+    if (stats && !firecrawlKey) stats.firecrawl_skipped_reason = "no_firecrawl_key";
     return [];
   }
 
@@ -233,7 +236,7 @@ export async function scrapeRibassiPortali(
     return [];
   }
 
-  const listings = await scrapeAllPortals(municipality, firecrawlKey, province ?? "", mode);
+  const listings = await scrapeAllPortals(municipality, firecrawlKey, province ?? "", mode, meta, stats);
   console.log("[DEBUG ribassiPortali] scrapeAllPortals returned:", {
     municipality,
     total: listings.length,
