@@ -2180,23 +2180,34 @@ Deno.serve(async (req) => {
       }
       const province = typeof body.province === "string" ? body.province.trim() : null;
       const minAgenciesRaw = Number(body.min_agencies);
-      const min_agencies = Number.isFinite(minAgenciesRaw) && minAgenciesRaw >= 2 ? Math.floor(minAgenciesRaw) : 2;
+      // Accept min_agencies ≥1 (relaxed from ≥2) to enable broader scanning when caller asks for it.
+      const min_agencies = Number.isFinite(minAgenciesRaw) && minAgenciesRaw >= 1 ? Math.floor(minAgenciesRaw) : 2;
       const limitRaw = Number(body.limit);
-      const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(100, Math.floor(limitRaw)) : 50;
+      // Raise hard cap from 100 → 300 so calling apps can pull a wider candidate pool.
+      const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(300, Math.floor(limitRaw)) : 50;
+      // Optional: list of additional comuni to scan together (e.g. neighbouring municipalities).
+      const extraMunicipalities = Array.isArray((body as any).municipalities)
+        ? ((body as any).municipalities as unknown[])
+            .filter((m): m is string => typeof m === "string" && m.trim().length > 0)
+            .map((m) => m.trim())
+        : [];
+      const municipalitiesScan = Array.from(new Set([municipality, ...extraMunicipalities].map((m) => m.toLowerCase())));
 
       const supa = getServiceClient();
       if (!supa) return withIdentity(fail(req, 503, "DB_UNAVAILABLE", "No DB client", debugId), "error");
 
       try {
-        // 1) listing_identity con >=min_agencies agenzie diverse nel comune.
+        // 1) listing_identity con >=min_agencies agenzie diverse nei comuni in scope.
         // Filtraggio min_agencies fatto client-side (Supabase non espone array_length nella PostgREST select chain).
-        const { data: identities, error: idErr } = await supa
+        const identityQuery = supa
           .from("listing_identity")
-          .select("identity_hash, agencies_seen, sources_seen, listing_ids_seen, observation_count, surface_sqm, rooms, property_type, last_seen_at, lat_rounded, lng_rounded")
-          .ilike("municipality", municipality)
-          .gt("observation_count", 1)
+          .select("identity_hash, agencies_seen, sources_seen, listing_ids_seen, observation_count, surface_sqm, rooms, property_type, last_seen_at, lat_rounded, lng_rounded, municipality")
+          .gt("observation_count", min_agencies >= 2 ? 1 : 0)
           .order("last_seen_at", { ascending: false })
-          .limit(500);
+          .limit(Math.max(500, limit * 6));
+        const { data: identities, error: idErr } = municipalitiesScan.length > 1
+          ? await identityQuery.in("municipality", municipalitiesScan)
+          : await identityQuery.ilike("municipality", municipality);
         if (idErr) {
           console.error(`[${FUNCTION_NAME}] contendibili identity err: ${idErr.message}`);
           return withIdentity(fail(req, 500, "DB_ERROR", "Lookup failed", debugId), "error");
