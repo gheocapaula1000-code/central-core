@@ -16,7 +16,8 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import type { OpportunitaOffMarket } from "./radarOpportunita.ts";
-import { scrapeAllPortals, type NormalizedListing } from "./portalScrapers.ts";
+import { scrapeAllPortals, type NormalizedListing, type IngestionStats } from "./portalScrapers.ts";
+import type { RadarRunMeta } from "../_shared/radarBudget.ts";
 import { computeIdentityHash, roundCoord } from "./listingIdentity.ts";
 
 const MIN_DROP_PERCENT = 10;
