@@ -52,7 +52,7 @@ export async function canSpendApify(estUsd: number): Promise<{ ok: boolean; spen
   return { ok: est_usd + estUsd <= cap, spent: est_usd, cap };
 }
 
-export async function recordApifySpend(estUsd: number, calls = 1): Promise<void> {
+export async function recordApifySpend(estUsd: number, calls = 1, meta?: RadarRunMeta): Promise<void> {
   const c = sb();
   if (!c) return;
   const day = today();
@@ -72,6 +72,6 @@ export async function recordApifySpend(estUsd: number, calls = 1): Promise<void>
       calls_count: calls,
       estimated_cost_usd: estUsd,
       cost_basis: "estimate",
-    });
+    }, meta ?? {});
   } catch { /* best effort */ }
 }
