@@ -11,6 +11,19 @@
 import { normalizePropertyType, type PropertyType } from "./listingIdentity.ts";
 import { getApifyToken } from "../_shared/apify.ts";
 import { canSpendApify, recordApifySpend } from "../_shared/apifyBudget.ts";
+import type { RadarRunMeta } from "../_shared/radarBudget.ts";
+
+export interface PortalIngestionStat {
+  source: NormalizedListing["source"] | "apify_fallback";
+  raw: number;
+  reason?: string;
+}
+export interface IngestionStats {
+  perPortal: PortalIngestionStat[];
+  rotation?: string;
+  firecrawl_pages_estimated?: number;
+  firecrawl_skipped_reason?: string;
+}
 
 export type RadarMode = "soft" | "full";
 
