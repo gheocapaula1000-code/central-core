@@ -3000,13 +3000,45 @@ Deno.serve(async (req) => {
           rotation: aggregateStats.rotation,
           comuni_processed: ingestionReport.length,
         };
+        // ── Diagnostica raccolta /agent-radar ─────────────────────────────
+        const opps = (out as any)?.opportunities ?? [];
+        const zones = (out as any)?.zones ?? [];
+        const sourceBreakdownAR: Record<string, number> = {};
+        for (const o of opps) {
+          const s = o?.source ?? o?.payload?.source ?? "unknown";
+          sourceBreakdownAR[s] = (sourceBreakdownAR[s] ?? 0) + 1;
+        }
+        let lastSourceRefreshAR: string | null = null;
+        try {
+          const supaDiag = getServiceClient();
+          if (supaDiag && comuniList.length > 0) {
+            const { data: ls } = await supaDiag
+              .from("listing_price_snapshots")
+              .select("captured_at")
+              .in("municipality", comuniList.map((c) => c.toLowerCase()))
+              .order("captured_at", { ascending: false })
+              .limit(1);
+            lastSourceRefreshAR = ls?.[0]?.captured_at ?? null;
+          }
+        } catch { /* non-fatal */ }
+        const diagnostics = {
+          total_opportunities: opps.length,
+          total_zones: zones.length,
+          source_breakdown: sourceBreakdownAR,
+          ingestion_per_portal: aggregateStats.perPortal,
+          ingestion_rotation: aggregateStats.rotation ?? null,
+          ingestion_comuni_processed: ingestionReport.length,
+          last_source_refresh_at: lastSourceRefreshAR,
+          warnings: ingestionWarnings,
+        };
         return withIdentity(json(req, 200, {
           ...out,
           scopeMode,
           ok: true,
           cost_report,
           ingestion: ingestionReport,
-          data: { ...((out as any)?.data ?? {}), cost_report, ingestion: ingestionReport },
+          diagnostics,
+          data: { ...((out as any)?.data ?? {}), cost_report, ingestion: ingestionReport, diagnostics },
         }, debugId), "agent-radar");
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] agent-radar error: ${e instanceof Error ? e.message : String(e)}`);
