@@ -218,6 +218,27 @@ async function scrapePortal(
         url: link.slice(0, 400),
         title: typeof r.title === "string" ? r.title.slice(0, 200) : "Annuncio",
         address: typeof r.address === "string" ? r.address.slice(0, 200) : null,
+        price_eur: parsePriceEur(r.price),
+        surface_sqm: parseInt0(r.surface_sqm),
+        rooms: parseInt0(r.rooms),
+        property_type: normalizePropertyType(typeof r.property_type === "string" ? r.property_type : null),
+        agency_name,
+        is_private: looksPrivate,
+        lat,
+        lng,
+      });
+      if (out.length >= maxItems) break;
+    }
+    return out;
+  } catch (e) {
+    console.error(`[portalScrapers] ${config.source} error:`, e instanceof Error ? e.message : String(e));
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+
 async function scrapeWithApify(
   comune: string,
   provincia: string,
