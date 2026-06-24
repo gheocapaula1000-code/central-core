@@ -2180,23 +2180,34 @@ Deno.serve(async (req) => {
       }
       const province = typeof body.province === "string" ? body.province.trim() : null;
       const minAgenciesRaw = Number(body.min_agencies);
-      const min_agencies = Number.isFinite(minAgenciesRaw) && minAgenciesRaw >= 2 ? Math.floor(minAgenciesRaw) : 2;
+      // Accept min_agencies ≥1 (relaxed from ≥2) to enable broader scanning when caller asks for it.
+      const min_agencies = Number.isFinite(minAgenciesRaw) && minAgenciesRaw >= 1 ? Math.floor(minAgenciesRaw) : 2;
       const limitRaw = Number(body.limit);
-      const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(100, Math.floor(limitRaw)) : 50;
+      // Raise hard cap from 100 → 300 so calling apps can pull a wider candidate pool.
+      const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(300, Math.floor(limitRaw)) : 50;
+      // Optional: list of additional comuni to scan together (e.g. neighbouring municipalities).
+      const extraMunicipalities = Array.isArray((body as any).municipalities)
+        ? ((body as any).municipalities as unknown[])
+            .filter((m): m is string => typeof m === "string" && m.trim().length > 0)
+            .map((m) => m.trim())
+        : [];
+      const municipalitiesScan = Array.from(new Set([municipality, ...extraMunicipalities].map((m) => m.toLowerCase())));
 
       const supa = getServiceClient();
       if (!supa) return withIdentity(fail(req, 503, "DB_UNAVAILABLE", "No DB client", debugId), "error");
 
       try {
-        // 1) listing_identity con >=min_agencies agenzie diverse nel comune.
+        // 1) listing_identity con >=min_agencies agenzie diverse nei comuni in scope.
         // Filtraggio min_agencies fatto client-side (Supabase non espone array_length nella PostgREST select chain).
-        const { data: identities, error: idErr } = await supa
+        const identityQuery = supa
           .from("listing_identity")
-          .select("identity_hash, agencies_seen, sources_seen, listing_ids_seen, observation_count, surface_sqm, rooms, property_type, last_seen_at, lat_rounded, lng_rounded")
-          .ilike("municipality", municipality)
-          .gt("observation_count", 1)
+          .select("identity_hash, agencies_seen, sources_seen, listing_ids_seen, observation_count, surface_sqm, rooms, property_type, last_seen_at, lat_rounded, lng_rounded, municipality")
+          .gt("observation_count", min_agencies >= 2 ? 1 : 0)
           .order("last_seen_at", { ascending: false })
-          .limit(500);
+          .limit(Math.max(500, limit * 6));
+        const { data: identities, error: idErr } = municipalitiesScan.length > 1
+          ? await identityQuery.in("municipality", municipalitiesScan)
+          : await identityQuery.ilike("municipality", municipality);
         if (idErr) {
           console.error(`[${FUNCTION_NAME}] contendibili identity err: ${idErr.message}`);
           return withIdentity(fail(req, 500, "DB_ERROR", "Lookup failed", debugId), "error");
@@ -2355,13 +2366,46 @@ Deno.serve(async (req) => {
         cleaned.sort((a, b) => b.agencies_count - a.agencies_count);
         const items = cleaned.slice(0, limit);
 
+        // ── Diagnostica raccolta ───────────────────────────────────────────────
+        const totalScanned = (identities ?? []).length;
+        const totalAfterAgencyFilter = prefiltered.length;
+        const duplicatesRemoved = Math.max(0, totalScanned - totalAfterAgencyFilter);
+        const sourceBreakdown: Record<string, number> = {};
+        for (const it of cleaned) {
+          for (const s of (it.sources_seen ?? [])) {
+            if (typeof s === "string" && s) sourceBreakdown[s] = (sourceBreakdown[s] ?? 0) + 1;
+          }
+        }
+        let lastSourceRefreshAt: string | null = null;
+        try {
+          const { data: lastSnap } = await supa
+            .from("listing_price_snapshots")
+            .select("captured_at")
+            .in("municipality", municipalitiesScan)
+            .order("captured_at", { ascending: false })
+            .limit(1);
+          lastSourceRefreshAt = lastSnap?.[0]?.captured_at ?? null;
+        } catch { /* non-fatal */ }
+
         return withIdentity(json(req, 200, {
           municipality,
+          municipalities_scanned: municipalitiesScan,
           province,
           min_agencies,
           count: items.length,
           excluded_count,
           items,
+          diagnostics: {
+            total_candidates_scanned: totalScanned,
+            total_after_filters: cleaned.length,
+            duplicates_removed: duplicatesRemoved,
+            excluded_post_build: excluded_count,
+            returned: items.length,
+            source_breakdown: sourceBreakdown,
+            last_source_refresh_at: lastSourceRefreshAt,
+            min_agencies_applied: min_agencies,
+            limit_applied: limit,
+          },
         }, debugId), "contendibili");
 
       } catch (e) {
@@ -2956,13 +3000,45 @@ Deno.serve(async (req) => {
           rotation: aggregateStats.rotation,
           comuni_processed: ingestionReport.length,
         };
+        // ── Diagnostica raccolta /agent-radar ─────────────────────────────
+        const opps = (out as any)?.opportunities ?? [];
+        const zones = (out as any)?.zones ?? [];
+        const sourceBreakdownAR: Record<string, number> = {};
+        for (const o of opps) {
+          const s = o?.source ?? o?.payload?.source ?? "unknown";
+          sourceBreakdownAR[s] = (sourceBreakdownAR[s] ?? 0) + 1;
+        }
+        let lastSourceRefreshAR: string | null = null;
+        try {
+          const supaDiag = getServiceClient();
+          if (supaDiag && comuniList.length > 0) {
+            const { data: ls } = await supaDiag
+              .from("listing_price_snapshots")
+              .select("captured_at")
+              .in("municipality", comuniList.map((c) => c.toLowerCase()))
+              .order("captured_at", { ascending: false })
+              .limit(1);
+            lastSourceRefreshAR = ls?.[0]?.captured_at ?? null;
+          }
+        } catch { /* non-fatal */ }
+        const diagnostics = {
+          total_opportunities: opps.length,
+          total_zones: zones.length,
+          source_breakdown: sourceBreakdownAR,
+          ingestion_per_portal: aggregateStats.perPortal,
+          ingestion_rotation: aggregateStats.rotation ?? null,
+          ingestion_comuni_processed: ingestionReport.length,
+          last_source_refresh_at: lastSourceRefreshAR,
+          warnings: ingestionWarnings,
+        };
         return withIdentity(json(req, 200, {
           ...out,
           scopeMode,
           ok: true,
           cost_report,
           ingestion: ingestionReport,
-          data: { ...((out as any)?.data ?? {}), cost_report, ingestion: ingestionReport },
+          diagnostics,
+          data: { ...((out as any)?.data ?? {}), cost_report, ingestion: ingestionReport, diagnostics },
         }, debugId), "agent-radar");
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] agent-radar error: ${e instanceof Error ? e.message : String(e)}`);
