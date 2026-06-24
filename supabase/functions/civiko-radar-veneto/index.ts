@@ -2185,6 +2185,7 @@ Deno.serve(async (req) => {
       const limitRaw = Number(body.limit);
       // Raise hard cap from 100 → 300 so calling apps can pull a wider candidate pool.
       const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(300, Math.floor(limitRaw)) : 50;
+      const debugCandidates = body.debug_candidates === true;
       // Optional: list of additional comuni to scan together (e.g. neighbouring municipalities).
       const extraMunicipalities = Array.isArray((body as any).municipalities)
         ? ((body as any).municipalities as unknown[])
@@ -2197,6 +2198,43 @@ Deno.serve(async (req) => {
       if (!supa) return withIdentity(fail(req, 503, "DB_UNAVAILABLE", "No DB client", debugId), "error");
 
       try {
+        type ContendibiliDebugRow = {
+          identity_hash: string | null;
+          source_id: string | null;
+          comune: string | null;
+          portale: string | null;
+          n_agenzie: number;
+          exclude_reason?: string;
+          duplicate_of?: string | null;
+        };
+
+        const firstString = (value: unknown): string | null => {
+          if (typeof value === "string" && value.trim()) return value.trim();
+          if (Array.isArray(value)) {
+            const found = value.find((v) => typeof v === "string" && v.trim());
+            return typeof found === "string" ? found.trim() : null;
+          }
+          return null;
+        };
+
+        const addReason = (counts: Record<string, number>, reason: string) => {
+          counts[reason] = (counts[reason] ?? 0) + 1;
+        };
+
+        const toDebugRow = (row: Record<string, unknown>, nAgenzie: number, reason?: string, duplicateOf?: string | null): ContendibiliDebugRow => ({
+          identity_hash: typeof row.identity_hash === "string" ? row.identity_hash : null,
+          source_id: firstString(row.listing_ids_seen),
+          comune: typeof row.municipality === "string" ? row.municipality : null,
+          portale: firstString(row.sources_seen),
+          n_agenzie: nAgenzie,
+          ...(reason ? { exclude_reason: reason } : {}),
+          ...(duplicateOf !== undefined ? { duplicate_of: duplicateOf } : {}),
+        });
+
+        const excludeReasonCounts: Record<string, number> = {};
+        const excludedSample: ContendibiliDebugRow[] = [];
+        const duplicateSample: ContendibiliDebugRow[] = [];
+
         // 1) listing_identity con >=min_agencies agenzie diverse nei comuni in scope.
         // Filtraggio min_agencies fatto client-side (Supabase non espone array_length nella PostgREST select chain).
         const identityQuery = supa
@@ -2204,9 +2242,9 @@ Deno.serve(async (req) => {
           .select("identity_hash, agencies_seen, sources_seen, listing_ids_seen, observation_count, surface_sqm, rooms, property_type, last_seen_at, lat_rounded, lng_rounded, municipality")
           .gt("observation_count", min_agencies >= 2 ? 1 : 0)
           .order("last_seen_at", { ascending: false })
-          .limit(Math.max(500, limit * 6));
+          .limit(Math.min(1000, Math.max(500, limit * 6)));
         const { data: identities, error: idErr } = municipalitiesScan.length > 1
-          ? await identityQuery.in("municipality", municipalitiesScan)
+          ? await identityQuery.or(municipalitiesScan.map((m) => `municipality.ilike.${m}`).join(","))
           : await identityQuery.ilike("municipality", municipality);
         if (idErr) {
           console.error(`[${FUNCTION_NAME}] contendibili identity err: ${idErr.message}`);
@@ -2233,7 +2271,7 @@ Deno.serve(async (req) => {
         const municipalityLc = municipality.toLowerCase();
         const forbiddenLocs = OTHER_VENETO.filter((n) => !municipalityLc.includes(n) && n !== municipalityLc);
 
-        const prefiltered = (identities ?? [])
+        const normalizedCandidates = (identities ?? [])
           .map((r) => {
             const rawAgencies = Array.isArray(r.agencies_seen)
               ? (r.agencies_seen as string[]).filter((a) => typeof a === "string" && a.trim().length > 0)
@@ -2249,8 +2287,18 @@ Deno.serve(async (req) => {
               _agenciesUniqueCount: normMap.size,
               _sources: Array.isArray(r.sources_seen) ? (r.sources_seen as string[]) : [],
             };
+          });
+
+        const prefiltered = normalizedCandidates
+          .filter((r) => {
+            if (r._agenciesUniqueCount >= min_agencies) return true;
+            const reason = "n_agenzie_below_min";
+            addReason(excludeReasonCounts, reason);
+            if (debugCandidates && excludedSample.length < 20) {
+              excludedSample.push(toDebugRow(r as Record<string, unknown>, r._agenciesUniqueCount, reason));
+            }
+            return false;
           })
-          .filter((r) => r._agenciesUniqueCount >= min_agencies)
           .sort((a, b) => {
             if (b._agenciesUniqueCount !== a._agenciesUniqueCount) return b._agenciesUniqueCount - a._agenciesUniqueCount;
             return new Date(b.last_seen_at ?? 0).getTime() - new Date(a.last_seen_at ?? 0).getTime();
@@ -2342,6 +2390,11 @@ Deno.serve(async (req) => {
             lat_rounded: (row as { lat_rounded?: number | null }).lat_rounded ?? null,
             lng_rounded: (row as { lng_rounded?: number | null }).lng_rounded ?? null,
             diag_last_price_eur: last_price_eur,
+            diag_identity_hash: hash,
+            diag_source_id: firstString((row as Record<string, unknown>).listing_ids_seen),
+            diag_comune: (row.municipality as string | null) ?? null,
+            diag_portale: firstString((row as Record<string, unknown>).sources_seen),
+            diag_n_agenzie: row._agenciesUniqueCount,
           };
         }));
 
@@ -2349,16 +2402,55 @@ Deno.serve(async (req) => {
         const cleaned = builtItems.filter((it) => {
           // Prezzo last fuori soglia o nullo
           if (it.last_price_eur === null || it.last_price_eur <= 20000 || it.last_price_eur > 5000000) {
-            excluded_count++; return false;
+            const reason = "price_missing_or_out_of_range";
+            excluded_count++;
+            addReason(excludeReasonCounts, reason);
+            if (debugCandidates && excludedSample.length < 20) {
+              excludedSample.push({
+                identity_hash: it.diag_identity_hash,
+                source_id: it.diag_source_id,
+                comune: it.diag_comune,
+                portale: it.diag_portale,
+                n_agenzie: it.diag_n_agenzie,
+                exclude_reason: reason,
+              });
+            }
+            return false;
           }
           // Rialzo > 25% → identity_hash collassato su immobili diversi
           if (it.initial_price_eur && it.last_price_eur > it.initial_price_eur * 1.25) {
-            excluded_count++; return false;
+            const reason = "price_increase_over_25pct";
+            excluded_count++;
+            addReason(excludeReasonCounts, reason);
+            if (debugCandidates && excludedSample.length < 20) {
+              excludedSample.push({
+                identity_hash: it.diag_identity_hash,
+                source_id: it.diag_source_id,
+                comune: it.diag_comune,
+                portale: it.diag_portale,
+                n_agenzie: it.diag_n_agenzie,
+                exclude_reason: reason,
+              });
+            }
+            return false;
           }
           // Provincia/città incompatibile nell'address
           const addrLc = (it.address ?? "").toLowerCase();
           if (forbiddenLocs.some((loc) => addrLc.includes(loc))) {
-            excluded_count++; return false;
+            const reason = "address_contains_other_veneto_city";
+            excluded_count++;
+            addReason(excludeReasonCounts, reason);
+            if (debugCandidates && excludedSample.length < 20) {
+              excludedSample.push({
+                identity_hash: it.diag_identity_hash,
+                source_id: it.diag_source_id,
+                comune: it.diag_comune,
+                portale: it.diag_portale,
+                n_agenzie: it.diag_n_agenzie,
+                exclude_reason: reason,
+              });
+            }
+            return false;
           }
           return true;
         });
@@ -2368,8 +2460,19 @@ Deno.serve(async (req) => {
 
         // ── Diagnostica raccolta ───────────────────────────────────────────────
         const totalScanned = (identities ?? []).length;
-        const totalAfterAgencyFilter = prefiltered.length;
-        const duplicatesRemoved = Math.max(0, totalScanned - totalAfterAgencyFilter);
+        const seenIdentityHashes = new Set<string>();
+        for (const row of normalizedCandidates) {
+          const hash = typeof row.identity_hash === "string" ? row.identity_hash : null;
+          if (!hash) continue;
+          if (seenIdentityHashes.has(hash)) {
+            if (debugCandidates && duplicateSample.length < 20) {
+              duplicateSample.push(toDebugRow(row as Record<string, unknown>, row._agenciesUniqueCount, undefined, hash));
+            }
+          } else {
+            seenIdentityHashes.add(hash);
+          }
+        }
+        const duplicatesRemoved = Math.max(0, normalizedCandidates.length - seenIdentityHashes.size);
         const sourceBreakdown: Record<string, number> = {};
         for (const it of cleaned) {
           for (const s of (it.sources_seen ?? [])) {
@@ -2381,7 +2484,7 @@ Deno.serve(async (req) => {
           const { data: lastSnap } = await supa
             .from("listing_price_snapshots")
             .select("captured_at")
-            .in("municipality", municipalitiesScan)
+            .or(municipalitiesScan.map((m) => `municipality.ilike.${m}`).join(","))
             .order("captured_at", { ascending: false })
             .limit(1);
           lastSourceRefreshAt = lastSnap?.[0]?.captured_at ?? null;
@@ -2401,11 +2504,26 @@ Deno.serve(async (req) => {
             duplicates_removed: duplicatesRemoved,
             excluded_post_build: excluded_count,
             returned: items.length,
-            source_breakdown: sourceBreakdown,
-            last_source_refresh_at: lastSourceRefreshAt,
             min_agencies_applied: min_agencies,
             limit_applied: limit,
+            municipalities_applied: municipalitiesScan,
+            source_breakdown: sourceBreakdown,
+            exclude_reason_counts: excludeReasonCounts,
+            last_source_refresh_at: lastSourceRefreshAt,
           },
+          ...(debugCandidates ? {
+            debug_candidates_sample: {
+              returned_sample: items.slice(0, 10).map((it) => ({
+                identity_hash: it.diag_identity_hash,
+                source_id: it.diag_source_id,
+                comune: it.diag_comune,
+                portale: it.diag_portale,
+                n_agenzie: it.diag_n_agenzie,
+              })),
+              excluded_sample: excludedSample,
+              duplicate_sample: duplicateSample,
+            },
+          } : {}),
         }, debugId), "contendibili");
 
       } catch (e) {
