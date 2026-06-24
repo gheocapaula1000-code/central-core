@@ -2366,13 +2366,46 @@ Deno.serve(async (req) => {
         cleaned.sort((a, b) => b.agencies_count - a.agencies_count);
         const items = cleaned.slice(0, limit);
 
+        // ── Diagnostica raccolta ───────────────────────────────────────────────
+        const totalScanned = (identities ?? []).length;
+        const totalAfterAgencyFilter = prefiltered.length;
+        const duplicatesRemoved = Math.max(0, totalScanned - totalAfterAgencyFilter);
+        const sourceBreakdown: Record<string, number> = {};
+        for (const it of cleaned) {
+          for (const s of (it.sources_seen ?? [])) {
+            if (typeof s === "string" && s) sourceBreakdown[s] = (sourceBreakdown[s] ?? 0) + 1;
+          }
+        }
+        let lastSourceRefreshAt: string | null = null;
+        try {
+          const { data: lastSnap } = await supa
+            .from("listing_price_snapshots")
+            .select("captured_at")
+            .in("municipality", municipalitiesScan)
+            .order("captured_at", { ascending: false })
+            .limit(1);
+          lastSourceRefreshAt = lastSnap?.[0]?.captured_at ?? null;
+        } catch { /* non-fatal */ }
+
         return withIdentity(json(req, 200, {
           municipality,
+          municipalities_scanned: municipalitiesScan,
           province,
           min_agencies,
           count: items.length,
           excluded_count,
           items,
+          diagnostics: {
+            total_candidates_scanned: totalScanned,
+            total_after_filters: cleaned.length,
+            duplicates_removed: duplicatesRemoved,
+            excluded_post_build: excluded_count,
+            returned: items.length,
+            source_breakdown: sourceBreakdown,
+            last_source_refresh_at: lastSourceRefreshAt,
+            min_agencies_applied: min_agencies,
+            limit_applied: limit,
+          },
         }, debugId), "contendibili");
 
       } catch (e) {
