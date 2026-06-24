@@ -2242,9 +2242,9 @@ Deno.serve(async (req) => {
           .select("identity_hash, agencies_seen, sources_seen, listing_ids_seen, observation_count, surface_sqm, rooms, property_type, last_seen_at, lat_rounded, lng_rounded, municipality")
           .gt("observation_count", min_agencies >= 2 ? 1 : 0)
           .order("last_seen_at", { ascending: false })
-          .limit(Math.max(500, limit * 6));
+          .limit(Math.min(1000, Math.max(500, limit * 6)));
         const { data: identities, error: idErr } = municipalitiesScan.length > 1
-          ? await identityQuery.in("municipality", municipalitiesScan)
+          ? await identityQuery.or(municipalitiesScan.map((m) => `municipality.ilike.${m}`).join(","))
           : await identityQuery.ilike("municipality", municipality);
         if (idErr) {
           console.error(`[${FUNCTION_NAME}] contendibili identity err: ${idErr.message}`);
