@@ -335,23 +335,11 @@ async function scrapeWithApify(
  */
 function selectPortalsForMode(mode: RadarMode): { configs: PortalConfig[]; rotationKey: string } {
   if (mode === "full") return { configs: PORTAL_CONFIGS, rotationKey: "full_all" };
-  const romaHour = Number(
-    new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Europe/Rome" })
-      .format(new Date()),
-  );
-  let allow: Array<NormalizedListing["source"]>;
-  let key: string;
-  if (romaHour >= 8 && romaHour < 14) {
-    allow = ["subito.it", "casa.it"];
-    key = "soft_morning";
-  } else if (romaHour >= 14 && romaHour < 20) {
-    allow = ["immobiliare.it", "idealista.it", "subito.it"];
-    key = "soft_afternoon";
-  } else {
-    allow = ["casa.it", "immobiliare.it"];
-    key = "soft_night";
-  }
-  return { configs: PORTAL_CONFIGS.filter((c) => allow.includes(c.source)), rotationKey: key };
+  // Soft / incremental agent-radar runs use a controlled, single-page pass over
+  // the already configured portals. This keeps spend bounded while avoiding the
+  // old rotation no-op where a normal-budget cron could miss core sources.
+  const allow: Array<NormalizedListing["source"]> = ["casa.it", "immobiliare.it", "subito.it", "idealista.it"];
+  return { configs: PORTAL_CONFIGS.filter((c) => allow.includes(c.source)), rotationKey: "soft_controlled_all" };
 }
 
 export async function scrapeAllPortals(

@@ -29,6 +29,7 @@ import { computePriceResistanceIndex } from "./priceResistance.ts";
 import { buildRadarClusterDossier, generateHook, buildHookContextForMarker, type DossierMarker } from "./clusterDossier.ts";
 import { scrapeRibassiPortali } from "./ribassiPortali.ts";
 import { buildAgentRadar, type AgentRadarRequest } from "./agentRadar.ts";
+import { decideAgentRadarIngestion } from "./agentRadarIngestionPolicy.ts";
 import { computeBudgetState, isRadarMonthlyHardCapReached, ensureCostReport, type RadarRunMeta } from "../_shared/radarBudget.ts";
 import { deriveAllSignals } from "./deriveSignals.ts";
 import { buildVenetoDataEngine } from "./dataEngine.ts";
@@ -2884,26 +2885,39 @@ Deno.serve(async (req) => {
       try {
         // ── Ingestion phase: alimenta listing_price_snapshots + segnali PRIMA di leggere ──
         const intentRaw = String((body as any).intent ?? "").toLowerCase();
-        const shouldIngest = intentRaw === "soft" || intentRaw === "full";
+        const modeRaw = String((body as any).mode ?? "").toLowerCase();
         const comuniList: string[] = Array.isArray((body as any).comuni) && (body as any).comuni.length > 0
-          ? (body as any).comuni
-          : ((body as any).comune ? [(body as any).comune] : []);
+          ? (body as any).comuni.map(String).filter((c) => c.trim().length > 0)
+          : ((body as any).comune ? [String((body as any).comune)] : []);
         const ingestionReport: Array<{ comune: string; opportunities: number; mode: string; skipped?: string; portals?: unknown; rotation?: string }> = [];
-        const ingestionWarnings: string[] = [];
         const aggregateStats = { perPortal: [] as Array<{ source: string; raw: number; reason?: string }>, rotation: undefined as string | undefined };
+        const policy = decideAgentRadarIngestion({
+          intent: (body as any).intent,
+          mode: (body as any).mode,
+          scope: requestedScope || (body as any).scope,
+          triggered_by: radarMeta.triggered_by,
+          comuni: comuniList,
+          budget_mode: budgetState?.budget_mode ?? null,
+          run_budget_eur: budgetState?.run_budget_eur ?? null,
+          hasFirecrawlKey: !!Deno.env.get("FIRECRAWL_API_KEY"),
+        });
+        const ingestionWarnings: string[] = [...policy.warnings];
+        console.log("[agent-radar] request received", JSON.stringify({
+          mode: modeRaw || null,
+          intent: intentRaw || null,
+          scope: requestedScope || (body as any).scope || null,
+          triggered_by: radarMeta.triggered_by ?? null,
+          comuni: comuniList,
+          shouldRunIngestion: policy.shouldRunIngestion,
+          skipReason: policy.skipReason ?? null,
+          budget_mode: budgetState?.budget_mode ?? null,
+          run_budget_eur: budgetState?.run_budget_eur ?? null,
+        }));
 
-        if (!shouldIngest) {
-          ingestionWarnings.push("soft_ingestion_skipped_not_applicable");
-        } else if (comuniList.length === 0) {
-          ingestionWarnings.push("soft_ingestion_skipped_no_comuni");
-        } else if (budgetState?.budget_mode === "capped") {
-          ingestionWarnings.push("soft_ingestion_skipped_budget_capped");
-          ingestionReport.push({ comune: comuniList[0] ?? "—", opportunities: 0, mode: "skipped", skipped: "budget_capped" });
-        } else if (!Deno.env.get("FIRECRAWL_API_KEY")) {
-          ingestionWarnings.push("soft_ingestion_skipped_no_firecrawl_key");
+        if (!policy.shouldRunIngestion) {
+          if (policy.skipReason) ingestionReport.push({ comune: comuniList[0] ?? "—", opportunities: 0, mode: "skipped", skipped: policy.skipReason });
         } else {
-          const ingestMode: "soft" | "full" = intentRaw === "full" ? "full" : "soft";
-          const effectiveMode: "soft" | "full" = budgetState?.budget_mode === "economy" ? "soft" : ingestMode;
+          const effectiveMode: "soft" | "full" = budgetState?.budget_mode === "economy" ? "soft" : policy.ingestionMode;
           for (const c of comuniList.slice(0, 5)) {
             const perCallStats = { perPortal: [] as Array<{ source: string; raw: number; reason?: string }>, rotation: undefined as string | undefined, firecrawl_skipped_reason: undefined as string | undefined };
             try {
@@ -2919,16 +2933,24 @@ Deno.serve(async (req) => {
             }
           }
           const totalRaw = aggregateStats.perPortal.reduce((s, p) => s + p.raw, 0);
+          if (aggregateStats.perPortal.length === 0) ingestionWarnings.push("soft_ingestion_no_provider_calls_attempted");
           if (totalRaw === 0) ingestionWarnings.push("soft_ingestion_zero_results");
           else ingestionWarnings.push(`soft_ingestion_completed_${totalRaw}_listings`);
+          console.log("[agent-radar] ingestion completed", JSON.stringify({
+            sourcesAttempted: aggregateStats.perPortal.map((p) => p.source),
+            providerCallsAttempted: aggregateStats.perPortal.length,
+            rawListingsPerPortal: aggregateStats.perPortal,
+            snapshotsInsertedOrUpdated: totalRaw,
+            warnings: ingestionWarnings,
+          }));
         }
 
         // Adatta i limiti agentRadar a soft/full se Civiko non li passa esplicitamente.
         const enrichedReq: AgentRadarRequest = { ...(body as AgentRadarRequest) };
-        if (intentRaw === "soft") {
+        if (intentRaw === "soft" || modeRaw === "soft" || modeRaw === "incremental") {
           if (enrichedReq.maxOpportunities == null) (enrichedReq as any).maxOpportunities = 30;
           if (enrichedReq.minZoneScore == null) (enrichedReq as any).minZoneScore = 15;
-        } else if (intentRaw === "full") {
+        } else if (intentRaw === "full" || modeRaw === "full") {
           if (enrichedReq.maxOpportunities == null) (enrichedReq as any).maxOpportunities = 60;
           if (enrichedReq.minZoneScore == null) (enrichedReq as any).minZoneScore = 10;
         }
@@ -2945,6 +2967,13 @@ Deno.serve(async (req) => {
           rotation: aggregateStats.rotation,
           comuni_processed: ingestionReport.length,
         };
+        console.log("[agent-radar] cost report", JSON.stringify({
+          budget_mode: (cost_report as any).budget_mode,
+          run_budget_eur: (cost_report as any).run_budget_eur,
+          run_spent_eur: (cost_report as any).run_spent_eur,
+          provider_costs: (cost_report as any).provider_costs,
+          warnings: (cost_report as any).warnings,
+        }));
         return withIdentity(json(req, 200, {
           ...out,
           scopeMode,
