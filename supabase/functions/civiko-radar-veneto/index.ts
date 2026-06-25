@@ -3058,29 +3058,47 @@ Deno.serve(async (req) => {
         // ── Ingestion phase: alimenta listing_price_snapshots + segnali PRIMA di leggere ──
         const intentRaw = String((body as any).intent ?? "").toLowerCase();
         const shouldIngest = intentRaw === "soft" || intentRaw === "full";
+
+        // ── Scope normalizzato: province[] + comuni[] dal body ────────────
+        const provincesRawIn: unknown = (body as any).province;
+        const provincesArrRaw: string[] = Array.isArray(provincesRawIn)
+          ? (provincesRawIn as unknown[]).map(String)
+          : (typeof provincesRawIn === "string" ? [provincesRawIn] : []);
+        if ((body as any).provincia && !provincesArrRaw.includes(String((body as any).provincia))) {
+          provincesArrRaw.push(String((body as any).provincia));
+        }
+        const requestedProvince: string[] = Array.from(new Set(
+          provincesArrRaw.map((p) => normalizeProvincia(p)).filter((p): p is string => !!p)
+        ));
         const comuniList: string[] = Array.isArray((body as any).comuni) && (body as any).comuni.length > 0
-          ? (body as any).comuni
-          : ((body as any).comune ? [(body as any).comune] : []);
+          ? ((body as any).comuni as unknown[]).map((c) => String(c).trim()).filter(Boolean)
+          : ((body as any).comune ? [String((body as any).comune).trim()] : []);
+        const requestedComuni: string[] = Array.from(new Set(comuniList));
+        const requestedComuniLower = new Set(requestedComuni.map((c) => c.toLowerCase()));
+        const requestedProvinceSet = new Set(requestedProvince);
+
         const ingestionReport: Array<{ comune: string; opportunities: number; mode: string; skipped?: string; portals?: unknown; rotation?: string }> = [];
         const ingestionWarnings: string[] = [];
         const aggregateStats = { perPortal: [] as Array<{ source: string; raw: number; reason?: string }>, rotation: undefined as string | undefined };
 
         if (!shouldIngest) {
           ingestionWarnings.push("soft_ingestion_skipped_not_applicable");
-        } else if (comuniList.length === 0) {
+        } else if (requestedComuni.length === 0) {
           ingestionWarnings.push("soft_ingestion_skipped_no_comuni");
         } else if (budgetState?.budget_mode === "capped") {
           ingestionWarnings.push("soft_ingestion_skipped_budget_capped");
-          ingestionReport.push({ comune: comuniList[0] ?? "—", opportunities: 0, mode: "skipped", skipped: "budget_capped" });
+          ingestionReport.push({ comune: requestedComuni[0] ?? "—", opportunities: 0, mode: "skipped", skipped: "budget_capped" });
         } else if (!Deno.env.get("FIRECRAWL_API_KEY")) {
           ingestionWarnings.push("soft_ingestion_skipped_no_firecrawl_key");
         } else {
           const ingestMode: "soft" | "full" = intentRaw === "full" ? "full" : "soft";
           const effectiveMode: "soft" | "full" = budgetState?.budget_mode === "economy" ? "soft" : ingestMode;
-          for (const c of comuniList.slice(0, 5)) {
+          // full = scansiona TUTTI i comuni in scope (fino a 10); soft = primi 5
+          const ingestSlice = effectiveMode === "full" ? requestedComuni.slice(0, 10) : requestedComuni.slice(0, 5);
+          for (const c of ingestSlice) {
             const perCallStats = { perPortal: [] as Array<{ source: string; raw: number; reason?: string }>, rotation: undefined as string | undefined, firecrawl_skipped_reason: undefined as string | undefined };
             try {
-              const opps = await scrapeRibassiPortali(c, null, (body as any).provincia ?? "PD", effectiveMode, radarMeta, perCallStats as any);
+              const opps = await scrapeRibassiPortali(c, null, requestedProvince[0] ?? "PD", effectiveMode, radarMeta, perCallStats as any);
               ingestionReport.push({ comune: c, opportunities: opps.length, mode: effectiveMode, portals: perCallStats.perPortal, rotation: perCallStats.rotation });
               aggregateStats.perPortal.push(...perCallStats.perPortal);
               aggregateStats.rotation = perCallStats.rotation;
@@ -3096,17 +3114,75 @@ Deno.serve(async (req) => {
           else ingestionWarnings.push(`soft_ingestion_completed_${totalRaw}_listings`);
         }
 
-        // Adatta i limiti agentRadar a soft/full se Civiko non li passa esplicitamente.
-        const enrichedReq: AgentRadarRequest = { ...(body as AgentRadarRequest) };
-        if (intentRaw === "soft") {
-          if (enrichedReq.maxOpportunities == null) (enrichedReq as any).maxOpportunities = 30;
-          if (enrichedReq.minZoneScore == null) (enrichedReq as any).minZoneScore = 15;
-        } else if (intentRaw === "full") {
-          if (enrichedReq.maxOpportunities == null) (enrichedReq as any).maxOpportunities = 60;
-          if (enrichedReq.minZoneScore == null) (enrichedReq as any).minZoneScore = 10;
+        // ── Build agentRadar: una chiamata per provincia, NO comune singolo
+        // così buildAgentRadar restituisce tutte le zone della provincia, poi
+        // facciamo post-filter per comune. Headroom alto, slice finale sotto.
+        const userCap = (body as any).maxOpportunities != null
+          ? Number((body as any).maxOpportunities)
+          : (intentRaw === "full" ? 60 : intentRaw === "soft" ? 30 : 30);
+        const userMinScore = (body as any).minZoneScore != null
+          ? Number((body as any).minZoneScore)
+          : (intentRaw === "full" ? 10 : intentRaw === "soft" ? 15 : 15);
+
+        const provincesToQuery = requestedProvince.length > 0 ? requestedProvince : [undefined as unknown as string];
+        const allOpps: any[] = [];
+        const allZones: any[] = [];
+        let outFirst: any = null;
+        for (const prov of provincesToQuery) {
+          const enrichedReq: AgentRadarRequest = {
+            ...(body as AgentRadarRequest),
+            provincia: prov,
+            // Important: NON passare comune singolo se ci sono più comuni
+            // altrimenti buildAgentRadar restringe a 1 solo comune.
+            comune: requestedComuni.length === 1 ? requestedComuni[0] : undefined,
+            maxZones: 60,
+            maxOpportunities: 120, // headroom; slice dopo post-filter
+            minZoneScore: userMinScore,
+          };
+          const partial = await buildAgentRadar(enrichedReq);
+          if (!outFirst) outFirst = partial;
+          allOpps.push(...((partial as any)?.opportunities ?? []));
+          allZones.push(...((partial as any)?.zones ?? []));
         }
 
-        const out = await buildAgentRadar(enrichedReq);
+        // ── Post-filter scope: province + comuni ──────────────────────────
+        const oppsInScope: any[] = [];
+        const zonesInScope: any[] = [];
+        let excludedWrongProvince = 0;
+        let excludedWrongComune = 0;
+        const excludedSamples: Array<{ comune: string; provincia: string; reason: string }> = [];
+        const checkScope = (it: any): "in" | "wrong_province" | "wrong_comune" => {
+          const p = String(it?.provincia ?? "").toUpperCase();
+          const c = String(it?.comune ?? "").trim().toLowerCase();
+          if (requestedProvinceSet.size > 0 && p && !requestedProvinceSet.has(p)) return "wrong_province";
+          if (requestedComuniLower.size > 0 && c && !requestedComuniLower.has(c)) return "wrong_comune";
+          return "in";
+        };
+        for (const o of allOpps) {
+          const r = checkScope(o);
+          if (r === "in") { oppsInScope.push(o); continue; }
+          if (r === "wrong_province") excludedWrongProvince++;
+          else excludedWrongComune++;
+          if (excludedSamples.length < 10) {
+            excludedSamples.push({ comune: String(o?.comune ?? ""), provincia: String(o?.provincia ?? ""), reason: r });
+          }
+        }
+        for (const z of allZones) {
+          if (checkScope(z) === "in") zonesInScope.push(z);
+        }
+
+        // Slice finale al cap dell'utente, dopo post-filter
+        const finalOpps = oppsInScope
+          .sort((a, b) => (Number(b?.score_breakdown?.total ?? 0) || 0) - (Number(a?.score_breakdown?.total ?? 0) || 0))
+          .slice(0, userCap);
+        const finalZones = zonesInScope.slice(0, Math.max(userCap, 30));
+
+        const out = {
+          ...(outFirst ?? {}),
+          zones: finalZones,
+          opportunities: finalOpps,
+        };
+
         let rawReport = budgetState?.cost_report;
         try {
           const post = await computeBudgetState(radarMeta);
@@ -3118,31 +3194,49 @@ Deno.serve(async (req) => {
           rotation: aggregateStats.rotation,
           comuni_processed: ingestionReport.length,
         };
+
         // ── Diagnostica raccolta /agent-radar ─────────────────────────────
-        const opps = (out as any)?.opportunities ?? [];
-        const zones = (out as any)?.zones ?? [];
+        // source_breakdown: deriva da dataBasis[] (mai "unknown" se ci sono basi)
         const sourceBreakdownAR: Record<string, number> = {};
-        for (const o of opps) {
-          const s = o?.source ?? o?.payload?.source ?? "unknown";
-          sourceBreakdownAR[s] = (sourceBreakdownAR[s] ?? 0) + 1;
+        for (const o of finalOpps) {
+          const basis: string[] = Array.isArray(o?.dataBasis) ? o.dataBasis as string[] : [];
+          if (basis.length === 0) {
+            const fallback = (o?.source ?? o?.payload?.source ?? "no_basis") as string;
+            sourceBreakdownAR[fallback] = (sourceBreakdownAR[fallback] ?? 0) + 1;
+          } else {
+            for (const b of basis) sourceBreakdownAR[b] = (sourceBreakdownAR[b] ?? 0) + 1;
+          }
         }
+        const returnedComuni = Array.from(new Set(finalOpps.map((o) => String(o?.comune ?? "")).filter(Boolean))).sort();
+
         let lastSourceRefreshAR: string | null = null;
         try {
           const supaDiag = getServiceClient();
-          if (supaDiag && comuniList.length > 0) {
+          if (supaDiag && requestedComuni.length > 0) {
             const { data: ls } = await supaDiag
               .from("listing_price_snapshots")
               .select("captured_at")
-              .in("municipality", comuniList.map((c) => c.toLowerCase()))
+              .in("municipality", requestedComuni.map((c) => c.toLowerCase()))
               .order("captured_at", { ascending: false })
               .limit(1);
             lastSourceRefreshAR = ls?.[0]?.captured_at ?? null;
           }
         } catch { /* non-fatal */ }
+
         const diagnostics = {
-          total_opportunities: opps.length,
-          total_zones: zones.length,
+          intent: intentRaw || null,
+          requested_province: requestedProvince,
+          requested_comuni: requestedComuni,
+          returned_comuni: returnedComuni,
+          total_opportunities: finalOpps.length,
+          total_zones: finalZones.length,
           source_breakdown: sourceBreakdownAR,
+          excluded_out_of_scope: {
+            total: excludedWrongProvince + excludedWrongComune,
+            wrong_province: excludedWrongProvince,
+            wrong_comune: excludedWrongComune,
+            samples: excludedSamples,
+          },
           ingestion_per_portal: aggregateStats.perPortal,
           ingestion_rotation: aggregateStats.rotation ?? null,
           ingestion_comuni_processed: ingestionReport.length,
