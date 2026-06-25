@@ -641,6 +641,302 @@ export type Database = {
         }
         Relationships: []
       }
+      b2b_companies: {
+        Row: {
+          address: string | null
+          category: string | null
+          comune: string | null
+          country: string | null
+          created_at: string
+          email: string | null
+          fit_reason: string | null
+          id: string
+          identity_hash: string
+          last_seen_at: string | null
+          lat: number | null
+          lng: number | null
+          metadata: Json
+          name: string
+          notes: string | null
+          phone: string | null
+          priority: string | null
+          provincia: string | null
+          regione: string | null
+          score: number | null
+          source_count: number
+          status: string
+          updated_at: string
+          website: string | null
+        }
+        Insert: {
+          address?: string | null
+          category?: string | null
+          comune?: string | null
+          country?: string | null
+          created_at?: string
+          email?: string | null
+          fit_reason?: string | null
+          id?: string
+          identity_hash: string
+          last_seen_at?: string | null
+          lat?: number | null
+          lng?: number | null
+          metadata?: Json
+          name: string
+          notes?: string | null
+          phone?: string | null
+          priority?: string | null
+          provincia?: string | null
+          regione?: string | null
+          score?: number | null
+          source_count?: number
+          status?: string
+          updated_at?: string
+          website?: string | null
+        }
+        Update: {
+          address?: string | null
+          category?: string | null
+          comune?: string | null
+          country?: string | null
+          created_at?: string
+          email?: string | null
+          fit_reason?: string | null
+          id?: string
+          identity_hash?: string
+          last_seen_at?: string | null
+          lat?: number | null
+          lng?: number | null
+          metadata?: Json
+          name?: string
+          notes?: string | null
+          phone?: string | null
+          priority?: string | null
+          provincia?: string | null
+          regione?: string | null
+          score?: number | null
+          source_count?: number
+          status?: string
+          updated_at?: string
+          website?: string | null
+        }
+        Relationships: []
+      }
+      b2b_company_sources: {
+        Row: {
+          company_id: string
+          confidence: number | null
+          created_at: string
+          extracted_summary: string | null
+          fetched_at: string
+          id: string
+          job_id: string | null
+          payload: Json
+          source: string
+          source_ref: string | null
+          source_title: string | null
+          source_url: string | null
+        }
+        Insert: {
+          company_id: string
+          confidence?: number | null
+          created_at?: string
+          extracted_summary?: string | null
+          fetched_at?: string
+          id?: string
+          job_id?: string | null
+          payload?: Json
+          source: string
+          source_ref?: string | null
+          source_title?: string | null
+          source_url?: string | null
+        }
+        Update: {
+          company_id?: string
+          confidence?: number | null
+          created_at?: string
+          extracted_summary?: string | null
+          fetched_at?: string
+          id?: string
+          job_id?: string | null
+          payload?: Json
+          source?: string
+          source_ref?: string | null
+          source_title?: string | null
+          source_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "b2b_company_sources_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "b2b_companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "b2b_company_sources_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "b2b_search_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      b2b_outreach_messages: {
+        Row: {
+          body: string
+          channel: string
+          company_id: string
+          created_at: string
+          generated_at: string
+          id: string
+          job_id: string | null
+          language: string
+          metadata: Json
+          status: string
+          subject: string | null
+          vertical: string
+        }
+        Insert: {
+          body: string
+          channel: string
+          company_id: string
+          created_at?: string
+          generated_at?: string
+          id?: string
+          job_id?: string | null
+          language?: string
+          metadata?: Json
+          status?: string
+          subject?: string | null
+          vertical?: string
+        }
+        Update: {
+          body?: string
+          channel?: string
+          company_id?: string
+          created_at?: string
+          generated_at?: string
+          id?: string
+          job_id?: string | null
+          language?: string
+          metadata?: Json
+          status?: string
+          subject?: string | null
+          vertical?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "b2b_outreach_messages_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "b2b_companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "b2b_outreach_messages_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "b2b_search_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      b2b_search_jobs: {
+        Row: {
+          cost_eur: number
+          counts: Json
+          created_at: string
+          created_by: string | null
+          debug_id: string | null
+          error_message: string | null
+          filters: Json
+          finished_at: string | null
+          id: string
+          mode: string
+          product: string
+          status: string
+          vertical: string
+          zone: Json
+        }
+        Insert: {
+          cost_eur?: number
+          counts?: Json
+          created_at?: string
+          created_by?: string | null
+          debug_id?: string | null
+          error_message?: string | null
+          filters?: Json
+          finished_at?: string | null
+          id?: string
+          mode?: string
+          product?: string
+          status?: string
+          vertical?: string
+          zone?: Json
+        }
+        Update: {
+          cost_eur?: number
+          counts?: Json
+          created_at?: string
+          created_by?: string | null
+          debug_id?: string | null
+          error_message?: string | null
+          filters?: Json
+          finished_at?: string | null
+          id?: string
+          mode?: string
+          product?: string
+          status?: string
+          vertical?: string
+          zone?: Json
+        }
+        Relationships: []
+      }
+      b2b_usage_ledger: {
+        Row: {
+          action: string
+          cost_eur: number
+          created_at: string
+          day: string
+          id: string
+          job_id: string | null
+          metadata: Json
+          provider: string
+          units: number
+        }
+        Insert: {
+          action: string
+          cost_eur?: number
+          created_at?: string
+          day?: string
+          id?: string
+          job_id?: string | null
+          metadata?: Json
+          provider: string
+          units?: number
+        }
+        Update: {
+          action?: string
+          cost_eur?: number
+          created_at?: string
+          day?: string
+          id?: string
+          job_id?: string | null
+          metadata?: Json
+          provider?: string
+          units?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "b2b_usage_ledger_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "b2b_search_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       billing_customers: {
         Row: {
           agency_id: string
