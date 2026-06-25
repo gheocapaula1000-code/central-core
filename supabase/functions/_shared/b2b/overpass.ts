@@ -69,13 +69,17 @@ export async function queryOverpass(
 ): Promise<OverpassPoi[]> {
   const q = buildQuery(bbox);
   let lastErr: unknown = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const url = ENDPOINTS[attempt % ENDPOINTS.length];
+  for (let attempt = 0; attempt < ENDPOINTS.length; attempt++) {
+    const url = ENDPOINTS[attempt];
     try {
       const res = await fetchWithTimeout(url, q, timeoutMs);
       if (!res.ok) {
         await res.text().catch(() => "");
         lastErr = new Error(`overpass http ${res.status}`);
+        // brief backoff on rate-limit / server errors before next endpoint
+        if (res.status === 429 || res.status >= 500) {
+          await new Promise((r) => setTimeout(r, 400));
+        }
         continue;
       }
       const json = await res.json();
@@ -99,7 +103,6 @@ export async function queryOverpass(
         .filter((x): x is OverpassPoi => !!x && !!x.name);
     } catch (e) {
       lastErr = e;
-      // retry once on the alternate endpoint
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error("overpass failed");
