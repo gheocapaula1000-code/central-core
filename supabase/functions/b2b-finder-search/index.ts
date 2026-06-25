@@ -1,10 +1,11 @@
-// b2b-finder-search — Step 3 (dry-run, Overpass-only, no DB writes, no AI).
-// Isolated module. Does not import from civiko-* / core-* / shared globals.
+// b2b-finder-search — Step 4: dry_run=true OR controlled save when dry_run=false.
+// Overpass-only. Service role for DB writes. No AI, no Firecrawl, no Perplexity.
 
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { corsHeaders, handlePreflight, pickOrigin } from "../_shared/b2b/cors.ts";
 import { authorizeB2BFinder } from "../_shared/b2b/auth.ts";
 import { PADOVA_BBOX, queryOverpass } from "../_shared/b2b/overpass.ts";
-import { scoreAndNormalize } from "../_shared/b2b/normalize.ts";
+import { scoreAndNormalize, type NormalizedCompany } from "../_shared/b2b/normalize.ts";
 
 interface SearchInput {
   mode?: string;
@@ -19,6 +20,8 @@ interface SearchInput {
   search_depth?: "quick" | "deep";
   dry_run?: boolean;
 }
+
+const SAVE_MAX_LIMIT = 50;
 
 function newDebugId(): string {
   return "b2bf_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
@@ -45,9 +48,42 @@ function jsonResponse(
       ...corsHeaders(req),
       "Content-Type": "application/json",
       "X-Function": "b2b-finder-search",
-      "X-Contract": "b2b-finder/v0.1",
+      "X-Contract": "b2b-finder/v0.2",
     },
   });
+}
+
+function normalizeForHash(s: string | null | undefined): string {
+  return (s ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const buf = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function computeIdentityHash(c: NormalizedCompany): Promise<string> {
+  const name = normalizeForHash(c.name);
+  const addr = normalizeForHash(c.address);
+  const comune = normalizeForHash(c.city);
+  const prov = normalizeForHash(c.province);
+  let key: string;
+  if (addr.length >= 4) {
+    key = `v1|${name}|${addr}|${comune}|${prov}`;
+  } else {
+    const lat = c.lat != null ? c.lat.toFixed(4) : "na";
+    const lng = c.lng != null ? c.lng.toFixed(4) : "na";
+    key = `v1|${name}|geo:${lat},${lng}|${prov}`;
+  }
+  return await sha256Hex(key);
 }
 
 Deno.serve(async (req: Request) => {
@@ -56,191 +92,361 @@ Deno.serve(async (req: Request) => {
     const preflight = handlePreflight(req);
     if (preflight) return preflight;
 
-    // origin gate (separate from CORS preflight: covers non-browser callers too,
-    // but only if they sent an Origin header). Server-to-server callers without
-    // an Origin header are allowed to pass and rely on auth.
     if (req.headers.get("origin") && !pickOrigin(req)) {
-      return jsonResponse(
-        req,
-        403,
-        envelope(false, null, "Forbidden origin", debug_id),
-      );
+      return jsonResponse(req, 403, envelope(false, null, "Forbidden origin", debug_id));
     }
 
     if (req.method !== "POST") {
-      return jsonResponse(
-        req,
-        405,
-        envelope(false, null, "Method not allowed", debug_id),
-      );
+      return jsonResponse(req, 405, envelope(false, null, "Method not allowed", debug_id));
     }
 
-    // auth
     const auth = authorizeB2BFinder(req);
     if (!auth.ok) {
       console.warn(`[b2b-finder-search] auth rejected debug_id=${debug_id} reason=${auth.reason}`);
-      return jsonResponse(
-        req,
-        401,
-        envelope(false, null, "Unauthorized", debug_id),
-      );
+      return jsonResponse(req, 401, envelope(false, null, "Unauthorized", debug_id));
     }
 
-    // parse body
     let input: SearchInput;
     try {
       const ct = req.headers.get("content-type") ?? "";
       if (!ct.includes("application/json")) {
-        return jsonResponse(
-          req,
-          400,
-          envelope(false, null, "Content-Type must be application/json", debug_id),
-        );
+        return jsonResponse(req, 400, envelope(false, null, "Content-Type must be application/json", debug_id));
       }
       input = await req.json();
     } catch {
-      return jsonResponse(
-        req,
-        400,
-        envelope(false, null, "Invalid JSON body", debug_id),
-      );
+      return jsonResponse(req, 400, envelope(false, null, "Invalid JSON body", debug_id));
     }
 
-    // validation
     const warnings: string[] = [];
     const mode = input.mode ?? "buyers";
-    if (mode !== "buyers" && mode !== "suppliers") {
-      return jsonResponse(
-        req,
-        400,
-        envelope(false, null, "mode must be 'buyers' or 'suppliers'", debug_id),
-      );
-    }
     if (mode !== "buyers") {
-      return jsonResponse(
-        req,
-        400,
-        envelope(false, null, "v1 supports only mode='buyers'", debug_id),
-      );
+      return jsonResponse(req, 400, envelope(false, null, "v1 supports only mode='buyers'", debug_id));
     }
 
-    if (input.dry_run !== true) {
-      return jsonResponse(
-        req,
-        400,
-        envelope(false, null, "Step 3 requires dry_run=true", debug_id),
-      );
-    }
+    // dry_run must be explicit boolean
+    const isDryRun = input.dry_run !== false; // default true; only explicit false triggers save
+    const isSave = input.dry_run === false;
 
     const province = (input.province ?? "PD").toUpperCase();
     if (province !== "PD") {
-      return jsonResponse(
-        req,
-        400,
-        envelope(false, null, "v1 supports only province='PD'", debug_id),
-      );
+      return jsonResponse(req, 400, envelope(false, null, "v1 supports only province='PD'", debug_id));
     }
     const city = input.city ?? "Padova";
     if (city.toLowerCase() !== "padova") {
-      return jsonResponse(
-        req,
-        400,
-        envelope(false, null, "v1 supports only city='Padova'", debug_id),
-      );
+      return jsonResponse(req, 400, envelope(false, null, "v1 supports only city='Padova'", debug_id));
     }
     const region = input.region ?? "Veneto";
 
-    const maxResults = Math.max(
+    const envMax = Math.max(
       1,
       parseInt(Deno.env.get("B2B_FINDER_MAX_RESULTS_PER_JOB") ?? "100", 10) || 100,
     );
     const requested = Math.max(1, Math.floor(input.limit ?? 50));
-    const applied = Math.min(requested, maxResults);
+    const hardCap = isSave ? Math.min(envMax, SAVE_MAX_LIMIT) : envMax;
+    const applied = Math.min(requested, hardCap);
     if (applied < requested) {
-      warnings.push(`limit clamped from ${requested} to ${applied}`);
+      warnings.push(
+        isSave
+          ? `limit clamped from ${requested} to ${applied} (save mode max ${SAVE_MAX_LIMIT})`
+          : `limit clamped from ${requested} to ${applied}`,
+      );
     }
 
     if (input.search_depth && input.search_depth !== "quick") {
-      warnings.push(`search_depth forced to 'quick' in dry-run`);
+      warnings.push(`search_depth forced to 'quick'`);
     }
 
     console.log(
-      `[b2b-finder-search] start debug_id=${debug_id} city=${city} province=${province} requested=${requested} applied=${applied}`,
+      `[b2b-finder-search] start debug_id=${debug_id} dry_run=${isDryRun} city=${city} requested=${requested} applied=${applied}`,
     );
 
-    // Overpass
+    // ── Save-mode bootstrap: service-role client + job row ─────────────────
+    let supabase: ReturnType<typeof createClient> | null = null;
+    let jobId: string | null = null;
+
+    if (isSave) {
+      const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+      const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      if (!SUPABASE_URL || !SERVICE_KEY) {
+        console.error(`[b2b-finder-search] missing env debug_id=${debug_id}`);
+        return jsonResponse(req, 500, envelope(false, null, "Server misconfigured", debug_id, warnings));
+      }
+      supabase = createClient(SUPABASE_URL, SERVICE_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+
+      const jobInsert = {
+        vertical: "coprimacchia_tnt",
+        mode: "buyers",
+        product: input.product ?? "Coprimacchia TNT Colorati",
+        zone: { region, province, city, area_text: input.area_text ?? null },
+        filters: {
+          target_description: input.target_description ?? null,
+          sector: input.sector ?? null,
+          search_depth: input.search_depth ?? "quick",
+          limit_requested: requested,
+          applied_limit: applied,
+        },
+        status: "running",
+        counts: {},
+        debug_id,
+      };
+      const { data: jobRow, error: jobErr } = await supabase
+        .from("b2b_search_jobs")
+        .insert(jobInsert)
+        .select("id")
+        .single();
+      if (jobErr || !jobRow) {
+        console.error(`[b2b-finder-search] job insert failed debug_id=${debug_id} err=${jobErr?.message}`);
+        return jsonResponse(req, 500, envelope(false, null, "Failed to create job", debug_id, warnings));
+      }
+      jobId = jobRow.id as string;
+    }
+
+    // Helper to fail the job (only in save mode) and return error envelope.
+    const failJob = async (status: number, msg: string, extraWarn?: string) => {
+      const ws = extraWarn ? [...warnings, extraWarn] : warnings;
+      if (supabase && jobId) {
+        await supabase
+          .from("b2b_search_jobs")
+          .update({ status: "failed", error_message: msg, finished_at: new Date().toISOString() })
+          .eq("id", jobId);
+      }
+      return jsonResponse(req, status, envelope(false, jobId ? { job_id: jobId } : null, msg, debug_id, ws));
+    };
+
+    // ── Overpass ──────────────────────────────────────────────────────────
     let pois;
     try {
       pois = await queryOverpass(PADOVA_BBOX, 25000);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "overpass error";
       console.error(`[b2b-finder-search] overpass failed debug_id=${debug_id} err=${msg}`);
-      return jsonResponse(
-        req,
-        502,
-        envelope(
-          false,
-          null,
-          "Overpass temporaneamente non disponibile",
-          debug_id,
-          [...warnings, `overpass_cause=${msg}`],
-        ),
-      );
+      return await failJob(502, "Overpass temporaneamente non disponibile", `overpass_cause=${msg}`);
     }
 
-    let normalized;
+    let normalized: NormalizedCompany[];
     try {
       normalized = pois
         .map((p) => scoreAndNormalize(p, { city, province, region }))
-        .filter((x): x is NonNullable<typeof x> => !!x)
+        .filter((x): x is NormalizedCompany => !!x)
         .sort((a, b) => b.score - a.score);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "normalize error";
       console.error(`[b2b-finder-search] normalize failed debug_id=${debug_id} err=${msg}`);
-      return jsonResponse(
-        req,
-        500,
-        envelope(false, null, "Normalization failed", debug_id, warnings),
-      );
+      return await failJob(500, "Normalization failed");
     }
 
     const total = normalized.length;
     const results = normalized.slice(0, applied);
 
-    console.log(
-      `[b2b-finder-search] ok debug_id=${debug_id} total=${total} sample=${results.length}`,
-    );
+    // ── dry-run path: unchanged contract ──────────────────────────────────
+    if (!isSave) {
+      console.log(`[b2b-finder-search] dry_run ok debug_id=${debug_id} total=${total} sample=${results.length}`);
+      return jsonResponse(
+        req,
+        200,
+        envelope(
+          true,
+          {
+            dry_run: true,
+            provider: "overpass",
+            city,
+            province,
+            requested_limit: requested,
+            applied_limit: applied,
+            total_found: total,
+            sample_count: results.length,
+            results,
+          },
+          null,
+          debug_id,
+          warnings,
+        ),
+      );
+    }
 
-    return jsonResponse(
-      req,
-      200,
-      envelope(
-        true,
-        {
-          dry_run: true,
-          provider: "overpass",
-          city,
-          province,
-          requested_limit: requested,
-          applied_limit: applied,
-          total_found: total,
-          sample_count: results.length,
-          results,
-        },
-        null,
-        debug_id,
-        warnings,
-      ),
-    );
+    // ── SAVE path ─────────────────────────────────────────────────────────
+    let savedCount = 0;
+    let high = 0, medium = 0, low = 0;
+    const savedResults: Array<NormalizedCompany & { company_id: string }> = [];
+
+    try {
+      for (const r of results) {
+        const identity_hash = await computeIdentityHash(r);
+        const confidence = Math.max(0, Math.min(1, r.score / 100));
+
+        // Try to find existing
+        const { data: existingRows, error: selErr } = await supabase!
+          .from("b2b_companies")
+          .select("id,status,source_count,notes,priority,score,fit_reason")
+          .eq("identity_hash", identity_hash)
+          .limit(1);
+        if (selErr) throw new Error(`select company: ${selErr.message}`);
+
+        let companyId: string;
+        const existing = existingRows && existingRows.length ? existingRows[0] : null;
+
+        if (!existing) {
+          const ins = {
+            identity_hash,
+            name: r.name,
+            category: r.category,
+            address: r.address,
+            comune: r.city,
+            provincia: r.province,
+            regione: r.region,
+            country: "IT",
+            lat: r.lat,
+            lng: r.lng,
+            phone: r.phone,
+            email: r.email,
+            website: r.website,
+            source_count: 1,
+            last_seen_at: new Date().toISOString(),
+            status: "new",
+            priority: r.priority,
+            score: r.score,
+            fit_reason: r.fit_reason,
+            metadata: {
+              source_ref: r.source_ref,
+              osm_category: r.category,
+            },
+          };
+          const { data: newRow, error: insErr } = await supabase!
+            .from("b2b_companies")
+            .insert(ins)
+            .select("id")
+            .single();
+          if (insErr || !newRow) throw new Error(`insert company: ${insErr?.message}`);
+          companyId = newRow.id as string;
+        } else {
+          companyId = existing.id as string;
+          // Only patch contact fields that are currently missing on existing row.
+          const patch: Record<string, unknown> = {
+            last_seen_at: new Date().toISOString(),
+            source_count: (existing.source_count ?? 0) + 1,
+            priority: r.priority,
+            score: r.score,
+            fit_reason: r.fit_reason,
+          };
+          // Preserve status, notes — never overwrite.
+          // Fill contacts only if missing — fetch full row contact fields
+          const { data: cur } = await supabase!
+            .from("b2b_companies")
+            .select("phone,email,website,address,lat,lng")
+            .eq("id", companyId)
+            .single();
+          if (cur) {
+            if (!cur.phone && r.phone) patch.phone = r.phone;
+            if (!cur.email && r.email) patch.email = r.email;
+            if (!cur.website && r.website) patch.website = r.website;
+            if (!cur.address && r.address) patch.address = r.address;
+            if (cur.lat == null && r.lat != null) patch.lat = r.lat;
+            if (cur.lng == null && r.lng != null) patch.lng = r.lng;
+          }
+          const { error: updErr } = await supabase!
+            .from("b2b_companies")
+            .update(patch)
+            .eq("id", companyId);
+          if (updErr) throw new Error(`update company: ${updErr.message}`);
+        }
+
+        const { error: srcErr } = await supabase!.from("b2b_company_sources").insert({
+          company_id: companyId,
+          job_id: jobId,
+          source: "overpass",
+          source_ref: r.source_ref,
+          source_url: null,
+          source_title: r.name,
+          payload: {
+            name: r.name,
+            category: r.category,
+            address: r.address,
+            city: r.city,
+            province: r.province,
+            phone: r.phone,
+            email: r.email,
+            website: r.website,
+            lat: r.lat,
+            lng: r.lng,
+            priority: r.priority,
+            score: r.score,
+          },
+          extracted_summary: r.fit_reason,
+          confidence,
+        });
+        if (srcErr) throw new Error(`insert source: ${srcErr.message}`);
+
+        savedCount++;
+        if (r.priority === "high") high++;
+        else if (r.priority === "medium") medium++;
+        else low++;
+        savedResults.push({ ...r, company_id: companyId });
+      }
+
+      // Ledger
+      const { error: ledErr } = await supabase!.from("b2b_usage_ledger").insert({
+        provider: "overpass",
+        action: "search",
+        units: results.length,
+        cost_eur: 0,
+        job_id: jobId,
+        metadata: { city, province, limit_requested: requested, applied_limit: applied },
+      });
+      if (ledErr) {
+        warnings.push(`ledger_insert_failed:${ledErr.message}`);
+      }
+
+      // Finalize job
+      const counts = {
+        total_found: total,
+        sample_count: results.length,
+        saved_count: savedCount,
+        high_priority: high,
+        medium_priority: medium,
+        low_priority: low,
+      };
+      await supabase!
+        .from("b2b_search_jobs")
+        .update({ status: "done", counts, finished_at: new Date().toISOString() })
+        .eq("id", jobId!);
+
+      console.log(`[b2b-finder-search] save ok debug_id=${debug_id} job=${jobId} saved=${savedCount}`);
+
+      return jsonResponse(
+        req,
+        200,
+        envelope(
+          true,
+          {
+            dry_run: false,
+            provider: "overpass",
+            job_id: jobId,
+            city,
+            province,
+            requested_limit: requested,
+            applied_limit: applied,
+            total_found: total,
+            sample_count: results.length,
+            saved_count: savedCount,
+            results: savedResults,
+          },
+          null,
+          debug_id,
+          warnings,
+        ),
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "save error";
+      console.error(`[b2b-finder-search] save failed debug_id=${debug_id} err=${msg}`);
+      return await failJob(500, "Save failed", `save_cause=${msg}`);
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : "internal error";
     console.error(`[b2b-finder-search] unhandled debug_id=${debug_id} err=${msg}`);
     try {
-      return jsonResponse(
-        req,
-        500,
-        envelope(false, null, "Internal error", debug_id),
-      );
+      return jsonResponse(req, 500, envelope(false, null, "Internal error", debug_id));
     } catch {
       return new Response(
         JSON.stringify({ ok: false, data: null, warnings: [], debug_id, error: "Internal error" }),
