@@ -560,14 +560,15 @@ Deno.serve(async (req: Request) => {
         results.push(outcome);
 
         // Per-company ledger row (small, controlled)
-        await supabase.from("b2b_usage_ledger").insert({
-          provider: methodUsed === "website_enrichment" ? "direct_fetch" : "skipped",
+        const { error: ledErr } = await supabase.from("b2b_usage_ledger").insert({
+          provider: "other",
           action: "enrich",
           units: 1,
           cost_eur: costEur,
           job_id: jobId,
           metadata: { company_id: c.id, sources: enrichmentPatch.source_urls, method: methodUsed },
         });
+        if (ledErr) warnings.push(`ledger_insert_failed:${ledErr.message}`);
       } catch (e) {
         const msg = e instanceof Error ? e.message : "enrich_error";
         skipped++;
