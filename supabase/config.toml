@@ -183,3 +183,6 @@ verify_jwt = false
 [functions.public-padova-meta-stats]
 verify_jwt = false
 
+
+[functions.cron-radar-padova-nightly]
+verify_jwt = false
