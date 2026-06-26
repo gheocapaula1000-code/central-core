@@ -79,6 +79,20 @@ interface EnrichmentResult {
   cascade_stops: string[];
   conflicts: string[];
   warnings: string[];
+  // v0.5 commercial enrichment
+  priority_label: "Alta" | "Media" | "Bassa";
+  status_suggestion: "Pronto Da Contattare" | "Da Migliorare" | "Escluso";
+  buyer_fit_reason: string | null;
+  exclusion_reason: string | null;
+  business_summary: string | null;
+  product_use_case: string | null;
+  decision_maker_hint: string | null;
+  contact_channel_recommendation: "Telefono" | "Email" | "Sito" | "Visita" | "Da Verificare";
+  call_opener: string | null;
+  whatsapp_or_email_message: string | null;
+  missing_data: string[];
+  verification_checks: string[];
+  public_sources_used: string[];
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
