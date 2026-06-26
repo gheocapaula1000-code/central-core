@@ -133,11 +133,35 @@ Deno.serve(async (req: Request) => {
     if (province !== "PD") {
       return jsonResponse(req, 400, envelope(false, null, "v1 supports only province='PD'", debug_id));
     }
-    const city = input.city ?? "Padova";
-    if (city.toLowerCase() !== "padova") {
-      return jsonResponse(req, 400, envelope(false, null, "v1 supports only city='Padova'", debug_id));
+    const cityInputRaw = (input.city ?? "Padova").toString().trim();
+    const cityKey = cityInputRaw
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/['`]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!PD_COMUNI[cityKey]) {
+      return jsonResponse(
+        req,
+        400,
+        envelope(
+          false,
+          null,
+          `Comune non supportato in v1. Supportati: ${PD_COMUNI_KEYS.map((k) => PD_COMUNI[k].label).join(", ")}`,
+          debug_id,
+        ),
+      );
     }
     const region = input.region ?? "Veneto";
+    const scope = resolveSearchScope({
+      city: cityInputRaw,
+      province,
+      region,
+      zone: input.area_text ?? null,
+    });
+    const city = scope.comune;
+
 
     const envMax = Math.max(
       1,
