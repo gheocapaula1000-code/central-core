@@ -236,7 +236,7 @@ Deno.serve(async (req: Request) => {
       let q = supabase
         .from("b2b_companies")
         .select(
-          "id,name,category,address,comune,provincia,regione,phone,email,website,priority,score,fit_reason,status,notes,last_seen_at",
+          "id,name,category,address,comune,provincia,regione,phone,email,website,priority,score,fit_reason,status,notes,last_seen_at,metadata",
         )
         .in("id", companyIds);
 
