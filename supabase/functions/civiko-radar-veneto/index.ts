@@ -30,6 +30,8 @@ import { buildRadarClusterDossier, generateHook, buildHookContextForMarker, type
 import { scrapeRibassiPortali } from "./ribassiPortali.ts";
 import { buildAgentRadar, normalizeProvincia, type AgentRadarRequest } from "./agentRadar.ts";
 import { computeBudgetState, isRadarMonthlyHardCapReached, ensureCostReport, type RadarRunMeta } from "../_shared/radarBudget.ts";
+import { resolvePadovaOmiBatch, resolvePadovaOmiSync } from "../_shared/padovaOmiResolver.ts";
+import { CIVIKO_PADOVA_SCOPE } from "../_shared/comuneRegistry.ts";
 import { deriveAllSignals } from "./deriveSignals.ts";
 import { buildVenetoDataEngine } from "./dataEngine.ts";
 import { importVenetoAuctions } from "./auctionImport.ts";
