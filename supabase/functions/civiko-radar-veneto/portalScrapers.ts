@@ -189,7 +189,7 @@ async function scrapePortal(
           "User-Agent": pickUA(),
           "Accept-Language": pickLang(),
         },
-        waitFor: 1500,
+        waitFor: FIRECRAWL_WAIT_FOR_MS,
       }),
       signal: ctrl.signal,
     });
