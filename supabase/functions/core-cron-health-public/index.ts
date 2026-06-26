@@ -36,6 +36,9 @@ const CORE_JOBS: CoreJob[] = [
   { jobname: "padova-agencies-soft-1530",   descrizione_leggibile: "Pipeline agenzie — soft 15:30 (Roma)",            schedule_attesa: "30 13 * * *", kind: "daily",    warning_ore: 26,     critico_ore: 30,     source: "cron_catalog" },
   { jobname: "padova-agencies-full-sunday", descrizione_leggibile: "Pipeline agenzie — full settimanale (domenica)",  schedule_attesa: "0 1 * * 0",   kind: "weekly",   warning_ore: 24 * 8, critico_ore: 24 * 9, source: "cron_catalog" },
   { jobname: "padova-agencies-finalize",    descrizione_leggibile: "Pipeline agenzie — finalize (ogni 20 min)",       schedule_attesa: "*/20 * * * *",kind: "frequent", warning_ore: 40 / 60, critico_ore: 1,     source: "cron_catalog" },
+  // ─── Cron radar Padova Central Core (executions_log) ─────────────────────
+  { jobname: "central-core-radar-padova-nightly-full", descrizione_leggibile: "Radar Padova — full notturno (Central Core)", schedule_attesa: "0 3 * * *",   kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
+  { jobname: "central-core-radar-padova-soft",         descrizione_leggibile: "Radar Padova — soft (Central Core)",          schedule_attesa: "0 2 * * *",   kind: "daily", warning_ore: 14, critico_ore: 24, source: "executions_log" },
 ];
 
 // decoder per i pattern usati dai cron Core
