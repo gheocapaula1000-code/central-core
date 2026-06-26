@@ -44,7 +44,12 @@ export interface NormalizedListing {
 }
 
 const FIRECRAWL_URL = "https://api.firecrawl.dev/v2/scrape";
-const SCRAPE_TIMEOUT_MS = 55_000;
+// 90s: città grandi (es. Padova, ~2.500 annunci) richiedono ~40s su casa.it
+// e l'esecuzione in parallelo dei 4 portali può saturare il vecchio 55s.
+const SCRAPE_TIMEOUT_MS = 90_000;
+// waitFor più alto aiuta immobiliare.it/idealista.it/subito.it a renderizzare
+// le card SSR/lazy. Costo aggiuntivo trascurabile (Firecrawl factura per page).
+const FIRECRAWL_WAIT_FOR_MS = 3000;
 const MAX_LISTINGS_PER_PORTAL_SOFT = 25;
 const MAX_LISTINGS_PER_PORTAL_FULL = 60;
 
