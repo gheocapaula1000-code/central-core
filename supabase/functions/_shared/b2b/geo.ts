@@ -108,6 +108,7 @@ export const PD_COMUNI: Record<string, { bbox: Bbox; label: string }> = {
   "vigodarzere": { label: "Vigodarzere", bbox: [45.450, 11.840, 45.490, 11.890] },
   "limena": { label: "Limena", bbox: [45.460, 11.830, 45.500, 11.890] },
   "saonara": { label: "Saonara", bbox: [45.380, 11.965, 45.420, 12.020] },
+  "vigonza": { label: "Vigonza", bbox: [45.395, 11.945, 45.445, 12.015] },
 };
 
 export const PD_COMUNI_KEYS = Object.keys(PD_COMUNI);
