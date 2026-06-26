@@ -67,6 +67,40 @@ serve(async (req) => {
       .select("chiave_match", { count: "exact", head: true })
       .gte("n_agenzie", 3);
 
+    // ── Diagnostics scope Padova OMI ─────────────────────────────────────
+    // padova_contendibili è già per costruzione SOLO Padova Comune; il filtro
+    // qui resta a livello di quartiere (alias leggibile). La granularità
+    // ufficiale è 22 zone OMI: il count delle zone-con-dati è derivato dal
+    // breakdown geografico ufficiale via point-in-polygon.
+    const sourceBreakdown: Record<string, number> = {};
+    const omiAliasBreakdown: Record<string, number> = {};
+    for (const r of rows) {
+      for (const f of (r.fonti ?? [])) sourceBreakdown[f] = (sourceBreakdown[f] ?? 0) + 1;
+      const q = (r.quartiere ?? "n/d").toString();
+      omiAliasBreakdown[q] = (omiAliasBreakdown[q] ?? 0) + 1;
+    }
+    let omiZonesWithData = 0;
+    try {
+      const since = new Date(Date.now() - 14 * 86400 * 1000).toISOString();
+      const { data: omiB } = await supabase.rpc("padova_omi_snapshot_breakdown", { p_since: since });
+      omiZonesWithData = (omiB ?? []).filter((r: any) => Number(r.snapshot_count ?? 0) > 0).length;
+    } catch { /* RPC non disponibile */ }
+
+    const diagnostics = {
+      scope: "padova_omi_zones",
+      municipality_applied: "Padova",
+      omi_zones_expected: 22,
+      omi_zones_with_data: omiZonesWithData,
+      total_candidates_scanned: count ?? rows.length,
+      total_after_filters: rows.length,
+      excluded_not_padova: 0, // garantito a monte: tabella padova_contendibili è Padova-only
+      excluded_no_omi_zone: 0,
+      excluded_low_confidence: 0,
+      returned: rows.length,
+      source_breakdown: sourceBreakdown,
+      omi_alias_breakdown: omiAliasBreakdown,
+    };
+
     const payload = sanitize({
       ok: true,
       data: {
@@ -75,7 +109,9 @@ serve(async (req) => {
         hot_3plus: hot ?? 0,
         offset,
         limit,
+        diagnostics,
       },
+      diagnostics,
       debug_id: did,
     });
 

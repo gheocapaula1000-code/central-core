@@ -149,26 +149,54 @@ Deno.serve(async (req) => {
     const agencyCostUsd7d = (agencyRuns ?? []).reduce((s, r: any) => s + (Number(r.cost_usd) || 0), 0);
 
     // ─── Delta snapshot Padova (per classificazione SANO/PARZIALE/ESEGUITO_SENZA_DATI) ───
-    // Lista territoriale unificata Central Core (7 comuni PD autorizzati).
-    // Limena e Vigodarzere rimossi: NON sono target dei radar Padova.
-    const PADOVA_COMUNI = ["Padova","Rubano","Albignasego","Cadoneghe","Selvazzano Dentro","Ponte San Nicolò","Abano Terme"];
+    // Scope vendibile Civiko One: SOLO Padova Comune, 22 zone OMI ufficiali.
+    // I 7 comuni precedenti sono stati dismessi: nessun comune limitrofo.
+    const PADOVA_COMUNI = ["Padova"];
+    const OMI_ZONES_EXPECTED = 22;
     const sinceFull = new Date(Date.now() - 26 * 3_600_000).toISOString();
     const sinceSoft = new Date(Date.now() - 14 * 3_600_000).toISOString();
     const fullDelta = new Map<string, number>();
     const softDelta = new Map<string, number>();
+    const sourceDeltaFull: Record<string, number> = {};
+    const sourceDeltaSoft: Record<string, number> = {};
     {
       const { data: rowsFull } = await sb
         .from("listing_price_snapshots")
-        .select("municipality, created_at")
-        .in("municipality", PADOVA_COMUNI)
+        .select("municipality, source, created_at")
+        .ilike("municipality", "padova")
         .gte("created_at", sinceFull);
       for (const r of rowsFull ?? []) {
-        fullDelta.set(r.municipality, (fullDelta.get(r.municipality) ?? 0) + 1);
+        const m = String(r.municipality ?? "");
+        fullDelta.set(m, (fullDelta.get(m) ?? 0) + 1);
+        const src = String(r.source ?? "unknown");
+        sourceDeltaFull[src] = (sourceDeltaFull[src] ?? 0) + 1;
         if (new Date(r.created_at).getTime() >= new Date(sinceSoft).getTime()) {
-          softDelta.set(r.municipality, (softDelta.get(r.municipality) ?? 0) + 1);
+          softDelta.set(m, (softDelta.get(m) ?? 0) + 1);
+          sourceDeltaSoft[src] = (sourceDeltaSoft[src] ?? 0) + 1;
         }
       }
     }
+
+    // Breakdown per zona OMI ufficiale (point-in-polygon su omi_zone_geometry).
+    let omiBreakdownFull: Array<{ omi_zone_code: string; fascia: string; zona_descr: string; snapshot_count: number }> = [];
+    let omiBreakdownSoft: typeof omiBreakdownFull = [];
+    let omiZonesWithDataFull = 0;
+    let omiZonesWithDataSoft = 0;
+    try {
+      const { data: bF } = await sb.rpc("padova_omi_snapshot_breakdown", { p_since: sinceFull });
+      omiBreakdownFull = (bF ?? []).map((r: any) => ({
+        omi_zone_code: r.omi_zone_code, fascia: r.fascia, zona_descr: r.zona_descr,
+        snapshot_count: Number(r.snapshot_count ?? 0),
+      }));
+      omiZonesWithDataFull = omiBreakdownFull.filter((r) => r.snapshot_count > 0).length;
+      const { data: bS } = await sb.rpc("padova_omi_snapshot_breakdown", { p_since: sinceSoft });
+      omiBreakdownSoft = (bS ?? []).map((r: any) => ({
+        omi_zone_code: r.omi_zone_code, fascia: r.fascia, zona_descr: r.zona_descr,
+        snapshot_count: Number(r.snapshot_count ?? 0),
+      }));
+      omiZonesWithDataSoft = omiBreakdownSoft.filter((r) => r.snapshot_count > 0).length;
+    } catch (_e) { /* RPC non disponibile: lascia array vuoti */ }
+
 
     const nowMs = Date.now();
     const STUCK_MINUTES = 30;
@@ -241,26 +269,24 @@ Deno.serve(async (req) => {
         case "central-core-radar-padova-soft": {
           const isSoft = j.jobname === "central-core-radar-padova-soft";
           const deltaMap = isSoft ? softDelta : fullDelta;
-          const perComune: Record<string, number> = {};
-          let totalDelta = 0;
-          let comuniConDati = 0;
-          for (const c of PADOVA_COMUNI) {
-            const n = deltaMap.get(c) ?? 0;
-            perComune[c] = n;
-            totalDelta += n;
-            if (n > 0) comuniConDati++;
-          }
+          const totalDelta = (deltaMap.get("Padova") ?? 0) + (deltaMap.get("padova") ?? 0);
+          const omiZonesWithData = isSoft ? omiZonesWithDataSoft : omiZonesWithDataFull;
+          const omiBreakdown = isSoft ? omiBreakdownSoft : omiBreakdownFull;
+          const sourceBreakdown = isSoft ? sourceDeltaSoft : sourceDeltaFull;
           ultimi7gg = {
+            scope: "padova_omi_zones",
+            municipality: "Padova",
             finestra_ore: isSoft ? 14 : 26,
             snapshot_totali: totalDelta,
-            comuni_con_dati: comuniConDati,
-            comuni_totali: PADOVA_COMUNI.length,
-            snapshot_per_comune: perComune,
+            omi_zones_expected: OMI_ZONES_EXPECTED,
+            omi_zones_with_data: omiZonesWithData,
+            snapshot_per_source: sourceBreakdown,
+            snapshot_per_omi_zone: omiBreakdown,
           };
           // Override stato in base al delta dati reale (solo se base non è già ERRORE/CRITICO)
           if (stato === "SANO" || stato === "WARNING") {
             if (totalDelta === 0) stato = "ESEGUITO_SENZA_DATI";
-            else if (comuniConDati < PADOVA_COMUNI.length) stato = "PARZIALE";
+            else if (omiZonesWithData < Math.ceil(OMI_ZONES_EXPECTED / 2)) stato = "PARZIALE";
           }
           break;
         }
@@ -314,6 +340,15 @@ Deno.serve(async (req) => {
       JSON.stringify({
         ok: true,
         generato_il: new Date().toISOString(),
+        scope: {
+          name: "padova_omi_zones",
+          municipality: "Padova",
+          comuni: ["Padova"],
+          province: ["PD"],
+          omi_zones_expected: OMI_ZONES_EXPECTED,
+          omi_zones_with_data_soft_14h: omiZonesWithDataSoft,
+          omi_zones_with_data_full_26h: omiZonesWithDataFull,
+        },
         totale_cron_monitorati: jobs.length,
         soglie_per_tipo: {
           daily: { warning_ore: 26, critico_ore: "26-36" },
