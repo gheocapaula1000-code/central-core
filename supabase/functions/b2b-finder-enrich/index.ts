@@ -458,6 +458,15 @@ interface OpenAIConsolidated {
   buyer_fit_score: number;
   fit_reason: string | null;
   next_best_action: string | null;
+  // v0.5 commercial
+  buyer_fit_reason: string | null;
+  exclusion_reason: string | null;
+  business_summary: string | null;
+  product_use_case: string | null;
+  decision_maker_hint: string | null;
+  call_opener: string | null;
+  whatsapp_or_email_message: string | null;
+  verification_checks: string[] | null;
 }
 
 async function openaiConsolidate(payload: Record<string, unknown>): Promise<OpenAIConsolidated | null> {
@@ -477,8 +486,21 @@ async function openaiConsolidate(payload: Record<string, unknown>): Promise<Open
         buyer_fit_score: { type: "number" },
         fit_reason: { type: ["string", "null"] },
         next_best_action: { type: ["string", "null"] },
+        buyer_fit_reason: { type: ["string", "null"] },
+        exclusion_reason: { type: ["string", "null"] },
+        business_summary: { type: ["string", "null"] },
+        product_use_case: { type: ["string", "null"] },
+        decision_maker_hint: { type: ["string", "null"] },
+        call_opener: { type: ["string", "null"] },
+        whatsapp_or_email_message: { type: ["string", "null"] },
+        verification_checks: { type: ["array", "null"], items: { type: "string" } },
       },
-      required: ["official_website","phone","email","address","refined_category","estimated_business_size","buyer_fit_score","fit_reason","next_best_action"],
+      required: [
+        "official_website","phone","email","address","refined_category","estimated_business_size",
+        "buyer_fit_score","fit_reason","next_best_action",
+        "buyer_fit_reason","exclusion_reason","business_summary","product_use_case",
+        "decision_maker_hint","call_opener","whatsapp_or_email_message","verification_checks",
+      ],
     };
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 25000);
@@ -488,7 +510,24 @@ async function openaiConsolidate(payload: Record<string, unknown>): Promise<Open
       body: JSON.stringify({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: "Sei un consolidatore dati B2B. Non inventare nulla. Se un dato non è verificato dalle fonti fornite, metti null. Per il prodotto 'Coprimacchia TNT' (tovagliette monouso TNT per ristorazione), valuta buyer_fit_score 0-100." },
+          { role: "system", content:
+            "Sei un consolidatore dati B2B per agenti commerciali italiani. " +
+            "REGOLE TASSATIVE: " +
+            "1) Non inventare MAI telefoni, email, siti, indirizzi o dati non presenti nelle fonti fornite: se non certo, metti null. " +
+            "2) Tutti i testi in italiano, tono professionale, mai spam, mai aggressivo, mai usare le parole 'AI', 'IA', 'Intelligenza Artificiale'. " +
+            "3) Il prodotto in vendita è 'Coprimacchia TNT Colorati 100x100 cm' (tovagliette monouso in tessuto non tessuto per coperti ristorazione, mense, sagre, agriturismi, trattorie, pizzerie, self service). " +
+            "4) buyer_fit_score 0-100: alto solo se l'attività usa realmente coperti monouso o ha alto turnover di tavoli (trattorie con pranzi di lavoro, mense, self service, agriturismi, pizzerie con coperti, sagre/eventi). Basso per bar/cafe puri senza ristorazione, gastronomie da asporto puro, panetterie, istituzionali con appalti chiusi. " +
+            "5) buyer_fit_reason: 1-2 frasi concrete sul perché può comprare quel prodotto (es. 'Trattoria con pranzo di lavoro: alto consumo di coperti monouso'). Vietate frasi generiche tipo 'azienda interessante'. " +
+            "6) exclusion_reason: compila SOLO se va escluso o messo in bassa priorità, con motivo concreto. Altrimenti null. " +
+            "7) business_summary: max 200 caratteri, cosa sembra fare l'attività. " +
+            "8) product_use_case: come potrebbero usare il Coprimacchia TNT 100x100 (es. 'Copertura tavoli pranzo a turni veloci'). " +
+            "9) decision_maker_hint: chi probabilmente decide l'acquisto (es. 'Titolare', 'Responsabile sala', 'Chef-patron'). " +
+            "10) call_opener: una frase pronta in italiano per aprire la telefonata, max 180 caratteri, mai pressing. " +
+            "11) whatsapp_or_email_message: messaggio breve (max 350 caratteri), professionale, non spam, senza emoji eccessive, senza maiuscole urlate. " +
+            "12) verification_checks: 2-4 cose concrete da verificare prima del contatto (es. 'Confermare numero coperti medi', 'Verificare se usano già monouso'). " +
+            "13) next_best_action: azione operativa breve in italiano (es. 'Chiamata al titolare in mattinata'). Per aziende escluse usare 'Non contattare' o simili soft. " +
+            "14) Se l'attività è una mensa istituzionale (scuola, ospedale, caserma) o un appalto pubblico, escludila con exclusion_reason chiaro e buyer_fit_score molto basso."
+          },
           { role: "user", content: JSON.stringify(payload) },
         ],
         response_format: { type: "json_schema", json_schema: { name: "b2b_consolidation", strict: true, schema } },
