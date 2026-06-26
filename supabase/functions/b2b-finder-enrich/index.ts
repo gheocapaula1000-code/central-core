@@ -79,6 +79,20 @@ interface EnrichmentResult {
   cascade_stops: string[];
   conflicts: string[];
   warnings: string[];
+  // v0.5 commercial enrichment
+  priority_label: "Alta" | "Media" | "Bassa";
+  status_suggestion: "Pronto Da Contattare" | "Da Migliorare" | "Escluso";
+  buyer_fit_reason: string | null;
+  exclusion_reason: string | null;
+  business_summary: string | null;
+  product_use_case: string | null;
+  decision_maker_hint: string | null;
+  contact_channel_recommendation: "Telefono" | "Email" | "Sito" | "Visita" | "Da Verificare";
+  call_opener: string | null;
+  whatsapp_or_email_message: string | null;
+  missing_data: string[];
+  verification_checks: string[];
+  public_sources_used: string[];
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -444,6 +458,15 @@ interface OpenAIConsolidated {
   buyer_fit_score: number;
   fit_reason: string | null;
   next_best_action: string | null;
+  // v0.5 commercial
+  buyer_fit_reason: string | null;
+  exclusion_reason: string | null;
+  business_summary: string | null;
+  product_use_case: string | null;
+  decision_maker_hint: string | null;
+  call_opener: string | null;
+  whatsapp_or_email_message: string | null;
+  verification_checks: string[] | null;
 }
 
 async function openaiConsolidate(payload: Record<string, unknown>): Promise<OpenAIConsolidated | null> {
@@ -463,8 +486,21 @@ async function openaiConsolidate(payload: Record<string, unknown>): Promise<Open
         buyer_fit_score: { type: "number" },
         fit_reason: { type: ["string", "null"] },
         next_best_action: { type: ["string", "null"] },
+        buyer_fit_reason: { type: ["string", "null"] },
+        exclusion_reason: { type: ["string", "null"] },
+        business_summary: { type: ["string", "null"] },
+        product_use_case: { type: ["string", "null"] },
+        decision_maker_hint: { type: ["string", "null"] },
+        call_opener: { type: ["string", "null"] },
+        whatsapp_or_email_message: { type: ["string", "null"] },
+        verification_checks: { type: ["array", "null"], items: { type: "string" } },
       },
-      required: ["official_website","phone","email","address","refined_category","estimated_business_size","buyer_fit_score","fit_reason","next_best_action"],
+      required: [
+        "official_website","phone","email","address","refined_category","estimated_business_size",
+        "buyer_fit_score","fit_reason","next_best_action",
+        "buyer_fit_reason","exclusion_reason","business_summary","product_use_case",
+        "decision_maker_hint","call_opener","whatsapp_or_email_message","verification_checks",
+      ],
     };
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 25000);
@@ -474,7 +510,24 @@ async function openaiConsolidate(payload: Record<string, unknown>): Promise<Open
       body: JSON.stringify({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: "Sei un consolidatore dati B2B. Non inventare nulla. Se un dato non è verificato dalle fonti fornite, metti null. Per il prodotto 'Coprimacchia TNT' (tovagliette monouso TNT per ristorazione), valuta buyer_fit_score 0-100." },
+          { role: "system", content:
+            "Sei un consolidatore dati B2B per agenti commerciali italiani. " +
+            "REGOLE TASSATIVE: " +
+            "1) Non inventare MAI telefoni, email, siti, indirizzi o dati non presenti nelle fonti fornite: se non certo, metti null. " +
+            "2) Tutti i testi in italiano, tono professionale, mai spam, mai aggressivo, mai usare le parole 'AI', 'IA', 'Intelligenza Artificiale'. " +
+            "3) Il prodotto in vendita è 'Coprimacchia TNT Colorati 100x100 cm' (tovagliette monouso in tessuto non tessuto per coperti ristorazione, mense, sagre, agriturismi, trattorie, pizzerie, self service). " +
+            "4) buyer_fit_score 0-100: alto solo se l'attività usa realmente coperti monouso o ha alto turnover di tavoli (trattorie con pranzi di lavoro, mense, self service, agriturismi, pizzerie con coperti, sagre/eventi). Basso per bar/cafe puri senza ristorazione, gastronomie da asporto puro, panetterie, istituzionali con appalti chiusi. " +
+            "5) buyer_fit_reason: 1-2 frasi concrete sul perché può comprare quel prodotto (es. 'Trattoria con pranzo di lavoro: alto consumo di coperti monouso'). Vietate frasi generiche tipo 'azienda interessante'. " +
+            "6) exclusion_reason: compila SOLO se va escluso o messo in bassa priorità, con motivo concreto. Altrimenti null. " +
+            "7) business_summary: max 200 caratteri, cosa sembra fare l'attività. " +
+            "8) product_use_case: come potrebbero usare il Coprimacchia TNT 100x100 (es. 'Copertura tavoli pranzo a turni veloci'). " +
+            "9) decision_maker_hint: chi probabilmente decide l'acquisto (es. 'Titolare', 'Responsabile sala', 'Chef-patron'). " +
+            "10) call_opener: una frase pronta in italiano per aprire la telefonata, max 180 caratteri, mai pressing. " +
+            "11) whatsapp_or_email_message: messaggio breve (max 350 caratteri), professionale, non spam, senza emoji eccessive, senza maiuscole urlate. " +
+            "12) verification_checks: 2-4 cose concrete da verificare prima del contatto (es. 'Confermare numero coperti medi', 'Verificare se usano già monouso'). " +
+            "13) next_best_action: azione operativa breve in italiano (es. 'Chiamata al titolare in mattinata'). Per aziende escluse usare 'Non contattare' o simili soft. " +
+            "14) Se l'attività è una mensa istituzionale (scuola, ospedale, caserma) o un appalto pubblico, escludila con exclusion_reason chiaro e buyer_fit_score molto basso."
+          },
           { role: "user", content: JSON.stringify(payload) },
         ],
         response_format: { type: "json_schema", json_schema: { name: "b2b_consolidation", strict: true, schema } },
@@ -751,21 +804,94 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   buyer_fit_score = Math.max(0, Math.min(100, Math.round(buyer_fit_score)));
 
   const severeConflict = conflicts.includes("website_domain_mismatch");
-  const ready_to_contact = (!!finalPhone || !!finalEmail) && buyer_fit_score >= 70 && !severeConflict;
 
-  let next_best_action = consolidated?.next_best_action ?? null;
-  if (!next_best_action) {
-    if (ready_to_contact) next_best_action = finalPhone ? "Chiamata commerciale" : "Email di presentazione";
-    else if (!finalPhone && !finalEmail) next_best_action = "Ricerca contatti aggiuntiva";
-    else if (buyer_fit_score < 70) next_best_action = "Qualifica fit prima del contatto";
-    else next_best_action = "Verifica dati prima del contatto";
+  // v0.5: stricter but more inclusive readiness — spec: fit>=60, contact>=50, no severe conflict, no strong exclusion signal
+  const exclusion_reason = consolidated?.exclusion_reason && consolidated.exclusion_reason.trim()
+    ? consolidated.exclusion_reason.trim()
+    : null;
+  const hasStrongExclusion = !!exclusion_reason || buyer_fit_score < 30;
+
+  const ready_to_contact =
+    buyer_fit_score >= 60 &&
+    contactability_score >= 50 &&
+    !severeConflict &&
+    !hasStrongExclusion;
+
+  // Status suggestion
+  let status_suggestion: "Pronto Da Contattare" | "Da Migliorare" | "Escluso";
+  if (hasStrongExclusion || severeConflict) status_suggestion = "Escluso";
+  else if (ready_to_contact && data_completeness_score >= 60) status_suggestion = "Pronto Da Contattare";
+  else if (buyer_fit_score >= 50) status_suggestion = "Da Migliorare";
+  else status_suggestion = "Escluso";
+
+  // Priority label (commercial)
+  let priority_label: "Alta" | "Media" | "Bassa";
+  if (status_suggestion === "Pronto Da Contattare" && buyer_fit_score >= 75) priority_label = "Alta";
+  else if (status_suggestion === "Pronto Da Contattare" || (buyer_fit_score >= 60 && contactability_score >= 40)) priority_label = "Media";
+  else priority_label = "Bassa";
+
+  // Contact channel recommendation
+  let contact_channel_recommendation: "Telefono" | "Email" | "Sito" | "Visita" | "Da Verificare";
+  if (status_suggestion === "Escluso") contact_channel_recommendation = "Da Verificare";
+  else if (finalPhone) contact_channel_recommendation = "Telefono";
+  else if (finalEmail) contact_channel_recommendation = "Email";
+  else if (finalWebsite) contact_channel_recommendation = "Sito";
+  else if (finalAddress) contact_channel_recommendation = "Visita";
+  else contact_channel_recommendation = "Da Verificare";
+
+  // Missing data (concrete and actionable, in italian)
+  const missing_data: string[] = [];
+  if (!finalPhone) missing_data.push("Telefono");
+  if (!finalEmail) missing_data.push("Email");
+  if (!finalWebsite) missing_data.push("Sito web");
+  if (!finalAddress) missing_data.push("Indirizzo");
+  if (!consolidated?.decision_maker_hint) missing_data.push("Nome referente");
+  if (!consolidated?.business_summary) missing_data.push("Descrizione attività");
+
+  // Verification checks: prefer GPT's list, ensure 2-4 items
+  let verification_checks: string[] = Array.isArray(consolidated?.verification_checks)
+    ? consolidated!.verification_checks!.filter((s) => typeof s === "string" && s.trim()).slice(0, 4)
+    : [];
+  if (verification_checks.length < 2) {
+    const fallback = [
+      "Confermare numero coperti medi al giorno",
+      "Verificare se usano già tovagliato monouso",
+      "Verificare orari di apertura e turni pranzo",
+      "Confermare nome del titolare o responsabile acquisti",
+    ];
+    for (const f of fallback) {
+      if (verification_checks.length >= 3) break;
+      if (!verification_checks.includes(f)) verification_checks.push(f);
+    }
   }
+
+  // next_best_action: never aggressive for excluded
+  let next_best_action = consolidated?.next_best_action ?? null;
+  if (status_suggestion === "Escluso") {
+    next_best_action = "Non contattare: bassa coerenza con il prodotto";
+  } else if (!next_best_action) {
+    if (ready_to_contact) next_best_action = finalPhone ? "Chiamata commerciale al titolare" : "Email di presentazione mirata";
+    else if (!finalPhone && !finalEmail) next_best_action = "Recuperare un canale di contatto prima di procedere";
+    else if (buyer_fit_score < 60) next_best_action = "Qualificare il fit prima del contatto";
+    else next_best_action = "Verificare dati mancanti prima del contatto";
+  }
+
+  // Suppress commercial copy for excluded leads
+  const excluded = status_suggestion === "Escluso";
+  const call_opener = excluded ? null : (consolidated?.call_opener ?? null);
+  const whatsapp_or_email_message = excluded ? null : (consolidated?.whatsapp_or_email_message ?? null);
+
+  // Public sources (deduped, http only)
+  const public_sources_used = uniq(sourceUrls.filter((u) => /^https?:\/\//i.test(u))).slice(0, 8);
+
+  // Confidence percentage for UI (0-100)
+  const confidencePct = Math.round(overallConf * 100);
 
   const result: EnrichmentResult = {
     enriched_at: new Date().toISOString(),
     providers_used: uniq(providers),
     total_cost_eur: Number(cost.toFixed(5)),
-    confidence: overallConf,
+    confidence: confidencePct,
     field_confidence: fieldConfidence,
     official_website: finalWebsite,
     contact_page: contactPage,
@@ -786,6 +912,20 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     cascade_stops: stops,
     conflicts,
     warnings,
+    // v0.5 commercial
+    priority_label,
+    status_suggestion,
+    buyer_fit_reason: consolidated?.buyer_fit_reason ?? null,
+    exclusion_reason,
+    business_summary: consolidated?.business_summary ?? null,
+    product_use_case: consolidated?.product_use_case ?? null,
+    decision_maker_hint: consolidated?.decision_maker_hint ?? null,
+    contact_channel_recommendation,
+    call_opener,
+    whatsapp_or_email_message,
+    missing_data,
+    verification_checks,
+    public_sources_used,
   };
   return { result, providers: uniq(providers), cost };
 }
