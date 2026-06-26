@@ -286,6 +286,10 @@ Deno.serve(async (req: Request) => {
           contactability_score: (enrichment.contactability_score as number | null | undefined) ?? null,
           data_completeness_score: (enrichment.data_completeness_score as number | null | undefined) ?? null,
           next_best_action: (enrichment.next_best_action as string | null | undefined) ?? null,
+          // v0.5 commercial top-level mirrors (PWA can use these without opening enrichment)
+          priority_label: (enrichment.priority_label as string | null | undefined) ?? null,
+          status_suggestion: (enrichment.status_suggestion as string | null | undefined) ?? null,
+          contact_channel_recommendation: (enrichment.contact_channel_recommendation as string | null | undefined) ?? null,
           enrichment: {
             category_refined:
               (enrichment.category_refined as string | null | undefined) ??
@@ -301,9 +305,30 @@ Deno.serve(async (req: Request) => {
               null,
             sources_consulted:
               (enrichment.sources_consulted as unknown[] | undefined) ??
+              (enrichment.public_sources_used as unknown[] | undefined) ??
               (enrichment.source_urls as unknown[] | undefined) ??
               (enrichment.providers_used as unknown[] | undefined) ??
               [],
+            // v0.5 commercial fields (additive; legacy clients ignore unknown keys)
+            priority_label: (enrichment.priority_label as string | null | undefined) ?? null,
+            status_suggestion: (enrichment.status_suggestion as string | null | undefined) ?? null,
+            buyer_fit_reason: (enrichment.buyer_fit_reason as string | null | undefined) ?? null,
+            exclusion_reason: (enrichment.exclusion_reason as string | null | undefined) ?? null,
+            business_summary: (enrichment.business_summary as string | null | undefined) ?? null,
+            product_use_case: (enrichment.product_use_case as string | null | undefined) ?? null,
+            decision_maker_hint: (enrichment.decision_maker_hint as string | null | undefined) ?? null,
+            contact_channel_recommendation: (enrichment.contact_channel_recommendation as string | null | undefined) ?? null,
+            call_opener: (enrichment.call_opener as string | null | undefined) ?? null,
+            whatsapp_or_email_message: (enrichment.whatsapp_or_email_message as string | null | undefined) ?? null,
+            missing_data: (enrichment.missing_data as unknown[] | undefined) ?? [],
+            verification_checks: (enrichment.verification_checks as unknown[] | undefined) ?? [],
+            public_sources_used: (enrichment.public_sources_used as unknown[] | undefined) ?? [],
+            confidence: (enrichment.confidence as number | null | undefined) ?? null,
+            ready_to_contact: (enrichment.ready_to_contact as boolean | undefined) ?? false,
+            buyer_fit_score: (enrichment.buyer_fit_score as number | null | undefined) ?? null,
+            contactability_score: (enrichment.contactability_score as number | null | undefined) ?? null,
+            data_completeness_score: (enrichment.data_completeness_score as number | null | undefined) ?? null,
+            next_best_action: (enrichment.next_best_action as string | null | undefined) ?? null,
           },
         };
       });
