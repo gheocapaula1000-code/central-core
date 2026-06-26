@@ -9,7 +9,8 @@
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
-const JOB_NAME = "central-core-radar-padova-nightly-full";
+const JOB_NAME_FULL = "central-core-radar-padova-nightly-full";
+const JOB_NAME_SOFT = "central-core-radar-padova-soft";
 
 const COMUNI = [
   "Padova",
