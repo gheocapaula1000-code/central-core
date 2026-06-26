@@ -40,6 +40,7 @@ interface CompanyRow {
   phone: string | null;
   email: string | null;
   address: string | null;
+  comune: string | null;
   fit_reason: string | null;
   status: string | null;
   metadata: Record<string, unknown> | null;
