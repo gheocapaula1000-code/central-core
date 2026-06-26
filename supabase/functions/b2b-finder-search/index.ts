@@ -242,18 +242,29 @@ Deno.serve(async (req: Request) => {
     };
 
     // ── Overpass ──────────────────────────────────────────────────────────
+    console.log(
+      `[b2b-finder-search] scope debug_id=${debug_id} comune=${scope.comune} bbox=${JSON.stringify(scope.bbox)} geocode="${scope.geocode_query}"`,
+    );
     let pois;
     try {
-      pois = await queryOverpass(PADOVA_BBOX, 25000);
+      pois = await queryOverpass(scope.bbox, 25000);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "overpass error";
       console.error(`[b2b-finder-search] overpass failed debug_id=${debug_id} err=${msg}`);
       return await failJob(502, "Overpass temporaneamente non disponibile", `overpass_cause=${msg}`);
     }
 
+    const rawCount = pois.length;
+    let filteredOutOfZone = 0;
+    const inScope = pois.filter((p) => {
+      const v = isPoiInScope(p, scope);
+      if (!v.ok) filteredOutOfZone++;
+      return v.ok;
+    });
+
     let normalized: NormalizedCompany[];
     try {
-      normalized = pois
+      normalized = inScope
         .map((p) => scoreAndNormalize(p, { city, province, region }))
         .filter((x): x is NormalizedCompany => !!x)
         .sort((a, b) => b.score - a.score);
@@ -265,6 +276,14 @@ Deno.serve(async (req: Request) => {
 
     const total = normalized.length;
     const results = normalized.slice(0, applied);
+
+    if (total === 0) {
+      warnings.push("no_results_for_city");
+    }
+    console.log(
+      `[b2b-finder-search] overpass ok debug_id=${debug_id} raw=${rawCount} out_of_zone=${filteredOutOfZone} normalized=${total}`,
+    );
+
 
     // ── dry-run path: unchanged contract ──────────────────────────────────
     if (!isSave) {
