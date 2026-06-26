@@ -30,6 +30,8 @@ import { buildRadarClusterDossier, generateHook, buildHookContextForMarker, type
 import { scrapeRibassiPortali } from "./ribassiPortali.ts";
 import { buildAgentRadar, normalizeProvincia, type AgentRadarRequest } from "./agentRadar.ts";
 import { computeBudgetState, isRadarMonthlyHardCapReached, ensureCostReport, type RadarRunMeta } from "../_shared/radarBudget.ts";
+import { resolvePadovaOmiBatch, resolvePadovaOmiSync } from "../_shared/padovaOmiResolver.ts";
+import { CIVIKO_PADOVA_SCOPE } from "../_shared/comuneRegistry.ts";
 import { deriveAllSignals } from "./deriveSignals.ts";
 import { buildVenetoDataEngine } from "./dataEngine.ts";
 import { importVenetoAuctions } from "./auctionImport.ts";
@@ -2456,7 +2458,60 @@ Deno.serve(async (req) => {
         });
 
         cleaned.sort((a, b) => b.agencies_count - a.agencies_count);
-        const items = cleaned.slice(0, limit);
+
+        // ── OMI zone resolution (Padova scope) ────────────────────────────
+        const requireOmiZone = (body as any).require_omi_zone === true
+          || (typeof (body as any).scope === "string" && (body as any).scope === "padova_omi_zones");
+        const omiResolutions = await resolvePadovaOmiBatch(
+          cleaned as unknown as Array<Record<string, unknown>>,
+          supa as any,
+          (r) => ({
+            lat: typeof (r as any).lat_rounded === "number" ? (r as any).lat_rounded : null,
+            lng: typeof (r as any).lng_rounded === "number" ? (r as any).lng_rounded : null,
+          }),
+        );
+
+        const omiZoneBreakdownC: Record<string, number> = {};
+        let excludedNoOmiZone = 0;
+        let excludedLowConfidence = 0;
+        const omiExcludedSamples: Array<{ identity_hash: string | null; reason: string; address: string | null }> = [];
+
+        const itemsWithOmi: any[] = [];
+        for (let i = 0; i < cleaned.length; i++) {
+          const it = cleaned[i];
+          const r = omiResolutions[i];
+          const code = r?.omi_zone_code ?? null;
+          if (requireOmiZone) {
+            if (!code) {
+              excludedNoOmiZone++;
+              if (omiExcludedSamples.length < 20) {
+                omiExcludedSamples.push({ identity_hash: it.identity_hash, reason: r?.omi_zone_reason ?? "missing_omi", address: it.address ?? null });
+              }
+              continue;
+            }
+            if ((r?.omi_zone_confidence ?? 0) < 0.6) {
+              excludedLowConfidence++;
+              if (omiExcludedSamples.length < 20) {
+                omiExcludedSamples.push({ identity_hash: it.identity_hash, reason: "low_confidence", address: it.address ?? null });
+              }
+              continue;
+            }
+          }
+          if (code) omiZoneBreakdownC[code] = (omiZoneBreakdownC[code] ?? 0) + 1;
+          itemsWithOmi.push({
+            ...it,
+            comune: "Padova",
+            municipality: "Padova",
+            provincia: "PD",
+            province: "PD",
+            omi_zone_code: code,
+            omi_zone_label: r?.omi_zone_label ?? null,
+            omi_zone_confidence: r?.omi_zone_confidence ?? 0,
+            omi_zone_reason: r?.omi_zone_reason ?? "unknown",
+          });
+        }
+
+        const items = itemsWithOmi.slice(0, limit);
 
         // ── Diagnostica raccolta ───────────────────────────────────────────────
         const totalScanned = (identities ?? []).length;
@@ -2474,7 +2529,7 @@ Deno.serve(async (req) => {
         }
         const duplicatesRemoved = Math.max(0, normalizedCandidates.length - seenIdentityHashes.size);
         const sourceBreakdown: Record<string, number> = {};
-        for (const it of cleaned) {
+        for (const it of items) {
           for (const s of (it.sources_seen ?? [])) {
             if (typeof s === "string" && s) sourceBreakdown[s] = (sourceBreakdown[s] ?? 0) + 1;
           }
@@ -2499,26 +2554,37 @@ Deno.serve(async (req) => {
           excluded_count,
           items,
           diagnostics: {
+            scope: "padova_omi_zones",
+            municipality_applied: "Padova",
+            omi_zones_expected: CIVIKO_PADOVA_SCOPE.omi_zones_expected,
+            omi_zones_with_data: Object.keys(omiZoneBreakdownC).length,
             total_candidates_scanned: totalScanned,
             total_after_filters: cleaned.length,
             duplicates_removed: duplicatesRemoved,
             excluded_post_build: excluded_count,
+            excluded_not_padova: 0,
+            excluded_no_omi_zone: excludedNoOmiZone,
+            excluded_low_confidence: excludedLowConfidence,
             returned: items.length,
             min_agencies_applied: min_agencies,
             limit_applied: limit,
             municipalities_applied: municipalitiesScan,
             source_breakdown: sourceBreakdown,
+            omi_zone_breakdown: omiZoneBreakdownC,
             exclude_reason_counts: excludeReasonCounts,
             last_source_refresh_at: lastSourceRefreshAt,
+            excluded_samples: omiExcludedSamples,
+            require_omi_zone: requireOmiZone,
           },
           ...(debugCandidates ? {
             debug_candidates_sample: {
-              returned_sample: items.slice(0, 10).map((it) => ({
+              returned_sample: items.slice(0, 10).map((it: any) => ({
                 identity_hash: it.diag_identity_hash,
                 source_id: it.diag_source_id,
                 comune: it.diag_comune,
                 portale: it.diag_portale,
                 n_agenzie: it.diag_n_agenzie,
+                omi_zone_code: it.omi_zone_code,
               })),
               excluded_sample: excludedSample,
               duplicate_sample: duplicateSample,
@@ -3225,15 +3291,68 @@ Deno.serve(async (req) => {
 
         // ── Scope canonico Padova OMI ─────────────────────────────────────
         // Civiko One vende SOLO Padova Comune in 22 zone OMI ufficiali.
-        // Calcoliamo opportunities Padova / fuori scope e proviamo a leggere
-        // il breakdown OMI ufficiale (point-in-polygon) per il monitor.
+        // Ogni opportunity restituita deve avere omi_zone_code valido.
+        const requireOmiZoneAR = (body as any).require_omi_zone === true
+          || requestedScope === "padova_omi_zones"
+          || (typeof (body as any).scope === "string" && (body as any).scope === "padova_omi_zones");
         const isPadova = (v: unknown) => typeof v === "string" && v.trim().toLowerCase() === "padova";
-        const oppsPadova = finalOpps.filter((o) => isPadova(o?.comune));
-        const excludedNotPadova = finalOpps.length - oppsPadova.length;
+        const oppsPadovaRaw = finalOpps.filter((o) => isPadova(o?.comune));
+        const excludedNotPadovaAR = finalOpps.length - oppsPadovaRaw.length;
+
+        const supaO = getServiceClient();
+        const omiResAR = await resolvePadovaOmiBatch(
+          oppsPadovaRaw as unknown as Array<Record<string, unknown>>,
+          supaO as any,
+          (r) => ({
+            lat: typeof (r as any).lat === "number" ? (r as any).lat : null,
+            lng: typeof (r as any).lng === "number" ? (r as any).lng : null,
+          }),
+        );
+
+        const oppsPadova: any[] = [];
+        let excludedNoOmiZoneAR = 0;
+        let excludedLowConfidenceAR = 0;
+        const omiExcludedSamplesAR: Array<{ id: unknown; reason: string; comune: string }> = [];
+        const omiZoneBreakdownAR: Record<string, number> = {};
+
+        for (let i = 0; i < oppsPadovaRaw.length; i++) {
+          const o = oppsPadovaRaw[i];
+          const r = omiResAR[i];
+          const code = r?.omi_zone_code ?? null;
+          if (requireOmiZoneAR) {
+            if (!code) {
+              excludedNoOmiZoneAR++;
+              if (omiExcludedSamplesAR.length < 20) {
+                omiExcludedSamplesAR.push({ id: o?.id ?? null, reason: r?.omi_zone_reason ?? "missing_omi", comune: String(o?.comune ?? "") });
+              }
+              continue;
+            }
+            if ((r?.omi_zone_confidence ?? 0) < 0.6) {
+              excludedLowConfidenceAR++;
+              if (omiExcludedSamplesAR.length < 20) {
+                omiExcludedSamplesAR.push({ id: o?.id ?? null, reason: "low_confidence", comune: String(o?.comune ?? "") });
+              }
+              continue;
+            }
+          }
+          if (code) omiZoneBreakdownAR[code] = (omiZoneBreakdownAR[code] ?? 0) + 1;
+          oppsPadova.push({
+            ...o,
+            comune: "Padova",
+            municipality: "Padova",
+            provincia: "PD",
+            province: "PD",
+            omi_zone_code: code,
+            omi_zone_label: r?.omi_zone_label ?? null,
+            omi_zone_confidence: r?.omi_zone_confidence ?? 0,
+            omi_zone_reason: r?.omi_zone_reason ?? "unknown",
+          });
+        }
+
+        // Snapshot breakdown ufficiale (point-in-polygon) per il monitor.
         let omiZonesWithData = 0;
         let omiZoneBreakdown: Array<{ omi_zone_code: string; fascia: string; snapshot_count: number }> = [];
         try {
-          const supaO = getServiceClient();
           if (supaO) {
             const sinceOmi = new Date(Date.now() - 26 * 3_600_000).toISOString();
             const { data: bO } = await supaO.rpc("padova_omi_snapshot_breakdown", { p_since: sinceOmi });
@@ -3248,9 +3367,10 @@ Deno.serve(async (req) => {
         const diagnostics = {
           scope: "padova_omi_zones",
           municipality_applied: "Padova",
-          omi_zones_expected: 22,
-          omi_zones_with_data: omiZonesWithData,
+          omi_zones_expected: CIVIKO_PADOVA_SCOPE.omi_zones_expected,
+          omi_zones_with_data: omiZonesWithData || Object.keys(omiZoneBreakdownAR).length,
           omi_zone_breakdown: omiZoneBreakdown,
+          omi_zone_breakdown_returned: omiZoneBreakdownAR,
           intent: intentRaw || null,
           requested_province: requestedProvince,
           requested_comuni: requestedComuni,
@@ -3259,12 +3379,15 @@ Deno.serve(async (req) => {
           total_zones: finalZones.length,
           source_breakdown: sourceBreakdownAR,
           excluded_out_of_scope: {
-            total: excludedWrongProvince + excludedWrongComune + excludedNotPadova,
+            total: excludedWrongProvince + excludedWrongComune + excludedNotPadovaAR + excludedNoOmiZoneAR + excludedLowConfidenceAR,
             wrong_province: excludedWrongProvince,
             wrong_comune: excludedWrongComune,
-            not_padova: excludedNotPadova,
-            samples: excludedSamples,
+            not_padova: excludedNotPadovaAR,
+            no_omi_zone: excludedNoOmiZoneAR,
+            low_confidence: excludedLowConfidenceAR,
+            samples: [...excludedSamples, ...omiExcludedSamplesAR],
           },
+          require_omi_zone: requireOmiZoneAR,
           ingestion_per_portal: aggregateStats.perPortal,
           ingestion_rotation: aggregateStats.rotation ?? null,
           ingestion_comuni_processed: ingestionReport.length,
