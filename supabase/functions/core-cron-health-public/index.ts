@@ -302,6 +302,10 @@ Deno.serve(async (req) => {
       sani: jobs.filter((j) => j.stato === "SANO").length,
       warning: jobs.filter((j) => j.stato === "WARNING").length,
       critici: jobs.filter((j) => j.stato === "CRITICO").length,
+      parziali: jobs.filter((j) => j.stato === "PARZIALE").length,
+      eseguiti_senza_dati: jobs.filter((j) => j.stato === "ESEGUITO_SENZA_DATI").length,
+      mai_eseguiti: jobs.filter((j) => j.stato === "ATTIVO_MA_MAI_ESEGUITO").length,
+      errore: jobs.filter((j) => j.stato === "ERRORE").length,
     };
 
     return new Response(
