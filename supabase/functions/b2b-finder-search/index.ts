@@ -4,8 +4,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { corsHeaders, handlePreflight, pickOrigin } from "../_shared/b2b/cors.ts";
 import { authorizeB2BFinder } from "../_shared/b2b/auth.ts";
-import { PADOVA_BBOX, queryOverpass } from "../_shared/b2b/overpass.ts";
+import { queryOverpass } from "../_shared/b2b/overpass.ts";
 import { scoreAndNormalize, type NormalizedCompany } from "../_shared/b2b/normalize.ts";
+import { resolveSearchScope, isPoiInScope, PD_COMUNI, PD_COMUNI_KEYS } from "../_shared/b2b/geo.ts";
+
 
 interface SearchInput {
   mode?: string;
@@ -131,11 +133,35 @@ Deno.serve(async (req: Request) => {
     if (province !== "PD") {
       return jsonResponse(req, 400, envelope(false, null, "v1 supports only province='PD'", debug_id));
     }
-    const city = input.city ?? "Padova";
-    if (city.toLowerCase() !== "padova") {
-      return jsonResponse(req, 400, envelope(false, null, "v1 supports only city='Padova'", debug_id));
+    const cityInputRaw = (input.city ?? "Padova").toString().trim();
+    const cityKey = cityInputRaw
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/['`]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!PD_COMUNI[cityKey]) {
+      return jsonResponse(
+        req,
+        400,
+        envelope(
+          false,
+          null,
+          `Comune non supportato in v1. Supportati: ${PD_COMUNI_KEYS.map((k) => PD_COMUNI[k].label).join(", ")}`,
+          debug_id,
+        ),
+      );
     }
     const region = input.region ?? "Veneto";
+    const scope = resolveSearchScope({
+      city: cityInputRaw,
+      province,
+      region,
+      zone: input.area_text ?? null,
+    });
+    const city = scope.comune;
+
 
     const envMax = Math.max(
       1,
@@ -216,18 +242,29 @@ Deno.serve(async (req: Request) => {
     };
 
     // ── Overpass ──────────────────────────────────────────────────────────
+    console.log(
+      `[b2b-finder-search] scope debug_id=${debug_id} comune=${scope.comune} bbox=${JSON.stringify(scope.bbox)} geocode="${scope.geocode_query}"`,
+    );
     let pois;
     try {
-      pois = await queryOverpass(PADOVA_BBOX, 25000);
+      pois = await queryOverpass(scope.bbox, 25000);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "overpass error";
       console.error(`[b2b-finder-search] overpass failed debug_id=${debug_id} err=${msg}`);
       return await failJob(502, "Overpass temporaneamente non disponibile", `overpass_cause=${msg}`);
     }
 
+    const rawCount = pois.length;
+    let filteredOutOfZone = 0;
+    const inScope = pois.filter((p) => {
+      const v = isPoiInScope(p, scope);
+      if (!v.ok) filteredOutOfZone++;
+      return v.ok;
+    });
+
     let normalized: NormalizedCompany[];
     try {
-      normalized = pois
+      normalized = inScope
         .map((p) => scoreAndNormalize(p, { city, province, region }))
         .filter((x): x is NormalizedCompany => !!x)
         .sort((a, b) => b.score - a.score);
@@ -239,6 +276,14 @@ Deno.serve(async (req: Request) => {
 
     const total = normalized.length;
     const results = normalized.slice(0, applied);
+
+    if (total === 0) {
+      warnings.push("no_results_for_city");
+    }
+    console.log(
+      `[b2b-finder-search] overpass ok debug_id=${debug_id} raw=${rawCount} out_of_zone=${filteredOutOfZone} normalized=${total}`,
+    );
+
 
     // ── dry-run path: unchanged contract ──────────────────────────────────
     if (!isSave) {
@@ -257,7 +302,13 @@ Deno.serve(async (req: Request) => {
             applied_limit: applied,
             total_found: total,
             sample_count: results.length,
+            raw_count: rawCount,
+            filtered_out_of_zone_count: filteredOutOfZone,
+            geographic_scope: scope.geographic_scope,
+            resolved_quarter: scope.quarter,
+            geocode_query: scope.geocode_query,
             results,
+
           },
           null,
           debug_id,
