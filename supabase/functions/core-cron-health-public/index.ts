@@ -149,7 +149,9 @@ Deno.serve(async (req) => {
     const agencyCostUsd7d = (agencyRuns ?? []).reduce((s, r: any) => s + (Number(r.cost_usd) || 0), 0);
 
     // ─── Delta snapshot Padova (per classificazione SANO/PARZIALE/ESEGUITO_SENZA_DATI) ───
-    const PADOVA_COMUNI = ["Padova","Albignasego","Rubano","Selvazzano Dentro","Cadoneghe","Limena","Vigodarzere"];
+    // Lista territoriale unificata Central Core (7 comuni PD autorizzati).
+    // Limena e Vigodarzere rimossi: NON sono target dei radar Padova.
+    const PADOVA_COMUNI = ["Padova","Rubano","Albignasego","Cadoneghe","Selvazzano Dentro","Ponte San Nicolò","Abano Terme"];
     const sinceFull = new Date(Date.now() - 26 * 3_600_000).toISOString();
     const sinceSoft = new Date(Date.now() - 14 * 3_600_000).toISOString();
     const fullDelta = new Map<string, number>();
