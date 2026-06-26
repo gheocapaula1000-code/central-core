@@ -258,6 +258,8 @@ Deno.serve(async (req: Request) => {
       const mapped = (companies ?? []).map((c: Record<string, unknown>) => {
         const src = sourceByCompany.get(c.id as string);
         const dbStatus = (c.status as string) ?? "new";
+        const metadata = (c.metadata as Record<string, unknown> | null) ?? {};
+        const enrichment = (metadata.enrichment as Record<string, unknown> | null) ?? {};
         return {
           company_id: c.id,
           company_name: c.name,
@@ -279,6 +281,30 @@ Deno.serve(async (req: Request) => {
           contact_status: STATUS_DB_TO_UI[dbStatus] ?? dbStatus,
           notes: c.notes ?? "",
           last_seen_at: c.last_seen_at ?? src?.fetched_at ?? null,
+          ready_to_contact: (enrichment.ready_to_contact as boolean | undefined) ?? false,
+          buyer_fit_score: (enrichment.buyer_fit_score as number | null | undefined) ?? null,
+          contactability_score: (enrichment.contactability_score as number | null | undefined) ?? null,
+          data_completeness_score: (enrichment.data_completeness_score as number | null | undefined) ?? null,
+          next_best_action: (enrichment.next_best_action as string | null | undefined) ?? null,
+          enrichment: {
+            category_refined:
+              (enrichment.category_refined as string | null | undefined) ??
+              (enrichment.refined_category as string | null | undefined) ??
+              null,
+            contact_page: (enrichment.contact_page as string | null | undefined) ?? null,
+            social_links: (enrichment.social_links as unknown[] | undefined) ?? [],
+            commercial_signals: (enrichment.commercial_signals as unknown[] | undefined) ?? [],
+            enriched_at: (enrichment.enriched_at as string | null | undefined) ?? null,
+            cost_eur:
+              (enrichment.total_cost_eur as number | null | undefined) ??
+              (enrichment.cost_eur as number | null | undefined) ??
+              null,
+            sources_consulted:
+              (enrichment.sources_consulted as unknown[] | undefined) ??
+              (enrichment.source_urls as unknown[] | undefined) ??
+              (enrichment.providers_used as unknown[] | undefined) ??
+              [],
+          },
         };
       });
 
