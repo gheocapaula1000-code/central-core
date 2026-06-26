@@ -185,9 +185,10 @@ Deno.serve(async (req) => {
           ? `Run bloccato in stato "started" da oltre ${STUCK_MINUTES} min — worker probabilmente interrotto o timeout senza cattura.`
           : null;
 
-      let stato: "SANO" | "WARNING" | "CRITICO";
-      if (!lastTs) stato = "WARNING";
-      else if (lastFailed || isStuck || ageH! > j.critico_ore) stato = "CRITICO";
+      let stato: "SANO" | "WARNING" | "CRITICO" | "PARZIALE" | "ESEGUITO_SENZA_DATI" | "ATTIVO_MA_MAI_ESEGUITO" | "ERRORE";
+      if (!lastTs) stato = "ATTIVO_MA_MAI_ESEGUITO";
+      else if (lastFailed || isStuck) stato = "ERRORE";
+      else if (ageH! > j.critico_ore) stato = "CRITICO";
       else if (ageH! > j.warning_ore || last?.status === "started") stato = "WARNING";
       else stato = "SANO";
 
