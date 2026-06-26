@@ -3223,18 +3223,46 @@ Deno.serve(async (req) => {
           }
         } catch { /* non-fatal */ }
 
+        // ── Scope canonico Padova OMI ─────────────────────────────────────
+        // Civiko One vende SOLO Padova Comune in 22 zone OMI ufficiali.
+        // Calcoliamo opportunities Padova / fuori scope e proviamo a leggere
+        // il breakdown OMI ufficiale (point-in-polygon) per il monitor.
+        const isPadova = (v: unknown) => typeof v === "string" && v.trim().toLowerCase() === "padova";
+        const oppsPadova = finalOpps.filter((o) => isPadova(o?.comune));
+        const excludedNotPadova = finalOpps.length - oppsPadova.length;
+        let omiZonesWithData = 0;
+        let omiZoneBreakdown: Array<{ omi_zone_code: string; fascia: string; snapshot_count: number }> = [];
+        try {
+          const supaO = getServiceClient();
+          if (supaO) {
+            const sinceOmi = new Date(Date.now() - 26 * 3_600_000).toISOString();
+            const { data: bO } = await supaO.rpc("padova_omi_snapshot_breakdown", { p_since: sinceOmi });
+            omiZoneBreakdown = (bO ?? []).map((r: any) => ({
+              omi_zone_code: r.omi_zone_code, fascia: r.fascia,
+              snapshot_count: Number(r.snapshot_count ?? 0),
+            }));
+            omiZonesWithData = omiZoneBreakdown.filter((r) => r.snapshot_count > 0).length;
+          }
+        } catch { /* non-fatal */ }
+
         const diagnostics = {
+          scope: "padova_omi_zones",
+          municipality_applied: "Padova",
+          omi_zones_expected: 22,
+          omi_zones_with_data: omiZonesWithData,
+          omi_zone_breakdown: omiZoneBreakdown,
           intent: intentRaw || null,
           requested_province: requestedProvince,
           requested_comuni: requestedComuni,
           returned_comuni: returnedComuni,
-          total_opportunities: finalOpps.length,
+          total_opportunities: oppsPadova.length,
           total_zones: finalZones.length,
           source_breakdown: sourceBreakdownAR,
           excluded_out_of_scope: {
-            total: excludedWrongProvince + excludedWrongComune,
+            total: excludedWrongProvince + excludedWrongComune + excludedNotPadova,
             wrong_province: excludedWrongProvince,
             wrong_comune: excludedWrongComune,
+            not_padova: excludedNotPadova,
             samples: excludedSamples,
           },
           ingestion_per_portal: aggregateStats.perPortal,
@@ -3243,14 +3271,16 @@ Deno.serve(async (req) => {
           last_source_refresh_at: lastSourceRefreshAR,
           warnings: ingestionWarnings,
         };
+        const outPadova = { ...out, opportunities: oppsPadova };
         return withIdentity(json(req, 200, {
-          ...out,
+          ...outPadova,
           scopeMode,
+          scope: "padova_omi_zones",
           ok: true,
           cost_report,
           ingestion: ingestionReport,
           diagnostics,
-          data: { ...((out as any)?.data ?? {}), cost_report, ingestion: ingestionReport, diagnostics },
+          data: { ...((outPadova as any)?.data ?? {}), cost_report, ingestion: ingestionReport, diagnostics },
         }, debugId), "agent-radar");
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] agent-radar error: ${e instanceof Error ? e.message : String(e)}`);

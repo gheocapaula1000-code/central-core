@@ -12,15 +12,10 @@ const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
 const JOB_NAME_FULL = "central-core-radar-padova-nightly-full";
 const JOB_NAME_SOFT = "central-core-radar-padova-soft";
 
-const COMUNI = [
-  "Padova",
-  "Rubano",
-  "Albignasego",
-  "Cadoneghe",
-  "Selvazzano Dentro",
-  "Ponte San Nicolò",
-  "Abano Terme",
-];
+// Scope vendibile: SOLO Padova Comune (22 zone OMI ufficiali).
+// I comuni limitrofi (Rubano, Albignasego, Cadoneghe, Selvazzano, Ponte San
+// Nicolò, Abano Terme) NON sono più target del radar Central Core.
+const COMUNI = ["Padova"];
 
 async function logExecution(jobName: string, row: {
   triggered_at: string;

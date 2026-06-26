@@ -7186,6 +7186,15 @@ export type Database = {
           ribasso_pct: number
         }[]
       }
+      padova_omi_snapshot_breakdown: {
+        Args: { p_since: string }
+        Returns: {
+          fascia: string
+          omi_zone_code: string
+          snapshot_count: number
+          zona_descr: string
+        }[]
+      }
       promote_padova_agencies_listings: {
         Args: { p_since?: string }
         Returns: Json
