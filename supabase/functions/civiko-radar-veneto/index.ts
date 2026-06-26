@@ -3291,15 +3291,68 @@ Deno.serve(async (req) => {
 
         // ── Scope canonico Padova OMI ─────────────────────────────────────
         // Civiko One vende SOLO Padova Comune in 22 zone OMI ufficiali.
-        // Calcoliamo opportunities Padova / fuori scope e proviamo a leggere
-        // il breakdown OMI ufficiale (point-in-polygon) per il monitor.
+        // Ogni opportunity restituita deve avere omi_zone_code valido.
+        const requireOmiZoneAR = (body as any).require_omi_zone === true
+          || requestedScope === "padova_omi_zones"
+          || (typeof (body as any).scope === "string" && (body as any).scope === "padova_omi_zones");
         const isPadova = (v: unknown) => typeof v === "string" && v.trim().toLowerCase() === "padova";
-        const oppsPadova = finalOpps.filter((o) => isPadova(o?.comune));
-        const excludedNotPadova = finalOpps.length - oppsPadova.length;
+        const oppsPadovaRaw = finalOpps.filter((o) => isPadova(o?.comune));
+        const excludedNotPadovaAR = finalOpps.length - oppsPadovaRaw.length;
+
+        const supaO = getServiceClient();
+        const omiResAR = await resolvePadovaOmiBatch(
+          oppsPadovaRaw as unknown as Array<Record<string, unknown>>,
+          supaO as any,
+          (r) => ({
+            lat: typeof (r as any).lat === "number" ? (r as any).lat : null,
+            lng: typeof (r as any).lng === "number" ? (r as any).lng : null,
+          }),
+        );
+
+        const oppsPadova: any[] = [];
+        let excludedNoOmiZoneAR = 0;
+        let excludedLowConfidenceAR = 0;
+        const omiExcludedSamplesAR: Array<{ id: unknown; reason: string; comune: string }> = [];
+        const omiZoneBreakdownAR: Record<string, number> = {};
+
+        for (let i = 0; i < oppsPadovaRaw.length; i++) {
+          const o = oppsPadovaRaw[i];
+          const r = omiResAR[i];
+          const code = r?.omi_zone_code ?? null;
+          if (requireOmiZoneAR) {
+            if (!code) {
+              excludedNoOmiZoneAR++;
+              if (omiExcludedSamplesAR.length < 20) {
+                omiExcludedSamplesAR.push({ id: o?.id ?? null, reason: r?.omi_zone_reason ?? "missing_omi", comune: String(o?.comune ?? "") });
+              }
+              continue;
+            }
+            if ((r?.omi_zone_confidence ?? 0) < 0.6) {
+              excludedLowConfidenceAR++;
+              if (omiExcludedSamplesAR.length < 20) {
+                omiExcludedSamplesAR.push({ id: o?.id ?? null, reason: "low_confidence", comune: String(o?.comune ?? "") });
+              }
+              continue;
+            }
+          }
+          if (code) omiZoneBreakdownAR[code] = (omiZoneBreakdownAR[code] ?? 0) + 1;
+          oppsPadova.push({
+            ...o,
+            comune: "Padova",
+            municipality: "Padova",
+            provincia: "PD",
+            province: "PD",
+            omi_zone_code: code,
+            omi_zone_label: r?.omi_zone_label ?? null,
+            omi_zone_confidence: r?.omi_zone_confidence ?? 0,
+            omi_zone_reason: r?.omi_zone_reason ?? "unknown",
+          });
+        }
+
+        // Snapshot breakdown ufficiale (point-in-polygon) per il monitor.
         let omiZonesWithData = 0;
         let omiZoneBreakdown: Array<{ omi_zone_code: string; fascia: string; snapshot_count: number }> = [];
         try {
-          const supaO = getServiceClient();
           if (supaO) {
             const sinceOmi = new Date(Date.now() - 26 * 3_600_000).toISOString();
             const { data: bO } = await supaO.rpc("padova_omi_snapshot_breakdown", { p_since: sinceOmi });
@@ -3314,9 +3367,10 @@ Deno.serve(async (req) => {
         const diagnostics = {
           scope: "padova_omi_zones",
           municipality_applied: "Padova",
-          omi_zones_expected: 22,
-          omi_zones_with_data: omiZonesWithData,
+          omi_zones_expected: CIVIKO_PADOVA_SCOPE.omi_zones_expected,
+          omi_zones_with_data: omiZonesWithData || Object.keys(omiZoneBreakdownAR).length,
           omi_zone_breakdown: omiZoneBreakdown,
+          omi_zone_breakdown_returned: omiZoneBreakdownAR,
           intent: intentRaw || null,
           requested_province: requestedProvince,
           requested_comuni: requestedComuni,
@@ -3325,12 +3379,15 @@ Deno.serve(async (req) => {
           total_zones: finalZones.length,
           source_breakdown: sourceBreakdownAR,
           excluded_out_of_scope: {
-            total: excludedWrongProvince + excludedWrongComune + excludedNotPadova,
+            total: excludedWrongProvince + excludedWrongComune + excludedNotPadovaAR + excludedNoOmiZoneAR + excludedLowConfidenceAR,
             wrong_province: excludedWrongProvince,
             wrong_comune: excludedWrongComune,
-            not_padova: excludedNotPadova,
-            samples: excludedSamples,
+            not_padova: excludedNotPadovaAR,
+            no_omi_zone: excludedNoOmiZoneAR,
+            low_confidence: excludedLowConfidenceAR,
+            samples: [...excludedSamples, ...omiExcludedSamplesAR],
           },
+          require_omi_zone: requireOmiZoneAR,
           ingestion_per_portal: aggregateStats.perPortal,
           ingestion_rotation: aggregateStats.rotation ?? null,
           ingestion_comuni_processed: ingestionReport.length,
