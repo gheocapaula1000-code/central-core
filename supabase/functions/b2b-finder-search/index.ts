@@ -302,7 +302,13 @@ Deno.serve(async (req: Request) => {
             applied_limit: applied,
             total_found: total,
             sample_count: results.length,
+            raw_count: rawCount,
+            filtered_out_of_zone_count: filteredOutOfZone,
+            geographic_scope: scope.geographic_scope,
+            resolved_quarter: scope.quarter,
+            geocode_query: scope.geocode_query,
             results,
+
           },
           null,
           debug_id,
