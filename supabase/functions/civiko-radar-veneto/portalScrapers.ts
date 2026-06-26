@@ -251,6 +251,15 @@ async function scrapeWithApify(
   meta?: RadarRunMeta,
   stats?: IngestionStats,
 ): Promise<NormalizedListing[]> {
+  // L'actor hardcoded "epctex/immobiliare-it-scraper" è stato dismesso (HTTP 404 sull'Apify Store).
+  // Finché non viene scelto e configurato un actor valido tramite l'env RADAR_PORTAL_APIFY_ACTOR_ID,
+  // il fallback Apify NON viene chiamato (nessun addebito, nessun network call).
+  const actorId = (Deno.env.get("RADAR_PORTAL_APIFY_ACTOR_ID") ?? "").trim();
+  if (!actorId) {
+    console.warn("[scrapeWithApify] apify_actor_not_configured — fallback disabilitato");
+    stats?.perPortal.push({ source: "apify_fallback", raw: 0, reason: "apify_actor_not_configured" });
+    return [];
+  }
   const APIFY_TOKEN = getApifyToken();
   if (!APIFY_TOKEN) {
     console.log("[scrapeWithApify] no APIFY_API_TOKEN configured");
@@ -265,8 +274,7 @@ async function scrapeWithApify(
     stats?.perPortal.push({ source: "apify_fallback", raw: 0, reason: budget.reason ?? "apify_cap_reached" });
     return [];
   }
-  const actorId = "epctex/immobiliare-it-scraper";
-  const runUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${APIFY_TOKEN}&timeout=60&memory=256`;
+  const runUrl = `https://api.apify.com/v2/acts/${encodeURIComponent(actorId)}/run-sync-get-dataset-items?token=${APIFY_TOKEN}&timeout=60&memory=256`;
   const slug = municipalitySlug(comune);
   const startUrl = `https://www.immobiliare.it/vendita-case/${slug || comune.toLowerCase()}/`;
   const body = {
@@ -331,10 +339,13 @@ async function scrapeWithApify(
 }
 
 /**
- * Rotazione fonti soft per Roma-hour:
- *  - 00-07 → casa.it + immobiliare.it
- *  - 08-13 → subito.it + casa.it
- *  - 14-19 → immobiliare.it + idealista.it + subito.it
+ * Rotazione fonti soft per Roma-hour. casa.it è la sola sorgente attualmente
+ * verificata come funzionante per Padova città: deve essere SEMPRE inclusa
+ * in ogni slot, così Padova+casa.it non può essere saltata per un'intera giornata
+ * e se uno slot produce zero, il successivo ritrova comunque la fonte funzionante.
+ *  - 00-07 → casa.it + immobiliare.it           (slot 04:00 Roma / 02:00 UTC)
+ *  - 08-13 → casa.it + subito.it                (slot 11:00 Roma / 09:00 UTC)
+ *  - 14-19 → casa.it + immobiliare.it + idealista.it + subito.it (slot 15:30 Roma / 13:30 UTC)
  *  - 20-23 → casa.it + immobiliare.it
  * In full mode usa tutti i portali.
  */
@@ -347,10 +358,10 @@ function selectPortalsForMode(mode: RadarMode): { configs: PortalConfig[]; rotat
   let allow: Array<NormalizedListing["source"]>;
   let key: string;
   if (romaHour >= 8 && romaHour < 14) {
-    allow = ["subito.it", "casa.it"];
+    allow = ["casa.it", "subito.it"];
     key = "soft_morning";
   } else if (romaHour >= 14 && romaHour < 20) {
-    allow = ["immobiliare.it", "idealista.it", "subito.it"];
+    allow = ["casa.it", "immobiliare.it", "idealista.it", "subito.it"];
     key = "soft_afternoon";
   } else {
     allow = ["casa.it", "immobiliare.it"];
