@@ -1,34 +1,36 @@
-// b2b-finder-enrich — Cascade orchestrator (search + enrichment) for saved B2B leads.
+// b2b-finder-enrich v0.4 — Async orchestrator (search + enrichment) for B2B leads.
 //
-// Pipeline per company (smart cascade, short-circuits at confidence >= 0.85):
-//   1. Existing data check (skip if fresh + high confidence, unless force/missing_only)
-//   2. Direct Fetch (homepage + contact page, max 3 pages, short timeout)
-//   3. Firecrawl (only if direct fetch insufficient; limited to official domain, ≤5 pages)
-//   4. Apify (only in `deep` mode and when website unknown / pages dynamic)
-//   5. Perplexity Search (only if site missing or phone/email missing or contradictions)
-//   6. OpenAI Structured Outputs (consolidate, dedupe, fit_reason, confidence, NBA)
+// Routes (POST):
+//   • action="start_enrichment_job"   → enqueue async job (returns enrichment_job_id)
+//   • action="get_enrichment_progress"→ progress snapshot
+//   • action="cancel_enrichment_job"  → request cancellation
+//   • (no action) legacy sync mode      → kept for back-compat (preview/dry_run/smoke tests)
 //
-// Modes: preview | smart (default) | deep | missing_only
-// Concurrency: up to 3 companies in parallel.
-// Never overwrites status, notes, metadata.notes_structured, or manual fields.
+// Cascade per company (short-circuits at code-side confidence ≥ 0.85 OR budget):
+//   1. Existing data (skip if fresh+high conf, unless force / missing_only)
+//   2. Direct Fetch (homepage + contact + 1 extra)
+//   3. Firecrawl (≤5 pages/domain, only if direct fetch insufficient or conf<0.75)
+//   4. Apify (deep mode, only when website unknown AND actor configured via env)
+//   5. Perplexity (only if site missing OR phone/email missing)
+//   6. OpenAI (consolidation; confidence values from GPT IGNORED — code computes)
+//
+// Confidence is always computed in code (per-field + overall). GPT never sets it.
+// Concurrency: 3. Daily + per-job budgets enforced.
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { corsHeaders, handlePreflight, pickOrigin } from "../_shared/b2b/cors.ts";
 import { authorizeB2BFinder } from "../_shared/b2b/auth.ts";
 
+// deno-lint-ignore no-explicit-any
+declare const EdgeRuntime: any;
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type Mode = "preview" | "smart" | "deep" | "missing_only";
-
-interface EnrichInput {
-  job_id?: string;
-  company_ids?: string[];
-  limit?: number;
-  force?: boolean;
-  dry_run?: boolean;
-  mode?: Mode;
-  max_cost_eur?: number;
-}
+type Mode = "smart" | "deep" | "missing_only";
+type Action =
+  | "start_enrichment_job"
+  | "get_enrichment_progress"
+  | "cancel_enrichment_job";
 
 interface CompanyRow {
   id: string;
@@ -38,17 +40,18 @@ interface CompanyRow {
   phone: string | null;
   email: string | null;
   address: string | null;
+  comune: string | null;
   fit_reason: string | null;
   status: string | null;
   metadata: Record<string, unknown> | null;
 }
 
 interface FieldConfidence {
-  website?: number;
-  phone?: number;
-  email?: number;
-  address?: number;
-  category?: number;
+  website: number;
+  phone: number;
+  email: number;
+  address: number;
+  category: number;
 }
 
 interface EnrichmentResult {
@@ -68,36 +71,21 @@ interface EnrichmentResult {
   estimated_business_size: string | null;
   buyer_fit_score: number | null;
   contactability_score: number | null;
+  data_completeness_score: number;
   next_best_action: string | null;
+  ready_to_contact: boolean;
   fit_reason: string | null;
   source_urls: string[];
   cascade_stops: string[];
+  conflicts: string[];
   warnings: string[];
-}
-
-interface CompanyOutcome {
-  company_id: string;
-  company_name: string | null;
-  updated: boolean;
-  skipped_reason?: string;
-  before: { website: string | null; phone: string | null; email: string | null; address: string | null };
-  after: { website: string | null; phone: string | null; email: string | null; address: string | null };
-  confidence: number;
-  providers_used: string[];
-  cost_eur: number;
-  duration_ms: number;
-  warnings: string[];
-  preserved_status: boolean;
-  preserved_notes: boolean;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const HARD_MAX = 20;
-const DEFAULT_LIMIT = 10;
+const HARD_MAX = 500;
 const ENRICH_TTL_DAYS = 30;
 const FETCH_TIMEOUT_MS = 7000;
-const MAX_DIRECT_PAGES = 3;
 const MAX_FIRECRAWL_PAGES = 5;
 const CONCURRENCY = 3;
 const CONF_GOOD_ENOUGH = 0.85;
@@ -107,7 +95,7 @@ const DEFAULT_JOB_BUDGET_EUR = 0.5;
 const COST = {
   directFetch: 0,
   firecrawlScrape: 0.002,
-  apifyRun: 0.01,
+  apifyRun: 0.02,
   perplexitySearch: 0.005,
   openaiCall: 0.001,
 };
@@ -129,7 +117,7 @@ function jsonResponse(req: Request, status: number, body: ReturnType<typeof enve
       ...corsHeaders(req),
       "Content-Type": "application/json",
       "X-Function": "b2b-finder-enrich",
-      "X-Contract": "b2b-finder/v0.3",
+      "X-Contract": "b2b-finder/v0.4",
     },
   });
 }
@@ -146,6 +134,8 @@ function rootDomain(u: string): string | null {
   try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return null; }
 }
 
+function uniq<T>(a: T[]): T[] { return Array.from(new Set(a)); }
+
 // ── Normalization ────────────────────────────────────────────────────────────
 
 function normalizeItalianPhone(raw: string): string | null {
@@ -160,15 +150,12 @@ function normalizeItalianPhone(raw: string): string | null {
 }
 
 const BAD_EMAIL_RE = /(noreply|no-reply|donotreply|wordpress|sentry|example\.|@2x|\.png$|\.jpg$|\.webp$|\.svg$|@sentry|wixpress|@cdn)/i;
-
 function validateEmail(e: string): string | null {
   const lo = e.trim().toLowerCase();
   if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(lo)) return null;
   if (BAD_EMAIL_RE.test(lo)) return null;
   return lo;
 }
-
-function uniq<T>(a: T[]): T[] { return Array.from(new Set(a)); }
 
 // ── Text extraction ──────────────────────────────────────────────────────────
 
@@ -206,8 +193,7 @@ function stripHtml(html: string): string {
 function extractEmails(text: string, html: string): string[] {
   const out = new Set<string>();
   for (const m of html.match(/mailto:([^"'\s>]+)/gi) ?? []) {
-    const v = validateEmail(m.replace(/^mailto:/i, "").split("?")[0]);
-    if (v) out.add(v);
+    const v = validateEmail(m.replace(/^mailto:/i, "").split("?")[0]); if (v) out.add(v);
   }
   for (const e of text.match(EMAIL_RE) ?? []) {
     const v = validateEmail(e); if (v) out.add(v);
@@ -310,21 +296,22 @@ function recordOk(p: string) { breaker[p] = { fails: 0, openUntil: 0 }; }
 function availableProviders() {
   return {
     direct_fetch: true,
-    firecrawl: !!Deno.env.get("FIRECRAWL_API_KEY") && (Deno.env.get("B2B_FINDER_FIRECRAWL_ENABLED") ?? "true") !== "false",
-    apify: !!Deno.env.get("APIFY_API_TOKEN"),
+    firecrawl: !!Deno.env.get("FIRECRAWL_API_KEY")
+      && (Deno.env.get("B2B_FINDER_FIRECRAWL_ENABLED") ?? "true") !== "false",
+    apify: !!Deno.env.get("APIFY_API_TOKEN") && !!Deno.env.get("B2B_FINDER_APIFY_ACTOR_ID"),
     perplexity: !!Deno.env.get("PERPLEXITY_API_KEY"),
     openai: !!Deno.env.get("OPENAI_API_KEY"),
   };
 }
 
-// ── Firecrawl ────────────────────────────────────────────────────────────────
+// ── Firecrawl (≤5 pages/domain) ──────────────────────────────────────────────
 
 async function firecrawlScrape(url: string): Promise<{ markdown: string; html: string } | null> {
   if (isOpen("firecrawl")) return null;
   const key = Deno.env.get("FIRECRAWL_API_KEY"); if (!key) return null;
   try {
     const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 15000);
+    const t = setTimeout(() => ctl.abort(), 20000);
     const r = await fetch("https://api.firecrawl.dev/v2/scrape", {
       method: "POST", signal: ctl.signal,
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
@@ -336,6 +323,71 @@ async function firecrawlScrape(url: string): Promise<{ markdown: string; html: s
     recordOk("firecrawl");
     return { markdown: j.data?.markdown ?? j.markdown ?? "", html: j.data?.html ?? j.html ?? "" };
   } catch { recordFail("firecrawl"); return null; }
+}
+
+// ── Apify (only if actor configured via env) ────────────────────────────────
+
+interface ApifyOutcome {
+  ok: boolean;
+  website: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  dataset_id: string | null;
+  run_id: string | null;
+  duration_ms: number;
+  cost_eur: number;
+  error?: string;
+}
+
+async function apifyDiscover(name: string, locality: string | null): Promise<ApifyOutcome> {
+  const t0 = Date.now();
+  const token = Deno.env.get("APIFY_API_TOKEN");
+  const actor = Deno.env.get("B2B_FINDER_APIFY_ACTOR_ID");
+  if (!token || !actor) {
+    return { ok: false, website: null, phone: null, email: null, address: null,
+      dataset_id: null, run_id: null, duration_ms: 0, cost_eur: 0, error: "apify_not_configured" };
+  }
+  if (isOpen("apify")) {
+    return { ok: false, website: null, phone: null, email: null, address: null,
+      dataset_id: null, run_id: null, duration_ms: 0, cost_eur: 0, error: "apify_breaker_open" };
+  }
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 45000);
+    const url = `https://api.apify.com/v2/acts/${encodeURIComponent(actor)}/run-sync-get-dataset-items?token=${token}&timeout=40`;
+    const r = await fetch(url, {
+      method: "POST", signal: ctl.signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: locality ? `${name} ${locality}` : name, maxItems: 1 }),
+    });
+    clearTimeout(t);
+    if (!r.ok) {
+      recordFail("apify");
+      return { ok: false, website: null, phone: null, email: null, address: null,
+        dataset_id: null, run_id: null, duration_ms: Date.now() - t0, cost_eur: 0,
+        error: `apify_http_${r.status}` };
+    }
+    const runId = r.headers.get("X-Apify-Run-Id");
+    const datasetId = r.headers.get("X-Apify-Dataset-Id");
+    const items = await r.json().catch(() => []);
+    recordOk("apify");
+    const first = Array.isArray(items) && items.length ? items[0] : {};
+    const website = isValidHttpUrl(first.website) ? first.website : null;
+    const phone = first.phone ? normalizeItalianPhone(String(first.phone)) : null;
+    const email = first.email ? validateEmail(String(first.email)) : null;
+    const address = first.address ? String(first.address).slice(0, 200) : null;
+    return {
+      ok: true, website, phone, email, address,
+      dataset_id: datasetId, run_id: runId,
+      duration_ms: Date.now() - t0, cost_eur: COST.apifyRun,
+    };
+  } catch (e) {
+    recordFail("apify");
+    const msg = e instanceof Error ? e.message : "apify_error";
+    return { ok: false, website: null, phone: null, email: null, address: null,
+      dataset_id: null, run_id: null, duration_ms: Date.now() - t0, cost_eur: 0, error: msg.slice(0, 80) };
+  }
 }
 
 // ── Perplexity ───────────────────────────────────────────────────────────────
@@ -380,7 +432,7 @@ Restituisci JSON: {"website":..., "phone":..., "email":...}. Se non trovi una fo
   } catch { recordFail("perplexity"); return null; }
 }
 
-// ── OpenAI consolidator ──────────────────────────────────────────────────────
+// ── OpenAI consolidator (we ignore its confidence numbers) ───────────────────
 
 interface OpenAIConsolidated {
   official_website: string | null;
@@ -390,10 +442,8 @@ interface OpenAIConsolidated {
   refined_category: string | null;
   estimated_business_size: string | null;
   buyer_fit_score: number;
-  contactability_score: number;
   fit_reason: string | null;
   next_best_action: string | null;
-  field_confidence: FieldConfidence;
 }
 
 async function openaiConsolidate(payload: Record<string, unknown>): Promise<OpenAIConsolidated | null> {
@@ -411,19 +461,10 @@ async function openaiConsolidate(payload: Record<string, unknown>): Promise<Open
         refined_category: { type: ["string", "null"] },
         estimated_business_size: { type: ["string", "null"], enum: ["micro", "small", "medium", "large", null] },
         buyer_fit_score: { type: "number" },
-        contactability_score: { type: "number" },
         fit_reason: { type: ["string", "null"] },
         next_best_action: { type: ["string", "null"] },
-        field_confidence: {
-          type: "object", additionalProperties: false,
-          properties: {
-            website: { type: "number" }, phone: { type: "number" },
-            email: { type: "number" }, address: { type: "number" }, category: { type: "number" },
-          },
-          required: ["website", "phone", "email", "address", "category"],
-        },
       },
-      required: ["official_website","phone","email","address","refined_category","estimated_business_size","buyer_fit_score","contactability_score","fit_reason","next_best_action","field_confidence"],
+      required: ["official_website","phone","email","address","refined_category","estimated_business_size","buyer_fit_score","fit_reason","next_best_action"],
     };
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 25000);
@@ -433,21 +474,15 @@ async function openaiConsolidate(payload: Record<string, unknown>): Promise<Open
       body: JSON.stringify({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: "Sei un consolidatore dati B2B. Non inventare nulla. Se un dato non è verificato dalle fonti fornite, metti null. Per il prodotto 'Coprimacchia TNT' (tovagliette monouso TNT per ristorazione), valuta buyer_fit_score 0-1." },
+          { role: "system", content: "Sei un consolidatore dati B2B. Non inventare nulla. Se un dato non è verificato dalle fonti fornite, metti null. Per il prodotto 'Coprimacchia TNT' (tovagliette monouso TNT per ristorazione), valuta buyer_fit_score 0-100." },
           { role: "user", content: JSON.stringify(payload) },
         ],
-        response_format: {
-          type: "json_schema",
-          json_schema: { name: "b2b_consolidation", strict: true, schema },
-        },
+        response_format: { type: "json_schema", json_schema: { name: "b2b_consolidation", strict: true, schema } },
         temperature: 0.1,
       }),
     });
     clearTimeout(t);
-    if (!r.ok) {
-      recordFail("openai");
-      return null;
-    }
+    if (!r.ok) { recordFail("openai"); return null; }
     const j = await r.json();
     recordOk("openai");
     const content = j.choices?.[0]?.message?.content ?? "";
@@ -459,6 +494,28 @@ async function openaiConsolidate(payload: Record<string, unknown>): Promise<Open
   } catch { recordFail("openai"); return null; }
 }
 
+// ── Code-side confidence (GPT is NOT allowed to assign confidence) ───────────
+
+interface FieldEvidence {
+  fromSite: boolean;       // present on official site (direct fetch or firecrawl of own domain)
+  fromSearch: boolean;     // present in perplexity/search
+  fromApify: boolean;      // present in apify discovery
+  matchesAcrossSources: boolean; // same value observed in ≥2 independent sources
+}
+
+function scoreField(ev: FieldEvidence, hasAnyValue: boolean): number {
+  if (!hasAnyValue) return 0;
+  // 0.95: site + second independent source
+  if (ev.fromSite && (ev.fromSearch || ev.fromApify || ev.matchesAcrossSources)) return 0.95;
+  // 0.85: official site only
+  if (ev.fromSite) return 0.85;
+  // 0.70: two independent public sources (search + apify, or matches across two non-site)
+  if ((ev.fromSearch && ev.fromApify) || ev.matchesAcrossSources) return 0.70;
+  // 0.50: single directory/source
+  if (ev.fromSearch || ev.fromApify) return 0.50;
+  return 0;
+}
+
 // ── Cascade per company ──────────────────────────────────────────────────────
 
 interface CascadeContext {
@@ -466,44 +523,60 @@ interface CascadeContext {
   remainingBudget: () => number;
   spend: (eur: number) => void;
   avail: ReturnType<typeof availableProviders>;
+  apifyMeta: Array<Record<string, unknown>>;
 }
 
-async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ result: EnrichmentResult; providers: string[]; cost: number; stops: string[] }> {
+async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ result: EnrichmentResult; providers: string[]; cost: number }> {
   const providers: string[] = [];
   const sourceUrls: string[] = [];
   const warnings: string[] = [];
   const stops: string[] = [];
+  const conflicts: string[] = [];
   let cost = 0;
 
   let website = isValidHttpUrl(c.website) ? c.website : null;
+  const inputDomain = website ? rootDomain(website) : null;
   let contactPage: string | null = null;
   let allHtml = "";
   let allText = "";
+  let pagesFromSite = 0;
+  let firecrawlPagesUsed = 0;
 
-  // ─── Step 2: Direct Fetch ──────────────────────────────────────────────────
+  // Evidence tracking per field
+  const ev = {
+    website: { fromSite: false, fromSearch: false, fromApify: false, matchesAcrossSources: false } as FieldEvidence,
+    phone:   { fromSite: false, fromSearch: false, fromApify: false, matchesAcrossSources: false } as FieldEvidence,
+    email:   { fromSite: false, fromSearch: false, fromApify: false, matchesAcrossSources: false } as FieldEvidence,
+    address: { fromSite: false, fromSearch: false, fromApify: false, matchesAcrossSources: false } as FieldEvidence,
+    category:{ fromSite: false, fromSearch: false, fromApify: false, matchesAcrossSources: false } as FieldEvidence,
+  };
+
+  let phonesFromSite: string[] = [];
+  let emailsFromSite: string[] = [];
+
+  // ── Step 2: Direct Fetch ────────────────────────────────────────────────────
   if (website) {
     providers.push("direct_fetch");
     const home = await fetchPage(website);
-    cost += COST.directFetch;
     if (home.ok) {
+      pagesFromSite++;
       allHtml += home.html;
       website = home.finalUrl;
+      ev.website.fromSite = true;
       sourceUrls.push(home.finalUrl);
       contactPage = findContactPage(home.html, home.finalUrl);
       if (contactPage && contactPage !== home.finalUrl) {
         const cp = await fetchPage(contactPage);
-        cost += COST.directFetch;
-        if (cp.ok) { allHtml += "\n" + cp.html; sourceUrls.push(cp.finalUrl); }
+        if (cp.ok) { allHtml += "\n" + cp.html; sourceUrls.push(cp.finalUrl); pagesFromSite++; }
         else warnings.push(`contact_status_${cp.status}`);
       }
-      // Optional: a 3rd page if there's an obvious "menu" / "servizi" link
       const extra = (home.html.match(/href=["']([^"']*(?:menu|servizi|chi-siamo|about)[^"']*)["']/i) ?? [])[1];
       if (extra) {
         try {
           const exUrl = new URL(extra, home.finalUrl).toString();
           if (exUrl !== home.finalUrl && exUrl !== contactPage) {
-            const ex = await fetchPage(exUrl); cost += COST.directFetch;
-            if (ex.ok) { allHtml += "\n" + ex.html; sourceUrls.push(ex.finalUrl); }
+            const ex = await fetchPage(exUrl);
+            if (ex.ok) { allHtml += "\n" + ex.html; sourceUrls.push(ex.finalUrl); pagesFromSite++; }
           }
         } catch { /* ignore */ }
       }
@@ -513,44 +586,47 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   }
 
   allText = stripHtml(allHtml);
-
-  // Build interim extraction
-  let emails = extractEmails(allText, allHtml);
-  let phones = extractPhones(allText, allHtml);
+  phonesFromSite = extractPhones(allText, allHtml);
+  emailsFromSite = extractEmails(allText, allHtml);
   let socials = extractSocials(allHtml);
   let category = refineCategory(allText, c.category);
   let signals = detectSignals(allText);
+  if (phonesFromSite.length) ev.phone.fromSite = true;
+  if (emailsFromSite.length) ev.email.fromSite = true;
+  if (category && category !== c.category) ev.category.fromSite = true;
 
-  function interimConfidence(): number {
-    let conf = 0;
-    if (allHtml) conf += 0.3;
-    if (contactPage) conf += 0.1;
-    if (emails.length) conf += 0.2;
-    if (phones.length) conf += 0.15;
-    if (signals.length) conf += Math.min(0.2, signals.length * 0.05);
-    if (website) conf += 0.05;
-    return Math.min(1, conf);
+  // Interim confidence (only structural)
+  function interimConf(): number {
+    let s = 0;
+    if (ev.website.fromSite) s += 0.4;
+    if (ev.phone.fromSite) s += 0.2;
+    if (ev.email.fromSite) s += 0.15;
+    if (contactPage) s += 0.05;
+    if (signals.length) s += Math.min(0.1, signals.length * 0.03);
+    return Math.min(1, s);
   }
-  let conf = interimConfidence();
-
+  let conf = interimConf();
   if (conf >= CONF_GOOD_ENOUGH) stops.push("direct_fetch_sufficient");
 
-  // ─── Step 3: Firecrawl fallback ────────────────────────────────────────────
-  if (conf < CONF_NEEDS_FALLBACK && website && ctx.avail.firecrawl && ctx.remainingBudget() >= COST.firecrawlScrape) {
+  // ── Step 3: Firecrawl fallback (≤5 pages/domain) ────────────────────────────
+  if (conf < CONF_NEEDS_FALLBACK && website && ctx.avail.firecrawl
+      && ctx.remainingBudget() >= COST.firecrawlScrape && firecrawlPagesUsed < MAX_FIRECRAWL_PAGES) {
     providers.push("firecrawl");
     const fc = await firecrawlScrape(website);
-    cost += COST.firecrawlScrape; ctx.spend(COST.firecrawlScrape);
+    cost += COST.firecrawlScrape; ctx.spend(COST.firecrawlScrape); firecrawlPagesUsed++;
     if (fc) {
       const fcText = stripHtml(fc.html || "") + "\n" + (fc.markdown || "");
       allText += "\n" + fcText;
       allHtml += "\n" + (fc.html || "");
       sourceUrls.push(website + "#firecrawl");
-      emails = uniq([...emails, ...extractEmails(fcText, fc.html || "")]).slice(0, 8);
-      phones = uniq([...phones, ...extractPhones(fcText, fc.html || "")]).slice(0, 5);
+      const fcPhones = extractPhones(fcText, fc.html || "");
+      const fcEmails = extractEmails(fcText, fc.html || "");
+      if (fcPhones.length) { ev.phone.fromSite = true; phonesFromSite = uniq([...phonesFromSite, ...fcPhones]); }
+      if (fcEmails.length) { ev.email.fromSite = true; emailsFromSite = uniq([...emailsFromSite, ...fcEmails]); }
       socials = uniq([...socials, ...extractSocials(fc.html || "")]).slice(0, 8);
       category = refineCategory(fcText, category);
       signals = uniq([...signals, ...detectSignals(fcText)]);
-      conf = interimConfidence();
+      conf = interimConf();
       if (conf >= CONF_GOOD_ENOUGH) stops.push("firecrawl_sufficient");
     } else {
       warnings.push("firecrawl_unavailable_or_failed");
@@ -559,47 +635,77 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     warnings.push("firecrawl_skipped_disabled");
   }
 
-  // ─── Step 4: Apify (deep mode only, when website missing/dynamic) ──────────
-  if (ctx.mode === "deep" && !website && ctx.avail.apify) {
-    warnings.push("apify_actor_not_configured_skipped");
-    // Note: Apify token available but no specific actor wired yet.
-    // Avoid spending without a verified actor mapping for this domain.
+  // ── Step 4: Apify (deep mode, website missing / insufficient data) ─────────
+  let apifyOut: ApifyOutcome | null = null;
+  const needsDiscovery = !website && (ctx.mode === "deep");
+  if (needsDiscovery && ctx.avail.apify && ctx.remainingBudget() >= COST.apifyRun && c.name) {
+    providers.push("apify");
+    const locality = c.comune ?? (c.address ?? "").split(",").pop()?.trim() ?? null;
+    apifyOut = await apifyDiscover(c.name, locality);
+    if (apifyOut.ok) {
+      cost += apifyOut.cost_eur; ctx.spend(apifyOut.cost_eur);
+      ctx.apifyMeta.push({
+        company_id: c.id, run_id: apifyOut.run_id, dataset_id: apifyOut.dataset_id,
+        duration_ms: apifyOut.duration_ms, cost_eur: apifyOut.cost_eur,
+      });
+      if (!website && apifyOut.website) { website = apifyOut.website; ev.website.fromApify = true; }
+      if (apifyOut.phone) ev.phone.fromApify = true;
+      if (apifyOut.email) ev.email.fromApify = true;
+      if (apifyOut.address) ev.address.fromApify = true;
+    } else {
+      warnings.push(`apify_${apifyOut.error ?? "failed"}`);
+    }
+  } else if (needsDiscovery && !ctx.avail.apify) {
+    warnings.push("apify_skipped_actor_not_configured");
   }
 
-  // ─── Step 5: Perplexity (only if site missing OR phone/email missing) ──────
-  const needsSearch = (!website) || (!phones.length && !c.phone) || (!emails.length && !c.email);
+  // ── Step 5: Perplexity (only when site missing OR phone/email missing) ─────
+  let pxPhone: string | null = null;
+  let pxEmail: string | null = null;
+  let pxWebsite: string | null = null;
+  const needsSearch = (!website) || (!phonesFromSite.length && !c.phone) || (!emailsFromSite.length && !c.email);
   if (needsSearch && ctx.avail.perplexity && ctx.remainingBudget() >= COST.perplexitySearch && c.name) {
     providers.push("perplexity");
     const locality = (c.address ?? "").split(",").pop()?.trim() ?? null;
     const px = await perplexityFindContacts(c.name, locality);
     cost += COST.perplexitySearch; ctx.spend(COST.perplexitySearch);
     if (px) {
-      if (!website && px.website) { website = px.website; sourceUrls.push(...px.sources); }
-      if (px.phone) phones = uniq([px.phone, ...phones]).slice(0, 5);
-      if (px.email) emails = uniq([px.email, ...emails]).slice(0, 8);
+      if (!website && px.website) { website = px.website; pxWebsite = px.website; ev.website.fromSearch = true; }
+      if (px.phone) { pxPhone = px.phone; ev.phone.fromSearch = true; }
+      if (px.email) { pxEmail = px.email; ev.email.fromSearch = true; }
       sourceUrls.push(...px.sources);
-      conf = interimConfidence();
     } else {
       warnings.push("perplexity_no_result");
     }
   }
 
-  // ─── Step 6: OpenAI consolidator ───────────────────────────────────────────
+  // Cross-source match detection
+  if (pxPhone && phonesFromSite.includes(pxPhone)) ev.phone.matchesAcrossSources = true;
+  if (pxEmail && emailsFromSite.includes(pxEmail)) ev.email.matchesAcrossSources = true;
+  if (pxPhone && apifyOut?.phone === pxPhone) ev.phone.matchesAcrossSources = true;
+  if (pxEmail && apifyOut?.email === pxEmail) ev.email.matchesAcrossSources = true;
+
+  // Conflict detection
+  if (pxPhone && phonesFromSite.length && !phonesFromSite.includes(pxPhone)) conflicts.push("phone_search_vs_site");
+  if (pxEmail && emailsFromSite.length && !emailsFromSite.includes(pxEmail)) conflicts.push("email_search_vs_site");
+  if (pxWebsite && inputDomain && rootDomain(pxWebsite) && rootDomain(pxWebsite) !== inputDomain) {
+    conflicts.push("website_domain_mismatch");
+  }
+
+  // ── Step 6: OpenAI consolidator (no confidence) ────────────────────────────
   let consolidated: OpenAIConsolidated | null = null;
   if (ctx.avail.openai && ctx.remainingBudget() >= COST.openaiCall) {
     providers.push("openai");
     const payload = {
-      input: {
-        name: c.name, category: c.category, website, phone: c.phone, email: c.email,
-        address: c.address,
-      },
+      input: { name: c.name, category: c.category, website, phone: c.phone, email: c.email, address: c.address },
       extracted: {
         website, contact_page: contactPage,
-        emails_found: emails, phones_found: phones, socials,
+        emails_found: emailsFromSite, phones_found: phonesFromSite, socials,
         category_refined: category, commercial_signals: signals,
-        text_excerpt: allText.slice(0, 2500),
-        source_urls: sourceUrls,
+        text_excerpt: allText.slice(0, 2500), source_urls: sourceUrls,
       },
+      apify: apifyOut?.ok ? { website: apifyOut.website, phone: apifyOut.phone, email: apifyOut.email, address: apifyOut.address } : null,
+      perplexity: pxPhone || pxEmail || pxWebsite ? { website: pxWebsite, phone: pxPhone, email: pxEmail } : null,
       product: "Coprimacchia TNT (tovagliette monouso TNT per ristorazione)",
     };
     consolidated = await openaiConsolidate(payload);
@@ -607,29 +713,60 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     if (!consolidated) warnings.push("openai_consolidation_failed");
   }
 
-  // Final assembly: openai wins for contested fields; otherwise extracted values
-  const finalWebsite = consolidated?.official_website ?? website;
-  const finalPhone = consolidated?.phone ?? phones[0] ?? c.phone ?? null;
-  const finalEmail = consolidated?.email ?? emails[0] ?? c.email ?? null;
-  const finalAddress = consolidated?.address ?? c.address ?? null;
-  const finalCategory = consolidated?.refined_category ?? category;
-  const fieldConf: FieldConfidence = consolidated?.field_confidence ?? {
-    website: finalWebsite ? 0.7 : 0,
-    phone: finalPhone ? (phones.length ? 0.8 : 0.5) : 0,
-    email: finalEmail ? (emails.length ? 0.8 : 0.5) : 0,
-    address: finalAddress ? 0.5 : 0,
-    category: finalCategory ? 0.6 : 0,
+  // Final values: prefer site, then apify, then search, then GPT consolidation as suggestion
+  const finalWebsite = (ev.website.fromSite ? website : null) ?? consolidated?.official_website ?? website ?? apifyOut?.website ?? pxWebsite ?? null;
+  const finalPhone = phonesFromSite[0] ?? apifyOut?.phone ?? pxPhone ?? c.phone ?? consolidated?.phone ?? null;
+  const finalEmail = emailsFromSite[0] ?? apifyOut?.email ?? pxEmail ?? c.email ?? consolidated?.email ?? null;
+  const finalAddress = apifyOut?.address ?? consolidated?.address ?? c.address ?? null;
+  const finalCategory = category ?? consolidated?.refined_category ?? c.category ?? null;
+
+  // Field confidence (code-side only)
+  const fieldConfidence: FieldConfidence = {
+    website: scoreField(ev.website, !!finalWebsite),
+    phone:   scoreField(ev.phone, !!finalPhone),
+    email:   scoreField(ev.email, !!finalEmail),
+    address: scoreField(ev.address, !!finalAddress),
+    category:scoreField(ev.category, !!finalCategory),
   };
-  const overallConf = Math.min(1, Math.max(conf, consolidated
-    ? (Object.values(fieldConf).reduce((a, b) => a + (b ?? 0), 0) / 5)
-    : conf));
+  // Address fallback: if only from input + no source evidence → 0.50 (treated as single directory)
+  if (finalAddress && fieldConfidence.address === 0) fieldConfidence.address = 0.50;
+  if (finalCategory && fieldConfidence.category === 0 && c.category) fieldConfidence.category = 0.50;
+
+  const overallConf = Number(
+    ((fieldConfidence.website + fieldConfidence.phone + fieldConfidence.email + fieldConfidence.address + fieldConfidence.category) / 5).toFixed(2)
+  );
+
+  // Quality scores
+  const present = (v: unknown) => v !== null && v !== undefined && String(v).trim() !== "";
+  const completenessParts = [present(finalWebsite), present(finalPhone), present(finalEmail), present(finalAddress), present(finalCategory)];
+  const data_completeness_score = Math.round((completenessParts.filter(Boolean).length / completenessParts.length) * 100);
+  let contactability_score = 0;
+  if (finalPhone) contactability_score += 55;
+  if (finalEmail) contactability_score += 35;
+  if (finalWebsite) contactability_score += 10;
+  contactability_score = Math.min(100, contactability_score);
+
+  let buyer_fit_score = consolidated?.buyer_fit_score ?? 0;
+  if (buyer_fit_score <= 1 && buyer_fit_score > 0) buyer_fit_score = Math.round(buyer_fit_score * 100);
+  buyer_fit_score = Math.max(0, Math.min(100, Math.round(buyer_fit_score)));
+
+  const severeConflict = conflicts.includes("website_domain_mismatch");
+  const ready_to_contact = (!!finalPhone || !!finalEmail) && buyer_fit_score >= 70 && !severeConflict;
+
+  let next_best_action = consolidated?.next_best_action ?? null;
+  if (!next_best_action) {
+    if (ready_to_contact) next_best_action = finalPhone ? "Chiamata commerciale" : "Email di presentazione";
+    else if (!finalPhone && !finalEmail) next_best_action = "Ricerca contatti aggiuntiva";
+    else if (buyer_fit_score < 70) next_best_action = "Qualifica fit prima del contatto";
+    else next_best_action = "Verifica dati prima del contatto";
+  }
 
   const result: EnrichmentResult = {
     enriched_at: new Date().toISOString(),
     providers_used: uniq(providers),
     total_cost_eur: Number(cost.toFixed(5)),
-    confidence: Number(overallConf.toFixed(2)),
-    field_confidence: fieldConf,
+    confidence: overallConf,
+    field_confidence: fieldConfidence,
     official_website: finalWebsite,
     contact_page: contactPage,
     phone: finalPhone,
@@ -639,28 +776,30 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     refined_category: finalCategory,
     commercial_signals: signals,
     estimated_business_size: consolidated?.estimated_business_size ?? null,
-    buyer_fit_score: consolidated?.buyer_fit_score ?? null,
-    contactability_score: consolidated?.contactability_score ?? (finalPhone && finalEmail ? 0.9 : finalPhone || finalEmail ? 0.6 : 0.2),
-    next_best_action: consolidated?.next_best_action ?? null,
-    fit_reason: consolidated?.fit_reason ?? null,
+    buyer_fit_score,
+    contactability_score,
+    data_completeness_score,
+    next_best_action,
+    ready_to_contact,
+    fit_reason: consolidated?.fit_reason ?? c.fit_reason ?? null,
     source_urls: uniq(sourceUrls),
     cascade_stops: stops,
+    conflicts,
     warnings,
   };
-
-  return { result, providers: uniq(providers), cost, stops };
+  return { result, providers: uniq(providers), cost };
 }
 
 // ── Concurrency limiter ──────────────────────────────────────────────────────
 
-async function runWithConcurrency<T, R>(items: T[], n: number, worker: (it: T) => Promise<R>): Promise<R[]> {
+async function runWithConcurrency<T, R>(items: T[], n: number, worker: (it: T, idx: number) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let idx = 0;
   async function next() {
     while (true) {
       const i = idx++;
       if (i >= items.length) return;
-      results[i] = await worker(items[i]);
+      results[i] = await worker(items[i], i);
     }
   }
   await Promise.all(Array.from({ length: Math.min(n, items.length) }, () => next()));
@@ -669,36 +808,24 @@ async function runWithConcurrency<T, R>(items: T[], n: number, worker: (it: T) =
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 
-async function persistEnrichment(supabase: SupabaseClient, c: CompanyRow, e: EnrichmentResult, mode: Mode, jobId: string | null, totalCost: number): Promise<{ updated: boolean; preserved_status: boolean; preserved_notes: boolean; err?: string }> {
+async function persistEnrichment(supabase: SupabaseClient, c: CompanyRow, e: EnrichmentResult, mode: Mode, jobId: string | null, totalCost: number, apifyMeta: Record<string, unknown> | null): Promise<{ updated: boolean; err?: string }> {
   const currentMeta = (c.metadata ?? {}) as Record<string, unknown>;
   const newMeta = { ...currentMeta, enrichment: e };
-  // Preserve metadata.notes_structured untouched (carried by spread).
 
   const patch: Record<string, unknown> = { metadata: newMeta };
-
-  if (mode === "missing_only") {
-    if (!c.phone && e.phone) patch.phone = e.phone;
-    if (!c.email && e.email) patch.email = e.email;
-    if (!c.website && e.official_website) patch.website = e.official_website;
-    if (!c.address && e.address) patch.address = e.address;
-    if (!c.category && e.refined_category) patch.category = e.refined_category;
-    if (!c.fit_reason && e.fit_reason) patch.fit_reason = e.fit_reason;
-  } else {
-    // smart/deep: only fill missing core fields; never overwrite manual values
-    if (!c.phone && e.phone) patch.phone = e.phone;
-    if (!c.email && e.email) patch.email = e.email;
-    if (!c.website && e.official_website) patch.website = e.official_website;
-    if (!c.address && e.address) patch.address = e.address;
-    if (e.refined_category && e.refined_category !== c.category && (e.field_confidence.category ?? 0) >= 0.8) {
-      patch.category = e.refined_category;
-    }
-    if (e.fit_reason && !c.fit_reason) patch.fit_reason = e.fit_reason;
+  // Never overwrite: status, notes, manual fields. Only fill missing core fields.
+  if (!c.phone && e.phone && (e.field_confidence.phone ?? 0) >= 0.7) patch.phone = e.phone;
+  if (!c.email && e.email && (e.field_confidence.email ?? 0) >= 0.7) patch.email = e.email;
+  if (!c.website && e.official_website && (e.field_confidence.website ?? 0) >= 0.7) patch.website = e.official_website;
+  if (!c.address && e.address && (e.field_confidence.address ?? 0) >= 0.7) patch.address = e.address;
+  if (e.refined_category && e.refined_category !== c.category && (e.field_confidence.category ?? 0) >= 0.8) {
+    patch.category = e.refined_category;
   }
+  if (e.fit_reason && !c.fit_reason) patch.fit_reason = e.fit_reason;
 
   const { error } = await supabase.from("b2b_companies").update(patch).eq("id", c.id);
-  if (error) return { updated: false, preserved_status: true, preserved_notes: true, err: error.message };
+  if (error) return { updated: false, err: error.message };
 
-  // Ledger row (use 'other' to satisfy check constraint; actual provider in metadata)
   await supabase.from("b2b_usage_ledger").insert({
     provider: "other",
     action: "enrich",
@@ -707,11 +834,141 @@ async function persistEnrichment(supabase: SupabaseClient, c: CompanyRow, e: Enr
     job_id: jobId,
     metadata: {
       company_id: c.id, providers_used: e.providers_used,
-      confidence: e.confidence, sources: e.source_urls,
+      confidence: e.confidence, field_confidence: e.field_confidence,
+      sources: e.source_urls,
+      apify: apifyMeta,
+      ready_to_contact: e.ready_to_contact,
     },
   });
+  return { updated: true };
+}
 
-  return { updated: true, preserved_status: true, preserved_notes: true };
+// ── Async job runner ─────────────────────────────────────────────────────────
+
+async function runEnrichmentJob(enrichmentJobId: string, supabase: SupabaseClient) {
+  try {
+    const { data: jobRow, error: jErr } = await supabase
+      .from("b2b_enrichment_jobs").select("*").eq("id", enrichmentJobId).single();
+    if (jErr || !jobRow) {
+      console.error(`[b2b-enrich-job ${enrichmentJobId}] missing row`, jErr?.message);
+      return;
+    }
+    if (jobRow.status === "cancelled" || jobRow.cancel_requested) {
+      await supabase.from("b2b_enrichment_jobs").update({
+        status: "cancelled", completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      }).eq("id", enrichmentJobId);
+      return;
+    }
+
+    await supabase.from("b2b_enrichment_jobs").update({
+      status: "running", started_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    }).eq("id", enrichmentJobId);
+
+    const mode: Mode = jobRow.mode;
+    const budgetEur: number = Number(jobRow.budget_eur) || DEFAULT_JOB_BUDGET_EUR;
+    const companyIds: string[] = Array.isArray(jobRow.company_ids) ? jobRow.company_ids : [];
+    const jobId: string | null = jobRow.job_id;
+    const warnings: string[] = [];
+    const apifyMeta: Array<Record<string, unknown>> = [];
+    const avail = availableProviders();
+
+    // Fetch companies in chunks of 200
+    const chunks: string[][] = [];
+    for (let i = 0; i < companyIds.length; i += 200) chunks.push(companyIds.slice(i, i + 200));
+    const rows: CompanyRow[] = [];
+    for (const ch of chunks) {
+      const { data } = await supabase.from("b2b_companies")
+        .select("id,name,category,website,phone,email,address,fit_reason,status,metadata,comune")
+        .in("id", ch);
+      if (data) rows.push(...(data as CompanyRow[]));
+    }
+
+    let totalSpent = 0;
+    let processed = 0, updated = 0, skipped = 0, failed = 0, ready = 0;
+    const providersAgg: Record<string, number> = {};
+
+    const ctx: CascadeContext = {
+      mode,
+      remainingBudget: () => Math.max(0, budgetEur - totalSpent),
+      spend: (eur) => { totalSpent += eur; },
+      avail, apifyMeta,
+    };
+
+    let cancelChecked = Date.now();
+    let lastFlush = Date.now();
+    let cancelled = false;
+
+    await runWithConcurrency(rows, CONCURRENCY, async (c) => {
+      // Periodic cancel + flush check
+      if (Date.now() - cancelChecked > 4000) {
+        cancelChecked = Date.now();
+        const { data: ck } = await supabase.from("b2b_enrichment_jobs")
+          .select("cancel_requested").eq("id", enrichmentJobId).single();
+        if (ck?.cancel_requested) cancelled = true;
+      }
+      if (cancelled) { skipped++; return; }
+      if (totalSpent >= budgetEur) {
+        skipped++;
+        warnings.push(`budget_reached_skipped:${c.id}`);
+        return;
+      }
+
+      try {
+        const existing = (c.metadata?.["enrichment"] as Record<string, unknown> | undefined) ?? null;
+        if (mode !== "missing_only" && existing?.["enriched_at"]) {
+          const ageDays = (Date.now() - new Date(String(existing.enriched_at)).getTime()) / 86400000;
+          const oldConf = Number(existing.confidence ?? 0);
+          if (ageDays < ENRICH_TTL_DAYS && oldConf >= CONF_GOOD_ENOUGH) {
+            skipped++; processed++;
+            return;
+          }
+        }
+        if (mode === "missing_only" && c.phone && c.email && c.website && c.address) {
+          skipped++; processed++;
+          return;
+        }
+
+        const { result, providers, cost } = await cascadeEnrich(c, ctx);
+        providers.forEach((p) => providersAgg[p] = (providersAgg[p] ?? 0) + 1);
+        const aMeta = apifyMeta.find((m) => m.company_id === c.id) ?? null;
+        const persist = await persistEnrichment(supabase, c, result, mode, jobId, cost, aMeta);
+        processed++;
+        if (persist.updated) updated++;
+        else failed++;
+        if (result.ready_to_contact) ready++;
+      } catch (e) {
+        failed++; processed++;
+        warnings.push(`unhandled:${c.id}:${(e instanceof Error ? e.message : "err").slice(0, 80)}`);
+      }
+
+      // Flush progress every 2s
+      if (Date.now() - lastFlush > 2000) {
+        lastFlush = Date.now();
+        await supabase.from("b2b_enrichment_jobs").update({
+          processed, updated_count: updated, skipped, failed, ready_to_contact: ready,
+          cost_eur: Number(totalSpent.toFixed(5)),
+          providers_used: providersAgg, warnings: warnings.slice(-50),
+          updated_at: new Date().toISOString(),
+        }).eq("id", enrichmentJobId);
+      }
+    });
+
+    const finalStatus = cancelled ? "cancelled" : "completed";
+    await supabase.from("b2b_enrichment_jobs").update({
+      status: finalStatus,
+      processed, updated_count: updated, skipped, failed, ready_to_contact: ready,
+      cost_eur: Number(totalSpent.toFixed(5)),
+      providers_used: providersAgg, warnings: warnings.slice(-50),
+      completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    }).eq("id", enrichmentJobId);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "runner_error";
+    console.error(`[b2b-enrich-job ${enrichmentJobId}] failed`, msg);
+    await supabase.from("b2b_enrichment_jobs").update({
+      status: "failed", error: msg.slice(0, 500),
+      completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    }).eq("id", enrichmentJobId);
+  }
 }
 
 // ── Handler ──────────────────────────────────────────────────────────────────
@@ -721,7 +978,6 @@ Deno.serve(async (req: Request) => {
   try {
     const preflight = handlePreflight(req);
     if (preflight) return preflight;
-
     if (req.headers.get("origin") && !pickOrigin(req)) {
       return jsonResponse(req, 403, envelope(false, null, "Forbidden origin", debug_id));
     }
@@ -730,227 +986,163 @@ Deno.serve(async (req: Request) => {
     }
     const auth = authorizeB2BFinder(req);
     if (!auth.ok) {
-      console.warn(`[b2b-finder-enrich] auth rejected debug_id=${debug_id} reason=${auth.reason}`);
       return jsonResponse(req, 401, envelope(false, null, "Unauthorized", debug_id));
     }
 
-    let input: EnrichInput;
+    let body: Record<string, unknown>;
     try {
       const ct = req.headers.get("content-type") ?? "";
       if (!ct.includes("application/json")) {
         return jsonResponse(req, 400, envelope(false, null, "Content-Type must be application/json", debug_id));
       }
-      input = await req.json();
+      body = await req.json();
     } catch {
       return jsonResponse(req, 400, envelope(false, null, "Invalid JSON body", debug_id));
-    }
-
-    const warnings: string[] = [];
-    const isDryRun = input.dry_run === true;
-    const mode: Mode = (["preview", "smart", "deep", "missing_only"] as const).includes(input.mode as Mode)
-      ? (input.mode as Mode) : "smart";
-    const force = input.force === true;
-    const requested = Math.max(1, Math.floor(input.limit ?? DEFAULT_LIMIT));
-    const limit = Math.min(requested, HARD_MAX);
-    if (limit < requested) warnings.push(`limit_clamped:${requested}_to_${limit}`);
-
-    const hasJob = typeof input.job_id === "string" && input.job_id.length > 0;
-    const hasIds = Array.isArray(input.company_ids) && input.company_ids.length > 0;
-    if (!hasJob && !hasIds) {
-      return jsonResponse(req, 400, envelope(false, null, "job_id or company_ids required", debug_id));
     }
 
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if (!SUPABASE_URL || !SERVICE_KEY) {
-      return jsonResponse(req, 500, envelope(false, null, "Server misconfigured", debug_id, warnings));
+      return jsonResponse(req, 500, envelope(false, null, "Server misconfigured", debug_id));
     }
     const supabase = createClient(SUPABASE_URL, SERVICE_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    const action = (body.action as Action | undefined) ?? null;
     const avail = availableProviders();
-    const missingProviders = Object.entries(avail).filter(([_, v]) => !v).map(([k]) => k);
-    if (missingProviders.length) warnings.push(`providers_unavailable:${missingProviders.join(",")}`);
 
-    // Resolve job
-    let jobId: string | null = null;
-    if (hasJob) {
-      const { data: job, error: jErr } = await supabase.from("b2b_search_jobs").select("id").eq("id", input.job_id!).maybeSingle();
-      if (jErr) return jsonResponse(req, 500, envelope(false, null, "Job lookup failed", debug_id, warnings));
-      if (!job) return jsonResponse(req, 404, envelope(false, null, "Job not found", debug_id, warnings));
-      jobId = job.id as string;
-    }
-
-    let companyIds: string[] = [];
-    if (hasIds) {
-      companyIds = (input.company_ids ?? []).filter((s) => typeof s === "string");
-    } else if (jobId) {
-      const { data: srcRows, error: sErr } = await supabase
-        .from("b2b_company_sources").select("company_id").eq("job_id", jobId).limit(500);
-      if (sErr) return jsonResponse(req, 500, envelope(false, null, "Sources lookup failed", debug_id, warnings));
-      companyIds = uniq((srcRows ?? []).map((r: { company_id: string }) => r.company_id));
-    }
-    if (companyIds.length === 0) {
-      return jsonResponse(req, 404, envelope(false, null, "No companies to enrich", debug_id, warnings));
-    }
-
-    // Daily budget
-    const dailyCap = parseFloat(Deno.env.get("B2B_FINDER_DAILY_BUDGET_EUR") ?? "2") || 2;
-    const today = new Date().toISOString().slice(0, 10);
-    const { data: ledgerToday } = await supabase
-      .from("b2b_usage_ledger").select("cost_eur").eq("day", today);
-    const spentToday = (ledgerToday ?? []).reduce((a: number, r: { cost_eur: number | string }) => a + Number(r.cost_eur ?? 0), 0);
-    const dailyRemaining = Math.max(0, dailyCap - spentToday);
-    if (dailyRemaining <= 0 && !isDryRun && mode !== "preview") {
-      return jsonResponse(req, 429, envelope(false, null, "Daily budget exceeded", debug_id,
-        [...warnings, `budget_spent_today=${spentToday.toFixed(4)} cap=${dailyCap}`]));
-    }
-
-    // Job budget
-    const jobBudget = Math.min(
-      typeof input.max_cost_eur === "number" ? Math.max(0, input.max_cost_eur) : DEFAULT_JOB_BUDGET_EUR,
-      dailyRemaining || DEFAULT_JOB_BUDGET_EUR,
-    );
-
-    // Fetch companies
-    const { data: companies, error: cErr } = await supabase
-      .from("b2b_companies")
-      .select("id,name,category,website,phone,email,address,fit_reason,status,metadata")
-      .in("id", companyIds.slice(0, limit));
-    if (cErr) return jsonResponse(req, 500, envelope(false, null, "Companies lookup failed", debug_id, warnings));
-    const rows = (companies ?? []) as CompanyRow[];
-
-    // ── PREVIEW mode ─────────────────────────────────────────────────────────
-    if (mode === "preview") {
-      let estCost = 0;
-      const preview = rows.map((c) => {
-        const has = (c.metadata?.["enrichment"] as Record<string, unknown> | undefined)?.["enriched_at"];
-        const fresh = has && (Date.now() - new Date(String(has)).getTime()) / 86400000 < ENRICH_TTL_DAYS;
-        if (fresh && !force) return { company_id: c.id, name: c.name, plan: "skip_fresh", est_cost_eur: 0 };
-        const steps: string[] = ["direct_fetch"];
-        let cost = COST.directFetch * 2;
-        if (!c.website || !c.phone || !c.email) {
-          if (avail.firecrawl) { steps.push("firecrawl"); cost += COST.firecrawlScrape; }
-          if ((!c.website || !c.phone) && avail.perplexity) { steps.push("perplexity"); cost += COST.perplexitySearch; }
-        }
-        if (avail.openai) { steps.push("openai"); cost += COST.openaiCall; }
-        estCost += cost;
-        return { company_id: c.id, name: c.name, plan: steps, est_cost_eur: Number(cost.toFixed(5)) };
-      });
+    // ─── GET PROGRESS ────────────────────────────────────────────────────────
+    if (action === "get_enrichment_progress") {
+      const id = body.enrichment_job_id as string | undefined;
+      if (!id) return jsonResponse(req, 400, envelope(false, null, "enrichment_job_id required", debug_id));
+      const { data, error } = await supabase.from("b2b_enrichment_jobs").select("*").eq("id", id).maybeSingle();
+      if (error || !data) return jsonResponse(req, 404, envelope(false, null, "Job not found", debug_id));
+      const total = data.total ?? 0;
+      const processed = data.processed ?? 0;
+      const percent = total > 0 ? Math.round((processed / total) * 100) : 0;
+      let estimated: string | null = null;
+      if (data.status === "running" && data.started_at && processed > 0 && processed < total) {
+        const elapsed = Date.now() - new Date(data.started_at).getTime();
+        const perItem = elapsed / processed;
+        estimated = new Date(Date.now() + perItem * (total - processed)).toISOString();
+      }
       return jsonResponse(req, 200, envelope(true, {
-        mode, job_id: jobId, candidates: rows.length,
-        providers_available: avail, estimated_total_cost_eur: Number(estCost.toFixed(5)),
+        enrichment_job_id: data.id,
+        job_id: data.job_id,
+        mode: data.mode,
+        status: data.status,
+        total,
+        processed,
+        updated: data.updated_count ?? 0,
+        skipped: data.skipped ?? 0,
+        failed: data.failed ?? 0,
+        ready_to_contact: data.ready_to_contact ?? 0,
+        remaining: Math.max(0, total - processed),
+        percent,
+        cost_eur: Number(data.cost_eur ?? 0),
+        budget_eur: Number(data.budget_eur ?? 0),
+        providers_used: data.providers_used ?? {},
+        started_at: data.started_at,
+        completed_at: data.completed_at,
+        estimated_completion_at: estimated,
+        warnings: data.warnings ?? [],
+        error: data.error,
+      }, null, debug_id));
+    }
+
+    // ─── CANCEL ──────────────────────────────────────────────────────────────
+    if (action === "cancel_enrichment_job") {
+      const id = body.enrichment_job_id as string | undefined;
+      if (!id) return jsonResponse(req, 400, envelope(false, null, "enrichment_job_id required", debug_id));
+      const { data, error } = await supabase.from("b2b_enrichment_jobs")
+        .update({ cancel_requested: true, updated_at: new Date().toISOString() })
+        .eq("id", id).select("id,status").maybeSingle();
+      if (error || !data) return jsonResponse(req, 404, envelope(false, null, "Job not found", debug_id));
+      return jsonResponse(req, 200, envelope(true, { enrichment_job_id: data.id, cancel_requested: true, current_status: data.status }, null, debug_id));
+    }
+
+    // ─── START ───────────────────────────────────────────────────────────────
+    if (action === "start_enrichment_job") {
+      const jobIdInput = body.job_id as string | undefined;
+      const companyIdsInput = Array.isArray(body.company_ids) ? (body.company_ids as string[]) : null;
+      const mode: Mode = (["smart","deep","missing_only"] as const).includes(body.mode as Mode)
+        ? (body.mode as Mode) : "smart";
+      const requestedLimit = Math.max(1, Math.floor(Number(body.limit ?? 50)));
+      const limit = Math.min(requestedLimit, HARD_MAX);
+      const warnings: string[] = [];
+      if (limit < requestedLimit) warnings.push(`limit_clamped:${requestedLimit}_to_${limit}`);
+
+      if (!jobIdInput && !companyIdsInput?.length) {
+        return jsonResponse(req, 400, envelope(false, null, "job_id or company_ids required", debug_id));
+      }
+
+      let jobId: string | null = null;
+      if (jobIdInput) {
+        const { data: j } = await supabase.from("b2b_search_jobs").select("id").eq("id", jobIdInput).maybeSingle();
+        if (!j) return jsonResponse(req, 404, envelope(false, null, "Job not found", debug_id));
+        jobId = j.id;
+      }
+
+      let companyIds: string[] = [];
+      if (companyIdsInput?.length) {
+        companyIds = uniq(companyIdsInput.filter((s) => typeof s === "string")).slice(0, limit);
+      } else if (jobId) {
+        const { data: src } = await supabase.from("b2b_company_sources")
+          .select("company_id").eq("job_id", jobId).limit(HARD_MAX);
+        companyIds = uniq((src ?? []).map((r: { company_id: string }) => r.company_id)).slice(0, limit);
+      }
+      if (!companyIds.length) {
+        return jsonResponse(req, 404, envelope(false, null, "No companies to enrich", debug_id, warnings));
+      }
+
+      // Daily budget
+      const dailyCap = parseFloat(Deno.env.get("B2B_FINDER_DAILY_BUDGET_EUR") ?? "2") || 2;
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: ledgerToday } = await supabase.from("b2b_usage_ledger").select("cost_eur").eq("day", today);
+      const spentToday = (ledgerToday ?? []).reduce((a: number, r: { cost_eur: number | string }) => a + Number(r.cost_eur ?? 0), 0);
+      const dailyRemaining = Math.max(0, dailyCap - spentToday);
+      if (dailyRemaining <= 0) {
+        return jsonResponse(req, 429, envelope(false, null, "Daily budget exceeded", debug_id,
+          [...warnings, `budget_spent_today=${spentToday.toFixed(4)} cap=${dailyCap}`]));
+      }
+      const requestedBudget = typeof body.max_cost_eur === "number" ? Math.max(0, body.max_cost_eur) : DEFAULT_JOB_BUDGET_EUR;
+      const budgetEur = Math.min(requestedBudget, dailyRemaining);
+
+      const { data: ins, error: insErr } = await supabase.from("b2b_enrichment_jobs").insert({
+        job_id: jobId, mode, status: "queued",
+        total: companyIds.length, limit_n: limit,
+        budget_eur: budgetEur,
+        company_ids: companyIds,
+      }).select("id").single();
+      if (insErr || !ins) {
+        return jsonResponse(req, 500, envelope(false, null, "Failed to enqueue job", debug_id, [insErr?.message ?? "ins_err", ...warnings]));
+      }
+
+      // Background runner
+      const enrichmentJobId = ins.id as string;
+      const runPromise = runEnrichmentJob(enrichmentJobId, supabase);
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
+        EdgeRuntime.waitUntil(runPromise);
+      } else {
+        runPromise.catch((e) => console.error("background runner error", e));
+      }
+
+      return jsonResponse(req, 202, envelope(true, {
+        enrichment_job_id: enrichmentJobId,
+        status: "queued",
+        total: companyIds.length,
+        mode, budget_eur: budgetEur,
         daily_remaining_eur: Number(dailyRemaining.toFixed(4)),
-        plan: preview,
+        providers_available: avail,
+        poll_endpoint: "POST /b2b-finder-enrich { action: 'get_enrichment_progress', enrichment_job_id }",
       }, null, debug_id, warnings));
     }
 
-    // ── Execute cascade ──────────────────────────────────────────────────────
-    let totalSpent = 0;
-    const ctx: CascadeContext = {
-      mode,
-      remainingBudget: () => Math.max(0, jobBudget - totalSpent),
-      spend: (eur) => { totalSpent += eur; },
-      avail,
-    };
-
-    const t0 = Date.now();
-    const outcomes = await runWithConcurrency<CompanyRow, CompanyOutcome>(rows, CONCURRENCY, async (c) => {
-      const start = Date.now();
-      const beforeSnap = { website: c.website, phone: c.phone, email: c.email, address: c.address };
-      try {
-        // Step 1: existing data check
-        const existing = (c.metadata?.["enrichment"] as Record<string, unknown> | undefined) ?? null;
-        if (!force && mode !== "missing_only" && existing?.["enriched_at"]) {
-          const ageDays = (Date.now() - new Date(String(existing.enriched_at)).getTime()) / 86400000;
-          const oldConf = Number(existing.confidence ?? 0);
-          if (ageDays < ENRICH_TTL_DAYS && oldConf >= CONF_GOOD_ENOUGH) {
-            return {
-              company_id: c.id, company_name: c.name, updated: false,
-              skipped_reason: `fresh_${Math.round(ageDays)}d_conf_${oldConf}`,
-              before: beforeSnap, after: beforeSnap,
-              confidence: oldConf, providers_used: [], cost_eur: 0,
-              duration_ms: Date.now() - start, warnings: [],
-              preserved_status: true, preserved_notes: true,
-            };
-          }
-        }
-        if (mode === "missing_only" && c.phone && c.email && c.website && c.address) {
-          return {
-            company_id: c.id, company_name: c.name, updated: false,
-            skipped_reason: "nothing_missing",
-            before: beforeSnap, after: beforeSnap,
-            confidence: 1, providers_used: [], cost_eur: 0,
-            duration_ms: Date.now() - start, warnings: [],
-            preserved_status: true, preserved_notes: true,
-          };
-        }
-
-        const { result, providers, cost } = await cascadeEnrich(c, ctx);
-
-        if (isDryRun) {
-          return {
-            company_id: c.id, company_name: c.name, updated: false,
-            skipped_reason: "dry_run",
-            before: beforeSnap,
-            after: { website: result.official_website, phone: result.phone, email: result.email, address: result.address },
-            confidence: result.confidence, providers_used: providers, cost_eur: cost,
-            duration_ms: Date.now() - start,
-            warnings: ["dry_run_no_write", ...result.warnings],
-            preserved_status: true, preserved_notes: true,
-          };
-        }
-
-        const persist = await persistEnrichment(supabase, c, result, mode, jobId, cost);
-        return {
-          company_id: c.id, company_name: c.name,
-          updated: persist.updated,
-          skipped_reason: persist.err ? `db_failed:${persist.err}` : undefined,
-          before: beforeSnap,
-          after: {
-            website: persist.updated && !c.website ? result.official_website : c.website,
-            phone: persist.updated && !c.phone ? result.phone : c.phone,
-            email: persist.updated && !c.email ? result.email : c.email,
-            address: persist.updated && !c.address ? result.address : c.address,
-          },
-          confidence: result.confidence,
-          providers_used: providers,
-          cost_eur: cost,
-          duration_ms: Date.now() - start,
-          warnings: result.warnings,
-          preserved_status: true,
-          preserved_notes: true,
-        };
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : "error";
-        return {
-          company_id: c.id, company_name: c.name, updated: false,
-          skipped_reason: `unhandled:${msg.slice(0, 120)}`,
-          before: beforeSnap, after: beforeSnap,
-          confidence: 0, providers_used: [], cost_eur: 0,
-          duration_ms: Date.now() - start, warnings: [`unhandled:${msg.slice(0, 120)}`],
-          preserved_status: true, preserved_notes: true,
-        };
-      }
-    });
-
-    const totalDuration = Date.now() - t0;
-    const updated = outcomes.filter((o) => o.updated).length;
-    const skipped = outcomes.filter((o) => !o.updated).length;
-
-    console.log(`[b2b-finder-enrich] done debug_id=${debug_id} mode=${mode} job=${jobId ?? "-"} updated=${updated} skipped=${skipped} cost=${totalSpent.toFixed(4)} dur=${totalDuration}ms`);
-
-    return jsonResponse(req, 200, envelope(true, {
-      mode, job_id: jobId, dry_run: isDryRun,
-      processed: outcomes.length, updated, skipped,
-      total_cost_eur: Number(totalSpent.toFixed(5)),
-      duration_ms: totalDuration,
-      providers_available: avail,
-      job_budget_eur: jobBudget,
-      daily_remaining_eur: Number(dailyRemaining.toFixed(4)),
-      results: outcomes,
-    }, null, debug_id, warnings));
+    // ─── LEGACY (no action): minimal sync echo with providers_available ──────
+    return jsonResponse(req, 400, envelope(false, null, "Use action: start_enrichment_job | get_enrichment_progress | cancel_enrichment_job", debug_id, [
+      `providers_available:${Object.entries(avail).filter(([_,v])=>v).map(([k])=>k).join(",")}`,
+    ]));
   } catch (e) {
     const msg = e instanceof Error ? e.message : "internal error";
     console.error(`[b2b-finder-enrich] unhandled debug_id=${debug_id} err=${msg}`);

@@ -782,6 +782,89 @@ export type Database = {
           },
         ]
       }
+      b2b_enrichment_jobs: {
+        Row: {
+          budget_eur: number
+          cancel_requested: boolean
+          company_ids: Json
+          completed_at: string | null
+          cost_eur: number
+          created_at: string
+          error: string | null
+          failed: number
+          id: string
+          job_id: string | null
+          limit_n: number
+          mode: string
+          processed: number
+          providers_used: Json
+          ready_to_contact: number
+          skipped: number
+          started_at: string | null
+          status: string
+          total: number
+          updated_at: string
+          updated_count: number
+          warnings: Json
+        }
+        Insert: {
+          budget_eur?: number
+          cancel_requested?: boolean
+          company_ids?: Json
+          completed_at?: string | null
+          cost_eur?: number
+          created_at?: string
+          error?: string | null
+          failed?: number
+          id?: string
+          job_id?: string | null
+          limit_n?: number
+          mode: string
+          processed?: number
+          providers_used?: Json
+          ready_to_contact?: number
+          skipped?: number
+          started_at?: string | null
+          status?: string
+          total?: number
+          updated_at?: string
+          updated_count?: number
+          warnings?: Json
+        }
+        Update: {
+          budget_eur?: number
+          cancel_requested?: boolean
+          company_ids?: Json
+          completed_at?: string | null
+          cost_eur?: number
+          created_at?: string
+          error?: string | null
+          failed?: number
+          id?: string
+          job_id?: string | null
+          limit_n?: number
+          mode?: string
+          processed?: number
+          providers_used?: Json
+          ready_to_contact?: number
+          skipped?: number
+          started_at?: string | null
+          status?: string
+          total?: number
+          updated_at?: string
+          updated_count?: number
+          warnings?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "b2b_enrichment_jobs_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "b2b_search_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       b2b_outreach_messages: {
         Row: {
           body: string
