@@ -804,21 +804,94 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   buyer_fit_score = Math.max(0, Math.min(100, Math.round(buyer_fit_score)));
 
   const severeConflict = conflicts.includes("website_domain_mismatch");
-  const ready_to_contact = (!!finalPhone || !!finalEmail) && buyer_fit_score >= 70 && !severeConflict;
 
-  let next_best_action = consolidated?.next_best_action ?? null;
-  if (!next_best_action) {
-    if (ready_to_contact) next_best_action = finalPhone ? "Chiamata commerciale" : "Email di presentazione";
-    else if (!finalPhone && !finalEmail) next_best_action = "Ricerca contatti aggiuntiva";
-    else if (buyer_fit_score < 70) next_best_action = "Qualifica fit prima del contatto";
-    else next_best_action = "Verifica dati prima del contatto";
+  // v0.5: stricter but more inclusive readiness — spec: fit>=60, contact>=50, no severe conflict, no strong exclusion signal
+  const exclusion_reason = consolidated?.exclusion_reason && consolidated.exclusion_reason.trim()
+    ? consolidated.exclusion_reason.trim()
+    : null;
+  const hasStrongExclusion = !!exclusion_reason || buyer_fit_score < 30;
+
+  const ready_to_contact =
+    buyer_fit_score >= 60 &&
+    contactability_score >= 50 &&
+    !severeConflict &&
+    !hasStrongExclusion;
+
+  // Status suggestion
+  let status_suggestion: "Pronto Da Contattare" | "Da Migliorare" | "Escluso";
+  if (hasStrongExclusion || severeConflict) status_suggestion = "Escluso";
+  else if (ready_to_contact && data_completeness_score >= 60) status_suggestion = "Pronto Da Contattare";
+  else if (buyer_fit_score >= 50) status_suggestion = "Da Migliorare";
+  else status_suggestion = "Escluso";
+
+  // Priority label (commercial)
+  let priority_label: "Alta" | "Media" | "Bassa";
+  if (status_suggestion === "Pronto Da Contattare" && buyer_fit_score >= 75) priority_label = "Alta";
+  else if (status_suggestion === "Pronto Da Contattare" || (buyer_fit_score >= 60 && contactability_score >= 40)) priority_label = "Media";
+  else priority_label = "Bassa";
+
+  // Contact channel recommendation
+  let contact_channel_recommendation: "Telefono" | "Email" | "Sito" | "Visita" | "Da Verificare";
+  if (status_suggestion === "Escluso") contact_channel_recommendation = "Da Verificare";
+  else if (finalPhone) contact_channel_recommendation = "Telefono";
+  else if (finalEmail) contact_channel_recommendation = "Email";
+  else if (finalWebsite) contact_channel_recommendation = "Sito";
+  else if (finalAddress) contact_channel_recommendation = "Visita";
+  else contact_channel_recommendation = "Da Verificare";
+
+  // Missing data (concrete and actionable, in italian)
+  const missing_data: string[] = [];
+  if (!finalPhone) missing_data.push("Telefono");
+  if (!finalEmail) missing_data.push("Email");
+  if (!finalWebsite) missing_data.push("Sito web");
+  if (!finalAddress) missing_data.push("Indirizzo");
+  if (!consolidated?.decision_maker_hint) missing_data.push("Nome referente");
+  if (!consolidated?.business_summary) missing_data.push("Descrizione attività");
+
+  // Verification checks: prefer GPT's list, ensure 2-4 items
+  let verification_checks: string[] = Array.isArray(consolidated?.verification_checks)
+    ? consolidated!.verification_checks!.filter((s) => typeof s === "string" && s.trim()).slice(0, 4)
+    : [];
+  if (verification_checks.length < 2) {
+    const fallback = [
+      "Confermare numero coperti medi al giorno",
+      "Verificare se usano già tovagliato monouso",
+      "Verificare orari di apertura e turni pranzo",
+      "Confermare nome del titolare o responsabile acquisti",
+    ];
+    for (const f of fallback) {
+      if (verification_checks.length >= 3) break;
+      if (!verification_checks.includes(f)) verification_checks.push(f);
+    }
   }
+
+  // next_best_action: never aggressive for excluded
+  let next_best_action = consolidated?.next_best_action ?? null;
+  if (status_suggestion === "Escluso") {
+    next_best_action = "Non contattare: bassa coerenza con il prodotto";
+  } else if (!next_best_action) {
+    if (ready_to_contact) next_best_action = finalPhone ? "Chiamata commerciale al titolare" : "Email di presentazione mirata";
+    else if (!finalPhone && !finalEmail) next_best_action = "Recuperare un canale di contatto prima di procedere";
+    else if (buyer_fit_score < 60) next_best_action = "Qualificare il fit prima del contatto";
+    else next_best_action = "Verificare dati mancanti prima del contatto";
+  }
+
+  // Suppress commercial copy for excluded leads
+  const excluded = status_suggestion === "Escluso";
+  const call_opener = excluded ? null : (consolidated?.call_opener ?? null);
+  const whatsapp_or_email_message = excluded ? null : (consolidated?.whatsapp_or_email_message ?? null);
+
+  // Public sources (deduped, http only)
+  const public_sources_used = uniq(sourceUrls.filter((u) => /^https?:\/\//i.test(u))).slice(0, 8);
+
+  // Confidence percentage for UI (0-100)
+  const confidencePct = Math.round(overallConf * 100);
 
   const result: EnrichmentResult = {
     enriched_at: new Date().toISOString(),
     providers_used: uniq(providers),
     total_cost_eur: Number(cost.toFixed(5)),
-    confidence: overallConf,
+    confidence: confidencePct,
     field_confidence: fieldConfidence,
     official_website: finalWebsite,
     contact_page: contactPage,
@@ -839,6 +912,20 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     cascade_stops: stops,
     conflicts,
     warnings,
+    // v0.5 commercial
+    priority_label,
+    status_suggestion,
+    buyer_fit_reason: consolidated?.buyer_fit_reason ?? null,
+    exclusion_reason,
+    business_summary: consolidated?.business_summary ?? null,
+    product_use_case: consolidated?.product_use_case ?? null,
+    decision_maker_hint: consolidated?.decision_maker_hint ?? null,
+    contact_channel_recommendation,
+    call_opener,
+    whatsapp_or_email_message,
+    missing_data,
+    verification_checks,
+    public_sources_used,
   };
   return { result, providers: uniq(providers), cost };
 }
