@@ -148,6 +148,26 @@ Deno.serve(async (req) => {
     const agencyFull = (agencyRuns ?? []).filter((r: any) => r.mode === "full");
     const agencyCostUsd7d = (agencyRuns ?? []).reduce((s, r: any) => s + (Number(r.cost_usd) || 0), 0);
 
+    // ─── Delta snapshot Padova (per classificazione SANO/PARZIALE/ESEGUITO_SENZA_DATI) ───
+    const PADOVA_COMUNI = ["Padova","Albignasego","Rubano","Selvazzano Dentro","Cadoneghe","Limena","Vigodarzere"];
+    const sinceFull = new Date(Date.now() - 26 * 3_600_000).toISOString();
+    const sinceSoft = new Date(Date.now() - 14 * 3_600_000).toISOString();
+    const fullDelta = new Map<string, number>();
+    const softDelta = new Map<string, number>();
+    {
+      const { data: rowsFull } = await sb
+        .from("listing_price_snapshots")
+        .select("municipality, created_at")
+        .in("municipality", PADOVA_COMUNI)
+        .gte("created_at", sinceFull);
+      for (const r of rowsFull ?? []) {
+        fullDelta.set(r.municipality, (fullDelta.get(r.municipality) ?? 0) + 1);
+        if (new Date(r.created_at).getTime() >= new Date(sinceSoft).getTime()) {
+          softDelta.set(r.municipality, (softDelta.get(r.municipality) ?? 0) + 1);
+        }
+      }
+    }
+
     const nowMs = Date.now();
     const STUCK_MINUTES = 30;
     const alerts: { job: string; ore: number; soglia: number }[] = [];
