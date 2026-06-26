@@ -918,7 +918,9 @@ async function runEnrichmentJob(enrichmentJobId: string, supabase: SupabaseClien
         if (mode !== "missing_only" && existing?.["enriched_at"]) {
           const ageDays = (Date.now() - new Date(String(existing.enriched_at)).getTime()) / 86400000;
           const oldConf = Number(existing.confidence ?? 0);
-          if (ageDays < ENRICH_TTL_DAYS && oldConf >= CONF_GOOD_ENOUGH) {
+          // v0.4 upgrade: never skip records that pre-date the ready_to_contact schema.
+          const hasV04Schema = existing["ready_to_contact"] !== undefined;
+          if (hasV04Schema && ageDays < ENRICH_TTL_DAYS && oldConf >= CONF_GOOD_ENOUGH) {
             skipped++; processed++;
             return;
           }
