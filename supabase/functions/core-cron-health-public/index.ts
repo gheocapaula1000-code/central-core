@@ -235,6 +235,33 @@ Deno.serve(async (req) => {
         case "padova-agencies-finalize":
           ultimi7gg = { run_pipeline_chiusi_7gg: (agencyRuns ?? []).filter((r: any) => r.status === "done").length };
           break;
+        case "central-core-radar-padova-nightly-full":
+        case "central-core-radar-padova-soft": {
+          const isSoft = j.jobname === "central-core-radar-padova-soft";
+          const deltaMap = isSoft ? softDelta : fullDelta;
+          const perComune: Record<string, number> = {};
+          let totalDelta = 0;
+          let comuniConDati = 0;
+          for (const c of PADOVA_COMUNI) {
+            const n = deltaMap.get(c) ?? 0;
+            perComune[c] = n;
+            totalDelta += n;
+            if (n > 0) comuniConDati++;
+          }
+          ultimi7gg = {
+            finestra_ore: isSoft ? 14 : 26,
+            snapshot_totali: totalDelta,
+            comuni_con_dati: comuniConDati,
+            comuni_totali: PADOVA_COMUNI.length,
+            snapshot_per_comune: perComune,
+          };
+          // Override stato in base al delta dati reale (solo se base non è già ERRORE/CRITICO)
+          if (stato === "SANO" || stato === "WARNING") {
+            if (totalDelta === 0) stato = "ESEGUITO_SENZA_DATI";
+            else if (comuniConDati < PADOVA_COMUNI.length) stato = "PARZIALE";
+          }
+          break;
+        }
       }
 
       return {
