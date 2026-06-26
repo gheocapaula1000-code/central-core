@@ -22,7 +22,7 @@ const COMUNI = [
   "Abano Terme",
 ];
 
-async function logExecution(row: {
+async function logExecution(jobName: string, row: {
   triggered_at: string;
   completed_at: string;
   status: "success" | "error" | "partial";
@@ -41,10 +41,10 @@ async function logExecution(row: {
         Authorization: `Bearer ${SERVICE_KEY}`,
         Prefer: "return=minimal",
       },
-      body: JSON.stringify({ job_name: JOB_NAME, ...row }),
+      body: JSON.stringify({ job_name: jobName, ...row }),
     });
   } catch (e) {
-    console.warn("[cron-radar-padova-nightly] logExecution failed:", e instanceof Error ? e.message : String(e));
+    console.warn(`[${jobName}] logExecution failed:`, e instanceof Error ? e.message : String(e));
   }
 }
 
