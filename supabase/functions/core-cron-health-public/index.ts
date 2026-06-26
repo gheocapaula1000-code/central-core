@@ -36,6 +36,9 @@ const CORE_JOBS: CoreJob[] = [
   { jobname: "padova-agencies-soft-1530",   descrizione_leggibile: "Pipeline agenzie — soft 15:30 (Roma)",            schedule_attesa: "30 13 * * *", kind: "daily",    warning_ore: 26,     critico_ore: 30,     source: "cron_catalog" },
   { jobname: "padova-agencies-full-sunday", descrizione_leggibile: "Pipeline agenzie — full settimanale (domenica)",  schedule_attesa: "0 1 * * 0",   kind: "weekly",   warning_ore: 24 * 8, critico_ore: 24 * 9, source: "cron_catalog" },
   { jobname: "padova-agencies-finalize",    descrizione_leggibile: "Pipeline agenzie — finalize (ogni 20 min)",       schedule_attesa: "*/20 * * * *",kind: "frequent", warning_ore: 40 / 60, critico_ore: 1,     source: "cron_catalog" },
+  // ─── Cron radar Padova Central Core (executions_log) ─────────────────────
+  { jobname: "central-core-radar-padova-nightly-full", descrizione_leggibile: "Radar Padova — full notturno (Central Core)", schedule_attesa: "0 3 * * *",   kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
+  { jobname: "central-core-radar-padova-soft",         descrizione_leggibile: "Radar Padova — soft (Central Core)",          schedule_attesa: "0 2 * * *",   kind: "daily", warning_ore: 14, critico_ore: 24, source: "executions_log" },
 ];
 
 // decoder per i pattern usati dai cron Core
@@ -145,6 +148,26 @@ Deno.serve(async (req) => {
     const agencyFull = (agencyRuns ?? []).filter((r: any) => r.mode === "full");
     const agencyCostUsd7d = (agencyRuns ?? []).reduce((s, r: any) => s + (Number(r.cost_usd) || 0), 0);
 
+    // ─── Delta snapshot Padova (per classificazione SANO/PARZIALE/ESEGUITO_SENZA_DATI) ───
+    const PADOVA_COMUNI = ["Padova","Albignasego","Rubano","Selvazzano Dentro","Cadoneghe","Limena","Vigodarzere"];
+    const sinceFull = new Date(Date.now() - 26 * 3_600_000).toISOString();
+    const sinceSoft = new Date(Date.now() - 14 * 3_600_000).toISOString();
+    const fullDelta = new Map<string, number>();
+    const softDelta = new Map<string, number>();
+    {
+      const { data: rowsFull } = await sb
+        .from("listing_price_snapshots")
+        .select("municipality, created_at")
+        .in("municipality", PADOVA_COMUNI)
+        .gte("created_at", sinceFull);
+      for (const r of rowsFull ?? []) {
+        fullDelta.set(r.municipality, (fullDelta.get(r.municipality) ?? 0) + 1);
+        if (new Date(r.created_at).getTime() >= new Date(sinceSoft).getTime()) {
+          softDelta.set(r.municipality, (softDelta.get(r.municipality) ?? 0) + 1);
+        }
+      }
+    }
+
     const nowMs = Date.now();
     const STUCK_MINUTES = 30;
     const alerts: { job: string; ore: number; soglia: number }[] = [];
@@ -162,9 +185,10 @@ Deno.serve(async (req) => {
           ? `Run bloccato in stato "started" da oltre ${STUCK_MINUTES} min — worker probabilmente interrotto o timeout senza cattura.`
           : null;
 
-      let stato: "SANO" | "WARNING" | "CRITICO";
-      if (!lastTs) stato = "WARNING";
-      else if (lastFailed || isStuck || ageH! > j.critico_ore) stato = "CRITICO";
+      let stato: "SANO" | "WARNING" | "CRITICO" | "PARZIALE" | "ESEGUITO_SENZA_DATI" | "ATTIVO_MA_MAI_ESEGUITO" | "ERRORE";
+      if (!lastTs) stato = "ATTIVO_MA_MAI_ESEGUITO";
+      else if (lastFailed || isStuck) stato = "ERRORE";
+      else if (ageH! > j.critico_ore) stato = "CRITICO";
       else if (ageH! > j.warning_ore || last?.status === "started") stato = "WARNING";
       else stato = "SANO";
 
@@ -211,6 +235,33 @@ Deno.serve(async (req) => {
         case "padova-agencies-finalize":
           ultimi7gg = { run_pipeline_chiusi_7gg: (agencyRuns ?? []).filter((r: any) => r.status === "done").length };
           break;
+        case "central-core-radar-padova-nightly-full":
+        case "central-core-radar-padova-soft": {
+          const isSoft = j.jobname === "central-core-radar-padova-soft";
+          const deltaMap = isSoft ? softDelta : fullDelta;
+          const perComune: Record<string, number> = {};
+          let totalDelta = 0;
+          let comuniConDati = 0;
+          for (const c of PADOVA_COMUNI) {
+            const n = deltaMap.get(c) ?? 0;
+            perComune[c] = n;
+            totalDelta += n;
+            if (n > 0) comuniConDati++;
+          }
+          ultimi7gg = {
+            finestra_ore: isSoft ? 14 : 26,
+            snapshot_totali: totalDelta,
+            comuni_con_dati: comuniConDati,
+            comuni_totali: PADOVA_COMUNI.length,
+            snapshot_per_comune: perComune,
+          };
+          // Override stato in base al delta dati reale (solo se base non è già ERRORE/CRITICO)
+          if (stato === "SANO" || stato === "WARNING") {
+            if (totalDelta === 0) stato = "ESEGUITO_SENZA_DATI";
+            else if (comuniConDati < PADOVA_COMUNI.length) stato = "PARZIALE";
+          }
+          break;
+        }
       }
 
       return {
@@ -251,6 +302,10 @@ Deno.serve(async (req) => {
       sani: jobs.filter((j) => j.stato === "SANO").length,
       warning: jobs.filter((j) => j.stato === "WARNING").length,
       critici: jobs.filter((j) => j.stato === "CRITICO").length,
+      parziali: jobs.filter((j) => j.stato === "PARZIALE").length,
+      eseguiti_senza_dati: jobs.filter((j) => j.stato === "ESEGUITO_SENZA_DATI").length,
+      mai_eseguiti: jobs.filter((j) => j.stato === "ATTIVO_MA_MAI_ESEGUITO").length,
+      errore: jobs.filter((j) => j.stato === "ERRORE").length,
     };
 
     return new Response(

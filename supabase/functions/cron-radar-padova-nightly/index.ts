@@ -9,7 +9,8 @@
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
-const JOB_NAME = "central-core-radar-padova-nightly-full";
+const JOB_NAME_FULL = "central-core-radar-padova-nightly-full";
+const JOB_NAME_SOFT = "central-core-radar-padova-soft";
 
 const COMUNI = [
   "Padova",
@@ -21,7 +22,7 @@ const COMUNI = [
   "Abano Terme",
 ];
 
-async function logExecution(row: {
+async function logExecution(jobName: string, row: {
   triggered_at: string;
   completed_at: string;
   status: "success" | "error" | "partial";
@@ -40,14 +41,16 @@ async function logExecution(row: {
         Authorization: `Bearer ${SERVICE_KEY}`,
         Prefer: "return=minimal",
       },
-      body: JSON.stringify({ job_name: JOB_NAME, ...row }),
+      body: JSON.stringify({ job_name: jobName, ...row }),
     });
   } catch (e) {
-    console.warn("[cron-radar-padova-nightly] logExecution failed:", e instanceof Error ? e.message : String(e));
+    console.warn(`[${jobName}] logExecution failed:`, e instanceof Error ? e.message : String(e));
   }
 }
 
-async function runOneComune(comune: string, triggeredAt: string): Promise<{
+type Mode = "soft" | "full";
+
+async function runOneComune(comune: string, triggeredAt: string, mode: Mode, jobName: string): Promise<{
   comune: string;
   ok: boolean;
   http_status: number | null;
@@ -59,21 +62,23 @@ async function runOneComune(comune: string, triggeredAt: string): Promise<{
   const target = `${SUPABASE_URL}/functions/v1/civiko-radar-veneto/agent-radar`;
   const body = {
     scope: "global",
-    intent: "full",
+    intent: mode, // "soft" | "full"
     province: ["PD"],
     comuni: [comune],
-    triggered_by: "cron-nightly",
+    triggered_by: `cron-${mode}`,
     admin_global: true,
     ignore_workspace_filters: true,
     ignore_agency_filters: true,
     ignore_operating_area_filters: true,
     ignore_zone_filters: true,
     min_agencies: 1,
-    limit: 200,
+    limit: mode === "full" ? 200 : 80,
   };
   try {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 240_000); // 4 min per comune
+    // full: 4 min per comune; soft: 2 min
+    const perComuneTimeout = mode === "full" ? 240_000 : 120_000;
+    const timer = setTimeout(() => ctrl.abort(), perComuneTimeout);
     const res = await fetch(target, {
       method: "POST",
       headers: {
@@ -90,7 +95,7 @@ async function runOneComune(comune: string, triggeredAt: string): Promise<{
     const text = await res.text().catch(() => "");
     const dur = Date.now() - t0;
     const excerpt = text.slice(0, 600);
-    await logExecution({
+    await logExecution(jobName, {
       triggered_at: triggeredAt,
       completed_at: new Date().toISOString(),
       status: res.ok ? "success" : "error",
@@ -103,7 +108,7 @@ async function runOneComune(comune: string, triggeredAt: string): Promise<{
   } catch (err) {
     const dur = Date.now() - t0;
     const msg = err instanceof Error ? err.message : String(err);
-    await logExecution({
+    await logExecution(jobName, {
       triggered_at: triggeredAt,
       completed_at: new Date().toISOString(),
       status: "error",
@@ -116,21 +121,21 @@ async function runOneComune(comune: string, triggeredAt: string): Promise<{
   }
 }
 
-async function runAll(triggeredAt: string) {
+async function runAll(triggeredAt: string, mode: Mode, jobName: string) {
   const results: Awaited<ReturnType<typeof runOneComune>>[] = [];
   // Sequenziale per stare nei cap budget (Firecrawl/Apify) e non saturare i portali.
   for (const c of COMUNI) {
-    const r = await runOneComune(c, triggeredAt);
+    const r = await runOneComune(c, triggeredAt, mode, jobName);
     results.push(r);
   }
   const okCount = results.filter((r) => r.ok).length;
   const totalDur = results.reduce((s, r) => s + r.duration_ms, 0);
-  await logExecution({
+  await logExecution(jobName, {
     triggered_at: triggeredAt,
     completed_at: new Date().toISOString(),
     status: okCount === COMUNI.length ? "success" : okCount === 0 ? "error" : "partial",
     http_status: 200,
-    response_excerpt: `SUMMARY ok=${okCount}/${COMUNI.length} ` +
+    response_excerpt: `SUMMARY mode=${mode} ok=${okCount}/${COMUNI.length} ` +
       results.map((r) => `${r.comune}:${r.ok ? "ok" : "fail"}`).join(","),
     error_message: null,
     duration_ms: totalDur,
@@ -146,40 +151,43 @@ Deno.serve(async (req) => {
     );
   }
 
+  const url = new URL(req.url);
+  const mode: Mode = (url.searchParams.get("mode") === "soft" ? "soft" : "full");
+  const jobName = mode === "soft" ? JOB_NAME_SOFT : JOB_NAME_FULL;
+
   // Idempotency: se è già in esecuzione un run negli ultimi 10 min, evita doppio start.
   try {
     const recent = await fetch(
-      `${SUPABASE_URL}/rest/v1/cron_executions_log?job_name=eq.${JOB_NAME}&completed_at=is.null&triggered_at=gte.${new Date(Date.now() - 10 * 60_000).toISOString()}&select=id&limit=1`,
+      `${SUPABASE_URL}/rest/v1/cron_executions_log?job_name=eq.${jobName}&triggered_at=gte.${new Date(Date.now() - 10 * 60_000).toISOString()}&select=id&limit=1`,
       { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } },
     );
     if (recent.ok) {
       const arr = await recent.json().catch(() => []);
-      if (Array.isArray(arr) && arr.length > 0) {
+      if (Array.isArray(arr) && arr.length > 0 && url.searchParams.get("force") !== "1") {
         return new Response(
-          JSON.stringify({ ok: true, skipped: "in_flight_run_recent" }),
+          JSON.stringify({ ok: true, skipped: "in_flight_run_recent", job: jobName }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
     }
   } catch { /* best effort */ }
 
-  // Audit: riga "start" senza completed_at (idempotency check sopra)
-  await logExecution({
+  // Audit: riga "start"
+  await logExecution(jobName, {
     triggered_at: triggeredAt,
     completed_at: new Date().toISOString(),
     status: "success",
     http_status: 202,
-    response_excerpt: `started comuni=${COMUNI.length}`,
+    response_excerpt: `started mode=${mode} comuni=${COMUNI.length}`,
     error_message: null,
     duration_ms: 0,
   });
 
   // Manual mode (debug): aspetta la fine se ?wait=1
-  const url = new URL(req.url);
   const wait = url.searchParams.get("wait") === "1";
   if (wait) {
-    await runAll(triggeredAt);
-    return new Response(JSON.stringify({ ok: true, mode: "sync", triggered_at: triggeredAt }), {
+    await runAll(triggeredAt, mode, jobName);
+    return new Response(JSON.stringify({ ok: true, mode: "sync", run_mode: mode, job: jobName, triggered_at: triggeredAt }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
@@ -189,14 +197,13 @@ Deno.serve(async (req) => {
   // deno-lint-ignore no-explicit-any
   const rt = (globalThis as any).EdgeRuntime;
   if (rt && typeof rt.waitUntil === "function") {
-    rt.waitUntil(runAll(triggeredAt));
+    rt.waitUntil(runAll(triggeredAt, mode, jobName));
   } else {
-    // Fallback: fire-and-forget
-    runAll(triggeredAt).catch((e) => console.error("[cron-radar-padova-nightly] bg error:", e));
+    runAll(triggeredAt, mode, jobName).catch((e) => console.error(`[${jobName}] bg error:`, e));
   }
 
   return new Response(
-    JSON.stringify({ ok: true, mode: "async", triggered_at: triggeredAt, comuni: COMUNI }),
+    JSON.stringify({ ok: true, mode: "async", run_mode: mode, job: jobName, triggered_at: triggeredAt, comuni: COMUNI }),
     { status: 202, headers: { "Content-Type": "application/json" } },
   );
 });
