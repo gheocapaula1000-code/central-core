@@ -1,5 +1,8 @@
 // Overpass / OpenStreetMap provider for b2b-finder.
 // Free, no API key. Strict timeout + 1 retry.
+// Supports two search_mode:
+//   - "clients"   → food/horeca amenity categories (existing behaviour)
+//   - "resellers" → shop/wholesale categories + name regex per ingrosso/horeca
 
 const ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
@@ -9,12 +12,12 @@ const ENDPOINTS = [
 ];
 
 // Safe bbox for the city of Padova (south, west, north, east).
-// Tight enough to avoid the whole province in v1.
 export const PADOVA_BBOX: [number, number, number, number] = [
   45.36, 11.80, 45.45, 11.95,
 ];
 
-const CATEGORIES = [
+// ── Clients (food/horeca end-users) ────────────────────────────────────────
+const CLIENT_CATEGORIES = [
   "restaurant",
   "cafe",
   "bar",
@@ -23,25 +26,69 @@ const CATEGORIES = [
   "food_court",
 ] as const;
 
-export type OverpassCategory = typeof CATEGORIES[number];
+// ── Resellers (B2B distribution, wholesale, retail of houseware) ───────────
+const RESELLER_SHOPS = [
+  "wholesale",
+  "houseware",
+  "hardware",
+  "department_store",
+  "supermarket",
+  "trade",
+  "doityourself",
+  "variety_store",
+  "party",
+  "interior_decoration",
+  "convenience",
+] as const;
+
+// OSM name regex to catch businesses like "Ingrosso ...", "Cash and Carry ...",
+// "Forniture Horeca ...", "Articoli per Ristorazione ..." etc.
+const RESELLER_NAME_REGEX =
+  "ingrosso|cash and carry|cash & carry|c&c|forniture|horeca|grossist|" +
+  "distribut|monouso|packaging|casaling|articoli per ristorant|" +
+  "articoli per bar|articoli per pizzer|catering|tovagliato|biancheria";
+
+export type OverpassCategory = (typeof CLIENT_CATEGORIES)[number] | string;
+export type SearchMode = "clients" | "resellers";
 
 export interface OverpassPoi {
   osm_id: string;
   type: "node" | "way" | "relation";
-  category: OverpassCategory | string;
+  category: OverpassCategory; // amenity if clients, shop if resellers, else "unknown"
   name: string | null;
   lat: number | null;
   lng: number | null;
   tags: Record<string, string>;
 }
 
-function buildQuery(bbox: [number, number, number, number]): string {
+function buildClientQuery(bbox: [number, number, number, number]): string {
   const [s, w, n, e] = bbox;
-  const parts = CATEGORIES.map(
+  const parts = CLIENT_CATEGORIES.map(
     (c) =>
       `  node["amenity"="${c}"](${s},${w},${n},${e});\n  way["amenity"="${c}"](${s},${w},${n},${e});\n  relation["amenity"="${c}"](${s},${w},${n},${e});`,
   ).join("\n");
   return `[out:json][timeout:20];\n(\n${parts}\n);\nout center tags;`;
+}
+
+function buildResellerQuery(bbox: [number, number, number, number]): string {
+  const [s, w, n, e] = bbox;
+  const shopParts = RESELLER_SHOPS.map(
+    (c) =>
+      `  node["shop"="${c}"](${s},${w},${n},${e});\n  way["shop"="${c}"](${s},${w},${n},${e});\n  relation["shop"="${c}"](${s},${w},${n},${e});`,
+  ).join("\n");
+  // Any node tagged as shop/office/craft/industrial with a name that screams "wholesale/horeca"
+  const re = RESELLER_NAME_REGEX;
+  const namedParts = [
+    `  node["name"~"${re}",i]["shop"](${s},${w},${n},${e});`,
+    `  way["name"~"${re}",i]["shop"](${s},${w},${n},${e});`,
+    `  node["name"~"${re}",i]["office"](${s},${w},${n},${e});`,
+    `  way["name"~"${re}",i]["office"](${s},${w},${n},${e});`,
+    `  node["name"~"${re}",i]["craft"](${s},${w},${n},${e});`,
+    `  way["name"~"${re}",i]["craft"](${s},${w},${n},${e});`,
+    `  node["name"~"${re}",i]["industrial"](${s},${w},${n},${e});`,
+    `  way["name"~"${re}",i]["industrial"](${s},${w},${n},${e});`,
+  ].join("\n");
+  return `[out:json][timeout:25];\n(\n${shopParts}\n${namedParts}\n);\nout center tags;`;
 }
 
 async function fetchWithTimeout(
@@ -66,8 +113,11 @@ async function fetchWithTimeout(
 export async function queryOverpass(
   bbox: [number, number, number, number],
   timeoutMs = 25000,
+  searchMode: SearchMode = "clients",
 ): Promise<OverpassPoi[]> {
-  const q = buildQuery(bbox);
+  const q = searchMode === "resellers"
+    ? buildResellerQuery(bbox)
+    : buildClientQuery(bbox);
   let lastErr: unknown = null;
   for (let attempt = 0; attempt < ENDPOINTS.length; attempt++) {
     const url = ENDPOINTS[attempt];
@@ -76,7 +126,6 @@ export async function queryOverpass(
       if (!res.ok) {
         await res.text().catch(() => "");
         lastErr = new Error(`overpass http ${res.status}`);
-        // brief backoff on rate-limit / server errors before next endpoint
         if (res.status === 429 || res.status >= 500) {
           await new Promise((r) => setTimeout(r, 400));
         }
@@ -87,7 +136,14 @@ export async function queryOverpass(
       return elements
         .map((el): OverpassPoi | null => {
           const tags = (el?.tags ?? {}) as Record<string, string>;
-          const cat = tags.amenity ?? "unknown";
+          // Category preference per mode: shop>amenity>office>craft for resellers,
+          // amenity>shop for clients.
+          let cat = "unknown";
+          if (searchMode === "resellers") {
+            cat = tags.shop ?? tags.office ?? tags.craft ?? tags.industrial ?? tags.amenity ?? "unknown";
+          } else {
+            cat = tags.amenity ?? tags.shop ?? "unknown";
+          }
           const lat = el?.lat ?? el?.center?.lat ?? null;
           const lng = el?.lon ?? el?.center?.lon ?? null;
           return {
