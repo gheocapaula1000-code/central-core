@@ -135,6 +135,8 @@ Deno.serve(async (req: Request) => {
     if (mode !== "buyers") {
       return jsonResponse(req, 400, envelope(false, null, "v1 supports only mode='buyers'", debug_id));
     }
+    const searchMode = resolveSearchMode(input);
+
 
     // dry_run must be explicit boolean
     const isDryRun = input.dry_run !== false; // default true; only explicit false triggers save
