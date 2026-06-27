@@ -11,6 +11,9 @@ import { resolveSearchScope, isPoiInScope, PD_COMUNI, PD_COMUNI_KEYS, bboxCenter
 
 interface SearchInput {
   mode?: string;
+  /** "clients" | "cerco_clienti" | "resellers" | "cerco_rivenditori" */
+  search_mode?: string;
+  intent?: string;
   product?: string;
   target_description?: string;
   sector?: string;
@@ -21,6 +24,13 @@ interface SearchInput {
   limit?: number;
   search_depth?: "quick" | "deep";
   dry_run?: boolean;
+}
+
+function resolveSearchMode(input: SearchInput): "clients" | "resellers" {
+  const raw = String(input.search_mode ?? input.intent ?? "").toLowerCase().trim();
+  if (!raw) return "clients";
+  if (raw === "resellers" || raw === "cerco_rivenditori" || raw === "rivenditori") return "resellers";
+  return "clients";
 }
 
 const SAVE_MAX_LIMIT = 50;
