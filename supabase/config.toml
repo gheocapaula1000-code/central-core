@@ -189,3 +189,6 @@ verify_jwt = false
 
 [functions.b2b-test-runner-v08]
 verify_jwt = false
+
+[functions.b2b-supplier-runner]
+verify_jwt = false
