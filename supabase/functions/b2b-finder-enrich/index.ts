@@ -1076,11 +1076,14 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     : null;
   const hasStrongExclusion = !!exclusion_reason || buyer_fit_score < 30;
 
+  // Ready-to-contact prefers leads with a verifiable phone (spec v0.6).
   const ready_to_contact =
     buyer_fit_score >= 60 &&
     contactability_score >= 50 &&
     !severeConflict &&
-    !hasStrongExclusion;
+    !hasStrongExclusion &&
+    phoneDiscovery.found &&
+    phoneDiscovery.confidence >= 60;
 
   // Status suggestion
   let status_suggestion: "Pronto Da Contattare" | "Da Migliorare" | "Escluso";
@@ -1088,6 +1091,7 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   else if (ready_to_contact && data_completeness_score >= 60) status_suggestion = "Pronto Da Contattare";
   else if (buyer_fit_score >= 50) status_suggestion = "Da Migliorare";
   else status_suggestion = "Escluso";
+
 
   // Priority label (commercial)
   let priority_label: "Alta" | "Media" | "Bassa";
