@@ -290,29 +290,25 @@ Deno.serve(async (req: Request) => {
 
     const rawCount = pois.length;
     let filteredOutOfZone = 0;
-    // Per suppliers (scope esteso) NON applichiamo il filtro per comune:
-    // i fornitori non devono essere per forza in città.
-    const inScope = supplierScope
-      ? pois
-      : pois.filter((p) => {
-          const v = isPoiInScope(p, scope);
-          if (!v.ok) filteredOutOfZone++;
-          return v.ok;
-        });
+    const inScope = pois.filter((p) => {
+      const v = isPoiInScope(p, scope);
+      if (!v.ok) filteredOutOfZone++;
+      return v.ok;
+    });
 
     let normalized: NormalizedCompany[];
     try {
       normalized = inScope
         .map((p) => scoreAndNormalize(p, { city, province, region, search_mode: searchMode }))
         .filter((x): x is NormalizedCompany => !!x)
-        // Defensive: forziamo il comune al canonical scope.comune SOLO per
-        // clients/resellers. Per suppliers manteniamo la città reale del POI.
+        // Defensive: forziamo il comune al canonical scope.comune.
         .map((x) =>
-          !supplierScope && normalizeComune(x.city) === normalizeComune(scope.comune)
+          normalizeComune(x.city) === normalizeComune(scope.comune)
             ? { ...x, city: scope.comune }
             : x
         )
         .sort((a, b) => b.score - a.score);
+
     } catch (e) {
       const msg = e instanceof Error ? e.message : "normalize error";
       console.error(`[b2b-finder-search] normalize failed debug_id=${debug_id} err=${msg}`);
