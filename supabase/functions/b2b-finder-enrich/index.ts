@@ -1122,9 +1122,18 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   const severeConflict = conflicts.includes("website_domain_mismatch");
 
   // v0.5: stricter but more inclusive readiness — spec: fit>=60, contact>=50, no severe conflict, no strong exclusion signal
-  const exclusion_reason = consolidated?.exclusion_reason && consolidated.exclusion_reason.trim()
-    ? consolidated.exclusion_reason.trim()
-    : null;
+  // v0.7 — derive reseller-specific buyer_type & exclusion for resellers mode
+  const buyer_type: "Cliente Finale" | "Rivenditore" | "Fornitore" | "Da Verificare" =
+    (consolidated?.buyer_type as "Cliente Finale" | "Rivenditore" | "Fornitore" | "Da Verificare" | null | undefined) ?? "Da Verificare";
+
+  // In resellers mode, a "Cliente Finale" classification means: NOT a reseller → strong exclusion
+  let extraExclusion: string | null = null;
+  if (searchMode === "resellers" && buyer_type === "Cliente Finale") {
+    extraExclusion = "Attività utilizzatrice (non rivenditore): non in target per ricerca rivenditori";
+  }
+  const exclusion_reason = (consolidated?.exclusion_reason && consolidated.exclusion_reason.trim())
+    ? consolidated!.exclusion_reason!.trim()
+    : extraExclusion;
   const hasStrongExclusion = !!exclusion_reason || buyer_fit_score < 30;
 
   // Ready-to-contact prefers leads with a verifiable phone (spec v0.6).
