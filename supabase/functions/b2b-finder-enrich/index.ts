@@ -155,7 +155,7 @@ function jsonResponse(req: Request, status: number, body: ReturnType<typeof enve
       ...corsHeaders(req),
       "Content-Type": "application/json",
       "X-Function": "b2b-finder-enrich",
-      "X-Contract": "b2b-finder/v0.7",
+      "X-Contract": "b2b-finder/v0.8",
     },
   });
 }
