@@ -1020,9 +1020,11 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
       },
       apify: apifyOut?.ok ? { website: apifyOut.website, phone: apifyOut.phone, email: apifyOut.email, address: apifyOut.address } : null,
       perplexity: pxPhone || pxEmail || pxWebsite ? { website: pxWebsite, phone: pxPhone, email: pxEmail } : null,
-      product: "Coprimacchia TNT (tovagliette monouso TNT per ristorazione)",
+      product: searchMode === "resellers"
+        ? "Coprimacchia TNT 100x100 cm — cerco RIVENDITORI/FORNITORI (ingrossi horeca, cash and carry, negozi casalinghi, party store, packaging alimentare) che possano aggiungere il prodotto al loro catalogo a prezzo competitivo"
+        : "Coprimacchia TNT (tovagliette monouso TNT per ristorazione)",
     };
-    consolidated = await openaiConsolidate(payload);
+    consolidated = await openaiConsolidate(payload, searchMode);
     cost += COST.openaiCall; ctx.spend(COST.openaiCall);
     if (!consolidated) warnings.push("openai_consolidation_failed");
   }
