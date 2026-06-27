@@ -335,6 +335,10 @@ Deno.serve(async (req: Request) => {
             contactability_score: (enrichment.contactability_score as number | null | undefined) ?? null,
             data_completeness_score: (enrichment.data_completeness_score as number | null | undefined) ?? null,
             next_best_action: (enrichment.next_best_action as string | null | undefined) ?? null,
+            // v0.6 phone discovery (nested mirror for legacy clients reading enrichment.*)
+            phone_href: (enrichment.phone_href as string | null | undefined) ?? null,
+            phone_pretty: (enrichment.phone_pretty as string | null | undefined) ?? null,
+            phone_discovery: (enrichment.phone_discovery as Record<string, unknown> | null | undefined) ?? null,
           },
         };
       });
