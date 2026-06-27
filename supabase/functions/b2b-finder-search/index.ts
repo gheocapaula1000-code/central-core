@@ -438,12 +438,15 @@ Deno.serve(async (req: Request) => {
         } else {
           companyId = existing.id as string;
           // Only patch contact fields that are currently missing on existing row.
+          const existingMeta = (existing.metadata ?? {}) as Record<string, unknown>;
+          const mergedMeta = { ...existingMeta, search_mode: existingMeta.search_mode ?? searchMode, buyer_type_hint: existingMeta.buyer_type_hint ?? r.buyer_type_hint };
           const patch: Record<string, unknown> = {
             last_seen_at: new Date().toISOString(),
             source_count: (existing.source_count ?? 0) + 1,
             priority: r.priority,
             score: r.score,
             fit_reason: r.fit_reason,
+            metadata: mergedMeta,
           };
           // Preserve status, notes — never overwrite.
           // Fill contacts only if missing — fetch full row contact fields
