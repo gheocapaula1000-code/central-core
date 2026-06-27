@@ -25,7 +25,7 @@ export interface NormalizedCompany {
   priority: "high" | "medium" | "low";
   score: number;
   search_mode: SearchMode;
-  buyer_type_hint: "Cliente Finale" | "Rivenditore" | "Fornitore" | "Da Verificare";
+  buyer_type_hint: "Cliente Finale" | "Rivenditore" | "Fornitore" | "Produttore" | "Importatore" | "Distributore" | "Da Verificare";
 }
 
 interface KwRule {
