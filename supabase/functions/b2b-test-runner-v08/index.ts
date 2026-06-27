@@ -14,6 +14,7 @@ async function callFn(name: string, body: unknown) {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${ANON}`,
       "x-internal-secret": SECRET,
+      "x-source-app": "b2b-finder",
     },
     body: JSON.stringify(body),
   });
