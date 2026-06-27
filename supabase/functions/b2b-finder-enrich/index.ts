@@ -626,7 +626,11 @@ interface OpenAIConsolidated {
   supplier_contact_priority?: "Alta" | "Media" | "Bassa" | null;
 }
 
-async function openaiConsolidate(payload: Record<string, unknown>, searchMode: "clients" | "resellers" = "clients"): Promise<OpenAIConsolidated | null> {
+async function openaiConsolidate(
+  payload: Record<string, unknown>,
+  searchMode: "clients" | "resellers" | "suppliers" = "clients",
+  productPhrase: string = "Coprimacchia TNT Colorati 100x100 cm (tovagliette monouso in tessuto non tessuto per coperti ristorazione, sagre, eventi, mense, agriturismi).",
+): Promise<OpenAIConsolidated | null> {
   if (isOpen("openai")) return null;
   const key = Deno.env.get("OPENAI_API_KEY"); if (!key) return null;
   try {
@@ -651,13 +655,21 @@ async function openaiConsolidate(payload: Record<string, unknown>, searchMode: "
         call_opener: { type: ["string", "null"] },
         whatsapp_or_email_message: { type: ["string", "null"] },
         verification_checks: { type: ["array", "null"], items: { type: "string" } },
-        // v0.7 resellers (always required by strict schema; null when N/A)
+        // v0.7 resellers
         reseller_fit_score: { type: ["number", "null"] },
         reseller_fit_reason: { type: ["string", "null"] },
         resale_use_case: { type: ["string", "null"] },
         suggested_offer_angle: { type: ["string", "null"] },
         price_advantage_angle: { type: ["string", "null"] },
-        buyer_type: { type: ["string", "null"], enum: ["Cliente Finale", "Rivenditore", "Fornitore", "Da Verificare", null] },
+        buyer_type: { type: ["string", "null"], enum: ["Cliente Finale", "Rivenditore", "Fornitore", "Produttore", "Importatore", "Distributore", "Da Verificare", null] },
+        // v0.8 suppliers
+        supplier_fit_score: { type: ["number", "null"] },
+        supplier_fit_reason: { type: ["string", "null"] },
+        supplier_type: { type: ["string", "null"], enum: ["Produttore", "Grossista", "Importatore", "Distributore", "Da Verificare", null] },
+        likely_product_range: { type: ["string", "null"] },
+        sourcing_angle: { type: ["string", "null"] },
+        minimum_order_hint: { type: ["string", "null"] },
+        supplier_contact_priority: { type: ["string", "null"], enum: ["Alta", "Media", "Bassa", null] },
       },
       required: [
         "official_website","phone","email","address","refined_category","estimated_business_size",
@@ -666,6 +678,8 @@ async function openaiConsolidate(payload: Record<string, unknown>, searchMode: "
         "decision_maker_hint","call_opener","whatsapp_or_email_message","verification_checks",
         "reseller_fit_score","reseller_fit_reason","resale_use_case",
         "suggested_offer_angle","price_advantage_angle","buyer_type",
+        "supplier_fit_score","supplier_fit_reason","supplier_type",
+        "likely_product_range","sourcing_angle","minimum_order_hint","supplier_contact_priority",
       ],
     };
 
@@ -675,42 +689,70 @@ async function openaiConsolidate(payload: Record<string, unknown>, searchMode: "
       "1) Non inventare MAI telefoni, email, siti, indirizzi o dati non presenti nelle fonti fornite: se non certo, metti null. " +
       "2) Tutti i testi in italiano, tono professionale, mai spam, mai aggressivo, mai usare le parole 'AI', 'IA', 'Intelligenza Artificiale'. " +
       "3) Niente promesse assolute: vietato dire 'prezzo più basso del mercato' o simili senza prove. Usa formule prudenti: 'prezzo competitivo', 'margine interessante', 'prodotto adatto al catalogo'. " +
-      "4) Il prodotto è 'Coprimacchia TNT Colorati 100x100 cm' (tovagliette monouso in tessuto non tessuto per coperti ristorazione, sagre, eventi, mense, agriturismi). ";
+      `4) Il prodotto è ${productPhrase} `;
 
     const clientsRules =
       "MODALITÀ: cerco CLIENTI FINALI (chi USA il prodotto). " +
       "5) buyer_fit_score 0-100: alto solo se l'attività usa davvero coperti monouso o ha alto turnover di tavoli (trattorie con pranzi di lavoro, mense, self service, agriturismi, pizzerie con coperti, sagre/eventi). Basso per bar/cafe puri senza ristorazione, gastronomie da asporto puro, panetterie, istituzionali con appalti chiusi. " +
       "6) buyer_fit_reason: 1-2 frasi concrete sul perché può USARE il prodotto. Vietate frasi generiche. " +
-      "7) product_use_case: come potrebbero USARE il Coprimacchia TNT 100x100 (es. 'Copertura tavoli pranzo a turni veloci'). " +
+      "7) product_use_case: come potrebbero USARE il prodotto (es. 'Apparecchiatura veloce con busta portaposate + tovagliolo airlaid già pronta'). " +
       "8) buyer_type: in questa modalità è quasi sempre 'Cliente Finale'. " +
       "9) reseller_fit_score, reseller_fit_reason, resale_use_case, suggested_offer_angle, price_advantage_angle: METTI NULL. " +
-      "10) decision_maker_hint: chi decide l'acquisto (es. 'Titolare', 'Responsabile sala'). " +
-      "11) call_opener: max 180 caratteri, parla di tovagliette/coperti, mai pressing. " +
-      "12) whatsapp_or_email_message: max 350 caratteri, professionale, non spam. " +
-      "13) verification_checks: 2-4 verifiche pratiche pre-contatto (es. 'Confermare numero coperti medi'). " +
-      "14) next_best_action: azione breve (es. 'Chiamata al titolare in mattinata'). Per escluse: 'Non contattare' o simili. " +
-      "15) Se mensa istituzionale o appalto pubblico: escludi con exclusion_reason chiaro e buyer_fit_score molto basso.";
+      "10) supplier_fit_score, supplier_fit_reason, supplier_type, likely_product_range, sourcing_angle, minimum_order_hint, supplier_contact_priority: METTI NULL. " +
+      "11) decision_maker_hint: chi decide l'acquisto (es. 'Titolare', 'Responsabile sala'). " +
+      "12) call_opener: max 180 caratteri, mai pressing. " +
+      "13) whatsapp_or_email_message: max 350 caratteri, professionale, non spam. " +
+      "14) verification_checks: 2-4 verifiche pratiche pre-contatto (es. 'Confermare numero coperti medi'). " +
+      "15) next_best_action: azione breve (es. 'Chiamata al titolare in mattinata'). Per escluse: 'Non contattare' o simili. " +
+      "16) Se mensa istituzionale o appalto pubblico: escludi con exclusion_reason chiaro e buyer_fit_score molto basso.";
 
     const resellersRules =
-      "MODALITÀ: cerco RIVENDITORI / FORNITORI (chi RIVENDE il prodotto al proprio catalogo). " +
+      "MODALITÀ: cerco RIVENDITORI (chi RIVENDE il prodotto al proprio catalogo). " +
       "5) reseller_fit_score 0-100: alto solo se l'attività ha un canale di vendita plausibile per articoli monouso da ristorazione/eventi/casalinghi: ingrossi horeca, cash and carry, forniture alberghiere/ristorazione, grossisti, distributori, negozi casalinghi, negozi articoli per ristorazione/bar/pizzerie, party store, packaging alimentare, articoli monouso, detergenza professionale, e-commerce locali coerenti, negozi biancheria tavola coerenti. " +
       "   Basso o nullo per: ristoranti puri, bar puri, pizzerie pure, gelaterie, locali che USANO ma NON rivendono, panetterie/pasticcerie senza canale vendita di tovagliato, attività senza canale vendita plausibile. " +
-      "6) reseller_fit_reason: 1-2 frasi concrete sul perché può RIVENDERE Coprimacchia TNT 100x100 (es. 'Ingrosso horeca con catalogo monouso: assortimento compatibile per i propri clienti ristorazione'). Vietate frasi generiche. " +
-      "7) resale_use_case: come può inserire il prodotto a catalogo o nel proprio assortimento (es. 'Aggiunta linea coprimacchia TNT colorati nel reparto monouso ristorazione'). " +
+      "6) reseller_fit_reason: 1-2 frasi concrete sul perché può RIVENDERE il prodotto. Vietate frasi generiche. " +
+      "7) resale_use_case: come può inserire il prodotto a catalogo o nel proprio assortimento. " +
       "8) suggested_offer_angle: angolo commerciale per la proposta (es. 'Listino rivenditore con sconto scaglionato per quantità'). " +
       "9) price_advantage_angle: prudente: 'Prezzo competitivo rispetto ai fornitori abituali, da verificare con un listino di confronto'. Mai 'più basso del mercato'. " +
       "10) buyer_type: 'Rivenditore' per negozi/catene che rivendono al pubblico; 'Fornitore' per ingrossi/distributori/cash and carry; 'Cliente Finale' per ristoranti/bar/pizzerie puri (in tal caso ESCLUDI con exclusion_reason e reseller_fit_score molto basso); 'Da Verificare' quando non è chiaro. " +
-      "11) buyer_fit_score: USA lo STESSO valore di reseller_fit_score (potenziale come rivenditore). " +
+      "11) buyer_fit_score: USA lo STESSO valore di reseller_fit_score. " +
       "12) buyer_fit_reason: usa lo stesso contenuto di reseller_fit_reason. " +
-      "13) product_use_case: se il buyer_type è 'Cliente Finale' descrivi l'uso; altrimenti METTI NULL (usa resale_use_case). " +
-      "14) decision_maker_hint: chi decide (es. 'Titolare', 'Responsabile acquisti', 'Buyer reparto monouso'). " +
-      "15) call_opener: max 180 caratteri, parla di FORNITURA/COLLABORAZIONE COMMERCIALE, mai pressing, mai 'prezzo più basso del mercato'. " +
-      "16) whatsapp_or_email_message: max 350 caratteri, proposta di collaborazione o invio listino rivenditore, professionale, niente emoji eccessive. " +
-      "17) verification_checks: 2-4 punti (es. 'Verificare se trattano già monouso TNT', 'Capire margine target del rivenditore'). " +
-      "18) next_best_action: breve (es. 'Chiamata al responsabile acquisti per inviare listino rivenditore'). Per escluse: 'Non contattare come rivenditore'. " +
-      "19) exclusion_reason: SE è ristorante/bar/pizzeria puro o non ha canale rivendita → ESCLUDI con motivo concreto.";
+      "13) product_use_case: se buyer_type è 'Cliente Finale' descrivi l'uso; altrimenti METTI NULL. " +
+      "14) supplier_fit_score, supplier_fit_reason, supplier_type, likely_product_range, sourcing_angle, minimum_order_hint, supplier_contact_priority: METTI NULL. " +
+      "15) decision_maker_hint: chi decide (es. 'Titolare', 'Responsabile acquisti'). " +
+      "16) call_opener: max 180 caratteri, FORNITURA/COLLABORAZIONE COMMERCIALE. " +
+      "17) whatsapp_or_email_message: max 350 caratteri, proposta di collaborazione/invio listino. " +
+      "18) verification_checks: 2-4 punti. " +
+      "19) next_best_action: breve. Per escluse: 'Non contattare come rivenditore'. " +
+      "20) exclusion_reason: SE è ristorante/bar/pizzeria puro o non ha canale rivendita → ESCLUDI.";
 
-    const systemContent = baseRules + (searchMode === "resellers" ? resellersRules : clientsRules);
+    const suppliersRules =
+      "MODALITÀ: cerco FORNITORI (chi PRODUCE/IMPORTA/DISTRIBUISCE il prodotto, da cui ACQUISTARE per rivendere). " +
+      "5) supplier_fit_score 0-100: alto solo se l'attività può davvero RIFORNIRE il prodotto: produttori di tovagliato monouso / TNT / airlaid / portaposate, importatori, grossisti horeca, cash and carry, distributori carta e monouso, aziende packaging alimentare, fornitori articoli ristorazione. " +
+      "   Basso o nullo per: ristoranti, bar, pizzerie, locali che USANO il prodotto, negozi al dettaglio puri senza canale b2b, attività senza catalogo plausibile. " +
+      "6) supplier_fit_reason: 1-2 frasi concrete sul perché può FORNIRE il prodotto. Vietate frasi generiche. " +
+      "7) supplier_type: 'Produttore' se produce direttamente; 'Importatore' se importa; 'Grossista' per ingrossi/cash and carry/forniture horeca; 'Distributore' per distributori e logistica b2b; 'Da Verificare' se non chiaro. SE è cliente finale o ristorante puro: NON impostare supplier_type, ESCLUDI con exclusion_reason. " +
+      "8) likely_product_range: 1 riga sul probabile assortimento utile (es. 'Tovagliato monouso airlaid, tovaglioli, coprimacchia TNT, packaging alimentare'). Se non desumibile: null. " +
+      "9) sourcing_angle: angolo di approvvigionamento (es. 'Richiesta listino b2b con MOQ e tempi di consegna'). " +
+      "10) minimum_order_hint: indicazione prudente sul possibile MOQ se desumibile (es. 'Probabile MOQ a pallet/scatola'). Altrimenti null. " +
+      "11) supplier_contact_priority: 'Alta' per produttori/importatori specializzati; 'Media' per grossisti/distributori generici horeca; 'Bassa' per realtà poco coerenti. " +
+      "12) buyer_type: usa il MEDESIMO valore di supplier_type (es. 'Produttore' → buyer_type='Produttore'). " +
+      "13) buyer_fit_score: USA lo STESSO valore di supplier_fit_score. " +
+      "14) buyer_fit_reason: usa lo stesso contenuto di supplier_fit_reason. " +
+      "15) product_use_case: METTI NULL (qui si compra, non si usa). " +
+      "16) reseller_fit_score, reseller_fit_reason, resale_use_case, suggested_offer_angle, price_advantage_angle: METTI NULL. " +
+      "17) decision_maker_hint: chi gestisce le forniture (es. 'Ufficio commerciale', 'Responsabile vendite b2b'). " +
+      "18) call_opener: max 180 caratteri, RICHIESTA INFORMAZIONI/LISTINO. " +
+      "19) whatsapp_or_email_message: max 350 caratteri, richiesta listino b2b/condizioni rivendita, professionale. " +
+      "20) verification_checks: 2-4 punti (es. 'Verificare se hanno airlaid a catalogo', 'Chiedere MOQ e tempi di consegna'). " +
+      "21) next_best_action: breve (es. 'Email all\\'ufficio commerciale per richiedere listino b2b'). Per escluse: 'Non contattare come fornitore'. " +
+      "22) exclusion_reason: SE è cliente finale, ristorante puro o non ha canale b2b → ESCLUDI con motivo concreto.";
+
+    const modeRules =
+      searchMode === "suppliers" ? suppliersRules :
+      searchMode === "resellers" ? resellersRules :
+      clientsRules;
+    const systemContent = baseRules + modeRules;
 
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 25000);
