@@ -290,6 +290,12 @@ Deno.serve(async (req: Request) => {
           priority_label: (enrichment.priority_label as string | null | undefined) ?? null,
           status_suggestion: (enrichment.status_suggestion as string | null | undefined) ?? null,
           contact_channel_recommendation: (enrichment.contact_channel_recommendation as string | null | undefined) ?? null,
+          // v0.6 phone discovery top-level mirrors
+          phone_href: (enrichment.phone_href as string | null | undefined) ?? null,
+          phone_pretty: (enrichment.phone_pretty as string | null | undefined) ?? null,
+          missing_data: (enrichment.missing_data as unknown[] | undefined) ?? [],
+          verification_checks: (enrichment.verification_checks as unknown[] | undefined) ?? [],
+          phone_discovery: (enrichment.phone_discovery as Record<string, unknown> | null | undefined) ?? null,
           enrichment: {
             category_refined:
               (enrichment.category_refined as string | null | undefined) ??
