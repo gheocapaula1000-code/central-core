@@ -95,34 +95,9 @@ export const PADOVA_QUARTIERI: Record<string, { bbox: Bbox; label: string; alias
 // ── Padova: bbox comune intero (fallback) ──────────────────────────────────
 export const PADOVA_BBOX_FULL: Bbox = [45.36, 11.80, 45.45, 11.95];
 
-// ── Supplier scope bbox (province / region / italy) ────────────────────────
-export type SupplierScope = "province" | "region" | "italy";
+// (Rollback v0.7) Supplier scope helpers rimossi insieme alla modalità "suppliers".
 
-export const SUPPLIER_SCOPE_BBOX: Record<SupplierScope, Bbox> = {
-  // Provincia di Padova (approx)
-  province: [45.05, 11.30, 45.85, 12.20],
-  // Veneto (approx)
-  region: [44.79, 10.62, 46.68, 13.10],
-  // Italia (approx, mainland + Sicilia/Sardegna)
-  italy: [35.49, 6.60, 47.10, 18.55],
-};
 
-export const SUPPLIER_SCOPE_LABEL: Record<SupplierScope, string> = {
-  province: "Provincia di Padova",
-  region: "Veneto",
-  italy: "Italia",
-};
-
-export function resolveSupplierScope(
-  raw: string | null | undefined,
-  fallback: SupplierScope = "region",
-): SupplierScope {
-  const s = String(raw ?? "").toLowerCase().trim();
-  if (s === "province" || s === "provincia" || s === "pd") return "province";
-  if (s === "region" || s === "regione" || s === "veneto") return "region";
-  if (s === "italy" || s === "italia" || s === "national" || s === "it") return "italy";
-  return fallback;
-}
 
 
 // ── Comuni PD limitrofi ────────────────────────────────────────────────────
