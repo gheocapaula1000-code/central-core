@@ -764,6 +764,14 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   const conflicts: string[] = [];
   let cost = 0;
 
+  // v0.7 — determine search mode from company metadata (default clients)
+  const cMeta = (c.metadata ?? {}) as Record<string, unknown>;
+  const rawMode = String((cMeta.search_mode ?? "") as string).toLowerCase();
+  const searchMode: "clients" | "resellers" =
+    rawMode === "resellers" || rawMode === "cerco_rivenditori" || rawMode === "rivenditori" ? "resellers" : "clients";
+
+
+
   let website = isValidHttpUrl(c.website) ? c.website : null;
   const inputDomain = website ? rootDomain(website) : null;
   let contactPage: string | null = null;
