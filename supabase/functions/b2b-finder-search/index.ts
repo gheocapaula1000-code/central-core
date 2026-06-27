@@ -443,7 +443,7 @@ Deno.serve(async (req: Request) => {
           const prevSourceCount = Number(existing.source_count ?? 0);
           const patch: Record<string, unknown> = {
             last_seen_at: new Date().toISOString(),
-            source_count: (existing.source_count ?? 0) + 1,
+            source_count: prevSourceCount + 1,
             priority: r.priority,
             score: r.score,
             fit_reason: r.fit_reason,
