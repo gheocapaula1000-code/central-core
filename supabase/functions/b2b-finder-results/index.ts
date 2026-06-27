@@ -134,8 +134,10 @@ Deno.serve(async (req: Request) => {
         .select("id,created_at,finished_at,product,mode,status,zone,counts,cost_eur")
         .eq("vertical", VERTICAL)
         .eq("mode", MODE)
+        .not("product", "ilike", "%buste portaposate%")
         .order("created_at", { ascending: false })
         .range(offset, offset + limit - 1);
+
 
       if (error) {
         console.error(`[b2b-finder-results] list_jobs error debug_id=${debug_id} err=${error.message}`);
