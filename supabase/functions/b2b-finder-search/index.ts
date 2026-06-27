@@ -388,8 +388,9 @@ Deno.serve(async (req: Request) => {
     const savedResults: Array<NormalizedCompany & { company_id: string }> = [];
 
     try {
+      const productKey = detectProductKey(input.product);
       for (const r of results) {
-        const identity_hash = await computeIdentityHash(r, resolvedScopeKey, searchMode);
+        const identity_hash = await computeIdentityHash(r, resolvedScopeKey, searchMode, productKey);
         const confidence = Math.max(0, Math.min(1, r.score / 100));
 
         // Try to find existing
@@ -429,6 +430,8 @@ Deno.serve(async (req: Request) => {
               osm_category: r.category,
               search_mode: searchMode,
               buyer_type_hint: r.buyer_type_hint,
+              product_key: productKey,
+              product_name: input.product ?? null,
             },
           };
           const { data: newRow, error: insErr } = await supabase!
