@@ -540,6 +540,7 @@ Deno.serve(async (req: Request) => {
           {
             dry_run: false,
             provider: "overpass",
+            search_mode: searchMode,
             job_id: jobId,
             city,
             province,
