@@ -615,7 +615,15 @@ interface OpenAIConsolidated {
   resale_use_case?: string | null;
   suggested_offer_angle?: string | null;
   price_advantage_angle?: string | null;
-  buyer_type?: "Cliente Finale" | "Rivenditore" | "Fornitore" | "Da Verificare" | null;
+  buyer_type?: "Cliente Finale" | "Rivenditore" | "Fornitore" | "Produttore" | "Importatore" | "Distributore" | "Da Verificare" | null;
+  // v0.8 suppliers
+  supplier_fit_score?: number | null;
+  supplier_fit_reason?: string | null;
+  supplier_type?: "Produttore" | "Grossista" | "Importatore" | "Distributore" | "Da Verificare" | null;
+  likely_product_range?: string | null;
+  sourcing_angle?: string | null;
+  minimum_order_hint?: string | null;
+  supplier_contact_priority?: "Alta" | "Media" | "Bassa" | null;
 }
 
 async function openaiConsolidate(payload: Record<string, unknown>, searchMode: "clients" | "resellers" = "clients"): Promise<OpenAIConsolidated | null> {
