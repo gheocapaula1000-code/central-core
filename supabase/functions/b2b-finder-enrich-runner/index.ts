@@ -22,7 +22,10 @@ async function callFn(path: string, body: unknown): Promise<{ status: number; js
 }
 
 Deno.serve(async (req) => {
-  if (req.headers.get("x-internal-secret") !== SECRET) {
+  // Auth: accept either internal secret or service-role bearer (gateway).
+  const auth = req.headers.get("Authorization") ?? "";
+  const isService = auth === `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`;
+  if (req.headers.get("x-internal-secret") !== SECRET && !isService) {
     return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), { status: 401 });
   }
   const url = new URL(req.url);
