@@ -6,7 +6,7 @@ import { corsHeaders, handlePreflight, pickOrigin } from "../_shared/b2b/cors.ts
 import { authorizeB2BFinder } from "../_shared/b2b/auth.ts";
 import { queryOverpass } from "../_shared/b2b/overpass.ts";
 import { scoreAndNormalize, type NormalizedCompany } from "../_shared/b2b/normalize.ts";
-import { resolveSearchScope, isPoiInScope, PD_COMUNI, PD_COMUNI_KEYS, bboxCenter, haversineKm, normalizeComune } from "../_shared/b2b/geo.ts";
+import { resolveSearchScope, isPoiInScope, PD_COMUNI, PD_COMUNI_KEYS, bboxCenter, haversineKm, normalizeComune, SUPPLIER_SCOPE_BBOX, SUPPLIER_SCOPE_LABEL, resolveSupplierScope, type SupplierScope } from "../_shared/b2b/geo.ts";
 import { detectProductKey, getProductProfile } from "../_shared/b2b/products.ts";
 
 
@@ -25,6 +25,8 @@ interface SearchInput {
   limit?: number;
   search_depth?: "quick" | "deep";
   dry_run?: boolean;
+  /** Solo per search_mode="suppliers": "province" | "region" | "italy". Default "region". */
+  supplier_scope?: string;
 }
 
 function resolveSearchMode(input: SearchInput): "clients" | "resellers" | "suppliers" {
@@ -145,9 +147,6 @@ Deno.serve(async (req: Request) => {
     const isSave = input.dry_run === false;
 
     const province = (input.province ?? "PD").toUpperCase();
-    if (province !== "PD") {
-      return jsonResponse(req, 400, envelope(false, null, "v1 supports only province='PD'", debug_id));
-    }
     const cityInputRaw = (input.city ?? "Padova").toString().trim();
     const cityKey = cityInputRaw
       .toLowerCase()
@@ -156,25 +155,45 @@ Deno.serve(async (req: Request) => {
       .replace(/['`]/g, "")
       .replace(/\s+/g, " ")
       .trim();
-    if (!PD_COMUNI[cityKey]) {
-      return jsonResponse(
-        req,
-        400,
-        envelope(
-          false,
-          null,
-          `Comune non supportato in v1. Supportati: ${PD_COMUNI_KEYS.map((k) => PD_COMUNI[k].label).join(", ")}`,
-          debug_id,
-        ),
-      );
+
+    // Suppliers: scope geografico esteso (province / region / italy).
+    // Default = region (Veneto) quando l'utente sceglie un comune PD.
+    let supplierScope: SupplierScope | null = null;
+    if (searchMode === "suppliers") {
+      supplierScope = resolveSupplierScope(input.supplier_scope, "region");
+    } else {
+      // clients/resellers invariati: vincolati a province=PD e comuni PD noti
+      if (province !== "PD") {
+        return jsonResponse(req, 400, envelope(false, null, "v1 supports only province='PD'", debug_id));
+      }
+      if (!PD_COMUNI[cityKey]) {
+        return jsonResponse(
+          req,
+          400,
+          envelope(
+            false,
+            null,
+            `Comune non supportato in v1. Supportati: ${PD_COMUNI_KEYS.map((k) => PD_COMUNI[k].label).join(", ")}`,
+            debug_id,
+          ),
+        );
+      }
     }
     const region = input.region ?? "Veneto";
-    const scope = resolveSearchScope({
+    const baseScope = resolveSearchScope({
       city: cityInputRaw,
       province,
       region,
       zone: input.area_text ?? null,
     });
+    const scope = supplierScope
+      ? {
+          ...baseScope,
+          geographic_scope: supplierScope as "quarter" | "city" | "province",
+          bbox: SUPPLIER_SCOPE_BBOX[supplierScope],
+          geocode_query: `${SUPPLIER_SCOPE_LABEL[supplierScope]}, Italia`,
+        }
+      : baseScope;
     const city = scope.comune;
 
 
@@ -227,6 +246,8 @@ Deno.serve(async (req: Request) => {
           sector: input.sector ?? null,
           search_depth: input.search_depth ?? "quick",
           search_mode: searchMode,
+          supplier_scope: supplierScope,
+          supplier_region: supplierScope ? (supplierScope === "italy" ? "Italia" : "Veneto") : null,
           limit_requested: requested,
           applied_limit: applied,
         },
@@ -273,21 +294,25 @@ Deno.serve(async (req: Request) => {
 
     const rawCount = pois.length;
     let filteredOutOfZone = 0;
-    const inScope = pois.filter((p) => {
-      const v = isPoiInScope(p, scope);
-      if (!v.ok) filteredOutOfZone++;
-      return v.ok;
-    });
+    // Per suppliers (scope esteso) NON applichiamo il filtro per comune:
+    // i fornitori non devono essere per forza in città.
+    const inScope = supplierScope
+      ? pois
+      : pois.filter((p) => {
+          const v = isPoiInScope(p, scope);
+          if (!v.ok) filteredOutOfZone++;
+          return v.ok;
+        });
 
     let normalized: NormalizedCompany[];
     try {
       normalized = inScope
         .map((p) => scoreAndNormalize(p, { city, province, region, search_mode: searchMode }))
         .filter((x): x is NormalizedCompany => !!x)
-        // Defensive: forziamo il comune al canonical scope.comune per evitare
-        // mislabel da addr:city OSM con varianti grafiche.
+        // Defensive: forziamo il comune al canonical scope.comune SOLO per
+        // clients/resellers. Per suppliers manteniamo la città reale del POI.
         .map((x) =>
-          normalizeComune(x.city) === normalizeComune(scope.comune)
+          !supplierScope && normalizeComune(x.city) === normalizeComune(scope.comune)
             ? { ...x, city: scope.comune }
             : x
         )
@@ -332,8 +357,10 @@ Deno.serve(async (req: Request) => {
       else if (sameComune) geo_match_reason = "city_match_no_coords";
       else if (inBbox === true) geo_match_reason = "bbox_match_only";
       else if (inBbox === false) geo_match_reason = "out_of_bbox";
-      const in_scope = sameComune && inBbox !== false;
-      return {
+      const in_scope = supplierScope
+        ? (inBbox !== false) // per suppliers basta essere dentro la bbox estesa
+        : sameComune && inBbox !== false;
+      const base: Record<string, unknown> = {
         ...r,
         requested_city: requestedCity,
         resolved_scope_key: resolvedScopeKey,
@@ -342,6 +369,21 @@ Deno.serve(async (req: Request) => {
         geo_match_reason,
         distance_from_scope_center_km: distance_km,
       };
+      if (supplierScope) {
+        const dh =
+          distance_km == null
+            ? "unknown"
+            : distance_km < 50
+              ? "vicino"
+              : distance_km < 200
+                ? "veneto"
+                : "italia";
+        base.supplier_scope = supplierScope;
+        base.supplier_region = supplierScope === "italy" ? "Italia" : "Veneto";
+        base.supplier_distance_hint = dh;
+        base.supplier_geo_reason = `scope=${supplierScope};${geo_match_reason}`;
+      }
+      return base as T & Record<string, unknown>;
     };
     const decoratedResults = results.map(decorate);
     const matchedRequested = decoratedResults.filter((r) => r.in_scope).length;
@@ -432,6 +474,8 @@ Deno.serve(async (req: Request) => {
               buyer_type_hint: r.buyer_type_hint,
               product_key: productKey,
               product_name: input.product ?? null,
+              supplier_scope: supplierScope,
+              supplier_region: supplierScope ? (supplierScope === "italy" ? "Italia" : "Veneto") : null,
             },
           };
           const { data: newRow, error: insErr } = await supabase!
