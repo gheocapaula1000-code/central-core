@@ -164,9 +164,11 @@ export async function queryOverpass(
   timeoutMs = 25000,
   searchMode: SearchMode = "clients",
 ): Promise<OverpassPoi[]> {
-  const q = searchMode === "resellers"
-    ? buildResellerQuery(bbox)
-    : buildClientQuery(bbox);
+  const q = searchMode === "suppliers"
+    ? buildSupplierQuery(bbox)
+    : searchMode === "resellers"
+      ? buildResellerQuery(bbox)
+      : buildClientQuery(bbox);
   let lastErr: unknown = null;
   for (let attempt = 0; attempt < ENDPOINTS.length; attempt++) {
     const url = ENDPOINTS[attempt];
