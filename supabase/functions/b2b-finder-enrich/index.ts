@@ -742,10 +742,42 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
 
   let phonesFromSite: string[] = [];
   let emailsFromSite: string[] = [];
+  const phoneCheckedSources = new Set<string>();
+  const phoneSourceMap = new Map<string, Set<string>>(); // phone E.164 → set of sources
 
-  // ── Step 2: Direct Fetch ────────────────────────────────────────────────────
+  function addPhones(phones: string[], srcLabel: string) {
+    if (!phones.length) return;
+    phoneCheckedSources.add(srcLabel);
+    for (const p of phones) {
+      const s = phoneSourceMap.get(p) ?? new Set<string>();
+      s.add(srcLabel);
+      phoneSourceMap.set(p, s);
+    }
+  }
+
+  // Seed with existing data already on the company (often from OSM/Overpass)
+  if (c.phone) {
+    const seed = normalizeItalianPhone(c.phone);
+    if (seed) addPhones([seed], "existing");
+  }
+  // Existing OSM tags may be in metadata.osm_tags from the search step
+  const osmTags = (c.metadata?.["osm_tags"] as Record<string, unknown> | undefined) ?? null;
+  if (osmTags) {
+    for (const k of ["phone", "contact:phone", "contact:mobile", "mobile"]) {
+      const v = osmTags[k];
+      if (typeof v === "string") {
+        const n = normalizeItalianPhone(v);
+        if (n) addPhones([n], "osm");
+      }
+    }
+  }
+  phoneCheckedSources.add("existing");
+
+  // ── Step 2: Direct Fetch (homepage + up to 3 contact-candidate pages + 1 menu/about) ─
+  let contactPagesFound: string[] = [];
   if (website) {
     providers.push("direct_fetch");
+    phoneCheckedSources.add("official_site");
     const home = await fetchPage(website);
     if (home.ok) {
       pagesFromSite++;
@@ -753,19 +785,42 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
       website = home.finalUrl;
       ev.website.fromSite = true;
       sourceUrls.push(home.finalUrl);
-      contactPage = findContactPage(home.html, home.finalUrl);
-      if (contactPage && contactPage !== home.finalUrl) {
-        const cp = await fetchPage(contactPage);
-        if (cp.ok) { allHtml += "\n" + cp.html; sourceUrls.push(cp.finalUrl); pagesFromSite++; }
-        else warnings.push(`contact_status_${cp.status}`);
+
+      // Extract phones from homepage now, tagging source
+      const homeExtract = extractPhones(stripHtml(home.html), home.html);
+      addPhones(homeExtract.phones, "official_site");
+
+      // Multiple candidate contact pages
+      contactPagesFound = findContactCandidatePages(home.html, home.finalUrl, 3);
+      contactPage = contactPagesFound[0] ?? null;
+      for (const cpUrl of contactPagesFound) {
+        if (cpUrl === home.finalUrl) continue;
+        if (pagesFromSite >= 5) break;
+        const cp = await fetchPage(cpUrl);
+        if (cp.ok) {
+          allHtml += "\n" + cp.html;
+          sourceUrls.push(cp.finalUrl);
+          pagesFromSite++;
+          const cpExtract = extractPhones(stripHtml(cp.html), cp.html);
+          addPhones(cpExtract.phones, "contact_page");
+          if (cpExtract.sources.has("schema_org")) phoneCheckedSources.add("schema_org");
+        } else {
+          warnings.push(`contact_status_${cp.status}`);
+        }
       }
-      const extra = (home.html.match(/href=["']([^"']*(?:menu|servizi|chi-siamo|about)[^"']*)["']/i) ?? [])[1];
-      if (extra) {
+
+      // One additional menu/about/info-style page to improve commercial signals + phone in footer
+      const extra = (home.html.match(/href=["']([^"']*(?:menu|servizi|chi-siamo|about|footer|info)[^"']*)["']/i) ?? [])[1];
+      if (extra && pagesFromSite < 5) {
         try {
           const exUrl = new URL(extra, home.finalUrl).toString();
-          if (exUrl !== home.finalUrl && exUrl !== contactPage) {
+          if (exUrl !== home.finalUrl && !contactPagesFound.includes(exUrl)) {
             const ex = await fetchPage(exUrl);
-            if (ex.ok) { allHtml += "\n" + ex.html; sourceUrls.push(ex.finalUrl); pagesFromSite++; }
+            if (ex.ok) {
+              allHtml += "\n" + ex.html; sourceUrls.push(ex.finalUrl); pagesFromSite++;
+              const exExtract = extractPhones(stripHtml(ex.html), ex.html);
+              addPhones(exExtract.phones, "official_site");
+            }
           }
         } catch { /* ignore */ }
       }
@@ -775,7 +830,14 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   }
 
   allText = stripHtml(allHtml);
-  phonesFromSite = extractPhones(allText, allHtml);
+  // Global re-extraction (covers anything missed by per-page passes)
+  const allExtract = extractPhones(allText, allHtml);
+  if (allExtract.sources.has("schema_org")) phoneCheckedSources.add("schema_org");
+  addPhones(allExtract.phones, "official_site");
+  phonesFromSite = Array.from(phoneSourceMap.keys()).filter((p) => {
+    const s = phoneSourceMap.get(p)!;
+    return s.has("official_site") || s.has("contact_page") || s.has("schema_org");
+  });
   emailsFromSite = extractEmails(allText, allHtml);
   let socials = extractSocials(allHtml);
   let category = refineCategory(allText, c.category);
@@ -797,20 +859,26 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   let conf = interimConf();
   if (conf >= CONF_GOOD_ENOUGH) stops.push("direct_fetch_sufficient");
 
-  // ── Step 3: Firecrawl fallback (≤5 pages/domain) ────────────────────────────
-  if (conf < CONF_NEEDS_FALLBACK && website && ctx.avail.firecrawl
-      && ctx.remainingBudget() >= COST.firecrawlScrape && firecrawlPagesUsed < MAX_FIRECRAWL_PAGES) {
+  // ── Step 3: Firecrawl fallback ──────────────────────────────────────────────
+  // Trigger when: confidence weak OR (website known but no phone discovered yet)
+  const phoneStillMissing = phoneSourceMap.size === 0;
+  const triggerFirecrawl = (conf < CONF_NEEDS_FALLBACK || phoneStillMissing) && !!website
+    && ctx.avail.firecrawl && ctx.remainingBudget() >= COST.firecrawlScrape
+    && firecrawlPagesUsed < MAX_FIRECRAWL_PAGES;
+  if (triggerFirecrawl) {
     providers.push("firecrawl");
-    const fc = await firecrawlScrape(website);
+    const fc = await firecrawlScrape(website!);
     cost += COST.firecrawlScrape; ctx.spend(COST.firecrawlScrape); firecrawlPagesUsed++;
     if (fc) {
       const fcText = stripHtml(fc.html || "") + "\n" + (fc.markdown || "");
       allText += "\n" + fcText;
       allHtml += "\n" + (fc.html || "");
       sourceUrls.push(website + "#firecrawl");
-      const fcPhones = extractPhones(fcText, fc.html || "");
+      const fcExtract = extractPhones(fcText, fc.html || "");
+      addPhones(fcExtract.phones, "official_site");
+      if (fcExtract.sources.has("schema_org")) phoneCheckedSources.add("schema_org");
       const fcEmails = extractEmails(fcText, fc.html || "");
-      if (fcPhones.length) { ev.phone.fromSite = true; phonesFromSite = uniq([...phonesFromSite, ...fcPhones]); }
+      if (fcExtract.phones.length) { ev.phone.fromSite = true; phonesFromSite = uniq([...phonesFromSite, ...fcExtract.phones]); }
       if (fcEmails.length) { ev.email.fromSite = true; emailsFromSite = uniq([...emailsFromSite, ...fcEmails]); }
       socials = uniq([...socials, ...extractSocials(fc.html || "")]).slice(0, 8);
       category = refineCategory(fcText, category);
@@ -823,6 +891,7 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   } else if (conf < CONF_NEEDS_FALLBACK && !ctx.avail.firecrawl) {
     warnings.push("firecrawl_skipped_disabled");
   }
+
 
   // ── Step 4: Apify (deep mode, website missing / insufficient data) ─────────
   let apifyOut: ApifyOutcome | null = null;
