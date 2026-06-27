@@ -93,6 +93,22 @@ interface EnrichmentResult {
   missing_data: string[];
   verification_checks: string[];
   public_sources_used: string[];
+  // v0.6 phone discovery
+  phone_href: string | null;
+  phone_pretty: string | null;
+  phone_discovery: PhoneDiscovery;
+}
+
+interface PhoneDiscovery {
+  found: boolean;
+  phone: string | null;          // pretty: "+39 049 1234567"
+  phone_e164: string | null;     // "+390491234567"
+  phone_href: string | null;     // "tel:+390491234567"
+  source: "existing" | "osm" | "official_site" | "contact_page" | "schema_org" | "public_search" | "directory" | null;
+  confidence: number;            // 0-100
+  checked_sources: string[];
+  candidates: string[];          // all unique E.164 candidates collected
+  notes: string | null;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -131,7 +147,7 @@ function jsonResponse(req: Request, status: number, body: ReturnType<typeof enve
       ...corsHeaders(req),
       "Content-Type": "application/json",
       "X-Function": "b2b-finder-enrich",
-      "X-Contract": "b2b-finder/v0.4",
+      "X-Contract": "b2b-finder/v0.6",
     },
   });
 }
@@ -160,7 +176,35 @@ function normalizeItalianPhone(raw: string): string | null {
   else if (n.startsWith("39") && n.length >= 11) { /* keep */ }
   else if (/^[03]/.test(n)) n = "39" + n;
   if (n.length < 10 || n.length > 13) return null;
+  // Reject obvious junk patterns (all same digit, sequential)
+  const bare = n.replace(/^39/, "");
+  if (/^(\d)\1+$/.test(bare)) return null;
+  if (bare.length < 8) return null;
   return "+" + n;
+}
+
+function prettyItalianPhone(e164: string): string {
+  // Input expected like "+390491234567" or "+393331234567"
+  if (!e164.startsWith("+39")) return e164;
+  const rest = e164.slice(3);
+  // Mobile: starts with 3, 10 digits => "+39 333 123 4567"
+  if (/^3\d{8,9}$/.test(rest)) {
+    return `+39 ${rest.slice(0, 3)} ${rest.slice(3, 6)} ${rest.slice(6)}`;
+  }
+  // Landline: starts with 0
+  if (rest.startsWith("0")) {
+    // Common area codes: 2 (Milano), 6 (Roma) → 2 digits; others mostly 3 digits.
+    const twoDigit = /^0[26]/.test(rest);
+    const acLen = twoDigit ? 2 : 3;
+    const ac = rest.slice(0, acLen);
+    const num = rest.slice(acLen);
+    return `+39 ${ac} ${num}`;
+  }
+  return `+39 ${rest}`;
+}
+
+function phoneHref(e164: string): string {
+  return "tel:" + e164.replace(/[^\d+]/g, "");
 }
 
 const BAD_EMAIL_RE = /(noreply|no-reply|donotreply|wordpress|sentry|example\.|@2x|\.png$|\.jpg$|\.webp$|\.svg$|@sentry|wixpress|@cdn)/i;
@@ -204,6 +248,53 @@ function stripHtml(html: string): string {
     .replace(/\s+/g, " ").trim();
 }
 
+
+// Generic phone regex tuned for IT numbers (mobile starting with 3, landline starting with 0).
+const PHONE_GENERIC_RE = /(?:\+?39[\s.\/-]?)?(?:0\d{1,3}|3\d{2})[\s.\/-]?\d{2,4}[\s.\/-]?\d{3,4}/g;
+
+// Wide net of attributes and labels used in IT pages to publish phones.
+const PHONE_ATTR_PATTERNS: RegExp[] = [
+  /(?:tel|telephone|telefono|cellulare|mobile|recapito|chiamaci|prenota(?:zione|zioni)?|phone|contact[:_-]?phone)\s*[:=]\s*["']?\+?[\d\s.\/()-]{7,25}/gi,
+  /data-(?:tel|telephone|phone)\s*=\s*["']\+?[\d\s.\/()-]{7,25}["']/gi,
+  /itemprop=["']telephone["'][^>]*>([^<]+)</gi,
+  /content=["'](\+?[\d\s.\/()-]{7,25})["'][^>]*itemprop=["']telephone["']/gi,
+];
+
+function extractPhonesFromJsonLd(html: string): string[] {
+  const out = new Set<string>();
+  const blocks = html.match(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi) ?? [];
+  for (const block of blocks) {
+    const body = block.replace(/^[\s\S]*?>/, "").replace(/<\/script>$/i, "");
+    try {
+      // Some sites put multiple JSON objects (one per line) — try direct first, then walk recursively.
+      const parsed = JSON.parse(body);
+      const stack: unknown[] = [parsed];
+      while (stack.length) {
+        const cur = stack.pop();
+        if (!cur) continue;
+        if (Array.isArray(cur)) { for (const v of cur) stack.push(v); continue; }
+        if (typeof cur === "object") {
+          for (const [k, v] of Object.entries(cur as Record<string, unknown>)) {
+            if (/^telephone$/i.test(k) && typeof v === "string") {
+              const n = normalizeItalianPhone(v); if (n) out.add(n);
+            } else if (typeof v === "object" && v !== null) {
+              stack.push(v);
+            }
+          }
+        }
+      }
+    } catch {
+      // Fallback: regex-extract any "telephone": "..."
+      const m = body.match(/"telephone"\s*:\s*"([^"]+)"/gi) ?? [];
+      for (const hit of m) {
+        const v = hit.match(/"telephone"\s*:\s*"([^"]+)"/i)?.[1];
+        if (v) { const n = normalizeItalianPhone(v); if (n) out.add(n); }
+      }
+    }
+  }
+  return Array.from(out);
+}
+
 function extractEmails(text: string, html: string): string[] {
   const out = new Set<string>();
   for (const m of html.match(/mailto:([^"'\s>]+)/gi) ?? []) {
@@ -215,15 +306,34 @@ function extractEmails(text: string, html: string): string[] {
   return Array.from(out).slice(0, 8);
 }
 
-function extractPhones(text: string, html: string): string[] {
+function extractPhones(text: string, html: string): { phones: string[]; sources: Set<string> } {
   const out = new Set<string>();
+  const srcSet = new Set<string>();
+
+  // 1) tel: hrefs (highest signal)
   for (const m of html.match(/tel:([^"'\s>]+)/gi) ?? []) {
-    const n = normalizeItalianPhone(m.replace(/^tel:/i, "")); if (n) out.add(n);
+    const n = normalizeItalianPhone(m.replace(/^tel:/i, "")); if (n) { out.add(n); srcSet.add("tel_href"); }
   }
-  for (const p of text.match(PHONE_RE) ?? []) {
-    const n = normalizeItalianPhone(p); if (n) out.add(n);
+  // 2) schema.org JSON-LD telephone
+  for (const n of extractPhonesFromJsonLd(html)) { out.add(n); srcSet.add("schema_org"); }
+  // 3) labelled attributes / microdata
+  for (const re of PHONE_ATTR_PATTERNS) {
+    const matches = html.match(re) ?? [];
+    for (const hit of matches) {
+      const numPart = hit.replace(/^[^+\d]*/, "").match(/\+?[\d\s.\/()-]{7,25}/);
+      if (numPart) { const n = normalizeItalianPhone(numPart[0]); if (n) { out.add(n); srcSet.add("html_attr"); } }
+    }
   }
-  return Array.from(out).slice(0, 5);
+  // 4) Generic free-text phones (lowest signal, but catches footer plain text)
+  for (const p of (text + " " + stripHtml(html)).match(PHONE_GENERIC_RE) ?? []) {
+    const n = normalizeItalianPhone(p); if (n) { out.add(n); srcSet.add("text"); }
+  }
+  return { phones: Array.from(out).slice(0, 8), sources: srcSet };
+}
+
+// Backwards-compat thin wrapper used by older callers.
+function extractPhonesList(text: string, html: string): string[] {
+  return extractPhones(text, html).phones;
 }
 
 function extractSocials(html: string): string[] {
@@ -249,16 +359,32 @@ function detectSignals(text: string): string[] {
   return Array.from(out);
 }
 
-function findContactPage(html: string, baseUrl: string): string | null {
-  const re = /href=["']([^"']+)["'][^>]*>([^<]{0,80})</gi;
+// Returns up to N likely contact / phone-bearing pages on the same site.
+function findContactCandidatePages(html: string, baseUrl: string, max = 4): string[] {
+  const LABEL_RE = /contat|contact|prenota|chiamaci|recapit|dove\s*siamo|location|info\b|orari|chi[-\s]siamo|trovaci|raggiungerci/i;
+  const HREF_RE = /contat|contact|prenota|reservation|chiamaci|recapit|dove-siamo|location|orari|info|trovaci/i;
+  const out = new Set<string>();
+  const re = /href=["']([^"']+)["'][^>]*>([\s\S]{0,120}?)</gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html))) {
-    const href = m[1]; const label = m[2].toLowerCase();
-    if (/contat|contact/i.test(href) || /contat|contact/i.test(label)) {
-      try { return new URL(href, baseUrl).toString(); } catch { return null; }
+    const href = m[1];
+    const label = m[2].replace(/<[^>]+>/g, " ").trim().toLowerCase();
+    if (LABEL_RE.test(label) || HREF_RE.test(href)) {
+      try {
+        const abs = new URL(href, baseUrl).toString().split("#")[0];
+        // same host only
+        if (new URL(abs).host === new URL(baseUrl).host) out.add(abs);
+      } catch { /* ignore */ }
     }
+    if (out.size >= max * 2) break;
   }
-  return null;
+  return Array.from(out).slice(0, max);
+}
+
+// Kept for legacy callers (returns the first contact-like URL or null).
+function findContactPage(html: string, baseUrl: string): string | null {
+  const list = findContactCandidatePages(html, baseUrl, 1);
+  return list[0] ?? null;
 }
 
 // ── HTTP fetch with timeout + URL cache ──────────────────────────────────────
@@ -606,10 +732,42 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
 
   let phonesFromSite: string[] = [];
   let emailsFromSite: string[] = [];
+  const phoneCheckedSources = new Set<string>();
+  const phoneSourceMap = new Map<string, Set<string>>(); // phone E.164 → set of sources
 
-  // ── Step 2: Direct Fetch ────────────────────────────────────────────────────
+  function addPhones(phones: string[], srcLabel: string) {
+    if (!phones.length) return;
+    phoneCheckedSources.add(srcLabel);
+    for (const p of phones) {
+      const s = phoneSourceMap.get(p) ?? new Set<string>();
+      s.add(srcLabel);
+      phoneSourceMap.set(p, s);
+    }
+  }
+
+  // Seed with existing data already on the company (often from OSM/Overpass)
+  if (c.phone) {
+    const seed = normalizeItalianPhone(c.phone);
+    if (seed) addPhones([seed], "existing");
+  }
+  // Existing OSM tags may be in metadata.osm_tags from the search step
+  const osmTags = (c.metadata?.["osm_tags"] as Record<string, unknown> | undefined) ?? null;
+  if (osmTags) {
+    for (const k of ["phone", "contact:phone", "contact:mobile", "mobile"]) {
+      const v = osmTags[k];
+      if (typeof v === "string") {
+        const n = normalizeItalianPhone(v);
+        if (n) addPhones([n], "osm");
+      }
+    }
+  }
+  phoneCheckedSources.add("existing");
+
+  // ── Step 2: Direct Fetch (homepage + up to 3 contact-candidate pages + 1 menu/about) ─
+  let contactPagesFound: string[] = [];
   if (website) {
     providers.push("direct_fetch");
+    phoneCheckedSources.add("official_site");
     const home = await fetchPage(website);
     if (home.ok) {
       pagesFromSite++;
@@ -617,19 +775,42 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
       website = home.finalUrl;
       ev.website.fromSite = true;
       sourceUrls.push(home.finalUrl);
-      contactPage = findContactPage(home.html, home.finalUrl);
-      if (contactPage && contactPage !== home.finalUrl) {
-        const cp = await fetchPage(contactPage);
-        if (cp.ok) { allHtml += "\n" + cp.html; sourceUrls.push(cp.finalUrl); pagesFromSite++; }
-        else warnings.push(`contact_status_${cp.status}`);
+
+      // Extract phones from homepage now, tagging source
+      const homeExtract = extractPhones(stripHtml(home.html), home.html);
+      addPhones(homeExtract.phones, "official_site");
+
+      // Multiple candidate contact pages
+      contactPagesFound = findContactCandidatePages(home.html, home.finalUrl, 3);
+      contactPage = contactPagesFound[0] ?? null;
+      for (const cpUrl of contactPagesFound) {
+        if (cpUrl === home.finalUrl) continue;
+        if (pagesFromSite >= 5) break;
+        const cp = await fetchPage(cpUrl);
+        if (cp.ok) {
+          allHtml += "\n" + cp.html;
+          sourceUrls.push(cp.finalUrl);
+          pagesFromSite++;
+          const cpExtract = extractPhones(stripHtml(cp.html), cp.html);
+          addPhones(cpExtract.phones, "contact_page");
+          if (cpExtract.sources.has("schema_org")) phoneCheckedSources.add("schema_org");
+        } else {
+          warnings.push(`contact_status_${cp.status}`);
+        }
       }
-      const extra = (home.html.match(/href=["']([^"']*(?:menu|servizi|chi-siamo|about)[^"']*)["']/i) ?? [])[1];
-      if (extra) {
+
+      // One additional menu/about/info-style page to improve commercial signals + phone in footer
+      const extra = (home.html.match(/href=["']([^"']*(?:menu|servizi|chi-siamo|about|footer|info)[^"']*)["']/i) ?? [])[1];
+      if (extra && pagesFromSite < 5) {
         try {
           const exUrl = new URL(extra, home.finalUrl).toString();
-          if (exUrl !== home.finalUrl && exUrl !== contactPage) {
+          if (exUrl !== home.finalUrl && !contactPagesFound.includes(exUrl)) {
             const ex = await fetchPage(exUrl);
-            if (ex.ok) { allHtml += "\n" + ex.html; sourceUrls.push(ex.finalUrl); pagesFromSite++; }
+            if (ex.ok) {
+              allHtml += "\n" + ex.html; sourceUrls.push(ex.finalUrl); pagesFromSite++;
+              const exExtract = extractPhones(stripHtml(ex.html), ex.html);
+              addPhones(exExtract.phones, "official_site");
+            }
           }
         } catch { /* ignore */ }
       }
@@ -639,7 +820,14 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   }
 
   allText = stripHtml(allHtml);
-  phonesFromSite = extractPhones(allText, allHtml);
+  // Global re-extraction (covers anything missed by per-page passes)
+  const allExtract = extractPhones(allText, allHtml);
+  if (allExtract.sources.has("schema_org")) phoneCheckedSources.add("schema_org");
+  addPhones(allExtract.phones, "official_site");
+  phonesFromSite = Array.from(phoneSourceMap.keys()).filter((p) => {
+    const s = phoneSourceMap.get(p)!;
+    return s.has("official_site") || s.has("contact_page") || s.has("schema_org");
+  });
   emailsFromSite = extractEmails(allText, allHtml);
   let socials = extractSocials(allHtml);
   let category = refineCategory(allText, c.category);
@@ -661,20 +849,26 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   let conf = interimConf();
   if (conf >= CONF_GOOD_ENOUGH) stops.push("direct_fetch_sufficient");
 
-  // ── Step 3: Firecrawl fallback (≤5 pages/domain) ────────────────────────────
-  if (conf < CONF_NEEDS_FALLBACK && website && ctx.avail.firecrawl
-      && ctx.remainingBudget() >= COST.firecrawlScrape && firecrawlPagesUsed < MAX_FIRECRAWL_PAGES) {
+  // ── Step 3: Firecrawl fallback ──────────────────────────────────────────────
+  // Trigger when: confidence weak OR (website known but no phone discovered yet)
+  const phoneStillMissing = phoneSourceMap.size === 0;
+  const triggerFirecrawl = (conf < CONF_NEEDS_FALLBACK || phoneStillMissing) && !!website
+    && ctx.avail.firecrawl && ctx.remainingBudget() >= COST.firecrawlScrape
+    && firecrawlPagesUsed < MAX_FIRECRAWL_PAGES;
+  if (triggerFirecrawl) {
     providers.push("firecrawl");
-    const fc = await firecrawlScrape(website);
+    const fc = await firecrawlScrape(website!);
     cost += COST.firecrawlScrape; ctx.spend(COST.firecrawlScrape); firecrawlPagesUsed++;
     if (fc) {
       const fcText = stripHtml(fc.html || "") + "\n" + (fc.markdown || "");
       allText += "\n" + fcText;
       allHtml += "\n" + (fc.html || "");
       sourceUrls.push(website + "#firecrawl");
-      const fcPhones = extractPhones(fcText, fc.html || "");
+      const fcExtract = extractPhones(fcText, fc.html || "");
+      addPhones(fcExtract.phones, "official_site");
+      if (fcExtract.sources.has("schema_org")) phoneCheckedSources.add("schema_org");
       const fcEmails = extractEmails(fcText, fc.html || "");
-      if (fcPhones.length) { ev.phone.fromSite = true; phonesFromSite = uniq([...phonesFromSite, ...fcPhones]); }
+      if (fcExtract.phones.length) { ev.phone.fromSite = true; phonesFromSite = uniq([...phonesFromSite, ...fcExtract.phones]); }
       if (fcEmails.length) { ev.email.fromSite = true; emailsFromSite = uniq([...emailsFromSite, ...fcEmails]); }
       socials = uniq([...socials, ...extractSocials(fc.html || "")]).slice(0, 8);
       category = refineCategory(fcText, category);
@@ -688,11 +882,13 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     warnings.push("firecrawl_skipped_disabled");
   }
 
+
   // ── Step 4: Apify (deep mode, website missing / insufficient data) ─────────
   let apifyOut: ApifyOutcome | null = null;
   const needsDiscovery = !website && (ctx.mode === "deep");
   if (needsDiscovery && ctx.avail.apify && ctx.remainingBudget() >= COST.apifyRun && c.name) {
     providers.push("apify");
+    phoneCheckedSources.add("directory");
     const locality = c.comune ?? (c.address ?? "").split(",").pop()?.trim() ?? null;
     apifyOut = await apifyDiscover(c.name, locality);
     if (apifyOut.ok) {
@@ -702,7 +898,7 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
         duration_ms: apifyOut.duration_ms, cost_eur: apifyOut.cost_eur,
       });
       if (!website && apifyOut.website) { website = apifyOut.website; ev.website.fromApify = true; }
-      if (apifyOut.phone) ev.phone.fromApify = true;
+      if (apifyOut.phone) { ev.phone.fromApify = true; addPhones([apifyOut.phone], "directory"); }
       if (apifyOut.email) ev.email.fromApify = true;
       if (apifyOut.address) ev.address.fromApify = true;
     } else {
@@ -712,25 +908,31 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     warnings.push("apify_skipped_actor_not_configured");
   }
 
-  // ── Step 5: Perplexity (only when site missing OR phone/email missing) ─────
+  // ── Step 5: Perplexity (when site missing, OR phone still missing/weak, OR email missing) ─
   let pxPhone: string | null = null;
   let pxEmail: string | null = null;
   let pxWebsite: string | null = null;
-  const needsSearch = (!website) || (!phonesFromSite.length && !c.phone) || (!emailsFromSite.length && !c.email);
+  const phoneWeak = phoneSourceMap.size === 0;
+  const needsSearch = (!website) || phoneWeak || (!emailsFromSite.length && !c.email);
   if (needsSearch && ctx.avail.perplexity && ctx.remainingBudget() >= COST.perplexitySearch && c.name) {
     providers.push("perplexity");
-    const locality = (c.address ?? "").split(",").pop()?.trim() ?? null;
+    phoneCheckedSources.add("public_search");
+    const locality = c.comune ?? (c.address ?? "").split(",").pop()?.trim() ?? null;
     const px = await perplexityFindContacts(c.name, locality);
     cost += COST.perplexitySearch; ctx.spend(COST.perplexitySearch);
     if (px) {
       if (!website && px.website) { website = px.website; pxWebsite = px.website; ev.website.fromSearch = true; }
-      if (px.phone) { pxPhone = px.phone; ev.phone.fromSearch = true; }
+      if (px.phone) {
+        pxPhone = px.phone; ev.phone.fromSearch = true;
+        addPhones([px.phone], "public_search");
+      }
       if (px.email) { pxEmail = px.email; ev.email.fromSearch = true; }
       sourceUrls.push(...px.sources);
     } else {
       warnings.push("perplexity_no_result");
     }
   }
+
 
   // Cross-source match detection
   if (pxPhone && phonesFromSite.includes(pxPhone)) ev.phone.matchesAcrossSources = true;
@@ -766,9 +968,50 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     if (!consolidated) warnings.push("openai_consolidation_failed");
   }
 
-  // Final values: prefer site, then apify, then search, then GPT consolidation as suggestion
+  // ── Phone Discovery summary ─────────────────────────────────────────────────
+  // Pick best phone candidate: prefer site/contact/schema → existing/osm → directory → public_search
+  function pickPhoneCandidate(): { phone: string | null; src: PhoneDiscovery["source"]; confidence: number } {
+    const SOURCE_RANK: Array<[string, PhoneDiscovery["source"], number]> = [
+      ["contact_page", "contact_page", 92],
+      ["schema_org", "schema_org", 95],
+      ["official_site", "official_site", 90],
+      ["existing", "existing", 70],
+      ["osm", "osm", 75],
+      ["directory", "directory", 65],
+      ["public_search", "public_search", 55],
+    ];
+    let best: { phone: string | null; src: PhoneDiscovery["source"]; confidence: number } = { phone: null, src: null, confidence: 0 };
+    for (const [tag, srcLabel, baseConf] of SOURCE_RANK) {
+      for (const [ph, srcSet] of phoneSourceMap.entries()) {
+        if (srcSet.has(tag)) {
+          // Cross-source corroboration boost
+          let conf = baseConf;
+          if (srcSet.size >= 2) conf = Math.min(99, conf + 5);
+          if (conf > best.confidence) best = { phone: ph, src: srcLabel, confidence: conf };
+        }
+      }
+      if (best.phone) return best; // first source class hit wins
+    }
+    return best;
+  }
+  const phonePick = pickPhoneCandidate();
+  const phoneDiscovery: PhoneDiscovery = {
+    found: !!phonePick.phone,
+    phone: phonePick.phone ? prettyItalianPhone(phonePick.phone) : null,
+    phone_e164: phonePick.phone,
+    phone_href: phonePick.phone ? phoneHref(phonePick.phone) : null,
+    source: phonePick.src,
+    confidence: phonePick.confidence,
+    checked_sources: Array.from(phoneCheckedSources),
+    candidates: Array.from(phoneSourceMap.keys()).slice(0, 8),
+    notes: phonePick.phone
+      ? `Numero raccolto da ${phonePick.src ?? "fonte pubblica"}; corroborato da ${(phoneSourceMap.get(phonePick.phone)?.size ?? 1)} fonte/i.`
+      : "Nessun numero pubblico verificabile trovato nelle fonti consultate.",
+  };
+
+  // Final values: prefer site, then phoneDiscovery (preferred over apify/perplexity raw), then existing
   const finalWebsite = (ev.website.fromSite ? website : null) ?? consolidated?.official_website ?? website ?? apifyOut?.website ?? pxWebsite ?? null;
-  const finalPhone = phonesFromSite[0] ?? apifyOut?.phone ?? pxPhone ?? c.phone ?? consolidated?.phone ?? null;
+  const finalPhone = phoneDiscovery.phone_e164 ?? c.phone ?? consolidated?.phone ?? null;
   const finalEmail = emailsFromSite[0] ?? apifyOut?.email ?? pxEmail ?? c.email ?? consolidated?.email ?? null;
   const finalAddress = apifyOut?.address ?? consolidated?.address ?? c.address ?? null;
   const finalCategory = category ?? consolidated?.refined_category ?? c.category ?? null;
@@ -781,6 +1024,12 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     address: scoreField(ev.address, !!finalAddress),
     category:scoreField(ev.category, !!finalCategory),
   };
+  // Lift phone field confidence if phone_discovery is strong
+  if (phoneDiscovery.found && phoneDiscovery.confidence >= 85) {
+    fieldConfidence.phone = Math.max(fieldConfidence.phone, 0.9);
+  } else if (phoneDiscovery.found && phoneDiscovery.confidence >= 65) {
+    fieldConfidence.phone = Math.max(fieldConfidence.phone, 0.7);
+  }
   // Address fallback: if only from input + no source evidence → 0.50 (treated as single directory)
   if (finalAddress && fieldConfidence.address === 0) fieldConfidence.address = 0.50;
   if (finalCategory && fieldConfidence.category === 0 && c.category) fieldConfidence.category = 0.50;
@@ -793,11 +1042,17 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   const present = (v: unknown) => v !== null && v !== undefined && String(v).trim() !== "";
   const completenessParts = [present(finalWebsite), present(finalPhone), present(finalEmail), present(finalAddress), present(finalCategory)];
   const data_completeness_score = Math.round((completenessParts.filter(Boolean).length / completenessParts.length) * 100);
+
+  // Contactability: phone is the dominant signal (esp. high-confidence phone)
   let contactability_score = 0;
-  if (finalPhone) contactability_score += 55;
-  if (finalEmail) contactability_score += 35;
+  if (finalPhone) {
+    const conf = phoneDiscovery.found ? phoneDiscovery.confidence : 60;
+    contactability_score += conf >= 85 ? 65 : conf >= 65 ? 55 : 40;
+  }
+  if (finalEmail) contactability_score += 25;
   if (finalWebsite) contactability_score += 10;
   contactability_score = Math.min(100, contactability_score);
+
 
   let buyer_fit_score = consolidated?.buyer_fit_score ?? 0;
   if (buyer_fit_score <= 1 && buyer_fit_score > 0) buyer_fit_score = Math.round(buyer_fit_score * 100);
@@ -811,11 +1066,14 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     : null;
   const hasStrongExclusion = !!exclusion_reason || buyer_fit_score < 30;
 
+  // Ready-to-contact prefers leads with a verifiable phone (spec v0.6).
   const ready_to_contact =
     buyer_fit_score >= 60 &&
     contactability_score >= 50 &&
     !severeConflict &&
-    !hasStrongExclusion;
+    !hasStrongExclusion &&
+    phoneDiscovery.found &&
+    phoneDiscovery.confidence >= 60;
 
   // Status suggestion
   let status_suggestion: "Pronto Da Contattare" | "Da Migliorare" | "Escluso";
@@ -823,6 +1081,7 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   else if (ready_to_contact && data_completeness_score >= 60) status_suggestion = "Pronto Da Contattare";
   else if (buyer_fit_score >= 50) status_suggestion = "Da Migliorare";
   else status_suggestion = "Escluso";
+
 
   // Priority label (commercial)
   let priority_label: "Alta" | "Media" | "Bassa";
@@ -926,6 +1185,10 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     missing_data,
     verification_checks,
     public_sources_used,
+    // v0.6 phone discovery
+    phone_href: phoneDiscovery.phone_href,
+    phone_pretty: phoneDiscovery.phone,
+    phone_discovery: phoneDiscovery,
   };
   return { result, providers: uniq(providers), cost };
 }
