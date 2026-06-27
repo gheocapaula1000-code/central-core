@@ -248,16 +248,6 @@ function stripHtml(html: string): string {
     .replace(/\s+/g, " ").trim();
 }
 
-function extractEmails(text: string, html: string): string[] {
-  const out = new Set<string>();
-  for (const m of html.match(/mailto:([^"'\s>]+)/gi) ?? []) {
-    const v = validateEmail(m.replace(/^mailto:/i, "").split("?")[0]); if (v) out.add(v);
-  }
-  for (const e of text.match(EMAIL_RE) ?? []) {
-    const v = validateEmail(e); if (v) out.add(v);
-  }
-  return Array.from(out).slice(0, 8);
-}
 
 // Generic phone regex tuned for IT numbers (mobile starting with 3, landline starting with 0).
 const PHONE_GENERIC_RE = /(?:\+?39[\s.\/-]?)?(?:0\d{1,3}|3\d{2})[\s.\/-]?\d{2,4}[\s.\/-]?\d{3,4}/g;
