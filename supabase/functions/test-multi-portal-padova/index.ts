@@ -810,10 +810,11 @@ async function orchestrate(
       if (seen.has(k)) continue; seen.add(k); allRaw.push(it);
     }
 
-    // Geocoding for items without lat/lng.
+    // Geocoding for items without lat/lng — Google (se disponibile) con fallback Nominatim.
     const gKey = Deno.env.get("GOOGLE_MAPS_API_KEY") ?? "";
-    const geocodeAddr = async (addr: string): Promise<{ lat: number; lng: number } | null> => {
-      if (!gKey || !addr || addr.length < 5) return null;
+    const inBox = (la: number, lo: number) => la > 45.25 && la < 45.55 && lo > 11.6 && lo < 12.1;
+    const geocodeGoogle = async (addr: string): Promise<{ lat: number; lng: number } | null> => {
+      if (!gKey) return null;
       try {
         const q = `${addr}, Padova, Italia`;
         const u = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(q)}&region=it&key=${gKey}`;
@@ -822,12 +823,33 @@ async function orchestrate(
         if (!r.ok) return null;
         const j = await r.json();
         const loc = j?.results?.[0]?.geometry?.location;
-        if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng) &&
-            loc.lat > 45.25 && loc.lat < 45.55 && loc.lng > 11.6 && loc.lng < 12.1) {
+        if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng) && inBox(loc.lat, loc.lng)) {
           return { lat: loc.lat, lng: loc.lng };
         }
         return null;
       } catch { return null; }
+    };
+    const geocodeNominatim = async (addr: string): Promise<{ lat: number; lng: number } | null> => {
+      try {
+        const q = `${addr}, Padova, Italia`;
+        const u = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=it&viewbox=11.6,45.55,12.1,45.25&bounded=1&q=${encodeURIComponent(q)}`;
+        const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 8000);
+        const r = await fetch(u, { signal: ctrl.signal, headers: { "User-Agent": "central-core-padova/1.0 (admin@apigatewaycore.com)" } });
+        clearTimeout(t);
+        if (!r.ok) return null;
+        const j = await r.json();
+        const hit = Array.isArray(j) ? j[0] : null;
+        if (!hit) return null;
+        const la = Number(hit.lat), lo = Number(hit.lon);
+        if (Number.isFinite(la) && Number.isFinite(lo) && inBox(la, lo)) return { lat: la, lng: lo };
+        return null;
+      } catch { return null; }
+    };
+    const geocodeAddr = async (addr: string): Promise<{ lat: number; lng: number } | null> => {
+      if (!addr || addr.length < 5) return null;
+      const g = await geocodeGoogle(addr);
+      if (g) return g;
+      return await geocodeNominatim(addr);
     };
     const needGeo = allRaw.filter((i) => (i.lat == null || i.lng == null) && !!i.address);
     const senzaGeoPre = needGeo.length;
