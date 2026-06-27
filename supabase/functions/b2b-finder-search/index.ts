@@ -386,13 +386,13 @@ Deno.serve(async (req: Request) => {
 
     try {
       for (const r of results) {
-        const identity_hash = await computeIdentityHash(r, resolvedScopeKey);
+        const identity_hash = await computeIdentityHash(r, resolvedScopeKey, searchMode);
         const confidence = Math.max(0, Math.min(1, r.score / 100));
 
         // Try to find existing
         const { data: existingRows, error: selErr } = await supabase!
           .from("b2b_companies")
-          .select("id,status,source_count,notes,priority,score,fit_reason")
+          .select("id,status,source_count,notes,priority,score,fit_reason,metadata")
           .eq("identity_hash", identity_hash)
           .limit(1);
         if (selErr) throw new Error(`select company: ${selErr.message}`);
@@ -424,6 +424,8 @@ Deno.serve(async (req: Request) => {
             metadata: {
               source_ref: r.source_ref,
               osm_category: r.category,
+              search_mode: searchMode,
+              buyer_type_hint: r.buyer_type_hint,
             },
           };
           const { data: newRow, error: insErr } = await supabase!
