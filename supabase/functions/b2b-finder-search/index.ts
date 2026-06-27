@@ -140,7 +140,15 @@ Deno.serve(async (req: Request) => {
     if (mode !== "buyers") {
       return jsonResponse(req, 400, envelope(false, null, "v1 supports only mode='buyers'", debug_id));
     }
-    const searchMode = resolveSearchMode(input);
+    const searchModeRaw = resolveSearchMode(input);
+    if (searchModeRaw === "suppliers_rejected") {
+      return jsonResponse(
+        req,
+        400,
+        envelope(false, null, "search_mode='suppliers' non disponibile: modalità rimossa (rollback v0.7). Usa 'clients' o 'resellers'.", debug_id),
+      );
+    }
+    const searchMode: SearchMode = searchModeRaw;
 
 
     // dry_run must be explicit boolean
@@ -157,45 +165,33 @@ Deno.serve(async (req: Request) => {
       .replace(/\s+/g, " ")
       .trim();
 
-    // Suppliers: scope geografico esteso (province / region / italy).
-    // Default = region (Veneto) quando l'utente sceglie un comune PD.
-    let supplierScope: SupplierScope | null = null;
-    if (searchMode === "suppliers") {
-      supplierScope = resolveSupplierScope(input.supplier_scope, "region");
-    } else {
-      // clients/resellers invariati: vincolati a province=PD e comuni PD noti
-      if (province !== "PD") {
-        return jsonResponse(req, 400, envelope(false, null, "v1 supports only province='PD'", debug_id));
-      }
-      if (!PD_COMUNI[cityKey]) {
-        return jsonResponse(
-          req,
-          400,
-          envelope(
-            false,
-            null,
-            `Comune non supportato in v1. Supportati: ${PD_COMUNI_KEYS.map((k) => PD_COMUNI[k].label).join(", ")}`,
-            debug_id,
-          ),
-        );
-      }
+    // clients/resellers: vincolati a province=PD e comuni PD noti
+    if (province !== "PD") {
+      return jsonResponse(req, 400, envelope(false, null, "v1 supports only province='PD'", debug_id));
+    }
+    if (!PD_COMUNI[cityKey]) {
+      return jsonResponse(
+        req,
+        400,
+        envelope(
+          false,
+          null,
+          `Comune non supportato in v1. Supportati: ${PD_COMUNI_KEYS.map((k) => PD_COMUNI[k].label).join(", ")}`,
+          debug_id,
+        ),
+      );
     }
     const region = input.region ?? "Veneto";
-    const baseScope = resolveSearchScope({
+    const scope = resolveSearchScope({
       city: cityInputRaw,
       province,
       region,
       zone: input.area_text ?? null,
     });
-    const scope = supplierScope
-      ? {
-          ...baseScope,
-          geographic_scope: supplierScope as "quarter" | "city" | "province",
-          bbox: SUPPLIER_SCOPE_BBOX[supplierScope],
-          geocode_query: `${SUPPLIER_SCOPE_LABEL[supplierScope]}, Italia`,
-        }
-      : baseScope;
     const city = scope.comune;
+
+
+
 
 
     const envMax = Math.max(
