@@ -1292,21 +1292,8 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     suggested_offer_angle: consolidated?.suggested_offer_angle ?? null,
     price_advantage_angle: consolidated?.price_advantage_angle ?? (searchMode === "resellers" ? "Prezzo competitivo, da confermare con listino di confronto" : null),
     buyer_type,
-    // v0.8 suppliers
-    supplier_fit_score: consolidated?.supplier_fit_score ?? (searchMode === "suppliers" ? buyer_fit_score : null),
-    supplier_fit_reason: consolidated?.supplier_fit_reason ?? (searchMode === "suppliers" ? (consolidated?.buyer_fit_reason ?? null) : null),
-    supplier_type: (consolidated?.supplier_type as EnrichmentResult["supplier_type"]) ?? (searchMode === "suppliers" ? (
-      buyer_type === "Produttore" || buyer_type === "Importatore" || buyer_type === "Distributore" ? buyer_type :
-      buyer_type === "Fornitore" ? "Grossista" :
-      "Da Verificare"
-    ) : null),
-    likely_product_range: consolidated?.likely_product_range ?? null,
-    sourcing_angle: consolidated?.sourcing_angle ?? null,
-    minimum_order_hint: consolidated?.minimum_order_hint ?? null,
-    supplier_contact_priority: consolidated?.supplier_contact_priority ?? (searchMode === "suppliers" ? (
-      buyer_fit_score >= 75 ? "Alta" : buyer_fit_score >= 55 ? "Media" : "Bassa"
-    ) : null),
   };
+
   return { result, providers: uniq(providers), cost };
 }
 
