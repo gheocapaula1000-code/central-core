@@ -32,31 +32,23 @@ Deno.serve(async (req) => {
   if (op === "kick") {
     const combos: Array<{city: string; sm: typeof modes[number]}> = [];
     for (const city of cities) for (const sm of modes) combos.push({ city, sm });
-    const out = await Promise.all(combos.map(async ({ city, sm }) => {
-      try {
-        const search = await callFn("b2b-finder-search", {
-          product, city, province: "PD", region: "Veneto",
-          search_mode: sm, dry_run: false, limit: 25,
-        });
-        const job_id = (search.body as any)?.job_id ?? (search.body as any)?.data?.job_id ?? null;
-        let enrich: any = null;
-        if (job_id) {
-          enrich = await callFn("b2b-finder-enrich", { job_id, mode: "smart", max_companies: 15 });
-        }
-        return {
-          city, mode: sm,
-          search_status: search.status,
-          search_total: (search.body as any)?.total ?? (search.body as any)?.data?.total ?? null,
-          search_err: (search.body as any)?.error ?? null,
-          job_id,
-          enrich_status: enrich?.status ?? null,
-          enrichment_job_id: (enrich?.body as any)?.enrichment_job_id ?? (enrich?.body as any)?.data?.enrichment_job_id ?? null,
-        };
-      } catch (e) {
-        return { city, mode: sm, error: String(e) };
-      }
-    }));
-    return new Response(JSON.stringify({ ok: true, kicked: out }, null, 2), { headers: { "Content-Type": "application/json" } });
+    const task = (async () => {
+      await Promise.all(combos.map(async ({ city, sm }) => {
+        try {
+          const search = await callFn("b2b-finder-search", {
+            product, city, province: "PD", region: "Veneto",
+            search_mode: sm, dry_run: false, limit: 25,
+          });
+          const job_id = (search.body as any)?.job_id ?? (search.body as any)?.data?.job_id ?? null;
+          if (job_id) {
+            await callFn("b2b-finder-enrich", { job_id, mode: "smart", max_companies: 15 });
+          }
+        } catch (_) { /* ignore */ }
+      }));
+    })();
+    // @ts-ignore EdgeRuntime
+    EdgeRuntime.waitUntil(task);
+    return new Response(JSON.stringify({ ok: true, kicked: combos.length }), { headers: { "Content-Type": "application/json" } });
   }
 
   // op=report — aggregates results
