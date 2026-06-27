@@ -1,6 +1,4 @@
-// Temporary internal runner to validate B2B Finder v0.8 (suppliers mode) live.
-// Calls b2b-finder-search (dry + save) and b2b-finder-enrich with smart mode.
-// Uses B2B_FINDER_SECRET from env. Public path enabled only via VERIFY-JWT off.
+// Kick-off runner: triggers search+enrich for all combos, returns immediately.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -24,73 +22,79 @@ async function callFn(name: string, body: unknown) {
 }
 
 Deno.serve(async (req) => {
-  if (req.method !== "POST") return new Response("POST only", { status: 405 });
+  const url = new URL(req.url);
+  const op = url.searchParams.get("op") ?? "kick";
   const product = "Buste Portaposate Con Tovagliolo Airlaid";
   const cities = ["Padova", "Vigonza", "Albignasego"];
   const modes: Array<"clients" | "resellers" | "suppliers"> = ["clients", "resellers", "suppliers"];
-
   const supabase = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
+  if (op === "kick") {
+    const out: any[] = [];
+    for (const city of cities) {
+      for (const sm of modes) {
+        const search = await callFn("b2b-finder-search", {
+          product, city, province: "PD", region: "Veneto",
+          search_mode: sm, dry_run: false, limit: 25,
+        });
+        const job_id = (search.body as any)?.job_id ?? (search.body as any)?.data?.job_id ?? null;
+        let enrich: any = null;
+        if (job_id) {
+          enrich = await callFn("b2b-finder-enrich", { job_id, mode: "smart", max_companies: 15 });
+        }
+        out.push({
+          city, mode: sm,
+          search_status: search.status,
+          search_total: (search.body as any)?.total ?? (search.body as any)?.data?.total ?? null,
+          job_id,
+          enrich_status: enrich?.status ?? null,
+          enrichment_job_id: (enrich?.body as any)?.enrichment_job_id ?? (enrich?.body as any)?.data?.enrichment_job_id ?? null,
+        });
+      }
+    }
+    return new Response(JSON.stringify({ ok: true, kicked: out }, null, 2), { headers: { "Content-Type": "application/json" } });
+  }
+
+  // op=report — aggregates results
   const report: any[] = [];
   for (const city of cities) {
     for (const sm of modes) {
-      // 1) save (dry_run=false)
-      const search = await callFn("b2b-finder-search", {
-        product, city, province: "PD", region: "Veneto",
-        search_mode: sm, dry_run: false, limit: 25,
-      });
-      const job_id = (search.body as any)?.job_id ?? null;
-      let enrich: any = null;
-      if (job_id) {
-        enrich = await callFn("b2b-finder-enrich", {
-          job_id, mode: "smart", max_companies: 15,
-        });
-      }
-      // 2) read aggregate
-      const enrichJob = (enrich?.body as any)?.enrichment_job_id ?? null;
-      let companies: any[] = [];
-      if (job_id) {
-        // poll briefly
-        for (let i = 0; i < 12; i++) {
-          await new Promise(r => setTimeout(r, 4000));
-          const { data: j } = await supabase
-            .from("b2b_enrichment_jobs").select("status").eq("id", enrichJob).maybeSingle();
-          if (j?.status === "completed" || j?.status === "failed") break;
-        }
-        const { data } = await supabase
-          .from("b2b_companies")
-          .select("name,comune,phone,metadata,status,score")
-          .eq("metadata->>search_mode", sm)
-          .eq("metadata->>product_key", "buste_portaposate_airlaid")
-          .eq("comune", city)
-          .order("score", { ascending: false })
-          .limit(60);
-        companies = data ?? [];
-      }
+      const { data } = await supabase
+        .from("b2b_companies")
+        .select("name,comune,phone,metadata,status,score")
+        .eq("metadata->>search_mode", sm)
+        .eq("metadata->>product_key", "buste_portaposate_airlaid")
+        .eq("comune", city)
+        .order("score", { ascending: false })
+        .limit(60);
+      const rows = data ?? [];
+      const enriched = rows.filter(r => (r.metadata as any)?.enrichment);
+      const ready = enriched.filter(r => (r.metadata as any).enrichment.status_suggestion === "Pronto Da Contattare");
+      const migl = enriched.filter(r => (r.metadata as any).enrichment.status_suggestion === "Da Migliorare");
+      const excl = enriched.filter(r => (r.metadata as any).enrichment.status_suggestion === "Escluso");
       report.push({
         city, mode: sm,
-        search_status: search.status,
-        search_total: (search.body as any)?.total ?? null,
-        enrich_status: enrich?.status ?? null,
-        enrich_summary: (enrich?.body as any)?.summary ?? null,
-        companies_count: companies.length,
-        sample: companies.slice(0, 6).map(c => ({
-          name: c.name,
-          comune: c.comune,
-          phone: c.phone,
-          buyer_type: (c.metadata as any)?.enrichment?.buyer_type ?? (c.metadata as any)?.buyer_type_hint,
-          supplier_type: (c.metadata as any)?.enrichment?.supplier_type ?? null,
-          ready: (c.metadata as any)?.enrichment?.ready_to_contact ?? null,
-          status_suggestion: (c.metadata as any)?.enrichment?.status_suggestion ?? null,
-          buyer_fit: (c.metadata as any)?.enrichment?.buyer_fit_score ?? null,
-          supplier_fit: (c.metadata as any)?.enrichment?.supplier_fit_score ?? null,
-          reseller_fit: (c.metadata as any)?.enrichment?.reseller_fit_score ?? null,
-          fit_reason: (c.metadata as any)?.enrichment?.buyer_fit_reason ?? null,
-        })),
+        total: rows.length,
+        enriched: enriched.length,
+        pronti_con_telefono: ready.length,
+        da_migliorare: migl.length,
+        esclusi: excl.length,
+        examples: rows.slice(0, 5).map(c => {
+          const e = (c.metadata as any)?.enrichment ?? {};
+          return {
+            name: c.name, comune: c.comune,
+            phone: e.phone ?? c.phone,
+            tipo: e.supplier_type ?? e.buyer_type ?? (c.metadata as any)?.buyer_type_hint ?? null,
+            buyer_fit_score: e.buyer_fit_score ?? null,
+            supplier_fit_score: e.supplier_fit_score ?? null,
+            reseller_fit_score: e.reseller_fit_score ?? null,
+            status_suggestion: e.status_suggestion ?? null,
+            ready_to_contact: e.ready_to_contact ?? null,
+            fit_reason: e.buyer_fit_reason ?? e.fit_reason ?? null,
+          };
+        }),
       });
     }
   }
-  return new Response(JSON.stringify({ ok: true, report }, null, 2), {
-    headers: { "Content-Type": "application/json" },
-  });
+  return new Response(JSON.stringify({ ok: true, report }, null, 2), { headers: { "Content-Type": "application/json" } });
 });
