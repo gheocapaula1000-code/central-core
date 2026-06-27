@@ -402,14 +402,68 @@ function normalizeCasa(it: Record<string, any>): NormItem {
     url: it.url ?? null, publishedAt: parsePubDate(it),
   };
 }
+/** Deep lat/lng extractor: scansiona oggetti annidati e, in ultima istanza, applica
+ *  regex su un JSON blob. Restituisce coordinate solo se cadono nel bounding box
+ *  Padova/cintura (45.25-45.55 / 11.6-12.1) per evitare falsi positivi. */
+function deepExtractLatLng(raw: unknown): { lat: number | null; lng: number | null } {
+  const inBox = (la: number, lo: number) => la > 45.25 && la < 45.55 && lo > 11.6 && lo < 12.1;
+  // 1) Walk shallow nested objects
+  const stack: unknown[] = [raw];
+  let depth = 0;
+  while (stack.length && depth < 200) {
+    depth++;
+    const cur = stack.pop();
+    if (!cur || typeof cur !== "object") continue;
+    const o = cur as Record<string, any>;
+    const laRaw = o.lat ?? o.latitude ?? o.Latitude ?? o.LAT;
+    const loRaw = o.lng ?? o.lon ?? o.longitude ?? o.Longitude ?? o.LON ?? o.LNG;
+    const la = Number(laRaw), lo = Number(loRaw);
+    if (Number.isFinite(la) && Number.isFinite(lo) && inBox(la, lo)) {
+      return { lat: la, lng: lo };
+    }
+    for (const k of Object.keys(o)) {
+      const v = o[k];
+      if (v && typeof v === "object") stack.push(v);
+    }
+  }
+  // 2) Regex fallback on serialized JSON
+  try {
+    const blob = JSON.stringify(raw);
+    const patterns = [
+      /"lat(?:itude)?"\s*:\s*"?(-?\d{2}\.\d{3,})"?[\s\S]{0,200}?"l(?:o?n|ng)g?(?:itude)?"\s*:\s*"?(-?\d{1,2}\.\d{3,})"?/i,
+      /"l(?:o?n|ng)g?(?:itude)?"\s*:\s*"?(-?\d{1,2}\.\d{3,})"?[\s\S]{0,200}?"lat(?:itude)?"\s*:\s*"?(-?\d{2}\.\d{3,})"?/i,
+    ];
+    for (let i = 0; i < patterns.length; i++) {
+      const m = blob.match(patterns[i]);
+      if (!m) continue;
+      const la = Number(i === 0 ? m[1] : m[2]);
+      const lo = Number(i === 0 ? m[2] : m[1]);
+      if (Number.isFinite(la) && Number.isFinite(lo) && inBox(la, lo)) {
+        return { lat: la, lng: lo };
+      }
+    }
+  } catch { /* ignore */ }
+  return { lat: null, lng: null };
+}
+
 function normalizeRaw(portal: Portal, it: Record<string, unknown>): NormItem {
   const r = it as Record<string, any>;
+  let n: NormItem;
   switch (portal) {
-    case "immobiliare": return normalizeImmobiliare(r);
-    case "idealista":   return normalizeIdealista(r);
-    case "subito":      return normalizeSubito(r);
-    case "casa":        return normalizeCasa(r);
+    case "immobiliare": n = normalizeImmobiliare(r); break;
+    case "idealista":   n = normalizeIdealista(r); break;
+    case "subito":      n = normalizeSubito(r); break;
+    case "casa":        n = normalizeCasa(r); break;
   }
+  // Fallback recupero coordinate dai raw data (Apify/Firecrawl) prima del salvataggio.
+  if (n.lat == null || n.lng == null) {
+    const deep = deepExtractLatLng(r);
+    if (deep.lat != null && deep.lng != null) {
+      n.lat = deep.lat;
+      n.lng = deep.lng;
+    }
+  }
+  return n;
 }
 
 // ───── Apify low-level ─────
