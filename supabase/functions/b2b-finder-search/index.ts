@@ -355,8 +355,10 @@ Deno.serve(async (req: Request) => {
       else if (sameComune) geo_match_reason = "city_match_no_coords";
       else if (inBbox === true) geo_match_reason = "bbox_match_only";
       else if (inBbox === false) geo_match_reason = "out_of_bbox";
-      const in_scope = sameComune && inBbox !== false;
-      return {
+      const in_scope = supplierScope
+        ? (inBbox !== false) // per suppliers basta essere dentro la bbox estesa
+        : sameComune && inBbox !== false;
+      const base: Record<string, unknown> = {
         ...r,
         requested_city: requestedCity,
         resolved_scope_key: resolvedScopeKey,
@@ -365,6 +367,21 @@ Deno.serve(async (req: Request) => {
         geo_match_reason,
         distance_from_scope_center_km: distance_km,
       };
+      if (supplierScope) {
+        const dh =
+          distance_km == null
+            ? "unknown"
+            : distance_km < 50
+              ? "vicino"
+              : distance_km < 200
+                ? "veneto"
+                : "italia";
+        base.supplier_scope = supplierScope;
+        base.supplier_region = supplierScope === "italy" ? "Italia" : "Veneto";
+        base.supplier_distance_hint = dh;
+        base.supplier_geo_reason = `scope=${supplierScope};${geo_match_reason}`;
+      }
+      return base as T & Record<string, unknown>;
     };
     const decoratedResults = results.map(decorate);
     const matchedRequested = decoratedResults.filter((r) => r.in_scope).length;
