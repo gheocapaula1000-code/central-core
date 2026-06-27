@@ -134,8 +134,10 @@ Deno.serve(async (req: Request) => {
         .select("id,created_at,finished_at,product,mode,status,zone,counts,cost_eur")
         .eq("vertical", VERTICAL)
         .eq("mode", MODE)
+        .not("product", "ilike", "%buste portaposate%")
         .order("created_at", { ascending: false })
         .range(offset, offset + limit - 1);
+
 
       if (error) {
         console.error(`[b2b-finder-results] list_jobs error debug_id=${debug_id} err=${error.message}`);
@@ -255,7 +257,17 @@ Deno.serve(async (req: Request) => {
         return jsonResponse(req, 500, envelope(false, null, "DB read failed", debug_id));
       }
 
-      const mapped = (companies ?? []).map((c: Record<string, unknown>) => {
+      // Rollback v0.7 — hide any legacy record from suppliers mode or buste_portaposate_airlaid product
+      const filteredCompanies = (companies ?? []).filter((c: Record<string, unknown>) => {
+        const md = (c.metadata as Record<string, unknown> | null) ?? {};
+        const sm = String((md.search_mode ?? "")).toLowerCase();
+        const pk = String((md.product_key ?? "")).toLowerCase();
+        if (sm === "suppliers") return false;
+        if (pk === "buste_portaposate_airlaid") return false;
+        return true;
+      });
+      const mapped = filteredCompanies.map((c: Record<string, unknown>) => {
+
         const src = sourceByCompany.get(c.id as string);
         const dbStatus = (c.status as string) ?? "new";
         const metadata = (c.metadata as Record<string, unknown> | null) ?? {};

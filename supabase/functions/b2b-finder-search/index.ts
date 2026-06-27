@@ -6,7 +6,7 @@ import { corsHeaders, handlePreflight, pickOrigin } from "../_shared/b2b/cors.ts
 import { authorizeB2BFinder } from "../_shared/b2b/auth.ts";
 import { queryOverpass } from "../_shared/b2b/overpass.ts";
 import { scoreAndNormalize, type NormalizedCompany } from "../_shared/b2b/normalize.ts";
-import { resolveSearchScope, isPoiInScope, PD_COMUNI, PD_COMUNI_KEYS, bboxCenter, haversineKm, normalizeComune, SUPPLIER_SCOPE_BBOX, SUPPLIER_SCOPE_LABEL, resolveSupplierScope, type SupplierScope } from "../_shared/b2b/geo.ts";
+import { resolveSearchScope, isPoiInScope, PD_COMUNI, PD_COMUNI_KEYS, bboxCenter, haversineKm, normalizeComune } from "../_shared/b2b/geo.ts";
 import { detectProductKey, getProductProfile } from "../_shared/b2b/products.ts";
 
 
@@ -25,17 +25,18 @@ interface SearchInput {
   limit?: number;
   search_depth?: "quick" | "deep";
   dry_run?: boolean;
-  /** Solo per search_mode="suppliers": "province" | "region" | "italy". Default "region". */
-  supplier_scope?: string;
 }
 
-function resolveSearchMode(input: SearchInput): "clients" | "resellers" | "suppliers" {
+type SearchMode = "clients" | "resellers";
+
+function resolveSearchMode(input: SearchInput): SearchMode | "suppliers_rejected" {
   const raw = String(input.search_mode ?? input.intent ?? "").toLowerCase().trim();
   if (!raw) return "clients";
   if (raw === "resellers" || raw === "cerco_rivenditori" || raw === "rivenditori") return "resellers";
-  if (raw === "suppliers" || raw === "cerco_fornitori" || raw === "fornitori" || raw === "produttori" || raw === "cerco_produttori") return "suppliers";
+  if (raw === "suppliers" || raw === "cerco_fornitori" || raw === "fornitori" || raw === "produttori" || raw === "cerco_produttori") return "suppliers_rejected";
   return "clients";
 }
+
 
 const SAVE_MAX_LIMIT = 50;
 
@@ -64,7 +65,7 @@ function jsonResponse(
       ...corsHeaders(req),
       "Content-Type": "application/json",
       "X-Function": "b2b-finder-search",
-      "X-Contract": "b2b-finder/v0.8",
+      "X-Contract": "b2b-finder/v0.7",
     },
   });
 }
@@ -86,7 +87,7 @@ async function sha256Hex(input: string): Promise<string> {
     .join("");
 }
 
-async function computeIdentityHash(c: NormalizedCompany, scopeKey: string, searchMode: "clients" | "resellers" | "suppliers", productKey: string): Promise<string> {
+async function computeIdentityHash(c: NormalizedCompany, scopeKey: string, searchMode: SearchMode, productKey: string): Promise<string> {
   const name = normalizeForHash(c.name);
   const addr = normalizeForHash(c.address);
   const comune = normalizeForHash(c.city);
@@ -139,7 +140,15 @@ Deno.serve(async (req: Request) => {
     if (mode !== "buyers") {
       return jsonResponse(req, 400, envelope(false, null, "v1 supports only mode='buyers'", debug_id));
     }
-    const searchMode = resolveSearchMode(input);
+    const searchModeRaw = resolveSearchMode(input);
+    if (searchModeRaw === "suppliers_rejected") {
+      return jsonResponse(
+        req,
+        400,
+        envelope(false, null, "search_mode='suppliers' non disponibile: modalità rimossa (rollback v0.7). Usa 'clients' o 'resellers'.", debug_id),
+      );
+    }
+    const searchMode: SearchMode = searchModeRaw;
 
 
     // dry_run must be explicit boolean
@@ -156,45 +165,33 @@ Deno.serve(async (req: Request) => {
       .replace(/\s+/g, " ")
       .trim();
 
-    // Suppliers: scope geografico esteso (province / region / italy).
-    // Default = region (Veneto) quando l'utente sceglie un comune PD.
-    let supplierScope: SupplierScope | null = null;
-    if (searchMode === "suppliers") {
-      supplierScope = resolveSupplierScope(input.supplier_scope, "region");
-    } else {
-      // clients/resellers invariati: vincolati a province=PD e comuni PD noti
-      if (province !== "PD") {
-        return jsonResponse(req, 400, envelope(false, null, "v1 supports only province='PD'", debug_id));
-      }
-      if (!PD_COMUNI[cityKey]) {
-        return jsonResponse(
-          req,
-          400,
-          envelope(
-            false,
-            null,
-            `Comune non supportato in v1. Supportati: ${PD_COMUNI_KEYS.map((k) => PD_COMUNI[k].label).join(", ")}`,
-            debug_id,
-          ),
-        );
-      }
+    // clients/resellers: vincolati a province=PD e comuni PD noti
+    if (province !== "PD") {
+      return jsonResponse(req, 400, envelope(false, null, "v1 supports only province='PD'", debug_id));
+    }
+    if (!PD_COMUNI[cityKey]) {
+      return jsonResponse(
+        req,
+        400,
+        envelope(
+          false,
+          null,
+          `Comune non supportato in v1. Supportati: ${PD_COMUNI_KEYS.map((k) => PD_COMUNI[k].label).join(", ")}`,
+          debug_id,
+        ),
+      );
     }
     const region = input.region ?? "Veneto";
-    const baseScope = resolveSearchScope({
+    const scope = resolveSearchScope({
       city: cityInputRaw,
       province,
       region,
       zone: input.area_text ?? null,
     });
-    const scope = supplierScope
-      ? {
-          ...baseScope,
-          geographic_scope: supplierScope as "quarter" | "city" | "province",
-          bbox: SUPPLIER_SCOPE_BBOX[supplierScope],
-          geocode_query: `${SUPPLIER_SCOPE_LABEL[supplierScope]}, Italia`,
-        }
-      : baseScope;
     const city = scope.comune;
+
+
+
 
 
     const envMax = Math.max(
@@ -246,8 +243,7 @@ Deno.serve(async (req: Request) => {
           sector: input.sector ?? null,
           search_depth: input.search_depth ?? "quick",
           search_mode: searchMode,
-          supplier_scope: supplierScope,
-          supplier_region: supplierScope ? (supplierScope === "italy" ? "Italia" : "Veneto") : null,
+
           limit_requested: requested,
           applied_limit: applied,
         },
@@ -294,29 +290,25 @@ Deno.serve(async (req: Request) => {
 
     const rawCount = pois.length;
     let filteredOutOfZone = 0;
-    // Per suppliers (scope esteso) NON applichiamo il filtro per comune:
-    // i fornitori non devono essere per forza in città.
-    const inScope = supplierScope
-      ? pois
-      : pois.filter((p) => {
-          const v = isPoiInScope(p, scope);
-          if (!v.ok) filteredOutOfZone++;
-          return v.ok;
-        });
+    const inScope = pois.filter((p) => {
+      const v = isPoiInScope(p, scope);
+      if (!v.ok) filteredOutOfZone++;
+      return v.ok;
+    });
 
     let normalized: NormalizedCompany[];
     try {
       normalized = inScope
         .map((p) => scoreAndNormalize(p, { city, province, region, search_mode: searchMode }))
         .filter((x): x is NormalizedCompany => !!x)
-        // Defensive: forziamo il comune al canonical scope.comune SOLO per
-        // clients/resellers. Per suppliers manteniamo la città reale del POI.
+        // Defensive: forziamo il comune al canonical scope.comune.
         .map((x) =>
-          !supplierScope && normalizeComune(x.city) === normalizeComune(scope.comune)
+          normalizeComune(x.city) === normalizeComune(scope.comune)
             ? { ...x, city: scope.comune }
             : x
         )
         .sort((a, b) => b.score - a.score);
+
     } catch (e) {
       const msg = e instanceof Error ? e.message : "normalize error";
       console.error(`[b2b-finder-search] normalize failed debug_id=${debug_id} err=${msg}`);
@@ -357,32 +349,18 @@ Deno.serve(async (req: Request) => {
       else if (sameComune) geo_match_reason = "city_match_no_coords";
       else if (inBbox === true) geo_match_reason = "bbox_match_only";
       else if (inBbox === false) geo_match_reason = "out_of_bbox";
-      const in_scope = supplierScope
-        ? (inBbox !== false) // per suppliers basta essere dentro la bbox estesa
-        : sameComune && inBbox !== false;
-      const base: Record<string, unknown> = {
-        ...r,
+      const in_scope = sameComune && inBbox !== false;
+      const base = {
+        ...(r as unknown as Record<string, unknown>),
         requested_city: requestedCity,
         resolved_scope_key: resolvedScopeKey,
         result_city: resultCity,
         in_scope,
         geo_match_reason,
         distance_from_scope_center_km: distance_km,
-      };
-      if (supplierScope) {
-        const dh =
-          distance_km == null
-            ? "unknown"
-            : distance_km < 50
-              ? "vicino"
-              : distance_km < 200
-                ? "veneto"
-                : "italia";
-        base.supplier_scope = supplierScope;
-        base.supplier_region = supplierScope === "italy" ? "Italia" : "Veneto";
-        base.supplier_distance_hint = dh;
-        base.supplier_geo_reason = `scope=${supplierScope};${geo_match_reason}`;
-      }
+      } as Record<string, unknown>;
+
+
       return base as T & Record<string, unknown>;
     };
     const decoratedResults = results.map(decorate);
@@ -474,10 +452,9 @@ Deno.serve(async (req: Request) => {
               buyer_type_hint: r.buyer_type_hint,
               product_key: productKey,
               product_name: input.product ?? null,
-              supplier_scope: supplierScope,
-              supplier_region: supplierScope ? (supplierScope === "italy" ? "Italia" : "Veneto") : null,
             },
           };
+
           const { data: newRow, error: insErr } = await supabase!
             .from("b2b_companies")
             .insert(ins)

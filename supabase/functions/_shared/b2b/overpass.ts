@@ -1,7 +1,7 @@
 // Overpass / OpenStreetMap provider for b2b-finder.
 // Free, no API key. Strict timeout + 1 retry.
-// Supports two search_mode:
-//   - "clients"   → food/horeca amenity categories (existing behaviour)
+// Rollback v0.7: supporta SOLO due search_mode:
+//   - "clients"   → food/horeca amenity categories
 //   - "resellers" → shop/wholesale categories + name regex per ingrosso/horeca
 
 const ENDPOINTS = [
@@ -48,30 +48,13 @@ const RESELLER_NAME_REGEX =
   "distribut|monouso|packaging|casaling|articoli per ristorant|" +
   "articoli per bar|articoli per pizzer|catering|tovagliato|biancheria";
 
-// ── Suppliers (produttori / importatori / grossisti / distributori) ────────
-// Tag OSM tipici: industrial=*, office=company, craft=*, shop=wholesale, man_made=works
-const SUPPLIER_SHOPS = ["wholesale", "trade"] as const;
-const SUPPLIER_INDUSTRIAL = ["paper", "packaging", "manufacturing", "factory", "warehouse"] as const;
-const SUPPLIER_OFFICES = ["company", "wholesale", "logistics", "it"] as const;
-
-// Regex molto orientata al mondo carta/tovagliato/monouso/horeca distribuzione.
-const SUPPLIER_NAME_REGEX =
-  "produttor|produzione|manifattur|manufact|fabbric|stabilimento|cartiera|cartotecnic|converting|convertitor|" +
-  "import|importator|importatori|export|" +
-  "grossist|ingrosso|cash and carry|cash & carry|c&c|" +
-  "distribut|distribuzione|logistic|" +
-  "carta|paper|tissue|airlaid|tnt|tessuto non tessuto|nonwoven|non woven|monouso|disposable|" +
-  "tovagli|portaposate|porta posate|mise en place|tavola monouso|" +
-  "packaging|imballagg|imballo|" +
-  "horeca|ho.re.ca|fornitur|forniture|articoli per la tavola|articoli tavola";
-
 export type OverpassCategory = (typeof CLIENT_CATEGORIES)[number] | string;
-export type SearchMode = "clients" | "resellers" | "suppliers";
+export type SearchMode = "clients" | "resellers";
 
 export interface OverpassPoi {
   osm_id: string;
   type: "node" | "way" | "relation";
-  category: OverpassCategory; // amenity if clients, shop if resellers, else "unknown"
+  category: OverpassCategory; // amenity if clients, shop if resellers
   name: string | null;
   lat: number | null;
   lng: number | null;
@@ -93,7 +76,6 @@ function buildResellerQuery(bbox: [number, number, number, number]): string {
     (c) =>
       `  node["shop"="${c}"](${s},${w},${n},${e});\n  way["shop"="${c}"](${s},${w},${n},${e});\n  relation["shop"="${c}"](${s},${w},${n},${e});`,
   ).join("\n");
-  // Any node tagged as shop/office/craft/industrial with a name that screams "wholesale/horeca"
   const re = RESELLER_NAME_REGEX;
   const namedParts = [
     `  node["name"~"${re}",i]["shop"](${s},${w},${n},${e});`,
@@ -106,39 +88,6 @@ function buildResellerQuery(bbox: [number, number, number, number]): string {
     `  way["name"~"${re}",i]["industrial"](${s},${w},${n},${e});`,
   ].join("\n");
   return `[out:json][timeout:25];\n(\n${shopParts}\n${namedParts}\n);\nout center tags;`;
-}
-
-function buildSupplierQuery(bbox: [number, number, number, number]): string {
-  const [s, w, n, e] = bbox;
-  const shopParts = SUPPLIER_SHOPS.map(
-    (c) =>
-      `  node["shop"="${c}"](${s},${w},${n},${e});\n  way["shop"="${c}"](${s},${w},${n},${e});\n  relation["shop"="${c}"](${s},${w},${n},${e});`,
-  ).join("\n");
-  const industrialParts = SUPPLIER_INDUSTRIAL.map(
-    (c) =>
-      `  node["industrial"="${c}"](${s},${w},${n},${e});\n  way["industrial"="${c}"](${s},${w},${n},${e});\n  relation["industrial"="${c}"](${s},${w},${n},${e});`,
-  ).join("\n");
-  const officeParts = SUPPLIER_OFFICES.map(
-    (c) =>
-      `  node["office"="${c}"](${s},${w},${n},${e});\n  way["office"="${c}"](${s},${w},${n},${e});`,
-  ).join("\n");
-  // Catch-all by name regex su qualunque attività con shop/office/industrial/craft.
-  const re = SUPPLIER_NAME_REGEX;
-  const namedParts = [
-    `  node["name"~"${re}",i]["shop"](${s},${w},${n},${e});`,
-    `  way["name"~"${re}",i]["shop"](${s},${w},${n},${e});`,
-    `  node["name"~"${re}",i]["office"](${s},${w},${n},${e});`,
-    `  way["name"~"${re}",i]["office"](${s},${w},${n},${e});`,
-    `  node["name"~"${re}",i]["craft"](${s},${w},${n},${e});`,
-    `  way["name"~"${re}",i]["craft"](${s},${w},${n},${e});`,
-    `  node["name"~"${re}",i]["industrial"](${s},${w},${n},${e});`,
-    `  way["name"~"${re}",i]["industrial"](${s},${w},${n},${e});`,
-    `  node["name"~"${re}",i]["man_made"="works"](${s},${w},${n},${e});`,
-    `  way["name"~"${re}",i]["man_made"="works"](${s},${w},${n},${e});`,
-    `  node["name"~"${re}",i]["landuse"="industrial"](${s},${w},${n},${e});`,
-    `  way["name"~"${re}",i]["landuse"="industrial"](${s},${w},${n},${e});`,
-  ].join("\n");
-  return `[out:json][timeout:25];\n(\n${shopParts}\n${industrialParts}\n${officeParts}\n${namedParts}\n);\nout center tags;`;
 }
 
 async function fetchWithTimeout(
@@ -165,11 +114,7 @@ export async function queryOverpass(
   timeoutMs = 25000,
   searchMode: SearchMode = "clients",
 ): Promise<OverpassPoi[]> {
-  const q = searchMode === "suppliers"
-    ? buildSupplierQuery(bbox)
-    : searchMode === "resellers"
-      ? buildResellerQuery(bbox)
-      : buildClientQuery(bbox);
+  const q = searchMode === "resellers" ? buildResellerQuery(bbox) : buildClientQuery(bbox);
   let lastErr: unknown = null;
   for (let attempt = 0; attempt < ENDPOINTS.length; attempt++) {
     const url = ENDPOINTS[attempt];
@@ -188,12 +133,8 @@ export async function queryOverpass(
       return elements
         .map((el): OverpassPoi | null => {
           const tags = (el?.tags ?? {}) as Record<string, string>;
-          // Category preference per mode: shop>amenity>office>craft for resellers,
-          // amenity>shop for clients.
           let cat = "unknown";
-          if (searchMode === "suppliers") {
-            cat = tags.industrial ?? tags.shop ?? tags.office ?? tags.craft ?? tags.man_made ?? tags.landuse ?? tags.amenity ?? "unknown";
-          } else if (searchMode === "resellers") {
+          if (searchMode === "resellers") {
             cat = tags.shop ?? tags.office ?? tags.craft ?? tags.industrial ?? tags.amenity ?? "unknown";
           } else {
             cat = tags.amenity ?? tags.shop ?? "unknown";

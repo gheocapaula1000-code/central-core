@@ -1,7 +1,7 @@
 // Normalization + scoring for b2b-finder POIs.
-// Supports two search_mode:
-//   - "clients"   → end-users that consume coprimacchia TNT (trattorie, mense, ...)
-//   - "resellers" → distributors / wholesalers / housewares retailers that resell it.
+// Rollback v0.7: supporta SOLO due search_mode:
+//   - "clients"   → end-users che consumano coprimacchia TNT
+//   - "resellers" → distributori/grossisti/casalinghi che lo rivendono
 
 import type { OverpassPoi, SearchMode } from "./overpass.ts";
 
@@ -25,7 +25,7 @@ export interface NormalizedCompany {
   priority: "high" | "medium" | "low";
   score: number;
   search_mode: SearchMode;
-  buyer_type_hint: "Cliente Finale" | "Rivenditore" | "Fornitore" | "Produttore" | "Importatore" | "Distributore" | "Da Verificare";
+  buyer_type_hint: "Cliente Finale" | "Rivenditore" | "Fornitore" | "Da Verificare";
 }
 
 interface KwRule {
@@ -34,7 +34,7 @@ interface KwRule {
   label: string;
 }
 
-// ── CLIENTS keywords (existing v0.2 set) ─────────────────────────────────
+// ── CLIENTS keywords ─────────────────────────────────────────────────────
 const STRONG_KEYWORDS_CLIENTS: KwRule[] = [
   { kw: "pranzo di lavoro", weight: 25, label: "pranzo di lavoro" },
   { kw: "pranzo lavoro", weight: 25, label: "pranzo lavoro" },
@@ -52,7 +52,7 @@ const STRONG_KEYWORDS_CLIENTS: KwRule[] = [
   { kw: "agriturismo", weight: 15, label: "agriturismo" },
 ];
 
-// ── RESELLERS keywords (new) ─────────────────────────────────────────────
+// ── RESELLERS keywords ───────────────────────────────────────────────────
 const STRONG_KEYWORDS_RESELLERS: KwRule[] = [
   { kw: "ingrosso", weight: 30, label: "ingrosso" },
   { kw: "cash and carry", weight: 30, label: "cash and carry" },
@@ -78,39 +78,6 @@ const STRONG_KEYWORDS_RESELLERS: KwRule[] = [
   { kw: "professional", weight: 10, label: "professionale" },
 ];
 
-// ── SUPPLIERS keywords (new) ─────────────────────────────────────────────
-// Cerco fornitori da cui acquistare il prodotto (non clienti).
-const STRONG_KEYWORDS_SUPPLIERS: KwRule[] = [
-  { kw: "produttore", weight: 35, label: "produttore" },
-  { kw: "produttori", weight: 35, label: "produttore" },
-  { kw: "produzione", weight: 28, label: "produzione" },
-  { kw: "manifattur", weight: 30, label: "manifattura" },
-  { kw: "fabbric", weight: 25, label: "fabbrica" },
-  { kw: "stabilimento", weight: 22, label: "stabilimento" },
-  { kw: "importator", weight: 30, label: "importatore" },
-  { kw: "import", weight: 22, label: "import" },
-  { kw: "distribut", weight: 28, label: "distribuzione" },
-  { kw: "grossist", weight: 30, label: "grossista" },
-  { kw: "ingrosso", weight: 30, label: "ingrosso" },
-  { kw: "cash and carry", weight: 28, label: "cash and carry" },
-  { kw: "cash & carry", weight: 28, label: "cash and carry" },
-  { kw: "c&c", weight: 22, label: "cash and carry" },
-  { kw: "horeca", weight: 26, label: "horeca" },
-  { kw: "forniture", weight: 22, label: "forniture" },
-  { kw: "fornitura", weight: 20, label: "forniture" },
-  { kw: "carta", weight: 18, label: "carta" },
-  { kw: "tissue", weight: 22, label: "tissue/airlaid" },
-  { kw: "airlaid", weight: 35, label: "airlaid" },
-  { kw: "tnt", weight: 28, label: "tnt" },
-  { kw: "tessuto non tessuto", weight: 28, label: "tessuto non tessuto" },
-  { kw: "tovagli", weight: 22, label: "tovagliato" },
-  { kw: "portaposate", weight: 35, label: "portaposate" },
-  { kw: "monouso", weight: 28, label: "monouso" },
-  { kw: "packaging", weight: 22, label: "packaging" },
-  { kw: "imballagg", weight: 20, label: "imballaggi" },
-  { kw: "logistic", weight: 12, label: "logistica" },
-];
-
 function pickAddress(tags: Record<string, string>): string | null {
   const street = tags["addr:street"];
   const num = tags["addr:housenumber"];
@@ -133,7 +100,7 @@ function isValidWebsite(w: string | null): boolean {
   return s.startsWith("http://") || s.startsWith("https://") || s.includes(".");
 }
 
-// ── CLIENTS base scoring (unchanged) ─────────────────────────────────────
+// ── CLIENTS base scoring ─────────────────────────────────────────────────
 function baseScoreClients(
   cat: string,
   haystack: string,
@@ -150,14 +117,12 @@ function baseScoreClients(
   return { score: 30, label: `categoria ${cat}`, isFoodCourtLike: false };
 }
 
-// ── RESELLERS base scoring (new) ─────────────────────────────────────────
+// ── RESELLERS base scoring ───────────────────────────────────────────────
 function baseScoreResellers(
   cat: string,
   tags: Record<string, string>,
   haystack: string,
 ): { score: number; label: string; isFoodConsumer: boolean } {
-  // If the POI is actually a pure consumer (restaurant/bar/pizzeria/cafe),
-  // it is NOT a reseller → cap base low.
   const isFoodConsumer =
     /(restaurant|bar|cafe|fast_food|pub|food_court|pizzeria|ice_cream)/.test(cat) ||
     /(ristorante|trattoria|pizzeria|gelateria)/.test(haystack);
@@ -239,95 +204,21 @@ function buildFitReasonResellers(args: {
   return `${catLabel}: possibile rivenditore da verificare, ${contactsTxt}.`;
 }
 
-function baseScoreSuppliers(
-  cat: string,
-  tags: Record<string, string>,
-  haystack: string,
-): { score: number; label: string; isFoodConsumer: boolean } {
-  const isFoodConsumer =
-    /(restaurant|bar|cafe|fast_food|pub|food_court|pizzeria|ice_cream)/.test(cat) ||
-    /(ristorante|trattoria|pizzeria|gelateria)/.test(haystack);
-  if (isFoodConsumer && !/ingrosso|grossist|forniture|distribut|cash|produttor|import|airlaid|tnt|tovagli|portaposate/.test(haystack)) {
-    return { score: 12, label: `attività di consumo (${cat})`, isFoodConsumer: true };
-  }
-
-  const shop = tags.shop ?? "";
-  const office = tags.office ?? "";
-  const industrial = tags.industrial ?? "";
-  const craft = tags.craft ?? "";
-  const manMade = tags.man_made ?? "";
-
-  // Industrial / production wins (probabili produttori reali)
-  if (industrial === "paper")          return { score: 85, label: "produzione carta/airlaid", isFoodConsumer: false };
-  if (industrial === "packaging")      return { score: 82, label: "produzione packaging", isFoodConsumer: false };
-  if (industrial === "manufacturing")  return { score: 75, label: "manifattura", isFoodConsumer: false };
-  if (industrial === "factory")        return { score: 70, label: "stabilimento produttivo", isFoodConsumer: false };
-  if (industrial === "warehouse")      return { score: 60, label: "magazzino/logistica", isFoodConsumer: false };
-  if (industrial)                      return { score: 55, label: `industriale ${industrial}`, isFoodConsumer: false };
-  if (manMade === "works")             return { score: 65, label: "impianto produttivo", isFoodConsumer: false };
-
-  // Distribuzione / ingrosso
-  if (shop === "wholesale")            return { score: 80, label: "ingrosso (wholesale)", isFoodConsumer: false };
-  if (shop === "trade")                return { score: 65, label: "rivendita trade", isFoodConsumer: false };
-  if (office === "wholesale")          return { score: 75, label: "ufficio ingrosso", isFoodConsumer: false };
-  if (office === "logistics")          return { score: 60, label: "logistica/distribuzione", isFoodConsumer: false };
-  if (office === "company")            return { score: 50, label: "azienda (office)", isFoodConsumer: false };
-  if (office)                          return { score: 42, label: `office ${office}`, isFoodConsumer: false };
-  if (craft)                           return { score: 45, label: `artigianato ${craft}`, isFoodConsumer: false };
-  if (shop)                            return { score: 38, label: `negozio ${shop}`, isFoodConsumer: false };
-  return { score: 28, label: `categoria ${cat}`, isFoodConsumer: false };
-}
-
-function buildFitReasonSuppliers(args: {
-  catLabel: string; strongLabels: string[]; phone: boolean; website: boolean;
-  priority: "high" | "medium" | "low"; isFoodConsumer: boolean;
-}): string {
-  const { catLabel, strongLabels, phone, website, priority, isFoodConsumer } = args;
-  const contacts: string[] = [];
-  if (phone) contacts.push("telefono");
-  if (website) contacts.push("sito");
-  const contactsTxt = contacts.length
-    ? `${contacts.join(" e ")} ${contacts.length > 1 ? "presenti" : "presente"}`
-    : "contatti limitati";
-
-  if (isFoodConsumer) {
-    return `Attività di consumo (${catLabel}): non è un fornitore; ${contactsTxt}.`;
-  }
-  if (priority === "high") {
-    if (strongLabels.some((l) => /(airlaid|tnt|tovagliato|portaposate|monouso|tissue)/.test(l)))
-      return `Possibile produttore/fornitore di tovagliato monouso (${strongLabels.join(", ")}); ${contactsTxt}.`;
-    if (strongLabels.some((l) => /(produttore|manifattura|fabbrica|produzione|stabilimento)/.test(l)))
-      return `Realtà produttiva coerente (${strongLabels.join(", ")}); ${contactsTxt}.`;
-    if (strongLabels.some((l) => /(ingrosso|grossista|distribuzione|horeca|cash and carry|forniture|importatore)/.test(l)))
-      return `Canale ingrosso/distribuzione (${strongLabels.join(", ")}); ${contactsTxt}.`;
-    return `${catLabel} con segnali forti (${strongLabels.join(", ")}); ${contactsTxt}.`;
-  }
-  if (priority === "medium") {
-    if (strongLabels.length) return `${catLabel} con segnali (${strongLabels.join(", ")}) compatibili con un fornitore; ${contactsTxt}.`;
-    return `${catLabel} potenzialmente compatibile come fornitore; ${contactsTxt}.`;
-  }
-  return `${catLabel}: possibile fornitore da verificare, ${contactsTxt}.`;
-}
-
-
 export function scoreAndNormalize(
   poi: OverpassPoi,
   ctx: { city: string; province: string; region: string; search_mode?: SearchMode },
 ): NormalizedCompany | null {
   if (!poi.name) return null;
   const sm = ctx.search_mode;
-  const search_mode: SearchMode = sm === "suppliers" || sm === "resellers" ? sm : "clients";
+  const search_mode: SearchMode = sm === "resellers" ? "resellers" : "clients";
 
   const tags = poi.tags;
   const cat = String(poi.category);
   const haystack =
-    `${poi.name} ${tags.cuisine ?? ""} ${tags.description ?? ""} ${tags.amenity ?? ""} ${tags.shop ?? ""} ${tags.office ?? ""} ${tags.craft ?? ""} ${tags.industrial ?? ""} ${tags.man_made ?? ""}`
+    `${poi.name} ${tags.cuisine ?? ""} ${tags.description ?? ""} ${tags.amenity ?? ""} ${tags.shop ?? ""} ${tags.office ?? ""} ${tags.craft ?? ""} ${tags.industrial ?? ""}`
       .toLowerCase();
 
-  const KW =
-    search_mode === "suppliers" ? STRONG_KEYWORDS_SUPPLIERS :
-    search_mode === "resellers" ? STRONG_KEYWORDS_RESELLERS :
-    STRONG_KEYWORDS_CLIENTS;
+  const KW = search_mode === "resellers" ? STRONG_KEYWORDS_RESELLERS : STRONG_KEYWORDS_CLIENTS;
   const matched = new Map<string, number>();
   for (const r of KW) {
     if (haystack.includes(r.kw)) {
@@ -343,10 +234,7 @@ export function scoreAndNormalize(
   let baseLabel: string;
   let baseScore: number;
   let isFoodConsumer = false;
-  if (search_mode === "suppliers") {
-    const b = baseScoreSuppliers(cat, tags, haystack);
-    baseScore = b.score; baseLabel = b.label; isFoodConsumer = b.isFoodConsumer;
-  } else if (search_mode === "resellers") {
+  if (search_mode === "resellers") {
     const b = baseScoreResellers(cat, tags, haystack);
     baseScore = b.score; baseLabel = b.label; isFoodConsumer = b.isFoodConsumer;
   } else {
@@ -371,7 +259,7 @@ export function scoreAndNormalize(
   const hasContact = !!phone || websiteOk;
 
   let priority: "high" | "medium" | "low";
-  if ((search_mode === "resellers" || search_mode === "suppliers") && isFoodConsumer) {
+  if (search_mode === "resellers" && isFoodConsumer) {
     priority = "low";
   } else if (score >= 82 && hasStrong && hasContact) {
     priority = "high";
@@ -386,25 +274,13 @@ export function scoreAndNormalize(
   }
 
   const fit_reason =
-    search_mode === "suppliers"
-      ? buildFitReasonSuppliers({ catLabel: baseLabel, strongLabels, phone: !!phone, website: websiteOk, priority, isFoodConsumer })
-      : search_mode === "resellers"
-        ? buildFitReasonResellers({ catLabel: baseLabel, strongLabels, phone: !!phone, website: websiteOk, priority, isFoodConsumer })
-        : buildFitReasonClients({ catLabel: baseLabel, strongLabels, phone: !!phone, website: websiteOk, priority });
+    search_mode === "resellers"
+      ? buildFitReasonResellers({ catLabel: baseLabel, strongLabels, phone: !!phone, website: websiteOk, priority, isFoodConsumer })
+      : buildFitReasonClients({ catLabel: baseLabel, strongLabels, phone: !!phone, website: websiteOk, priority });
 
-  // Buyer-type hint (cheap heuristic, GPT may refine later)
+  // Buyer-type hint
   let buyer_type_hint: NormalizedCompany["buyer_type_hint"] = "Da Verificare";
-  if (search_mode === "suppliers") {
-    if (isFoodConsumer) buyer_type_hint = "Cliente Finale";
-    else if (/(produttor|manifattur|fabbric|produzione|stabilimento)/.test(haystack) || tags.industrial === "paper" || tags.industrial === "packaging" || tags.industrial === "manufacturing")
-      buyer_type_hint = "Produttore";
-    else if (/(importator|import)/.test(haystack)) buyer_type_hint = "Importatore";
-    else if (/(distribut|logistic)/.test(haystack) || tags.office === "logistics")
-      buyer_type_hint = "Distributore";
-    else if (/(ingrosso|grossist|cash and carry|horeca|forniture)/.test(haystack) || tags.shop === "wholesale" || tags.office === "wholesale")
-      buyer_type_hint = "Distributore";
-    else if (tags.shop || tags.office) buyer_type_hint = "Da Verificare";
-  } else if (search_mode === "resellers") {
+  if (search_mode === "resellers") {
     if (isFoodConsumer) buyer_type_hint = "Cliente Finale";
     else if (/(ingrosso|grossist|cash and carry|distribut|horeca)/.test(haystack) || tags.shop === "wholesale")
       buyer_type_hint = "Fornitore";
@@ -434,4 +310,3 @@ export function scoreAndNormalize(
     buyer_type_hint,
   };
 }
-
