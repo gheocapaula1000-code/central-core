@@ -1081,11 +1081,24 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
       },
       apify: apifyOut?.ok ? { website: apifyOut.website, phone: apifyOut.phone, email: apifyOut.email, address: apifyOut.address } : null,
       perplexity: pxPhone || pxEmail || pxWebsite ? { website: pxWebsite, phone: pxPhone, email: pxEmail } : null,
-      product: searchMode === "resellers"
-        ? "Coprimacchia TNT 100x100 cm — cerco RIVENDITORI/FORNITORI (ingrossi horeca, cash and carry, negozi casalinghi, party store, packaging alimentare) che possano aggiungere il prodotto al loro catalogo a prezzo competitivo"
-        : "Coprimacchia TNT (tovagliette monouso TNT per ristorazione)",
+      product: productNameMeta
+        ? (searchMode === "suppliers"
+            ? `${productNameMeta} — cerco FORNITORI (produttori, importatori, grossisti horeca, distributori carta/monouso, packaging alimentare) da cui ACQUISTARE per rivendere`
+            : searchMode === "resellers"
+            ? `${productNameMeta} — cerco RIVENDITORI (ingrossi horeca, cash and carry, negozi casalinghi, party store, packaging alimentare) che possano aggiungere il prodotto al loro catalogo`
+            : `${productNameMeta} — cerco CLIENTI FINALI Horeca`)
+        : (searchMode === "suppliers"
+            ? "Tovagliato monouso TNT/airlaid — cerco FORNITORI (produttori, importatori, grossisti horeca, distributori carta/monouso)"
+            : searchMode === "resellers"
+            ? "Coprimacchia TNT 100x100 cm — cerco RIVENDITORI/FORNITORI (ingrossi horeca, cash and carry, negozi casalinghi, party store, packaging alimentare)"
+            : "Coprimacchia TNT (tovagliette monouso TNT per ristorazione)"),
+      product_key: productKeyMeta,
+      search_mode: searchMode,
     };
-    consolidated = await openaiConsolidate(payload, searchMode);
+    const productPhraseForOpenAI = productNameMeta
+      ? `${productNameMeta} (prodotto Horeca per ristorazione/eventi).`
+      : "Coprimacchia TNT Colorati 100x100 cm (tovagliette monouso in tessuto non tessuto per coperti ristorazione, sagre, eventi, mense, agriturismi).";
+    consolidated = await openaiConsolidate(payload, searchMode, productPhraseForOpenAI);
     cost += COST.openaiCall; ctx.spend(COST.openaiCall);
     if (!consolidated) warnings.push("openai_consolidation_failed");
   }
