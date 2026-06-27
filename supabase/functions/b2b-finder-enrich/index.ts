@@ -98,22 +98,15 @@ interface EnrichmentResult {
   phone_pretty: string | null;
   phone_discovery: PhoneDiscovery;
   // v0.7 search_mode resellers
-  search_mode: "clients" | "resellers" | "suppliers";
+  search_mode: "clients" | "resellers";
   reseller_fit_score: number | null;
   reseller_fit_reason: string | null;
   resale_use_case: string | null;
   suggested_offer_angle: string | null;
   price_advantage_angle: string | null;
-  buyer_type: "Cliente Finale" | "Rivenditore" | "Fornitore" | "Produttore" | "Importatore" | "Distributore" | "Da Verificare";
-  // v0.8 suppliers
-  supplier_fit_score: number | null;
-  supplier_fit_reason: string | null;
-  supplier_type: "Produttore" | "Grossista" | "Importatore" | "Distributore" | "Da Verificare" | null;
-  likely_product_range: string | null;
-  sourcing_angle: string | null;
-  minimum_order_hint: string | null;
-  supplier_contact_priority: "Alta" | "Media" | "Bassa" | null;
+  buyer_type: "Cliente Finale" | "Rivenditore" | "Fornitore" | "Da Verificare";
 }
+
 
 interface PhoneDiscovery {
   found: boolean;
@@ -615,20 +608,15 @@ interface OpenAIConsolidated {
   resale_use_case?: string | null;
   suggested_offer_angle?: string | null;
   price_advantage_angle?: string | null;
-  buyer_type?: "Cliente Finale" | "Rivenditore" | "Fornitore" | "Produttore" | "Importatore" | "Distributore" | "Da Verificare" | null;
-  // v0.8 suppliers
-  supplier_fit_score?: number | null;
-  supplier_fit_reason?: string | null;
-  supplier_type?: "Produttore" | "Grossista" | "Importatore" | "Distributore" | "Da Verificare" | null;
-  likely_product_range?: string | null;
-  sourcing_angle?: string | null;
-  minimum_order_hint?: string | null;
-  supplier_contact_priority?: "Alta" | "Media" | "Bassa" | null;
+  buyer_type?: "Cliente Finale" | "Rivenditore" | "Fornitore" | "Da Verificare" | null;
 }
+
 
 async function openaiConsolidate(
   payload: Record<string, unknown>,
-  searchMode: "clients" | "resellers" | "suppliers" = "clients",
+  searchMode: "clients" | "resellers" = "clients",
+  productPhrase: string = "Coprimacchia TNT Colorati 100x100 cm (tovagliette monouso in tessuto non tessuto per coperti ristorazione, sagre, eventi, mense, agriturismi).",
+
   productPhrase: string = "Coprimacchia TNT Colorati 100x100 cm (tovagliette monouso in tessuto non tessuto per coperti ristorazione, sagre, eventi, mense, agriturismi).",
 ): Promise<OpenAIConsolidated | null> {
   if (isOpen("openai")) return null;
