@@ -402,7 +402,7 @@ export function scoreAndNormalize(
     else if (/(distribut|logistic)/.test(haystack) || tags.office === "logistics")
       buyer_type_hint = "Distributore";
     else if (/(ingrosso|grossist|cash and carry|horeca|forniture)/.test(haystack) || tags.shop === "wholesale" || tags.office === "wholesale")
-      buyer_type_hint = "Grossista";
+      buyer_type_hint = "Distributore";
     else if (tags.shop || tags.office) buyer_type_hint = "Da Verificare";
   } else if (search_mode === "resellers") {
     if (isFoodConsumer) buyer_type_hint = "Cliente Finale";
