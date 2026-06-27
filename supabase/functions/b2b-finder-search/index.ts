@@ -6,7 +6,7 @@ import { corsHeaders, handlePreflight, pickOrigin } from "../_shared/b2b/cors.ts
 import { authorizeB2BFinder } from "../_shared/b2b/auth.ts";
 import { queryOverpass } from "../_shared/b2b/overpass.ts";
 import { scoreAndNormalize, type NormalizedCompany } from "../_shared/b2b/normalize.ts";
-import { resolveSearchScope, isPoiInScope, PD_COMUNI, PD_COMUNI_KEYS, bboxCenter, haversineKm, normalizeComune, SUPPLIER_SCOPE_BBOX, SUPPLIER_SCOPE_LABEL, resolveSupplierScope, type SupplierScope } from "../_shared/b2b/geo.ts";
+import { resolveSearchScope, isPoiInScope, PD_COMUNI, PD_COMUNI_KEYS, bboxCenter, haversineKm, normalizeComune } from "../_shared/b2b/geo.ts";
 import { detectProductKey, getProductProfile } from "../_shared/b2b/products.ts";
 
 
@@ -25,17 +25,18 @@ interface SearchInput {
   limit?: number;
   search_depth?: "quick" | "deep";
   dry_run?: boolean;
-  /** Solo per search_mode="suppliers": "province" | "region" | "italy". Default "region". */
-  supplier_scope?: string;
 }
 
-function resolveSearchMode(input: SearchInput): "clients" | "resellers" | "suppliers" {
+type SearchMode = "clients" | "resellers";
+
+function resolveSearchMode(input: SearchInput): SearchMode | "suppliers_rejected" {
   const raw = String(input.search_mode ?? input.intent ?? "").toLowerCase().trim();
   if (!raw) return "clients";
   if (raw === "resellers" || raw === "cerco_rivenditori" || raw === "rivenditori") return "resellers";
-  if (raw === "suppliers" || raw === "cerco_fornitori" || raw === "fornitori" || raw === "produttori" || raw === "cerco_produttori") return "suppliers";
+  if (raw === "suppliers" || raw === "cerco_fornitori" || raw === "fornitori" || raw === "produttori" || raw === "cerco_produttori") return "suppliers_rejected";
   return "clients";
 }
+
 
 const SAVE_MAX_LIMIT = 50;
 
@@ -64,7 +65,7 @@ function jsonResponse(
       ...corsHeaders(req),
       "Content-Type": "application/json",
       "X-Function": "b2b-finder-search",
-      "X-Contract": "b2b-finder/v0.8",
+      "X-Contract": "b2b-finder/v0.7",
     },
   });
 }
@@ -86,7 +87,7 @@ async function sha256Hex(input: string): Promise<string> {
     .join("");
 }
 
-async function computeIdentityHash(c: NormalizedCompany, scopeKey: string, searchMode: "clients" | "resellers" | "suppliers", productKey: string): Promise<string> {
+async function computeIdentityHash(c: NormalizedCompany, scopeKey: string, searchMode: SearchMode, productKey: string): Promise<string> {
   const name = normalizeForHash(c.name);
   const addr = normalizeForHash(c.address);
   const comune = normalizeForHash(c.city);
