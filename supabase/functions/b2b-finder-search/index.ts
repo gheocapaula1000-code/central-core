@@ -474,6 +474,8 @@ Deno.serve(async (req: Request) => {
               buyer_type_hint: r.buyer_type_hint,
               product_key: productKey,
               product_name: input.product ?? null,
+              supplier_scope: supplierScope,
+              supplier_region: supplierScope ? (supplierScope === "italy" ? "Italia" : "Veneto") : null,
             },
           };
           const { data: newRow, error: insErr } = await supabase!
