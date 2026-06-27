@@ -97,6 +97,14 @@ interface EnrichmentResult {
   phone_href: string | null;
   phone_pretty: string | null;
   phone_discovery: PhoneDiscovery;
+  // v0.7 search_mode resellers
+  search_mode: "clients" | "resellers";
+  reseller_fit_score: number | null;
+  reseller_fit_reason: string | null;
+  resale_use_case: string | null;
+  suggested_offer_angle: string | null;
+  price_advantage_angle: string | null;
+  buyer_type: "Cliente Finale" | "Rivenditore" | "Fornitore" | "Da Verificare";
 }
 
 interface PhoneDiscovery {
