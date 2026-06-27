@@ -62,7 +62,7 @@ function jsonResponse(
       ...corsHeaders(req),
       "Content-Type": "application/json",
       "X-Function": "b2b-finder-search",
-      "X-Contract": "b2b-finder/v0.2",
+      "X-Contract": "b2b-finder/v0.8",
     },
   });
 }
