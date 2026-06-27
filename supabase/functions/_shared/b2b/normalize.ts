@@ -315,15 +315,19 @@ export function scoreAndNormalize(
   ctx: { city: string; province: string; region: string; search_mode?: SearchMode },
 ): NormalizedCompany | null {
   if (!poi.name) return null;
-  const search_mode: SearchMode = ctx.search_mode === "resellers" ? "resellers" : "clients";
+  const sm = ctx.search_mode;
+  const search_mode: SearchMode = sm === "suppliers" || sm === "resellers" ? sm : "clients";
 
   const tags = poi.tags;
   const cat = String(poi.category);
   const haystack =
-    `${poi.name} ${tags.cuisine ?? ""} ${tags.description ?? ""} ${tags.amenity ?? ""} ${tags.shop ?? ""} ${tags.office ?? ""} ${tags.craft ?? ""}`
+    `${poi.name} ${tags.cuisine ?? ""} ${tags.description ?? ""} ${tags.amenity ?? ""} ${tags.shop ?? ""} ${tags.office ?? ""} ${tags.craft ?? ""} ${tags.industrial ?? ""} ${tags.man_made ?? ""}`
       .toLowerCase();
 
-  const KW = search_mode === "resellers" ? STRONG_KEYWORDS_RESELLERS : STRONG_KEYWORDS_CLIENTS;
+  const KW =
+    search_mode === "suppliers" ? STRONG_KEYWORDS_SUPPLIERS :
+    search_mode === "resellers" ? STRONG_KEYWORDS_RESELLERS :
+    STRONG_KEYWORDS_CLIENTS;
   const matched = new Map<string, number>();
   for (const r of KW) {
     if (haystack.includes(r.kw)) {
@@ -334,12 +338,15 @@ export function scoreAndNormalize(
   const strongLabels = [...matched.keys()];
   let kwBonus = 0;
   for (const w of matched.values()) kwBonus += w;
-  if (kwBonus > 40) kwBonus = 40;
+  if (kwBonus > 45) kwBonus = 45;
 
   let baseLabel: string;
   let baseScore: number;
   let isFoodConsumer = false;
-  if (search_mode === "resellers") {
+  if (search_mode === "suppliers") {
+    const b = baseScoreSuppliers(cat, tags, haystack);
+    baseScore = b.score; baseLabel = b.label; isFoodConsumer = b.isFoodConsumer;
+  } else if (search_mode === "resellers") {
     const b = baseScoreResellers(cat, tags, haystack);
     baseScore = b.score; baseLabel = b.label; isFoodConsumer = b.isFoodConsumer;
   } else {
@@ -364,8 +371,8 @@ export function scoreAndNormalize(
   const hasContact = !!phone || websiteOk;
 
   let priority: "high" | "medium" | "low";
-  if (search_mode === "resellers" && isFoodConsumer) {
-    priority = "low"; // never promote pure consumers in reseller mode
+  if ((search_mode === "resellers" || search_mode === "suppliers") && isFoodConsumer) {
+    priority = "low";
   } else if (score >= 82 && hasStrong && hasContact) {
     priority = "high";
   } else if (score >= 60) {
@@ -378,13 +385,26 @@ export function scoreAndNormalize(
     priority = "low";
   }
 
-  const fit_reason = search_mode === "resellers"
-    ? buildFitReasonResellers({ catLabel: baseLabel, strongLabels, phone: !!phone, website: websiteOk, priority, isFoodConsumer })
-    : buildFitReasonClients({ catLabel: baseLabel, strongLabels, phone: !!phone, website: websiteOk, priority });
+  const fit_reason =
+    search_mode === "suppliers"
+      ? buildFitReasonSuppliers({ catLabel: baseLabel, strongLabels, phone: !!phone, website: websiteOk, priority, isFoodConsumer })
+      : search_mode === "resellers"
+        ? buildFitReasonResellers({ catLabel: baseLabel, strongLabels, phone: !!phone, website: websiteOk, priority, isFoodConsumer })
+        : buildFitReasonClients({ catLabel: baseLabel, strongLabels, phone: !!phone, website: websiteOk, priority });
 
   // Buyer-type hint (cheap heuristic, GPT may refine later)
   let buyer_type_hint: NormalizedCompany["buyer_type_hint"] = "Da Verificare";
-  if (search_mode === "resellers") {
+  if (search_mode === "suppliers") {
+    if (isFoodConsumer) buyer_type_hint = "Cliente Finale";
+    else if (/(produttor|manifattur|fabbric|produzione|stabilimento)/.test(haystack) || tags.industrial === "paper" || tags.industrial === "packaging" || tags.industrial === "manufacturing")
+      buyer_type_hint = "Produttore";
+    else if (/(importator|import)/.test(haystack)) buyer_type_hint = "Importatore";
+    else if (/(distribut|logistic)/.test(haystack) || tags.office === "logistics")
+      buyer_type_hint = "Distributore";
+    else if (/(ingrosso|grossist|cash and carry|horeca|forniture)/.test(haystack) || tags.shop === "wholesale" || tags.office === "wholesale")
+      buyer_type_hint = "Grossista";
+    else if (tags.shop || tags.office) buyer_type_hint = "Da Verificare";
+  } else if (search_mode === "resellers") {
     if (isFoodConsumer) buyer_type_hint = "Cliente Finale";
     else if (/(ingrosso|grossist|cash and carry|distribut|horeca)/.test(haystack) || tags.shop === "wholesale")
       buyer_type_hint = "Fornitore";
@@ -414,3 +434,4 @@ export function scoreAndNormalize(
     buyer_type_hint,
   };
 }
+
