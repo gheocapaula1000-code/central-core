@@ -55,7 +55,7 @@ function jsonResponse(req: Request, status: number, body: ReturnType<typeof enve
       ...corsHeaders(req),
       "Content-Type": "application/json",
       "X-Function": "b2b-finder-results",
-      "X-Contract": "b2b-finder/v0.2",
+      "X-Contract": "b2b-finder/v0.6",
     },
   });
 }
