@@ -257,11 +257,11 @@ Deno.serve(async (req: Request) => {
 
     // ── Overpass ──────────────────────────────────────────────────────────
     console.log(
-      `[b2b-finder-search] scope debug_id=${debug_id} comune=${scope.comune} bbox=${JSON.stringify(scope.bbox)} geocode="${scope.geocode_query}"`,
+      `[b2b-finder-search] scope debug_id=${debug_id} comune=${scope.comune} bbox=${JSON.stringify(scope.bbox)} search_mode=${searchMode} geocode="${scope.geocode_query}"`,
     );
     let pois;
     try {
-      pois = await queryOverpass(scope.bbox, 25000);
+      pois = await queryOverpass(scope.bbox, 25000, searchMode);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "overpass error";
       console.error(`[b2b-finder-search] overpass failed debug_id=${debug_id} err=${msg}`);
@@ -279,7 +279,7 @@ Deno.serve(async (req: Request) => {
     let normalized: NormalizedCompany[];
     try {
       normalized = inScope
-        .map((p) => scoreAndNormalize(p, { city, province, region }))
+        .map((p) => scoreAndNormalize(p, { city, province, region, search_mode: searchMode }))
         .filter((x): x is NormalizedCompany => !!x)
         // Defensive: forziamo il comune al canonical scope.comune per evitare
         // mislabel da addr:city OSM con varianti grafiche.
