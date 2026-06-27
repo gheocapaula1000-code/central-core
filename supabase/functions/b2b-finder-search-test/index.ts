@@ -57,8 +57,12 @@ async function callSearch(city: string, limit = 50) {
   };
 }
 
-Deno.serve(async () => {
-  const cities = ["Padova", "Vigonza", "Albignasego", "Rubano", "Ponte San Nicolò"];
+Deno.serve(async (req) => {
+  const url = new URL(req.url);
+  const single = url.searchParams.get("city");
+  const cities = single
+    ? [single]
+    : ["Padova", "Vigonza", "Albignasego", "Rubano", "Ponte San Nicolò"];
   const out: any[] = [];
   for (const c of cities) {
     try {
@@ -67,18 +71,8 @@ Deno.serve(async () => {
       out.push({ city: c, error: e instanceof Error ? e.message : String(e) });
     }
   }
-  // Overlap check: are Vigonza/Albignasego returning identical first names as Padova?
-  const byCity = Object.fromEntries(out.map((r) => [r.city, new Set((r.first_10 ?? []).map((x: any) => x.name))]));
-  const padovaSet: Set<string> = byCity["Padova"] ?? new Set();
-  const overlap = (k: string) => {
-    const s: Set<string> = byCity[k] ?? new Set();
-    let n = 0;
-    for (const x of s) if (padovaSet.has(x)) n++;
-    return { city: k, top10_overlap_with_padova: n, top10_total: s.size };
-  };
-  return new Response(JSON.stringify({
-    ok: true,
-    tests: out,
-    overlap_check: ["Vigonza", "Albignasego", "Rubano", "Ponte San Nicolò"].map(overlap),
-  }, null, 2), { headers: { "Content-Type": "application/json" } });
+  return new Response(JSON.stringify({ ok: true, tests: out }, null, 2), {
+    headers: { "Content-Type": "application/json" },
+  });
 });
+
