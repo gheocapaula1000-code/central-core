@@ -239,6 +239,77 @@ function buildFitReasonResellers(args: {
   return `${catLabel}: possibile rivenditore da verificare, ${contactsTxt}.`;
 }
 
+function baseScoreSuppliers(
+  cat: string,
+  tags: Record<string, string>,
+  haystack: string,
+): { score: number; label: string; isFoodConsumer: boolean } {
+  const isFoodConsumer =
+    /(restaurant|bar|cafe|fast_food|pub|food_court|pizzeria|ice_cream)/.test(cat) ||
+    /(ristorante|trattoria|pizzeria|gelateria)/.test(haystack);
+  if (isFoodConsumer && !/ingrosso|grossist|forniture|distribut|cash|produttor|import|airlaid|tnt|tovagli|portaposate/.test(haystack)) {
+    return { score: 12, label: `attività di consumo (${cat})`, isFoodConsumer: true };
+  }
+
+  const shop = tags.shop ?? "";
+  const office = tags.office ?? "";
+  const industrial = tags.industrial ?? "";
+  const craft = tags.craft ?? "";
+  const manMade = tags.man_made ?? "";
+
+  // Industrial / production wins (probabili produttori reali)
+  if (industrial === "paper")          return { score: 85, label: "produzione carta/airlaid", isFoodConsumer: false };
+  if (industrial === "packaging")      return { score: 82, label: "produzione packaging", isFoodConsumer: false };
+  if (industrial === "manufacturing")  return { score: 75, label: "manifattura", isFoodConsumer: false };
+  if (industrial === "factory")        return { score: 70, label: "stabilimento produttivo", isFoodConsumer: false };
+  if (industrial === "warehouse")      return { score: 60, label: "magazzino/logistica", isFoodConsumer: false };
+  if (industrial)                      return { score: 55, label: `industriale ${industrial}`, isFoodConsumer: false };
+  if (manMade === "works")             return { score: 65, label: "impianto produttivo", isFoodConsumer: false };
+
+  // Distribuzione / ingrosso
+  if (shop === "wholesale")            return { score: 80, label: "ingrosso (wholesale)", isFoodConsumer: false };
+  if (shop === "trade")                return { score: 65, label: "rivendita trade", isFoodConsumer: false };
+  if (office === "wholesale")          return { score: 75, label: "ufficio ingrosso", isFoodConsumer: false };
+  if (office === "logistics")          return { score: 60, label: "logistica/distribuzione", isFoodConsumer: false };
+  if (office === "company")            return { score: 50, label: "azienda (office)", isFoodConsumer: false };
+  if (office)                          return { score: 42, label: `office ${office}`, isFoodConsumer: false };
+  if (craft)                           return { score: 45, label: `artigianato ${craft}`, isFoodConsumer: false };
+  if (shop)                            return { score: 38, label: `negozio ${shop}`, isFoodConsumer: false };
+  return { score: 28, label: `categoria ${cat}`, isFoodConsumer: false };
+}
+
+function buildFitReasonSuppliers(args: {
+  catLabel: string; strongLabels: string[]; phone: boolean; website: boolean;
+  priority: "high" | "medium" | "low"; isFoodConsumer: boolean;
+}): string {
+  const { catLabel, strongLabels, phone, website, priority, isFoodConsumer } = args;
+  const contacts: string[] = [];
+  if (phone) contacts.push("telefono");
+  if (website) contacts.push("sito");
+  const contactsTxt = contacts.length
+    ? `${contacts.join(" e ")} ${contacts.length > 1 ? "presenti" : "presente"}`
+    : "contatti limitati";
+
+  if (isFoodConsumer) {
+    return `Attività di consumo (${catLabel}): non è un fornitore; ${contactsTxt}.`;
+  }
+  if (priority === "high") {
+    if (strongLabels.some((l) => /(airlaid|tnt|tovagliato|portaposate|monouso|tissue)/.test(l)))
+      return `Possibile produttore/fornitore di tovagliato monouso (${strongLabels.join(", ")}); ${contactsTxt}.`;
+    if (strongLabels.some((l) => /(produttore|manifattura|fabbrica|produzione|stabilimento)/.test(l)))
+      return `Realtà produttiva coerente (${strongLabels.join(", ")}); ${contactsTxt}.`;
+    if (strongLabels.some((l) => /(ingrosso|grossista|distribuzione|horeca|cash and carry|forniture|importatore)/.test(l)))
+      return `Canale ingrosso/distribuzione (${strongLabels.join(", ")}); ${contactsTxt}.`;
+    return `${catLabel} con segnali forti (${strongLabels.join(", ")}); ${contactsTxt}.`;
+  }
+  if (priority === "medium") {
+    if (strongLabels.length) return `${catLabel} con segnali (${strongLabels.join(", ")}) compatibili con un fornitore; ${contactsTxt}.`;
+    return `${catLabel} potenzialmente compatibile come fornitore; ${contactsTxt}.`;
+  }
+  return `${catLabel}: possibile fornitore da verificare, ${contactsTxt}.`;
+}
+
+
 export function scoreAndNormalize(
   poi: OverpassPoi,
   ctx: { city: string; province: string; region: string; search_mode?: SearchMode },
