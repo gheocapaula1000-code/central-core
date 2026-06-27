@@ -216,10 +216,11 @@ Deno.serve(async (req: Request) => {
         auth: { persistSession: false, autoRefreshToken: false },
       });
 
+      const productProfile = getProductProfile(input.product);
       const jobInsert = {
-        vertical: "coprimacchia_tnt",
+        vertical: productProfile.vertical,
         mode: "buyers",
-        product: input.product ?? "Coprimacchia TNT Colorati",
+        product: input.product ?? productProfile.product_name,
         zone: { region, province, city, area_text: input.area_text ?? null },
         filters: {
           target_description: input.target_description ?? null,
