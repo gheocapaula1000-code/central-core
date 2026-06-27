@@ -1195,6 +1195,10 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     missing_data,
     verification_checks,
     public_sources_used,
+    // v0.6 phone discovery
+    phone_href: phoneDiscovery.phone_href,
+    phone_pretty: phoneDiscovery.phone,
+    phone_discovery: phoneDiscovery,
   };
   return { result, providers: uniq(providers), cost };
 }
