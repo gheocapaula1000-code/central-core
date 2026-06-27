@@ -147,9 +147,6 @@ Deno.serve(async (req: Request) => {
     const isSave = input.dry_run === false;
 
     const province = (input.province ?? "PD").toUpperCase();
-    if (province !== "PD") {
-      return jsonResponse(req, 400, envelope(false, null, "v1 supports only province='PD'", debug_id));
-    }
     const cityInputRaw = (input.city ?? "Padova").toString().trim();
     const cityKey = cityInputRaw
       .toLowerCase()
@@ -158,25 +155,45 @@ Deno.serve(async (req: Request) => {
       .replace(/['`]/g, "")
       .replace(/\s+/g, " ")
       .trim();
-    if (!PD_COMUNI[cityKey]) {
-      return jsonResponse(
-        req,
-        400,
-        envelope(
-          false,
-          null,
-          `Comune non supportato in v1. Supportati: ${PD_COMUNI_KEYS.map((k) => PD_COMUNI[k].label).join(", ")}`,
-          debug_id,
-        ),
-      );
+
+    // Suppliers: scope geografico esteso (province / region / italy).
+    // Default = region (Veneto) quando l'utente sceglie un comune PD.
+    let supplierScope: SupplierScope | null = null;
+    if (searchMode === "suppliers") {
+      supplierScope = resolveSupplierScope(input.supplier_scope, "region");
+    } else {
+      // clients/resellers invariati: vincolati a province=PD e comuni PD noti
+      if (province !== "PD") {
+        return jsonResponse(req, 400, envelope(false, null, "v1 supports only province='PD'", debug_id));
+      }
+      if (!PD_COMUNI[cityKey]) {
+        return jsonResponse(
+          req,
+          400,
+          envelope(
+            false,
+            null,
+            `Comune non supportato in v1. Supportati: ${PD_COMUNI_KEYS.map((k) => PD_COMUNI[k].label).join(", ")}`,
+            debug_id,
+          ),
+        );
+      }
     }
     const region = input.region ?? "Veneto";
-    const scope = resolveSearchScope({
+    const baseScope = resolveSearchScope({
       city: cityInputRaw,
       province,
       region,
       zone: input.area_text ?? null,
     });
+    const scope = supplierScope
+      ? {
+          ...baseScope,
+          geographic_scope: supplierScope as "quarter" | "city" | "province",
+          bbox: SUPPLIER_SCOPE_BBOX[supplierScope],
+          geocode_query: `${SUPPLIER_SCOPE_LABEL[supplierScope]}, Italia`,
+        }
+      : baseScope;
     const city = scope.comune;
 
 
