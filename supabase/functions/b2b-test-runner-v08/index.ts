@@ -13,7 +13,7 @@ async function callFn(name: string, body: unknown) {
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${ANON}`,
-      "x-b2b-finder-secret": SECRET,
+      "x-internal-secret": SECRET,
     },
     body: JSON.stringify(body),
   });
