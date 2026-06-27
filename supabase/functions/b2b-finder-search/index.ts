@@ -246,6 +246,8 @@ Deno.serve(async (req: Request) => {
           sector: input.sector ?? null,
           search_depth: input.search_depth ?? "quick",
           search_mode: searchMode,
+          supplier_scope: supplierScope,
+          supplier_region: supplierScope ? (supplierScope === "italy" ? "Italia" : "Veneto") : null,
           limit_requested: requested,
           applied_limit: applied,
         },
