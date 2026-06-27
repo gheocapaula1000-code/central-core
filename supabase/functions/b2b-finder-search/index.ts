@@ -268,6 +268,13 @@ Deno.serve(async (req: Request) => {
       normalized = inScope
         .map((p) => scoreAndNormalize(p, { city, province, region }))
         .filter((x): x is NormalizedCompany => !!x)
+        // Defensive: forziamo il comune al canonical scope.comune per evitare
+        // mislabel da addr:city OSM con varianti grafiche.
+        .map((x) =>
+          normalizeComune(x.city) === normalizeComune(scope.comune)
+            ? { ...x, city: scope.comune }
+            : x
+        )
         .sort((a, b) => b.score - a.score);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "normalize error";
@@ -285,6 +292,43 @@ Deno.serve(async (req: Request) => {
       `[b2b-finder-search] overpass ok debug_id=${debug_id} raw=${rawCount} out_of_zone=${filteredOutOfZone} normalized=${total}`,
     );
 
+    // ── Diagnostica geografica per item ─────────────────────────────────
+    const requestedCity = cityInputRaw;
+    const resolvedScopeKey = cityKey; // chiave canonica normalizzata
+    const center = bboxCenter(scope.bbox);
+    const decorate = <T extends NormalizedCompany>(r: T) => {
+      const resultCity = r.city ?? scope.comune;
+      const sameComune =
+        normalizeComune(resultCity) === normalizeComune(scope.comune);
+      const inBbox =
+        r.lat != null && r.lng != null
+          ? r.lat >= scope.bbox[0] &&
+            r.lat <= scope.bbox[2] &&
+            r.lng >= scope.bbox[1] &&
+            r.lng <= scope.bbox[3]
+          : null;
+      const distance_km =
+        r.lat != null && r.lng != null
+          ? Number(haversineKm(center, { lat: r.lat, lng: r.lng }).toFixed(3))
+          : null;
+      let geo_match_reason = "scope_fallback";
+      if (sameComune && inBbox === true) geo_match_reason = "city_and_bbox_match";
+      else if (sameComune) geo_match_reason = "city_match_no_coords";
+      else if (inBbox === true) geo_match_reason = "bbox_match_only";
+      else if (inBbox === false) geo_match_reason = "out_of_bbox";
+      const in_scope = sameComune && inBbox !== false;
+      return {
+        ...r,
+        requested_city: requestedCity,
+        resolved_scope_key: resolvedScopeKey,
+        result_city: resultCity,
+        in_scope,
+        geo_match_reason,
+        distance_from_scope_center_km: distance_km,
+      };
+    };
+    const decoratedResults = results.map(decorate);
+    const matchedRequested = decoratedResults.filter((r) => r.in_scope).length;
 
     // ── dry-run path: unchanged contract ──────────────────────────────────
     if (!isSave) {
@@ -299,17 +343,19 @@ Deno.serve(async (req: Request) => {
             provider: "overpass",
             city,
             province,
+            requested_city: requestedCity,
+            resolved_scope_key: resolvedScopeKey,
             requested_limit: requested,
             applied_limit: applied,
             total_found: total,
             sample_count: results.length,
             raw_count: rawCount,
             filtered_out_of_zone_count: filteredOutOfZone,
+            in_scope_count: matchedRequested,
             geographic_scope: scope.geographic_scope,
             resolved_quarter: scope.quarter,
             geocode_query: scope.geocode_query,
-            results,
-
+            results: decoratedResults,
           },
           null,
           debug_id,
@@ -317,6 +363,7 @@ Deno.serve(async (req: Request) => {
         ),
       );
     }
+
 
     // ── SAVE path ─────────────────────────────────────────────────────────
     let savedCount = 0;
