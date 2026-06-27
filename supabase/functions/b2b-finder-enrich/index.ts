@@ -1146,17 +1146,16 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   const severeConflict = conflicts.includes("website_domain_mismatch");
 
   // v0.5: stricter but more inclusive readiness — spec: fit>=60, contact>=50, no severe conflict, no strong exclusion signal
-  // v0.7/v0.8 — derive buyer_type & exclusion for resellers/suppliers mode
-  type BuyerType = "Cliente Finale" | "Rivenditore" | "Fornitore" | "Produttore" | "Importatore" | "Distributore" | "Da Verificare";
+  // v0.7 — derive buyer_type & exclusion for resellers mode
+  type BuyerType = "Cliente Finale" | "Rivenditore" | "Fornitore" | "Da Verificare";
   const buyer_type: BuyerType =
     (consolidated?.buyer_type as BuyerType | null | undefined) ?? "Da Verificare";
 
   let extraExclusion: string | null = null;
   if (searchMode === "resellers" && buyer_type === "Cliente Finale") {
     extraExclusion = "Attività utilizzatrice (non rivenditore): non in target per ricerca rivenditori";
-  } else if (searchMode === "suppliers" && (buyer_type === "Cliente Finale" || buyer_type === "Rivenditore")) {
-    extraExclusion = "Attività non in target come fornitore: non produce/importa/distribuisce il prodotto";
   }
+
   const exclusion_reason = (consolidated?.exclusion_reason && consolidated.exclusion_reason.trim())
     ? consolidated!.exclusion_reason!.trim()
     : extraExclusion;
