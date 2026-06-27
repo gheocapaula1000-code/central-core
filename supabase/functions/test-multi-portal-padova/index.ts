@@ -402,14 +402,68 @@ function normalizeCasa(it: Record<string, any>): NormItem {
     url: it.url ?? null, publishedAt: parsePubDate(it),
   };
 }
+/** Deep lat/lng extractor: scansiona oggetti annidati e, in ultima istanza, applica
+ *  regex su un JSON blob. Restituisce coordinate solo se cadono nel bounding box
+ *  Padova/cintura (45.25-45.55 / 11.6-12.1) per evitare falsi positivi. */
+function deepExtractLatLng(raw: unknown): { lat: number | null; lng: number | null } {
+  const inBox = (la: number, lo: number) => la > 45.25 && la < 45.55 && lo > 11.6 && lo < 12.1;
+  // 1) Walk shallow nested objects
+  const stack: unknown[] = [raw];
+  let depth = 0;
+  while (stack.length && depth < 200) {
+    depth++;
+    const cur = stack.pop();
+    if (!cur || typeof cur !== "object") continue;
+    const o = cur as Record<string, any>;
+    const laRaw = o.lat ?? o.latitude ?? o.Latitude ?? o.LAT;
+    const loRaw = o.lng ?? o.lon ?? o.longitude ?? o.Longitude ?? o.LON ?? o.LNG;
+    const la = Number(laRaw), lo = Number(loRaw);
+    if (Number.isFinite(la) && Number.isFinite(lo) && inBox(la, lo)) {
+      return { lat: la, lng: lo };
+    }
+    for (const k of Object.keys(o)) {
+      const v = o[k];
+      if (v && typeof v === "object") stack.push(v);
+    }
+  }
+  // 2) Regex fallback on serialized JSON
+  try {
+    const blob = JSON.stringify(raw);
+    const patterns = [
+      /"lat(?:itude)?"\s*:\s*"?(-?\d{2}\.\d{3,})"?[\s\S]{0,200}?"l(?:o?n|ng)g?(?:itude)?"\s*:\s*"?(-?\d{1,2}\.\d{3,})"?/i,
+      /"l(?:o?n|ng)g?(?:itude)?"\s*:\s*"?(-?\d{1,2}\.\d{3,})"?[\s\S]{0,200}?"lat(?:itude)?"\s*:\s*"?(-?\d{2}\.\d{3,})"?/i,
+    ];
+    for (let i = 0; i < patterns.length; i++) {
+      const m = blob.match(patterns[i]);
+      if (!m) continue;
+      const la = Number(i === 0 ? m[1] : m[2]);
+      const lo = Number(i === 0 ? m[2] : m[1]);
+      if (Number.isFinite(la) && Number.isFinite(lo) && inBox(la, lo)) {
+        return { lat: la, lng: lo };
+      }
+    }
+  } catch { /* ignore */ }
+  return { lat: null, lng: null };
+}
+
 function normalizeRaw(portal: Portal, it: Record<string, unknown>): NormItem {
   const r = it as Record<string, any>;
+  let n: NormItem;
   switch (portal) {
-    case "immobiliare": return normalizeImmobiliare(r);
-    case "idealista":   return normalizeIdealista(r);
-    case "subito":      return normalizeSubito(r);
-    case "casa":        return normalizeCasa(r);
+    case "immobiliare": n = normalizeImmobiliare(r); break;
+    case "idealista":   n = normalizeIdealista(r); break;
+    case "subito":      n = normalizeSubito(r); break;
+    case "casa":        n = normalizeCasa(r); break;
   }
+  // Fallback recupero coordinate dai raw data (Apify/Firecrawl) prima del salvataggio.
+  if (n.lat == null || n.lng == null) {
+    const deep = deepExtractLatLng(r);
+    if (deep.lat != null && deep.lng != null) {
+      n.lat = deep.lat;
+      n.lng = deep.lng;
+    }
+  }
+  return n;
 }
 
 // ───── Apify low-level ─────
@@ -756,10 +810,11 @@ async function orchestrate(
       if (seen.has(k)) continue; seen.add(k); allRaw.push(it);
     }
 
-    // Geocoding for items without lat/lng.
+    // Geocoding for items without lat/lng — Google (se disponibile) con fallback Nominatim.
     const gKey = Deno.env.get("GOOGLE_MAPS_API_KEY") ?? "";
-    const geocodeAddr = async (addr: string): Promise<{ lat: number; lng: number } | null> => {
-      if (!gKey || !addr || addr.length < 5) return null;
+    const inBox = (la: number, lo: number) => la > 45.25 && la < 45.55 && lo > 11.6 && lo < 12.1;
+    const geocodeGoogle = async (addr: string): Promise<{ lat: number; lng: number } | null> => {
+      if (!gKey) return null;
       try {
         const q = `${addr}, Padova, Italia`;
         const u = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(q)}&region=it&key=${gKey}`;
@@ -768,12 +823,33 @@ async function orchestrate(
         if (!r.ok) return null;
         const j = await r.json();
         const loc = j?.results?.[0]?.geometry?.location;
-        if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng) &&
-            loc.lat > 45.25 && loc.lat < 45.55 && loc.lng > 11.6 && loc.lng < 12.1) {
+        if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng) && inBox(loc.lat, loc.lng)) {
           return { lat: loc.lat, lng: loc.lng };
         }
         return null;
       } catch { return null; }
+    };
+    const geocodeNominatim = async (addr: string): Promise<{ lat: number; lng: number } | null> => {
+      try {
+        const q = `${addr}, Padova, Italia`;
+        const u = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=it&viewbox=11.6,45.55,12.1,45.25&bounded=1&q=${encodeURIComponent(q)}`;
+        const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 8000);
+        const r = await fetch(u, { signal: ctrl.signal, headers: { "User-Agent": "central-core-padova/1.0 (admin@apigatewaycore.com)" } });
+        clearTimeout(t);
+        if (!r.ok) return null;
+        const j = await r.json();
+        const hit = Array.isArray(j) ? j[0] : null;
+        if (!hit) return null;
+        const la = Number(hit.lat), lo = Number(hit.lon);
+        if (Number.isFinite(la) && Number.isFinite(lo) && inBox(la, lo)) return { lat: la, lng: lo };
+        return null;
+      } catch { return null; }
+    };
+    const geocodeAddr = async (addr: string): Promise<{ lat: number; lng: number } | null> => {
+      if (!addr || addr.length < 5) return null;
+      const g = await geocodeGoogle(addr);
+      if (g) return g;
+      return await geocodeNominatim(addr);
     };
     const needGeo = allRaw.filter((i) => (i.lat == null || i.lng == null) && !!i.address);
     const senzaGeoPre = needGeo.length;

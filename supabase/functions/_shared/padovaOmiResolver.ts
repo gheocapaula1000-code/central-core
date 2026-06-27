@@ -15,6 +15,37 @@ export type PadovaOmiResolution = {
   omi_zone_reason: string;
 };
 
+/** Salvage code: il record NON ha né PIP né alias forte ma ha un hint (fascia/CAP/quartiere).
+ *  Non lo scartiamo silenziosamente — la PWA lo mostra in coda con badge "da verificare". */
+export const UNRESOLVED_OMI_CODE = "UNRESOLVED_ZONE";
+export const UNRESOLVED_OMI_LABEL = "Zona da verificare";
+
+// CAP → fascia OMI ufficiale Padova (best-effort, non sostituisce il PIP).
+// I CAP 351xx coprono il Comune di Padova; sono mappati alla zona OMI prevalente.
+const CAP_TO_OMI_HINT: Record<string, string> = {
+  "35121": "B1", // Centro storico
+  "35122": "B2", // Carmine/Savonarola/Santo
+  "35123": "B2",
+  "35124": "C5", // Madonna Pellegrina/S.Rita
+  "35125": "D2", // Sud/Voltabarozzo
+  "35126": "C6", // Palestro/Sacra Famiglia
+  "35127": "E1", // Stanga/San Lazzaro
+  "35128": "C3", // Arcella/Borgomagno
+  "35129": "C2", // Stazione/Scrovegni
+  "35131": "C2",
+  "35132": "C3",
+  "35133": "C3",
+  "35134": "D3", // Mortise/Torre
+  "35135": "D1", // Chiesanuova/Brusegana
+  "35136": "D1",
+  "35137": "B1",
+  "35138": "C1", // Portello
+  "35139": "B1",
+  "35141": "D2",
+  "35142": "D2",
+  "35143": "D1",
+};
+
 const CODE_TO_LABEL = new Map(PADOVA_OMI_ZONES.map((z) => [z.code, z.descrizione]));
 
 function labelFor(code: string | null): string | null {
@@ -69,6 +100,60 @@ function resolveByAlias(text: string): { code: string | null; reason: string } {
   return { code: null, reason: "no_alias_match" };
 }
 
+/** Estrae il CAP da un record (campi diretti o testo libero). */
+function extractCap(record: Record<string, unknown>): string | null {
+  const direct = [readNested(record, "cap"), readNested(record, "zip"), readNested(record, "postal_code")];
+  for (const v of direct) {
+    if (typeof v === "string" || typeof v === "number") {
+      const s = String(v).replace(/\D/g, "");
+      if (s.length === 5 && s.startsWith("351")) return s;
+    }
+  }
+  const text = extractAliasText(record);
+  const m = text.match(/\b(351\d{2})\b/);
+  return m ? m[1] : null;
+}
+
+/** Restituisce un hint di fascia OMI (B/C/D/E/R) se troviamo qualcosa di non valido ma riconducibile. */
+function fasciaHint(record: Record<string, unknown>): string | null {
+  const raw = [readNested(record, "omi_zone_code"), readNested(record, "microzona"), readNested(record, "codice_omi"), readNested(record, "zona")]
+    .filter((v) => typeof v === "string")
+    .map((v) => String(v).trim().toUpperCase());
+  for (const v of raw) {
+    if (/^[BCDER]$/.test(v)) return v;
+    if (/^[BCDER][0-9A-Z]*$/.test(v)) return v[0];
+  }
+  return null;
+}
+
+/**
+ * Salvage finale: se non riusciamo a determinare un codice ufficiale ma il record
+ * ha CAP padovano o un hint di fascia, ritorniamo UNRESOLVED_ZONE invece di null
+ * così la PWA può mostrarlo (con badge "da verificare") anziché scartarlo a monte.
+ */
+function salvageResolution(record: Record<string, unknown>, baseReason: string): PadovaOmiResolution {
+  const cap = extractCap(record);
+  if (cap && CAP_TO_OMI_HINT[cap]) {
+    const code = CAP_TO_OMI_HINT[cap];
+    return {
+      omi_zone_code: code,
+      omi_zone_label: labelFor(code),
+      omi_zone_confidence: 0.4,
+      omi_zone_reason: `cap_hint_${cap}`,
+    };
+  }
+  const fh = fasciaHint(record);
+  if (cap || fh) {
+    return {
+      omi_zone_code: UNRESOLVED_OMI_CODE,
+      omi_zone_label: UNRESOLVED_OMI_LABEL,
+      omi_zone_confidence: 0.15,
+      omi_zone_reason: `salvage_${fh ? "fascia_" + fh : "cap_only"}`,
+    };
+  }
+  return { omi_zone_code: null, omi_zone_label: null, omi_zone_confidence: 0, omi_zone_reason: baseReason };
+}
+
 /** Sync resolver: uses only pre-computed codes + alias text. No DB. */
 export function resolvePadovaOmiSync(record: Record<string, unknown>): PadovaOmiResolution {
   const codeCandidates: unknown[] = [
@@ -91,7 +176,7 @@ export function resolvePadovaOmiSync(record: Record<string, unknown>): PadovaOmi
   if (aliasRes.code) {
     return { omi_zone_code: aliasRes.code, omi_zone_label: labelFor(aliasRes.code), omi_zone_confidence: 0.7, omi_zone_reason: aliasRes.reason };
   }
-  return { omi_zone_code: null, omi_zone_label: null, omi_zone_confidence: 0, omi_zone_reason: aliasRes.reason };
+  return salvageResolution(record, aliasRes.reason);
 }
 
 type LatLng = { lat: number | null; lng: number | null };
@@ -156,12 +241,12 @@ export async function resolvePadovaOmiBatch(
 
   // Alias fallback for any still unresolved
   for (let i = 0; i < records.length; i++) {
-    if (out[i] && out[i].omi_zone_code) continue;
+    if (out[i] && out[i].omi_zone_code && out[i].omi_zone_code !== UNRESOLVED_OMI_CODE) continue;
     const aliasRes = resolveByAlias(extractAliasText(records[i]));
     if (aliasRes.code) {
       out[i] = { omi_zone_code: aliasRes.code, omi_zone_label: labelFor(aliasRes.code), omi_zone_confidence: 0.7, omi_zone_reason: aliasRes.reason };
-    } else if (!out[i] || out[i].omi_zone_reason === "pending_pip") {
-      out[i] = { omi_zone_code: null, omi_zone_label: null, omi_zone_confidence: 0, omi_zone_reason: aliasRes.reason || "missing_location" };
+    } else {
+      out[i] = salvageResolution(records[i], (out[i]?.omi_zone_reason) || aliasRes.reason || "missing_location");
     }
   }
   return out;
