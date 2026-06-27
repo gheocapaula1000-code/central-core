@@ -190,7 +190,9 @@ export async function queryOverpass(
           // Category preference per mode: shop>amenity>office>craft for resellers,
           // amenity>shop for clients.
           let cat = "unknown";
-          if (searchMode === "resellers") {
+          if (searchMode === "suppliers") {
+            cat = tags.industrial ?? tags.shop ?? tags.office ?? tags.craft ?? tags.man_made ?? tags.landuse ?? tags.amenity ?? "unknown";
+          } else if (searchMode === "resellers") {
             cat = tags.shop ?? tags.office ?? tags.craft ?? tags.industrial ?? tags.amenity ?? "unknown";
           } else {
             cat = tags.amenity ?? tags.shop ?? "unknown";
