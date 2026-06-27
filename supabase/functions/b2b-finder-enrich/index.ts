@@ -649,15 +649,7 @@ async function openaiConsolidate(
         resale_use_case: { type: ["string", "null"] },
         suggested_offer_angle: { type: ["string", "null"] },
         price_advantage_angle: { type: ["string", "null"] },
-        buyer_type: { type: ["string", "null"], enum: ["Cliente Finale", "Rivenditore", "Fornitore", "Produttore", "Importatore", "Distributore", "Da Verificare", null] },
-        // v0.8 suppliers
-        supplier_fit_score: { type: ["number", "null"] },
-        supplier_fit_reason: { type: ["string", "null"] },
-        supplier_type: { type: ["string", "null"], enum: ["Produttore", "Grossista", "Importatore", "Distributore", "Da Verificare", null] },
-        likely_product_range: { type: ["string", "null"] },
-        sourcing_angle: { type: ["string", "null"] },
-        minimum_order_hint: { type: ["string", "null"] },
-        supplier_contact_priority: { type: ["string", "null"], enum: ["Alta", "Media", "Bassa", null] },
+        buyer_type: { type: ["string", "null"], enum: ["Cliente Finale", "Rivenditore", "Fornitore", "Da Verificare", null] },
       },
       required: [
         "official_website","phone","email","address","refined_category","estimated_business_size",
@@ -666,10 +658,9 @@ async function openaiConsolidate(
         "decision_maker_hint","call_opener","whatsapp_or_email_message","verification_checks",
         "reseller_fit_score","reseller_fit_reason","resale_use_case",
         "suggested_offer_angle","price_advantage_angle","buyer_type",
-        "supplier_fit_score","supplier_fit_reason","supplier_type",
-        "likely_product_range","sourcing_angle","minimum_order_hint","supplier_contact_priority",
       ],
     };
+
 
     const baseRules =
       "Sei un consolidatore dati B2B per agenti commerciali italiani. " +
