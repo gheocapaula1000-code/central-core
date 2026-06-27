@@ -93,6 +93,22 @@ interface EnrichmentResult {
   missing_data: string[];
   verification_checks: string[];
   public_sources_used: string[];
+  // v0.6 phone discovery
+  phone_href: string | null;
+  phone_pretty: string | null;
+  phone_discovery: PhoneDiscovery;
+}
+
+interface PhoneDiscovery {
+  found: boolean;
+  phone: string | null;          // pretty: "+39 049 1234567"
+  phone_e164: string | null;     // "+390491234567"
+  phone_href: string | null;     // "tel:+390491234567"
+  source: "existing" | "osm" | "official_site" | "contact_page" | "schema_org" | "public_search" | "directory" | null;
+  confidence: number;            // 0-100
+  checked_sources: string[];
+  candidates: string[];          // all unique E.164 candidates collected
+  notes: string | null;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
