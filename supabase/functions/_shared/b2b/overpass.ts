@@ -107,6 +107,39 @@ function buildResellerQuery(bbox: [number, number, number, number]): string {
   return `[out:json][timeout:25];\n(\n${shopParts}\n${namedParts}\n);\nout center tags;`;
 }
 
+function buildSupplierQuery(bbox: [number, number, number, number]): string {
+  const [s, w, n, e] = bbox;
+  const shopParts = SUPPLIER_SHOPS.map(
+    (c) =>
+      `  node["shop"="${c}"](${s},${w},${n},${e});\n  way["shop"="${c}"](${s},${w},${n},${e});\n  relation["shop"="${c}"](${s},${w},${n},${e});`,
+  ).join("\n");
+  const industrialParts = SUPPLIER_INDUSTRIAL.map(
+    (c) =>
+      `  node["industrial"="${c}"](${s},${w},${n},${e});\n  way["industrial"="${c}"](${s},${w},${n},${e});\n  relation["industrial"="${c}"](${s},${w},${n},${e});`,
+  ).join("\n");
+  const officeParts = SUPPLIER_OFFICES.map(
+    (c) =>
+      `  node["office"="${c}"](${s},${w},${n},${e});\n  way["office"="${c}"](${s},${w},${n},${e});`,
+  ).join("\n");
+  // Catch-all by name regex su qualunque attività con shop/office/industrial/craft.
+  const re = SUPPLIER_NAME_REGEX;
+  const namedParts = [
+    `  node["name"~"${re}",i]["shop"](${s},${w},${n},${e});`,
+    `  way["name"~"${re}",i]["shop"](${s},${w},${n},${e});`,
+    `  node["name"~"${re}",i]["office"](${s},${w},${n},${e});`,
+    `  way["name"~"${re}",i]["office"](${s},${w},${n},${e});`,
+    `  node["name"~"${re}",i]["craft"](${s},${w},${n},${e});`,
+    `  way["name"~"${re}",i]["craft"](${s},${w},${n},${e});`,
+    `  node["name"~"${re}",i]["industrial"](${s},${w},${n},${e});`,
+    `  way["name"~"${re}",i]["industrial"](${s},${w},${n},${e});`,
+    `  node["name"~"${re}",i]["man_made"="works"](${s},${w},${n},${e});`,
+    `  way["name"~"${re}",i]["man_made"="works"](${s},${w},${n},${e});`,
+    `  node["name"~"${re}",i]["landuse"="industrial"](${s},${w},${n},${e});`,
+    `  way["name"~"${re}",i]["landuse"="industrial"](${s},${w},${n},${e});`,
+  ].join("\n");
+  return `[out:json][timeout:25];\n(\n${shopParts}\n${industrialParts}\n${officeParts}\n${namedParts}\n);\nout center tags;`;
+}
+
 async function fetchWithTimeout(
   url: string,
   body: string,
