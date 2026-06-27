@@ -30,9 +30,10 @@ Deno.serve(async (req) => {
   const supabase = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
   if (op === "kick") {
-    const out: any[] = [];
-    for (const city of cities) {
-      for (const sm of modes) {
+    const combos: Array<{city: string; sm: typeof modes[number]}> = [];
+    for (const city of cities) for (const sm of modes) combos.push({ city, sm });
+    const out = await Promise.all(combos.map(async ({ city, sm }) => {
+      try {
         const search = await callFn("b2b-finder-search", {
           product, city, province: "PD", region: "Veneto",
           search_mode: sm, dry_run: false, limit: 25,
@@ -42,16 +43,19 @@ Deno.serve(async (req) => {
         if (job_id) {
           enrich = await callFn("b2b-finder-enrich", { job_id, mode: "smart", max_companies: 15 });
         }
-        out.push({
+        return {
           city, mode: sm,
           search_status: search.status,
           search_total: (search.body as any)?.total ?? (search.body as any)?.data?.total ?? null,
+          search_err: (search.body as any)?.error ?? null,
           job_id,
           enrich_status: enrich?.status ?? null,
           enrichment_job_id: (enrich?.body as any)?.enrichment_job_id ?? (enrich?.body as any)?.data?.enrichment_job_id ?? null,
-        });
+        };
+      } catch (e) {
+        return { city, mode: sm, error: String(e) };
       }
-    }
+    }));
     return new Response(JSON.stringify({ ok: true, kicked: out }, null, 2), { headers: { "Content-Type": "application/json" } });
   }
 
