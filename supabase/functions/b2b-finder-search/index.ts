@@ -6,7 +6,7 @@ import { corsHeaders, handlePreflight, pickOrigin } from "../_shared/b2b/cors.ts
 import { authorizeB2BFinder } from "../_shared/b2b/auth.ts";
 import { queryOverpass } from "../_shared/b2b/overpass.ts";
 import { scoreAndNormalize, type NormalizedCompany } from "../_shared/b2b/normalize.ts";
-import { resolveSearchScope, isPoiInScope, PD_COMUNI, PD_COMUNI_KEYS } from "../_shared/b2b/geo.ts";
+import { resolveSearchScope, isPoiInScope, PD_COMUNI, PD_COMUNI_KEYS, bboxCenter, haversineKm, normalizeComune } from "../_shared/b2b/geo.ts";
 
 
 interface SearchInput {
@@ -72,18 +72,19 @@ async function sha256Hex(input: string): Promise<string> {
     .join("");
 }
 
-async function computeIdentityHash(c: NormalizedCompany): Promise<string> {
+async function computeIdentityHash(c: NormalizedCompany, scopeKey: string): Promise<string> {
   const name = normalizeForHash(c.name);
   const addr = normalizeForHash(c.address);
   const comune = normalizeForHash(c.city);
   const prov = normalizeForHash(c.province);
+  const scope = normalizeForHash(scopeKey);
   let key: string;
   if (addr.length >= 4) {
-    key = `v1|${name}|${addr}|${comune}|${prov}`;
+    key = `v2|${name}|${addr}|${comune}|${prov}|scope:${scope}`;
   } else {
     const lat = c.lat != null ? c.lat.toFixed(4) : "na";
     const lng = c.lng != null ? c.lng.toFixed(4) : "na";
-    key = `v1|${name}|geo:${lat},${lng}|${prov}`;
+    key = `v2|${name}|geo:${lat},${lng}|${comune}|${prov}|scope:${scope}`;
   }
   return await sha256Hex(key);
 }
@@ -267,6 +268,13 @@ Deno.serve(async (req: Request) => {
       normalized = inScope
         .map((p) => scoreAndNormalize(p, { city, province, region }))
         .filter((x): x is NormalizedCompany => !!x)
+        // Defensive: forziamo il comune al canonical scope.comune per evitare
+        // mislabel da addr:city OSM con varianti grafiche.
+        .map((x) =>
+          normalizeComune(x.city) === normalizeComune(scope.comune)
+            ? { ...x, city: scope.comune }
+            : x
+        )
         .sort((a, b) => b.score - a.score);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "normalize error";
@@ -284,6 +292,43 @@ Deno.serve(async (req: Request) => {
       `[b2b-finder-search] overpass ok debug_id=${debug_id} raw=${rawCount} out_of_zone=${filteredOutOfZone} normalized=${total}`,
     );
 
+    // ── Diagnostica geografica per item ─────────────────────────────────
+    const requestedCity = cityInputRaw;
+    const resolvedScopeKey = cityKey; // chiave canonica normalizzata
+    const center = bboxCenter(scope.bbox);
+    const decorate = <T extends NormalizedCompany>(r: T) => {
+      const resultCity = r.city ?? scope.comune;
+      const sameComune =
+        normalizeComune(resultCity) === normalizeComune(scope.comune);
+      const inBbox =
+        r.lat != null && r.lng != null
+          ? r.lat >= scope.bbox[0] &&
+            r.lat <= scope.bbox[2] &&
+            r.lng >= scope.bbox[1] &&
+            r.lng <= scope.bbox[3]
+          : null;
+      const distance_km =
+        r.lat != null && r.lng != null
+          ? Number(haversineKm(center, { lat: r.lat, lng: r.lng }).toFixed(3))
+          : null;
+      let geo_match_reason = "scope_fallback";
+      if (sameComune && inBbox === true) geo_match_reason = "city_and_bbox_match";
+      else if (sameComune) geo_match_reason = "city_match_no_coords";
+      else if (inBbox === true) geo_match_reason = "bbox_match_only";
+      else if (inBbox === false) geo_match_reason = "out_of_bbox";
+      const in_scope = sameComune && inBbox !== false;
+      return {
+        ...r,
+        requested_city: requestedCity,
+        resolved_scope_key: resolvedScopeKey,
+        result_city: resultCity,
+        in_scope,
+        geo_match_reason,
+        distance_from_scope_center_km: distance_km,
+      };
+    };
+    const decoratedResults = results.map(decorate);
+    const matchedRequested = decoratedResults.filter((r) => r.in_scope).length;
 
     // ── dry-run path: unchanged contract ──────────────────────────────────
     if (!isSave) {
@@ -298,17 +343,19 @@ Deno.serve(async (req: Request) => {
             provider: "overpass",
             city,
             province,
+            requested_city: requestedCity,
+            resolved_scope_key: resolvedScopeKey,
             requested_limit: requested,
             applied_limit: applied,
             total_found: total,
             sample_count: results.length,
             raw_count: rawCount,
             filtered_out_of_zone_count: filteredOutOfZone,
+            in_scope_count: matchedRequested,
             geographic_scope: scope.geographic_scope,
             resolved_quarter: scope.quarter,
             geocode_query: scope.geocode_query,
-            results,
-
+            results: decoratedResults,
           },
           null,
           debug_id,
@@ -317,6 +364,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+
     // ── SAVE path ─────────────────────────────────────────────────────────
     let savedCount = 0;
     let high = 0, medium = 0, low = 0;
@@ -324,7 +372,7 @@ Deno.serve(async (req: Request) => {
 
     try {
       for (const r of results) {
-        const identity_hash = await computeIdentityHash(r);
+        const identity_hash = await computeIdentityHash(r, resolvedScopeKey);
         const confidence = Math.max(0, Math.min(1, r.score / 100));
 
         // Try to find existing
@@ -476,12 +524,15 @@ Deno.serve(async (req: Request) => {
             job_id: jobId,
             city,
             province,
+            requested_city: requestedCity,
+            resolved_scope_key: resolvedScopeKey,
             requested_limit: requested,
             applied_limit: applied,
             total_found: total,
             sample_count: results.length,
             saved_count: savedCount,
-            results: savedResults,
+            in_scope_count: matchedRequested,
+            results: savedResults.map((r) => ({ ...decorate(r), company_id: r.company_id })),
           },
           null,
           debug_id,
