@@ -677,13 +677,12 @@ async function openaiConsolidate(
       "7) product_use_case: come potrebbero USARE il prodotto (es. 'Apparecchiatura veloce con busta portaposate + tovagliolo airlaid già pronta'). " +
       "8) buyer_type: in questa modalità è quasi sempre 'Cliente Finale'. " +
       "9) reseller_fit_score, reseller_fit_reason, resale_use_case, suggested_offer_angle, price_advantage_angle: METTI NULL. " +
-      "10) supplier_fit_score, supplier_fit_reason, supplier_type, likely_product_range, sourcing_angle, minimum_order_hint, supplier_contact_priority: METTI NULL. " +
-      "11) decision_maker_hint: chi decide l'acquisto (es. 'Titolare', 'Responsabile sala'). " +
-      "12) call_opener: max 180 caratteri, mai pressing. " +
-      "13) whatsapp_or_email_message: max 350 caratteri, professionale, non spam. " +
-      "14) verification_checks: 2-4 verifiche pratiche pre-contatto (es. 'Confermare numero coperti medi'). " +
-      "15) next_best_action: azione breve (es. 'Chiamata al titolare in mattinata'). Per escluse: 'Non contattare' o simili. " +
-      "16) Se mensa istituzionale o appalto pubblico: escludi con exclusion_reason chiaro e buyer_fit_score molto basso.";
+      "10) decision_maker_hint: chi decide l'acquisto (es. 'Titolare', 'Responsabile sala'). " +
+      "11) call_opener: max 180 caratteri, mai pressing. " +
+      "12) whatsapp_or_email_message: max 350 caratteri, professionale, non spam. " +
+      "13) verification_checks: 2-4 verifiche pratiche pre-contatto (es. 'Confermare numero coperti medi'). " +
+      "14) next_best_action: azione breve (es. 'Chiamata al titolare in mattinata'). Per escluse: 'Non contattare' o simili. " +
+      "15) Se mensa istituzionale o appalto pubblico: escludi con exclusion_reason chiaro e buyer_fit_score molto basso.";
 
     const resellersRules =
       "MODALITÀ: cerco RIVENDITORI (chi RIVENDE il prodotto al proprio catalogo). " +
@@ -697,38 +696,15 @@ async function openaiConsolidate(
       "11) buyer_fit_score: USA lo STESSO valore di reseller_fit_score. " +
       "12) buyer_fit_reason: usa lo stesso contenuto di reseller_fit_reason. " +
       "13) product_use_case: se buyer_type è 'Cliente Finale' descrivi l'uso; altrimenti METTI NULL. " +
-      "14) supplier_fit_score, supplier_fit_reason, supplier_type, likely_product_range, sourcing_angle, minimum_order_hint, supplier_contact_priority: METTI NULL. " +
-      "15) decision_maker_hint: chi decide (es. 'Titolare', 'Responsabile acquisti'). " +
-      "16) call_opener: max 180 caratteri, FORNITURA/COLLABORAZIONE COMMERCIALE. " +
-      "17) whatsapp_or_email_message: max 350 caratteri, proposta di collaborazione/invio listino. " +
-      "18) verification_checks: 2-4 punti. " +
-      "19) next_best_action: breve. Per escluse: 'Non contattare come rivenditore'. " +
-      "20) exclusion_reason: SE è ristorante/bar/pizzeria puro o non ha canale rivendita → ESCLUDI.";
+      "14) decision_maker_hint: chi decide (es. 'Titolare', 'Responsabile acquisti'). " +
+      "15) call_opener: max 180 caratteri, FORNITURA/COLLABORAZIONE COMMERCIALE. " +
+      "16) whatsapp_or_email_message: max 350 caratteri, proposta di collaborazione/invio listino. " +
+      "17) verification_checks: 2-4 punti. " +
+      "18) next_best_action: breve. Per escluse: 'Non contattare come rivenditore'. " +
+      "19) exclusion_reason: SE è ristorante/bar/pizzeria puro o non ha canale rivendita → ESCLUDI.";
 
-    const suppliersRules =
-      "MODALITÀ: cerco FORNITORI (chi PRODUCE/IMPORTA/DISTRIBUISCE il prodotto, da cui ACQUISTARE per rivendere). " +
-      "5) supplier_fit_score 0-100: alto solo se l'attività può davvero RIFORNIRE il prodotto: produttori di tovagliato monouso / TNT / airlaid / portaposate, importatori, grossisti horeca, cash and carry, distributori carta e monouso, aziende packaging alimentare, fornitori articoli ristorazione. " +
-      "   Basso o nullo per: ristoranti, bar, pizzerie, locali che USANO il prodotto, negozi al dettaglio puri senza canale b2b, attività senza catalogo plausibile. " +
-      "6) supplier_fit_reason: 1-2 frasi concrete sul perché può FORNIRE il prodotto. Vietate frasi generiche. " +
-      "7) supplier_type: 'Produttore' se produce direttamente; 'Importatore' se importa; 'Grossista' per ingrossi/cash and carry/forniture horeca; 'Distributore' per distributori e logistica b2b; 'Da Verificare' se non chiaro. SE è cliente finale o ristorante puro: NON impostare supplier_type, ESCLUDI con exclusion_reason. " +
-      "8) likely_product_range: 1 riga sul probabile assortimento utile (es. 'Tovagliato monouso airlaid, tovaglioli, coprimacchia TNT, packaging alimentare'). Se non desumibile: null. " +
-      "9) sourcing_angle: angolo di approvvigionamento (es. 'Richiesta listino b2b con MOQ e tempi di consegna'). " +
-      "10) minimum_order_hint: indicazione prudente sul possibile MOQ se desumibile (es. 'Probabile MOQ a pallet/scatola'). Altrimenti null. " +
-      "11) supplier_contact_priority: 'Alta' per produttori/importatori specializzati; 'Media' per grossisti/distributori generici horeca; 'Bassa' per realtà poco coerenti. " +
-      "12) buyer_type: usa il MEDESIMO valore di supplier_type (es. 'Produttore' → buyer_type='Produttore'). " +
-      "13) buyer_fit_score: USA lo STESSO valore di supplier_fit_score. " +
-      "14) buyer_fit_reason: usa lo stesso contenuto di supplier_fit_reason. " +
-      "15) product_use_case: METTI NULL (qui si compra, non si usa). " +
-      "16) reseller_fit_score, reseller_fit_reason, resale_use_case, suggested_offer_angle, price_advantage_angle: METTI NULL. " +
-      "17) decision_maker_hint: chi gestisce le forniture (es. 'Ufficio commerciale', 'Responsabile vendite b2b'). " +
-      "18) call_opener: max 180 caratteri, RICHIESTA INFORMAZIONI/LISTINO. " +
-      "19) whatsapp_or_email_message: max 350 caratteri, richiesta listino b2b/condizioni rivendita, professionale. " +
-      "20) verification_checks: 2-4 punti (es. 'Verificare se hanno airlaid a catalogo', 'Chiedere MOQ e tempi di consegna'). " +
-      "21) next_best_action: breve (es. 'Email all\\'ufficio commerciale per richiedere listino b2b'). Per escluse: 'Non contattare come fornitore'. " +
-      "22) exclusion_reason: SE è cliente finale, ristorante puro o non ha canale b2b → ESCLUDI con motivo concreto.";
+    const modeRules = searchMode === "resellers" ? resellersRules : clientsRules;
 
-    const modeRules =
-      searchMode === "suppliers" ? suppliersRules :
       searchMode === "resellers" ? resellersRules :
       clientsRules;
     const systemContent = baseRules + modeRules;
