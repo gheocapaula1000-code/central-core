@@ -176,7 +176,35 @@ function normalizeItalianPhone(raw: string): string | null {
   else if (n.startsWith("39") && n.length >= 11) { /* keep */ }
   else if (/^[03]/.test(n)) n = "39" + n;
   if (n.length < 10 || n.length > 13) return null;
+  // Reject obvious junk patterns (all same digit, sequential)
+  const bare = n.replace(/^39/, "");
+  if (/^(\d)\1+$/.test(bare)) return null;
+  if (bare.length < 8) return null;
   return "+" + n;
+}
+
+function prettyItalianPhone(e164: string): string {
+  // Input expected like "+390491234567" or "+393331234567"
+  if (!e164.startsWith("+39")) return e164;
+  const rest = e164.slice(3);
+  // Mobile: starts with 3, 10 digits => "+39 333 123 4567"
+  if (/^3\d{8,9}$/.test(rest)) {
+    return `+39 ${rest.slice(0, 3)} ${rest.slice(3, 6)} ${rest.slice(6)}`;
+  }
+  // Landline: starts with 0
+  if (rest.startsWith("0")) {
+    // Common area codes: 2 (Milano), 6 (Roma) → 2 digits; others mostly 3 digits.
+    const twoDigit = /^0[26]/.test(rest);
+    const acLen = twoDigit ? 2 : 3;
+    const ac = rest.slice(0, acLen);
+    const num = rest.slice(acLen);
+    return `+39 ${ac} ${num}`;
+  }
+  return `+39 ${rest}`;
+}
+
+function phoneHref(e164: string): string {
+  return "tel:" + e164.replace(/[^\d+]/g, "");
 }
 
 const BAD_EMAIL_RE = /(noreply|no-reply|donotreply|wordpress|sentry|example\.|@2x|\.png$|\.jpg$|\.webp$|\.svg$|@sentry|wixpress|@cdn)/i;
