@@ -36,7 +36,7 @@ Deno.serve(async (req) => {
     for (const sm of modes) {
       // 1) save (dry_run=false)
       const search = await callFn("b2b-finder-search", {
-        product, city, province: "Padova", region: "Veneto",
+        product, city, province: "PD", region: "Veneto",
         search_mode: sm, dry_run: false, limit: 25,
       });
       const job_id = (search.body as any)?.job_id ?? null;
