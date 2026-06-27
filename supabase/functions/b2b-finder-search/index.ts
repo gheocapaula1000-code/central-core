@@ -26,10 +26,11 @@ interface SearchInput {
   dry_run?: boolean;
 }
 
-function resolveSearchMode(input: SearchInput): "clients" | "resellers" {
+function resolveSearchMode(input: SearchInput): "clients" | "resellers" | "suppliers" {
   const raw = String(input.search_mode ?? input.intent ?? "").toLowerCase().trim();
   if (!raw) return "clients";
   if (raw === "resellers" || raw === "cerco_rivenditori" || raw === "rivenditori") return "resellers";
+  if (raw === "suppliers" || raw === "cerco_fornitori" || raw === "fornitori" || raw === "produttori" || raw === "cerco_produttori") return "suppliers";
   return "clients";
 }
 
