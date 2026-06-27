@@ -15,6 +15,37 @@ export type PadovaOmiResolution = {
   omi_zone_reason: string;
 };
 
+/** Salvage code: il record NON ha né PIP né alias forte ma ha un hint (fascia/CAP/quartiere).
+ *  Non lo scartiamo silenziosamente — la PWA lo mostra in coda con badge "da verificare". */
+export const UNRESOLVED_OMI_CODE = "UNRESOLVED_ZONE";
+export const UNRESOLVED_OMI_LABEL = "Zona da verificare";
+
+// CAP → fascia OMI ufficiale Padova (best-effort, non sostituisce il PIP).
+// I CAP 351xx coprono il Comune di Padova; sono mappati alla zona OMI prevalente.
+const CAP_TO_OMI_HINT: Record<string, string> = {
+  "35121": "B1", // Centro storico
+  "35122": "B2", // Carmine/Savonarola/Santo
+  "35123": "B2",
+  "35124": "C5", // Madonna Pellegrina/S.Rita
+  "35125": "D2", // Sud/Voltabarozzo
+  "35126": "C6", // Palestro/Sacra Famiglia
+  "35127": "E1", // Stanga/San Lazzaro
+  "35128": "C3", // Arcella/Borgomagno
+  "35129": "C2", // Stazione/Scrovegni
+  "35131": "C2",
+  "35132": "C3",
+  "35133": "C3",
+  "35134": "D3", // Mortise/Torre
+  "35135": "D1", // Chiesanuova/Brusegana
+  "35136": "D1",
+  "35137": "B1",
+  "35138": "C1", // Portello
+  "35139": "B1",
+  "35141": "D2",
+  "35142": "D2",
+  "35143": "D1",
+};
+
 const CODE_TO_LABEL = new Map(PADOVA_OMI_ZONES.map((z) => [z.code, z.descrizione]));
 
 function labelFor(code: string | null): string | null {
