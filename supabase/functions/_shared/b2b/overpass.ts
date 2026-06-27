@@ -48,8 +48,24 @@ const RESELLER_NAME_REGEX =
   "distribut|monouso|packaging|casaling|articoli per ristorant|" +
   "articoli per bar|articoli per pizzer|catering|tovagliato|biancheria";
 
+// ── Suppliers (produttori / importatori / grossisti / distributori) ────────
+// Tag OSM tipici: industrial=*, office=company, craft=*, shop=wholesale, man_made=works
+const SUPPLIER_SHOPS = ["wholesale", "trade"] as const;
+const SUPPLIER_INDUSTRIAL = ["paper", "packaging", "manufacturing", "factory", "warehouse"] as const;
+const SUPPLIER_OFFICES = ["company", "wholesale", "logistics", "it"] as const;
+
+// Regex molto orientata al mondo carta/tovagliato/monouso/horeca distribuzione.
+const SUPPLIER_NAME_REGEX =
+  "produttor|produzione|manifattur|fabbric|stabilimento|" +
+  "import|importator|importatori|" +
+  "grossist|ingrosso|cash and carry|cash & carry|c&c|" +
+  "distribut|distribuzione|logistic|" +
+  "carta|paper|tissue|airlaid|tnt|tessuto non tessuto|monouso|" +
+  "tovagli|portaposate|packaging|imballagg|" +
+  "horeca|fornitur|forniture";
+
 export type OverpassCategory = (typeof CLIENT_CATEGORIES)[number] | string;
-export type SearchMode = "clients" | "resellers";
+export type SearchMode = "clients" | "resellers" | "suppliers";
 
 export interface OverpassPoi {
   osm_id: string;
@@ -91,6 +107,39 @@ function buildResellerQuery(bbox: [number, number, number, number]): string {
   return `[out:json][timeout:25];\n(\n${shopParts}\n${namedParts}\n);\nout center tags;`;
 }
 
+function buildSupplierQuery(bbox: [number, number, number, number]): string {
+  const [s, w, n, e] = bbox;
+  const shopParts = SUPPLIER_SHOPS.map(
+    (c) =>
+      `  node["shop"="${c}"](${s},${w},${n},${e});\n  way["shop"="${c}"](${s},${w},${n},${e});\n  relation["shop"="${c}"](${s},${w},${n},${e});`,
+  ).join("\n");
+  const industrialParts = SUPPLIER_INDUSTRIAL.map(
+    (c) =>
+      `  node["industrial"="${c}"](${s},${w},${n},${e});\n  way["industrial"="${c}"](${s},${w},${n},${e});\n  relation["industrial"="${c}"](${s},${w},${n},${e});`,
+  ).join("\n");
+  const officeParts = SUPPLIER_OFFICES.map(
+    (c) =>
+      `  node["office"="${c}"](${s},${w},${n},${e});\n  way["office"="${c}"](${s},${w},${n},${e});`,
+  ).join("\n");
+  // Catch-all by name regex su qualunque attività con shop/office/industrial/craft.
+  const re = SUPPLIER_NAME_REGEX;
+  const namedParts = [
+    `  node["name"~"${re}",i]["shop"](${s},${w},${n},${e});`,
+    `  way["name"~"${re}",i]["shop"](${s},${w},${n},${e});`,
+    `  node["name"~"${re}",i]["office"](${s},${w},${n},${e});`,
+    `  way["name"~"${re}",i]["office"](${s},${w},${n},${e});`,
+    `  node["name"~"${re}",i]["craft"](${s},${w},${n},${e});`,
+    `  way["name"~"${re}",i]["craft"](${s},${w},${n},${e});`,
+    `  node["name"~"${re}",i]["industrial"](${s},${w},${n},${e});`,
+    `  way["name"~"${re}",i]["industrial"](${s},${w},${n},${e});`,
+    `  node["name"~"${re}",i]["man_made"="works"](${s},${w},${n},${e});`,
+    `  way["name"~"${re}",i]["man_made"="works"](${s},${w},${n},${e});`,
+    `  node["name"~"${re}",i]["landuse"="industrial"](${s},${w},${n},${e});`,
+    `  way["name"~"${re}",i]["landuse"="industrial"](${s},${w},${n},${e});`,
+  ].join("\n");
+  return `[out:json][timeout:25];\n(\n${shopParts}\n${industrialParts}\n${officeParts}\n${namedParts}\n);\nout center tags;`;
+}
+
 async function fetchWithTimeout(
   url: string,
   body: string,
@@ -115,9 +164,11 @@ export async function queryOverpass(
   timeoutMs = 25000,
   searchMode: SearchMode = "clients",
 ): Promise<OverpassPoi[]> {
-  const q = searchMode === "resellers"
-    ? buildResellerQuery(bbox)
-    : buildClientQuery(bbox);
+  const q = searchMode === "suppliers"
+    ? buildSupplierQuery(bbox)
+    : searchMode === "resellers"
+      ? buildResellerQuery(bbox)
+      : buildClientQuery(bbox);
   let lastErr: unknown = null;
   for (let attempt = 0; attempt < ENDPOINTS.length; attempt++) {
     const url = ENDPOINTS[attempt];
@@ -139,7 +190,9 @@ export async function queryOverpass(
           // Category preference per mode: shop>amenity>office>craft for resellers,
           // amenity>shop for clients.
           let cat = "unknown";
-          if (searchMode === "resellers") {
+          if (searchMode === "suppliers") {
+            cat = tags.industrial ?? tags.shop ?? tags.office ?? tags.craft ?? tags.man_made ?? tags.landuse ?? tags.amenity ?? "unknown";
+          } else if (searchMode === "resellers") {
             cat = tags.shop ?? tags.office ?? tags.craft ?? tags.industrial ?? tags.amenity ?? "unknown";
           } else {
             cat = tags.amenity ?? tags.shop ?? "unknown";

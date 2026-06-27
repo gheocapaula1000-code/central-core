@@ -7,6 +7,7 @@ import { authorizeB2BFinder } from "../_shared/b2b/auth.ts";
 import { queryOverpass } from "../_shared/b2b/overpass.ts";
 import { scoreAndNormalize, type NormalizedCompany } from "../_shared/b2b/normalize.ts";
 import { resolveSearchScope, isPoiInScope, PD_COMUNI, PD_COMUNI_KEYS, bboxCenter, haversineKm, normalizeComune } from "../_shared/b2b/geo.ts";
+import { detectProductKey, getProductProfile } from "../_shared/b2b/products.ts";
 
 
 interface SearchInput {
@@ -26,10 +27,11 @@ interface SearchInput {
   dry_run?: boolean;
 }
 
-function resolveSearchMode(input: SearchInput): "clients" | "resellers" {
+function resolveSearchMode(input: SearchInput): "clients" | "resellers" | "suppliers" {
   const raw = String(input.search_mode ?? input.intent ?? "").toLowerCase().trim();
   if (!raw) return "clients";
   if (raw === "resellers" || raw === "cerco_rivenditori" || raw === "rivenditori") return "resellers";
+  if (raw === "suppliers" || raw === "cerco_fornitori" || raw === "fornitori" || raw === "produttori" || raw === "cerco_produttori") return "suppliers";
   return "clients";
 }
 
@@ -60,7 +62,7 @@ function jsonResponse(
       ...corsHeaders(req),
       "Content-Type": "application/json",
       "X-Function": "b2b-finder-search",
-      "X-Contract": "b2b-finder/v0.2",
+      "X-Contract": "b2b-finder/v0.8",
     },
   });
 }
@@ -82,7 +84,7 @@ async function sha256Hex(input: string): Promise<string> {
     .join("");
 }
 
-async function computeIdentityHash(c: NormalizedCompany, scopeKey: string, searchMode: "clients" | "resellers"): Promise<string> {
+async function computeIdentityHash(c: NormalizedCompany, scopeKey: string, searchMode: "clients" | "resellers" | "suppliers", productKey: string): Promise<string> {
   const name = normalizeForHash(c.name);
   const addr = normalizeForHash(c.address);
   const comune = normalizeForHash(c.city);
@@ -90,11 +92,11 @@ async function computeIdentityHash(c: NormalizedCompany, scopeKey: string, searc
   const scope = normalizeForHash(scopeKey);
   let key: string;
   if (addr.length >= 4) {
-    key = `v3|${name}|${addr}|${comune}|${prov}|scope:${scope}|sm:${searchMode}`;
+    key = `v4|${name}|${addr}|${comune}|${prov}|scope:${scope}|sm:${searchMode}|pk:${productKey}`;
   } else {
     const lat = c.lat != null ? c.lat.toFixed(4) : "na";
     const lng = c.lng != null ? c.lng.toFixed(4) : "na";
-    key = `v3|${name}|geo:${lat},${lng}|${comune}|${prov}|scope:${scope}|sm:${searchMode}`;
+    key = `v4|${name}|geo:${lat},${lng}|${comune}|${prov}|scope:${scope}|sm:${searchMode}|pk:${productKey}`;
   }
   return await sha256Hex(key);
 }
@@ -214,10 +216,11 @@ Deno.serve(async (req: Request) => {
         auth: { persistSession: false, autoRefreshToken: false },
       });
 
+      const productProfile = getProductProfile(input.product);
       const jobInsert = {
-        vertical: "coprimacchia_tnt",
+        vertical: productProfile.vertical,
         mode: "buyers",
-        product: input.product ?? "Coprimacchia TNT Colorati",
+        product: input.product ?? productProfile.product_name,
         zone: { region, province, city, area_text: input.area_text ?? null },
         filters: {
           target_description: input.target_description ?? null,
@@ -385,8 +388,9 @@ Deno.serve(async (req: Request) => {
     const savedResults: Array<NormalizedCompany & { company_id: string }> = [];
 
     try {
+      const productKey = detectProductKey(input.product);
       for (const r of results) {
-        const identity_hash = await computeIdentityHash(r, resolvedScopeKey, searchMode);
+        const identity_hash = await computeIdentityHash(r, resolvedScopeKey, searchMode, productKey);
         const confidence = Math.max(0, Math.min(1, r.score / 100));
 
         // Try to find existing
@@ -426,6 +430,8 @@ Deno.serve(async (req: Request) => {
               osm_category: r.category,
               search_mode: searchMode,
               buyer_type_hint: r.buyer_type_hint,
+              product_key: productKey,
+              product_name: input.product ?? null,
             },
           };
           const { data: newRow, error: insErr } = await supabase!
@@ -439,7 +445,7 @@ Deno.serve(async (req: Request) => {
           companyId = existing.id as string;
           // Only patch contact fields that are currently missing on existing row.
           const existingMeta = ((existing.metadata ?? {}) as Record<string, unknown>);
-          const mergedMeta = { ...existingMeta, search_mode: existingMeta.search_mode ?? searchMode, buyer_type_hint: existingMeta.buyer_type_hint ?? r.buyer_type_hint };
+          const mergedMeta = { ...existingMeta, search_mode: existingMeta.search_mode ?? searchMode, buyer_type_hint: existingMeta.buyer_type_hint ?? r.buyer_type_hint, product_key: existingMeta.product_key ?? productKey, product_name: existingMeta.product_name ?? (input.product ?? null) };
           const prevSourceCount = Number(existing.source_count ?? 0);
           const patch: Record<string, unknown> = {
             last_seen_at: new Date().toISOString(),
