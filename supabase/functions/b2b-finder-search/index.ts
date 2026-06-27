@@ -223,6 +223,7 @@ Deno.serve(async (req: Request) => {
           target_description: input.target_description ?? null,
           sector: input.sector ?? null,
           search_depth: input.search_depth ?? "quick",
+          search_mode: searchMode,
           limit_requested: requested,
           applied_limit: applied,
         },
