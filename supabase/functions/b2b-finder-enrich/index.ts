@@ -1259,6 +1259,14 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     phone_href: phoneDiscovery.phone_href,
     phone_pretty: phoneDiscovery.phone,
     phone_discovery: phoneDiscovery,
+    // v0.7 search_mode resellers
+    search_mode: searchMode,
+    reseller_fit_score: consolidated?.reseller_fit_score ?? (searchMode === "resellers" ? buyer_fit_score : null),
+    reseller_fit_reason: consolidated?.reseller_fit_reason ?? (searchMode === "resellers" ? (consolidated?.buyer_fit_reason ?? null) : null),
+    resale_use_case: consolidated?.resale_use_case ?? null,
+    suggested_offer_angle: consolidated?.suggested_offer_angle ?? null,
+    price_advantage_angle: consolidated?.price_advantage_angle ?? (searchMode === "resellers" ? "Prezzo competitivo, da confermare con listino di confronto" : null),
+    buyer_type,
   };
   return { result, providers: uniq(providers), cost };
 }
