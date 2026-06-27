@@ -350,15 +350,16 @@ Deno.serve(async (req: Request) => {
       else if (inBbox === true) geo_match_reason = "bbox_match_only";
       else if (inBbox === false) geo_match_reason = "out_of_bbox";
       const in_scope = sameComune && inBbox !== false;
-      const base: Record<string, unknown> = {
-        ...r,
+      const base = {
+        ...(r as unknown as Record<string, unknown>),
         requested_city: requestedCity,
         resolved_scope_key: resolvedScopeKey,
         result_city: resultCity,
         in_scope,
         geo_match_reason,
         distance_from_scope_center_km: distance_km,
-      };
+      } as Record<string, unknown>;
+
 
       return base as T & Record<string, unknown>;
     };
