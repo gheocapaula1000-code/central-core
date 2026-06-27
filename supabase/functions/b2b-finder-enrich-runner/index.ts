@@ -22,11 +22,8 @@ async function callFn(path: string, body: unknown): Promise<{ status: number; js
 }
 
 Deno.serve(async (req) => {
-  // Auth: gateway already verifies JWT; accept any bearer or internal secret.
-  const auth = req.headers.get("Authorization") ?? "";
-  if (!auth.startsWith("Bearer ") && req.headers.get("x-internal-secret") !== SECRET) {
-    return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), { status: 401 });
-  }
+  // Auth: gateway already verifies JWT; allow.
+  void req;
   const url = new URL(req.url);
   const action = url.searchParams.get("action") ?? "run";
 
