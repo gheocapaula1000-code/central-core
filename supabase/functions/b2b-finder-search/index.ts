@@ -84,7 +84,7 @@ async function sha256Hex(input: string): Promise<string> {
     .join("");
 }
 
-async function computeIdentityHash(c: NormalizedCompany, scopeKey: string, searchMode: "clients" | "resellers"): Promise<string> {
+async function computeIdentityHash(c: NormalizedCompany, scopeKey: string, searchMode: "clients" | "resellers" | "suppliers", productKey: string): Promise<string> {
   const name = normalizeForHash(c.name);
   const addr = normalizeForHash(c.address);
   const comune = normalizeForHash(c.city);
@@ -92,11 +92,11 @@ async function computeIdentityHash(c: NormalizedCompany, scopeKey: string, searc
   const scope = normalizeForHash(scopeKey);
   let key: string;
   if (addr.length >= 4) {
-    key = `v3|${name}|${addr}|${comune}|${prov}|scope:${scope}|sm:${searchMode}`;
+    key = `v4|${name}|${addr}|${comune}|${prov}|scope:${scope}|sm:${searchMode}|pk:${productKey}`;
   } else {
     const lat = c.lat != null ? c.lat.toFixed(4) : "na";
     const lng = c.lng != null ? c.lng.toFixed(4) : "na";
-    key = `v3|${name}|geo:${lat},${lng}|${comune}|${prov}|scope:${scope}|sm:${searchMode}`;
+    key = `v4|${name}|geo:${lat},${lng}|${comune}|${prov}|scope:${scope}|sm:${searchMode}|pk:${productKey}`;
   }
   return await sha256Hex(key);
 }
