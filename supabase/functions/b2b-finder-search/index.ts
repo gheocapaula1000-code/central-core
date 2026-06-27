@@ -72,18 +72,19 @@ async function sha256Hex(input: string): Promise<string> {
     .join("");
 }
 
-async function computeIdentityHash(c: NormalizedCompany): Promise<string> {
+async function computeIdentityHash(c: NormalizedCompany, scopeKey: string): Promise<string> {
   const name = normalizeForHash(c.name);
   const addr = normalizeForHash(c.address);
   const comune = normalizeForHash(c.city);
   const prov = normalizeForHash(c.province);
+  const scope = normalizeForHash(scopeKey);
   let key: string;
   if (addr.length >= 4) {
-    key = `v1|${name}|${addr}|${comune}|${prov}`;
+    key = `v2|${name}|${addr}|${comune}|${prov}|scope:${scope}`;
   } else {
     const lat = c.lat != null ? c.lat.toFixed(4) : "na";
     const lng = c.lng != null ? c.lng.toFixed(4) : "na";
-    key = `v1|${name}|geo:${lat},${lng}|${prov}`;
+    key = `v2|${name}|geo:${lat},${lng}|${comune}|${prov}|scope:${scope}`;
   }
   return await sha256Hex(key);
 }
