@@ -241,12 +241,12 @@ export async function resolvePadovaOmiBatch(
 
   // Alias fallback for any still unresolved
   for (let i = 0; i < records.length; i++) {
-    if (out[i] && out[i].omi_zone_code) continue;
+    if (out[i] && out[i].omi_zone_code && out[i].omi_zone_code !== UNRESOLVED_OMI_CODE) continue;
     const aliasRes = resolveByAlias(extractAliasText(records[i]));
     if (aliasRes.code) {
       out[i] = { omi_zone_code: aliasRes.code, omi_zone_label: labelFor(aliasRes.code), omi_zone_confidence: 0.7, omi_zone_reason: aliasRes.reason };
-    } else if (!out[i] || out[i].omi_zone_reason === "pending_pip") {
-      out[i] = { omi_zone_code: null, omi_zone_label: null, omi_zone_confidence: 0, omi_zone_reason: aliasRes.reason || "missing_location" };
+    } else {
+      out[i] = salvageResolution(records[i], (out[i]?.omi_zone_reason) || aliasRes.reason || "missing_location");
     }
   }
   return out;
