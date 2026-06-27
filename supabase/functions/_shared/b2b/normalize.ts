@@ -78,6 +78,39 @@ const STRONG_KEYWORDS_RESELLERS: KwRule[] = [
   { kw: "professional", weight: 10, label: "professionale" },
 ];
 
+// ── SUPPLIERS keywords (new) ─────────────────────────────────────────────
+// Cerco fornitori da cui acquistare il prodotto (non clienti).
+const STRONG_KEYWORDS_SUPPLIERS: KwRule[] = [
+  { kw: "produttore", weight: 35, label: "produttore" },
+  { kw: "produttori", weight: 35, label: "produttore" },
+  { kw: "produzione", weight: 28, label: "produzione" },
+  { kw: "manifattur", weight: 30, label: "manifattura" },
+  { kw: "fabbric", weight: 25, label: "fabbrica" },
+  { kw: "stabilimento", weight: 22, label: "stabilimento" },
+  { kw: "importator", weight: 30, label: "importatore" },
+  { kw: "import", weight: 22, label: "import" },
+  { kw: "distribut", weight: 28, label: "distribuzione" },
+  { kw: "grossist", weight: 30, label: "grossista" },
+  { kw: "ingrosso", weight: 30, label: "ingrosso" },
+  { kw: "cash and carry", weight: 28, label: "cash and carry" },
+  { kw: "cash & carry", weight: 28, label: "cash and carry" },
+  { kw: "c&c", weight: 22, label: "cash and carry" },
+  { kw: "horeca", weight: 26, label: "horeca" },
+  { kw: "forniture", weight: 22, label: "forniture" },
+  { kw: "fornitura", weight: 20, label: "forniture" },
+  { kw: "carta", weight: 18, label: "carta" },
+  { kw: "tissue", weight: 22, label: "tissue/airlaid" },
+  { kw: "airlaid", weight: 35, label: "airlaid" },
+  { kw: "tnt", weight: 28, label: "tnt" },
+  { kw: "tessuto non tessuto", weight: 28, label: "tessuto non tessuto" },
+  { kw: "tovagli", weight: 22, label: "tovagliato" },
+  { kw: "portaposate", weight: 35, label: "portaposate" },
+  { kw: "monouso", weight: 28, label: "monouso" },
+  { kw: "packaging", weight: 22, label: "packaging" },
+  { kw: "imballagg", weight: 20, label: "imballaggi" },
+  { kw: "logistic", weight: 12, label: "logistica" },
+];
+
 function pickAddress(tags: Record<string, string>): string | null {
   const street = tags["addr:street"];
   const num = tags["addr:housenumber"];
