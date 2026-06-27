@@ -601,9 +601,16 @@ interface OpenAIConsolidated {
   call_opener: string | null;
   whatsapp_or_email_message: string | null;
   verification_checks: string[] | null;
+  // v0.7 resellers
+  reseller_fit_score?: number | null;
+  reseller_fit_reason?: string | null;
+  resale_use_case?: string | null;
+  suggested_offer_angle?: string | null;
+  price_advantage_angle?: string | null;
+  buyer_type?: "Cliente Finale" | "Rivenditore" | "Fornitore" | "Da Verificare" | null;
 }
 
-async function openaiConsolidate(payload: Record<string, unknown>): Promise<OpenAIConsolidated | null> {
+async function openaiConsolidate(payload: Record<string, unknown>, searchMode: "clients" | "resellers" = "clients"): Promise<OpenAIConsolidated | null> {
   if (isOpen("openai")) return null;
   const key = Deno.env.get("OPENAI_API_KEY"); if (!key) return null;
   try {
