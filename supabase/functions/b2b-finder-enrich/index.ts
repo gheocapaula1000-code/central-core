@@ -978,9 +978,50 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     if (!consolidated) warnings.push("openai_consolidation_failed");
   }
 
-  // Final values: prefer site, then apify, then search, then GPT consolidation as suggestion
+  // ── Phone Discovery summary ─────────────────────────────────────────────────
+  // Pick best phone candidate: prefer site/contact/schema → existing/osm → directory → public_search
+  function pickPhoneCandidate(): { phone: string | null; src: PhoneDiscovery["source"]; confidence: number } {
+    const SOURCE_RANK: Array<[string, PhoneDiscovery["source"], number]> = [
+      ["contact_page", "contact_page", 92],
+      ["schema_org", "schema_org", 95],
+      ["official_site", "official_site", 90],
+      ["existing", "existing", 70],
+      ["osm", "osm", 75],
+      ["directory", "directory", 65],
+      ["public_search", "public_search", 55],
+    ];
+    let best: { phone: string | null; src: PhoneDiscovery["source"]; confidence: number } = { phone: null, src: null, confidence: 0 };
+    for (const [tag, srcLabel, baseConf] of SOURCE_RANK) {
+      for (const [ph, srcSet] of phoneSourceMap.entries()) {
+        if (srcSet.has(tag)) {
+          // Cross-source corroboration boost
+          let conf = baseConf;
+          if (srcSet.size >= 2) conf = Math.min(99, conf + 5);
+          if (conf > best.confidence) best = { phone: ph, src: srcLabel, confidence: conf };
+        }
+      }
+      if (best.phone) return best; // first source class hit wins
+    }
+    return best;
+  }
+  const phonePick = pickPhoneCandidate();
+  const phoneDiscovery: PhoneDiscovery = {
+    found: !!phonePick.phone,
+    phone: phonePick.phone ? prettyItalianPhone(phonePick.phone) : null,
+    phone_e164: phonePick.phone,
+    phone_href: phonePick.phone ? phoneHref(phonePick.phone) : null,
+    source: phonePick.src,
+    confidence: phonePick.confidence,
+    checked_sources: Array.from(phoneCheckedSources),
+    candidates: Array.from(phoneSourceMap.keys()).slice(0, 8),
+    notes: phonePick.phone
+      ? `Numero raccolto da ${phonePick.src ?? "fonte pubblica"}; corroborato da ${(phoneSourceMap.get(phonePick.phone)?.size ?? 1)} fonte/i.`
+      : "Nessun numero pubblico verificabile trovato nelle fonti consultate.",
+  };
+
+  // Final values: prefer site, then phoneDiscovery (preferred over apify/perplexity raw), then existing
   const finalWebsite = (ev.website.fromSite ? website : null) ?? consolidated?.official_website ?? website ?? apifyOut?.website ?? pxWebsite ?? null;
-  const finalPhone = phonesFromSite[0] ?? apifyOut?.phone ?? pxPhone ?? c.phone ?? consolidated?.phone ?? null;
+  const finalPhone = phoneDiscovery.phone_e164 ?? c.phone ?? consolidated?.phone ?? null;
   const finalEmail = emailsFromSite[0] ?? apifyOut?.email ?? pxEmail ?? c.email ?? consolidated?.email ?? null;
   const finalAddress = apifyOut?.address ?? consolidated?.address ?? c.address ?? null;
   const finalCategory = category ?? consolidated?.refined_category ?? c.category ?? null;
@@ -993,6 +1034,12 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     address: scoreField(ev.address, !!finalAddress),
     category:scoreField(ev.category, !!finalCategory),
   };
+  // Lift phone field confidence if phone_discovery is strong
+  if (phoneDiscovery.found && phoneDiscovery.confidence >= 85) {
+    fieldConfidence.phone = Math.max(fieldConfidence.phone, 0.9);
+  } else if (phoneDiscovery.found && phoneDiscovery.confidence >= 65) {
+    fieldConfidence.phone = Math.max(fieldConfidence.phone, 0.7);
+  }
   // Address fallback: if only from input + no source evidence → 0.50 (treated as single directory)
   if (finalAddress && fieldConfidence.address === 0) fieldConfidence.address = 0.50;
   if (finalCategory && fieldConfidence.category === 0 && c.category) fieldConfidence.category = 0.50;
@@ -1005,11 +1052,17 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   const present = (v: unknown) => v !== null && v !== undefined && String(v).trim() !== "";
   const completenessParts = [present(finalWebsite), present(finalPhone), present(finalEmail), present(finalAddress), present(finalCategory)];
   const data_completeness_score = Math.round((completenessParts.filter(Boolean).length / completenessParts.length) * 100);
+
+  // Contactability: phone is the dominant signal (esp. high-confidence phone)
   let contactability_score = 0;
-  if (finalPhone) contactability_score += 55;
-  if (finalEmail) contactability_score += 35;
+  if (finalPhone) {
+    const conf = phoneDiscovery.found ? phoneDiscovery.confidence : 60;
+    contactability_score += conf >= 85 ? 65 : conf >= 65 ? 55 : 40;
+  }
+  if (finalEmail) contactability_score += 25;
   if (finalWebsite) contactability_score += 10;
   contactability_score = Math.min(100, contactability_score);
+
 
   let buyer_fit_score = consolidated?.buyer_fit_score ?? 0;
   if (buyer_fit_score <= 1 && buyer_fit_score > 0) buyer_fit_score = Math.round(buyer_fit_score * 100);
