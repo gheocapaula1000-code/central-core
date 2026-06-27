@@ -259,15 +259,91 @@ function extractEmails(text: string, html: string): string[] {
   return Array.from(out).slice(0, 8);
 }
 
-function extractPhones(text: string, html: string): string[] {
+// Generic phone regex tuned for IT numbers (mobile starting with 3, landline starting with 0).
+const PHONE_GENERIC_RE = /(?:\+?39[\s.\/-]?)?(?:0\d{1,3}|3\d{2})[\s.\/-]?\d{2,4}[\s.\/-]?\d{3,4}/g;
+
+// Wide net of attributes and labels used in IT pages to publish phones.
+const PHONE_ATTR_PATTERNS: RegExp[] = [
+  /(?:tel|telephone|telefono|cellulare|mobile|recapito|chiamaci|prenota(?:zione|zioni)?|phone|contact[:_-]?phone)\s*[:=]\s*["']?\+?[\d\s.\/()-]{7,25}/gi,
+  /data-(?:tel|telephone|phone)\s*=\s*["']\+?[\d\s.\/()-]{7,25}["']/gi,
+  /itemprop=["']telephone["'][^>]*>([^<]+)</gi,
+  /content=["'](\+?[\d\s.\/()-]{7,25})["'][^>]*itemprop=["']telephone["']/gi,
+];
+
+function extractPhonesFromJsonLd(html: string): string[] {
   const out = new Set<string>();
+  const blocks = html.match(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi) ?? [];
+  for (const block of blocks) {
+    const body = block.replace(/^[\s\S]*?>/, "").replace(/<\/script>$/i, "");
+    try {
+      // Some sites put multiple JSON objects (one per line) — try direct first, then walk recursively.
+      const parsed = JSON.parse(body);
+      const stack: unknown[] = [parsed];
+      while (stack.length) {
+        const cur = stack.pop();
+        if (!cur) continue;
+        if (Array.isArray(cur)) { for (const v of cur) stack.push(v); continue; }
+        if (typeof cur === "object") {
+          for (const [k, v] of Object.entries(cur as Record<string, unknown>)) {
+            if (/^telephone$/i.test(k) && typeof v === "string") {
+              const n = normalizeItalianPhone(v); if (n) out.add(n);
+            } else if (typeof v === "object" && v !== null) {
+              stack.push(v);
+            }
+          }
+        }
+      }
+    } catch {
+      // Fallback: regex-extract any "telephone": "..."
+      const m = body.match(/"telephone"\s*:\s*"([^"]+)"/gi) ?? [];
+      for (const hit of m) {
+        const v = hit.match(/"telephone"\s*:\s*"([^"]+)"/i)?.[1];
+        if (v) { const n = normalizeItalianPhone(v); if (n) out.add(n); }
+      }
+    }
+  }
+  return Array.from(out);
+}
+
+function extractEmails(text: string, html: string): string[] {
+  const out = new Set<string>();
+  for (const m of html.match(/mailto:([^"'\s>]+)/gi) ?? []) {
+    const v = validateEmail(m.replace(/^mailto:/i, "").split("?")[0]); if (v) out.add(v);
+  }
+  for (const e of text.match(EMAIL_RE) ?? []) {
+    const v = validateEmail(e); if (v) out.add(v);
+  }
+  return Array.from(out).slice(0, 8);
+}
+
+function extractPhones(text: string, html: string): { phones: string[]; sources: Set<string> } {
+  const out = new Set<string>();
+  const srcSet = new Set<string>();
+
+  // 1) tel: hrefs (highest signal)
   for (const m of html.match(/tel:([^"'\s>]+)/gi) ?? []) {
-    const n = normalizeItalianPhone(m.replace(/^tel:/i, "")); if (n) out.add(n);
+    const n = normalizeItalianPhone(m.replace(/^tel:/i, "")); if (n) { out.add(n); srcSet.add("tel_href"); }
   }
-  for (const p of text.match(PHONE_RE) ?? []) {
-    const n = normalizeItalianPhone(p); if (n) out.add(n);
+  // 2) schema.org JSON-LD telephone
+  for (const n of extractPhonesFromJsonLd(html)) { out.add(n); srcSet.add("schema_org"); }
+  // 3) labelled attributes / microdata
+  for (const re of PHONE_ATTR_PATTERNS) {
+    const matches = html.match(re) ?? [];
+    for (const hit of matches) {
+      const numPart = hit.replace(/^[^+\d]*/, "").match(/\+?[\d\s.\/()-]{7,25}/);
+      if (numPart) { const n = normalizeItalianPhone(numPart[0]); if (n) { out.add(n); srcSet.add("html_attr"); } }
+    }
   }
-  return Array.from(out).slice(0, 5);
+  // 4) Generic free-text phones (lowest signal, but catches footer plain text)
+  for (const p of (text + " " + stripHtml(html)).match(PHONE_GENERIC_RE) ?? []) {
+    const n = normalizeItalianPhone(p); if (n) { out.add(n); srcSet.add("text"); }
+  }
+  return { phones: Array.from(out).slice(0, 8), sources: srcSet };
+}
+
+// Backwards-compat thin wrapper used by older callers.
+function extractPhonesList(text: string, html: string): string[] {
+  return extractPhones(text, html).phones;
 }
 
 function extractSocials(html: string): string[] {
@@ -293,16 +369,32 @@ function detectSignals(text: string): string[] {
   return Array.from(out);
 }
 
-function findContactPage(html: string, baseUrl: string): string | null {
-  const re = /href=["']([^"']+)["'][^>]*>([^<]{0,80})</gi;
+// Returns up to N likely contact / phone-bearing pages on the same site.
+function findContactCandidatePages(html: string, baseUrl: string, max = 4): string[] {
+  const LABEL_RE = /contat|contact|prenota|chiamaci|recapit|dove\s*siamo|location|info\b|orari|chi[-\s]siamo|trovaci|raggiungerci/i;
+  const HREF_RE = /contat|contact|prenota|reservation|chiamaci|recapit|dove-siamo|location|orari|info|trovaci/i;
+  const out = new Set<string>();
+  const re = /href=["']([^"']+)["'][^>]*>([\s\S]{0,120}?)</gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html))) {
-    const href = m[1]; const label = m[2].toLowerCase();
-    if (/contat|contact/i.test(href) || /contat|contact/i.test(label)) {
-      try { return new URL(href, baseUrl).toString(); } catch { return null; }
+    const href = m[1];
+    const label = m[2].replace(/<[^>]+>/g, " ").trim().toLowerCase();
+    if (LABEL_RE.test(label) || HREF_RE.test(href)) {
+      try {
+        const abs = new URL(href, baseUrl).toString().split("#")[0];
+        // same host only
+        if (new URL(abs).host === new URL(baseUrl).host) out.add(abs);
+      } catch { /* ignore */ }
     }
+    if (out.size >= max * 2) break;
   }
-  return null;
+  return Array.from(out).slice(0, max);
+}
+
+// Kept for legacy callers (returns the first contact-like URL or null).
+function findContactPage(html: string, baseUrl: string): string | null {
+  const list = findContactCandidatePages(html, baseUrl, 1);
+  return list[0] ?? null;
 }
 
 // ── HTTP fetch with timeout + URL cache ──────────────────────────────────────
