@@ -2,12 +2,6 @@
 // POST /civiko-one-signals-feed
 // Aggregates Padova signals from existing Core tables into a single feed.
 // Protected with HMAC-SHA256 signature. Schema: civiko_signals_feed_v1
-//
-// Required headers:
-//   x-source-app:   civiko-one
-//   x-tenant-id:    <tenant>
-//   x-timestamp:    <unix ms or ISO>
-//   x-core-signature: HMAC_SHA256(timestamp + tenant + rawBody, CORE_SHARED_SECRET) hex
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -75,7 +69,36 @@ function parseTimestamp(v: string | null): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
+// ─────────────────────────────────────────────────────────────
+// Price normalization
+// ─────────────────────────────────────────────────────────────
+const PRICE_MIN = 10000;
+const PRICE_MAX = 5000000;
+
+function normalizePrice(value: unknown): { price: number | null; label: string; invalid: boolean } {
+  if (value == null) return { price: null, label: "Prezzo da verificare", invalid: true };
+  let s = typeof value === "number" ? String(value) : String(value);
+  s = s.replace(/[€\s]/g, "").trim();
+  if (!s) return { price: null, label: "Prezzo da verificare", invalid: true };
+  // Remove thousand separators (. or ,) — keep only digits
+  // Heuristic: if it has both . and , the last is decimal; for prices we drop decimals.
+  const digitsOnly = s.replace(/[^\d]/g, "");
+  if (!digitsOnly) return { price: null, label: "Prezzo da verificare", invalid: true };
+  const n = Number(digitsOnly);
+  if (!Number.isFinite(n) || n < PRICE_MIN || n > PRICE_MAX) {
+    return { price: null, label: "Prezzo da verificare", invalid: true };
+  }
+  const label = n.toLocaleString("it-IT") + " €";
+  return { price: n, label, invalid: false };
+}
+
 type SignalType = "contendibile" | "ribasso" | "privato" | "off_market";
+
+interface DataQuality {
+  score: number;
+  flags: string[];
+  needs_review: boolean;
+}
 
 interface FeedItem {
   source_id: string;
@@ -86,19 +109,40 @@ interface FeedItem {
   zone_code: string;
   zone_label: string;
   display_zone: string;
-  price: number;
+  price: number | null;
+  price_label: string;
   url: string;
   status: string;
   score: number;
   last_seen_at: string;
   raw_ref: string;
+  data_quality: DataQuality;
 }
 
-function normalizeItem(
-  partial: Partial<FeedItem> & { signal_type: SignalType; source_id: string },
+function resolveZone(record: Record<string, unknown>): { code: string; label: string } {
+  try {
+    const r = resolvePadovaOmiSync(record);
+    if (r && r.code) return { code: r.code, label: r.label || UNRESOLVED_OMI_LABEL };
+  } catch (_) { /* fall through */ }
+  const omi = (record.omi_zone as string) || "";
+  if (omi && omi.trim()) return { code: omi.trim(), label: (record.quartiere as string) || omi };
+  const quart = (record.quartiere as string) || "";
+  if (quart && quart.trim()) {
+    return { code: UNRESOLVED_OMI_CODE, label: quart.trim() };
+  }
+  return { code: UNRESOLVED_OMI_CODE, label: UNRESOLVED_OMI_LABEL };
+}
+
+function buildItem(
+  partial: Partial<FeedItem> & { signal_type: SignalType; source_id: string; price_raw?: unknown },
 ): FeedItem {
   const zone_code = partial.zone_code && partial.zone_code.trim() ? partial.zone_code : UNRESOLVED_OMI_CODE;
   const zone_label = partial.zone_label && partial.zone_label.trim() ? partial.zone_label : UNRESOLVED_OMI_LABEL;
+  const norm = normalizePrice(partial.price_raw ?? partial.price);
+  const flags: string[] = [];
+  if (norm.invalid) flags.push("invalid_price");
+  if (zone_code === UNRESOLVED_OMI_CODE) flags.push("unresolved_zone");
+  const qualityScore = Math.max(0, 100 - flags.length * 30);
   return {
     source_id: partial.source_id,
     signal_type: partial.signal_type,
@@ -108,34 +152,46 @@ function normalizeItem(
     zone_code,
     zone_label,
     display_zone: partial.display_zone?.trim() || zone_label,
-    price: Number.isFinite(partial.price as number) ? Number(partial.price) : 0,
+    price: norm.price,
+    price_label: norm.label,
     url: partial.url || "",
     status: partial.status || "active",
     score: Number.isFinite(partial.score as number) ? Number(partial.score) : 0,
     last_seen_at: partial.last_seen_at || new Date().toISOString(),
     raw_ref: partial.raw_ref || "",
+    data_quality: { score: qualityScore, flags, needs_review: flags.includes("invalid_price") },
   };
 }
 
-function resolveZone(record: Record<string, unknown>): { code: string; label: string } {
-  try {
-    const r = resolvePadovaOmiSync(record);
-    if (r && r.code) {
-      return { code: r.code, label: r.label || UNRESOLVED_OMI_LABEL };
-    }
-  } catch (_) { /* fall through */ }
-  const omi = (record.omi_zone as string) || "";
-  if (omi && omi.trim()) return { code: omi.trim(), label: (record.quartiere as string) || omi };
-  return { code: UNRESOLVED_OMI_CODE, label: UNRESOLVED_OMI_LABEL };
+function normalizeForKey(s: string | null | undefined): string {
+  return (s || "")
+    .toString()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function dedupeItems(items: FeedItem[]): { kept: FeedItem[]; removed: number } {
+  const byKey = new Map<string, FeedItem>();
+  for (const it of items) {
+    const addr = normalizeForKey(it.title);
+    const url = normalizeForKey(it.url);
+    const primary = `${addr}|${it.signal_type}|${it.zone_code}`;
+    const fallback = url || it.source_id;
+    const key = addr ? primary : `${fallback}|${it.signal_type}`;
+    const prev = byKey.get(key);
+    if (!prev || it.last_seen_at > prev.last_seen_at) byKey.set(key, it);
+  }
+  const kept = Array.from(byKey.values());
+  return { kept, removed: items.length - kept.length };
 }
 
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const debugId = crypto.randomUUID();
 
-  if (req.method !== "POST") {
-    return err("METHOD_NOT_ALLOWED", "Use POST", 405, debugId);
-  }
+  if (req.method !== "POST") return err("METHOD_NOT_ALLOWED", "Use POST", 405, debugId);
 
   // ── Security gate ─────────────────────────────────────────
   const sourceApp = req.headers.get("x-source-app");
@@ -167,11 +223,9 @@ serve(async (req: Request) => {
 
   // ── Parse body ────────────────────────────────────────────
   let body: Record<string, unknown> = {};
-  try {
-    body = rawBody ? JSON.parse(rawBody) : {};
-  } catch {
-    return err("INVALID_JSON", "Body is not valid JSON", 400, debugId);
-  }
+  try { body = rawBody ? JSON.parse(rawBody) : {}; }
+  catch { return err("INVALID_JSON", "Body is not valid JSON", 400, debugId); }
+
   const city = (typeof body.city === "string" && body.city.trim()) || "Padova";
   const province = ((typeof body.province === "string" && body.province.trim()) || "PD").toUpperCase();
   const zoneMode = (typeof body.zone_mode === "string" && body.zone_mode) || "omi_microzone";
@@ -179,7 +233,6 @@ serve(async (req: Request) => {
   const include = Array.isArray(body.include) && body.include.length
     ? (body.include as string[]).filter((s) => typeof s === "string")
     : ["contendibili", "ribassi", "privati", "off_market"];
-
   const includeSet = new Set(include);
 
   // ── Data fetch ────────────────────────────────────────────
@@ -189,71 +242,115 @@ serve(async (req: Request) => {
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
 
-  const items: FeedItem[] = [];
+  const rawItems: FeedItem[] = [];
   const sourcesUsed: string[] = [];
   let lastProviderRefresh: string | null = null;
-
-  // Helper: track most recent timestamp
   const bump = (ts?: string | null) => {
     if (!ts) return;
     if (!lastProviderRefresh || ts > lastProviderRefresh) lastProviderRefresh = ts;
   };
 
-  // CONTENDIBILI + RIBASSI + PRIVATI share the same base table
-  const needCollect = includeSet.has("contendibili") || includeSet.has("ribassi") || includeSet.has("privati");
-  if (needCollect) {
+  // CONTENDIBILI — from padova_contendibili (already computed cross-portal matches)
+  if (includeSet.has("contendibili")) {
     const { data, error } = await supabase
-      .from("padova_collect_v2_items")
-      .select(
-        "id, portal, listing_id, url, raw_address, citta, cap, lat, lng, omi_zone, quartiere, prezzo, prezzo_iniziale, mq, locali, agency, contendibile, contendibile_confidenza, created_at, processed_at, raw_json",
-      )
-      .order("processed_at", { ascending: false, nullsFirst: false })
-      .limit(limit * 2);
-
+      .from("padova_contendibili")
+      .select("id, chiave_match, n_agenzie, confidenza, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, created_at, prezzo_immobile_eur_mq, differenza_zona_pct, giorni_sul_mercato")
+      .gte("n_agenzie", 2)
+      .order("n_agenzie", { ascending: false })
+      .limit(limit);
     if (error) {
-      console.error(`[civiko-one-signals-feed] padova_collect_v2_items error:`, error.message);
+      console.error(`[civiko-one-signals-feed] padova_contendibili error:`, error.message);
     } else if (data) {
-      sourcesUsed.push("padova_collect_v2_items");
-      for (const row of data) {
-        const z = resolveZone(row as Record<string, unknown>);
-        const price = Number(row.prezzo ?? 0) || 0;
-        const initial = Number(row.prezzo_iniziale ?? 0) || 0;
-        const lastSeen = (row.processed_at as string) || (row.created_at as string) || new Date().toISOString();
+      sourcesUsed.push("padova_contendibili");
+      const rank: Record<string, number> = { ALTA: 30, MEDIA: 15, DA_CONFERMARE: 0 };
+      for (const row of data as Record<string, unknown>[]) {
+        const z = resolveZone(row);
+        const minP = Number(row.prezzo_min) || 0;
+        const maxP = Number(row.prezzo_max) || 0;
+        // Pick midpoint when both available, else whichever is set
+        const priceCandidate = minP && maxP ? Math.round((minP + maxP) / 2) : (maxP || minP || null);
+        const lastSeen = (row.created_at as string) || new Date().toISOString();
         bump(lastSeen);
-        const base = {
-          source_id: `pdv:${row.id}`,
-          title: (row.raw_address as string) || (row.listing_id as string) || `Listing ${row.id}`,
+        const urls = Array.isArray(row.urls) ? (row.urls as string[]) : [];
+        const nAg = Number(row.n_agenzie) || 0;
+        const conf = String(row.confidenza || "");
+        const score = Math.min(100, 40 + Math.min(nAg, 10) * 4 + (rank[conf] || 0));
+        const title = String(row.chiave_match || `Contendibile ${row.id}`)
+          .split("|")[0]
+          .replace(/-/g, " ")
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+        rawItems.push(buildItem({
+          source_id: `cont:${row.id}`,
+          signal_type: "contendibile",
+          title: `${title} — ${nAg} agenzie`,
           city, province,
           zone_code: z.code,
           zone_label: z.label,
           display_zone: z.label,
-          price,
+          price_raw: priceCandidate,
+          url: urls[0] || "",
+          status: "active",
+          score,
+          last_seen_at: lastSeen,
+          raw_ref: `padova_contendibili:${row.id}`,
+        }));
+      }
+    }
+  }
+
+  // RIBASSI + PRIVATI from padova_collect_v2_items
+  const needCollect = includeSet.has("ribassi") || includeSet.has("privati");
+  if (needCollect) {
+    const { data, error } = await supabase
+      .from("padova_collect_v2_items")
+      .select("id, portal, listing_id, url, raw_address, citta, cap, lat, lng, omi_zone, quartiere, prezzo, prezzo_iniziale, mq, locali, agency, contendibile, created_at, processed_at")
+      .order("processed_at", { ascending: false, nullsFirst: false })
+      .limit(limit * 2);
+    if (error) {
+      console.error(`[civiko-one-signals-feed] padova_collect_v2_items error:`, error.message);
+    } else if (data) {
+      sourcesUsed.push("padova_collect_v2_items");
+      for (const row of data as Record<string, unknown>[]) {
+        const z = resolveZone(row);
+        const price = Number(row.prezzo ?? 0) || 0;
+        const initial = Number(row.prezzo_iniziale ?? 0) || 0;
+        const lastSeen = (row.processed_at as string) || (row.created_at as string) || new Date().toISOString();
+        bump(lastSeen);
+        const baseTitle = (row.raw_address as string) || (row.listing_id as string) || `Listing ${row.id}`;
+        const base = {
+          source_id: `pdv:${row.id}`,
+          title: baseTitle,
+          city, province,
+          zone_code: z.code,
+          zone_label: z.label,
+          display_zone: z.label,
           url: (row.url as string) || "",
           status: "active",
-          score: 0,
           last_seen_at: lastSeen,
           raw_ref: `padova_collect_v2_items:${row.id}`,
         };
-        if (includeSet.has("contendibili") && row.contendibile === true) {
-          items.push(normalizeItem({ ...base, signal_type: "contendibile", score: 70 }));
-        } else if (includeSet.has("ribassi") && initial > 0 && price > 0 && price < initial) {
+        if (includeSet.has("ribassi") && initial > 0 && price > 0 && price < initial) {
           const dropPct = Math.round(((initial - price) / initial) * 100);
-          items.push(
-            normalizeItem({
-              ...base,
-              signal_type: "ribasso",
-              score: Math.min(100, 50 + dropPct),
-              title: `${base.title} — ribasso ${dropPct}%`,
-            }),
-          );
+          rawItems.push(buildItem({
+            ...base,
+            signal_type: "ribasso",
+            price_raw: price,
+            score: Math.min(100, 50 + dropPct),
+            title: `${baseTitle} — ribasso ${dropPct}%`,
+          }));
         } else if (includeSet.has("privati") && (!row.agency || String(row.agency).trim() === "")) {
-          items.push(normalizeItem({ ...base, signal_type: "privato", score: 55 }));
+          rawItems.push(buildItem({
+            ...base,
+            signal_type: "privato",
+            price_raw: price,
+            score: 55,
+          }));
         }
       }
     }
   }
 
-  // OFF_MARKET — early_offmarket_signal_candidates
+  // OFF_MARKET
   if (includeSet.has("off_market")) {
     const { data, error } = await supabase
       .from("early_offmarket_signal_candidates")
@@ -269,52 +366,56 @@ serve(async (req: Request) => {
         const z = resolveZone(row);
         const lastSeen = (row.updated_at as string) || (row.created_at as string) || new Date().toISOString();
         bump(lastSeen);
-        items.push(
-          normalizeItem({
-            source_id: `offm:${row.id}`,
-            signal_type: "off_market",
-            title: (row.title as string) || (row.address_text as string) || `Off-market ${row.id}`,
-            city, province,
-            zone_code: z.code,
-            zone_label: z.label,
-            display_zone: z.label,
-            price: Number(row.estimated_price ?? row.price ?? 0) || 0,
-            url: (row.source_url as string) || "",
-            status: (row.status as string) || "active",
-            score: Number(row.signal_score ?? row.score ?? 60) || 60,
-            last_seen_at: lastSeen,
-            raw_ref: `early_offmarket_signal_candidates:${row.id}`,
-          }),
-        );
+        rawItems.push(buildItem({
+          source_id: `offm:${row.id}`,
+          signal_type: "off_market",
+          title: (row.title as string) || (row.address_text as string) || `Off-market ${row.id}`,
+          city, province,
+          zone_code: z.code,
+          zone_label: z.label,
+          display_zone: z.label,
+          price_raw: row.estimated_price ?? row.price ?? null,
+          url: (row.source_url as string) || "",
+          status: (row.status as string) || "active",
+          score: Number(row.signal_score ?? row.score ?? 60) || 60,
+          last_seen_at: lastSeen,
+          raw_ref: `early_offmarket_signal_candidates:${row.id}`,
+        }));
       }
     }
   }
 
-  // Trim & sort
-  items.sort((a, b) => b.score - a.score || (b.last_seen_at > a.last_seen_at ? 1 : -1));
-  const trimmed = items.slice(0, limit);
+  // Dedupe
+  const { kept, removed: duplicatesRemoved } = dedupeItems(rawItems);
 
-  const breakdown = {
+  // Sort & trim
+  kept.sort((a, b) => b.score - a.score || (b.last_seen_at > a.last_seen_at ? 1 : -1));
+  const trimmed = kept.slice(0, limit);
+
+  const summary = {
+    total: trimmed.length,
     contendibili: 0,
-    ribassi: 0,
     privati: 0,
+    ribassi: 0,
     off_market: 0,
     unresolved_zone: 0,
+    invalid_price: 0,
+    duplicates_removed: duplicatesRemoved,
   };
   for (const it of trimmed) {
-    if (it.signal_type === "contendibile") breakdown.contendibili++;
-    else if (it.signal_type === "ribasso") breakdown.ribassi++;
-    else if (it.signal_type === "privato") breakdown.privati++;
-    else if (it.signal_type === "off_market") breakdown.off_market++;
-    if (it.zone_code === UNRESOLVED_OMI_CODE) breakdown.unresolved_zone++;
+    if (it.signal_type === "contendibile") summary.contendibili++;
+    else if (it.signal_type === "ribasso") summary.ribassi++;
+    else if (it.signal_type === "privato") summary.privati++;
+    else if (it.signal_type === "off_market") summary.off_market++;
+    if (it.zone_code === UNRESOLVED_OMI_CODE) summary.unresolved_zone++;
+    if (it.data_quality.flags.includes("invalid_price")) summary.invalid_price++;
   }
 
   const generatedAt = new Date().toISOString();
-
   console.log(
-    `[civiko-one-signals-feed] tenant=${tenantId} total=${trimmed.length} ` +
-      `cont=${breakdown.contendibili} rib=${breakdown.ribassi} priv=${breakdown.privati} ` +
-      `off=${breakdown.off_market} unresolved=${breakdown.unresolved_zone} debug=${debugId}`,
+    `[civiko-one-signals-feed] tenant=${tenantId} total=${summary.total} ` +
+    `cont=${summary.contendibili} rib=${summary.ribassi} priv=${summary.privati} off=${summary.off_market} ` +
+    `unresolved=${summary.unresolved_zone} invalid_price=${summary.invalid_price} dup=${summary.duplicates_removed} debug=${debugId}`,
   );
 
   return jsonResp({
@@ -322,14 +423,7 @@ serve(async (req: Request) => {
     schema_version: SCHEMA_VERSION,
     scope: { city, province, zone_mode: zoneMode },
     generated_at: generatedAt,
-    summary: {
-      total: trimmed.length,
-      contendibili: breakdown.contendibili,
-      ribassi: breakdown.ribassi,
-      privati: breakdown.privati,
-      off_market: breakdown.off_market,
-      unresolved_zone: breakdown.unresolved_zone,
-    },
+    summary,
     items: trimmed,
     diagnostics: {
       tenant_id: tenantId,
