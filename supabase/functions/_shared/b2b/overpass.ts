@@ -56,13 +56,14 @@ const SUPPLIER_OFFICES = ["company", "wholesale", "logistics", "it"] as const;
 
 // Regex molto orientata al mondo carta/tovagliato/monouso/horeca distribuzione.
 const SUPPLIER_NAME_REGEX =
-  "produttor|produzione|manifattur|fabbric|stabilimento|" +
-  "import|importator|importatori|" +
+  "produttor|produzione|manifattur|manufact|fabbric|stabilimento|cartiera|cartotecnic|converting|convertitor|" +
+  "import|importator|importatori|export|" +
   "grossist|ingrosso|cash and carry|cash & carry|c&c|" +
   "distribut|distribuzione|logistic|" +
-  "carta|paper|tissue|airlaid|tnt|tessuto non tessuto|monouso|" +
-  "tovagli|portaposate|packaging|imballagg|" +
-  "horeca|fornitur|forniture";
+  "carta|paper|tissue|airlaid|tnt|tessuto non tessuto|nonwoven|non woven|monouso|disposable|" +
+  "tovagli|portaposate|porta posate|mise en place|tavola monouso|" +
+  "packaging|imballagg|imballo|" +
+  "horeca|ho.re.ca|fornitur|forniture|articoli per la tavola|articoli tavola";
 
 export type OverpassCategory = (typeof CLIENT_CATEGORIES)[number] | string;
 export type SearchMode = "clients" | "resellers" | "suppliers";
