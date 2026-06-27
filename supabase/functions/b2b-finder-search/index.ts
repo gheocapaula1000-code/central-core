@@ -372,7 +372,7 @@ Deno.serve(async (req: Request) => {
 
     try {
       for (const r of results) {
-        const identity_hash = await computeIdentityHash(r);
+        const identity_hash = await computeIdentityHash(r, resolvedScopeKey);
         const confidence = Math.max(0, Math.min(1, r.score / 100));
 
         // Try to find existing
