@@ -704,10 +704,8 @@ async function openaiConsolidate(
       "19) exclusion_reason: SE è ristorante/bar/pizzeria puro o non ha canale rivendita → ESCLUDI.";
 
     const modeRules = searchMode === "resellers" ? resellersRules : clientsRules;
-
-      searchMode === "resellers" ? resellersRules :
-      clientsRules;
     const systemContent = baseRules + modeRules;
+
 
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 25000);
