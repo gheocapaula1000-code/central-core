@@ -898,6 +898,7 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   const needsDiscovery = !website && (ctx.mode === "deep");
   if (needsDiscovery && ctx.avail.apify && ctx.remainingBudget() >= COST.apifyRun && c.name) {
     providers.push("apify");
+    phoneCheckedSources.add("directory");
     const locality = c.comune ?? (c.address ?? "").split(",").pop()?.trim() ?? null;
     apifyOut = await apifyDiscover(c.name, locality);
     if (apifyOut.ok) {
@@ -907,7 +908,7 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
         duration_ms: apifyOut.duration_ms, cost_eur: apifyOut.cost_eur,
       });
       if (!website && apifyOut.website) { website = apifyOut.website; ev.website.fromApify = true; }
-      if (apifyOut.phone) ev.phone.fromApify = true;
+      if (apifyOut.phone) { ev.phone.fromApify = true; addPhones([apifyOut.phone], "directory"); }
       if (apifyOut.email) ev.email.fromApify = true;
       if (apifyOut.address) ev.address.fromApify = true;
     } else {
@@ -917,25 +918,31 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     warnings.push("apify_skipped_actor_not_configured");
   }
 
-  // ── Step 5: Perplexity (only when site missing OR phone/email missing) ─────
+  // ── Step 5: Perplexity (when site missing, OR phone still missing/weak, OR email missing) ─
   let pxPhone: string | null = null;
   let pxEmail: string | null = null;
   let pxWebsite: string | null = null;
-  const needsSearch = (!website) || (!phonesFromSite.length && !c.phone) || (!emailsFromSite.length && !c.email);
+  const phoneWeak = phoneSourceMap.size === 0;
+  const needsSearch = (!website) || phoneWeak || (!emailsFromSite.length && !c.email);
   if (needsSearch && ctx.avail.perplexity && ctx.remainingBudget() >= COST.perplexitySearch && c.name) {
     providers.push("perplexity");
-    const locality = (c.address ?? "").split(",").pop()?.trim() ?? null;
+    phoneCheckedSources.add("public_search");
+    const locality = c.comune ?? (c.address ?? "").split(",").pop()?.trim() ?? null;
     const px = await perplexityFindContacts(c.name, locality);
     cost += COST.perplexitySearch; ctx.spend(COST.perplexitySearch);
     if (px) {
       if (!website && px.website) { website = px.website; pxWebsite = px.website; ev.website.fromSearch = true; }
-      if (px.phone) { pxPhone = px.phone; ev.phone.fromSearch = true; }
+      if (px.phone) {
+        pxPhone = px.phone; ev.phone.fromSearch = true;
+        addPhones([px.phone], "public_search");
+      }
       if (px.email) { pxEmail = px.email; ev.email.fromSearch = true; }
       sourceUrls.push(...px.sources);
     } else {
       warnings.push("perplexity_no_result");
     }
   }
+
 
   // Cross-source match detection
   if (pxPhone && phonesFromSite.includes(pxPhone)) ev.phone.matchesAcrossSources = true;
