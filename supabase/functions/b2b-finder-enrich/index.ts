@@ -97,6 +97,14 @@ interface EnrichmentResult {
   phone_href: string | null;
   phone_pretty: string | null;
   phone_discovery: PhoneDiscovery;
+  // v0.7 search_mode resellers
+  search_mode: "clients" | "resellers";
+  reseller_fit_score: number | null;
+  reseller_fit_reason: string | null;
+  resale_use_case: string | null;
+  suggested_offer_angle: string | null;
+  price_advantage_angle: string | null;
+  buyer_type: "Cliente Finale" | "Rivenditore" | "Fornitore" | "Da Verificare";
 }
 
 interface PhoneDiscovery {
@@ -147,7 +155,7 @@ function jsonResponse(req: Request, status: number, body: ReturnType<typeof enve
       ...corsHeaders(req),
       "Content-Type": "application/json",
       "X-Function": "b2b-finder-enrich",
-      "X-Contract": "b2b-finder/v0.6",
+      "X-Contract": "b2b-finder/v0.7",
     },
   });
 }
@@ -593,9 +601,16 @@ interface OpenAIConsolidated {
   call_opener: string | null;
   whatsapp_or_email_message: string | null;
   verification_checks: string[] | null;
+  // v0.7 resellers
+  reseller_fit_score?: number | null;
+  reseller_fit_reason?: string | null;
+  resale_use_case?: string | null;
+  suggested_offer_angle?: string | null;
+  price_advantage_angle?: string | null;
+  buyer_type?: "Cliente Finale" | "Rivenditore" | "Fornitore" | "Da Verificare" | null;
 }
 
-async function openaiConsolidate(payload: Record<string, unknown>): Promise<OpenAIConsolidated | null> {
+async function openaiConsolidate(payload: Record<string, unknown>, searchMode: "clients" | "resellers" = "clients"): Promise<OpenAIConsolidated | null> {
   if (isOpen("openai")) return null;
   const key = Deno.env.get("OPENAI_API_KEY"); if (!key) return null;
   try {
@@ -620,14 +635,67 @@ async function openaiConsolidate(payload: Record<string, unknown>): Promise<Open
         call_opener: { type: ["string", "null"] },
         whatsapp_or_email_message: { type: ["string", "null"] },
         verification_checks: { type: ["array", "null"], items: { type: "string" } },
+        // v0.7 resellers (always required by strict schema; null when N/A)
+        reseller_fit_score: { type: ["number", "null"] },
+        reseller_fit_reason: { type: ["string", "null"] },
+        resale_use_case: { type: ["string", "null"] },
+        suggested_offer_angle: { type: ["string", "null"] },
+        price_advantage_angle: { type: ["string", "null"] },
+        buyer_type: { type: ["string", "null"], enum: ["Cliente Finale", "Rivenditore", "Fornitore", "Da Verificare", null] },
       },
       required: [
         "official_website","phone","email","address","refined_category","estimated_business_size",
         "buyer_fit_score","fit_reason","next_best_action",
         "buyer_fit_reason","exclusion_reason","business_summary","product_use_case",
         "decision_maker_hint","call_opener","whatsapp_or_email_message","verification_checks",
+        "reseller_fit_score","reseller_fit_reason","resale_use_case",
+        "suggested_offer_angle","price_advantage_angle","buyer_type",
       ],
     };
+
+    const baseRules =
+      "Sei un consolidatore dati B2B per agenti commerciali italiani. " +
+      "REGOLE TASSATIVE: " +
+      "1) Non inventare MAI telefoni, email, siti, indirizzi o dati non presenti nelle fonti fornite: se non certo, metti null. " +
+      "2) Tutti i testi in italiano, tono professionale, mai spam, mai aggressivo, mai usare le parole 'AI', 'IA', 'Intelligenza Artificiale'. " +
+      "3) Niente promesse assolute: vietato dire 'prezzo più basso del mercato' o simili senza prove. Usa formule prudenti: 'prezzo competitivo', 'margine interessante', 'prodotto adatto al catalogo'. " +
+      "4) Il prodotto è 'Coprimacchia TNT Colorati 100x100 cm' (tovagliette monouso in tessuto non tessuto per coperti ristorazione, sagre, eventi, mense, agriturismi). ";
+
+    const clientsRules =
+      "MODALITÀ: cerco CLIENTI FINALI (chi USA il prodotto). " +
+      "5) buyer_fit_score 0-100: alto solo se l'attività usa davvero coperti monouso o ha alto turnover di tavoli (trattorie con pranzi di lavoro, mense, self service, agriturismi, pizzerie con coperti, sagre/eventi). Basso per bar/cafe puri senza ristorazione, gastronomie da asporto puro, panetterie, istituzionali con appalti chiusi. " +
+      "6) buyer_fit_reason: 1-2 frasi concrete sul perché può USARE il prodotto. Vietate frasi generiche. " +
+      "7) product_use_case: come potrebbero USARE il Coprimacchia TNT 100x100 (es. 'Copertura tavoli pranzo a turni veloci'). " +
+      "8) buyer_type: in questa modalità è quasi sempre 'Cliente Finale'. " +
+      "9) reseller_fit_score, reseller_fit_reason, resale_use_case, suggested_offer_angle, price_advantage_angle: METTI NULL. " +
+      "10) decision_maker_hint: chi decide l'acquisto (es. 'Titolare', 'Responsabile sala'). " +
+      "11) call_opener: max 180 caratteri, parla di tovagliette/coperti, mai pressing. " +
+      "12) whatsapp_or_email_message: max 350 caratteri, professionale, non spam. " +
+      "13) verification_checks: 2-4 verifiche pratiche pre-contatto (es. 'Confermare numero coperti medi'). " +
+      "14) next_best_action: azione breve (es. 'Chiamata al titolare in mattinata'). Per escluse: 'Non contattare' o simili. " +
+      "15) Se mensa istituzionale o appalto pubblico: escludi con exclusion_reason chiaro e buyer_fit_score molto basso.";
+
+    const resellersRules =
+      "MODALITÀ: cerco RIVENDITORI / FORNITORI (chi RIVENDE il prodotto al proprio catalogo). " +
+      "5) reseller_fit_score 0-100: alto solo se l'attività ha un canale di vendita plausibile per articoli monouso da ristorazione/eventi/casalinghi: ingrossi horeca, cash and carry, forniture alberghiere/ristorazione, grossisti, distributori, negozi casalinghi, negozi articoli per ristorazione/bar/pizzerie, party store, packaging alimentare, articoli monouso, detergenza professionale, e-commerce locali coerenti, negozi biancheria tavola coerenti. " +
+      "   Basso o nullo per: ristoranti puri, bar puri, pizzerie pure, gelaterie, locali che USANO ma NON rivendono, panetterie/pasticcerie senza canale vendita di tovagliato, attività senza canale vendita plausibile. " +
+      "6) reseller_fit_reason: 1-2 frasi concrete sul perché può RIVENDERE Coprimacchia TNT 100x100 (es. 'Ingrosso horeca con catalogo monouso: assortimento compatibile per i propri clienti ristorazione'). Vietate frasi generiche. " +
+      "7) resale_use_case: come può inserire il prodotto a catalogo o nel proprio assortimento (es. 'Aggiunta linea coprimacchia TNT colorati nel reparto monouso ristorazione'). " +
+      "8) suggested_offer_angle: angolo commerciale per la proposta (es. 'Listino rivenditore con sconto scaglionato per quantità'). " +
+      "9) price_advantage_angle: prudente: 'Prezzo competitivo rispetto ai fornitori abituali, da verificare con un listino di confronto'. Mai 'più basso del mercato'. " +
+      "10) buyer_type: 'Rivenditore' per negozi/catene che rivendono al pubblico; 'Fornitore' per ingrossi/distributori/cash and carry; 'Cliente Finale' per ristoranti/bar/pizzerie puri (in tal caso ESCLUDI con exclusion_reason e reseller_fit_score molto basso); 'Da Verificare' quando non è chiaro. " +
+      "11) buyer_fit_score: USA lo STESSO valore di reseller_fit_score (potenziale come rivenditore). " +
+      "12) buyer_fit_reason: usa lo stesso contenuto di reseller_fit_reason. " +
+      "13) product_use_case: se il buyer_type è 'Cliente Finale' descrivi l'uso; altrimenti METTI NULL (usa resale_use_case). " +
+      "14) decision_maker_hint: chi decide (es. 'Titolare', 'Responsabile acquisti', 'Buyer reparto monouso'). " +
+      "15) call_opener: max 180 caratteri, parla di FORNITURA/COLLABORAZIONE COMMERCIALE, mai pressing, mai 'prezzo più basso del mercato'. " +
+      "16) whatsapp_or_email_message: max 350 caratteri, proposta di collaborazione o invio listino rivenditore, professionale, niente emoji eccessive. " +
+      "17) verification_checks: 2-4 punti (es. 'Verificare se trattano già monouso TNT', 'Capire margine target del rivenditore'). " +
+      "18) next_best_action: breve (es. 'Chiamata al responsabile acquisti per inviare listino rivenditore'). Per escluse: 'Non contattare come rivenditore'. " +
+      "19) exclusion_reason: SE è ristorante/bar/pizzeria puro o non ha canale rivendita → ESCLUDI con motivo concreto.";
+
+    const systemContent = baseRules + (searchMode === "resellers" ? resellersRules : clientsRules);
+
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 25000);
     const r = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -636,25 +704,8 @@ async function openaiConsolidate(payload: Record<string, unknown>): Promise<Open
       body: JSON.stringify({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content:
-            "Sei un consolidatore dati B2B per agenti commerciali italiani. " +
-            "REGOLE TASSATIVE: " +
-            "1) Non inventare MAI telefoni, email, siti, indirizzi o dati non presenti nelle fonti fornite: se non certo, metti null. " +
-            "2) Tutti i testi in italiano, tono professionale, mai spam, mai aggressivo, mai usare le parole 'AI', 'IA', 'Intelligenza Artificiale'. " +
-            "3) Il prodotto in vendita è 'Coprimacchia TNT Colorati 100x100 cm' (tovagliette monouso in tessuto non tessuto per coperti ristorazione, mense, sagre, agriturismi, trattorie, pizzerie, self service). " +
-            "4) buyer_fit_score 0-100: alto solo se l'attività usa realmente coperti monouso o ha alto turnover di tavoli (trattorie con pranzi di lavoro, mense, self service, agriturismi, pizzerie con coperti, sagre/eventi). Basso per bar/cafe puri senza ristorazione, gastronomie da asporto puro, panetterie, istituzionali con appalti chiusi. " +
-            "5) buyer_fit_reason: 1-2 frasi concrete sul perché può comprare quel prodotto (es. 'Trattoria con pranzo di lavoro: alto consumo di coperti monouso'). Vietate frasi generiche tipo 'azienda interessante'. " +
-            "6) exclusion_reason: compila SOLO se va escluso o messo in bassa priorità, con motivo concreto. Altrimenti null. " +
-            "7) business_summary: max 200 caratteri, cosa sembra fare l'attività. " +
-            "8) product_use_case: come potrebbero usare il Coprimacchia TNT 100x100 (es. 'Copertura tavoli pranzo a turni veloci'). " +
-            "9) decision_maker_hint: chi probabilmente decide l'acquisto (es. 'Titolare', 'Responsabile sala', 'Chef-patron'). " +
-            "10) call_opener: una frase pronta in italiano per aprire la telefonata, max 180 caratteri, mai pressing. " +
-            "11) whatsapp_or_email_message: messaggio breve (max 350 caratteri), professionale, non spam, senza emoji eccessive, senza maiuscole urlate. " +
-            "12) verification_checks: 2-4 cose concrete da verificare prima del contatto (es. 'Confermare numero coperti medi', 'Verificare se usano già monouso'). " +
-            "13) next_best_action: azione operativa breve in italiano (es. 'Chiamata al titolare in mattinata'). Per aziende escluse usare 'Non contattare' o simili soft. " +
-            "14) Se l'attività è una mensa istituzionale (scuola, ospedale, caserma) o un appalto pubblico, escludila con exclusion_reason chiaro e buyer_fit_score molto basso."
-          },
-          { role: "user", content: JSON.stringify(payload) },
+          { role: "system", content: systemContent },
+          { role: "user", content: JSON.stringify({ ...payload, search_mode: searchMode }) },
         ],
         response_format: { type: "json_schema", json_schema: { name: "b2b_consolidation", strict: true, schema } },
         temperature: 0.1,
@@ -712,6 +763,14 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   const stops: string[] = [];
   const conflicts: string[] = [];
   let cost = 0;
+
+  // v0.7 — determine search mode from company metadata (default clients)
+  const cMeta = (c.metadata ?? {}) as Record<string, unknown>;
+  const rawMode = String((cMeta.search_mode ?? "") as string).toLowerCase();
+  const searchMode: "clients" | "resellers" =
+    rawMode === "resellers" || rawMode === "cerco_rivenditori" || rawMode === "rivenditori" ? "resellers" : "clients";
+
+
 
   let website = isValidHttpUrl(c.website) ? c.website : null;
   const inputDomain = website ? rootDomain(website) : null;
@@ -961,9 +1020,11 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
       },
       apify: apifyOut?.ok ? { website: apifyOut.website, phone: apifyOut.phone, email: apifyOut.email, address: apifyOut.address } : null,
       perplexity: pxPhone || pxEmail || pxWebsite ? { website: pxWebsite, phone: pxPhone, email: pxEmail } : null,
-      product: "Coprimacchia TNT (tovagliette monouso TNT per ristorazione)",
+      product: searchMode === "resellers"
+        ? "Coprimacchia TNT 100x100 cm — cerco RIVENDITORI/FORNITORI (ingrossi horeca, cash and carry, negozi casalinghi, party store, packaging alimentare) che possano aggiungere il prodotto al loro catalogo a prezzo competitivo"
+        : "Coprimacchia TNT (tovagliette monouso TNT per ristorazione)",
     };
-    consolidated = await openaiConsolidate(payload);
+    consolidated = await openaiConsolidate(payload, searchMode);
     cost += COST.openaiCall; ctx.spend(COST.openaiCall);
     if (!consolidated) warnings.push("openai_consolidation_failed");
   }
@@ -1061,9 +1122,18 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   const severeConflict = conflicts.includes("website_domain_mismatch");
 
   // v0.5: stricter but more inclusive readiness — spec: fit>=60, contact>=50, no severe conflict, no strong exclusion signal
-  const exclusion_reason = consolidated?.exclusion_reason && consolidated.exclusion_reason.trim()
-    ? consolidated.exclusion_reason.trim()
-    : null;
+  // v0.7 — derive reseller-specific buyer_type & exclusion for resellers mode
+  const buyer_type: "Cliente Finale" | "Rivenditore" | "Fornitore" | "Da Verificare" =
+    (consolidated?.buyer_type as "Cliente Finale" | "Rivenditore" | "Fornitore" | "Da Verificare" | null | undefined) ?? "Da Verificare";
+
+  // In resellers mode, a "Cliente Finale" classification means: NOT a reseller → strong exclusion
+  let extraExclusion: string | null = null;
+  if (searchMode === "resellers" && buyer_type === "Cliente Finale") {
+    extraExclusion = "Attività utilizzatrice (non rivenditore): non in target per ricerca rivenditori";
+  }
+  const exclusion_reason = (consolidated?.exclusion_reason && consolidated.exclusion_reason.trim())
+    ? consolidated!.exclusion_reason!.trim()
+    : extraExclusion;
   const hasStrongExclusion = !!exclusion_reason || buyer_fit_score < 30;
 
   // Ready-to-contact prefers leads with a verifiable phone (spec v0.6).
@@ -1189,6 +1259,14 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     phone_href: phoneDiscovery.phone_href,
     phone_pretty: phoneDiscovery.phone,
     phone_discovery: phoneDiscovery,
+    // v0.7 search_mode resellers
+    search_mode: searchMode,
+    reseller_fit_score: consolidated?.reseller_fit_score ?? (searchMode === "resellers" ? buyer_fit_score : null),
+    reseller_fit_reason: consolidated?.reseller_fit_reason ?? (searchMode === "resellers" ? (consolidated?.buyer_fit_reason ?? null) : null),
+    resale_use_case: consolidated?.resale_use_case ?? null,
+    suggested_offer_angle: consolidated?.suggested_offer_angle ?? null,
+    price_advantage_angle: consolidated?.price_advantage_angle ?? (searchMode === "resellers" ? "Prezzo competitivo, da confermare con listino di confronto" : null),
+    buyer_type,
   };
   return { result, providers: uniq(providers), cost };
 }

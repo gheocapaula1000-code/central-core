@@ -11,6 +11,9 @@ import { resolveSearchScope, isPoiInScope, PD_COMUNI, PD_COMUNI_KEYS, bboxCenter
 
 interface SearchInput {
   mode?: string;
+  /** "clients" | "cerco_clienti" | "resellers" | "cerco_rivenditori" */
+  search_mode?: string;
+  intent?: string;
   product?: string;
   target_description?: string;
   sector?: string;
@@ -21,6 +24,13 @@ interface SearchInput {
   limit?: number;
   search_depth?: "quick" | "deep";
   dry_run?: boolean;
+}
+
+function resolveSearchMode(input: SearchInput): "clients" | "resellers" {
+  const raw = String(input.search_mode ?? input.intent ?? "").toLowerCase().trim();
+  if (!raw) return "clients";
+  if (raw === "resellers" || raw === "cerco_rivenditori" || raw === "rivenditori") return "resellers";
+  return "clients";
 }
 
 const SAVE_MAX_LIMIT = 50;
@@ -72,7 +82,7 @@ async function sha256Hex(input: string): Promise<string> {
     .join("");
 }
 
-async function computeIdentityHash(c: NormalizedCompany, scopeKey: string): Promise<string> {
+async function computeIdentityHash(c: NormalizedCompany, scopeKey: string, searchMode: "clients" | "resellers"): Promise<string> {
   const name = normalizeForHash(c.name);
   const addr = normalizeForHash(c.address);
   const comune = normalizeForHash(c.city);
@@ -80,11 +90,11 @@ async function computeIdentityHash(c: NormalizedCompany, scopeKey: string): Prom
   const scope = normalizeForHash(scopeKey);
   let key: string;
   if (addr.length >= 4) {
-    key = `v2|${name}|${addr}|${comune}|${prov}|scope:${scope}`;
+    key = `v3|${name}|${addr}|${comune}|${prov}|scope:${scope}|sm:${searchMode}`;
   } else {
     const lat = c.lat != null ? c.lat.toFixed(4) : "na";
     const lng = c.lng != null ? c.lng.toFixed(4) : "na";
-    key = `v2|${name}|geo:${lat},${lng}|${comune}|${prov}|scope:${scope}`;
+    key = `v3|${name}|geo:${lat},${lng}|${comune}|${prov}|scope:${scope}|sm:${searchMode}`;
   }
   return await sha256Hex(key);
 }
@@ -125,6 +135,8 @@ Deno.serve(async (req: Request) => {
     if (mode !== "buyers") {
       return jsonResponse(req, 400, envelope(false, null, "v1 supports only mode='buyers'", debug_id));
     }
+    const searchMode = resolveSearchMode(input);
+
 
     // dry_run must be explicit boolean
     const isDryRun = input.dry_run !== false; // default true; only explicit false triggers save
@@ -211,6 +223,7 @@ Deno.serve(async (req: Request) => {
           target_description: input.target_description ?? null,
           sector: input.sector ?? null,
           search_depth: input.search_depth ?? "quick",
+          search_mode: searchMode,
           limit_requested: requested,
           applied_limit: applied,
         },
@@ -244,11 +257,11 @@ Deno.serve(async (req: Request) => {
 
     // ── Overpass ──────────────────────────────────────────────────────────
     console.log(
-      `[b2b-finder-search] scope debug_id=${debug_id} comune=${scope.comune} bbox=${JSON.stringify(scope.bbox)} geocode="${scope.geocode_query}"`,
+      `[b2b-finder-search] scope debug_id=${debug_id} comune=${scope.comune} bbox=${JSON.stringify(scope.bbox)} search_mode=${searchMode} geocode="${scope.geocode_query}"`,
     );
     let pois;
     try {
-      pois = await queryOverpass(scope.bbox, 25000);
+      pois = await queryOverpass(scope.bbox, 25000, searchMode);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "overpass error";
       console.error(`[b2b-finder-search] overpass failed debug_id=${debug_id} err=${msg}`);
@@ -266,7 +279,7 @@ Deno.serve(async (req: Request) => {
     let normalized: NormalizedCompany[];
     try {
       normalized = inScope
-        .map((p) => scoreAndNormalize(p, { city, province, region }))
+        .map((p) => scoreAndNormalize(p, { city, province, region, search_mode: searchMode }))
         .filter((x): x is NormalizedCompany => !!x)
         // Defensive: forziamo il comune al canonical scope.comune per evitare
         // mislabel da addr:city OSM con varianti grafiche.
@@ -341,6 +354,7 @@ Deno.serve(async (req: Request) => {
           {
             dry_run: true,
             provider: "overpass",
+            search_mode: searchMode,
             city,
             province,
             requested_city: requestedCity,
@@ -372,13 +386,13 @@ Deno.serve(async (req: Request) => {
 
     try {
       for (const r of results) {
-        const identity_hash = await computeIdentityHash(r, resolvedScopeKey);
+        const identity_hash = await computeIdentityHash(r, resolvedScopeKey, searchMode);
         const confidence = Math.max(0, Math.min(1, r.score / 100));
 
         // Try to find existing
         const { data: existingRows, error: selErr } = await supabase!
           .from("b2b_companies")
-          .select("id,status,source_count,notes,priority,score,fit_reason")
+          .select("id,status,source_count,notes,priority,score,fit_reason,metadata")
           .eq("identity_hash", identity_hash)
           .limit(1);
         if (selErr) throw new Error(`select company: ${selErr.message}`);
@@ -410,6 +424,8 @@ Deno.serve(async (req: Request) => {
             metadata: {
               source_ref: r.source_ref,
               osm_category: r.category,
+              search_mode: searchMode,
+              buyer_type_hint: r.buyer_type_hint,
             },
           };
           const { data: newRow, error: insErr } = await supabase!
@@ -422,12 +438,16 @@ Deno.serve(async (req: Request) => {
         } else {
           companyId = existing.id as string;
           // Only patch contact fields that are currently missing on existing row.
+          const existingMeta = ((existing.metadata ?? {}) as Record<string, unknown>);
+          const mergedMeta = { ...existingMeta, search_mode: existingMeta.search_mode ?? searchMode, buyer_type_hint: existingMeta.buyer_type_hint ?? r.buyer_type_hint };
+          const prevSourceCount = Number(existing.source_count ?? 0);
           const patch: Record<string, unknown> = {
             last_seen_at: new Date().toISOString(),
-            source_count: (existing.source_count ?? 0) + 1,
+            source_count: prevSourceCount + 1,
             priority: r.priority,
             score: r.score,
             fit_reason: r.fit_reason,
+            metadata: mergedMeta,
           };
           // Preserve status, notes — never overwrite.
           // Fill contacts only if missing — fetch full row contact fields
@@ -491,7 +511,7 @@ Deno.serve(async (req: Request) => {
         units: results.length,
         cost_eur: 0,
         job_id: jobId,
-        metadata: { city, province, limit_requested: requested, applied_limit: applied },
+        metadata: { city, province, limit_requested: requested, applied_limit: applied, search_mode: searchMode },
       });
       if (ledErr) {
         warnings.push(`ledger_insert_failed:${ledErr.message}`);
@@ -521,6 +541,7 @@ Deno.serve(async (req: Request) => {
           {
             dry_run: false,
             provider: "overpass",
+            search_mode: searchMode,
             job_id: jobId,
             city,
             province,
