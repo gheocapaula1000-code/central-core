@@ -778,9 +778,9 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   // v0.7/v0.8 — determine search mode from company metadata (default clients)
   const cMeta = (c.metadata ?? {}) as Record<string, unknown>;
   const rawMode = String((cMeta.search_mode ?? "") as string).toLowerCase();
-  const searchMode: "clients" | "resellers" | "suppliers" =
-    rawMode === "suppliers" || rawMode === "cerco_fornitori" || rawMode === "fornitori" || rawMode === "produttori" || rawMode === "cerco_produttori" ? "suppliers" :
+  const searchMode: "clients" | "resellers" =
     rawMode === "resellers" || rawMode === "cerco_rivenditori" || rawMode === "rivenditori" ? "resellers" : "clients";
+
   const productNameMeta = typeof cMeta.product_name === "string" && cMeta.product_name ? cMeta.product_name as string : null;
   const productKeyMeta = typeof cMeta.product_key === "string" && cMeta.product_key ? cMeta.product_key as string : null;
 
