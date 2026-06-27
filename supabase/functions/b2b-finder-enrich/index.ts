@@ -617,7 +617,7 @@ async function openaiConsolidate(
   searchMode: "clients" | "resellers" = "clients",
   productPhrase: string = "Coprimacchia TNT Colorati 100x100 cm (tovagliette monouso in tessuto non tessuto per coperti ristorazione, sagre, eventi, mense, agriturismi).",
 
-  productPhrase: string = "Coprimacchia TNT Colorati 100x100 cm (tovagliette monouso in tessuto non tessuto per coperti ristorazione, sagre, eventi, mense, agriturismi).",
+
 ): Promise<OpenAIConsolidated | null> {
   if (isOpen("openai")) return null;
   const key = Deno.env.get("OPENAI_API_KEY"); if (!key) return null;
