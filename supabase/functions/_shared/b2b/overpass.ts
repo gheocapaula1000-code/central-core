@@ -48,8 +48,24 @@ const RESELLER_NAME_REGEX =
   "distribut|monouso|packaging|casaling|articoli per ristorant|" +
   "articoli per bar|articoli per pizzer|catering|tovagliato|biancheria";
 
+// ── Suppliers (produttori / importatori / grossisti / distributori) ────────
+// Tag OSM tipici: industrial=*, office=company, craft=*, shop=wholesale, man_made=works
+const SUPPLIER_SHOPS = ["wholesale", "trade"] as const;
+const SUPPLIER_INDUSTRIAL = ["paper", "packaging", "manufacturing", "factory", "warehouse"] as const;
+const SUPPLIER_OFFICES = ["company", "wholesale", "logistics", "it"] as const;
+
+// Regex molto orientata al mondo carta/tovagliato/monouso/horeca distribuzione.
+const SUPPLIER_NAME_REGEX =
+  "produttor|produzione|manifattur|fabbric|stabilimento|" +
+  "import|importator|importatori|" +
+  "grossist|ingrosso|cash and carry|cash & carry|c&c|" +
+  "distribut|distribuzione|logistic|" +
+  "carta|paper|tissue|airlaid|tnt|tessuto non tessuto|monouso|" +
+  "tovagli|portaposate|packaging|imballagg|" +
+  "horeca|fornitur|forniture";
+
 export type OverpassCategory = (typeof CLIENT_CATEGORIES)[number] | string;
-export type SearchMode = "clients" | "resellers";
+export type SearchMode = "clients" | "resellers" | "suppliers";
 
 export interface OverpassPoi {
   osm_id: string;
