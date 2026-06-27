@@ -25,6 +25,8 @@ interface SearchInput {
   limit?: number;
   search_depth?: "quick" | "deep";
   dry_run?: boolean;
+  /** Solo per search_mode="suppliers": "province" | "region" | "italy". Default "region". */
+  supplier_scope?: string;
 }
 
 function resolveSearchMode(input: SearchInput): "clients" | "resellers" | "suppliers" {
