@@ -7,6 +7,7 @@ import { authorizeB2BFinder } from "../_shared/b2b/auth.ts";
 import { queryOverpass } from "../_shared/b2b/overpass.ts";
 import { scoreAndNormalize, type NormalizedCompany } from "../_shared/b2b/normalize.ts";
 import { resolveSearchScope, isPoiInScope, PD_COMUNI, PD_COMUNI_KEYS, bboxCenter, haversineKm, normalizeComune } from "../_shared/b2b/geo.ts";
+import { detectProductKey, getProductProfile } from "../_shared/b2b/products.ts";
 
 
 interface SearchInput {
