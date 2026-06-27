@@ -510,7 +510,7 @@ Deno.serve(async (req: Request) => {
         units: results.length,
         cost_eur: 0,
         job_id: jobId,
-        metadata: { city, province, limit_requested: requested, applied_limit: applied },
+        metadata: { city, province, limit_requested: requested, applied_limit: applied, search_mode: searchMode },
       });
       if (ledErr) {
         warnings.push(`ledger_insert_failed:${ledErr.message}`);
