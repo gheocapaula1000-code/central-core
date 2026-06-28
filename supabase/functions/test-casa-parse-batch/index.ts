@@ -144,8 +144,8 @@ Deno.serve(async (req) => {
   }
 
   const CHUNK = 200;
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const slice = rows.slice(i, i + CHUNK);
+  for (let i = 0; i < dedupRows.length; i += CHUNK) {
+    const slice = dedupRows.slice(i, i + CHUNK);
     const { error: upErr, count } = await sb
       .from("test_casa_parsed_listings")
       .upsert(slice, { onConflict: "job_id,listing_id", count: "exact" });
