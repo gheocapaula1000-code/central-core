@@ -1172,14 +1172,60 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     : extraExclusion;
   const hasStrongExclusion = !!exclusion_reason || buyer_fit_score < 30;
 
-  // Ready-to-contact prefers leads with a verifiable phone (spec v0.6).
+  // ── v0.8 Quality scores ─────────────────────────────────────────────────────
+  // phone_quality_score: derived from phone_discovery confidence + cross-source corroboration.
+  let phone_quality_score = 0;
+  if (phoneDiscovery.found) {
+    phone_quality_score = phoneDiscovery.confidence;
+    // Penalize phones found only via public_search (no site corroboration)
+    if (phoneDiscovery.source === "public_search" && !ev.phone.fromSite) {
+      phone_quality_score = Math.min(phone_quality_score, 55);
+    }
+    // Penalize phones whose only corroboration is the existing OSM seed
+    if (phoneDiscovery.source === "existing" && !ev.phone.fromSite && !ev.phone.fromSearch) {
+      phone_quality_score = Math.min(phone_quality_score, 65);
+    }
+  }
+  // geo_quality_score: comes from search-layer decoration in company metadata, fallback heuristic.
+  const cMetaGeo = ((c.metadata ?? {}) as Record<string, unknown>);
+  const inScopeMeta = cMetaGeo["in_scope"];
+  const geoReason = String(cMetaGeo["geo_match_reason"] ?? "");
+  let geo_quality_score = 70;
+  if (inScopeMeta === true && geoReason === "city_and_bbox_match") geo_quality_score = 100;
+  else if (inScopeMeta === true && geoReason === "city_match_no_coords") geo_quality_score = 80;
+  else if (inScopeMeta === true) geo_quality_score = 75;
+  else if (inScopeMeta === false) geo_quality_score = 30;
+
+  // duplicate_risk: low by default; bumped by search layer pre-save (metadata.duplicate_risk).
+  const dupHint = String(cMetaGeo["duplicate_risk"] ?? "").toLowerCase();
+  let duplicate_risk: "Basso" | "Medio" | "Alto" =
+    dupHint === "alto" ? "Alto" : dupHint === "medio" ? "Medio" : "Basso";
+
+  // data_quality_score: weighted blend of completeness, phone, geo, fit.
+  const data_quality_score = Math.round(
+    data_completeness_score * 0.30 +
+    phone_quality_score      * 0.30 +
+    geo_quality_score        * 0.20 +
+    Math.min(100, buyer_fit_score) * 0.20
+  );
+
+  const data_quality_notes: string[] = [];
+  if (!phoneDiscovery.found) data_quality_notes.push("Telefono non trovato nelle fonti pubbliche consultate.");
+  if (phoneDiscovery.found && phone_quality_score < 60) data_quality_notes.push("Telefono presente ma con bassa corroborazione.");
+  if (geo_quality_score < 60) data_quality_notes.push("Comune del risultato non confermato rispetto alla ricerca.");
+  if (duplicate_risk !== "Basso") data_quality_notes.push(`Possibile duplicato cross-comune (${duplicate_risk}).`);
+  if (severeConflict) data_quality_notes.push("Conflitto dominio sito web rilevato.");
+
+  // Ready-to-contact: phone richiesto, fit/contact sufficienti, comune corretto, niente duplicato alto, niente conflitto.
   const ready_to_contact =
     buyer_fit_score >= 60 &&
     contactability_score >= 50 &&
     !severeConflict &&
     !hasStrongExclusion &&
     phoneDiscovery.found &&
-    phoneDiscovery.confidence >= 60;
+    phoneDiscovery.confidence >= 60 &&
+    geo_quality_score >= 60 &&
+    duplicate_risk !== "Alto";
 
   // Status suggestion
   let status_suggestion: "Pronto Da Contattare" | "Da Migliorare" | "Escluso";
