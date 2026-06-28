@@ -7424,6 +7424,10 @@ export type Database = {
         Args: { p_since?: string }
         Returns: Json
       }
+      promote_padova_collect_v2_to_listings: {
+        Args: { p_since?: string }
+        Returns: Json
+      }
       property_registry_lookup: {
         Args: { p_opaque_id: string }
         Returns: {
