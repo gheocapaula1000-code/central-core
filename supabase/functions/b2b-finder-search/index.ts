@@ -445,7 +445,11 @@ Deno.serve(async (req: Request) => {
           true,
           {
             dry_run: true,
-            provider: "overpass",
+            provider: googleUsed === "off" ? "overpass" : `overpass+google_places(${googleUsed})`,
+            providers: {
+              overpass: { used: true },
+              google_places: { used: googleUsed !== "off", mode: googleUsed, raw: googleRaw, added: googleAdded, dedup_collisions: googleCollisions },
+            },
             search_mode: searchMode,
             city,
             province,
