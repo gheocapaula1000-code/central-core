@@ -185,10 +185,15 @@ function normalizeItalianPhone(raw: string): string | null {
   else if (n.startsWith("39") && n.length >= 11) { /* keep */ }
   else if (/^[03]/.test(n)) n = "39" + n;
   if (n.length < 10 || n.length > 13) return null;
-  // Reject obvious junk patterns (all same digit, sequential)
   const bare = n.replace(/^39/, "");
-  if (/^(\d)\1+$/.test(bare)) return null;
+  // Hard rejections (junk / fake patterns)
+  if (/^(\d)\1+$/.test(bare)) return null;                 // tutti uguali
   if (bare.length < 8) return null;
+  if (new Set(bare).size <= 2) return null;                // <=2 cifre uniche → falso
+  if (/^0?1?23456789/.test(bare) || /^9876543210/.test(bare)) return null; // sequenziale
+  if (/^0000/.test(bare) || /^1111/.test(bare)) return null;
+  // Italian numbers: mobile must start with 3, landline with 0 (after the country code).
+  if (!/^[03]/.test(bare)) return null;
   return "+" + n;
 }
 
