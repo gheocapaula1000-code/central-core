@@ -41,7 +41,12 @@ function getServiceClient() {
 const PADOVA_BOUNDS = { minLat: 45.34, maxLat: 45.48, minLng: 11.78, maxLng: 11.98 };
 
 function looksInsidePadova(l: NormalizedListing): boolean {
-  if (typeof l.lat === "number" && typeof l.lng === "number") {
+  // Alcuni scraper restituiscono lat/lng = 0 quando le coordinate non sono
+  // disponibili. Non vanno trattate come coordinate reali, altrimenti tutti gli
+  // annunci scoped su "Padova" vengono scartati prima del salvataggio Collect V2.
+  const hasRealCoords = typeof l.lat === "number" && typeof l.lng === "number" &&
+    !(Math.abs(l.lat) < 0.000001 && Math.abs(l.lng) < 0.000001);
+  if (hasRealCoords) {
     return l.lat >= PADOVA_BOUNDS.minLat && l.lat <= PADOVA_BOUNDS.maxLat &&
       l.lng >= PADOVA_BOUNDS.minLng && l.lng <= PADOVA_BOUNDS.maxLng;
   }
@@ -117,8 +122,8 @@ async function persistPadovaCollectV2(
       address: l.address,
       raw_address: l.address,
       cap: extractCap(l),
-      lat: l.lat,
-      lng: l.lng,
+      lat: typeof l.lat === "number" && Math.abs(l.lat) > 0.000001 ? l.lat : null,
+      lng: typeof l.lng === "number" && Math.abs(l.lng) > 0.000001 ? l.lng : null,
     })),
     supabase as any,
     (r) => ({ lat: typeof (r as any).lat === "number" ? (r as any).lat : null, lng: typeof (r as any).lng === "number" ? (r as any).lng : null }),
@@ -155,8 +160,8 @@ async function persistPadovaCollectV2(
       raw_address: l.address ?? l.title ?? null,
       citta: "Padova",
       cap: extractCap(l),
-      lat: l.lat,
-      lng: l.lng,
+      lat: typeof l.lat === "number" && Math.abs(l.lat) > 0.000001 ? l.lat : null,
+      lng: typeof l.lng === "number" && Math.abs(l.lng) > 0.000001 ? l.lng : null,
       omi_zone: z?.omi_zone_code ?? null,
       quartiere: z?.omi_zone_label ?? null,
       tipo_lead: l.is_private ? "PRIVATO" : "AGENZIA",
@@ -166,7 +171,7 @@ async function persistPadovaCollectV2(
       mq: l.surface_sqm,
       locali: l.rooms,
       bagni: null,
-      agency: l.agency_name,
+      agency: l.agency_name ?? `portal:${normalizePortalName(l.source)}`,
       tipologia: l.property_type,
       cluster_key: computeCollectClusterKey(l),
       parse_status: "radar_ingested",
