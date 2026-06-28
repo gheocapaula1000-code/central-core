@@ -379,6 +379,7 @@ serve(async (req: Request) => {
 
   // OFF_MARKET
   if (includeSet.has("off_market")) {
+    await probeFreshness("early_offmarket_signal_candidates", true, false, "comune", city);
     const { data, error } = await supabase
       .from("early_offmarket_signal_candidates")
       .select("*")
