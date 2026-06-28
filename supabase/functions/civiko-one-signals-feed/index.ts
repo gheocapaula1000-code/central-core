@@ -92,7 +92,7 @@ function normalizePrice(value: unknown): { price: number | null; label: string; 
   return { price: n, label, invalid: false };
 }
 
-type SignalType = "contendibile" | "ribasso" | "privato" | "off_market";
+type SignalType = "contendibile" | "multi_portale" | "ribasso" | "privato" | "off_market";
 
 interface DataQuality {
   score: number;
@@ -117,6 +117,14 @@ interface FeedItem {
   last_seen_at: string;
   raw_ref: string;
   data_quality: DataQuality;
+  // Tassonomia segnali estesa (additive, non breaking)
+  evidence_type?: string;
+  label_pubblica?: string;
+  portals_seen?: string[];
+  agency_count_distinct?: number;
+  agencies_normalized?: string[];
+  needs_review?: boolean;
+  operator_note?: string;
 }
 
 function resolveZone(record: Record<string, unknown>): { code: string; label: string } {
@@ -143,7 +151,8 @@ function buildItem(
   if (norm.invalid) flags.push("invalid_price");
   if (zone_code === UNRESOLVED_OMI_CODE) flags.push("unresolved_zone");
   const qualityScore = Math.max(0, 100 - flags.length * 30);
-  return {
+  const needsReviewBase = flags.includes("invalid_price") || partial.needs_review === true;
+  const item: FeedItem = {
     source_id: partial.source_id,
     signal_type: partial.signal_type,
     title: partial.title?.trim() || "(senza titolo)",
@@ -159,8 +168,16 @@ function buildItem(
     score: Number.isFinite(partial.score as number) ? Number(partial.score) : 0,
     last_seen_at: partial.last_seen_at || new Date().toISOString(),
     raw_ref: partial.raw_ref || "",
-    data_quality: { score: qualityScore, flags, needs_review: flags.includes("invalid_price") },
+    data_quality: { score: qualityScore, flags, needs_review: needsReviewBase },
   };
+  if (partial.evidence_type) item.evidence_type = partial.evidence_type;
+  if (partial.label_pubblica) item.label_pubblica = partial.label_pubblica;
+  if (partial.portals_seen) item.portals_seen = partial.portals_seen;
+  if (typeof partial.agency_count_distinct === "number") item.agency_count_distinct = partial.agency_count_distinct;
+  if (partial.agencies_normalized) item.agencies_normalized = partial.agencies_normalized;
+  if (typeof partial.needs_review === "boolean") item.needs_review = partial.needs_review;
+  if (partial.operator_note) item.operator_note = partial.operator_note;
+  return item;
 }
 
 function normalizeForKey(s: string | null | undefined): string {
@@ -274,15 +291,15 @@ serve(async (req: Request) => {
     }
   }
 
-  // CONTENDIBILI — from padova_contendibili (already computed cross-portal matches)
+  // CONTENDIBILI VERI — da padova_contendibili (>=2 agenzie reali distinte)
   if (includeSet.has("contendibili")) {
     await probeFreshness("padova_contendibili", false, false);
     const { data, error } = await supabase
       .from("padova_contendibili")
-      .select("id, chiave_match, n_agenzie, confidenza, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, created_at, prezzo_immobile_eur_mq, differenza_zona_pct, giorni_sul_mercato")
-      .gte("n_agenzie", 2)
+      .select("id, chiave_match, n_agenzie, agency_count_distinct, agencies_normalized, agenzie, portals_seen, fonti, confidenza, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, created_at")
+      .gte("agency_count_distinct", 2)
       .order("created_at", { ascending: false, nullsFirst: false })
-      .order("n_agenzie", { ascending: false })
+      .order("agency_count_distinct", { ascending: false })
       .limit(limit);
     if (error) {
       console.error(`[civiko-one-signals-feed] padova_contendibili error:`, error.message);
@@ -293,36 +310,94 @@ serve(async (req: Request) => {
         const z = resolveZone(row);
         const minP = Number(row.prezzo_min) || 0;
         const maxP = Number(row.prezzo_max) || 0;
-        // Pick midpoint when both available, else whichever is set
         const priceCandidate = minP && maxP ? Math.round((minP + maxP) / 2) : (maxP || minP || null);
         const lastSeen = (row.created_at as string) || new Date().toISOString();
         bump(lastSeen);
         const urls = Array.isArray(row.urls) ? (row.urls as string[]) : [];
-        const nAg = Number(row.n_agenzie) || 0;
+        const portals = Array.isArray(row.portals_seen) ? (row.portals_seen as string[])
+          : (Array.isArray(row.fonti) ? (row.fonti as string[]) : []);
+        const agenciesNorm = Array.isArray(row.agencies_normalized) ? (row.agencies_normalized as string[]) : [];
+        const nAg = Number(row.agency_count_distinct ?? row.n_agenzie) || 0;
         const conf = String(row.confidenza || "");
-        const score = Math.min(100, 40 + Math.min(nAg, 10) * 4 + (rank[conf] || 0));
+        const score = Math.min(100, 50 + Math.min(nAg, 10) * 4 + (rank[conf] || 0));
         const title = String(row.chiave_match || `Contendibile ${row.id}`)
-          .split("|")[0]
-          .replace(/-/g, " ")
-          .replace(/\b\w/g, (c) => c.toUpperCase());
+          .split("|")[0].replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
         rawItems.push(buildItem({
           source_id: `cont:${row.id}`,
           signal_type: "contendibile",
-          title: `${title} — ${nAg} agenzie`,
+          title: `${title} — ${nAg} agenzie distinte`,
           city, province,
-          zone_code: z.code,
-          zone_label: z.label,
-          display_zone: z.label,
+          zone_code: z.code, zone_label: z.label, display_zone: z.label,
           price_raw: priceCandidate,
           url: urls[0] || "",
           status: "active",
           score,
           last_seen_at: lastSeen,
           raw_ref: `padova_contendibili:${row.id}`,
+          evidence_type: "multiple_distinct_agencies",
+          label_pubblica: "Contendibile verificato",
+          portals_seen: portals,
+          agency_count_distinct: nAg,
+          agencies_normalized: agenciesNorm,
+          needs_review: false,
         }));
       }
     }
   }
+
+  // MULTI-PORTALE — stessi immobili visti su >=2 portali ma SENZA prova di agenzie distinte
+  if (includeSet.has("contendibili") || includeSet.has("multi_portale")) {
+    await probeFreshness("padova_multi_portale", false, false);
+    const { data, error } = await supabase
+      .from("padova_multi_portale")
+      .select("id, chiave_match, portal_count, portals_seen, agency_count_distinct, agencies_normalized, agenzie, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, n_annunci, created_at")
+      .gte("portal_count", 2)
+      .order("created_at", { ascending: false, nullsFirst: false })
+      .order("portal_count", { ascending: false })
+      .limit(limit);
+    if (error) {
+      console.error(`[civiko-one-signals-feed] padova_multi_portale error:`, error.message);
+    } else if (data) {
+      sourcesUsed.push("padova_multi_portale");
+      for (const row of data as Record<string, unknown>[]) {
+        const z = resolveZone(row);
+        const minP = Number(row.prezzo_min) || 0;
+        const maxP = Number(row.prezzo_max) || 0;
+        const priceCandidate = minP && maxP ? Math.round((minP + maxP) / 2) : (maxP || minP || null);
+        const lastSeen = (row.created_at as string) || new Date().toISOString();
+        bump(lastSeen);
+        const urls = Array.isArray(row.urls) ? (row.urls as string[]) : [];
+        const portals = Array.isArray(row.portals_seen) ? (row.portals_seen as string[]) : [];
+        const agenciesNorm = Array.isArray(row.agencies_normalized) ? (row.agencies_normalized as string[]) : [];
+        const nPortals = Number(row.portal_count) || portals.length;
+        const nAg = Number(row.agency_count_distinct) || 0;
+        const score = Math.min(85, 40 + Math.min(nPortals, 6) * 5);
+        const title = String(row.chiave_match || `Multi-portale ${row.id}`)
+          .split("|")[0].replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        rawItems.push(buildItem({
+          source_id: `mp:${row.id}`,
+          signal_type: "multi_portale",
+          title: `${title} — ${nPortals} portali`,
+          city, province,
+          zone_code: z.code, zone_label: z.label, display_zone: z.label,
+          price_raw: priceCandidate,
+          url: urls[0] || "",
+          status: "active",
+          score,
+          last_seen_at: lastSeen,
+          raw_ref: `padova_multi_portale:${row.id}`,
+          evidence_type: "multi_portal_without_agency_confirmation",
+          label_pubblica: "Alta esposizione",
+          portals_seen: portals,
+          agency_count_distinct: nAg,
+          agencies_normalized: agenciesNorm,
+          needs_review: true,
+          operator_note: "Immobile presente su più portali. Verificare se la gestione è realmente frammentata prima di proporre l'esclusiva.",
+        }));
+      }
+    }
+  }
+
 
   // RIBASSI + PRIVATI from padova_collect_v2_items
   const needCollect = includeSet.has("ribassi") || includeSet.has("privati");
@@ -426,6 +501,7 @@ serve(async (req: Request) => {
   const summary = {
     total: trimmed.length,
     contendibili: 0,
+    multi_portale: 0,
     privati: 0,
     ribassi: 0,
     off_market: 0,
@@ -433,8 +509,11 @@ serve(async (req: Request) => {
     invalid_price: 0,
     duplicates_removed: duplicatesRemoved,
   };
+  const countBySignalType: Record<string, number> = {};
   for (const it of trimmed) {
+    countBySignalType[it.signal_type] = (countBySignalType[it.signal_type] ?? 0) + 1;
     if (it.signal_type === "contendibile") summary.contendibili++;
+    else if (it.signal_type === "multi_portale") summary.multi_portale++;
     else if (it.signal_type === "ribasso") summary.ribassi++;
     else if (it.signal_type === "privato") summary.privati++;
     else if (it.signal_type === "off_market") summary.off_market++;
@@ -484,30 +563,82 @@ serve(async (req: Request) => {
     generated_at: generatedAt,
     summary,
     items: trimmed,
-    diagnostics: {
-      tenant_id: tenantId,
-      generated_at: generatedAt,
-      requested_limit: limit,
-      included: include,
-      sources_used: sourcesUsed,
-      source_tables_used: sourcesUsed,
-      last_provider_refresh: lastProviderRefresh,
-      last_provider_refresh_at: sourceFreshness,
-      newest_source_created_at: newestSourceCreated,
-      newest_source_updated_at: newestSourceUpdated,
-      newest_source_last_seen_at: newestSourceLastSeen,
-      oldest_item_in_feed_created_at: oldestCreated,
-      newest_item_in_feed_created_at: newestCreated,
-      oldest_item_in_feed_last_seen_at: oldestSeen,
-      newest_item_in_feed_last_seen_at: newestSeen,
-      unique_source_ids_count: uniqueSourceIds.size,
-      duplicate_candidates_removed: duplicatesRemoved,
-      cache_hit: false,
-      cache_key: null,
-      upstream_refresh_status: newestSourceCreated && (Date.now() - new Date(newestSourceCreated).getTime() < 24 * 3600 * 1000) ? "fresh" : "stale",
-      sort_strategy: "freshness_desc,score_desc",
-      security_gate: "ok",
-      debug_id: debugId,
-    },
+    diagnostics: await (async () => {
+      // Agency real coverage per portal + idealista status
+      const portals = ["casa", "immobiliare", "idealista", "subito"] as const;
+      const agencyCoverage: Record<string, { total: number; with_real_agency: number; coverage_pct: number; last_seen: string | null }> = {};
+      for (const p of portals) {
+        try {
+          const { count: total } = await supabase
+            .from("padova_collect_v2_items")
+            .select("id", { count: "exact", head: true })
+            .eq("portal", p);
+          const { count: withAg } = await supabase
+            .from("padova_collect_v2_items")
+            .select("id", { count: "exact", head: true })
+            .eq("portal", p)
+            .not("agency", "is", null)
+            .neq("agency", "")
+            .not("agency", "ilike", "portal:%");
+          const { data: lastRow } = await supabase
+            .from("padova_collect_v2_items")
+            .select("created_at")
+            .eq("portal", p)
+            .order("created_at", { ascending: false })
+            .limit(1);
+          const t = total ?? 0;
+          const w = withAg ?? 0;
+          agencyCoverage[p] = {
+            total: t,
+            with_real_agency: w,
+            coverage_pct: t > 0 ? Math.round((w / t) * 1000) / 10 : 0,
+            last_seen: (lastRow?.[0]?.created_at as string) ?? null,
+          };
+        } catch {
+          agencyCoverage[p] = { total: 0, with_real_agency: 0, coverage_pct: 0, last_seen: null };
+        }
+      }
+      const ide = agencyCoverage["idealista"];
+      const ideAgeDays = ide?.last_seen ? Math.floor((Date.now() - new Date(ide.last_seen).getTime()) / 86400000) : null;
+      let idealistaStatus = "unknown";
+      if (!ide || ide.total === 0) idealistaStatus = "no_data";
+      else if (ide.with_real_agency === 0) idealistaStatus = ideAgeDays !== null && ideAgeDays > 7 ? "stale_no_agency_coverage" : "active_no_agency_coverage";
+      else idealistaStatus = "active_with_agency_coverage";
+
+      return {
+        tenant_id: tenantId,
+        generated_at: generatedAt,
+        requested_limit: limit,
+        included: include,
+        sources_used: sourcesUsed,
+        source_tables_used: sourcesUsed,
+        last_provider_refresh: lastProviderRefresh,
+        last_provider_refresh_at: sourceFreshness,
+        newest_source_created_at: newestSourceCreated,
+        newest_source_updated_at: newestSourceUpdated,
+        newest_source_last_seen_at: newestSourceLastSeen,
+        oldest_item_in_feed_created_at: oldestCreated,
+        newest_item_in_feed_created_at: newestCreated,
+        oldest_item_in_feed_last_seen_at: oldestSeen,
+        newest_item_in_feed_last_seen_at: newestSeen,
+        unique_source_ids_count: uniqueSourceIds.size,
+        duplicate_candidates_removed: duplicatesRemoved,
+        // Nuova tassonomia
+        taxonomy_version: "v2_contendibile_strict_multi_portale_split",
+        count_by_signal_type: countBySignalType,
+        verified_contendibili_count: summary.contendibili,
+        multi_portale_count: summary.multi_portale,
+        false_contendibili_removed: 0,
+        agency_real_coverage_by_portal: agencyCoverage,
+        idealista_status: { status: idealistaStatus, last_seen: ide?.last_seen ?? null, age_days: ideAgeDays, total: ide?.total ?? 0, with_real_agency: ide?.with_real_agency ?? 0 },
+        first_10_source_ids: trimmed.slice(0, 10).map((it) => it.source_id),
+        cache_hit: false,
+        cache_key: null,
+        upstream_refresh_status: newestSourceCreated && (Date.now() - new Date(newestSourceCreated).getTime() < 24 * 3600 * 1000) ? "fresh" : "stale",
+        sort_strategy: "freshness_desc,score_desc",
+        security_gate: "ok",
+        debug_id: debugId,
+      };
+    })(),
   });
 });

@@ -5632,6 +5632,69 @@ export type Database = {
           },
         ]
       }
+      padova_multi_portale: {
+        Row: {
+          agencies_normalized: string[]
+          agency_count_distinct: number
+          agenzie: string[]
+          bagni: number | null
+          chiave_match: string | null
+          created_at: string
+          id: number
+          lat: number | null
+          lng: number | null
+          locali: number | null
+          mq: number | null
+          n_annunci: number
+          portal_count: number
+          portals_seen: string[]
+          prezzo_max: number | null
+          prezzo_min: number | null
+          quartiere: string | null
+          urls: string[]
+        }
+        Insert: {
+          agencies_normalized?: string[]
+          agency_count_distinct?: number
+          agenzie?: string[]
+          bagni?: number | null
+          chiave_match?: string | null
+          created_at?: string
+          id?: number
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          n_annunci?: number
+          portal_count?: number
+          portals_seen?: string[]
+          prezzo_max?: number | null
+          prezzo_min?: number | null
+          quartiere?: string | null
+          urls?: string[]
+        }
+        Update: {
+          agencies_normalized?: string[]
+          agency_count_distinct?: number
+          agenzie?: string[]
+          bagni?: number | null
+          chiave_match?: string | null
+          created_at?: string
+          id?: number
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          n_annunci?: number
+          portal_count?: number
+          portals_seen?: string[]
+          prezzo_max?: number | null
+          prezzo_min?: number | null
+          quartiere?: string | null
+          urls?: string[]
+        }
+        Relationships: []
+      }
       padova_subito_staging: {
         Row: {
           fetched_at: string
