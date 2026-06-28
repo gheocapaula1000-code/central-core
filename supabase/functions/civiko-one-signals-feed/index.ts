@@ -151,7 +151,8 @@ function buildItem(
   if (norm.invalid) flags.push("invalid_price");
   if (zone_code === UNRESOLVED_OMI_CODE) flags.push("unresolved_zone");
   const qualityScore = Math.max(0, 100 - flags.length * 30);
-  return {
+  const needsReviewBase = flags.includes("invalid_price") || partial.needs_review === true;
+  const item: FeedItem = {
     source_id: partial.source_id,
     signal_type: partial.signal_type,
     title: partial.title?.trim() || "(senza titolo)",
@@ -167,8 +168,16 @@ function buildItem(
     score: Number.isFinite(partial.score as number) ? Number(partial.score) : 0,
     last_seen_at: partial.last_seen_at || new Date().toISOString(),
     raw_ref: partial.raw_ref || "",
-    data_quality: { score: qualityScore, flags, needs_review: flags.includes("invalid_price") },
+    data_quality: { score: qualityScore, flags, needs_review: needsReviewBase },
   };
+  if (partial.evidence_type) item.evidence_type = partial.evidence_type;
+  if (partial.label_pubblica) item.label_pubblica = partial.label_pubblica;
+  if (partial.portals_seen) item.portals_seen = partial.portals_seen;
+  if (typeof partial.agency_count_distinct === "number") item.agency_count_distinct = partial.agency_count_distinct;
+  if (partial.agencies_normalized) item.agencies_normalized = partial.agencies_normalized;
+  if (typeof partial.needs_review === "boolean") item.needs_review = partial.needs_review;
+  if (partial.operator_note) item.operator_note = partial.operator_note;
+  return item;
 }
 
 function normalizeForKey(s: string | null | undefined): string {
