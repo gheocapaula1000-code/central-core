@@ -171,7 +171,8 @@ async function persistPadovaCollectV2(
       mq: l.surface_sqm,
       locali: l.rooms,
       bagni: null,
-      agency: l.agency_name ?? `portal:${normalizePortalName(l.source)}`,
+      // Solo agenzie REALI: niente fallback "portal:xxx" che gonfia n_agenzie cross-portal.
+      agency: l.agency_name && l.agency_name.trim() ? l.agency_name.trim() : null,
       tipologia: l.property_type,
       cluster_key: computeCollectClusterKey(l),
       parse_status: "radar_ingested",

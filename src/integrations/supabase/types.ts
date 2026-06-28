@@ -5170,6 +5170,9 @@ export type Database = {
       }
       padova_contendibili: {
         Row: {
+          agencies_normalized: string[] | null
+          agency_count_distinct: number | null
+          agency_count_raw: number | null
           agenzie: string[]
           bagni: number | null
           chiave_match: string
@@ -5186,6 +5189,7 @@ export type Database = {
           mq: number | null
           n_agenzie: number
           n_annunci: number
+          portals_seen: string[] | null
           prezzo_immobile_eur_mq: number | null
           prezzo_max: number | null
           prezzo_medio_zona_eur_mq: number | null
@@ -5194,6 +5198,9 @@ export type Database = {
           urls: string[]
         }
         Insert: {
+          agencies_normalized?: string[] | null
+          agency_count_distinct?: number | null
+          agency_count_raw?: number | null
           agenzie: string[]
           bagni?: number | null
           chiave_match: string
@@ -5210,6 +5217,7 @@ export type Database = {
           mq?: number | null
           n_agenzie: number
           n_annunci: number
+          portals_seen?: string[] | null
           prezzo_immobile_eur_mq?: number | null
           prezzo_max?: number | null
           prezzo_medio_zona_eur_mq?: number | null
@@ -5218,6 +5226,9 @@ export type Database = {
           urls: string[]
         }
         Update: {
+          agencies_normalized?: string[] | null
+          agency_count_distinct?: number | null
+          agency_count_raw?: number | null
           agenzie?: string[]
           bagni?: number | null
           chiave_match?: string
@@ -5234,6 +5245,7 @@ export type Database = {
           mq?: number | null
           n_agenzie?: number
           n_annunci?: number
+          portals_seen?: string[] | null
           prezzo_immobile_eur_mq?: number | null
           prezzo_max?: number | null
           prezzo_medio_zona_eur_mq?: number | null
