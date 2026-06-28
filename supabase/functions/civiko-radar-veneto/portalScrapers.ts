@@ -183,7 +183,7 @@ async function scrapeCasaViaMarkdown(
       body: JSON.stringify({
         url,
         formats: ["markdown"],
-        onlyMainContent: true,
+        onlyMainContent: false,
         headers: {
           "User-Agent": pickUA(),
           "Accept-Language": pickLang(),
