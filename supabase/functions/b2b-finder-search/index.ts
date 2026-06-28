@@ -670,7 +670,7 @@ Deno.serve(async (req: Request) => {
             sample_count: results.length,
             saved_count: savedCount,
             in_scope_count: matchedRequested,
-            results: savedResults.map((r) => ({ ...decorate(r), company_id: r.company_id })),
+            results: savedResults.map((r) => ({ ...decorate(r), company_id: r.company_id, duplicate_risk: r.duplicate_risk })),
           },
           null,
           debug_id,
