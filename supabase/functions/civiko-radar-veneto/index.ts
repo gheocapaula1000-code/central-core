@@ -579,6 +579,39 @@ function getServiceClient() {
   return createClient(url, key);
 }
 
+async function fetchPadovaSourceFreshness(supa: ReturnType<typeof getServiceClient>) {
+  if (!supa) {
+    return {
+      newest_collect_processed_at: null as string | null,
+      newest_contendibile_created_at: null as string | null,
+      collect_count: null as number | null,
+      contendibili_count: null as number | null,
+    };
+  }
+  const [collectMax, contMax, collectCount, contCount] = await Promise.all([
+    supa.from("padova_collect_v2_items").select("processed_at").order("processed_at", { ascending: false, nullsFirst: false }).limit(1).maybeSingle(),
+    supa.from("padova_contendibili").select("created_at").order("created_at", { ascending: false, nullsFirst: false }).limit(1).maybeSingle(),
+    supa.from("padova_collect_v2_items").select("id", { count: "exact", head: true }),
+    supa.from("padova_contendibili").select("id", { count: "exact", head: true }),
+  ]);
+  return {
+    newest_collect_processed_at: (collectMax.data as any)?.processed_at ?? null,
+    newest_contendibile_created_at: (contMax.data as any)?.created_at ?? null,
+    collect_count: collectCount.count ?? null,
+    contendibili_count: contCount.count ?? null,
+  };
+}
+
+function buildProviderConfigStatus() {
+  return {
+    firecrawl: !!Deno.env.get("FIRECRAWL_API_KEY"),
+    apify: !!Deno.env.get("APIFY_TOKEN"),
+    perplexity: !!Deno.env.get("PERPLEXITY_API_KEY"),
+    openai: !!Deno.env.get("OPENAI_API_KEY"),
+    supabase_service_role: !!Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
+  };
+}
+
 async function fetchIstatComune(comune: string): Promise<IstatComuneRow | null> {
   const supa = getServiceClient();
   if (!supa) return null;
