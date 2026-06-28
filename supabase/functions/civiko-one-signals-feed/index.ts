@@ -92,7 +92,7 @@ function normalizePrice(value: unknown): { price: number | null; label: string; 
   return { price: n, label, invalid: false };
 }
 
-type SignalType = "contendibile" | "ribasso" | "privato" | "off_market";
+type SignalType = "contendibile" | "multi_portale" | "ribasso" | "privato" | "off_market";
 
 interface DataQuality {
   score: number;
@@ -117,6 +117,14 @@ interface FeedItem {
   last_seen_at: string;
   raw_ref: string;
   data_quality: DataQuality;
+  // Tassonomia segnali estesa (additive, non breaking)
+  evidence_type?: string;
+  label_pubblica?: string;
+  portals_seen?: string[];
+  agency_count_distinct?: number;
+  agencies_normalized?: string[];
+  needs_review?: boolean;
+  operator_note?: string;
 }
 
 function resolveZone(record: Record<string, unknown>): { code: string; label: string } {
