@@ -6,7 +6,10 @@ import { corsHeaders, handlePreflight, pickOrigin } from "../_shared/b2b/cors.ts
 import { authorizeB2BFinder } from "../_shared/b2b/auth.ts";
 
 const VERTICAL = "coprimacchia_tnt";
-const MODE = "buyers";
+// NB: legacy jobs are stored with mode="buyers"; new jobs may use "clients"/"resellers".
+// The actual search intent lives in metadata.search_mode. Do NOT filter by mode here —
+// it would hide resellers jobs even though the Core saves them correctly.
+const ACCEPTED_MODES = new Set(["buyers", "clients", "resellers"]);
 
 const STATUS_DB_TO_UI: Record<string, string> = {
   new: "to_contact",
