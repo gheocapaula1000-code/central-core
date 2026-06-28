@@ -618,7 +618,7 @@ Deno.serve(async (req: Request) => {
         if (r.priority === "high") high++;
         else if (r.priority === "medium") medium++;
         else low++;
-        savedResults.push({ ...r, company_id: companyId });
+        savedResults.push({ ...r, company_id: companyId, duplicate_risk: dRisk });
       }
 
       // Ledger
