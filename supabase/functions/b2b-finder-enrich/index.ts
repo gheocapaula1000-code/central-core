@@ -105,6 +105,12 @@ interface EnrichmentResult {
   suggested_offer_angle: string | null;
   price_advantage_angle: string | null;
   buyer_type: "Cliente Finale" | "Rivenditore" | "Fornitore" | "Da Verificare";
+  // v0.8 quality gate
+  data_quality_score: number;
+  phone_quality_score: number;
+  geo_quality_score: number;
+  duplicate_risk: "Basso" | "Medio" | "Alto";
+  data_quality_notes: string[];
 }
 
 
@@ -185,10 +191,15 @@ function normalizeItalianPhone(raw: string): string | null {
   else if (n.startsWith("39") && n.length >= 11) { /* keep */ }
   else if (/^[03]/.test(n)) n = "39" + n;
   if (n.length < 10 || n.length > 13) return null;
-  // Reject obvious junk patterns (all same digit, sequential)
   const bare = n.replace(/^39/, "");
-  if (/^(\d)\1+$/.test(bare)) return null;
+  // Hard rejections (junk / fake patterns)
+  if (/^(\d)\1+$/.test(bare)) return null;                 // tutti uguali
   if (bare.length < 8) return null;
+  if (new Set(bare).size <= 2) return null;                // <=2 cifre uniche → falso
+  if (/^0?1?23456789/.test(bare) || /^9876543210/.test(bare)) return null; // sequenziale
+  if (/^0000/.test(bare) || /^1111/.test(bare)) return null;
+  // Italian numbers: mobile must start with 3, landline with 0 (after the country code).
+  if (!/^[03]/.test(bare)) return null;
   return "+" + n;
 }
 
@@ -1161,14 +1172,60 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     : extraExclusion;
   const hasStrongExclusion = !!exclusion_reason || buyer_fit_score < 30;
 
-  // Ready-to-contact prefers leads with a verifiable phone (spec v0.6).
+  // ── v0.8 Quality scores ─────────────────────────────────────────────────────
+  // phone_quality_score: derived from phone_discovery confidence + cross-source corroboration.
+  let phone_quality_score = 0;
+  if (phoneDiscovery.found) {
+    phone_quality_score = phoneDiscovery.confidence;
+    // Penalize phones found only via public_search (no site corroboration)
+    if (phoneDiscovery.source === "public_search" && !ev.phone.fromSite) {
+      phone_quality_score = Math.min(phone_quality_score, 55);
+    }
+    // Penalize phones whose only corroboration is the existing OSM seed
+    if (phoneDiscovery.source === "existing" && !ev.phone.fromSite && !ev.phone.fromSearch) {
+      phone_quality_score = Math.min(phone_quality_score, 65);
+    }
+  }
+  // geo_quality_score: comes from search-layer decoration in company metadata, fallback heuristic.
+  const cMetaGeo = ((c.metadata ?? {}) as Record<string, unknown>);
+  const inScopeMeta = cMetaGeo["in_scope"];
+  const geoReason = String(cMetaGeo["geo_match_reason"] ?? "");
+  let geo_quality_score = 70;
+  if (inScopeMeta === true && geoReason === "city_and_bbox_match") geo_quality_score = 100;
+  else if (inScopeMeta === true && geoReason === "city_match_no_coords") geo_quality_score = 80;
+  else if (inScopeMeta === true) geo_quality_score = 75;
+  else if (inScopeMeta === false) geo_quality_score = 30;
+
+  // duplicate_risk: low by default; bumped by search layer pre-save (metadata.duplicate_risk).
+  const dupHint = String(cMetaGeo["duplicate_risk"] ?? "").toLowerCase();
+  let duplicate_risk: "Basso" | "Medio" | "Alto" =
+    dupHint === "alto" ? "Alto" : dupHint === "medio" ? "Medio" : "Basso";
+
+  // data_quality_score: weighted blend of completeness, phone, geo, fit.
+  const data_quality_score = Math.round(
+    data_completeness_score * 0.30 +
+    phone_quality_score      * 0.30 +
+    geo_quality_score        * 0.20 +
+    Math.min(100, buyer_fit_score) * 0.20
+  );
+
+  const data_quality_notes: string[] = [];
+  if (!phoneDiscovery.found) data_quality_notes.push("Telefono non trovato nelle fonti pubbliche consultate.");
+  if (phoneDiscovery.found && phone_quality_score < 60) data_quality_notes.push("Telefono presente ma con bassa corroborazione.");
+  if (geo_quality_score < 60) data_quality_notes.push("Comune del risultato non confermato rispetto alla ricerca.");
+  if (duplicate_risk !== "Basso") data_quality_notes.push(`Possibile duplicato cross-comune (${duplicate_risk}).`);
+  if (severeConflict) data_quality_notes.push("Conflitto dominio sito web rilevato.");
+
+  // Ready-to-contact: phone richiesto, fit/contact sufficienti, comune corretto, niente duplicato alto, niente conflitto.
   const ready_to_contact =
     buyer_fit_score >= 60 &&
     contactability_score >= 50 &&
     !severeConflict &&
     !hasStrongExclusion &&
     phoneDiscovery.found &&
-    phoneDiscovery.confidence >= 60;
+    phoneDiscovery.confidence >= 60 &&
+    geo_quality_score >= 60 &&
+    duplicate_risk !== "Alto";
 
   // Status suggestion
   let status_suggestion: "Pronto Da Contattare" | "Da Migliorare" | "Escluso";
@@ -1223,9 +1280,10 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   let next_best_action = consolidated?.next_best_action ?? null;
   if (status_suggestion === "Escluso") {
     next_best_action = "Non contattare: bassa coerenza con il prodotto";
+  } else if (!finalPhone) {
+    next_best_action = "Trovare o verificare il telefono prima del contatto";
   } else if (!next_best_action) {
-    if (ready_to_contact) next_best_action = finalPhone ? "Chiamata commerciale al titolare" : "Email di presentazione mirata";
-    else if (!finalPhone && !finalEmail) next_best_action = "Recuperare un canale di contatto prima di procedere";
+    if (ready_to_contact) next_best_action = "Chiamata commerciale al titolare";
     else if (buyer_fit_score < 60) next_best_action = "Qualificare il fit prima del contatto";
     else next_best_action = "Verificare dati mancanti prima del contatto";
   }
@@ -1292,6 +1350,12 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     suggested_offer_angle: consolidated?.suggested_offer_angle ?? null,
     price_advantage_angle: consolidated?.price_advantage_angle ?? (searchMode === "resellers" ? "Prezzo competitivo, da confermare con listino di confronto" : null),
     buyer_type,
+    // v0.8 quality gate
+    data_quality_score,
+    phone_quality_score,
+    geo_quality_score,
+    duplicate_risk,
+    data_quality_notes,
   };
 
   return { result, providers: uniq(providers), cost };

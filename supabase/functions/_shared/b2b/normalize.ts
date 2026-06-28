@@ -258,6 +258,17 @@ export function scoreAndNormalize(
   const hasStrong = strongLabels.length > 0;
   const hasContact = !!phone || websiteOk;
 
+  // ── Hard filter (resellers): drop pure food consumers without ANY reseller signal.
+  // Coerente con la richiesta "in modalità resellers non voglio ristoranti/bar/pizzerie puri".
+  if (search_mode === "resellers" && isFoodConsumer && !hasStrong) {
+    const hasResellerShopTag =
+      tags.shop === "wholesale" || tags.shop === "houseware" ||
+      tags.shop === "trade" || tags.shop === "party" ||
+      tags.shop === "department_store" || tags.shop === "variety_store" ||
+      tags.shop === "doityourself";
+    if (!hasResellerShopTag) return null;
+  }
+
   let priority: "high" | "medium" | "low";
   if (search_mode === "resellers" && isFoodConsumer) {
     priority = "low";

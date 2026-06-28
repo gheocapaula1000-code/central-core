@@ -79,7 +79,7 @@ function jsonResponse(
       ...corsHeaders(req),
       "Content-Type": "application/json",
       "X-Function": "b2b-finder-search",
-      "X-Contract": "b2b-finder/v0.7",
+      "X-Contract": "b2b-finder/v0.8",
     },
   });
 }
@@ -92,6 +92,8 @@ function normalizeForHash(s: string | null | undefined): string {
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 }
+
+function uniq<T>(a: T[]): T[] { return Array.from(new Set(a)); }
 
 async function sha256Hex(input: string): Promise<string> {
   const data = new TextEncoder().encode(input);
@@ -424,13 +426,63 @@ Deno.serve(async (req: Request) => {
     // ── SAVE path ─────────────────────────────────────────────────────────
     let savedCount = 0;
     let high = 0, medium = 0, low = 0;
-    const savedResults: Array<NormalizedCompany & { company_id: string }> = [];
+    const savedResults: Array<NormalizedCompany & { company_id: string; duplicate_risk: "Basso" | "Medio" | "Alto" }> = [];
+
+    // ── Cross-comune duplicate pre-scan ──────────────────────────────────
+    // Cerchiamo se gli stessi name/phone esistono già in b2b_companies in un comune diverso
+    // dallo scope corrente. Se sì, marchiamo duplicate_risk = "Alto" (o "Medio" se solo nome).
+    const candidatePhones = uniq(results.map((r) => r.phone).filter((p): p is string => !!p));
+    const candidateNamesNorm = uniq(results.map((r) => normalizeForHash(r.name)));
+    const dupPhoneOtherComune = new Set<string>();
+    const dupNameOtherComune = new Set<string>();
+    if (candidatePhones.length || candidateNamesNorm.length) {
+      try {
+        if (candidatePhones.length) {
+          const { data: dpRows } = await supabase!
+            .from("b2b_companies")
+            .select("phone,comune")
+            .in("phone", candidatePhones)
+            .limit(1000);
+          for (const row of dpRows ?? []) {
+            const ph = (row as { phone?: string }).phone;
+            const cm = normalizeForHash((row as { comune?: string }).comune ?? "");
+            if (ph && cm && cm !== normalizeForHash(scope.comune)) dupPhoneOtherComune.add(ph);
+          }
+        }
+        if (candidateNamesNorm.length) {
+          // Approssimazione: confrontiamo il nome lower-case esatto.
+          const rawNames = uniq(results.map((r) => r.name).filter((n): n is string => !!n));
+          const { data: dnRows } = await supabase!
+            .from("b2b_companies")
+            .select("name,comune")
+            .in("name", rawNames)
+            .limit(1000);
+          for (const row of dnRows ?? []) {
+            const nm = normalizeForHash((row as { name?: string }).name ?? "");
+            const cm = normalizeForHash((row as { comune?: string }).comune ?? "");
+            if (nm && cm && cm !== normalizeForHash(scope.comune)) dupNameOtherComune.add(nm);
+          }
+        }
+      } catch (e) {
+        warnings.push(`dup_prescan_skipped:${(e as Error).message?.slice(0, 80) ?? "err"}`);
+      }
+    }
+
+    const computeDupRisk = (r: NormalizedCompany): "Basso" | "Medio" | "Alto" => {
+      if (r.phone && dupPhoneOtherComune.has(r.phone)) return "Alto";
+      if (dupNameOtherComune.has(normalizeForHash(r.name))) return "Medio";
+      return "Basso";
+    };
 
     try {
       const productKey = detectProductKey(input.product);
       for (const r of results) {
         const identity_hash = await computeIdentityHash(r, resolvedScopeKey, searchMode, productKey);
         const confidence = Math.max(0, Math.min(1, r.score / 100));
+        const dRisk = computeDupRisk(r);
+
+        // geo decoration for this record (mirrors decorate() above)
+        const dec = decorate(r);
 
         // Try to find existing
         const { data: existingRows, error: selErr } = await supabase!
@@ -471,8 +523,16 @@ Deno.serve(async (req: Request) => {
               buyer_type_hint: r.buyer_type_hint,
               product_key: productKey,
               product_name: input.product ?? null,
+              // v0.8 quality gate hints (read by b2b-finder-enrich)
+              requested_city: dec.requested_city,
+              resolved_scope_key: dec.resolved_scope_key,
+              result_city: dec.result_city,
+              in_scope: dec.in_scope,
+              geo_match_reason: dec.geo_match_reason,
+              duplicate_risk: dRisk,
             },
           };
+
 
           const { data: newRow, error: insErr } = await supabase!
             .from("b2b_companies")
@@ -485,7 +545,20 @@ Deno.serve(async (req: Request) => {
           companyId = existing.id as string;
           // Only patch contact fields that are currently missing on existing row.
           const existingMeta = ((existing.metadata ?? {}) as Record<string, unknown>);
-          const mergedMeta = { ...existingMeta, search_mode: existingMeta.search_mode ?? searchMode, buyer_type_hint: existingMeta.buyer_type_hint ?? r.buyer_type_hint, product_key: existingMeta.product_key ?? productKey, product_name: existingMeta.product_name ?? (input.product ?? null) };
+          const mergedMeta = {
+            ...existingMeta,
+            search_mode: existingMeta.search_mode ?? searchMode,
+            buyer_type_hint: existingMeta.buyer_type_hint ?? r.buyer_type_hint,
+            product_key: existingMeta.product_key ?? productKey,
+            product_name: existingMeta.product_name ?? (input.product ?? null),
+            // v0.8: refresh geo + duplicate hints each run
+            requested_city: dec.requested_city,
+            resolved_scope_key: dec.resolved_scope_key,
+            result_city: dec.result_city,
+            in_scope: dec.in_scope,
+            geo_match_reason: dec.geo_match_reason,
+            duplicate_risk: dRisk,
+          };
           const prevSourceCount = Number(existing.source_count ?? 0);
           const patch: Record<string, unknown> = {
             last_seen_at: new Date().toISOString(),
@@ -547,7 +620,7 @@ Deno.serve(async (req: Request) => {
         if (r.priority === "high") high++;
         else if (r.priority === "medium") medium++;
         else low++;
-        savedResults.push({ ...r, company_id: companyId });
+        savedResults.push({ ...r, company_id: companyId, duplicate_risk: dRisk });
       }
 
       // Ledger
@@ -599,7 +672,7 @@ Deno.serve(async (req: Request) => {
             sample_count: results.length,
             saved_count: savedCount,
             in_scope_count: matchedRequested,
-            results: savedResults.map((r) => ({ ...decorate(r), company_id: r.company_id })),
+            results: savedResults.map((r) => ({ ...decorate(r), company_id: r.company_id, duplicate_risk: r.duplicate_risk })),
           },
           null,
           debug_id,
