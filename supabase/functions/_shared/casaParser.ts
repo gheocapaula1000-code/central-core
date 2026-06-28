@@ -37,7 +37,7 @@ const TITLE_LINK_RE =
   /(^|[^!])\[([^\]\n]+?)\]\(https:\/\/www\.casa\.it\/immobili\/(\d+)\/[^)]*\)/g;
 
 const AGENCY_LINK_RE =
-  /\[([^\]\n]+?)\]\(https:\/\/www\.casa\.it\/agenzie\/([a-z0-9-]+?)\/?[^)]*\)/i;
+  /\[([^\]\n]+?)\]\(https:\/\/www\.casa\.it\/agenzie\/([a-z0-9-]+)\/?[^)]*\)/i;
 
 const PRICE_RE = /€\s*([\d.]+)(?!\s*m)/; // evita di prendere "€/mq"
 const SURFACE_RE = /(\d{2,5})\s*m²/;
