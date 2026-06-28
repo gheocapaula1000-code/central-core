@@ -243,6 +243,43 @@ export function scoreAndNormalize(
   }
   let score = baseScore + kwBonus;
 
+  // v0.9 — Coprimacchia TNT clients: category penalties / bonuses
+  if (search_mode === "clients") {
+    const nameLc = (poi.name ?? "").toLowerCase();
+    const cuisine = (tags.cuisine ?? "").toLowerCase();
+    const capacityNum = parseInt(tags.capacity ?? "", 10);
+
+    // Penalties -30 (off-target for TNT tablecovers)
+    if (cat === "ice_cream" || /gelateria/.test(nameLc)) {
+      score -= 30; strongLabels.push("off-target: gelateria");
+    } else if (cat === "fast_food" && !/tavola[\s_-]?calda/.test(nameLc)) {
+      score -= 30; strongLabels.push("off-target: fast_food");
+    } else if (cat === "bar" && !/(tavola[\s_-]?calda|pranzo)/.test(nameLc)) {
+      score -= 30; strongLabels.push("off-target: bar puro");
+    } else if (cat === "nightclub" || cat === "pub" || /birreria/.test(nameLc)) {
+      score -= 30; strongLabels.push("off-target: nightlife/pub");
+    } else if (
+      cat === "bakery" || tags.shop === "bakery" || tags.shop === "pastry" ||
+      /pasticceria|panificio/.test(nameLc)
+    ) {
+      score -= 30; strongLabels.push("off-target: bakery/pasticceria");
+    }
+
+    // Bonuses +20 (high-fit for TNT tablecovers)
+    if (cat === "food_court" || /\b(mensa|canteen|self[\s-]?service)\b/.test(haystack)) {
+      score += 20; strongLabels.push("target: mensa/canteen");
+    }
+    if (/\b(trattoria|osteria)\b/.test(nameLc) || /\b(trattoria|osteria)\b/.test(cuisine)) {
+      score += 20; strongLabels.push("target: trattoria/osteria");
+    }
+    if (
+      cat === "restaurant" && /(italian|pizza)/.test(cuisine) &&
+      Number.isFinite(capacityNum) && capacityNum > 30
+    ) {
+      score += 20; strongLabels.push("target: ristorante italiano capacity>30");
+    }
+  }
+
   const phone = tags.phone || tags["contact:phone"] || null;
   const email = tags.email || tags["contact:email"] || null;
   const websiteRaw = tags.website || tags["contact:website"] || null;
