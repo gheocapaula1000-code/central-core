@@ -205,8 +205,8 @@ function mapOmi(pricing: Record<string, unknown> | null): SottraOmiHint | null {
   const zonaOmi = pickStr(pricing, "zonaOmi", "omiZone", "zona");
   const semestre = pickStr(pricing, "semestre", "period");
   const tipologia = pickStr(pricing, "tipologia", "propertyType");
-  const minRef = pickNum(pricing, "minRef", "minPriceSqm", "min", "valoreMinimo");
-  const maxRef = pickNum(pricing, "maxRef", "maxPriceSqm", "max", "valoreMassimo");
+  const minRef = pickNum(pricing, "prezzoMqMin", "minRef", "minPriceSqm", "min", "valoreMinimo");
+  const maxRef = pickNum(pricing, "prezzoMqMax", "maxRef", "maxPriceSqm", "max", "valoreMassimo");
   const matchMethod = pickStr(pricing, "matchMethod");
 
   const items: OmiDisplayItem[] = [];
