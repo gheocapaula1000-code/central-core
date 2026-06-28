@@ -399,6 +399,7 @@ export async function scrapeRibassiPortali(
   }
 
   const listings = await scrapeAllPortals(municipality, firecrawlKey, province ?? "", mode, meta, stats);
+  if (stats) stats.raw_items_found = (stats.raw_items_found ?? 0) + listings.length;
   console.log("[DEBUG ribassiPortali] scrapeAllPortals returned:", {
     municipality,
     total: listings.length,
@@ -406,6 +407,22 @@ export async function scrapeRibassiPortali(
     sample: listings.slice(0, 2).map((l) => ({ source: l.source, title: l.title?.slice(0, 60), price_eur: l.price_eur, url: l.url?.slice(0, 80) })),
   });
   if (listings.length === 0) return [];
+
+  // Root-cause fix: the cron pipeline was writing only listing_price_snapshots
+  // and motivated_sellers. Civiko One's feed reads padova_collect_v2_items and
+  // padova_contendibili, so Padova cron runs looked green but the feed sources
+  // stayed frozen. Persist the fresh portal scrape into Collect V2 here, before
+  // scoring opportunities; failures are diagnostic and do not hide provider data.
+  if (municipality.trim().toLowerCase() === "padova" && (province ?? "PD").toUpperCase() === "PD") {
+    try {
+      const persisted = await persistPadovaCollectV2(supabase, municipality, province, listings, stats);
+      console.log("[ribassiPortali] padova_collect_v2 bridge:", persisted);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn("[ribassiPortali] padova_collect_v2 bridge error:", msg);
+      if (stats) stats.collect_errors = [...(stats.collect_errors ?? []), `bridge_exception:${msg}`];
+    }
+  }
 
   const opportunita: OpportunitaOffMarket[] = [];
   const nowIso = new Date().toISOString();
