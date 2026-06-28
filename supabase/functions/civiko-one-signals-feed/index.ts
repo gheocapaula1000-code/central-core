@@ -327,6 +327,7 @@ serve(async (req: Request) => {
   // RIBASSI + PRIVATI from padova_collect_v2_items
   const needCollect = includeSet.has("ribassi") || includeSet.has("privati");
   if (needCollect) {
+    await probeFreshness("padova_collect_v2_items", false, false);
     const { data, error } = await supabase
       .from("padova_collect_v2_items")
       .select("id, portal, listing_id, url, raw_address, citta, cap, lat, lng, omi_zone, quartiere, prezzo, prezzo_iniziale, mq, locali, agency, contendibile, created_at, processed_at")
