@@ -12,6 +12,7 @@ import { normalizePropertyType, type PropertyType } from "./listingIdentity.ts";
 import { getApifyToken } from "../_shared/apify.ts";
 import { canSpendApify, recordApifySpend } from "../_shared/apifyBudget.ts";
 import type { RadarRunMeta } from "../_shared/radarBudget.ts";
+import { parseCasaListPage } from "../_shared/casaParser.ts";
 
 export interface PortalIngestionStat {
   source: NormalizedListing["source"] | "apify_fallback";
