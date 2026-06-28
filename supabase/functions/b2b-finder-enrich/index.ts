@@ -105,6 +105,12 @@ interface EnrichmentResult {
   suggested_offer_angle: string | null;
   price_advantage_angle: string | null;
   buyer_type: "Cliente Finale" | "Rivenditore" | "Fornitore" | "Da Verificare";
+  // v0.8 quality gate
+  data_quality_score: number;
+  phone_quality_score: number;
+  geo_quality_score: number;
+  duplicate_risk: "Basso" | "Medio" | "Alto";
+  data_quality_notes: string[];
 }
 
 
