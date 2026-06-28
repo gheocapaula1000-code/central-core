@@ -501,6 +501,7 @@ serve(async (req: Request) => {
   const summary = {
     total: trimmed.length,
     contendibili: 0,
+    multi_portale: 0,
     privati: 0,
     ribassi: 0,
     off_market: 0,
@@ -508,8 +509,11 @@ serve(async (req: Request) => {
     invalid_price: 0,
     duplicates_removed: duplicatesRemoved,
   };
+  const countBySignalType: Record<string, number> = {};
   for (const it of trimmed) {
+    countBySignalType[it.signal_type] = (countBySignalType[it.signal_type] ?? 0) + 1;
     if (it.signal_type === "contendibile") summary.contendibili++;
+    else if (it.signal_type === "multi_portale") summary.multi_portale++;
     else if (it.signal_type === "ribasso") summary.ribassi++;
     else if (it.signal_type === "privato") summary.privati++;
     else if (it.signal_type === "off_market") summary.off_market++;
