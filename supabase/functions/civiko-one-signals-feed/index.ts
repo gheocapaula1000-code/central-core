@@ -250,6 +250,30 @@ serve(async (req: Request) => {
     if (!lastProviderRefresh || ts > lastProviderRefresh) lastProviderRefresh = ts;
   };
 
+  // Freshness probes per source (independent of selected rows)
+  const sourceFreshness: Record<string, { max_created_at: string | null; max_updated_at: string | null; max_last_seen_at: string | null; rows_last_24h: number | null }> = {};
+  async function probeFreshness(table: string, hasUpdated: boolean, hasLastSeen: boolean, filterCol?: string, filterVal?: string) {
+    try {
+      const cols = ["created_at"];
+      if (hasUpdated) cols.push("updated_at");
+      if (hasLastSeen) cols.push("last_seen_at");
+      let q = supabase.from(table).select(cols.join(","), { count: "exact", head: false }).order("created_at", { ascending: false }).limit(1);
+      if (filterCol && filterVal) q = q.ilike(filterCol, filterVal);
+      const { data } = await q;
+      const top = (data && data[0]) as Record<string, unknown> | undefined;
+      const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+      const { count } = await supabase.from(table).select("id", { count: "exact", head: true }).gte("created_at", since);
+      sourceFreshness[table] = {
+        max_created_at: (top?.created_at as string) ?? null,
+        max_updated_at: hasUpdated ? (top?.updated_at as string) ?? null : null,
+        max_last_seen_at: hasLastSeen ? (top?.last_seen_at as string) ?? null : null,
+        rows_last_24h: count ?? null,
+      };
+    } catch (e) {
+      sourceFreshness[table] = { max_created_at: null, max_updated_at: null, max_last_seen_at: null, rows_last_24h: null };
+    }
+  }
+
   // CONTENDIBILI — from padova_contendibili (already computed cross-portal matches)
   if (includeSet.has("contendibili")) {
     const { data, error } = await supabase
