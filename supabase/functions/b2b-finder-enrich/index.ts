@@ -1350,6 +1350,12 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     suggested_offer_angle: consolidated?.suggested_offer_angle ?? null,
     price_advantage_angle: consolidated?.price_advantage_angle ?? (searchMode === "resellers" ? "Prezzo competitivo, da confermare con listino di confronto" : null),
     buyer_type,
+    // v0.8 quality gate
+    data_quality_score,
+    phone_quality_score,
+    geo_quality_score,
+    duplicate_risk,
+    data_quality_notes,
   };
 
   return { result, providers: uniq(providers), cost };
