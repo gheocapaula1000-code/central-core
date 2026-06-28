@@ -552,15 +552,23 @@ async function apifyDiscover(name: string, locality: string | null): Promise<Api
 
 // ── Perplexity ───────────────────────────────────────────────────────────────
 
-async function perplexityFindContacts(name: string, hintLocality: string | null): Promise<{ website: string | null; phone: string | null; email: string | null; sources: string[] } | null> {
+async function perplexityFindContacts(name: string, hintLocality: string | null, hintAddress: string | null = null): Promise<{ website: string | null; phone: string | null; email: string | null; sources: string[] } | null> {
   if (isOpen("perplexity")) return null;
   const key = Deno.env.get("PERPLEXITY_API_KEY"); if (!key) return null;
   try {
-    const prompt = `Trova SOLO da fonti ufficiali per l'attività "${name}"${hintLocality ? ` a ${hintLocality}` : ""}:
-- sito ufficiale (URL)
-- telefono pubblicato
-- email pubblicata
-Restituisci JSON: {"website":..., "phone":..., "email":...}. Se non trovi una fonte ufficiale, metti null. Non inventare.`;
+    const addrPart = hintAddress ? ` ${hintAddress}` : "";
+    const cityPart = hintLocality ? ` ${hintLocality}` : "";
+    // Phone-first query (priorità assoluta al telefono pubblicato).
+    const phoneQuery = `numero di telefono ${name}${addrPart}${cityPart}`.trim();
+    const prompt = `Priorità assoluta: trova il NUMERO DI TELEFONO pubblicato per l'attività.
+Query di ricerca da eseguire: "${phoneQuery}"
+
+Per l'attività "${name}"${hintLocality ? ` a ${hintLocality}` : ""}${hintAddress ? ` (${hintAddress})` : ""} cerca SOLO da fonti ufficiali:
+1) TELEFONO pubblicato (campo obbligatorio se esiste — è la priorità)
+2) sito ufficiale (URL)
+3) email pubblicata
+
+Restituisci JSON: {"phone":..., "website":..., "email":...}. Se non trovi una fonte ufficiale per un campo, metti null. Non inventare.`;
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 20000);
     const r = await fetch("https://api.perplexity.ai/chat/completions", {
@@ -569,7 +577,7 @@ Restituisci JSON: {"website":..., "phone":..., "email":...}. Se non trovi una fo
       body: JSON.stringify({
         model: "sonar",
         messages: [
-          { role: "system", content: "Sei un assistente di ricerca. Rispondi solo con JSON valido." },
+          { role: "system", content: "Sei un assistente di ricerca specializzato nel reperimento di numeri di telefono aziendali pubblici. Rispondi solo con JSON valido. Il telefono è il campo prioritario." },
           { role: "user", content: prompt },
         ],
         max_tokens: 400,
@@ -1002,7 +1010,7 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     providers.push("perplexity");
     phoneCheckedSources.add("public_search");
     const locality = c.comune ?? (c.address ?? "").split(",").pop()?.trim() ?? null;
-    const px = await perplexityFindContacts(c.name, locality);
+    const px = await perplexityFindContacts(c.name, locality, c.address ?? null);
     cost += COST.perplexitySearch; ctx.spend(COST.perplexitySearch);
     if (px) {
       if (!website && px.website) { website = px.website; pxWebsite = px.website; ev.website.fromSearch = true; }
