@@ -2995,6 +2995,54 @@ export type Database = {
         }
         Relationships: []
       }
+      listing_agency_enrichment: {
+        Row: {
+          agency_logo_url: string | null
+          agency_phone: string | null
+          agency_url: string | null
+          confidence: string | null
+          enriched_at: string
+          error: string | null
+          extraction_method: string | null
+          id: number
+          listing_url: string
+          normalized_agency_name: string | null
+          portal: string
+          raw_agency_name: string | null
+          raw_excerpt: Json | null
+        }
+        Insert: {
+          agency_logo_url?: string | null
+          agency_phone?: string | null
+          agency_url?: string | null
+          confidence?: string | null
+          enriched_at?: string
+          error?: string | null
+          extraction_method?: string | null
+          id?: number
+          listing_url: string
+          normalized_agency_name?: string | null
+          portal: string
+          raw_agency_name?: string | null
+          raw_excerpt?: Json | null
+        }
+        Update: {
+          agency_logo_url?: string | null
+          agency_phone?: string | null
+          agency_url?: string | null
+          confidence?: string | null
+          enriched_at?: string
+          error?: string | null
+          extraction_method?: string | null
+          id?: number
+          listing_url?: string
+          normalized_agency_name?: string | null
+          portal?: string
+          raw_agency_name?: string | null
+          raw_excerpt?: Json | null
+        }
+        Relationships: []
+      }
       listing_bridge_jobs: {
         Row: {
           created_at: string
