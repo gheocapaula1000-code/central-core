@@ -206,7 +206,8 @@ async function scrapeCasaViaMarkdown(
       return [];
     }
     const parsed = parseCasaListPage(md, url);
-    console.log(`[DEBUG portalScrapers] casa.it parsed listings: ${parsed.length}`);
+    const linkMatches = (md.match(/casa\.it\/immobili\/\d+/g) ?? []).length;
+    console.log(`[DEBUG portalScrapers] casa.it md_len=${md.length} immobili_links=${linkMatches} parsed=${parsed.length} head=${JSON.stringify(md.slice(0, 200))}`);
     const out: NormalizedListing[] = [];
     for (const p of parsed) {
       const id = config.idFromLink(p.source_url) ?? `casa-${p.listing_id}`;
