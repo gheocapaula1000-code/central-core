@@ -30,10 +30,24 @@ interface SearchInput {
 type SearchMode = "clients" | "resellers";
 
 function resolveSearchMode(input: SearchInput): SearchMode | "suppliers_rejected" {
-  const raw = String(input.search_mode ?? input.intent ?? "").toLowerCase().trim();
+  // Accept any of: search_mode, mode, intent (in that order of precedence).
+  // PWA may use either contract — Core must understand both.
+  const raw = String(input.search_mode ?? input.mode ?? input.intent ?? "").toLowerCase().trim();
   if (!raw) return "clients";
-  if (raw === "resellers" || raw === "cerco_rivenditori" || raw === "rivenditori") return "resellers";
-  if (raw === "suppliers" || raw === "cerco_fornitori" || raw === "fornitori" || raw === "produttori" || raw === "cerco_produttori") return "suppliers_rejected";
+  if (
+    raw === "resellers" || raw === "reseller" ||
+    raw === "cerco_rivenditori" || raw === "rivenditori"
+  ) return "resellers";
+  if (
+    raw === "suppliers" || raw === "supplier" ||
+    raw === "cerco_fornitori" || raw === "fornitori" || raw === "fornitore" ||
+    raw === "produttori" || raw === "cerco_produttori" || raw === "produttore"
+  ) return "suppliers_rejected";
+  if (
+    raw === "clients" || raw === "client" ||
+    raw === "cerco_clienti" || raw === "clienti" || raw === "cliente" ||
+    raw === "buyers" || raw === "buyer"
+  ) return "clients";
   return "clients";
 }
 
