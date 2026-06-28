@@ -276,10 +276,12 @@ serve(async (req: Request) => {
 
   // CONTENDIBILI — from padova_contendibili (already computed cross-portal matches)
   if (includeSet.has("contendibili")) {
+    await probeFreshness("padova_contendibili", false, false);
     const { data, error } = await supabase
       .from("padova_contendibili")
       .select("id, chiave_match, n_agenzie, confidenza, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, created_at, prezzo_immobile_eur_mq, differenza_zona_pct, giorni_sul_mercato")
       .gte("n_agenzie", 2)
+      .order("created_at", { ascending: false, nullsFirst: false })
       .order("n_agenzie", { ascending: false })
       .limit(limit);
     if (error) {
