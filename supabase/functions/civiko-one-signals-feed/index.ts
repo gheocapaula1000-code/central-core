@@ -250,12 +250,38 @@ serve(async (req: Request) => {
     if (!lastProviderRefresh || ts > lastProviderRefresh) lastProviderRefresh = ts;
   };
 
+  // Freshness probes per source (independent of selected rows)
+  const sourceFreshness: Record<string, { max_created_at: string | null; max_updated_at: string | null; max_last_seen_at: string | null; rows_last_24h: number | null }> = {};
+  async function probeFreshness(table: string, hasUpdated: boolean, hasLastSeen: boolean, filterCol?: string, filterVal?: string) {
+    try {
+      const cols = ["created_at"];
+      if (hasUpdated) cols.push("updated_at");
+      if (hasLastSeen) cols.push("last_seen_at");
+      let q = supabase.from(table).select(cols.join(","), { count: "exact", head: false }).order("created_at", { ascending: false }).limit(1);
+      if (filterCol && filterVal) q = q.ilike(filterCol, filterVal);
+      const { data } = await q;
+      const top = (data && data[0]) as Record<string, unknown> | undefined;
+      const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+      const { count } = await supabase.from(table).select("id", { count: "exact", head: true }).gte("created_at", since);
+      sourceFreshness[table] = {
+        max_created_at: (top?.created_at as string) ?? null,
+        max_updated_at: hasUpdated ? (top?.updated_at as string) ?? null : null,
+        max_last_seen_at: hasLastSeen ? (top?.last_seen_at as string) ?? null : null,
+        rows_last_24h: count ?? null,
+      };
+    } catch (e) {
+      sourceFreshness[table] = { max_created_at: null, max_updated_at: null, max_last_seen_at: null, rows_last_24h: null };
+    }
+  }
+
   // CONTENDIBILI — from padova_contendibili (already computed cross-portal matches)
   if (includeSet.has("contendibili")) {
+    await probeFreshness("padova_contendibili", false, false);
     const { data, error } = await supabase
       .from("padova_contendibili")
       .select("id, chiave_match, n_agenzie, confidenza, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, created_at, prezzo_immobile_eur_mq, differenza_zona_pct, giorni_sul_mercato")
       .gte("n_agenzie", 2)
+      .order("created_at", { ascending: false, nullsFirst: false })
       .order("n_agenzie", { ascending: false })
       .limit(limit);
     if (error) {
@@ -301,6 +327,7 @@ serve(async (req: Request) => {
   // RIBASSI + PRIVATI from padova_collect_v2_items
   const needCollect = includeSet.has("ribassi") || includeSet.has("privati");
   if (needCollect) {
+    await probeFreshness("padova_collect_v2_items", false, false);
     const { data, error } = await supabase
       .from("padova_collect_v2_items")
       .select("id, portal, listing_id, url, raw_address, citta, cap, lat, lng, omi_zone, quartiere, prezzo, prezzo_iniziale, mq, locali, agency, contendibile, created_at, processed_at")
@@ -352,6 +379,7 @@ serve(async (req: Request) => {
 
   // OFF_MARKET
   if (includeSet.has("off_market")) {
+    await probeFreshness("early_offmarket_signal_candidates", true, false, "comune", city);
     const { data, error } = await supabase
       .from("early_offmarket_signal_candidates")
       .select("*")
@@ -388,8 +416,11 @@ serve(async (req: Request) => {
   // Dedupe
   const { kept, removed: duplicatesRemoved } = dedupeItems(rawItems);
 
-  // Sort & trim
-  kept.sort((a, b) => b.score - a.score || (b.last_seen_at > a.last_seen_at ? 1 : -1));
+  // Sort & trim — freshness primary, score secondary (so new ingestions surface immediately)
+  kept.sort((a, b) => {
+    if (a.last_seen_at !== b.last_seen_at) return a.last_seen_at > b.last_seen_at ? -1 : 1;
+    return b.score - a.score;
+  });
   const trimmed = kept.slice(0, limit);
 
   const summary = {
@@ -409,6 +440,34 @@ serve(async (req: Request) => {
     else if (it.signal_type === "off_market") summary.off_market++;
     if (it.zone_code === UNRESOLVED_OMI_CODE) summary.unresolved_zone++;
     if (it.data_quality.flags.includes("invalid_price")) summary.invalid_price++;
+  }
+
+  // Feed-level freshness extremes
+  let oldestCreated: string | null = null, newestCreated: string | null = null;
+  let oldestSeen: string | null = null, newestSeen: string | null = null;
+  const uniqueSourceIds = new Set<string>();
+  for (const it of trimmed) {
+    uniqueSourceIds.add(it.source_id);
+    const ls = it.last_seen_at;
+    if (ls) {
+      if (!oldestSeen || ls < oldestSeen) oldestSeen = ls;
+      if (!newestSeen || ls > newestSeen) newestSeen = ls;
+    }
+    // FeedItem doesn't carry created_at separately; reuse last_seen_at as proxy
+    if (ls) {
+      if (!oldestCreated || ls < oldestCreated) oldestCreated = ls;
+      if (!newestCreated || ls > newestCreated) newestCreated = ls;
+    }
+  }
+
+  // Aggregate newest across all probed source tables
+  let newestSourceCreated: string | null = null;
+  let newestSourceUpdated: string | null = null;
+  let newestSourceLastSeen: string | null = null;
+  for (const v of Object.values(sourceFreshness)) {
+    if (v.max_created_at && (!newestSourceCreated || v.max_created_at > newestSourceCreated)) newestSourceCreated = v.max_created_at;
+    if (v.max_updated_at && (!newestSourceUpdated || v.max_updated_at > newestSourceUpdated)) newestSourceUpdated = v.max_updated_at;
+    if (v.max_last_seen_at && (!newestSourceLastSeen || v.max_last_seen_at > newestSourceLastSeen)) newestSourceLastSeen = v.max_last_seen_at;
   }
 
   const generatedAt = new Date().toISOString();
@@ -431,7 +490,22 @@ serve(async (req: Request) => {
       requested_limit: limit,
       included: include,
       sources_used: sourcesUsed,
+      source_tables_used: sourcesUsed,
       last_provider_refresh: lastProviderRefresh,
+      last_provider_refresh_at: sourceFreshness,
+      newest_source_created_at: newestSourceCreated,
+      newest_source_updated_at: newestSourceUpdated,
+      newest_source_last_seen_at: newestSourceLastSeen,
+      oldest_item_in_feed_created_at: oldestCreated,
+      newest_item_in_feed_created_at: newestCreated,
+      oldest_item_in_feed_last_seen_at: oldestSeen,
+      newest_item_in_feed_last_seen_at: newestSeen,
+      unique_source_ids_count: uniqueSourceIds.size,
+      duplicate_candidates_removed: duplicatesRemoved,
+      cache_hit: false,
+      cache_key: null,
+      upstream_refresh_status: newestSourceCreated && (Date.now() - new Date(newestSourceCreated).getTime() < 24 * 3600 * 1000) ? "fresh" : "stale",
+      sort_strategy: "freshness_desc,score_desc",
       security_gate: "ok",
       debug_id: debugId,
     },
