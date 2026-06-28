@@ -282,15 +282,15 @@ serve(async (req: Request) => {
     }
   }
 
-  // CONTENDIBILI — from padova_contendibili (already computed cross-portal matches)
+  // CONTENDIBILI VERI — da padova_contendibili (>=2 agenzie reali distinte)
   if (includeSet.has("contendibili")) {
     await probeFreshness("padova_contendibili", false, false);
     const { data, error } = await supabase
       .from("padova_contendibili")
-      .select("id, chiave_match, n_agenzie, confidenza, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, created_at, prezzo_immobile_eur_mq, differenza_zona_pct, giorni_sul_mercato")
-      .gte("n_agenzie", 2)
+      .select("id, chiave_match, n_agenzie, agency_count_distinct, agencies_normalized, agenzie, portals_seen, fonti, confidenza, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, created_at")
+      .gte("agency_count_distinct", 2)
       .order("created_at", { ascending: false, nullsFirst: false })
-      .order("n_agenzie", { ascending: false })
+      .order("agency_count_distinct", { ascending: false })
       .limit(limit);
     if (error) {
       console.error(`[civiko-one-signals-feed] padova_contendibili error:`, error.message);
@@ -301,36 +301,94 @@ serve(async (req: Request) => {
         const z = resolveZone(row);
         const minP = Number(row.prezzo_min) || 0;
         const maxP = Number(row.prezzo_max) || 0;
-        // Pick midpoint when both available, else whichever is set
         const priceCandidate = minP && maxP ? Math.round((minP + maxP) / 2) : (maxP || minP || null);
         const lastSeen = (row.created_at as string) || new Date().toISOString();
         bump(lastSeen);
         const urls = Array.isArray(row.urls) ? (row.urls as string[]) : [];
-        const nAg = Number(row.n_agenzie) || 0;
+        const portals = Array.isArray(row.portals_seen) ? (row.portals_seen as string[])
+          : (Array.isArray(row.fonti) ? (row.fonti as string[]) : []);
+        const agenciesNorm = Array.isArray(row.agencies_normalized) ? (row.agencies_normalized as string[]) : [];
+        const nAg = Number(row.agency_count_distinct ?? row.n_agenzie) || 0;
         const conf = String(row.confidenza || "");
-        const score = Math.min(100, 40 + Math.min(nAg, 10) * 4 + (rank[conf] || 0));
+        const score = Math.min(100, 50 + Math.min(nAg, 10) * 4 + (rank[conf] || 0));
         const title = String(row.chiave_match || `Contendibile ${row.id}`)
-          .split("|")[0]
-          .replace(/-/g, " ")
-          .replace(/\b\w/g, (c) => c.toUpperCase());
+          .split("|")[0].replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
         rawItems.push(buildItem({
           source_id: `cont:${row.id}`,
           signal_type: "contendibile",
-          title: `${title} — ${nAg} agenzie`,
+          title: `${title} — ${nAg} agenzie distinte`,
           city, province,
-          zone_code: z.code,
-          zone_label: z.label,
-          display_zone: z.label,
+          zone_code: z.code, zone_label: z.label, display_zone: z.label,
           price_raw: priceCandidate,
           url: urls[0] || "",
           status: "active",
           score,
           last_seen_at: lastSeen,
           raw_ref: `padova_contendibili:${row.id}`,
+          evidence_type: "multiple_distinct_agencies",
+          label_pubblica: "Contendibile verificato",
+          portals_seen: portals,
+          agency_count_distinct: nAg,
+          agencies_normalized: agenciesNorm,
+          needs_review: false,
         }));
       }
     }
   }
+
+  // MULTI-PORTALE — stessi immobili visti su >=2 portali ma SENZA prova di agenzie distinte
+  if (includeSet.has("contendibili") || includeSet.has("multi_portale")) {
+    await probeFreshness("padova_multi_portale", false, false);
+    const { data, error } = await supabase
+      .from("padova_multi_portale")
+      .select("id, chiave_match, portal_count, portals_seen, agency_count_distinct, agencies_normalized, agenzie, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, n_annunci, created_at")
+      .gte("portal_count", 2)
+      .order("created_at", { ascending: false, nullsFirst: false })
+      .order("portal_count", { ascending: false })
+      .limit(limit);
+    if (error) {
+      console.error(`[civiko-one-signals-feed] padova_multi_portale error:`, error.message);
+    } else if (data) {
+      sourcesUsed.push("padova_multi_portale");
+      for (const row of data as Record<string, unknown>[]) {
+        const z = resolveZone(row);
+        const minP = Number(row.prezzo_min) || 0;
+        const maxP = Number(row.prezzo_max) || 0;
+        const priceCandidate = minP && maxP ? Math.round((minP + maxP) / 2) : (maxP || minP || null);
+        const lastSeen = (row.created_at as string) || new Date().toISOString();
+        bump(lastSeen);
+        const urls = Array.isArray(row.urls) ? (row.urls as string[]) : [];
+        const portals = Array.isArray(row.portals_seen) ? (row.portals_seen as string[]) : [];
+        const agenciesNorm = Array.isArray(row.agencies_normalized) ? (row.agencies_normalized as string[]) : [];
+        const nPortals = Number(row.portal_count) || portals.length;
+        const nAg = Number(row.agency_count_distinct) || 0;
+        const score = Math.min(85, 40 + Math.min(nPortals, 6) * 5);
+        const title = String(row.chiave_match || `Multi-portale ${row.id}`)
+          .split("|")[0].replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        rawItems.push(buildItem({
+          source_id: `mp:${row.id}`,
+          signal_type: "multi_portale",
+          title: `${title} — ${nPortals} portali`,
+          city, province,
+          zone_code: z.code, zone_label: z.label, display_zone: z.label,
+          price_raw: priceCandidate,
+          url: urls[0] || "",
+          status: "active",
+          score,
+          last_seen_at: lastSeen,
+          raw_ref: `padova_multi_portale:${row.id}`,
+          evidence_type: "multi_portal_without_agency_confirmation",
+          label_pubblica: "Alta esposizione",
+          portals_seen: portals,
+          agency_count_distinct: nAg,
+          agencies_normalized: agenciesNorm,
+          needs_review: true,
+          operator_note: "Immobile presente su più portali. Verificare se la gestione è realmente frammentata prima di proporre l'esclusiva.",
+        }));
+      }
+    }
+  }
+
 
   // RIBASSI + PRIVATI from padova_collect_v2_items
   const needCollect = includeSet.has("ribassi") || includeSet.has("privati");
