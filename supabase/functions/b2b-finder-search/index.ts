@@ -310,6 +310,53 @@ Deno.serve(async (req: Request) => {
       return await failJob(502, "Overpass temporaneamente non disponibile", `overpass_cause=${msg}`);
     }
 
+    // ── Google Places (parallel/fallback) ────────────────────────────────
+    // Active when GOOGLE_MAPS_API_KEY is set. Always called as parallel source;
+    // if Overpass returned <10 POIs we treat it as a fallback boost.
+    const googleKey = Deno.env.get("GOOGLE_MAPS_API_KEY");
+    let googleAdded = 0;
+    let googleCollisions = 0;
+    let googleRaw = 0;
+    let googleUsed: "off" | "parallel" | "fallback" | "error" = "off";
+    if (googleKey && googleKey !== "NOT_CONFIGURED") {
+      googleUsed = pois.length < 10 ? "fallback" : "parallel";
+      try {
+        const center = bboxCenter(scope.bbox);
+        const [s, w, n, e] = scope.bbox;
+        // radius ≈ half diagonal of bbox, clamped 1.5–25 km
+        const diagKm = haversineKm({ lat: s, lng: w }, { lat: n, lng: e });
+        const radiusMeters = Math.min(25000, Math.max(1500, Math.round((diagKm / 2) * 1000)));
+        const td = (input.target_description ?? "").toString().trim();
+        const baseQuery = searchMode === "resellers"
+          ? "ingrosso forniture horeca casalinghi monouso"
+          : "trattorie mense self service pranzo di lavoro ristoranti";
+        const query = `${td ? td + " " : ""}${baseQuery} ${scope.comune} ${province}`.trim();
+        const gpois = await queryGooglePlaces({
+          query,
+          center,
+          radiusMeters,
+          apiKey: googleKey,
+          searchMode,
+          city: scope.comune,
+          maxPages: googleUsed === "fallback" ? 2 : 1,
+          timeoutMs: 8000,
+        });
+        googleRaw = gpois.length;
+        const m = mergeDedupePois(pois, gpois);
+        pois = m.merged;
+        googleAdded = m.added_from_google;
+        googleCollisions = m.dedup_collisions;
+        console.log(
+          `[b2b-finder-search] google_places ${googleUsed} debug_id=${debug_id} raw=${googleRaw} added=${googleAdded} collisions=${googleCollisions}`,
+        );
+      } catch (e) {
+        googleUsed = "error";
+        const msg = e instanceof Error ? e.message : "google_places error";
+        warnings.push(`google_places_error=${msg}`);
+        console.warn(`[b2b-finder-search] google_places failed debug_id=${debug_id} err=${msg}`);
+      }
+    }
+
     const rawCount = pois.length;
     let filteredOutOfZone = 0;
     const inScope = pois.filter((p) => {
