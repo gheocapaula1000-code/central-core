@@ -150,19 +150,24 @@ Deno.serve(async (req: Request) => {
     }
 
     const warnings: string[] = [];
-    const mode = input.mode ?? "buyers";
-    if (mode !== "buyers") {
-      return jsonResponse(req, 400, envelope(false, null, "v1 supports only mode='buyers'", debug_id));
-    }
+
+    // 1) Resolve the search intent FIRST (clients vs resellers, with PWA aliases).
+    //    This also rejects all supplier variants regardless of whether the PWA
+    //    sent them via `mode`, `search_mode`, or `intent`.
     const searchModeRaw = resolveSearchMode(input);
     if (searchModeRaw === "suppliers_rejected") {
       return jsonResponse(
         req,
         400,
-        envelope(false, null, "search_mode='suppliers' non disponibile: modalità rimossa (rollback v0.7). Usa 'clients' o 'resellers'.", debug_id),
+        envelope(false, null, "modalità non disponibile: 'suppliers'/'fornitori' rimossi (rollback v0.7). Usa 'clients' o 'resellers'.", debug_id),
       );
     }
     const searchMode: SearchMode = searchModeRaw;
+
+    // 2) Legacy `mode` column on b2b_search_jobs stays "buyers" for back-compat
+    //    with existing rows / dashboards. The authoritative intent lives in
+    //    metadata.search_mode and is what drives Overpass/normalize/scoring.
+    const mode = "buyers";
 
 
     // dry_run must be explicit boolean
