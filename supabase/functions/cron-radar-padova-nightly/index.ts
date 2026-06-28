@@ -89,17 +89,28 @@ async function runOneComune(comune: string, triggeredAt: string, mode: Mode, job
     clearTimeout(timer);
     const text = await res.text().catch(() => "");
     const dur = Date.now() - t0;
-    const excerpt = text.slice(0, 600);
+    let parsed: any = null;
+    try { parsed = text ? JSON.parse(text) : null; } catch { /* keep raw excerpt */ }
+    const resultSummary = parsed?.result_summary ?? parsed?.data?.result_summary ?? parsed?.diagnostics?.result_summary ?? null;
+    const noRealIngestion = !!resultSummary?.ingestion_requested && (
+      resultSummary.ingestion_executed !== true ||
+      Number(resultSummary.raw_items_found ?? 0) === 0 ||
+      (Number(resultSummary.collect_items_created ?? 0) + Number(resultSummary.collect_items_updated ?? 0)) === 0 ||
+      resultSummary.contendibili_recomputed !== true
+    );
+    const excerpt = resultSummary
+      ? `result_summary=${JSON.stringify(resultSummary).slice(0, 1600)}`
+      : text.slice(0, 600);
     await logExecution(jobName, {
       triggered_at: triggeredAt,
       completed_at: new Date().toISOString(),
-      status: res.ok ? "success" : "error",
+      status: res.ok ? (noRealIngestion ? "partial" : "success") : "error",
       http_status: res.status,
       response_excerpt: `[${comune}] ${excerpt}`,
-      error_message: res.ok ? null : `HTTP ${res.status}`,
+      error_message: res.ok ? (noRealIngestion ? "ingestion_incomplete_or_no_new_collect_writes" : null) : `HTTP ${res.status}`,
       duration_ms: dur,
     });
-    return { comune, ok: res.ok, http_status: res.status, duration_ms: dur, excerpt };
+    return { comune, ok: res.ok && !noRealIngestion, http_status: res.status, duration_ms: dur, excerpt, error: noRealIngestion ? "ingestion_incomplete_or_no_new_collect_writes" : undefined };
   } catch (err) {
     const dur = Date.now() - t0;
     const msg = err instanceof Error ? err.message : String(err);
