@@ -416,8 +416,11 @@ serve(async (req: Request) => {
   // Dedupe
   const { kept, removed: duplicatesRemoved } = dedupeItems(rawItems);
 
-  // Sort & trim
-  kept.sort((a, b) => b.score - a.score || (b.last_seen_at > a.last_seen_at ? 1 : -1));
+  // Sort & trim — freshness primary, score secondary (so new ingestions surface immediately)
+  kept.sort((a, b) => {
+    if (a.last_seen_at !== b.last_seen_at) return a.last_seen_at > b.last_seen_at ? -1 : 1;
+    return b.score - a.score;
+  });
   const trimmed = kept.slice(0, limit);
 
   const summary = {
@@ -437,6 +440,34 @@ serve(async (req: Request) => {
     else if (it.signal_type === "off_market") summary.off_market++;
     if (it.zone_code === UNRESOLVED_OMI_CODE) summary.unresolved_zone++;
     if (it.data_quality.flags.includes("invalid_price")) summary.invalid_price++;
+  }
+
+  // Feed-level freshness extremes
+  let oldestCreated: string | null = null, newestCreated: string | null = null;
+  let oldestSeen: string | null = null, newestSeen: string | null = null;
+  const uniqueSourceIds = new Set<string>();
+  for (const it of trimmed) {
+    uniqueSourceIds.add(it.source_id);
+    const ls = it.last_seen_at;
+    if (ls) {
+      if (!oldestSeen || ls < oldestSeen) oldestSeen = ls;
+      if (!newestSeen || ls > newestSeen) newestSeen = ls;
+    }
+    // FeedItem doesn't carry created_at separately; reuse last_seen_at as proxy
+    if (ls) {
+      if (!oldestCreated || ls < oldestCreated) oldestCreated = ls;
+      if (!newestCreated || ls > newestCreated) newestCreated = ls;
+    }
+  }
+
+  // Aggregate newest across all probed source tables
+  let newestSourceCreated: string | null = null;
+  let newestSourceUpdated: string | null = null;
+  let newestSourceLastSeen: string | null = null;
+  for (const v of Object.values(sourceFreshness)) {
+    if (v.max_created_at && (!newestSourceCreated || v.max_created_at > newestSourceCreated)) newestSourceCreated = v.max_created_at;
+    if (v.max_updated_at && (!newestSourceUpdated || v.max_updated_at > newestSourceUpdated)) newestSourceUpdated = v.max_updated_at;
+    if (v.max_last_seen_at && (!newestSourceLastSeen || v.max_last_seen_at > newestSourceLastSeen)) newestSourceLastSeen = v.max_last_seen_at;
   }
 
   const generatedAt = new Date().toISOString();
@@ -459,7 +490,22 @@ serve(async (req: Request) => {
       requested_limit: limit,
       included: include,
       sources_used: sourcesUsed,
+      source_tables_used: sourcesUsed,
       last_provider_refresh: lastProviderRefresh,
+      last_provider_refresh_at: sourceFreshness,
+      newest_source_created_at: newestSourceCreated,
+      newest_source_updated_at: newestSourceUpdated,
+      newest_source_last_seen_at: newestSourceLastSeen,
+      oldest_item_in_feed_created_at: oldestCreated,
+      newest_item_in_feed_created_at: newestCreated,
+      oldest_item_in_feed_last_seen_at: oldestSeen,
+      newest_item_in_feed_last_seen_at: newestSeen,
+      unique_source_ids_count: uniqueSourceIds.size,
+      duplicate_candidates_removed: duplicatesRemoved,
+      cache_hit: false,
+      cache_key: null,
+      upstream_refresh_status: newestSourceCreated && (Date.now() - new Date(newestSourceCreated).getTime() < 24 * 3600 * 1000) ? "fresh" : "stale",
+      sort_strategy: "freshness_desc,score_desc",
       security_gate: "ok",
       debug_id: debugId,
     },
