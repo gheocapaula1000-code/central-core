@@ -93,6 +93,8 @@ function normalizeForHash(s: string | null | undefined): string {
     .trim();
 }
 
+function uniq<T>(a: T[]): T[] { return Array.from(new Set(a)); }
+
 async function sha256Hex(input: string): Promise<string> {
   const data = new TextEncoder().encode(input);
   const buf = await crypto.subtle.digest("SHA-256", data);
