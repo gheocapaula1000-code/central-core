@@ -117,10 +117,26 @@ Deno.serve(async (req) => {
     }
   }
 
+  // Dedup cross-page per listing_id (Postgres ON CONFLICT non tollera
+  // 2+ righe con stessa chiave nello stesso upsert). Tieni la riga con
+  // più campi popolati e l'occorrenza precedente come page_index.
+  const scoreRow = (r: Record<string, unknown>) =>
+    (r.price_eur ? 2 : 0) +
+    (r.surface_sqm ? 1 : 0) +
+    (r.agency_slug ? 2 : 0) +
+    (r.description ? 1 : 0);
+  const dedup = new Map<string, Record<string, unknown>>();
+  for (const r of rows) {
+    const key = String(r.listing_id);
+    const cur = dedup.get(key);
+    if (!cur || scoreRow(r) > scoreRow(cur)) dedup.set(key, r);
+  }
+  const dedupRows = Array.from(dedup.values());
+
   // Upsert a chunk per evitare payload enormi
   let upserted = 0;
   const stats = { with_price: 0, with_surface: 0, with_agency: 0, privato: 0 };
-  for (const r of rows) {
+  for (const r of dedupRows) {
     if (r.price_eur) stats.with_price++;
     if (r.surface_sqm) stats.with_surface++;
     if (r.agency_slug) stats.with_agency++;
