@@ -3178,29 +3178,70 @@ Deno.serve(async (req) => {
 
         const ingestionReport: Array<{ comune: string; opportunities: number; mode: string; skipped?: string; portals?: unknown; rotation?: string }> = [];
         const ingestionWarnings: string[] = [];
-        const aggregateStats = { perPortal: [] as Array<{ source: string; raw: number; reason?: string }>, rotation: undefined as string | undefined };
+        const aggregateStats = {
+          perPortal: [] as Array<{ source: string; raw: number; reason?: string }>,
+          rotation: undefined as string | undefined,
+          raw_items_found: 0,
+          raw_items_after_city_filter: 0,
+          raw_items_after_dedupe: 0,
+          collect_items_created: 0,
+          collect_items_updated: 0,
+          collect_errors: [] as string[],
+        };
+        const providerConfigStatus = buildProviderConfigStatus();
+        const sourceFreshnessClient = getServiceClient();
+        const sourceFreshnessBefore = await fetchPadovaSourceFreshness(sourceFreshnessClient);
+        let sourceFreshnessAfter = sourceFreshnessBefore;
+        let ingestionExecuted = false;
+        let skipReason: string | null = null;
+        let contendibiliRecomputed = false;
+        let contendibiliCreated = 0;
+        let contendibiliUpdated = 0;
+        let recomputeResult: unknown = null;
+        let recomputeError: string | null = null;
 
         if (!shouldIngest) {
           ingestionWarnings.push("soft_ingestion_skipped_not_applicable");
+          skipReason = "intent_not_soft_or_full";
         } else if (requestedComuni.length === 0) {
           ingestionWarnings.push("soft_ingestion_skipped_no_comuni");
+          skipReason = "no_comuni";
         } else if (budgetState?.budget_mode === "capped") {
           ingestionWarnings.push("soft_ingestion_skipped_budget_capped");
+          skipReason = "budget_capped";
           ingestionReport.push({ comune: requestedComuni[0] ?? "—", opportunities: 0, mode: "skipped", skipped: "budget_capped" });
         } else if (!Deno.env.get("FIRECRAWL_API_KEY")) {
           ingestionWarnings.push("soft_ingestion_skipped_no_firecrawl_key");
+          skipReason = "missing_firecrawl_key";
         } else {
+          ingestionExecuted = true;
           const ingestMode: "soft" | "full" = intentRaw === "full" ? "full" : "soft";
           const effectiveMode: "soft" | "full" = budgetState?.budget_mode === "economy" ? "soft" : ingestMode;
           // full = scansiona TUTTI i comuni in scope (fino a 10); soft = primi 5
           const ingestSlice = effectiveMode === "full" ? requestedComuni.slice(0, 10) : requestedComuni.slice(0, 5);
           for (const c of ingestSlice) {
-            const perCallStats = { perPortal: [] as Array<{ source: string; raw: number; reason?: string }>, rotation: undefined as string | undefined, firecrawl_skipped_reason: undefined as string | undefined };
+            const perCallStats = {
+              perPortal: [] as Array<{ source: string; raw: number; reason?: string }>,
+              rotation: undefined as string | undefined,
+              firecrawl_skipped_reason: undefined as string | undefined,
+              raw_items_found: 0,
+              raw_items_after_city_filter: 0,
+              raw_items_after_dedupe: 0,
+              collect_items_created: 0,
+              collect_items_updated: 0,
+              collect_errors: [] as string[],
+            };
             try {
               const opps = await scrapeRibassiPortali(c, null, requestedProvince[0] ?? "PD", effectiveMode, radarMeta, perCallStats as any);
               ingestionReport.push({ comune: c, opportunities: opps.length, mode: effectiveMode, portals: perCallStats.perPortal, rotation: perCallStats.rotation });
               aggregateStats.perPortal.push(...perCallStats.perPortal);
               aggregateStats.rotation = perCallStats.rotation;
+              aggregateStats.raw_items_found += perCallStats.raw_items_found ?? 0;
+              aggregateStats.raw_items_after_city_filter += perCallStats.raw_items_after_city_filter ?? 0;
+              aggregateStats.raw_items_after_dedupe += perCallStats.raw_items_after_dedupe ?? 0;
+              aggregateStats.collect_items_created += perCallStats.collect_items_created ?? 0;
+              aggregateStats.collect_items_updated += perCallStats.collect_items_updated ?? 0;
+              aggregateStats.collect_errors.push(...(perCallStats.collect_errors ?? []));
               if (perCallStats.firecrawl_skipped_reason) ingestionWarnings.push(`soft_ingestion_${perCallStats.firecrawl_skipped_reason}`);
             } catch (ingErr) {
               console.warn(`[${FUNCTION_NAME}] ingestion error for ${c}:`, ingErr instanceof Error ? ingErr.message : String(ingErr));
@@ -3211,7 +3252,69 @@ Deno.serve(async (req) => {
           const totalRaw = aggregateStats.perPortal.reduce((s, p) => s + p.raw, 0);
           if (totalRaw === 0) ingestionWarnings.push("soft_ingestion_zero_results");
           else ingestionWarnings.push(`soft_ingestion_completed_${totalRaw}_listings`);
+
+          if (requestedComuniLower.has("padova") && sourceFreshnessClient) {
+            try {
+              const { data, error } = await sourceFreshnessClient.rpc("recompute_padova_contendibili");
+              if (error) {
+                recomputeError = error.message;
+                ingestionWarnings.push("padova_contendibili_recompute_error");
+              } else {
+                contendibiliRecomputed = true;
+                recomputeResult = data;
+                contendibiliCreated = Number((data as any)?.contendibili_created ?? 0) || 0;
+                contendibiliUpdated = Number((data as any)?.contendibili_updated ?? 0) || 0;
+                try { await sourceFreshnessClient.rpc("recompute_padova_contendibili_extras"); } catch { /* optional */ }
+              }
+            } catch (e) {
+              recomputeError = e instanceof Error ? e.message : String(e);
+              ingestionWarnings.push("padova_contendibili_recompute_exception");
+            }
+          }
         }
+
+        sourceFreshnessAfter = await fetchPadovaSourceFreshness(sourceFreshnessClient);
+        if (contendibiliRecomputed && contendibiliCreated === 0 && contendibiliUpdated === 0) {
+          const beforeCount = Number(sourceFreshnessBefore.contendibili_count ?? 0);
+          const afterCount = Number(sourceFreshnessAfter.contendibili_count ?? 0);
+          contendibiliCreated = Math.max(afterCount - beforeCount, 0);
+          contendibiliUpdated = Math.min(beforeCount, afterCount);
+        }
+
+        const providerResultsCount: Record<string, number> = {};
+        const providerErrors: Record<string, string[]> = {};
+        for (const p of aggregateStats.perPortal) {
+          providerResultsCount[p.source] = (providerResultsCount[p.source] ?? 0) + (Number(p.raw) || 0);
+          if (p.reason) providerErrors[p.source] = [...(providerErrors[p.source] ?? []), p.reason];
+        }
+        if (aggregateStats.collect_errors.length) providerErrors.collect_v2 = aggregateStats.collect_errors;
+        if (recomputeError) providerErrors.padova_contendibili = [recomputeError];
+        const resultSummary = {
+          ingestion_requested: shouldIngest,
+          ingestion_executed: ingestionExecuted,
+          providers_called: Array.from(new Set(aggregateStats.perPortal.map((p) => p.source))),
+          provider_results_count: providerResultsCount,
+          provider_errors: providerErrors,
+          raw_items_found: aggregateStats.raw_items_found,
+          raw_items_after_city_filter: aggregateStats.raw_items_after_city_filter,
+          raw_items_after_dedupe: aggregateStats.raw_items_after_dedupe,
+          collect_items_created: aggregateStats.collect_items_created,
+          collect_items_updated: aggregateStats.collect_items_updated,
+          contendibili_recomputed: contendibiliRecomputed,
+          contendibili_created: contendibiliCreated,
+          contendibili_updated: contendibiliUpdated,
+          newest_collect_processed_at_before: sourceFreshnessBefore.newest_collect_processed_at,
+          newest_collect_processed_at_after: sourceFreshnessAfter.newest_collect_processed_at,
+          newest_contendibile_created_at_before: sourceFreshnessBefore.newest_contendibile_created_at,
+          newest_contendibile_created_at_after: sourceFreshnessAfter.newest_contendibile_created_at,
+          skip_reason: skipReason,
+          budget_guard_status: {
+            budget_mode: budgetState?.budget_mode ?? "unknown",
+            hard_cap_reached: false,
+          },
+          provider_config_status: providerConfigStatus,
+          recompute_result: recomputeResult,
+        };
 
         // ── Build agentRadar: una chiamata per provincia, NO comune singolo
         // così buildAgentRadar restituisce tutte le zone della provincia, poi
