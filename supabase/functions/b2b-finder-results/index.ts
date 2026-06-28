@@ -136,7 +136,7 @@ Deno.serve(async (req: Request) => {
         .from("b2b_search_jobs")
         .select("id,created_at,finished_at,product,mode,status,zone,counts,cost_eur")
         .eq("vertical", VERTICAL)
-        .eq("mode", MODE)
+        .in("mode", ["buyers", "clients", "resellers"])
         .not("product", "ilike", "%buste portaposate%")
         .order("created_at", { ascending: false })
         .range(offset, offset + limit - 1);
