@@ -196,7 +196,7 @@ Deno.serve(async (req: Request) => {
       if (!jobRow) {
         return jsonResponse(req, 404, envelope(false, null, "Job not found", debug_id));
       }
-      if (jobRow.vertical !== VERTICAL || jobRow.mode !== MODE) {
+      if (jobRow.vertical !== VERTICAL || !ACCEPTED_MODES.has(String(jobRow.mode))) {
         return jsonResponse(req, 404, envelope(false, null, "Job not found", debug_id));
       }
 
