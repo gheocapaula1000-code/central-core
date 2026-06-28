@@ -1280,9 +1280,10 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
   let next_best_action = consolidated?.next_best_action ?? null;
   if (status_suggestion === "Escluso") {
     next_best_action = "Non contattare: bassa coerenza con il prodotto";
+  } else if (!finalPhone) {
+    next_best_action = "Trovare o verificare il telefono prima del contatto";
   } else if (!next_best_action) {
-    if (ready_to_contact) next_best_action = finalPhone ? "Chiamata commerciale al titolare" : "Email di presentazione mirata";
-    else if (!finalPhone && !finalEmail) next_best_action = "Recuperare un canale di contatto prima di procedere";
+    if (ready_to_contact) next_best_action = "Chiamata commerciale al titolare";
     else if (buyer_fit_score < 60) next_best_action = "Qualificare il fit prima del contatto";
     else next_best_action = "Verificare dati mancanti prima del contatto";
   }
