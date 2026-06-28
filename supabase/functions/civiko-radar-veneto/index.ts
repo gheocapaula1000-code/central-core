@@ -3395,6 +3395,7 @@ Deno.serve(async (req) => {
           perPortal: aggregateStats.perPortal,
           rotation: aggregateStats.rotation,
           comuni_processed: ingestionReport.length,
+          result_summary: resultSummary,
         };
 
         // ── Diagnostica raccolta /agent-radar ─────────────────────────────
@@ -3529,6 +3530,7 @@ Deno.serve(async (req) => {
           ingestion_comuni_processed: ingestionReport.length,
           last_source_refresh_at: lastSourceRefreshAR,
           warnings: ingestionWarnings,
+          result_summary: resultSummary,
         };
         const outPadova = { ...out, opportunities: oppsPadova };
         return withIdentity(json(req, 200, {
@@ -3536,10 +3538,11 @@ Deno.serve(async (req) => {
           scopeMode,
           scope: "padova_omi_zones",
           ok: true,
+          result_summary: resultSummary,
           cost_report,
           ingestion: ingestionReport,
           diagnostics,
-          data: { ...((outPadova as any)?.data ?? {}), cost_report, ingestion: ingestionReport, diagnostics },
+          data: { ...((outPadova as any)?.data ?? {}), cost_report, ingestion: ingestionReport, diagnostics, result_summary: resultSummary },
         }, debugId), "agent-radar");
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] agent-radar error: ${e instanceof Error ? e.message : String(e)}`);
