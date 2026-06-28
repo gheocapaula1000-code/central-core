@@ -5223,26 +5223,33 @@ export type Database = {
           agency_count_raw: number | null
           agenzie: string[]
           bagni: number | null
+          cambio_agenzia: boolean | null
           chiave_match: string
           confidenza: string
           created_at: string
           data_primo_annuncio: string | null
           differenza_zona_pct: number | null
           fonti: string[]
+          giorni_fermo: number | null
           giorni_sul_mercato: number | null
           id: number
+          is_ripubblicato: boolean | null
           lat: number | null
           lng: number | null
           locali: number | null
           mq: number | null
           n_agenzie: number
           n_annunci: number
+          n_portali: number | null
+          n_ribassi: number | null
           portals_seen: string[] | null
           prezzo_immobile_eur_mq: number | null
           prezzo_max: number | null
           prezzo_medio_zona_eur_mq: number | null
           prezzo_min: number | null
           quartiere: string | null
+          ribasso_pct: number | null
+          score_pressione: number | null
           urls: string[]
         }
         Insert: {
@@ -5251,26 +5258,33 @@ export type Database = {
           agency_count_raw?: number | null
           agenzie: string[]
           bagni?: number | null
+          cambio_agenzia?: boolean | null
           chiave_match: string
           confidenza: string
           created_at?: string
           data_primo_annuncio?: string | null
           differenza_zona_pct?: number | null
           fonti: string[]
+          giorni_fermo?: number | null
           giorni_sul_mercato?: number | null
           id?: number
+          is_ripubblicato?: boolean | null
           lat?: number | null
           lng?: number | null
           locali?: number | null
           mq?: number | null
           n_agenzie: number
           n_annunci: number
+          n_portali?: number | null
+          n_ribassi?: number | null
           portals_seen?: string[] | null
           prezzo_immobile_eur_mq?: number | null
           prezzo_max?: number | null
           prezzo_medio_zona_eur_mq?: number | null
           prezzo_min?: number | null
           quartiere?: string | null
+          ribasso_pct?: number | null
+          score_pressione?: number | null
           urls: string[]
         }
         Update: {
@@ -5279,26 +5293,33 @@ export type Database = {
           agency_count_raw?: number | null
           agenzie?: string[]
           bagni?: number | null
+          cambio_agenzia?: boolean | null
           chiave_match?: string
           confidenza?: string
           created_at?: string
           data_primo_annuncio?: string | null
           differenza_zona_pct?: number | null
           fonti?: string[]
+          giorni_fermo?: number | null
           giorni_sul_mercato?: number | null
           id?: number
+          is_ripubblicato?: boolean | null
           lat?: number | null
           lng?: number | null
           locali?: number | null
           mq?: number | null
           n_agenzie?: number
           n_annunci?: number
+          n_portali?: number | null
+          n_ribassi?: number | null
           portals_seen?: string[] | null
           prezzo_immobile_eur_mq?: number | null
           prezzo_max?: number | null
           prezzo_medio_zona_eur_mq?: number | null
           prezzo_min?: number | null
           quartiere?: string | null
+          ribasso_pct?: number | null
+          score_pressione?: number | null
           urls?: string[]
         }
         Relationships: []
