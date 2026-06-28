@@ -23,6 +23,12 @@ export interface IngestionStats {
   rotation?: string;
   firecrawl_pages_estimated?: number;
   firecrawl_skipped_reason?: string;
+  raw_items_found?: number;
+  raw_items_after_city_filter?: number;
+  raw_items_after_dedupe?: number;
+  collect_items_created?: number;
+  collect_items_updated?: number;
+  collect_errors?: string[];
 }
 
 export type RadarMode = "soft" | "full";
