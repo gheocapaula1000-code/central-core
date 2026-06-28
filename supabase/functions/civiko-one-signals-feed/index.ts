@@ -563,30 +563,82 @@ serve(async (req: Request) => {
     generated_at: generatedAt,
     summary,
     items: trimmed,
-    diagnostics: {
-      tenant_id: tenantId,
-      generated_at: generatedAt,
-      requested_limit: limit,
-      included: include,
-      sources_used: sourcesUsed,
-      source_tables_used: sourcesUsed,
-      last_provider_refresh: lastProviderRefresh,
-      last_provider_refresh_at: sourceFreshness,
-      newest_source_created_at: newestSourceCreated,
-      newest_source_updated_at: newestSourceUpdated,
-      newest_source_last_seen_at: newestSourceLastSeen,
-      oldest_item_in_feed_created_at: oldestCreated,
-      newest_item_in_feed_created_at: newestCreated,
-      oldest_item_in_feed_last_seen_at: oldestSeen,
-      newest_item_in_feed_last_seen_at: newestSeen,
-      unique_source_ids_count: uniqueSourceIds.size,
-      duplicate_candidates_removed: duplicatesRemoved,
-      cache_hit: false,
-      cache_key: null,
-      upstream_refresh_status: newestSourceCreated && (Date.now() - new Date(newestSourceCreated).getTime() < 24 * 3600 * 1000) ? "fresh" : "stale",
-      sort_strategy: "freshness_desc,score_desc",
-      security_gate: "ok",
-      debug_id: debugId,
-    },
+    diagnostics: await (async () => {
+      // Agency real coverage per portal + idealista status
+      const portals = ["casa", "immobiliare", "idealista", "subito"] as const;
+      const agencyCoverage: Record<string, { total: number; with_real_agency: number; coverage_pct: number; last_seen: string | null }> = {};
+      for (const p of portals) {
+        try {
+          const { count: total } = await supabase
+            .from("padova_collect_v2_items")
+            .select("id", { count: "exact", head: true })
+            .eq("portal", p);
+          const { count: withAg } = await supabase
+            .from("padova_collect_v2_items")
+            .select("id", { count: "exact", head: true })
+            .eq("portal", p)
+            .not("agency", "is", null)
+            .neq("agency", "")
+            .not("agency", "ilike", "portal:%");
+          const { data: lastRow } = await supabase
+            .from("padova_collect_v2_items")
+            .select("created_at")
+            .eq("portal", p)
+            .order("created_at", { ascending: false })
+            .limit(1);
+          const t = total ?? 0;
+          const w = withAg ?? 0;
+          agencyCoverage[p] = {
+            total: t,
+            with_real_agency: w,
+            coverage_pct: t > 0 ? Math.round((w / t) * 1000) / 10 : 0,
+            last_seen: (lastRow?.[0]?.created_at as string) ?? null,
+          };
+        } catch {
+          agencyCoverage[p] = { total: 0, with_real_agency: 0, coverage_pct: 0, last_seen: null };
+        }
+      }
+      const ide = agencyCoverage["idealista"];
+      const ideAgeDays = ide?.last_seen ? Math.floor((Date.now() - new Date(ide.last_seen).getTime()) / 86400000) : null;
+      let idealistaStatus = "unknown";
+      if (!ide || ide.total === 0) idealistaStatus = "no_data";
+      else if (ide.with_real_agency === 0) idealistaStatus = ideAgeDays !== null && ideAgeDays > 7 ? "stale_no_agency_coverage" : "active_no_agency_coverage";
+      else idealistaStatus = "active_with_agency_coverage";
+
+      return {
+        tenant_id: tenantId,
+        generated_at: generatedAt,
+        requested_limit: limit,
+        included: include,
+        sources_used: sourcesUsed,
+        source_tables_used: sourcesUsed,
+        last_provider_refresh: lastProviderRefresh,
+        last_provider_refresh_at: sourceFreshness,
+        newest_source_created_at: newestSourceCreated,
+        newest_source_updated_at: newestSourceUpdated,
+        newest_source_last_seen_at: newestSourceLastSeen,
+        oldest_item_in_feed_created_at: oldestCreated,
+        newest_item_in_feed_created_at: newestCreated,
+        oldest_item_in_feed_last_seen_at: oldestSeen,
+        newest_item_in_feed_last_seen_at: newestSeen,
+        unique_source_ids_count: uniqueSourceIds.size,
+        duplicate_candidates_removed: duplicatesRemoved,
+        // Nuova tassonomia
+        taxonomy_version: "v2_contendibile_strict_multi_portale_split",
+        count_by_signal_type: countBySignalType,
+        verified_contendibili_count: summary.contendibili,
+        multi_portale_count: summary.multi_portale,
+        false_contendibili_removed: 0,
+        agency_real_coverage_by_portal: agencyCoverage,
+        idealista_status: { status: idealistaStatus, last_seen: ide?.last_seen ?? null, age_days: ideAgeDays, total: ide?.total ?? 0, with_real_agency: ide?.with_real_agency ?? 0 },
+        first_10_source_ids: trimmed.slice(0, 10).map((it) => it.source_id),
+        cache_hit: false,
+        cache_key: null,
+        upstream_refresh_status: newestSourceCreated && (Date.now() - new Date(newestSourceCreated).getTime() < 24 * 3600 * 1000) ? "fresh" : "stale",
+        sort_strategy: "freshness_desc,score_desc",
+        security_gate: "ok",
+        debug_id: debugId,
+      };
+    })(),
   });
 });
