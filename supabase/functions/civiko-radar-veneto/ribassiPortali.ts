@@ -19,6 +19,7 @@ import type { OpportunitaOffMarket } from "./radarOpportunita.ts";
 import { scrapeAllPortals, type NormalizedListing, type IngestionStats } from "./portalScrapers.ts";
 import type { RadarRunMeta } from "../_shared/radarBudget.ts";
 import { computeIdentityHash, roundCoord } from "./listingIdentity.ts";
+import { resolvePadovaOmiBatch } from "../_shared/padovaOmiResolver.ts";
 
 const MIN_DROP_PERCENT = 10;
 const HISTORY_WINDOW_DAYS = 90;
@@ -35,6 +36,167 @@ function getServiceClient() {
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !key) return null;
   return createClient(url, key, { auth: { persistSession: false } });
+}
+
+const PADOVA_BOUNDS = { minLat: 45.34, maxLat: 45.48, minLng: 11.78, maxLng: 11.98 };
+
+function looksInsidePadova(l: NormalizedListing): boolean {
+  if (typeof l.lat === "number" && typeof l.lng === "number") {
+    return l.lat >= PADOVA_BOUNDS.minLat && l.lat <= PADOVA_BOUNDS.maxLat &&
+      l.lng >= PADOVA_BOUNDS.minLng && l.lng <= PADOVA_BOUNDS.maxLng;
+  }
+  // I portali sono interrogati con URL già scoped su Padova: se non ci sono
+  // coordinate, scartiamo solo quando il testo dichiara esplicitamente un altro
+  // comune; altrimenti conserviamo il record per non perdere annunci reali.
+  const txt = `${l.title ?? ""} ${l.address ?? ""}`.toLowerCase();
+  if (/\b(abano|albignasego|rubano|selvazzano|vigonza|cadoneghe|noventa padovana|ponte san nicolo|ponte san nicolò)\b/.test(txt)) return false;
+  return true;
+}
+
+function normalizePortalName(source: NormalizedListing["source"]): string {
+  if (source === "immobiliare.it") return "immobiliare";
+  if (source === "idealista.it") return "idealista";
+  if (source === "casa.it") return "casa";
+  if (source === "subito.it") return "subito";
+  return source;
+}
+
+function normViaText(raw: string | null): string {
+  return (raw ?? "")
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/^(via|viale|v\.le|piazza|p\.zza|piazzale|p\.le|corso|c\.so|largo|vicolo|strada|str\.|borgo|lungargine|riviera|salita)\s+/i, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function computeCollectClusterKey(l: NormalizedListing): string | null {
+  const via = normViaText(l.address);
+  if (!via || !l.surface_sqm || !l.rooms) return null;
+  const sqmBucket = Math.round(l.surface_sqm / 5) * 5;
+  return `${via}|${sqmBucket}|${Math.round(l.rooms)}|${l.property_type}`;
+}
+
+function extractCap(l: NormalizedListing): string | null {
+  const txt = `${l.title ?? ""} ${l.address ?? ""}`;
+  return txt.match(/\b(351\d{2})\b/)?.[1] ?? null;
+}
+
+function extractListingIdFromUrl(url: string): string | null {
+  return url.match(/(\d{5,})/)?.[1] ?? null;
+}
+
+async function persistPadovaCollectV2(
+  supabase: NonNullable<ReturnType<typeof getServiceClient>>,
+  municipality: string,
+  province: string | undefined,
+  listings: NormalizedListing[],
+  stats?: IngestionStats,
+): Promise<{ created: number; updated: number; afterCity: number; afterDedupe: number; errors: string[] }> {
+  const errors: string[] = [];
+  const isPadova = municipality.trim().toLowerCase() === "padova" && (province ?? "PD").toUpperCase() === "PD";
+  if (!isPadova) {
+    stats?.collect_errors?.push?.("collect_v2_skipped_not_padova");
+    return { created: 0, updated: 0, afterCity: 0, afterDedupe: 0, errors };
+  }
+
+  const cityFiltered = listings.filter(looksInsidePadova);
+  const dedupe = new Map<string, NormalizedListing>();
+  for (const l of cityFiltered) {
+    const key = l.url ? `url:${l.url.replace(/\?.*$/, "").replace(/\/$/, "")}` : `${l.source}:${l.listing_id}`;
+    if (!dedupe.has(key)) dedupe.set(key, l);
+  }
+  const items = [...dedupe.values()];
+  const nowIso = new Date().toISOString();
+  const jobId = `radar-${nowIso.slice(0, 10)}-${crypto.randomUUID().slice(0, 8)}`;
+
+  const omiRes = await resolvePadovaOmiBatch(
+    items.map((l) => ({
+      title: l.title,
+      raw_title: l.title,
+      address: l.address,
+      raw_address: l.address,
+      cap: extractCap(l),
+      lat: l.lat,
+      lng: l.lng,
+    })),
+    supabase as any,
+    (r) => ({ lat: typeof (r as any).lat === "number" ? (r as any).lat : null, lng: typeof (r as any).lng === "number" ? (r as any).lng : null }),
+  );
+
+  const urls = items.map((l) => l.url).filter(Boolean);
+  const existingByUrl = new Map<string, { id: number; prezzo: number | null }>();
+  for (let i = 0; i < urls.length; i += 100) {
+    const { data, error } = await supabase
+      .from("padova_collect_v2_items")
+      .select("id,url,prezzo")
+      .in("url", urls.slice(i, i + 100));
+    if (error) {
+      errors.push(`existing_lookup:${error.message}`);
+      continue;
+    }
+    for (const row of data ?? []) {
+      if (row.url && !existingByUrl.has(row.url)) existingByUrl.set(row.url, { id: Number(row.id), prezzo: row.prezzo == null ? null : Number(row.prezzo) });
+    }
+  }
+
+  let created = 0;
+  let updated = 0;
+  const inserts: Record<string, unknown>[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const l = items[i];
+    const z = omiRes[i];
+    const existing = existingByUrl.get(l.url);
+    const row = {
+      job_id: jobId,
+      portal: normalizePortalName(l.source),
+      listing_id: extractListingIdFromUrl(l.url) ?? l.listing_id,
+      url: l.url,
+      raw_address: l.address ?? l.title ?? null,
+      citta: "Padova",
+      cap: extractCap(l),
+      lat: l.lat,
+      lng: l.lng,
+      omi_zone: z?.omi_zone_code ?? null,
+      quartiere: z?.omi_zone_label ?? null,
+      tipo_lead: l.is_private ? "PRIVATO" : "AGENZIA",
+      n_agenzie: l.agency_name ? 1 : 0,
+      prezzo: l.price_eur,
+      prezzo_iniziale: existing?.prezzo ?? l.price_eur,
+      mq: l.surface_sqm,
+      locali: l.rooms,
+      bagni: null,
+      agency: l.agency_name,
+      tipologia: l.property_type,
+      cluster_key: computeCollectClusterKey(l),
+      parse_status: "radar_ingested",
+      processed_at: nowIso,
+      http_status: 200,
+      log_reason: null,
+      attempts: 0,
+    };
+    if (existing) {
+      const { error } = await supabase.from("padova_collect_v2_items").update(row).eq("id", existing.id);
+      if (error) errors.push(`update:${error.message}`); else updated++;
+    } else {
+      inserts.push(row);
+    }
+  }
+
+  for (let i = 0; i < inserts.length; i += 200) {
+    const { error } = await supabase.from("padova_collect_v2_items").insert(inserts.slice(i, i + 200));
+    if (error) errors.push(`insert:${error.message}`); else created += inserts.slice(i, i + 200).length;
+  }
+
+  if (stats) {
+    stats.raw_items_after_city_filter = (stats.raw_items_after_city_filter ?? 0) + cityFiltered.length;
+    stats.raw_items_after_dedupe = (stats.raw_items_after_dedupe ?? 0) + items.length;
+    stats.collect_items_created = (stats.collect_items_created ?? 0) + created;
+    stats.collect_items_updated = (stats.collect_items_updated ?? 0) + updated;
+    if (errors.length) stats.collect_errors = [...(stats.collect_errors ?? []), ...errors];
+  }
+
+  return { created, updated, afterCity: cityFiltered.length, afterDedupe: items.length, errors };
 }
 
 interface IdentityRow {
