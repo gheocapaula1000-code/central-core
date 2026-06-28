@@ -45,12 +45,12 @@ serve(async (req) => {
 
     let q = supabase
       .from("padova_contendibili")
-      .select("chiave_match, n_agenzie, agenzie, fonti, confidenza, prezzo_min, prezzo_max, mq, locali, bagni, quartiere, lat, lng, urls, prezzo_medio_zona_eur_mq, prezzo_immobile_eur_mq, differenza_zona_pct, giorni_sul_mercato, data_primo_annuncio", { count: "exact" })
+      .select("chiave_match, n_agenzie, agenzie, fonti, confidenza, prezzo_min, prezzo_max, mq, locali, bagni, quartiere, lat, lng, urls, prezzo_medio_zona_eur_mq, prezzo_immobile_eur_mq, differenza_zona_pct, giorni_sul_mercato, data_primo_annuncio, ribasso_pct, n_ribassi, is_ripubblicato, cambio_agenzia, giorni_fermo, n_portali, score_pressione", { count: "exact" })
       .gte("n_agenzie", min_agenzie);
     if (quartiere) q = q.eq("quartiere", quartiere);
 
-    // Ordinamento: n_agenzie DESC, poi rank confidenza via secondary sort lato JS (Postgres CASE non semplice qui)
-    q = q.order("n_agenzie", { ascending: false }).range(offset, offset + limit - 1);
+    // Ordinamento: score_pressione DESC (segnali pressione), poi rank confidenza lato JS
+    q = q.order("score_pressione", { ascending: false }).range(offset, offset + limit - 1);
 
     const { data, error, count } = await q;
     if (error) throw error;
