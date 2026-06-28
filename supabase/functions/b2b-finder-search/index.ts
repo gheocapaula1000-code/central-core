@@ -543,7 +543,20 @@ Deno.serve(async (req: Request) => {
           companyId = existing.id as string;
           // Only patch contact fields that are currently missing on existing row.
           const existingMeta = ((existing.metadata ?? {}) as Record<string, unknown>);
-          const mergedMeta = { ...existingMeta, search_mode: existingMeta.search_mode ?? searchMode, buyer_type_hint: existingMeta.buyer_type_hint ?? r.buyer_type_hint, product_key: existingMeta.product_key ?? productKey, product_name: existingMeta.product_name ?? (input.product ?? null) };
+          const mergedMeta = {
+            ...existingMeta,
+            search_mode: existingMeta.search_mode ?? searchMode,
+            buyer_type_hint: existingMeta.buyer_type_hint ?? r.buyer_type_hint,
+            product_key: existingMeta.product_key ?? productKey,
+            product_name: existingMeta.product_name ?? (input.product ?? null),
+            // v0.8: refresh geo + duplicate hints each run
+            requested_city: dec.requested_city,
+            resolved_scope_key: dec.resolved_scope_key,
+            result_city: dec.result_city,
+            in_scope: dec.in_scope,
+            geo_match_reason: dec.geo_match_reason,
+            duplicate_risk: dRisk,
+          };
           const prevSourceCount = Number(existing.source_count ?? 0);
           const patch: Record<string, unknown> = {
             last_seen_at: new Date().toISOString(),
