@@ -159,9 +159,9 @@ function extractFromHtml(portal: Portal, html: string): { name: string | null; u
     if (m3 && !isBlocked(m3[1])) return { name: decodeEntities(m3[1].trim()), url: null, phone: null, logo: null, method: "casa_logo_alt" };
   }
 
-  // Immobiliare.it: URL agenzia /(agenzie|imprese-edili|costruttori)/<id>/<slug>/
+  // Immobiliare.it: URL agenzia /(agenzie-immobiliari|agenzie|imprese-edili|costruttori|nuove-costruzioni)/<id>/<slug>/
   if (portal === "immobiliare") {
-    const m = h.match(/href="(https:\/\/www\.immobiliare\.it\/(?:agenzie|imprese-edili|costruttori)\/(\d+)\/([a-z0-9-]+)\/?)"/i);
+    const m = h.match(/href="(https:\/\/www\.immobiliare\.it\/(?:agenzie-immobiliari|agenzie|imprese-edili|costruttori)\/(\d+)\/([a-z0-9-]+)\/?)"/i);
     if (m) {
       const slug = m[3];
       const name = slug.replace(/-/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
