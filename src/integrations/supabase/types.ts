@@ -7337,10 +7337,9 @@ export type Database = {
         }
         Returns: string
       }
-      recompute_padova_contendibili: {
-        Args: { p_job_id?: string }
-        Returns: Json
-      }
+      recompute_padova_contendibili:
+        | { Args: never; Returns: Json }
+        | { Args: { p_job_id?: string }; Returns: Json }
       recompute_padova_contendibili_extras: { Args: never; Returns: Json }
       recompute_padova_listings_contendibili: { Args: never; Returns: Json }
       resolve_padova_geo_level: {
