@@ -6,7 +6,10 @@ import { corsHeaders, handlePreflight, pickOrigin } from "../_shared/b2b/cors.ts
 import { authorizeB2BFinder } from "../_shared/b2b/auth.ts";
 
 const VERTICAL = "coprimacchia_tnt";
-const MODE = "buyers";
+// NB: legacy jobs are stored with mode="buyers"; new jobs may use "clients"/"resellers".
+// The actual search intent lives in metadata.search_mode. Do NOT filter by mode here —
+// it would hide resellers jobs even though the Core saves them correctly.
+const ACCEPTED_MODES = new Set(["buyers", "clients", "resellers"]);
 
 const STATUS_DB_TO_UI: Record<string, string> = {
   new: "to_contact",
@@ -133,7 +136,7 @@ Deno.serve(async (req: Request) => {
         .from("b2b_search_jobs")
         .select("id,created_at,finished_at,product,mode,status,zone,counts,cost_eur")
         .eq("vertical", VERTICAL)
-        .eq("mode", MODE)
+        .in("mode", ["buyers", "clients", "resellers"])
         .not("product", "ilike", "%buste portaposate%")
         .order("created_at", { ascending: false })
         .range(offset, offset + limit - 1);
@@ -193,7 +196,7 @@ Deno.serve(async (req: Request) => {
       if (!jobRow) {
         return jsonResponse(req, 404, envelope(false, null, "Job not found", debug_id));
       }
-      if (jobRow.vertical !== VERTICAL || jobRow.mode !== MODE) {
+      if (jobRow.vertical !== VERTICAL || !ACCEPTED_MODES.has(String(jobRow.mode))) {
         return jsonResponse(req, 404, envelope(false, null, "Job not found", debug_id));
       }
 
