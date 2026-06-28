@@ -1010,7 +1010,7 @@ async function cascadeEnrich(c: CompanyRow, ctx: CascadeContext): Promise<{ resu
     providers.push("perplexity");
     phoneCheckedSources.add("public_search");
     const locality = c.comune ?? (c.address ?? "").split(",").pop()?.trim() ?? null;
-    const px = await perplexityFindContacts(c.name, locality);
+    const px = await perplexityFindContacts(c.name, locality, c.address ?? null);
     cost += COST.perplexitySearch; ctx.spend(COST.perplexitySearch);
     if (px) {
       if (!website && px.website) { website = px.website; pxWebsite = px.website; ev.website.fromSearch = true; }
