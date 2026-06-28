@@ -194,15 +194,40 @@ async function persistPadovaCollectV2(
     if (error) errors.push(`insert:${error.message}`); else created += inserts.slice(i, i + 200).length;
   }
 
+  // Promote freshly collected rows into padova_listings (Padova only, excl. idealista)
+  let promoted: { new: number; updated: number } | null = null;
+  try {
+    const { data: promoRes, error: promoErr } = await supabase.rpc(
+      "promote_padova_collect_v2_to_listings",
+      { p_since: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString() },
+    );
+    if (promoErr) {
+      errors.push(`promote:${promoErr.message}`);
+    } else if (promoRes && typeof promoRes === "object") {
+      promoted = {
+        new: Number((promoRes as Record<string, unknown>).new ?? 0),
+        updated: Number((promoRes as Record<string, unknown>).updated ?? 0),
+      };
+    }
+  } catch (e) {
+    errors.push(`promote_exception:${(e as Error).message}`);
+  }
+
   if (stats) {
     stats.raw_items_after_city_filter = (stats.raw_items_after_city_filter ?? 0) + cityFiltered.length;
     stats.raw_items_after_dedupe = (stats.raw_items_after_dedupe ?? 0) + items.length;
     stats.collect_items_created = (stats.collect_items_created ?? 0) + created;
     stats.collect_items_updated = (stats.collect_items_updated ?? 0) + updated;
+    if (promoted) {
+      (stats as Record<string, unknown>).listings_promoted_new =
+        Number((stats as Record<string, unknown>).listings_promoted_new ?? 0) + promoted.new;
+      (stats as Record<string, unknown>).listings_promoted_updated =
+        Number((stats as Record<string, unknown>).listings_promoted_updated ?? 0) + promoted.updated;
+    }
     if (errors.length) stats.collect_errors = [...(stats.collect_errors ?? []), ...errors];
   }
 
-  return { created, updated, afterCity: cityFiltered.length, afterDedupe: items.length, errors };
+  return { created, updated, afterCity: cityFiltered.length, afterDedupe: items.length, errors, promoted };
 }
 
 interface IdentityRow {
