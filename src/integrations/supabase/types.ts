@@ -6861,6 +6861,87 @@ export type Database = {
         }
         Relationships: []
       }
+      test_casa_parsed_listings: {
+        Row: {
+          agency_name: string | null
+          agency_slug: string | null
+          agency_url: string | null
+          badge: string | null
+          bathrooms: number | null
+          created_at: string
+          description: string | null
+          energy_class: string | null
+          floor: string | null
+          id: number
+          is_privato: boolean
+          job_id: string
+          listing_id: string
+          page_index: number
+          parser_version: string
+          price_eur: number | null
+          raw_block: string | null
+          rooms: number | null
+          source_url: string
+          surface_sqm: number | null
+          tier: string | null
+          title: string | null
+          updated_at: string
+          zone: string | null
+        }
+        Insert: {
+          agency_name?: string | null
+          agency_slug?: string | null
+          agency_url?: string | null
+          badge?: string | null
+          bathrooms?: number | null
+          created_at?: string
+          description?: string | null
+          energy_class?: string | null
+          floor?: string | null
+          id?: number
+          is_privato?: boolean
+          job_id: string
+          listing_id: string
+          page_index: number
+          parser_version?: string
+          price_eur?: number | null
+          raw_block?: string | null
+          rooms?: number | null
+          source_url: string
+          surface_sqm?: number | null
+          tier?: string | null
+          title?: string | null
+          updated_at?: string
+          zone?: string | null
+        }
+        Update: {
+          agency_name?: string | null
+          agency_slug?: string | null
+          agency_url?: string | null
+          badge?: string | null
+          bathrooms?: number | null
+          created_at?: string
+          description?: string | null
+          energy_class?: string | null
+          floor?: string | null
+          id?: number
+          is_privato?: boolean
+          job_id?: string
+          listing_id?: string
+          page_index?: number
+          parser_version?: string
+          price_eur?: number | null
+          raw_block?: string | null
+          rooms?: number | null
+          source_url?: string
+          surface_sqm?: number | null
+          tier?: string | null
+          title?: string | null
+          updated_at?: string
+          zone?: string | null
+        }
+        Relationships: []
+      }
       test_casa_raw_pages: {
         Row: {
           crawl_id: string
