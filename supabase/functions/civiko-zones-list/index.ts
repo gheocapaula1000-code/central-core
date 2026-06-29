@@ -16,6 +16,19 @@ const json = (b: unknown, status = 200) =>
     headers: { ...CORS, "Content-Type": "application/json; charset=utf-8" },
   });
 
+const QUARTIERI_BY_SLUG: Record<string, string[]> = {
+  "centro-storico": ["Centro Storico", "Riviere", "Carmine", "Savonarola", "S.Sofia"],
+  "palestro-sacra-famiglia": ["Palestro", "Sacra Famiglia"],
+  "portello-stazione-fiera": ["Portello", "Stazione", "Scrovegni", "Fiera", "Direzionale"],
+  "madonna-pellegrina-bassanello": ["Madonna Pellegrina", "S.Rita", "Bassanello", "Guizza", "Voltabarozzo"],
+  "arcella-nord-torre": ["Arcella Nord", "Mortise", "Altichiero", "Pontevigodarzere", "Torre"],
+  "prima-arcella-direzionale": ["Prima Arcella", "Borgomagno"],
+  "paltana-brusegana-ovest": ["Chiesanuova", "Brusegana", "Paltana", "Mandria", "Voltabrusegana"],
+  "ponte-brenta-forcellini": ["Ponte di Brenta", "S.Lazzaro", "Forcellini", "Terranegra"],
+  "camin-zip": ["Camin", "Zona Industriale", "ZIP"],
+  "sud-rurale": ["Salboro", "Rurale Sud"],
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   const debug_id = crypto.randomUUID();
@@ -47,6 +60,7 @@ serve(async (req) => {
       contendibili_count: z.contendibili_count,
       status: z.status,
       trial_reserved_until: z.trial_reserved_until,
+      quartieri_principali: QUARTIERI_BY_SLUG[z.slug] ?? [],
     }));
 
     return json({ ok: true, data: { zones, count: zones.length }, debug_id });
