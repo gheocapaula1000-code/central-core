@@ -1,8 +1,9 @@
 // Cron wrapper: triggers /civiko-radar-veneto/agent-radar with full intent for PD comuni.
 // Invoked by pg_cron nightly at 03:00 UTC (05:00 Rome).
 // Design:
-//  - Risponde subito a pg_net per evitare timeout 5s e poter loggare la fine via REST.
-//  - Esegue l'ingestion in background con EdgeRuntime.waitUntil.
+//  - Esegue l'ingestion in modo sincrono: niente EdgeRuntime.waitUntil.
+//  - La function risponde più lentamente, ma il completamento viene garantito
+//    e tracciato su public.cron_executions_log.
 //  - Audita su public.cron_executions_log usando le colonne reali
 //    (triggered_at, completed_at, status, http_status, response_excerpt, error_message, duration_ms).
 
@@ -20,7 +21,7 @@ const COMUNI = ["Padova"];
 async function logExecution(jobName: string, row: {
   triggered_at: string;
   completed_at: string;
-  status: "success" | "error" | "partial";
+  status: "started" | "success" | "failure";
   http_status: number | null;
   response_excerpt?: string | null;
   error_message?: string | null;
@@ -104,7 +105,7 @@ async function runOneComune(comune: string, triggeredAt: string, mode: Mode, job
     await logExecution(jobName, {
       triggered_at: triggeredAt,
       completed_at: new Date().toISOString(),
-      status: res.ok ? (noRealIngestion ? "partial" : "success") : "error",
+      status: res.ok ? (noRealIngestion ? "failure" : "success") : "failure",
       http_status: res.status,
       response_excerpt: `[${comune}] ${excerpt}`,
       error_message: res.ok ? (noRealIngestion ? "ingestion_incomplete_or_no_new_collect_writes" : null) : `HTTP ${res.status}`,
@@ -117,7 +118,7 @@ async function runOneComune(comune: string, triggeredAt: string, mode: Mode, job
     await logExecution(jobName, {
       triggered_at: triggeredAt,
       completed_at: new Date().toISOString(),
-      status: "error",
+      status: "failure",
       http_status: null,
       response_excerpt: null,
       error_message: `[${comune}] ${msg}`,
@@ -139,7 +140,7 @@ async function runAll(triggeredAt: string, mode: Mode, jobName: string) {
   await logExecution(jobName, {
     triggered_at: triggeredAt,
     completed_at: new Date().toISOString(),
-    status: okCount === COMUNI.length ? "success" : okCount === 0 ? "error" : "partial",
+    status: okCount === COMUNI.length ? "success" : "failure",
     http_status: 200,
     response_excerpt: `SUMMARY mode=${mode} ok=${okCount}/${COMUNI.length} ` +
       results.map((r) => `${r.comune}:${r.ok ? "ok" : "fail"}`).join(","),
@@ -182,34 +183,17 @@ Deno.serve(async (req) => {
   await logExecution(jobName, {
     triggered_at: triggeredAt,
     completed_at: new Date().toISOString(),
-    status: "success",
+    status: "started",
     http_status: 202,
     response_excerpt: `started mode=${mode} comuni=${COMUNI.length}`,
     error_message: null,
     duration_ms: 0,
   });
 
-  // Manual mode (debug): aspetta la fine se ?wait=1
-  const wait = url.searchParams.get("wait") === "1";
-  if (wait) {
-    await runAll(triggeredAt, mode, jobName);
-    return new Response(JSON.stringify({ ok: true, mode: "sync", run_mode: mode, job: jobName, triggered_at: triggeredAt }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
-  // Background: rispondi subito per evitare pg_net 5s timeout
-  // deno-lint-ignore no-explicit-any
-  const rt = (globalThis as any).EdgeRuntime;
-  if (rt && typeof rt.waitUntil === "function") {
-    rt.waitUntil(runAll(triggeredAt, mode, jobName));
-  } else {
-    runAll(triggeredAt, mode, jobName).catch((e) => console.error(`[${jobName}] bg error:`, e));
-  }
+  await runAll(triggeredAt, mode, jobName);
 
   return new Response(
-    JSON.stringify({ ok: true, mode: "async", run_mode: mode, job: jobName, triggered_at: triggeredAt, comuni: COMUNI }),
-    { status: 202, headers: { "Content-Type": "application/json" } },
+    JSON.stringify({ ok: true, mode: "sync", run_mode: mode, job: jobName, triggered_at: triggeredAt, comuni: COMUNI }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
   );
 });
