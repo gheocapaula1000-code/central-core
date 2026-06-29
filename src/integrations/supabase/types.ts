@@ -1203,6 +1203,62 @@ export type Database = {
         }
         Relationships: []
       }
+      civiko_commercial_zones: {
+        Row: {
+          agency_id: string | null
+          attiva: boolean | null
+          canone_mese_eur: number
+          contendibili_count: number | null
+          created_at: string | null
+          descrizione: string | null
+          id: string
+          nome: string
+          omi_codes: string[]
+          provvigioni_anno_eur: number | null
+          slug: string
+          stripe_price_id: string | null
+          tier: string
+        }
+        Insert: {
+          agency_id?: string | null
+          attiva?: boolean | null
+          canone_mese_eur: number
+          contendibili_count?: number | null
+          created_at?: string | null
+          descrizione?: string | null
+          id?: string
+          nome: string
+          omi_codes: string[]
+          provvigioni_anno_eur?: number | null
+          slug: string
+          stripe_price_id?: string | null
+          tier: string
+        }
+        Update: {
+          agency_id?: string | null
+          attiva?: boolean | null
+          canone_mese_eur?: number
+          contendibili_count?: number | null
+          created_at?: string | null
+          descrizione?: string | null
+          id?: string
+          nome?: string
+          omi_codes?: string[]
+          provvigioni_anno_eur?: number | null
+          slug?: string
+          stripe_price_id?: string | null
+          tier?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "civiko_commercial_zones_agency_id_fkey"
+            columns: ["agency_id"]
+            isOneToOne: false
+            referencedRelation: "agencies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       civiko_data_quality: {
         Row: {
           id: number
