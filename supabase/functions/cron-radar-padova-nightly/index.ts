@@ -21,7 +21,7 @@ const COMUNI = ["Padova"];
 async function logExecution(jobName: string, row: {
   triggered_at: string;
   completed_at: string;
-  status: "success" | "error" | "partial";
+  status: "started" | "success" | "failure";
   http_status: number | null;
   response_excerpt?: string | null;
   error_message?: string | null;
@@ -105,7 +105,7 @@ async function runOneComune(comune: string, triggeredAt: string, mode: Mode, job
     await logExecution(jobName, {
       triggered_at: triggeredAt,
       completed_at: new Date().toISOString(),
-      status: res.ok ? (noRealIngestion ? "partial" : "success") : "error",
+      status: res.ok ? (noRealIngestion ? "failure" : "success") : "failure",
       http_status: res.status,
       response_excerpt: `[${comune}] ${excerpt}`,
       error_message: res.ok ? (noRealIngestion ? "ingestion_incomplete_or_no_new_collect_writes" : null) : `HTTP ${res.status}`,
@@ -118,7 +118,7 @@ async function runOneComune(comune: string, triggeredAt: string, mode: Mode, job
     await logExecution(jobName, {
       triggered_at: triggeredAt,
       completed_at: new Date().toISOString(),
-      status: "error",
+      status: "failure",
       http_status: null,
       response_excerpt: null,
       error_message: `[${comune}] ${msg}`,
@@ -140,7 +140,7 @@ async function runAll(triggeredAt: string, mode: Mode, jobName: string) {
   await logExecution(jobName, {
     triggered_at: triggeredAt,
     completed_at: new Date().toISOString(),
-    status: okCount === COMUNI.length ? "success" : okCount === 0 ? "error" : "partial",
+    status: okCount === COMUNI.length ? "success" : "failure",
     http_status: 200,
     response_excerpt: `SUMMARY mode=${mode} ok=${okCount}/${COMUNI.length} ` +
       results.map((r) => `${r.comune}:${r.ok ? "ok" : "fail"}`).join(","),
@@ -183,7 +183,7 @@ Deno.serve(async (req) => {
   await logExecution(jobName, {
     triggered_at: triggeredAt,
     completed_at: new Date().toISOString(),
-    status: "success",
+    status: "started",
     http_status: 202,
     response_excerpt: `started mode=${mode} comuni=${COMUNI.length}`,
     error_message: null,

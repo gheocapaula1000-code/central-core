@@ -3155,7 +3155,7 @@ Deno.serve(async (req) => {
 
       try {
         // ── Ingestion phase: alimenta listing_price_snapshots + segnali PRIMA di leggere ──
-        const intentRaw = String((body as any).intent ?? "").toLowerCase();
+        const intentRaw = String((body as any).intent ?? (body as any).mode ?? "").toLowerCase();
         const shouldIngest = intentRaw === "soft" || intentRaw === "full";
 
         // ── Scope normalizzato: province[] + comuni[] dal body ────────────
