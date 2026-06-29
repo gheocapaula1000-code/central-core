@@ -163,28 +163,84 @@ Deno.serve(async (req) => {
     }
 
     // 3) Distress - motivated_sellers attivi a Padova
+    // Filtro prezzi anomali: escludi last_price_eur < 10000 (parser errors come 1.450€ con -99.6%)
     const { data: dist } = await supabase
       .from("motivated_sellers")
       .select("id, url, municipality, last_price_eur, total_drop_pct, drops_count, days_online, fatigue_label, detected_at, payload")
       .ilike("municipality", "padova")
       .eq("is_active", true)
+      .or("last_price_eur.is.null,last_price_eur.gte.10000")
       .order("detected_at", { ascending: false })
       .limit(500);
 
+    // Arricchimento titoli/indirizzi via join su padova_listings (motivated_sellers non ha title/address)
+    const distUrls = Array.from(
+      new Set((dist ?? []).map((r) => r.url).filter((u): u is string => typeof u === "string" && u.length > 0)),
+    );
+    const listingMap = new Map<string, { indirizzo: string | null; quartiere: string | null; mq: number | null }>();
+    if (distUrls.length > 0) {
+      const { data: listings } = await supabase
+        .from("padova_listings")
+        .select("url, indirizzo, quartiere, mq")
+        .in("url", distUrls);
+      for (const l of listings ?? []) {
+        if (l.url) listingMap.set(l.url, { indirizzo: l.indirizzo ?? null, quartiere: l.quartiere ?? null, mq: l.mq ?? null });
+      }
+    }
+
+    const extractListingIdFromUrl = (u: string | null | undefined): string | null => {
+      if (!u) return null;
+      const m = u.match(/\/(?:immobili|annunci|annuncio)\/(\d+)/i);
+      if (m) return m[1];
+      const tail = u.replace(/\/+$/, "").split("/").pop() ?? "";
+      return tail.length > 0 ? tail.slice(0, 40) : null;
+    };
+    const hostFromUrl = (u: string | null | undefined): string | null => {
+      if (!u) return null;
+      try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return null; }
+    };
+
     for (const r of dist ?? []) {
       const payload = (r.payload ?? {}) as Record<string, unknown>;
-      const indirizzo = (payload.indirizzo as string) ?? (payload.address as string) ?? "Padova";
-      const mq = (payload.mq as number | null) ?? null;
-      const drop = r.total_drop_pct ? `Ribasso ${Number(r.total_drop_pct).toFixed(1)}%` : null;
+      const enrich = (r.url && listingMap.get(r.url)) || null;
+      const indirizzoReale =
+        (enrich?.indirizzo ?? null) ||
+        ((payload.indirizzo as string) ?? (payload.address as string) ?? null);
+      const quartiere =
+        (enrich?.quartiere ?? null) ||
+        ((payload.zona as string) ?? (payload.quartiere as string) ?? null);
+      const mq = enrich?.mq ?? (payload.mq as number | null) ?? null;
+
+      const dropTxt = r.total_drop_pct ? `Ribasso ${Number(r.total_drop_pct).toFixed(1)}%` : null;
       const giorni = r.days_online ? `${r.days_online} giorni online` : null;
-      const note = [r.fatigue_label, drop, giorni].filter(Boolean).join(" - ") || null;
+      const ribassiCount = r.drops_count ?? 0;
+      const ribassiTxt = `${ribassiCount} ribass${ribassiCount === 1 ? "o" : "i"}`;
+      const note = [r.fatigue_label, dropTxt, giorni].filter(Boolean).join(" - ") || null;
+
+      // Titolo reale: priorità indirizzo > host+listingId > fallback generico
+      let titolo: string;
+      if (indirizzoReale && indirizzoReale.trim().length > 0) {
+        const parts = [indirizzoReale.trim()];
+        if (mq) parts.push(`${mq} mq`);
+        parts.push(ribassiTxt);
+        titolo = parts.join(" · ");
+      } else {
+        const host = hostFromUrl(r.url);
+        const lid = extractListingIdFromUrl(r.url);
+        if (host && lid) {
+          titolo = `Annuncio in difficoltà · ${host} #${lid} (${ribassiTxt})`;
+        } else {
+          titolo = `Annuncio in difficoltà (${ribassiTxt})`;
+        }
+      }
+
       items.push({
         id: `dist-${r.id}`,
         fonte: "distress",
         badge: "Distress",
-        titolo: `Annuncio in difficolta' (${r.drops_count ?? 0} ribassi)`,
-        indirizzo,
-        zona: (payload.zona as string) ?? (payload.quartiere as string) ?? "Padova",
+        titolo,
+        indirizzo: indirizzoReale ?? "Padova",
+        zona: quartiere ?? "Padova",
         prezzo_eur: r.last_price_eur ? Number(r.last_price_eur) : null,
         mq,
         url_sorgente: r.url ?? null,
@@ -193,6 +249,7 @@ Deno.serve(async (req) => {
       });
       totals.distress++;
     }
+
 
     // 4) Patrimonio Comune di Padova (albo pretorio / dismissioni)
     const { data: patr } = await supabase
