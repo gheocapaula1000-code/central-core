@@ -5217,6 +5217,7 @@ export type Database = {
           stato: string | null
           tipo_lead: string | null
           tipologia: string | null
+          updated_at: string | null
           url: string | null
         }
         Insert: {
@@ -5257,6 +5258,7 @@ export type Database = {
           stato?: string | null
           tipo_lead?: string | null
           tipologia?: string | null
+          updated_at?: string | null
           url?: string | null
         }
         Update: {
@@ -5297,6 +5299,7 @@ export type Database = {
           stato?: string | null
           tipo_lead?: string | null
           tipologia?: string | null
+          updated_at?: string | null
           url?: string | null
         }
         Relationships: []
