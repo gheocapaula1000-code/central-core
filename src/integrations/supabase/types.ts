@@ -1213,11 +1213,16 @@ export type Database = {
           descrizione: string | null
           id: string
           nome: string
+          occupied_agency_id: string | null
+          occupied_since: string | null
           omi_codes: string[]
           provvigioni_anno_eur: number | null
           slug: string
+          status: string
           stripe_price_id: string | null
           tier: string
+          trial_agency_id: string | null
+          trial_reserved_until: string | null
         }
         Insert: {
           agency_id?: string | null
@@ -1228,11 +1233,16 @@ export type Database = {
           descrizione?: string | null
           id?: string
           nome: string
+          occupied_agency_id?: string | null
+          occupied_since?: string | null
           omi_codes: string[]
           provvigioni_anno_eur?: number | null
           slug: string
+          status?: string
           stripe_price_id?: string | null
           tier: string
+          trial_agency_id?: string | null
+          trial_reserved_until?: string | null
         }
         Update: {
           agency_id?: string | null
@@ -1243,16 +1253,35 @@ export type Database = {
           descrizione?: string | null
           id?: string
           nome?: string
+          occupied_agency_id?: string | null
+          occupied_since?: string | null
           omi_codes?: string[]
           provvigioni_anno_eur?: number | null
           slug?: string
+          status?: string
           stripe_price_id?: string | null
           tier?: string
+          trial_agency_id?: string | null
+          trial_reserved_until?: string | null
         }
         Relationships: [
           {
             foreignKeyName: "civiko_commercial_zones_agency_id_fkey"
             columns: ["agency_id"]
+            isOneToOne: false
+            referencedRelation: "agencies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "civiko_commercial_zones_occupied_agency_id_fkey"
+            columns: ["occupied_agency_id"]
+            isOneToOne: false
+            referencedRelation: "agencies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "civiko_commercial_zones_trial_agency_id_fkey"
+            columns: ["trial_agency_id"]
             isOneToOne: false
             referencedRelation: "agencies"
             referencedColumns: ["id"]
@@ -7392,6 +7421,7 @@ export type Database = {
         }
         Returns: string
       }
+      expire_commercial_zone_trials: { Args: never; Returns: undefined }
       expire_padova_agency_listings: {
         Args: { p_seen_since: string }
         Returns: Json
@@ -7502,6 +7532,10 @@ export type Database = {
       recompute_padova_contendibili: { Args: never; Returns: Json }
       recompute_padova_contendibili_extras: { Args: never; Returns: Json }
       recompute_padova_listings_contendibili: { Args: never; Returns: Json }
+      reserve_commercial_zone: {
+        Args: { p_agency_id: string; p_slug: string }
+        Returns: Json
+      }
       resolve_padova_geo_level: {
         Args: { p_lat: number; p_lng: number }
         Returns: {
