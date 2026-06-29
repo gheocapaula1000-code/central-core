@@ -1,8 +1,9 @@
 // Cron wrapper: triggers /civiko-radar-veneto/agent-radar with full intent for PD comuni.
 // Invoked by pg_cron nightly at 03:00 UTC (05:00 Rome).
 // Design:
-//  - Risponde subito a pg_net per evitare timeout 5s e poter loggare la fine via REST.
-//  - Esegue l'ingestion in background con EdgeRuntime.waitUntil.
+//  - Esegue l'ingestion in modo sincrono: niente EdgeRuntime.waitUntil.
+//  - La function risponde più lentamente, ma il completamento viene garantito
+//    e tracciato su public.cron_executions_log.
 //  - Audita su public.cron_executions_log usando le colonne reali
 //    (triggered_at, completed_at, status, http_status, response_excerpt, error_message, duration_ms).
 
@@ -189,27 +190,10 @@ Deno.serve(async (req) => {
     duration_ms: 0,
   });
 
-  // Manual mode (debug): aspetta la fine se ?wait=1
-  const wait = url.searchParams.get("wait") === "1";
-  if (wait) {
-    await runAll(triggeredAt, mode, jobName);
-    return new Response(JSON.stringify({ ok: true, mode: "sync", run_mode: mode, job: jobName, triggered_at: triggeredAt }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
-  // Background: rispondi subito per evitare pg_net 5s timeout
-  // deno-lint-ignore no-explicit-any
-  const rt = (globalThis as any).EdgeRuntime;
-  if (rt && typeof rt.waitUntil === "function") {
-    rt.waitUntil(runAll(triggeredAt, mode, jobName));
-  } else {
-    runAll(triggeredAt, mode, jobName).catch((e) => console.error(`[${jobName}] bg error:`, e));
-  }
+  await runAll(triggeredAt, mode, jobName);
 
   return new Response(
-    JSON.stringify({ ok: true, mode: "async", run_mode: mode, job: jobName, triggered_at: triggeredAt, comuni: COMUNI }),
-    { status: 202, headers: { "Content-Type": "application/json" } },
+    JSON.stringify({ ok: true, mode: "sync", run_mode: mode, job: jobName, triggered_at: triggeredAt, comuni: COMUNI }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
   );
 });
