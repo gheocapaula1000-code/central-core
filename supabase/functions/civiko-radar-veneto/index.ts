@@ -3253,7 +3253,16 @@ Deno.serve(async (req) => {
           if (totalRaw === 0) ingestionWarnings.push("soft_ingestion_zero_results");
           else ingestionWarnings.push(`soft_ingestion_completed_${totalRaw}_listings`);
 
-          if (requestedComuniLower.has("padova") && sourceFreshnessClient) {
+          // NOTE: recompute_padova_contendibili() is intentionally NOT called here.
+          // It is CPU-heavy and times out inside the Edge Function runtime.
+          // The dedicated pg_cron job `padova-contendibili-recompute` (03:15 UTC)
+          // is the single source of truth for the recompute.
+          const triggeredBy = String(radarMeta.triggered_by ?? "").toLowerCase();
+          const allowInlineRecompute = requestedComuniLower.has("padova")
+            && sourceFreshnessClient
+            && !triggeredBy.startsWith("cron-")
+            && (body as any).force_recompute_contendibili === true;
+          if (allowInlineRecompute) {
             try {
               const { data, error } = await sourceFreshnessClient.rpc("recompute_padova_contendibili");
               if (error) {
@@ -3270,7 +3279,10 @@ Deno.serve(async (req) => {
               recomputeError = e instanceof Error ? e.message : String(e);
               ingestionWarnings.push("padova_contendibili_recompute_exception");
             }
+          } else if (requestedComuniLower.has("padova")) {
+            ingestionWarnings.push("padova_contendibili_recompute_deferred_to_pg_cron");
           }
+
         }
 
         sourceFreshnessAfter = await fetchPadovaSourceFreshness(sourceFreshnessClient);
