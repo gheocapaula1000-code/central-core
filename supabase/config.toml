@@ -196,6 +196,10 @@ verify_jwt = false
 [functions.padova-apify-idealista-collect]
 verify_jwt = false
 
+[functions.cron-apify-idealista-nightly]
+verify_jwt = false
+
+
 
 
 
