@@ -5189,12 +5189,16 @@ export type Database = {
           parse_status: string | null
           piano: string | null
           portal: string
+          previous_price_eur: number | null
           prezzo: number | null
           prezzo_iniziale: number | null
           processed_at: string | null
           quartiere: string | null
           raw_address: string | null
           raw_json: Json | null
+          ribasso_date: string | null
+          ribasso_eur: number | null
+          ribasso_pct: number | null
           riscaldamento: string | null
           stato: string | null
           tipo_lead: string | null
@@ -5230,12 +5234,16 @@ export type Database = {
           parse_status?: string | null
           piano?: string | null
           portal: string
+          previous_price_eur?: number | null
           prezzo?: number | null
           prezzo_iniziale?: number | null
           processed_at?: string | null
           quartiere?: string | null
           raw_address?: string | null
           raw_json?: Json | null
+          ribasso_date?: string | null
+          ribasso_eur?: number | null
+          ribasso_pct?: number | null
           riscaldamento?: string | null
           stato?: string | null
           tipo_lead?: string | null
@@ -5271,12 +5279,16 @@ export type Database = {
           parse_status?: string | null
           piano?: string | null
           portal?: string
+          previous_price_eur?: number | null
           prezzo?: number | null
           prezzo_iniziale?: number | null
           processed_at?: string | null
           quartiere?: string | null
           raw_address?: string | null
           raw_json?: Json | null
+          ribasso_date?: string | null
+          ribasso_eur?: number | null
+          ribasso_pct?: number | null
           riscaldamento?: string | null
           stato?: string | null
           tipo_lead?: string | null
