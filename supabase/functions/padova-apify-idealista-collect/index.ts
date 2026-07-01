@@ -273,10 +273,10 @@ Deno.serve(async (req) => {
       const { data } = await sb
         .from("padova_listings")
         .select("url")
-        .eq("portal", "idealista.it")
-        .lt("updated_at", cutoff)
+        .eq("fonte", "idealista")
+        .lt("last_seen_at", cutoff)
         .not("url", "is", null)
-        .order("updated_at", { ascending: true })
+        .order("last_seen_at", { ascending: true })
         .limit(dbCap);
       refreshUrls = (data ?? []).map((r: any) => r.url).filter(Boolean);
     }
