@@ -190,6 +190,9 @@ verify_jwt = false
 [functions.padova-apify-immobiliare-collect]
 verify_jwt = false
 
+[functions.cron-apify-immobiliare-nightly]
+verify_jwt = false
+
 
 
 
