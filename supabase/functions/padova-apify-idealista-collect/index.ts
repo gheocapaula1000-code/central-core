@@ -117,23 +117,23 @@ function pickPhotos(raw: any): string[] | null {
 }
 
 function mapItem(raw: any, jobId: string, nowIso: string) {
-  // Skippa i record d'errore (`{url, error}`) e quelli senza payload valido
-  if (!raw || raw.error || raw.status && raw.status !== "success") {
-    if (!raw?.originalUrl && !raw?.detailWebLink) return null;
-  }
+  if (!raw || raw.error) return null;
 
-  const ub = raw?.ubication ?? {};
-  const ci = raw?.contactInfo ?? {};
-  const mc = raw?.moreCharacteristics ?? {};
-  const pd = raw?.priceDropInfo ?? null;
-  const addr = ci?.address ?? {};
+  // Discriminatore shape: detail item ha `ubication` + `moreCharacteristics`;
+  // list-view item (da URL di ricerca) ha `propertyCode` + top-level lat/size.
+  const isDetail = !!(raw.ubication || raw.moreCharacteristics || raw.propertyId);
 
-  const url = canonUrl(raw?.originalUrl ?? raw?.detailWebLink ?? raw?.url ?? "");
+  const url = canonUrl(
+    raw?.originalUrl ?? raw?.detailWebLink ?? raw?.url ?? raw?.sourceUrl ?? "",
+  );
   if (!url) return null;
 
-  const priceRaw = toInt(raw?.price ?? raw?.priceInfo?.amount);
+  const priceRaw = toInt(
+    raw?.price ?? raw?.priceInfo?.amount ?? raw?.priceInfo?.price?.amount,
+  );
 
-  // Prezzo precedente: se c'è priceDropInfo, prezzo attuale + priceDropValue
+  // priceDropInfo esiste SOLO nei detail item — sui list-view è sempre assente.
+  const pd = raw?.priceDropInfo ?? null;
   const priceDropValue = toFloat(pd?.priceDropValue);
   const previousPriceEur = priceRaw != null && priceDropValue != null
     ? priceRaw + priceDropValue
@@ -142,17 +142,47 @@ function mapItem(raw: any, jobId: string, nowIso: string) {
   const ribassoEur = priceDropValue;
   const ribassoDate = pd?.dropDate ? new Date(Number(pd.dropDate)).toISOString() : null;
 
+  // Indirizzo
+  const ub = raw?.ubication ?? {};
+  const ci = raw?.contactInfo ?? {};
+  const mc = raw?.moreCharacteristics ?? {};
+  const addr = ci?.address ?? {};
   const streetName = addr?.streetName ?? ub?.title ?? null;
   const streetNumber = addr?.streetNumber ?? null;
-  const rawAddress = streetName
-    ? (streetNumber ? `${streetName} ${streetNumber}` : streetName)
-    : ub?.title ?? null;
+  const rawAddress = isDetail
+    ? (streetName ? (streetNumber ? `${streetName} ${streetNumber}` : streetName) : ub?.title ?? null)
+    : (raw?.address ?? null);
 
-  const agency = (ci?.commercialName ?? ci?.contactName ?? ci?.agentInfo?.name ?? "").toString().trim() || null;
+  // Agency
+  const agency = (
+    ci?.commercialName ?? ci?.contactName ?? ci?.agentInfo?.name ?? ""
+  ).toString().trim() || null;
   const agencyPhone = ci?.phone1?.formattedPhoneWithPrefix ?? ci?.phone1?.phoneNumber ?? null;
   const isProfessional = ci?.professional === true || ci?.userType === "professional";
 
-  const listingId = String(raw?.propertyId ?? raw?.adid ?? url.match(/immobile\/(\d+)/)?.[1] ?? "");
+  // Campi numerici/fisici — fallback list-view
+  const mq = isDetail
+    ? (toInt(mc?.constructedArea) ?? toInt(mc?.usableArea))
+    : toInt(raw?.size);
+  const locali = isDetail ? toInt(mc?.roomNumber) : toInt(raw?.rooms);
+  const bagni = isDetail ? toInt(mc?.bathNumber) : toInt(raw?.bathrooms);
+  const piano = isDetail
+    ? (mc?.floor != null ? String(mc.floor) : null)
+    : (raw?.floor != null ? String(raw.floor) : null);
+  const stato = isDetail ? (mc?.status ?? null) : (raw?.status ?? null);
+  const lat = toFloat(isDetail ? ub?.latitude : raw?.latitude);
+  const lng = toFloat(isDetail ? ub?.longitude : raw?.longitude);
+  const cap = addr?.postalCode ?? null;
+  const quartiere = isDetail
+    ? (ub?.administrativeAreaLevel4 ?? ub?.administrativeAreaLevel3 ?? ub?.locationName ?? null)
+    : (raw?.neighborhood ?? raw?.district ?? null);
+  const tipologia = isDetail
+    ? (raw?.extendedPropertyType ?? raw?.detailedType?.typology ?? raw?.homeType ?? null)
+    : (raw?.propertyType ?? raw?.detailedType?.typology ?? null);
+
+  const listingId = String(
+    raw?.propertyId ?? raw?.propertyCode ?? raw?.adid ?? url.match(/immobile\/(\d+)/)?.[1] ?? "",
+  );
 
   return {
     job_id: jobId,
@@ -161,39 +191,39 @@ function mapItem(raw: any, jobId: string, nowIso: string) {
     url,
     raw_address: rawAddress,
     citta: "Padova",
-    cap: addr?.postalCode ?? null,
-    lat: toFloat(ub?.latitude),
-    lng: toFloat(ub?.longitude),
+    cap,
+    lat,
+    lng,
     omi_zone: null,
-    quartiere: ub?.administrativeAreaLevel4 ?? ub?.administrativeAreaLevel3 ?? ub?.locationName ?? null,
+    quartiere,
     tipo_lead: isProfessional ? "AGENZIA" : (agency ? "AGENZIA" : "PRIVATO"),
     n_agenzie: agency ? 1 : 0,
     prezzo: priceRaw,
     prezzo_iniziale: previousPriceEur ?? priceRaw,
-    mq: toInt(mc?.constructedArea) ?? toInt(mc?.usableArea),
-    locali: toInt(mc?.roomNumber),
-    bagni: toInt(mc?.bathNumber),
+    mq,
+    locali,
+    bagni,
     agency,
     agency_phone: agencyPhone,
-    tipologia: raw?.extendedPropertyType ?? raw?.detailedType?.typology ?? raw?.homeType ?? null,
-    piano: mc?.floor != null ? String(mc.floor) : null,
-    stato: mc?.status ?? null,
+    tipologia,
+    piano,
+    stato,
     anno_costruzione: null,
     cluster_key: null,
-    parse_status: "apify_idealista_ingested",
+    parse_status: isDetail ? "apify_idealista_detail" : "apify_idealista_listview",
     processed_at: nowIso,
     http_status: 200,
     log_reason: null,
     attempts: 0,
-    // Colonne ribasso native Idealista
     previous_price_eur: previousPriceEur,
     ribasso_pct: ribassoPct,
     ribasso_eur: ribassoEur,
     ribasso_date: ribassoDate,
-    raw_json: { ...raw, _photos: pickPhotos(raw) },
+    raw_json: { ...raw, _photos: pickPhotos(raw), _shape: isDetail ? "detail" : "listview" },
     updated_at: nowIso,
   };
 }
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
