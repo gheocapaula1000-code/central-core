@@ -187,4 +187,9 @@ verify_jwt = false
 [functions.cron-radar-padova-nightly]
 verify_jwt = false
 
+[functions.padova-apify-immobiliare-collect]
+verify_jwt = false
+
+
+
 
