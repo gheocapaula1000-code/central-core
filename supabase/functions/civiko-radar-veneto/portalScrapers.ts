@@ -454,7 +454,7 @@ function selectPortalsForMode(mode: RadarMode): { configs: PortalConfig[]; rotat
     allow = ["casa.it", "immobiliare.it", "idealista.it", "subito.it"];
     key = "soft_afternoon";
   } else {
-    allow = ["casa.it", "immobiliare.it"];
+    allow = ["casa.it", "immobiliare.it", "subito.it"];
     key = "soft_night";
   }
   return { configs: PORTAL_CONFIGS.filter((c) => allow.includes(c.source)), rotationKey: key };
