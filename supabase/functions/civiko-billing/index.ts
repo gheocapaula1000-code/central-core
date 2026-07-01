@@ -241,6 +241,22 @@ async function handleMyZone(req: Request, debugId: string): Promise<Response> {
   if (sub.zona_status === "assegnata" && sub.zona_assegnata) {
     const zonaName = String(sub.zona_assegnata).trim();
 
+    // Canone mensile — stessa fonte di /civiko-zones-list (civiko_commercial_zones)
+    let canone_mese_eur: number | null = null;
+    try {
+      const { data: zoneRow, error: zoneErr } = await sb
+        .from("civiko_commercial_zones")
+        .select("canone_mese_eur")
+        .ilike("nome", zonaName)
+        .limit(1)
+        .maybeSingle();
+      if (zoneErr) warnings.push("canone_mese_query_error");
+      else if (!zoneRow) warnings.push("canone_mese_not_found");
+      else canone_mese_eur = zoneRow.canone_mese_eur ?? null;
+    } catch { warnings.push("canone_mese_unavailable"); }
+
+
+
     // Geometry from omi_zone_geometry (match by zona_descr, comune Padova)
     let geojson: unknown = null;
     let centro: { lat: number; lng: number } | null = null;
