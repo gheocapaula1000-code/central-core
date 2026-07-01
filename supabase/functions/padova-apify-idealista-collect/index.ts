@@ -324,14 +324,79 @@ Deno.serve(async (req) => {
     const items = await fetchDataset(dataset_id, token, maxItems);
     const nowIso = new Date().toISOString();
     const jobId = `apify-idealista-${nowIso.slice(0, 10)}-${crypto.randomUUID().slice(0, 8)}`;
-    const mapped = items.map((it) => mapItem(it, jobId, nowIso)).filter(Boolean) as any[];
+    const mappedA = items.map((it) => mapItem(it, jobId, nowIso)).filter(Boolean) as any[];
 
-    // Dedup per url in-batch (Idealista può restituire lo stesso annuncio da più URL di search)
+    // Dedup passo A per url (Idealista può restituire lo stesso annuncio da più URL di search)
     const byUrl = new Map<string, any>();
-    for (const r of mapped) byUrl.set(r.url, r);
-    const deduped = Array.from(byUrl.values());
+    for (const r of mappedA) byUrl.set(r.url, r);
 
+    // === PASSO B: enrich detail-by-URL sui soli annunci NEW da discovery ===
+    // Motivazione: gli item list-view non contengono priceDropInfo. Solo il fetch
+    // detail per URL singolo lo espone. Facciamo il secondo passaggio solo sui
+    // NEW per limitare il costo pay-per-result.
+    let newUrlsEnriched = 0;
+    let secondPassRunId: string | null = null;
+    let secondPassStatus: string | null = null;
+    const discoveredUrls = Array.from(byUrl.values())
+      .filter((r) => r.parse_status === "apify_idealista_listview")
+      .map((r) => r.url);
+
+    if ((mode === "discovery" || mode === "mixed") && discoveredUrls.length > 0) {
+      const existingSet = new Set<string>();
+      for (let i = 0; i < discoveredUrls.length; i += 100) {
+        const { data } = await sb
+          .from("padova_collect_v2_items")
+          .select("url")
+          .eq("portal", "idealista")
+          .in("url", discoveredUrls.slice(i, i + 100));
+        for (const r of data ?? []) if (r.url) existingSet.add(r.url);
+      }
+      const newUrls = discoveredUrls.filter((u) => !existingSet.has(u));
+
+      if (newUrls.length > 0) {
+        try {
+          const runB = await startRun(
+            { Property_urls: newUrls.map((u) => ({ url: u })) },
+            token,
+          );
+          secondPassRunId = runB.run_id;
+          await sb.from("padova_apify_runs").insert({
+            portal: `idealista_collect_${mode}_enrich`,
+            actor_id: ACTOR,
+            run_id: runB.run_id,
+            dataset_id: runB.dataset_id,
+            status: "RUNNING",
+            cost_cap_usd: 0.30,
+          });
+          const pollB = await pollRun(runB.run_id, token, timeoutSec);
+          secondPassStatus = pollB.status;
+          if (pollB.status === "SUCCEEDED") {
+            const detailItems = await fetchDataset(runB.dataset_id, token, newUrls.length + 20);
+            const detailMapped = detailItems.map((it) => mapItem(it, jobId, nowIso)).filter(Boolean) as any[];
+            // Merge: rimpiazza le entry listview con le detail (che hanno priceDropInfo)
+            for (const r of detailMapped) byUrl.set(r.url, r);
+            newUrlsEnriched = detailMapped.length;
+            await sb.from("padova_apify_runs").update({ status: "SUCCEEDED" }).eq("run_id", runB.run_id);
+          } else {
+            await sb.from("padova_apify_runs").update({ status: pollB.status }).eq("run_id", runB.run_id);
+          }
+        } catch (e) {
+          console.error("[idealista] second_pass_failed", (e as Error).message);
+          secondPassStatus = `error:${(e as Error).message}`.slice(0, 200);
+        }
+      }
+    }
+
+    const deduped = Array.from(byUrl.values());
     const priceDropCount = deduped.filter((r) => r.ribasso_eur != null).length;
+    const enrichment = {
+      discovered_urls: discoveredUrls.length,
+      new_urls_enriched: newUrlsEnriched,
+      second_pass_ran: secondPassRunId != null,
+      second_pass_run_id: secondPassRunId,
+      second_pass_status: secondPassStatus,
+      estimated_extra_cost_usd: Number((newUrlsEnriched * 0.004).toFixed(3)),
+    };
 
     if (body.dry_run) {
       return new Response(
@@ -340,9 +405,10 @@ Deno.serve(async (req) => {
           discovery_count: discoveryUrls.length,
           refresh_count: refreshUrls.length,
           dataset_size: items.length,
-          mapped: mapped.length,
+          mapped: mappedA.length,
           deduped: deduped.length,
           price_drop_count: priceDropCount,
+          enrichment,
           sample: deduped.slice(0, 2),
         }, null, 2),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -390,13 +456,15 @@ Deno.serve(async (req) => {
         discovery_count: discoveryUrls.length,
         refresh_count: refreshUrls.length,
         dataset_size: items.length,
-        mapped: mapped.length,
+        mapped: mappedA.length,
         deduped: deduped.length,
         price_drop_count: priceDropCount,
+        enrichment,
         created, updated, errors,
       }, null, 2),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
+
   } catch (e) {
     return new Response(
       JSON.stringify({ ok: false, error: String((e as Error)?.message ?? e) }),
