@@ -152,23 +152,38 @@ function mapDetail(raw: any, jobId: string, nowIso: string) {
 // Utilizzato SOLO se non ci sono NEW da arricchire (per non perdere gli item).
 // Nella pipeline standard, tutti i NEW passano per Pass B che sovrascrive con detail.
 function mapListview(raw: any, jobId: string, nowIso: string) {
-  const url = canonUrl(raw?.url ?? raw?.link ?? raw?.detailUrl ?? "");
+  // Shape reale azzouzana (list-real-estate):
+  //   directLink, id, title, price.value, typology.name,
+  //   advertiser.agency.{displayName, phones[0].value},
+  //   properties[0].{location.{latitude,longitude,address,microzone,city},
+  //                  surface, rooms, bathrooms, floor.value, ga4Condition, typology.name}
+  const url = canonUrl(raw?.directLink ?? (raw?.id ? `https://www.immobiliare.it/annunci/${raw.id}` : ""));
   if (!url) return null;
-  const priceRaw = toInt(raw?.price ?? raw?.priceValue ?? raw?.priceAmount);
-  const agency = ((raw?.agencyName ?? raw?.agency ?? "") + "").trim() || null;
-  const listingId = String(raw?.id ?? raw?.propertyId ?? url.match(/annunci\/(\d+)/)?.[1] ?? "");
+  const priceRaw = toInt(raw?.price?.value);
+  const agencyObj = raw?.advertiser?.agency ?? {};
+  const agency = ((agencyObj?.displayName ?? "") + "").trim() || null;
+  const phone = agencyObj?.phones?.[0]?.value
+    ?? raw?.advertiser?.supervisor?.phones?.[0]?.value
+    ?? null;
+  const listingId = String(raw?.id ?? url.match(/annunci\/(\d+)/)?.[1] ?? "");
+  const p0 = (Array.isArray(raw?.properties) ? raw.properties.find((x: any) => x?.isMain) ?? raw.properties[0] : null) ?? {};
+  const loc = p0?.location ?? {};
+  const mq = toInt(String(p0?.surface ?? "").match(/\d+/)?.[0]);
+  const locali = toInt(String(p0?.rooms ?? "").match(/\d+/)?.[0]);
+  const bagni = toInt(String(p0?.bathrooms ?? "").match(/\d+/)?.[0]);
+
   return {
     job_id: jobId,
     portal: "immobiliare",
     listing_id: listingId || null,
     url,
-    raw_address: raw?.address ?? null,
-    citta: "Padova",
-    cap: raw?.zipcode ?? null,
-    lat: toFloat(raw?.latitude),
-    lng: toFloat(raw?.longitude),
+    raw_address: loc?.address ?? null,
+    citta: loc?.city ?? "Padova",
+    cap: null, // list-view non espone cap
+    lat: toFloat(loc?.latitude),
+    lng: toFloat(loc?.longitude),
     omi_zone: null,
-    quartiere: raw?.microzone ?? null,
+    quartiere: loc?.microzone ?? loc?.macrozone ?? null,
     tipo_lead: agency ? "AGENZIA" : "PRIVATO",
     n_agenzie: agency ? 1 : 0,
     prezzo: priceRaw,
@@ -177,14 +192,14 @@ function mapListview(raw: any, jobId: string, nowIso: string) {
     ribasso_pct: null,
     ribasso_eur: null,
     ribasso_date: null,
-    mq: toInt(raw?.surface ?? raw?.surfaceSqm),
-    locali: toInt(raw?.rooms),
-    bagni: toInt(raw?.bathrooms),
+    mq,
+    locali,
+    bagni,
     agency,
-    agency_phone: null,
-    tipologia: raw?.propertyType ?? null,
-    piano: raw?.floor ?? null,
-    stato: raw?.condition ?? null,
+    agency_phone: phone,
+    tipologia: p0?.typology?.name ?? raw?.typology?.name ?? null,
+    piano: p0?.floor?.value ?? null,
+    stato: p0?.ga4Condition ?? null,
     anno_costruzione: null,
     cluster_key: null,
     parse_status: "apify_immobiliare_listview",
