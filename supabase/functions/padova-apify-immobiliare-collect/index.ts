@@ -376,12 +376,16 @@ Deno.serve(async (req) => {
         .select("id,url").eq("portal", "immobiliare").in("url", urls.slice(i, i + 100));
       for (const r of data ?? []) if (r.url) existing.set(r.url, Number(r.id));
     }
-    let created = 0, updated = 0;
+    let created = 0, updated = 0, skipped_listview_existing = 0;
     const errors: string[] = [];
     const inserts: any[] = [];
     for (const row of mapped) {
       const eid = existing.get(row.url);
+      const isListview = row.parse_status === "apify_immobiliare_listview";
       if (eid) {
+        // In mode=discovery, MAI sovrascrivere una riga esistente con dati listview:
+        // il listview serve solo a identificare i NEW (arricchiti in Pass B come detail).
+        if (isListview) { skipped_listview_existing++; continue; }
         const { error } = await sb.from("padova_collect_v2_items").update(row).eq("id", eid);
         if (error) errors.push(`upd:${error.message}`); else updated++;
       } else inserts.push(row);
@@ -394,7 +398,7 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({
       ok: true, job_id: jobId,
-      mapped: mapped.length, created, updated, errors,
+      mapped: mapped.length, created, updated, skipped_listview_existing, errors,
       enrichment,
     }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
