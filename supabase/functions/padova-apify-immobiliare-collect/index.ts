@@ -398,7 +398,7 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({
       ok: true, job_id: jobId,
-      mapped: mapped.length, created, updated, errors,
+      mapped: mapped.length, created, updated, skipped_listview_existing, errors,
       enrichment,
     }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
