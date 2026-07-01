@@ -51,9 +51,16 @@ Deno.serve(async (req) => {
   let overrides: Record<string, unknown> = {};
   try { overrides = await req.json(); } catch { /* body vuoto ok */ }
 
+  const DEFAULT_SEARCH_URLS = [
+    "https://www.immobiliare.it/vendita-case/padova/",
+  ];
+
   const body = {
-    max_urls_from_db: 200,
-    max_items: 200,
+    mode: "mixed",
+    desired_results: 100,          // hint azzouzana per Pass A
+    max_items: 200,                // cap Pass B (detail-by-URL sui NEW)
+    search_urls: DEFAULT_SEARCH_URLS,
+    refresh_urls: [] as string[],
     wait_seconds: 300,
     dry_run: false,
     ...overrides,
