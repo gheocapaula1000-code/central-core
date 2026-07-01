@@ -432,10 +432,11 @@ async function scrapeWithApify(
  * verificata come funzionante per Padova città: deve essere SEMPRE inclusa
  * in ogni slot, così Padova+casa.it non può essere saltata per un'intera giornata
  * e se uno slot produce zero, il successivo ritrova comunque la fonte funzionante.
- *  - 00-07 → casa.it + immobiliare.it           (slot 04:00 Roma / 02:00 UTC)
- *  - 08-13 → casa.it + subito.it                (slot 11:00 Roma / 09:00 UTC)
+ *  - 00-07 → casa.it + immobiliare.it + subito.it           (slot 04:00 Roma / 02:00 UTC)
+ *  - 08-13 → casa.it + subito.it                            (slot 11:00 Roma / 09:00 UTC)
  *  - 14-19 → casa.it + immobiliare.it + idealista.it + subito.it (slot 15:30 Roma / 13:30 UTC)
- *  - 20-23 → casa.it + immobiliare.it
+ *  - 20-23 → casa.it + immobiliare.it + subito.it
+ * casa.it e subito.it sono SEMPRE incluse in ogni slot (fonti verified always-on).
  * In full mode usa tutti i portali.
  */
 function selectPortalsForMode(mode: RadarMode): { configs: PortalConfig[]; rotationKey: string } {
@@ -453,7 +454,7 @@ function selectPortalsForMode(mode: RadarMode): { configs: PortalConfig[]; rotat
     allow = ["casa.it", "immobiliare.it", "idealista.it", "subito.it"];
     key = "soft_afternoon";
   } else {
-    allow = ["casa.it", "immobiliare.it"];
+    allow = ["casa.it", "immobiliare.it", "subito.it"];
     key = "soft_night";
   }
   return { configs: PORTAL_CONFIGS.filter((c) => allow.includes(c.source)), rotationKey: key };
