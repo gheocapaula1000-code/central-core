@@ -80,6 +80,8 @@ function mapItem(raw: any, jobId: string, nowIso: string) {
   const e = raw?._enhanced ?? {};
   const g = raw?.geography ?? {};
   const p = raw?.price ?? {};
+  const t = raw?.topology ?? {};
+  const a = raw?.analytics ?? {};
   const url = canonUrl(raw?.shareUrl ?? e.sourceUrl ?? e.listingUrl ?? "");
   if (!url) return null;
   const lat = toFloat(e.latitude ?? g?.geolocation?.latitude);
@@ -95,6 +97,11 @@ function mapItem(raw: any, jobId: string, nowIso: string) {
       "",
   );
 
+  // Fallback robusti: l'actor a volte omette _enhanced.* mentre gli stessi
+  // dati sono presenti in topology/analytics del payload top-level.
+  const roomsFallback = toInt(String(t?.rooms ?? "").match(/\d+/)?.[0]); // "5+" → 5
+  const surfaceFallback = toInt(t?.surface?.size);
+
   return {
     job_id: jobId,
     portal: "immobiliare",
@@ -102,23 +109,23 @@ function mapItem(raw: any, jobId: string, nowIso: string) {
     url,
     raw_address: e.address ?? g.street ?? null,
     citta: "Padova",
-    cap: e.zipcode ?? g.zipcode ?? null,
+    cap: e.zipcode ?? g.zipcode ?? null, // nessun fallback: quando manca è offuscato alla sorgente
     lat,
     lng,
     omi_zone: null, // risolto in post da recompute/resolver
-    quartiere: g?.microzone?.name ?? e.microzone ?? null,
+    quartiere: g?.microzone?.name ?? e.microzone ?? a?.microzone ?? null,
     tipo_lead: agency ? "AGENZIA" : "PRIVATO",
     n_agenzie: agency ? 1 : 0,
     prezzo: priceRaw,
     prezzo_iniziale: priceStart,
-    mq: toInt(e.surfaceSqm ?? e.commercialSurfaceSqm),
-    locali: toInt(e.rooms),
-    bagni: toInt(e.bathrooms),
+    mq: toInt(e.surfaceSqm ?? e.commercialSurfaceSqm) ?? surfaceFallback,
+    locali: toInt(e.rooms) ?? roomsFallback,
+    bagni: toInt(e.bathrooms) ?? toInt(t?.bathrooms),
     agency,
     agency_phone: phones[0] ?? null,
-    tipologia: e.propertyType ?? null,
-    piano: e.floor ?? null,
-    stato: e.condition ?? null,
+    tipologia: e.propertyType ?? t?.typology?.name ?? null,
+    piano: e.floor ?? t?.floor ?? null,
+    stato: e.condition ?? a?.propertyStatus ?? null,
     anno_costruzione: toInt(e.yearBuilt),
     cluster_key: null,
     parse_status: "apify_immobiliare_ingested",
@@ -130,6 +137,7 @@ function mapItem(raw: any, jobId: string, nowIso: string) {
     updated_at: nowIso,
   };
 }
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
