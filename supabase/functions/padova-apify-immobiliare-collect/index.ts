@@ -294,7 +294,7 @@ Deno.serve(async (req) => {
     // Set di URL candidati per Pass B
     const discoveredUrls = Array.from(new Set(
       discoveryListview
-        .map((r) => canonUrl(r?.url ?? r?.link ?? r?.detailUrl ?? ""))
+        .map((r) => canonUrl(r?.directLink ?? (r?.id ? "https://www.immobiliare.it/annunci/" + r.id : "")))
         .filter(Boolean),
     ));
 
@@ -351,7 +351,7 @@ Deno.serve(async (req) => {
     for (const u of discoveredUrls) {
       if (detailByUrl.has(u)) mapped.push(detailByUrl.get(u));
       else {
-        const raw = discoveryListview.find((r) => canonUrl(r?.url ?? r?.link ?? r?.detailUrl ?? "") === u);
+        const raw = discoveryListview.find((r) => canonUrl(r?.directLink ?? (r?.id ? "https://www.immobiliare.it/annunci/" + r.id : "")) === u);
         const mv = raw ? mapListview(raw, jobId, nowIso) : null;
         if (mv) mapped.push(mv);
       }
