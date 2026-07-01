@@ -257,9 +257,8 @@ Deno.serve(async (req) => {
       }
       for (const surl of searchUrls) {
         const { run_id, dataset_id } = await startRun(ACTOR_DISCOVER, {
-          startUrls: [{ url: surl }],
+          startUrl: surl,
           maxItems: desiredResults,
-          proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
         }, token);
         await sb.from("padova_apify_runs").insert({
           portal: `immobiliare_collect_${mode}_discover`,
