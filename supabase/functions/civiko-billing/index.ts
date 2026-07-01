@@ -219,9 +219,10 @@ async function handleMyZone(req: Request, debugId: string): Promise<Response> {
     started_at: null, current_period_end: null,
   };
 
+  // ── Stripe subscription (status/plan/period): resta invariata ──
   const { data: sub, error: subErr } = await sb
     .from("billing_subscriptions")
-    .select("status, plan_key, billing_interval, zona_status, zona_assegnata, created_at, current_period_end")
+    .select("status, plan_key, billing_interval, created_at, current_period_end")
     .eq("agency_id", workspaceId)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -229,40 +230,37 @@ async function handleMyZone(req: Request, debugId: string): Promise<Response> {
 
   if (subErr) {
     console.warn(`[${FUNCTION_NAME}] my-zone subscription lookup error debug_id=${debugId}: ${subErr.message}`);
-    return withIdentity(json(req, 200, { data: empty, warnings: ["billing_lookup_failed"] }, debugId), route);
-  }
-  if (!sub) {
-    return withIdentity(json(req, 200, { data: empty, warnings: [] }, debugId), route);
+    warnings.push("billing_lookup_failed");
   }
 
-  const plan = sub.billing_interval ?? sub.plan_key ?? null;
+  const subStatus = sub?.status ?? null;
+  const plan = sub?.billing_interval ?? sub?.plan_key ?? null;
+  const startedAt = sub?.created_at ?? null;
+  const currentPeriodEnd = sub?.current_period_end ?? null;
+
+  // ── Zona: fonte unica = civiko_commercial_zones ──
+  let zonaStatus: string | null = null;
   let zonaAssegnata: Record<string, unknown> | null = null;
 
-  if (sub.zona_status === "assegnata" && sub.zona_assegnata) {
-    const zonaName = String(sub.zona_assegnata).trim();
+  const { data: zoneRow, error: zoneErr } = await sb
+    .from("civiko_commercial_zones")
+    .select("slug, nome, status, canone_mese_eur, trial_agency_id, occupied_agency_id, trial_reserved_until, occupied_since")
+    .or(`trial_agency_id.eq.${workspaceId},occupied_agency_id.eq.${workspaceId}`)
+    .limit(1)
+    .maybeSingle();
 
-    // Canone mensile — stessa fonte di /civiko-zones-list (civiko_commercial_zones)
-    let canone_mese_eur: number | null = null;
-    try {
-      const { data: zoneRow, error: zoneErr } = await sb
-        .from("civiko_commercial_zones")
-        .select("canone_mese_eur")
-        .ilike("nome", zonaName)
-        .limit(1)
-        .maybeSingle();
-      if (zoneErr) warnings.push("canone_mese_query_error");
-      else if (!zoneRow) warnings.push("canone_mese_not_found");
-      else canone_mese_eur = zoneRow.canone_mese_eur ?? null;
-    } catch { warnings.push("canone_mese_unavailable"); }
+  if (zoneErr) {
+    warnings.push("zone_lookup_failed");
+  } else if (zoneRow) {
+    const isOccupied = zoneRow.occupied_agency_id === workspaceId;
+    const isTrial = zoneRow.trial_agency_id === workspaceId;
+    zonaStatus = isOccupied ? "assegnata" : (isTrial ? "in_trial" : null);
 
+    const zonaName = String(zoneRow.nome ?? "").trim();
 
-
-    // Geometry from omi_zone_geometry (match by zona_descr, comune Padova)
+    // Geometry (invariata)
     let geojson: unknown = null;
     let centro: { lat: number; lng: number } | null = null;
-
-
-
     const { data: geomRow, error: geomErr } = await sb
       .from("omi_zone_geometry")
       .select("zona, zona_descr")
@@ -273,7 +271,6 @@ async function handleMyZone(req: Request, debugId: string): Promise<Response> {
     if (geomErr || !geomRow) {
       warnings.push("zone_geometry_not_found");
     } else {
-      // Fetch geojson + centroid via SQL function call using a dedicated query
       const { data: geomFull } = await sb
         .rpc("st_zone_geojson_by_descr", { p_descr: zonaName })
         .single() as { data: { geojson: string; lat: number; lng: number } | null };
@@ -287,7 +284,7 @@ async function handleMyZone(req: Request, debugId: string): Promise<Response> {
       }
     }
 
-    // KPI: opportunita_30gg
+    // KPI opportunita_30gg
     let opportunita_30gg: number | null = null;
     try {
       const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
@@ -297,11 +294,11 @@ async function handleMyZone(req: Request, debugId: string): Promise<Response> {
         .ilike("microzona", zonaName)
         .gte("detected_at", since)
         .eq("is_active", true);
-      if (error) { warnings.push("opportunita_30gg_query_error"); }
+      if (error) warnings.push("opportunita_30gg_query_error");
       else opportunita_30gg = count ?? 0;
     } catch { warnings.push("opportunita_30gg_unavailable"); }
 
-    // KPI: lead_caldi — confidence='alta' as proxy (no priorita/stato columns in DB)
+    // KPI lead_caldi
     let lead_caldi: number | null = null;
     try {
       const { count, error } = await sb
@@ -310,11 +307,11 @@ async function handleMyZone(req: Request, debugId: string): Promise<Response> {
         .ilike("microzona", zonaName)
         .eq("is_active", true)
         .eq("confidence", "alta");
-      if (error) { warnings.push("lead_caldi_query_error"); }
+      if (error) warnings.push("lead_caldi_query_error");
       else lead_caldi = count ?? 0;
     } catch { warnings.push("lead_caldi_unavailable"); }
 
-    // KPI: ultimo_radar — radar_run_log has no zone column; use municipality=padova proxy
+    // KPI ultimo_radar
     let ultimo_radar: string | null = null;
     try {
       const { data: r } = await sb
@@ -326,30 +323,36 @@ async function handleMyZone(req: Request, debugId: string): Promise<Response> {
         .limit(1)
         .maybeSingle();
       ultimo_radar = r?.completed_at ?? null;
-      warnings.push("ultimo_radar_proxy_municipality"); // signal: not zone-scoped
+      warnings.push("ultimo_radar_proxy_municipality");
     } catch { warnings.push("ultimo_radar_unavailable"); }
 
     zonaAssegnata = {
       nome: zonaName,
-      codice_quartiere: zonaName, // no codice column in DB; use name as identifier
+      slug: zoneRow.slug,
+      codice_quartiere: zoneRow.slug,
       geojson,
       centro,
-      canone_mese_eur,
+      canone_mese_eur: zoneRow.canone_mese_eur ?? null,
+      trial_reserved_until: isTrial ? zoneRow.trial_reserved_until : null,
+      occupied_since: isOccupied ? zoneRow.occupied_since : null,
       opportunita_30gg,
       lead_caldi,
       ultimo_radar,
     };
+  }
 
+  if (!sub && !zoneRow) {
+    return withIdentity(json(req, 200, { data: empty, warnings }, debugId), route);
   }
 
   return withIdentity(json(req, 200, {
     data: {
-      status: sub.status ?? null,
+      status: subStatus,
       plan,
-      zona_status: sub.zona_status ?? null,
+      zona_status: zonaStatus,
       zona_assegnata: zonaAssegnata,
-      started_at: sub.created_at ?? null,
-      current_period_end: sub.current_period_end ?? null,
+      started_at: startedAt,
+      current_period_end: currentPeriodEnd,
     },
     warnings,
   }, debugId), route);
