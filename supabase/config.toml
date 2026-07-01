@@ -196,7 +196,8 @@ verify_jwt = false
 [functions.padova-apify-idealista-collect]
 verify_jwt = false
 
-
+[functions._test-idealista-refresh]
+verify_jwt = false
 
 
 
