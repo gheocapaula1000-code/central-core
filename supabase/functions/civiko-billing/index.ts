@@ -334,10 +334,12 @@ async function handleMyZone(req: Request, debugId: string): Promise<Response> {
       codice_quartiere: zonaName, // no codice column in DB; use name as identifier
       geojson,
       centro,
+      canone_mese_eur,
       opportunita_30gg,
       lead_caldi,
       ultimo_radar,
     };
+
   }
 
   return withIdentity(json(req, 200, {
