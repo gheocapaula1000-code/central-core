@@ -6,7 +6,9 @@ Deno.serve(async (req) => {
   const ds = url.searchParams.get("ds") ?? "";
   const token = Deno.env.get("APIFY_API_TOKEN") ?? "";
   const r = await fetch(`https://api.apify.com/v2/datasets/${ds}/items?token=${token}&clean=1&limit=3`);
-  const items = await r.json();
-  const shapes = items.map((it: any) => ({ keys: Object.keys(it), sample: it }));
-  return new Response(JSON.stringify(shapes, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  const raw = await r.json();
+  const items = Array.isArray(raw) ? raw : (raw?.items ?? []);
+  const shapes = items.slice(0,3).map((it: any) => ({ keys: Object.keys(it), sample: it }));
+  const meta = { rawType: Array.isArray(raw) ? "array" : typeof raw, topKeys: Array.isArray(raw) ? null : Object.keys(raw ?? {}), status: r.status };
+  return new Response(JSON.stringify({ meta, shapes }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 });
