@@ -12,7 +12,7 @@ Deno.serve(async () => {
       "x-job-secret": secret,
       "Authorization": `Bearer ${Deno.env.get("SUPABASE_ANON_KEY")}`,
     },
-    body: JSON.stringify({ dry_run: true, max_items: 40 }),
+    body: JSON.stringify({ dry_run: true, max_items: 20, search_urls: ["https://www.subito.it/annunci-veneto/vendita/appartamenti/padova/"] }),
   });
   const text = await r.text();
   return new Response(text, {
