@@ -264,11 +264,12 @@ Deno.serve(async (req) => {
       run_id = body.ingest_run_id;
       dataset_id = j.data.defaultDatasetId;
     } else {
-      // Start
+      // Start — actor emastra/subito-it-immobili usa `startUrls` come stringList
+      // e `maxResultItems` (0 = illimitato).
       const started = await startRun(
         {
-          startUrls: searchUrls.map((u) => ({ url: u })),
-          maxItems,
+          startUrls: searchUrls,
+          maxResultItems: maxItems,
         },
         token,
       );
