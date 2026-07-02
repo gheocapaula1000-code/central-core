@@ -12,7 +12,7 @@ Deno.serve(async () => {
       "x-job-secret": secret,
       "Authorization": `Bearer ${Deno.env.get("SUPABASE_ANON_KEY")}`,
     },
-    body: JSON.stringify({ dry_run: true, max_items: 10 }),
+    body: JSON.stringify({ dry_run: true, max_items: 40 }),
   });
   const text = await r.text();
   return new Response(text, {
