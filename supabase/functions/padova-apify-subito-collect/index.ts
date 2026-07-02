@@ -135,7 +135,13 @@ function mapSubito(raw: any, jobId: string, nowIso: string) {
   const mq = toInt(feat("size_sqm"));
   const locali = toInt(feat("rooms"));
   const bagni = toInt(feat("bathrooms"));
-  const piano = feat("floor") != null ? String(feat("floor")) : null;
+  // Fallback: se floor.value è null ma floor.label è testuale ("Rialzato", "Terra", "Seminterrato"),
+  // preserva il valore testuale invece di scartarlo.
+  const floorValue = feat("floor");
+  const floorLabel = featLabel("floor");
+  const piano = floorValue != null
+    ? String(floorValue)
+    : (floorLabel != null && String(floorLabel).trim() !== "" ? String(floorLabel).trim() : null);
   const stato = featLabel("building_condition");
 
   // Advertiser
