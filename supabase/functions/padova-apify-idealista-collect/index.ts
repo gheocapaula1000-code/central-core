@@ -310,6 +310,21 @@ Deno.serve(async (req) => {
       cost_cap_usd: 0.50,
     });
 
+    // ASYNC MODE: registra il run e ritorna. collect-pending farà polling,
+    // ingest e (per discovery) Pass B enrichment.
+    if (body.async_start) {
+      return new Response(
+        JSON.stringify({
+          ok: true, async_start: true, run_id, dataset_id, mode,
+          discovery_count: discoveryUrls.length,
+          refresh_count: refreshUrls.length,
+          note: "run avviato in async: collect-pending completerà ingest ed enrichment",
+        }, null, 2),
+        { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+
     const { status } = await pollRun(run_id, token, timeoutSec);
     if (status !== "SUCCEEDED") {
       return new Response(
