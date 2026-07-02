@@ -44,7 +44,9 @@ interface Body {
   max_items?: number;               // cap globale hard sul dataset
   wait_seconds?: number;
   dry_run?: boolean;
+  async_start?: boolean;            // se true: avvia il run, registra RUNNING e ritorna subito (recovery via collect-pending)
 }
+
 
 async function startRun(input: Record<string, unknown>, token: string) {
   const r = await fetch(
