@@ -102,70 +102,57 @@ function featVal(features: any, keys: string[]): any {
 }
 
 function pickPhotos(raw: any): string[] | null {
-  const src = raw?.images ?? raw?.pics ?? raw?.photos ?? raw?.imageUrls ?? null;
-  if (!src) return null;
-  const urls: string[] = [];
-  const walk = (v: any) => {
-    if (!v) return;
-    if (typeof v === "string" && /^https?:\/\//.test(v)) urls.push(v);
-    else if (Array.isArray(v)) v.forEach(walk);
-    else if (typeof v === "object") Object.values(v).forEach(walk);
-  };
-  walk(src);
-  return urls.length ? Array.from(new Set(urls)).slice(0, 20) : null;
+  const src = raw?.images;
+  if (!Array.isArray(src)) return null;
+  const urls = src.filter((u: any) => typeof u === "string" && /^https?:\/\//.test(u));
+  return urls.length ? urls.slice(0, 20) : null;
 }
 
+// Mapper per lo shape reale dell'actor emastra/subito-it-immobili.
+// Campi verificati via dry_run 2026-07-02.
 function mapSubito(raw: any, jobId: string, nowIso: string) {
   if (!raw || raw.error) return null;
 
-  const url = canonUrl(
-    raw?.urls?.default ?? raw?.url ?? raw?.link ?? raw?.detailUrl ?? "",
-  );
+  const url = canonUrl(raw?.page_url ?? "");
   if (!url) return null;
 
-  const listingId = String(
-    raw?.urn ?? raw?.id ?? raw?.itemId ?? url.match(/-(\d+)\.htm/)?.[1] ?? "",
-  );
+  const listingId = String(url.match(/-(\d+)\.htm$/)?.[1] ?? "");
 
-  // Geo — Subito espone geo in diverse forme a seconda dello scraper
-  const geo = raw?.geo ?? raw?.location ?? {};
-  const town = geo?.town?.value ?? geo?.town ?? geo?.city?.value ?? geo?.city ?? null;
-  const region = geo?.region?.value ?? geo?.region ?? null;
-  const zone = geo?.city?.value ?? geo?.zone?.value ?? geo?.microzone?.value ?? null;
-  const cap = geo?.zipcode ?? geo?.postalCode ?? geo?.zip ?? null;
-  const lat = toFloat(geo?.map?.latitude ?? geo?.lat ?? raw?.latitude);
-  const lng = toFloat(geo?.map?.longitude ?? geo?.lng ?? geo?.lon ?? raw?.longitude);
+  // Location
+  const loc = raw?.location ?? {};
+  const city: string = (loc?.city ?? "").toString();
+  const province: string = (loc?.province ?? "").toString();
+  const region: string = (loc?.region ?? "").toString();
+  const lat = toFloat(loc?.coordinates?.latitude);
+  const lng = toFloat(loc?.coordinates?.longitude);
 
-  // Features — la sorgente varia: array con {uri,value} oppure oggetto piatto
-  const feats = raw?.features ?? raw?.attributes ?? raw?.ad?.features ?? null;
-  const priceRaw = toInt(
-    featVal(feats, ["price", "prezzo"]) ?? raw?.price?.value ?? raw?.price,
-  );
-  const mq = toInt(
-    featVal(feats, ["mq", "size", "superficie", "surface"]) ?? raw?.size,
-  );
-  const locali = toInt(
-    featVal(feats, ["locali", "rooms"]) ?? raw?.rooms,
-  );
-  const bagni = toInt(
-    featVal(feats, ["bagni", "bathrooms"]) ?? raw?.bathrooms,
-  );
-  const piano = featVal(feats, ["piano", "floor"]);
-  const stato = featVal(feats, ["stato", "condizioni", "condition"]);
-  const tipologia = featVal(feats, ["tipologia", "typology"])
-    ?? raw?.category?.label ?? raw?.category?.name ?? raw?.subject ?? null;
+  // Features (oggetto piatto con {label,value})
+  const f = raw?.features ?? {};
+  const feat = (k: string) => f?.[k]?.value ?? null;
+  const featLabel = (k: string) => f?.[k]?.label ?? null;
+
+  const priceRaw = toInt(raw?.price?.value);
+  const mq = toInt(feat("size_sqm"));
+  const locali = toInt(feat("rooms"));
+  const bagni = toInt(feat("bathrooms"));
+  const piano = feat("floor") != null ? String(feat("floor")) : null;
+  const stato = featLabel("building_condition");
 
   // Advertiser
-  const adv = raw?.advertiser ?? raw?.user ?? raw?.seller ?? {};
-  const advType = (adv?.type ?? adv?.userType ?? "").toString().toLowerCase();
-  const isCompany = advType === "company" || advType === "impresa" || advType === "agency";
-  const agency = isCompany ? (adv?.name ?? adv?.displayName ?? null) : null;
-  const agencyPhone = adv?.phone ?? adv?.phoneNumber ?? adv?.contactPhone ?? null;
+  const adv = raw?.advertiser ?? {};
+  const advType = (adv?.type ?? "").toString().toLowerCase();
+  const isCompany = advType === "azienda" || raw?.isPrivateAdvertiser === false;
+  const agency = isCompany ? (adv?.name ?? null) : null;
+  const agencyPhone = adv?.phone_number ?? null;
 
-  const rawAddress = [
-    featVal(feats, ["indirizzo", "address"]) ?? null,
-    town,
-  ].filter(Boolean).join(", ") || null;
+  // Tipologia = sub_category (es. "appartamenti", "case", "attici")
+  const tipologia = raw?.sub_category ?? raw?.title ?? null;
+
+  // Address grezzo: Subito non espone via civico, solo città+provincia
+  const rawAddress = [city, province].filter(Boolean).join(", ") || null;
+
+  // Tipo transazione: filtra fuori affitti se presenti (guard applicata sopra)
+  const tipoTransazione = (raw?.type ?? "").toString();
 
   return {
     job_id: jobId,
@@ -174,11 +161,11 @@ function mapSubito(raw: any, jobId: string, nowIso: string) {
     url,
     raw_address: rawAddress,
     citta: "Padova",
-    cap: cap ? String(cap) : null,
+    cap: null, // Subito non espone CAP
     lat,
     lng,
     omi_zone: null,
-    quartiere: zone && zone !== town ? zone : null,
+    quartiere: null,
     tipo_lead: isCompany ? "AGENZIA" : "PRIVATO",
     n_agenzie: isCompany ? 1 : 0,
     prezzo: priceRaw,
@@ -189,8 +176,8 @@ function mapSubito(raw: any, jobId: string, nowIso: string) {
     agency,
     agency_phone: agencyPhone,
     tipologia,
-    piano: piano != null ? String(piano) : null,
-    stato: stato != null ? String(stato) : null,
+    piano,
+    stato,
     anno_costruzione: null,
     cluster_key: null,
     parse_status: "apify_subito_detail",
@@ -202,20 +189,28 @@ function mapSubito(raw: any, jobId: string, nowIso: string) {
     ribasso_pct: null,
     ribasso_eur: null,
     ribasso_date: null,
-    raw_json: { ...raw, _photos: pickPhotos(raw), _shape: "subito", _town: town, _region: region },
+    raw_json: {
+      ...raw,
+      _photos: pickPhotos(raw),
+      _shape: "subito",
+      _city: city,
+      _province: province,
+      _region: region,
+      _tipo_transazione: tipoTransazione,
+    },
     updated_at: nowIso,
   };
 }
 
-// Guard geografico: tiene solo Padova comune (CAP 35100-35143) o town='Padova'
-function isPadova(row: any): boolean {
-  const town = (row?.raw_json?._town ?? "").toString().toLowerCase();
-  if (town.includes("padova")) {
-    const capNum = parseInt(row?.cap ?? "", 10);
-    if (Number.isFinite(capNum)) return capNum >= 35100 && capNum <= 35143;
-    return true;
-  }
-  return false;
+// Guard: solo Padova comune, solo vendita, prezzo >= 10.000€
+function isPadovaSaleValid(row: any): boolean {
+  const city = (row?.raw_json?._city ?? "").toString().toLowerCase();
+  if (city !== "padova") return false;
+  const tipo = (row?.raw_json?._tipo_transazione ?? "").toString().toLowerCase();
+  if (tipo && !tipo.includes("vendita")) return false;
+  const prezzo = Number(row?.prezzo);
+  if (!Number.isFinite(prezzo) || prezzo < 10000) return false;
+  return true;
 }
 
 Deno.serve(async (req) => {
