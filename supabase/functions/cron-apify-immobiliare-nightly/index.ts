@@ -63,8 +63,10 @@ Deno.serve(async (req) => {
     refresh_urls: [] as string[],
     wait_seconds: 300,
     dry_run: false,
+    async_start: true,
     ...overrides,
   };
+
 
   await logExecution({
     triggered_at: triggeredAt,

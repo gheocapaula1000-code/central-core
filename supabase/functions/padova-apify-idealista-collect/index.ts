@@ -44,7 +44,9 @@ interface Body {
   max_items?: number;               // cap globale hard sul dataset
   wait_seconds?: number;
   dry_run?: boolean;
+  async_start?: boolean;            // se true: avvia il run, registra RUNNING e ritorna subito (recovery via collect-pending)
 }
+
 
 async function startRun(input: Record<string, unknown>, token: string) {
   const r = await fetch(
@@ -307,6 +309,21 @@ Deno.serve(async (req) => {
       status: "RUNNING",
       cost_cap_usd: 0.50,
     });
+
+    // ASYNC MODE: registra il run e ritorna. collect-pending farà polling,
+    // ingest e (per discovery) Pass B enrichment.
+    if (body.async_start) {
+      return new Response(
+        JSON.stringify({
+          ok: true, async_start: true, run_id, dataset_id, mode,
+          discovery_count: discoveryUrls.length,
+          refresh_count: refreshUrls.length,
+          note: "run avviato in async: collect-pending completerà ingest ed enrichment",
+        }, null, 2),
+        { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
 
     const { status } = await pollRun(run_id, token, timeoutSec);
     if (status !== "SUCCEEDED") {
