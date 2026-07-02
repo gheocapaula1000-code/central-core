@@ -264,7 +264,60 @@ Deno.serve(async (req) => {
     estimated_extra_cost_usd: 0,
   };
 
+  // ============ ASYNC START MODE ============
+  // Avvia i run Apify, registra la riga RUNNING in padova_apify_runs, ritorna.
+  // Il polling+ingest (Pass A) e l'auto-trigger di Pass B avvengono in
+  // padova-apify-collect-pending, che gira ogni 15 minuti.
+  if (body.async_start) {
+    try {
+      const started: Array<{ role: string; search_url?: string; run_id: string; dataset_id: string }> = [];
+
+      if (mode === "discovery" || mode === "mixed") {
+        if (searchUrls.length === 0) {
+          return new Response(JSON.stringify({ ok: false, error: "search_urls_required_for_discovery" }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        for (const surl of searchUrls) {
+          const { run_id, dataset_id } = await startRun(ACTOR_DISCOVER, {
+            startUrl: surl, maxItems: desiredResults,
+          }, token);
+          await sb.from("padova_apify_runs").insert({
+            portal: `immobiliare_collect_${mode}_discover`,
+            actor_id: ACTOR_DISCOVER, run_id, dataset_id,
+            status: "RUNNING", cost_cap_usd: 0.20,
+          });
+          started.push({ role: "discover", search_url: surl, run_id, dataset_id });
+        }
+      }
+
+      if ((mode === "refresh") && refreshUrls.length > 0) {
+        const capB = Math.min(refreshUrls.length, maxItems);
+        const { run_id, dataset_id } = await startRun(ACTOR_DETAIL, {
+          startUrls: refreshUrls.slice(0, capB).map((u) => ({ url: u })),
+          maxItems: capB,
+          includeAgencyDetails: false,
+          proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
+        }, token);
+        await sb.from("padova_apify_runs").insert({
+          portal: `immobiliare_collect_${mode}_enrich`,
+          actor_id: ACTOR_DETAIL, run_id, dataset_id,
+          status: "RUNNING", cost_cap_usd: 0.30,
+        });
+        started.push({ role: "enrich_refresh", run_id, dataset_id });
+      }
+
+      return new Response(JSON.stringify({
+        ok: true, async_start: true, mode, job_id: jobId, started,
+        note: "run avviati in async: collect-pending completerà ingest ed enrichment",
+      }, null, 2), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    } catch (e) {
+      return new Response(JSON.stringify({ ok: false, error: String((e as Error)?.message ?? e), async_start: true }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+  }
+
   try {
+
     // ============ PASS A: DISCOVERY ============
     let discoveryListview: any[] = [];
     if (mode === "discovery" || mode === "mixed") {
