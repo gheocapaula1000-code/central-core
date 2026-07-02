@@ -30,6 +30,17 @@ async function apifyRunStatus(runId: string, token: string) {
   return j?.data ?? null;
 }
 
+async function startRun(actor: string, input: Record<string, unknown>, token: string) {
+  const r = await fetch(
+    `${APIFY}/acts/${encodeURIComponent(actor)}/runs?token=${encodeURIComponent(token)}&waitForFinish=0`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) },
+  );
+  const j = await r.json();
+  if (!r.ok) throw new Error(`apify_start_${r.status}: ${JSON.stringify(j).slice(0, 300)}`);
+  return { run_id: j.data.id as string, dataset_id: j.data.defaultDatasetId as string };
+}
+
+
 async function fetchDataset(datasetId: string, token: string, limit: number) {
   const r = await fetch(
     `${APIFY}/datasets/${datasetId}/items?token=${encodeURIComponent(token)}&clean=1&limit=${limit}`,
