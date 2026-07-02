@@ -39,7 +39,9 @@ interface Body {
   max_urls_from_db?: number;  // fallback refresh: URL già in staging
   wait_seconds?: number;
   dry_run?: boolean;
+  async_start?: boolean;      // se true: avvia i run e ritorna; collect-pending completa
 }
+
 
 async function startRun(actor: string, input: Record<string, unknown>, token: string) {
   const r = await fetch(
