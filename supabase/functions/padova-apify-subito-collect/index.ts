@@ -307,7 +307,7 @@ Deno.serve(async (req) => {
     const nowIso = new Date().toISOString();
     const jobId = `apify-subito-${nowIso.slice(0, 10)}-${crypto.randomUUID().slice(0, 8)}`;
     const mappedAll = items.map((it) => mapSubito(it, jobId, nowIso)).filter(Boolean) as any[];
-    const mapped = mappedAll.filter(isPadova);
+    const mapped = mappedAll.filter(isPadovaSaleValid);
     const droppedOutOfScope = mappedAll.length - mapped.length;
 
     // Dedup per url
