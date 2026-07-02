@@ -431,7 +431,29 @@ Deno.serve(async (req) => {
     }
   }
 
+  // ============ ZOMBIE CLEANUP ============
+  // RUNNING più vecchi di zombieHours ma non più identificabili su Apify
+  // (o comunque orfani) → marca TIMED_OUT per non re-processarli in eterno.
+  let zombiesMarked = 0;
+  if (!dryRun && zombieHours > 0) {
+    const zombieCutoff = new Date(Date.now() - zombieHours * 3600_000).toISOString();
+    const { data: zRows } = await sb.from("padova_apify_runs")
+      .select("run_id,started_at").eq("status", "RUNNING").lt("started_at", zombieCutoff).limit(100);
+    for (const z of zRows ?? []) {
+      // Doppio check su Apify: se ancora RUNNING lato Apify, lascia stare.
+      const d = await apifyRunStatus(z.run_id, token);
+      if (d && d.status === "RUNNING") continue;
+      const finalSt = d?.status ?? "TIMED_OUT";
+      await sb.from("padova_apify_runs").update({
+        status: finalSt,
+        finished_at: d?.finishedAt ?? new Date().toISOString(),
+      }).eq("run_id", z.run_id);
+      zombiesMarked++;
+    }
+  }
+
   return new Response(JSON.stringify({
-    ok: true, scanned: candidates.length, results,
+    ok: true, scanned: candidates.length, zombies_marked: zombiesMarked, results,
   }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 });
+
