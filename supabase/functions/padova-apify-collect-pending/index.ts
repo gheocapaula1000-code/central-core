@@ -349,11 +349,71 @@ Deno.serve(async (req) => {
             items_count: itemsCount,
           }).eq("run_id", runId);
         }
+        // ============ AUTO-TRIGGER PASS B (enrichment) ============
+        // Se la run recuperata è di tipo discovery/listview, lancia enrichment
+        // detail-by-URL sui soli URL NEW (non ancora presenti in
+        // padova_collect_v2_items come detail). Il nuovo run verrà completato
+        // dal prossimo tick di collect-pending.
+        let enrichKicked: any = null;
+        const isDiscoveryRun =
+          actorId === ACTOR_IMMO_LISTVIEW ||
+          portalTag.includes("_discover") ||
+          deduped.some((r) => r.parse_status?.endsWith("_listview"));
+
+        if (autoEnrich && !dryRun && isDiscoveryRun) {
+          try {
+            const portal = mapper.portal;
+            const listviewUrls = deduped
+              .filter((r) => r.parse_status?.endsWith("_listview"))
+              .map((r) => r.url);
+            if (listviewUrls.length > 0) {
+              // Filtra NEW: non presenti come detail
+              const alreadyDetail = new Set<string>();
+              for (let i = 0; i < listviewUrls.length; i += 100) {
+                const { data } = await sb.from("padova_collect_v2_items")
+                  .select("url,parse_status").eq("portal", portal)
+                  .in("url", listviewUrls.slice(i, i + 100));
+                for (const r of data ?? []) {
+                  if (r.url && r.parse_status?.endsWith("_detail")) alreadyDetail.add(r.url);
+                }
+              }
+              const newUrls = listviewUrls.filter((u) => !alreadyDetail.has(u)).slice(0, maxEnrichPerRun);
+              if (newUrls.length > 0) {
+                const detailActor = portal === "idealista" ? ACTOR_IDEALISTA : ACTOR_IMMO_DETAIL;
+                const input = portal === "idealista"
+                  ? { Property_urls: newUrls.map((u) => ({ url: u })) }
+                  : {
+                      startUrls: newUrls.map((u) => ({ url: u })),
+                      maxItems: newUrls.length,
+                      includeAgencyDetails: false,
+                      proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
+                    };
+                const { run_id: eRid, dataset_id: eDid } = await startRun(detailActor, input, token);
+                await sb.from("padova_apify_runs").insert({
+                  portal: `${portal}_autoenrich`,
+                  actor_id: detailActor,
+                  run_id: eRid,
+                  dataset_id: eDid,
+                  status: "RUNNING",
+                  cost_cap_usd: 0.30,
+                });
+                enrichKicked = { run_id: eRid, urls: newUrls.length, actor: detailActor };
+              } else {
+                enrichKicked = { skipped: "no_new_urls", listview_seen: listviewUrls.length };
+              }
+            }
+          } catch (e) {
+            enrichKicked = { error: String((e as Error)?.message ?? e) };
+          }
+        }
+
         results.push({
           run_id: runId, actor_id: actorId, portal: portalTag,
           status: finalStatus, items: itemsCount, deduped: deduped.length,
           created, updated, skipped, errors, dry_run: dryRun,
+          auto_enrich: enrichKicked,
         });
+
       } else if (["FAILED", "ABORTED", "TIMED-OUT"].includes(finalStatus)) {
         if (!dryRun) {
           await sb.from("padova_apify_runs").update({
