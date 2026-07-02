@@ -285,6 +285,10 @@ Deno.serve(async (req) => {
   const maxRuns = Number(body.max_runs ?? 20);
   const maxItemsPerRun = Number(body.max_items_per_run ?? 1500);
   const dryRun = !!body.dry_run;
+  const zombieHours = Number(body.zombie_hours ?? 4);
+  const autoEnrich = body.auto_enrich !== false; // default true
+  const maxEnrichPerRun = Number(body.max_enrich_per_run ?? 200);
+
 
   // Seleziona candidati: RUNNING più vecchi di staleMinutes, oppure run_ids espliciti.
   let candidates: any[] = [];
