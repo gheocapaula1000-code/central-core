@@ -54,8 +54,10 @@ Deno.serve(async (req) => {
     max_items: 400,
     wait_seconds: 300,
     dry_run: false,
+    async_start: true,
     ...overrides,
   };
+
 
   await logExecution({
     triggered_at: triggeredAt,
