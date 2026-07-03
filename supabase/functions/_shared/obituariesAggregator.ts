@@ -46,19 +46,29 @@ export interface AggregatorResult {
 
 // Segmentazione permissiva: gli indici necrologi variano molto per fonte.
 // Splittiamo su: doppia newline, "---", bullet markdown (- / *), headings, o "Necrologio di".
-// Manteniamo blocchi 20..2000 char.
 function segmentEntries(markdown: string): string[] {
   if (!markdown || markdown.length < 20) return [];
   const normalized = markdown
-    // Trasforma link markdown "[Necrologio di X](...)" in delimitatori riconoscibili
     .replace(/\[\s*Necrologio di\s+/gi, "\n\n@@ENTRY@@ Necrologio di ")
-    // Bullet items markdown come delimitatori
-    .replace(/\n[\-\*\+]\s+/g, "\n\n@@ENTRY@@ ");
-  const blocks = normalized
+    .replace(/\n[\-\*\+]\s+/g, "\n\n@@ENTRY@@ ")
+    // Anche gli header markdown (# / ##) come delimitatori
+    .replace(/\n#{1,6}\s+/g, "\n\n@@ENTRY@@ ");
+  const raw = normalized
     .split(/(?:\n\s*\n|\n---+\n|\n\*\*\*+\n|@@ENTRY@@)/g)
     .map((b) => b.trim())
-    .filter((b) => b.length > 15 && b.length < 3000);
-  return blocks;
+    .filter((b) => b.length > 15);
+  // Se un blocco è enorme (pagine mono-blob), lo ri-splittiamo per riga singola
+  // e riaggreghiamo le righe in gruppi di ~3.
+  const out: string[] = [];
+  for (const b of raw) {
+    if (b.length <= 2000) { out.push(b); continue; }
+    const lines = b.split(/\n+/).map((l) => l.trim()).filter((l) => l.length > 3);
+    for (let i = 0; i < lines.length; i += 3) {
+      const chunk = lines.slice(i, i + 3).join("\n");
+      if (chunk.length > 15 && chunk.length < 3000) out.push(chunk);
+    }
+  }
+  return out;
 }
 
 // Marker che indicano che un blocco è verosimilmente un necrologio.
