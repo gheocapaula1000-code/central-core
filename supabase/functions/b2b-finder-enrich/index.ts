@@ -135,7 +135,7 @@ const MAX_FIRECRAWL_PAGES = 5;
 const CONCURRENCY = 3;
 const CONF_GOOD_ENOUGH = 0.85;
 const CONF_NEEDS_FALLBACK = 0.75;
-const DEFAULT_JOB_BUDGET_EUR = 0.5;
+const DEFAULT_JOB_BUDGET_EUR = 2.0;
 
 const COST = {
   directFetch: 0,
