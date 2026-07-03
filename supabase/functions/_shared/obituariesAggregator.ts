@@ -63,8 +63,9 @@ function segmentEntries(markdown: string): string[] {
   for (const b of raw) {
     if (b.length <= 2000) { out.push(b); continue; }
     const lines = b.split(/\n+/).map((l) => l.trim()).filter((l) => l.length > 3);
-    for (let i = 0; i < lines.length; i += 3) {
-      const chunk = lines.slice(i, i + 3).join("\n");
+    const GROUP = 5;
+    for (let i = 0; i < lines.length; i += GROUP) {
+      const chunk = lines.slice(i, i + GROUP).join("\n");
       if (chunk.length > 15 && chunk.length < 3000) out.push(chunk);
     }
   }
