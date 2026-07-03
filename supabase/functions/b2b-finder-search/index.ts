@@ -359,6 +359,30 @@ Deno.serve(async (req: Request) => {
 
     // ── Hydration contatti v1.1 (dry_run + save) ─────────────────────────
     // Gira sempre, dopo merge/dedup e prima di scoreAndNormalize.
+    const FIND_PLACE_MAX_CALLS = Math.max(
+      1,
+      parseInt(Deno.env.get("B2B_FINDER_FIND_PLACE_MAX_CALLS") ?? "80", 10) || 80,
+    );
+    const PLACE_DETAILS_MAX_CALLS = Math.max(
+      1,
+      parseInt(Deno.env.get("B2B_FINDER_PLACE_DETAILS_MAX_CALLS") ?? "80", 10) || 80,
+    );
+
+    // Score provvisorio per prioritizzare i candidati all'hydration.
+    // Riusa scoreAndNormalize senza mutare i pois originali.
+    const provisionalScore = new Map<string, number>();
+    for (const p of pois) {
+      try {
+        const n = scoreAndNormalize(p, { city, province, region, search_mode: searchMode });
+        provisionalScore.set(String(p.osm_id), n ? n.score : -Infinity);
+      } catch {
+        provisionalScore.set(String(p.osm_id), -Infinity);
+      }
+    }
+    const byScoreDesc = <T extends { osm_id: string | number }>(a: T, b: T) =>
+      (provisionalScore.get(String(b.osm_id)) ?? -Infinity) -
+      (provisionalScore.get(String(a.osm_id)) ?? -Infinity);
+
     {
       const leadsTotal = pois.length;
       const senzaTelefono = pois.filter((p) => !p.tags.phone && !p.tags["contact:phone"]).length;
@@ -366,7 +390,7 @@ Deno.serve(async (req: Request) => {
         (p) => !(typeof p.osm_id === "string" && p.osm_id.startsWith("gplace/")) && !p.tags["google_place_id"],
       ).length;
       console.log(
-        `[b2b-finder-search][hydration] start: leads_total=${leadsTotal}, senza_telefono=${senzaTelefono}, senza_place_id=${senzaPlaceId} debug_id=${debug_id}`,
+        `[b2b-finder-search][hydration] start: leads_total=${leadsTotal}, senza_telefono=${senzaTelefono}, senza_place_id=${senzaPlaceId}, caps=find_place:${FIND_PLACE_MAX_CALLS}/place_details:${PLACE_DETAILS_MAX_CALLS} debug_id=${debug_id}`,
       );
       if (!googleKey || googleKey === "NOT_CONFIGURED") {
         console.log(`[b2b-finder-search][hydration] skipped: google_key_missing debug_id=${debug_id}`);
@@ -384,13 +408,15 @@ Deno.serve(async (req: Request) => {
           .filter((p) => !(typeof p.osm_id === "string" && p.osm_id.startsWith("gplace/")))
           .filter((p) => !p.tags.phone && !p.tags["contact:phone"])
           .filter((p) => !!p.name)
-          .slice(0, 20)
+          .slice()
+          .sort(byScoreDesc)
+          .slice(0, FIND_PLACE_MAX_CALLS)
           .map((p) => ({
             key: String(p.osm_id),
             text: `${p.name} ${p.tags["addr:city"] ?? scope.comune}`.trim(),
           }));
         if (candidates.length > 0) {
-          const { map: pidMap, errors } = await findPlaceIdsByText(candidates, { maxCalls: 20, concurrency: 4 });
+          const { map: pidMap, errors } = await findPlaceIdsByText(candidates, { maxCalls: FIND_PLACE_MAX_CALLS, concurrency: 4 });
           findPlaceCalls = candidates.length;
           for (const e of errors) googlePlacesErrors.add(e);
           if (pidMap.size > 0) {
@@ -419,6 +445,8 @@ Deno.serve(async (req: Request) => {
     try {
       if (googleKey && googleKey !== "NOT_CONFIGURED") {
         const candidates = pois
+          .slice()
+          .sort(byScoreDesc)
           .map((p) => {
             let pid: string | null = null;
             if (typeof p.osm_id === "string" && p.osm_id.startsWith("gplace/")) {
@@ -434,11 +462,12 @@ Deno.serve(async (req: Request) => {
             const missingWebsite = !poi.tags.website && !poi.tags["contact:website"];
             const missingStreet = !poi.tags["addr:street"];
             return missingPhone || missingWebsite || missingStreet;
-          });
+          })
+          .slice(0, PLACE_DETAILS_MAX_CALLS);
         const gplaceIds = Array.from(new Set(candidates.map((c) => c.pid as string)));
         if (gplaceIds.length > 0) {
-          const { map: detailsMap, errors } = await fetchPlaceDetailsContacts(gplaceIds, { maxCalls: 40, concurrency: 4 });
-          placeDetailsCalls = Math.min(gplaceIds.length, 40);
+          const { map: detailsMap, errors } = await fetchPlaceDetailsContacts(gplaceIds, { maxCalls: PLACE_DETAILS_MAX_CALLS, concurrency: 4 });
+          placeDetailsCalls = Math.min(gplaceIds.length, PLACE_DETAILS_MAX_CALLS);
           for (const e of errors) googlePlacesErrors.add(e);
           let phonesAdded = 0, websitesAdded = 0, addressesAdded = 0;
           for (const { poi, pid } of candidates) {
