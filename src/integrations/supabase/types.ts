@@ -5070,6 +5070,72 @@ export type Database = {
         }
         Relationships: []
       }
+      padova_cambi_agenzia: {
+        Row: {
+          agenzia_nuova: string
+          agenzia_precedente: string
+          canon_url: string
+          contendibile_overlap: boolean
+          created_at: string
+          data_cambio: string
+          first_detected_at: string
+          id: string
+          indirizzo: string | null
+          is_active: boolean
+          last_seen_at: string
+          locali: number | null
+          mq: number | null
+          portale: string | null
+          prezzo_eur: number | null
+          quartiere: string | null
+          titolo: string | null
+          updated_at: string
+          zona_omi: string | null
+        }
+        Insert: {
+          agenzia_nuova: string
+          agenzia_precedente: string
+          canon_url: string
+          contendibile_overlap?: boolean
+          created_at?: string
+          data_cambio: string
+          first_detected_at?: string
+          id?: string
+          indirizzo?: string | null
+          is_active?: boolean
+          last_seen_at?: string
+          locali?: number | null
+          mq?: number | null
+          portale?: string | null
+          prezzo_eur?: number | null
+          quartiere?: string | null
+          titolo?: string | null
+          updated_at?: string
+          zona_omi?: string | null
+        }
+        Update: {
+          agenzia_nuova?: string
+          agenzia_precedente?: string
+          canon_url?: string
+          contendibile_overlap?: boolean
+          created_at?: string
+          data_cambio?: string
+          first_detected_at?: string
+          id?: string
+          indirizzo?: string | null
+          is_active?: boolean
+          last_seen_at?: string
+          locali?: number | null
+          mq?: number | null
+          portale?: string | null
+          prezzo_eur?: number | null
+          quartiere?: string | null
+          titolo?: string | null
+          updated_at?: string
+          zona_omi?: string | null
+        }
+        Relationships: []
+      }
       padova_casa_staging: {
         Row: {
           fetched_at: string
