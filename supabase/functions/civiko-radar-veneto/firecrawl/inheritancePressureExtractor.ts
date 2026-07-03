@@ -140,6 +140,30 @@ export async function extractInheritancePressure(
     aosByComune.set(key, Math.max(aosByComune.get(key) ?? 0, Number(r.score) || 0));
   }
 
+  // 6) ISTAT separazioni — dato PROVINCIALE (granularità dichiarata nel signal_basis).
+  // Non ripartiamo sui comuni: applichiamo lo stesso contributo a tutti i comuni della provincia.
+  // Percentile su tutte le province PD per dare un contributo relativo (0-5 pts, peso registry 0.05 * 100).
+  const sepQ = await supa.from("istat_separations_padova")
+    .select("comune,comune_istat,year,separation_rate,divorce_rate,separations_count,divorces_count")
+    .order("year", { ascending: false })
+    .limit(500);
+  const sepByProv = new Map<string, { rate: number; year: number; count: number }>();
+  for (const r of (sepQ.data ?? []) as Array<{comune:string;comune_istat:string;year:number;separation_rate:number|null;divorce_rate:number|null;separations_count:number|null;divorces_count:number|null}>) {
+    // Convention: quando comune='__PROVINCIA__' e comune_istat coincide con la sigla provincia,
+    // la riga è il totale provinciale (design importer). Se assente, prendiamo la max sep_rate
+    // aggregata come proxy provinciale.
+    const rate = Number(r.separation_rate ?? r.divorce_rate ?? 0);
+    const count = Number(r.separations_count ?? r.divorces_count ?? 0);
+    if (!Number.isFinite(rate) || rate <= 0) continue;
+    // Mappa comune → provincia via comuneToProv (già costruita)
+    const prov = comuneToProv.get(r.comune.toLowerCase());
+    if (!prov) continue;
+    const cur = sepByProv.get(prov);
+    if (!cur || r.year > cur.year) {
+      sepByProv.set(prov, { rate, year: r.year, count });
+    }
+  }
+
   const candidates: PressureCandidate[] = [];
   let aggregate_indicators_found = 0;
 
@@ -205,6 +229,22 @@ export async function extractInheritancePressure(
       basis.push("area_opportunity_scores");
       score += Math.min(10, aos / 10);
       confidence += 10;
+      aggregate_indicators_found++;
+    }
+
+    // ISTAT SEPARAZIONI — provinciale (granularità dichiarata esplicitamente)
+    const sep = sepByProv.get(prov);
+    if (sep && sep.rate > 0) {
+      indicators.istat_separazioni_provinciale = {
+        rate: Math.round(sep.rate * 100) / 100,
+        year: sep.year,
+        granularity: "provincia",
+      };
+      basis.push("istat_separazioni_provinciale");
+      // Peso registry 0.05 → max 5 pts. Rate tipico Italia ~1.5/1000 abitanti.
+      // Normalizziamo 0..3 su 0..5pts (saturo oltre 3).
+      score += Math.min(5, (sep.rate / 3) * 5);
+      confidence += 5;
       aggregate_indicators_found++;
     }
 
