@@ -79,15 +79,23 @@ const STRONG_KEYWORDS_RESELLERS: KwRule[] = [
 ];
 
 function pickAddress(tags: Record<string, string>): string | null {
+  // Priority 1: Google formatted_address (strip trailing ", Italia" / ", Italy")
+  const gfa = tags["google_formatted_address"];
+  if (gfa && gfa.trim()) {
+    return gfa.trim().replace(/,\s*(Italia|Italy)\s*$/i, "").trim() || null;
+  }
   const street = tags["addr:street"];
   const num = tags["addr:housenumber"];
   const city = tags["addr:city"];
-  const parts = [
-    [street, num].filter(Boolean).join(" "),
-    city,
-  ].filter(Boolean);
+  // Priority 2/3: never emit housenumber without street
+  let streetPart = "";
+  if (street && num) streetPart = `${street} ${num}`;
+  else if (street) streetPart = street;
+  // else: ignore housenumber alone
+  const parts = [streetPart, city].filter(Boolean);
   return parts.length ? parts.join(", ") : null;
 }
+
 
 function pickCity(tags: Record<string, string>, fallback: string): string {
   return tags["addr:city"] || fallback;
