@@ -239,7 +239,9 @@ Deno.serve(async (req) => {
       report.buckets_below_k++;
       continue;
     }
-    const visible_to_pwa = b.bucket_count >= PUBLIC_VISIBILITY_MIN;
+    // Design PII-safe: visible_to_pwa è SEMPRE false (constraint DB).
+    // La visibilità PWA è governata a livello di API/agency-authorization, non di bucket.
+    const visible_to_pwa = false;
     const row = {
       area_type: b.area_type,
       area_code: b.area_code,
