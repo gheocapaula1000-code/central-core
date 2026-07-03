@@ -357,6 +357,31 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // ── Google Place Details: fetch phone/website/price_level for gplace POIs
+    let placeDetailsCalls = 0;
+    try {
+      const gplaceIds = pois
+        .filter((p) => typeof p.osm_id === "string" && p.osm_id.startsWith("gplace/") && !p.tags.phone)
+        .map((p) => p.osm_id.slice("gplace/".length));
+      if (gplaceIds.length > 0 && googleKey && googleKey !== "NOT_CONFIGURED") {
+        const detailsMap = await fetchPlaceDetailsContacts(gplaceIds, { maxCalls: 40 });
+        placeDetailsCalls = Math.min(gplaceIds.length, 40);
+        for (const p of pois) {
+          if (!p.osm_id?.startsWith("gplace/")) continue;
+          const pid = p.osm_id.slice("gplace/".length);
+          const d = detailsMap.get(pid);
+          if (!d) continue;
+          if (d.phone) p.tags["phone"] = d.phone;
+          if (d.website && !p.tags.website) p.tags["website"] = d.website;
+          if (d.price_level !== null) p.tags["price_level"] = String(d.price_level);
+        }
+        warnings.push(`place_details_calls:${placeDetailsCalls}`);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "place_details error";
+      warnings.push(`place_details_error=${msg}`);
+    }
+
     const rawCount = pois.length;
     let filteredOutOfZone = 0;
     const inScope = pois.filter((p) => {
