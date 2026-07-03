@@ -121,6 +121,7 @@ export async function queryGooglePlaces(
       const phone = r.international_phone_number ?? r.formatted_phone_number;
       if (phone) tags["phone"] = phone;
       if (r.website) tags["website"] = r.website;
+      if (typeof r.price_level === "number") tags["price_level"] = String(r.price_level);
       tags["name"] = r.name;
       tags["google:types"] = types.join(",");
 
