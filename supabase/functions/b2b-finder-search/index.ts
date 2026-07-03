@@ -357,6 +357,24 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // ── Hydration contatti v1.1 (dry_run + save) ─────────────────────────
+    // Gira sempre, dopo merge/dedup e prima di scoreAndNormalize.
+    {
+      const leadsTotal = pois.length;
+      const senzaTelefono = pois.filter((p) => !p.tags.phone && !p.tags["contact:phone"]).length;
+      const senzaPlaceId = pois.filter(
+        (p) => !(typeof p.osm_id === "string" && p.osm_id.startsWith("gplace/")) && !p.tags["google_place_id"],
+      ).length;
+      console.log(
+        `[b2b-finder-search][hydration] start: leads_total=${leadsTotal}, senza_telefono=${senzaTelefono}, senza_place_id=${senzaPlaceId} debug_id=${debug_id}`,
+      );
+      if (!googleKey || googleKey === "NOT_CONFIGURED") {
+        console.log(`[b2b-finder-search][hydration] skipped: google_key_missing debug_id=${debug_id}`);
+      } else if (leadsTotal === 0) {
+        console.log(`[b2b-finder-search][hydration] skipped: no_leads debug_id=${debug_id}`);
+      }
+    }
+
     // ── Google Find Place: recupera place_id per lead OSM privi (senza gplace/) e senza telefono
     let findPlaceCalls = 0;
     const googlePlacesErrors = new Set<string>();
@@ -382,11 +400,17 @@ Deno.serve(async (req: Request) => {
             }
           }
           warnings.push(`find_place_calls:${findPlaceCalls}`);
+          console.log(
+            `[b2b-finder-search][hydration] find_place: calls=${findPlaceCalls}, resolved=${pidMap.size}, errors=[${errors.join(",")}] debug_id=${debug_id}`,
+          );
+        } else {
+          console.log(`[b2b-finder-search][hydration] find_place skipped: no_candidates debug_id=${debug_id}`);
         }
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "find_place error";
       warnings.push(`find_place_error=${msg}`);
+      console.log(`[b2b-finder-search][hydration] find_place exception: ${msg} debug_id=${debug_id}`);
     }
 
     // ── Google Place Details: telefono/sito/price_level/formatted_address per lead con place_id
@@ -416,24 +440,32 @@ Deno.serve(async (req: Request) => {
           const { map: detailsMap, errors } = await fetchPlaceDetailsContacts(gplaceIds, { maxCalls: 40, concurrency: 4 });
           placeDetailsCalls = Math.min(gplaceIds.length, 40);
           for (const e of errors) googlePlacesErrors.add(e);
+          let phonesAdded = 0, websitesAdded = 0, addressesAdded = 0;
           for (const { poi, pid } of candidates) {
             const d = detailsMap.get(pid as string);
             if (!d) continue;
-            if (d.phone && !poi.tags.phone) poi.tags["phone"] = d.phone;
-            if (d.website && !poi.tags.website) poi.tags["website"] = d.website;
+            if (d.phone && !poi.tags.phone) { poi.tags["phone"] = d.phone; phonesAdded++; }
+            if (d.website && !poi.tags.website) { poi.tags["website"] = d.website; websitesAdded++; }
             if (d.price_level !== null) poi.tags["price_level"] = String(d.price_level);
-            if (d.formatted_address) poi.tags["google_formatted_address"] = d.formatted_address;
+            if (d.formatted_address) { poi.tags["google_formatted_address"] = d.formatted_address; addressesAdded++; }
           }
           warnings.push(`place_details_calls:${placeDetailsCalls}`);
+          console.log(
+            `[b2b-finder-search][hydration] place_details: calls=${placeDetailsCalls}, phones_added=${phonesAdded}, websites_added=${websitesAdded}, addresses_added=${addressesAdded}, errors=[${errors.join(",")}] debug_id=${debug_id}`,
+          );
+        } else {
+          console.log(`[b2b-finder-search][hydration] place_details skipped: no_candidates debug_id=${debug_id}`);
         }
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "place_details error";
       warnings.push(`place_details_error=${msg}`);
+      console.log(`[b2b-finder-search][hydration] place_details exception: ${msg} debug_id=${debug_id}`);
     }
     for (const status of googlePlacesErrors) {
       warnings.push(`google_places_error:${status}`);
     }
+
 
 
     const rawCount = pois.length;

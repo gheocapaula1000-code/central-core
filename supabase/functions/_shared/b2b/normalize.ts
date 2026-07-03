@@ -293,12 +293,9 @@ export function scoreAndNormalize(
       cat === "restaurant" && /(italian|pizza)/.test(cuisine) &&
       Number.isFinite(capacityNum) && capacityNum > 30
     ) {
-    if (
-      cat === "restaurant" && /(italian|pizza)/.test(cuisine) &&
-      Number.isFinite(capacityNum) && capacityNum > 30
-    ) {
       score += 20; strongLabels.push("target: ristorante italiano capacity>30");
     }
+
     if (/\b(menu\s*fisso|pranzo\s*(di\s*)?lavoro|men[uù]\s*(a\s*)?prezzo\s*fisso)\b/i.test(haystack)) {
       score += 15; strongLabels.push("target: menu fisso / pranzo lavoro");
     }
