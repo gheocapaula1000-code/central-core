@@ -22,6 +22,7 @@ const APIFY = "https://api.apify.com/v2";
 const ACTOR_IDEALISTA = "dz_omar~idealista-scraper-api";
 const ACTOR_IMMO_DETAIL = "memo23~immobiliare-scraper";
 const ACTOR_IMMO_LISTVIEW = "azzouzana~immobiliare-it-listing-page-scraper-by-search-url";
+const ACTOR_SUBITO = "emastra~subito-it-immobili";
 
 async function apifyRunStatus(runId: string, token: string) {
   const r = await fetch(`${APIFY}/actor-runs/${runId}?token=${encodeURIComponent(token)}`);
@@ -217,13 +218,76 @@ function mapImmoListview(raw: any, jobId: string, nowIso: string) {
   };
 }
 
+// ============ SUBITO MAPPER (identico a padova-apify-subito-collect) ============
+function subitoPickPhotos(raw: any): string[] | null {
+  const src = raw?.images;
+  if (!Array.isArray(src)) return null;
+  const urls = src.filter((u: any) => typeof u === "string" && /^https?:\/\//.test(u));
+  return urls.length ? urls.slice(0, 20) : null;
+}
+function mapSubito(raw: any, jobId: string, nowIso: string) {
+  if (!raw || raw.error) return null;
+  const url = canonUrl(raw?.page_url ?? "");
+  if (!url) return null;
+  const listingId = String(url.match(/-(\d+)\.htm$/)?.[1] ?? "");
+  const loc = raw?.location ?? {};
+  const city: string = (loc?.city ?? "").toString();
+  const province: string = (loc?.province ?? "").toString();
+  const region: string = (loc?.region ?? "").toString();
+  const lat = toFloat(loc?.coordinates?.latitude);
+  const lng = toFloat(loc?.coordinates?.longitude);
+  const f = raw?.features ?? {};
+  const feat = (k: string) => f?.[k]?.value ?? null;
+  const featLabel = (k: string) => f?.[k]?.label ?? null;
+  const priceRaw = toInt(raw?.price?.value);
+  const mq = toInt(feat("size_sqm"));
+  const locali = toInt(feat("rooms"));
+  const bagni = toInt(feat("bathrooms"));
+  const floorValue = feat("floor");
+  const floorLabel = featLabel("floor");
+  const piano = floorValue != null
+    ? String(floorValue)
+    : (floorLabel != null && String(floorLabel).trim() !== "" ? String(floorLabel).trim() : null);
+  const stato = featLabel("building_condition");
+  const adv = raw?.advertiser ?? {};
+  const advType = (adv?.type ?? "").toString().toLowerCase();
+  const isCompany = advType === "azienda" || raw?.isPrivateAdvertiser === false;
+  const agency = isCompany ? (adv?.name ?? null) : null;
+  const agencyPhone = adv?.phone_number ?? null;
+  const tipologia = raw?.sub_category ?? raw?.title ?? null;
+  const rawAddress = [city, province].filter(Boolean).join(", ") || null;
+  const tipoTransazione = (raw?.type ?? "").toString();
+  const row: any = {
+    job_id: jobId, portal: "subito", listing_id: listingId || null, url,
+    raw_address: rawAddress, citta: "Padova", cap: null, lat, lng,
+    omi_zone: null, quartiere: null,
+    tipo_lead: isCompany ? "AGENZIA" : "PRIVATO", n_agenzie: isCompany ? 1 : 0,
+    prezzo: priceRaw, prezzo_iniziale: priceRaw,
+    mq, locali, bagni, agency, agency_phone: agencyPhone,
+    tipologia, piano, stato, anno_costruzione: null, cluster_key: null,
+    parse_status: "apify_subito_detail",
+    processed_at: nowIso, http_status: 200, log_reason: null, attempts: 0,
+    previous_price_eur: null, ribasso_pct: null, ribasso_eur: null, ribasso_date: null,
+    raw_json: { ...raw, _photos: subitoPickPhotos(raw), _shape: "subito",
+      _city: city, _province: province, _region: region, _tipo_transazione: tipoTransazione },
+    updated_at: nowIso,
+  };
+  // Guard: Padova comune, vendita, prezzo >= 10.000€
+  if (city.toLowerCase() !== "padova") return null;
+  if (tipoTransazione && !tipoTransazione.toLowerCase().includes("vendita")) return null;
+  if (!Number.isFinite(priceRaw) || (priceRaw ?? 0) < 10000) return null;
+  return row;
+}
+
 function mapperFor(actorId: string, portalTag: string) {
   if (actorId === ACTOR_IDEALISTA) return { fn: mapIdealista, portal: "idealista", allowListviewOverwrite: true };
   if (actorId === ACTOR_IMMO_DETAIL) return { fn: mapImmoDetail, portal: "immobiliare", allowListviewOverwrite: true };
   if (actorId === ACTOR_IMMO_LISTVIEW) return { fn: mapImmoListview, portal: "immobiliare", allowListviewOverwrite: false };
+  if (actorId === ACTOR_SUBITO) return { fn: mapSubito, portal: "subito", allowListviewOverwrite: true };
   // Fallback per portal tag legacy
   if (portalTag.startsWith("idealista")) return { fn: mapIdealista, portal: "idealista", allowListviewOverwrite: true };
   if (portalTag.startsWith("immobiliare")) return { fn: mapImmoDetail, portal: "immobiliare", allowListviewOverwrite: true };
+  if (portalTag.startsWith("subito")) return { fn: mapSubito, portal: "subito", allowListviewOverwrite: true };
   return null;
 }
 
