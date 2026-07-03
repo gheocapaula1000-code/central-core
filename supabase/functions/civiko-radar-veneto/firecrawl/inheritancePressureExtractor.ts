@@ -232,6 +232,22 @@ export async function extractInheritancePressure(
       aggregate_indicators_found++;
     }
 
+    // ISTAT SEPARAZIONI — provinciale (granularità dichiarata esplicitamente)
+    const sep = sepByProv.get(prov);
+    if (sep && sep.rate > 0) {
+      indicators.istat_separazioni_provinciale = {
+        rate: Math.round(sep.rate * 100) / 100,
+        year: sep.year,
+        granularity: "provincia",
+      };
+      basis.push("istat_separazioni_provinciale");
+      // Peso registry 0.05 → max 5 pts. Rate tipico Italia ~1.5/1000 abitanti.
+      // Normalizziamo 0..3 su 0..5pts (saturo oltre 3).
+      score += Math.min(5, (sep.rate / 3) * 5);
+      confidence += 5;
+      aggregate_indicators_found++;
+    }
+
     if (basis.length < 2) continue; // serve almeno 2 indicatori aggregati
     score = Math.round(Math.max(0, Math.min(100, score)));
     confidence = Math.min(100, confidence);
