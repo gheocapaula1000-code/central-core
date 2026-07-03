@@ -171,16 +171,19 @@ export function padovaCapList(): string[] {
 /** Scansiona un testo alla ricerca di qualunque comune PD noto; ritorna il CAP del primo match. */
 export function findAnyPadovaComuneCap(text: string): string | null {
   if (!text) return null;
-  const t = ` ${text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")} `;
-  // Ordine: comuni con nome composto (>1 parola) prima, per evitare match parziali
+  const t = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   const keys = Object.keys(COMUNE_TO_CAP).sort((a, b) => b.length - a.length);
   for (const k of keys) {
-    // word-boundary manuale (spazi ai lati) — evita falsi match dentro parole
-    if (t.includes(` ${k} `) || t.includes(` ${k},`) || t.includes(` ${k}.`) || t.includes(` ${k}(`)) {
+    // Word boundary regex — accetta il comune circondato da non-alfanumerici
+    // (spazi, punteggiatura, parentesi, brackets, fine stringa).
+    const esc = k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`(?:^|[^a-z0-9])${esc}(?:$|[^a-z0-9])`, "i");
+    if (re.test(t)) {
       const cap = COMUNE_TO_CAP[k];
       if (cap && PADOVA_VALID_CAPS.has(cap)) return cap;
     }
   }
   return null;
 }
+
 
