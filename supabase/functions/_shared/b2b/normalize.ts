@@ -249,6 +249,15 @@ export function scoreAndNormalize(
     const cuisine = (tags.cuisine ?? "").toLowerCase();
     const capacityNum = parseInt(tags.capacity ?? "", 10);
 
+    // v1.0 — esclusione fascia alta (off-target per monouso)
+    const priceLevel = parseInt(tags["price_level"] ?? "", 10);
+    if (Number.isFinite(priceLevel) && priceLevel >= 3) {
+      score -= 40; strongLabels.push("off-target: fascia alta (price level " + priceLevel + ")");
+    }
+    if (/\b(gourmet|stellat\w*|michelin|fine\s*dining|degustazion\w*|tasting\s*menu|relais|boutique\s*hotel)\b/i.test(haystack)) {
+      score -= 40; strongLabels.push("off-target: cucina gourmet/alta ristorazione");
+    }
+
     // Penalties -30 (off-target for TNT tablecovers)
     if (cat === "ice_cream" || /gelateria/.test(nameLc)) {
       score -= 30; strongLabels.push("off-target: gelateria");
