@@ -11,8 +11,10 @@
     <!-- Security headers enforced via public/_headers (single authoritative source) -->
     <meta name="referrer" content="strict-origin-when-cross-origin" />
 
-    <link rel="icon" href="/icon-192.png" type="image/png" />
-    <!-- Admin dashboard — no PWA manifest, no public SEO -->
+    <link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+    <!-- Admin dashboard — no PWA manifest, no public SEO. Icons reused as maskable-safe app icons for Android/iOS home screen. -->
   </head>
   <body>
     <noscript>
