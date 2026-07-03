@@ -115,62 +115,34 @@ async function computeHeatmapFromAggregation(
 ): Promise<{ computed: number; skipped: number; errors: number; results: HeatmapResult[] }> {
   if (!supabase) return { computed: 0, skipped: 0, errors: 1, results: [] };
 
-async function _legacyRecomputeSuccessionHeatmapDisabled(): Promise<{
-  computed: number;
-  skipped: number;
-  errors: number;
-  results: HeatmapResult[];
-}> {
-  const supabase = getServiceClient();
-  if (!supabase) return { computed: 0, skipped: 0, errors: 1, results: [] };
-
-  const sinceISO = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString();
-
-  // Carica necrologi recenti col CAP popolato
-  const { data: obs, error: obsErr } = await supabase
-    .from("obituaries_seen")
-    .select("cap, municipality, province")
-    .gte("captured_at", sinceISO)
-    .not("cap", "is", null)
-    .range(0, 9999);
-
-  if (obsErr) {
-    console.error("[successioniHeatmap] obs query:", obsErr.message);
-    return { computed: 0, skipped: 0, errors: 1, results: [] };
-  }
-  if (!obs || obs.length === 0) return { computed: 0, skipped: 0, errors: 0, results: [] };
-
-  // Aggregazione per CAP
-  const byCap = new Map<string, CapAggregation>();
-  for (const r of obs as Array<{ cap: string | null; municipality: string; province: string | null }>) {
-    if (!r.cap) continue;
-    const agg = byCap.get(r.cap) ?? {
-      cap: r.cap,
-      obituaries: 0,
-      municipalities: new Set<string>(),
-      province: r.province ?? null,
-    };
-    agg.obituaries++;
-    if (r.municipality) agg.municipalities.add(r.municipality);
-    if (!agg.province && r.province) agg.province = r.province;
-    byCap.set(r.cap, agg);
-  }
-
   const results: HeatmapResult[] = [];
   let skipped = 0;
   let errors = 0;
-  const computedAt = new Date().toISOString();
+  const computedAt = windowEndDate.toISOString();
 
   for (const agg of byCap.values()) {
     if (agg.obituaries < MIN_OBITUARIES) {
       skipped++;
       continue;
     }
-    const municipalities = [...agg.municipalities];
-    const municipality_main = municipalities[0] ?? null;
 
-    // ISTAT — indice di vecchiaia medio dei comuni del CAP
+    // Risolvi comune principale del CAP via OMI (comune con più zone associate).
+    let municipality_main: string | null = null;
     let indice_vecchiaia_avg: number | null = null;
+    let pct_residential_omi: number | null = null;
+
+    // OMI: cerchiamo comuni PD con questo CAP (via omi_valori arricchito da altre tabelle non è fattibile:
+    // il CAP non è in omi_zone). Ripieghiamo su padova_civici se popolata, altrimenti prima passata soft.
+    const { data: civici } = await supabase
+      .from("padova_civici")
+      .select("comune")
+      .eq("cap", agg.cap)
+      .limit(50);
+    const municipalities = Array.from(new Set((civici ?? [])
+      .map((c) => (c as { comune: string | null }).comune)
+      .filter((v): v is string => typeof v === "string" && v.length > 0)));
+    municipality_main = municipalities[0] ?? null;
+
     if (municipalities.length > 0) {
       const { data: istat } = await supabase
         .from("istat_comuni")
@@ -185,8 +157,6 @@ async function _legacyRecomputeSuccessionHeatmapDisabled(): Promise<{
       }
     }
 
-    // OMI — % zone residenziali nel comune principale
-    let pct_residential_omi: number | null = null;
     if (municipality_main) {
       const { data: zones } = await supabase
         .from("omi_zone")
@@ -204,14 +174,11 @@ async function _legacyRecomputeSuccessionHeatmapDisabled(): Promise<{
     }
 
     if (indice_vecchiaia_avg === null && pct_residential_omi === null) {
-      skipped++;
-      continue;
+      // Nessun arricchimento: uso solo l'aggregato necrologi (score dimezzato).
+      // Meglio contribuire debolmente che scartare del tutto.
     }
 
-    // Score 0-100
-    // - obituaries: 40 pts max (sat a 30+ in 90gg)
-    // - vecchiaia: 30 pts (1.0 se >=200, 0 se <100)
-    // - residential: 30 pts (1.0 se >=70%, 0 se <20%)
+    // Pesi originali: 40 aggregato / 30 vecchiaia / 30 residenziale
     const obScore = Math.min(40, (agg.obituaries / 30) * 40);
     const vScore =
       indice_vecchiaia_avg !== null
@@ -246,7 +213,7 @@ async function _legacyRecomputeSuccessionHeatmapDisabled(): Promise<{
       pct_residential_omi: row.pct_residential_omi,
       probability_score: row.probability_score,
       probability_label: row.probability_label,
-      payload: { municipalities },
+      payload: { municipalities, source: "obituaries_aggregate_padova" },
     });
     if (insErr) {
       console.error("[successioniHeatmap] insert:", insErr.message);
