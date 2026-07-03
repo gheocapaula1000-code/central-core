@@ -167,3 +167,20 @@ export function comuneToCap(comune: string | null | undefined): string | null {
 export function padovaCapList(): string[] {
   return [...PADOVA_VALID_CAPS].sort();
 }
+
+/** Scansiona un testo alla ricerca di qualunque comune PD noto; ritorna il CAP del primo match. */
+export function findAnyPadovaComuneCap(text: string): string | null {
+  if (!text) return null;
+  const t = ` ${text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")} `;
+  // Ordine: comuni con nome composto (>1 parola) prima, per evitare match parziali
+  const keys = Object.keys(COMUNE_TO_CAP).sort((a, b) => b.length - a.length);
+  for (const k of keys) {
+    // word-boundary manuale (spazi ai lati) — evita falsi match dentro parole
+    if (t.includes(` ${k} `) || t.includes(` ${k},`) || t.includes(` ${k}.`) || t.includes(` ${k}(`)) {
+      const cap = COMUNE_TO_CAP[k];
+      if (cap && PADOVA_VALID_CAPS.has(cap)) return cap;
+    }
+  }
+  return null;
+}
+
