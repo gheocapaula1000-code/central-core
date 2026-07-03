@@ -271,7 +271,12 @@ Deno.serve(async (req) => {
       const { error: upErr } = await supa
         .from("obituaries_aggregate_padova")
         .upsert(row, { onConflict: "area_type,area_code,window_start,window_end" });
-      if (!upErr) report.buckets_written++;
+      if (upErr) {
+        (report as unknown as { upsert_errors?: string[] }).upsert_errors =
+          [...((report as unknown as { upsert_errors?: string[] }).upsert_errors ?? []), upErr.message.slice(0, 200)];
+      } else {
+        report.buckets_written++;
+      }
     }
   }
 
