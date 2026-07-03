@@ -67,12 +67,14 @@ const PUBLIC_VISIBILITY_MIN = 5; // count 3-4 → visible_to_pwa=false; ≥5 →
 
 // Costruisce URL Firecrawl-friendly per la lista Padova di ogni fonte.
 function buildListingUrl(src: SourceRow): string {
-  // Le 3 fonti registrate usano placeholder {region}/{municipality}.
-  // Per Padova: sostituiamo esplicitamente.
   const tpl = src.search_url_template ?? src.base_url;
+  // Finestra rolling: data_da = oggi - WINDOW_DAYS (YYYY-MM-DD)
+  const dataDa = new Date(Date.now() - WINDOW_DAYS * 86_400_000)
+    .toISOString().slice(0, 10);
   return tpl
     .replace("{region}", "veneto")
-    .replace("{municipality}", "padova");
+    .replace("{municipality}", "padova")
+    .replace("{data_da}", dataDa);
 }
 
 // Deriva un source_code stabile dal name (snake_case).
