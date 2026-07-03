@@ -222,9 +222,11 @@ function mapperFor(actorId: string, portalTag: string) {
   if (actorId === ACTOR_IDEALISTA) return { fn: mapIdealista, portal: "idealista", allowListviewOverwrite: true };
   if (actorId === ACTOR_IMMO_DETAIL) return { fn: mapImmoDetail, portal: "immobiliare", allowListviewOverwrite: true };
   if (actorId === ACTOR_IMMO_LISTVIEW) return { fn: mapImmoListview, portal: "immobiliare", allowListviewOverwrite: false };
+  if (actorId === ACTOR_SUBITO) return { fn: mapSubito, portal: "subito", allowListviewOverwrite: true };
   // Fallback per portal tag legacy
   if (portalTag.startsWith("idealista")) return { fn: mapIdealista, portal: "idealista", allowListviewOverwrite: true };
   if (portalTag.startsWith("immobiliare")) return { fn: mapImmoDetail, portal: "immobiliare", allowListviewOverwrite: true };
+  if (portalTag.startsWith("subito")) return { fn: mapSubito, portal: "subito", allowListviewOverwrite: true };
   return null;
 }
 
