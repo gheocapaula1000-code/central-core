@@ -194,16 +194,25 @@ export function mergeDedupePois(
 }
 
 const PLACE_DETAILS_URL = "https://maps.googleapis.com/maps/api/place/details/json";
+const FIND_PLACE_URL = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json";
+
+export interface PlaceDetailsContact {
+  phone: string | null;
+  website: string | null;
+  price_level: number | null;
+  formatted_address: string | null;
+}
 
 export async function fetchPlaceDetailsContacts(
   placeIds: string[],
   opts: { maxCalls?: number; concurrency?: number } = {},
-): Promise<Map<string, { phone: string | null; website: string | null; price_level: number | null }>> {
+): Promise<{ map: Map<string, PlaceDetailsContact>; errors: string[] }> {
   const maxCalls = opts.maxCalls ?? 40;
   const concurrency = Math.max(1, opts.concurrency ?? 4);
-  const out = new Map<string, { phone: string | null; website: string | null; price_level: number | null }>();
+  const out = new Map<string, PlaceDetailsContact>();
+  const errors: string[] = [];
   const apiKey = Deno.env.get("GOOGLE_MAPS_API_KEY");
-  if (!apiKey || apiKey === "NOT_CONFIGURED") return out;
+  if (!apiKey || apiKey === "NOT_CONFIGURED") return { map: out, errors };
 
   const ids = placeIds.slice(0, maxCalls);
   let idx = 0;
@@ -218,21 +227,27 @@ export async function fetchPlaceDetailsContacts(
       try {
         const params = new URLSearchParams({
           place_id: placeId,
-          fields: "international_phone_number,formatted_phone_number,website,price_level",
+          fields: "international_phone_number,formatted_phone_number,website,price_level,formatted_address",
           key: apiKey,
         });
         const res = await fetch(`${PLACE_DETAILS_URL}?${params}`, { signal: ctrl.signal });
-        if (!res.ok) continue;
+        if (!res.ok) { errors.push(`HTTP_${res.status}`); continue; }
         const payload = await res.json();
+        const status = payload?.status;
+        if (status && status !== "OK" && status !== "ZERO_RESULTS") {
+          errors.push(String(status));
+          continue;
+        }
         const r = payload?.result ?? {};
         const phone = r.international_phone_number ?? r.formatted_phone_number ?? null;
         const website = r.website ?? null;
         const price_level = typeof r.price_level === "number" ? r.price_level : null;
-        if (phone || website || price_level !== null) {
-          out.set(placeId, { phone, website, price_level });
+        const formatted_address = r.formatted_address ?? null;
+        if (phone || website || price_level !== null || formatted_address) {
+          out.set(placeId, { phone, website, price_level, formatted_address });
         }
       } catch {
-        // silenced
+        // network abort/timeout — silenced (not a Google status error)
       } finally {
         clearTimeout(t);
       }
@@ -241,5 +256,59 @@ export async function fetchPlaceDetailsContacts(
 
   const workers = Array.from({ length: Math.min(concurrency, ids.length) }, () => worker());
   await Promise.all(workers);
-  return out;
+  return { map: out, errors };
 }
+
+export async function findPlaceIdsByText(
+  queries: Array<{ key: string; text: string }>,
+  opts: { maxCalls?: number; concurrency?: number } = {},
+): Promise<{ map: Map<string, string>; errors: string[] }> {
+  const maxCalls = opts.maxCalls ?? 20;
+  const concurrency = Math.max(1, opts.concurrency ?? 4);
+  const out = new Map<string, string>();
+  const errors: string[] = [];
+  const apiKey = Deno.env.get("GOOGLE_MAPS_API_KEY");
+  if (!apiKey || apiKey === "NOT_CONFIGURED") return { map: out, errors };
+
+  const items = queries.slice(0, maxCalls);
+  let idx = 0;
+
+  async function worker() {
+    while (true) {
+      const i = idx++;
+      if (i >= items.length) return;
+      const { key, text } = items[i];
+      if (!text || !text.trim()) continue;
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 8000);
+      try {
+        const params = new URLSearchParams({
+          input: text,
+          inputtype: "textquery",
+          fields: "place_id",
+          key: apiKey,
+        });
+        const res = await fetch(`${FIND_PLACE_URL}?${params}`, { signal: ctrl.signal });
+        if (!res.ok) { errors.push(`HTTP_${res.status}`); continue; }
+        const payload = await res.json();
+        const status = payload?.status;
+        if (status && status !== "OK" && status !== "ZERO_RESULTS") {
+          errors.push(String(status));
+          continue;
+        }
+        const candidate = payload?.candidates?.[0];
+        const pid = candidate?.place_id;
+        if (pid) out.set(key, String(pid));
+      } catch {
+        // silenced
+      } finally {
+        clearTimeout(t);
+      }
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
+  await Promise.all(workers);
+  return { map: out, errors };
+}
+
