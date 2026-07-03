@@ -64,13 +64,56 @@ export async function recomputeSuccessionHeatmap(): Promise<{
   errors: number;
   results: HeatmapResult[];
 }> {
-  // DISABLED for privacy/compliance: obituary-derived person-level signals
-  // are no longer ingested. obituaries_seen is frozen (see migration
-  // disable_obituary_person_level_signals). This aggregator is kept as a
-  // no-op stub so any scheduled job remains safe.
-  void getServiceClient;
-  return { computed: 0, skipped: 0, errors: 0, results: [] };
+  const supabase = getServiceClient();
+  if (!supabase) return { computed: 0, skipped: 0, errors: 1, results: [] };
+
+  const windowEndDate = new Date();
+  const windowStartDate = new Date(Date.now() - WINDOW_DAYS * 86_400_000);
+  const windowStartISO = windowStartDate.toISOString().slice(0, 10);
+
+  // NUOVO PERCORSO PII-FREE: leggiamo bucket AGGREGATI per CAP,
+  // già filtrati a k>=3 (constraint DB) e generati dal parser stateless.
+  // obituaries_seen resta congelata (trigger DB); non viene mai letta.
+  const { data: aggRows, error: aggErr } = await supabase
+    .from("obituaries_aggregate_padova")
+    .select("area_code, bucket_count, window_end")
+    .eq("area_type", "cap")
+    .gte("window_end", windowStartISO)
+    .range(0, 4999);
+
+  if (aggErr) {
+    console.error("[successioniHeatmap] aggregate query:", aggErr.message);
+    return { computed: 0, skipped: 0, errors: 1, results: [] };
+  }
+  if (!aggRows || aggRows.length === 0) {
+    // Nessun bucket disponibile: uscita pulita, nessun errore.
+    return { computed: 0, skipped: 0, errors: 0, results: [] };
+  }
+
+  // Somma bucket per CAP (in caso di più finestre parzialmente sovrapposte).
+  const byCap = new Map<string, CapAggregation>();
+  for (const r of aggRows as Array<{ area_code: string; bucket_count: number }>) {
+    const agg = byCap.get(r.area_code) ?? {
+      cap: r.area_code,
+      obituaries: 0,
+      municipalities: new Set<string>(),
+      province: "PD", // pipeline aggregata è per ora Padova-only
+    };
+    agg.obituaries += Number(r.bucket_count) || 0;
+    byCap.set(r.area_code, agg);
+  }
+
+  // Arricchisci con municipality principale per CAP (via ISTAT/OMI).
+  // Non-blocking: se non risolviamo il comune, teniamo comunque il CAP.
+  return await computeHeatmapFromAggregation(supabase, byCap, windowEndDate);
 }
+
+async function computeHeatmapFromAggregation(
+  supabase: ReturnType<typeof getServiceClient>,
+  byCap: Map<string, CapAggregation>,
+  windowEndDate: Date,
+): Promise<{ computed: number; skipped: number; errors: number; results: HeatmapResult[] }> {
+  if (!supabase) return { computed: 0, skipped: 0, errors: 1, results: [] };
 
 async function _legacyRecomputeSuccessionHeatmapDisabled(): Promise<{
   computed: number;
