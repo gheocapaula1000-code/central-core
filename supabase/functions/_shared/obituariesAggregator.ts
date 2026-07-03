@@ -13,7 +13,7 @@
 //   - Il markdown esce di scope al ritorno della funzione.
 // ═══════════════════════════════════════════════════════════════
 
-import { comuneToCap, extractPadovaCap, isPadovaCap } from "./capResolver.ts";
+import { comuneToCap, extractPadovaCap, isPadovaCap, findAnyPadovaComuneCap } from "./capResolver.ts";
 
 export interface AggregatorInput {
   /** Markdown della pagina indice/listing (NON del singolo necrologio). */
@@ -44,55 +44,70 @@ export interface AggregatorResult {
   };
 }
 
-// Delimitatori tipici di una entry necrologio nel markdown:
-// linee vuote, separatori "---", o pattern "Nome COGNOME" all'inizio riga.
-// Non parsiamo il nome — segmentiamo solo il testo in "entries" per il conteggio.
+// Segmentazione permissiva: gli indici necrologi variano molto per fonte.
+// Splittiamo su: doppia newline, "---", bullet markdown (- / *), headings, o "Necrologio di".
 function segmentEntries(markdown: string): string[] {
   if (!markdown || markdown.length < 20) return [];
-  // Segmentazione conservativa: blocchi separati da 2+ newline o "---"
-  const blocks = markdown
-    .split(/(?:\n\s*\n|\n---+\n|\n\*\*\*+\n)/g)
+  const normalized = markdown
+    .replace(/\[\s*Necrologio di\s+/gi, "\n\n@@ENTRY@@ Necrologio di ")
+    .replace(/\n[\-\*\+]\s+/g, "\n\n@@ENTRY@@ ")
+    // Anche gli header markdown (# / ##) come delimitatori
+    .replace(/\n#{1,6}\s+/g, "\n\n@@ENTRY@@ ");
+  const raw = normalized
+    .split(/(?:\n\s*\n|\n---+\n|\n\*\*\*+\n|@@ENTRY@@)/g)
     .map((b) => b.trim())
-    .filter((b) => b.length > 10 && b.length < 2000);
-  return blocks;
+    .filter((b) => b.length > 15);
+  // Se un blocco è enorme (pagine mono-blob), lo ri-splittiamo per riga singola
+  // e riaggreghiamo le righe in gruppi di ~3.
+  const out: string[] = [];
+  for (const b of raw) {
+    if (b.length <= 2000) { out.push(b); continue; }
+    const lines = b.split(/\n+/).map((l) => l.trim()).filter((l) => l.length > 3);
+    const GROUP = 5;
+    for (let i = 0; i < lines.length; i += GROUP) {
+      const chunk = lines.slice(i, i + GROUP).join("\n");
+      if (chunk.length > 15 && chunk.length < 3000) out.push(chunk);
+    }
+  }
+  return out;
 }
 
-// Pattern per riconoscere che un blocco è effettivamente un necrologio
-// (evita di contare menu, footer, sidebar).
+// Marker che indicano che un blocco è verosimilmente un necrologio.
+// Ampliati per coprire i listing "Necrologio di X, città" senza "anni".
 const OBITUARY_MARKERS = [
-  /\b(anni?\s+\d{1,3})\b/i,           // "anni 87"
-  /\b(di\s+anni\s+\d{1,3})\b/i,       // "di anni 87"
-  /\b(nat[oa]\s+(?:il\s+)?\d)/i,      // "nato il 12"
-  /\b(deceduto|deceduta|scomparso|scomparsa|mancato|mancata)\b/i,
-  /\b(funerale|funerali|esequie|rosario)\b/i,
+  /\bnecrologio di\b/i,
+  /\banni\s+\d{1,3}\b/i,
+  /\bdi\s+anni\s+\d{1,3}\b/i,
+  /\bnat[oa]\s+(?:il\s+)?\d/i,
+  /\b(?:deceduto|deceduta|scomparso|scomparsa|mancato|mancata)\b/i,
+  /\b(?:funerale|funerali|esequie|rosario|commemora)/i,
+  // Date DD/MM/YYYY presenti in card di listing gelocal-family
+  /\b\d{1,2}\/\d{1,2}\/\d{4}\b/,
 ];
 
 function looksLikeObituary(block: string): boolean {
-  let hits = 0;
   for (const re of OBITUARY_MARKERS) {
-    if (re.test(block)) hits++;
-    if (hits >= 1) return true;
+    if (re.test(block)) return true;
   }
   return false;
 }
 
-// Estrae il nome del comune da un blocco necrologio SENZA persisterlo.
-// Cerca pattern "residente a X", "in X", "di X", oppure una città
-// riconoscibile nella lista PD.
+// Estrae il CAP di riferimento del blocco (SENZA persisterlo).
+// Priorità: 1) CAP esplicito, 2) pattern "residente/deceduto a X",
+// 3) qualunque comune PD menzionato nel blocco.
 const COMUNE_HINT_RE =
-  /(?:residente\s+(?:a|in)|deceduto\s+a|scomparso\s+a|abitava\s+a|di\s+)\s*([A-ZÀ-Ù][a-zà-ù' -]{2,40})/;
+  /(?:residente\s+(?:a|in)|deceduto\s+a|deceduta\s+a|scomparso\s+a|scomparsa\s+a|abitava\s+a|di\s+)\s*([A-ZÀ-Ù][a-zà-ù' -]{2,40})/;
 
 function extractAreaFromBlock(block: string): string | null {
-  // 1) CAP esplicito nel testo
   const cap = extractPadovaCap(block);
   if (cap) return cap;
-  // 2) Comune → CAP
   const m = block.match(COMUNE_HINT_RE);
   if (m && m[1]) {
     const c = comuneToCap(m[1]);
     if (c) return c;
   }
-  return null;
+  // Fallback ampio: qualunque comune PD nel testo
+  return findAnyPadovaComuneCap(block);
 }
 
 /**

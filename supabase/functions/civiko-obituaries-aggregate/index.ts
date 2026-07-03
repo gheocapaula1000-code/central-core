@@ -67,12 +67,14 @@ const PUBLIC_VISIBILITY_MIN = 5; // count 3-4 → visible_to_pwa=false; ≥5 →
 
 // Costruisce URL Firecrawl-friendly per la lista Padova di ogni fonte.
 function buildListingUrl(src: SourceRow): string {
-  // Le 3 fonti registrate usano placeholder {region}/{municipality}.
-  // Per Padova: sostituiamo esplicitamente.
   const tpl = src.search_url_template ?? src.base_url;
+  // Finestra rolling: data_da = oggi - WINDOW_DAYS (YYYY-MM-DD)
+  const dataDa = new Date(Date.now() - WINDOW_DAYS * 86_400_000)
+    .toISOString().slice(0, 10);
   return tpl
     .replace("{region}", "veneto")
-    .replace("{municipality}", "padova");
+    .replace("{municipality}", "padova")
+    .replace("{data_da}", dataDa);
 }
 
 // Deriva un source_code stabile dal name (snake_case).
@@ -175,17 +177,33 @@ Deno.serve(async (req) => {
 
   const perSourceBuckets: AggregatorBucket[][] = [];
 
+  const MAX_PAGES = 5;
+
   for (const s of sources as SourceRow[]) {
     const code = sourceCode(s.name);
-    const listingUrl = buildListingUrl(s);
+    const baseUrl = buildListingUrl(s);
+    // Se il template è una ricerca (contiene "?"), tentiamo fino a MAX_PAGES pagine.
+    const isPaginated = baseUrl.includes("?");
+    const urls = isPaginated
+      ? Array.from({ length: MAX_PAGES }, (_, i) => `${baseUrl}&page=${i + 1}`)
+      : [baseUrl];
+
     try {
-      const md = await fetchListingMarkdown(listingUrl, fcKey);
+      let combinedMd = "";
+      for (const u of urls) {
+        try {
+          const md = await fetchListingMarkdown(u, fcKey);
+          if (md && md.length > 100) combinedMd += "\n\n" + md;
+        } catch {
+          // singola pagina fallita → continuiamo con le altre
+        }
+      }
       const agg = aggregateObituariesMarkdown({
-        markdown: md,
+        markdown: combinedMd,
         source_code: code,
         window_days: WINDOW_DAYS,
       });
-      // NOTA: `md` esce di scope qui, non viene loggato, salvato o passato oltre.
+      // NOTA: `combinedMd` esce di scope qui, non viene loggato, salvato o passato oltre.
       report.entries_scanned_total += agg.stats.entries_scanned;
       report.per_source.push({
         source_code: code,
@@ -221,7 +239,9 @@ Deno.serve(async (req) => {
       report.buckets_below_k++;
       continue;
     }
-    const visible_to_pwa = b.bucket_count >= PUBLIC_VISIBILITY_MIN;
+    // Design PII-safe: visible_to_pwa è SEMPRE false (constraint DB).
+    // La visibilità PWA è governata a livello di API/agency-authorization, non di bucket.
+    const visible_to_pwa = false;
     const row = {
       area_type: b.area_type,
       area_code: b.area_code,
@@ -253,7 +273,12 @@ Deno.serve(async (req) => {
       const { error: upErr } = await supa
         .from("obituaries_aggregate_padova")
         .upsert(row, { onConflict: "area_type,area_code,window_start,window_end" });
-      if (!upErr) report.buckets_written++;
+      if (upErr) {
+        (report as unknown as { upsert_errors?: string[] }).upsert_errors =
+          [...((report as unknown as { upsert_errors?: string[] }).upsert_errors ?? []), upErr.message.slice(0, 200)];
+      } else {
+        report.buckets_written++;
+      }
     }
   }
 
