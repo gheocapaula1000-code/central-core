@@ -137,3 +137,84 @@ export function enforceAggregateInheritanceSignal(signal: InheritanceSignalLike)
     throw new Error(`inheritance_compliance_violation:${r.violations.join(",")}`);
   }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// AGGREGATE BUCKET GUARD (necrologi PII-free)
+// ═══════════════════════════════════════════════════════════════
+
+const MIN_BUCKET_COUNT = 3; // soglia k-anonimity
+
+export interface AggregateBucketLike {
+  area_type?: string | null;
+  area_code?: string | null;
+  bucket_count?: number | null;
+  source_code?: string | null;
+  source_url?: string | null;
+  window_days?: number | null;
+  [k: string]: unknown;
+}
+
+/**
+ * Guardrail per bucket aggregati di necrologi/successioni.
+ * Verifica:
+ *   - area_type ammesso
+ *   - assenza di PII in QUALSIASI stringa del bucket (nome, cognome, età, indirizzo)
+ *   - bucket_count ≥ soglia k=3
+ *   - source_url non contiene path individuale (es. /necrologio/nome-cognome-id)
+ */
+export function assertAggregateBucket(bucket: AggregateBucketLike): ComplianceResult {
+  const violations: string[] = [];
+
+  const area_type = String(bucket.area_type ?? "").toLowerCase();
+  if (!area_type || !ALLOWED_INHERITANCE_GRANULARITY.includes(area_type as never)) {
+    violations.push(`forbidden_granularity:${area_type || "missing"}`);
+  }
+
+  if (!bucket.area_code || String(bucket.area_code).trim() === "") {
+    violations.push("missing_area_code");
+  }
+
+  const count = Number(bucket.bucket_count);
+  if (!Number.isFinite(count) || count < MIN_BUCKET_COUNT) {
+    violations.push(`below_k_anonymity_threshold:${count}`);
+  }
+
+  // Verifica ogni campo stringa contro token PII vietati.
+  for (const [k, v] of Object.entries(bucket)) {
+    if (typeof v !== "string" || v.length === 0) continue;
+    const lower = v.toLowerCase();
+    for (const tok of FORBIDDEN_TEXT_TOKENS) {
+      if (lower.includes(tok)) {
+        violations.push(`pii_leak_in_field:${k}:${tok.trim()}`);
+        break;
+      }
+    }
+    if (CIVIC_NUMBER_RE.test(v)) {
+      violations.push(`civic_number_in_field:${k}`);
+    }
+    // Nome+Cognome (2 parole capitalizzate consecutive) in campi non-URL:
+    if (k !== "source_url" && /\b[A-Z][a-zà-ù]{2,}\s+[A-Z][A-ZÀ-Ù]{2,}\b/.test(v)) {
+      violations.push(`possible_full_name_in_field:${k}`);
+    }
+  }
+
+  // source_url deve essere una pagina indice, non un dettaglio individuale.
+  if (typeof bucket.source_url === "string" && bucket.source_url.length > 0) {
+    const u = bucket.source_url.toLowerCase();
+    // path che contengono uno slug tipico di dettaglio necrologio individuale
+    if (/\/(necrolog(?:io|i))\/[a-z0-9-]{10,}/i.test(u)) {
+      violations.push("individual_obituary_url");
+    }
+  }
+
+  return { allowed: violations.length === 0, violations };
+}
+
+export function enforceAggregateBucket(bucket: AggregateBucketLike): void {
+  const r = assertAggregateBucket(bucket);
+  if (!r.allowed) {
+    throw new Error(`aggregate_bucket_violation:${r.violations.join(",")}`);
+  }
+}
+
+export const AGGREGATE_MIN_BUCKET_COUNT = MIN_BUCKET_COUNT;
