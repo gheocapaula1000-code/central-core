@@ -5,7 +5,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { corsHeaders, handlePreflight, pickOrigin } from "../_shared/b2b/cors.ts";
 import { authorizeB2BFinder } from "../_shared/b2b/auth.ts";
 import { queryOverpass } from "../_shared/b2b/overpass.ts";
-import { queryGooglePlaces, mergeDedupePois } from "../_shared/b2b/googlePlaces.ts";
+import { queryGooglePlaces, mergeDedupePois, fetchPlaceDetailsContacts } from "../_shared/b2b/googlePlaces.ts";
 import { scoreAndNormalize, type NormalizedCompany } from "../_shared/b2b/normalize.ts";
 import { resolveSearchScope, isPoiInScope, PD_COMUNI, PD_COMUNI_KEYS, bboxCenter, haversineKm, normalizeComune } from "../_shared/b2b/geo.ts";
 import { detectProductKey, getProductProfile } from "../_shared/b2b/products.ts";
@@ -355,6 +355,31 @@ Deno.serve(async (req: Request) => {
         warnings.push(`google_places_error=${msg}`);
         console.warn(`[b2b-finder-search] google_places failed debug_id=${debug_id} err=${msg}`);
       }
+    }
+
+    // ── Google Place Details: fetch phone/website/price_level for gplace POIs
+    let placeDetailsCalls = 0;
+    try {
+      const gplaceIds = pois
+        .filter((p) => typeof p.osm_id === "string" && p.osm_id.startsWith("gplace/") && !p.tags.phone)
+        .map((p) => p.osm_id.slice("gplace/".length));
+      if (gplaceIds.length > 0 && googleKey && googleKey !== "NOT_CONFIGURED") {
+        const detailsMap = await fetchPlaceDetailsContacts(gplaceIds, { maxCalls: 40 });
+        placeDetailsCalls = Math.min(gplaceIds.length, 40);
+        for (const p of pois) {
+          if (!p.osm_id?.startsWith("gplace/")) continue;
+          const pid = p.osm_id.slice("gplace/".length);
+          const d = detailsMap.get(pid);
+          if (!d) continue;
+          if (d.phone) p.tags["phone"] = d.phone;
+          if (d.website && !p.tags.website) p.tags["website"] = d.website;
+          if (d.price_level !== null) p.tags["price_level"] = String(d.price_level);
+        }
+        warnings.push(`place_details_calls:${placeDetailsCalls}`);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "place_details error";
+      warnings.push(`place_details_error=${msg}`);
     }
 
     const rawCount = pois.length;

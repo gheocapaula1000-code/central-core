@@ -135,7 +135,7 @@ const MAX_FIRECRAWL_PAGES = 5;
 const CONCURRENCY = 3;
 const CONF_GOOD_ENOUGH = 0.85;
 const CONF_NEEDS_FALLBACK = 0.75;
-const DEFAULT_JOB_BUDGET_EUR = 0.5;
+const DEFAULT_JOB_BUDGET_EUR = 2.0;
 
 const COST = {
   directFetch: 0,
@@ -1678,7 +1678,7 @@ Deno.serve(async (req: Request) => {
       }
 
       // Daily budget
-      const dailyCap = parseFloat(Deno.env.get("B2B_FINDER_DAILY_BUDGET_EUR") ?? "2") || 2;
+      const dailyCap = parseFloat(Deno.env.get("B2B_FINDER_DAILY_BUDGET_EUR") ?? "10") || 10;
       const today = new Date().toISOString().slice(0, 10);
       const { data: ledgerToday } = await supabase.from("b2b_usage_ledger").select("cost_eur").eq("day", today);
       const spentToday = (ledgerToday ?? []).reduce((a: number, r: { cost_eur: number | string }) => a + Number(r.cost_eur ?? 0), 0);
