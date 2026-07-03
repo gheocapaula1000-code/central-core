@@ -19,7 +19,7 @@ import {
   mergeAggregations,
   type AggregatorBucket,
 } from "../_shared/obituariesAggregator.ts";
-import { assertAggregateBucket } from "../civiko-radar-veneto/privacy/inheritanceComplianceGuard.ts";
+import { assertAggregateBucket } from "../_shared/aggregateBucketGuard.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
