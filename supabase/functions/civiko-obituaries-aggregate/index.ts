@@ -177,17 +177,33 @@ Deno.serve(async (req) => {
 
   const perSourceBuckets: AggregatorBucket[][] = [];
 
+  const MAX_PAGES = 5;
+
   for (const s of sources as SourceRow[]) {
     const code = sourceCode(s.name);
-    const listingUrl = buildListingUrl(s);
+    const baseUrl = buildListingUrl(s);
+    // Se il template è una ricerca (contiene "?"), tentiamo fino a MAX_PAGES pagine.
+    const isPaginated = baseUrl.includes("?");
+    const urls = isPaginated
+      ? Array.from({ length: MAX_PAGES }, (_, i) => `${baseUrl}&page=${i + 1}`)
+      : [baseUrl];
+
     try {
-      const md = await fetchListingMarkdown(listingUrl, fcKey);
+      let combinedMd = "";
+      for (const u of urls) {
+        try {
+          const md = await fetchListingMarkdown(u, fcKey);
+          if (md && md.length > 100) combinedMd += "\n\n" + md;
+        } catch {
+          // singola pagina fallita → continuiamo con le altre
+        }
+      }
       const agg = aggregateObituariesMarkdown({
-        markdown: md,
+        markdown: combinedMd,
         source_code: code,
         window_days: WINDOW_DAYS,
       });
-      // NOTA: `md` esce di scope qui, non viene loggato, salvato o passato oltre.
+      // NOTA: `combinedMd` esce di scope qui, non viene loggato, salvato o passato oltre.
       report.entries_scanned_total += agg.stats.entries_scanned;
       report.per_source.push({
         source_code: code,
