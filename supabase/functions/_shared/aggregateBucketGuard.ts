@@ -51,8 +51,13 @@ export function assertAggregateBucket(bucket: AggregateBucketLike): ComplianceRe
     violations.push(`below_k_anonymity_threshold:${count}`);
   }
 
+  // Campi metadata sulla FONTE (non contenuto scrappato): possono legittimamente
+  // contenere "necrologi", "lutto", nomi propri di testate, ecc.
+  const METADATA_FIELDS = new Set(["source_code", "source_url", "source_name", "area_type", "area_code"]);
+
   for (const [k, v] of Object.entries(bucket)) {
     if (typeof v !== "string" || v.length === 0) continue;
+    if (METADATA_FIELDS.has(k)) continue;
     const lower = v.toLowerCase();
     for (const tok of FORBIDDEN_TEXT_TOKENS) {
       if (lower.includes(tok)) {
@@ -61,7 +66,7 @@ export function assertAggregateBucket(bucket: AggregateBucketLike): ComplianceRe
       }
     }
     if (CIVIC_NUMBER_RE.test(v)) violations.push(`civic_number_in_field:${k}`);
-    if (k !== "source_url" && /\b[A-Z][a-zà-ù]{2,}\s+[A-Z][A-ZÀ-Ù]{2,}\b/.test(v)) {
+    if (/\b[A-Z][a-zà-ù]{2,}\s+[A-Z][A-ZÀ-Ù]{2,}\b/.test(v)) {
       violations.push(`possible_full_name_in_field:${k}`);
     }
   }
