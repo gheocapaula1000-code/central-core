@@ -192,3 +192,54 @@ export function mergeDedupePois(
   }
   return { merged, added_from_google: added, dedup_collisions: collisions };
 }
+
+const PLACE_DETAILS_URL = "https://maps.googleapis.com/maps/api/place/details/json";
+
+export async function fetchPlaceDetailsContacts(
+  placeIds: string[],
+  opts: { maxCalls?: number; concurrency?: number } = {},
+): Promise<Map<string, { phone: string | null; website: string | null; price_level: number | null }>> {
+  const maxCalls = opts.maxCalls ?? 40;
+  const concurrency = Math.max(1, opts.concurrency ?? 4);
+  const out = new Map<string, { phone: string | null; website: string | null; price_level: number | null }>();
+  const apiKey = Deno.env.get("GOOGLE_MAPS_API_KEY");
+  if (!apiKey || apiKey === "NOT_CONFIGURED") return out;
+
+  const ids = placeIds.slice(0, maxCalls);
+  let idx = 0;
+
+  async function worker() {
+    while (true) {
+      const i = idx++;
+      if (i >= ids.length) return;
+      const placeId = ids[i];
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 10000);
+      try {
+        const params = new URLSearchParams({
+          place_id: placeId,
+          fields: "international_phone_number,formatted_phone_number,website,price_level",
+          key: apiKey,
+        });
+        const res = await fetch(`${PLACE_DETAILS_URL}?${params}`, { signal: ctrl.signal });
+        if (!res.ok) continue;
+        const payload = await res.json();
+        const r = payload?.result ?? {};
+        const phone = r.international_phone_number ?? r.formatted_phone_number ?? null;
+        const website = r.website ?? null;
+        const price_level = typeof r.price_level === "number" ? r.price_level : null;
+        if (phone || website || price_level !== null) {
+          out.set(placeId, { phone, website, price_level });
+        }
+      } catch {
+        // silenced
+      } finally {
+        clearTimeout(t);
+      }
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, ids.length) }, () => worker());
+  await Promise.all(workers);
+  return out;
+}
