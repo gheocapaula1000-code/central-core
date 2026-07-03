@@ -41,6 +41,7 @@ interface GooglePlace {
   international_phone_number?: string;
   formatted_phone_number?: string;
   website?: string;
+  price_level?: number;
 }
 
 export interface GooglePlacesQueryArgs {
