@@ -357,30 +357,84 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ── Google Place Details: fetch phone/website/price_level for gplace POIs
+    // ── Google Find Place: recupera place_id per lead OSM privi (senza gplace/) e senza telefono
+    let findPlaceCalls = 0;
+    const googlePlacesErrors = new Set<string>();
+    try {
+      if (googleKey && googleKey !== "NOT_CONFIGURED") {
+        const candidates = pois
+          .filter((p) => !(typeof p.osm_id === "string" && p.osm_id.startsWith("gplace/")))
+          .filter((p) => !p.tags.phone && !p.tags["contact:phone"])
+          .filter((p) => !!p.name)
+          .slice(0, 20)
+          .map((p) => ({
+            key: String(p.osm_id),
+            text: `${p.name} ${p.tags["addr:city"] ?? scope.comune}`.trim(),
+          }));
+        if (candidates.length > 0) {
+          const { map: pidMap, errors } = await findPlaceIdsByText(candidates, { maxCalls: 20, concurrency: 4 });
+          findPlaceCalls = candidates.length;
+          for (const e of errors) googlePlacesErrors.add(e);
+          if (pidMap.size > 0) {
+            for (const p of pois) {
+              const pid = pidMap.get(String(p.osm_id));
+              if (pid) p.tags["google_place_id"] = pid;
+            }
+          }
+          warnings.push(`find_place_calls:${findPlaceCalls}`);
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "find_place error";
+      warnings.push(`find_place_error=${msg}`);
+    }
+
+    // ── Google Place Details: telefono/sito/price_level/formatted_address per lead con place_id
+    // che mancano telefono OPPURE sito OPPURE indirizzo con via.
     let placeDetailsCalls = 0;
     try {
-      const gplaceIds = pois
-        .filter((p) => typeof p.osm_id === "string" && p.osm_id.startsWith("gplace/") && !p.tags.phone)
-        .map((p) => p.osm_id.slice("gplace/".length));
-      if (gplaceIds.length > 0 && googleKey && googleKey !== "NOT_CONFIGURED") {
-        const detailsMap = await fetchPlaceDetailsContacts(gplaceIds, { maxCalls: 40 });
-        placeDetailsCalls = Math.min(gplaceIds.length, 40);
-        for (const p of pois) {
-          if (!p.osm_id?.startsWith("gplace/")) continue;
-          const pid = p.osm_id.slice("gplace/".length);
-          const d = detailsMap.get(pid);
-          if (!d) continue;
-          if (d.phone) p.tags["phone"] = d.phone;
-          if (d.website && !p.tags.website) p.tags["website"] = d.website;
-          if (d.price_level !== null) p.tags["price_level"] = String(d.price_level);
+      if (googleKey && googleKey !== "NOT_CONFIGURED") {
+        const candidates = pois
+          .map((p) => {
+            let pid: string | null = null;
+            if (typeof p.osm_id === "string" && p.osm_id.startsWith("gplace/")) {
+              pid = p.osm_id.slice("gplace/".length);
+            } else if (p.tags["google_place_id"]) {
+              pid = p.tags["google_place_id"];
+            }
+            return { poi: p, pid };
+          })
+          .filter((x) => !!x.pid)
+          .filter(({ poi }) => {
+            const missingPhone = !poi.tags.phone && !poi.tags["contact:phone"];
+            const missingWebsite = !poi.tags.website && !poi.tags["contact:website"];
+            const missingStreet = !poi.tags["addr:street"];
+            return missingPhone || missingWebsite || missingStreet;
+          });
+        const gplaceIds = Array.from(new Set(candidates.map((c) => c.pid as string)));
+        if (gplaceIds.length > 0) {
+          const { map: detailsMap, errors } = await fetchPlaceDetailsContacts(gplaceIds, { maxCalls: 40, concurrency: 4 });
+          placeDetailsCalls = Math.min(gplaceIds.length, 40);
+          for (const e of errors) googlePlacesErrors.add(e);
+          for (const { poi, pid } of candidates) {
+            const d = detailsMap.get(pid as string);
+            if (!d) continue;
+            if (d.phone && !poi.tags.phone) poi.tags["phone"] = d.phone;
+            if (d.website && !poi.tags.website) poi.tags["website"] = d.website;
+            if (d.price_level !== null) poi.tags["price_level"] = String(d.price_level);
+            if (d.formatted_address) poi.tags["google_formatted_address"] = d.formatted_address;
+          }
+          warnings.push(`place_details_calls:${placeDetailsCalls}`);
         }
-        warnings.push(`place_details_calls:${placeDetailsCalls}`);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "place_details error";
       warnings.push(`place_details_error=${msg}`);
     }
+    for (const status of googlePlacesErrors) {
+      warnings.push(`google_places_error:${status}`);
+    }
+
 
     const rawCount = pois.length;
     let filteredOutOfZone = 0;
