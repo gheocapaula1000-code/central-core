@@ -5306,6 +5306,9 @@ export type Database = {
           agenzie: string[]
           bagni: number | null
           cambio_agenzia: boolean | null
+          cambio_agenzia_a: string | null
+          cambio_agenzia_da: string | null
+          cambio_agenzia_data: string | null
           chiave_match: string
           confidenza: string
           created_at: string
@@ -5341,6 +5344,9 @@ export type Database = {
           agenzie: string[]
           bagni?: number | null
           cambio_agenzia?: boolean | null
+          cambio_agenzia_a?: string | null
+          cambio_agenzia_da?: string | null
+          cambio_agenzia_data?: string | null
           chiave_match: string
           confidenza: string
           created_at?: string
@@ -5376,6 +5382,9 @@ export type Database = {
           agenzie?: string[]
           bagni?: number | null
           cambio_agenzia?: boolean | null
+          cambio_agenzia_a?: string | null
+          cambio_agenzia_da?: string | null
+          cambio_agenzia_data?: string | null
           chiave_match?: string
           confidenza?: string
           created_at?: string
@@ -7226,6 +7235,7 @@ export type Database = {
         }
         Returns: string
       }
+      detect_padova_cambio_agenzia: { Args: never; Returns: Json }
       expire_commercial_zone_trials: { Args: never; Returns: undefined }
       expire_padova_agency_listings: {
         Args: { p_seen_since: string }
@@ -7273,6 +7283,7 @@ export type Database = {
       }
       merge_padova_contendibili: { Args: never; Returns: Json }
       norm_agency: { Args: { p: string }; Returns: string }
+      norm_agency_name: { Args: { p: string }; Returns: string }
       norm_via: { Args: { p: string }; Returns: string }
       omi_zone_by_point: {
         Args: { p_lat: number; p_lng: number }
