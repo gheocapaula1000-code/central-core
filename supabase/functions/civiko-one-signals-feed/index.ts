@@ -504,6 +504,9 @@ serve(async (req: Request) => {
           score: Number(row.signal_score ?? row.score ?? 60) || 60,
           last_seen_at: lastSeen,
           raw_ref: `early_offmarket_signal_candidates:${row.id}`,
+          lat_raw: row.lat ?? row.latitude,
+          lng_raw: row.lng ?? row.longitude,
+
         }));
       }
     }
