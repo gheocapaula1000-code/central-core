@@ -448,6 +448,9 @@ serve(async (req: Request) => {
           status: "active",
           last_seen_at: lastSeen,
           raw_ref: `padova_collect_v2_items:${row.id}`,
+          lat_raw: row.lat,
+          lng_raw: row.lng,
+
         };
         if (includeSet.has("ribassi") && initial > 0 && price > 0 && price < initial) {
           const dropPct = Math.round(((initial - price) / initial) * 100);
