@@ -346,6 +346,9 @@ serve(async (req: Request) => {
           score,
           last_seen_at: lastSeen,
           raw_ref: `padova_contendibili:${row.id}`,
+          lat_raw: row.lat,
+          lng_raw: row.lng,
+
           evidence_type: "multiple_distinct_agencies",
           label_pubblica: "Contendibile verificato",
           portals_seen: portals,
