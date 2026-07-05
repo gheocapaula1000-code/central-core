@@ -144,8 +144,14 @@ function resolveZone(record: Record<string, unknown>): { code: string; label: st
   return { code: UNRESOLVED_OMI_CODE, label: UNRESOLVED_OMI_LABEL };
 }
 
+function toCoord(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function buildItem(
-  partial: Partial<FeedItem> & { signal_type: SignalType; source_id: string; price_raw?: unknown },
+  partial: Partial<FeedItem> & { signal_type: SignalType; source_id: string; price_raw?: unknown; lat_raw?: unknown; lng_raw?: unknown },
 ): FeedItem {
   const zone_code = partial.zone_code && partial.zone_code.trim() ? partial.zone_code : UNRESOLVED_OMI_CODE;
   const zone_label = partial.zone_label && partial.zone_label.trim() ? partial.zone_label : UNRESOLVED_OMI_LABEL;
@@ -172,7 +178,10 @@ function buildItem(
     last_seen_at: partial.last_seen_at || new Date().toISOString(),
     raw_ref: partial.raw_ref || "",
     data_quality: { score: qualityScore, flags, needs_review: needsReviewBase },
+    lat: toCoord(partial.lat_raw ?? partial.lat),
+    lng: toCoord(partial.lng_raw ?? partial.lng),
   };
+
   if (partial.evidence_type) item.evidence_type = partial.evidence_type;
   if (partial.label_pubblica) item.label_pubblica = partial.label_pubblica;
   if (partial.portals_seen) item.portals_seen = partial.portals_seen;
