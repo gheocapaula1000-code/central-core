@@ -39,7 +39,11 @@ const TITLE_LINK_RE =
 const AGENCY_LINK_RE =
   /\[([^\]\n]+?)\]\(https:\/\/www\.casa\.it\/agenzie\/([a-z0-9-]+)\/?[^)]*\)/i;
 
-const PRICE_RE = /€\s*([\d.]+)(?!\s*m)/; // evita di prendere "€/mq"
+// Cattura SOLO il primo importo nel formato "€ X.XXX[.XXX]" con separatore
+// punto delle migliaia (o un intero 4-7 cifre senza separatori). Si ferma al
+// primo carattere non compatibile — evita di concatenare mq/rate/locali quando
+// il markdown Firecrawl non ha un separatore (es. "€ 92.500tua" o "€ 92.500105 m²").
+const PRICE_RE = /€\s*(\d{1,3}(?:\.\d{3})+|\d{4,7})(?!\d|\.\d)/;
 const SURFACE_RE = /(\d{2,5})\s*m²/;
 const ROOMS_RE = /(\d{1,2})\s*local/i;
 const BATH_RE = /(\d{1,2})\s*bagn/i;
@@ -54,7 +58,10 @@ function parsePriceEur(raw: string): number | null {
   const digits = raw.replace(/\./g, "");
   const n = Number(digits);
   if (!Number.isFinite(n)) return null;
-  if (n < 1000 || n > 50_000_000) return null;
+  if (n < 1000) return null;
+  // Guardia di sanità: scarta valori corrotti (concatenazione prezzo+mq/rata).
+  // Nessun immobile residenziale casa.it Padova supera i 5M€.
+  if (n > 5_000_000) return null;
   return Math.round(n);
 }
 
