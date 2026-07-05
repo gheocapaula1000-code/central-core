@@ -401,6 +401,9 @@ serve(async (req: Request) => {
           score,
           last_seen_at: lastSeen,
           raw_ref: `padova_multi_portale:${row.id}`,
+          lat_raw: row.lat,
+          lng_raw: row.lng,
+
           evidence_type: "multi_portal_without_agency_confirmation",
           label_pubblica: "Alta esposizione",
           portals_seen: portals,
