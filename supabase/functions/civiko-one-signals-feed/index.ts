@@ -117,6 +117,8 @@ interface FeedItem {
   last_seen_at: string;
   raw_ref: string;
   data_quality: DataQuality;
+  lat: number | null;
+  lng: number | null;
   // Tassonomia segnali estesa (additive, non breaking)
   evidence_type?: string;
   label_pubblica?: string;
@@ -126,6 +128,7 @@ interface FeedItem {
   needs_review?: boolean;
   operator_note?: string;
 }
+
 
 function resolveZone(record: Record<string, unknown>): { code: string; label: string } {
   try {
