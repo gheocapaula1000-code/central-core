@@ -117,6 +117,8 @@ interface FeedItem {
   last_seen_at: string;
   raw_ref: string;
   data_quality: DataQuality;
+  lat: number | null;
+  lng: number | null;
   // Tassonomia segnali estesa (additive, non breaking)
   evidence_type?: string;
   label_pubblica?: string;
@@ -126,6 +128,7 @@ interface FeedItem {
   needs_review?: boolean;
   operator_note?: string;
 }
+
 
 function resolveZone(record: Record<string, unknown>): { code: string; label: string } {
   try {
@@ -141,8 +144,14 @@ function resolveZone(record: Record<string, unknown>): { code: string; label: st
   return { code: UNRESOLVED_OMI_CODE, label: UNRESOLVED_OMI_LABEL };
 }
 
+function toCoord(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function buildItem(
-  partial: Partial<FeedItem> & { signal_type: SignalType; source_id: string; price_raw?: unknown },
+  partial: Partial<FeedItem> & { signal_type: SignalType; source_id: string; price_raw?: unknown; lat_raw?: unknown; lng_raw?: unknown },
 ): FeedItem {
   const zone_code = partial.zone_code && partial.zone_code.trim() ? partial.zone_code : UNRESOLVED_OMI_CODE;
   const zone_label = partial.zone_label && partial.zone_label.trim() ? partial.zone_label : UNRESOLVED_OMI_LABEL;
@@ -169,7 +178,10 @@ function buildItem(
     last_seen_at: partial.last_seen_at || new Date().toISOString(),
     raw_ref: partial.raw_ref || "",
     data_quality: { score: qualityScore, flags, needs_review: needsReviewBase },
+    lat: toCoord(partial.lat_raw ?? partial.lat),
+    lng: toCoord(partial.lng_raw ?? partial.lng),
   };
+
   if (partial.evidence_type) item.evidence_type = partial.evidence_type;
   if (partial.label_pubblica) item.label_pubblica = partial.label_pubblica;
   if (partial.portals_seen) item.portals_seen = partial.portals_seen;
@@ -334,6 +346,9 @@ serve(async (req: Request) => {
           score,
           last_seen_at: lastSeen,
           raw_ref: `padova_contendibili:${row.id}`,
+          lat_raw: row.lat,
+          lng_raw: row.lng,
+
           evidence_type: "multiple_distinct_agencies",
           label_pubblica: "Contendibile verificato",
           portals_seen: portals,
@@ -386,6 +401,9 @@ serve(async (req: Request) => {
           score,
           last_seen_at: lastSeen,
           raw_ref: `padova_multi_portale:${row.id}`,
+          lat_raw: row.lat,
+          lng_raw: row.lng,
+
           evidence_type: "multi_portal_without_agency_confirmation",
           label_pubblica: "Alta esposizione",
           portals_seen: portals,
@@ -430,6 +448,9 @@ serve(async (req: Request) => {
           status: "active",
           last_seen_at: lastSeen,
           raw_ref: `padova_collect_v2_items:${row.id}`,
+          lat_raw: row.lat,
+          lng_raw: row.lng,
+
         };
         if (includeSet.has("ribassi") && initial > 0 && price > 0 && price < initial) {
           const dropPct = Math.round(((initial - price) / initial) * 100);
@@ -483,6 +504,9 @@ serve(async (req: Request) => {
           score: Number(row.signal_score ?? row.score ?? 60) || 60,
           last_seen_at: lastSeen,
           raw_ref: `early_offmarket_signal_candidates:${row.id}`,
+          lat_raw: row.lat ?? row.latitude,
+          lng_raw: row.lng ?? row.longitude,
+
         }));
       }
     }
