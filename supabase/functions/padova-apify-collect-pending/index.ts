@@ -505,6 +505,7 @@ Deno.serve(async (req) => {
           run_id: runId, actor_id: actorId, portal: portalTag,
           status: finalStatus, items: itemsCount, deduped: deduped.length,
           created, updated, skipped, errors, dry_run: dryRun,
+          promoted, promote_error: promoteError,
           auto_enrich: enrichKicked,
         });
 
