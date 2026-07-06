@@ -403,14 +403,44 @@ Deno.serve(async (req) => {
         for (const r of mapped) byUrl.set(r.url, r);
         const deduped = Array.from(byUrl.values());
 
+        let promoted: { new: number; updated: number } | null = null;
+        let promoteError: string | null = null;
         if (!dryRun) {
           const up = await upsertItems(sb, deduped, mapper.portal, mapper.allowListviewOverwrite);
           created = up.created; updated = up.updated; skipped = up.skipped;
           errors.push(...up.errors);
+
+          // Promote freshly upserted rows into padova_listings (best-effort).
+          const importedCount = created + updated;
+          if (importedCount > 0) {
+            try {
+              const { data: promoRes, error: promoErr } = await sb.rpc(
+                "promote_padova_collect_v2_to_listings",
+                { p_since: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString() },
+              );
+              if (promoErr) {
+                promoteError = promoErr.message;
+                errors.push(`promote:${promoErr.message}`);
+                console.error(`[collect-pending] promote failed for run ${runId}:`, promoErr.message);
+              } else if (promoRes && typeof promoRes === "object") {
+                promoted = {
+                  new: Number((promoRes as Record<string, unknown>).new ?? 0),
+                  updated: Number((promoRes as Record<string, unknown>).updated ?? 0),
+                };
+                console.log(`[collect-pending] promoted run ${runId}:`, JSON.stringify(promoted));
+              }
+            } catch (e) {
+              promoteError = (e as Error)?.message ?? String(e);
+              errors.push(`promote_exception:${promoteError}`);
+              console.error(`[collect-pending] promote exception for run ${runId}:`, promoteError);
+            }
+          }
+
           await sb.from("padova_apify_runs").update({
             status: "SUCCEEDED",
             finished_at: apifyData.finishedAt ?? nowIso,
             items_count: itemsCount,
+            imported: importedCount,
           }).eq("run_id", runId);
         }
         // ============ AUTO-TRIGGER PASS B (enrichment) ============
