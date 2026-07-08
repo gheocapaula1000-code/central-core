@@ -739,7 +739,7 @@ export async function scrapeAllPortals(
   } catch (_) { /* budget module optional */ }
 
   const results = await Promise.allSettled(
-    configs.map((c) => scrapePortal(c, municipality, firecrawlKey, mode)),
+    configs.map((c) => scrapePortal(c, municipality, firecrawlKey, mode, stats)),
   );
   const listings: NormalizedListing[] = [];
   results.forEach((r, idx) => {
