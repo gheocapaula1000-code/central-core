@@ -15,7 +15,9 @@ import type { RadarRunMeta } from "../_shared/radarBudget.ts";
 import { parseCasaListPage } from "../_shared/casaParser.ts";
 
 export interface PortalIngestionStat {
-  source: NormalizedListing["source"] | "apify_fallback";
+  // Ammesso anche `extraction_empty_<portale>` come sorgente diagnostica sintetica:
+  // non è un vero portale, serve solo a far comparire una entry omonima in provider_errors.
+  source: NormalizedListing["source"] | "apify_fallback" | string;
   raw: number;
   reason?: string;
 }
@@ -240,11 +242,210 @@ async function scrapeCasaViaMarkdown(
 }
 
 
+// ═══════════════════════════════════════════════════════════════
+// Markdown parsers rule-based per immobiliare.it / idealista.it / subito.it.
+// Fallback quando Firecrawl JSON+LLM restituisce 0 item (schema change lato portale
+// o extraction LLM che collassa a listings:[]).
+// Approccio identico a parseCasaListPage: scan link markdown → prezzo vicino → id.
+// ═══════════════════════════════════════════════════════════════
+
+interface PortalMarkdownProfile {
+  linkRe: RegExp;                                // group 1 = titolo, group 2 = id numerico
+  urlBuilder: (id: string) => string;
+  source: NormalizedListing["source"];
+}
+
+const PRICE_NEAR_RE = /€\s*(\d{1,3}(?:\.\d{3})+|\d{4,7})(?!\d|\.\d)/;
+
+function parsePriceEurLocal(raw: string): number | null {
+  const digits = raw.replace(/\./g, "");
+  const n = Number(digits);
+  if (!Number.isFinite(n) || n < 1000 || n > 5_000_000) return null;
+  return Math.round(n);
+}
+
+function parseMarkdownListings(
+  md: string,
+  profile: PortalMarkdownProfile,
+  maxItems: number,
+): NormalizedListing[] {
+  const out: NormalizedListing[] = [];
+  const seenIds = new Set<string>();
+  profile.linkRe.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = profile.linkRe.exec(md)) !== null && out.length < maxItems) {
+    const rawTitle = (m[1] ?? "").trim();
+    const id = (m[2] ?? "").trim();
+    if (!id || seenIds.has(id)) continue;
+    // scarta i link immagine ([![...]](...))
+    const prefix = m.index > 0 ? md.charAt(m.index - 1) : "";
+    if (prefix === "!") continue;
+    if (/Immagine\s+\d+\s+di\s+\d+/i.test(rawTitle)) continue;
+    // finestra di contesto dopo il link (~600 char) per pescare il prezzo della card
+    const winStart = m.index + m[0].length;
+    const window = md.slice(winStart, winStart + 600);
+    const priceMatch = window.match(PRICE_NEAR_RE);
+    const price = priceMatch ? parsePriceEurLocal(priceMatch[1]) : null;
+    // requisito minimo per considerarlo un annuncio reale: id + (titolo o prezzo)
+    if (!rawTitle && price == null) continue;
+    seenIds.add(id);
+    out.push({
+      source: profile.source,
+      listing_id: `${profile.source.split(".")[0].slice(0, 3)}-${id}`,
+      url: profile.urlBuilder(id),
+      title: (rawTitle || "Annuncio").slice(0, 200),
+      address: null,
+      price_eur: price,
+      surface_sqm: null,
+      rooms: null,
+      property_type: normalizePropertyType(null),
+      agency_name: null,
+      is_private: profile.source === "subito.it",
+      lat: null,
+      lng: null,
+    });
+  }
+  return out;
+}
+
+// Link "titolo card" per ciascun portale. Group 1 = titolo, group 2 = id.
+// Profili per portale: linkRe cattura (titolo, id) evitando link immagine ([![...])
+// tramite lookbehind negativo su `!`. Subito ha un secondo gruppo intermedio (path),
+// quindi usa un blocco dedicato in scrapeSubitoViaMarkdown.
+function makeProfile(source: NormalizedListing["source"]): PortalMarkdownProfile {
+  if (source === "immobiliare.it") {
+    return {
+      source,
+      linkRe: /(?<=^|[^!])\[([^\]\n]+?)\]\(https:\/\/www\.immobiliare\.it\/annunci\/(\d{6,})\/?[^)]*\)/g,
+      urlBuilder: (id) => `https://www.immobiliare.it/annunci/${id}/`,
+    };
+  }
+  // idealista.it
+  return {
+    source,
+    linkRe: /(?<=^|[^!])\[([^\]\n]+?)\]\(https:\/\/www\.idealista\.it\/immobile\/(\d{5,})\/?[^)]*\)/g,
+    urlBuilder: (id) => `https://www.idealista.it/immobile/${id}/`,
+  };
+}
+
+async function fetchFirecrawlMarkdown(
+  url: string,
+  firecrawlKey: string,
+): Promise<{ md: string; httpStatus: number | null; raw: string }> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), SCRAPE_TIMEOUT_MS);
+  try {
+    const res = await fetch(FIRECRAWL_URL, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${firecrawlKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url,
+        formats: ["markdown"],
+        onlyMainContent: false,
+        headers: {
+          "User-Agent": pickUA(),
+          "Accept-Language": pickLang(),
+        },
+        waitFor: FIRECRAWL_WAIT_FOR_MS,
+      }),
+      signal: ctrl.signal,
+    });
+    const bodyText = await res.text().catch(() => "");
+    if (!res.ok) {
+      return { md: "", httpStatus: res.status, raw: bodyText };
+    }
+    let md = "";
+    try {
+      const data = JSON.parse(bodyText);
+      md = (typeof data?.data?.markdown === "string" && data.data.markdown) ||
+        (typeof data?.markdown === "string" && data.markdown) || "";
+    } catch { /* raw body already captured */ }
+    return { md, httpStatus: res.status, raw: bodyText };
+  } catch (e) {
+    return { md: "", httpStatus: null, raw: `exception: ${e instanceof Error ? e.message : String(e)}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function scrapeImmobiliareViaMarkdown(
+  url: string,
+  firecrawlKey: string,
+  maxItems: number,
+): Promise<{ listings: NormalizedListing[]; rawSample: string }> {
+  const { md, raw } = await fetchFirecrawlMarkdown(url, firecrawlKey);
+  const profile = makeProfile("immobiliare.it");
+  const listings = md ? parseMarkdownListings(md, profile, maxItems) : [];
+  console.log(`[DEBUG portalScrapers] immobiliare.it markdown fallback md_len=${md.length} parsed=${listings.length}`);
+  return { listings, rawSample: md || raw };
+}
+
+async function scrapeIdealistaViaMarkdown(
+  url: string,
+  firecrawlKey: string,
+  maxItems: number,
+): Promise<{ listings: NormalizedListing[]; rawSample: string }> {
+  const { md, raw } = await fetchFirecrawlMarkdown(url, firecrawlKey);
+  const profile = makeProfile("idealista.it");
+  const listings = md ? parseMarkdownListings(md, profile, maxItems) : [];
+  console.log(`[DEBUG portalScrapers] idealista.it markdown fallback md_len=${md.length} parsed=${listings.length}`);
+  return { listings, rawSample: md || raw };
+}
+
+async function scrapeSubitoViaMarkdown(
+  url: string,
+  firecrawlKey: string,
+  maxItems: number,
+): Promise<{ listings: NormalizedListing[]; rawSample: string }> {
+  const { md, raw } = await fetchFirecrawlMarkdown(url, firecrawlKey);
+  // Per subito la regex cattura anche il path relativo (group 2), quindi processo a mano:
+  const out: NormalizedListing[] = [];
+  if (md) {
+    const seen = new Set<string>();
+    const re = /(?<=^|[^!])\[([^\]\n]+?)\]\(https:\/\/www\.subito\.it\/([^)\s]*?-(\d{6,})\.htm)[^)]*\)/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(md)) !== null && out.length < maxItems) {
+      const rawTitle = (m[1] ?? "").trim();
+      const path = (m[2] ?? "").trim();
+      const id = (m[3] ?? "").trim();
+      if (!id || seen.has(id)) continue;
+      if (/Immagine\s+\d+\s+di\s+\d+/i.test(rawTitle)) continue;
+      const winStart = m.index + m[0].length;
+      const window = md.slice(winStart, winStart + 600);
+      const priceMatch = window.match(PRICE_NEAR_RE);
+      const price = priceMatch ? parsePriceEurLocal(priceMatch[1]) : null;
+      if (!rawTitle && price == null) continue;
+      seen.add(id);
+      out.push({
+        source: "subito.it",
+        listing_id: `sub-${id}`,
+        url: `https://www.subito.it/${path}`,
+        title: (rawTitle || "Annuncio").slice(0, 200),
+        address: null,
+        price_eur: price,
+        surface_sqm: null,
+        rooms: null,
+        property_type: normalizePropertyType(null),
+        agency_name: null,
+        is_private: true,
+        lat: null,
+        lng: null,
+      });
+    }
+  }
+  console.log(`[DEBUG portalScrapers] subito.it markdown fallback md_len=${md.length} parsed=${out.length}`);
+  return { listings: out, rawSample: md || raw };
+}
+
 async function scrapePortal(
   config: PortalConfig,
   municipality: string,
   firecrawlKey: string,
   mode: RadarMode = "soft",
+  stats?: IngestionStats,
 ): Promise<NormalizedListing[]> {
   const maxItems = mode === "full" ? MAX_LISTINGS_PER_PORTAL_FULL : MAX_LISTINGS_PER_PORTAL_SOFT;
   const slug = municipalitySlug(municipality);
@@ -263,6 +464,7 @@ async function scrapePortal(
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), SCRAPE_TIMEOUT_MS);
 
+  let jsonLlmCount = 0;
   try {
     const res = await fetch(FIRECRAWL_URL, {
       method: "POST",
@@ -285,52 +487,86 @@ async function scrapePortal(
 
     if (!res.ok) {
       console.warn(`[portalScrapers] ${config.source} HTTP ${res.status}`);
-      return [];
+    } else {
+      const data = await res.json();
+      const items: unknown =
+        data?.data?.json?.listings ?? data?.json?.listings ?? data?.data?.extract?.listings ?? [];
+      console.log(`[DEBUG portalScrapers] ${config.source} raw items:`, Array.isArray(items) ? items.length : `not-array(${typeof items})`);
+      if (Array.isArray(items)) {
+        const out: NormalizedListing[] = [];
+        for (const it of items) {
+          if (!it || typeof it !== "object") continue;
+          const r = it as Record<string, unknown>;
+          const link = typeof r.link === "string" ? r.link : null;
+          if (!link || !link.startsWith("http")) continue;
+          const id = config.idFromLink(link);
+          if (!id) continue;
+          const lat = typeof r.lat === "number" && Number.isFinite(r.lat) ? r.lat : null;
+          const lng = typeof r.lng === "number" && Number.isFinite(r.lng) ? r.lng : null;
+          const rawAgency = typeof r.agency === "string" ? r.agency.trim() : "";
+          const looksPrivate = /privat[oi]/i.test(rawAgency) || rawAgency === "" && config.source === "subito.it";
+          const agency_name = rawAgency && !looksPrivate ? rawAgency.slice(0, 150) : null;
+          out.push({
+            source: config.source,
+            listing_id: id,
+            url: link.slice(0, 400),
+            title: typeof r.title === "string" ? r.title.slice(0, 200) : "Annuncio",
+            address: typeof r.address === "string" ? r.address.slice(0, 200) : null,
+            price_eur: parsePriceEur(r.price),
+            surface_sqm: parseInt0(r.surface_sqm),
+            rooms: parseInt0(r.rooms),
+            property_type: normalizePropertyType(typeof r.property_type === "string" ? r.property_type : null),
+            agency_name,
+            is_private: looksPrivate,
+            lat,
+            lng,
+          });
+          if (out.length >= maxItems) break;
+        }
+        jsonLlmCount = out.length;
+        if (out.length > 0) return out;
+      }
     }
-    const data = await res.json();
-    const items: unknown =
-      data?.data?.json?.listings ?? data?.json?.listings ?? data?.data?.extract?.listings ?? [];
-    console.log(`[DEBUG portalScrapers] ${config.source} raw items:`, Array.isArray(items) ? items.length : `not-array(${typeof items})`);
-    if (!Array.isArray(items)) return [];
-
-    const out: NormalizedListing[] = [];
-    for (const it of items) {
-      if (!it || typeof it !== "object") continue;
-      const r = it as Record<string, unknown>;
-      const link = typeof r.link === "string" ? r.link : null;
-      if (!link || !link.startsWith("http")) continue;
-      const id = config.idFromLink(link);
-      if (!id) continue;
-      const lat = typeof r.lat === "number" && Number.isFinite(r.lat) ? r.lat : null;
-      const lng = typeof r.lng === "number" && Number.isFinite(r.lng) ? r.lng : null;
-      const rawAgency = typeof r.agency === "string" ? r.agency.trim() : "";
-      const looksPrivate = /privat[oi]/i.test(rawAgency) || rawAgency === "" && config.source === "subito.it";
-      const agency_name = rawAgency && !looksPrivate ? rawAgency.slice(0, 150) : null;
-      out.push({
-        source: config.source,
-        listing_id: id,
-        url: link.slice(0, 400),
-        title: typeof r.title === "string" ? r.title.slice(0, 200) : "Annuncio",
-        address: typeof r.address === "string" ? r.address.slice(0, 200) : null,
-        price_eur: parsePriceEur(r.price),
-        surface_sqm: parseInt0(r.surface_sqm),
-        rooms: parseInt0(r.rooms),
-        property_type: normalizePropertyType(typeof r.property_type === "string" ? r.property_type : null),
-        agency_name,
-        is_private: looksPrivate,
-        lat,
-        lng,
-      });
-      if (out.length >= maxItems) break;
-    }
-    return out;
   } catch (e) {
-    console.error(`[portalScrapers] ${config.source} error:`, e instanceof Error ? e.message : String(e));
-    return [];
+    console.error(`[portalScrapers] ${config.source} json+llm error:`, e instanceof Error ? e.message : String(e));
   } finally {
     clearTimeout(timer);
   }
+
+  // ── Fallback markdown rule-based per il portale ──────────────────
+  console.log(`[portalScrapers] ${config.source} json+llm=${jsonLlmCount}, tentativo markdown fallback`);
+  let mdResult: { listings: NormalizedListing[]; rawSample: string } = { listings: [], rawSample: "" };
+  try {
+    if (config.source === "immobiliare.it") {
+      mdResult = await scrapeImmobiliareViaMarkdown(url, firecrawlKey, maxItems);
+    } else if (config.source === "idealista.it") {
+      mdResult = await scrapeIdealistaViaMarkdown(url, firecrawlKey, maxItems);
+    } else if (config.source === "subito.it") {
+      mdResult = await scrapeSubitoViaMarkdown(url, firecrawlKey, maxItems);
+    }
+  } catch (e) {
+    console.error(`[portalScrapers] ${config.source} markdown fallback error:`, e instanceof Error ? e.message : String(e));
+  }
+
+  if (mdResult.listings.length > 0) {
+    console.log(`[portalScrapers] ${config.source} markdown fallback OK: ${mdResult.listings.length} items`);
+    return mdResult.listings;
+  }
+
+  // ── Entrambi i tentativi a zero: diagnostica ──────────────────────
+  const portalKey = config.source.split(".")[0]; // "immobiliare" | "idealista" | "subito"
+  const sample = (mdResult.rawSample ?? "").slice(0, 1500);
+  console.warn(`[portalScrapers] extraction_empty_${portalKey}: json+llm=0 markdown=0 sample_len=${sample.length}`);
+  if (stats) {
+    stats.perPortal.push({
+      source: `extraction_empty_${portalKey}`,
+      raw: 0,
+      reason: sample || "no_content",
+    });
+  }
+  return [];
 }
+
 
 
 async function scrapeWithApify(
@@ -487,7 +723,7 @@ export async function scrapeAllPortals(
   } catch (_) { /* budget module optional */ }
 
   const results = await Promise.allSettled(
-    configs.map((c) => scrapePortal(c, municipality, firecrawlKey, mode)),
+    configs.map((c) => scrapePortal(c, municipality, firecrawlKey, mode, stats)),
   );
   const listings: NormalizedListing[] = [];
   results.forEach((r, idx) => {
