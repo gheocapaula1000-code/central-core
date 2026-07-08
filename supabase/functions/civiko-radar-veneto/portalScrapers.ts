@@ -309,18 +309,9 @@ function parseMarkdownListings(
 }
 
 // Link "titolo card" per ciascun portale. Group 1 = titolo, group 2 = id.
-const IMMOBILIARE_LINK_RE =
-  /(^|[^!])\[([^\]\n]+?)\]\(https:\/\/www\.immobiliare\.it\/annunci\/(\d{6,})\/?[^)]*\)/g;
-const IDEALISTA_LINK_RE =
-  /(^|[^!])\[([^\]\n]+?)\]\(https:\/\/www\.idealista\.it\/immobile\/(\d{5,})\/?[^)]*\)/g;
-const SUBITO_LINK_RE =
-  /(^|[^!])\[([^\]\n]+?)\]\(https:\/\/www\.subito\.it\/[^)]*?-(\d{6,})\.htm[^)]*\)/g;
-
-// Reindirizzo i tre parser al comune parseMarkdownListings, ma le regex del profilo
-// devono restituire (titolo, id) come group 1/2 senza il carattere di prefisso.
-// Adatto usando una regex re-shape: leggo la string md e prefisso ogni newline
-// con nulla — invece uso una versione delle regex a due gruppi (titolo, id) via
-// un piccolo shim.
+// Profili per portale: linkRe cattura (titolo, id) evitando link immagine ([![...])
+// tramite lookbehind negativo su `!`. Subito ha un secondo gruppo intermedio (path),
+// quindi usa un blocco dedicato in scrapeSubitoViaMarkdown.
 function makeProfile(source: NormalizedListing["source"]): PortalMarkdownProfile {
   if (source === "immobiliare.it") {
     return {
@@ -329,18 +320,11 @@ function makeProfile(source: NormalizedListing["source"]): PortalMarkdownProfile
       urlBuilder: (id) => `https://www.immobiliare.it/annunci/${id}/`,
     };
   }
-  if (source === "idealista.it") {
-    return {
-      source,
-      linkRe: /(?<=^|[^!])\[([^\]\n]+?)\]\(https:\/\/www\.idealista\.it\/immobile\/(\d{5,})\/?[^)]*\)/g,
-      urlBuilder: (id) => `https://www.idealista.it/immobile/${id}/`,
-    };
-  }
-  // subito.it
+  // idealista.it
   return {
     source,
-    linkRe: /(?<=^|[^!])\[([^\]\n]+?)\]\(https:\/\/www\.subito\.it\/([^)]*?-(\d{6,})\.htm)[^)]*\)/g,
-    urlBuilder: (id) => `https://www.subito.it/${id}`, // sovrascritto sotto — vedi shim
+    linkRe: /(?<=^|[^!])\[([^\]\n]+?)\]\(https:\/\/www\.idealista\.it\/immobile\/(\d{5,})\/?[^)]*\)/g,
+    urlBuilder: (id) => `https://www.idealista.it/immobile/${id}/`,
   };
 }
 
