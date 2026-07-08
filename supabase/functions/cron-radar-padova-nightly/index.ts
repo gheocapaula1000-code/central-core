@@ -93,11 +93,13 @@ async function runOneComune(comune: string, triggeredAt: string, mode: Mode, job
     let parsed: any = null;
     try { parsed = text ? JSON.parse(text) : null; } catch { /* keep raw excerpt */ }
     const resultSummary = parsed?.result_summary ?? parsed?.data?.result_summary ?? parsed?.diagnostics?.result_summary ?? null;
+    const warningsArr: string[] = Array.isArray(resultSummary?.warnings) ? resultSummary.warnings : [];
+    const recomputeDeferred = warningsArr.includes("padova_contendibili_recompute_deferred_to_pg_cron");
     const noRealIngestion = !!resultSummary?.ingestion_requested && (
       resultSummary.ingestion_executed !== true ||
       Number(resultSummary.raw_items_found ?? 0) === 0 ||
       (Number(resultSummary.collect_items_created ?? 0) + Number(resultSummary.collect_items_updated ?? 0)) === 0 ||
-      resultSummary.contendibili_recomputed !== true
+      (resultSummary.contendibili_recomputed !== true && !recomputeDeferred)
     );
     const excerpt = resultSummary
       ? `result_summary=${JSON.stringify(resultSummary).slice(0, 1600)}`
