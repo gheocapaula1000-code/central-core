@@ -15,7 +15,9 @@ import type { RadarRunMeta } from "../_shared/radarBudget.ts";
 import { parseCasaListPage } from "../_shared/casaParser.ts";
 
 export interface PortalIngestionStat {
-  source: NormalizedListing["source"] | "apify_fallback";
+  // Ammesso anche `extraction_empty_<portale>` come sorgente diagnostica sintetica:
+  // non è un vero portale, serve solo a far comparire una entry omonima in provider_errors.
+  source: NormalizedListing["source"] | "apify_fallback" | string;
   raw: number;
   reason?: string;
 }
