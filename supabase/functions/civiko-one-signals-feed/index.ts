@@ -133,7 +133,7 @@ interface FeedItem {
 function resolveZone(record: Record<string, unknown>): { code: string; label: string } {
   try {
     const r = resolvePadovaOmiSync(record);
-    if (r && r.code) return { code: r.code, label: r.label || UNRESOLVED_OMI_LABEL };
+    if (r && r.omi_zone_code) return { code: r.omi_zone_code, label: r.omi_zone_label || UNRESOLVED_OMI_LABEL };
   } catch (_) { /* fall through */ }
   const omi = (record.omi_zone as string) || "";
   if (omi && omi.trim()) return { code: omi.trim(), label: (record.quartiere as string) || omi };
