@@ -3315,6 +3315,8 @@ Deno.serve(async (req) => {
           contendibili_recomputed: contendibiliRecomputed,
           contendibili_created: contendibiliCreated,
           contendibili_updated: contendibiliUpdated,
+          sanitized_bad_coords: Number((recomputeResult as any)?.sanitized_bad_coords ?? 0) || 0,
+          excluded_bad_title: Number((recomputeResult as any)?.excluded_bad_title ?? 0) || 0,
           newest_collect_processed_at_before: sourceFreshnessBefore.newest_collect_processed_at,
           newest_collect_processed_at_after: sourceFreshnessAfter.newest_collect_processed_at,
           newest_contendibile_created_at_before: sourceFreshnessBefore.newest_contendibile_created_at,
