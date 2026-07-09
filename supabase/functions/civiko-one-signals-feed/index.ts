@@ -7,6 +7,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import {
   resolvePadovaOmiSync,
+  resolvePadovaOmiBatch,
   UNRESOLVED_OMI_CODE,
   UNRESOLVED_OMI_LABEL,
 } from "../_shared/padovaOmiResolver.ts";
@@ -510,6 +511,37 @@ serve(async (req: Request) => {
         }));
       }
     }
+  }
+
+  // Batch resolve OMI zone via point-in-polygon for items still UNRESOLVED with valid coords
+  try {
+    const pending: { item: FeedItem; rec: Record<string, unknown> }[] = [];
+    for (const it of rawItems) {
+      if (it.zone_code === UNRESOLVED_OMI_CODE &&
+          typeof it.lat === "number" && Number.isFinite(it.lat) &&
+          typeof it.lng === "number" && Number.isFinite(it.lng) &&
+          (it.lat !== 0 || it.lng !== 0)) {
+        pending.push({ item: it, rec: { lat: it.lat, lng: it.lng } });
+      }
+    }
+    if (pending.length > 0) {
+      const resolutions = await resolvePadovaOmiBatch(pending.map((p) => p.rec), supabase);
+      for (let i = 0; i < pending.length; i++) {
+        const res = resolutions[i];
+        if (res && res.omi_zone_code && res.omi_zone_code !== UNRESOLVED_OMI_CODE) {
+          const it = pending[i].item;
+          it.zone_code = res.omi_zone_code;
+          it.zone_label = res.omi_zone_label || it.zone_label || UNRESOLVED_OMI_LABEL;
+          if (!it.display_zone || it.display_zone === UNRESOLVED_OMI_LABEL) {
+            it.display_zone = it.zone_label;
+          }
+          it.data_quality.flags = it.data_quality.flags.filter((f) => f !== "unresolved_zone");
+          it.data_quality.score = Math.max(0, 100 - it.data_quality.flags.length * 30);
+        }
+      }
+    }
+  } catch (e) {
+    console.error(`[civiko-one-signals-feed] batch OMI resolve error:`, (e as Error)?.message ?? e);
   }
 
   // Dedupe
