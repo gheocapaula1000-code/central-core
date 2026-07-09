@@ -309,7 +309,7 @@ serve(async (req: Request) => {
     const { data, error } = await supabase
       .from("padova_contendibili")
       .select("id, chiave_match, n_agenzie, agency_count_distinct, agencies_normalized, agenzie, portals_seen, fonti, confidenza, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, created_at")
-      .gte("agency_count_distinct", 2)
+      .or("agency_count_distinct.gte.2,and(agency_count_distinct.is.null,n_agenzie.gte.2)")
       .order("created_at", { ascending: false, nullsFirst: false })
       .order("agency_count_distinct", { ascending: false })
       .limit(limit);
