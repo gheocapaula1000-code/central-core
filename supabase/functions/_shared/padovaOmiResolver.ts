@@ -35,7 +35,7 @@ const CAP_TO_OMI_HINT: Record<string, string> = {
   "35131": "C2",
   "35132": "C3",
   "35133": "C3",
-  "35134": "D3", // Mortise/Torre
+  "35134": "D7", // Mortise/Arcella nord
   "35135": "D1", // Chiesanuova/Brusegana
   "35136": "D1",
   "35137": "B1",
