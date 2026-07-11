@@ -27,9 +27,9 @@ const CAP_TO_OMI_HINT: Record<string, string> = {
   "35122": "B2", // Carmine/Savonarola/Santo
   "35123": "B2",
   "35124": "C5", // Madonna Pellegrina/S.Rita
-  "35125": "D2", // Sud/Voltabarozzo
+  "35125": "D3", // Voltabarozzo/Guizza
   "35126": "C6", // Palestro/Sacra Famiglia
-  "35127": "E1", // Stanga/San Lazzaro
+  "35127": "D8", // Stanga/San Gregorio/Forcellini Est
   "35128": "C3", // Arcella/Borgomagno
   "35129": "C2", // Stazione/Scrovegni
   "35131": "C2",
