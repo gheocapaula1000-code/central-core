@@ -6,7 +6,7 @@ export async function callAnthropic(
   const key = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
   if (!key) throw new Error("ANTHROPIC_API_KEY not configured");
 
-  const model = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-3-haiku-20240307";
+  const model = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-haiku-4-5-20251001";
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 25_000);
   const started = Date.now();
@@ -56,7 +56,7 @@ export async function callAnthropicVision(
 
   const model = Deno.env.get("ANTHROPIC_VISION_MODEL")
     ?? Deno.env.get("ANTHROPIC_MODEL")
-    ?? "claude-3-5-sonnet-20241022";
+    ?? "claude-sonnet-4-5-20250929";
 
   const contentBlocks: Array<Record<string, unknown>> = [];
   for (const url of imageUrls.slice(0, 4)) {

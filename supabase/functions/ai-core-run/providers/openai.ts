@@ -28,7 +28,7 @@ export async function callOpenAI(
       body: JSON.stringify({
         model,
         temperature,
-        max_tokens: maxTokens,
+        max_completion_tokens: maxTokens,
         messages: [{ role: "user", content: prompt }],
       }),
       signal: controller.signal,
@@ -81,7 +81,7 @@ export async function callOpenAIVision(
       body: JSON.stringify({
         model,
         temperature,
-        max_tokens: maxTokens,
+        max_completion_tokens: maxTokens,
         messages: [{ role: "user", content }],
       }),
       signal: controller.signal,
