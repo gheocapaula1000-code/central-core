@@ -6361,6 +6361,27 @@ export type Database = {
         }
         Relationships: []
       }
+      quartiere_zona_map: {
+        Row: {
+          created_at: string | null
+          omi_zone_code: string
+          quartiere_key: string
+          zona_slug: string
+        }
+        Insert: {
+          created_at?: string | null
+          omi_zone_code: string
+          quartiere_key: string
+          zona_slug: string
+        }
+        Update: {
+          created_at?: string | null
+          omi_zone_code?: string
+          quartiere_key?: string
+          zona_slug?: string
+        }
+        Relationships: []
+      }
       radar_budget_ledger: {
         Row: {
           api_name: string | null
