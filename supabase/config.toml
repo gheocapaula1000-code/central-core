@@ -199,6 +199,9 @@ verify_jwt = false
 [functions.cron-apify-idealista-nightly]
 verify_jwt = false
 
+[functions.padova-cambi-agenzia-list]
+verify_jwt = false
+
 
 
 
