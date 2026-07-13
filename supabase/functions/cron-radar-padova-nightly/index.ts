@@ -175,21 +175,32 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Idempotency: se è già in esecuzione un run negli ultimi 10 min, evita doppio start.
-    // NOTA: filtriamo per response_excerpt=like.started*mode=* perché solo le righe scritte
-    // dalla funzione stessa hanno quel pattern. Le righe pre-log scritte da
-    // log_cron_http_invocation (pg_cron) hanno lo stesso job_name ma response_excerpt NULL,
-    // e senza questo filtro la funzione si auto-skippava ad ogni invocazione.
+    // Idempotency self-healing: blocca un secondo run solo se esiste una riga "started"
+    // scritta DALLA FUNZIONE STESSA (response_excerpt like 'started mode=%') negli ultimi
+    // 60 minuti. Oltre 60 min il run precedente è considerato morto e non blocca più.
+    // Le righe pre-log scritte da log_cron_http_invocation (pg_cron) hanno lo stesso
+    // job_name ma response_excerpt NULL e vengono escluse dal filtro.
     try {
+      const cutoff = new Date(Date.now() - 60 * 60_000).toISOString();
       const recent = await fetch(
-        `${SUPABASE_URL}/rest/v1/cron_executions_log?job_name=eq.${jobName}&triggered_at=gte.${new Date(Date.now() - 10 * 60_000).toISOString()}&response_excerpt=like.started%20mode%3D*&select=id&limit=1`,
+        `${SUPABASE_URL}/rest/v1/cron_executions_log?job_name=eq.${jobName}&triggered_at=gte.${cutoff}&response_excerpt=like.started%20mode%3D*&select=id,triggered_at&order=triggered_at.desc&limit=1`,
         { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } },
       );
       if (recent.ok) {
         const arr = await recent.json().catch(() => []);
         if (Array.isArray(arr) && arr.length > 0 && url.searchParams.get("force") !== "1") {
+          const prevAt = arr[0]?.triggered_at ?? "unknown";
+          await logExecution(jobName, {
+            triggered_at: triggeredAt,
+            completed_at: new Date().toISOString(),
+            status: "success_no_rows",
+            http_status: 200,
+            response_excerpt: `skipped: in_flight_run_recent prev_started_at=${prevAt} window_min=60`,
+            error_message: "skipped_in_flight_run_recent",
+            duration_ms: Date.now() - t0,
+          });
           return new Response(
-            JSON.stringify({ ok: true, skipped: "in_flight_run_recent", job: jobName }),
+            JSON.stringify({ ok: true, skipped: "in_flight_run_recent", job: jobName, prev_started_at: prevAt }),
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
         }
