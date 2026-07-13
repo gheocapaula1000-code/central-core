@@ -176,9 +176,13 @@ Deno.serve(async (req) => {
     }
 
     // Idempotency: se è già in esecuzione un run negli ultimi 10 min, evita doppio start.
+    // NOTA: filtriamo per response_excerpt=like.started*mode=* perché solo le righe scritte
+    // dalla funzione stessa hanno quel pattern. Le righe pre-log scritte da
+    // log_cron_http_invocation (pg_cron) hanno lo stesso job_name ma response_excerpt NULL,
+    // e senza questo filtro la funzione si auto-skippava ad ogni invocazione.
     try {
       const recent = await fetch(
-        `${SUPABASE_URL}/rest/v1/cron_executions_log?job_name=eq.${jobName}&triggered_at=gte.${new Date(Date.now() - 10 * 60_000).toISOString()}&select=id&limit=1`,
+        `${SUPABASE_URL}/rest/v1/cron_executions_log?job_name=eq.${jobName}&triggered_at=gte.${new Date(Date.now() - 10 * 60_000).toISOString()}&response_excerpt=like.started%20mode%3D*&select=id&limit=1`,
         { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } },
       );
       if (recent.ok) {
