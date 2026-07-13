@@ -95,14 +95,42 @@ async function runOneComune(comune: string, triggeredAt: string, mode: Mode, job
     const resultSummary = parsed?.result_summary ?? parsed?.data?.result_summary ?? parsed?.diagnostics?.result_summary ?? null;
     const warningsArr: string[] = Array.isArray(resultSummary?.warnings) ? resultSummary.warnings : [];
     const recomputeDeferred = warningsArr.includes("padova_contendibili_recompute_deferred_to_pg_cron");
+
+    // Reservoir freshness check: padova_collect_v2_items is populated by
+    // separate Apify jobs (immobiliare 03:10, idealista 03:20, subito weekly,
+    // collect every 15 min). If the reservoir has rows created in the last
+    // 24h, ingestion is considered valid even when the in-line scrapers
+    // (portalScrapers) return 0 due to anti-bot / disabled fallback.
+    let reservoirFreshCount: number | null = null;
+    try {
+      const since = new Date(Date.now() - 24 * 3600_000).toISOString();
+      const rf = await fetch(
+        `${SUPABASE_URL}/rest/v1/padova_collect_v2_items?created_at=gte.${since}&select=id`,
+        {
+          headers: {
+            apikey: SERVICE_KEY,
+            Authorization: `Bearer ${SERVICE_KEY}`,
+            Prefer: "count=exact",
+            Range: "0-0",
+          },
+        },
+      );
+      if (rf.ok) {
+        const cr = rf.headers.get("content-range") ?? "";
+        const m = cr.match(/\/(\d+)$/);
+        reservoirFreshCount = m ? Number(m[1]) : null;
+      }
+    } catch { /* best effort */ }
+
+    const inlineItems = Number(resultSummary?.raw_items_found ?? 0) > 0
+      || (Number(resultSummary?.collect_items_created ?? 0) + Number(resultSummary?.collect_items_updated ?? 0)) > 0;
+    const reservoirFresh = (reservoirFreshCount ?? 0) > 0;
     const noRealIngestion = !!resultSummary?.ingestion_requested && (
       resultSummary.ingestion_executed !== true ||
-      Number(resultSummary.raw_items_found ?? 0) === 0 ||
-      (Number(resultSummary.collect_items_created ?? 0) + Number(resultSummary.collect_items_updated ?? 0)) === 0 ||
-      (resultSummary.contendibili_recomputed !== true && !recomputeDeferred)
+      (!inlineItems && !reservoirFresh)
     );
     const excerpt = resultSummary
-      ? `result_summary=${JSON.stringify(resultSummary).slice(0, 1600)}`
+      ? `reservoir_fresh_24h=${reservoirFreshCount ?? "n/a"} recompute_deferred=${recomputeDeferred} result_summary=${JSON.stringify(resultSummary).slice(0, 1400)}`
       : text.slice(0, 600);
     await logExecution(jobName, {
       triggered_at: triggeredAt,
