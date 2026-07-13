@@ -32,18 +32,43 @@ Deno.serve(async (req) => {
 
   const started = Date.now();
   const today = new Date().toISOString().slice(0, 10);
+  const threshold72h = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
 
-  // 1) Snapshot di tutti i lead Subito con prezzo valido
-  type Row = { id: number; prezzo: number | null; tipo_lead: string | null };
+  // 0) Conta tutti i lead Subito che passano i filtri storici (senza filtri di vitalità)
+  const { count: candidates_total, error: countErr } = await sb
+    .from("padova_listings")
+    .select("id", { count: "exact", head: true })
+    .eq("fonte", "subito")
+    .in("tipo_lead", ["privato", "privato_stanco", "PRIVATO"])
+    .gt("prezzo", 0);
+
+  if (countErr) {
+    return new Response(JSON.stringify({ ok: false, error: countErr.message, stage: "count" }), {
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const candidatesTotal = candidates_total ?? 0;
+
+  // 1) Snapshot di tutti i lead Subito con prezzo valido, ancora vivi e visti nelle ultime 72h
+  type Row = {
+    id: number;
+    prezzo: number | null;
+    tipo_lead: string | null;
+    expired_at: string | null;
+    last_seen_at: string | null;
+  };
   const all: Row[] = [];
   let from = 0;
   const PAGE = 1000;
   for (;;) {
     const { data, error } = await sb
       .from("padova_listings")
-      .select("id, prezzo, tipo_lead")
+      .select("id, prezzo, tipo_lead, expired_at, last_seen_at")
       .eq("fonte", "subito")
       .in("tipo_lead", ["privato", "privato_stanco", "PRIVATO"])
+      .is("expired_at", null)
+      .gte("last_seen_at", threshold72h)
       .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) {
@@ -61,6 +86,8 @@ Deno.serve(async (req) => {
     .filter((r) => typeof r.prezzo === "number" && r.prezzo! > 0)
     .map((r) => ({ listing_id: r.id, prezzo: r.prezzo!, snapshot_date: today }));
 
+  const skipped_stale = candidatesTotal - snapshots.length;
+
   let snapshot_inseriti = 0;
   for (let i = 0; i < snapshots.length; i += 500) {
     const slice = snapshots.slice(i, i + 500);
@@ -74,6 +101,9 @@ Deno.serve(async (req) => {
     }
     snapshot_inseriti += count ?? slice.length;
   }
+
+  const snapshotted = snapshot_inseriti;
+  const duplicates_ignored = snapshots.length - snapshot_inseriti;
 
   // 2) Trova lead con anzianità storica >= 7 giorni e ribasso >= 5% dal massimo storico
   const { data: candidates, error: candErr } = await sb.rpc("padova_listings_price_drop_candidates", {
@@ -121,6 +151,10 @@ Deno.serve(async (req) => {
     notes: {
       snapshot_date: today,
       snapshot_inseriti,
+      candidates_total: candidatesTotal,
+      skipped_stale,
+      snapshotted,
+      duplicates_ignored,
       candidati_ribasso: candidati_totali,
       promossi_a_privato_stanco: promossi,
       soglia_ribasso_pct: RIBASSO_PCT,
@@ -133,6 +167,10 @@ Deno.serve(async (req) => {
     duration_ms: Date.now() - started,
     snapshot_date: today,
     snapshot_inseriti,
+    candidates_total: candidatesTotal,
+    skipped_stale,
+    snapshotted,
+    duplicates_ignored,
     candidati_ribasso: candidati_totali,
     promossi_a_privato_stanco: promossi,
     privato_stanco_totale_subito: stancoCount ?? 0,
