@@ -21,7 +21,7 @@ const COMUNI = ["Padova"];
 async function logExecution(jobName: string, row: {
   triggered_at: string;
   completed_at: string;
-  status: "started" | "success" | "failure";
+  status: "started" | "success" | "failure" | "error" | "success_no_rows";
   http_status: number | null;
   response_excerpt?: string | null;
   error_message?: string | null;
