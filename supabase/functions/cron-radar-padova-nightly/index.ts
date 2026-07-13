@@ -21,7 +21,7 @@ const COMUNI = ["Padova"];
 async function logExecution(jobName: string, row: {
   triggered_at: string;
   completed_at: string;
-  status: "started" | "success" | "failure";
+  status: "started" | "success" | "failure" | "error" | "success_no_rows";
   http_status: number | null;
   response_excerpt?: string | null;
   error_message?: string | null;
@@ -153,49 +153,123 @@ async function runAll(triggeredAt: string, mode: Mode, jobName: string) {
 
 Deno.serve(async (req) => {
   const triggeredAt = new Date().toISOString();
-  if (!JOB_SECRET) {
-    return new Response(
-      JSON.stringify({ ok: false, error: "CENTRAL_CORE_JOB_SECRET missing" }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
-    );
-  }
-
+  const t0 = Date.now();
   const url = new URL(req.url);
   const mode: Mode = (url.searchParams.get("mode") === "soft" ? "soft" : "full");
   const jobName = mode === "soft" ? JOB_NAME_SOFT : JOB_NAME_FULL;
 
-  // Idempotency: se è già in esecuzione un run negli ultimi 10 min, evita doppio start.
   try {
-    const recent = await fetch(
-      `${SUPABASE_URL}/rest/v1/cron_executions_log?job_name=eq.${jobName}&triggered_at=gte.${new Date(Date.now() - 10 * 60_000).toISOString()}&select=id&limit=1`,
-      { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } },
-    );
-    if (recent.ok) {
-      const arr = await recent.json().catch(() => []);
-      if (Array.isArray(arr) && arr.length > 0 && url.searchParams.get("force") !== "1") {
-        return new Response(
-          JSON.stringify({ ok: true, skipped: "in_flight_run_recent", job: jobName }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
+    if (!JOB_SECRET) {
+      await logExecution(jobName, {
+        triggered_at: triggeredAt,
+        completed_at: new Date().toISOString(),
+        status: "error",
+        http_status: 500,
+        response_excerpt: null,
+        error_message: "CENTRAL_CORE_JOB_SECRET missing",
+        duration_ms: Date.now() - t0,
+      });
+      return new Response(
+        JSON.stringify({ ok: false, error: "CENTRAL_CORE_JOB_SECRET missing" }),
+        { status: 500, headers: { "Content-Type": "application/json" } },
+      );
     }
-  } catch { /* best effort */ }
 
-  // Audit: riga "start"
-  await logExecution(jobName, {
-    triggered_at: triggeredAt,
-    completed_at: new Date().toISOString(),
-    status: "started",
-    http_status: 202,
-    response_excerpt: `started mode=${mode} comuni=${COMUNI.length}`,
-    error_message: null,
-    duration_ms: 0,
-  });
+    // Idempotency: se è già in esecuzione un run negli ultimi 10 min, evita doppio start.
+    try {
+      const recent = await fetch(
+        `${SUPABASE_URL}/rest/v1/cron_executions_log?job_name=eq.${jobName}&triggered_at=gte.${new Date(Date.now() - 10 * 60_000).toISOString()}&select=id&limit=1`,
+        { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } },
+      );
+      if (recent.ok) {
+        const arr = await recent.json().catch(() => []);
+        if (Array.isArray(arr) && arr.length > 0 && url.searchParams.get("force") !== "1") {
+          return new Response(
+            JSON.stringify({ ok: true, skipped: "in_flight_run_recent", job: jobName }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+      }
+    } catch { /* best effort */ }
 
-  await runAll(triggeredAt, mode, jobName);
+    // Audit: riga "start"
+    await logExecution(jobName, {
+      triggered_at: triggeredAt,
+      completed_at: new Date().toISOString(),
+      status: "started",
+      http_status: 202,
+      response_excerpt: `started mode=${mode} comuni=${COMUNI.length}`,
+      error_message: null,
+      duration_ms: 0,
+    });
 
-  return new Response(
-    JSON.stringify({ ok: true, mode: "sync", run_mode: mode, job: jobName, triggered_at: triggeredAt, comuni: COMUNI }),
-    { status: 200, headers: { "Content-Type": "application/json" } },
-  );
+    await runAll(triggeredAt, mode, jobName);
+
+    // Verifica se il run ha effettivamente prodotto scritture su radar_signals
+    // dall'inizio dell'invocazione. Best-effort: non fallisce il run se la
+    // query non risponde.
+    let rowsWritten: number | null = null;
+    try {
+      const countRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/radar_signals?created_at=gte.${triggeredAt}&select=id`,
+        {
+          headers: {
+            apikey: SERVICE_KEY,
+            Authorization: `Bearer ${SERVICE_KEY}`,
+            Prefer: "count=exact",
+            Range: "0-0",
+          },
+        },
+      );
+      if (countRes.ok) {
+        const cr = countRes.headers.get("content-range") ?? "";
+        const m = cr.match(/\/(\d+)$/);
+        rowsWritten = m ? Number(m[1]) : null;
+      }
+    } catch { /* best effort */ }
+
+    if (rowsWritten === 0) {
+      await logExecution(jobName, {
+        triggered_at: triggeredAt,
+        completed_at: new Date().toISOString(),
+        status: "success_no_rows",
+        http_status: 200,
+        response_excerpt: `mode=${mode} radar_signals_written=0 comuni=${COMUNI.length}`,
+        error_message: null,
+        duration_ms: Date.now() - t0,
+      });
+    }
+
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        mode: "sync",
+        run_mode: mode,
+        job: jobName,
+        triggered_at: triggeredAt,
+        comuni: COMUNI,
+        radar_signals_written: rowsWritten,
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error && err.stack ? err.stack : "";
+    const full = `${message}${stack ? `\n${stack}` : ""}`.slice(0, 2000);
+    try {
+      await logExecution(jobName, {
+        triggered_at: triggeredAt,
+        completed_at: new Date().toISOString(),
+        status: "error",
+        http_status: 500,
+        response_excerpt: null,
+        error_message: full,
+        duration_ms: Date.now() - t0,
+      });
+    } catch { /* logging best effort */ }
+    return new Response(
+      JSON.stringify({ ok: false, error: message, job: jobName, mode }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    );
+  }
 });
