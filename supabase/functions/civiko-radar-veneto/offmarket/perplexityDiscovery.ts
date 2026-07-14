@@ -61,14 +61,27 @@ const QUERIES: Array<{ q: string; comune: string; provincia: string; category: s
   { q: "Ospedale Padova ULSS6 dismissione strutture sanitarie alienazione immobili 2025", comune: "Padova", provincia: "PD", category: "public_asset_disposal_signal" },
 ];
 
+export interface PerplexityErrorDetail {
+  query: string;
+  status: number | null;
+  message: string;
+}
+
 export async function runPerplexityDiscovery(opts: {
   comuni?: string[];
   maxQueries?: number;
-}): Promise<{ ok: boolean; hits: DiscoveryHit[]; errors: string[] }> {
+}): Promise<{ ok: boolean; hits: DiscoveryHit[]; errors: string[]; errorDetails: PerplexityErrorDetail[] }> {
   const key = Deno.env.get("PERPLEXITY_API_KEY");
-  if (!key) return { ok: false, hits: [], errors: ["PERPLEXITY_API_KEY missing"] };
+  if (!key) {
+    console.error("[perplexityDiscovery] PERPLEXITY_API_KEY missing");
+    return {
+      ok: false, hits: [], errors: ["PERPLEXITY_API_KEY missing"],
+      errorDetails: [{ query: "(init)", status: null, message: "PERPLEXITY_API_KEY missing" }],
+    };
+  }
 
   const errors: string[] = [];
+  const errorDetails: PerplexityErrorDetail[] = [];
   const hits: DiscoveryHit[] = [];
   const comuniLow = (opts.comuni ?? []).map((c) => c.toLowerCase());
   const filtered = comuniLow.length > 0
@@ -96,7 +109,14 @@ export async function runPerplexityDiscovery(opts: {
         signal: ctrl.signal,
       });
       clearTimeout(t);
-      if (!res.ok) { errors.push(`${q.q}: HTTP ${res.status}`); continue; }
+      if (!res.ok) {
+        const bodyText = await res.text().catch(() => "");
+        const snippet = bodyText.slice(0, 200);
+        console.error(`[perplexityDiscovery] query "${q.q.slice(0, 80)}" HTTP ${res.status}: ${snippet}`);
+        errors.push(`${q.q}: HTTP ${res.status}`);
+        errorDetails.push({ query: q.q, status: res.status, message: snippet || `HTTP ${res.status}` });
+        continue;
+      }
       const data = await res.json().catch(() => ({}));
       const citations: string[] = Array.isArray(data?.citations) ? data.citations : [];
       const content: string = data?.choices?.[0]?.message?.content ?? "";
@@ -115,8 +135,11 @@ export async function runPerplexityDiscovery(opts: {
         });
       }
     } catch (e) {
-      errors.push(`${q.q}: ${e instanceof Error ? e.message : String(e)}`);
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`[perplexityDiscovery] query "${q.q.slice(0, 80)}" exception: ${msg.slice(0, 200)}`);
+      errors.push(`${q.q}: ${msg}`);
+      errorDetails.push({ query: q.q, status: null, message: msg.slice(0, 200) });
     }
   }
-  return { ok: errors.length === 0 || hits.length > 0, hits, errors };
+  return { ok: errors.length === 0 || hits.length > 0, hits, errors, errorDetails };
 }
