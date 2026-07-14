@@ -57,9 +57,16 @@ export interface CandidateEarlySignal {
   fingerprint: string;
 }
 
+export interface PerplexityErrorSampleEntry {
+  query: string;
+  status: number | null;
+  message: string;
+}
+
 export interface DiscoveryReport {
   ok: boolean;
   run_id: string;
+  perplexity_error_sample: PerplexityErrorSampleEntry[];
   dryRun: boolean;
   imported: false;
   saved_candidates: number;
@@ -130,6 +137,16 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
   let pages_seen = 0, pages_classified = 0, privacy_rejected = 0;
   let perplexityQueries = 0;
   let sources_from_perplexity = 0;
+  const pplxErrorDetails: PerplexityErrorSampleEntry[] = [];
+  const mzErrorDetails: PerplexityErrorSampleEntry[] = [];
+  const buildPerplexityErrorSample = (): PerplexityErrorSampleEntry[] =>
+    [...pplxErrorDetails, ...mzErrorDetails]
+      .slice(0, 3)
+      .map((e) => ({
+        query: (e.query ?? "").slice(0, 160),
+        status: e.status ?? null,
+        message: (e.message ?? "").slice(0, 150),
+      }));
 
   const fcAvail = firecrawlAvailable();
   const pplxAvail = perplexityAvailable();
@@ -145,6 +162,9 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
     perplexityQueries = 6;
     pplxHits = r.hits;
     sources_from_perplexity = pplxHits.length;
+    if (r.errorDetails && r.errorDetails.length > 0) {
+      for (const d of r.errorDetails) pplxErrorDetails.push(d);
+    }
     if (r.errors.length > 0) warnings.push(`perplexity: ${r.errors.length} query con errori`);
   } else if (usePplx && !pplxAvail) {
     warnings.push("PERPLEXITY_API_KEY mancante: discovery disattivata");
@@ -152,7 +172,9 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
 
   if (!useFC || !fcAvail) {
     return {
-      ok: false, run_id, dryRun, imported: false, saved_candidates: 0,
+      ok: false, run_id,
+      perplexity_error_sample: buildPerplexityErrorSample(),
+      dryRun, imported: false, saved_candidates: 0,
       firecrawl_available: fcAvail, perplexity_available: pplxAvail,
       sources_checked: 0, sources_from_registry: sources.length, sources_from_perplexity,
       pages_seen: 0, pages_classified: 0, candidate_signals_found: 0,
@@ -260,6 +282,9 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
     try {
       const mz = await runPadovaMicrozonaDiscovery();
       microzonaQueries = mz.queries_run;
+      if (mz.errorDetails && mz.errorDetails.length > 0) {
+        for (const d of mz.errorDetails) mzErrorDetails.push(d);
+      }
       if (mz.errors.length > 0) warnings.push(`perplexity_microzona: ${mz.errors.length} errori`);
       for (const h of mz.hits) {
         const cand: CandidateEarlySignal & { __microzona?: string; __location_detail?: string } = {
@@ -382,7 +407,9 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
     importable + needs_review >= 6 ? "medio" : "basso";
 
   return {
-    ok: true, run_id, dryRun, imported: false, saved_candidates,
+    ok: true, run_id,
+    perplexity_error_sample: buildPerplexityErrorSample(),
+    dryRun, imported: false, saved_candidates,
     firecrawl_available: fcAvail, perplexity_available: pplxAvail,
     sources_checked: sources.length + (pplxHits.length > 0 ? 1 : 0),
     sources_from_registry: sources.length,
