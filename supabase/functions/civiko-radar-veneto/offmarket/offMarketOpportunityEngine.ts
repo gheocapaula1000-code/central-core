@@ -18,6 +18,7 @@ export interface OffMarketRequest {
   dryRun?: boolean;
   import?: boolean;
   commit?: boolean;
+  saveCandidates?: boolean;
   province?: string[];
   comuni?: string[];
   minConfidence?: number;
@@ -588,7 +589,7 @@ export async function runOffMarketOpportunityEngine(req: OffMarketRequest): Prom
     .map((p) => p.toUpperCase());
   const minConf = req.minConfidence ?? 0.45;
   const dryRun = req.dryRun !== false;
-  const doImport = (req.import === true || req.commit === true) && !dryRun;
+  const doImport = (req.import === true || req.commit === true || req.saveCandidates === true) && !dryRun;
 
   const supa = svc();
   const report: OffMarketReport = {
