@@ -14,12 +14,14 @@ const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
 type JobSlug =
   | "offmarket-padova"
   | "discover-early-offmarket-signals"
-  | "build-offmarket-opportunity-scores";
+  | "build-offmarket-opportunity-scores"
+  | "build-padova-early-warning";
 
 const JOB_NAMES: Record<JobSlug, string> = {
   "offmarket-padova": "central-core-offmarket-padova-nightly",
   "discover-early-offmarket-signals": "central-core-early-offmarket-nightly",
   "build-offmarket-opportunity-scores": "central-core-offmarket-scores-nightly",
+  "build-padova-early-warning": "central-core-padova-early-warning-nightly",
 };
 
 // Bodies chosen so the writes actually happen (not dry-run).
@@ -47,6 +49,13 @@ function buildBody(slug: JobSlug): Record<string, unknown> {
         triggered_by: "cron-nightly",
       };
     case "build-offmarket-opportunity-scores":
+      return {
+        comuni: COMUNI_PD,
+        province: ["PD"],
+        dryRun: false,
+        triggered_by: "cron-nightly",
+      };
+    case "build-padova-early-warning":
       return {
         comuni: COMUNI_PD,
         province: ["PD"],
