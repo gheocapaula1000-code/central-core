@@ -52,19 +52,32 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+export interface MicrozonaErrorDetail {
+  query: string;
+  status: number | null;
+  message: string;
+}
+
 export async function runPadovaMicrozonaDiscovery(): Promise<{
   ok: boolean;
   hits: MicrozonaHit[];
   errors: string[];
+  errorDetails: MicrozonaErrorDetail[];
   queries_run: number;
 }> {
   const key = Deno.env.get("PERPLEXITY_API_KEY");
   if (!key) {
-    return { ok: false, hits: [], errors: ["PERPLEXITY_API_KEY missing"], queries_run: 0 };
+    console.error("[padovaMicrozonaPerplexity] PERPLEXITY_API_KEY missing");
+    return {
+      ok: false, hits: [], errors: ["PERPLEXITY_API_KEY missing"],
+      errorDetails: [{ query: "(init)", status: null, message: "PERPLEXITY_API_KEY missing" }],
+      queries_run: 0,
+    };
   }
 
   const hits: MicrozonaHit[] = [];
   const errors: string[] = [];
+  const errorDetails: MicrozonaErrorDetail[] = [];
   let queries_run = 0;
 
   for (let i = 0; i < TARGETS.length; i++) {
@@ -103,7 +116,11 @@ export async function runPadovaMicrozonaDiscovery(): Promise<{
       queries_run += 1;
 
       if (!res.ok) {
+        const bodyText = await res.text().catch(() => "");
+        const snippet = bodyText.slice(0, 200);
+        console.error(`[padovaMicrozonaPerplexity] ${t.label} HTTP ${res.status}: ${snippet}`);
         errors.push(`${t.label}: HTTP ${res.status}`);
+        errorDetails.push({ query: t.label, status: res.status, message: snippet || `HTTP ${res.status}` });
         continue;
       }
       const data = await res.json().catch(() => ({}));
@@ -127,9 +144,12 @@ export async function runPadovaMicrozonaDiscovery(): Promise<{
         });
       }
     } catch (e) {
-      errors.push(`${t.label}: ${e instanceof Error ? e.message : String(e)}`);
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`[padovaMicrozonaPerplexity] ${t.label} exception: ${msg.slice(0, 200)}`);
+      errors.push(`${t.label}: ${msg}`);
+      errorDetails.push({ query: t.label, status: null, message: msg.slice(0, 200) });
     }
   }
 
-  return { ok: hits.length > 0 || errors.length === 0, hits, errors, queries_run };
+  return { ok: hits.length > 0 || errors.length === 0, hits, errors, errorDetails, queries_run };
 }
