@@ -57,9 +57,16 @@ export interface CandidateEarlySignal {
   fingerprint: string;
 }
 
+export interface PerplexityErrorSampleEntry {
+  query: string;
+  status: number | null;
+  message: string;
+}
+
 export interface DiscoveryReport {
   ok: boolean;
   run_id: string;
+  perplexity_error_sample: PerplexityErrorSampleEntry[];
   dryRun: boolean;
   imported: false;
   saved_candidates: number;
