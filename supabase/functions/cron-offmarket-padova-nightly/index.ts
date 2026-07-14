@@ -55,6 +55,13 @@ function buildBody(slug: JobSlug): Record<string, unknown> {
         dryRun: false,
         triggered_by: "cron-nightly",
       };
+    case "build-padova-early-warning":
+      return {
+        comuni: COMUNI_PD,
+        province: ["PD"],
+        dryRun: false,
+        triggered_by: "cron-nightly",
+      };
   }
 }
 
