@@ -588,8 +588,8 @@ export async function runOffMarketOpportunityEngine(req: OffMarketRequest): Prom
   const provFilter = (req.province && req.province.length > 0 ? req.province : VENETO_PROVINCES)
     .map((p) => p.toUpperCase());
   const minConf = req.minConfidence ?? 0.45;
-  const dryRun = req.dryRun !== false;
-  const doImport = (req.import === true || req.commit === true || req.saveCandidates === true) && !dryRun;
+  const dryRun = req.dryRun === true;
+  const doImport = !dryRun;
 
   const supa = svc();
   const report: OffMarketReport = {
