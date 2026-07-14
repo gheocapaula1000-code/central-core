@@ -282,6 +282,9 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
     try {
       const mz = await runPadovaMicrozonaDiscovery();
       microzonaQueries = mz.queries_run;
+      if (mz.errorDetails && mz.errorDetails.length > 0) {
+        for (const d of mz.errorDetails) mzErrorDetails.push(d);
+      }
       if (mz.errors.length > 0) warnings.push(`perplexity_microzona: ${mz.errors.length} errori`);
       for (const h of mz.hits) {
         const cand: CandidateEarlySignal & { __microzona?: string; __location_detail?: string } = {
