@@ -407,7 +407,9 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
     importable + needs_review >= 6 ? "medio" : "basso";
 
   return {
-    ok: true, run_id, dryRun, imported: false, saved_candidates,
+    ok: true, run_id,
+    perplexity_error_sample: buildPerplexityErrorSample(),
+    dryRun, imported: false, saved_candidates,
     firecrawl_available: fcAvail, perplexity_available: pplxAvail,
     sources_checked: sources.length + (pplxHits.length > 0 ? 1 : 0),
     sources_from_registry: sources.length,
