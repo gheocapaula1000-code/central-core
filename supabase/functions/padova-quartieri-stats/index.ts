@@ -1,5 +1,5 @@
 // padova-quartieri-stats — Edge Function
-// Aggrega per quartiere: contendibili, annunci, contesi 3+, agenzie distinte, fascia prezzo.
+// Legge le viste normalizzate padova_quartieri_stats_v e padova_listings_totali_v.
 // Auth: verify_jwt=false. Chiamata via core-proxy della PWA.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -38,76 +38,40 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // 1) contendibili (tutte le 235 righe)
-    const contendibili = await fetchAll<{
-      quartiere: string | null; n_agenzie: number; agenzie: string[] | null;
-      prezzo_min: number | null; prezzo_max: number | null;
-    }>(() => supabase
-      .from("padova_contendibili")
-      .select("quartiere, n_agenzie, agenzie, prezzo_min, prezzo_max"));
-
-    // 2) annunci (padova_listings) — quartiere, agency, fonte
-    const listings = await fetchAll<{ quartiere: string | null; agency: string | null }>(
-      () => supabase.from("padova_listings").select("quartiere, agency"),
-    );
-
-    type Acc = {
-      quartiere: string;
-      n_contendibili: number;
-      n_contesi_3plus: number;
-      n_annunci: number;
-      agenzie: Set<string>;
+    // 1) Righe per zona già aggregate/normalizzate
+    const rows = await fetchAll<{
+      zona: string | null;
+      n_contendibili: number | null;
+      n_annunci: number | null;
+      n_agenzie: number | null;
       prezzo_min: number | null;
       prezzo_max: number | null;
-    };
-    const byQ = new Map<string, Acc>();
-    const ensure = (q: string): Acc => {
-      let a = byQ.get(q);
-      if (!a) {
-        a = { quartiere: q, n_contendibili: 0, n_contesi_3plus: 0, n_annunci: 0, agenzie: new Set(), prezzo_min: null, prezzo_max: null };
-        byQ.set(q, a);
-      }
-      return a;
-    };
+    }>(() => supabase
+      .from("padova_quartieri_stats_v")
+      .select("zona, n_contendibili, n_annunci, n_agenzie, prezzo_min, prezzo_max"));
 
-    for (const c of contendibili) {
-      if (!c.quartiere) continue;
-      const a = ensure(c.quartiere);
-      a.n_contendibili += 1;
-      if (c.n_agenzie >= 3) a.n_contesi_3plus += 1;
-      if (c.prezzo_min != null) a.prezzo_min = a.prezzo_min == null ? c.prezzo_min : Math.min(a.prezzo_min, c.prezzo_min);
-      if (c.prezzo_max != null) a.prezzo_max = a.prezzo_max == null ? c.prezzo_max : Math.max(a.prezzo_max, c.prezzo_max);
-    }
+    // 2) Totali globali (unica riga)
+    const { data: totalsRow, error: totalsErr } = await supabase
+      .from("padova_listings_totali_v")
+      .select("tot_annunci, tot_agenzie")
+      .maybeSingle();
+    if (totalsErr) throw totalsErr;
 
-    for (const l of listings) {
-      if (!l.quartiere) continue;
-      const a = ensure(l.quartiere);
-      a.n_annunci += 1;
-      if (l.agency && l.agency !== "Agenzie") a.agenzie.add(l.agency.trim().toLowerCase());
-    }
-
-    const quartieri = Array.from(byQ.values())
-      .map((a) => ({
-        quartiere: a.quartiere,
-        n_contendibili: a.n_contendibili,
-        n_annunci: a.n_annunci,
-        n_contesi_3plus: a.n_contesi_3plus,
-        n_agenzie: a.agenzie.size,
-        prezzo_min: a.prezzo_min,
-        prezzo_max: a.prezzo_max,
+    const quartieri = rows
+      .filter((r) => r.zona)
+      .map((r) => ({
+        quartiere: r.zona as string,
+        n_contendibili: Number(r.n_contendibili ?? 0),
+        n_annunci: Number(r.n_annunci ?? 0),
+        n_agenzie: Number(r.n_agenzie ?? 0),
+        prezzo_min: r.prezzo_min,
+        prezzo_max: r.prezzo_max,
       }))
       .sort((a, b) => b.n_contendibili - a.n_contendibili);
 
-    // Totali Padova
-    const totAgenzieGlobal = new Set<string>();
-    for (const l of listings) if (l.agency && l.agency !== "Agenzie") totAgenzieGlobal.add(l.agency.trim().toLowerCase());
-
     const totals = {
-      tot_annunci: listings.length,
-      tot_contendibili: contendibili.length,
-      tot_contesi_3plus: contendibili.filter((c) => c.n_agenzie >= 3).length,
-      tot_agenzie: totAgenzieGlobal.size,
-      tot_quartieri: quartieri.length,
+      tot_annunci: Number(totalsRow?.tot_annunci ?? 0),
+      tot_agenzie: Number(totalsRow?.tot_agenzie ?? 0),
       tot_quartieri_con_contendibili: quartieri.filter((q) => q.n_contendibili > 0).length,
     };
 
