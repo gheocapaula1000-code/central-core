@@ -6361,6 +6361,21 @@ export type Database = {
         }
         Relationships: []
       }
+      quartiere_canon_map: {
+        Row: {
+          chiave: string
+          microzona: string
+        }
+        Insert: {
+          chiave: string
+          microzona: string
+        }
+        Update: {
+          chiave?: string
+          microzona?: string
+        }
+        Relationships: []
+      }
       quartiere_zona_map: {
         Row: {
           created_at: string | null
