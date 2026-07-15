@@ -7279,6 +7279,24 @@ export type Database = {
         }
         Relationships: []
       }
+      padova_listings_totali_v: {
+        Row: {
+          tot_agenzie: number | null
+          tot_annunci: number | null
+        }
+        Relationships: []
+      }
+      padova_quartieri_stats_v: {
+        Row: {
+          n_agenzie: number | null
+          n_annunci: number | null
+          n_contendibili: number | null
+          prezzo_max: number | null
+          prezzo_min: number | null
+          zona: string | null
+        }
+        Relationships: []
+      }
       radar_budget_monthly_spend: {
         Row: {
           entries: number | null
