@@ -99,6 +99,10 @@ export interface OffMarketDiscoveryReport {
   errors: string[];
   estimated_value_for_radar: string;
   per_source_summary: Array<SourceDebug>;
+  deferred_source_keys: string[];
+  elapsed_ms: number;
+  time_budget_ms: number;
+  scrape_budget_remaining: number;
 }
 
 export interface SourceDebug {
@@ -314,6 +318,9 @@ export interface DiscoveryRequest {
   categories?: OffMarketCategory[];
   comuni?: string[];
   province?: string[];
+  sourceKeys?: string[];
+  timeBudgetMs?: number;
+  scrapeBudgetRemaining?: number;
 }
 
 const DEFAULTS = {
@@ -329,6 +336,8 @@ export async function runOffMarketFirecrawlDiscovery(
   const wantImport = body?.import === true && !dryRun;
   const warnings: string[] = [];
   const errors: string[] = [];
+  const startedAt = Date.now();
+  const timeBudget = Math.max(15_000, Math.min(body.timeBudgetMs ?? 90_000, 120_000));
 
   if (wantImport) {
     warnings.push("Import richiesto ma in questa fase è disabilitato per design (solo dry run).");
@@ -344,12 +353,17 @@ export async function runOffMarketFirecrawlDiscovery(
     });
   }
 
-  const sources = selectOffMarketSources({
+  let sources = selectOffMarketSources({
     categories: body.categories,
     comuni: body.comuni,
     province: body.province,
     maxSources: body.maxSources ?? DEFAULTS.maxSources,
   });
+
+  if (body.sourceKeys && body.sourceKeys.length > 0) {
+    const keep = new Set(body.sourceKeys);
+    sources = sources.filter((s) => keep.has(s.source_key));
+  }
 
   if (sources.length === 0) {
     return emptyReport({
@@ -362,7 +376,7 @@ export async function runOffMarketFirecrawlDiscovery(
   }
 
   const maxPages = Math.max(1, Math.min(body.maxPagesPerSource ?? DEFAULTS.maxPagesPerSource, 8));
-  let scrapeBudget = DEFAULTS.scrapeBudgetTotal;
+  let scrapeBudget = body.scrapeBudgetRemaining ?? DEFAULTS.scrapeBudgetTotal;
 
   let pagesSeen = 0;
   let pagesClassified = 0;
@@ -371,8 +385,16 @@ export async function runOffMarketFirecrawlDiscovery(
   const candidates: CandidateSignal[] = [];
   const perSource: OffMarketDiscoveryReport["per_source_summary"] = [];
   let sourcesSkipped = 0;
+  const deferredSourceKeys: string[] = [];
 
-  for (const src of sources) {
+  for (let srcIdx = 0; srcIdx < sources.length; srcIdx++) {
+    const src = sources[srcIdx];
+    if (Date.now() - startedAt > timeBudget) {
+      for (let j = srcIdx; j < sources.length; j++) {
+        deferredSourceKeys.push(sources[j].source_key);
+      }
+      break;
+    }
     const dbg: SourceDebug = {
       source_key: src.source_key,
       source_name: src.source_name,
@@ -431,6 +453,10 @@ export async function runOffMarketFirecrawlDiscovery(
 
     // 3) fcScrape mirato
     for (const u of candidatesUrl) {
+      if (Date.now() - startedAt > timeBudget) {
+        dbg.warning = (dbg.warning ?? "") + (dbg.warning ? " | " : "") + "interrotto per time budget";
+        break;
+      }
       if (scrapeBudget <= 0) {
         warnings.push(`Budget scrape esaurito su ${src.source_key}`);
         break;
@@ -545,6 +571,10 @@ export async function runOffMarketFirecrawlDiscovery(
     errors,
     estimated_value_for_radar: evalLine,
     per_source_summary: perSource,
+    deferred_source_keys: deferredSourceKeys,
+    elapsed_ms: Date.now() - startedAt,
+    time_budget_ms: timeBudget,
+    scrape_budget_remaining: scrapeBudget,
   };
 
   const allCandidates = candidates;
@@ -602,6 +632,10 @@ function emptyReport(o: { ok: boolean; dryRun: boolean; firecrawl_available: boo
     warnings: o.warnings, errors: o.errors,
     estimated_value_for_radar: "n/a",
     per_source_summary: [],
+    deferred_source_keys: [],
+    elapsed_ms: 0,
+    time_budget_ms: 0,
+    scrape_budget_remaining: 0,
   };
 }
 
