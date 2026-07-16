@@ -1465,6 +1465,11 @@ Deno.serve(async (req) => {
     if (pathname.endsWith("/jobs/offmarket-padova")) {
       const _auth = authorizeJob(req, debugId); if (_auth) return _auth;
       try {
+        const inBody = await req.json().catch(() => ({} as Record<string, unknown>));
+        const source_keys = Array.isArray((inBody as any)?.source_keys) ? ((inBody as any).source_keys as string[]) : undefined;
+        const chain_depth = typeof (inBody as any)?.chain_depth === "number" ? (inBody as any).chain_depth as number : 0;
+        const scrape_budget_remaining = typeof (inBody as any)?.scrape_budget_remaining === "number" ? (inBody as any).scrape_budget_remaining as number : undefined;
+        console.log(`[${FUNCTION_NAME}] offmarket-padova invoked chain_depth=${chain_depth} source_keys=${source_keys ? source_keys.length : "all"}`);
         const { runOffMarketFirecrawlDiscovery } = await import("./offmarket/offMarketFirecrawlRunner.ts");
         const r = await runOffMarketFirecrawlDiscovery({
           comuni: ["Padova","Vigonza","Selvazzano Dentro","Rubano","Albignasego","Cadoneghe","Limena","Noventa Padovana","Abano Terme","Montegrotto Terme"],
@@ -1472,8 +1477,40 @@ Deno.serve(async (req) => {
           dryRun: false,
           maxSources: 20,
           maxPagesPerSource: 5,
+          sourceKeys: source_keys,
+          timeBudgetMs: 90_000,
+          scrapeBudgetRemaining: scrape_budget_remaining,
         });
-        return withIdentity(json(req, 200, { job: "offmarket-padova", ...r }, debugId), "job-offmarket-padova");
+        let chained = false;
+        if (r.deferred_source_keys.length > 0 && chain_depth < 12 && r.scrape_budget_remaining > 0) {
+          const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+          const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+          if (SUPABASE_URL && JOB_SECRET) {
+            const target = `${SUPABASE_URL}/functions/v1/civiko-radar-veneto/jobs/offmarket-padova`;
+            const nextBody = {
+              source_keys: r.deferred_source_keys,
+              chain_depth: chain_depth + 1,
+              scrape_budget_remaining: r.scrape_budget_remaining,
+              triggered_by: "self-chain",
+            };
+            const p = fetch(target, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-job-secret": JOB_SECRET,
+                "x-internal-secret": JOB_SECRET,
+                "x-source-app": "central-core-cron",
+                Authorization: `Bearer ${JOB_SECRET}`,
+              },
+              body: JSON.stringify(nextBody),
+            }).catch((e) => console.error("offmarket self-chain launch failed", e));
+            try { (globalThis as any).EdgeRuntime?.waitUntil?.(p); } catch { /* ignore */ }
+            chained = true;
+          } else {
+            console.error("offmarket self-chain skipped: missing SUPABASE_URL or CENTRAL_CORE_JOB_SECRET");
+          }
+        }
+        return withIdentity(json(req, 200, { job: "offmarket-padova", ...r, chained }, debugId), "job-offmarket-padova");
       } catch (e) {
         return withIdentity(fail(req, 500, "JOB_FAILED", e instanceof Error ? e.message : String(e), debugId), "job-error");
       }
