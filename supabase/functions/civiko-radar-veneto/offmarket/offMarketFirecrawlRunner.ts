@@ -99,6 +99,10 @@ export interface OffMarketDiscoveryReport {
   errors: string[];
   estimated_value_for_radar: string;
   per_source_summary: Array<SourceDebug>;
+  deferred_source_keys: string[];
+  elapsed_ms: number;
+  time_budget_ms: number;
+  scrape_budget_remaining: number;
 }
 
 export interface SourceDebug {
