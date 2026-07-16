@@ -453,6 +453,10 @@ export async function runOffMarketFirecrawlDiscovery(
 
     // 3) fcScrape mirato
     for (const u of candidatesUrl) {
+      if (Date.now() - startedAt > timeBudget) {
+        dbg.warning = (dbg.warning ?? "") + (dbg.warning ? " | " : "") + "interrotto per time budget";
+        break;
+      }
       if (scrapeBudget <= 0) {
         warnings.push(`Budget scrape esaurito su ${src.source_key}`);
         break;
