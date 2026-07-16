@@ -387,7 +387,14 @@ export async function runOffMarketFirecrawlDiscovery(
   let sourcesSkipped = 0;
   const deferredSourceKeys: string[] = [];
 
-  for (const src of sources) {
+  for (let srcIdx = 0; srcIdx < sources.length; srcIdx++) {
+    const src = sources[srcIdx];
+    if (Date.now() - startedAt > timeBudget) {
+      for (let j = srcIdx; j < sources.length; j++) {
+        deferredSourceKeys.push(sources[j].source_key);
+      }
+      break;
+    }
     const dbg: SourceDebug = {
       source_key: src.source_key,
       source_name: src.source_name,
