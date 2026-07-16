@@ -632,6 +632,10 @@ function emptyReport(o: { ok: boolean; dryRun: boolean; firecrawl_available: boo
     warnings: o.warnings, errors: o.errors,
     estimated_value_for_radar: "n/a",
     per_source_summary: [],
+    deferred_source_keys: [],
+    elapsed_ms: 0,
+    time_budget_ms: 0,
+    scrape_budget_remaining: 0,
   };
 }
 
