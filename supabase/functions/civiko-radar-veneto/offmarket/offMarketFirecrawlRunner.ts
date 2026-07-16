@@ -318,6 +318,9 @@ export interface DiscoveryRequest {
   categories?: OffMarketCategory[];
   comuni?: string[];
   province?: string[];
+  sourceKeys?: string[];
+  timeBudgetMs?: number;
+  scrapeBudgetRemaining?: number;
 }
 
 const DEFAULTS = {
