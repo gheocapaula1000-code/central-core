@@ -336,6 +336,8 @@ export async function runOffMarketFirecrawlDiscovery(
   const wantImport = body?.import === true && !dryRun;
   const warnings: string[] = [];
   const errors: string[] = [];
+  const startedAt = Date.now();
+  const timeBudget = Math.max(15_000, Math.min(body.timeBudgetMs ?? 90_000, 120_000));
 
   if (wantImport) {
     warnings.push("Import richiesto ma in questa fase è disabilitato per design (solo dry run).");
@@ -351,12 +353,17 @@ export async function runOffMarketFirecrawlDiscovery(
     });
   }
 
-  const sources = selectOffMarketSources({
+  let sources = selectOffMarketSources({
     categories: body.categories,
     comuni: body.comuni,
     province: body.province,
     maxSources: body.maxSources ?? DEFAULTS.maxSources,
   });
+
+  if (body.sourceKeys && body.sourceKeys.length > 0) {
+    const keep = new Set(body.sourceKeys);
+    sources = sources.filter((s) => keep.has(s.source_key));
+  }
 
   if (sources.length === 0) {
     return emptyReport({
@@ -369,7 +376,7 @@ export async function runOffMarketFirecrawlDiscovery(
   }
 
   const maxPages = Math.max(1, Math.min(body.maxPagesPerSource ?? DEFAULTS.maxPagesPerSource, 8));
-  let scrapeBudget = DEFAULTS.scrapeBudgetTotal;
+  let scrapeBudget = body.scrapeBudgetRemaining ?? DEFAULTS.scrapeBudgetTotal;
 
   let pagesSeen = 0;
   let pagesClassified = 0;
@@ -378,6 +385,7 @@ export async function runOffMarketFirecrawlDiscovery(
   const candidates: CandidateSignal[] = [];
   const perSource: OffMarketDiscoveryReport["per_source_summary"] = [];
   let sourcesSkipped = 0;
+  const deferredSourceKeys: string[] = [];
 
   for (const src of sources) {
     const dbg: SourceDebug = {
