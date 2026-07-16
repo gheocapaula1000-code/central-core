@@ -571,6 +571,10 @@ export async function runOffMarketFirecrawlDiscovery(
     errors,
     estimated_value_for_radar: evalLine,
     per_source_summary: perSource,
+    deferred_source_keys: deferredSourceKeys,
+    elapsed_ms: Date.now() - startedAt,
+    time_budget_ms: timeBudget,
+    scrape_budget_remaining: scrapeBudget,
   };
 
   const allCandidates = candidates;
