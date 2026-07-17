@@ -173,6 +173,10 @@ interface ContenutiInput {
   visionAnalysis: AggregatedVisionAnalysis;
   immobile: { title: string; address: string; zone: string };
   photosCount: number;
+  visita?: PwaVisita;
+  elementiConfermati?: string[];
+  toneHint?: "professionale" | "caldo" | "diretto";
+  zonaServiziDescrizione?: string;
   debugId: string;
 }
 
@@ -197,14 +201,35 @@ function buildPhotosSummary(v: AggregatedVisionAnalysis, count: number): string 
   if (v.tipologiaProbabile) parts.push(`tipologia rilevata ${v.tipologiaProbabile}`);
   if (v.statoApparente) parts.push(`stato ${v.statoApparente.toLowerCase()}`);
   if (v.materialePresunto) parts.push(`materiale prevalente ${v.materialePresunto}`);
+  if (v.annoPresunto) parts.push(`anno stimato ${v.annoPresunto}`);
   if (v.puntiDiForzaVisivi.length > 0) parts.push(`punti di forza: ${v.puntiDiForzaVisivi.slice(0, 6).join(", ")}`);
   if (v.presenzaGiardino) parts.push("con giardino");
   if (v.presenzaParcheggio) parts.push("con parcheggio");
   return parts.join("; ") + ".";
 }
 
+function dedupStrings(arrs: Array<string[] | undefined>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const a of arrs) {
+    if (!a) continue;
+    for (const raw of a) {
+      const s = safeStr(raw);
+      if (!s) continue;
+      const k = s.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(s);
+    }
+  }
+  return out;
+}
+
 async function buildContenutiMarketing(input: ContenutiInput): Promise<Contenuti> {
-  const { facts, visionAnalysis, immobile, photosCount, debugId } = input;
+  const {
+    facts, visionAnalysis, immobile, photosCount,
+    visita, elementiConfermati, toneHint, zonaServiziDescrizione, debugId,
+  } = input;
   const base = projectBaseUrl();
   if (!base) return { status: "non_disponibile" };
 
@@ -217,23 +242,38 @@ async function buildContenutiMarketing(input: ContenutiInput): Promise<Contenuti
     immobile.title ||
     "Immobile";
 
+  const elementiBase = (elementiConfermati && elementiConfermati.length > 0)
+    ? elementiConfermati
+    : visionAnalysis.puntiDiForzaVisivi;
+  const strengths = dedupStrings([visita?.caratteristiche, elementiBase, visionAnalysis.puntiDiForzaVisivi]);
+  const objections = dedupStrings([
+    safeStr(facts.obiezionePrincipale) ? [safeStr(facts.obiezionePrincipale)] : [],
+    visita?.criticita,
+  ]);
+
+  const photosSummaryParts: string[] = [];
+  const visionSummary = buildPhotosSummary(visionAnalysis, photosCount);
+  if (visionSummary) photosSummaryParts.push(visionSummary);
+  const note = safeStr(visita?.note);
+  if (note) photosSummaryParts.push(note);
+  if (zonaServiziDescrizione) photosSummaryParts.push(zonaServiziDescrizione);
+
   const property: Record<string, unknown> = {
     title,
     address: immobile.address || undefined,
-    comune: undefined,
+    comune: "Padova",
     property_type: safeStr(facts.tipologia) || undefined,
     mq: safeStr(facts.metratura) || undefined,
     rooms: safeStr(facts.locali) || undefined,
     estimated_value: safeStr(facts.prezzoRichiesto) || undefined,
-    photos_summary: buildPhotosSummary(visionAnalysis, photosCount),
-    strengths: visionAnalysis.puntiDiForzaVisivi,
-    objections: safeStr(facts.obiezionePrincipale) ? [safeStr(facts.obiezionePrincipale)] : [],
-    urgency: safeStr(facts.obiettivoProprietario) || undefined,
+    photos_summary: photosSummaryParts.join(" ").trim(),
+    strengths,
+    objections,
+    urgency: safeStr(facts.urgenza) || safeStr(facts.obiettivoProprietario) || undefined,
   };
-  const zona = safeStr(facts.zona);
-  if (zona) (property as Record<string, unknown>).comune = zona;
 
-  const body = { source_app: "civiko", property };
+  const body: Record<string, unknown> = { source_app: "civiko", property };
+  if (toneHint) body.tone_hint = toneHint;
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20_000);
@@ -276,6 +316,12 @@ async function buildContenutiMarketing(input: ContenutiInput): Promise<Contenuti
   } finally {
     clearTimeout(timer);
   }
+}
+
+function resolveToneHint(variante: number | undefined): "professionale" | "caldo" | "diretto" {
+  const cycle = ["professionale", "caldo", "diretto"] as const;
+  const v = Number.isFinite(variante) && (variante as number) > 0 ? Math.floor(variante as number) : 1;
+  return cycle[(v - 1) % cycle.length];
 }
 
 // ── input quality ─────────────────────────────────────────────
