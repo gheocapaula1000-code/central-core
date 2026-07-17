@@ -219,7 +219,20 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
 
   // ── Pipeline registry sources ──
   let fcCredits = 0;
-  for (const src of sources) {
+  let overBudget = false;
+  for (let srcIdx = 0; srcIdx < sources.length; srcIdx++) {
+    const src = sources[srcIdx];
+    if (Date.now() - startedAt > timeBudget) {
+      for (let j = srcIdx; j < sources.length; j++) {
+        deferredSourceKeys.push(sources[j].source_key);
+      }
+      overBudget = true;
+      break;
+    }
+    if (scrapeBudget <= 0) {
+      warnings.push(`Budget scrape esaurito prima di ${src.source_key}`);
+      break;
+    }
     try {
       // 1) Map
       const m = await fcMap(src.base_url, { limit: 30, search: "alienazione patrimonio variante rigenerazione" });
@@ -230,6 +243,12 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
 
       const top = urls.slice(0, maxPagesPerSource);
       for (const u of top) {
+        if (Date.now() - startedAt > timeBudget) break;
+        if (scrapeBudget <= 0) {
+          warnings.push(`Budget scrape esaurito su ${src.source_key}`);
+          break;
+        }
+        scrapeBudget--;
         const s = await fcScrape(u, { timeoutMs: 22_000 });
         fcCredits += 1;
         if (!s.ok || !s.markdown) {
@@ -269,13 +288,17 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
     }
   }
 
-  // ── Pipeline Perplexity hits (verifica con scrape leggero) ──
-  for (const hit of pplxHits.slice(0, 8)) {
+  // ── Pipeline Perplexity hits (verifica con scrape leggero) — solo se resta tempo/budget ──
+  if (!overBudget) for (const hit of pplxHits.slice(0, 8)) {
+    if (Date.now() - startedAt > timeBudget) break;
+    if (scrapeBudget <= 0) break;
     try {
+      scrapeBudget--;
       const s = await fcScrape(hit.source_url, { timeoutMs: 20_000 });
       fcCredits += 1;
       if (!s.ok || !s.markdown) continue;
       pages_seen += 1;
+
       const cls = classifyEarlySignal({ title: s.title ?? null, text: s.markdown, source_url: hit.source_url }, hit.comune);
       pages_classified += 1;
       if (!cls.privacy_safe) { privacy_rejected += 1; continue; }
