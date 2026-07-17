@@ -66,6 +66,8 @@ serve(async (req) => {
         n_contendibili: Number(r.n_contendibili ?? 0),
         n_annunci: Number(r.n_annunci ?? 0),
         n_agenzie: Number(r.n_agenzie ?? 0),
+        n_ribassi: Number(r.n_ribassi ?? 0),
+        n_privati: Number(r.n_privati ?? 0),
         prezzo_min: r.prezzo_min,
         prezzo_max: r.prezzo_max,
       }))
