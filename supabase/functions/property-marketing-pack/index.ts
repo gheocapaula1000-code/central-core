@@ -339,7 +339,10 @@ async function orchestrate(body: RequestBody): Promise<MarketingPack> {
   const warnings: string[] = [];
   if (missing.length) warnings.push(`Brief incompleto: ${missing.join(", ")}.`);
 
-  const gen = await generatePack(norm);
+  const toneHint = (["professionale", "caldo", "diretto"] as const).includes(body.tone_hint as "caldo")
+    ? body.tone_hint
+    : undefined;
+  const gen = await generatePack(norm, toneHint);
   if (!gen) {
     const fb = fallbackPack(norm);
     fb.warnings = [...warnings, ...fb.warnings];
