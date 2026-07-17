@@ -429,7 +429,7 @@ export async function scrapeRibassiPortali(
     return [];
   }
 
-  const listings = await scrapeAllPortals(municipality, firecrawlKey, province ?? "", mode, meta, stats);
+  const listings = await scrapeAllPortals(municipality, firecrawlKey, province ?? "", mode, meta, stats, supabase);
   if (stats) stats.raw_items_found = (stats.raw_items_found ?? 0) + listings.length;
   console.log("[DEBUG ribassiPortali] scrapeAllPortals returned:", {
     municipality,
