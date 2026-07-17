@@ -222,8 +222,8 @@ async function buildContenutiMarketing(input: ContenutiInput): Promise<Contenuti
     objections: safeStr(facts.obiezionePrincipale) ? [safeStr(facts.obiezionePrincipale)] : [],
     urgency: safeStr(facts.obiettivoProprietario) || undefined,
   };
-  const zonaOrTarget = safeStr(facts.zona) || safeStr(facts.targetAcquirement as unknown as string);
-  if (zonaOrTarget) (property as Record<string, unknown>).comune = safeStr(facts.zona) || undefined;
+  const zona = safeStr(facts.zona);
+  if (zona) (property as Record<string, unknown>).comune = zona;
 
   const body = { source_app: "civiko", property };
 
