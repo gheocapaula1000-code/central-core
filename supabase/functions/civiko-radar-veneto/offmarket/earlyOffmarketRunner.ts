@@ -209,7 +209,12 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
       estimated_value_for_radar: "basso",
       cost_estimate: { firecrawl_credits: 0, apify_runs: 0, perplexity_queries: perplexityQueries },
       warnings, errors: [...errors, "firecrawl unavailable or disabled"],
+      deferred_source_keys: [],
+      elapsed_ms: Date.now() - startedAt,
+      time_budget_ms: timeBudget,
+      scrape_budget_remaining: scrapeBudget,
     };
+
   }
 
   // ── Pipeline registry sources ──
