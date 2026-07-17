@@ -768,26 +768,50 @@ async function orchestrate(body: RequestBody, debugId: string) {
     photoDataUrls.length = 10;
   }
 
+  // ── Rigenerazione veloce: variante>1 + elementiConfermati → skip vision ──
+  const varianteNum = Number.isFinite(body.variante) && (body.variante as number) > 0
+    ? Math.floor(body.variante as number)
+    : 1;
+  const elementiConfermati = Array.isArray(body.elementiConfermati)
+    ? body.elementiConfermati.map((s) => safeStr(s)).filter(Boolean)
+    : [];
+  const skipVision = varianteNum > 1 && elementiConfermati.length > 0;
+
   // ── Vision layer: arricchisce quickFacts con analisi AI delle foto.
   // Non blocca mai la response principale: in errore restituisce default
   // con visionStatus="non_disponibile".
   let visionAnalysis: AggregatedVisionAnalysis;
-  try {
-    visionAnalysis = await analyzePhotosWithVision(photoDataUrls);
-  } catch (e) {
-    console.warn(`[${FUNCTION_NAME}] vision error debug_id=${debugId}: ${e instanceof Error ? e.message : String(e)}`);
+  if (skipVision) {
     visionAnalysis = {
       tipologiaProbabile: "Immobile residenziale",
       pianoStimato: null,
       statoApparente: "Buone condizioni",
-      puntiDiForzaVisivi: [],
+      puntiDiForzaVisivi: elementiConfermati,
       materialePresunto: null,
       annoPresunto: null,
       presenzaGiardino: false,
       presenzaParcheggio: false,
       fotoAnalizzate: 0,
-      visionStatus: "non_disponibile",
+      visionStatus: "ok",
     };
+  } else {
+    try {
+      visionAnalysis = await analyzePhotosWithVision(photoDataUrls);
+    } catch (e) {
+      console.warn(`[${FUNCTION_NAME}] vision error debug_id=${debugId}: ${e instanceof Error ? e.message : String(e)}`);
+      visionAnalysis = {
+        tipologiaProbabile: "Immobile residenziale",
+        pianoStimato: null,
+        statoApparente: "Buone condizioni",
+        puntiDiForzaVisivi: [],
+        materialePresunto: null,
+        annoPresunto: null,
+        presenzaGiardino: false,
+        presenzaParcheggio: false,
+        fotoAnalizzate: 0,
+        visionStatus: "non_disponibile",
+      };
+    }
   }
   const facts: PwaQuickFacts = {
     ...rawFacts,
