@@ -29,7 +29,8 @@ import {
 } from "./sottraInternal.ts";
 import { buildZonaIntelligence } from "./zonaIntelligence.ts";
 import { buildVenetoEnrichment } from "./venetoEnrichment.ts";
-import { analyzePhotoWithVision, type VisionAnalysis } from "./visionAnalyzer.ts";
+import { analyzePhotosWithVision, type AggregatedVisionAnalysis } from "./visionAnalyzer.ts";
+import { resolveInternalSecret } from "../_shared/http.ts";
 import { runApifyPhotoEnrichment, type TerritorialDocument } from "./apifyPhotoEnrichment.ts";
 import { runFirecrawlPhotoEnrichment, listFirecrawlSourceNames, type LiveSignal } from "./firecrawlPhotoEnrichment.ts";
 
@@ -75,6 +76,7 @@ interface PwaQuickFacts {
 interface RequestBody {
   agencyId?: string;
   photo?: PwaPhoto;
+  photos?: PwaPhoto[];
   geo?: PwaGeo;
   quickFacts?: PwaQuickFacts;
   // Legacy fields tolerated but not required.
@@ -154,6 +156,118 @@ function safeStr(v: unknown, fallback = ""): string {
   if (v == null) return fallback;
   if (typeof v === "string") return v.trim();
   return String(v).trim();
+}
+
+// ── Contenuti marketing (chiamata interna a property-marketing-pack) ──
+
+interface ContenutiInput {
+  facts: PwaQuickFacts;
+  visionAnalysis: AggregatedVisionAnalysis;
+  immobile: { title: string; address: string; zone: string };
+  photosCount: number;
+  debugId: string;
+}
+
+interface ContenutiPronta {
+  status: "pronta";
+  listingTextLong: string;
+  listingTextShort: string;
+  ownerMessage: string;
+  socialVariants: unknown[];
+  highlights: string[];
+  objectionAnswers: unknown[];
+  nextBestAction: string;
+  hashtags: string[];
+  confidence: string;
+}
+type Contenuti = ContenutiPronta | { status: "non_disponibile" };
+
+function buildPhotosSummary(v: AggregatedVisionAnalysis, count: number): string {
+  if (v.visionStatus === "non_disponibile" || count === 0) return "";
+  const parts: string[] = [];
+  parts.push(`${count} foto analizzate`);
+  if (v.tipologiaProbabile) parts.push(`tipologia rilevata ${v.tipologiaProbabile}`);
+  if (v.statoApparente) parts.push(`stato ${v.statoApparente.toLowerCase()}`);
+  if (v.materialePresunto) parts.push(`materiale prevalente ${v.materialePresunto}`);
+  if (v.puntiDiForzaVisivi.length > 0) parts.push(`punti di forza: ${v.puntiDiForzaVisivi.slice(0, 6).join(", ")}`);
+  if (v.presenzaGiardino) parts.push("con giardino");
+  if (v.presenzaParcheggio) parts.push("con parcheggio");
+  return parts.join("; ") + ".";
+}
+
+async function buildContenutiMarketing(input: ContenutiInput): Promise<Contenuti> {
+  const { facts, visionAnalysis, immobile, photosCount, debugId } = input;
+  const base = projectBaseUrl();
+  if (!base) return { status: "non_disponibile" };
+
+  const { secret } = resolveInternalSecret("civiko");
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!secret) return { status: "non_disponibile" };
+
+  const title = safeStr(facts.titoloInterno) ||
+    [safeStr(facts.tipologia), safeStr(facts.zona)].filter(Boolean).join(" — ") ||
+    immobile.title ||
+    "Immobile";
+
+  const property: Record<string, unknown> = {
+    title,
+    address: immobile.address || undefined,
+    comune: undefined,
+    property_type: safeStr(facts.tipologia) || undefined,
+    mq: safeStr(facts.metratura) || undefined,
+    rooms: safeStr(facts.locali) || undefined,
+    estimated_value: safeStr(facts.prezzoRichiesto) || undefined,
+    photos_summary: buildPhotosSummary(visionAnalysis, photosCount),
+    strengths: visionAnalysis.puntiDiForzaVisivi,
+    objections: safeStr(facts.obiezionePrincipale) ? [safeStr(facts.obiezionePrincipale)] : [],
+    urgency: safeStr(facts.obiettivoProprietario) || undefined,
+  };
+  const zona = safeStr(facts.zona);
+  if (zona) (property as Record<string, unknown>).comune = zona;
+
+  const body = { source_app: "civiko", property };
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20_000);
+  try {
+    const res = await fetch(`${base}/property-marketing-pack`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${serviceKey}`,
+        "apikey": serviceKey,
+        "x-internal-secret": secret,
+        "x-source-app": "civiko",
+      },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) {
+      console.warn(`[${FUNCTION_NAME}] marketing-pack status=${res.status} debug_id=${debugId}`);
+      return { status: "non_disponibile" };
+    }
+    const j = await res.json();
+    const pack = (j && typeof j === "object" && j.data && typeof j.data === "object") ? j.data as Record<string, unknown> : null;
+    if (!pack) return { status: "non_disponibile" };
+    const arr = (v: unknown): string[] => Array.isArray(v) ? v.map((x) => String(x)).filter(Boolean) : [];
+    return {
+      status: "pronta",
+      listingTextLong: String(pack.listing_text_long ?? ""),
+      listingTextShort: String(pack.listing_text_short ?? ""),
+      ownerMessage: String(pack.owner_message ?? ""),
+      socialVariants: Array.isArray(pack.social_variants) ? pack.social_variants as unknown[] : [],
+      highlights: arr(pack.highlights),
+      objectionAnswers: Array.isArray(pack.objection_answers) ? pack.objection_answers as unknown[] : [],
+      nextBestAction: String(pack.next_best_action ?? ""),
+      hashtags: arr(pack.hashtags),
+      confidence: String(pack.confidence ?? ""),
+    };
+  } catch (e) {
+    console.warn(`[${FUNCTION_NAME}] marketing-pack error debug_id=${debugId}: ${e instanceof Error ? e.message : String(e)}`);
+    return { status: "non_disponibile" };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ── input quality ─────────────────────────────────────────────
@@ -584,15 +698,28 @@ async function orchestrate(body: RequestBody, debugId: string) {
   const immobile = buildImmobileReale(body, ctx);
   const warnings = [...ctx.warnings];
 
-  // ── Vision layer: arricchisce quickFacts con analisi AI della foto.
-  // Non blocca mai la response principale: in errore restituisce default.
-  let visionAnalysis: VisionAnalysis;
+  // ── Normalizzazione multi-foto ────────────────────────────────
+  const rawPhotos: PwaPhoto[] = Array.isArray(body.photos) && body.photos.length > 0
+    ? body.photos
+    : (body.photo ? [body.photo] : []);
+  const photoDataUrls: string[] = [];
+  for (const p of rawPhotos) {
+    if (!p || typeof p.dataUrl !== "string" || !p.dataUrl.startsWith("data:image/")) continue;
+    const sizeBytes = typeof p.sizeKb === "number" ? p.sizeKb * 1024 : p.dataUrl.length * 0.75;
+    if (sizeBytes > MAX_PHOTO_BYTES) continue;
+    photoDataUrls.push(p.dataUrl);
+  }
+  if (photoDataUrls.length > 10) {
+    warnings.push(`Ricevute ${photoDataUrls.length} foto: verranno analizzate solo le prime 10.`);
+    photoDataUrls.length = 10;
+  }
+
+  // ── Vision layer: arricchisce quickFacts con analisi AI delle foto.
+  // Non blocca mai la response principale: in errore restituisce default
+  // con visionStatus="non_disponibile".
+  let visionAnalysis: AggregatedVisionAnalysis;
   try {
-    visionAnalysis = await analyzePhotoWithVision(
-      body.photo?.dataUrl,
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-    );
+    visionAnalysis = await analyzePhotosWithVision(photoDataUrls);
   } catch (e) {
     console.warn(`[${FUNCTION_NAME}] vision error debug_id=${debugId}: ${e instanceof Error ? e.message : String(e)}`);
     visionAnalysis = {
@@ -604,6 +731,8 @@ async function orchestrate(body: RequestBody, debugId: string) {
       annoPresunto: null,
       presenzaGiardino: false,
       presenzaParcheggio: false,
+      fotoAnalizzate: 0,
+      visionStatus: "non_disponibile",
     };
   }
   const facts: PwaQuickFacts = {
@@ -879,7 +1008,9 @@ async function orchestrate(body: RequestBody, debugId: string) {
     immobileOut.provincia = null;
     immobileOut.comune = null;
   }
-  // Vision analysis (sempre esposta, anche in default).
+  // Vision analysis (sempre esposta; visionStatus riflette l'esito reale).
+  const elementiRilevatiSet = new Set<string>(visionAnalysis.puntiDiForzaVisivi);
+  if (visionAnalysis.materialePresunto) elementiRilevatiSet.add(visionAnalysis.materialePresunto);
   immobileOut.visionAnalysis = {
     tipologiaProbabile: visionAnalysis.tipologiaProbabile,
     pianoStimato: visionAnalysis.pianoStimato,
@@ -889,9 +1020,14 @@ async function orchestrate(body: RequestBody, debugId: string) {
     annoPresunto: visionAnalysis.annoPresunto,
     presenzaGiardino: visionAnalysis.presenzaGiardino,
     presenzaParcheggio: visionAnalysis.presenzaParcheggio,
+    fotoAnalizzate: visionAnalysis.fotoAnalizzate,
+    elementiRilevati: Array.from(elementiRilevatiSet),
+    visionStatus: visionAnalysis.visionStatus,
   };
-  if (!immobileOut.statoApparente || immobileOut.statoApparente === "sconosciuto") {
-    immobileOut.statoApparente = visionAnalysis.statoApparente;
+  if (visionAnalysis.visionStatus !== "non_disponibile") {
+    if (!immobileOut.statoApparente || immobileOut.statoApparente === "sconosciuto") {
+      immobileOut.statoApparente = visionAnalysis.statoApparente;
+    }
   }
 
   const pianoEnriched: Record<string, unknown> = { ...pianoEsclusiva };
@@ -927,6 +1063,16 @@ async function orchestrate(body: RequestBody, debugId: string) {
     fontiUsateExt = Array.from(new Set([...apifyFonti, ...fcFonti])).filter(Boolean);
   }
 
+  // ── Contenuti marketing (property-marketing-pack) ───────────────
+  // Mai bloccante: timeout 20s. In errore/timeout contenuti.status="non_disponibile".
+  const contenuti = await buildContenutiMarketing({
+    facts,
+    visionAnalysis,
+    immobile,
+    photosCount: photoDataUrls.length,
+    debugId,
+  });
+
   const payload = {
     configured,
     ...(message ? { message } : {}),
@@ -940,6 +1086,7 @@ async function orchestrate(body: RequestBody, debugId: string) {
     pianoEsclusiva: pianoEnriched,
     presentazioneProprietario,
     kitMarketing: { available: false, items: [] as unknown[] },
+    contenuti,
     intelligenceZona,
     vendibilita,
     vendutoRecente,

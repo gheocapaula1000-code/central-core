@@ -101,6 +101,7 @@ interface MarketingPack {
   highlights: string[];
   objection_answers: ObjectionAnswer[];
   next_best_action: string;
+  hashtags: string[];
   confidence: "alta" | "media" | "bassa";
   warnings: string[];
 }
@@ -223,11 +224,16 @@ async function generatePack(
                 },
                 next_best_action: { type: "string", description: "Prossima azione concreta consigliata all'agente." },
                 confidence: { type: "string", enum: ["alta", "media", "bassa"] },
+                hashtags: {
+                  type: "array",
+                  description: "10-15 hashtag in italiano (zona, quartiere, tipologia, immobiliare generici). Tutti con prefisso #, senza spazi.",
+                  items: { type: "string" },
+                },
               },
               required: [
                 "listing_text_long", "listing_text_short", "owner_message",
                 "social_variants", "highlights", "objection_answers",
-                "next_best_action", "confidence",
+                "next_best_action", "confidence", "hashtags",
               ],
               additionalProperties: false,
             },
@@ -254,6 +260,44 @@ async function generatePack(
   }
 }
 
+// ── Hashtag helpers ────────────────────────────────────────────
+function slugTag(v: string): string {
+  const cleaned = v
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "");
+  return cleaned ? `#${cleaned}` : "";
+}
+
+function normalizeHashtags(raw: unknown, fallback: string[]): string[] {
+  const src = Array.isArray(raw) ? raw : [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (s: string) => {
+    const cleaned = String(s ?? "").trim();
+    if (!cleaned) return;
+    const tag = cleaned.startsWith("#") ? `#${cleaned.replace(/^#+/, "").replace(/\s+/g, "")}` : slugTag(cleaned);
+    if (!tag || tag === "#") return;
+    const lower = tag.toLowerCase();
+    if (seen.has(lower)) return;
+    seen.add(lower);
+    out.push(tag);
+  };
+  for (const t of src) add(String(t ?? ""));
+  if (out.length === 0) for (const t of fallback) add(t);
+  return out.slice(0, 20);
+}
+
+function fallbackHashtags(input: ReturnType<typeof normalizeProperty>["norm"]): string[] {
+  const base = ["#immobiliare", "#casa", "#vendita", "#realestate", "#immobile"];
+  const extras: string[] = [];
+  if (input.property_type && input.property_type !== "immobile") extras.push(input.property_type);
+  if (input.comune) extras.push(input.comune);
+  if (input.province) extras.push(input.province);
+  if (input.address) extras.push(input.address.split(",")[0] ?? "");
+  return [...extras.map(slugTag).filter(Boolean), ...base];
+}
+
 // ── Fallback (no AI) ───────────────────────────────────────────
 function fallbackPack(input: ReturnType<typeof normalizeProperty>["norm"]): MarketingPack {
   const loc = [input.address, input.comune].filter(Boolean).join(", ") || "—";
@@ -277,6 +321,7 @@ function fallbackPack(input: ReturnType<typeof normalizeProperty>["norm"]): Mark
       answer: "Verifichiamo insieme i dati di mercato disponibili prima di rispondere.",
     })),
     next_best_action: "Confermare il sopralluogo e raccogliere foto definitive.",
+    hashtags: normalizeHashtags([], fallbackHashtags(input)),
     confidence: "bassa",
     warnings: ["Modulo di generazione contenuti non configurato: output di fallback."],
   };
@@ -310,6 +355,7 @@ async function orchestrate(body: RequestBody): Promise<MarketingPack> {
       ? (gen.objection_answers as ObjectionAnswer[]).slice(0, 8)
       : [],
     next_best_action: String(gen.next_best_action ?? ""),
+    hashtags: normalizeHashtags((gen as { hashtags?: unknown }).hashtags, fallbackHashtags(norm)),
     confidence: (["alta", "media", "bassa"] as const).includes(gen.confidence as "alta")
       ? (gen.confidence as MarketingPack["confidence"])
       : (missing.length ? "media" : "alta"),
