@@ -73,12 +73,20 @@ interface PwaQuickFacts {
   urgenza?: string;
   targetAcquirente?: string;
 }
+interface PwaVisita {
+  caratteristiche?: string[];
+  criticita?: string[];
+  note?: string;
+}
 interface RequestBody {
   agencyId?: string;
   photo?: PwaPhoto;
   photos?: PwaPhoto[];
   geo?: PwaGeo;
   quickFacts?: PwaQuickFacts;
+  visita?: PwaVisita;
+  elementiConfermati?: string[];
+  variante?: number;
   // Legacy fields tolerated but not required.
   capture?: unknown;
   propertyDraft?: unknown;
