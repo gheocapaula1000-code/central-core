@@ -73,12 +73,20 @@ interface PwaQuickFacts {
   urgenza?: string;
   targetAcquirente?: string;
 }
+interface PwaVisita {
+  caratteristiche?: string[];
+  criticita?: string[];
+  note?: string;
+}
 interface RequestBody {
   agencyId?: string;
   photo?: PwaPhoto;
   photos?: PwaPhoto[];
   geo?: PwaGeo;
   quickFacts?: PwaQuickFacts;
+  visita?: PwaVisita;
+  elementiConfermati?: string[];
+  variante?: number;
   // Legacy fields tolerated but not required.
   capture?: unknown;
   propertyDraft?: unknown;
@@ -165,6 +173,10 @@ interface ContenutiInput {
   visionAnalysis: AggregatedVisionAnalysis;
   immobile: { title: string; address: string; zone: string };
   photosCount: number;
+  visita?: PwaVisita;
+  elementiConfermati?: string[];
+  toneHint?: "professionale" | "caldo" | "diretto";
+  zonaServiziDescrizione?: string;
   debugId: string;
 }
 
@@ -189,14 +201,35 @@ function buildPhotosSummary(v: AggregatedVisionAnalysis, count: number): string 
   if (v.tipologiaProbabile) parts.push(`tipologia rilevata ${v.tipologiaProbabile}`);
   if (v.statoApparente) parts.push(`stato ${v.statoApparente.toLowerCase()}`);
   if (v.materialePresunto) parts.push(`materiale prevalente ${v.materialePresunto}`);
+  if (v.annoPresunto) parts.push(`anno stimato ${v.annoPresunto}`);
   if (v.puntiDiForzaVisivi.length > 0) parts.push(`punti di forza: ${v.puntiDiForzaVisivi.slice(0, 6).join(", ")}`);
   if (v.presenzaGiardino) parts.push("con giardino");
   if (v.presenzaParcheggio) parts.push("con parcheggio");
   return parts.join("; ") + ".";
 }
 
+function dedupStrings(arrs: Array<string[] | undefined>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const a of arrs) {
+    if (!a) continue;
+    for (const raw of a) {
+      const s = safeStr(raw);
+      if (!s) continue;
+      const k = s.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(s);
+    }
+  }
+  return out;
+}
+
 async function buildContenutiMarketing(input: ContenutiInput): Promise<Contenuti> {
-  const { facts, visionAnalysis, immobile, photosCount, debugId } = input;
+  const {
+    facts, visionAnalysis, immobile, photosCount,
+    visita, elementiConfermati, toneHint, zonaServiziDescrizione, debugId,
+  } = input;
   const base = projectBaseUrl();
   if (!base) return { status: "non_disponibile" };
 
@@ -209,23 +242,38 @@ async function buildContenutiMarketing(input: ContenutiInput): Promise<Contenuti
     immobile.title ||
     "Immobile";
 
+  const elementiBase = (elementiConfermati && elementiConfermati.length > 0)
+    ? elementiConfermati
+    : visionAnalysis.puntiDiForzaVisivi;
+  const strengths = dedupStrings([visita?.caratteristiche, elementiBase, visionAnalysis.puntiDiForzaVisivi]);
+  const objections = dedupStrings([
+    safeStr(facts.obiezionePrincipale) ? [safeStr(facts.obiezionePrincipale)] : [],
+    visita?.criticita,
+  ]);
+
+  const photosSummaryParts: string[] = [];
+  const visionSummary = buildPhotosSummary(visionAnalysis, photosCount);
+  if (visionSummary) photosSummaryParts.push(visionSummary);
+  const note = safeStr(visita?.note);
+  if (note) photosSummaryParts.push(note);
+  if (zonaServiziDescrizione) photosSummaryParts.push(zonaServiziDescrizione);
+
   const property: Record<string, unknown> = {
     title,
     address: immobile.address || undefined,
-    comune: undefined,
+    comune: "Padova",
     property_type: safeStr(facts.tipologia) || undefined,
     mq: safeStr(facts.metratura) || undefined,
     rooms: safeStr(facts.locali) || undefined,
     estimated_value: safeStr(facts.prezzoRichiesto) || undefined,
-    photos_summary: buildPhotosSummary(visionAnalysis, photosCount),
-    strengths: visionAnalysis.puntiDiForzaVisivi,
-    objections: safeStr(facts.obiezionePrincipale) ? [safeStr(facts.obiezionePrincipale)] : [],
-    urgency: safeStr(facts.obiettivoProprietario) || undefined,
+    photos_summary: photosSummaryParts.join(" ").trim(),
+    strengths,
+    objections,
+    urgency: safeStr(facts.urgenza) || safeStr(facts.obiettivoProprietario) || undefined,
   };
-  const zona = safeStr(facts.zona);
-  if (zona) (property as Record<string, unknown>).comune = zona;
 
-  const body = { source_app: "civiko", property };
+  const body: Record<string, unknown> = { source_app: "civiko", property };
+  if (toneHint) body.tone_hint = toneHint;
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20_000);
@@ -268,6 +316,12 @@ async function buildContenutiMarketing(input: ContenutiInput): Promise<Contenuti
   } finally {
     clearTimeout(timer);
   }
+}
+
+function resolveToneHint(variante: number | undefined): "professionale" | "caldo" | "diretto" {
+  const cycle = ["professionale", "caldo", "diretto"] as const;
+  const v = Number.isFinite(variante) && (variante as number) > 0 ? Math.floor(variante as number) : 1;
+  return cycle[(v - 1) % cycle.length];
 }
 
 // ── input quality ─────────────────────────────────────────────
@@ -714,26 +768,50 @@ async function orchestrate(body: RequestBody, debugId: string) {
     photoDataUrls.length = 10;
   }
 
+  // ── Rigenerazione veloce: variante>1 + elementiConfermati → skip vision ──
+  const varianteNum = Number.isFinite(body.variante) && (body.variante as number) > 0
+    ? Math.floor(body.variante as number)
+    : 1;
+  const elementiConfermati = Array.isArray(body.elementiConfermati)
+    ? body.elementiConfermati.map((s) => safeStr(s)).filter(Boolean)
+    : [];
+  const skipVision = varianteNum > 1 && elementiConfermati.length > 0;
+
   // ── Vision layer: arricchisce quickFacts con analisi AI delle foto.
   // Non blocca mai la response principale: in errore restituisce default
   // con visionStatus="non_disponibile".
   let visionAnalysis: AggregatedVisionAnalysis;
-  try {
-    visionAnalysis = await analyzePhotosWithVision(photoDataUrls);
-  } catch (e) {
-    console.warn(`[${FUNCTION_NAME}] vision error debug_id=${debugId}: ${e instanceof Error ? e.message : String(e)}`);
+  if (skipVision) {
     visionAnalysis = {
       tipologiaProbabile: "Immobile residenziale",
       pianoStimato: null,
       statoApparente: "Buone condizioni",
-      puntiDiForzaVisivi: [],
+      puntiDiForzaVisivi: elementiConfermati,
       materialePresunto: null,
       annoPresunto: null,
       presenzaGiardino: false,
       presenzaParcheggio: false,
       fotoAnalizzate: 0,
-      visionStatus: "non_disponibile",
+      visionStatus: "ok",
     };
+  } else {
+    try {
+      visionAnalysis = await analyzePhotosWithVision(photoDataUrls);
+    } catch (e) {
+      console.warn(`[${FUNCTION_NAME}] vision error debug_id=${debugId}: ${e instanceof Error ? e.message : String(e)}`);
+      visionAnalysis = {
+        tipologiaProbabile: "Immobile residenziale",
+        pianoStimato: null,
+        statoApparente: "Buone condizioni",
+        puntiDiForzaVisivi: [],
+        materialePresunto: null,
+        annoPresunto: null,
+        presenzaGiardino: false,
+        presenzaParcheggio: false,
+        fotoAnalizzate: 0,
+        visionStatus: "non_disponibile",
+      };
+    }
   }
   const facts: PwaQuickFacts = {
     ...rawFacts,
@@ -1063,13 +1141,67 @@ async function orchestrate(body: RequestBody, debugId: string) {
     fontiUsateExt = Array.from(new Set([...apifyFonti, ...fcFonti])).filter(Boolean);
   }
 
+  // ── Zona e Servizi (POI interni) ────────────────────────────────
+  const poi = sottraCtx.poiHints;
+  const zonaServizi = (() => {
+    if (!poi) {
+      return {
+        status: "non_disponibile" as const,
+        conteggi: { supermercati: 0, farmacie: 0, scuole: 0, parchi: 0, fermateBus: 0 },
+        descrizione: "",
+      };
+    }
+    const conteggi = {
+      supermercati: poi.supermercati ?? 0,
+      farmacie: poi.farmacie ?? 0,
+      scuole: poi.scuole ?? 0,
+      parchi: poi.parchi ?? 0,
+      fermateBus: poi.fermateBus ?? 0,
+    };
+    const parts: string[] = [];
+    const push = (n: number, sing: string, plur: string) => {
+      if (n > 0) parts.push(`${n} ${n === 1 ? sing : plur}`);
+    };
+    push(conteggi.supermercati, "supermercato", "supermercati");
+    push(conteggi.farmacie, "farmacia", "farmacie");
+    push(conteggi.scuole, "scuola", "scuole");
+    push(conteggi.parchi, "parco", "parchi");
+    push(conteggi.fermateBus, "fermata bus", "fermate bus");
+    const descrizione = parts.length > 0
+      ? `Nelle vicinanze: ${parts.join(", ")}.`
+      : "";
+    return { status: "ok" as const, conteggi, descrizione };
+  })();
+
+  // Enrich schools_services fonte from poiHints when available.
+  if (poi) {
+    const idx = fontiDaCollegare.findIndex((f) => f.id === "schools_services");
+    if (idx >= 0) {
+      const items: DisplayItem[] = [];
+      if (poi.supermercati > 0) items.push({ label: "Supermercati nelle vicinanze", value: String(poi.supermercati) });
+      if (poi.farmacie > 0) items.push({ label: "Farmacie nelle vicinanze", value: String(poi.farmacie) });
+      if (poi.scuole > 0) items.push({ label: "Scuole nelle vicinanze", value: String(poi.scuole) });
+      if (poi.parchi > 0) items.push({ label: "Parchi nelle vicinanze", value: String(poi.parchi) });
+      if (poi.fermateBus > 0) items.push({ label: "Fermate bus nelle vicinanze", value: String(poi.fermateBus) });
+      if (items.length > 0) {
+        fontiDaCollegare[idx].status = "collegata";
+        fontiDaCollegare[idx].displayItems = items;
+      }
+    }
+  }
+
   // ── Contenuti marketing (property-marketing-pack) ───────────────
   // Mai bloccante: timeout 20s. In errore/timeout contenuti.status="non_disponibile".
+  const toneHint = resolveToneHint(varianteNum);
   const contenuti = await buildContenutiMarketing({
     facts,
     visionAnalysis,
     immobile,
     photosCount: photoDataUrls.length,
+    visita: body.visita,
+    elementiConfermati,
+    toneHint,
+    zonaServiziDescrizione: zonaServizi.descrizione,
     debugId,
   });
 
@@ -1087,6 +1219,7 @@ async function orchestrate(body: RequestBody, debugId: string) {
     presentazioneProprietario,
     kitMarketing: { available: false, items: [] as unknown[] },
     contenuti,
+    zonaServizi,
     intelligenceZona,
     vendibilita,
     vendutoRecente,
