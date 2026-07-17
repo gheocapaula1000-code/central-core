@@ -100,7 +100,8 @@ serve(async (req) => {
       ok: true,
       quartieri,
       ...totals,
-      data: { quartieri, totals },
+      totali,
+      data: { quartieri, totals, totali },
       debug_id: did,
     }), { status: 200, headers: CORS });
   } catch (e) {
