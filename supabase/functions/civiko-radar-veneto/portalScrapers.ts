@@ -696,6 +696,82 @@ function selectPortalsForMode(mode: RadarMode): { configs: PortalConfig[]; rotat
   return { configs: PORTAL_CONFIGS.filter((c) => allow.includes(c.source)), rotationKey: key };
 }
 
+const RESERVOIR_PORTAL_MAP: Record<string, NormalizedListing["source"]> = {
+  "immobiliare": "immobiliare.it",
+  "immobiliare.it": "immobiliare.it",
+  "idealista": "idealista.it",
+  "idealista.it": "idealista.it",
+  "casa": "casa.it",
+  "casa.it": "casa.it",
+  "subito": "subito.it",
+  "subito.it": "subito.it",
+};
+
+async function readApifyReservoir(
+  supabase: { from: (t: string) => any },
+  stats?: IngestionStats,
+): Promise<NormalizedListing[]> {
+  try {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabase
+      .from("padova_collect_v2_items")
+      .select("portal,listing_id,url,raw_address,citta,prezzo,mq,locali,tipologia,agency,lat,lng,created_at")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(300);
+    if (error) {
+      stats?.perPortal.push({ source: "apify_reservoir", raw: 0, reason: `reservoir_error:${String(error.message ?? error).slice(0, 120)}` });
+      return [];
+    }
+    const rows = Array.isArray(data) ? data : [];
+    const out: NormalizedListing[] = [];
+    for (const r of rows as Array<Record<string, unknown>>) {
+      const portalRaw = typeof r.portal === "string" ? r.portal.toLowerCase().trim() : "";
+      const source = RESERVOIR_PORTAL_MAP[portalRaw];
+      if (!source) continue;
+      const url = typeof r.url === "string" ? r.url : "";
+      const listingId = typeof r.listing_id === "string" && r.listing_id ? r.listing_id : url;
+      if (!listingId || !url) continue;
+      const lat = typeof r.lat === "number" && Number.isFinite(r.lat) ? r.lat : null;
+      const lng = typeof r.lng === "number" && Number.isFinite(r.lng) ? r.lng : null;
+      const price = typeof r.prezzo === "number" && Number.isFinite(r.prezzo)
+        ? r.prezzo
+        : parsePriceEur(r.prezzo);
+      const surface = typeof r.mq === "number" && Number.isFinite(r.mq) ? Math.round(r.mq) : parseInt0(r.mq);
+      const rooms = typeof r.locali === "number" && Number.isFinite(r.locali) ? Math.round(r.locali) : parseInt0(r.locali);
+      const rawAgency = typeof r.agency === "string" ? r.agency.trim() : "";
+      const looksPrivate = /privat[oi]/i.test(rawAgency) || (rawAgency === "" && source === "subito.it");
+      const address = typeof r.raw_address === "string" && r.raw_address
+        ? r.raw_address
+        : (typeof r.citta === "string" ? r.citta : null);
+      out.push({
+        source,
+        listing_id: String(listingId).slice(0, 200),
+        url: url.slice(0, 400),
+        title: (typeof r.tipologia === "string" && r.tipologia ? r.tipologia : "Annuncio").slice(0, 200),
+        address: address ? String(address).slice(0, 200) : null,
+        price_eur: price,
+        surface_sqm: surface,
+        rooms,
+        property_type: normalizePropertyType(typeof r.tipologia === "string" ? r.tipologia : null),
+        agency_name: rawAgency && !looksPrivate ? rawAgency.slice(0, 150) : null,
+        is_private: looksPrivate,
+        lat,
+        lng,
+      });
+    }
+    stats?.perPortal.push({ source: "apify_reservoir", raw: out.length });
+    return out;
+  } catch (e) {
+    stats?.perPortal.push({
+      source: "apify_reservoir",
+      raw: 0,
+      reason: `reservoir_exception:${e instanceof Error ? e.message.slice(0, 120) : String(e).slice(0, 120)}`,
+    });
+    return [];
+  }
+}
+
 export async function scrapeAllPortals(
   municipality: string,
   firecrawlKey: string,
@@ -703,6 +779,7 @@ export async function scrapeAllPortals(
   mode: RadarMode = "soft",
   meta?: RadarRunMeta,
   stats?: IngestionStats,
+  supabase?: { from: (t: string) => any } | null,
 ): Promise<NormalizedListing[]> {
   if (!municipality) return [];
   const { configs, rotationKey } = selectPortalsForMode(mode);
@@ -717,6 +794,10 @@ export async function scrapeAllPortals(
       console.warn(`[portalScrapers] firecrawl_cap_reached spent=${fb.spent} cap=${fb.cap} skip mode=${mode}`);
       if (stats) stats.firecrawl_skipped_reason = fb.reason ?? "firecrawl_cap_reached";
       const apifyListings = await scrapeWithApify(municipality, provincia, mode, meta, stats);
+      if (supabase) {
+        const reservoir = await readApifyReservoir(supabase, stats);
+        apifyListings.push(...reservoir);
+      }
       return apifyListings;
     }
     await recordFirecrawlSpend(estPages, configs.length, meta).catch(() => {});
@@ -740,6 +821,11 @@ export async function scrapeAllPortals(
     console.log(`[portalScrapers] Firecrawl 0 results, Apify fallback for ${municipality} mode=${mode}`);
     const apifyListings = await scrapeWithApify(municipality, provincia, mode, meta, stats);
     listings.push(...apifyListings);
+  }
+  // Provider "apify_reservoir": SEMPRE eseguito dopo i portali diretti (non solo fallback).
+  if (supabase) {
+    const reservoir = await readApifyReservoir(supabase, stats);
+    listings.push(...reservoir);
   }
   return listings;
 }
