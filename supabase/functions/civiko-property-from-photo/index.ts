@@ -29,7 +29,8 @@ import {
 } from "./sottraInternal.ts";
 import { buildZonaIntelligence } from "./zonaIntelligence.ts";
 import { buildVenetoEnrichment } from "./venetoEnrichment.ts";
-import { analyzePhotoWithVision, type VisionAnalysis } from "./visionAnalyzer.ts";
+import { analyzePhotosWithVision, type AggregatedVisionAnalysis } from "./visionAnalyzer.ts";
+import { resolveInternalSecret } from "../_shared/http.ts";
 import { runApifyPhotoEnrichment, type TerritorialDocument } from "./apifyPhotoEnrichment.ts";
 import { runFirecrawlPhotoEnrichment, listFirecrawlSourceNames, type LiveSignal } from "./firecrawlPhotoEnrichment.ts";
 
