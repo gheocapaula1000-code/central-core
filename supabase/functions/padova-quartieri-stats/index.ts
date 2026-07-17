@@ -59,6 +59,23 @@ serve(async (req) => {
       .maybeSingle();
     if (totalsErr) throw totalsErr;
 
+    // 3) Totali dall'anagrafe listings (mai bloccante per le zone)
+    let totali: { tot_annunci: number; tot_agenzie: number } | null = null;
+    try {
+      const { data: totaliRow, error: totaliErr } = await supabase
+        .from("padova_totali_v")
+        .select("tot_annunci, tot_agenzie")
+        .maybeSingle();
+      if (!totaliErr && totaliRow) {
+        totali = {
+          tot_annunci: Number(totaliRow.tot_annunci ?? 0),
+          tot_agenzie: Number(totaliRow.tot_agenzie ?? 0),
+        };
+      }
+    } catch (e) {
+      console.error(`[padova-quartieri-stats] totali error ${did}`, e);
+    }
+
     const quartieri = rows
       .filter((r) => r.zona)
       .map((r) => ({
@@ -83,7 +100,8 @@ serve(async (req) => {
       ok: true,
       quartieri,
       ...totals,
-      data: { quartieri, totals },
+      totali,
+      data: { quartieri, totals, totali },
       debug_id: did,
     }), { status: 200, headers: CORS });
   } catch (e) {
