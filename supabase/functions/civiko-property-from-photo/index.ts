@@ -896,7 +896,9 @@ async function orchestrate(body: RequestBody, debugId: string) {
     immobileOut.provincia = null;
     immobileOut.comune = null;
   }
-  // Vision analysis (sempre esposta, anche in default).
+  // Vision analysis (sempre esposta; visionStatus riflette l'esito reale).
+  const elementiRilevatiSet = new Set<string>(visionAnalysis.puntiDiForzaVisivi);
+  if (visionAnalysis.materialePresunto) elementiRilevatiSet.add(visionAnalysis.materialePresunto);
   immobileOut.visionAnalysis = {
     tipologiaProbabile: visionAnalysis.tipologiaProbabile,
     pianoStimato: visionAnalysis.pianoStimato,
@@ -906,9 +908,14 @@ async function orchestrate(body: RequestBody, debugId: string) {
     annoPresunto: visionAnalysis.annoPresunto,
     presenzaGiardino: visionAnalysis.presenzaGiardino,
     presenzaParcheggio: visionAnalysis.presenzaParcheggio,
+    fotoAnalizzate: visionAnalysis.fotoAnalizzate,
+    elementiRilevati: Array.from(elementiRilevatiSet),
+    visionStatus: visionAnalysis.visionStatus,
   };
-  if (!immobileOut.statoApparente || immobileOut.statoApparente === "sconosciuto") {
-    immobileOut.statoApparente = visionAnalysis.statoApparente;
+  if (visionAnalysis.visionStatus !== "non_disponibile") {
+    if (!immobileOut.statoApparente || immobileOut.statoApparente === "sconosciuto") {
+      immobileOut.statoApparente = visionAnalysis.statoApparente;
+    }
   }
 
   const pianoEnriched: Record<string, unknown> = { ...pianoEsclusiva };
