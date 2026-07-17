@@ -7299,6 +7299,13 @@ export type Database = {
         }
         Relationships: []
       }
+      padova_totali_v: {
+        Row: {
+          tot_agenzie: number | null
+          tot_annunci: number | null
+        }
+        Relationships: []
+      }
       radar_budget_monthly_spend: {
         Row: {
           entries: number | null
