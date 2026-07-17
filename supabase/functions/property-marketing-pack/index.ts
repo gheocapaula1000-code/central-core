@@ -145,12 +145,16 @@ function normalizeProperty(p: PropertyInput | undefined): {
 // ── Lovable AI generation (single structured call) ─────────────
 async function generatePack(
   input: ReturnType<typeof normalizeProperty>["norm"],
+  toneHint?: "professionale" | "caldo" | "diretto",
 ): Promise<Partial<MarketingPack> | null> {
   const key = Deno.env.get("LOVABLE_API_KEY") ?? "";
   if (!key) return null;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 25_000);
   try {
+    const toneLine = toneHint
+      ? `Taglio richiesto per listing_text_long, listing_text_short e owner_message: "${toneHint}". Mantieni comunque le varianti social con i loro tone specifici.`
+      : "";
     const system = [
       "Sei un copywriter senior italiano per acquisizione immobiliare.",
       "Scrivi in italiano corretto, naturale, professionale ma umano.",
@@ -158,8 +162,9 @@ async function generatePack(
       "VIETATO nominare strumenti interni o brand tecnici (es. KeyDraft).",
       "Non inventare caratteristiche non presenti nel brief. Se mancano dati, mantieni il tono generico ma onesto.",
       "Non promettere risultati certi né valori monetari assoluti.",
+      toneLine,
       "Rispondi esclusivamente tramite la funzione fornita.",
-    ].join(" ");
+    ].filter(Boolean).join(" ");
 
     const user = [
       "Brief proprietà:",
