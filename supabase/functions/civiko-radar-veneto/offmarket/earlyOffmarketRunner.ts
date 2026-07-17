@@ -34,7 +34,13 @@ export interface DiscoveryBody {
   useApify?: boolean;
   usePerplexityDiscovery?: boolean;
   downloadPdf?: boolean;
+  // self-chain / time budget (tollerante ad extra fields)
+  source_keys?: string[];
+  chain_depth?: number;
+  scrape_budget_remaining?: number;
+  timeBudgetMs?: number;
 }
+
 
 export interface CandidateEarlySignal {
   comune: string;
@@ -91,7 +97,12 @@ export interface DiscoveryReport {
   cost_estimate: { firecrawl_credits: number; apify_runs: number; perplexity_queries: number };
   warnings: string[];
   errors: string[];
+  deferred_source_keys: string[];
+  elapsed_ms: number;
+  time_budget_ms: number;
+  scrape_budget_remaining: number;
 }
+
 
 function fingerprint(url: string, type: string): string {
   return `${type}::${url.replace(/[#?].*$/, "").toLowerCase()}`;
@@ -130,10 +141,18 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
   const maxPagesPerSource = Math.min(body.maxPagesPerSource ?? 3, 5);
   const saveCandidates = body.saveCandidates === true;
   const run_id = `eos-${Date.now().toString(36)}`;
+  const startedAt = Date.now();
+  const timeBudget = Math.max(15_000, Math.min(body.timeBudgetMs ?? 90_000, 120_000));
+  const chainDepth = typeof body.chain_depth === "number" ? body.chain_depth : 0;
+  const defaultScrapeBudget = maxSources * maxPagesPerSource + 10;
+  let scrapeBudget = typeof body.scrape_budget_remaining === "number"
+    ? body.scrape_budget_remaining
+    : defaultScrapeBudget;
 
   const warnings: string[] = [];
   const errors: string[] = [];
   const candidates: CandidateEarlySignal[] = [];
+  const deferredSourceKeys: string[] = [];
   let pages_seen = 0, pages_classified = 0, privacy_rejected = 0;
   let perplexityQueries = 0;
   let sources_from_perplexity = 0;
@@ -151,13 +170,18 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
   const fcAvail = firecrawlAvailable();
   const pplxAvail = perplexityAvailable();
 
-  const sources = selectEarlySources({
+  let sources = selectEarlySources({
     comuni: body.comuni, categories: body.categories, maxSources,
   });
+  if (body.source_keys && body.source_keys.length > 0) {
+    const keep = new Set(body.source_keys);
+    sources = sources.filter((s) => keep.has(s.source_key));
+  }
 
-  // ── Perplexity discovery (fonti aggiuntive, solo URL) ──
+
+  // ── Perplexity discovery (fonti aggiuntive, solo URL) — SOLO alla prima invocazione ──
   let pplxHits: DiscoveryHit[] = [];
-  if (usePplx && pplxAvail) {
+  if (chainDepth === 0 && usePplx && pplxAvail) {
     const r = await runPerplexityDiscovery({ comuni: body.comuni, maxQueries: 6 });
     perplexityQueries = 6;
     pplxHits = r.hits;
@@ -166,9 +190,10 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
       for (const d of r.errorDetails) pplxErrorDetails.push(d);
     }
     if (r.errors.length > 0) warnings.push(`perplexity: ${r.errors.length} query con errori`);
-  } else if (usePplx && !pplxAvail) {
+  } else if (chainDepth === 0 && usePplx && !pplxAvail) {
     warnings.push("PERPLEXITY_API_KEY mancante: discovery disattivata");
   }
+
 
   if (!useFC || !fcAvail) {
     return {
@@ -184,12 +209,30 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
       estimated_value_for_radar: "basso",
       cost_estimate: { firecrawl_credits: 0, apify_runs: 0, perplexity_queries: perplexityQueries },
       warnings, errors: [...errors, "firecrawl unavailable or disabled"],
+      deferred_source_keys: [],
+      elapsed_ms: Date.now() - startedAt,
+      time_budget_ms: timeBudget,
+      scrape_budget_remaining: scrapeBudget,
     };
+
   }
 
   // ── Pipeline registry sources ──
   let fcCredits = 0;
-  for (const src of sources) {
+  let overBudget = false;
+  for (let srcIdx = 0; srcIdx < sources.length; srcIdx++) {
+    const src = sources[srcIdx];
+    if (Date.now() - startedAt > timeBudget) {
+      for (let j = srcIdx; j < sources.length; j++) {
+        deferredSourceKeys.push(sources[j].source_key);
+      }
+      overBudget = true;
+      break;
+    }
+    if (scrapeBudget <= 0) {
+      warnings.push(`Budget scrape esaurito prima di ${src.source_key}`);
+      break;
+    }
     try {
       // 1) Map
       const m = await fcMap(src.base_url, { limit: 30, search: "alienazione patrimonio variante rigenerazione" });
@@ -200,6 +243,12 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
 
       const top = urls.slice(0, maxPagesPerSource);
       for (const u of top) {
+        if (Date.now() - startedAt > timeBudget) break;
+        if (scrapeBudget <= 0) {
+          warnings.push(`Budget scrape esaurito su ${src.source_key}`);
+          break;
+        }
+        scrapeBudget--;
         const s = await fcScrape(u, { timeoutMs: 22_000 });
         fcCredits += 1;
         if (!s.ok || !s.markdown) {
@@ -239,13 +288,17 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
     }
   }
 
-  // ── Pipeline Perplexity hits (verifica con scrape leggero) ──
-  for (const hit of pplxHits.slice(0, 8)) {
+  // ── Pipeline Perplexity hits (verifica con scrape leggero) — solo se resta tempo/budget ──
+  if (!overBudget) for (const hit of pplxHits.slice(0, 8)) {
+    if (Date.now() - startedAt > timeBudget) break;
+    if (scrapeBudget <= 0) break;
     try {
+      scrapeBudget--;
       const s = await fcScrape(hit.source_url, { timeoutMs: 20_000 });
       fcCredits += 1;
       if (!s.ok || !s.markdown) continue;
       pages_seen += 1;
+
       const cls = classifyEarlySignal({ title: s.title ?? null, text: s.markdown, source_url: hit.source_url }, hit.comune);
       pages_classified += 1;
       if (!cls.privacy_safe) { privacy_rejected += 1; continue; }
@@ -278,7 +331,7 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
     !body.comuni || body.comuni.length === 0 ||
     body.comuni.some((c) => c.toLowerCase().trim() === "padova");
   let microzonaQueries = 0;
-  if (usePplx && pplxAvail && isPadovaTargeted) {
+  if (chainDepth === 0 && usePplx && pplxAvail && isPadovaTargeted) {
     try {
       const mz = await runPadovaMicrozonaDiscovery();
       microzonaQueries = mz.queries_run;
@@ -428,8 +481,13 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
     estimated_value_for_radar: value,
     cost_estimate: { firecrawl_credits: fcCredits, apify_runs: 0, perplexity_queries: perplexityQueries + microzonaQueries },
     warnings, errors,
+    deferred_source_keys: deferredSourceKeys,
+    elapsed_ms: Date.now() - startedAt,
+    time_budget_ms: timeBudget,
+    scrape_budget_remaining: scrapeBudget,
   };
 }
+
 
 export function listEarlyRegistryMeta() {
   return EARLY_SIGNALS_REGISTRY.map((s) => ({

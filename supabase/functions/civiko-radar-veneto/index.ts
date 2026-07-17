@@ -1453,14 +1453,55 @@ Deno.serve(async (req) => {
     if (pathname.endsWith("/jobs/discover-early-offmarket-signals")) {
       const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
-        const body = await req.json().catch(() => ({}));
-        const r = await runEarlyOffmarketDiscovery(body);
-        return withIdentity(json(req, r.ok ? 200 : 207, { job: "discover-early-offmarket-signals", ...r }, debugId), "job-early-offmarket");
+        const inBody = await req.json().catch(() => ({} as Record<string, unknown>));
+        const source_keys = Array.isArray((inBody as any)?.source_keys) ? ((inBody as any).source_keys as string[]) : undefined;
+        const chain_depth = typeof (inBody as any)?.chain_depth === "number" ? (inBody as any).chain_depth as number : 0;
+        const scrape_budget_remaining = typeof (inBody as any)?.scrape_budget_remaining === "number" ? (inBody as any).scrape_budget_remaining as number : undefined;
+        console.log(`[${FUNCTION_NAME}] discover-early-offmarket invoked chain_depth=${chain_depth} source_keys=${source_keys ? source_keys.length : "all"}`);
+        const r = await runEarlyOffmarketDiscovery({
+          ...(inBody as Record<string, unknown>),
+          source_keys,
+          chain_depth,
+          scrape_budget_remaining,
+          timeBudgetMs: typeof (inBody as any)?.timeBudgetMs === "number" ? (inBody as any).timeBudgetMs as number : 90_000,
+        });
+        let chained = false;
+        if (r.deferred_source_keys.length > 0 && chain_depth < 12 && r.scrape_budget_remaining > 0) {
+          const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+          const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+          if (SUPABASE_URL && JOB_SECRET) {
+            const target = `${SUPABASE_URL}/functions/v1/civiko-radar-veneto/jobs/discover-early-offmarket-signals`;
+            const nextBody = {
+              ...(inBody as Record<string, unknown>),
+              source_keys: r.deferred_source_keys,
+              chain_depth: chain_depth + 1,
+              scrape_budget_remaining: r.scrape_budget_remaining,
+              triggered_by: "self-chain",
+            };
+            const p = fetch(target, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-job-secret": JOB_SECRET,
+                "x-internal-secret": JOB_SECRET,
+                "x-source-app": "central-core-cron",
+                Authorization: `Bearer ${JOB_SECRET}`,
+              },
+              body: JSON.stringify(nextBody),
+            }).catch((e) => console.error("early-offmarket self-chain launch failed", e));
+            try { (globalThis as any).EdgeRuntime?.waitUntil?.(p); } catch { /* ignore */ }
+            chained = true;
+          } else {
+            console.error("early-offmarket self-chain skipped: missing SUPABASE_URL or CENTRAL_CORE_JOB_SECRET");
+          }
+        }
+        return withIdentity(json(req, r.ok ? 200 : 207, { job: "discover-early-offmarket-signals", ...r, chained }, debugId), "job-early-offmarket");
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] discover-early-offmarket error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "Early off-market discovery failed", debugId), "job-error");
       }
     }
+
 
     if (pathname.endsWith("/jobs/offmarket-padova")) {
       const _auth = authorizeJob(req, debugId); if (_auth) return _auth;
