@@ -34,7 +34,13 @@ export interface DiscoveryBody {
   useApify?: boolean;
   usePerplexityDiscovery?: boolean;
   downloadPdf?: boolean;
+  // self-chain / time budget (tollerante ad extra fields)
+  source_keys?: string[];
+  chain_depth?: number;
+  scrape_budget_remaining?: number;
+  timeBudgetMs?: number;
 }
+
 
 export interface CandidateEarlySignal {
   comune: string;
