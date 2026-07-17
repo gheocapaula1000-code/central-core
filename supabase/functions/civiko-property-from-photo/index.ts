@@ -951,6 +951,16 @@ async function orchestrate(body: RequestBody, debugId: string) {
     fontiUsateExt = Array.from(new Set([...apifyFonti, ...fcFonti])).filter(Boolean);
   }
 
+  // ── Contenuti marketing (property-marketing-pack) ───────────────
+  // Mai bloccante: timeout 20s. In errore/timeout contenuti.status="non_disponibile".
+  const contenuti = await buildContenutiMarketing({
+    facts,
+    visionAnalysis,
+    immobile,
+    photosCount: photoDataUrls.length,
+    debugId,
+  });
+
   const payload = {
     configured,
     ...(message ? { message } : {}),
@@ -964,6 +974,7 @@ async function orchestrate(body: RequestBody, debugId: string) {
     pianoEsclusiva: pianoEnriched,
     presentazioneProprietario,
     kitMarketing: { available: false, items: [] as unknown[] },
+    contenuti,
     intelligenceZona,
     vendibilita,
     vendutoRecente,
