@@ -331,7 +331,7 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
     !body.comuni || body.comuni.length === 0 ||
     body.comuni.some((c) => c.toLowerCase().trim() === "padova");
   let microzonaQueries = 0;
-  if (usePplx && pplxAvail && isPadovaTargeted) {
+  if (chainDepth === 0 && usePplx && pplxAvail && isPadovaTargeted) {
     try {
       const mz = await runPadovaMicrozonaDiscovery();
       microzonaQueries = mz.queries_run;
