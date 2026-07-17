@@ -224,11 +224,16 @@ async function generatePack(
                 },
                 next_best_action: { type: "string", description: "Prossima azione concreta consigliata all'agente." },
                 confidence: { type: "string", enum: ["alta", "media", "bassa"] },
+                hashtags: {
+                  type: "array",
+                  description: "10-15 hashtag in italiano (zona, quartiere, tipologia, immobiliare generici). Tutti con prefisso #, senza spazi.",
+                  items: { type: "string" },
+                },
               },
               required: [
                 "listing_text_long", "listing_text_short", "owner_message",
                 "social_variants", "highlights", "objection_answers",
-                "next_best_action", "confidence",
+                "next_best_action", "confidence", "hashtags",
               ],
               additionalProperties: false,
             },
