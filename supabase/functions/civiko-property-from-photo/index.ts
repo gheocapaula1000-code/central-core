@@ -76,6 +76,7 @@ interface PwaQuickFacts {
 interface RequestBody {
   agencyId?: string;
   photo?: PwaPhoto;
+  photos?: PwaPhoto[];
   geo?: PwaGeo;
   quickFacts?: PwaQuickFacts;
   // Legacy fields tolerated but not required.
