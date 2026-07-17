@@ -481,8 +481,13 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
     estimated_value_for_radar: value,
     cost_estimate: { firecrawl_credits: fcCredits, apify_runs: 0, perplexity_queries: perplexityQueries + microzonaQueries },
     warnings, errors,
+    deferred_source_keys: deferredSourceKeys,
+    elapsed_ms: Date.now() - startedAt,
+    time_budget_ms: timeBudget,
+    scrape_budget_remaining: scrapeBudget,
   };
 }
+
 
 export function listEarlyRegistryMeta() {
   return EARLY_SIGNALS_REGISTRY.map((s) => ({
