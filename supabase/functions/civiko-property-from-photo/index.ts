@@ -1141,13 +1141,67 @@ async function orchestrate(body: RequestBody, debugId: string) {
     fontiUsateExt = Array.from(new Set([...apifyFonti, ...fcFonti])).filter(Boolean);
   }
 
+  // ── Zona e Servizi (POI interni) ────────────────────────────────
+  const poi = sottraCtx.poiHints;
+  const zonaServizi = (() => {
+    if (!poi) {
+      return {
+        status: "non_disponibile" as const,
+        conteggi: { supermercati: 0, farmacie: 0, scuole: 0, parchi: 0, fermateBus: 0 },
+        descrizione: "",
+      };
+    }
+    const conteggi = {
+      supermercati: poi.supermercati ?? 0,
+      farmacie: poi.farmacie ?? 0,
+      scuole: poi.scuole ?? 0,
+      parchi: poi.parchi ?? 0,
+      fermateBus: poi.fermateBus ?? 0,
+    };
+    const parts: string[] = [];
+    const push = (n: number, sing: string, plur: string) => {
+      if (n > 0) parts.push(`${n} ${n === 1 ? sing : plur}`);
+    };
+    push(conteggi.supermercati, "supermercato", "supermercati");
+    push(conteggi.farmacie, "farmacia", "farmacie");
+    push(conteggi.scuole, "scuola", "scuole");
+    push(conteggi.parchi, "parco", "parchi");
+    push(conteggi.fermateBus, "fermata bus", "fermate bus");
+    const descrizione = parts.length > 0
+      ? `Nelle vicinanze: ${parts.join(", ")}.`
+      : "";
+    return { status: "ok" as const, conteggi, descrizione };
+  })();
+
+  // Enrich schools_services fonte from poiHints when available.
+  if (poi) {
+    const idx = fontiDaCollegare.findIndex((f) => f.id === "schools_services");
+    if (idx >= 0) {
+      const items: DisplayItem[] = [];
+      if (poi.supermercati > 0) items.push({ label: "Supermercati nelle vicinanze", value: String(poi.supermercati) });
+      if (poi.farmacie > 0) items.push({ label: "Farmacie nelle vicinanze", value: String(poi.farmacie) });
+      if (poi.scuole > 0) items.push({ label: "Scuole nelle vicinanze", value: String(poi.scuole) });
+      if (poi.parchi > 0) items.push({ label: "Parchi nelle vicinanze", value: String(poi.parchi) });
+      if (poi.fermateBus > 0) items.push({ label: "Fermate bus nelle vicinanze", value: String(poi.fermateBus) });
+      if (items.length > 0) {
+        fontiDaCollegare[idx].status = "collegata";
+        fontiDaCollegare[idx].displayItems = items;
+      }
+    }
+  }
+
   // ── Contenuti marketing (property-marketing-pack) ───────────────
   // Mai bloccante: timeout 20s. In errore/timeout contenuti.status="non_disponibile".
+  const toneHint = resolveToneHint(varianteNum);
   const contenuti = await buildContenutiMarketing({
     facts,
     visionAnalysis,
     immobile,
     photosCount: photoDataUrls.length,
+    visita: body.visita,
+    elementiConfermati,
+    toneHint,
+    zonaServiziDescrizione: zonaServizi.descrizione,
     debugId,
   });
 
