@@ -1219,6 +1219,7 @@ async function orchestrate(body: RequestBody, debugId: string) {
     presentazioneProprietario,
     kitMarketing: { available: false, items: [] as unknown[] },
     contenuti,
+    zonaServizi,
     intelligenceZona,
     vendibilita,
     vendutoRecente,
