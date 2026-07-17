@@ -179,9 +179,9 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
   }
 
 
-  // ── Perplexity discovery (fonti aggiuntive, solo URL) ──
+  // ── Perplexity discovery (fonti aggiuntive, solo URL) — SOLO alla prima invocazione ──
   let pplxHits: DiscoveryHit[] = [];
-  if (usePplx && pplxAvail) {
+  if (chainDepth === 0 && usePplx && pplxAvail) {
     const r = await runPerplexityDiscovery({ comuni: body.comuni, maxQueries: 6 });
     perplexityQueries = 6;
     pplxHits = r.hits;
@@ -190,9 +190,10 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
       for (const d of r.errorDetails) pplxErrorDetails.push(d);
     }
     if (r.errors.length > 0) warnings.push(`perplexity: ${r.errors.length} query con errori`);
-  } else if (usePplx && !pplxAvail) {
+  } else if (chainDepth === 0 && usePplx && !pplxAvail) {
     warnings.push("PERPLEXITY_API_KEY mancante: discovery disattivata");
   }
+
 
   if (!useFC || !fcAvail) {
     return {
