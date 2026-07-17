@@ -97,7 +97,12 @@ export interface DiscoveryReport {
   cost_estimate: { firecrawl_credits: number; apify_runs: number; perplexity_queries: number };
   warnings: string[];
   errors: string[];
+  deferred_source_keys: string[];
+  elapsed_ms: number;
+  time_budget_ms: number;
+  scrape_budget_remaining: number;
 }
+
 
 function fingerprint(url: string, type: string): string {
   return `${type}::${url.replace(/[#?].*$/, "").toLowerCase()}`;
