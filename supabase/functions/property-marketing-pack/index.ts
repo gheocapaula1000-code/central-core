@@ -79,6 +79,7 @@ interface RequestBody {
   workspace_id?: string;
   opportunity_id?: string;
   property?: PropertyInput;
+  tone_hint?: "professionale" | "caldo" | "diretto";
 }
 
 interface SocialVariant {
