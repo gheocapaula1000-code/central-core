@@ -101,6 +101,7 @@ interface MarketingPack {
   highlights: string[];
   objection_answers: ObjectionAnswer[];
   next_best_action: string;
+  hashtags: string[];
   confidence: "alta" | "media" | "bassa";
   warnings: string[];
 }
