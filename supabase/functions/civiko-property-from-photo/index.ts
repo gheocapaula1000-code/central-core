@@ -586,15 +586,28 @@ async function orchestrate(body: RequestBody, debugId: string) {
   const immobile = buildImmobileReale(body, ctx);
   const warnings = [...ctx.warnings];
 
-  // ── Vision layer: arricchisce quickFacts con analisi AI della foto.
-  // Non blocca mai la response principale: in errore restituisce default.
-  let visionAnalysis: VisionAnalysis;
+  // ── Normalizzazione multi-foto ────────────────────────────────
+  const rawPhotos: PwaPhoto[] = Array.isArray(body.photos) && body.photos.length > 0
+    ? body.photos
+    : (body.photo ? [body.photo] : []);
+  const photoDataUrls: string[] = [];
+  for (const p of rawPhotos) {
+    if (!p || typeof p.dataUrl !== "string" || !p.dataUrl.startsWith("data:image/")) continue;
+    const sizeBytes = typeof p.sizeKb === "number" ? p.sizeKb * 1024 : p.dataUrl.length * 0.75;
+    if (sizeBytes > MAX_PHOTO_BYTES) continue;
+    photoDataUrls.push(p.dataUrl);
+  }
+  if (photoDataUrls.length > 10) {
+    warnings.push(`Ricevute ${photoDataUrls.length} foto: verranno analizzate solo le prime 10.`);
+    photoDataUrls.length = 10;
+  }
+
+  // ── Vision layer: arricchisce quickFacts con analisi AI delle foto.
+  // Non blocca mai la response principale: in errore restituisce default
+  // con visionStatus="non_disponibile".
+  let visionAnalysis: AggregatedVisionAnalysis;
   try {
-    visionAnalysis = await analyzePhotoWithVision(
-      body.photo?.dataUrl,
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-    );
+    visionAnalysis = await analyzePhotosWithVision(photoDataUrls);
   } catch (e) {
     console.warn(`[${FUNCTION_NAME}] vision error debug_id=${debugId}: ${e instanceof Error ? e.message : String(e)}`);
     visionAnalysis = {
@@ -606,6 +619,8 @@ async function orchestrate(body: RequestBody, debugId: string) {
       annoPresunto: null,
       presenzaGiardino: false,
       presenzaParcheggio: false,
+      fotoAnalizzate: 0,
+      visionStatus: "non_disponibile",
     };
   }
   const facts: PwaQuickFacts = {
