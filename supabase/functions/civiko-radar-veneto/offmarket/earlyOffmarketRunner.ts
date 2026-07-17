@@ -141,10 +141,18 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
   const maxPagesPerSource = Math.min(body.maxPagesPerSource ?? 3, 5);
   const saveCandidates = body.saveCandidates === true;
   const run_id = `eos-${Date.now().toString(36)}`;
+  const startedAt = Date.now();
+  const timeBudget = Math.max(15_000, Math.min(body.timeBudgetMs ?? 90_000, 120_000));
+  const chainDepth = typeof body.chain_depth === "number" ? body.chain_depth : 0;
+  const defaultScrapeBudget = maxSources * maxPagesPerSource + 10;
+  let scrapeBudget = typeof body.scrape_budget_remaining === "number"
+    ? body.scrape_budget_remaining
+    : defaultScrapeBudget;
 
   const warnings: string[] = [];
   const errors: string[] = [];
   const candidates: CandidateEarlySignal[] = [];
+  const deferredSourceKeys: string[] = [];
   let pages_seen = 0, pages_classified = 0, privacy_rejected = 0;
   let perplexityQueries = 0;
   let sources_from_perplexity = 0;
@@ -162,9 +170,14 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
   const fcAvail = firecrawlAvailable();
   const pplxAvail = perplexityAvailable();
 
-  const sources = selectEarlySources({
+  let sources = selectEarlySources({
     comuni: body.comuni, categories: body.categories, maxSources,
   });
+  if (body.source_keys && body.source_keys.length > 0) {
+    const keep = new Set(body.source_keys);
+    sources = sources.filter((s) => keep.has(s.source_key));
+  }
+
 
   // ── Perplexity discovery (fonti aggiuntive, solo URL) ──
   let pplxHits: DiscoveryHit[] = [];
