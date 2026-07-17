@@ -7291,6 +7291,8 @@ export type Database = {
           n_agenzie: number | null
           n_annunci: number | null
           n_contendibili: number | null
+          n_privati: number | null
+          n_ribassi: number | null
           prezzo_max: number | null
           prezzo_min: number | null
           zona: string | null
