@@ -44,11 +44,13 @@ serve(async (req) => {
       n_contendibili: number | null;
       n_annunci: number | null;
       n_agenzie: number | null;
+      n_ribassi: number | null;
+      n_privati: number | null;
       prezzo_min: number | null;
       prezzo_max: number | null;
     }>(() => supabase
       .from("padova_quartieri_stats_v")
-      .select("zona, n_contendibili, n_annunci, n_agenzie, prezzo_min, prezzo_max"));
+      .select("zona, n_contendibili, n_annunci, n_agenzie, n_ribassi, n_privati, prezzo_min, prezzo_max"));
 
     // 2) Totali globali (unica riga)
     const { data: totalsRow, error: totalsErr } = await supabase
