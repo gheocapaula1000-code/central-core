@@ -74,7 +74,7 @@ export interface DiscoveryReport {
   run_id: string;
   perplexity_error_sample: PerplexityErrorSampleEntry[];
   dryRun: boolean;
-  imported: false;
+  imported: boolean;
   saved_candidates: number;
   firecrawl_available: boolean;
   perplexity_available: boolean;
