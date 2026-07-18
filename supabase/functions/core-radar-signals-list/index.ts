@@ -4,6 +4,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   resolveZoneFromRecord,
+  resolveZoneByName,
   applyQuartiereZonaMapFallback,
   UNRESOLVED_OMI_CODE,
   UNRESOLVED_OMI_LABEL,
