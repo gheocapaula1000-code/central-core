@@ -83,11 +83,24 @@ Deno.serve(async (req) => {
         lat: r.lat,
         lng: r.lng,
       };
-      const z = resolveZoneFromRecord(record);
-      const zone_label = z.label || UNRESOLVED_OMI_LABEL;
-      const display_zone = z.code === UNRESOLVED_OMI_CODE
-        ? (zone_label && zone_label !== UNRESOLVED_OMI_LABEL ? zone_label : null)
-        : zone_label;
+      let zone_code: string;
+      let zone_label: string;
+      let display_zone: string | null;
+      const payloadZona = typeof payload.zona === "string" ? payload.zona : "";
+      if (payloadZona.trim()) {
+        // Use ONLY payload.zona through the shared name resolver — no title parsing.
+        const byName = resolveZoneByName(payloadZona);
+        zone_code = byName.zone_code;
+        display_zone = byName.display_zone;
+        zone_label = byName.display_zone || UNRESOLVED_OMI_LABEL;
+      } else {
+        const z = resolveZoneFromRecord(record);
+        zone_code = z.code;
+        zone_label = z.label || UNRESOLVED_OMI_LABEL;
+        display_zone = z.code === UNRESOLVED_OMI_CODE
+          ? (zone_label && zone_label !== UNRESOLVED_OMI_LABEL ? zone_label : null)
+          : zone_label;
+      }
 
       return {
         fingerprint: r.fingerprint,
