@@ -18,6 +18,49 @@ import {
 
 export { UNRESOLVED_OMI_CODE, UNRESOLVED_OMI_LABEL };
 
+/**
+ * Resolve a free-text zone name (e.g. `payload.zona`) into a canonical
+ * `{ zone_code, display_zone }` using the same PADOVA_OMI_ZONES table already
+ * used by `resolvePadovaOmiSync` (no second map).
+ *
+ * Normalization:
+ *  - case & accent insensitive
+ *  - strips optional directional prefix "Nord - ", "Sud - ", "Est - ", "Ovest - "
+ *
+ * If the name cannot be resolved:
+ *   { zone_code: "UNRESOLVED_ZONE", display_zone: null }
+ */
+export function resolveZoneByName(
+  name: unknown,
+): { zone_code: string; display_zone: string | null } {
+  const raw = typeof name === "string" ? name : "";
+  if (!raw.trim()) {
+    return { zone_code: UNRESOLVED_OMI_CODE, display_zone: null };
+  }
+  // Strip accents + lowercase for prefix detection.
+  const stripped = raw
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+  const withoutPrefix = stripped.replace(
+    /^\s*(nord|sud|est|ovest)\s*[-–—:]\s*/i,
+    "",
+  ).trim();
+  if (!withoutPrefix) {
+    return { zone_code: UNRESOLVED_OMI_CODE, display_zone: null };
+  }
+  // Feed the cleaned name through the shared sync resolver so we reuse
+  // PADOVA_OMI_ZONES aliases (single source of truth).
+  const r = resolvePadovaOmiSync({ zona: withoutPrefix, quartiere: withoutPrefix });
+  if (r && r.omi_zone_code && r.omi_zone_code !== UNRESOLVED_OMI_CODE) {
+    return {
+      zone_code: r.omi_zone_code,
+      display_zone: r.omi_zone_label || null,
+    };
+  }
+  return { zone_code: UNRESOLVED_OMI_CODE, display_zone: null };
+}
+
 export function resolveZoneFromRecord(
   record: Record<string, unknown>,
 ): { code: string; label: string } {
