@@ -136,17 +136,7 @@ interface FeedItem {
 
 
 function resolveZone(record: Record<string, unknown>): { code: string; label: string } {
-  try {
-    const r = resolvePadovaOmiSync(record);
-    if (r && r.omi_zone_code) return { code: r.omi_zone_code, label: r.omi_zone_label || UNRESOLVED_OMI_LABEL };
-  } catch (_) { /* fall through */ }
-  const omi = (record.omi_zone as string) || "";
-  if (omi && omi.trim()) return { code: omi.trim(), label: (record.quartiere as string) || omi };
-  const quart = (record.quartiere as string) || "";
-  if (quart && quart.trim()) {
-    return { code: UNRESOLVED_OMI_CODE, label: quart.trim() };
-  }
-  return { code: UNRESOLVED_OMI_CODE, label: UNRESOLVED_OMI_LABEL };
+  return resolveZoneFromRecord(record);
 }
 
 function toCoord(v: unknown): number | null {
