@@ -202,6 +202,16 @@ verify_jwt = false
 [functions.padova-cambi-agenzia-list]
 verify_jwt = false
 
+[functions.civiko-private-leads-nightly]
+verify_jwt = false
+
+[functions.civiko-obituaries-aggregate]
+verify_jwt = false
+
+[functions.core-cron-health-public]
+verify_jwt = false
+
+
 
 
 
