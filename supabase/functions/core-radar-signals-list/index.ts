@@ -118,7 +118,7 @@ Deno.serve(async (req) => {
         payload: r.payload ? (r.payload as Record<string, unknown>) : null,
         detected_at: r.detected_at ? new Date(r.detected_at).toISOString() : new Date().toISOString(),
         expires_at: r.expires_at ? new Date(r.expires_at).toISOString() : null,
-        zone_code: z.code,
+        zone_code,
         // zone_label is kept internally for the fallback lookup key
         zone_label,
         display_zone,
