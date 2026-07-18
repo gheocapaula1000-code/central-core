@@ -8,9 +8,13 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import {
   resolvePadovaOmiSync,
   resolvePadovaOmiBatch,
+} from "../_shared/padovaOmiResolver.ts";
+import {
+  resolveZoneFromRecord,
+  applyQuartiereZonaMapFallback,
   UNRESOLVED_OMI_CODE,
   UNRESOLVED_OMI_LABEL,
-} from "../_shared/padovaOmiResolver.ts";
+} from "../_shared/padovaZoneResolver.ts";
 
 const SCHEMA_VERSION = "civiko_signals_feed_v1";
 const MAX_SKEW_MS = 5 * 60 * 1000;
