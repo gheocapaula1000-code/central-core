@@ -219,7 +219,7 @@ BEGIN
 
     -- listing_id: preferisci il numerico estratto dall'URL, fallback al ricevuto
     v_url_num := substring(v_url from '(\d{5,})(?:[^0-9]|$)');
-    v_listing_id := coalesce(v_url_num, v_listing_id_in);
+    v_listing_id := coalesce(v_url_num, nullif(btrim(v_listing_id_in), ''));
     IF v_listing_id IS NULL OR btrim(v_listing_id) = '' THEN
       v_rejected := v_rejected + 1; CONTINUE;
     END IF;
