@@ -6732,6 +6732,17 @@ export type Database = {
           parent_id: string | null
           payload: Json
           priority: number
+          processed_at: string | null
+          processing_attempt: number
+          processing_available_at: string | null
+          processing_last_error: Json | null
+          processing_locked_at: string | null
+          processing_locked_by: string | null
+          processing_locked_until: string | null
+          processing_max_attempts: number
+          processing_status: string
+          processor: string | null
+          processor_context: Json
           provider: Database["public"]["Enums"]["scraping_provider"]
           result: Json | null
           result_ref: string | null
@@ -6761,6 +6772,17 @@ export type Database = {
           parent_id?: string | null
           payload?: Json
           priority?: number
+          processed_at?: string | null
+          processing_attempt?: number
+          processing_available_at?: string | null
+          processing_last_error?: Json | null
+          processing_locked_at?: string | null
+          processing_locked_by?: string | null
+          processing_locked_until?: string | null
+          processing_max_attempts?: number
+          processing_status?: string
+          processor?: string | null
+          processor_context?: Json
           provider: Database["public"]["Enums"]["scraping_provider"]
           result?: Json | null
           result_ref?: string | null
@@ -6790,6 +6812,17 @@ export type Database = {
           parent_id?: string | null
           payload?: Json
           priority?: number
+          processed_at?: string | null
+          processing_attempt?: number
+          processing_available_at?: string | null
+          processing_last_error?: Json | null
+          processing_locked_at?: string | null
+          processing_locked_by?: string | null
+          processing_locked_until?: string | null
+          processing_max_attempts?: number
+          processing_status?: string
+          processor?: string | null
+          processor_context?: Json
           provider?: Database["public"]["Enums"]["scraping_provider"]
           result?: Json | null
           result_ref?: string | null
@@ -7708,6 +7741,17 @@ export type Database = {
           parent_id: string | null
           payload: Json
           priority: number
+          processed_at: string | null
+          processing_attempt: number
+          processing_available_at: string | null
+          processing_last_error: Json | null
+          processing_locked_at: string | null
+          processing_locked_by: string | null
+          processing_locked_until: string | null
+          processing_max_attempts: number
+          processing_status: string
+          processor: string | null
+          processor_context: Json
           provider: Database["public"]["Enums"]["scraping_provider"]
           result: Json | null
           result_ref: string | null
@@ -7750,6 +7794,25 @@ export type Database = {
         }
         Returns: string
       }
+      scraping_enqueue_processed: {
+        Args: {
+          p_available_at?: string
+          p_depends_on?: string[]
+          p_group_key?: string
+          p_idempotency_key?: string
+          p_max_attempts?: number
+          p_operation: string
+          p_parent_id?: string
+          p_payload: Json
+          p_priority?: number
+          p_processing_max_attempts?: number
+          p_processor: string
+          p_processor_context?: Json
+          p_provider: Database["public"]["Enums"]["scraping_provider"]
+          p_timeout_seconds?: number
+        }
+        Returns: string
+      }
       scraping_fail: {
         Args: {
           p_duration_ms?: number
@@ -7766,6 +7829,39 @@ export type Database = {
         Args: { p_extend_seconds?: number; p_id: string; p_worker_id: string }
         Returns: boolean
       }
+      scraping_processing_claim: {
+        Args: {
+          p_lease_seconds?: number
+          p_limit?: number
+          p_worker_id: string
+        }
+        Returns: {
+          id: string
+          operation: string
+          payload: Json
+          processing_attempt: number
+          processing_max_attempts: number
+          processor: string
+          processor_context: Json
+          provider: Database["public"]["Enums"]["scraping_provider"]
+          result: Json
+          result_ref: string
+        }[]
+      }
+      scraping_processing_complete: {
+        Args: { p_id: string; p_worker_id: string }
+        Returns: boolean
+      }
+      scraping_processing_fail: {
+        Args: {
+          p_error: Json
+          p_id: string
+          p_retryable?: boolean
+          p_worker_id: string
+        }
+        Returns: string
+      }
+      scraping_processing_reap_expired: { Args: never; Returns: number }
       scraping_reap_expired: { Args: never; Returns: number }
       st_zone_geojson_by_descr: {
         Args: { p_descr: string }
