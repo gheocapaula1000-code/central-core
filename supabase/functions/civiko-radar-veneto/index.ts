@@ -2856,24 +2856,15 @@ Deno.serve(async (req) => {
         const omiCodes = new Set<string>();
         if (omiReq) omiCodes.add(omiReq);
         if (quartiereReq) {
-          const { data: jobs } = await supa
-            .from("test_padova_full_run")
-            .select("result")
-            .eq("state", "done")
-            .order("finished_at", { ascending: false, nullsFirst: false })
-            .limit(5);
-          const latest = (jobs ?? []).find((j) => {
-            const r = j.result as Record<string, unknown> | null;
-            return !!(r && r.mode === "collect_v2" && r.padova_citta);
-          });
-          if (latest) {
-            const tab = ((latest.result as Record<string, any>).padova_citta?.tabella_per_quartiere ?? []) as Array<Record<string, unknown>>;
-            for (const r of tab) {
-              if (String(r.quartiere ?? "").toLowerCase() === quartiereReq.toLowerCase()) {
-                const c = String(r.codice_omi ?? "").toUpperCase();
-                if (c && c !== "—") omiCodes.add(c);
-              }
-            }
+          const key = quartiereReq.toLowerCase().trim();
+          const { data: rows, error: qErr } = await supa
+            .from("quartiere_zona_map")
+            .select("quartiere_key, omi_zone_code")
+            .or(`quartiere_key.eq.${key},quartiere_key.ilike.%${key}%`);
+          if (qErr) return withIdentity(fail(req, 500, "DB_ERROR", qErr.message, debugId), "error");
+          for (const r of (rows ?? []) as Array<{ quartiere_key: string; omi_zone_code: string | null }>) {
+            const c = String(r.omi_zone_code ?? "").toUpperCase();
+            if (c) omiCodes.add(c);
           }
           if (omiCodes.size === 0) {
             return withIdentity(fail(req, 404, "QUARTIERE_NOT_FOUND", `Quartiere '${quartiereReq}' non trovato.`, debugId), "error");
