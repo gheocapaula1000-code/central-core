@@ -6683,6 +6683,169 @@ export type Database = {
         }
         Relationships: []
       }
+      scraping_provider_state: {
+        Row: {
+          circuit_open_until: string | null
+          consecutive_failures: number
+          last_failure_at: string | null
+          last_success_at: string | null
+          provider: Database["public"]["Enums"]["scraping_provider"]
+          updated_at: string
+        }
+        Insert: {
+          circuit_open_until?: string | null
+          consecutive_failures?: number
+          last_failure_at?: string | null
+          last_success_at?: string | null
+          provider: Database["public"]["Enums"]["scraping_provider"]
+          updated_at?: string
+        }
+        Update: {
+          circuit_open_until?: string | null
+          consecutive_failures?: number
+          last_failure_at?: string | null
+          last_success_at?: string | null
+          provider?: Database["public"]["Enums"]["scraping_provider"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      scraping_queue: {
+        Row: {
+          attempt: number
+          available_at: string
+          completed_at: string | null
+          created_at: string
+          depends_on: string[]
+          duration_ms: number | null
+          group_key: string | null
+          http_status: number | null
+          id: string
+          idempotency_key: string | null
+          last_error: Json | null
+          last_heartbeat_at: string | null
+          locked_at: string | null
+          locked_by: string | null
+          locked_until: string | null
+          max_attempts: number
+          operation: string
+          parent_id: string | null
+          payload: Json
+          priority: number
+          provider: Database["public"]["Enums"]["scraping_provider"]
+          result: Json | null
+          result_ref: string | null
+          started_at: string | null
+          status: Database["public"]["Enums"]["scraping_queue_status"]
+          timeout_seconds: number
+          updated_at: string
+        }
+        Insert: {
+          attempt?: number
+          available_at?: string
+          completed_at?: string | null
+          created_at?: string
+          depends_on?: string[]
+          duration_ms?: number | null
+          group_key?: string | null
+          http_status?: number | null
+          id?: string
+          idempotency_key?: string | null
+          last_error?: Json | null
+          last_heartbeat_at?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          locked_until?: string | null
+          max_attempts?: number
+          operation: string
+          parent_id?: string | null
+          payload?: Json
+          priority?: number
+          provider: Database["public"]["Enums"]["scraping_provider"]
+          result?: Json | null
+          result_ref?: string | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["scraping_queue_status"]
+          timeout_seconds?: number
+          updated_at?: string
+        }
+        Update: {
+          attempt?: number
+          available_at?: string
+          completed_at?: string | null
+          created_at?: string
+          depends_on?: string[]
+          duration_ms?: number | null
+          group_key?: string | null
+          http_status?: number | null
+          id?: string
+          idempotency_key?: string | null
+          last_error?: Json | null
+          last_heartbeat_at?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          locked_until?: string | null
+          max_attempts?: number
+          operation?: string
+          parent_id?: string | null
+          payload?: Json
+          priority?: number
+          provider?: Database["public"]["Enums"]["scraping_provider"]
+          result?: Json | null
+          result_ref?: string | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["scraping_queue_status"]
+          timeout_seconds?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scraping_queue_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "scraping_queue"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scraping_queue_events: {
+        Row: {
+          attempt: number
+          created_at: string
+          detail: Json
+          event: string
+          id: number
+          queue_id: string
+          worker_id: string | null
+        }
+        Insert: {
+          attempt: number
+          created_at?: string
+          detail?: Json
+          event: string
+          id?: never
+          queue_id: string
+          worker_id?: string | null
+        }
+        Update: {
+          attempt?: number
+          created_at?: string
+          detail?: Json
+          event?: string
+          id?: never
+          queue_id?: string
+          worker_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scraping_queue_events_queue_id_fkey"
+            columns: ["queue_id"]
+            isOneToOne: false
+            referencedRelation: "scraping_queue"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sottra_scans: {
         Row: {
           address: string | null
@@ -7516,6 +7679,94 @@ export type Database = {
           omi_zone: string
         }[]
       }
+      scraping_cancel_group: { Args: { p_group_key: string }; Returns: number }
+      scraping_claim: {
+        Args: {
+          p_lease_seconds?: number
+          p_limit?: number
+          p_provider?: Database["public"]["Enums"]["scraping_provider"]
+          p_worker_id: string
+        }
+        Returns: {
+          attempt: number
+          available_at: string
+          completed_at: string | null
+          created_at: string
+          depends_on: string[]
+          duration_ms: number | null
+          group_key: string | null
+          http_status: number | null
+          id: string
+          idempotency_key: string | null
+          last_error: Json | null
+          last_heartbeat_at: string | null
+          locked_at: string | null
+          locked_by: string | null
+          locked_until: string | null
+          max_attempts: number
+          operation: string
+          parent_id: string | null
+          payload: Json
+          priority: number
+          provider: Database["public"]["Enums"]["scraping_provider"]
+          result: Json | null
+          result_ref: string | null
+          started_at: string | null
+          status: Database["public"]["Enums"]["scraping_queue_status"]
+          timeout_seconds: number
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "scraping_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      scraping_complete: {
+        Args: {
+          p_duration_ms?: number
+          p_http_status?: number
+          p_id: string
+          p_result: Json
+          p_result_ref?: string
+          p_worker_id: string
+        }
+        Returns: boolean
+      }
+      scraping_enqueue: {
+        Args: {
+          p_available_at?: string
+          p_depends_on?: string[]
+          p_group_key?: string
+          p_idempotency_key?: string
+          p_max_attempts?: number
+          p_operation: string
+          p_parent_id?: string
+          p_payload: Json
+          p_priority?: number
+          p_provider: Database["public"]["Enums"]["scraping_provider"]
+          p_timeout_seconds?: number
+        }
+        Returns: string
+      }
+      scraping_fail: {
+        Args: {
+          p_duration_ms?: number
+          p_error: Json
+          p_http_status?: number
+          p_id: string
+          p_retry_after_seconds?: number
+          p_retryable?: boolean
+          p_worker_id: string
+        }
+        Returns: string
+      }
+      scraping_heartbeat: {
+        Args: { p_extend_seconds?: number; p_id: string; p_worker_id: string }
+        Returns: boolean
+      }
+      scraping_reap_expired: { Args: never; Returns: number }
       st_zone_geojson_by_descr: {
         Args: { p_descr: string }
         Returns: {
@@ -7549,6 +7800,14 @@ export type Database = {
         | "listing_idealista"
         | "listing_subito"
         | "promo_plan"
+      scraping_provider: "firecrawl" | "perplexity" | "apify"
+      scraping_queue_status:
+        | "pending"
+        | "running"
+        | "retry"
+        | "succeeded"
+        | "dead"
+        | "cancelled"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -7694,6 +7953,15 @@ export const Constants = {
         "listing_idealista",
         "listing_subito",
         "promo_plan",
+      ],
+      scraping_provider: ["firecrawl", "perplexity", "apify"],
+      scraping_queue_status: [
+        "pending",
+        "running",
+        "retry",
+        "succeeded",
+        "dead",
+        "cancelled",
       ],
     },
   },
