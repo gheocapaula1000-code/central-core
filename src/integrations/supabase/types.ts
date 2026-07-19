@@ -7674,6 +7674,10 @@ export type Database = {
           zona_descr: string
         }[]
       }
+      process_padova_portal_collect_v2: {
+        Args: { p_listings: Json; p_queue_id: string; p_worker_id: string }
+        Returns: Json
+      }
       promote_padova_agencies_listings: {
         Args: { p_since?: string }
         Returns: Json

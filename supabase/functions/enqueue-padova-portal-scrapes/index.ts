@@ -1,11 +1,23 @@
 // enqueue-padova-portal-scrapes
-// Fase 1A SHADOW MODE — enqueue asincrono verso scraping_queue con processor
-// padova_portal_collect_v2. Non invocato da alcun cron. Solo POST autenticato
-// via x-job-secret == CENTRAL_CORE_JOB_SECRET. Nessun CORS.
+// Fase 1B SHADOW MODE — enqueue asincrono verso scraping_queue con processor
+// padova_portal_collect_v2. Accoda esclusivamente PAGINA 1 di ogni portale
+// selezionato. Le pagine successive vengono accodate dal
+// scraping-result-processor dopo il salvataggio della pagina precedente.
 //
-// Selezione portali equivalente a selectPortalsForMode() di portalScrapers.ts.
+// Non invocato da alcun cron. Solo POST autenticato via x-job-secret ==
+// CENTRAL_CORE_JOB_SECRET. Nessun CORS.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import {
+  ALL_PORTALS,
+  buildPageGroupKey,
+  buildPageIdempotencyKey,
+  buildPortalPageUrl,
+  getAbsoluteMaxPages,
+  getDefaultMaxPages,
+  type Mode,
+  type Portal,
+} from "../_shared/queue-processors/padovaPortalPages.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -15,27 +27,8 @@ const sb = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { persistSession: false },
 });
 
-type Portal = "immobiliare.it" | "idealista.it" | "casa.it" | "subito.it";
-type Mode = "soft" | "full";
-
-const ALL_PORTALS: Portal[] = [
-  "immobiliare.it",
-  "idealista.it",
-  "casa.it",
-  "subito.it",
-];
-
 const MUNICIPALITY = "Padova";
 const PROVINCE = "PD";
-const SLUG = "padova";
-
-const URL_BUILDERS: Record<Portal, string> = {
-  "immobiliare.it": `https://www.immobiliare.it/vendita-case/${SLUG}/?ordinamento=dataModifica`,
-  "idealista.it": `https://www.idealista.it/vendita-case/${SLUG}/`,
-  "casa.it": `https://www.casa.it/vendita/residenziale/${SLUG}`,
-  "subito.it": `https://www.subito.it/annunci-veneto/vendita/case/${SLUG}/`,
-};
-
 const FIRECRAWL_WAIT_FOR_MS = 3000;
 
 function json(body: unknown, status = 200): Response {
@@ -127,7 +120,6 @@ Deno.serve(async (req) => {
   }
 
   // mode: assente → soft; presente → deve essere esattamente "soft" o "full".
-  // mode:null → 400 invalid_mode.
   let mode: Mode;
   if (!("mode" in body)) {
     mode = "soft";
@@ -137,8 +129,25 @@ Deno.serve(async (req) => {
     return json({ error: "invalid_mode" }, 400);
   }
 
-  // portals: se presente ed è array (anche vuoto) → selezione esplicita;
-  //          se presente ma non è array → 400; se assente → rotazione auto.
+  // max_pages: assente → default; presente → deve essere intero nel range.
+  let max_pages: number;
+  if (!("max_pages" in body)) {
+    max_pages = getDefaultMaxPages(mode);
+  } else {
+    const raw = body.max_pages;
+    if (
+      typeof raw !== "number" ||
+      !Number.isFinite(raw) ||
+      !Number.isInteger(raw) ||
+      raw < 1 ||
+      raw > getAbsoluteMaxPages(mode)
+    ) {
+      return json({ error: "invalid_max_pages" }, 400);
+    }
+    max_pages = raw;
+  }
+
+  // portals
   const now = new Date();
   let selectedPortals: Portal[];
   let rotationKey: string;
@@ -165,27 +174,31 @@ Deno.serve(async (req) => {
     rotationKey = sel.rotationKey;
   }
 
-  const date = romeDate(now);
+  const run_date = romeDate(now);
 
   if (selectedPortals.length === 0) {
-    return json({ ok: true, mode, rotation_key: rotationKey, enqueued: [], skipped: [] });
+    return json({
+      ok: true, mode, rotation_key: rotationKey, max_pages,
+      enqueued: [], skipped: [],
+    });
   }
 
-  const priority = mode === "full" ? 700 : 500;
+  const basePriority = mode === "full" ? 700 : 500;
+  const PAGE = 1; // Enqueue accoda esclusivamente pagina 1.
+  const priority = basePriority - (PAGE - 1);
+
   const enqueued: Array<{
-    portal: Portal; queue_id: string | null; url: string; idempotency_key: string;
+    portal: Portal; page: number; queue_id: string; url: string; idempotency_key: string;
   }> = [];
   const skipped: Array<{ portal: Portal; reason: string }> = [];
   let hadError = false;
 
   for (const portal of selectedPortals) {
-    const url = URL_BUILDERS[portal];
-    if (!url) {
-      skipped.push({ portal, reason: "no_url" });
-      continue;
-    }
-    const urlHash = (await sha1Hex(url)).slice(0, 16);
-    const idempotency_key = `padova_portal:${date}:${portal}:${mode}:${urlHash}`;
+    const url = buildPortalPageUrl(portal, PAGE);
+    const urlHash16 = (await sha1Hex(url)).slice(0, 16);
+    const idempotency_key = buildPageIdempotencyKey({
+      runDate: run_date, portal, mode, page: PAGE, urlHash16,
+    });
 
     const payload = {
       url,
@@ -198,8 +211,11 @@ Deno.serve(async (req) => {
       province: PROVINCE,
       portal,
       mode,
+      page: PAGE,
+      max_pages,
+      run_date,
     };
-    const group_key = `radar:padova:portal:${portal}`;
+    const group_key = buildPageGroupKey(portal);
 
     const { data, error } = await sb.rpc("scraping_enqueue_processed", {
       p_provider: "firecrawl",
@@ -217,13 +233,12 @@ Deno.serve(async (req) => {
 
     if (error) {
       console.error("[enqueue-padova-portal-scrapes] enqueue_error", {
-        portal, mode, code: error.code, message: error.message,
+        portal, mode, page: PAGE, code: error.code, message: error.message,
       });
       skipped.push({ portal, reason: `enqueue_error:${error.code ?? "unknown"}` });
       hadError = true;
       continue;
     }
-    // Estrai queue_id sia da scalare stringa sia da {id:string}.
     const rawId =
       typeof data === "string"
         ? data
@@ -232,17 +247,14 @@ Deno.serve(async (req) => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (typeof rawId !== "string" || !UUID_RE.test(rawId)) {
       console.error("[enqueue-padova-portal-scrapes] invalid_enqueue_result", {
-        portal, mode, received_type: typeof data,
+        portal, mode, page: PAGE, received_type: typeof data,
       });
       skipped.push({ portal, reason: "invalid_enqueue_result" });
       hadError = true;
       continue;
     }
     enqueued.push({
-      portal,
-      queue_id: rawId,
-      url,
-      idempotency_key,
+      portal, page: PAGE, queue_id: rawId, url, idempotency_key,
     });
   }
 
@@ -250,10 +262,9 @@ Deno.serve(async (req) => {
     ok: !hadError,
     mode,
     rotation_key: rotationKey,
+    max_pages,
     enqueued,
     skipped,
   };
-  // Se almeno una RPC ha fallito → HTTP non-2xx. La RPC è idempotente,
-  // quindi il retry dell'intera richiesta è sicuro.
   return json(respBody, hadError ? 502 : 200);
 });

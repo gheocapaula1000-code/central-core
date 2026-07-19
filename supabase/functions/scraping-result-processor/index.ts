@@ -12,6 +12,15 @@ import {
   type PortalProcessorContext,
   type PortalSource,
 } from "../_shared/queue-processors/padovaPortalParser.ts";
+import {
+  buildPageGroupKey,
+  buildPageIdempotencyKey,
+  buildPortalPageUrl,
+  validatePageNumber,
+  type Mode as PageMode,
+  type Portal as PagePortal,
+} from "../_shared/queue-processors/padovaPortalPages.ts";
+
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -78,8 +87,9 @@ type ProcessorFn = (
 
 const PROCESSOR_TIMEOUT_MS: Record<string, number> = {
   queue_smoke_test: 5_000,
-  padova_portal_collect_v2: 15_000,
+  padova_portal_collect_v2: 20_000,
 };
+
 
 const PROCESSORS: Record<string, ProcessorFn> = {
   queue_smoke_test: async (job, signal, _workerId) => {
@@ -118,12 +128,39 @@ const PROCESSORS: Record<string, ProcessorFn> = {
       throw new ProcessorError("missing_result", false, "missing_result");
     }
 
+    // ─── Contesto multipagina (Fase 1B) con retro-compat Fase 1A ───
+    // Se page/max_pages/run_date sono assenti, degradare a page=1/max_pages=1
+    // → nessun accodamento della pagina successiva.
+    const RUN_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+    const hasMulti = "page" in ctx || "max_pages" in ctx || "run_date" in ctx;
+    let page = 1;
+    let max_pages = 1;
+    let run_date: string | null = null;
+    let multipageEnabled = false;
+    if (hasMulti) {
+      const p = validatePageNumber(ctx.page);
+      const mp = validatePageNumber(ctx.max_pages);
+      const rd = typeof ctx.run_date === "string" ? ctx.run_date : "";
+      if (p === null || mp === null || !RUN_DATE_RE.test(rd) || p > mp) {
+        throw new ProcessorError(
+          "invalid_multipage_context",
+          false,
+          "invalid_context",
+        );
+      }
+      page = p;
+      max_pages = mp;
+      run_date = rd;
+      multipageEnabled = true;
+    }
+
     if (signal.aborted) {
       throw new ProcessorError("processor_aborted", true, "processor_aborted");
     }
 
     const context: PortalProcessorContext = {
       municipality, province, portal, mode: mode as "soft" | "full",
+      ...(multipageEnabled ? { page, max_pages, run_date: run_date! } : {}),
     };
 
     // Parser puro
@@ -148,7 +185,6 @@ const PROCESSORS: Record<string, ProcessorFn> = {
     }
 
     // RPC atomica: .abortSignal(signal) permette l'interruzione HTTP reale.
-    // p_worker_id, NON p_context (derivato server-side dalla coda).
     const { data, error } = await sb
       .rpc("process_padova_portal_collect_v2", {
         p_queue_id: job.id,
@@ -157,11 +193,7 @@ const PROCESSORS: Record<string, ProcessorFn> = {
       })
       .abortSignal(signal);
 
-    // Dopo una risposta RPC completata NON facciamo nuovi check su
-    // signal.aborted: se AbortSignal ha vinto la corsa la RPC ha già
-    // restituito `error`. Se `error` è null → successo definitivo.
     if (error) {
-      // Se l'errore proviene dall'abort, classificalo come retryable.
       const isAbort =
         (error.message ?? "").toLowerCase().includes("abort") ||
         (error.name ?? "").toLowerCase() === "aborterror";
@@ -176,11 +208,7 @@ const PROCESSORS: Record<string, ProcessorFn> = {
 
     // Validazione rigorosa del riepilogo restituito dalla RPC.
     if (!data || typeof data !== "object" || Array.isArray(data)) {
-      throw new ProcessorError(
-        "invalid_rpc_summary",
-        false,
-        "invalid_rpc_summary",
-      );
+      throw new ProcessorError("invalid_rpc_summary", false, "invalid_rpc_summary");
     }
     const summary = data as Record<string, unknown>;
     const received = summary.received;
@@ -198,32 +226,128 @@ const PROCESSORS: Record<string, ProcessorFn> = {
       received !== listings.length ||
       created + updated + rejected !== received
     ) {
-      throw new ProcessorError(
-        "invalid_rpc_summary",
-        false,
-        "invalid_rpc_summary",
-      );
+      throw new ProcessorError("invalid_rpc_summary", false, "invalid_rpc_summary");
     }
     if (created + updated === 0) {
       throw new ProcessorError(
-        "all_listings_rejected",
-        false,
-        "all_listings_rejected",
+        "all_listings_rejected", false, "all_listings_rejected",
         { received, rejected },
       );
     }
 
-    // Log riepilogo compatto — nessun dump del `data` grezzo
+    // ─── Accodamento pagina successiva (Fase 1B) ───
+    // Soltanto se:
+    //  - contesto multipagina valido presente sul job corrente;
+    //  - page < max_pages;
+    //  - il parser ha prodotto almeno 10 annunci validi;
+    //  - signal non è aborted.
+    let next_page: number | null = null;
+    let next_queue_id: string | null = null;
+    if (
+      multipageEnabled &&
+      !signal.aborted &&
+      page < max_pages &&
+      listings.length >= 10
+    ) {
+      const nextP = page + 1;
+      try {
+        const nextPortal = portal as PagePortal;
+        const nextMode = mode as PageMode;
+        const nextUrl = buildPortalPageUrl(nextPortal, nextP);
+        const urlBuf = await crypto.subtle.digest(
+          "SHA-1",
+          new TextEncoder().encode(nextUrl),
+        );
+        const urlHash16 = Array.from(new Uint8Array(urlBuf))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("")
+          .slice(0, 16);
+        const nextIdem = buildPageIdempotencyKey({
+          runDate: run_date!, portal: nextPortal, mode: nextMode,
+          page: nextP, urlHash16,
+        });
+        const nextGroup = buildPageGroupKey(nextPortal);
+        const basePriority = nextMode === "full" ? 700 : 500;
+        const nextPriority = basePriority - (nextP - 1);
+        const nextPayload = {
+          url: nextUrl, formats: ["markdown"],
+          onlyMainContent: false, waitFor: 3000,
+        };
+        const nextCtx = {
+          municipality: "Padova", province: "PD",
+          portal: nextPortal, mode: nextMode,
+          page: nextP, max_pages, run_date,
+        };
+
+        const { data: enqData, error: enqErr } = await sb.rpc(
+          "scraping_enqueue_processed",
+          {
+            p_provider: "firecrawl",
+            p_operation: "scrape",
+            p_payload: nextPayload,
+            p_processor: "padova_portal_collect_v2",
+            p_processor_context: nextCtx,
+            p_idempotency_key: nextIdem,
+            p_group_key: nextGroup,
+            p_priority: nextPriority,
+            p_max_attempts: 3,
+            p_timeout_seconds: 45,
+            p_processing_max_attempts: 5,
+          },
+        );
+        if (enqErr) {
+          // idempotency: se già presente la RPC risponde con id esistente,
+          // quindi qui abbiamo un errore reale → retryable senza payload.
+          throw new ProcessorError(
+            `enqueue_next_page_failed:${enqErr.code ?? ""}`.slice(0, 200),
+            true,
+            "enqueue_next_page_failed",
+            { next_page: nextP },
+          );
+        }
+        const rawNextId =
+          typeof enqData === "string"
+            ? enqData
+            : (enqData as { id?: unknown } | null)?.id;
+        const UUID_RE =
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (typeof rawNextId !== "string" || !UUID_RE.test(rawNextId)) {
+          throw new ProcessorError(
+            "enqueue_next_page_failed",
+            true,
+            "enqueue_next_page_failed",
+            { next_page: nextP },
+          );
+        }
+        next_page = nextP;
+        next_queue_id = rawNextId;
+      } catch (e) {
+        if (e instanceof ProcessorError) throw e;
+        throw new ProcessorError(
+          "enqueue_next_page_failed",
+          true,
+          "enqueue_next_page_failed",
+          { next_page: nextP },
+        );
+      }
+    }
+
+    // Log riepilogo compatto — nessun dump di markdown/result/payload.
     console.log("[padova_portal_collect_v2] ok", {
       queue_id: job.id,
       portal,
+      page,
+      parsed_count: listings.length,
       created,
       updated,
       rejected,
+      next_page,
+      next_queue_id,
     });
     return { ok: true };
   },
 };
+
 
 // -------- Helpers --------
 
