@@ -2,7 +2,7 @@
 -- scraping_queue: livello separato di RESULT PROCESSING
 -- Non applicare automaticamente. Revisione richiesta prima dell'esecuzione.
 -- Prerequisito: creare vault.secrets 'scraping_result_processor_url'
---   (es: https://<project-ref>.functions.supabase.co/scraping-result-processor)
+--   (valore atteso: https://jpunnzgixcghuydstdlt.supabase.co/functions/v1/scraping-result-processor)
 -- ============================================================================
 
 -- 1) Colonne nuove su public.scraping_queue --------------------------------------
