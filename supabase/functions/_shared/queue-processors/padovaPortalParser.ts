@@ -13,10 +13,38 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { parseCasaListPage } from "../casaParser.ts";
-import {
-  normalizePropertyType,
-  type PropertyType,
-} from "../../civiko-radar-veneto/listingIdentity.ts";
+
+// Inlined da civiko-radar-veneto/listingIdentity.ts: le funzioni edge non
+// possono importare da altre function directory (bundler isolato per function).
+export type PropertyType =
+  | "appartamento"
+  | "villa"
+  | "villetta"
+  | "attico"
+  | "loft"
+  | "rustico"
+  | "terreno"
+  | "commerciale"
+  | "altro";
+
+const TYPE_NORMALIZATION: Array<[RegExp, PropertyType]> = [
+  [/villa\b/i, "villa"],
+  [/villett/i, "villetta"],
+  [/attico|penth/i, "attico"],
+  [/loft/i, "loft"],
+  [/rustico|casale|cascina/i, "rustico"],
+  [/terren|lotto|edificabil/i, "terreno"],
+  [/negozio|ufficio|capanno|magazz|commercial/i, "commerciale"],
+  [/appartament|trilocal|bilocal|monolocal|quadrilocal|pentaloc|loft/i, "appartamento"],
+];
+
+export function normalizePropertyType(raw: string | null | undefined): PropertyType {
+  if (!raw) return "altro";
+  for (const [re, type] of TYPE_NORMALIZATION) {
+    if (re.test(raw)) return type;
+  }
+  return "altro";
+}
 
 export type PortalSource =
   | "immobiliare.it"
