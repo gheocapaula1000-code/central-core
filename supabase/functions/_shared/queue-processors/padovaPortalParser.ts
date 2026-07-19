@@ -5,17 +5,22 @@
 // VINCOLI (Fase 1A shadow mode):
 // - Nessun fetch, nessun secret, nessun accesso DB.
 // - Input: result Firecrawl + processor_context.
-// - Output: NormalizedListing[] (max 100).
+// - Output: NormalizedListing[] con cap per mode (soft=25, full=60).
+//   Difesa in profondità: hard-cap globale 100.
 // - Portali supportati: immobiliare.it, idealista.it, casa.it, subito.it.
-// - Riusa le stesse regole di parsing di portalScrapers.ts / casaParser.ts.
-// - Scarta URL non http/https e annunci con address che referenzia
-//   un comune diverso da Padova.
+// - Riusa le regole markdown di portalScrapers.ts / casaParser.ts:
+//   estrae realmente property_type, surface_sqm, rooms, agency_name,
+//   address quando presenti nella card markdown.
+// - Filtro geografico Padova, dedupe per listing_id/URL.
+// - Nessun dato inventato.
+//
+// NOTA: la logica dei tipi è funzionalmente equivalente a
+// civiko-radar-veneto/listingIdentity.ts; il file è duplicato perché
+// il bundler edge isola una funzione dall'altra.
 // ═══════════════════════════════════════════════════════════════
 
 import { parseCasaListPage } from "../casaParser.ts";
 
-// Inlined da civiko-radar-veneto/listingIdentity.ts: le funzioni edge non
-// possono importare da altre function directory (bundler isolato per function).
 export type PropertyType =
   | "appartamento"
   | "villa"
@@ -28,14 +33,14 @@ export type PropertyType =
   | "altro";
 
 const TYPE_NORMALIZATION: Array<[RegExp, PropertyType]> = [
-  [/villa\b/i, "villa"],
   [/villett/i, "villetta"],
+  [/villa\b/i, "villa"],
   [/attico|penth/i, "attico"],
   [/loft/i, "loft"],
   [/rustico|casale|cascina/i, "rustico"],
   [/terren|lotto|edificabil/i, "terreno"],
   [/negozio|ufficio|capanno|magazz|commercial/i, "commerciale"],
-  [/appartament|trilocal|bilocal|monolocal|quadrilocal|pentaloc|loft/i, "appartamento"],
+  [/appartament|trilocal|bilocal|monolocal|quadrilocal|pentaloc/i, "appartamento"],
 ];
 
 export function normalizePropertyType(raw: string | null | undefined): PropertyType {
@@ -75,10 +80,15 @@ export interface PortalProcessorContext {
   mode: "soft" | "full";
 }
 
-const MAX_LISTINGS = 100;
+const HARD_CAP = 100;
+const MODE_CAPS: Record<"soft" | "full", number> = { soft: 25, full: 60 };
+
 const PRICE_NEAR_RE = /€\s*(\d{1,3}(?:\.\d{3})+|\d{4,7})(?!\d|\.\d)/;
+const SQM_NEAR_RE = /(\d{2,4})\s*m(?:q|²)\b/i;
+const ROOMS_NEAR_RE = /(\d{1,2})\s*(?:local[ei]|stanz[ei]|camer[ei])\b/i;
 const OTHER_COMUNI_RE =
-  /\b(vicenza|verona|treviso|venezia|mestre|rovigo|belluno|milano|roma|bologna|torino|firenze)\b/i;
+  /\b(abano|albignasego|rubano|selvazzano|vigonza|cadoneghe|noventa padovana|ponte san nicol[oò]|vicenza|verona|treviso|venezia|mestre|rovigo|belluno|milano|roma|bologna|torino|firenze)\b/i;
+const PADOVA_BOUNDS = { minLat: 45.34, maxLat: 45.48, minLng: 11.78, maxLng: 11.98 };
 
 function parsePriceEurLocal(raw: string): number | null {
   const digits = raw.replace(/\./g, "");
@@ -87,15 +97,27 @@ function parsePriceEurLocal(raw: string): number | null {
   return Math.round(n);
 }
 
-function isValidHttpUrl(u: string): boolean {
-  if (typeof u !== "string") return false;
-  return /^https?:\/\//i.test(u);
+function parseIntSafe(raw: string, min: number, max: number): number | null {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < min || n > max) return null;
+  return Math.round(n);
 }
 
-function isNotPadova(address: string | null): boolean {
-  if (!address) return false;
-  if (/padova/i.test(address)) return false;
-  return OTHER_COMUNI_RE.test(address);
+function isValidHttpsUrl(u: string, host: string): boolean {
+  if (typeof u !== "string") return false;
+  const m = u.match(/^https:\/\/([^/]+)/i);
+  return !!m && m[1].toLowerCase() === host;
+}
+
+function isInsidePadova(l: NormalizedListing): boolean {
+  const hasReal = typeof l.lat === "number" && typeof l.lng === "number" &&
+    !(Math.abs(l.lat) < 0.000001 && Math.abs(l.lng) < 0.000001);
+  if (hasReal) {
+    return l.lat! >= PADOVA_BOUNDS.minLat && l.lat! <= PADOVA_BOUNDS.maxLat &&
+      l.lng! >= PADOVA_BOUNDS.minLng && l.lng! <= PADOVA_BOUNDS.maxLng;
+  }
+  const txt = `${l.title ?? ""} ${l.address ?? ""}`.toLowerCase();
+  return !OTHER_COMUNI_RE.test(txt);
 }
 
 function extractMarkdown(result: unknown): string {
@@ -107,14 +129,33 @@ function extractMarkdown(result: unknown): string {
   return md1 || md2 || "";
 }
 
+function extractSurface(win: string): number | null {
+  const m = win.match(SQM_NEAR_RE);
+  return m ? parseIntSafe(m[1], 8, 2000) : null;
+}
+function extractRooms(win: string): number | null {
+  const m = win.match(ROOMS_NEAR_RE);
+  return m ? parseIntSafe(m[1], 1, 30) : null;
+}
+function extractAgency(win: string): string | null {
+  // "Agenzia: Foo" / "Immobiliare Foo" / "Studio Foo"
+  const m = win.match(/(?:Agenzia[:\s]+|\bImmobiliare\s+|\bStudio\s+)([A-Z][^\n|·•]{2,60})/);
+  return m ? m[1].trim().slice(0, 150) : null;
+}
+function extractAddress(win: string): string | null {
+  const m = win.match(/((?:Via|Viale|V\.le|Piazza|P\.zza|Piazzale|P\.le|Corso|C\.so|Largo|Vicolo|Strada|Borgo|Lungargine|Riviera|Salita)\s+[A-ZÀ-Ù][^\n|·•]{2,120})/);
+  return m ? m[1].trim().slice(0, 200) : null;
+}
+
 // ──────────────── casa.it ────────────────
-function parseCasa(md: string): NormalizedListing[] {
+function parseCasa(md: string, cap: number): NormalizedListing[] {
   const parsed = parseCasaListPage(md, "https://www.casa.it/");
   const out: NormalizedListing[] = [];
   for (const p of parsed) {
-    if (!isValidHttpUrl(p.source_url)) continue;
+    if (!isValidHttpsUrl(p.source_url, "www.casa.it")) continue;
     const rawAgency = (p.agency_name ?? "").trim();
     const isPrivate = p.is_privato || /privat[oi]/i.test(rawAgency);
+    const typeSource = `${p.title ?? ""} ${p.description ?? ""}`;
     const listing: NormalizedListing = {
       source: "casa.it",
       listing_id: `casa-${p.listing_id}`,
@@ -124,15 +165,15 @@ function parseCasa(md: string): NormalizedListing[] {
       price_eur: p.price_eur,
       surface_sqm: p.surface_sqm,
       rooms: p.rooms,
-      property_type: normalizePropertyType(null),
+      property_type: normalizePropertyType(typeSource),
       agency_name: rawAgency && !isPrivate ? rawAgency.slice(0, 150) : null,
       is_private: isPrivate,
       lat: null,
       lng: null,
     };
-    if (isNotPadova(listing.address)) continue;
+    if (!isInsidePadova(listing)) continue;
     out.push(listing);
-    if (out.length >= MAX_LISTINGS) break;
+    if (out.length >= cap) break;
   }
   return out;
 }
@@ -140,6 +181,7 @@ function parseCasa(md: string): NormalizedListing[] {
 // ──────────────── immobiliare.it / idealista.it ────────────────
 interface Profile {
   source: PortalSource;
+  host: string;
   linkRe: RegExp;
   urlBuilder: (id: string) => string;
   idPrefix: string;
@@ -147,6 +189,7 @@ interface Profile {
 
 const IMM_PROFILE: Profile = {
   source: "immobiliare.it",
+  host: "www.immobiliare.it",
   linkRe:
     /(?<=^|[^!])\[([^\]\n]+?)\]\(https:\/\/www\.immobiliare\.it\/annunci\/(\d{6,})\/?[^)]*\)/g,
   urlBuilder: (id) => `https://www.immobiliare.it/annunci/${id}/`,
@@ -155,18 +198,19 @@ const IMM_PROFILE: Profile = {
 
 const IDL_PROFILE: Profile = {
   source: "idealista.it",
+  host: "www.idealista.it",
   linkRe:
     /(?<=^|[^!])\[([^\]\n]+?)\]\(https:\/\/www\.idealista\.it\/immobile\/(\d{5,})\/?[^)]*\)/g,
   urlBuilder: (id) => `https://www.idealista.it/immobile/${id}/`,
   idPrefix: "idl",
 };
 
-function parseByProfile(md: string, profile: Profile): NormalizedListing[] {
+function parseByProfile(md: string, profile: Profile, cap: number): NormalizedListing[] {
   const out: NormalizedListing[] = [];
   const seen = new Set<string>();
   profile.linkRe.lastIndex = 0;
   let m: RegExpExecArray | null;
-  while ((m = profile.linkRe.exec(md)) !== null && out.length < MAX_LISTINGS) {
+  while ((m = profile.linkRe.exec(md)) !== null && out.length < cap) {
     const rawTitle = (m[1] ?? "").trim();
     const id = (m[2] ?? "").trim();
     if (!id || seen.has(id)) continue;
@@ -177,35 +221,40 @@ function parseByProfile(md: string, profile: Profile): NormalizedListing[] {
     const price = pm ? parsePriceEurLocal(pm[1]) : null;
     if (!rawTitle && price == null) continue;
     const url = profile.urlBuilder(id);
-    if (!isValidHttpUrl(url)) continue;
+    if (!isValidHttpsUrl(url, profile.host)) continue;
+    const agency = extractAgency(win);
+    const address = extractAddress(win);
+    const isPrivate = /\bprivat[oi]\b/i.test(win);
     seen.add(id);
-    out.push({
+    const listing: NormalizedListing = {
       source: profile.source,
       listing_id: `${profile.idPrefix}-${id}`,
       url,
       title: (rawTitle || "Annuncio").slice(0, 200),
-      address: null,
+      address,
       price_eur: price,
-      surface_sqm: null,
-      rooms: null,
-      property_type: normalizePropertyType(null),
-      agency_name: null,
-      is_private: false,
+      surface_sqm: extractSurface(win),
+      rooms: extractRooms(win),
+      property_type: normalizePropertyType(`${rawTitle} ${win.slice(0, 200)}`),
+      agency_name: agency && !isPrivate ? agency : null,
+      is_private: isPrivate,
       lat: null,
       lng: null,
-    });
+    };
+    if (!isInsidePadova(listing)) continue;
+    out.push(listing);
   }
   return out;
 }
 
 // ──────────────── subito.it ────────────────
-function parseSubito(md: string): NormalizedListing[] {
+function parseSubito(md: string, cap: number): NormalizedListing[] {
   const out: NormalizedListing[] = [];
   const seen = new Set<string>();
   const re =
     /(?<=^|[^!])\[([^\]\n]+?)\]\(https:\/\/www\.subito\.it\/([^)\s]*?-(\d{6,})\.htm)[^)]*\)/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(md)) !== null && out.length < MAX_LISTINGS) {
+  while ((m = re.exec(md)) !== null && out.length < cap) {
     const rawTitle = (m[1] ?? "").trim();
     const path = (m[2] ?? "").trim();
     const id = (m[3] ?? "").trim();
@@ -217,23 +266,27 @@ function parseSubito(md: string): NormalizedListing[] {
     const price = pm ? parsePriceEurLocal(pm[1]) : null;
     if (!rawTitle && price == null) continue;
     const url = `https://www.subito.it/${path}`;
-    if (!isValidHttpUrl(url)) continue;
+    if (!isValidHttpsUrl(url, "www.subito.it")) continue;
+    const agency = extractAgency(win);
+    const isPrivate = !agency || /\bprivat[oi]\b/i.test(win);
     seen.add(id);
-    out.push({
+    const listing: NormalizedListing = {
       source: "subito.it",
       listing_id: `sub-${id}`,
       url: url.slice(0, 400),
       title: (rawTitle || "Annuncio").slice(0, 200),
-      address: null,
+      address: extractAddress(win),
       price_eur: price,
-      surface_sqm: null,
-      rooms: null,
-      property_type: normalizePropertyType(null),
-      agency_name: null,
-      is_private: true,
+      surface_sqm: extractSurface(win),
+      rooms: extractRooms(win),
+      property_type: normalizePropertyType(`${rawTitle} ${win.slice(0, 200)}`),
+      agency_name: agency && !isPrivate ? agency : null,
+      is_private: isPrivate,
       lat: null,
       lng: null,
-    });
+    };
+    if (!isInsidePadova(listing)) continue;
+    out.push(listing);
   }
   return out;
 }
@@ -245,30 +298,28 @@ export function parseFirecrawlResult(
 ): NormalizedListing[] {
   const md = extractMarkdown(result);
   if (!md) return [];
+  const cap = Math.min(HARD_CAP, MODE_CAPS[context.mode] ?? MODE_CAPS.soft);
   let listings: NormalizedListing[];
   switch (context.portal) {
     case "casa.it":
-      listings = parseCasa(md);
-      break;
+      listings = parseCasa(md, cap); break;
     case "immobiliare.it":
-      listings = parseByProfile(md, IMM_PROFILE);
-      break;
+      listings = parseByProfile(md, IMM_PROFILE, cap); break;
     case "idealista.it":
-      listings = parseByProfile(md, IDL_PROFILE);
-      break;
+      listings = parseByProfile(md, IDL_PROFILE, cap); break;
     case "subito.it":
-      listings = parseSubito(md);
-      break;
+      listings = parseSubito(md, cap); break;
     default:
       return [];
   }
-  // Extra safety: cap + URL/comune guard applicati globalmente.
+  // Dedupe finale per listing_id
+  const seen = new Set<string>();
   const clean: NormalizedListing[] = [];
   for (const l of listings) {
-    if (!isValidHttpUrl(l.url)) continue;
-    if (isNotPadova(l.address)) continue;
+    if (seen.has(l.listing_id)) continue;
+    seen.add(l.listing_id);
     clean.push(l);
-    if (clean.length >= MAX_LISTINGS) break;
+    if (clean.length >= cap) break;
   }
   return clean;
 }

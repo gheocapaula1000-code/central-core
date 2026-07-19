@@ -2,6 +2,8 @@
 // Fase 1A SHADOW MODE — enqueue asincrono verso scraping_queue con processor
 // padova_portal_collect_v2. Non invocato da alcun cron. Solo POST autenticato
 // via x-job-secret == CENTRAL_CORE_JOB_SECRET. Nessun CORS.
+//
+// Selezione portali equivalente a selectPortalsForMode() di portalScrapers.ts.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
@@ -16,7 +18,7 @@ const sb = createClient(SUPABASE_URL, SERVICE_KEY, {
 type Portal = "immobiliare.it" | "idealista.it" | "casa.it" | "subito.it";
 type Mode = "soft" | "full";
 
-const ALLOWED_PORTALS: Portal[] = [
+const ALL_PORTALS: Portal[] = [
   "immobiliare.it",
   "idealista.it",
   "casa.it",
@@ -27,7 +29,6 @@ const MUNICIPALITY = "Padova";
 const PROVINCE = "PD";
 const SLUG = "padova";
 
-// Stessi URL usati da portalScrapers.ts
 const URL_BUILDERS: Record<Portal, string> = {
   "immobiliare.it": `https://www.immobiliare.it/vendita-case/${SLUG}/?ordinamento=dataModifica`,
   "idealista.it": `https://www.idealista.it/vendita-case/${SLUG}/`,
@@ -53,10 +54,7 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 async function sha1Hex(input: string): Promise<string> {
-  const buf = await crypto.subtle.digest(
-    "SHA-1",
-    new TextEncoder().encode(input),
-  );
+  const buf = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(input));
   return Array.from(new Uint8Array(buf))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
@@ -64,6 +62,25 @@ async function sha1Hex(input: string): Promise<string> {
 
 function utcDate(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+// Equivalente a selectPortalsForMode() di portalScrapers.ts.
+function selectPortalsForMode(mode: Mode): { portals: Portal[]; rotationKey: string } {
+  if (mode === "full") return { portals: ALL_PORTALS.slice(), rotationKey: "full_all" };
+  const romaHour = Number(
+    new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Europe/Rome" })
+      .format(new Date()),
+  );
+  if (romaHour >= 8 && romaHour < 14) {
+    return { portals: ["casa.it", "subito.it"], rotationKey: "soft_morning" };
+  }
+  if (romaHour >= 14 && romaHour < 20) {
+    return { portals: ALL_PORTALS.slice(), rotationKey: "soft_afternoon" };
+  }
+  return {
+    portals: ["casa.it", "immobiliare.it", "subito.it"],
+    rotationKey: "soft_night",
+  };
 }
 
 Deno.serve(async (req) => {
@@ -81,30 +98,48 @@ Deno.serve(async (req) => {
   }
 
   const mode: Mode = body.mode === "full" ? "full" : "soft";
-  const requestedPortals: Portal[] = Array.isArray(body.portals)
-    ? (body.portals.filter((p): p is Portal =>
-      typeof p === "string" && ALLOWED_PORTALS.includes(p as Portal)
-    ))
-    : ALLOWED_PORTALS.slice();
 
-  if (requestedPortals.length === 0) {
-    return json({ ok: true, mode, enqueued: [], skipped: [] });
+  let selectedPortals: Portal[];
+  let rotationKey: string;
+  if (Array.isArray(body.portals) && body.portals.length > 0) {
+    // Filtra whitelist + dedupe, mantenendo l'ordine esplicito del chiamante
+    const seen = new Set<Portal>();
+    const list: Portal[] = [];
+    for (const raw of body.portals) {
+      if (typeof raw !== "string") continue;
+      const p = raw as Portal;
+      if (!ALL_PORTALS.includes(p)) continue;
+      if (seen.has(p)) continue;
+      seen.add(p);
+      list.push(p);
+    }
+    selectedPortals = list;
+    rotationKey = "explicit";
+  } else {
+    const sel = selectPortalsForMode(mode);
+    selectedPortals = sel.portals;
+    rotationKey = sel.rotationKey;
+  }
+
+  if (selectedPortals.length === 0) {
+    return json({ ok: true, mode, rotation_key: rotationKey, enqueued: [], skipped: [] });
   }
 
   const priority = mode === "full" ? 700 : 500;
   const date = utcDate();
-  const enqueued: Array<{ portal: Portal; queue_id: string | null; url: string; idempotency_key: string }> = [];
+  const enqueued: Array<{
+    portal: Portal; queue_id: string | null; url: string; idempotency_key: string;
+  }> = [];
   const skipped: Array<{ portal: Portal; reason: string }> = [];
 
-  for (const portal of requestedPortals) {
+  for (const portal of selectedPortals) {
     const url = URL_BUILDERS[portal];
     if (!url) {
       skipped.push({ portal, reason: "no_url" });
       continue;
     }
     const urlHash = (await sha1Hex(url)).slice(0, 16);
-    const idempotency_key =
-      `padova_portal:${date}:${portal}:${mode}:${urlHash}`;
+    const idempotency_key = `padova_portal:${date}:${portal}:${mode}:${urlHash}`;
 
     const payload = {
       url,
@@ -136,21 +171,20 @@ Deno.serve(async (req) => {
 
     if (error) {
       console.error("[enqueue-padova-portal-scrapes] enqueue_error", {
-        portal,
-        mode,
-        code: error.code,
-        message: error.message,
+        portal, mode, code: error.code, message: error.message,
       });
       skipped.push({ portal, reason: `enqueue_error:${error.code ?? "unknown"}` });
       continue;
     }
     enqueued.push({
       portal,
-      queue_id: typeof data === "string" ? data : (data as { id?: string } | null)?.id ?? null,
+      queue_id: typeof data === "string"
+        ? data
+        : (data as { id?: string } | null)?.id ?? null,
       url,
       idempotency_key,
     });
   }
 
-  return json({ ok: true, mode, enqueued, skipped });
+  return json({ ok: true, mode, rotation_key: rotationKey, enqueued, skipped });
 });
