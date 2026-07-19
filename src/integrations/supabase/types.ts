@@ -7286,6 +7286,16 @@ export type Database = {
         }
         Relationships: []
       }
+      padova_contendibili_reachability_v: {
+        Row: {
+          argento_best_listing_id: number | null
+          argento_has_phone: boolean | null
+          argento_match_count: number | null
+          id: number | null
+          reachability_argento: boolean | null
+        }
+        Relationships: []
+      }
       padova_listings_totali_v: {
         Row: {
           tot_agenzie: number | null
