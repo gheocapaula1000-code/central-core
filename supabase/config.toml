@@ -223,3 +223,6 @@ verify_jwt = false
 
 [functions.scraping-worker]
 verify_jwt = false
+
+[functions.scraping-result-processor]
+verify_jwt = false
