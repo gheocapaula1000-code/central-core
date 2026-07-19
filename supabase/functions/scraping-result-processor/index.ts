@@ -45,16 +45,36 @@ type Job = {
   processing_max_attempts: number;
 };
 
-// -------- Processors registry (Fase 1: solo smoke test) --------
-//
-// NOTA VINCOLANTE (leggere prima di aggiungere processor applicativi):
-// I processor applicativi futuri devono usare RPC PostgreSQL atomiche e
-// idempotenti per gli upsert (dedupe_key, transazioni singole, ON CONFLICT).
-// AbortSignal da solo NON garantisce il rollback di scritture già iniziate:
-// serve solo a interrompere I/O in corso, non a ripulire side-effect già
-// applicati al database.
+// -------- Classificazione errori RPC --------
+// Retryable SOLO per errori temporanei; validazione/lease/context = non retryable.
+const RETRYABLE_SQLSTATES = new Set<string>([
+  "40001", // serialization_failure
+  "40P01", // deadlock_detected
+  "55P03", // lock_not_available
+  "57014", // query_canceled
+  "57P01", // admin_shutdown
+]);
+const RETRYABLE_CLASS_PREFIXES = ["08", "53", "58"]; // connection, resources, system
 
-type ProcessorFn = (job: Job, signal: AbortSignal) => Promise<{ ok: true }>;
+function classifyRpcError(code: string | null | undefined): boolean {
+  const c = (code ?? "").toUpperCase();
+  if (!c) return true; // sconosciuto → prudente retry
+  if (RETRYABLE_SQLSTATES.has(c)) return true;
+  if (RETRYABLE_CLASS_PREFIXES.some((pref) => c.startsWith(pref))) return true;
+  // Non retryable esplicitamente: 22023 (context invalid), P0002 (not found), ecc.
+  return false;
+}
+
+// -------- Processors registry --------
+//
+// NOTA VINCOLANTE: gli upsert applicativi devono essere in RPC atomiche.
+// AbortSignal interrompe I/O ma non fa rollback di scritture già eseguite.
+
+type ProcessorFn = (
+  job: Job,
+  signal: AbortSignal,
+  workerId: string,
+) => Promise<{ ok: true }>;
 
 const PROCESSOR_TIMEOUT_MS: Record<string, number> = {
   queue_smoke_test: 5_000,
@@ -62,7 +82,7 @@ const PROCESSOR_TIMEOUT_MS: Record<string, number> = {
 };
 
 const PROCESSORS: Record<string, ProcessorFn> = {
-  queue_smoke_test: async (job, signal) => {
+  queue_smoke_test: async (job, signal, _workerId) => {
     if (signal.aborted) {
       throw new ProcessorError("processor_aborted", true, "processor_aborted");
     }
@@ -75,58 +95,38 @@ const PROCESSORS: Record<string, ProcessorFn> = {
     return { ok: true };
   },
 
-  padova_portal_collect_v2: async (job, signal) => {
+  padova_portal_collect_v2: async (job, signal, workerId) => {
     if (signal.aborted) {
       throw new ProcessorError("processor_aborted", true, "processor_aborted");
     }
-    // Validazione provider / operation — non retryable
     if (job.provider !== "firecrawl") {
-      throw new ProcessorError(
-        `invalid_provider:${job.provider}`,
-        false,
-        "invalid_provider",
-      );
+      throw new ProcessorError(`invalid_provider:${job.provider}`, false, "invalid_provider");
     }
     if (job.operation !== "scrape") {
-      throw new ProcessorError(
-        `invalid_operation:${job.operation}`,
-        false,
-        "invalid_operation",
-      );
+      throw new ProcessorError(`invalid_operation:${job.operation}`, false, "invalid_operation");
     }
-    // Validazione context — non retryable
     const ctx = (job.processor_context ?? {}) as Record<string, unknown>;
     const municipality = String(ctx.municipality ?? "");
     const province = String(ctx.province ?? "");
     const portal = String(ctx.portal ?? "") as PortalSource;
     const mode = String(ctx.mode ?? "");
-    if (municipality !== "Padova") {
-      throw new ProcessorError("invalid_municipality", false, "invalid_context");
-    }
-    if (province !== "PD") {
-      throw new ProcessorError("invalid_province", false, "invalid_context");
-    }
-    if (!ALLOWED_PORTALS.includes(portal)) {
-      throw new ProcessorError("invalid_portal", false, "invalid_context");
-    }
-    if (mode !== "soft" && mode !== "full") {
-      throw new ProcessorError("invalid_mode", false, "invalid_context");
-    }
+    if (municipality !== "Padova") throw new ProcessorError("invalid_municipality", false, "invalid_context");
+    if (province !== "PD") throw new ProcessorError("invalid_province", false, "invalid_context");
+    if (!ALLOWED_PORTALS.includes(portal)) throw new ProcessorError("invalid_portal", false, "invalid_context");
+    if (mode !== "soft" && mode !== "full") throw new ProcessorError("invalid_mode", false, "invalid_context");
     if (!job.result || typeof job.result !== "object") {
       throw new ProcessorError("missing_result", false, "missing_result");
     }
+
     if (signal.aborted) {
       throw new ProcessorError("processor_aborted", true, "processor_aborted");
     }
 
     const context: PortalProcessorContext = {
-      municipality,
-      province,
-      portal,
-      mode: mode as "soft" | "full",
+      municipality, province, portal, mode: mode as "soft" | "full",
     };
 
-    // Parser puro (nessun log del result, nessuna PII in log)
+    // Parser puro
     let listings;
     try {
       listings = parseFirecrawlResult(job.result, context);
@@ -138,31 +138,44 @@ const PROCESSORS: Record<string, ProcessorFn> = {
       );
     }
 
+    // Parse vuoto → non chiamare la RPC, non produrre falso verde.
+    if (!listings || listings.length === 0) {
+      throw new ProcessorError("empty_parse", false, "empty_parse");
+    }
+
     if (signal.aborted) {
       throw new ProcessorError("processor_aborted", true, "processor_aborted");
     }
 
-    // UNA sola RPC atomica per la persistenza + promozione
+    // RPC atomica: passa p_worker_id, non p_context (derivato server-side dalla coda)
     const { data, error } = await sb.rpc("process_padova_portal_collect_v2", {
       p_queue_id: job.id,
-      p_context: context as unknown as Record<string, unknown>,
+      p_worker_id: workerId,
       p_listings: listings,
     });
 
+    if (signal.aborted) {
+      throw new ProcessorError("processor_aborted", true, "processor_aborted");
+    }
+
     if (error) {
-      // Errori DB temporanei → retryable
+      const retryable = classifyRpcError(error.code);
       throw new ProcessorError(
         `rpc_error:${error.code ?? ""}:${(error.message ?? "").slice(0, 160)}`,
-        true,
+        retryable,
         "rpc_error",
         { code: error.code },
       );
     }
-    console.log("[padova_portal_collect_v2] rpc_result", {
+
+    // Log riepilogo compatto — nessun dump del `data` grezzo
+    const summary = (data ?? {}) as Record<string, unknown>;
+    console.log("[padova_portal_collect_v2] ok", {
       queue_id: job.id,
       portal,
-      mode,
-      summary: data,
+      created: summary.created ?? null,
+      updated: summary.updated ?? null,
+      rejected: summary.rejected ?? null,
     });
     return { ok: true };
   },
@@ -177,14 +190,11 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-// Confronto in tempo costante sull'intera stringa (no short-circuit).
 function safeEqual(a: string, b: string): boolean {
   if (typeof a !== "string" || typeof b !== "string") return false;
   if (a.length !== b.length) return false;
   let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
 }
 
@@ -197,9 +207,7 @@ async function withTimeout(
   const timeout = new Promise<never>((_, reject) => {
     handle = setTimeout(() => {
       controller.abort();
-      reject(
-        new ProcessorError("processor_timeout", true, "processor_timeout"),
-      );
+      reject(new ProcessorError("processor_timeout", true, "processor_timeout"));
     }, ms) as unknown as number;
   });
   try {
@@ -219,7 +227,6 @@ async function claim(workerId: string, limit: number): Promise<Job[]> {
   return (data ?? []) as Job[];
 }
 
-// Ritorna true solo se il DB conferma il completamento.
 async function complete(job: Job, workerId: string): Promise<boolean> {
   const { data, error } = await sb.rpc("scraping_processing_complete", {
     p_id: job.id,
@@ -227,9 +234,7 @@ async function complete(job: Job, workerId: string): Promise<boolean> {
   });
   if (error) {
     console.error("[scraping-result-processor] complete rpc error", {
-      id: job.id,
-      code: error.code,
-      message: error.message,
+      id: job.id, code: error.code, message: error.message,
     });
     return false;
   }
@@ -254,18 +259,13 @@ async function fail(
   const { data, error } = await sb.rpc("scraping_processing_fail", payload);
   if (error) {
     console.error("[scraping-result-processor] fail rpc error", {
-      id: job.id,
-      code: error.code,
-      message: error.message,
+      id: job.id, code: error.code, message: error.message,
     });
     return "rpc_error";
   }
   const status = typeof data === "string" ? data : "unknown";
   console.log("[scraping-result-processor] fail outcome", {
-    id: job.id,
-    processor: job.processor,
-    status,
-    code,
+    id: job.id, processor: job.processor, status, code,
   });
   return status;
 }
@@ -273,26 +273,14 @@ async function fail(
 async function process(job: Job, workerId: string) {
   const fn = PROCESSORS[job.processor];
   if (!fn) {
-    const status = await fail(
-      job,
-      workerId,
-      new ProcessorError(
-        `unknown_processor:${job.processor}`,
-        false,
-        "unknown_processor",
-      ),
-    );
-    return {
-      id: job.id,
-      processor: job.processor,
-      ok: false,
-      reason: "unknown_processor",
-      status,
-    };
+    const status = await fail(job, workerId, new ProcessorError(
+      `unknown_processor:${job.processor}`, false, "unknown_processor",
+    ));
+    return { id: job.id, processor: job.processor, ok: false, reason: "unknown_processor", status };
   }
   const timeoutMs = PROCESSOR_TIMEOUT_MS[job.processor] ?? 15_000;
   try {
-    await withTimeout((signal) => fn(job, signal), timeoutMs);
+    await withTimeout((signal) => fn(job, signal, workerId), timeoutMs);
   } catch (err) {
     console.error("[scraping-result-processor] processor failed", {
       id: job.id,
@@ -306,32 +294,18 @@ async function process(job: Job, workerId: string) {
 
   const completed = await complete(job, workerId);
   if (!completed) {
-    // Lease perso: NON chiamare fail (perderemmo di nuovo il lease).
     console.warn("[scraping-result-processor] lost_lease on complete", {
-      id: job.id,
-      processor: job.processor,
+      id: job.id, processor: job.processor,
     });
-    return {
-      id: job.id,
-      processor: job.processor,
-      ok: false,
-      status: "lost_lease",
-    };
+    return { id: job.id, processor: job.processor, ok: false, status: "lost_lease" };
   }
-  return {
-    id: job.id,
-    processor: job.processor,
-    ok: true,
-    status: "succeeded",
-  };
+  return { id: job.id, processor: job.processor, ok: true, status: "succeeded" };
 }
 
 // -------- HTTP handler --------
 
 Deno.serve(async (req) => {
-  if (req.method !== "POST") {
-    return json({ error: "method_not_allowed" }, 405);
-  }
+  if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   const token = req.headers.get("x-worker-token") ?? "";
   if (!WORKER_TOKEN || !safeEqual(token, WORKER_TOKEN)) {
@@ -343,35 +317,22 @@ Deno.serve(async (req) => {
     if (req.headers.get("content-length") !== "0") {
       body = (await req.json().catch(() => ({}))) ?? {};
     }
-  } catch {
-    body = {};
-  }
+  } catch { body = {}; }
 
-  const limit = Math.min(
-    20,
-    Math.max(1, Math.trunc(Number(body.limit) || 5)),
-  );
-  const concurrency = Math.min(
-    5,
-    Math.max(1, Math.trunc(Number(body.concurrency) || 3)),
-  );
+  const limit = Math.min(20, Math.max(1, Math.trunc(Number(body.limit) || 5)));
+  const concurrency = Math.min(5, Math.max(1, Math.trunc(Number(body.concurrency) || 3)));
   const workerId = crypto.randomUUID();
 
   let jobs: Job[];
   try {
     jobs = await claim(workerId, limit);
   } catch (e) {
-    console.error("[scraping-result-processor] claim error", {
-      message: (e as Error).message,
-    });
+    console.error("[scraping-result-processor] claim error", { message: (e as Error).message });
     return json({ error: "claim_failed", message: (e as Error).message }, 500);
   }
 
-  if (jobs.length === 0) {
-    return json({ claimed: 0, results: [] });
-  }
+  if (jobs.length === 0) return json({ claimed: 0, results: [] });
 
-  // Concorrenza limitata via pool semplice.
   const results: unknown[] = [];
   let cursor = 0;
   async function pump() {
