@@ -423,7 +423,7 @@ BEGIN
         tipo_lead       = coalesce(v_new_tipo_lead, tipo_lead),
         n_agenzie       = coalesce(v_new_n_agenzie, n_agenzie),
         prezzo          = coalesce(v_price, v_existing_price),
-        prezzo_iniziale = v_existing_initial,
+        prezzo_iniziale = coalesce(v_existing_initial, v_existing_price, v_price),
         mq              = coalesce(v_surface, v_existing_mq),
         locali          = coalesce(v_rooms, v_existing_locali),
         bagni           = bagni,
