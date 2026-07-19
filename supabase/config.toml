@@ -226,3 +226,6 @@ verify_jwt = false
 
 [functions.scraping-result-processor]
 verify_jwt = false
+
+[functions.enqueue-padova-portal-scrapes]
+verify_jwt = false

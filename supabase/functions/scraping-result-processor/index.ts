@@ -6,6 +6,12 @@
 // header x-worker-token confrontato in tempo costante.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import {
+  ALLOWED_PORTALS,
+  parseFirecrawlResult,
+  type PortalProcessorContext,
+  type PortalSource,
+} from "../_shared/queue-processors/padovaPortalParser.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -52,6 +58,7 @@ type ProcessorFn = (job: Job, signal: AbortSignal) => Promise<{ ok: true }>;
 
 const PROCESSOR_TIMEOUT_MS: Record<string, number> = {
   queue_smoke_test: 5_000,
+  padova_portal_collect_v2: 15_000,
 };
 
 const PROCESSORS: Record<string, ProcessorFn> = {
@@ -65,6 +72,98 @@ const PROCESSORS: Record<string, ProcessorFn> = {
     if (signal.aborted) {
       throw new ProcessorError("processor_aborted", true, "processor_aborted");
     }
+    return { ok: true };
+  },
+
+  padova_portal_collect_v2: async (job, signal) => {
+    if (signal.aborted) {
+      throw new ProcessorError("processor_aborted", true, "processor_aborted");
+    }
+    // Validazione provider / operation — non retryable
+    if (job.provider !== "firecrawl") {
+      throw new ProcessorError(
+        `invalid_provider:${job.provider}`,
+        false,
+        "invalid_provider",
+      );
+    }
+    if (job.operation !== "scrape") {
+      throw new ProcessorError(
+        `invalid_operation:${job.operation}`,
+        false,
+        "invalid_operation",
+      );
+    }
+    // Validazione context — non retryable
+    const ctx = (job.processor_context ?? {}) as Record<string, unknown>;
+    const municipality = String(ctx.municipality ?? "");
+    const province = String(ctx.province ?? "");
+    const portal = String(ctx.portal ?? "") as PortalSource;
+    const mode = String(ctx.mode ?? "");
+    if (municipality !== "Padova") {
+      throw new ProcessorError("invalid_municipality", false, "invalid_context");
+    }
+    if (province !== "PD") {
+      throw new ProcessorError("invalid_province", false, "invalid_context");
+    }
+    if (!ALLOWED_PORTALS.includes(portal)) {
+      throw new ProcessorError("invalid_portal", false, "invalid_context");
+    }
+    if (mode !== "soft" && mode !== "full") {
+      throw new ProcessorError("invalid_mode", false, "invalid_context");
+    }
+    if (!job.result || typeof job.result !== "object") {
+      throw new ProcessorError("missing_result", false, "missing_result");
+    }
+    if (signal.aborted) {
+      throw new ProcessorError("processor_aborted", true, "processor_aborted");
+    }
+
+    const context: PortalProcessorContext = {
+      municipality,
+      province,
+      portal,
+      mode: mode as "soft" | "full",
+    };
+
+    // Parser puro (nessun log del result, nessuna PII in log)
+    let listings;
+    try {
+      listings = parseFirecrawlResult(job.result, context);
+    } catch (e) {
+      throw new ProcessorError(
+        `parser_error:${(e as Error).message}`.slice(0, 200),
+        false,
+        "parser_error",
+      );
+    }
+
+    if (signal.aborted) {
+      throw new ProcessorError("processor_aborted", true, "processor_aborted");
+    }
+
+    // UNA sola RPC atomica per la persistenza + promozione
+    const { data, error } = await sb.rpc("process_padova_portal_collect_v2", {
+      p_queue_id: job.id,
+      p_context: context as unknown as Record<string, unknown>,
+      p_listings: listings,
+    });
+
+    if (error) {
+      // Errori DB temporanei → retryable
+      throw new ProcessorError(
+        `rpc_error:${error.code ?? ""}:${(error.message ?? "").slice(0, 160)}`,
+        true,
+        "rpc_error",
+        { code: error.code },
+      );
+    }
+    console.log("[padova_portal_collect_v2] rpc_result", {
+      queue_id: job.id,
+      portal,
+      mode,
+      summary: data,
+    });
     return { ok: true };
   },
 };
