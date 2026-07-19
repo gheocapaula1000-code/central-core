@@ -28,7 +28,7 @@ export const ALL_PORTALS: Portal[] = [
 ];
 
 const DEFAULT_MAX: Record<Mode, number> = { soft: 2, full: 30 };
-const ABSOLUTE_MAX: Record<Mode, number> = { soft: 3, full: 50 };
+const ABSOLUTE_MAX: Record<Mode, number> = { soft: 3, full: 60 };
 
 export function getDefaultMaxPages(mode: Mode): number {
   return DEFAULT_MAX[mode];
