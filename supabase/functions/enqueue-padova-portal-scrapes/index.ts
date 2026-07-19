@@ -223,11 +223,24 @@ Deno.serve(async (req) => {
       hadError = true;
       continue;
     }
+    // Estrai queue_id sia da scalare stringa sia da {id:string}.
+    const rawId =
+      typeof data === "string"
+        ? data
+        : (data as { id?: unknown } | null)?.id;
+    const UUID_RE =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (typeof rawId !== "string" || !UUID_RE.test(rawId)) {
+      console.error("[enqueue-padova-portal-scrapes] invalid_enqueue_result", {
+        portal, mode, received_type: typeof data,
+      });
+      skipped.push({ portal, reason: "invalid_enqueue_result" });
+      hadError = true;
+      continue;
+    }
     enqueued.push({
       portal,
-      queue_id: typeof data === "string"
-        ? data
-        : (data as { id?: string } | null)?.id ?? null,
+      queue_id: rawId,
       url,
       idempotency_key,
     });
