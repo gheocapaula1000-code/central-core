@@ -383,8 +383,12 @@ BEGIN
       END;
 
       v_new_cluster_key := CASE
-        WHEN v_cluster_k IS NOT NULL THEN v_cluster_k
-        ELSE v_existing_cluster_key
+        WHEN v_ptype = 'altro'
+             AND nullif(btrim(v_existing_tipologia), '') IS NOT NULL
+             AND lower(btrim(v_existing_tipologia)) <> 'altro'
+             AND v_existing_cluster_key IS NOT NULL
+          THEN v_existing_cluster_key
+        ELSE coalesce(v_cluster_k, v_existing_cluster_key)
       END;
 
       IF v_is_priv IS TRUE THEN
