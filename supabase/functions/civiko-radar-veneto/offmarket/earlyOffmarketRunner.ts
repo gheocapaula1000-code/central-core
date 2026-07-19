@@ -139,7 +139,7 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
   const usePplx = body.usePerplexityDiscovery !== false;
   const maxSources = Math.min(body.maxSources ?? 20, 30);
   const maxPagesPerSource = Math.min(body.maxPagesPerSource ?? 3, 5);
-  const saveCandidates = body.saveCandidates === true;
+  const saveCandidates = body.saveCandidates !== false;
   const run_id = `eos-${Date.now().toString(36)}`;
   const startedAt = Date.now();
   const timeBudget = Math.max(15_000, Math.min(body.timeBudgetMs ?? 90_000, 120_000));
@@ -400,45 +400,28 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
       } else {
         const sb = createClient(url, svc, { auth: { persistSession: false } });
 
-        // Dedup per title contro la tabella: niente duplicati di title già presenti.
-        const incomingTitles = Array.from(new Set(deduped.map((c) => c.title).filter(Boolean)));
-        const existingTitles = new Set<string>();
-        if (incomingTitles.length > 0) {
-          try {
-            const { data: existing } = await sb
-              .from("early_offmarket_signal_candidates")
-              .select("title")
-              .in("title", incomingTitles);
-            for (const r of (existing ?? []) as Array<{ title: string }>) {
-              if (r.title) existingTitles.add(r.title);
-            }
-          } catch { /* fallback: niente dedup per title se la query fallisce */ }
-        }
-
-        const rows = deduped
-          .filter((c) => !existingTitles.has(c.title))
-          .map((c) => {
-            const ext = c as { __microzona?: string; __location_detail?: string };
-            const isPadova = (c.comune || "").trim().toLowerCase() === "padova";
-            const microzona = ext.__microzona ?? (isPadova
-              ? matchPadovaMicrozona(c.title, c.summary, (c as { location_detail?: string }).location_detail)
-              : null);
-            const locDetail = ext.__location_detail
-              ?? (c as { location_detail?: string }).location_detail
-              ?? null;
-            return {
-              run_id, comune: c.comune, provincia: c.provincia,
-              signal_type: c.signal_type, title: c.title, summary: c.summary,
-              why_it_matters: c.why_it_matters, possible_agent_action: c.possible_agent_action,
-              timing: c.timing, source_url: c.source_url, source_name: c.source_name,
-              confidence_score: c.confidence_score, quality: c.quality, data_basis: c.data_basis,
-              privacy_safe: c.privacy_safe, needs_review: c.needs_review,
-              import_recommendation: c.import_recommendation, reject_reason: c.reject_reason ?? null,
-              location_detail: locDetail,
-              payload: { matched_keywords: [], dryRun, microzona },
-              fingerprint: c.fingerprint,
-            };
-          });
+        const rows = deduped.map((c) => {
+          const ext = c as { __microzona?: string; __location_detail?: string };
+          const isPadova = (c.comune || "").trim().toLowerCase() === "padova";
+          const microzona = ext.__microzona ?? (isPadova
+            ? matchPadovaMicrozona(c.title, c.summary, (c as { location_detail?: string }).location_detail)
+            : null);
+          const locDetail = ext.__location_detail
+            ?? (c as { location_detail?: string }).location_detail
+            ?? null;
+          return {
+            run_id, comune: c.comune, provincia: c.provincia,
+            signal_type: c.signal_type, title: c.title, summary: c.summary,
+            why_it_matters: c.why_it_matters, possible_agent_action: c.possible_agent_action,
+            timing: c.timing, source_url: c.source_url, source_name: c.source_name,
+            confidence_score: c.confidence_score, quality: c.quality, data_basis: c.data_basis,
+            privacy_safe: c.privacy_safe, needs_review: c.needs_review,
+            import_recommendation: c.import_recommendation, reject_reason: c.reject_reason ?? null,
+            location_detail: locDetail,
+            payload: { matched_keywords: [], dryRun, microzona },
+            fingerprint: c.fingerprint,
+          };
+        });
 
         if (rows.length === 0) {
           saved_candidates = 0;
@@ -462,7 +445,7 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
   return {
     ok: true, run_id,
     perplexity_error_sample: buildPerplexityErrorSample(),
-    dryRun, imported: false, saved_candidates,
+    dryRun, imported: saved_candidates > 0, saved_candidates,
     firecrawl_available: fcAvail, perplexity_available: pplxAvail,
     sources_checked: sources.length + (pplxHits.length > 0 ? 1 : 0),
     sources_from_registry: sources.length,
