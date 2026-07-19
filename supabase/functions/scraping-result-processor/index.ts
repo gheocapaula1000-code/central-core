@@ -16,6 +16,7 @@ import {
   buildPageGroupKey,
   buildPageIdempotencyKey,
   buildPortalPageUrl,
+  getAbsoluteMaxPages,
   validatePageNumber,
   type Mode as PageMode,
   type Portal as PagePortal,
@@ -141,7 +142,11 @@ const PROCESSORS: Record<string, ProcessorFn> = {
       const p = validatePageNumber(ctx.page);
       const mp = validatePageNumber(ctx.max_pages);
       const rd = typeof ctx.run_date === "string" ? ctx.run_date : "";
-      if (p === null || mp === null || !RUN_DATE_RE.test(rd) || p > mp) {
+      const modeCap = getAbsoluteMaxPages(mode as PageMode);
+      if (
+        p === null || mp === null || !RUN_DATE_RE.test(rd) ||
+        p > mp || mp > modeCap
+      ) {
         throw new ProcessorError(
           "invalid_multipage_context",
           false,

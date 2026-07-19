@@ -28,7 +28,7 @@ export const ALL_PORTALS: Portal[] = [
 ];
 
 const DEFAULT_MAX: Record<Mode, number> = { soft: 2, full: 30 };
-const ABSOLUTE_MAX: Record<Mode, number> = { soft: 3, full: 50 };
+const ABSOLUTE_MAX: Record<Mode, number> = { soft: 3, full: 60 };
 
 export function getDefaultMaxPages(mode: Mode): number {
   return DEFAULT_MAX[mode];
@@ -43,7 +43,7 @@ export function validatePageNumber(page: unknown): number | null {
   if (!Number.isFinite(page) || !Number.isInteger(page)) return null;
   if (page < 1) return null;
   // Hard-cap universale coerente con getAbsoluteMaxPages("full").
-  if (page > 50) return null;
+  if (page > 60) return null;
   return page;
 }
 
@@ -65,8 +65,8 @@ export function buildPortalPageUrl(portal: Portal, page: number): string {
       return `https://www.immobiliare.it/vendita-case/padova/?ordinamento=dataModifica&pag=${p}`;
     }
     case "idealista.it": {
-      if (p === 1) return "https://www.idealista.it/vendita-case/padova/";
-      return `https://www.idealista.it/vendita-case/padova/pagina-${p}.htm`;
+      if (p === 1) return "https://www.idealista.it/vendita-case/padova-padova/";
+      return `https://www.idealista.it/vendita-case/padova-padova/pagina-${p}.htm`;
     }
     case "casa.it": {
       if (p === 1) return "https://www.casa.it/vendita/residenziale/padova";
