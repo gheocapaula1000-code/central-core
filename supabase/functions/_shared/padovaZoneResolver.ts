@@ -42,13 +42,24 @@ export function resolveZoneByName(
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
+  // Strip directional prefixes, including compounds like "Sud-Est - ", "Nord Ovest — ".
   const withoutPrefix = stripped.replace(
-    /^\s*(nord|sud|est|ovest)\s*[-–—:]\s*/i,
+    /^\s*(nord|sud|est|ovest)(\s*[-–—]?\s*(est|ovest))?\s*[-–—:]\s*/i,
     "",
   ).trim();
   if (!withoutPrefix) {
     return { zone_code: UNRESOLVED_OMI_CODE, display_zone: null };
   }
+  // Explicit aliases for labels currently left UNRESOLVED by the OMI resolver.
+  const aliasKey = withoutPrefix.toLowerCase().replace(/\s+/g, " ").trim();
+  const HARDCODED_ALIASES: Record<string, { zone_code: string; display_zone: string }> = {
+    "forcellini / camin": { zone_code: "D8", display_zone: "Forcellini / Camin" },
+    "forcellini/camin":   { zone_code: "D8", display_zone: "Forcellini / Camin" },
+    "brenta":             { zone_code: "D4", display_zone: "Ponte di Brenta / Camin" },
+    "ponte di brenta":    { zone_code: "D4", display_zone: "Ponte di Brenta / Camin" },
+  };
+  const hit = HARDCODED_ALIASES[aliasKey];
+  if (hit) return hit;
   // Feed the cleaned name through the shared sync resolver so we reuse
   // PADOVA_OMI_ZONES aliases (single source of truth).
   const r = resolvePadovaOmiSync({ zona: withoutPrefix, quartiere: withoutPrefix });
@@ -60,6 +71,7 @@ export function resolveZoneByName(
   }
   return { zone_code: UNRESOLVED_OMI_CODE, display_zone: null };
 }
+
 
 export function resolveZoneFromRecord(
   record: Record<string, unknown>,
