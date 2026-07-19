@@ -5856,6 +5856,13 @@ export type Database = {
             referencedRelation: "padova_listings"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "padova_listings_price_history_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
+            referencedRelation: "padova_listings_zone_v"
+            referencedColumns: ["id"]
+          },
         ]
       }
       padova_multi_portale: {
@@ -7283,6 +7290,16 @@ export type Database = {
         Row: {
           tot_agenzie: number | null
           tot_annunci: number | null
+        }
+        Relationships: []
+      }
+      padova_listings_zone_v: {
+        Row: {
+          id: number | null
+          microzone: string[] | null
+          omi_codes: string[] | null
+          quartiere_raw: string | null
+          zone_slugs: string[] | null
         }
         Relationships: []
       }
