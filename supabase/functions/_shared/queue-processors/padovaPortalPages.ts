@@ -65,8 +65,8 @@ export function buildPortalPageUrl(portal: Portal, page: number): string {
       return `https://www.immobiliare.it/vendita-case/padova/?ordinamento=dataModifica&pag=${p}`;
     }
     case "idealista.it": {
-      if (p === 1) return "https://www.idealista.it/vendita-case/padova/";
-      return `https://www.idealista.it/vendita-case/padova/pagina-${p}.htm`;
+      if (p === 1) return "https://www.idealista.it/vendita-case/padova-padova/";
+      return `https://www.idealista.it/vendita-case/padova-padova/pagina-${p}.htm`;
     }
     case "casa.it": {
       if (p === 1) return "https://www.casa.it/vendita/residenziale/padova";
