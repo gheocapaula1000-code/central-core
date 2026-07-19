@@ -12,6 +12,15 @@ import {
   type PortalProcessorContext,
   type PortalSource,
 } from "../_shared/queue-processors/padovaPortalParser.ts";
+import {
+  buildPageGroupKey,
+  buildPageIdempotencyKey,
+  buildPortalPageUrl,
+  validatePageNumber,
+  type Mode as PageMode,
+  type Portal as PagePortal,
+} from "../_shared/queue-processors/padovaPortalPages.ts";
+
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -78,8 +87,9 @@ type ProcessorFn = (
 
 const PROCESSOR_TIMEOUT_MS: Record<string, number> = {
   queue_smoke_test: 5_000,
-  padova_portal_collect_v2: 15_000,
+  padova_portal_collect_v2: 20_000,
 };
+
 
 const PROCESSORS: Record<string, ProcessorFn> = {
   queue_smoke_test: async (job, signal, _workerId) => {
