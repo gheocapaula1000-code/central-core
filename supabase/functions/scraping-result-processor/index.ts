@@ -16,6 +16,7 @@ import {
   buildPageGroupKey,
   buildPageIdempotencyKey,
   buildPortalPageUrl,
+  getAbsoluteMaxPages,
   validatePageNumber,
   type Mode as PageMode,
   type Portal as PagePortal,
