@@ -67,7 +67,6 @@ DECLARE
   v_ptype      text;
   v_lat        double precision;
   v_lng        double precision;
-  v_is_priv_type text;
   v_is_priv    boolean;   -- NULL | true | false (esplicito)
   v_cap        text;
   v_txt        text;
@@ -220,7 +219,7 @@ BEGIN
 
     -- listing_id: preferisci il numerico estratto dall'URL, fallback al ricevuto
     v_url_num := substring(v_url from '(\d{5,})(?:[^0-9]|$)');
-    v_listing_id := coalesce(v_url_num, v_listing_id_in);
+    v_listing_id := coalesce(v_url_num, nullif(btrim(v_listing_id_in), ''));
     IF v_listing_id IS NULL OR btrim(v_listing_id) = '' THEN
       v_rejected := v_rejected + 1; CONTINUE;
     END IF;
@@ -384,8 +383,12 @@ BEGIN
       END;
 
       v_new_cluster_key := CASE
-        WHEN v_cluster_k IS NOT NULL THEN v_cluster_k
-        ELSE v_existing_cluster_key
+        WHEN v_ptype = 'altro'
+             AND nullif(btrim(v_existing_tipologia), '') IS NOT NULL
+             AND lower(btrim(v_existing_tipologia)) <> 'altro'
+             AND v_existing_cluster_key IS NOT NULL
+          THEN v_existing_cluster_key
+        ELSE coalesce(v_cluster_k, v_existing_cluster_key)
       END;
 
       IF v_is_priv IS TRUE THEN
@@ -420,7 +423,7 @@ BEGIN
         tipo_lead       = coalesce(v_new_tipo_lead, tipo_lead),
         n_agenzie       = coalesce(v_new_n_agenzie, n_agenzie),
         prezzo          = coalesce(v_price, v_existing_price),
-        prezzo_iniziale = v_existing_initial,
+        prezzo_iniziale = coalesce(v_existing_initial, v_existing_price, v_price),
         mq              = coalesce(v_surface, v_existing_mq),
         locali          = coalesce(v_rooms, v_existing_locali),
         bagni           = bagni,

@@ -174,14 +174,52 @@ const PROCESSORS: Record<string, ProcessorFn> = {
       );
     }
 
+    // Validazione rigorosa del riepilogo restituito dalla RPC.
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      throw new ProcessorError(
+        "invalid_rpc_summary",
+        false,
+        "invalid_rpc_summary",
+      );
+    }
+    const summary = data as Record<string, unknown>;
+    const received = summary.received;
+    const created = summary.created;
+    const updated = summary.updated;
+    const rejected = summary.rejected;
+    const isNonNegInt = (v: unknown): v is number =>
+      typeof v === "number" && Number.isFinite(v) &&
+      Number.isInteger(v) && v >= 0;
+    if (
+      !isNonNegInt(received) ||
+      !isNonNegInt(created) ||
+      !isNonNegInt(updated) ||
+      !isNonNegInt(rejected) ||
+      received !== listings.length ||
+      created + updated + rejected !== received
+    ) {
+      throw new ProcessorError(
+        "invalid_rpc_summary",
+        false,
+        "invalid_rpc_summary",
+      );
+    }
+    if (created + updated === 0) {
+      throw new ProcessorError(
+        "all_listings_rejected",
+        false,
+        "all_listings_rejected",
+        { received, rejected },
+      );
+    }
+
     // Log riepilogo compatto — nessun dump del `data` grezzo
-    const summary = (data ?? {}) as Record<string, unknown>;
     console.log("[padova_portal_collect_v2] ok", {
       queue_id: job.id,
       portal,
-      created: summary.created ?? null,
-      updated: summary.updated ?? null,
-      rejected: summary.rejected ?? null,
+      created,
+      updated,
+      rejected,
     });
     return { ok: true };
   },
