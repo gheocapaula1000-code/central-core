@@ -37,6 +37,7 @@ serve(async (req) => {
     const min_agenzie = Number(body.min_agenzie ?? url.searchParams.get("min_agenzie") ?? 2) || 2;
     const limit = Math.min(Math.max(Number(body.limit ?? url.searchParams.get("limit") ?? 500) || 500, 1), 1000);
     const offset = Math.max(Number(body.offset ?? url.searchParams.get("offset") ?? 0) || 0, 0);
+    const tenantAgencyRaw = (body.tenant_agency_name ?? url.searchParams.get("tenant_agency_name") ?? null) as string | null;
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -45,7 +46,7 @@ serve(async (req) => {
 
     let q = supabase
       .from("padova_contendibili")
-      .select("chiave_match, n_agenzie, agenzie, fonti, confidenza, prezzo_min, prezzo_max, mq, locali, bagni, quartiere, lat, lng, urls, prezzo_medio_zona_eur_mq, prezzo_immobile_eur_mq, differenza_zona_pct, giorni_sul_mercato, data_primo_annuncio, ribasso_pct, n_ribassi, is_ripubblicato, cambio_agenzia, giorni_fermo, n_portali, score_pressione", { count: "exact" })
+      .select("id, chiave_match, n_agenzie, agenzie, agencies_normalized, fonti, confidenza, prezzo_min, prezzo_max, mq, locali, bagni, quartiere, lat, lng, urls, prezzo_medio_zona_eur_mq, prezzo_immobile_eur_mq, differenza_zona_pct, giorni_sul_mercato, data_primo_annuncio, ribasso_pct, n_ribassi, is_ripubblicato, cambio_agenzia, giorni_fermo, n_portali, score_pressione", { count: "exact" })
       .gte("n_agenzie", min_agenzie);
     if (quartiere) q = q.eq("quartiere", quartiere);
 
