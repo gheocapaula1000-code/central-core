@@ -62,6 +62,48 @@ serve(async (req) => {
       return (rank[a.confidenza] ?? 9) - (rank[b.confidenza] ?? 9);
     });
 
+    // ── Reachability layer (argento/oro/bronzo) ──────────────────────────
+    const ids = rows.map((r) => r.id).filter((v) => v != null);
+    const reachMap = new Map<number, { argento: boolean; count: number; hasPhone: boolean; bestListingId: number | null }>();
+    if (ids.length > 0) {
+      const { data: reachRows, error: reachErr } = await supabase
+        .from("padova_contendibili_reachability_v")
+        .select("id, reachability_argento, argento_match_count, argento_has_phone, argento_best_listing_id")
+        .in("id", ids);
+      if (reachErr) console.error(`[padova-contendibili-list] ${did} reach`, reachErr);
+      for (const r of (reachRows ?? []) as Array<Record<string, unknown>>) {
+        reachMap.set(Number(r.id), {
+          argento: Boolean(r.reachability_argento),
+          count: Number(r.argento_match_count ?? 0),
+          hasPhone: Boolean(r.argento_has_phone),
+          bestListingId: r.argento_best_listing_id == null ? null : Number(r.argento_best_listing_id),
+        });
+      }
+    }
+
+    // Normalizza tenant (se fornito) usando la stessa norm_agency() del recompute
+    let tenantNorm: string | null = null;
+    if (tenantAgencyRaw && tenantAgencyRaw.trim()) {
+      const { data: nn } = await supabase.rpc("norm_agency", { p: tenantAgencyRaw });
+      tenantNorm = typeof nn === "string" && nn.trim() ? nn.trim() : null;
+    }
+
+    const enrichedRows = rows.map((r) => {
+      const rr = reachMap.get(Number(r.id)) ?? { argento: false, count: 0, hasPhone: false, bestListingId: null };
+      const agNorm = Array.isArray(r.agencies_normalized) ? r.agencies_normalized as string[] : [];
+      const isOro = tenantNorm ? agNorm.some((a) => (a || "").toLowerCase().trim() === tenantNorm!.toLowerCase().trim()) : false;
+      const tier = isOro ? "oro" : (rr.argento ? "argento" : "bronzo");
+      return {
+        ...r,
+        reachability: {
+          tier,
+          argento_match_count: rr.count,
+          argento_has_phone: rr.hasPhone,
+          argento_best_listing_id: rr.bestListingId,
+        },
+      };
+    });
+
     // hot_3plus = totale (non solo pagina) con n_agenzie>=3
     const { count: hot } = await supabase
       .from("padova_contendibili")
