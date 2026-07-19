@@ -2735,7 +2735,9 @@ Deno.serve(async (req) => {
 
     // ─────────────────────────────────────────────────────────────
     // /zone-quartieri — aggregato per quartiere (Padova città).
-    // Legge l'ultimo collect_v2 done da public.test_padova_full_run.
+    // Legge dalla vista di produzione public.padova_quartieri_stats_v
+    // (fonte canonica dei conteggi per zona) e risolve il codice OMI via
+    // public.quartiere_zona_map. Totali globali da public.padova_listings_totali_v.
     // NON ri-crawla. Aggiunge fascia commerciale + prezzo esclusiva mese.
     // ─────────────────────────────────────────────────────────────
     if (pathname.endsWith("/zone-quartieri")) {
@@ -2750,23 +2752,25 @@ Deno.serve(async (req) => {
       const supa = getServiceClient();
       if (!supa) return withIdentity(fail(req, 503, "DB_UNAVAILABLE", "No DB client", debugId), "error");
       try {
-        const { data: jobs, error: jErr } = await supa
-          .from("test_padova_full_run")
-          .select("id, finished_at, started_at, result")
-          .eq("state", "done")
-          .order("finished_at", { ascending: false, nullsFirst: false })
-          .limit(5);
-        if (jErr) return withIdentity(fail(req, 500, "DB_ERROR", jErr.message, debugId), "error");
-        const latest = (jobs ?? []).find((j) => {
-          const r = j.result as Record<string, unknown> | null;
-          return !!(r && r.mode === "collect_v2" && r.padova_citta && typeof r.padova_citta === "object");
-        });
-        if (!latest) return withIdentity(fail(req, 404, "NO_COLLECT", "Nessun collect_v2 done disponibile.", debugId), "error");
-        const result = latest.result as Record<string, unknown>;
-        const padova = result.padova_citta as Record<string, unknown>;
-        const tabella = Array.isArray(padova.tabella_per_quartiere) ? padova.tabella_per_quartiere as Array<Record<string, unknown>> : [];
-        const scon = padova.sconosciuta_residua as Record<string, unknown> | undefined;
-        const conteggi = (padova.conteggi_tipo_lead ?? {}) as Record<string, number>;
+        const { data: statsRows, error: sErr } = await supa
+          .from("padova_quartieri_stats_v")
+          .select("zona, n_contendibili, n_annunci, n_agenzie, n_ribassi, n_privati, prezzo_min, prezzo_max");
+        if (sErr) return withIdentity(fail(req, 500, "DB_ERROR", sErr.message, debugId), "error");
+        const stats = (statsRows ?? []) as Array<Record<string, unknown>>;
+
+        const { data: mapRows } = await supa
+          .from("quartiere_zona_map")
+          .select("quartiere_key, omi_zone_code");
+        const keyToOmi = new Map<string, string>();
+        for (const r of ((mapRows ?? []) as Array<Record<string, unknown>>)) {
+          const k = String(r.quartiere_key ?? "").toLowerCase().trim();
+          const o = String(r.omi_zone_code ?? "").toUpperCase().trim();
+          if (k && o) keyToOmi.set(k, o);
+        }
+        const resolveOmi = (zona: string): string => {
+          const k = zona.toLowerCase().trim();
+          return keyToOmi.get(k) ?? "—";
+        };
 
         const PREMIUM_OMI = new Set(["B1", "B2", "C3"]);
         const computeFascia = (omi: string, contendibili: number): { fascia: string; prezzo: number } => {
@@ -2777,58 +2781,45 @@ Deno.serve(async (req) => {
           return { fascia: "NON_VENDIBILE", prezzo: 0 };
         };
 
-        const rows = tabella.map((r) => {
-          const omi = String(r.codice_omi ?? "—");
-          const contendibili = Number(r.contendibili ?? 0);
+        const rows = stats.map((r) => {
+          const quartiere = String(r.zona ?? "");
+          const omi = resolveOmi(quartiere);
+          const contendibili = Number(r.n_contendibili ?? 0);
           const { fascia, prezzo } = computeFascia(omi, contendibili);
           return {
-            quartiere: String(r.quartiere ?? ""),
+            quartiere,
             omi,
-            tot_annunci: Number(r.annunci_tot ?? 0),
+            tot_annunci: Number(r.n_annunci ?? 0),
             contendibili,
-            privati: Number(r.privati ?? 0),
-            privati_stanchi: Number(r.privati_stanchi ?? 0),
-            ribassi: Number(r.ribassi ?? 0),
-            agenzie_distinte: Number(r.agenzie_distinte ?? 0),
+            privati: Number(r.n_privati ?? 0),
+            privati_stanchi: 0,
+            ribassi: Number(r.n_ribassi ?? 0),
+            agenzie_distinte: Number(r.n_agenzie ?? 0),
             fascia,
             prezzo_esclusiva_mese: prezzo,
           };
         });
 
-        if (scon) {
-          const sconQ = String(scon.quartiere ?? "Sconosciuta (Padova città)");
-          const already = rows.some((r) => r.quartiere.toLowerCase() === sconQ.toLowerCase());
-          if (!already) {
-            rows.push({
-              quartiere: sconQ,
-              omi: String(scon.codice_omi ?? "—"),
-              tot_annunci: Number(scon.annunci_tot ?? 0),
-              contendibili: Number(scon.contendibili ?? 0),
-              privati: Number(scon.privati ?? 0),
-              privati_stanchi: Number(scon.privati_stanchi ?? 0),
-              ribassi: Number(scon.ribassi ?? 0),
-              agenzie_distinte: Number(scon.agenzie_distinte ?? 0),
-              fascia: "NON_VENDIBILE",
-              prezzo_esclusiva_mese: 0,
-            });
-          }
-        }
-
         rows.sort((a, b) => b.contendibili - a.contendibili);
 
+        const { data: totRow } = await supa
+          .from("padova_listings_totali_v")
+          .select("tot_annunci, tot_agenzie")
+          .maybeSingle();
+
         const totali = {
-          annunci: Number(padova.annunci_tot ?? 0),
-          contendibili: Number(padova.contendibili_totali ?? conteggi.contendibile ?? 0),
-          privati: Number(conteggi.privato ?? 0),
-          privati_stanchi: Number(conteggi.privato_stanco ?? 0),
-          ribassi: Number(conteggi.ribasso ?? 0),
-          agenzie_distinte: rows.reduce((s, r) => Math.max(s, r.agenzie_distinte), 0),
+          annunci: Number(totRow?.tot_annunci ?? rows.reduce((s, r) => s + r.tot_annunci, 0)),
+          contendibili: rows.reduce((s, r) => s + r.contendibili, 0),
+          privati: rows.reduce((s, r) => s + r.privati, 0),
+          privati_stanchi: 0,
+          ribassi: rows.reduce((s, r) => s + r.ribassi, 0),
+          agenzie_distinte: Number(totRow?.tot_agenzie ?? rows.reduce((s, r) => Math.max(s, r.agenzie_distinte), 0)),
         };
 
         return withIdentity(json(req, 200, {
           municipality: "Padova",
-          updated_at: latest.finished_at ?? latest.started_at,
-          job_id: latest.id,
+          updated_at: new Date().toISOString(),
+          job_id: null,
           totali,
           quartieri: rows,
         }, debugId), "zone-quartieri");
@@ -2837,6 +2828,7 @@ Deno.serve(async (req) => {
         return withIdentity(fail(req, 500, "ZONE_QUARTIERI_FAILED", "Aggregato per quartiere fallito", debugId), "error");
       }
     }
+
 
     // ─────────────────────────────────────────────────────────────
     // /lead-quartiere — drill-down lead per un singolo quartiere Padova.
