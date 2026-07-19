@@ -67,7 +67,6 @@ DECLARE
   v_ptype      text;
   v_lat        double precision;
   v_lng        double precision;
-  v_is_priv_type text;
   v_is_priv    boolean;   -- NULL | true | false (esplicito)
   v_cap        text;
   v_txt        text;
