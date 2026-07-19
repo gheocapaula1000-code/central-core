@@ -220,3 +220,6 @@ verify_jwt = false
 
 
 
+
+[functions.scraping-worker]
+verify_jwt = false
