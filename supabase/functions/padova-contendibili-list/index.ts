@@ -147,8 +147,8 @@ serve(async (req) => {
     const payload = sanitize({
       ok: true,
       data: {
-        items: rows,
-        total: count ?? rows.length,
+        items: enrichedRows,
+        total: count ?? enrichedRows.length,
         hot_3plus: hot ?? 0,
         offset,
         limit,
