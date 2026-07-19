@@ -327,11 +327,14 @@ Deno.serve(async (req) => {
 
   const limit = Math.min(20, Math.max(1, Math.trunc(Number(body.limit) || 5)));
   const concurrency = Math.min(5, Math.max(1, Math.trunc(Number(body.concurrency) || 3)));
+  // Non reclamare più job di quanti possano iniziare immediatamente:
+  // evita che job in coda restino in lease-wait senza worker che li lavori.
+  const effectiveLimit = Math.min(limit, concurrency);
   const workerId = crypto.randomUUID();
 
   let jobs: Job[];
   try {
-    jobs = await claim(workerId, limit);
+    jobs = await claim(workerId, effectiveLimit);
   } catch (e) {
     console.error("[scraping-result-processor] claim error", { message: (e as Error).message });
     return json({ error: "claim_failed", message: (e as Error).message }, 500);
