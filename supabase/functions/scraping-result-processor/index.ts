@@ -147,23 +147,29 @@ const PROCESSORS: Record<string, ProcessorFn> = {
       throw new ProcessorError("processor_aborted", true, "processor_aborted");
     }
 
-    // RPC atomica: passa p_worker_id, non p_context (derivato server-side dalla coda)
-    const { data, error } = await sb.rpc("process_padova_portal_collect_v2", {
-      p_queue_id: job.id,
-      p_worker_id: workerId,
-      p_listings: listings,
-    });
+    // RPC atomica: .abortSignal(signal) permette l'interruzione HTTP reale.
+    // p_worker_id, NON p_context (derivato server-side dalla coda).
+    const { data, error } = await sb
+      .rpc("process_padova_portal_collect_v2", {
+        p_queue_id: job.id,
+        p_worker_id: workerId,
+        p_listings: listings,
+      })
+      .abortSignal(signal);
 
-    if (signal.aborted) {
-      throw new ProcessorError("processor_aborted", true, "processor_aborted");
-    }
-
+    // Dopo una risposta RPC completata NON facciamo nuovi check su
+    // signal.aborted: se AbortSignal ha vinto la corsa la RPC ha già
+    // restituito `error`. Se `error` è null → successo definitivo.
     if (error) {
-      const retryable = classifyRpcError(error.code);
+      // Se l'errore proviene dall'abort, classificalo come retryable.
+      const isAbort =
+        (error.message ?? "").toLowerCase().includes("abort") ||
+        (error.name ?? "").toLowerCase() === "aborterror";
+      const retryable = isAbort ? true : classifyRpcError(error.code);
       throw new ProcessorError(
         `rpc_error:${error.code ?? ""}:${(error.message ?? "").slice(0, 160)}`,
         retryable,
-        "rpc_error",
+        isAbort ? "processor_aborted" : "rpc_error",
         { code: error.code },
       );
     }
