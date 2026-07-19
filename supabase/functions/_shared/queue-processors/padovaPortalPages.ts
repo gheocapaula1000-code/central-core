@@ -43,7 +43,7 @@ export function validatePageNumber(page: unknown): number | null {
   if (!Number.isFinite(page) || !Number.isInteger(page)) return null;
   if (page < 1) return null;
   // Hard-cap universale coerente con getAbsoluteMaxPages("full").
-  if (page > 50) return null;
+  if (page > 60) return null;
   return page;
 }
 
