@@ -84,11 +84,18 @@ const HARD_CAP = 100;
 const MODE_CAPS: Record<"soft" | "full", number> = { soft: 25, full: 60 };
 
 const PRICE_NEAR_RE = /€\s*(\d{1,3}(?:\.\d{3})+|\d{4,7})(?!\d|\.\d)/;
-const SQM_NEAR_RE = /(\d{2,4})\s*m(?:q|²)\b/i;
+// Unicode-safe: dopo "m²" \b non funziona, usiamo lookahead che rifiuta
+// solo lettere/numeri/underscore Unicode.
+const SQM_NEAR_RE = /(\d{2,4})\s*m(?:q|²)(?![\p{L}\p{N}_])/iu;
 const ROOMS_NEAR_RE = /(\d{1,2})\s*(?:local[ei]|stanz[ei]|camer[ei])\b/i;
+// La regex viene applicata su testo NFD-stripped: senza accenti.
 const OTHER_COMUNI_RE =
-  /\b(abano|albignasego|rubano|selvazzano|vigonza|cadoneghe|noventa padovana|ponte san nicol[oò]|vicenza|verona|treviso|venezia|mestre|rovigo|belluno|milano|roma|bologna|torino|firenze)\b/i;
+  /\b(abano|albignasego|rubano|selvazzano|vigonza|cadoneghe|noventa padovana|ponte san nicolo|vicenza|verona|treviso|venezia|mestre|rovigo|belluno|milano|roma|bologna|torino|firenze)\b/i;
 const PADOVA_BOUNDS = { minLat: 45.34, maxLat: 45.48, minLng: 11.78, maxLng: 11.98 };
+
+function stripAccentsLower(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
 
 function parsePriceEurLocal(raw: string): number | null {
   const digits = raw.replace(/\./g, "");
@@ -116,7 +123,7 @@ function isInsidePadova(l: NormalizedListing): boolean {
     return l.lat! >= PADOVA_BOUNDS.minLat && l.lat! <= PADOVA_BOUNDS.maxLat &&
       l.lng! >= PADOVA_BOUNDS.minLng && l.lng! <= PADOVA_BOUNDS.maxLng;
   }
-  const txt = `${l.title ?? ""} ${l.address ?? ""}`.toLowerCase();
+  const txt = stripAccentsLower(`${l.title ?? ""} ${l.address ?? ""}`);
   return !OTHER_COMUNI_RE.test(txt);
 }
 

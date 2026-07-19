@@ -60,21 +60,33 @@ async function sha1Hex(input: string): Promise<string> {
     .join("");
 }
 
-function utcDate(): string {
-  return new Date().toISOString().slice(0, 10);
+// YYYY-MM-DD in Europe/Rome basato su `now`, coerente con la stessa istanza.
+function romeDate(now: Date): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Rome",
+    year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(now);
+  const y = parts.find((p) => p.type === "year")?.value ?? "0000";
+  const m = parts.find((p) => p.type === "month")?.value ?? "00";
+  const d = parts.find((p) => p.type === "day")?.value ?? "00";
+  return `${y}-${m}-${d}`;
+}
+
+function romeHour(now: Date): number {
+  const s = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit", hour12: false, timeZone: "Europe/Rome",
+  }).format(now);
+  return Number(s);
 }
 
 // Equivalente a selectPortalsForMode() di portalScrapers.ts.
-function selectPortalsForMode(mode: Mode): { portals: Portal[]; rotationKey: string } {
+function selectPortalsForMode(mode: Mode, now: Date): { portals: Portal[]; rotationKey: string } {
   if (mode === "full") return { portals: ALL_PORTALS.slice(), rotationKey: "full_all" };
-  const romaHour = Number(
-    new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Europe/Rome" })
-      .format(new Date()),
-  );
-  if (romaHour >= 8 && romaHour < 14) {
+  const h = romeHour(now);
+  if (h >= 8 && h < 14) {
     return { portals: ["casa.it", "subito.it"], rotationKey: "soft_morning" };
   }
-  if (romaHour >= 14 && romaHour < 20) {
+  if (h >= 14 && h < 20) {
     return { portals: ALL_PORTALS.slice(), rotationKey: "soft_afternoon" };
   }
   return {
@@ -90,22 +102,49 @@ Deno.serve(async (req) => {
     return json({ error: "unauthorized" }, 401);
   }
 
-  let body: { mode?: Mode; portals?: string[] } = {};
-  try {
-    body = (await req.json().catch(() => ({}))) ?? {};
-  } catch {
-    body = {};
+  // Body: assente → mode=soft rotation auto; presente ma malformato → 400.
+  let body: Record<string, unknown> = {};
+  const hasBody = (req.headers.get("content-length") ?? "") !== "0"
+    && req.body !== null;
+  if (hasBody) {
+    const raw = await req.text();
+    if (raw.trim().length > 0) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          body = parsed as Record<string, unknown>;
+        } else if (parsed !== null && parsed !== undefined) {
+          return json({ error: "invalid_json" }, 400);
+        }
+      } catch {
+        return json({ error: "invalid_json" }, 400);
+      }
+    }
   }
 
-  const mode: Mode = body.mode === "full" ? "full" : "soft";
+  // mode: se presente deve essere valido; assente → soft.
+  let mode: Mode;
+  if (body.mode === undefined || body.mode === null) {
+    mode = "soft";
+  } else if (body.mode === "soft" || body.mode === "full") {
+    mode = body.mode;
+  } else {
+    return json({ error: "invalid_mode" }, 400);
+  }
 
+  // portals: se presente ed è array (anche vuoto) → selezione esplicita;
+  //          se presente ma non è array → 400; se assente → rotazione auto.
+  const now = new Date();
   let selectedPortals: Portal[];
   let rotationKey: string;
-  if (Array.isArray(body.portals) && body.portals.length > 0) {
-    // Filtra whitelist + dedupe, mantenendo l'ordine esplicito del chiamante
+
+  if ("portals" in body) {
+    if (!Array.isArray(body.portals)) {
+      return json({ error: "invalid_portals" }, 400);
+    }
     const seen = new Set<Portal>();
     const list: Portal[] = [];
-    for (const raw of body.portals) {
+    for (const raw of body.portals as unknown[]) {
       if (typeof raw !== "string") continue;
       const p = raw as Portal;
       if (!ALL_PORTALS.includes(p)) continue;
@@ -116,21 +155,23 @@ Deno.serve(async (req) => {
     selectedPortals = list;
     rotationKey = "explicit";
   } else {
-    const sel = selectPortalsForMode(mode);
+    const sel = selectPortalsForMode(mode, now);
     selectedPortals = sel.portals;
     rotationKey = sel.rotationKey;
   }
+
+  const date = romeDate(now);
 
   if (selectedPortals.length === 0) {
     return json({ ok: true, mode, rotation_key: rotationKey, enqueued: [], skipped: [] });
   }
 
   const priority = mode === "full" ? 700 : 500;
-  const date = utcDate();
   const enqueued: Array<{
     portal: Portal; queue_id: string | null; url: string; idempotency_key: string;
   }> = [];
   const skipped: Array<{ portal: Portal; reason: string }> = [];
+  let hadError = false;
 
   for (const portal of selectedPortals) {
     const url = URL_BUILDERS[portal];
@@ -174,6 +215,7 @@ Deno.serve(async (req) => {
         portal, mode, code: error.code, message: error.message,
       });
       skipped.push({ portal, reason: `enqueue_error:${error.code ?? "unknown"}` });
+      hadError = true;
       continue;
     }
     enqueued.push({
@@ -186,5 +228,14 @@ Deno.serve(async (req) => {
     });
   }
 
-  return json({ ok: true, mode, rotation_key: rotationKey, enqueued, skipped });
+  const respBody = {
+    ok: !hadError,
+    mode,
+    rotation_key: rotationKey,
+    enqueued,
+    skipped,
+  };
+  // Se almeno una RPC ha fallito → HTTP non-2xx. La RPC è idempotente,
+  // quindi il retry dell'intera richiesta è sicuro.
+  return json(respBody, hadError ? 502 : 200);
 });
