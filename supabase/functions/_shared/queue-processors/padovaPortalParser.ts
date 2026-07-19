@@ -78,6 +78,11 @@ export interface PortalProcessorContext {
   province: string;
   portal: PortalSource;
   mode: "soft" | "full";
+  // Campi Fase 1B multipagina — opzionali per retro-compat con job Fase 1A.
+  page?: number;
+  max_pages?: number;
+  run_date?: string;
+
 }
 
 const HARD_CAP = 100;
