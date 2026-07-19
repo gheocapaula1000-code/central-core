@@ -1,23 +1,19 @@
 // scraping-result-processor
 // Livello separato per processare i "result" dei job scraping già riusciti,
 // senza ripetere chiamate a pagamento verso Firecrawl / Perplexity / Apify.
+//
+// Backend-only: nessun CORS, nessun OPTIONS. Solo POST autenticato via
+// header x-worker-token confrontato in tempo costante.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const WORKER_TOKEN = Deno.env.get("SCRAPING_WORKER_TOKEN")!;
+const WORKER_TOKEN = Deno.env.get("SCRAPING_WORKER_TOKEN") ?? "";
 
 const sb = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { persistSession: false },
 });
-
-const corsHeaders: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-worker-token, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
 
 class ProcessorError extends Error {
   constructor(
@@ -44,21 +40,30 @@ type Job = {
 };
 
 // -------- Processors registry (Fase 1: solo smoke test) --------
+//
+// NOTA VINCOLANTE (leggere prima di aggiungere processor applicativi):
+// I processor applicativi futuri devono usare RPC PostgreSQL atomiche e
+// idempotenti per gli upsert (dedupe_key, transazioni singole, ON CONFLICT).
+// AbortSignal da solo NON garantisce il rollback di scritture già iniziate:
+// serve solo a interrompere I/O in corso, non a ripulire side-effect già
+// applicati al database.
 
-type ProcessorFn = (job: Job) => Promise<{ ok: true } | never>;
+type ProcessorFn = (job: Job, signal: AbortSignal) => Promise<{ ok: true }>;
 
 const PROCESSOR_TIMEOUT_MS: Record<string, number> = {
   queue_smoke_test: 5_000,
 };
 
 const PROCESSORS: Record<string, ProcessorFn> = {
-  queue_smoke_test: async (job) => {
+  queue_smoke_test: async (job, signal) => {
+    if (signal.aborted) {
+      throw new ProcessorError("processor_aborted", true, "processor_aborted");
+    }
     if (!job.result || typeof job.result !== "object") {
-      throw new ProcessorError(
-        "missing_result",
-        false,
-        "missing_result",
-      );
+      throw new ProcessorError("missing_result", false, "missing_result");
+    }
+    if (signal.aborted) {
+      throw new ProcessorError("processor_aborted", true, "processor_aborted");
     }
     return { ok: true };
   },
@@ -69,23 +74,37 @@ const PROCESSORS: Record<string, ProcessorFn> = {
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "content-type": "application/json" },
+    headers: { "content-type": "application/json" },
   });
 }
 
-async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+// Confronto in tempo costante sull'intera stringa (no short-circuit).
+function safeEqual(a: string, b: string): boolean {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+async function withTimeout(
+  fn: (signal: AbortSignal) => Promise<{ ok: true }>,
+  ms: number,
+): Promise<{ ok: true }> {
+  const controller = new AbortController();
   let handle: number | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    handle = setTimeout(
-      () =>
-        reject(
-          new ProcessorError("processor_timeout", true, "processor_timeout"),
-        ),
-      ms,
-    ) as unknown as number;
+    handle = setTimeout(() => {
+      controller.abort();
+      reject(
+        new ProcessorError("processor_timeout", true, "processor_timeout"),
+      );
+    }, ms) as unknown as number;
   });
   try {
-    return await Promise.race([p, timeout]);
+    return await Promise.race([fn(controller.signal), timeout]);
   } finally {
     if (handle !== undefined) clearTimeout(handle);
   }
@@ -101,19 +120,28 @@ async function claim(workerId: string, limit: number): Promise<Job[]> {
   return (data ?? []) as Job[];
 }
 
-async function complete(job: Job, workerId: string) {
-  const { error } = await sb.rpc("scraping_processing_complete", {
+// Ritorna true solo se il DB conferma il completamento.
+async function complete(job: Job, workerId: string): Promise<boolean> {
+  const { data, error } = await sb.rpc("scraping_processing_complete", {
     p_id: job.id,
     p_worker_id: workerId,
   });
-  if (error) throw new Error(`complete_failed: ${error.message}`);
+  if (error) {
+    console.error("[scraping-result-processor] complete rpc error", {
+      id: job.id,
+      code: error.code,
+      message: error.message,
+    });
+    return false;
+  }
+  return data === true;
 }
 
 async function fail(
   job: Job,
   workerId: string,
   err: ProcessorError | Error,
-) {
+): Promise<string> {
   const retryable = err instanceof ProcessorError ? err.retryable : true;
   const code = err instanceof ProcessorError ? err.code : "unhandled_error";
   const detail =
@@ -124,16 +152,29 @@ async function fail(
     p_error: { code, message: err.message, ...(detail ? { detail } : {}) },
     p_retryable: retryable,
   };
-  const { error } = await sb.rpc("scraping_processing_fail", payload);
+  const { data, error } = await sb.rpc("scraping_processing_fail", payload);
   if (error) {
-    console.error("[scraping-result-processor] fail rpc error", error);
+    console.error("[scraping-result-processor] fail rpc error", {
+      id: job.id,
+      code: error.code,
+      message: error.message,
+    });
+    return "rpc_error";
   }
+  const status = typeof data === "string" ? data : "unknown";
+  console.log("[scraping-result-processor] fail outcome", {
+    id: job.id,
+    processor: job.processor,
+    status,
+    code,
+  });
+  return status;
 }
 
 async function process(job: Job, workerId: string) {
   const fn = PROCESSORS[job.processor];
   if (!fn) {
-    await fail(
+    const status = await fail(
       job,
       workerId,
       new ProcessorError(
@@ -142,36 +183,59 @@ async function process(job: Job, workerId: string) {
         "unknown_processor",
       ),
     );
-    return { id: job.id, processor: job.processor, ok: false, reason: "unknown_processor" };
+    return {
+      id: job.id,
+      processor: job.processor,
+      ok: false,
+      reason: "unknown_processor",
+      status,
+    };
   }
   const timeoutMs = PROCESSOR_TIMEOUT_MS[job.processor] ?? 15_000;
   try {
-    await withTimeout(fn(job), timeoutMs);
-    await complete(job, workerId);
-    return { id: job.id, processor: job.processor, ok: true };
+    await withTimeout((signal) => fn(job, signal), timeoutMs);
   } catch (err) {
-    console.error(
-      "[scraping-result-processor] processor failed",
-      { id: job.id, processor: job.processor },
-      err,
-    );
-    await fail(job, workerId, err as Error);
-    return { id: job.id, processor: job.processor, ok: false };
+    console.error("[scraping-result-processor] processor failed", {
+      id: job.id,
+      processor: job.processor,
+      code: err instanceof ProcessorError ? err.code : "unhandled_error",
+      message: err instanceof Error ? err.message : String(err),
+    });
+    const status = await fail(job, workerId, err as Error);
+    return { id: job.id, processor: job.processor, ok: false, status };
   }
+
+  const completed = await complete(job, workerId);
+  if (!completed) {
+    // Lease perso: NON chiamare fail (perderemmo di nuovo il lease).
+    console.warn("[scraping-result-processor] lost_lease on complete", {
+      id: job.id,
+      processor: job.processor,
+    });
+    return {
+      id: job.id,
+      processor: job.processor,
+      ok: false,
+      status: "lost_lease",
+    };
+  }
+  return {
+    id: job.id,
+    processor: job.processor,
+    ok: true,
+    status: "succeeded",
+  };
 }
 
 // -------- HTTP handler --------
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
   if (req.method !== "POST") {
     return json({ error: "method_not_allowed" }, 405);
   }
 
-  const token = req.headers.get("x-worker-token");
-  if (!WORKER_TOKEN || !token || token !== WORKER_TOKEN) {
+  const token = req.headers.get("x-worker-token") ?? "";
+  if (!WORKER_TOKEN || !safeEqual(token, WORKER_TOKEN)) {
     return json({ error: "unauthorized" }, 401);
   }
 
@@ -198,7 +262,9 @@ Deno.serve(async (req) => {
   try {
     jobs = await claim(workerId, limit);
   } catch (e) {
-    console.error("[scraping-result-processor] claim error", e);
+    console.error("[scraping-result-processor] claim error", {
+      message: (e as Error).message,
+    });
     return json({ error: "claim_failed", message: (e as Error).message }, 500);
   }
 
@@ -221,8 +287,9 @@ Deno.serve(async (req) => {
       );
     }
   }
-  const pumps = Array.from({ length: Math.min(concurrency, jobs.length) }, () =>
-    pump(),
+  const pumps = Array.from(
+    { length: Math.min(concurrency, jobs.length) },
+    () => pump(),
   );
   await Promise.allSettled(pumps);
 

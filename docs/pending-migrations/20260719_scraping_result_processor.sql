@@ -3,7 +3,10 @@
 -- Non applicare automaticamente. Revisione richiesta prima dell'esecuzione.
 -- Prerequisito: creare vault.secrets 'scraping_result_processor_url'
 --   (valore atteso: https://jpunnzgixcghuydstdlt.supabase.co/functions/v1/scraping-result-processor)
+-- e 'scraping_worker_token'.
 -- ============================================================================
+
+BEGIN;
 
 -- 1) Colonne nuove su public.scraping_queue --------------------------------------
 
@@ -35,6 +38,31 @@ ALTER TABLE public.scraping_queue
     OR
     (processor IS NOT NULL AND processing_status IN ('pending','running','retry','succeeded','dead'))
   );
+
+-- Constraint idempotenti aggiuntivi
+ALTER TABLE public.scraping_queue
+  DROP CONSTRAINT IF EXISTS scraping_queue_processing_attempt_chk;
+ALTER TABLE public.scraping_queue
+  ADD CONSTRAINT scraping_queue_processing_attempt_chk
+  CHECK (processing_attempt >= 0);
+
+ALTER TABLE public.scraping_queue
+  DROP CONSTRAINT IF EXISTS scraping_queue_processing_max_attempts_chk;
+ALTER TABLE public.scraping_queue
+  ADD CONSTRAINT scraping_queue_processing_max_attempts_chk
+  CHECK (processing_max_attempts BETWEEN 1 AND 20);
+
+ALTER TABLE public.scraping_queue
+  DROP CONSTRAINT IF EXISTS scraping_queue_processor_nonblank_chk;
+ALTER TABLE public.scraping_queue
+  ADD CONSTRAINT scraping_queue_processor_nonblank_chk
+  CHECK (processor IS NULL OR btrim(processor) <> '');
+
+ALTER TABLE public.scraping_queue
+  DROP CONSTRAINT IF EXISTS scraping_queue_processor_context_object_chk;
+ALTER TABLE public.scraping_queue
+  ADD CONSTRAINT scraping_queue_processor_context_object_chk
+  CHECK (jsonb_typeof(processor_context) = 'object');
 
 CREATE OR REPLACE FUNCTION public.scraping_queue_processor_normalize()
 RETURNS trigger
@@ -100,7 +128,12 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO 'public','pg_temp'
 AS $$
-DECLARE v_id uuid; v_timeout integer;
+DECLARE
+  v_id uuid;
+  v_timeout integer;
+  v_priority smallint;
+  v_max_attempts integer;
+  v_proc_max integer;
 BEGIN
   IF coalesce(auth.role(),'') <> 'service_role' AND session_user <> 'postgres' THEN
     RAISE EXCEPTION 'service_role required';
@@ -108,8 +141,16 @@ BEGIN
   IF p_processor IS NULL OR btrim(p_processor) = '' THEN
     RAISE EXCEPTION 'processor required';
   END IF;
+  IF p_processor_context IS NOT NULL
+     AND jsonb_typeof(p_processor_context) <> 'object' THEN
+    RAISE EXCEPTION 'processor_context must be a JSON object';
+  END IF;
 
-  v_timeout := least(greatest(coalesce(p_timeout_seconds, 30), 1), 120);
+  -- Normalizzazione entro i vincoli della tabella
+  v_timeout := least(greatest(coalesce(p_timeout_seconds, 30), 5), 120);
+  v_priority := least(greatest(coalesce(p_priority, 100)::integer, 0), 1000)::smallint;
+  v_max_attempts := least(greatest(coalesce(p_max_attempts, 5), 1), 20);
+  v_proc_max := least(greatest(coalesce(p_processing_max_attempts, 5), 1), 20);
 
   INSERT INTO public.scraping_queue(
     provider, operation, payload, idempotency_key, group_key, priority,
@@ -118,10 +159,10 @@ BEGIN
   ) VALUES (
     p_provider, btrim(p_operation), coalesce(p_payload,'{}'::jsonb),
     nullif(btrim(p_idempotency_key),''), nullif(btrim(p_group_key),''),
-    p_priority, p_max_attempts, v_timeout, p_available_at,
+    v_priority, v_max_attempts, v_timeout, p_available_at,
     p_parent_id, coalesce(p_depends_on,'{}'::uuid[]),
     btrim(p_processor), coalesce(p_processor_context,'{}'::jsonb),
-    greatest(coalesce(p_processing_max_attempts,5), 1)
+    v_proc_max
   )
   ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL
     AND status IN ('pending','running','retry','succeeded')
@@ -209,6 +250,7 @@ BEGIN
    WHERE id = p_id
      AND processing_status = 'running'
      AND processing_locked_by = p_worker_id
+     AND processing_locked_until > now()
    RETURNING processing_attempt INTO v_attempt;
 
   IF NOT FOUND THEN RETURN false; END IF;
@@ -242,6 +284,7 @@ BEGIN
    WHERE id = p_id
      AND processing_status = 'running'
      AND processing_locked_by = p_worker_id
+     AND processing_locked_until > now()
    FOR UPDATE;
 
   IF NOT FOUND THEN RETURN 'lost_lease'; END IF;
@@ -285,7 +328,11 @@ BEGIN
     UPDATE public.scraping_queue
        SET processing_status = CASE WHEN processing_attempt < processing_max_attempts
                                     THEN 'retry' ELSE 'dead' END,
-           processing_available_at = now() + interval '30 seconds',
+           processing_available_at = CASE
+                                       WHEN processing_attempt < processing_max_attempts
+                                         THEN now() + interval '30 seconds'
+                                       ELSE NULL
+                                     END,
            processed_at = CASE WHEN processing_attempt >= processing_max_attempts THEN now() ELSE processed_at END,
            processing_last_error = jsonb_build_object('code','processing_lease_expired',
                                                      'message','Processor worker stopped or timed out'),
@@ -320,7 +367,7 @@ GRANT EXECUTE ON FUNCTION public.scraping_processing_fail(uuid,uuid,jsonb,boolea
 GRANT EXECUTE ON FUNCTION public.scraping_processing_reap_expired()                TO service_role;
 
 -- ============================================================================
--- 3) Cron pg_net (URL e token dal Vault)
+-- 3) Cron pg_net (URL e token dal Vault). Nessuna richiesta se manca un secret.
 -- ============================================================================
 
 DO $cron$
@@ -337,15 +384,38 @@ SELECT cron.schedule(
   'scraping-result-processor-dispatch',
   '* * * * *',
   $$
-  SELECT net.http_post(
-    url := (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'scraping_result_processor_url' LIMIT 1),
-    headers := jsonb_build_object(
-      'content-type', 'application/json',
-      'x-worker-token', (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'scraping_worker_token' LIMIT 1)
-    ),
-    body := jsonb_build_object('limit', 10, 'concurrency', 3),
-    timeout_milliseconds := 25000
-  );
+  DO $body$
+  DECLARE
+    v_url   text;
+    v_token text;
+  BEGIN
+    SELECT decrypted_secret INTO v_url
+      FROM vault.decrypted_secrets
+     WHERE name = 'scraping_result_processor_url'
+     LIMIT 1;
+
+    SELECT decrypted_secret INTO v_token
+      FROM vault.decrypted_secrets
+     WHERE name = 'scraping_worker_token'
+     LIMIT 1;
+
+    IF v_url IS NULL OR btrim(v_url) = ''
+       OR v_token IS NULL OR btrim(v_token) = '' THEN
+      RAISE NOTICE 'scraping-result-processor-dispatch skipped: missing vault secrets';
+      RETURN;
+    END IF;
+
+    PERFORM net.http_post(
+      url := v_url,
+      headers := jsonb_build_object(
+        'content-type', 'application/json',
+        'x-worker-token', v_token
+      ),
+      body := jsonb_build_object('limit', 3, 'concurrency', 3),
+      timeout_milliseconds := 25000
+    );
+  END
+  $body$;
   $$
 );
 
@@ -354,3 +424,5 @@ SELECT cron.schedule(
   '*/2 * * * *',
   $$ SELECT public.scraping_processing_reap_expired(); $$
 );
+
+COMMIT;
