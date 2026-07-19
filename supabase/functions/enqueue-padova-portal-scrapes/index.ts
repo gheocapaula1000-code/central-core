@@ -102,29 +102,34 @@ Deno.serve(async (req) => {
     return json({ error: "unauthorized" }, 401);
   }
 
-  // Body: assente → mode=soft rotation auto; presente ma malformato → 400.
+  // Body: assente (req.body === null) → default soft.
+  // Presente ma non-object JSON o vuoto/whitespace → 400 invalid_json.
   let body: Record<string, unknown> = {};
-  const hasBody = (req.headers.get("content-length") ?? "") !== "0"
-    && req.body !== null;
-  if (hasBody) {
+  if (req.body !== null) {
     const raw = await req.text();
-    if (raw.trim().length > 0) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          body = parsed as Record<string, unknown>;
-        } else if (parsed !== null && parsed !== undefined) {
-          return json({ error: "invalid_json" }, 400);
-        }
-      } catch {
-        return json({ error: "invalid_json" }, 400);
-      }
+    if (raw.trim().length === 0) {
+      return json({ error: "invalid_json" }, 400);
     }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
+      return json({ error: "invalid_json" }, 400);
+    }
+    body = parsed as Record<string, unknown>;
   }
 
-  // mode: se presente deve essere valido; assente → soft.
+  // mode: assente → soft; presente → deve essere esattamente "soft" o "full".
+  // mode:null → 400 invalid_mode.
   let mode: Mode;
-  if (body.mode === undefined || body.mode === null) {
+  if (!("mode" in body)) {
     mode = "soft";
   } else if (body.mode === "soft" || body.mode === "full") {
     mode = body.mode;
