@@ -5,6 +5,14 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { isAuctionRecord } from "../_shared/auctionExclusion.ts";
+import {
+  VALID_COMMERCIAL_ZONE_SLUGS,
+  isValidCommercialZoneSlug,
+  buildOmiToSlugMap,
+  assignCommercialZonesBatch,
+  type ActiveZoneRow,
+  type CommercialZoneSlug,
+} from "../_shared/commercialZoneMapping.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -24,7 +32,11 @@ type Item = {
   url_sorgente: string | null;
   data_segnalazione: string;
   note: string | null;
-  commercial_zone_slug?: string | null;
+  commercial_zone_slug: CommercialZoneSlug | null;
+  zone_match_method: string;
+  zone_match_confidence: number | null;
+  // record grezzo per risoluzione zona post-hoc (rimosso prima della serializzazione)
+  __resolveInput?: Record<string, unknown> | null;
 };
 
 function json(body: unknown, status = 200) {
@@ -43,6 +55,31 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     { auth: { persistSession: false } },
   );
+
+  const url = new URL(req.url);
+  const commercialZoneFilterRaw = url.searchParams.get("commercial_zone_slug");
+  const commercialZoneFilter = commercialZoneFilterRaw && commercialZoneFilterRaw.trim()
+    ? commercialZoneFilterRaw.trim()
+    : null;
+  if (commercialZoneFilter !== null && !isValidCommercialZoneSlug(commercialZoneFilter)) {
+    return json({
+      ok: false,
+      error: "INVALID_SLUG",
+      message: `commercial_zone_slug non valido: '${commercialZoneFilter}'`,
+      allowed: VALID_COMMERCIAL_ZONE_SLUGS,
+    }, 400);
+  }
+
+  // Carica una sola volta le zone commerciali attive.
+  const { data: zonesRows } = await supabase
+    .from("civiko_commercial_zones")
+    .select("slug, omi_codes, attiva")
+    .eq("attiva", true);
+  const activeZones: ActiveZoneRow[] = (zonesRows ?? []).map((z: any) => ({
+    slug: String(z.slug ?? ""),
+    omi_codes: Array.isArray(z.omi_codes) ? (z.omi_codes as string[]) : [],
+  }));
+  const omiToSlug = buildOmiToSlugMap(activeZones);
 
   const items: Item[] = [];
   const totals = {
@@ -86,6 +123,15 @@ Deno.serve(async (req) => {
         url_sorgente: r.source_url ?? null,
         data_segnalazione: (r.event_date ?? r.detected_at ?? new Date().toISOString()).toString(),
         note: r.source_name ?? null,
+        commercial_zone_slug: null,
+        zone_match_method: "unresolved",
+        zone_match_confidence: null,
+        __resolveInput: {
+          address: r.property_hint ?? "",
+          zona: r.area_or_microzone ?? "",
+          quartiere: r.area_or_microzone ?? "",
+          title: r.explanation ?? "",
+        },
       });
       totals.legal_life_events++;
     }
@@ -118,6 +164,10 @@ Deno.serve(async (req) => {
         url_sorgente: url,
         data_segnalazione: (r.computed_at ?? new Date().toISOString()).toString(),
         note: nomeFonte,
+        // Successioni aggregate: MAI assegnate a una zona esatta.
+        commercial_zone_slug: null,
+        zone_match_method: "unresolved",
+        zone_match_confidence: null,
       });
       totals.successioni++;
     }
@@ -142,6 +192,7 @@ Deno.serve(async (req) => {
           if (!url.startsWith("https://")) continue;
           const title = String(r.title || "Annuncio in difficoltà");
           const drops = Number(r.drops_count) || 0;
+          const validSlug = isValidCommercialZoneSlug(slug) ? slug : null;
           items.push({
             id: `dist-${String(r.source_id || r.listing_id || url)}`,
             fonte: "distress",
@@ -154,7 +205,9 @@ Deno.serve(async (req) => {
             url_sorgente: url,
             data_segnalazione: (r.last_seen_at as string) || new Date().toISOString(),
             note: `Ribasso ${dropPct}% · ${drops} ribass${drops === 1 ? "o" : "i"}`,
-            commercial_zone_slug: slug,
+            commercial_zone_slug: validSlug,
+            zone_match_method: validSlug ? "rpc_verified_drop" : "unresolved",
+            zone_match_confidence: validSlug ? 0.95 : null,
           });
           totals.distress++;
         }
@@ -203,6 +256,9 @@ Deno.serve(async (req) => {
         const ribassiCount = r.drops_count ?? 0;
         const ribassiTxt = `${ribassiCount} ribass${ribassiCount === 1 ? "o" : "i"}`;
         const titolo = `${enrich.indirizzo ?? "Annuncio in difficoltà"} — ribasso ${dropPct.toFixed(1)}%`;
+        const validSlug = isValidCommercialZoneSlug(enrich.commercial_zone_slug)
+          ? enrich.commercial_zone_slug
+          : null;
         items.push({
           id: `dist-${r.id}`,
           fonte: "distress",
@@ -215,7 +271,9 @@ Deno.serve(async (req) => {
           url_sorgente: r.url ?? null,
           data_segnalazione: (r.detected_at ?? new Date().toISOString()).toString(),
           note: [r.fatigue_label, ribassiTxt].filter(Boolean).join(" · ") || null,
-          commercial_zone_slug: enrich.commercial_zone_slug,
+          commercial_zone_slug: validSlug,
+          zone_match_method: validSlug ? "listing_slug" : "unresolved",
+          zone_match_confidence: validSlug ? 0.9 : null,
         });
         totals.distress++;
       }
@@ -245,21 +303,67 @@ Deno.serve(async (req) => {
         url_sorgente: r.source_url ?? null,
         data_segnalazione: (r.data_rilevamento ?? new Date().toISOString()).toString(),
         note: r.source_name ?? null,
+        commercial_zone_slug: null,
+        zone_match_method: "unresolved",
+        zone_match_confidence: null,
+        __resolveInput: {
+          address: r.address_text ?? "",
+          microzona: r.microzone ?? "",
+          zona: r.microzone ?? "",
+          title: r.title ?? "",
+        },
       });
       totals.patrimonio_comunale++;
     }
 
-    totals.total =
-      totals.legal_life_events + totals.successioni + totals.distress + totals.patrimonio_comunale;
+    // ── Risoluzione zona commerciale per gli item con __resolveInput ────
+    // (legal_life_events + patrimonio_comunale). Distress + successioni
+    // conservano il valore già impostato.
+    const toResolve: number[] = [];
+    const resolveInputs: Array<Record<string, unknown>> = [];
+    for (let i = 0; i < items.length; i++) {
+      const ri = items[i].__resolveInput;
+      if (ri) { toResolve.push(i); resolveInputs.push(ri); }
+    }
+    if (resolveInputs.length > 0) {
+      const assigns = await assignCommercialZonesBatch(resolveInputs, omiToSlug, supabase);
+      for (let k = 0; k < assigns.length; k++) {
+        const idx = toResolve[k];
+        const a = assigns[k];
+        items[idx].commercial_zone_slug = a.commercial_zone_slug;
+        items[idx].zone_match_method = a.zone_match_method;
+        items[idx].zone_match_confidence = a.zone_match_confidence;
+      }
+    }
+    for (const it of items) delete it.__resolveInput;
+
+    // Filtro opzionale per commercial_zone_slug.
+    let outItems = items;
+    if (commercialZoneFilter) {
+      outItems = items.filter((it) => it.commercial_zone_slug === commercialZoneFilter);
+      // Ricalcola totals sul risultato filtrato.
+      const t = { legal_life_events: 0, successioni: 0, distress: 0, patrimonio_comunale: 0, total: 0 };
+      for (const it of outItems) {
+        (t as Record<string, number>)[it.fonte]++;
+      }
+      t.total = t.legal_life_events + t.successioni + t.distress + t.patrimonio_comunale;
+      // Preserva contatore aste escluse (diagnostico).
+      const auct = (totals as Record<string, number>).legal_life_events_auction_excluded ?? 0;
+      Object.assign(totals, t, { legal_life_events_auction_excluded: auct });
+    } else {
+      totals.total =
+        totals.legal_life_events + totals.successioni + totals.distress + totals.patrimonio_comunale;
+    }
 
     // Ordina per data segnalazione decrescente
-    items.sort((a, b) => (a.data_segnalazione < b.data_segnalazione ? 1 : -1));
+    outItems.sort((a, b) => (a.data_segnalazione < b.data_segnalazione ? 1 : -1));
 
     return json({
       ok: true,
       updated_at: new Date().toISOString(),
+      commercial_zone_filter: commercialZoneFilter,
       totals,
-      items,
+      items: outItems,
     });
   } catch (e) {
     return json({
