@@ -138,6 +138,8 @@ interface FeedItem {
   initial_price_eur?: number;
   current_price_eur?: number;
   drops_count?: number;
+  observations_count?: number;
+  first_seen_at?: string;
   commercial_zone_slug?: string;
   omi_zone_code?: string;
 }
