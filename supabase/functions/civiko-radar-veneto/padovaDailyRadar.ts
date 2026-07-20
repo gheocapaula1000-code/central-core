@@ -265,16 +265,18 @@ export async function runPadovaDailyRadar(opts: DailyRadarOptions = {}) {
     warnings.push("comune_padova_failed");
   }
 
-  // Stage 2 — refresh aste Padova (conferma, non valore primario)
-  const sAuc = await callStage(
-    "refresh-auctions",
-    fnUrl("civiko-radar-veneto/jobs/refresh-padova-auctions"),
-    { dryRun: opts.dryRun === true, includeNeedsReview: false, maxPagesPerSource: 6 },
-    jobSecret,
-    90_000,
-  );
+  // Stage 2 — refresh aste Padova: DISABILITATO per decisione commerciale.
+  // Le aste sono state rimosse da tutte le pipeline commerciali Civiko.
+  // Non si invoca alcun endpoint aste, non si effettuano scrape su PVP o tribunali.
+  const sAuc = {
+    stage: "refresh-auctions",
+    ok: true,
+    skipped: true,
+    reason: "disabled_business_decision",
+    status: 0,
+    duration_ms: 0,
+  } as unknown as Awaited<ReturnType<typeof callStage>>;
   stages.push(sAuc);
-  if (!sAuc.ok) warnings.push(`auctions_refresh_failed:${sAuc.status}`);
 
   // Stage 3 — Perplexity discovery (fonti pubbliche/istituzionali)
   if (!opts.skipPerplexity) {
