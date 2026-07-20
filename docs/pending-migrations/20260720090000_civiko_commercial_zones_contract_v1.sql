@@ -234,6 +234,7 @@ INSERT INTO public.civiko_quartiere_commercial_zone_map (quartiere_key, commerci
   ('san camillo nazareth', 'sud-est-sant-osvaldo'),
   ('voltabarozzo', 'sud-voltabarozzo-guizza'),
   ('crocefisso', 'sud-voltabarozzo-guizza'),
+  ('crocifisso', 'sud-voltabarozzo-guizza'),
   ('ss crocefisso', 'sud-voltabarozzo-guizza'),
   ('salboro', 'sud-voltabarozzo-guizza'),
   ('guizza', 'sud-voltabarozzo-guizza'),
