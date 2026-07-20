@@ -5761,6 +5761,8 @@ export type Database = {
         Row: {
           agency: string | null
           bagni: number | null
+          commercial_zone_slug: string | null
+          comune: string | null
           expired_at: string | null
           fonte: string
           id: number
@@ -5771,6 +5773,7 @@ export type Database = {
           lng: number | null
           locali: number | null
           mq: number | null
+          omi_zone: string | null
           prezzo: number | null
           published_at_portal: string | null
           quartiere: string | null
@@ -5779,10 +5782,15 @@ export type Database = {
           telefono: string | null
           tipo_lead: string | null
           url: string | null
+          zone_match_confidence: number | null
+          zone_match_method: string | null
+          zone_resolved_at: string | null
         }
         Insert: {
           agency?: string | null
           bagni?: number | null
+          commercial_zone_slug?: string | null
+          comune?: string | null
           expired_at?: string | null
           fonte: string
           id?: number
@@ -5793,6 +5801,7 @@ export type Database = {
           lng?: number | null
           locali?: number | null
           mq?: number | null
+          omi_zone?: string | null
           prezzo?: number | null
           published_at_portal?: string | null
           quartiere?: string | null
@@ -5801,10 +5810,15 @@ export type Database = {
           telefono?: string | null
           tipo_lead?: string | null
           url?: string | null
+          zone_match_confidence?: number | null
+          zone_match_method?: string | null
+          zone_resolved_at?: string | null
         }
         Update: {
           agency?: string | null
           bagni?: number | null
+          commercial_zone_slug?: string | null
+          comune?: string | null
           expired_at?: string | null
           fonte?: string
           id?: number
@@ -5815,6 +5829,7 @@ export type Database = {
           lng?: number | null
           locali?: number | null
           mq?: number | null
+          omi_zone?: string | null
           prezzo?: number | null
           published_at_portal?: string | null
           quartiere?: string | null
@@ -5823,8 +5838,19 @@ export type Database = {
           telefono?: string | null
           tipo_lead?: string | null
           url?: string | null
+          zone_match_confidence?: number | null
+          zone_match_method?: string | null
+          zone_resolved_at?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "padova_listings_commercial_zone_slug_fkey"
+            columns: ["commercial_zone_slug"]
+            isOneToOne: false
+            referencedRelation: "civiko_commercial_zones"
+            referencedColumns: ["slug"]
+          },
+        ]
       }
       padova_listings_price_history: {
         Row: {

@@ -217,7 +217,9 @@ Deno.serve(async (req) => {
     title: string | null;
     body: string | null;
     isPadova: boolean;
+    comuneKnown: boolean;
   };
+
 
   const base: BaseRec[] = [];
   for (const [url, { raw }] of byUrl) {
@@ -238,6 +240,7 @@ Deno.serve(async (req) => {
 
     const comune = pickComune(raw);
     const isPadova = normalizeComune(comune) === "padova";
+    const comuneKnown = !!comune && comune.trim() !== "";
     if (isPadova) n_padova_citta++;
 
     base.push({
@@ -251,15 +254,16 @@ Deno.serve(async (req) => {
       title: (raw["subject"] ?? raw["title"]) ? String(raw["subject"] ?? raw["title"]) : null,
       body: (raw["body"] ?? raw["description"]) ? String(raw["body"] ?? raw["description"]) : null,
       isPadova,
+      comuneKnown,
     });
   }
 
-  // Zonizzazione: SOLO per i record di Padova città.
-  const padovaRecs = base.filter((b) => b.isPadova);
+  // Zonizzazione: Padova città + records con Comune sconosciuto (potenzialmente promuovibili via PIP/precomputed).
+  const resolvableRecs = base.filter((b) => b.isPadova || !b.comuneKnown);
 
   // Carica UNA sola volta le zone commerciali attive
   let zones: Array<{ slug: string; nome: string; omi_codes: string[] | null }> = [];
-  if (padovaRecs.length > 0) {
+  if (resolvableRecs.length > 0) {
     const { data: zData, error: zErr } = await sb
       .from("civiko_commercial_zones")
       .select("slug, nome, omi_codes, attiva")
@@ -276,7 +280,7 @@ Deno.serve(async (req) => {
   }
 
   // Prepara input per il resolver
-  const resolverInput = padovaRecs.map((r) => ({
+  const resolverInput = resolvableRecs.map((r) => ({
     lat: r.lat, lng: r.lng,
     indirizzo: r.indirizzo,
     address: r.indirizzo,
@@ -287,7 +291,7 @@ Deno.serve(async (req) => {
     zip: r.cap,
   }));
 
-  const resolutions = padovaRecs.length > 0
+  const resolutions = resolvableRecs.length > 0
     ? await resolvePadovaOmiBatch(
         resolverInput as unknown as Array<Record<string, unknown>>,
         sb as unknown as {
@@ -301,57 +305,82 @@ Deno.serve(async (req) => {
     : [];
 
   // Mappa risoluzione → record base
-  const zoneByUrl = new Map<string, {
+  type ZoneAssignment = {
+    comune: string | null;
     omi_zone: string | null;
     commercial_zone_slug: string | null;
     quartiere: string | null;
     method: string;
     confidence: number | null;
     resolved_at: string;
-  }>();
+  };
+  const zoneByUrl = new Map<string, ZoneAssignment>();
   const nowIso = new Date().toISOString();
+  const MIN_CONF = 0.70;
+  const STRONG_METHODS = new Set(["point_in_polygon", "precomputed_omi", "alias"]);
 
-  for (let i = 0; i < padovaRecs.length; i++) {
-    const rec = padovaRecs[i];
+  for (let i = 0; i < resolvableRecs.length; i++) {
+    const rec = resolvableRecs[i];
     const res = resolutions[i];
     const method = reasonToMethod(res?.omi_zone_reason);
+    const confidence = typeof res?.omi_zone_confidence === "number" ? res.omi_zone_confidence : null;
     const validCode = res?.omi_zone_code && res.omi_zone_code !== UNRESOLVED_OMI_CODE
       ? res.omi_zone_code
       : null;
 
-    if (validCode) {
+    // Rule 4: unknown comune → can be promoted to "Padova" only via PIP or precomputed.
+    const canPromoteUnknown = !rec.isPadova && !rec.comuneKnown &&
+      (method === "point_in_polygon" || method === "precomputed_omi") && !!validCode;
+    const treatAsPadova = rec.isPadova || canPromoteUnknown;
+
+    if (!treatAsPadova) {
+      // Unknown comune not promotable, keep as-is.
+      zoneByUrl.set(rec.url, {
+        comune: rec.comune, omi_zone: null, commercial_zone_slug: null,
+        quartiere: null, method: "unresolved", confidence: null, resolved_at: nowIso,
+      });
+      continue;
+    }
+
+    // Assign commercial zone only when strong method + confidence >= 0.70 + code active.
+    if (validCode && STRONG_METHODS.has(method) && confidence !== null && confidence >= MIN_CONF) {
       const zoneHit = mapOmiToZone(validCode, zones);
       if (zoneHit) {
         n_zonizzati++;
         zoneByUrl.set(rec.url, {
+          comune: "Padova",
           omi_zone: validCode,
           commercial_zone_slug: zoneHit.slug,
           quartiere: zoneHit.nome,
-          method,
-          confidence: typeof res.omi_zone_confidence === "number" ? res.omi_zone_confidence : null,
-          resolved_at: nowIso,
+          method, confidence, resolved_at: nowIso,
         });
         continue;
       }
     }
-    // Unresolved: niente zona commerciale
+    // cap_hint (or below-threshold / no-mapping): keep method+confidence but no slug/quartiere/omi_zone.
+    if (method === "cap_hint") {
+      zoneByUrl.set(rec.url, {
+        comune: rec.isPadova ? "Padova" : rec.comune,
+        omi_zone: null, commercial_zone_slug: null, quartiere: null,
+        method: "cap_hint", confidence, resolved_at: nowIso,
+      });
+      continue;
+    }
     n_unresolved++;
     zoneByUrl.set(rec.url, {
-      omi_zone: null,
-      commercial_zone_slug: null,
-      quartiere: null,
-      method: "unresolved",
-      confidence: null,
-      resolved_at: nowIso,
+      comune: rec.isPadova ? "Padova" : rec.comune,
+      omi_zone: null, commercial_zone_slug: null, quartiere: null,
+      method: "unresolved", confidence: null, resolved_at: nowIso,
     });
   }
+
 
   // Costruisci record finali per upsert
   const records: Array<Record<string, unknown>> = base.map((b) => {
     const z = zoneByUrl.get(b.url);
-    const zoneFields = b.isPadova && z
+    const zoneFields = z
       ? {
-          comune: "Padova",
+          comune: z.comune,
           omi_zone: z.omi_zone,
           commercial_zone_slug: z.commercial_zone_slug,
           quartiere: z.quartiere,
@@ -368,6 +397,7 @@ Deno.serve(async (req) => {
           zone_match_confidence: null,
           zone_resolved_at: null,
         };
+
 
     return {
       fonte: "subito",
