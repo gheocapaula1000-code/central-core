@@ -15,6 +15,7 @@ import {
   UNRESOLVED_OMI_CODE,
   UNRESOLVED_OMI_LABEL,
 } from "../_shared/padovaZoneResolver.ts";
+import { isAuctionRecord } from "../_shared/auctionExclusion.ts";
 
 const SCHEMA_VERSION = "civiko_signals_feed_v1";
 const MAX_SKEW_MS = 5 * 60 * 1000;
