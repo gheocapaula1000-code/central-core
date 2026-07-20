@@ -1,74 +1,69 @@
 // _shared/commercialZoneMapping.ts
-// Deterministic mapping from a record (with optional slug, OMI code, lat/lng,
-// alias text) to one of the 8 official Padova commercial zones.
 //
-// NEVER invents. NEVER falls back to "Padova". NEVER uses simple municipality
-// membership. Uses only the shared PadovaOmiResolver + the active rows of
-// public.civiko_commercial_zones passed in by the caller.
+// Writer runtime della classificazione commerciale Padova, allineato al
+// contratto ufficiale delle 8 zone basate esclusivamente sui quartieri.
 //
-// Order of resolution (per spec):
-//   a. existing commercial_zone_slug on the row, only if in the 8 valid slugs
-//   b. existing OMI code on the row, mapped exclusively via civiko_commercial_zones (attiva=true)
-//   c. valid lat/lng → PIP (via resolvePadovaOmiBatch, batched by the caller)
-//   d. only if no valid coords → official aliases in the resolver, confidence >= 0.70
-//   → otherwise unresolved (slug=null, method="unresolved", confidence=null)
+// Regole di produzione di `commercial_zone_slug`:
+//   - unica fonte: il campo `quartiere` del record;
+//   - risoluzione via commercialZoneForQuartiere() (match esatto,
+//     normalizzato, definito in civikoCommercialZoneByQuartiere.ts);
+//   - quartiere assente / vuoto / sconosciuto / ambiguo / indirizzo → null;
+//   - MAI derivato da CAP, codice OMI, descrizione OMI, coordinate,
+//     similarità fuzzy, includes/startsWith, split automatici o fallback
+//     legacy;
+//   - il codice OMI resta un metadato separato per i consumatori: qui
+//     non viene usato per assegnare la zona commerciale.
+//
+// API pubbliche preservate per compatibilità con i chiamanti runtime
+// (padova-contendibili-list, core-offmarket-list-public,
+// civiko-one-signals-feed). La firma di ogni funzione esportata è
+// identica alla versione precedente; cambia solo la semantica interna.
 
 import {
-  resolvePadovaOmiSync,
-  resolvePadovaOmiBatch,
-  UNRESOLVED_OMI_CODE,
-  type PadovaOmiResolution,
-} from "./padovaOmiResolver.ts";
+  CIVIKO_COMMERCIAL_ZONE_SLUGS,
+  isCivikoCommercialZoneSlug,
+  type CivikoCommercialZoneSlug,
+} from "./civikoCommercialZoneContract.ts";
+import { commercialZoneForQuartiere } from "./civikoCommercialZoneByQuartiere.ts";
 
+// I nuovi 8 slug ufficiali. Esposto come readonly tuple per mantenere
+// la firma `readonly string[]` attesa dai chiamanti.
 export const VALID_COMMERCIAL_ZONE_SLUGS = [
-  "arcella",
   "centro-storico",
-  "ovest-sacra-famiglia-chiesanuova",
-  "portello-stazione-stanga",
-  "san-carlo-san-bellino",
-  "sant-osvaldo-facciolati",
+  "nord-arcella",
+  "est-brenta",
+  "est-forcellini-camin",
+  "sud-est-sant-osvaldo",
   "sud-voltabarozzo-guizza",
-  "torre-ponte-brenta-camin",
+  "sud-ovest-mandria",
+  "ovest-chiesanuova-brentelle",
 ] as const;
 
-export type CommercialZoneSlug = typeof VALID_COMMERCIAL_ZONE_SLUGS[number];
-const VALID_SET: ReadonlySet<string> = new Set(VALID_COMMERCIAL_ZONE_SLUGS);
+export type CommercialZoneSlug = CivikoCommercialZoneSlug;
+
+const VALID_SET: ReadonlySet<string> = CIVIKO_COMMERCIAL_ZONE_SLUGS as ReadonlySet<string>;
 
 export function isValidCommercialZoneSlug(s: unknown): s is CommercialZoneSlug {
   return typeof s === "string" && VALID_SET.has(s);
 }
 
+// Preservato per compatibilità di firma con i chiamanti.
 export type ActiveZoneRow = { slug: string; omi_codes: string[] };
 
-/** Build OMI code (uppercase) → slug map from active rows only, keeping
- *  exclusively the 8 valid slugs. */
-export function buildOmiToSlugMap(rows: ActiveZoneRow[]): Map<string, CommercialZoneSlug> {
-  const m = new Map<string, CommercialZoneSlug>();
-  const ambiguous = new Set<string>();
-  for (const r of rows) {
-    if (!isValidCommercialZoneSlug(r.slug)) continue;
-    for (const c of r.omi_codes ?? []) {
-      if (typeof c !== "string") continue;
-      const code = c.trim().toUpperCase();
-      if (!code) continue;
-      if (ambiguous.has(code)) continue;
-      const prev = m.get(code);
-      if (prev && prev !== r.slug) {
-        // Same OMI code claimed by more than one active commercial zone:
-        // deterministic contract requires exactly one match, so drop it.
-        m.delete(code);
-        ambiguous.add(code);
-        continue;
-      }
-      if (!prev) m.set(code, r.slug);
-    }
-  }
-  return m;
+/**
+ * Preservata per compatibilità di firma. Il contratto attuale vieta l'uso
+ * dei codici OMI come sorgente della zona commerciale: la mappa restituita
+ * è sempre vuota. I chiamanti che iterano su di essa non troveranno match
+ * (comportamento voluto: quartiere-only).
+ */
+export function buildOmiToSlugMap(_rows: ActiveZoneRow[]): Map<string, CommercialZoneSlug> {
+  return new Map();
 }
 
 export type ZoneAssignment = {
   commercial_zone_slug: CommercialZoneSlug | null;
-  zone_match_method: string; // "existing_slug" | "existing_omi" | "point_in_polygon" | "precomputed_omi" | "alias_match" | "unresolved"
+  // "existing_slug" | "quartiere_match" | "unresolved"
+  zone_match_method: string;
   zone_match_confidence: number | null;
 };
 
@@ -78,119 +73,88 @@ const UNRESOLVED: ZoneAssignment = {
   zone_match_confidence: null,
 };
 
-/** True iff lat/lng are numbers, finite and not both 0. */
+/** True iff lat/lng are numbers, finite and not both 0. Preservata per
+ *  compatibilità: NON viene più usata internamente per produrre slug. */
 export function hasValidCoords(lat: unknown, lng: unknown): boolean {
   const la = Number(lat);
   const lo = Number(lng);
   return Number.isFinite(la) && Number.isFinite(lo) && (la !== 0 || lo !== 0);
 }
 
-/** Strong-method OMI reasons that can drive a commercial-zone assignment. */
-const STRONG_OMI_REASONS: ReadonlySet<string> = new Set([
-  "precomputed_omi",
-  "point_in_polygon",
-  "alias_match",
-]);
-
-/** Map a PadovaOmiResolution + the OMI→slug map into a ZoneAssignment.
- *  CAP hints (confidence 0.40) and salvage never assign a slug. */
-export function assignFromResolution(
-  res: PadovaOmiResolution | null | undefined,
-  omiToSlug: Map<string, CommercialZoneSlug>,
-): ZoneAssignment {
-  if (!res || !res.omi_zone_code || res.omi_zone_code === UNRESOLVED_OMI_CODE) return UNRESOLVED;
-  if (!STRONG_OMI_REASONS.has(res.omi_zone_reason)) return UNRESOLVED;
-  if (typeof res.omi_zone_confidence !== "number" || res.omi_zone_confidence < 0.70) return UNRESOLVED;
-  const slug = omiToSlug.get(res.omi_zone_code.trim().toUpperCase());
+// Risoluzione quartiere → slug ufficiale. Unica strada verso lo slug.
+function assignFromQuartiere(record: Record<string, unknown>): ZoneAssignment {
+  const slug = commercialZoneForQuartiere(record["quartiere"]);
   if (!slug) return UNRESOLVED;
   return {
     commercial_zone_slug: slug,
-    zone_match_method: res.omi_zone_reason,
-    zone_match_confidence: res.omi_zone_confidence,
+    zone_match_method: "quartiere_match",
+    zone_match_confidence: 0.95,
   };
 }
 
-/** Rule (a) + (b) synchronous fast path. Returns null when caller should
- *  proceed to coords/alias resolution. */
+/**
+ * Fast path (a): accetta uno slug già presente sul record SOLO se rientra
+ * nei nuovi 8 slug ufficiali. Il codice OMI eventualmente presente sul
+ * record NON viene più mappato a uno slug commerciale (contratto
+ * quartiere-only): in quel caso ritorna null e la risoluzione prosegue.
+ */
 export function tryExistingSlugOrOmi(
   record: Record<string, unknown>,
-  omiToSlug: Map<string, CommercialZoneSlug>,
+  _omiToSlug: Map<string, CommercialZoneSlug>,
 ): ZoneAssignment | null {
   const existingSlug = record["commercial_zone_slug"];
-  if (typeof existingSlug === "string" && isValidCommercialZoneSlug(existingSlug)) {
+  if (isValidCommercialZoneSlug(existingSlug)) {
     return {
       commercial_zone_slug: existingSlug,
       zone_match_method: "existing_slug",
       zone_match_confidence: 0.99,
     };
   }
-  const existingOmi = record["omi_zone_code"] ?? record["omi_zone"] ?? record["codice_omi"];
-  if (typeof existingOmi === "string" && existingOmi.trim()) {
-    const code = existingOmi.trim().toUpperCase();
-    const slug = omiToSlug.get(code);
-    if (slug) {
-      return {
-        commercial_zone_slug: slug,
-        zone_match_method: "existing_omi",
-        zone_match_confidence: 0.95,
-      };
-    }
-  }
   return null;
 }
 
-/** Alias-only path (rule d): use ONLY when no valid coordinates exist. */
-export function assignFromAliasOnly(
-  record: Record<string, unknown>,
-  omiToSlug: Map<string, CommercialZoneSlug>,
+/**
+ * Preservata per compatibilità di firma. Il contratto attuale vieta l'uso
+ * di risoluzioni OMI (PIP, precomputed, alias OMI, CAP hint, ecc.) come
+ * sorgente della zona commerciale: ritorna sempre UNRESOLVED.
+ */
+export function assignFromResolution(
+  _res: unknown,
+  _omiToSlug: Map<string, CommercialZoneSlug>,
 ): ZoneAssignment {
-  const sync = resolvePadovaOmiSync(record);
-  // Only alias_match / precomputed_omi with confidence >= 0.70 count here.
-  return assignFromResolution(sync, omiToSlug);
+  return UNRESOLVED;
 }
 
-/** Batched assigner: resolves each record following rules a → b → c/d.
- *  Uses a single PIP RPC call for all records with valid coordinates. */
+/**
+ * Assegnazione basata sul quartiere del record. Il nome storico è
+ * mantenuto per compatibilità con i chiamanti; l'unico input consultato
+ * è il campo `quartiere`.
+ */
+export function assignFromAliasOnly(
+  record: Record<string, unknown>,
+  _omiToSlug: Map<string, CommercialZoneSlug>,
+): ZoneAssignment {
+  return assignFromQuartiere(record);
+}
+
+/**
+ * Assegnatore batch. Ordine di risoluzione:
+ *   a) `commercial_zone_slug` già presente e ∈ 8 nuovi slug ufficiali;
+ *   b) risoluzione dal campo `quartiere` via commercialZoneForQuartiere.
+ * Nessun altro ingresso è consultato. Nessun uso di OMI, CAP, coord.,
+ * fuzzy, includes/startsWith, split o fallback legacy.
+ * Il parametro `supa` è preservato per compatibilità e ignorato.
+ */
 export async function assignCommercialZonesBatch(
   records: Array<Record<string, unknown>>,
   omiToSlug: Map<string, CommercialZoneSlug>,
-  supa: { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }> } | null,
+  _supa: unknown,
 ): Promise<ZoneAssignment[]> {
   const out: ZoneAssignment[] = new Array(records.length);
-  const pipRecords: Array<Record<string, unknown>> = [];
-  const pipIdx: number[] = [];
-
   for (let i = 0; i < records.length; i++) {
     const r = records[i] ?? {};
-    // a + b
     const fast = tryExistingSlugOrOmi(r, omiToSlug);
-    if (fast) { out[i] = fast; continue; }
-    // c: valid coords → PIP branch (batched)
-    if (hasValidCoords(r["lat"], r["lng"])) {
-      pipRecords.push(r);
-      pipIdx.push(i);
-      out[i] = UNRESOLVED; // provisional
-      continue;
-    }
-    // d: alias only (no coords)
-    out[i] = assignFromAliasOnly(r, omiToSlug);
+    out[i] = fast ?? assignFromQuartiere(r);
   }
-
-  if (pipRecords.length > 0) {
-    const resolutions = await resolvePadovaOmiBatch(pipRecords, supa);
-    for (let k = 0; k < resolutions.length; k++) {
-      const target = pipIdx[k];
-      const res = resolutions[k];
-      // Only accept PIP or precomputed here. If PIP failed and the resolver
-      // fell back to alias/CAP salvage while coords existed, we treat as
-      // unresolved (spec: alias only when no coords).
-      if (res && (res.omi_zone_reason === "point_in_polygon" || res.omi_zone_reason === "precomputed_omi")) {
-        out[target] = assignFromResolution(res, omiToSlug);
-      } else {
-        out[target] = UNRESOLVED;
-      }
-    }
-  }
-
   return out;
 }
