@@ -192,6 +192,7 @@ Deno.serve(async (req) => {
           if (!url.startsWith("https://")) continue;
           const title = String(r.title || "Annuncio in difficoltà");
           const drops = Number(r.drops_count) || 0;
+          const validSlug = isValidCommercialZoneSlug(slug) ? slug : null;
           items.push({
             id: `dist-${String(r.source_id || r.listing_id || url)}`,
             fonte: "distress",
@@ -204,7 +205,9 @@ Deno.serve(async (req) => {
             url_sorgente: url,
             data_segnalazione: (r.last_seen_at as string) || new Date().toISOString(),
             note: `Ribasso ${dropPct}% · ${drops} ribass${drops === 1 ? "o" : "i"}`,
-            commercial_zone_slug: slug,
+            commercial_zone_slug: validSlug,
+            zone_match_method: validSlug ? "rpc_verified_drop" : "unresolved",
+            zone_match_confidence: validSlug ? 0.95 : null,
           });
           totals.distress++;
         }
