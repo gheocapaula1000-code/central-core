@@ -709,8 +709,56 @@ serve(async (req: Request) => {
     console.error(`[civiko-one-signals-feed] quartiere_zona_map fallback error:`, (e as Error)?.message ?? e);
   }
 
+  // ── Commercial zone slug propagation ─────────────────────────────────
+  // Rimappa il zone_code (OMI) già risolto in uno degli 8 slug ufficiali
+  // consultando ESCLUSIVAMENTE public.civiko_commercial_zones (attiva=true).
+  // Non deriva mai da quartiere/zona/CAP/indirizzo/testo. Non tocca gli item
+  // che hanno già un commercial_zone_slug valido (es. ramo ribassi da RPC).
+  const commercialZoneDiag: Record<string, { items_received: number; items_with_valid_commercial_zone_slug: number; items_without_commercial_zone_slug: number }> = {
+    contendibile: { items_received: 0, items_with_valid_commercial_zone_slug: 0, items_without_commercial_zone_slug: 0 },
+    multi_portale: { items_received: 0, items_with_valid_commercial_zone_slug: 0, items_without_commercial_zone_slug: 0 },
+    privato: { items_received: 0, items_with_valid_commercial_zone_slug: 0, items_without_commercial_zone_slug: 0 },
+    ribasso: { items_received: 0, items_with_valid_commercial_zone_slug: 0, items_without_commercial_zone_slug: 0 },
+    off_market: { items_received: 0, items_with_valid_commercial_zone_slug: 0, items_without_commercial_zone_slug: 0 },
+  };
+  try {
+    const { data: zonesRows, error: zonesErr } = await supabase
+      .from("civiko_commercial_zones")
+      .select("slug, omi_codes, attiva")
+      .eq("attiva", true);
+    if (zonesErr) {
+      console.error(`[civiko-one-signals-feed] civiko_commercial_zones load error: ${zonesErr.message}`);
+    } else {
+      const activeZones: ActiveZoneRow[] = (zonesRows ?? []).map((z) => ({
+        slug: String((z as Record<string, unknown>).slug ?? ""),
+        omi_codes: Array.isArray((z as Record<string, unknown>).omi_codes) ? ((z as Record<string, unknown>).omi_codes as string[]) : [],
+      }));
+      const omiToSlug = buildOmiToSlugMap(activeZones);
+      for (const it of rawItems) {
+        // Se già valorizzato con slug valido (ramo ribassi RPC), non toccare.
+        if (isValidCommercialZoneSlug(it.commercial_zone_slug)) continue;
+        // Rimuovi eventuali slug non ufficiali per non farli sopravvivere.
+        if (it.commercial_zone_slug && !isValidCommercialZoneSlug(it.commercial_zone_slug)) {
+          delete it.commercial_zone_slug;
+        }
+        const code = (it.zone_code || "").trim().toUpperCase();
+        if (!code || code === UNRESOLVED_OMI_CODE) continue;
+        const slug = omiToSlug.get(code);
+        if (slug) it.commercial_zone_slug = slug;
+      }
+    }
+  } catch (e) {
+    console.error(`[civiko-one-signals-feed] commercial zone propagation error:`, (e as Error)?.message ?? e);
+  }
+  for (const it of rawItems) {
+    const bucket = commercialZoneDiag[it.signal_type];
+    if (!bucket) continue;
+    bucket.items_received++;
+    if (isValidCommercialZoneSlug(it.commercial_zone_slug)) bucket.items_with_valid_commercial_zone_slug++;
+    else bucket.items_without_commercial_zone_slug++;
+  }
 
-  // Dedupe
+
   const { kept, removed: duplicatesRemoved } = dedupeItems(rawItems);
 
   // Sort & trim — freshness primary, score secondary (so new ingestions surface immediately)
