@@ -106,7 +106,7 @@ interface DataQuality {
   needs_review: boolean;
 }
 
-export interface FeedItem {
+interface FeedItem {
   source_id: string;
   signal_type: SignalType;
   title: string;
