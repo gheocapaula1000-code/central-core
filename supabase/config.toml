@@ -229,3 +229,6 @@ verify_jwt = false
 
 [functions.enqueue-padova-portal-scrapes]
 verify_jwt = false
+
+[functions.padova-private-leads-zone-backfill]
+verify_jwt = false
