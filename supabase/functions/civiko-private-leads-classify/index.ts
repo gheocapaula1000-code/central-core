@@ -217,7 +217,9 @@ Deno.serve(async (req) => {
     title: string | null;
     body: string | null;
     isPadova: boolean;
+    comuneKnown: boolean;
   };
+
 
   const base: BaseRec[] = [];
   for (const [url, { raw }] of byUrl) {
