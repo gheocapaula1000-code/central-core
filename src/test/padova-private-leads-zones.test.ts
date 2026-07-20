@@ -216,11 +216,10 @@ describe("statistiche pubbliche — solo Padova città", () => {
   it("KPI privati DEVE filtrare comune='Padova' (contratto)", () => {
     // Verifica che il contratto documentato preveda il vincolo.
     // (Contract test: fallisce se qualcuno rimuove il filtro dagli endpoint.)
-    const fs = require("node:fs") as typeof import("node:fs");
-    const priv = fs.readFileSync(
+    const priv = readFileSync(
       "supabase/functions/public-padova-privati-stats/index.ts", "utf8",
     );
-    const meta = fs.readFileSync(
+    const meta = readFileSync(
       "supabase/functions/public-padova-meta-stats/index.ts", "utf8",
     );
     expect(priv).toMatch(/\.eq\("comune",\s*"Padova"\)/);
