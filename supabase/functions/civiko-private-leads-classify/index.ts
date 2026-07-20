@@ -55,9 +55,13 @@ Deno.serve(async (req) => {
 
   const started = Date.now();
   let sinceHours = 36;
+  let sourceRunId: string | null = null;
   try {
     const body = await req.json();
     if (typeof body?.since_hours === "number" && body.since_hours > 0) sinceHours = body.since_hours;
+    if (typeof body?.source_run_id === "string" && body.source_run_id.trim()) {
+      sourceRunId = body.source_run_id.trim();
+    }
   } catch { /* body opzionale */ }
 
   const sinceIso = new Date(Date.now() - sinceHours * 3600_000).toISOString();
@@ -82,6 +86,27 @@ Deno.serve(async (req) => {
     rows.push(...(data as Array<{ id: number; raw_json: Json; fetched_at: string }>));
     if (data.length < PAGE) break;
     from += PAGE;
+  }
+
+  // Skip se nessuno staging recente: NON registrare "classified" ma "skipped_no_data"
+  if (rows.length === 0) {
+    await sb.from("private_leads_run_status").insert({
+      source: "subito",
+      opportunita_totali: 0,
+      privato_stanco_count: 0,
+      status: "skipped_no_data",
+      error_message: null,
+      duration_ms: Date.now() - started,
+      notes: {
+        since_hours: sinceHours,
+        source_run_id: sourceRunId,
+        reason: "no_recent_subito_staging",
+      },
+    });
+    return new Response(JSON.stringify({
+      ok: true, skipped: true, reason: "no_recent_subito_staging",
+      since_iso: sinceIso, source_run_id: sourceRunId,
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
   let totale_staging = rows.length;
@@ -166,6 +191,7 @@ Deno.serve(async (req) => {
     duration_ms: Date.now() - started,
     notes: {
       since_hours: sinceHours,
+      source_run_id: sourceRunId,
       totale_staging,
       scartati_agenzia,
       scartati_no_url,

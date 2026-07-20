@@ -13,22 +13,37 @@ import { getApifyToken } from "../_shared/apify.ts";
 const APIFY = "https://api.apify.com/v2";
 
 async function getRun(runId: string, token: string) {
-  const r = await fetch(`${APIFY}/actor-runs/${runId}?token=${encodeURIComponent(token)}`);
-  if (!r.ok) { await r.body?.cancel(); return null; }
-  const j = await r.json();
-  return j?.data ?? null;
+  try {
+    const r = await fetch(`${APIFY}/actor-runs/${runId}?token=${encodeURIComponent(token)}`, {
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!r.ok) { await r.body?.cancel(); return null; }
+    const j = await r.json();
+    return j?.data ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function abortRun(runId: string, token: string) {
-  await fetch(`${APIFY}/actor-runs/${runId}/abort?token=${encodeURIComponent(token)}`, { method: "POST" })
-    .catch(() => undefined);
+  await fetch(`${APIFY}/actor-runs/${runId}/abort?token=${encodeURIComponent(token)}`, {
+    method: "POST",
+    signal: AbortSignal.timeout(10_000),
+  }).catch(() => undefined);
 }
 
 async function fetchDataset(datasetId: string, token: string, limit = 5000): Promise<Record<string, unknown>[]> {
-  const r = await fetch(`${APIFY}/datasets/${datasetId}/items?clean=true&limit=${limit}&token=${encodeURIComponent(token)}`);
-  if (!r.ok) { await r.body?.cancel(); return []; }
-  const j = await r.json();
-  return Array.isArray(j) ? j as Record<string, unknown>[] : [];
+  try {
+    const r = await fetch(
+      `${APIFY}/datasets/${datasetId}/items?clean=true&limit=${limit}&token=${encodeURIComponent(token)}`,
+      { signal: AbortSignal.timeout(45_000) },
+    );
+    if (!r.ok) { await r.body?.cancel(); return []; }
+    const j = await r.json();
+    return Array.isArray(j) ? j as Record<string, unknown>[] : [];
+  } catch {
+    return [];
+  }
 }
 
 function num(v: unknown): number | null {
@@ -138,21 +153,24 @@ Deno.serve(async (req) => {
 
     const isFinalWithData = status === "SUCCEEDED" || status === "TIMED-OUT";
     if (!isFinalWithData) {
+      // Persist status + real cost anche per READY/RUNNING (mai lanciare Actor)
       await sb.from("padova_apify_runs").update({ status, cost_usd: cost }).eq("id", r.id);
       out.push({ portal, run_id: runId, status, cost_usd: cost });
       continue;
     }
 
+    let newlyImportedSubitoFull = 0;
+
     // SUCCEEDED — importa solo se non già importato
     if ((r.imported as number) > 0) {
-      // già processata; ritorna sommario senza re-import
+      // già processata; ma persisti comunque cost_usd/status reali
+      await sb.from("padova_apify_runs").update({ status, cost_usd: cost }).eq("id", r.id);
     } else if (datasetId) {
       const bigPortals = portal === "idealista" || portal === "casa_full" || portal === "subito_full";
       const items = await fetchDataset(datasetId, token, bigPortals ? 5000 : 50);
 
       if (portal === "idealista") {
         const rows = items.map(parseIdealista);
-        // insert in batch da 500
         for (let i = 0; i < rows.length; i += 500) {
           const chunk = rows.slice(i, i + 500);
           await sb.from("padova_idealista_staging").insert(chunk);
@@ -202,6 +220,57 @@ Deno.serve(async (req) => {
           status, cost_usd: cost, items_count: items.length, imported: rows.length,
           finished_at: new Date().toISOString(),
         }).eq("id", r.id);
+        newlyImportedSubitoFull = rows.length;
+      } else {
+        // Portale sconosciuto: persisti almeno status + cost per evitare NULL cronici
+        await sb.from("padova_apify_runs").update({ status, cost_usd: cost }).eq("id", r.id);
+      }
+    } else {
+      // dataset assente ma run finale: aggiorna status/cost
+      await sb.from("padova_apify_runs").update({ status, cost_usd: cost }).eq("id", r.id);
+    }
+
+    // Downstream classificazione Subito: idempotente per run_id
+    if (portal === "subito_full" && newlyImportedSubitoFull > 0) {
+      try {
+        const { data: prev } = await sb
+          .from("private_leads_run_status")
+          .select("id, status, notes")
+          .eq("source", "subito")
+          .in("status", ["classified", "classified_with_errors"])
+          .order("id", { ascending: false })
+          .limit(50);
+        const already = ((prev ?? []) as Array<{ notes: Record<string, unknown> | null }>).some(
+          (row) => row.notes && (row.notes as Record<string, unknown>)["source_run_id"] === runId,
+        );
+        if (!already) {
+          const base = Deno.env.get("SUPABASE_URL") ?? "";
+          const anon = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+          const clsRes = await fetch(`${base}/functions/v1/civiko-private-leads-classify`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-job-secret": jobSecret,
+              "apikey": anon,
+              "Authorization": `Bearer ${anon}`,
+            },
+            body: JSON.stringify({ since_hours: 12, source_run_id: runId }),
+            signal: AbortSignal.timeout(90_000),
+          });
+          if (!clsRes.ok) {
+            // Non perdere il dataset: logga l'errore ma non svuotare imported;
+            // il retry avverrà al prossimo polling perché source_run_id non
+            // risulterà in private_leads_run_status.
+            console.error(
+              `[multi-status] classify HTTP ${clsRes.status} for subito_full run ${runId}`,
+            );
+          }
+          await clsRes.body?.cancel();
+        }
+      } catch (e) {
+        console.error(
+          `[multi-status] classify invocation failed for subito_full run ${runId}: ${(e as Error).message}`,
+        );
       }
     }
 
