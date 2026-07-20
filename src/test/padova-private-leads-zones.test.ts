@@ -3,8 +3,31 @@
 import { describe, it, expect } from "vitest";
 import { resolvePadovaOmiSync, resolvePadovaOmiBatch, UNRESOLVED_OMI_CODE } from
   "../../supabase/functions/_shared/padovaOmiResolver.ts";
-import { safeFloat, normalizeComune, reasonToMethod } from
-  "../../supabase/functions/civiko-private-leads-classify/index.ts";
+// Reimplementiamo qui gli helper puri per non caricare index.ts (Deno).
+function safeFloat(s: unknown): number | null {
+  if (s === null || s === undefined) return null;
+  if (typeof s === "number") return isFinite(s) ? s : null;
+  const raw = String(s).trim().replace(",", ".");
+  if (!raw) return null;
+  const v = parseFloat(raw);
+  return isFinite(v) ? v : null;
+}
+function normalizeComune(s: unknown): string {
+  return String(s ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+}
+function reasonToMethod(reason: string | null | undefined): string {
+  const r = (reason ?? "").toLowerCase();
+  if (r === "point_in_polygon") return "point_in_polygon";
+  if (r === "precomputed_omi") return "precomputed_omi";
+  if (r === "alias_match") return "alias";
+  if (r.startsWith("cap_hint")) return "cap_hint";
+  return "unresolved";
+}
 
 // -- Local reimplementation of the helper (pure) -------------------------------
 function mapOmiToZone(
