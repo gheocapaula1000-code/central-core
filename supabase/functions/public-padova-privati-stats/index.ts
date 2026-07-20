@@ -19,10 +19,12 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tbl: any = supabase.from("padova_listings") as any;
     const [{ count: total }, { count: conTel }, qResp] = await Promise.all([
-      supabase.from("padova_listings").select("id", { count: "exact", head: true }).eq("tipo_lead", "PRIVATO"),
-      supabase.from("padova_listings").select("id", { count: "exact", head: true }).eq("tipo_lead", "PRIVATO").not("telefono", "is", null),
-      supabase.from("padova_listings").select("quartiere").eq("tipo_lead", "PRIVATO").not("quartiere", "is", null),
+      tbl.select("id", { count: "exact", head: true }).eq("tipo_lead", "PRIVATO").eq("comune", "Padova"),
+      tbl.select("id", { count: "exact", head: true }).eq("tipo_lead", "PRIVATO").eq("comune", "Padova").not("telefono", "is", null),
+      tbl.select("quartiere").eq("tipo_lead", "PRIVATO").eq("comune", "Padova").not("quartiere", "is", null),
     ]);
 
     const quartieriSet = new Set<string>();
