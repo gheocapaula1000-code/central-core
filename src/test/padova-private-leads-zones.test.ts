@@ -1,6 +1,7 @@
 // Pure tests for the Padova private-leads zonization logic.
 // No network, no Supabase, no Apify/Firecrawl/Perplexity.
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import { resolvePadovaOmiSync, resolvePadovaOmiBatch, UNRESOLVED_OMI_CODE } from
   "../../supabase/functions/_shared/padovaOmiResolver.ts";
 // Reimplementiamo qui gli helper puri per non caricare index.ts (Deno).
