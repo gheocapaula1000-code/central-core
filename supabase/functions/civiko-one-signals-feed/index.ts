@@ -216,7 +216,9 @@ function buildItem(
     const t = Date.parse(partial.first_seen_at);
     if (Number.isFinite(t)) item.first_seen_at = partial.first_seen_at;
   }
-  if (partial.commercial_zone_slug) item.commercial_zone_slug = partial.commercial_zone_slug;
+  if (isValidCommercialZoneSlug(partial.commercial_zone_slug)) {
+    item.commercial_zone_slug = partial.commercial_zone_slug;
+  }
   if (partial.omi_zone_code) item.omi_zone_code = partial.omi_zone_code;
   return item;
 }
