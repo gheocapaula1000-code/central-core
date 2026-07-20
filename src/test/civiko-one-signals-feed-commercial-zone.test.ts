@@ -1,11 +1,7 @@
-// Pure static test for commercial_zone_slug propagation in
-// civiko-one-signals-feed. No network, no Deno imports.
-//
-// Replica FEDELE della logica di propagazione finale in index.ts:
-//   1) buildItem accetta commercial_zone_slug SOLO se ∈ 8 slug ufficiali.
-//   2) Il pass finale mappa zone_code (OMI) → slug via civiko_commercial_zones
-//      attive; non tocca item con slug già valido; rimuove slug non ufficiali.
-//   3) Non deriva mai da quartiere/zona/CAP/indirizzo/testo.
+// Pure static test allineato al contratto quartiere-only.
+// Il feed civiko-one-signals-feed continua a usare buildOmiToSlugMap
+// per retro-compatibilità di firma, ma la mappa è ora sempre vuota:
+// nessuno slug commerciale viene più propagato via zone_code (OMI).
 import { describe, it, expect } from "vitest";
 import {
   VALID_COMMERCIAL_ZONE_SLUGS,
@@ -42,7 +38,7 @@ function buildItem(partial: Partial<FeedItem> & { signal_type: SignalType; sourc
   return item;
 }
 
-// Replica del pass finale di propagazione.
+// Replica del pass finale di propagazione del feed.
 function propagateCommercialZone(items: FeedItem[], omiToSlug: Map<string, string>) {
   for (const it of items) {
     if (isValidCommercialZoneSlug(it.commercial_zone_slug)) continue;
@@ -57,54 +53,54 @@ function propagateCommercialZone(items: FeedItem[], omiToSlug: Map<string, strin
 }
 
 const activeZones: ActiveZoneRow[] = [
-  { slug: "arcella", omi_codes: ["D3", "D7"] },
   { slug: "centro-storico", omi_codes: ["B1"] },
-  { slug: "sud-voltabarozzo-guizza", omi_codes: ["D2"] },
-  { slug: "portello-stazione-stanga", omi_codes: ["D8"] },
+  { slug: "nord-arcella", omi_codes: ["C3"] },
 ];
 const omiToSlug = buildOmiToSlugMap(activeZones);
 
-describe("civiko-one-signals-feed — commercial_zone_slug propagation", () => {
-  it("propagates slug at ROOT for privato when zone_code maps to an official slug", () => {
-    const it = buildItem({ source_id: "pdv:1", signal_type: "privato", zone_code: "D3" });
-    propagateCommercialZone([it], omiToSlug);
-    expect(it.commercial_zone_slug).toBe("arcella");
-    expect(Object.prototype.hasOwnProperty.call(it, "commercial_zone_slug")).toBe(true);
+describe("civiko-one-signals-feed — commercial_zone_slug (quartiere-only)", () => {
+  it("gli 8 slug ufficiali sono il nuovo set contrattuale", () => {
+    expect([...VALID_COMMERCIAL_ZONE_SLUGS].sort()).toEqual([
+      "centro-storico",
+      "est-brenta",
+      "est-forcellini-camin",
+      "nord-arcella",
+      "ovest-chiesanuova-brentelle",
+      "sud-est-sant-osvaldo",
+      "sud-ovest-mandria",
+      "sud-voltabarozzo-guizza",
+    ]);
   });
 
-  it("propagates slug at ROOT for contendibile", () => {
-    const it = buildItem({ source_id: "cont:9", signal_type: "contendibile", zone_code: "B1" });
+  it("preserva slug ufficiale già valido al buildItem", () => {
+    const it = buildItem({ source_id: "drop:1", signal_type: "ribasso", zone_code: "B1", commercial_zone_slug: "centro-storico" });
+    expect(it.commercial_zone_slug).toBe("centro-storico");
     propagateCommercialZone([it], omiToSlug);
     expect(it.commercial_zone_slug).toBe("centro-storico");
   });
 
-  it("propagates slug at ROOT for off_market", () => {
-    const it = buildItem({ source_id: "offm:42", signal_type: "off_market", zone_code: "D8" });
-    propagateCommercialZone([it], omiToSlug);
-    expect(it.commercial_zone_slug).toBe("portello-stazione-stanga");
+  it("scarta slug legacy al buildItem e non li reintroduce via propagazione OMI", () => {
+    const legacy = ["arcella", "san-carlo-san-bellino", "portello-stazione-stanga", "torre-ponte-brenta-camin", "sant-osvaldo-facciolati", "ovest-sacra-famiglia-chiesanuova"];
+    for (const l of legacy) {
+      const it = buildItem({ source_id: "x", signal_type: "privato", zone_code: "C3", commercial_zone_slug: l });
+      expect(it.commercial_zone_slug).toBeUndefined();
+      propagateCommercialZone([it], omiToSlug);
+      // Mappa OMI vuota → nessuna re-derivazione.
+      expect(it.commercial_zone_slug).toBeUndefined();
+    }
   });
 
-  it("preserves ribasso slug unchanged when already valid", () => {
-    const it = buildItem({ source_id: "drop:1", signal_type: "ribasso", zone_code: "D3", commercial_zone_slug: "sud-voltabarozzo-guizza" });
-    propagateCommercialZone([it], omiToSlug);
-    expect(it.commercial_zone_slug).toBe("sud-voltabarozzo-guizza");
+  it("zone_code (OMI) non produce mai slug commerciale (mappa vuota)", () => {
+    const items: FeedItem[] = [
+      buildItem({ source_id: "a", signal_type: "privato", zone_code: "B1" }),
+      buildItem({ source_id: "b", signal_type: "contendibile", zone_code: "C3" }),
+      buildItem({ source_id: "c", signal_type: "off_market", zone_code: "D8" }),
+    ];
+    propagateCommercialZone(items, omiToSlug);
+    for (const it of items) expect(it.commercial_zone_slug).toBeUndefined();
   });
 
-  it("rejects invalid slugs at buildItem stage", () => {
-    const it = buildItem({ source_id: "x", signal_type: "privato", zone_code: "D3", commercial_zone_slug: "not-a-slug" });
-    expect(it.commercial_zone_slug).toBeUndefined();
-    propagateCommercialZone([it], omiToSlug);
-    expect(it.commercial_zone_slug).toBe("arcella");
-  });
-
-  it("removes non-official slug during propagation and re-derives from zone_code", () => {
-    // Costruisci direttamente con slug non valido (bypassando buildItem)
-    const it: FeedItem = { source_id: "y", signal_type: "privato", title: "t", zone_code: "B1", zone_label: "B1", display_zone: "B1", commercial_zone_slug: "fake-zone" };
-    propagateCommercialZone([it], omiToSlug);
-    expect(it.commercial_zone_slug).toBe("centro-storico");
-  });
-
-  it("does NOT infer slug from quartiere/zona/CAP/indirizzo/text when zone_code is UNRESOLVED", () => {
+  it("non inferisce slug da quartiere/CAP/indirizzo se zone_code è UNRESOLVED", () => {
     const it: FeedItem = {
       source_id: "z", signal_type: "privato", title: "Via Roma 12, CAP 35125, Guizza",
       zone_code: "OMI_UNRESOLVED", zone_label: "Zona non risolta", display_zone: "Zona non risolta",
@@ -113,49 +109,11 @@ describe("civiko-one-signals-feed — commercial_zone_slug propagation", () => {
     expect(it.commercial_zone_slug).toBeUndefined();
   });
 
-  it("leaves commercial_zone_slug undefined when zone_code does not map to any active zone", () => {
-    const it = buildItem({ source_id: "u", signal_type: "off_market", zone_code: "ZZ99" });
-    propagateCommercialZone([it], omiToSlug);
-    expect(it.commercial_zone_slug).toBeUndefined();
-  });
-
-  it("buildItem always exposes commercial_zone_slug as root property (not nested)", () => {
-    const it = buildItem({ source_id: "r", signal_type: "contendibile", zone_code: "D3", commercial_zone_slug: "arcella" });
-    expect(it.commercial_zone_slug).toBe("arcella");
-    // Nessun campo nested
+  it("commercial_zone_slug è sempre esposto come proprietà root", () => {
+    const it = buildItem({ source_id: "r", signal_type: "contendibile", zone_code: "B1", commercial_zone_slug: "centro-storico" });
+    expect(it.commercial_zone_slug).toBe("centro-storico");
     expect((it as unknown as Record<string, unknown>).raw_json).toBeUndefined();
     expect((it as unknown as Record<string, unknown>).metadata).toBeUndefined();
     expect((it as unknown as Record<string, unknown>).payload).toBeUndefined();
-  });
-
-  it("all 8 official slugs are exactly the expected set", () => {
-    expect([...VALID_COMMERCIAL_ZONE_SLUGS].sort()).toEqual([
-      "arcella",
-      "centro-storico",
-      "ovest-sacra-famiglia-chiesanuova",
-      "portello-stazione-stanga",
-      "san-carlo-san-bellino",
-      "sant-osvaldo-facciolati",
-      "sud-voltabarozzo-guizza",
-      "torre-ponte-brenta-camin",
-    ]);
-  });
-
-  it("diagnostics count buckets sum to items_received per signal_type", () => {
-    const items = [
-      buildItem({ source_id: "a", signal_type: "privato", zone_code: "D3" }),
-      buildItem({ source_id: "b", signal_type: "privato", zone_code: "OMI_UNRESOLVED" }),
-      buildItem({ source_id: "c", signal_type: "contendibile", zone_code: "B1" }),
-    ];
-    propagateCommercialZone(items, omiToSlug);
-    const diag: Record<string, { r: number; w: number; wo: number }> = {};
-    for (const it of items) {
-      const b = (diag[it.signal_type] ??= { r: 0, w: 0, wo: 0 });
-      b.r++;
-      if (isValidCommercialZoneSlug(it.commercial_zone_slug)) b.w++;
-      else b.wo++;
-    }
-    expect(diag.privato).toEqual({ r: 2, w: 1, wo: 1 });
-    expect(diag.contendibile).toEqual({ r: 1, w: 1, wo: 0 });
   });
 });
