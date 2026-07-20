@@ -426,13 +426,139 @@ serve(async (req: Request) => {
   }
 
 
-  // RIBASSI + PRIVATI from padova_collect_v2_items
-  const needCollect = includeSet.has("ribassi") || includeSet.has("privati");
-  if (needCollect) {
+  // RIBASSI — fonte primaria: RPC get_padova_verified_price_drops
+  // Fallback (zero-downtime, se la migrazione non è ancora stata applicata):
+  //   ramo storico padova_collect_v2_items con soglia >=5%, esclusione aste,
+  //   zona risolta obbligatoria.
+  // PRIVATI restano gestiti da padova_collect_v2_items.
+  const ribassiDiag = {
+    ribassi_rpc_returned: 0,
+    ribassi_auction_excluded: 0,
+    ribassi_unzoned_excluded: 0,
+    ribassi_invalid_price_excluded: 0,
+    ribassi_source: "listing_price_snapshots" as "listing_price_snapshots" | "fallback_collect_v2" | "unused",
+  };
+
+  if (includeSet.has("ribassi")) {
+    let rpcOk = false;
+    try {
+      const { data: rpcRows, error: rpcErr } = await supabase.rpc(
+        "get_padova_verified_price_drops",
+        { p_limit: limit, p_min_drop_pct: 5, p_max_age_days: 14 },
+      );
+      if (!rpcErr && Array.isArray(rpcRows)) {
+        rpcOk = true;
+        sourcesUsed.push("listing_price_snapshots");
+        ribassiDiag.ribassi_rpc_returned = rpcRows.length;
+        for (const row of rpcRows as Record<string, unknown>[]) {
+          if (isAuctionRecord(row)) { ribassiDiag.ribassi_auction_excluded++; continue; }
+          const slug = (row.commercial_zone_slug as string) || "";
+          if (!slug) { ribassiDiag.ribassi_unzoned_excluded++; continue; }
+          const url = String(row.url || "");
+          if (!url.startsWith("https://")) { ribassiDiag.ribassi_invalid_price_excluded++; continue; }
+          const current = Number(row.current_price_eur) || 0;
+          const initial = Number(row.initial_price_eur) || 0;
+          if (!(current >= PRICE_MIN && current <= PRICE_MAX && initial > 0 && current < initial)) {
+            ribassiDiag.ribassi_invalid_price_excluded++; continue;
+          }
+          const dropPct = Number(row.total_drop_pct) || 0;
+          if (dropPct < 5) continue;
+          const lastSeen = (row.last_seen_at as string) || new Date().toISOString();
+          bump(lastSeen);
+          const omiCode = (row.omi_zone as string) || "";
+          const zoneLabel = omiCode || UNRESOLVED_OMI_LABEL;
+          const title = (row.title as string) || `Ribasso ${row.listing_id ?? ""}`;
+          rawItems.push(buildItem({
+            source_id: `drop:${row.source_id ?? row.listing_id ?? url}`,
+            signal_type: "ribasso",
+            title: `${title} — ribasso ${dropPct}%`,
+            city, province,
+            zone_code: omiCode || UNRESOLVED_OMI_CODE,
+            zone_label: zoneLabel,
+            display_zone: zoneLabel,
+            price_raw: current,
+            url,
+            status: "active",
+            score: Math.min(100, 50 + Math.round(dropPct)),
+            last_seen_at: lastSeen,
+            raw_ref: `listing_price_snapshots:${row.source_id ?? ""}`,
+            lat_raw: row.lat,
+            lng_raw: row.lng,
+            ribasso_pct: Math.round(dropPct * 10) / 10,
+            initial_price_eur: initial,
+            current_price_eur: current,
+            drops_count: Number(row.drops_count) || 0,
+            commercial_zone_slug: slug,
+            omi_zone_code: omiCode || undefined,
+          }));
+        }
+      } else if (rpcErr) {
+        console.warn(`[civiko-one-signals-feed] ribassi RPC unavailable: ${rpcErr.code ?? ""}`);
+      }
+    } catch (e) {
+      console.warn(`[civiko-one-signals-feed] ribassi RPC exception:`, (e as Error)?.message ?? "err");
+    }
+
+    if (!rpcOk) {
+      // Fallback: ramo padova_collect_v2_items, soglia 5%, no aste, zona risolta.
+      ribassiDiag.ribassi_source = "fallback_collect_v2";
+      try {
+        const { data: fb, error: fbErr } = await supabase
+          .from("padova_collect_v2_items")
+          .select("id, portal, listing_id, url, raw_address, citta, cap, lat, lng, omi_zone, quartiere, prezzo, prezzo_iniziale, agency, created_at, processed_at")
+          .order("processed_at", { ascending: false, nullsFirst: false })
+          .limit(limit * 2);
+        if (!fbErr && fb) {
+          sourcesUsed.push("padova_collect_v2_items:fallback_ribassi");
+          for (const row of fb as Record<string, unknown>[]) {
+            const price = Number(row.prezzo ?? 0) || 0;
+            const initial = Number(row.prezzo_iniziale ?? 0) || 0;
+            if (!(initial > 0 && price > 0 && price < initial)) continue;
+            const dropPct = ((initial - price) / initial) * 100;
+            if (dropPct < 5) continue;
+            if (isAuctionRecord(row)) { ribassiDiag.ribassi_auction_excluded++; continue; }
+            const z = resolveZone(row);
+            if (z.code === UNRESOLVED_OMI_CODE) { ribassiDiag.ribassi_unzoned_excluded++; continue; }
+            const url = String(row.url || "");
+            if (!url.startsWith("https://")) { ribassiDiag.ribassi_invalid_price_excluded++; continue; }
+            const lastSeen = (row.processed_at as string) || (row.created_at as string) || new Date().toISOString();
+            bump(lastSeen);
+            const baseTitle = (row.raw_address as string) || (row.listing_id as string) || `Listing ${row.id}`;
+            rawItems.push(buildItem({
+              source_id: `pdv:${row.id}`,
+              signal_type: "ribasso",
+              title: `${baseTitle} — ribasso ${Math.round(dropPct)}%`,
+              city, province,
+              zone_code: z.code, zone_label: z.label, display_zone: z.label,
+              price_raw: price,
+              url,
+              status: "active",
+              score: Math.min(100, 50 + Math.round(dropPct)),
+              last_seen_at: lastSeen,
+              raw_ref: `padova_collect_v2_items:${row.id}`,
+              lat_raw: row.lat,
+              lng_raw: row.lng,
+              ribasso_pct: Math.round(dropPct * 10) / 10,
+              initial_price_eur: initial,
+              current_price_eur: price,
+              omi_zone_code: z.code,
+            }));
+          }
+        }
+      } catch (e) {
+        console.warn(`[civiko-one-signals-feed] ribassi fallback error:`, (e as Error)?.message ?? "err");
+      }
+    }
+  } else {
+    ribassiDiag.ribassi_source = "unused";
+  }
+
+  // PRIVATI — invariato: da padova_collect_v2_items
+  if (includeSet.has("privati")) {
     await probeFreshness("padova_collect_v2_items", false, false);
     const { data, error } = await supabase
       .from("padova_collect_v2_items")
-      .select("id, portal, listing_id, url, raw_address, citta, cap, lat, lng, omi_zone, quartiere, prezzo, prezzo_iniziale, mq, locali, agency, contendibile, created_at, processed_at")
+      .select("id, portal, listing_id, url, raw_address, citta, cap, lat, lng, omi_zone, quartiere, prezzo, mq, locali, agency, contendibile, created_at, processed_at")
       .order("processed_at", { ascending: false, nullsFirst: false })
       .limit(limit * 2);
     if (error) {
@@ -440,42 +566,26 @@ serve(async (req: Request) => {
     } else if (data) {
       sourcesUsed.push("padova_collect_v2_items");
       for (const row of data as Record<string, unknown>[]) {
+        if (isAuctionRecord(row)) continue;
         const z = resolveZone(row);
         const price = Number(row.prezzo ?? 0) || 0;
-        const initial = Number(row.prezzo_iniziale ?? 0) || 0;
         const lastSeen = (row.processed_at as string) || (row.created_at as string) || new Date().toISOString();
         bump(lastSeen);
         const baseTitle = (row.raw_address as string) || (row.listing_id as string) || `Listing ${row.id}`;
-        const base = {
-          source_id: `pdv:${row.id}`,
-          title: baseTitle,
-          city, province,
-          zone_code: z.code,
-          zone_label: z.label,
-          display_zone: z.label,
-          url: (row.url as string) || "",
-          status: "active",
-          last_seen_at: lastSeen,
-          raw_ref: `padova_collect_v2_items:${row.id}`,
-          lat_raw: row.lat,
-          lng_raw: row.lng,
-
-        };
-        if (includeSet.has("ribassi") && initial > 0 && price > 0 && price < initial) {
-          const dropPct = Math.round(((initial - price) / initial) * 100);
+        if (!row.agency || String(row.agency).trim() === "") {
           rawItems.push(buildItem({
-            ...base,
-            signal_type: "ribasso",
-            price_raw: price,
-            score: Math.min(100, 50 + dropPct),
-            title: `${baseTitle} — ribasso ${dropPct}%`,
-          }));
-        } else if (includeSet.has("privati") && (!row.agency || String(row.agency).trim() === "")) {
-          rawItems.push(buildItem({
-            ...base,
+            source_id: `pdv:${row.id}`,
             signal_type: "privato",
+            title: baseTitle,
+            city, province,
+            zone_code: z.code, zone_label: z.label, display_zone: z.label,
             price_raw: price,
+            url: (row.url as string) || "",
+            status: "active",
             score: 55,
+            last_seen_at: lastSeen,
+            raw_ref: `padova_collect_v2_items:${row.id}`,
+            lat_raw: row.lat, lng_raw: row.lng,
           }));
         }
       }
@@ -483,6 +593,13 @@ serve(async (req: Request) => {
   }
 
   // OFF_MARKET
+  const offmarketDiag = {
+    offmarket_candidates_read: 0,
+    offmarket_privacy_excluded: 0,
+    offmarket_auction_excluded: 0,
+    offmarket_not_importable_excluded: 0,
+    offmarket_published: 0,
+  };
   if (includeSet.has("off_market")) {
     await probeFreshness("early_offmarket_signal_candidates", true, false, "comune", city);
     const { data, error } = await supabase
@@ -496,27 +613,32 @@ serve(async (req: Request) => {
     } else if (data) {
       sourcesUsed.push("early_offmarket_signal_candidates");
       for (const row of data as Record<string, unknown>[]) {
+        offmarketDiag.offmarket_candidates_read++;
+        const status = String((row as Record<string, unknown>).status ?? "").toLowerCase();
+        if (status === "rejected" || status === "discarded") { offmarketDiag.offmarket_not_importable_excluded++; continue; }
+        if ((row as Record<string, unknown>).privacy_safe !== true) { offmarketDiag.offmarket_privacy_excluded++; continue; }
+        const rec = (row as Record<string, unknown>).import_recommendation;
+        if (rec && String(rec).toLowerCase() !== "importable") { offmarketDiag.offmarket_not_importable_excluded++; continue; }
+        if (isAuctionRecord(row)) { offmarketDiag.offmarket_auction_excluded++; continue; }
         const z = resolveZone(row);
-        const lastSeen = (row.updated_at as string) || (row.created_at as string) || new Date().toISOString();
+        const lastSeen = ((row as Record<string, unknown>).updated_at as string) || ((row as Record<string, unknown>).created_at as string) || new Date().toISOString();
         bump(lastSeen);
         rawItems.push(buildItem({
-          source_id: `offm:${row.id}`,
+          source_id: `offm:${(row as Record<string, unknown>).id}`,
           signal_type: "off_market",
-          title: (row.title as string) || (row.address_text as string) || `Off-market ${row.id}`,
+          title: ((row as Record<string, unknown>).title as string) || ((row as Record<string, unknown>).address_text as string) || `Off-market ${(row as Record<string, unknown>).id}`,
           city, province,
-          zone_code: z.code,
-          zone_label: z.label,
-          display_zone: z.label,
-          price_raw: row.estimated_price ?? row.price ?? null,
-          url: (row.source_url as string) || "",
-          status: (row.status as string) || "active",
-          score: Number(row.signal_score ?? row.score ?? 60) || 60,
+          zone_code: z.code, zone_label: z.label, display_zone: z.label,
+          price_raw: (row as Record<string, unknown>).estimated_price ?? (row as Record<string, unknown>).price ?? null,
+          url: ((row as Record<string, unknown>).source_url as string) || "",
+          status: (status || "active"),
+          score: Number((row as Record<string, unknown>).signal_score ?? (row as Record<string, unknown>).score ?? 60) || 60,
           last_seen_at: lastSeen,
-          raw_ref: `early_offmarket_signal_candidates:${row.id}`,
-          lat_raw: row.lat ?? row.latitude,
-          lng_raw: row.lng ?? row.longitude,
-
+          raw_ref: `early_offmarket_signal_candidates:${(row as Record<string, unknown>).id}`,
+          lat_raw: (row as Record<string, unknown>).lat ?? (row as Record<string, unknown>).latitude,
+          lng_raw: (row as Record<string, unknown>).lng ?? (row as Record<string, unknown>).longitude,
         }));
+        offmarketDiag.offmarket_published++;
       }
     }
   }
