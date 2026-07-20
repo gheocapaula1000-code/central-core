@@ -411,8 +411,7 @@ ALTER TABLE public.quartiere_zona_map
 -- Stesso nome, stesse colonne, stessi tipi, stessa logica per microzone/omi;
 -- zone_slugs deriva esclusivamente da padova_listings.commercial_zone_slug
 -- (zero o un solo slug).
-DROP VIEW IF EXISTS public.padova_listings_zone_v;
-CREATE VIEW public.padova_listings_zone_v AS
+CREATE OR REPLACE VIEW public.padova_listings_zone_v AS
 WITH tokens AS (
   SELECT l.id,
          l.quartiere AS quartiere_raw,
