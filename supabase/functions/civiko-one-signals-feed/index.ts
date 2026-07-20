@@ -198,6 +198,18 @@ function buildItem(
   if (typeof partial.initial_price_eur === "number") item.initial_price_eur = partial.initial_price_eur;
   if (typeof partial.current_price_eur === "number") item.current_price_eur = partial.current_price_eur;
   if (typeof partial.drops_count === "number") item.drops_count = partial.drops_count;
+  if (
+    typeof partial.observations_count === "number" &&
+    Number.isFinite(partial.observations_count) &&
+    Number.isInteger(partial.observations_count) &&
+    partial.observations_count >= 0
+  ) {
+    item.observations_count = partial.observations_count;
+  }
+  if (typeof partial.first_seen_at === "string" && partial.first_seen_at.trim() !== "") {
+    const t = Date.parse(partial.first_seen_at);
+    if (Number.isFinite(t)) item.first_seen_at = partial.first_seen_at;
+  }
   if (partial.commercial_zone_slug) item.commercial_zone_slug = partial.commercial_zone_slug;
   if (partial.omi_zone_code) item.omi_zone_code = partial.omi_zone_code;
   return item;
