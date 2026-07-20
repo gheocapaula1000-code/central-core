@@ -133,6 +133,13 @@ interface FeedItem {
   agencies_normalized?: string[];
   needs_review?: boolean;
   operator_note?: string;
+  // Ribasso-specific (additive, opzionali)
+  ribasso_pct?: number;
+  initial_price_eur?: number;
+  current_price_eur?: number;
+  drops_count?: number;
+  commercial_zone_slug?: string;
+  omi_zone_code?: string;
 }
 
 
