@@ -24,6 +24,7 @@ type Item = {
   url_sorgente: string | null;
   data_segnalazione: string;
   note: string | null;
+  commercial_zone_slug?: string | null;
 };
 
 function json(body: unknown, status = 200) {
