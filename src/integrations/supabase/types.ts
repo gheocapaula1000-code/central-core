@@ -1719,6 +1719,32 @@ export type Database = {
           },
         ]
       }
+      civiko_quartiere_commercial_zone_map: {
+        Row: {
+          commercial_zone_slug: string
+          created_at: string
+          quartiere_key: string
+        }
+        Insert: {
+          commercial_zone_slug: string
+          created_at?: string
+          quartiere_key: string
+        }
+        Update: {
+          commercial_zone_slug?: string
+          created_at?: string
+          quartiere_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "civiko_quartiere_commercial_zone_map_commercial_zone_slug_fkey"
+            columns: ["commercial_zone_slug"]
+            isOneToOne: false
+            referencedRelation: "civiko_commercial_zones"
+            referencedColumns: ["slug"]
+          },
+        ]
+      }
       civiko_signal_policy: {
         Row: {
           created_at: string
@@ -6428,7 +6454,15 @@ export type Database = {
           quartiere_key?: string
           zona_slug?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "quartiere_zona_map_zona_slug_fkey"
+            columns: ["zona_slug"]
+            isOneToOne: false
+            referencedRelation: "civiko_commercial_zones"
+            referencedColumns: ["slug"]
+          },
+        ]
       }
       radar_budget_ledger: {
         Row: {
@@ -7595,6 +7629,12 @@ export type Database = {
           p_surface_mq?: number
         }
         Returns: boolean
+      }
+      civiko_ascii_fold: { Args: { p_value: string }; Returns: string }
+      civiko_normalize_quartiere: { Args: { p_value: string }; Returns: string }
+      civiko_resolve_commercial_zone_slug: {
+        Args: { p_quartiere: string }
+        Returns: string
       }
       claim_padova_detail_batch: {
         Args: { p_size?: number }
