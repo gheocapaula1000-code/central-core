@@ -5,6 +5,14 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { isAuctionRecord } from "../_shared/auctionExclusion.ts";
+import {
+  VALID_COMMERCIAL_ZONE_SLUGS,
+  isValidCommercialZoneSlug,
+  buildOmiToSlugMap,
+  assignCommercialZonesBatch,
+  type ActiveZoneRow,
+  type CommercialZoneSlug,
+} from "../_shared/commercialZoneMapping.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
