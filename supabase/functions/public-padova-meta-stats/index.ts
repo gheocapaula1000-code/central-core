@@ -109,8 +109,8 @@ Deno.serve(async (req: Request) => {
     const [listingsRes, contRes, privRes, quartRes] = await Promise.all([
       supabase.from("padova_listings").select("id", { count: "exact", head: true }),
       supabase.from("padova_contendibili").select("chiave_match", { count: "exact", head: true }),
-      supabase
-        .from("padova_listings")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("padova_listings") as any)
         .select("id", { count: "exact", head: true })
         .eq("tipo_lead", "PRIVATO")
         .eq("comune", "Padova"),
