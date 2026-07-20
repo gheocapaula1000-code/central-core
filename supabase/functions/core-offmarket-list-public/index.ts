@@ -123,6 +123,15 @@ Deno.serve(async (req) => {
         url_sorgente: r.source_url ?? null,
         data_segnalazione: (r.event_date ?? r.detected_at ?? new Date().toISOString()).toString(),
         note: r.source_name ?? null,
+        commercial_zone_slug: null,
+        zone_match_method: "unresolved",
+        zone_match_confidence: null,
+        __resolveInput: {
+          address: r.property_hint ?? "",
+          zona: r.area_or_microzone ?? "",
+          quartiere: r.area_or_microzone ?? "",
+          title: r.explanation ?? "",
+        },
       });
       totals.legal_life_events++;
     }
