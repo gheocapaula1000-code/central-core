@@ -191,11 +191,14 @@ function defaultLatLng(r: Record<string, unknown>): LatLng {
 }
 
 /**
- * Batch resolver. Tries:
- *  1) sync (precomputed code)
- *  2) point-in-polygon via RPC omi_zones_by_points (Padova-only validation)
- *  3) alias text
- *  Returns one resolution per input record, in input order.
+ * Batch resolver. Priority order per record:
+ *  1) precomputed OMI code (always highest)
+ *  2) point-in-polygon via RPC omi_zones_by_points, when coordinates are valid
+ *  3) alias univoco
+ *  4) CAP hint (weak, confidence 0.4)
+ *  5) unresolved
+ * Coordinates take priority over alias/CAP: if valid coords exist, alias/CAP are
+ * used only if point-in-polygon does not return a valid OMI code.
  */
 export async function resolvePadovaOmiBatch(
   records: Array<Record<string, unknown>>,
@@ -209,16 +212,25 @@ export async function resolvePadovaOmiBatch(
 
   for (let i = 0; i < records.length; i++) {
     const r = records[i];
+    // Priority 1: precomputed OMI code trumps everything.
     const sync = resolvePadovaOmiSync(r);
-    if (sync.omi_zone_code) { out[i] = sync; continue; }
+    if (sync.omi_zone_code && sync.omi_zone_reason === "precomputed_omi") {
+      out[i] = sync;
+      continue;
+    }
+    // Priority 2: valid coords → defer to point-in-polygon before alias/CAP.
     const { lat, lng } = getLatLng(r);
     if (lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)) {
       pipIdx.push(i); pipLats.push(lat); pipLngs.push(lng);
       out[i] = { omi_zone_code: null, omi_zone_label: null, omi_zone_confidence: 0, omi_zone_reason: "pending_pip" };
     } else {
-      out[i] = { omi_zone_code: null, omi_zone_label: null, omi_zone_confidence: 0, omi_zone_reason: "missing_location" };
+      // No coords: use sync result (alias / CAP hint / salvage / unresolved).
+      out[i] = sync.omi_zone_code
+        ? sync
+        : { omi_zone_code: null, omi_zone_label: null, omi_zone_confidence: 0, omi_zone_reason: sync.omi_zone_reason || "missing_location" };
     }
   }
+
 
   if (pipIdx.length > 0 && supa) {
     try {
