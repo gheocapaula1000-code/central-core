@@ -7576,6 +7576,7 @@ export type Database = {
       }
     }
     Functions: {
+      _is_auction_blob: { Args: { _txt: string }; Returns: boolean }
       _safe_float: { Args: { p: string }; Returns: number }
       _safe_int: { Args: { p: string }; Returns: number }
       agency_pipeline_budget_check: {
@@ -7631,6 +7632,35 @@ export type Database = {
           return_message: string
           start_time: string
           status: string
+        }[]
+      }
+      get_padova_verified_price_drops: {
+        Args: {
+          p_limit?: number
+          p_max_age_days?: number
+          p_min_drop_pct?: number
+        }
+        Returns: {
+          commercial_zone_slug: string
+          comune: string
+          current_price_eur: number
+          drops_count: number
+          first_seen_at: string
+          initial_price_eur: number
+          last_seen_at: string
+          lat: number
+          listing_id: string
+          lng: number
+          mq: number
+          observations_count: number
+          omi_zone: string
+          source: string
+          source_id: string
+          title: string
+          total_drop_pct: number
+          url: string
+          zone_match_confidence: number
+          zone_match_method: string
         }[]
       }
       has_role: {
