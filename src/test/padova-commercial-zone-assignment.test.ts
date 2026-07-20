@@ -1,6 +1,7 @@
-// Pure tests for commercial-zone assignment used by
-// padova-contendibili-list and core-offmarket-list-public.
-// Verificano il contratto quartiere-only del writer runtime.
+// Pure tests for commercial-zone assignment.
+// Contratto quartiere-only: `commercialZoneForQuartiere(record.quartiere)`
+// è l'UNICA fonte di `commercial_zone_slug`. Nessuno slug preesistente,
+// nessun codice OMI, nessuna mappa OMI può produrre una classificazione.
 // No network, no Supabase, no external APIs.
 import { describe, it, expect } from "vitest";
 import {
@@ -36,7 +37,6 @@ const LEGACY_SLUGS = [
   "ovest-sacra-famiglia-chiesanuova",
 ] as const;
 
-// Firma preservata: ActiveZoneRow è ancora un tipo esportato.
 const ACTIVE_ZONES: ActiveZoneRow[] = [
   { slug: "centro-storico", omi_codes: ["B1"] },
   { slug: "nord-arcella", omi_codes: ["C3"] },
@@ -100,37 +100,25 @@ describe("commercial zone mapping — quartiere è l'unica fonte", () => {
 
   it("Crocifisso → sud-voltabarozzo-guizza", async () => {
     const [a] = await assignCommercialZonesBatch(
-      [{ quartiere: "Crocifisso" }],
-      omiToSlug,
-      null,
+      [{ quartiere: "Crocifisso" }], omiToSlug, null,
     );
     expect(a.commercial_zone_slug).toBe("sud-voltabarozzo-guizza");
   });
 
-  it("etichetta composita ambigua 'Mortise / Arcella est' → null", async () => {
-    const [a] = await assignCommercialZonesBatch(
-      [{ quartiere: "Mortise / Arcella est" }],
-      omiToSlug,
-      null,
+  it("etichette composite ambigue → null", async () => {
+    const out = await assignCommercialZonesBatch(
+      [{ quartiere: "Mortise / Arcella est" }, { quartiere: "Mandria / Savonarola" }],
+      omiToSlug, null,
     );
-    expect(a.commercial_zone_slug).toBeNull();
-    expect(a.zone_match_method).toBe("unresolved");
-  });
-
-  it("etichetta composita ambigua 'Mandria / Savonarola' → null", async () => {
-    const [a] = await assignCommercialZonesBatch(
-      [{ quartiere: "Mandria / Savonarola" }],
-      omiToSlug,
-      null,
-    );
-    expect(a.commercial_zone_slug).toBeNull();
+    for (const a of out) {
+      expect(a.commercial_zone_slug).toBeNull();
+      expect(a.zone_match_method).toBe("unresolved");
+    }
   });
 
   it("quartiere null / vuoto / assente → null", async () => {
     const out = await assignCommercialZonesBatch(
-      [{ quartiere: null }, { quartiere: "" }, {}],
-      omiToSlug,
-      null,
+      [{ quartiere: null }, { quartiere: "" }, {}], omiToSlug, null,
     );
     for (const a of out) {
       expect(a.commercial_zone_slug).toBeNull();
@@ -146,21 +134,76 @@ describe("commercial zone mapping — quartiere è l'unica fonte", () => {
         { quartiere: "35125 Padova - Guizza (PD)" },
         { quartiere: "Corso del Popolo 3" },
       ],
-      omiToSlug,
-      null,
+      omiToSlug, null,
     );
     for (const a of out) expect(a.commercial_zone_slug).toBeNull();
   });
+});
 
-  it("codice OMI valido ma quartiere assente → null (OMI non produce slug)", async () => {
+describe("commercial zone mapping — slug preesistente e OMI vengono IGNORATI", () => {
+  it("slug ufficiale presente + quartiere assente → null", async () => {
+    const [a] = await assignCommercialZonesBatch(
+      [{ commercial_zone_slug: "centro-storico" }], omiToSlug, null,
+    );
+    expect(a.commercial_zone_slug).toBeNull();
+    expect(a.zone_match_method).toBe("unresolved");
+    expect(a.zone_match_confidence).toBeNull();
+  });
+
+  it("slug ufficiale presente + quartiere ambiguo → null", async () => {
+    const [a] = await assignCommercialZonesBatch(
+      [{ commercial_zone_slug: "centro-storico", quartiere: "Mortise / Arcella est" }],
+      omiToSlug, null,
+    );
+    expect(a.commercial_zone_slug).toBeNull();
+  });
+
+  it("conflitto: slug 'centro-storico' + quartiere 'Arcella' → 'nord-arcella'", async () => {
+    const [a] = await assignCommercialZonesBatch(
+      [{ commercial_zone_slug: "centro-storico", quartiere: "Arcella" }],
+      omiToSlug, null,
+    );
+    expect(a.commercial_zone_slug).toBe("nord-arcella");
+    expect(a.zone_match_method).toBe("quartiere_match");
+  });
+
+  it("conflitto: slug 'nord-arcella' + quartiere 'Centro Storico' → 'centro-storico'", async () => {
+    const [a] = await assignCommercialZonesBatch(
+      [{ commercial_zone_slug: "nord-arcella", quartiere: "Centro Storico" }],
+      omiToSlug, null,
+    );
+    expect(a.commercial_zone_slug).toBe("centro-storico");
+    expect(a.zone_match_method).toBe("quartiere_match");
+  });
+
+  it("slug legacy + quartiere valido → zona derivata dal quartiere", async () => {
+    const [a] = await assignCommercialZonesBatch(
+      [{ commercial_zone_slug: "arcella", quartiere: "Voltabarozzo" }],
+      omiToSlug, null,
+    );
+    expect(a.commercial_zone_slug).toBe("sud-voltabarozzo-guizza");
+    expect(a.zone_match_method).toBe("quartiere_match");
+  });
+
+  it("slug ufficiale coerente + quartiere valido → metodo resta 'quartiere_match'", async () => {
+    const [a] = await assignCommercialZonesBatch(
+      [{ commercial_zone_slug: "centro-storico", quartiere: "Centro Storico" }],
+      omiToSlug, null,
+    );
+    expect(a.commercial_zone_slug).toBe("centro-storico");
+    // Deriva SEMPRE dal quartiere, mai da existing_slug.
+    expect(a.zone_match_method).toBe("quartiere_match");
+    expect(a.zone_match_confidence).toBe(0.95);
+  });
+
+  it("codice OMI valido + quartiere assente → null", async () => {
     const out = await assignCommercialZonesBatch(
       [
         { omi_zone_code: "B1" },
         { omi_zone_code: "C3", omi_zone: "C3", codice_omi: "C3" },
         { omi_zone_code: "D3", lat: 45.4, lng: 11.9 },
       ],
-      omiToSlug,
-      null,
+      omiToSlug, null,
     );
     for (const a of out) {
       expect(a.commercial_zone_slug).toBeNull();
@@ -168,19 +211,37 @@ describe("commercial zone mapping — quartiere è l'unica fonte", () => {
     }
   });
 
+  it("batch misto: nessun elemento è classificato dalla proprietà slug preesistente", async () => {
+    const inputs = [
+      { commercial_zone_slug: "centro-storico" },                             // slug only → null
+      { commercial_zone_slug: "nord-arcella", quartiere: "Centro Storico" },  // slug ignorato
+      { commercial_zone_slug: "arcella", quartiere: "Voltabarozzo" },          // legacy ignorato
+      { commercial_zone_slug: "centro-storico", quartiere: "sconosciuto" },   // ambiguo → null
+      { omi_zone_code: "B1" },                                                // OMI only → null
+      { quartiere: "Chiesanuova" },                                           // quartiere valido
+      {},                                                                     // vuoto → null
+    ];
+    const out = await assignCommercialZonesBatch(inputs, omiToSlug, null);
+    // Nessuno slug proviene da existing_slug.
+    for (const a of out) expect(a.zone_match_method).not.toBe("existing_slug");
+    expect(out[0].commercial_zone_slug).toBeNull();
+    expect(out[1].commercial_zone_slug).toBe("centro-storico");
+    expect(out[2].commercial_zone_slug).toBe("sud-voltabarozzo-guizza");
+    expect(out[3].commercial_zone_slug).toBeNull();
+    expect(out[4].commercial_zone_slug).toBeNull();
+    expect(out[5].commercial_zone_slug).toBe("ovest-chiesanuova-brentelle");
+    expect(out[6].commercial_zone_slug).toBeNull();
+  });
+
   it("nessun risultato del writer può essere uno slug legacy", async () => {
     const inputs = [
-      { quartiere: "Arcella" },
-      { quartiere: "San Bellino" },
-      { quartiere: "Portello" },
-      { quartiere: "Torre" },
-      { quartiere: "Sant'Osvaldo" },
-      { quartiere: "Sacra Famiglia" },
-      { quartiere: "Chiesanuova" },
-      { quartiere: "Centro Storico" },
+      { commercial_zone_slug: "arcella", quartiere: "Arcella" },
+      { commercial_zone_slug: "san-carlo-san-bellino", quartiere: "San Bellino" },
+      { commercial_zone_slug: "portello-stazione-stanga", quartiere: "Portello" },
+      { commercial_zone_slug: "torre-ponte-brenta-camin", quartiere: "Torre" },
+      { commercial_zone_slug: "sant-osvaldo-facciolati", quartiere: "Sant'Osvaldo" },
+      { commercial_zone_slug: "ovest-sacra-famiglia-chiesanuova", quartiere: "Sacra Famiglia" },
       { omi_zone_code: "C3" },
-      { commercial_zone_slug: "arcella" },
-      { commercial_zone_slug: "san-carlo-san-bellino" },
     ];
     const out = await assignCommercialZonesBatch(inputs, omiToSlug, null);
     for (const a of out) {
@@ -193,20 +254,24 @@ describe("commercial zone mapping — quartiere è l'unica fonte", () => {
 });
 
 describe("commercial zone mapping — helper preservati", () => {
-  it("tryExistingSlugOrOmi: accetta slug ufficiale già presente", () => {
-    const a = tryExistingSlugOrOmi({ commercial_zone_slug: "nord-arcella" }, omiToSlug);
-    expect(a?.commercial_zone_slug).toBe("nord-arcella");
-    expect(a?.zone_match_method).toBe("existing_slug");
-  });
-
-  it("tryExistingSlugOrOmi: rifiuta slug legacy e codice OMI", () => {
+  it("tryExistingSlugOrOmi: firma preservata, NON assegna mai (UNRESOLVED per costruzione)", () => {
+    // Slug ufficiale già presente.
+    for (const s of OFFICIAL_SLUGS) {
+      const a = tryExistingSlugOrOmi({ commercial_zone_slug: s }, omiToSlug);
+      expect(a?.commercial_zone_slug).toBeNull();
+      expect(a?.zone_match_method).toBe("unresolved");
+      expect(a?.zone_match_confidence).toBeNull();
+    }
+    // Slug legacy.
     for (const legacy of LEGACY_SLUGS) {
       const a = tryExistingSlugOrOmi({ commercial_zone_slug: legacy }, omiToSlug);
-      expect(a).toBeNull();
+      expect(a?.commercial_zone_slug).toBeNull();
     }
-    expect(tryExistingSlugOrOmi({ omi_zone_code: "B1" }, omiToSlug)).toBeNull();
-    expect(tryExistingSlugOrOmi({ omi_zone_code: "C3" }, omiToSlug)).toBeNull();
-    expect(tryExistingSlugOrOmi({ commercial_zone_slug: "Padova" }, omiToSlug)).toBeNull();
+    // Codice OMI e mappa OMI: nessuna assegnazione.
+    expect(tryExistingSlugOrOmi({ omi_zone_code: "B1" }, omiToSlug)?.commercial_zone_slug).toBeNull();
+    expect(tryExistingSlugOrOmi({ omi_zone_code: "C3" }, omiToSlug)?.commercial_zone_slug).toBeNull();
+    // Record vuoto.
+    expect(tryExistingSlugOrOmi({}, omiToSlug)?.commercial_zone_slug).toBeNull();
   });
 
   it("assignFromResolution: OMI non produce mai slug", () => {
@@ -222,12 +287,13 @@ describe("commercial zone mapping — helper preservati", () => {
     expect(a.commercial_zone_slug).toBe("sud-voltabarozzo-guizza");
     const b = assignFromAliasOnly({ area_label: "Padova" }, omiToSlug);
     expect(b.commercial_zone_slug).toBeNull();
+    // Ignora anche uno slug preesistente sul record.
+    const c = assignFromAliasOnly({ commercial_zone_slug: "centro-storico" }, omiToSlug);
+    expect(c.commercial_zone_slug).toBeNull();
   });
 });
 
 describe("commercial zone mapping — compatibilità con i chiamanti", () => {
-  // I chiamanti runtime (padova-contendibili-list, core-offmarket-list-public,
-  // civiko-one-signals-feed) importano questi simboli: la firma deve reggere.
   it("le API esportate esistono con la firma attesa", () => {
     expect(typeof isValidCommercialZoneSlug).toBe("function");
     expect(typeof buildOmiToSlugMap).toBe("function");
@@ -237,17 +303,15 @@ describe("commercial zone mapping — compatibilità con i chiamanti", () => {
     expect(typeof assignCommercialZonesBatch).toBe("function");
     expect(typeof hasValidCoords).toBe("function");
     expect(Array.isArray(VALID_COMMERCIAL_ZONE_SLUGS)).toBe(true);
-    // ActiveZoneRow è un tipo; verifichiamo che una struct compatibile passi.
     const rows: ActiveZoneRow[] = [{ slug: "centro-storico", omi_codes: ["B1"] }];
     expect(buildOmiToSlugMap(rows)).toBeInstanceOf(Map);
   });
 
-  it("assignCommercialZonesBatch tollera il vecchio parametro supa (mock rpc)", async () => {
+  it("assignCommercialZonesBatch tollera il parametro supa (mock rpc)", async () => {
     const supa = { rpc: async () => ({ data: [], error: null }) };
     const out = await assignCommercialZonesBatch(
       [{ quartiere: "Arcella" }, { quartiere: "sconosciuto" }],
-      omiToSlug,
-      supa,
+      omiToSlug, supa,
     );
     expect(out[0].commercial_zone_slug).toBe("nord-arcella");
     expect(out[1].commercial_zone_slug).toBeNull();
@@ -255,8 +319,7 @@ describe("commercial zone mapping — compatibilità con i chiamanti", () => {
 
   it("filtro esatto delle edge functions: solo slug ufficiali accettati", () => {
     function applyFilter<T extends { commercial_zone_slug: string | null }>(
-      list: T[],
-      slug: string | null,
+      list: T[], slug: string | null,
     ): T[] {
       if (!slug) return list;
       if (!isValidCommercialZoneSlug(slug)) throw new Error("INVALID_SLUG");
