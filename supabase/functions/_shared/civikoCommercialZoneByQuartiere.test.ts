@@ -131,3 +131,108 @@ describe("commercialZoneForQuartiereParts — composte", () => {
     expect(commercialZoneForQuartiereParts(undefined)).toBeNull();
   });
 });
+
+describe("commercialZoneForQuartiere — alias composti nuovi", () => {
+  const cases: Array<[string, string]> = [
+    // centro-storico
+    ["Prato della Valle Universitario", "centro-storico"],
+    ["Portello Ognissanti", "centro-storico"],
+    ["Piazze Duomo", "centro-storico"],
+    ["Savonarola Ponte Molino", "centro-storico"],
+    ["Santa Sofia Altinate", "centro-storico"],
+    ["Prato della Valle Pontecorvo", "centro-storico"],
+    ["Portello Ospedali", "centro-storico"],
+    ["Riviere", "centro-storico"],
+    ["Ferrovia", "centro-storico"],
+    ["Specola", "centro-storico"],
+    ["Specola Corso Milano", "centro-storico"],
+    ["Piazza Mazzini Ospedale Militare", "centro-storico"],
+    ["Scrovegni", "centro-storico"],
+    ["Zona entro Riviere via XX Settembre", "centro-storico"],
+    // nord-arcella
+    ["Nord Arcella", "nord-arcella"],
+    ["Pontevigodarzere Ovest", "nord-arcella"],
+    ["San Carlo San Bellino", "nord-arcella"],
+    ["Santissima Trinita", "nord-arcella"],
+    ["San Bellino San Filippo Neri", "nord-arcella"],
+    ["Borgomagno Prima Arcella Pescarotto", "nord-arcella"],
+    ["Arcella Sant Antonino", "nord-arcella"],
+    // est-brenta
+    ["Est Brenta", "est-brenta"],
+    ["Stanga Pio X", "est-brenta"],
+    ["Ponte di Brenta San Lazzaro", "est-brenta"],
+    // est-forcellini-camin
+    ["Est Forcellini Camin", "est-forcellini-camin"],
+    ["Camin San Marco", "est-forcellini-camin"],
+    ["Camin Industriale", "est-forcellini-camin"],
+    ["Forcellini Terranegra", "est-forcellini-camin"],
+    ["Camin Sud", "est-forcellini-camin"],
+    ["S Gregorio Terranegra Forcellini Est", "est-forcellini-camin"],
+    // sud-est-sant-osvaldo
+    ["Sud Est Sant Osvaldo", "sud-est-sant-osvaldo"],
+    ["Sant Osvaldo Facciolati", "sud-est-sant-osvaldo"],
+    ["Citta Giardino Santa Croce", "sud-est-sant-osvaldo"],
+    ["Madonna Pellegrina S Rita Nazareth Sant Osvaldo", "sud-est-sant-osvaldo"],
+    ["Sant Osvaldo San Paolo", "sud-est-sant-osvaldo"],
+    ["San Camillo Nazareth", "sud-est-sant-osvaldo"],
+    // sud-voltabarozzo-guizza
+    ["Sud Voltabarozzo Guizza", "sud-voltabarozzo-guizza"],
+    ["Voltabarozzo Guizza", "sud-voltabarozzo-guizza"],
+    ["Bassanello Guizza Voltabarozzo", "sud-voltabarozzo-guizza"],
+    ["Sud Guizza Bassanello", "sud-voltabarozzo-guizza"],
+    ["Crocifisso Ponte Quattro Martiri", "sud-voltabarozzo-guizza"],
+    // sud-ovest-mandria
+    ["Sud Ovest Mandria", "sud-ovest-mandria"],
+    ["Paltana Mandria", "sud-ovest-mandria"],
+    ["Paltana Voltabrusegana Mandria", "sud-ovest-mandria"],
+    // ovest-chiesanuova-brentelle
+    ["Ovest Chiesanuova Brentelle", "ovest-chiesanuova-brentelle"],
+    ["Chiesanuova Brentelle", "ovest-chiesanuova-brentelle"],
+    ["Ovest Sacra Famiglia Chiesanuova Brusegana Altichiero", "ovest-chiesanuova-brentelle"],
+    ["Brentelle Chiesanuova Cave", "ovest-chiesanuova-brentelle"],
+    ["San Giuseppe San Giovanni", "ovest-chiesanuova-brentelle"],
+    ["Palestro Sacra Famiglia San Giuseppe", "ovest-chiesanuova-brentelle"],
+    ["Sacra Famiglia Basso Isonzo", "ovest-chiesanuova-brentelle"],
+    ["Chiesanuova Brusegana", "ovest-chiesanuova-brentelle"],
+    ["Brusegana Aeroporto", "ovest-chiesanuova-brentelle"],
+    ["Altichero", "ovest-chiesanuova-brentelle"],
+    ["Monta Sant Ignazio", "ovest-chiesanuova-brentelle"],
+    ["S Ignazio Monta Altichiero", "ovest-chiesanuova-brentelle"],
+  ];
+  for (const [name, slug] of cases) {
+    it(`${name} → ${slug}`, () => expect(commercialZoneForQuartiere(name)).toBe(slug));
+  }
+});
+
+describe("commercialZoneForQuartiere — null obbligatori", () => {
+  const nulls = [
+    "altre zone",
+    "sconosciuta",
+    "sconosciuta padova citta",
+    "mortise arcella est",
+    "mandria savonarola",
+    "torre ponte di brenta san marco camin",
+    "ospedale militare piazza mazzini porta trento",
+    "sud voltabarozzo guizza mandria paltana",
+    "portello stazione stanga forcellini",
+    "rurale periferia r2",
+    "rurale sud guizza",
+    "rurale nord",
+    "carmine savonarola riviere ext porta san giovanni citta giardino santa giustina santo santa sofia",
+    "torre pontevigodarzere sacro cuore",
+    "arcella nord mortise",
+    "pontevigodarzere isola di torre",
+    "san carlo san gregorio",
+    "stazione scrovegni c so del popolo fiera cittadella",
+    "selvazzano dentro",
+    "piazza del municipio",
+    "via alsazia 3",
+    "via croce bianca n 22 24",
+    "via del perloso n 14 16 18",
+    "via poma 8",
+    "via unita d italia e via caperle",
+  ];
+  for (const s of nulls) {
+    it(`"${s}" → null`, () => expect(commercialZoneForQuartiere(s)).toBeNull());
+  }
+});
