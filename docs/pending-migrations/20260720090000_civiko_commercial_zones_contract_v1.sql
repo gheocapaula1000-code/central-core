@@ -580,9 +580,14 @@ WITH per_zone AS (
          (SELECT COUNT(*) FROM public.padova_contendibili
            WHERE public.civiko_resolve_commercial_zone_slug(quartiere) IS NULL) AS contendibili
 )
-SELECT * FROM per_zone
-UNION ALL
-SELECT * FROM unresolved
-ORDER BY CASE WHEN slug = '__UNRESOLVED__' THEN 1 ELSE 0 END, slug;
+SELECT result.*
+FROM (
+  SELECT * FROM per_zone
+  UNION ALL
+  SELECT * FROM unresolved
+) AS result
+ORDER BY
+  CASE WHEN result.slug = '__UNRESOLVED__' THEN 1 ELSE 0 END,
+  result.slug;
 
 COMMIT;
