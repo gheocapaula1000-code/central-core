@@ -192,6 +192,12 @@ function buildItem(
   if (partial.agencies_normalized) item.agencies_normalized = partial.agencies_normalized;
   if (typeof partial.needs_review === "boolean") item.needs_review = partial.needs_review;
   if (partial.operator_note) item.operator_note = partial.operator_note;
+  if (typeof partial.ribasso_pct === "number") item.ribasso_pct = partial.ribasso_pct;
+  if (typeof partial.initial_price_eur === "number") item.initial_price_eur = partial.initial_price_eur;
+  if (typeof partial.current_price_eur === "number") item.current_price_eur = partial.current_price_eur;
+  if (typeof partial.drops_count === "number") item.drops_count = partial.drops_count;
+  if (partial.commercial_zone_slug) item.commercial_zone_slug = partial.commercial_zone_slug;
+  if (partial.omi_zone_code) item.omi_zone_code = partial.omi_zone_code;
   return item;
 }
 
