@@ -56,6 +56,31 @@ Deno.serve(async (req) => {
     { auth: { persistSession: false } },
   );
 
+  const url = new URL(req.url);
+  const commercialZoneFilterRaw = url.searchParams.get("commercial_zone_slug");
+  const commercialZoneFilter = commercialZoneFilterRaw && commercialZoneFilterRaw.trim()
+    ? commercialZoneFilterRaw.trim()
+    : null;
+  if (commercialZoneFilter !== null && !isValidCommercialZoneSlug(commercialZoneFilter)) {
+    return json({
+      ok: false,
+      error: "INVALID_SLUG",
+      message: `commercial_zone_slug non valido: '${commercialZoneFilter}'`,
+      allowed: VALID_COMMERCIAL_ZONE_SLUGS,
+    }, 400);
+  }
+
+  // Carica una sola volta le zone commerciali attive.
+  const { data: zonesRows } = await supabase
+    .from("civiko_commercial_zones")
+    .select("slug, omi_codes, attiva")
+    .eq("attiva", true);
+  const activeZones: ActiveZoneRow[] = (zonesRows ?? []).map((z: any) => ({
+    slug: String(z.slug ?? ""),
+    omi_codes: Array.isArray(z.omi_codes) ? (z.omi_codes as string[]) : [],
+  }));
+  const omiToSlug = buildOmiToSlugMap(activeZones);
+
   const items: Item[] = [];
   const totals = {
     legal_life_events: 0,
