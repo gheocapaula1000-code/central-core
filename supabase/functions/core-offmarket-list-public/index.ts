@@ -32,7 +32,11 @@ type Item = {
   url_sorgente: string | null;
   data_segnalazione: string;
   note: string | null;
-  commercial_zone_slug?: string | null;
+  commercial_zone_slug: CommercialZoneSlug | null;
+  zone_match_method: string;
+  zone_match_confidence: number | null;
+  // record grezzo per risoluzione zona post-hoc (rimosso prima della serializzazione)
+  __resolveInput?: Record<string, unknown> | null;
 };
 
 function json(body: unknown, status = 200) {
