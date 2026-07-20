@@ -256,6 +256,9 @@ Deno.serve(async (req) => {
         const ribassiCount = r.drops_count ?? 0;
         const ribassiTxt = `${ribassiCount} ribass${ribassiCount === 1 ? "o" : "i"}`;
         const titolo = `${enrich.indirizzo ?? "Annuncio in difficoltà"} — ribasso ${dropPct.toFixed(1)}%`;
+        const validSlug = isValidCommercialZoneSlug(enrich.commercial_zone_slug)
+          ? enrich.commercial_zone_slug
+          : null;
         items.push({
           id: `dist-${r.id}`,
           fonte: "distress",
@@ -268,7 +271,9 @@ Deno.serve(async (req) => {
           url_sorgente: r.url ?? null,
           data_segnalazione: (r.detected_at ?? new Date().toISOString()).toString(),
           note: [r.fatigue_label, ribassiTxt].filter(Boolean).join(" · ") || null,
-          commercial_zone_slug: enrich.commercial_zone_slug,
+          commercial_zone_slug: validSlug,
+          zone_match_method: validSlug ? "listing_slug" : "unresolved",
+          zone_match_confidence: validSlug ? 0.9 : null,
         });
         totals.distress++;
       }
