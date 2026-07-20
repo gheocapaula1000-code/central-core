@@ -13,22 +13,37 @@ import { getApifyToken } from "../_shared/apify.ts";
 const APIFY = "https://api.apify.com/v2";
 
 async function getRun(runId: string, token: string) {
-  const r = await fetch(`${APIFY}/actor-runs/${runId}?token=${encodeURIComponent(token)}`);
-  if (!r.ok) { await r.body?.cancel(); return null; }
-  const j = await r.json();
-  return j?.data ?? null;
+  try {
+    const r = await fetch(`${APIFY}/actor-runs/${runId}?token=${encodeURIComponent(token)}`, {
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!r.ok) { await r.body?.cancel(); return null; }
+    const j = await r.json();
+    return j?.data ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function abortRun(runId: string, token: string) {
-  await fetch(`${APIFY}/actor-runs/${runId}/abort?token=${encodeURIComponent(token)}`, { method: "POST" })
-    .catch(() => undefined);
+  await fetch(`${APIFY}/actor-runs/${runId}/abort?token=${encodeURIComponent(token)}`, {
+    method: "POST",
+    signal: AbortSignal.timeout(10_000),
+  }).catch(() => undefined);
 }
 
 async function fetchDataset(datasetId: string, token: string, limit = 5000): Promise<Record<string, unknown>[]> {
-  const r = await fetch(`${APIFY}/datasets/${datasetId}/items?clean=true&limit=${limit}&token=${encodeURIComponent(token)}`);
-  if (!r.ok) { await r.body?.cancel(); return []; }
-  const j = await r.json();
-  return Array.isArray(j) ? j as Record<string, unknown>[] : [];
+  try {
+    const r = await fetch(
+      `${APIFY}/datasets/${datasetId}/items?clean=true&limit=${limit}&token=${encodeURIComponent(token)}`,
+      { signal: AbortSignal.timeout(45_000) },
+    );
+    if (!r.ok) { await r.body?.cancel(); return []; }
+    const j = await r.json();
+    return Array.isArray(j) ? j as Record<string, unknown>[] : [];
+  } catch {
+    return [];
+  }
 }
 
 function num(v: unknown): number | null {
