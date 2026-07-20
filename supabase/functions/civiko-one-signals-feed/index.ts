@@ -908,6 +908,7 @@ serve(async (req: Request) => {
         sort_strategy: "freshness_desc,score_desc",
         ribassi: ribassiDiag,
         offmarket: offmarketDiag,
+        commercial_zone_slug_coverage: commercialZoneDiag,
         security_gate: "ok",
         debug_id: debugId,
       };
