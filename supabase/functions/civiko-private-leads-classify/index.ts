@@ -378,9 +378,9 @@ Deno.serve(async (req) => {
   // Costruisci record finali per upsert
   const records: Array<Record<string, unknown>> = base.map((b) => {
     const z = zoneByUrl.get(b.url);
-    const zoneFields = b.isPadova && z
+    const zoneFields = z
       ? {
-          comune: "Padova",
+          comune: z.comune,
           omi_zone: z.omi_zone,
           commercial_zone_slug: z.commercial_zone_slug,
           quartiere: z.quartiere,
@@ -397,6 +397,7 @@ Deno.serve(async (req) => {
           zone_match_confidence: null,
           zone_resolved_at: null,
         };
+
 
     return {
       fonte: "subito",
