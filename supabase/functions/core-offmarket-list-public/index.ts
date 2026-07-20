@@ -164,6 +164,10 @@ Deno.serve(async (req) => {
         url_sorgente: url,
         data_segnalazione: (r.computed_at ?? new Date().toISOString()).toString(),
         note: nomeFonte,
+        // Successioni aggregate: MAI assegnate a una zona esatta.
+        commercial_zone_slug: null,
+        zone_match_method: "unresolved",
+        zone_match_confidence: null,
       });
       totals.successioni++;
     }
