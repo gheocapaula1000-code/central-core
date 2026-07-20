@@ -74,6 +74,8 @@ describe("commercialZoneForQuartiere — match esatto", () => {
     ["Voltabarozzo", "sud-voltabarozzo-guizza"],
     ["Guizza", "sud-voltabarozzo-guizza"],
     ["SS. Crocefisso", "sud-voltabarozzo-guizza"],
+    ["Crocifisso", "sud-voltabarozzo-guizza"],
+    ["CROCIFISSO", "sud-voltabarozzo-guizza"],
     ["Bassanello", "sud-voltabarozzo-guizza"],
     ["Mandria", "sud-ovest-mandria"],
     ["Paltana", "sud-ovest-mandria"],

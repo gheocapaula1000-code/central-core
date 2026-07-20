@@ -126,6 +126,7 @@ const RAW_QUARTIERI_BY_ZONE: Record<CivikoCommercialZoneSlug, readonly string[]>
   "sud-voltabarozzo-guizza": [
     "Voltabarozzo",
     "Crocefisso",
+    "Crocifisso",
     "SS. Crocefisso",
     "Salboro",
     "Guizza",
