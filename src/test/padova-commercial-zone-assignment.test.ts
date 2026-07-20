@@ -139,7 +139,7 @@ describe("commercial zone mapping — resolution rules", () => {
     const [a, b, c, d] = await assignCommercialZonesBatch(
       [
         { commercial_zone_slug: "san-carlo-san-bellino" },
-        { quartiere: "Arcella" },
+        { quartiere: "Guizza" },
         { lat: 45.41, lng: 11.87 },
         {},
       ],
@@ -147,7 +147,7 @@ describe("commercial zone mapping — resolution rules", () => {
     );
     expect(a.commercial_zone_slug).toBe("san-carlo-san-bellino");
     expect(a.zone_match_method).toBe("existing_slug");
-    expect(b.commercial_zone_slug).toBe("arcella");
+    expect(b.commercial_zone_slug).toBe("sud-voltabarozzo-guizza");
     expect(b.zone_match_method).toBe("alias_match");
     expect(c.commercial_zone_slug).toBe("centro-storico");
     expect(c.zone_match_method).toBe("point_in_polygon");
