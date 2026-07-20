@@ -1,0 +1,28 @@
+{
+  "source_name": "Ambiti territoriali delle Consulte",
+  "source_url": "https://cartografia.comune.padova.it/server/rest/services/topo/MapServer/17",
+  "query_url": "https://cartografia.comune.padova.it/server/rest/services/topo/MapServer/17/query?where=1%3D1&outFields=OBJECTID%2CCONSULTE_2018%2CZONA&returnGeometry=true&outSR=4326&f=geojson",
+  "publisher": "Comune di Padova",
+  "layer_id": 17,
+  "layer_name": "Ambiti territoriali delle Consulte",
+  "retrieved_at": "2026-07-20",
+  "source_spatial_reference": 4326,
+  "feature_count": 10,
+  "consulte": [
+    "1 Centro",
+    "2 Nord",
+    "3A",
+    "3B",
+    "4A",
+    "4B",
+    "5A",
+    "5B",
+    "6A",
+    "6B"
+  ],
+  "file": "padova-consulte-2026-07-20.geojson",
+  "file_bytes": 276424,
+  "sha256": "89f2e76c7dc65c4c2eaebf2d30052599d4fa2a3d44354aacebcebcb74827c086",
+  "note": "Snapshot non modificato della fonte pubblica del Comune di Padova. Nessuna semplificazione, nessuna riduzione di precisione, nessuna correzione manuale delle coordinate.",
+  "reproduce_command": "curl -sS -o supabase/data/padova-consulte-2026-07-20.geojson 'https://cartografia.comune.padova.it/server/rest/services/topo/MapServer/17/query?where=1%3D1&outFields=OBJECTID%2CCONSULTE_2018%2CZONA&returnGeometry=true&outSR=4326&f=geojson' && node scripts/validate-padova-consulte-source.mjs"
+}
