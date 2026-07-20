@@ -4,6 +4,7 @@
 // patrimonio Comune di Padova.
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { isAuctionRecord } from "../_shared/auctionExclusion.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
