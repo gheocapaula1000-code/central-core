@@ -155,7 +155,7 @@ function toCoord(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function buildItem(
+export function buildItem(
   partial: Partial<FeedItem> & { signal_type: SignalType; source_id: string; price_raw?: unknown; lat_raw?: unknown; lng_raw?: unknown },
 ): FeedItem {
   const zone_code = partial.zone_code && partial.zone_code.trim() ? partial.zone_code : UNRESOLVED_OMI_CODE;
