@@ -93,24 +93,20 @@ function assignFromQuartiere(record: Record<string, unknown>): ZoneAssignment {
 }
 
 /**
- * Fast path (a): accetta uno slug già presente sul record SOLO se rientra
- * nei nuovi 8 slug ufficiali. Il codice OMI eventualmente presente sul
- * record NON viene più mappato a uno slug commerciale (contratto
- * quartiere-only): in quel caso ritorna null e la risoluzione prosegue.
+ * Preservata per compatibilità di firma con i chiamanti. Sotto il contratto
+ * quartiere-only NON è più autorizzata ad assegnare uno slug a partire da:
+ *   - `record.commercial_zone_slug` (anche se ∈ 8 slug ufficiali);
+ *   - slug equivalente in altri campi;
+ *   - codice OMI presente sul record;
+ *   - mappa OMI passata come argomento.
+ * Ritorna sempre UNRESOLVED. La classificazione commerciale passa
+ * esclusivamente per `assignFromQuartiere` / `commercialZoneForQuartiere`.
  */
 export function tryExistingSlugOrOmi(
-  record: Record<string, unknown>,
+  _record: Record<string, unknown>,
   _omiToSlug: Map<string, CommercialZoneSlug>,
 ): ZoneAssignment | null {
-  const existingSlug = record["commercial_zone_slug"];
-  if (isValidCommercialZoneSlug(existingSlug)) {
-    return {
-      commercial_zone_slug: existingSlug,
-      zone_match_method: "existing_slug",
-      zone_match_confidence: 0.99,
-    };
-  }
-  return null;
+  return UNRESOLVED;
 }
 
 /**
@@ -138,23 +134,23 @@ export function assignFromAliasOnly(
 }
 
 /**
- * Assegnatore batch. Ordine di risoluzione:
- *   a) `commercial_zone_slug` già presente e ∈ 8 nuovi slug ufficiali;
- *   b) risoluzione dal campo `quartiere` via commercialZoneForQuartiere.
- * Nessun altro ingresso è consultato. Nessun uso di OMI, CAP, coord.,
- * fuzzy, includes/startsWith, split o fallback legacy.
- * Il parametro `supa` è preservato per compatibilità e ignorato.
+ * Assegnatore batch. Unico flusso ammesso, per ogni record:
+ *   commercialZoneForQuartiere(record.quartiere)
+ * - match esatto → slug ufficiale;
+ * - quartiere assente / sconosciuto / ambiguo → null.
+ * Ignora completamente qualsiasi `commercial_zone_slug` preesistente
+ * sul record e qualsiasi codice / mappa OMI. Il parametro `supa` è
+ * preservato per compatibilità di firma e ignorato.
  */
 export async function assignCommercialZonesBatch(
   records: Array<Record<string, unknown>>,
-  omiToSlug: Map<string, CommercialZoneSlug>,
+  _omiToSlug: Map<string, CommercialZoneSlug>,
   _supa: unknown,
 ): Promise<ZoneAssignment[]> {
   const out: ZoneAssignment[] = new Array(records.length);
   for (let i = 0; i < records.length; i++) {
-    const r = records[i] ?? {};
-    const fast = tryExistingSlugOrOmi(r, omiToSlug);
-    out[i] = fast ?? assignFromQuartiere(r);
+    out[i] = assignFromQuartiere(records[i] ?? {});
   }
   return out;
 }
+

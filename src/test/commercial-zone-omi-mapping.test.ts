@@ -53,16 +53,24 @@ describe("commercialZoneMapping — determinismo quartiere-only", () => {
     }
   });
 
-  it("slug ufficiale già presente sull'item viene preservato", async () => {
+  it("slug ufficiale già presente sull'item viene IGNORATO (fonte = quartiere)", async () => {
     const map = buildOmiToSlugMap(ACTIVE);
+    // Nessun quartiere → nessuna assegnazione, anche se lo slug preesistente è ufficiale.
     const [a] = await assignCommercialZonesBatch(
       [{ omi_zone_code: "C3", commercial_zone_slug: "sud-voltabarozzo-guizza" }],
-      map,
-      null,
+      map, null,
     );
-    expect(a.commercial_zone_slug).toBe("sud-voltabarozzo-guizza");
-    expect(a.zone_match_method).toBe("existing_slug");
+    expect(a.commercial_zone_slug).toBeNull();
+    expect(a.zone_match_method).toBe("unresolved");
+    // Con quartiere presente, deriva dal quartiere anche se lo slug preesistente è diverso.
+    const [b] = await assignCommercialZonesBatch(
+      [{ omi_zone_code: "C3", commercial_zone_slug: "sud-voltabarozzo-guizza", quartiere: "Arcella" }],
+      map, null,
+    );
+    expect(b.commercial_zone_slug).toBe("nord-arcella");
+    expect(b.zone_match_method).toBe("quartiere_match");
   });
+
 
   it("slug legacy sull'item viene ignorato (non è più valido)", async () => {
     const map = buildOmiToSlugMap(ACTIVE);
