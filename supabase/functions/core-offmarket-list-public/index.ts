@@ -303,21 +303,67 @@ Deno.serve(async (req) => {
         url_sorgente: r.source_url ?? null,
         data_segnalazione: (r.data_rilevamento ?? new Date().toISOString()).toString(),
         note: r.source_name ?? null,
+        commercial_zone_slug: null,
+        zone_match_method: "unresolved",
+        zone_match_confidence: null,
+        __resolveInput: {
+          address: r.address_text ?? "",
+          microzona: r.microzone ?? "",
+          zona: r.microzone ?? "",
+          title: r.title ?? "",
+        },
       });
       totals.patrimonio_comunale++;
     }
 
-    totals.total =
-      totals.legal_life_events + totals.successioni + totals.distress + totals.patrimonio_comunale;
+    // ── Risoluzione zona commerciale per gli item con __resolveInput ────
+    // (legal_life_events + patrimonio_comunale). Distress + successioni
+    // conservano il valore già impostato.
+    const toResolve: number[] = [];
+    const resolveInputs: Array<Record<string, unknown>> = [];
+    for (let i = 0; i < items.length; i++) {
+      const ri = items[i].__resolveInput;
+      if (ri) { toResolve.push(i); resolveInputs.push(ri); }
+    }
+    if (resolveInputs.length > 0) {
+      const assigns = await assignCommercialZonesBatch(resolveInputs, omiToSlug, supabase);
+      for (let k = 0; k < assigns.length; k++) {
+        const idx = toResolve[k];
+        const a = assigns[k];
+        items[idx].commercial_zone_slug = a.commercial_zone_slug;
+        items[idx].zone_match_method = a.zone_match_method;
+        items[idx].zone_match_confidence = a.zone_match_confidence;
+      }
+    }
+    for (const it of items) delete it.__resolveInput;
+
+    // Filtro opzionale per commercial_zone_slug.
+    let outItems = items;
+    if (commercialZoneFilter) {
+      outItems = items.filter((it) => it.commercial_zone_slug === commercialZoneFilter);
+      // Ricalcola totals sul risultato filtrato.
+      const t = { legal_life_events: 0, successioni: 0, distress: 0, patrimonio_comunale: 0, total: 0 };
+      for (const it of outItems) {
+        (t as Record<string, number>)[it.fonte]++;
+      }
+      t.total = t.legal_life_events + t.successioni + t.distress + t.patrimonio_comunale;
+      // Preserva contatore aste escluse (diagnostico).
+      const auct = (totals as Record<string, number>).legal_life_events_auction_excluded ?? 0;
+      Object.assign(totals, t, { legal_life_events_auction_excluded: auct });
+    } else {
+      totals.total =
+        totals.legal_life_events + totals.successioni + totals.distress + totals.patrimonio_comunale;
+    }
 
     // Ordina per data segnalazione decrescente
-    items.sort((a, b) => (a.data_segnalazione < b.data_segnalazione ? 1 : -1));
+    outItems.sort((a, b) => (a.data_segnalazione < b.data_segnalazione ? 1 : -1));
 
     return json({
       ok: true,
       updated_at: new Date().toISOString(),
+      commercial_zone_filter: commercialZoneFilter,
       totals,
-      items,
+      items: outItems,
     });
   } catch (e) {
     return json({
