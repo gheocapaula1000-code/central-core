@@ -502,8 +502,8 @@ serve(async (req: Request) => {
             initial_price_eur: initial,
             current_price_eur: current,
             drops_count: Number(row.drops_count) || 0,
-            observations_count: Number.isFinite(Number(row.observations_count))
-              ? Number(row.observations_count)
+            observations_count: typeof row.observations_count === "number" && Number.isFinite(row.observations_count)
+              ? row.observations_count
               : undefined,
             first_seen_at: typeof row.first_seen_at === "string" ? row.first_seen_at : undefined,
             commercial_zone_slug: slug,
