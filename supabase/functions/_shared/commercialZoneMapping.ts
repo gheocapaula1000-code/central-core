@@ -44,13 +44,23 @@ export type ActiveZoneRow = { slug: string; omi_codes: string[] };
  *  exclusively the 8 valid slugs. */
 export function buildOmiToSlugMap(rows: ActiveZoneRow[]): Map<string, CommercialZoneSlug> {
   const m = new Map<string, CommercialZoneSlug>();
+  const ambiguous = new Set<string>();
   for (const r of rows) {
     if (!isValidCommercialZoneSlug(r.slug)) continue;
     for (const c of r.omi_codes ?? []) {
       if (typeof c !== "string") continue;
       const code = c.trim().toUpperCase();
       if (!code) continue;
-      if (!m.has(code)) m.set(code, r.slug);
+      if (ambiguous.has(code)) continue;
+      const prev = m.get(code);
+      if (prev && prev !== r.slug) {
+        // Same OMI code claimed by more than one active commercial zone:
+        // deterministic contract requires exactly one match, so drop it.
+        m.delete(code);
+        ambiguous.add(code);
+        continue;
+      }
+      if (!prev) m.set(code, r.slug);
     }
   }
   return m;
