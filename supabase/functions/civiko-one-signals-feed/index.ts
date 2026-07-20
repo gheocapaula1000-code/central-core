@@ -832,6 +832,8 @@ serve(async (req: Request) => {
         cache_key: null,
         upstream_refresh_status: newestSourceCreated && (Date.now() - new Date(newestSourceCreated).getTime() < 24 * 3600 * 1000) ? "fresh" : "stale",
         sort_strategy: "freshness_desc,score_desc",
+        ribassi: ribassiDiag,
+        offmarket: offmarketDiag,
         security_gate: "ok",
         debug_id: debugId,
       };
