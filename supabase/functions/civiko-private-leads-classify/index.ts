@@ -191,6 +191,7 @@ Deno.serve(async (req) => {
     duration_ms: Date.now() - started,
     notes: {
       since_hours: sinceHours,
+      source_run_id: sourceRunId,
       totale_staging,
       scartati_agenzia,
       scartati_no_url,
