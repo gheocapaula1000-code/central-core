@@ -112,7 +112,8 @@ Deno.serve(async (req: Request) => {
       supabase
         .from("padova_listings")
         .select("id", { count: "exact", head: true })
-        .eq("tipo_lead", "PRIVATO"),
+        .eq("tipo_lead", "PRIVATO")
+        .eq("comune", "Padova"),
       supabase
         .from("padova_contendibili")
         .select("quartiere")
