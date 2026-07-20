@@ -54,52 +54,7 @@ Deno.serve(async (req) => {
 
   try {
     // 1) Legal life events (Padova, privacy-safe attivi)
-    // Esclusione esplicita di tutte le aste: ci sono verticali dedicati e Civiko One
-    // serve agenti generalisti, non operatori d'asta.
-    const AUCTION_DOMAINS = [
-      "asteimmobili.it",
-      "astalegale.net",
-      "astagiudiziaria",
-      "astetelematiche",
-      "portalevenditepubbliche",
-      "spazioaste",
-      "gobidaste",
-      "garaimmobiliare",
-    ];
-    const AUCTION_KEYWORDS = [
-      "asta",
-      "aste",
-      "vendita giudiziaria",
-      "vendite giudiziarie",
-      "esecuzione immobiliare",
-      "esecuzioni immobiliari",
-      "perizia",
-      "lotto",
-      "tribunale",
-      "procedura esecutiva",
-      "fallimentare",
-      "concordato",
-    ];
-    const isAuctionRecord = (r: {
-      signal_type?: string | null;
-      source_name?: string | null;
-      source_url?: string | null;
-      explanation?: string | null;
-      property_hint?: string | null;
-    }) => {
-      if ((r.signal_type ?? "").toUpperCase().includes("AUCTION")) return true;
-      const haystack = [
-        r.source_name ?? "",
-        r.source_url ?? "",
-        r.explanation ?? "",
-        r.property_hint ?? "",
-      ]
-        .join(" ")
-        .toLowerCase();
-      if (AUCTION_DOMAINS.some((d) => haystack.includes(d))) return true;
-      if (AUCTION_KEYWORDS.some((k) => new RegExp(`\\b${k}\\b`, "i").test(haystack))) return true;
-      return false;
-    };
+    // Esclusione aste: riusa auctionExclusion.ts (guardia condivisa).
 
     const { data: lle } = await supabase
       .from("legal_life_event_signals")
