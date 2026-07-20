@@ -23,7 +23,8 @@
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build",
     "verify:secrets": "bash scripts/verify-secrets.sh",
     "verify:package": "bash scripts/verify-package.sh",
-    "audit:release": "bash scripts/audit-release.sh"
+    "audit:release": "bash scripts/audit-release.sh",
+    "validate:padova-consulte": "node scripts/validate-padova-consulte-source.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
