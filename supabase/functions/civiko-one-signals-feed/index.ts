@@ -138,6 +138,8 @@ interface FeedItem {
   initial_price_eur?: number;
   current_price_eur?: number;
   drops_count?: number;
+  observations_count?: number;
+  first_seen_at?: string;
   commercial_zone_slug?: string;
   omi_zone_code?: string;
 }
@@ -196,6 +198,18 @@ function buildItem(
   if (typeof partial.initial_price_eur === "number") item.initial_price_eur = partial.initial_price_eur;
   if (typeof partial.current_price_eur === "number") item.current_price_eur = partial.current_price_eur;
   if (typeof partial.drops_count === "number") item.drops_count = partial.drops_count;
+  if (
+    typeof partial.observations_count === "number" &&
+    Number.isFinite(partial.observations_count) &&
+    Number.isInteger(partial.observations_count) &&
+    partial.observations_count >= 0
+  ) {
+    item.observations_count = partial.observations_count;
+  }
+  if (typeof partial.first_seen_at === "string" && partial.first_seen_at.trim() !== "") {
+    const t = Date.parse(partial.first_seen_at);
+    if (Number.isFinite(t)) item.first_seen_at = partial.first_seen_at;
+  }
   if (partial.commercial_zone_slug) item.commercial_zone_slug = partial.commercial_zone_slug;
   if (partial.omi_zone_code) item.omi_zone_code = partial.omi_zone_code;
   return item;
@@ -488,6 +502,10 @@ serve(async (req: Request) => {
             initial_price_eur: initial,
             current_price_eur: current,
             drops_count: Number(row.drops_count) || 0,
+            observations_count: typeof row.observations_count === "number" && Number.isFinite(row.observations_count)
+              ? row.observations_count
+              : undefined,
+            first_seen_at: typeof row.first_seen_at === "string" ? row.first_seen_at : undefined,
             commercial_zone_slug: slug,
             omi_zone_code: omiCode || undefined,
           }));
