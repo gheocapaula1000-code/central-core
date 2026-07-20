@@ -1,7 +1,9 @@
 // padova-privati-list — Edge Function
-// Read-only: ritorna i privati reali da padova_listings (tipo_lead='PRIVATO').
+// Read-only: ritorna i privati reali da padova_listings (tipo_lead in
+// PRIVATO/privato/privato_stanco), SOLO comune='Padova' per default.
+// I lead di altri comuni della provincia restano in tabella ma non escono
+// da questo endpoint (che alimenta la PWA Padova).
 // Auth: tramite core-proxy (Authorization Bearer ANON). Nessun nuovo secret.
-// Response appiattita al root: { privati, total, con_telefono, offset, limit }.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -19,6 +21,11 @@ function sanitize<T>(v: T): T {
   return v;
 }
 
+const SELECT_COLS =
+  "fonte,url,telefono,mq,locali,bagni,prezzo,lat,lng,indirizzo," +
+  "quartiere,imported_at,tipo_lead,comune,omi_zone,commercial_zone_slug," +
+  "zone_match_method,zone_match_confidence";
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return handleOptions(req);
   const cors = corsHeaders(req);
@@ -30,21 +37,32 @@ serve(async (req) => {
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
-    let payload: { quartiere?: string; solo_con_telefono?: boolean; offset?: number; limit?: number } = {};
+    let payload: {
+      quartiere?: string;
+      commercial_zone_slug?: string;
+      solo_con_telefono?: boolean;
+      offset?: number;
+      limit?: number;
+    } = {};
     try { if (req.method === "POST") payload = await req.json(); } catch { /* empty */ }
 
     const offset = Math.max(0, Number(payload.offset ?? 0));
     const limit = Math.min(500, Math.max(1, Number(payload.limit ?? 200)));
 
-    let q = supabase
-      .from("padova_listings")
-      .select("fonte,url,telefono,mq,locali,bagni,prezzo,lat,lng,indirizzo,quartiere,imported_at,tipo_lead", { count: "exact" })
-      .in("tipo_lead", ["PRIVATO", "privato", "privato_stanco"]);
+    // Default: solo Padova città.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q: any = (supabase.from("padova_listings") as any)
+      .select(SELECT_COLS, { count: "exact" })
+      .in("tipo_lead", ["PRIVATO", "privato", "privato_stanco"])
+      .eq("comune", "Padova");
 
-    if (payload.quartiere) q = q.eq("quartiere", payload.quartiere);
+    if (payload.commercial_zone_slug) {
+      q = q.eq("commercial_zone_slug", payload.commercial_zone_slug);
+    } else if (payload.quartiere) {
+      q = q.eq("quartiere", payload.quartiere);
+    }
     if (payload.solo_con_telefono) q = q.not("telefono", "is", null);
 
-    // Ordina: telefono first, poi prezzo asc nulls last
     q = q.order("telefono", { ascending: false, nullsFirst: false })
          .order("prezzo", { ascending: true, nullsFirst: false })
          .range(offset, offset + limit - 1);
@@ -52,13 +70,15 @@ serve(async (req) => {
     const { data, count, error } = await q;
     if (error) return json({ error: true, code: "DB_ERROR", message: error.message }, 500);
 
-    // Count con_telefono globale (rispettando filtro quartiere)
-    let telQ = supabase
-      .from("padova_listings")
+    // Count con_telefono globale (rispettando i filtri applicati)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let telQ: any = (supabase.from("padova_listings") as any)
       .select("id", { count: "exact", head: true })
       .in("tipo_lead", ["PRIVATO", "privato", "privato_stanco"])
+      .eq("comune", "Padova")
       .not("telefono", "is", null);
-    if (payload.quartiere) telQ = telQ.eq("quartiere", payload.quartiere);
+    if (payload.commercial_zone_slug) telQ = telQ.eq("commercial_zone_slug", payload.commercial_zone_slug);
+    else if (payload.quartiere) telQ = telQ.eq("quartiere", payload.quartiere);
     const { count: conTel } = await telQ;
 
     const privati = sanitize(data ?? []);

@@ -7,15 +7,18 @@
 // ciascun lead come "privato" o "privato_stanco" (>=60 giorni di anzianità o
 // ribasso cumulato >=5%) e fa upsert in padova_listings su (fonte, url).
 //
-// Aggiorna anche private_leads_run_status (riga 'subito') con i conteggi reali
-// così la sezione fonti notturne del cron-health mostra "X opportunità trovate,
-// Y privato_stanco" subito dopo l'esecuzione.
-//
-// Schedulato ogni notte alle 02:50 UTC via pg_cron (25 min dopo il pull Subito).
+// Zonizzazione: SOLO per i lead con comune normalizzato === "padova"
+// invoca resolvePadovaOmiBatch e mappa il codice OMI ottenuto sulla zona
+// commerciale reale (civiko_commercial_zones.omi_codes @> [code]). Per gli
+// altri comuni della provincia il lead viene conservato ma senza zona.
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { classifyPrivateLead } from "../_shared/leadClassification.ts";
+import {
+  resolvePadovaOmiBatch,
+  UNRESOLVED_OMI_CODE,
+} from "../_shared/padovaOmiResolver.ts";
 
 type Json = Record<string, unknown>;
 
@@ -26,15 +29,76 @@ function n(s: unknown): number | null {
   return isFinite(v) ? Math.round(v) : null;
 }
 
+/** Parsing sicuro di lat/lng (accetta stringhe con virgola, ritorna null se non valido). */
+export function safeFloat(s: unknown): number | null {
+  if (s === null || s === undefined) return null;
+  if (typeof s === "number") return isFinite(s) ? s : null;
+  const raw = String(s).trim().replace(",", ".");
+  if (!raw) return null;
+  const v = parseFloat(raw);
+  return isFinite(v) ? v : null;
+}
+
+/** Normalizza il nome del comune: trim, lowercase, no accenti, no doppi spazi. */
+export function normalizeComune(s: unknown): string {
+  return String(s ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
 function pickUrl(r: Json): string | null {
   const u = (r["urls_default"] ?? r["urls_mobile"]) as string | undefined;
   if (!u) return null;
   return String(u).split("?")[0].split("#")[0].trim() || null;
 }
 
-function pickIndirizzo(r: Json): string | null {
-  const town = (r["geo_town_value"] ?? r["geo_city_value"]) as string | undefined;
-  return town ? String(town) : null;
+function pickComune(raw: Json): string | null {
+  const t = raw["geo_town_value"] ?? raw["geo_city_value"];
+  const s = t ? String(t).trim() : "";
+  return s || null;
+}
+
+function pickIndirizzo(raw: Json): string | null {
+  const addr = raw["geo_map_address"];
+  if (addr && String(addr).trim()) return String(addr).trim();
+  return pickComune(raw);
+}
+
+function pickCap(raw: Json): string | null {
+  const direct = raw["geo_zip"] ?? raw["cap"] ?? raw["zip"];
+  if (direct) {
+    const s = String(direct).replace(/\D/g, "");
+    if (s.length === 5) return s;
+  }
+  const addr = String(raw["geo_map_address"] ?? "");
+  const m = addr.match(/\b(351\d{2})\b/);
+  return m ? m[1] : null;
+}
+
+/** Mappa un codice OMI valido su una zona commerciale attiva. */
+function mapOmiToZone(
+  omi: string,
+  zones: Array<{ slug: string; nome: string; omi_codes: string[] | null }>,
+): { slug: string; nome: string } | null {
+  const code = omi.trim().toUpperCase();
+  for (const z of zones) {
+    const codes = (z.omi_codes ?? []).map((c) => String(c).trim().toUpperCase());
+    if (codes.includes(code)) return { slug: z.slug, nome: z.nome };
+  }
+  return null;
+}
+
+/** Traduce la reason del resolver in un metodo compatto e stabile. */
+export function reasonToMethod(reason: string | null | undefined): string {
+  const r = (reason ?? "").toLowerCase();
+  if (r === "point_in_polygon") return "point_in_polygon";
+  if (r === "precomputed_omi") return "precomputed_omi";
+  if (r === "alias_match") return "alias";
+  if (r.startsWith("cap_hint")) return "cap_hint";
+  return "unresolved";
 }
 
 Deno.serve(async (req) => {
@@ -88,7 +152,6 @@ Deno.serve(async (req) => {
     from += PAGE;
   }
 
-  // Skip se nessuno staging recente: NON registrare "classified" ma "skipped_no_data"
   if (rows.length === 0) {
     await sb.from("private_leads_run_status").insert({
       source: "subito",
@@ -112,27 +175,51 @@ Deno.serve(async (req) => {
   let totale_staging = rows.length;
   let scartati_agenzia = 0;
   let scartati_no_url = 0;
-  let scartati_no_padova = 0;
+  let scartati_no_padova_provincia = 0;
   let upserted = 0;
   let n_privato = 0;
   let n_privato_stanco = 0;
+  let n_padova_citta = 0;
+  let n_zonizzati = 0;
+  let n_unresolved = 0;
   const errors: string[] = [];
 
-  // Dedup per url all'interno del batch (più annunci stesso urn): tieni il più recente
+  // Dedup per url all'interno del batch
   const byUrl = new Map<string, { raw: Json; fetched_at: string }>();
   for (const r of rows) {
     const raw = r.raw_json ?? {};
     if (raw["advertiser_company"] !== false) { scartati_agenzia++; continue; }
     const url = pickUrl(raw);
     if (!url) { scartati_no_url++; continue; }
-    // Solo annunci provincia Padova (geo_city_istat = "028")
-    if (raw["geo_city_istat"] && String(raw["geo_city_istat"]) !== "028") { scartati_no_padova++; continue; }
+    // Solo annunci provincia Padova
+    if (raw["geo_city_istat"] && String(raw["geo_city_istat"]) !== "028") {
+      scartati_no_padova_provincia++; continue;
+    }
     const prev = byUrl.get(url);
     if (!prev || prev.fetched_at < r.fetched_at) byUrl.set(url, { raw, fetched_at: r.fetched_at });
   }
 
-  // Upsert a batch di 200
-  const records: Array<Record<string, unknown>> = [];
+  // Costruisci i record base (senza zonizzazione) + traccia quali sono Padova città
+  type BaseRec = {
+    url: string;
+    raw: Json;
+    prezzo: number | null;
+    mq: number | null;
+    locali: number | null;
+    bagni: number | null;
+    telefono: string | null;
+    tipo_lead: "privato" | "privato_stanco";
+    comune: string | null;
+    indirizzo: string | null;
+    lat: number | null;
+    lng: number | null;
+    cap: string | null;
+    title: string | null;
+    body: string | null;
+    isPadova: boolean;
+  };
+
+  const base: BaseRec[] = [];
   for (const [url, { raw }] of byUrl) {
     const datePub = raw["date"] ? String(raw["date"]).replace(" ", "T") + "Z" : null;
     const prezzo = n(raw["features_price_values"]);
@@ -147,31 +234,163 @@ Deno.serve(async (req) => {
       prezzoAttuale: prezzo ?? null,
       prezzoOriginale: null,
     });
-
     if (cls.tipo_lead === "privato_stanco") n_privato_stanco++; else n_privato++;
 
-    records.push({
-      fonte: "subito",
-      url,
-      agency: null,
-      tipo_lead: cls.tipo_lead,
-      telefono,
-      mq,
-      locali,
-      bagni,
-      prezzo,
-      lat: null,
-      lng: null,
+    const comune = pickComune(raw);
+    const isPadova = normalizeComune(comune) === "padova";
+    if (isPadova) n_padova_citta++;
+
+    base.push({
+      url, raw, prezzo, mq, locali, bagni, telefono,
+      tipo_lead: cls.tipo_lead as "privato" | "privato_stanco",
+      comune,
       indirizzo: pickIndirizzo(raw),
-      quartiere: null,
-      raw_json: { ...raw, _classification: cls },
+      lat: safeFloat(raw["geo_map_latitude"]),
+      lng: safeFloat(raw["geo_map_longitude"]),
+      cap: pickCap(raw),
+      title: (raw["subject"] ?? raw["title"]) ? String(raw["subject"] ?? raw["title"]) : null,
+      body: (raw["body"] ?? raw["description"]) ? String(raw["body"] ?? raw["description"]) : null,
+      isPadova,
     });
   }
 
+  // Zonizzazione: SOLO per i record di Padova città.
+  const padovaRecs = base.filter((b) => b.isPadova);
+
+  // Carica UNA sola volta le zone commerciali attive
+  let zones: Array<{ slug: string; nome: string; omi_codes: string[] | null }> = [];
+  if (padovaRecs.length > 0) {
+    const { data: zData, error: zErr } = await sb
+      .from("civiko_commercial_zones")
+      .select("slug, nome, omi_codes, attiva")
+      .eq("attiva", true);
+    if (zErr) {
+      errors.push(`zones_load: ${zErr.message}`);
+    } else {
+      zones = ((zData ?? []) as Array<Record<string, unknown>>).map((z) => ({
+        slug: String(z.slug ?? ""),
+        nome: String(z.nome ?? ""),
+        omi_codes: Array.isArray(z.omi_codes) ? (z.omi_codes as string[]) : null,
+      }));
+    }
+  }
+
+  // Prepara input per il resolver
+  const resolverInput = padovaRecs.map((r) => ({
+    lat: r.lat, lng: r.lng,
+    indirizzo: r.indirizzo,
+    address: r.indirizzo,
+    title: r.title,
+    description: r.body,
+    quartiere: null,
+    cap: r.cap,
+    zip: r.cap,
+  }));
+
+  const resolutions = padovaRecs.length > 0
+    ? await resolvePadovaOmiBatch(
+        resolverInput as unknown as Array<Record<string, unknown>>,
+        sb as unknown as {
+          rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
+        },
+        (rr) => ({
+          lat: (rr as Record<string, unknown>).lat as number | null,
+          lng: (rr as Record<string, unknown>).lng as number | null,
+        }),
+      )
+    : [];
+
+  // Mappa risoluzione → record base
+  const zoneByUrl = new Map<string, {
+    omi_zone: string | null;
+    commercial_zone_slug: string | null;
+    quartiere: string | null;
+    method: string;
+    confidence: number | null;
+    resolved_at: string;
+  }>();
+  const nowIso = new Date().toISOString();
+
+  for (let i = 0; i < padovaRecs.length; i++) {
+    const rec = padovaRecs[i];
+    const res = resolutions[i];
+    const method = reasonToMethod(res?.omi_zone_reason);
+    const validCode = res?.omi_zone_code && res.omi_zone_code !== UNRESOLVED_OMI_CODE
+      ? res.omi_zone_code
+      : null;
+
+    if (validCode) {
+      const zoneHit = mapOmiToZone(validCode, zones);
+      if (zoneHit) {
+        n_zonizzati++;
+        zoneByUrl.set(rec.url, {
+          omi_zone: validCode,
+          commercial_zone_slug: zoneHit.slug,
+          quartiere: zoneHit.nome,
+          method,
+          confidence: typeof res.omi_zone_confidence === "number" ? res.omi_zone_confidence : null,
+          resolved_at: nowIso,
+        });
+        continue;
+      }
+    }
+    // Unresolved: niente zona commerciale
+    n_unresolved++;
+    zoneByUrl.set(rec.url, {
+      omi_zone: null,
+      commercial_zone_slug: null,
+      quartiere: null,
+      method: "unresolved",
+      confidence: null,
+      resolved_at: nowIso,
+    });
+  }
+
+  // Costruisci record finali per upsert
+  const records: Array<Record<string, unknown>> = base.map((b) => {
+    const z = zoneByUrl.get(b.url);
+    const zoneFields = b.isPadova && z
+      ? {
+          comune: "Padova",
+          omi_zone: z.omi_zone,
+          commercial_zone_slug: z.commercial_zone_slug,
+          quartiere: z.quartiere,
+          zone_match_method: z.method,
+          zone_match_confidence: z.confidence,
+          zone_resolved_at: z.resolved_at,
+        }
+      : {
+          comune: b.comune,
+          omi_zone: null,
+          commercial_zone_slug: null,
+          quartiere: null,
+          zone_match_method: null,
+          zone_match_confidence: null,
+          zone_resolved_at: null,
+        };
+
+    return {
+      fonte: "subito",
+      url: b.url,
+      agency: null,
+      tipo_lead: b.tipo_lead,
+      telefono: b.telefono,
+      mq: b.mq,
+      locali: b.locali,
+      bagni: b.bagni,
+      prezzo: b.prezzo,
+      lat: b.lat,
+      lng: b.lng,
+      indirizzo: b.indirizzo,
+      raw_json: { ...b.raw, _classification: { tipo_lead: b.tipo_lead } },
+      ...zoneFields,
+    };
+  });
+
   for (let i = 0; i < records.length; i += 200) {
     const slice = records.slice(i, i + 200);
-    const { error } = await sb
-      .from("padova_listings")
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (sb.from("padova_listings") as any)
       .upsert(slice, { onConflict: "fonte,url", ignoreDuplicates: false });
     if (error) {
       errors.push(error.message);
@@ -180,7 +399,6 @@ Deno.serve(async (req) => {
     }
   }
 
-  // Aggiorna lo stato run più recente di subito con i conteggi reali
   const totale_privati = n_privato + n_privato_stanco;
   await sb.from("private_leads_run_status").insert({
     source: "subito",
@@ -195,10 +413,13 @@ Deno.serve(async (req) => {
       totale_staging,
       scartati_agenzia,
       scartati_no_url,
-      scartati_no_padova,
+      scartati_no_padova: scartati_no_padova_provincia,
       upserted,
       privato: n_privato,
       privato_stanco: n_privato_stanco,
+      padova_citta: n_padova_citta,
+      zonizzati: n_zonizzati,
+      zone_unresolved: n_unresolved,
     },
   });
 
@@ -209,8 +430,11 @@ Deno.serve(async (req) => {
     totale_staging,
     scartati_agenzia,
     scartati_no_url,
-    scartati_no_padova,
+    scartati_no_padova_provincia,
     privati_unici: byUrl.size,
+    padova_citta: n_padova_citta,
+    zonizzati: n_zonizzati,
+    zone_unresolved: n_unresolved,
     upserted,
     privato: n_privato,
     privato_stanco: n_privato_stanco,
