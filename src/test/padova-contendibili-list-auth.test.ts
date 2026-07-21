@@ -380,7 +380,7 @@ describe("padova-contendibili-list — reconciliation contract", () => {
     expect(SRC).toContain("snapshot_complete: snapshotComplete");
     expect(SRC).toContain("assigned_zone: assignedSlug");
     // Also mirrored under data.
-    const dataBlock = SRC.slice(SRC.indexOf("data: {"), SRC.indexOf("debug_id: did"));
+    const dataBlock = SRC.slice(SRC.indexOf("data: {"), SRC.lastIndexOf("debug_id: did"));
     expect(dataBlock).toContain("total: totalOut");
     expect(dataBlock).toContain("items_count: itemsCount");
     expect(dataBlock).toContain("snapshot_complete: snapshotComplete");
