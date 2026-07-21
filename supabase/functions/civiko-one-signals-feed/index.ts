@@ -361,6 +361,29 @@ serve(async (req: Request) => {
     return err("SLUG_OUT_OF_CONTRACT", "Assigned slug not in contract", 403, debugId);
   }
 
+  // display_zone resolution — server-side, contratto ufficiale.
+  // Il DB (viste *_by_zone_v e vincoli) risolve la zona di ogni riga via
+  // public.civiko_resolve_commercial_zone_slug(quartiere) e la filtra su
+  // assignedSlug. Qui carichiamo UNA sola volta la mappa slug→name da
+  // public.civiko_commercial_zones e la usiamo come cache in memoria:
+  // niente query per riga, nessun helper locale di risoluzione.
+  const slugToName = new Map<string, string>();
+  try {
+    const { data: zoneNameRows } = await supabase
+      .from("civiko_commercial_zones")
+      .select("slug, name");
+    for (const r of (zoneNameRows ?? []) as Array<Record<string, unknown>>) {
+      const s = typeof r.slug === "string" ? r.slug : "";
+      const n = typeof r.name === "string" ? r.name : "";
+      if (s && n) slugToName.set(s, n);
+    }
+  } catch (e) {
+    console.error(`[civiko-one-signals-feed] ${debugId} slug→name lookup error:`, (e as Error)?.message ?? e);
+  }
+  const canonicalDisplayZone = slugToName.get(assignedSlug) ?? "Altre zone";
+
+
+
   const rawItems: FeedItem[] = [];
   const sourcesUsed: string[] = [];
   let lastProviderRefresh: string | null = null;
