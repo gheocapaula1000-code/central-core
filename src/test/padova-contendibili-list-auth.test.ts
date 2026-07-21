@@ -259,13 +259,13 @@ describe("padova-contendibili-list — zone resolution behaviour", () => {
       WID,
     );
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.code).toBe("NO_ZONE_ASSIGNED");
+    if (r.ok === false) expect(r.code).toBe("NO_ZONE_ASSIGNED");
   });
 
   it("rejects when no zone is assigned", () => {
     const r = resolveAssignedZone([], WID);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.code).toBe("NO_ZONE_ASSIGNED");
+    if (r.ok === false) expect(r.code).toBe("NO_ZONE_ASSIGNED");
   });
 
   it("rejects when multiple zones are assigned to the same workspace", () => {
@@ -277,7 +277,7 @@ describe("padova-contendibili-list — zone resolution behaviour", () => {
       WID,
     );
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.code).toBe("MULTIPLE_ZONES_ASSIGNED");
+    if (r.ok === false) expect(r.code).toBe("MULTIPLE_ZONES_ASSIGNED");
   });
 
   it("rejects zone owned by another workspace", () => {
@@ -286,7 +286,7 @@ describe("padova-contendibili-list — zone resolution behaviour", () => {
       WID,
     );
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.code).toBe("NO_ZONE_ASSIGNED");
+    if (r.ok === false) expect(r.code).toBe("NO_ZONE_ASSIGNED");
   });
 
   it("rejects a slug that is not one of the 8 official ones", () => {
@@ -295,7 +295,7 @@ describe("padova-contendibili-list — zone resolution behaviour", () => {
       WID,
     );
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.code).toBe("SLUG_OUT_OF_CONTRACT");
+    if (r.ok === false) expect(r.code).toBe("SLUG_OUT_OF_CONTRACT");
   });
 
   it("every official slug passes the contract check", () => {
