@@ -29,7 +29,7 @@ import {
 } from "./sottraInternal.ts";
 import { buildZonaIntelligence } from "./zonaIntelligence.ts";
 import { buildVenetoEnrichment } from "./venetoEnrichment.ts";
-import { analyzePhotosWithVision, type AggregatedVisionAnalysis } from "./visionAnalyzer.ts";
+import { analyzePhotosWithVision, type AggregatedVisionAnalysis, type AmbienteTag } from "./visionAnalyzer.ts";
 import { resolveInternalSecret } from "../_shared/http.ts";
 import { runApifyPhotoEnrichment, type TerritorialDocument } from "./apifyPhotoEnrichment.ts";
 import { runFirecrawlPhotoEnrichment, listFirecrawlSourceNames, type LiveSignal } from "./firecrawlPhotoEnrichment.ts";
@@ -47,19 +47,25 @@ const MAX_PHOTO_BYTES = 8 * 1024 * 1024; // 8 MB
 
 // ── PWA contract (request) ────────────────────────────────────
 
+type AmbienteTagInput =
+  | "esterno" | "soggiorno" | "cucina" | "camera" | "cameretta"
+  | "bagno" | "terrazzo_balcone" | "giardino" | "altro";
+
 interface PwaPhoto {
   dataUrl?: string;
   mimeType?: string;
   width?: number;
   height?: number;
   sizeKb?: number;
+  /** Conferma dell'agente sull'ambiente della foto: PREVALE sulla proposta vision. */
+  ambiente?: AmbienteTagInput;
 }
 interface PwaGeo {
   latitude?: number;
   longitude?: number;
   accuracy?: number;
   manualAddress?: string;
-  source?: "device" | "manual" | "missing";
+  source?: "device" | "manual" | "missing" | "photo_exif";
 }
 interface PwaQuickFacts {
   titoloInterno?: string;
@@ -202,11 +208,69 @@ function buildPhotosSummary(v: AggregatedVisionAnalysis, count: number): string 
   if (v.statoApparente) parts.push(`stato ${v.statoApparente.toLowerCase()}`);
   if (v.materialePresunto) parts.push(`materiale prevalente ${v.materialePresunto}`);
   if (v.annoPresunto) parts.push(`anno stimato ${v.annoPresunto}`);
+  if (v.materialiPavimenti) parts.push(`pavimenti ${v.materialiPavimenti}`);
+  if (v.finiture) parts.push(`finiture ${v.finiture}`);
+  if (v.luceNaturale) parts.push(`luce naturale ${v.luceNaturale}`);
+
+  // Cucina: usa la dicitura corretta senza inventare
+  if (v.cucinaConfig === "cucina abitabile") parts.push("cucina abitabile visibile");
+  else if (v.cucinaConfig === "angolo cottura") parts.push("angolo cottura nel soggiorno");
+
+  // Spazi esterni: solo se realmente presenti nelle foto
+  const esterni: string[] = [];
+  if (v.spaziEsterni?.includes("terrazzo_balcone")) esterni.push("terrazzo/balcone");
+  if (v.spaziEsterni?.includes("giardino")) esterni.push("giardino");
+  if (esterni.length > 0) parts.push(`spazi esterni: ${esterni.join(", ")}`);
+
+  // Bagno: elencare SOLO i sanitari realmente visti
+  if ((v.bagnoDettagli?.length ?? 0) > 0) parts.push(`bagno con ${v.bagnoDettagli!.join(", ")} visibili`);
+
+  // Locali principali: soggiorno + camera + cameretta + cucina se abitabile.
+  // Il bagno NON si conta nei locali principali.
+  const amb = v.ambientiRilevati ?? {};
+  const localiPrincipali =
+    (amb["soggiorno"] ?? 0) + (amb["camera"] ?? 0) + (amb["cameretta"] ?? 0) +
+    (v.cucinaConfig === "cucina abitabile" ? (amb["cucina"] ?? 0) : 0);
+  if (localiPrincipali > 0) parts.push(`locali principali rilevati ${localiPrincipali} (il bagno non si conta)`);
+
   if (v.puntiDiForzaVisivi.length > 0) parts.push(`punti di forza: ${v.puntiDiForzaVisivi.slice(0, 6).join(", ")}`);
-  if (v.presenzaGiardino) parts.push("con giardino");
   if (v.presenzaParcheggio) parts.push("con parcheggio");
+
+  // Direttive esplicite per il copy generato a valle.
+  const vincoli: string[] = [];
+  if (v.cucinaConfig !== "cucina abitabile") vincoli.push('non scrivere "cucina abitabile"');
+  if (v.cucinaConfig === "angolo cottura") vincoli.push('usare la dicitura "angolo cottura"');
+  if (!(v.bagnoDettagli?.includes("vasca"))) vincoli.push("non menzionare vasca da bagno");
+  if (!(v.bagnoDettagli?.includes("doccia"))) vincoli.push("non menzionare doccia");
+  if (!v.spaziEsterni?.includes("terrazzo_balcone")) vincoli.push("non menzionare terrazzo o balcone");
+  if (!v.spaziEsterni?.includes("giardino")) vincoli.push("non menzionare giardino");
+  vincoli.push("il bagno non si conta nei locali principali");
+  vincoli.push("descrivi solo materiali e ambienti realmente rilevati");
+  parts.push(`Vincoli di copy: ${vincoli.join("; ")}`);
+
   return parts.join("; ") + ".";
 }
+
+/**
+ * Rimuove dalle strengths le voci vietate dalle regole di copy quando
+ * l'elemento corrispondente non è stato REALMENTE rilevato nelle foto.
+ */
+function filterStrengthsByVisionRules(list: string[], v: AggregatedVisionAnalysis): string[] {
+  const has = (kw: string, s: string) => s.toLowerCase().includes(kw);
+  const bagno = v.bagnoDettagli ?? [];
+  const esterni = v.spaziEsterni ?? [];
+  return list.filter((raw) => {
+    const s = raw.toLowerCase();
+    if (has("vasca", s) && !bagno.includes("vasca")) return false;
+    if (has("doccia", s) && !bagno.includes("doccia")) return false;
+    if (has("terrazz", s) && !esterni.includes("terrazzo_balcone")) return false;
+    if (has("balcon", s) && !esterni.includes("terrazzo_balcone")) return false;
+    if (has("giardin", s) && !esterni.includes("giardino")) return false;
+    if (has("cucina abitabile", s) && v.cucinaConfig !== "cucina abitabile") return false;
+    return true;
+  });
+}
+
 
 function dedupStrings(arrs: Array<string[] | undefined>): string[] {
   const seen = new Set<string>();
@@ -245,7 +309,8 @@ async function buildContenutiMarketing(input: ContenutiInput): Promise<Contenuti
   const elementiBase = (elementiConfermati && elementiConfermati.length > 0)
     ? elementiConfermati
     : visionAnalysis.puntiDiForzaVisivi;
-  const strengths = dedupStrings([visita?.caratteristiche, elementiBase, visionAnalysis.puntiDiForzaVisivi]);
+  const strengthsRaw = dedupStrings([visita?.caratteristiche, elementiBase, visionAnalysis.puntiDiForzaVisivi]);
+  const strengths = filterStrengthsByVisionRules(strengthsRaw, visionAnalysis);
   const objections = dedupStrings([
     safeStr(facts.obiezionePrincipale) ? [safeStr(facts.obiezionePrincipale)] : [],
     visita?.criticita,
@@ -361,7 +426,7 @@ function evaluateInput(body: RequestBody): {
 
   // geo
   const hasDeviceGeo =
-    geo.source === "device" &&
+    (geo.source === "device" || geo.source === "photo_exif") &&
     typeof geo.latitude === "number" && typeof geo.longitude === "number" &&
     Math.abs(geo.latitude) <= 90 && Math.abs(geo.longitude) <= 180;
   const coords = hasDeviceGeo ? { lat: geo.latitude!, lng: geo.longitude! } : null;
@@ -757,15 +822,23 @@ async function orchestrate(body: RequestBody, debugId: string) {
     ? body.photos
     : (body.photo ? [body.photo] : []);
   const photoDataUrls: string[] = [];
+  const photoConfirmedAmbienti: Array<AmbienteTag | null> = [];
+  const VALID_AMBIENTI = new Set<AmbienteTag>([
+    "esterno","soggiorno","cucina","camera","cameretta",
+    "bagno","terrazzo_balcone","giardino","altro",
+  ]);
   for (const p of rawPhotos) {
     if (!p || typeof p.dataUrl !== "string" || !p.dataUrl.startsWith("data:image/")) continue;
     const sizeBytes = typeof p.sizeKb === "number" ? p.sizeKb * 1024 : p.dataUrl.length * 0.75;
     if (sizeBytes > MAX_PHOTO_BYTES) continue;
     photoDataUrls.push(p.dataUrl);
+    const conf = typeof p.ambiente === "string" ? p.ambiente.trim().toLowerCase() as AmbienteTag : null;
+    photoConfirmedAmbienti.push(conf && VALID_AMBIENTI.has(conf) ? conf : null);
   }
   if (photoDataUrls.length > 10) {
     warnings.push(`Ricevute ${photoDataUrls.length} foto: verranno analizzate solo le prime 10.`);
     photoDataUrls.length = 10;
+    photoConfirmedAmbienti.length = 10;
   }
 
   // ── Rigenerazione veloce: variante>1 + elementiConfermati → skip vision ──
@@ -780,6 +853,13 @@ async function orchestrate(body: RequestBody, debugId: string) {
   // ── Vision layer: arricchisce quickFacts con analisi AI delle foto.
   // Non blocca mai la response principale: in errore restituisce default
   // con visionStatus="non_disponibile".
+  const EMPTY_AGG_EXTRAS = {
+    ambientiRilevati: {} as Record<string, number>,
+    cucinaConfig: "non visibile" as const,
+    spaziEsterni: [] as Array<"terrazzo_balcone" | "giardino">,
+    bagnoDettagli: [] as string[],
+    perPhoto: [] as AggregatedVisionAnalysis["perPhoto"],
+  };
   let visionAnalysis: AggregatedVisionAnalysis;
   if (skipVision) {
     visionAnalysis = {
@@ -793,10 +873,11 @@ async function orchestrate(body: RequestBody, debugId: string) {
       presenzaParcheggio: false,
       fotoAnalizzate: 0,
       visionStatus: "ok",
+      ...EMPTY_AGG_EXTRAS,
     };
   } else {
     try {
-      visionAnalysis = await analyzePhotosWithVision(photoDataUrls);
+      visionAnalysis = await analyzePhotosWithVision(photoDataUrls, photoConfirmedAmbienti);
     } catch (e) {
       console.warn(`[${FUNCTION_NAME}] vision error debug_id=${debugId}: ${e instanceof Error ? e.message : String(e)}`);
       visionAnalysis = {
@@ -810,6 +891,7 @@ async function orchestrate(body: RequestBody, debugId: string) {
         presenzaParcheggio: false,
         fotoAnalizzate: 0,
         visionStatus: "non_disponibile",
+        ...EMPTY_AGG_EXTRAS,
       };
     }
   }
@@ -1101,6 +1183,13 @@ async function orchestrate(body: RequestBody, debugId: string) {
     fotoAnalizzate: visionAnalysis.fotoAnalizzate,
     elementiRilevati: Array.from(elementiRilevatiSet),
     visionStatus: visionAnalysis.visionStatus,
+    ambientiRilevati: visionAnalysis.ambientiRilevati ?? {},
+    cucinaConfig: visionAnalysis.cucinaConfig ?? "non visibile",
+    spaziEsterni: visionAnalysis.spaziEsterni ?? [],
+    bagnoDettagli: visionAnalysis.bagnoDettagli ?? [],
+    materialiPavimenti: visionAnalysis.materialiPavimenti ?? null,
+    finiture: visionAnalysis.finiture ?? null,
+    luceNaturale: visionAnalysis.luceNaturale ?? null,
   };
   if (visionAnalysis.visionStatus !== "non_disponibile") {
     if (!immobileOut.statoApparente || immobileOut.statoApparente === "sconosciuto") {
@@ -1205,6 +1294,22 @@ async function orchestrate(body: RequestBody, debugId: string) {
     debugId,
   });
 
+  // foto_ambienti: elemento per ogni foto in input (dopo il filtro dimensioni).
+  // Ordinato per indice foto di input. `confermato` = true se l'agente
+  // ha fornito `ambiente` per quella foto (prevale sulla proposta vision).
+  const perPhotoByIndex = new Map<number, AggregatedVisionAnalysis["perPhoto"][number]>();
+  for (const p of (visionAnalysis.perPhoto ?? [])) perPhotoByIndex.set(p.index, p);
+  const foto_ambienti = photoDataUrls.map((_u, idx) => {
+    const conf = photoConfirmedAmbienti[idx] ?? null;
+    const pp = perPhotoByIndex.get(idx);
+    return {
+      index: idx,
+      ambiente: conf ?? (pp?.ambiente ?? "altro"),
+      confidence: conf ? 1 : (pp?.confidence ?? 0),
+      confermato: !!conf,
+    };
+  });
+
   const payload = {
     configured,
     ...(message ? { message } : {}),
@@ -1219,6 +1324,7 @@ async function orchestrate(body: RequestBody, debugId: string) {
     presentazioneProprietario,
     kitMarketing: { available: false, items: [] as unknown[] },
     contenuti,
+    foto_ambienti,
     zonaServizi,
     intelligenceZona,
     vendibilita,
