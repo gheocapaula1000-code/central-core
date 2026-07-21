@@ -234,6 +234,9 @@ serve(async (req) => {
       const tier = isOro ? "oro" : (rr.argento ? "argento" : "bronzo");
       return {
         ...r,
+        // Shared identity with civiko-one-signals-feed (see its index.ts: `cont:${row.id}`).
+        // Must remain byte-identical to allow PWA reconciliation across endpoints.
+        source_id: `cont:${Number(r.id)}`,
         reachability: {
           tier,
           argento_match_count: rr.count,
@@ -269,16 +272,25 @@ serve(async (req) => {
 
     const filtered = enriched; // Kept name for shape-preservation in tests.
 
+    const itemsCount = filtered.length;
+    const snapshotComplete = itemsCount === totalOut && offset === 0;
+
     const payload = sanitize({
       ok: true,
       data: {
         items: filtered,
         total: totalOut,
+        items_count: itemsCount,
+        snapshot_complete: snapshotComplete,
+        assigned_zone: assignedSlug,
         hot_3plus: hot,
         offset,
         limit,
         diagnostics,
       },
+      total: totalOut,
+      items_count: itemsCount,
+      snapshot_complete: snapshotComplete,
       diagnostics,
       assigned_zone: assignedSlug,
       debug_id: did,
