@@ -361,26 +361,28 @@ serve(async (req: Request) => {
     return err("SLUG_OUT_OF_CONTRACT", "Assigned slug not in contract", 403, debugId);
   }
 
-  // display_zone resolution — server-side, contratto ufficiale.
-  // Il DB (viste *_by_zone_v e vincoli) risolve la zona di ogni riga via
-  // public.civiko_resolve_commercial_zone_slug(quartiere) e la filtra su
-  // assignedSlug. Qui carichiamo UNA sola volta la mappa slug→name da
-  // public.civiko_commercial_zones e la usiamo come cache in memoria:
-  // niente query per riga, nessun helper locale di risoluzione.
+  // slug→name lookup — caricata UNA sola volta da public.civiko_commercial_zones.
+  // La risoluzione dello slug per singolo item è per-item (vedi loop finale).
+  // Colonne reali: slug (text), nome (text).
   const slugToName = new Map<string, string>();
   try {
     const { data: zoneNameRows } = await supabase
       .from("civiko_commercial_zones")
-      .select("slug, name");
+      .select("slug, nome");
     for (const r of (zoneNameRows ?? []) as Array<Record<string, unknown>>) {
       const s = typeof r.slug === "string" ? r.slug : "";
-      const n = typeof r.name === "string" ? r.name : "";
+      const n = typeof r.nome === "string" ? r.nome : "";
       if (s && n) slugToName.set(s, n);
     }
   } catch (e) {
-    console.error(`[civiko-one-signals-feed] ${debugId} slug→name lookup error:`, (e as Error)?.message ?? e);
+    console.error(`[civiko-one-signals-feed] ${debugId} slug→nome lookup error:`, (e as Error)?.message ?? e);
   }
-  const canonicalDisplayZone = slugToName.get(assignedSlug) ?? "Altre zone";
+
+  // Traccia il quartiere grezzo per ogni item, chiave = source_id.
+  // Usato SOLO nel loop di risoluzione per-item finale.
+  const itemQuartiereBySourceId = new Map<string, string | null>();
+
+
 
 
 
