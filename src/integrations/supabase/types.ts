@@ -7542,6 +7542,147 @@ export type Database = {
         }
         Relationships: []
       }
+      padova_collect_v2_items_by_zone_v: {
+        Row: {
+          agency: string | null
+          agency_phone: string | null
+          anno_costruzione: number | null
+          attempts: number | null
+          bagni: number | null
+          cap: string | null
+          citta: string | null
+          civico: string | null
+          cluster_key: string | null
+          commercial_zone_slug: string | null
+          contendibile: boolean | null
+          contendibile_confidenza: string | null
+          contendibile_group_id: string | null
+          created_at: string | null
+          http_status: number | null
+          id: number | null
+          job_id: string | null
+          lat: number | null
+          listing_id: string | null
+          lng: number | null
+          locali: number | null
+          log_reason: string | null
+          mq: number | null
+          n_agenzie: number | null
+          omi_zone: string | null
+          parse_status: string | null
+          piano: string | null
+          portal: string | null
+          previous_price_eur: number | null
+          prezzo: number | null
+          prezzo_iniziale: number | null
+          processed_at: string | null
+          quartiere: string | null
+          raw_address: string | null
+          raw_json: Json | null
+          ribasso_date: string | null
+          ribasso_eur: number | null
+          ribasso_pct: number | null
+          riscaldamento: string | null
+          stato: string | null
+          tipo_lead: string | null
+          tipologia: string | null
+          updated_at: string | null
+          url: string | null
+        }
+        Insert: {
+          agency?: string | null
+          agency_phone?: string | null
+          anno_costruzione?: number | null
+          attempts?: number | null
+          bagni?: number | null
+          cap?: string | null
+          citta?: string | null
+          civico?: string | null
+          cluster_key?: string | null
+          commercial_zone_slug?: never
+          contendibile?: boolean | null
+          contendibile_confidenza?: string | null
+          contendibile_group_id?: string | null
+          created_at?: string | null
+          http_status?: number | null
+          id?: number | null
+          job_id?: string | null
+          lat?: number | null
+          listing_id?: string | null
+          lng?: number | null
+          locali?: number | null
+          log_reason?: string | null
+          mq?: number | null
+          n_agenzie?: number | null
+          omi_zone?: string | null
+          parse_status?: string | null
+          piano?: string | null
+          portal?: string | null
+          previous_price_eur?: number | null
+          prezzo?: number | null
+          prezzo_iniziale?: number | null
+          processed_at?: string | null
+          quartiere?: string | null
+          raw_address?: string | null
+          raw_json?: Json | null
+          ribasso_date?: string | null
+          ribasso_eur?: number | null
+          ribasso_pct?: number | null
+          riscaldamento?: string | null
+          stato?: string | null
+          tipo_lead?: string | null
+          tipologia?: string | null
+          updated_at?: string | null
+          url?: string | null
+        }
+        Update: {
+          agency?: string | null
+          agency_phone?: string | null
+          anno_costruzione?: number | null
+          attempts?: number | null
+          bagni?: number | null
+          cap?: string | null
+          citta?: string | null
+          civico?: string | null
+          cluster_key?: string | null
+          commercial_zone_slug?: never
+          contendibile?: boolean | null
+          contendibile_confidenza?: string | null
+          contendibile_group_id?: string | null
+          created_at?: string | null
+          http_status?: number | null
+          id?: number | null
+          job_id?: string | null
+          lat?: number | null
+          listing_id?: string | null
+          lng?: number | null
+          locali?: number | null
+          log_reason?: string | null
+          mq?: number | null
+          n_agenzie?: number | null
+          omi_zone?: string | null
+          parse_status?: string | null
+          piano?: string | null
+          portal?: string | null
+          previous_price_eur?: number | null
+          prezzo?: number | null
+          prezzo_iniziale?: number | null
+          processed_at?: string | null
+          quartiere?: string | null
+          raw_address?: string | null
+          raw_json?: Json | null
+          ribasso_date?: string | null
+          ribasso_eur?: number | null
+          ribasso_pct?: number | null
+          riscaldamento?: string | null
+          stato?: string | null
+          tipo_lead?: string | null
+          tipologia?: string | null
+          updated_at?: string | null
+          url?: string | null
+        }
+        Relationships: []
+      }
       padova_contendibili_by_zone_v: {
         Row: {
           agencies_normalized: string[] | null
@@ -7689,6 +7830,72 @@ export type Database = {
         }
         Relationships: []
       }
+      padova_multi_portale_by_zone_v: {
+        Row: {
+          agencies_normalized: string[] | null
+          agency_count_distinct: number | null
+          agenzie: string[] | null
+          bagni: number | null
+          chiave_match: string | null
+          commercial_zone_slug: string | null
+          created_at: string | null
+          id: number | null
+          lat: number | null
+          lng: number | null
+          locali: number | null
+          mq: number | null
+          n_annunci: number | null
+          portal_count: number | null
+          portals_seen: string[] | null
+          prezzo_max: number | null
+          prezzo_min: number | null
+          quartiere: string | null
+          urls: string[] | null
+        }
+        Insert: {
+          agencies_normalized?: string[] | null
+          agency_count_distinct?: number | null
+          agenzie?: string[] | null
+          bagni?: number | null
+          chiave_match?: string | null
+          commercial_zone_slug?: never
+          created_at?: string | null
+          id?: number | null
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          n_annunci?: number | null
+          portal_count?: number | null
+          portals_seen?: string[] | null
+          prezzo_max?: number | null
+          prezzo_min?: number | null
+          quartiere?: string | null
+          urls?: string[] | null
+        }
+        Update: {
+          agencies_normalized?: string[] | null
+          agency_count_distinct?: number | null
+          agenzie?: string[] | null
+          bagni?: number | null
+          chiave_match?: string | null
+          commercial_zone_slug?: never
+          created_at?: string | null
+          id?: number | null
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          n_annunci?: number | null
+          portal_count?: number | null
+          portals_seen?: string[] | null
+          prezzo_max?: number | null
+          prezzo_min?: number | null
+          quartiere?: string | null
+          urls?: string[] | null
+        }
+        Relationships: []
+      }
       padova_quartieri_stats_v: {
         Row: {
           n_agenzie: number | null
@@ -7796,6 +8003,36 @@ export type Database = {
       }
       get_padova_verified_price_drops: {
         Args: {
+          p_limit?: number
+          p_max_age_days?: number
+          p_min_drop_pct?: number
+        }
+        Returns: {
+          commercial_zone_slug: string
+          comune: string
+          current_price_eur: number
+          drops_count: number
+          first_seen_at: string
+          initial_price_eur: number
+          last_seen_at: string
+          lat: number
+          listing_id: string
+          lng: number
+          mq: number
+          observations_count: number
+          omi_zone: string
+          source: string
+          source_id: string
+          title: string
+          total_drop_pct: number
+          url: string
+          zone_match_confidence: number
+          zone_match_method: string
+        }[]
+      }
+      get_padova_verified_price_drops_by_zone: {
+        Args: {
+          p_commercial_zone_slug: string
           p_limit?: number
           p_max_age_days?: number
           p_min_drop_pct?: number
