@@ -1,22 +1,36 @@
-// padova-contendibili-list — Edge Function
-// Ritorna le righe da public.padova_contendibili con filtri opzionali.
-// Auth: verify_jwt=false (default Lovable). Chiamata via core-proxy della PWA.
+// padova-contendibili-list — Edge Function (hardened, zone-isolated).
+//
+// Contract:
+//   Server-to-server only. Called from PWA via core-proxy.
+//   • x-source-app        → resolves per-app secret (requireSecret)
+//   • x-internal-secret   → constant-time compared to AI_CORE_SECRET_<APP>
+//   • x-workspace-id      → UUID; ONLY source of workspace identity
+//
+// Zone isolation:
+//   The workspace has exactly one assigned commercial zone. That zone is
+//   resolved server-side from public.civiko_commercial_zones (occupata /
+//   in_trial), validated against the 8-slug official contract, and used as
+//   the ONLY filter for every DB read (list, total, hot_3plus, reachability).
+//
+//   Reads go through public.padova_contendibili_by_zone_v, which computes
+//   commercial_zone_slug via civiko_resolve_commercial_zone_slug(quartiere).
+//   No in-memory zone filter is used as a security control.
+//
+//   Client-supplied commercial_zone_slug / workspace_id are ignored.
+//   Optional `quartiere` filter is accepted only if it resolves — via
+//   commercialZoneForQuartiere — to the same assigned slug; otherwise the
+//   request fails closed with 403.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { requireSecret, makeDebugId } from "../_shared/http.ts";
-import {
-  VALID_COMMERCIAL_ZONE_SLUGS,
-  isValidCommercialZoneSlug,
-  buildOmiToSlugMap,
-  assignCommercialZonesBatch,
-  type ActiveZoneRow,
-} from "../_shared/commercialZoneMapping.ts";
-
+import { isCivikoCommercialZoneSlug } from "../_shared/civikoCommercialZoneContract.ts";
+import { commercialZoneForQuartiere } from "../_shared/civikoCommercialZoneByQuartiere.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-internal-secret, x-source-app",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-internal-secret, x-source-app, x-workspace-id, x-user-id",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Content-Type": "application/json; charset=utf-8",
 };
@@ -35,95 +49,155 @@ function sanitize(s: unknown): unknown {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const SELECT_COLS =
+  "id, chiave_match, n_agenzie, agenzie, agencies_normalized, fonti, confidenza, " +
+  "prezzo_min, prezzo_max, mq, locali, bagni, quartiere, lat, lng, urls, " +
+  "prezzo_medio_zona_eur_mq, prezzo_immobile_eur_mq, differenza_zona_pct, " +
+  "giorni_sul_mercato, data_primo_annuncio, ribasso_pct, n_ribassi, " +
+  "is_ripubblicato, cambio_agenzia, giorni_fermo, n_portali, score_pressione, " +
+  "commercial_zone_slug";
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
-  // debug_id is generated BEFORE any I/O so it can be attached to every
-  // pre-gate error envelope, mirroring padova-privati-list.
   const did = makeDebugId();
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { ...CORS, "x-debug-id": did },
+    });
 
-  // ────────────────────────────────────────────────────────────
-  // Gate 1: server-to-server secret. MUST run before body parsing,
-  // Supabase client creation, or any DB query.
-  // ────────────────────────────────────────────────────────────
+  // ─── Gate 1: shared secret ─────────────────────────────────────────
   const secretFail = requireSecret(req, did);
   if (secretFail) return secretFail;
 
-  // ────────────────────────────────────────────────────────────
-  // Gate 2: workspace identity from x-workspace-id header ONLY.
-  // Body/query MUST NOT be able to substitute the header.
-  // ────────────────────────────────────────────────────────────
+  // ─── Gate 2: workspace identity (header only) ──────────────────────
   const workspaceId = (req.headers.get("x-workspace-id") ?? "").trim();
   if (!UUID_RE.test(workspaceId)) {
-    return new Response(
-      JSON.stringify({
-        ok: false,
-        error: { code: "WORKSPACE_REQUIRED", message: "Missing or invalid x-workspace-id" },
-      }),
-      { status: 401, headers: { ...CORS, "x-debug-id": did } },
+    return json(
+      { ok: false, debug_id: did, error: { code: "WORKSPACE_REQUIRED", message: "Missing or invalid x-workspace-id" } },
+      401,
     );
   }
 
   try {
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
-
     const url = new URL(req.url);
-    const quartiere = (body.quartiere ?? url.searchParams.get("quartiere") ?? null) as string | null;
-    const min_agenzie = Number(body.min_agenzie ?? url.searchParams.get("min_agenzie") ?? 2) || 2;
-    const limit = Math.min(Math.max(Number(body.limit ?? url.searchParams.get("limit") ?? 500) || 500, 1), 1000);
-    const offset = Math.max(Number(body.offset ?? url.searchParams.get("offset") ?? 0) || 0, 0);
-    const tenantAgencyRaw = (body.tenant_agency_name ?? url.searchParams.get("tenant_agency_name") ?? null) as string | null;
-    const commercialZoneFilterRaw = (body.commercial_zone_slug ?? url.searchParams.get("commercial_zone_slug") ?? null) as string | null;
-    const commercialZoneFilter = commercialZoneFilterRaw && commercialZoneFilterRaw.trim() ? commercialZoneFilterRaw.trim() : null;
 
-    if (commercialZoneFilter !== null && !isValidCommercialZoneSlug(commercialZoneFilter)) {
-      return new Response(JSON.stringify({
-        ok: false, data: null, debug_id: did,
-        error: {
-          code: "INVALID_SLUG",
-          message: `commercial_zone_slug non valido: '${commercialZoneFilter}'`,
-          allowed: VALID_COMMERCIAL_ZONE_SLUGS,
-        },
-      }), { status: 400, headers: CORS });
-    }
+    // Client params — commercial_zone_slug & workspace_id from body/query are IGNORED.
+    const quartiereRaw = ((body as Record<string, unknown>).quartiere ?? url.searchParams.get("quartiere") ?? null) as string | null;
+    const min_agenzie = Math.max(
+      Number((body as Record<string, unknown>).min_agenzie ?? url.searchParams.get("min_agenzie") ?? 2) || 2,
+      1,
+    );
+    const limit = Math.min(
+      Math.max(Number((body as Record<string, unknown>).limit ?? url.searchParams.get("limit") ?? 500) || 500, 1),
+      1000,
+    );
+    const offset = Math.max(
+      Number((body as Record<string, unknown>).offset ?? url.searchParams.get("offset") ?? 0) || 0,
+      0,
+    );
+    const tenantAgencyRaw = ((body as Record<string, unknown>).tenant_agency_name ?? url.searchParams.get("tenant_agency_name") ?? null) as string | null;
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Carica una sola volta le zone commerciali attive.
-    const { data: zonesRows, error: zonesErr } = await supabase
+    // ─── Server-side zone resolution ─────────────────────────────────
+    const { data: zonesRows, error: zoneErr } = await supabase
       .from("civiko_commercial_zones")
-      .select("slug, omi_codes, attiva")
-      .eq("attiva", true);
-    if (zonesErr) throw zonesErr;
-    const activeZones: ActiveZoneRow[] = (zonesRows ?? []).map((z) => ({
-      slug: String(z.slug ?? ""),
-      omi_codes: Array.isArray(z.omi_codes) ? (z.omi_codes as string[]) : [],
-    }));
-    const omiToSlug = buildOmiToSlugMap(activeZones);
+      .select("slug,status,occupied_agency_id,trial_agency_id,trial_reserved_until")
+      .or(
+        `and(status.eq.occupata,occupied_agency_id.eq.${workspaceId}),` +
+          `and(status.eq.in_trial,trial_agency_id.eq.${workspaceId})`,
+      );
+    if (zoneErr) {
+      console.error(`[padova-contendibili-list] ${did} zone lookup`, zoneErr);
+      return json({ ok: false, debug_id: did, error: { code: "DB_ERROR", message: "zone lookup failed" } }, 500);
+    }
 
-    let q = supabase
-      .from("padova_contendibili")
-      .select("id, chiave_match, n_agenzie, agenzie, agencies_normalized, fonti, confidenza, prezzo_min, prezzo_max, mq, locali, bagni, quartiere, lat, lng, urls, prezzo_medio_zona_eur_mq, prezzo_immobile_eur_mq, differenza_zona_pct, giorni_sul_mercato, data_primo_annuncio, ribasso_pct, n_ribassi, is_ripubblicato, cambio_agenzia, giorni_fermo, n_portali, score_pressione", { count: "exact" })
+    const now = Date.now();
+    const valid = (zonesRows ?? []).filter((z: Record<string, unknown>) => {
+      if (z.status === "occupata" && z.occupied_agency_id === workspaceId) return true;
+      if (
+        z.status === "in_trial" &&
+        z.trial_agency_id === workspaceId &&
+        typeof z.trial_reserved_until === "string" &&
+        new Date(z.trial_reserved_until as string).getTime() > now
+      ) return true;
+      return false;
+    });
+    if (valid.length === 0) {
+      return json({ ok: false, debug_id: did, error: { code: "NO_ZONE_ASSIGNED", message: "No active zone for workspace" } }, 403);
+    }
+    if (valid.length > 1) {
+      return json({ ok: false, debug_id: did, error: { code: "MULTIPLE_ZONES_ASSIGNED", message: "Ambiguous zone assignment" } }, 403);
+    }
+    const assignedSlug = String(valid[0].slug ?? "");
+    if (!isCivikoCommercialZoneSlug(assignedSlug)) {
+      return json({ ok: false, debug_id: did, error: { code: "SLUG_OUT_OF_CONTRACT", message: "Assigned slug not in contract" } }, 403);
+    }
+
+    // Optional quartiere filter must resolve to the same authorized slug.
+    let quartiereFilter: string | null = null;
+    if (quartiereRaw && quartiereRaw.trim()) {
+      const resolved = commercialZoneForQuartiere(quartiereRaw);
+      if (!resolved || resolved !== assignedSlug) {
+        return json(
+          { ok: false, debug_id: did, error: { code: "QUARTIERE_OUT_OF_ZONE", message: "Quartiere not in assigned zone" } },
+          403,
+        );
+      }
+      quartiereFilter = quartiereRaw;
+    }
+
+    // Apply the zone filter INSIDE the database — never in memory.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const applyZoneFilter = (q: any): any => {
+      q = q.eq("commercial_zone_slug", assignedSlug);
+      if (quartiereFilter) q = q.eq("quartiere", quartiereFilter);
+      return q;
+    };
+
+    // ─── Main list — filtered by zone at DB level ────────────────────
+    let listQ = supabase
+      .from("padova_contendibili_by_zone_v")
+      .select(SELECT_COLS, { count: "exact" })
       .gte("n_agenzie", min_agenzie);
-    if (quartiere) q = q.eq("quartiere", quartiere);
+    listQ = applyZoneFilter(listQ)
+      .order("score_pressione", { ascending: false })
+      .range(offset, offset + limit - 1);
 
-    // Ordinamento: score_pressione DESC (segnali pressione), poi rank confidenza lato JS
-    q = q.order("score_pressione", { ascending: false }).range(offset, offset + limit - 1);
-
-    const { data, error, count } = await q;
-    if (error) throw error;
+    const { data, error, count } = await listQ;
+    if (error) {
+      console.error(`[padova-contendibili-list] ${did} list`, error);
+      return json({ ok: false, debug_id: did, error: { code: "DB_ERROR", message: "list query failed" } }, 500);
+    }
 
     const rank: Record<string, number> = { ALTA: 0, MEDIA: 1, DA_CONFERMARE: 2 };
-    const rows = (data ?? []).slice().sort((a, b) => {
-      if (b.n_agenzie !== a.n_agenzie) return b.n_agenzie - a.n_agenzie;
-      return (rank[a.confidenza] ?? 9) - (rank[b.confidenza] ?? 9);
+    const rows = (data ?? []).slice().sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+      const na = Number(a.n_agenzie ?? 0), nb = Number(b.n_agenzie ?? 0);
+      if (nb !== na) return nb - na;
+      return (rank[String(a.confidenza)] ?? 9) - (rank[String(b.confidenza)] ?? 9);
     });
 
-    // ── Reachability layer (argento/oro/bronzo) ──────────────────────────
-    const ids = rows.map((r) => r.id).filter((v) => v != null);
+    // ─── hot_3plus — same zone, DB-side count ────────────────────────
+    const hotQ = applyZoneFilter(
+      supabase
+        .from("padova_contendibili_by_zone_v")
+        .select("id", { count: "exact", head: true })
+        .gte("n_agenzie", 3),
+    );
+    const { count: hotCount, error: hotErr } = await hotQ;
+    if (hotErr) {
+      console.error(`[padova-contendibili-list] ${did} hot`, hotErr);
+      return json({ ok: false, debug_id: did, error: { code: "DB_ERROR", message: "hot query failed" } }, 500);
+    }
+
+    // ─── Reachability — restricted to already-authorized IDs ─────────
+    const ids = rows.map((r) => Number(r.id)).filter((v) => Number.isFinite(v));
     const reachMap = new Map<number, { argento: boolean; count: number; hasPhone: boolean; bestListingId: number | null }>();
     if (ids.length > 0) {
       const { data: reachRows, error: reachErr } = await supabase
@@ -141,32 +215,25 @@ serve(async (req) => {
       }
     }
 
-    // Normalizza tenant (se fornito) usando la stessa norm_agency() del recompute
+    // Tenant agency name — client-supplied value is NOT authoritative and
+    // does NOT affect authorization or data access. It only influences the
+    // per-row `reachability.tier` (oro vs argento/bronzo). Any misuse only
+    // downgrades/upgrades the tier label; zone isolation is unaffected.
     let tenantNorm: string | null = null;
     if (tenantAgencyRaw && tenantAgencyRaw.trim()) {
       const { data: nn } = await supabase.rpc("norm_agency", { p: tenantAgencyRaw });
       tenantNorm = typeof nn === "string" && nn.trim() ? nn.trim() : null;
     }
 
-    // ── Assegnazione zona commerciale (fase additiva) ────────────────────
-    // Risoluzione batch per l'intera pagina: precomputed → OMI → PIP → alias.
-    const zoneAssignments = await assignCommercialZonesBatch(
-      rows.map((r) => r as unknown as Record<string, unknown>),
-      omiToSlug,
-      supabase,
-    );
-
-    const enrichedRowsAll = rows.map((r, i) => {
+    const enriched = rows.map((r: Record<string, unknown>) => {
       const rr = reachMap.get(Number(r.id)) ?? { argento: false, count: 0, hasPhone: false, bestListingId: null };
-      const agNorm = Array.isArray(r.agencies_normalized) ? r.agencies_normalized as string[] : [];
-      const isOro = tenantNorm ? agNorm.some((a) => (a || "").toLowerCase().trim() === tenantNorm!.toLowerCase().trim()) : false;
+      const agNorm = Array.isArray(r.agencies_normalized) ? (r.agencies_normalized as string[]) : [];
+      const isOro = tenantNorm
+        ? agNorm.some((a) => (a || "").toLowerCase().trim() === tenantNorm!.toLowerCase().trim())
+        : false;
       const tier = isOro ? "oro" : (rr.argento ? "argento" : "bronzo");
-      const za = zoneAssignments[i];
       return {
         ...r,
-        commercial_zone_slug: za.commercial_zone_slug,
-        zone_match_method: za.zone_match_method,
-        zone_match_confidence: za.zone_match_confidence,
         reachability: {
           tier,
           argento_match_count: rr.count,
@@ -176,78 +243,44 @@ serve(async (req) => {
       };
     });
 
-    // Applica filtro esatto per commercial_zone_slug (se richiesto).
-    const filtered = commercialZoneFilter
-      ? enrichedRowsAll.filter((r) => r.commercial_zone_slug === commercialZoneFilter)
-      : enrichedRowsAll;
-
-    // hot_3plus e total ricalcolati sul risultato filtrato quando presente
-    // filtro; altrimenti retrocompatibile.
-    let hot: number | null = null;
-    let totalOut: number;
-    if (commercialZoneFilter) {
-      hot = filtered.filter((r) => Number(r.n_agenzie ?? 0) >= 3).length;
-      totalOut = filtered.length;
-    } else {
-      const { count: hotCount } = await supabase
-        .from("padova_contendibili")
-        .select("chiave_match", { count: "exact", head: true })
-        .gte("n_agenzie", 3);
-      hot = hotCount ?? 0;
-      totalOut = count ?? enrichedRowsAll.length;
-    }
-
-    // ── Diagnostics scope Padova OMI ─────────────────────────────────────
+    // Diagnostics — computed on already-zone-filtered rows only.
     const sourceBreakdown: Record<string, number> = {};
-    const omiAliasBreakdown: Record<string, number> = {};
-    const zoneMethodBreakdown: Record<string, number> = {};
-    const commercialZoneBreakdown: Record<string, number> = {};
-    for (const r of filtered) {
-      for (const f of ((r as any).fonti ?? [])) sourceBreakdown[f] = (sourceBreakdown[f] ?? 0) + 1;
-      const q2 = ((r as any).quartiere ?? "n/d").toString();
-      omiAliasBreakdown[q2] = (omiAliasBreakdown[q2] ?? 0) + 1;
-      const m = r.zone_match_method || "unresolved";
-      zoneMethodBreakdown[m] = (zoneMethodBreakdown[m] ?? 0) + 1;
-      const s = r.commercial_zone_slug || "unresolved";
-      commercialZoneBreakdown[s] = (commercialZoneBreakdown[s] ?? 0) + 1;
+    const quartiereBreakdown: Record<string, number> = {};
+    for (const r of enriched) {
+      for (const f of ((r as Record<string, unknown>).fonti as string[] ?? [])) {
+        sourceBreakdown[f] = (sourceBreakdown[f] ?? 0) + 1;
+      }
+      const q2 = ((r as Record<string, unknown>).quartiere ?? "n/d").toString();
+      quartiereBreakdown[q2] = (quartiereBreakdown[q2] ?? 0) + 1;
     }
-    let omiZonesWithData = 0;
-    try {
-      const since = new Date(Date.now() - 14 * 86400 * 1000).toISOString();
-      const { data: omiB } = await supabase.rpc("padova_omi_snapshot_breakdown", { p_since: since });
-      omiZonesWithData = (omiB ?? []).filter((r: any) => Number(r.snapshot_count ?? 0) > 0).length;
-    } catch { /* RPC non disponibile */ }
+
+    const totalOut = count ?? enriched.length;
+    const hot = hotCount ?? 0;
 
     const diagnostics = {
-      scope: "padova_omi_zones",
-      municipality_applied: "Padova",
-      omi_zones_expected: 22,
-      omi_zones_with_data: omiZonesWithData,
-      total_candidates_scanned: count ?? rows.length,
-      total_after_filters: filtered.length,
-      commercial_zone_filter: commercialZoneFilter,
-      excluded_not_padova: 0,
-      excluded_no_omi_zone: 0,
-      excluded_low_confidence: 0,
-      excluded_by_commercial_zone_filter: commercialZoneFilter ? (enrichedRowsAll.length - filtered.length) : 0,
-      returned: filtered.length,
+      scope: "commercial_zone_isolated",
+      assigned_zone: assignedSlug,
+      quartiere_filter: quartiereFilter,
+      total_after_filters: totalOut,
+      returned: enriched.length,
       source_breakdown: sourceBreakdown,
-      omi_alias_breakdown: omiAliasBreakdown,
-      zone_match_method_breakdown: zoneMethodBreakdown,
-      commercial_zone_slug_breakdown: commercialZoneBreakdown,
+      quartiere_breakdown: quartiereBreakdown,
     };
+
+    const filtered = enriched; // Kept name for shape-preservation in tests.
 
     const payload = sanitize({
       ok: true,
       data: {
         items: filtered,
         total: totalOut,
-        hot_3plus: hot ?? 0,
+        hot_3plus: hot,
         offset,
         limit,
         diagnostics,
       },
       diagnostics,
+      assigned_zone: assignedSlug,
       debug_id: did,
     });
 
@@ -256,7 +289,7 @@ serve(async (req) => {
     console.error(`[padova-contendibili-list] ${did}`, e);
     return new Response(JSON.stringify({
       ok: false, data: null, debug_id: did,
-      error: { code: "INTERNAL_ERROR", message: e instanceof Error ? e.message : "unknown" },
+      error: { code: "INTERNAL_ERROR", message: "internal error" },
     }), { status: 500, headers: CORS });
   }
 });
