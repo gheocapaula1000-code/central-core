@@ -1294,6 +1294,22 @@ async function orchestrate(body: RequestBody, debugId: string) {
     debugId,
   });
 
+  // foto_ambienti: elemento per ogni foto in input (dopo il filtro dimensioni).
+  // Ordinato per indice foto di input. `confermato` = true se l'agente
+  // ha fornito `ambiente` per quella foto (prevale sulla proposta vision).
+  const perPhotoByIndex = new Map<number, AggregatedVisionAnalysis["perPhoto"][number]>();
+  for (const p of (visionAnalysis.perPhoto ?? [])) perPhotoByIndex.set(p.index, p);
+  const foto_ambienti = photoDataUrls.map((_u, idx) => {
+    const conf = photoConfirmedAmbienti[idx] ?? null;
+    const pp = perPhotoByIndex.get(idx);
+    return {
+      index: idx,
+      ambiente: conf ?? (pp?.ambiente ?? "altro"),
+      confidence: conf ? 1 : (pp?.confidence ?? 0),
+      confermato: !!conf,
+    };
+  });
+
   const payload = {
     configured,
     ...(message ? { message } : {}),
@@ -1308,6 +1324,7 @@ async function orchestrate(body: RequestBody, debugId: string) {
     presentazioneProprietario,
     kitMarketing: { available: false, items: [] as unknown[] },
     contenuti,
+    foto_ambienti,
     zonaServizi,
     intelligenceZona,
     vendibilita,
