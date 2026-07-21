@@ -140,9 +140,9 @@ describe("padova-contendibili-list — server-side zone resolution", () => {
   });
 
   it("emits the standard error codes with the same statuses as padova-privati-list", () => {
-    expect(SRC).toMatch(/NO_ZONE_ASSIGNED[\s\S]*status:\s*403/m);
-    expect(SRC).toMatch(/MULTIPLE_ZONES_ASSIGNED/);
-    expect(SRC).toMatch(/SLUG_OUT_OF_CONTRACT/);
+    expect(SRC).toMatch(/NO_ZONE_ASSIGNED[\s\S]*?403/);
+    expect(SRC).toMatch(/MULTIPLE_ZONES_ASSIGNED[\s\S]*?403/);
+    expect(SRC).toMatch(/SLUG_OUT_OF_CONTRACT[\s\S]*?403/);
   });
 
   it("validates the assigned slug is one of the 8 official slugs", () => {
