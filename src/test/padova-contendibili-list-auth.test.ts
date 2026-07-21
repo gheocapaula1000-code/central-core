@@ -18,6 +18,11 @@ const SRC = readFileSync(
   "utf8",
 );
 
+const FEED_SRC = readFileSync(
+  resolve(__dirname, "../../supabase/functions/civiko-one-signals-feed/index.ts"),
+  "utf8",
+);
+
 const MIGRATION = readFileSync(
   resolve(__dirname, "../../docs/pending-migrations/20260721000000_padova_contendibili_by_zone_view.sql"),
   "utf8",
