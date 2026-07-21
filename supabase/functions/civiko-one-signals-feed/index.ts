@@ -707,6 +707,13 @@ serve(async (req: Request) => {
     console.error(`[civiko-one-signals-feed] quartiere_zona_map display fallback error:`, (e as Error)?.message ?? e);
   }
 
+  // display_zone canonico e stabile per tutti gli item: nome ufficiale
+  // della zona autorizzata da public.civiko_commercial_zones, "Altre zone"
+  // se il resolver non è risolvibile per il workspace.
+  for (const it of rawItems) {
+    it.display_zone = canonicalDisplayZone;
+  }
+
   // Difesa in profondità finale: TUTTI gli item devono portare lo slug
   // autorizzato. Se qualcosa non l'ha (impossibile per costruzione),
   // viene scartato — MAI riemesso senza slug.
