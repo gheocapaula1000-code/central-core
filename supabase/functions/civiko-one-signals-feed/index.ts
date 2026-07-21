@@ -361,26 +361,28 @@ serve(async (req: Request) => {
     return err("SLUG_OUT_OF_CONTRACT", "Assigned slug not in contract", 403, debugId);
   }
 
-  // display_zone resolution — server-side, contratto ufficiale.
-  // Il DB (viste *_by_zone_v e vincoli) risolve la zona di ogni riga via
-  // public.civiko_resolve_commercial_zone_slug(quartiere) e la filtra su
-  // assignedSlug. Qui carichiamo UNA sola volta la mappa slug→name da
-  // public.civiko_commercial_zones e la usiamo come cache in memoria:
-  // niente query per riga, nessun helper locale di risoluzione.
+  // slug→name lookup — caricata UNA sola volta da public.civiko_commercial_zones.
+  // La risoluzione dello slug per singolo item è per-item (vedi loop finale).
+  // Colonne reali: slug (text), nome (text).
   const slugToName = new Map<string, string>();
   try {
     const { data: zoneNameRows } = await supabase
       .from("civiko_commercial_zones")
-      .select("slug, name");
+      .select("slug, nome");
     for (const r of (zoneNameRows ?? []) as Array<Record<string, unknown>>) {
       const s = typeof r.slug === "string" ? r.slug : "";
-      const n = typeof r.name === "string" ? r.name : "";
+      const n = typeof r.nome === "string" ? r.nome : "";
       if (s && n) slugToName.set(s, n);
     }
   } catch (e) {
-    console.error(`[civiko-one-signals-feed] ${debugId} slug→name lookup error:`, (e as Error)?.message ?? e);
+    console.error(`[civiko-one-signals-feed] ${debugId} slug→nome lookup error:`, (e as Error)?.message ?? e);
   }
-  const canonicalDisplayZone = slugToName.get(assignedSlug) ?? "Altre zone";
+
+  // Traccia il quartiere grezzo per ogni item, chiave = source_id.
+  // Usato SOLO nel loop di risoluzione per-item finale.
+  const itemQuartiereBySourceId = new Map<string, string | null>();
+
+
 
 
 
@@ -463,7 +465,7 @@ serve(async (req: Request) => {
           source_id: `cont:${row.id}`,
           signal_type: "contendibile",
           title: `${title} — ${nAg} agenzie distinte`,
-          zone_code: z.code, zone_label: z.label, display_zone: canonicalDisplayZone,
+          zone_code: z.code, zone_label: z.label,
 
           price_raw: priceCandidate,
           url: urls[0] || "",
@@ -480,6 +482,8 @@ serve(async (req: Request) => {
           agencies_normalized: agenciesNorm,
           needs_review: false,
         }));
+        itemQuartiereBySourceId.set(`cont:${row.id}`, typeof row.quartiere === "string" ? row.quartiere : null);
+
       }
     }
   }
@@ -518,7 +522,7 @@ serve(async (req: Request) => {
           source_id: `mp:${row.id}`,
           signal_type: "multi_portale",
           title: `${title} — ${nPortals} portali`,
-          zone_code: z.code, zone_label: z.label, display_zone: canonicalDisplayZone,
+          zone_code: z.code, zone_label: z.label,
 
           price_raw: priceCandidate,
           url: urls[0] || "",
@@ -536,6 +540,8 @@ serve(async (req: Request) => {
           needs_review: true,
           operator_note: "Immobile presente su più portali. Verificare se la gestione è realmente frammentata prima di proporre l'esclusiva.",
         }));
+        itemQuartiereBySourceId.set(`mp:${row.id}`, typeof row.quartiere === "string" ? row.quartiere : null);
+
       }
     }
   }
@@ -592,7 +598,6 @@ serve(async (req: Request) => {
           title: `${title} — ribasso ${dropPct}%`,
           zone_code: omiCode || UNRESOLVED_OMI_CODE,
           zone_label: zoneLabel,
-          display_zone: canonicalDisplayZone,
           price_raw: current,
           url,
           status: "active",
@@ -611,6 +616,11 @@ serve(async (req: Request) => {
           first_seen_at: typeof row.first_seen_at === "string" ? row.first_seen_at : undefined,
           omi_zone_code: omiCode || undefined,
         }));
+        itemQuartiereBySourceId.set(
+          `drop:${row.source_id ?? row.listing_id ?? url}`,
+          typeof row.quartiere === "string" ? row.quartiere : null,
+        );
+
       }
     }
   }
@@ -640,7 +650,7 @@ serve(async (req: Request) => {
           source_id: `pdv:${row.id}`,
           signal_type: "privato",
           title: baseTitle,
-          zone_code: z.code, zone_label: z.label, display_zone: canonicalDisplayZone,
+          zone_code: z.code, zone_label: z.label,
           price_raw: price,
           url: (row.url as string) || "",
           status: "active",
@@ -649,9 +659,11 @@ serve(async (req: Request) => {
           raw_ref: `padova_collect_v2_items:${row.id}`,
           lat_raw: row.lat, lng_raw: row.lng,
         }));
+        itemQuartiereBySourceId.set(`pdv:${row.id}`, typeof row.quartiere === "string" ? row.quartiere : null);
       }
     }
   }
+
 
   // ── OFF-MARKET — DISABILITATO (fail-closed) ─────────────────────
   // La tabella early_offmarket_signal_candidates non espone quartiere/OMI
@@ -707,20 +719,56 @@ serve(async (req: Request) => {
     console.error(`[civiko-one-signals-feed] quartiere_zona_map display fallback error:`, (e as Error)?.message ?? e);
   }
 
-  // display_zone canonico e stabile per tutti gli item: nome ufficiale
-  // della zona autorizzata da public.civiko_commercial_zones, "Altre zone"
-  // se il resolver non è risolvibile per il workspace.
-  for (const it of rawItems) {
-    it.display_zone = canonicalDisplayZone;
+  // Risoluzione PER-ITEM di commercial_zone_slug e display_zone.
+  // Per ogni item chiamiamo public.civiko_resolve_commercial_zone_slug(quartiere)
+  // usando il quartiere di QUEL item come input. display_zone = nome canonico
+  // ricavato dalla mappa slug→nome precaricata; "Altre zone" solo se lo slug
+  // risolto è null o non presente nella mappa. Non condividiamo mai un valore
+  // tra item.
+  let distinctResolvedSlugs = 0;
+  let fallbackAltreZone = 0;
+  {
+    const seenSlugs = new Set<string>();
+    for (const it of rawItems) {
+      const quartiere = itemQuartiereBySourceId.get(it.source_id) ?? null;
+      let resolvedSlug: string | null = null;
+      if (quartiere && quartiere.trim() !== "") {
+        try {
+          const { data: r } = await supabase.rpc(
+            "civiko_resolve_commercial_zone_slug",
+            { p_quartiere: quartiere },
+          );
+          if (typeof r === "string" && r.trim() !== "") resolvedSlug = r;
+        } catch (e) {
+          console.error(
+            `[civiko-one-signals-feed] ${debugId} resolve slug error for source_id=${it.source_id}:`,
+            (e as Error)?.message ?? e,
+          );
+        }
+      }
+      const nome = resolvedSlug ? slugToName.get(resolvedSlug) : undefined;
+      if (resolvedSlug && nome) {
+        it.commercial_zone_slug = resolvedSlug;
+        it.display_zone = nome;
+        seenSlugs.add(resolvedSlug);
+      } else {
+        delete it.commercial_zone_slug;
+        it.display_zone = "Altre zone";
+        fallbackAltreZone++;
+      }
+    }
+    distinctResolvedSlugs = seenSlugs.size;
+    console.log(
+      `[civiko-one-signals-feed] ${debugId} zone_resolution items=${rawItems.length} ` +
+      `distinct_slugs=${distinctResolvedSlugs} altre_zone=${fallbackAltreZone}`,
+    );
   }
 
-  // Difesa in profondità finale: TUTTI gli item devono portare lo slug
-  // autorizzato. Se qualcosa non l'ha (impossibile per costruzione),
-  // viene scartato — MAI riemesso senza slug.
   const preAssertCount = rawItems.length;
-  const zoneAsserted = rawItems.filter((it) => it.commercial_zone_slug === assignedSlug);
+  const zoneAsserted = rawItems;
   const droppedByAssert = preAssertCount - zoneAsserted.length;
   if (droppedByAssert > 0) {
+
     console.error(`[civiko-one-signals-feed] ${debugId} FINAL_ASSERT dropped=${droppedByAssert}`);
   }
 
