@@ -169,12 +169,13 @@ describe("padova-contendibili-list — DB-side zone filter", () => {
 
   it("computes hot_3plus with the same zone filter (not global Padova)", () => {
     const idxHot = SRC.indexOf("hot_3plus");
-    const idxHotQ = SRC.indexOf("gte(\"n_agenzie\", 3)");
     expect(idxHot).toBeGreaterThan(-1);
-    expect(idxHotQ).toBeGreaterThan(-1);
-    // The hot query is built via applyZoneFilter.
-    const hotBlock = SRC.slice(SRC.indexOf("hotQ"), SRC.indexOf("reachability"));
+    // The hot query is a head-count on n_agenzie >= 3 built via applyZoneFilter.
+    expect(SRC).toMatch(/const\s+hotQ\s*=\s*applyZoneFilter\(/);
+    const hotBlock = SRC.slice(SRC.indexOf("const hotQ"), SRC.indexOf("Reachability"));
     expect(hotBlock).toContain("applyZoneFilter");
+    expect(hotBlock).toMatch(/\.gte\(["']n_agenzie["'],\s*3\)/);
+    expect(hotBlock).toContain("head: true");
   });
 
   it("does not perform any in-memory zone filtering as a security control", () => {
