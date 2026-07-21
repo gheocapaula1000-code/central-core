@@ -361,3 +361,46 @@ describe("padova-contendibili-list — UUID_RE behaviour", () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────
+// 6) PWA reconciliation contract — source_id + snapshot envelope
+// ─────────────────────────────────────────────────────────────
+describe("padova-contendibili-list — reconciliation contract", () => {
+  it("civiko-one-signals-feed emits `cont:${row.id}` as source_id for contendibili", () => {
+    // Locks the shared identity formula: any change here breaks reconciliation.
+    expect(FEED_SRC).toMatch(/source_id:\s*`cont:\$\{row\.id\}`/);
+  });
+
+  it("padova-contendibili-list emits the byte-identical source_id per item", () => {
+    expect(SRC).toMatch(/source_id:\s*`cont:\$\{Number\(r\.id\)\}`/);
+  });
+
+  it("envelope exposes total, items_count, snapshot_complete, assigned_zone", () => {
+    expect(SRC).toContain("items_count: itemsCount");
+    expect(SRC).toContain("snapshot_complete: snapshotComplete");
+    expect(SRC).toContain("assigned_zone: assignedSlug");
+    // Also mirrored under data.
+    const dataBlock = SRC.slice(SRC.indexOf("data: {"), SRC.indexOf("debug_id: did"));
+    expect(dataBlock).toContain("total: totalOut");
+    expect(dataBlock).toContain("items_count: itemsCount");
+    expect(dataBlock).toContain("snapshot_complete: snapshotComplete");
+    expect(dataBlock).toContain("assigned_zone: assignedSlug");
+  });
+
+  it("snapshot_complete requires items_count === total AND offset === 0", () => {
+    expect(SRC).toMatch(
+      /snapshotComplete\s*=\s*itemsCount\s*===\s*totalOut\s*&&\s*offset\s*===\s*0/,
+    );
+  });
+
+  it("snapshot_complete formula: paginated or truncated responses are never complete", () => {
+    // Reimplement the formula and test edge cases.
+    const complete = (items: number, total: number, offset: number) =>
+      items === total && offset === 0;
+    expect(complete(10, 10, 0)).toBe(true);
+    expect(complete(5, 10, 0)).toBe(false);       // truncated by limit
+    expect(complete(5, 10, 5)).toBe(false);       // paginated tail
+    expect(complete(10, 10, 5)).toBe(false);      // paginated even if page full
+    expect(complete(0, 0, 0)).toBe(true);         // empty zone, still a complete snapshot
+  });
+});
