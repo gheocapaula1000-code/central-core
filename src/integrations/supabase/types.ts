@@ -8030,6 +8030,14 @@ export type Database = {
           zona: string
         }[]
       }
+      padova_cluster_points_50m: {
+        Args: { p_lats: number[]; p_lngs: number[] }
+        Returns: number[]
+      }
+      padova_haversine_m: {
+        Args: { lat1: number; lat2: number; lng1: number; lng2: number }
+        Returns: number
+      }
       padova_listing_has_mls_exclusive_evidence: {
         Args: { p_raw: Json }
         Returns: boolean
