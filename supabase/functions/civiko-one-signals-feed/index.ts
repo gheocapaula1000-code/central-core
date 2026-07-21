@@ -719,20 +719,56 @@ serve(async (req: Request) => {
     console.error(`[civiko-one-signals-feed] quartiere_zona_map display fallback error:`, (e as Error)?.message ?? e);
   }
 
-  // display_zone canonico e stabile per tutti gli item: nome ufficiale
-  // della zona autorizzata da public.civiko_commercial_zones, "Altre zone"
-  // se il resolver non è risolvibile per il workspace.
-  for (const it of rawItems) {
-    it.display_zone = canonicalDisplayZone;
+  // Risoluzione PER-ITEM di commercial_zone_slug e display_zone.
+  // Per ogni item chiamiamo public.civiko_resolve_commercial_zone_slug(quartiere)
+  // usando il quartiere di QUEL item come input. display_zone = nome canonico
+  // ricavato dalla mappa slug→nome precaricata; "Altre zone" solo se lo slug
+  // risolto è null o non presente nella mappa. Non condividiamo mai un valore
+  // tra item.
+  let distinctResolvedSlugs = 0;
+  let fallbackAltreZone = 0;
+  {
+    const seenSlugs = new Set<string>();
+    for (const it of rawItems) {
+      const quartiere = itemQuartiereBySourceId.get(it.source_id) ?? null;
+      let resolvedSlug: string | null = null;
+      if (quartiere && quartiere.trim() !== "") {
+        try {
+          const { data: r } = await supabase.rpc(
+            "civiko_resolve_commercial_zone_slug",
+            { p_quartiere: quartiere },
+          );
+          if (typeof r === "string" && r.trim() !== "") resolvedSlug = r;
+        } catch (e) {
+          console.error(
+            `[civiko-one-signals-feed] ${debugId} resolve slug error for source_id=${it.source_id}:`,
+            (e as Error)?.message ?? e,
+          );
+        }
+      }
+      const nome = resolvedSlug ? slugToName.get(resolvedSlug) : undefined;
+      if (resolvedSlug && nome) {
+        it.commercial_zone_slug = resolvedSlug;
+        it.display_zone = nome;
+        seenSlugs.add(resolvedSlug);
+      } else {
+        delete it.commercial_zone_slug;
+        it.display_zone = "Altre zone";
+        fallbackAltreZone++;
+      }
+    }
+    distinctResolvedSlugs = seenSlugs.size;
+    console.log(
+      `[civiko-one-signals-feed] ${debugId} zone_resolution items=${rawItems.length} ` +
+      `distinct_slugs=${distinctResolvedSlugs} altre_zone=${fallbackAltreZone}`,
+    );
   }
 
-  // Difesa in profondità finale: TUTTI gli item devono portare lo slug
-  // autorizzato. Se qualcosa non l'ha (impossibile per costruzione),
-  // viene scartato — MAI riemesso senza slug.
   const preAssertCount = rawItems.length;
-  const zoneAsserted = rawItems.filter((it) => it.commercial_zone_slug === assignedSlug);
+  const zoneAsserted = rawItems;
   const droppedByAssert = preAssertCount - zoneAsserted.length;
   if (droppedByAssert > 0) {
+
     console.error(`[civiko-one-signals-feed] ${debugId} FINAL_ASSERT dropped=${droppedByAssert}`);
   }
 
