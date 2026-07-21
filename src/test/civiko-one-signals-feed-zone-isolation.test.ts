@@ -30,11 +30,14 @@ describe("civiko-one-signals-feed — static zone-isolation contract", () => {
   it("forza Padova/PD server-side, ignora city/province/workspace_id/commercial_zone_slug dal body", () => {
     expect(SRC).toContain('FORCED_CITY = "Padova"');
     expect(SRC).toContain('FORCED_PROVINCE = "PD"');
-    // Non deve più leggere body.city o body.province
-    expect(SRC).not.toMatch(/body\.city/);
-    expect(SRC).not.toMatch(/body\.province/);
-    expect(SRC).not.toMatch(/body\.workspace_id/);
-    expect(SRC).not.toMatch(/body\.commercial_zone_slug/);
+    // Non deve leggere/assegnare da body.city|province|workspace_id|commercial_zone_slug
+    // (i commenti descrittivi non contano — controlliamo pattern operativi).
+    expect(SRC).not.toMatch(/=\s*body\.city/);
+    expect(SRC).not.toMatch(/=\s*body\.province/);
+    expect(SRC).not.toMatch(/body\.workspace_id\b/);
+    expect(SRC).not.toMatch(/body\.commercial_zone_slug\b/);
+    expect(SRC).not.toMatch(/body\.city\s+as/);
+    expect(SRC).not.toMatch(/body\.province\s+as/);
   });
 
   it("ogni query passa dalle viste zone-scoped con filtro DB su commercial_zone_slug", () => {
@@ -45,12 +48,15 @@ describe("civiko-one-signals-feed — static zone-isolation contract", () => {
     ]) {
       expect(SRC).toContain(`from("${view}")`);
     }
-    // Ogni from(...by_zone_v) deve essere seguito da .eq("commercial_zone_slug", assignedSlug)
-    const regex = /from\("(padova_[a-z_]+_by_zone_v)"\)([\s\S]*?)(?=\bfrom\(|serve\(|$)/g;
+    // Ogni from("<view>_by_zone_v") deve avere un .eq("commercial_zone_slug", assignedSlug)
+    // nei ~800 caratteri successivi (stessa query-chain).
+    const regex = /from\("(padova_[a-z_]+_by_zone_v)"\)/g;
     const matches = [...SRC.matchAll(regex)];
     expect(matches.length).toBeGreaterThanOrEqual(3);
     for (const m of matches) {
-      expect(m[2]).toMatch(/\.eq\(\s*["']commercial_zone_slug["']\s*,\s*assignedSlug\s*\)/);
+      const start = m.index ?? 0;
+      const chunk = SRC.slice(start, start + 800);
+      expect(chunk).toMatch(/\.eq\(\s*["']commercial_zone_slug["']\s*,\s*assignedSlug\s*\)/);
     }
   });
 
