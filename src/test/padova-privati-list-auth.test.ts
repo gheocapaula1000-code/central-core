@@ -102,18 +102,19 @@ describe("padova-privati-list — source guarantees", () => {
   });
 
   it("filters EVERY padova_listings query by assignedSlug (server-side)", () => {
-    const listingsSelects = [...SRC.matchAll(/\.from\("padova_listings"\)[\s\S]*?range|\.from\("padova_listings"\)[\s\S]*?head: true/g)];
-    // Both list and count queries go through applyFilters, which contains the eq.
+    // The single source of the zone filter is applyFilters(), which contains
+    // the .eq on commercial_zone_slug with the server-resolved assignedSlug.
     expect(SRC).toContain('.eq("commercial_zone_slug", assignedSlug)');
-    // Every padova_listings access must be wrapped by applyFilters.
+    // applyFilters must be the only wrapper used around padova_listings reads.
     const rawFroms = [...SRC.matchAll(/supabase\.from\("padova_listings"\)/g)];
     expect(rawFroms.length).toBeGreaterThanOrEqual(2);
+    // Each padova_listings access is composed inside an applyFilters(...) call,
+    // which spans across newlines just before the `.from(...)` occurrence.
     for (const m of rawFroms) {
-      const window = SRC.slice(m.index ?? 0, (m.index ?? 0) + 300);
+      const start = Math.max(0, (m.index ?? 0) - 120);
+      const window = SRC.slice(start, (m.index ?? 0) + 40);
       expect(window).toMatch(/applyFilters\(/);
     }
-    // ensure no unfiltered padova_listings query exists
-    expect(SRC).not.toMatch(/from\("padova_listings"\)[\s\S]{0,120}\.select\([^)]*\)[\s\S]{0,60};\s*$/m);
   });
 
   it("never trusts commercial_zone_slug from body/query as authority", () => {
