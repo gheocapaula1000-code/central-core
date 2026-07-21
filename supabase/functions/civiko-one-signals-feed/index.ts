@@ -361,6 +361,29 @@ serve(async (req: Request) => {
     return err("SLUG_OUT_OF_CONTRACT", "Assigned slug not in contract", 403, debugId);
   }
 
+  // display_zone resolution — server-side, contratto ufficiale.
+  // Il DB (viste *_by_zone_v e vincoli) risolve la zona di ogni riga via
+  // public.civiko_resolve_commercial_zone_slug(quartiere) e la filtra su
+  // assignedSlug. Qui carichiamo UNA sola volta la mappa slug→name da
+  // public.civiko_commercial_zones e la usiamo come cache in memoria:
+  // niente query per riga, nessun helper locale di risoluzione.
+  const slugToName = new Map<string, string>();
+  try {
+    const { data: zoneNameRows } = await supabase
+      .from("civiko_commercial_zones")
+      .select("slug, name");
+    for (const r of (zoneNameRows ?? []) as Array<Record<string, unknown>>) {
+      const s = typeof r.slug === "string" ? r.slug : "";
+      const n = typeof r.name === "string" ? r.name : "";
+      if (s && n) slugToName.set(s, n);
+    }
+  } catch (e) {
+    console.error(`[civiko-one-signals-feed] ${debugId} slug→name lookup error:`, (e as Error)?.message ?? e);
+  }
+  const canonicalDisplayZone = slugToName.get(assignedSlug) ?? "Altre zone";
+
+
+
   const rawItems: FeedItem[] = [];
   const sourcesUsed: string[] = [];
   let lastProviderRefresh: string | null = null;
@@ -440,7 +463,8 @@ serve(async (req: Request) => {
           source_id: `cont:${row.id}`,
           signal_type: "contendibile",
           title: `${title} — ${nAg} agenzie distinte`,
-          zone_code: z.code, zone_label: z.label, display_zone: z.label,
+          zone_code: z.code, zone_label: z.label, display_zone: canonicalDisplayZone,
+
           price_raw: priceCandidate,
           url: urls[0] || "",
           status: "active",
@@ -494,7 +518,8 @@ serve(async (req: Request) => {
           source_id: `mp:${row.id}`,
           signal_type: "multi_portale",
           title: `${title} — ${nPortals} portali`,
-          zone_code: z.code, zone_label: z.label, display_zone: z.label,
+          zone_code: z.code, zone_label: z.label, display_zone: canonicalDisplayZone,
+
           price_raw: priceCandidate,
           url: urls[0] || "",
           status: "active",
@@ -567,7 +592,7 @@ serve(async (req: Request) => {
           title: `${title} — ribasso ${dropPct}%`,
           zone_code: omiCode || UNRESOLVED_OMI_CODE,
           zone_label: zoneLabel,
-          display_zone: zoneLabel,
+          display_zone: canonicalDisplayZone,
           price_raw: current,
           url,
           status: "active",
@@ -615,7 +640,7 @@ serve(async (req: Request) => {
           source_id: `pdv:${row.id}`,
           signal_type: "privato",
           title: baseTitle,
-          zone_code: z.code, zone_label: z.label, display_zone: z.label,
+          zone_code: z.code, zone_label: z.label, display_zone: canonicalDisplayZone,
           price_raw: price,
           url: (row.url as string) || "",
           status: "active",
@@ -664,9 +689,9 @@ serve(async (req: Request) => {
           const it = pending[i].item;
           it.zone_code = res.omi_zone_code;
           it.zone_label = res.omi_zone_label || it.zone_label || UNRESOLVED_OMI_LABEL;
-          if (!it.display_zone || it.display_zone === UNRESOLVED_OMI_LABEL) {
-            it.display_zone = it.zone_label;
-          }
+          // display_zone NON viene toccato qui: resta il nome canonico
+          // derivato server-side dal contratto (slug→name).
+
           it.data_quality.flags = it.data_quality.flags.filter((f) => f !== "unresolved_zone");
           it.data_quality.score = Math.max(0, 100 - it.data_quality.flags.length * 30);
         }
@@ -680,6 +705,13 @@ serve(async (req: Request) => {
     await applyQuartiereZonaMapFallback(supabase, rawItems);
   } catch (e) {
     console.error(`[civiko-one-signals-feed] quartiere_zona_map display fallback error:`, (e as Error)?.message ?? e);
+  }
+
+  // display_zone canonico e stabile per tutti gli item: nome ufficiale
+  // della zona autorizzata da public.civiko_commercial_zones, "Altre zone"
+  // se il resolver non è risolvibile per il workspace.
+  for (const it of rawItems) {
+    it.display_zone = canonicalDisplayZone;
   }
 
   // Difesa in profondità finale: TUTTI gli item devono portare lo slug
