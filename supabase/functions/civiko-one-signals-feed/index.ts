@@ -463,7 +463,8 @@ serve(async (req: Request) => {
           source_id: `cont:${row.id}`,
           signal_type: "contendibile",
           title: `${title} — ${nAg} agenzie distinte`,
-          zone_code: z.code, zone_label: z.label, display_zone: z.label,
+          zone_code: z.code, zone_label: z.label, display_zone: canonicalDisplayZone,
+
           price_raw: priceCandidate,
           url: urls[0] || "",
           status: "active",
