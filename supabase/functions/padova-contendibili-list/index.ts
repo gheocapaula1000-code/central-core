@@ -4,6 +4,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { requireSecret, makeDebugId } from "../_shared/http.ts";
 import {
   VALID_COMMERCIAL_ZONE_SLUGS,
   isValidCommercialZoneSlug,
@@ -11,6 +12,7 @@ import {
   assignCommercialZonesBatch,
   type ActiveZoneRow,
 } from "../_shared/commercialZoneMapping.ts";
+
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
