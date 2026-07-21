@@ -367,7 +367,7 @@ function evaluateInput(body: RequestBody): {
 
   // geo
   const hasDeviceGeo =
-    geo.source === "device" &&
+    (geo.source === "device" || geo.source === "photo_exif") &&
     typeof geo.latitude === "number" && typeof geo.longitude === "number" &&
     Math.abs(geo.latitude) <= 90 && Math.abs(geo.longitude) <= 180;
   const coords = hasDeviceGeo ? { lat: geo.latitude!, lng: geo.longitude! } : null;
