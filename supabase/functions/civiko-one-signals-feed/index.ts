@@ -522,7 +522,7 @@ serve(async (req: Request) => {
           source_id: `mp:${row.id}`,
           signal_type: "multi_portale",
           title: `${title} — ${nPortals} portali`,
-          zone_code: z.code, zone_label: z.label, display_zone: canonicalDisplayZone,
+          zone_code: z.code, zone_label: z.label,
 
           price_raw: priceCandidate,
           url: urls[0] || "",
@@ -540,6 +540,8 @@ serve(async (req: Request) => {
           needs_review: true,
           operator_note: "Immobile presente su più portali. Verificare se la gestione è realmente frammentata prima di proporre l'esclusiva.",
         }));
+        itemQuartiereBySourceId.set(`mp:${row.id}`, typeof row.quartiere === "string" ? row.quartiere : null);
+
       }
     }
   }
