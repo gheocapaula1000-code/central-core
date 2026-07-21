@@ -689,9 +689,9 @@ serve(async (req: Request) => {
           const it = pending[i].item;
           it.zone_code = res.omi_zone_code;
           it.zone_label = res.omi_zone_label || it.zone_label || UNRESOLVED_OMI_LABEL;
-          if (!it.display_zone || it.display_zone === UNRESOLVED_OMI_LABEL) {
-            it.display_zone = it.zone_label;
-          }
+          // display_zone NON viene toccato qui: resta il nome canonico
+          // derivato server-side dal contratto (slug→name).
+
           it.data_quality.flags = it.data_quality.flags.filter((f) => f !== "unresolved_zone");
           it.data_quality.score = Math.max(0, 100 - it.data_quality.flags.length * 30);
         }
