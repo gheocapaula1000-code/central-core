@@ -309,7 +309,8 @@ async function buildContenutiMarketing(input: ContenutiInput): Promise<Contenuti
   const elementiBase = (elementiConfermati && elementiConfermati.length > 0)
     ? elementiConfermati
     : visionAnalysis.puntiDiForzaVisivi;
-  const strengths = dedupStrings([visita?.caratteristiche, elementiBase, visionAnalysis.puntiDiForzaVisivi]);
+  const strengthsRaw = dedupStrings([visita?.caratteristiche, elementiBase, visionAnalysis.puntiDiForzaVisivi]);
+  const strengths = filterStrengthsByVisionRules(strengthsRaw, visionAnalysis);
   const objections = dedupStrings([
     safeStr(facts.obiezionePrincipale) ? [safeStr(facts.obiezionePrincipale)] : [],
     visita?.criticita,
