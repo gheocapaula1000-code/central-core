@@ -200,7 +200,7 @@ describe("padova-privati-list — zone resolution rules", () => {
     const v = resolveAssignedZone(
       [
         { slug: "centro-storico", status: "occupata", occupied_agency_id: WID, trial_agency_id: null, trial_reserved_until: null },
-        { slug: "arcella-nord", status: "in_trial", occupied_agency_id: null, trial_agency_id: WID, trial_reserved_until: IN_FUTURE },
+        { slug: "nord-arcella", status: "in_trial", occupied_agency_id: null, trial_agency_id: WID, trial_reserved_until: IN_FUTURE },
       ],
       WID,
     );
