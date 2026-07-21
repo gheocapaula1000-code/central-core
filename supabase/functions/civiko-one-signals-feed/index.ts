@@ -650,7 +650,7 @@ serve(async (req: Request) => {
           source_id: `pdv:${row.id}`,
           signal_type: "privato",
           title: baseTitle,
-          zone_code: z.code, zone_label: z.label, display_zone: canonicalDisplayZone,
+          zone_code: z.code, zone_label: z.label,
           price_raw: price,
           url: (row.url as string) || "",
           status: "active",
@@ -659,9 +659,11 @@ serve(async (req: Request) => {
           raw_ref: `padova_collect_v2_items:${row.id}`,
           lat_raw: row.lat, lng_raw: row.lng,
         }));
+        itemQuartiereBySourceId.set(`pdv:${row.id}`, typeof row.quartiere === "string" ? row.quartiere : null);
       }
     }
   }
+
 
   // ── OFF-MARKET — DISABILITATO (fail-closed) ─────────────────────
   // La tabella early_offmarket_signal_candidates non espone quartiere/OMI
