@@ -61,8 +61,7 @@ RETURNS TABLE (
   drops_count integer, observations_count integer,
   first_seen_at timestamptz, last_seen_at timestamptz,
   comune text, omi_zone text, commercial_zone_slug text,
-  zone_match_method text, zone_match_confidence numeric,
-  raw_title text, raw_address text
+  zone_match_method text, zone_match_confidence numeric
 )
 LANGUAGE sql
 STABLE
@@ -71,7 +70,14 @@ SET search_path = public, pg_temp
 AS $$
   -- Wrapper fail-closed: la zona è obbligatoria e filtrata dentro il DB.
   -- Se il chiamante passa uno slug non riconosciuto o NULL, ritorna 0 righe.
-  SELECT *
+  SELECT
+    d.source_id, d.listing_id, d.source, d.url, d.title, d.mq,
+    d.lat, d.lng,
+    d.initial_price_eur, d.current_price_eur, d.total_drop_pct,
+    d.drops_count, d.observations_count,
+    d.first_seen_at, d.last_seen_at,
+    d.comune, d.omi_zone, d.commercial_zone_slug,
+    d.zone_match_method, d.zone_match_confidence
   FROM public.get_padova_verified_price_drops(p_limit, p_min_drop_pct, p_max_age_days) AS d
   WHERE p_commercial_zone_slug IS NOT NULL
     AND EXISTS (
