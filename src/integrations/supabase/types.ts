@@ -8034,6 +8034,10 @@ export type Database = {
         Args: { p_raw: Json }
         Returns: boolean
       }
+      padova_listing_identity_key: {
+        Args: { p_civ: string; p_lat: number; p_lng: number }
+        Returns: string
+      }
       padova_listings_price_drop_candidates: {
         Args: { p_drop_pct?: number; p_min_age_days?: number }
         Returns: {
