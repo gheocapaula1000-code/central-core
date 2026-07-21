@@ -592,7 +592,7 @@ serve(async (req: Request) => {
           title: `${title} — ribasso ${dropPct}%`,
           zone_code: omiCode || UNRESOLVED_OMI_CODE,
           zone_label: zoneLabel,
-          display_zone: zoneLabel,
+          display_zone: canonicalDisplayZone,
           price_raw: current,
           url,
           status: "active",
