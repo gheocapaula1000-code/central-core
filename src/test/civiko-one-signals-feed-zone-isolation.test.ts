@@ -50,7 +50,7 @@ describe("civiko-one-signals-feed — static zone-isolation contract", () => {
     }
     // Ogni from("<view>_by_zone_v") deve avere un .eq("commercial_zone_slug", assignedSlug)
     // nei ~800 caratteri successivi (stessa query-chain).
-    const regex = /from\("(padova_[a-z_]+_by_zone_v)"\)/g;
+    const regex = /from\("(padova_[a-z0-9_]+_by_zone_v)"\)/g;
     const matches = [...SRC.matchAll(regex)];
     expect(matches.length).toBeGreaterThanOrEqual(3);
     for (const m of matches) {
