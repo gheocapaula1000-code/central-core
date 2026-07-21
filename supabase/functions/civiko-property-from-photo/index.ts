@@ -763,15 +763,23 @@ async function orchestrate(body: RequestBody, debugId: string) {
     ? body.photos
     : (body.photo ? [body.photo] : []);
   const photoDataUrls: string[] = [];
+  const photoConfirmedAmbienti: Array<AmbienteTag | null> = [];
+  const VALID_AMBIENTI = new Set<AmbienteTag>([
+    "esterno","soggiorno","cucina","camera","cameretta",
+    "bagno","terrazzo_balcone","giardino","altro",
+  ]);
   for (const p of rawPhotos) {
     if (!p || typeof p.dataUrl !== "string" || !p.dataUrl.startsWith("data:image/")) continue;
     const sizeBytes = typeof p.sizeKb === "number" ? p.sizeKb * 1024 : p.dataUrl.length * 0.75;
     if (sizeBytes > MAX_PHOTO_BYTES) continue;
     photoDataUrls.push(p.dataUrl);
+    const conf = typeof p.ambiente === "string" ? p.ambiente.trim().toLowerCase() as AmbienteTag : null;
+    photoConfirmedAmbienti.push(conf && VALID_AMBIENTI.has(conf) ? conf : null);
   }
   if (photoDataUrls.length > 10) {
     warnings.push(`Ricevute ${photoDataUrls.length} foto: verranno analizzate solo le prime 10.`);
     photoDataUrls.length = 10;
+    photoConfirmedAmbienti.length = 10;
   }
 
   // ── Rigenerazione veloce: variante>1 + elementiConfermati → skip vision ──
