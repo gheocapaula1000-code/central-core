@@ -47,19 +47,25 @@ const MAX_PHOTO_BYTES = 8 * 1024 * 1024; // 8 MB
 
 // ── PWA contract (request) ────────────────────────────────────
 
+type AmbienteTagInput =
+  | "esterno" | "soggiorno" | "cucina" | "camera" | "cameretta"
+  | "bagno" | "terrazzo_balcone" | "giardino" | "altro";
+
 interface PwaPhoto {
   dataUrl?: string;
   mimeType?: string;
   width?: number;
   height?: number;
   sizeKb?: number;
+  /** Conferma dell'agente sull'ambiente della foto: PREVALE sulla proposta vision. */
+  ambiente?: AmbienteTagInput;
 }
 interface PwaGeo {
   latitude?: number;
   longitude?: number;
   accuracy?: number;
   manualAddress?: string;
-  source?: "device" | "manual" | "missing";
+  source?: "device" | "manual" | "missing" | "photo_exif";
 }
 interface PwaQuickFacts {
   titoloInterno?: string;
