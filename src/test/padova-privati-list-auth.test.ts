@@ -166,10 +166,10 @@ describe("padova-privati-list — zone resolution rules", () => {
 
   it("returns SLUG for a valid in_trial reservation", () => {
     const v = resolveAssignedZone(
-      [{ slug: "arcella-nord", status: "in_trial", occupied_agency_id: null, trial_agency_id: WID, trial_reserved_until: IN_FUTURE }],
+      [{ slug: "nord-arcella", status: "in_trial", occupied_agency_id: null, trial_agency_id: WID, trial_reserved_until: IN_FUTURE }],
       WID,
     );
-    expect(v.ok).toBe(true);
+    expect(v).toEqual({ ok: true, slug: "nord-arcella" });
   });
 
   it("fails NO_ZONE_ASSIGNED when the trial is expired", () => {
