@@ -309,8 +309,8 @@ serve(async (req: Request) => {
   try { body = rawBody ? JSON.parse(rawBody) : {}; }
   catch { return err("INVALID_JSON", "Body is not valid JSON", 400, debugId); }
 
-  // Città/provincia sempre forzate. Ignoriamo body.city / body.province /
-  // body.workspace_id / body.commercial_zone_slug per contratto.
+  // Città/provincia sempre forzate. I campi city, province, workspace identity
+  // e slug commerciale eventualmente presenti nel body vengono ignorati.
   const city = FORCED_CITY;
   const province = FORCED_PROVINCE;
   const zoneMode = (typeof body.zone_mode === "string" && body.zone_mode) || "omi_microzone";
