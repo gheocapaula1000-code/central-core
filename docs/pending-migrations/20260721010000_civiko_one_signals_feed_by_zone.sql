@@ -61,7 +61,8 @@ RETURNS TABLE (
   drops_count integer, observations_count integer,
   first_seen_at timestamptz, last_seen_at timestamptz,
   comune text, omi_zone text, commercial_zone_slug text,
-  zone_match_method text, zone_match_confidence numeric
+  zone_match_method text, zone_match_confidence numeric,
+  raw_title text, raw_address text
 )
 LANGUAGE sql
 STABLE
@@ -73,6 +74,10 @@ AS $$
   SELECT *
   FROM public.get_padova_verified_price_drops(p_limit, p_min_drop_pct, p_max_age_days) AS d
   WHERE p_commercial_zone_slug IS NOT NULL
+    AND EXISTS (
+      SELECT 1 FROM public.civiko_commercial_zones z
+      WHERE z.slug = p_commercial_zone_slug
+    )
     AND d.commercial_zone_slug = p_commercial_zone_slug;
 $$;
 
