@@ -518,7 +518,8 @@ serve(async (req: Request) => {
           source_id: `mp:${row.id}`,
           signal_type: "multi_portale",
           title: `${title} — ${nPortals} portali`,
-          zone_code: z.code, zone_label: z.label, display_zone: z.label,
+          zone_code: z.code, zone_label: z.label, display_zone: canonicalDisplayZone,
+
           price_raw: priceCandidate,
           url: urls[0] || "",
           status: "active",
