@@ -794,6 +794,13 @@ async function orchestrate(body: RequestBody, debugId: string) {
   // ── Vision layer: arricchisce quickFacts con analisi AI delle foto.
   // Non blocca mai la response principale: in errore restituisce default
   // con visionStatus="non_disponibile".
+  const EMPTY_AGG_EXTRAS = {
+    ambientiRilevati: {} as Record<string, number>,
+    cucinaConfig: "non visibile" as const,
+    spaziEsterni: [] as Array<"terrazzo_balcone" | "giardino">,
+    bagnoDettagli: [] as string[],
+    perPhoto: [] as AggregatedVisionAnalysis["perPhoto"],
+  };
   let visionAnalysis: AggregatedVisionAnalysis;
   if (skipVision) {
     visionAnalysis = {
@@ -807,10 +814,11 @@ async function orchestrate(body: RequestBody, debugId: string) {
       presenzaParcheggio: false,
       fotoAnalizzate: 0,
       visionStatus: "ok",
+      ...EMPTY_AGG_EXTRAS,
     };
   } else {
     try {
-      visionAnalysis = await analyzePhotosWithVision(photoDataUrls);
+      visionAnalysis = await analyzePhotosWithVision(photoDataUrls, photoConfirmedAmbienti);
     } catch (e) {
       console.warn(`[${FUNCTION_NAME}] vision error debug_id=${debugId}: ${e instanceof Error ? e.message : String(e)}`);
       visionAnalysis = {
@@ -824,6 +832,7 @@ async function orchestrate(body: RequestBody, debugId: string) {
         presenzaParcheggio: false,
         fotoAnalizzate: 0,
         visionStatus: "non_disponibile",
+        ...EMPTY_AGG_EXTRAS,
       };
     }
   }
