@@ -465,7 +465,7 @@ serve(async (req: Request) => {
           source_id: `cont:${row.id}`,
           signal_type: "contendibile",
           title: `${title} — ${nAg} agenzie distinte`,
-          zone_code: z.code, zone_label: z.label, display_zone: canonicalDisplayZone,
+          zone_code: z.code, zone_label: z.label,
 
           price_raw: priceCandidate,
           url: urls[0] || "",
@@ -482,6 +482,8 @@ serve(async (req: Request) => {
           agencies_normalized: agenciesNorm,
           needs_review: false,
         }));
+        itemQuartiereBySourceId.set(`cont:${row.id}`, typeof row.quartiere === "string" ? row.quartiere : null);
+
       }
     }
   }
