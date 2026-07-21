@@ -272,16 +272,25 @@ serve(async (req) => {
 
     const filtered = enriched; // Kept name for shape-preservation in tests.
 
+    const itemsCount = filtered.length;
+    const snapshotComplete = itemsCount === totalOut && offset === 0;
+
     const payload = sanitize({
       ok: true,
       data: {
         items: filtered,
         total: totalOut,
+        items_count: itemsCount,
+        snapshot_complete: snapshotComplete,
+        assigned_zone: assignedSlug,
         hot_3plus: hot,
         offset,
         limit,
         diagnostics,
       },
+      total: totalOut,
+      items_count: itemsCount,
+      snapshot_complete: snapshotComplete,
       diagnostics,
       assigned_zone: assignedSlug,
       debug_id: did,
