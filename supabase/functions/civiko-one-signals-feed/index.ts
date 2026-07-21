@@ -598,7 +598,6 @@ serve(async (req: Request) => {
           title: `${title} — ribasso ${dropPct}%`,
           zone_code: omiCode || UNRESOLVED_OMI_CODE,
           zone_label: zoneLabel,
-          display_zone: canonicalDisplayZone,
           price_raw: current,
           url,
           status: "active",
@@ -617,6 +616,11 @@ serve(async (req: Request) => {
           first_seen_at: typeof row.first_seen_at === "string" ? row.first_seen_at : undefined,
           omi_zone_code: omiCode || undefined,
         }));
+        itemQuartiereBySourceId.set(
+          `drop:${row.source_id ?? row.listing_id ?? url}`,
+          typeof row.quartiere === "string" ? row.quartiere : null,
+        );
+
       }
     }
   }
