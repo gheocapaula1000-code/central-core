@@ -208,11 +208,69 @@ function buildPhotosSummary(v: AggregatedVisionAnalysis, count: number): string 
   if (v.statoApparente) parts.push(`stato ${v.statoApparente.toLowerCase()}`);
   if (v.materialePresunto) parts.push(`materiale prevalente ${v.materialePresunto}`);
   if (v.annoPresunto) parts.push(`anno stimato ${v.annoPresunto}`);
+  if (v.materialiPavimenti) parts.push(`pavimenti ${v.materialiPavimenti}`);
+  if (v.finiture) parts.push(`finiture ${v.finiture}`);
+  if (v.luceNaturale) parts.push(`luce naturale ${v.luceNaturale}`);
+
+  // Cucina: usa la dicitura corretta senza inventare
+  if (v.cucinaConfig === "cucina abitabile") parts.push("cucina abitabile visibile");
+  else if (v.cucinaConfig === "angolo cottura") parts.push("angolo cottura nel soggiorno");
+
+  // Spazi esterni: solo se realmente presenti nelle foto
+  const esterni: string[] = [];
+  if (v.spaziEsterni?.includes("terrazzo_balcone")) esterni.push("terrazzo/balcone");
+  if (v.spaziEsterni?.includes("giardino")) esterni.push("giardino");
+  if (esterni.length > 0) parts.push(`spazi esterni: ${esterni.join(", ")}`);
+
+  // Bagno: elencare SOLO i sanitari realmente visti
+  if ((v.bagnoDettagli?.length ?? 0) > 0) parts.push(`bagno con ${v.bagnoDettagli!.join(", ")} visibili`);
+
+  // Locali principali: soggiorno + camera + cameretta + cucina se abitabile.
+  // Il bagno NON si conta nei locali principali.
+  const amb = v.ambientiRilevati ?? {};
+  const localiPrincipali =
+    (amb["soggiorno"] ?? 0) + (amb["camera"] ?? 0) + (amb["cameretta"] ?? 0) +
+    (v.cucinaConfig === "cucina abitabile" ? (amb["cucina"] ?? 0) : 0);
+  if (localiPrincipali > 0) parts.push(`locali principali rilevati ${localiPrincipali} (il bagno non si conta)`);
+
   if (v.puntiDiForzaVisivi.length > 0) parts.push(`punti di forza: ${v.puntiDiForzaVisivi.slice(0, 6).join(", ")}`);
-  if (v.presenzaGiardino) parts.push("con giardino");
   if (v.presenzaParcheggio) parts.push("con parcheggio");
+
+  // Direttive esplicite per il copy generato a valle.
+  const vincoli: string[] = [];
+  if (v.cucinaConfig !== "cucina abitabile") vincoli.push('non scrivere "cucina abitabile"');
+  if (v.cucinaConfig === "angolo cottura") vincoli.push('usare la dicitura "angolo cottura"');
+  if (!(v.bagnoDettagli?.includes("vasca"))) vincoli.push("non menzionare vasca da bagno");
+  if (!(v.bagnoDettagli?.includes("doccia"))) vincoli.push("non menzionare doccia");
+  if (!v.spaziEsterni?.includes("terrazzo_balcone")) vincoli.push("non menzionare terrazzo o balcone");
+  if (!v.spaziEsterni?.includes("giardino")) vincoli.push("non menzionare giardino");
+  vincoli.push("il bagno non si conta nei locali principali");
+  vincoli.push("descrivi solo materiali e ambienti realmente rilevati");
+  parts.push(`Vincoli di copy: ${vincoli.join("; ")}`);
+
   return parts.join("; ") + ".";
 }
+
+/**
+ * Rimuove dalle strengths le voci vietate dalle regole di copy quando
+ * l'elemento corrispondente non è stato REALMENTE rilevato nelle foto.
+ */
+function filterStrengthsByVisionRules(list: string[], v: AggregatedVisionAnalysis): string[] {
+  const has = (kw: string, s: string) => s.toLowerCase().includes(kw);
+  const bagno = v.bagnoDettagli ?? [];
+  const esterni = v.spaziEsterni ?? [];
+  return list.filter((raw) => {
+    const s = raw.toLowerCase();
+    if (has("vasca", s) && !bagno.includes("vasca")) return false;
+    if (has("doccia", s) && !bagno.includes("doccia")) return false;
+    if (has("terrazz", s) && !esterni.includes("terrazzo_balcone")) return false;
+    if (has("balcon", s) && !esterni.includes("terrazzo_balcone")) return false;
+    if (has("giardin", s) && !esterni.includes("giardino")) return false;
+    if (has("cucina abitabile", s) && v.cucinaConfig !== "cucina abitabile") return false;
+    return true;
+  });
+}
+
 
 function dedupStrings(arrs: Array<string[] | undefined>): string[] {
   const seen = new Set<string>();
