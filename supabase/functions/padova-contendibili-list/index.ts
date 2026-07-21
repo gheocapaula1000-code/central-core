@@ -33,14 +33,40 @@ function sanitize(s: unknown): unknown {
   return s;
 }
 
-const debugId = () => crypto.randomUUID().slice(0, 8);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
-  const did = debugId();
+
+  // debug_id is generated BEFORE any I/O so it can be attached to every
+  // pre-gate error envelope, mirroring padova-privati-list.
+  const did = makeDebugId();
+
+  // ────────────────────────────────────────────────────────────
+  // Gate 1: server-to-server secret. MUST run before body parsing,
+  // Supabase client creation, or any DB query.
+  // ────────────────────────────────────────────────────────────
+  const secretFail = requireSecret(req, did);
+  if (secretFail) return secretFail;
+
+  // ────────────────────────────────────────────────────────────
+  // Gate 2: workspace identity from x-workspace-id header ONLY.
+  // Body/query MUST NOT be able to substitute the header.
+  // ────────────────────────────────────────────────────────────
+  const workspaceId = (req.headers.get("x-workspace-id") ?? "").trim();
+  if (!UUID_RE.test(workspaceId)) {
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        error: { code: "WORKSPACE_REQUIRED", message: "Missing or invalid x-workspace-id" },
+      }),
+      { status: 401, headers: { ...CORS, "x-debug-id": did } },
+    );
+  }
 
   try {
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
+
     const url = new URL(req.url);
     const quartiere = (body.quartiere ?? url.searchParams.get("quartiere") ?? null) as string | null;
     const min_agenzie = Number(body.min_agenzie ?? url.searchParams.get("min_agenzie") ?? 2) || 2;
