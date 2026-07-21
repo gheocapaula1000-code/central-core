@@ -640,7 +640,7 @@ serve(async (req: Request) => {
           source_id: `pdv:${row.id}`,
           signal_type: "privato",
           title: baseTitle,
-          zone_code: z.code, zone_label: z.label, display_zone: z.label,
+          zone_code: z.code, zone_label: z.label, display_zone: canonicalDisplayZone,
           price_raw: price,
           url: (row.url as string) || "",
           status: "active",
