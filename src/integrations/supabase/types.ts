@@ -7723,84 +7723,6 @@ export type Database = {
           score_pressione: number | null
           urls: string[] | null
         }
-        Insert: {
-          agencies_normalized?: string[] | null
-          agency_count_distinct?: number | null
-          agency_count_raw?: number | null
-          agenzie?: string[] | null
-          bagni?: number | null
-          cambio_agenzia?: boolean | null
-          cambio_agenzia_a?: string | null
-          cambio_agenzia_da?: string | null
-          cambio_agenzia_data?: string | null
-          chiave_match?: string | null
-          commercial_zone_slug?: never
-          confidenza?: string | null
-          created_at?: string | null
-          data_primo_annuncio?: string | null
-          differenza_zona_pct?: number | null
-          fonti?: string[] | null
-          giorni_fermo?: number | null
-          giorni_sul_mercato?: number | null
-          id?: number | null
-          is_ripubblicato?: boolean | null
-          lat?: number | null
-          lng?: number | null
-          locali?: number | null
-          mq?: number | null
-          n_agenzie?: number | null
-          n_annunci?: number | null
-          n_portali?: number | null
-          n_ribassi?: number | null
-          portals_seen?: string[] | null
-          prezzo_immobile_eur_mq?: number | null
-          prezzo_max?: number | null
-          prezzo_medio_zona_eur_mq?: number | null
-          prezzo_min?: number | null
-          quartiere?: string | null
-          ribasso_pct?: number | null
-          score_pressione?: number | null
-          urls?: string[] | null
-        }
-        Update: {
-          agencies_normalized?: string[] | null
-          agency_count_distinct?: number | null
-          agency_count_raw?: number | null
-          agenzie?: string[] | null
-          bagni?: number | null
-          cambio_agenzia?: boolean | null
-          cambio_agenzia_a?: string | null
-          cambio_agenzia_da?: string | null
-          cambio_agenzia_data?: string | null
-          chiave_match?: string | null
-          commercial_zone_slug?: never
-          confidenza?: string | null
-          created_at?: string | null
-          data_primo_annuncio?: string | null
-          differenza_zona_pct?: number | null
-          fonti?: string[] | null
-          giorni_fermo?: number | null
-          giorni_sul_mercato?: number | null
-          id?: number | null
-          is_ripubblicato?: boolean | null
-          lat?: number | null
-          lng?: number | null
-          locali?: number | null
-          mq?: number | null
-          n_agenzie?: number | null
-          n_annunci?: number | null
-          n_portali?: number | null
-          n_ribassi?: number | null
-          portals_seen?: string[] | null
-          prezzo_immobile_eur_mq?: number | null
-          prezzo_max?: number | null
-          prezzo_medio_zona_eur_mq?: number | null
-          prezzo_min?: number | null
-          quartiere?: string | null
-          ribasso_pct?: number | null
-          score_pressione?: number | null
-          urls?: string[] | null
-        }
         Relationships: []
       }
       padova_contendibili_reachability_v: {
@@ -8107,6 +8029,10 @@ export type Database = {
           idx: number
           zona: string
         }[]
+      }
+      padova_listing_has_mls_exclusive_evidence: {
+        Args: { p_raw: Json }
+        Returns: boolean
       }
       padova_listings_price_drop_candidates: {
         Args: { p_drop_pct?: number; p_min_age_days?: number }
