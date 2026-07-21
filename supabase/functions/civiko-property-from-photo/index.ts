@@ -1183,6 +1183,13 @@ async function orchestrate(body: RequestBody, debugId: string) {
     fotoAnalizzate: visionAnalysis.fotoAnalizzate,
     elementiRilevati: Array.from(elementiRilevatiSet),
     visionStatus: visionAnalysis.visionStatus,
+    ambientiRilevati: visionAnalysis.ambientiRilevati ?? {},
+    cucinaConfig: visionAnalysis.cucinaConfig ?? "non visibile",
+    spaziEsterni: visionAnalysis.spaziEsterni ?? [],
+    bagnoDettagli: visionAnalysis.bagnoDettagli ?? [],
+    materialiPavimenti: visionAnalysis.materialiPavimenti ?? null,
+    finiture: visionAnalysis.finiture ?? null,
+    luceNaturale: visionAnalysis.luceNaturale ?? null,
   };
   if (visionAnalysis.visionStatus !== "non_disponibile") {
     if (!immobileOut.statoApparente || immobileOut.statoApparente === "sconosciuto") {
