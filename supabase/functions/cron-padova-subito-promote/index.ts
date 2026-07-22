@@ -54,13 +54,15 @@ Deno.serve(async (req) => {
   }
 
   const finished = new Date();
+  const excerpt = JSON.stringify(result ?? { error: errMsg }).slice(0, 900);
   await sb.from("cron_executions_log").insert({
     job_name: "central-core-padova-subito-promote",
     status,
-    started_at: started.toISOString(),
-    finished_at: finished.toISOString(),
+    triggered_at: started.toISOString(),
+    completed_at: finished.toISOString(),
     duration_ms: finished.getTime() - started.getTime(),
-    result_summary: result ?? { error: errMsg },
+    http_status: status === "ok" ? 200 : 500,
+    response_excerpt: excerpt,
     error_message: errMsg,
   });
 
