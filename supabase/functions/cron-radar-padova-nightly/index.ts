@@ -53,12 +53,13 @@ async function runOneComune(comune: string, triggeredAt: string, mode: Mode, job
   duration_ms: number;
   excerpt: string;
   error?: string;
+  result_status: "success" | "partial_failure" | "provider_failed";
 }> {
   const t0 = Date.now();
   const target = `${SUPABASE_URL}/functions/v1/civiko-radar-veneto/agent-radar`;
   const body = {
     scope: "global",
-    intent: mode, // "soft" | "full"
+    intent: mode,
     province: ["PD"],
     comuni: [comune],
     triggered_by: `cron-${mode}`,
@@ -70,93 +71,133 @@ async function runOneComune(comune: string, triggeredAt: string, mode: Mode, job
     min_agencies: 1,
     limit: mode === "full" ? 200 : 80,
   };
-  try {
+
+  // Retry hardening: 1 retry on AbortError/502/503/504 (leggero, senza saturare provider).
+  const perComuneTimeout = mode === "full" ? 240_000 : 120_000;
+  let res: Response | null = null;
+  let text = "";
+  let lastErr: unknown = null;
+  let attempts = 0;
+  let retryReason: string | null = null;
+
+  for (attempts = 1; attempts <= 2; attempts++) {
     const ctrl = new AbortController();
-    // full: 4 min per comune; soft: 2 min
-    const perComuneTimeout = mode === "full" ? 240_000 : 120_000;
     const timer = setTimeout(() => ctrl.abort(), perComuneTimeout);
-    const res = await fetch(target, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-job-secret": JOB_SECRET,
-        "x-internal-secret": JOB_SECRET,
-        "x-source-app": "central-core-cron",
-        Authorization: `Bearer ${JOB_SECRET}`,
-      },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    });
-    clearTimeout(timer);
-    const text = await res.text().catch(() => "");
-    const dur = Date.now() - t0;
-    let parsed: any = null;
-    try { parsed = text ? JSON.parse(text) : null; } catch { /* keep raw excerpt */ }
-    const resultSummary = parsed?.result_summary ?? parsed?.data?.result_summary ?? parsed?.diagnostics?.result_summary ?? null;
-    const warningsArr: string[] = Array.isArray(resultSummary?.warnings) ? resultSummary.warnings : [];
-    const recomputeDeferred = warningsArr.includes("padova_contendibili_recompute_deferred_to_pg_cron");
-
-    // Reservoir freshness check: padova_collect_v2_items is populated by
-    // separate Apify jobs (immobiliare 03:10, idealista 03:20, subito weekly,
-    // collect every 15 min). If the reservoir has rows created in the last
-    // 24h, ingestion is considered valid even when the in-line scrapers
-    // (portalScrapers) return 0 due to anti-bot / disabled fallback.
-    let reservoirFreshCount: number | null = null;
     try {
-      const since = new Date(Date.now() - 24 * 3600_000).toISOString();
-      const rf = await fetch(
-        `${SUPABASE_URL}/rest/v1/padova_collect_v2_items?created_at=gte.${since}&select=id`,
-        {
-          headers: {
-            apikey: SERVICE_KEY,
-            Authorization: `Bearer ${SERVICE_KEY}`,
-            Prefer: "count=exact",
-            Range: "0-0",
-          },
+      res = await fetch(target, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-job-secret": JOB_SECRET,
+          "x-internal-secret": JOB_SECRET,
+          "x-source-app": "central-core-cron",
+          Authorization: `Bearer ${JOB_SECRET}`,
         },
-      );
-      if (rf.ok) {
-        const cr = rf.headers.get("content-range") ?? "";
-        const m = cr.match(/\/(\d+)$/);
-        reservoirFreshCount = m ? Number(m[1]) : null;
-      }
-    } catch { /* best effort */ }
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      text = await res.text().catch(() => "");
+      const transient = res.status === 502 || res.status === 503 || res.status === 504;
+      if (!transient) break;
+      retryReason = `http_${res.status}`;
+    } catch (err) {
+      clearTimeout(timer);
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const abort = err instanceof Error && (err.name === "AbortError" || /aborted/i.test(msg));
+      retryReason = abort ? "abort" : `err:${msg.slice(0, 40)}`;
+      if (!abort) break;
+    }
+    if (attempts === 1) {
+      // backoff breve prima del retry
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
 
-    const inlineItems = Number(resultSummary?.raw_items_found ?? 0) > 0
-      || (Number(resultSummary?.collect_items_created ?? 0) + Number(resultSummary?.collect_items_updated ?? 0)) > 0;
-    const reservoirFresh = (reservoirFreshCount ?? 0) > 0;
-    const noRealIngestion = !!resultSummary?.ingestion_requested && (
-      resultSummary.ingestion_executed !== true ||
-      (!inlineItems && !reservoirFresh)
-    );
-    const excerpt = resultSummary
-      ? `reservoir_fresh_24h=${reservoirFreshCount ?? "n/a"} recompute_deferred=${recomputeDeferred} result_summary=${JSON.stringify(resultSummary).slice(0, 1400)}`
-      : text.slice(0, 600);
-    await logExecution(jobName, {
-      triggered_at: triggeredAt,
-      completed_at: new Date().toISOString(),
-      status: res.ok ? (noRealIngestion ? "failure" : "success") : "failure",
-      http_status: res.status,
-      response_excerpt: `[${comune}] ${excerpt}`,
-      error_message: res.ok ? (noRealIngestion ? "ingestion_incomplete_or_no_new_collect_writes" : null) : `HTTP ${res.status}`,
-      duration_ms: dur,
-    });
-    return { comune, ok: res.ok && !noRealIngestion, http_status: res.status, duration_ms: dur, excerpt, error: noRealIngestion ? "ingestion_incomplete_or_no_new_collect_writes" : undefined };
-  } catch (err) {
-    const dur = Date.now() - t0;
-    const msg = err instanceof Error ? err.message : String(err);
+  const dur = Date.now() - t0;
+
+  if (!res) {
+    const msg = lastErr instanceof Error ? lastErr.message : String(lastErr ?? "unknown_error");
     await logExecution(jobName, {
       triggered_at: triggeredAt,
       completed_at: new Date().toISOString(),
       status: "failure",
       http_status: null,
-      response_excerpt: null,
+      response_excerpt: `[${comune}] provider_failed attempts=${attempts} retry_reason=${retryReason ?? "none"}`,
       error_message: `[${comune}] ${msg}`,
       duration_ms: dur,
     });
-    return { comune, ok: false, http_status: null, duration_ms: dur, excerpt: "", error: msg };
+    return { comune, ok: false, http_status: null, duration_ms: dur, excerpt: "", error: msg, result_status: "provider_failed" };
   }
+
+  let parsed: any = null;
+  try { parsed = text ? JSON.parse(text) : null; } catch { /* keep raw excerpt */ }
+  const resultSummary = parsed?.result_summary ?? parsed?.data?.result_summary ?? parsed?.diagnostics?.result_summary ?? null;
+  const warningsArr: string[] = Array.isArray(resultSummary?.warnings) ? resultSummary.warnings : [];
+  const recomputeDeferred = warningsArr.includes("padova_contendibili_recompute_deferred_to_pg_cron");
+
+  let reservoirFreshCount: number | null = null;
+  try {
+    const since = new Date(Date.now() - 24 * 3600_000).toISOString();
+    const rf = await fetch(
+      `${SUPABASE_URL}/rest/v1/padova_collect_v2_items?created_at=gte.${since}&select=id`,
+      {
+        headers: {
+          apikey: SERVICE_KEY,
+          Authorization: `Bearer ${SERVICE_KEY}`,
+          Prefer: "count=exact",
+          Range: "0-0",
+        },
+      },
+    );
+    if (rf.ok) {
+      const cr = rf.headers.get("content-range") ?? "";
+      const m = cr.match(/\/(\d+)$/);
+      reservoirFreshCount = m ? Number(m[1]) : null;
+    }
+  } catch { /* best effort */ }
+
+  const inlineItems = Number(resultSummary?.raw_items_found ?? 0) > 0
+    || (Number(resultSummary?.collect_items_created ?? 0) + Number(resultSummary?.collect_items_updated ?? 0)) > 0;
+  const reservoirFresh = (reservoirFreshCount ?? 0) > 0;
+  const noRealIngestion = !!resultSummary?.ingestion_requested && (
+    resultSummary.ingestion_executed !== true ||
+    (!inlineItems && !reservoirFresh)
+  );
+
+  let resultStatus: "success" | "partial_failure" | "provider_failed";
+  if (!res.ok) resultStatus = "provider_failed";
+  else if (noRealIngestion) resultStatus = "partial_failure";
+  else resultStatus = "success";
+
+  const excerpt = resultSummary
+    ? `attempts=${attempts} retry_reason=${retryReason ?? "none"} result_status=${resultStatus} reservoir_fresh_24h=${reservoirFreshCount ?? "n/a"} recompute_deferred=${recomputeDeferred} result_summary=${JSON.stringify(resultSummary).slice(0, 1200)}`
+    : `attempts=${attempts} retry_reason=${retryReason ?? "none"} result_status=${resultStatus} ${text.slice(0, 500)}`;
+
+  await logExecution(jobName, {
+    triggered_at: triggeredAt,
+    completed_at: new Date().toISOString(),
+    status: resultStatus === "success" ? "success" : "failure",
+    http_status: res.status,
+    response_excerpt: `[${comune}] ${excerpt}`,
+    error_message: resultStatus === "success" ? null
+      : resultStatus === "partial_failure" ? "ingestion_incomplete_or_no_new_collect_writes"
+      : `HTTP ${res.status}`,
+    duration_ms: dur,
+  });
+
+  return {
+    comune,
+    ok: resultStatus === "success",
+    http_status: res.status,
+    duration_ms: dur,
+    excerpt,
+    error: resultStatus === "success" ? undefined : resultStatus,
+    result_status: resultStatus,
+  };
 }
+
 
 async function runAll(triggeredAt: string, mode: Mode, jobName: string) {
   const results: Awaited<ReturnType<typeof runOneComune>>[] = [];
