@@ -272,10 +272,18 @@ serve(async (req) => {
         ? agNorm.some((a) => (a || "").toLowerCase().trim() === tenantNorm!.toLowerCase().trim())
         : false;
       const tier = isOro ? "oro" : (rr.argento ? "argento" : "bronzo");
+      const urlsArr = Array.isArray((r as Record<string, unknown>).urls) ? ((r as Record<string, unknown>).urls as unknown[]).filter((u): u is string => typeof u === "string" && !!u) : [];
+      const annunci = urlsArr.map((u) => {
+        const found = listingByUrl.get(u);
+        return {
+          url: u,
+          agenzia: found ? found.agency : null,
+          portale: hostnameOf(u),
+          attivo: found ? found.expired_at == null : true,
+        };
+      });
       return {
         ...r,
-        // Shared identity with civiko-one-signals-feed (see its index.ts: `cont:${row.id}`).
-        // Must remain byte-identical to allow PWA reconciliation across endpoints.
         source_id: `cont:${Number(r.id)}`,
         reachability: {
           tier,
@@ -283,6 +291,7 @@ serve(async (req) => {
           argento_has_phone: rr.hasPhone,
           argento_best_listing_id: rr.bestListingId,
         },
+        annunci,
       };
     });
 
