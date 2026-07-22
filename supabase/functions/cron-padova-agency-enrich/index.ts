@@ -8,7 +8,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  const startedAt = new Date().toISOString();
+  const triggeredAt = new Date();
   const secret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
   const base = Deno.env.get("SUPABASE_URL") ?? "";
   const anon = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
     if (raw && typeof raw === "object") body = { ...body, ...raw };
   } catch { /* empty ok */ }
 
-  let status = "success";
+  let status: "success" | "failure" = "success";
   let httpStatus = 0;
   let responseText = "";
   let errorMsg: string | null = null;
@@ -53,23 +53,24 @@ Deno.serve(async (req) => {
     httpStatus = r.status;
     responseText = await r.text();
     if (!r.ok) {
-      status = "error";
+      status = "failure";
       errorMsg = `http_${r.status}`;
     }
   } catch (e) {
-    status = "error";
+    status = "failure";
     errorMsg = (e as Error).message || "fetch_failed";
   }
 
-  const finishedAt = new Date().toISOString();
+  const completedAt = new Date();
   await sb.from("cron_executions_log").insert({
     job_name: "cron-padova-agency-enrich",
     status,
-    started_at: startedAt,
-    finished_at: finishedAt,
+    triggered_at: triggeredAt.toISOString(),
+    completed_at: completedAt.toISOString(),
+    duration_ms: completedAt.getTime() - triggeredAt.getTime(),
     http_status: httpStatus || null,
     error_message: errorMsg,
-    result_summary: responseText ? responseText.slice(0, 2000) : null,
+    response_excerpt: responseText ? responseText.slice(0, 2000) : null,
   });
 
   return new Response(
