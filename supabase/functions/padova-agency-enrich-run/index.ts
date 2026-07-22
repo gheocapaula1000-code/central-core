@@ -51,9 +51,11 @@ Deno.serve(async (req) => {
 
     for (const portal of portals) {
       const q = c.from("padova_collect_v2_items")
-        .select("id, url, agency")
+        .select("id, url, agency, updated_at")
         .eq("portal", portal)
         .not("url", "is", null)
+        .order("updated_at", { ascending: false, nullsFirst: false })
+        .order("id", { ascending: false })
         .limit(limit);
       if (onlyMissing) {
         q.or("agency.is.null,agency.eq.,agency.ilike.portal:%");
