@@ -206,14 +206,15 @@ async function firecrawlScrape(url: string): Promise<{ html: string | null; stat
         timeout: 30000,
       }),
     });
-    const status = resp.status;
+    const httpStatus = resp.status;
     if (!resp.ok) {
       const t = await resp.text();
-      return { html: null, status, error: `http_${status}:${t.slice(0, 200)}` };
+      return { html: null, status: httpStatus, error: `http_${httpStatus}:${t.slice(0, 200)}` };
     }
-    const j = await resp.json() as { data?: { html?: string; rawHtml?: string }; html?: string };
+    const j = await resp.json() as { data?: { html?: string; rawHtml?: string; metadata?: { statusCode?: number } }; html?: string };
     const html = j?.data?.html ?? j?.data?.rawHtml ?? j?.html ?? null;
-    return { html: html ?? null, status, error: html ? null : "empty_html" };
+    const pageStatus = j?.data?.metadata?.statusCode ?? httpStatus;
+    return { html: html ?? null, status: pageStatus, error: html ? null : "empty_html" };
   } catch (e) {
     return { html: null, status: null, error: `fetch_error:${String((e as Error).message).slice(0, 200)}` };
   }
