@@ -106,11 +106,28 @@ Deno.serve(async (req) => {
       stats.coverage_pct_after = total && total > 0 ? Math.round(((withAg ?? 0) / total) * 1000) / 10 : 0;
     }
 
+    // Recompute diagnostics: before/after counters + safe no-arg call
+    const { count: contendibiliBefore } = await c.from("padova_contendibili").select("id", { count: "exact", head: true });
+    const { count: multiBefore } = await c.from("padova_multi_portale").select("id", { count: "exact", head: true });
+
+    let recomputeRequested = !!recompute && !dryRun;
+    let recomputeExecuted = false;
+    let recomputeError: string | null = null;
     let recomputeResult: unknown = null;
-    if (recompute && !dryRun) {
-      const { data: rc, error: rcErr } = await c.rpc("recompute_padova_contendibili", { p_job_id: `enrich:${debugId}` });
-      recomputeResult = rcErr ? { error: rcErr.message } : rc;
+    if (recomputeRequested) {
+      const { data: rc, error: rcErr } = await c.rpc("recompute_padova_contendibili");
+      if (rcErr) {
+        recomputeError = rcErr.message;
+        recomputeResult = { error: rcErr.message };
+      } else {
+        recomputeExecuted = true;
+        recomputeResult = rc;
+      }
     }
+
+    const { count: contendibiliAfter } = await c.from("padova_contendibili").select("id", { count: "exact", head: true });
+    const { count: multiAfter } = await c.from("padova_multi_portale").select("id", { count: "exact", head: true });
+
 
     // Run status: partial_failure se abbiamo tentato visite ma 0 agenzie trovate
     const totals = Object.values(perPortal).reduce(
@@ -133,6 +150,13 @@ Deno.serve(async (req) => {
       params: { portals, limit_per_portal: limit, dry_run: dryRun, force_refresh: forceRefresh, recompute, only_missing: onlyMissing },
       per_portal: perPortal,
       totals,
+      recompute_requested: recomputeRequested,
+      recompute_executed: recomputeExecuted,
+      recompute_error: recomputeError,
+      contendibili_before: contendibiliBefore ?? null,
+      contendibili_after: contendibiliAfter ?? null,
+      multi_portale_before: multiBefore ?? null,
+      multi_portale_after: multiAfter ?? null,
       recompute_result: recomputeResult,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
