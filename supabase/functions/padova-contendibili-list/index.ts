@@ -215,6 +215,46 @@ serve(async (req) => {
       }
     }
 
+    // ─── Annunci lookup — join per-url su padova_listings ─────────────
+    // Fail-open: se la riga non è trovata, `attivo = true` e `agenzia = null`.
+    const allUrls: string[] = [];
+    for (const r of rows) {
+      const us = Array.isArray((r as Record<string, unknown>).urls) ? ((r as Record<string, unknown>).urls as unknown[]) : [];
+      for (const u of us) if (typeof u === "string" && u) allUrls.push(u);
+    }
+    const listingByUrl = new Map<string, { agency: string | null; expired_at: string | null }>();
+    if (allUrls.length > 0) {
+      const uniq = Array.from(new Set(allUrls));
+      const CHUNK = 200;
+      for (let i = 0; i < uniq.length; i += CHUNK) {
+        const slice = uniq.slice(i, i + CHUNK);
+        const { data: lrows, error: lerr } = await supabase
+          .from("padova_listings")
+          .select("url, agency, expired_at")
+          .in("url", slice);
+        if (lerr) {
+          console.error(`[padova-contendibili-list] ${did} listings lookup`, lerr);
+          continue;
+        }
+        for (const lr of (lrows ?? []) as Array<Record<string, unknown>>) {
+          const u = String(lr.url ?? "");
+          if (!u) continue;
+          listingByUrl.set(u, {
+            agency: typeof lr.agency === "string" && lr.agency ? (lr.agency as string) : null,
+            expired_at: typeof lr.expired_at === "string" ? (lr.expired_at as string) : null,
+          });
+        }
+      }
+    }
+    const hostnameOf = (u: string): string => {
+      try {
+        const h = new URL(u).hostname.toLowerCase();
+        return h.startsWith("www.") ? h.slice(4) : h;
+      } catch {
+        return "";
+      }
+    };
+
     // Tenant agency name — client-supplied value is NOT authoritative and
     // does NOT affect authorization or data access. It only influences the
     // per-row `reachability.tier` (oro vs argento/bronzo). Any misuse only
