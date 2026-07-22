@@ -8069,6 +8069,10 @@ export type Database = {
         Args: { p_listings: Json; p_queue_id: string; p_worker_id: string }
         Returns: Json
       }
+      process_padova_subito_staging: {
+        Args: { p_max_rows?: number; p_since_hours?: number }
+        Returns: Json
+      }
       promote_padova_agencies_listings: {
         Args: { p_since?: string }
         Returns: Json
