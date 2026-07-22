@@ -288,6 +288,15 @@ export async function enrichListingAgency(
       error: fc.error ?? "no_html",
       raw_excerpt: { http_status: fc.status },
     };
+  } else if (fc.status === 404) {
+    ext = {
+      raw_agency_name: null, normalized_agency_name: null, agency_url: null,
+      agency_phone: null, agency_logo_url: null,
+      extraction_method: "page_dead",
+      confidence: "none",
+      error: "page_dead",
+      raw_excerpt: { http_status: 404, html_len: fc.html.length },
+    };
   } else {
     const parsed = extractFromHtml(portal, fc.html);
     const conf: AgencyExtraction["confidence"] =
