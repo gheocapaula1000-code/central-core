@@ -55,6 +55,7 @@ Deno.serve(async (req) => {
         .eq("portal", portal)
         .not("url", "is", null)
         .order("last_seen_at", { ascending: false, nullsFirst: false })
+        .order("id", { ascending: false })
         .limit(limit);
       if (onlyMissing) {
         q.or("agency.is.null,agency.eq.,agency.ilike.portal:%");
