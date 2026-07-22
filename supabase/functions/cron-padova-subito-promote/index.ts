@@ -38,7 +38,7 @@ Deno.serve(async (req) => {
   const sb = createClient(url, srk, { auth: { persistSession: false } });
 
   let result: any = null;
-  let status: "ok" | "error" = "ok";
+  let status: "success" | "failure" = "success";
   let errMsg: string | null = null;
 
   try {
@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
     if (error) throw new Error(error.message);
     result = data;
   } catch (e) {
-    status = "error";
+    status = "failure";
     errMsg = String((e as Error)?.message ?? e);
   }
 
@@ -61,13 +61,13 @@ Deno.serve(async (req) => {
     triggered_at: started.toISOString(),
     completed_at: finished.toISOString(),
     duration_ms: finished.getTime() - started.getTime(),
-    http_status: status === "ok" ? 200 : 500,
+    http_status: status === "success" ? 200 : 500,
     response_excerpt: excerpt,
     error_message: errMsg,
   });
 
   return new Response(
-    JSON.stringify({ ok: status === "ok", result, error: errMsg }, null, 2),
-    { status: status === "ok" ? 200 : 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    JSON.stringify({ ok: status === "success", result, error: errMsg }, null, 2),
+    { status: status === "success" ? 200 : 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
   );
 });
