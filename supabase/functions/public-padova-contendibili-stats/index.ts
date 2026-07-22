@@ -20,10 +20,10 @@ serve(async (req) => {
     );
 
     const [{ count: total }, { count: hot3 }, { count: totAnnunci }, qResp] = await Promise.all([
-      supabase.from("padova_contendibili").select("chiave_match", { count: "exact", head: true }),
-      supabase.from("padova_contendibili").select("chiave_match", { count: "exact", head: true }).gte("n_agenzie", 3),
+      supabase.from("padova_contendibili_by_zone_v").select("chiave_match", { count: "exact", head: true }),
+      supabase.from("padova_contendibili_by_zone_v").select("chiave_match", { count: "exact", head: true }).gte("n_agenzie", 3),
       supabase.from("padova_listings").select("id", { count: "exact", head: true }),
-      supabase.from("padova_contendibili").select("quartiere").not("quartiere", "is", null),
+      supabase.from("padova_contendibili_by_zone_v").select("quartiere").not("quartiere", "is", null),
     ]);
 
     const quartieriSet = new Set<string>();
