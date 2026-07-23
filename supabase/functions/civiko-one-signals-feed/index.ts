@@ -453,10 +453,13 @@ serve(async (req: Request) => {
   // ── MULTI-PORTALE — padova_multi_portale_by_zone_v, filtro DB ────
   if (includeSet.has("contendibili") || includeSet.has("multi_portale")) {
     await probeFreshnessByZone("padova_multi_portale_by_zone_v", false, false);
-    const { data, error } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let mpQ: any = supabase
       .from("padova_multi_portale_by_zone_v")
       .select("id, chiave_match, portal_count, portals_seen, agency_count_distinct, agencies_normalized, agenzie, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, n_annunci, created_at, commercial_zone_slug")
-      .eq("commercial_zone_slug", assignedSlug)
+      .eq("commercial_zone_slug", assignedSlug);
+    if (quartiereFilter) mpQ = mpQ.eq("quartiere", quartiereFilter);
+    const { data, error } = await mpQ
       .gte("portal_count", 2)
       .order("created_at", { ascending: false, nullsFirst: false })
       .order("portal_count", { ascending: false })
