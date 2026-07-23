@@ -1,0 +1,2 @@
+-- Apply file docs/pending-migrations/20260724000000_civiko_one_real_signal_sources_v1.sql (sha256 1e4cd4ef93c9883ab5f3de1544f8e78753f616c66cd2fc84dff43424b28a8018)
+-- Content pasted verbatim below.
