@@ -747,7 +747,7 @@ serve(async (req: Request) => {
 
 
   const preAssertCount = rawItems.length;
-  const zoneAsserted = rawItems;
+  const zoneAsserted = rawItems.filter((it) => it.commercial_zone_slug === assignedSlug);
   const droppedByAssert = preAssertCount - zoneAsserted.length;
   if (droppedByAssert > 0) {
 
