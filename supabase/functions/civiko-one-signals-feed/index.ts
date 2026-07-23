@@ -433,13 +433,16 @@ serve(async (req: Request) => {
       .select("id, chiave_match, n_agenzie, agency_count_distinct, agencies_normalized, agenzie, portals_seen, fonti, confidenza, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, created_at, commercial_zone_slug")
       .eq("commercial_zone_slug", assignedSlug);
     if (quartiereFilter) contQ = contQ.eq("quartiere", quartiereFilter);
+    // Prefer last_seen_at when available (post-migration), fallback to created_at.
     const { data, error } = await contQ
       .or("agency_count_distinct.gte.2,and(agency_count_distinct.is.null,n_agenzie.gte.2)")
+      .order("last_seen_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false, nullsFirst: false })
       .order("agency_count_distinct", { ascending: false })
       .limit(limit);
     if (error) {
       console.error(`[civiko-one-signals-feed] ${debugId} contendibili`, error.message);
+      sourceErrors.push({ source: "padova_contendibili_by_zone_v", category: "query_error" });
     } else if (data) {
       sourcesUsed.push("padova_contendibili_by_zone_v");
       const rank: Record<string, number> = { ALTA: 30, MEDIA: 15, DA_CONFERMARE: 0 };
@@ -448,7 +451,7 @@ serve(async (req: Request) => {
         const minP = Number(row.prezzo_min) || 0;
         const maxP = Number(row.prezzo_max) || 0;
         const priceCandidate = minP && maxP ? Math.round((minP + maxP) / 2) : (maxP || minP || null);
-        const lastSeen = (row.created_at as string) || new Date().toISOString();
+        const lastSeen = (row.last_seen_at as string) || (row.created_at as string) || new Date().toISOString();
         bump(lastSeen);
         const urls = Array.isArray(row.urls) ? (row.urls as string[]) : [];
         const portals = Array.isArray(row.portals_seen) ? (row.portals_seen as string[])
@@ -459,8 +462,10 @@ serve(async (req: Request) => {
         const score = Math.min(100, 50 + Math.min(nAg, 10) * 4 + (rank[conf] || 0));
         const title = String(row.chiave_match || `Contendibile ${row.id}`)
           .split("|")[0].replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        // Stable source_id keyed by chiave_match (survives id regenerations).
+        const stableCont = String(row.chiave_match || `id:${row.id}`);
         rawItems.push(buildItem(assignedSlug, {
-          source_id: `cont:${row.id}`,
+          source_id: `cont:${stableCont}`,
           signal_type: "contendibile",
           title: `${title} — ${nAg} agenzie distinte`,
           zone_code: z.code, zone_label: z.label,
@@ -480,7 +485,7 @@ serve(async (req: Request) => {
           agencies_normalized: agenciesNorm,
           needs_review: false,
         }));
-        itemQuartiereBySourceId.set(`cont:${row.id}`, typeof row.quartiere === "string" ? row.quartiere : null);
+        itemQuartiereBySourceId.set(`cont:${stableCont}`, typeof row.quartiere === "string" ? row.quartiere : null);
 
       }
     }
