@@ -566,8 +566,10 @@ serve(async (req: Request) => {
   };
   if (includeSet.has("ribassi")) {
     ribassiDiag.ribassi_source = "listing_price_snapshots";
-    // Prefer v2 (union with real price history + optional quartiere filter).
-    // Fallback silently to v1 only if v2 is not deployed yet (pre-migration state).
+    // v2 ONLY: no silent fallback to v1. If v2 is missing or errors,
+    // emit zero ribassi and record a diagnostic. Falling back to v1
+    // would mask an incomplete migration and could re-introduce data
+    // that is not zone-verified against padova_listings_price_history.
     let rpcRows: unknown = null;
     let rpcErr: { message: string; code?: string } | null = null;
     const v2 = await supabase.rpc("get_padova_verified_price_drops_by_zone_v2", {
@@ -578,21 +580,12 @@ serve(async (req: Request) => {
       p_max_age_days: 14,
     });
     if (v2.error) {
-      // If v2 truly missing (function does not exist), fallback to v1; otherwise fail-closed.
       const missing = /function .* does not exist/i.test(v2.error.message ?? "");
-      if (missing) {
-        const v1 = await supabase.rpc("get_padova_verified_price_drops_by_zone", {
-          p_commercial_zone_slug: assignedSlug,
-          p_limit: limit,
-          p_min_drop_pct: 5,
-          p_max_age_days: 14,
-        });
-        rpcRows = v1.data;
-        rpcErr = v1.error;
-        sourceErrors.push({ source: "get_padova_verified_price_drops_by_zone_v2", category: "missing_fallback_v1" });
-      } else {
-        rpcErr = v2.error;
-      }
+      rpcErr = v2.error;
+      sourceErrors.push({
+        source: "get_padova_verified_price_drops_by_zone_v2",
+        category: missing ? "rpc_missing_no_fallback" : "rpc_error",
+      });
     } else {
       rpcRows = v2.data;
     }
