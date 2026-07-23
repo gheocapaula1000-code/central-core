@@ -656,7 +656,7 @@ Deno.serve(async (req) => {
 
   return new Response(JSON.stringify({
     ok: true, scanned: candidates.length, zombies_marked: zombiesMarked,
-    agency_backfill: backfillLaunches, results,
+    agency_backfill: backfillLaunches, recompute: recomputeResult, results,
   }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 });
 
