@@ -538,17 +538,14 @@ AS $$
     FROM public.get_padova_verified_price_drops(p_limit, p_min_drop_pct, p_max_age_days) d
     WHERE d.commercial_zone_slug = p_commercial_zone_slug
   ),
-  hist AS (
+  hist_base AS (
     SELECT
       pl.id                                          AS listing_id,
       pl.url, pl.indirizzo AS title, pl.mq::numeric  AS mq,
       pl.lat, pl.lng, pl.comune, pl.omi_zone, pl.quartiere, pl.fonte AS source,
       pl.commercial_zone_slug,
-      h.prezzo, h.snapshot_date, h.created_at,
-      row_number() OVER (PARTITION BY pl.id ORDER BY h.snapshot_date ASC, h.id ASC) AS rn_asc,
-      row_number() OVER (PARTITION BY pl.id ORDER BY h.snapshot_date DESC, h.id DESC) AS rn_desc,
-      count(*)             OVER (PARTITION BY pl.id) AS obs_count,
-      count(DISTINCT h.snapshot_date) OVER (PARTITION BY pl.id) AS obs_days
+      h.id                                           AS hist_id,
+      h.prezzo, h.snapshot_date, h.created_at
     FROM public.padova_listings_price_history h
     JOIN public.padova_listings pl ON pl.id = h.listing_id
     WHERE pl.expired_at IS NULL
@@ -557,6 +554,27 @@ AS $$
       AND pl.url ILIKE 'https://%'
       AND pl.commercial_zone_slug = p_commercial_zone_slug
       AND (p_quartiere IS NULL OR pl.quartiere = p_quartiere)
+  ),
+  hist_days AS (
+    SELECT
+      listing_id,
+      count(DISTINCT snapshot_date)::bigint AS obs_days
+    FROM hist_base
+    GROUP BY listing_id
+  ),
+  hist AS (
+    SELECT
+      hb.listing_id,
+      hb.url, hb.title, hb.mq,
+      hb.lat, hb.lng, hb.comune, hb.omi_zone, hb.quartiere, hb.source,
+      hb.commercial_zone_slug,
+      hb.prezzo, hb.snapshot_date, hb.created_at,
+      row_number() OVER (PARTITION BY hb.listing_id ORDER BY hb.snapshot_date ASC, hb.hist_id ASC) AS rn_asc,
+      row_number() OVER (PARTITION BY hb.listing_id ORDER BY hb.snapshot_date DESC, hb.hist_id DESC) AS rn_desc,
+      count(*) OVER (PARTITION BY hb.listing_id) AS obs_count,
+      hd.obs_days AS obs_days
+    FROM hist_base hb
+    JOIN hist_days hd ON hd.listing_id = hb.listing_id
   ),
   hist_pairs AS (
     SELECT listing_id,
