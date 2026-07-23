@@ -24,14 +24,17 @@ Deno.serve(async (req) => {
   const sb = createClient(base, service, { auth: { persistSession: false } });
 
   let body: Record<string, unknown> = {
-    portals: ["casa", "immobiliare", "idealista", "subito"],
-    limit_per_portal: 40,
+    portals: ["casa", "immobiliare"],
+    limit_per_portal: 10,
     recompute: true,
     only_missing: true,
+    force_refresh: false,
   };
   try {
     const raw = await req.json();
-    if (raw && typeof raw === "object") body = { ...body, ...raw };
+    if (raw && typeof raw === "object" && Object.keys(raw).length > 0) {
+      body = { ...body, ...raw };
+    }
   } catch { /* empty ok */ }
 
   let status: "success" | "failure" = "success";
@@ -48,7 +51,7 @@ Deno.serve(async (req) => {
         "apikey": anon,
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(180_000),
+      signal: AbortSignal.timeout(120_000),
     });
     httpStatus = r.status;
     responseText = await r.text();
