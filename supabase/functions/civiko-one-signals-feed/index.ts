@@ -608,7 +608,7 @@ serve(async (req: Request) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let prvQ: any = supabase
       .from("padova_listings")
-      .select("id, fonte, url, mq, locali, bagni, prezzo, lat, lng, indirizzo, quartiere, imported_at, last_seen_at, tipo_lead, comune, omi_zone, commercial_zone_slug, raw_json")
+      .select("id, fonte, url, mq, locali, bagni, prezzo, lat, lng, indirizzo, quartiere, imported_at, last_seen_at, tipo_lead, comune, omi_zone, commercial_zone_slug")
       .in("tipo_lead", ["PRIVATO", "privato", "privato_stanco"])
       .eq("comune", "Padova")
       .eq("commercial_zone_slug", assignedSlug)
