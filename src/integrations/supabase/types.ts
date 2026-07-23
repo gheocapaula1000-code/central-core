@@ -14,6 +14,321 @@ export type Database = {
   }
   public: {
     Tables: {
+      _bkp_20260724_eosc_touched: {
+        Row: {
+          agent_action: string | null
+          ai_summary: string | null
+          amount_text: string | null
+          asset_type: string | null
+          commercial_value_score: number | null
+          comune: string | null
+          confidence_score: number | null
+          created_at: string | null
+          data_basis: string | null
+          deadline_text: string | null
+          fingerprint: string | null
+          id: string | null
+          import_recommendation: string | null
+          investor_pitch: string | null
+          location_detail: string | null
+          needs_review: boolean | null
+          owner_pitch: string | null
+          payload: Json | null
+          possible_agent_action: string | null
+          priority_score: number | null
+          privacy_safe: boolean | null
+          promoted_at: string | null
+          promoted_to: string | null
+          provincia: string | null
+          publication_date: string | null
+          quality: string | null
+          quartiere: string | null
+          real_estate_relevance_score: number | null
+          reject_reason: string | null
+          rejection_reason: string | null
+          review_reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          run_id: string | null
+          signal_type: string | null
+          source_name: string | null
+          source_url: string | null
+          status: string | null
+          summary: string | null
+          timing: string | null
+          title: string | null
+          why_it_matters: string | null
+        }
+        Insert: {
+          agent_action?: string | null
+          ai_summary?: string | null
+          amount_text?: string | null
+          asset_type?: string | null
+          commercial_value_score?: number | null
+          comune?: string | null
+          confidence_score?: number | null
+          created_at?: string | null
+          data_basis?: string | null
+          deadline_text?: string | null
+          fingerprint?: string | null
+          id?: string | null
+          import_recommendation?: string | null
+          investor_pitch?: string | null
+          location_detail?: string | null
+          needs_review?: boolean | null
+          owner_pitch?: string | null
+          payload?: Json | null
+          possible_agent_action?: string | null
+          priority_score?: number | null
+          privacy_safe?: boolean | null
+          promoted_at?: string | null
+          promoted_to?: string | null
+          provincia?: string | null
+          publication_date?: string | null
+          quality?: string | null
+          quartiere?: string | null
+          real_estate_relevance_score?: number | null
+          reject_reason?: string | null
+          rejection_reason?: string | null
+          review_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          run_id?: string | null
+          signal_type?: string | null
+          source_name?: string | null
+          source_url?: string | null
+          status?: string | null
+          summary?: string | null
+          timing?: string | null
+          title?: string | null
+          why_it_matters?: string | null
+        }
+        Update: {
+          agent_action?: string | null
+          ai_summary?: string | null
+          amount_text?: string | null
+          asset_type?: string | null
+          commercial_value_score?: number | null
+          comune?: string | null
+          confidence_score?: number | null
+          created_at?: string | null
+          data_basis?: string | null
+          deadline_text?: string | null
+          fingerprint?: string | null
+          id?: string | null
+          import_recommendation?: string | null
+          investor_pitch?: string | null
+          location_detail?: string | null
+          needs_review?: boolean | null
+          owner_pitch?: string | null
+          payload?: Json | null
+          possible_agent_action?: string | null
+          priority_score?: number | null
+          privacy_safe?: boolean | null
+          promoted_at?: string | null
+          promoted_to?: string | null
+          provincia?: string | null
+          publication_date?: string | null
+          quality?: string | null
+          quartiere?: string | null
+          real_estate_relevance_score?: number | null
+          reject_reason?: string | null
+          rejection_reason?: string | null
+          review_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          run_id?: string | null
+          signal_type?: string | null
+          source_name?: string | null
+          source_url?: string | null
+          status?: string | null
+          summary?: string | null
+          timing?: string | null
+          title?: string | null
+          why_it_matters?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_20260724_padova_contendibili: {
+        Row: {
+          agencies_normalized: string[] | null
+          agency_count_distinct: number | null
+          agency_count_raw: number | null
+          agenzie: string[] | null
+          bagni: number | null
+          cambio_agenzia: boolean | null
+          cambio_agenzia_a: string | null
+          cambio_agenzia_da: string | null
+          cambio_agenzia_data: string | null
+          chiave_match: string | null
+          confidenza: string | null
+          created_at: string | null
+          data_primo_annuncio: string | null
+          differenza_zona_pct: number | null
+          fonti: string[] | null
+          giorni_fermo: number | null
+          giorni_sul_mercato: number | null
+          id: number | null
+          is_ripubblicato: boolean | null
+          lat: number | null
+          lng: number | null
+          locali: number | null
+          mq: number | null
+          n_agenzie: number | null
+          n_annunci: number | null
+          n_portali: number | null
+          n_ribassi: number | null
+          portals_seen: string[] | null
+          prezzo_immobile_eur_mq: number | null
+          prezzo_max: number | null
+          prezzo_medio_zona_eur_mq: number | null
+          prezzo_min: number | null
+          quartiere: string | null
+          ribasso_pct: number | null
+          score_pressione: number | null
+          urls: string[] | null
+        }
+        Insert: {
+          agencies_normalized?: string[] | null
+          agency_count_distinct?: number | null
+          agency_count_raw?: number | null
+          agenzie?: string[] | null
+          bagni?: number | null
+          cambio_agenzia?: boolean | null
+          cambio_agenzia_a?: string | null
+          cambio_agenzia_da?: string | null
+          cambio_agenzia_data?: string | null
+          chiave_match?: string | null
+          confidenza?: string | null
+          created_at?: string | null
+          data_primo_annuncio?: string | null
+          differenza_zona_pct?: number | null
+          fonti?: string[] | null
+          giorni_fermo?: number | null
+          giorni_sul_mercato?: number | null
+          id?: number | null
+          is_ripubblicato?: boolean | null
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          n_agenzie?: number | null
+          n_annunci?: number | null
+          n_portali?: number | null
+          n_ribassi?: number | null
+          portals_seen?: string[] | null
+          prezzo_immobile_eur_mq?: number | null
+          prezzo_max?: number | null
+          prezzo_medio_zona_eur_mq?: number | null
+          prezzo_min?: number | null
+          quartiere?: string | null
+          ribasso_pct?: number | null
+          score_pressione?: number | null
+          urls?: string[] | null
+        }
+        Update: {
+          agencies_normalized?: string[] | null
+          agency_count_distinct?: number | null
+          agency_count_raw?: number | null
+          agenzie?: string[] | null
+          bagni?: number | null
+          cambio_agenzia?: boolean | null
+          cambio_agenzia_a?: string | null
+          cambio_agenzia_da?: string | null
+          cambio_agenzia_data?: string | null
+          chiave_match?: string | null
+          confidenza?: string | null
+          created_at?: string | null
+          data_primo_annuncio?: string | null
+          differenza_zona_pct?: number | null
+          fonti?: string[] | null
+          giorni_fermo?: number | null
+          giorni_sul_mercato?: number | null
+          id?: number | null
+          is_ripubblicato?: boolean | null
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          n_agenzie?: number | null
+          n_annunci?: number | null
+          n_portali?: number | null
+          n_ribassi?: number | null
+          portals_seen?: string[] | null
+          prezzo_immobile_eur_mq?: number | null
+          prezzo_max?: number | null
+          prezzo_medio_zona_eur_mq?: number | null
+          prezzo_min?: number | null
+          quartiere?: string | null
+          ribasso_pct?: number | null
+          score_pressione?: number | null
+          urls?: string[] | null
+        }
+        Relationships: []
+      }
+      _bkp_20260724_padova_multi_portale: {
+        Row: {
+          agencies_normalized: string[] | null
+          agency_count_distinct: number | null
+          agenzie: string[] | null
+          bagni: number | null
+          chiave_match: string | null
+          created_at: string | null
+          id: number | null
+          lat: number | null
+          lng: number | null
+          locali: number | null
+          mq: number | null
+          n_annunci: number | null
+          portal_count: number | null
+          portals_seen: string[] | null
+          prezzo_max: number | null
+          prezzo_min: number | null
+          quartiere: string | null
+          urls: string[] | null
+        }
+        Insert: {
+          agencies_normalized?: string[] | null
+          agency_count_distinct?: number | null
+          agenzie?: string[] | null
+          bagni?: number | null
+          chiave_match?: string | null
+          created_at?: string | null
+          id?: number | null
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          n_annunci?: number | null
+          portal_count?: number | null
+          portals_seen?: string[] | null
+          prezzo_max?: number | null
+          prezzo_min?: number | null
+          quartiere?: string | null
+          urls?: string[] | null
+        }
+        Update: {
+          agencies_normalized?: string[] | null
+          agency_count_distinct?: number | null
+          agenzie?: string[] | null
+          bagni?: number | null
+          chiave_match?: string | null
+          created_at?: string | null
+          id?: number | null
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          n_annunci?: number | null
+          portal_count?: number | null
+          portals_seen?: string[] | null
+          prezzo_max?: number | null
+          prezzo_min?: number | null
+          quartiere?: string | null
+          urls?: string[] | null
+        }
+        Relationships: []
+      }
       agencies: {
         Row: {
           billing_email: string | null
@@ -2228,6 +2543,7 @@ export type Database = {
           provincia: string | null
           publication_date: string | null
           quality: string | null
+          quartiere: string | null
           real_estate_relevance_score: number
           reject_reason: string | null
           rejection_reason: string | null
@@ -2271,6 +2587,7 @@ export type Database = {
           provincia?: string | null
           publication_date?: string | null
           quality?: string | null
+          quartiere?: string | null
           real_estate_relevance_score?: number
           reject_reason?: string | null
           rejection_reason?: string | null
@@ -2314,6 +2631,7 @@ export type Database = {
           provincia?: string | null
           publication_date?: string | null
           quality?: string | null
+          quartiere?: string | null
           real_estate_relevance_score?: number
           reject_reason?: string | null
           rejection_reason?: string | null
@@ -5411,6 +5729,7 @@ export type Database = {
           giorni_sul_mercato: number | null
           id: number
           is_ripubblicato: boolean | null
+          last_seen_at: string | null
           lat: number | null
           lng: number | null
           locali: number | null
@@ -5427,6 +5746,7 @@ export type Database = {
           quartiere: string | null
           ribasso_pct: number | null
           score_pressione: number | null
+          updated_at: string
           urls: string[]
         }
         Insert: {
@@ -5449,6 +5769,7 @@ export type Database = {
           giorni_sul_mercato?: number | null
           id?: number
           is_ripubblicato?: boolean | null
+          last_seen_at?: string | null
           lat?: number | null
           lng?: number | null
           locali?: number | null
@@ -5465,6 +5786,7 @@ export type Database = {
           quartiere?: string | null
           ribasso_pct?: number | null
           score_pressione?: number | null
+          updated_at?: string
           urls: string[]
         }
         Update: {
@@ -5487,6 +5809,7 @@ export type Database = {
           giorni_sul_mercato?: number | null
           id?: number
           is_ripubblicato?: boolean | null
+          last_seen_at?: string | null
           lat?: number | null
           lng?: number | null
           locali?: number | null
@@ -5503,6 +5826,7 @@ export type Database = {
           quartiere?: string | null
           ribasso_pct?: number | null
           score_pressione?: number | null
+          updated_at?: string
           urls?: string[]
         }
         Relationships: []
@@ -6019,6 +6343,7 @@ export type Database = {
           chiave_match: string | null
           created_at: string
           id: number
+          last_seen_at: string | null
           lat: number | null
           lng: number | null
           locali: number | null
@@ -6029,6 +6354,7 @@ export type Database = {
           prezzo_max: number | null
           prezzo_min: number | null
           quartiere: string | null
+          updated_at: string
           urls: string[]
         }
         Insert: {
@@ -6039,6 +6365,7 @@ export type Database = {
           chiave_match?: string | null
           created_at?: string
           id?: number
+          last_seen_at?: string | null
           lat?: number | null
           lng?: number | null
           locali?: number | null
@@ -6049,6 +6376,7 @@ export type Database = {
           prezzo_max?: number | null
           prezzo_min?: number | null
           quartiere?: string | null
+          updated_at?: string
           urls?: string[]
         }
         Update: {
@@ -6059,6 +6387,7 @@ export type Database = {
           chiave_match?: string | null
           created_at?: string
           id?: number
+          last_seen_at?: string | null
           lat?: number | null
           lng?: number | null
           locali?: number | null
@@ -6069,6 +6398,7 @@ export type Database = {
           prezzo_max?: number | null
           prezzo_min?: number | null
           quartiere?: string | null
+          updated_at?: string
           urls?: string[]
         }
         Relationships: []
@@ -7625,6 +7955,144 @@ export type Database = {
       }
     }
     Views: {
+      early_offmarket_signal_candidates_by_zone_v: {
+        Row: {
+          agent_action: string | null
+          ai_summary: string | null
+          amount_text: string | null
+          asset_type: string | null
+          commercial_value_score: number | null
+          commercial_zone_slug: string | null
+          comune: string | null
+          confidence_score: number | null
+          created_at: string | null
+          data_basis: string | null
+          deadline_text: string | null
+          fingerprint: string | null
+          id: string | null
+          import_recommendation: string | null
+          investor_pitch: string | null
+          location_detail: string | null
+          needs_review: boolean | null
+          owner_pitch: string | null
+          payload: Json | null
+          possible_agent_action: string | null
+          priority_score: number | null
+          privacy_safe: boolean | null
+          promoted_at: string | null
+          promoted_to: string | null
+          provincia: string | null
+          publication_date: string | null
+          quality: string | null
+          quartiere: string | null
+          real_estate_relevance_score: number | null
+          reject_reason: string | null
+          rejection_reason: string | null
+          review_reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          run_id: string | null
+          signal_type: string | null
+          source_name: string | null
+          source_url: string | null
+          status: string | null
+          summary: string | null
+          timing: string | null
+          title: string | null
+          why_it_matters: string | null
+        }
+        Insert: {
+          agent_action?: string | null
+          ai_summary?: string | null
+          amount_text?: string | null
+          asset_type?: string | null
+          commercial_value_score?: number | null
+          commercial_zone_slug?: never
+          comune?: string | null
+          confidence_score?: number | null
+          created_at?: string | null
+          data_basis?: string | null
+          deadline_text?: string | null
+          fingerprint?: string | null
+          id?: string | null
+          import_recommendation?: string | null
+          investor_pitch?: string | null
+          location_detail?: string | null
+          needs_review?: boolean | null
+          owner_pitch?: string | null
+          payload?: Json | null
+          possible_agent_action?: string | null
+          priority_score?: number | null
+          privacy_safe?: boolean | null
+          promoted_at?: string | null
+          promoted_to?: string | null
+          provincia?: string | null
+          publication_date?: string | null
+          quality?: string | null
+          quartiere?: string | null
+          real_estate_relevance_score?: number | null
+          reject_reason?: string | null
+          rejection_reason?: string | null
+          review_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          run_id?: string | null
+          signal_type?: string | null
+          source_name?: string | null
+          source_url?: string | null
+          status?: string | null
+          summary?: string | null
+          timing?: string | null
+          title?: string | null
+          why_it_matters?: string | null
+        }
+        Update: {
+          agent_action?: string | null
+          ai_summary?: string | null
+          amount_text?: string | null
+          asset_type?: string | null
+          commercial_value_score?: number | null
+          commercial_zone_slug?: never
+          comune?: string | null
+          confidence_score?: number | null
+          created_at?: string | null
+          data_basis?: string | null
+          deadline_text?: string | null
+          fingerprint?: string | null
+          id?: string | null
+          import_recommendation?: string | null
+          investor_pitch?: string | null
+          location_detail?: string | null
+          needs_review?: boolean | null
+          owner_pitch?: string | null
+          payload?: Json | null
+          possible_agent_action?: string | null
+          priority_score?: number | null
+          privacy_safe?: boolean | null
+          promoted_at?: string | null
+          promoted_to?: string | null
+          provincia?: string | null
+          publication_date?: string | null
+          quality?: string | null
+          quartiere?: string | null
+          real_estate_relevance_score?: number | null
+          reject_reason?: string | null
+          rejection_reason?: string | null
+          review_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          run_id?: string | null
+          signal_type?: string | null
+          source_name?: string | null
+          source_url?: string | null
+          status?: string | null
+          summary?: string | null
+          timing?: string | null
+          title?: string | null
+          why_it_matters?: string | null
+        }
+        Relationships: []
+      }
       omi_microzone_range: {
         Row: {
           comune_key: string | null
@@ -7798,6 +8266,7 @@ export type Database = {
           giorni_sul_mercato: number | null
           id: number | null
           is_ripubblicato: boolean | null
+          last_seen_at: string | null
           lat: number | null
           lng: number | null
           locali: number | null
@@ -7814,7 +8283,90 @@ export type Database = {
           quartiere: string | null
           ribasso_pct: number | null
           score_pressione: number | null
+          updated_at: string | null
           urls: string[] | null
+        }
+        Insert: {
+          agencies_normalized?: string[] | null
+          agency_count_distinct?: number | null
+          agency_count_raw?: number | null
+          agenzie?: string[] | null
+          bagni?: number | null
+          cambio_agenzia?: boolean | null
+          cambio_agenzia_a?: string | null
+          cambio_agenzia_da?: string | null
+          cambio_agenzia_data?: string | null
+          chiave_match?: string | null
+          commercial_zone_slug?: never
+          confidenza?: string | null
+          created_at?: string | null
+          data_primo_annuncio?: string | null
+          differenza_zona_pct?: number | null
+          fonti?: string[] | null
+          giorni_fermo?: number | null
+          giorni_sul_mercato?: number | null
+          id?: number | null
+          is_ripubblicato?: boolean | null
+          last_seen_at?: string | null
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          n_agenzie?: number | null
+          n_annunci?: number | null
+          n_portali?: number | null
+          n_ribassi?: number | null
+          portals_seen?: string[] | null
+          prezzo_immobile_eur_mq?: number | null
+          prezzo_max?: number | null
+          prezzo_medio_zona_eur_mq?: number | null
+          prezzo_min?: number | null
+          quartiere?: string | null
+          ribasso_pct?: number | null
+          score_pressione?: number | null
+          updated_at?: string | null
+          urls?: string[] | null
+        }
+        Update: {
+          agencies_normalized?: string[] | null
+          agency_count_distinct?: number | null
+          agency_count_raw?: number | null
+          agenzie?: string[] | null
+          bagni?: number | null
+          cambio_agenzia?: boolean | null
+          cambio_agenzia_a?: string | null
+          cambio_agenzia_da?: string | null
+          cambio_agenzia_data?: string | null
+          chiave_match?: string | null
+          commercial_zone_slug?: never
+          confidenza?: string | null
+          created_at?: string | null
+          data_primo_annuncio?: string | null
+          differenza_zona_pct?: number | null
+          fonti?: string[] | null
+          giorni_fermo?: number | null
+          giorni_sul_mercato?: number | null
+          id?: number | null
+          is_ripubblicato?: boolean | null
+          last_seen_at?: string | null
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          n_agenzie?: number | null
+          n_annunci?: number | null
+          n_portali?: number | null
+          n_ribassi?: number | null
+          portals_seen?: string[] | null
+          prezzo_immobile_eur_mq?: number | null
+          prezzo_max?: number | null
+          prezzo_medio_zona_eur_mq?: number | null
+          prezzo_min?: number | null
+          quartiere?: string | null
+          ribasso_pct?: number | null
+          score_pressione?: number | null
+          updated_at?: string | null
+          urls?: string[] | null
         }
         Relationships: []
       }
@@ -7855,6 +8407,7 @@ export type Database = {
           commercial_zone_slug: string | null
           created_at: string | null
           id: number | null
+          last_seen_at: string | null
           lat: number | null
           lng: number | null
           locali: number | null
@@ -7865,6 +8418,7 @@ export type Database = {
           prezzo_max: number | null
           prezzo_min: number | null
           quartiere: string | null
+          updated_at: string | null
           urls: string[] | null
         }
         Insert: {
@@ -7876,6 +8430,7 @@ export type Database = {
           commercial_zone_slug?: never
           created_at?: string | null
           id?: number | null
+          last_seen_at?: string | null
           lat?: number | null
           lng?: number | null
           locali?: number | null
@@ -7886,6 +8441,7 @@ export type Database = {
           prezzo_max?: number | null
           prezzo_min?: number | null
           quartiere?: string | null
+          updated_at?: string | null
           urls?: string[] | null
         }
         Update: {
@@ -7897,6 +8453,7 @@ export type Database = {
           commercial_zone_slug?: never
           created_at?: string | null
           id?: number | null
+          last_seen_at?: string | null
           lat?: number | null
           lng?: number | null
           locali?: number | null
@@ -7907,6 +8464,7 @@ export type Database = {
           prezzo_max?: number | null
           prezzo_min?: number | null
           quartiere?: string | null
+          updated_at?: string | null
           urls?: string[] | null
         }
         Relationships: []
@@ -8066,6 +8624,38 @@ export type Database = {
           mq: number
           observations_count: number
           omi_zone: string
+          source: string
+          source_id: string
+          title: string
+          total_drop_pct: number
+          url: string
+          zone_match_confidence: number
+          zone_match_method: string
+        }[]
+      }
+      get_padova_verified_price_drops_by_zone_v2: {
+        Args: {
+          p_commercial_zone_slug: string
+          p_limit?: number
+          p_max_age_days?: number
+          p_min_drop_pct?: number
+          p_quartiere?: string
+        }
+        Returns: {
+          commercial_zone_slug: string
+          comune: string
+          current_price_eur: number
+          drops_count: number
+          first_seen_at: string
+          initial_price_eur: number
+          last_seen_at: string
+          lat: number
+          listing_id: string
+          lng: number
+          mq: number
+          observations_count: number
+          omi_zone: string
+          quartiere: string
           source: string
           source_id: string
           title: string

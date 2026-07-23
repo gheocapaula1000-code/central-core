@@ -1,47 +1,6 @@
--- ═══════════════════════════════════════════════════════════════════
 -- 20260724000000_civiko_one_real_signal_sources_v1.sql
---
--- Pending migration — DO NOT APPLY without full review.
---
--- Scope (atomic):
---   1. Backup service-role only.
---   2. Schema hardening on padova_contendibili / padova_multi_portale
---      (updated_at, last_seen_at, UNIQUE chiave_match).
---   3. Rewrite recompute_padova_listings_contendibili():
---        - filter lower(coalesce(comune,''))='padova' (NEW)
---        - preserve p.expired_at IS NULL (unchanged)
---        - derive commercial zone via civiko_resolve_commercial_zone_slug(quartiere)
---          and INCLUDE it in identity_key (no cross-zone groups)
---        - UPSERT on chiave_match instead of TRUNCATE RESTART IDENTITY
---          (from this migration onward: id/created_at STABLE)
---        - also populate padova_multi_portale in the same tx (>=2 portali,
---          <2 real agencies distinct); mutually exclusive with contendibili
---        - delete stale rows not present in the current result set
---   4. Re-create by_zone_v views (unchanged base) so downstream still sees
---      commercial_zone_slug.
---   5. New RPC get_padova_verified_price_drops_by_zone_v2(...)
---      union of get_padova_verified_price_drops(...) + price_history-derived
---      real drops from padova_listings_price_history. Fail-closed on zone.
---   6. early_offmarket_signal_candidates:
---        - add quartiere text NULL
---        - fail-closed trigger: quartiere = civiko_resolve_commercial_zone_slug()
---          applied on quartiere-first, else on location_detail; else NULL
---        - view early_offmarket_signal_candidates_by_zone_v (service_role only)
---   7. Cron cleanup: drop legacy 'padova-contendibili-recompute' if present;
---      canonical is central-core-padova-contendibili-recompute (unchanged
---      schedule '15 3 * * *').
---
--- IMPORTANT: the migration is idempotent where possible (IF NOT EXISTS,
--- CREATE OR REPLACE). Live pre-intervention definitions are captured under
--- /tmp/report/ during rollout.
--- ═══════════════════════════════════════════════════════════════════
-
--- Advisory lock so two concurrent applies cannot race.
 SELECT pg_advisory_xact_lock(202607240001);
 
--- ────────────────────────────────────────────────────────────────
--- 1. BACKUPS (service_role only)
--- ────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public._bkp_20260724_padova_contendibili
   AS SELECT * FROM public.padova_contendibili;
 REVOKE ALL ON public._bkp_20260724_padova_contendibili FROM PUBLIC;
@@ -58,16 +17,12 @@ GRANT  ALL ON public._bkp_20260724_padova_multi_portale TO service_role;
 COMMENT ON TABLE public._bkp_20260724_padova_multi_portale
   IS 'Snapshot pre-recompute rewrite v1 (2026-07-24). service_role only.';
 
--- EOSC: back up only the rows the trigger may touch (quartiere backfill).
 CREATE TABLE IF NOT EXISTS public._bkp_20260724_eosc_touched AS
   SELECT * FROM public.early_offmarket_signal_candidates WHERE false;
 REVOKE ALL ON public._bkp_20260724_eosc_touched FROM PUBLIC;
 REVOKE ALL ON public._bkp_20260724_eosc_touched FROM anon, authenticated;
 GRANT  ALL ON public._bkp_20260724_eosc_touched TO service_role;
 
--- ────────────────────────────────────────────────────────────────
--- 2. SCHEMA HARDENING
--- ────────────────────────────────────────────────────────────────
 ALTER TABLE public.padova_contendibili
   ADD COLUMN IF NOT EXISTS updated_at   timestamptz NOT NULL DEFAULT now(),
   ADD COLUMN IF NOT EXISTS last_seen_at timestamptz;
@@ -76,7 +31,6 @@ ALTER TABLE public.padova_multi_portale
   ADD COLUMN IF NOT EXISTS updated_at   timestamptz NOT NULL DEFAULT now(),
   ADD COLUMN IF NOT EXISTS last_seen_at timestamptz;
 
--- Dedupe derived tables ONLY (source data untouched) before adding UNIQUE.
 WITH ranked AS (
   SELECT id, chiave_match,
          row_number() OVER (PARTITION BY chiave_match ORDER BY id) AS rn
@@ -101,9 +55,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS padova_multi_portale_chiave_match_uniq
   ON public.padova_multi_portale(chiave_match)
   WHERE chiave_match IS NOT NULL;
 
--- ────────────────────────────────────────────────────────────────
--- 3. RECOMPUTE — contendibili + multi_portale in one transaction
--- ────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.recompute_padova_listings_contendibili()
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -127,7 +78,6 @@ BEGIN
   SELECT count(*) INTO v_cont_before FROM public.padova_contendibili;
   SELECT count(*) INTO v_mp_before   FROM public.padova_multi_portale;
 
-  -- ── _base : STRICT Padova + attivo + identità minima ──
   CREATE TEMP TABLE _base ON COMMIT DROP AS
   SELECT
     p.id, p.url, p.fonte, p.mq, p.locali, p.bagni, p.prezzo,
@@ -160,7 +110,6 @@ BEGIN
     AND p.url IS NOT NULL
     AND lower(coalesce(p.comune,'')) = 'padova';
 
-  -- URL absent / non-padova diagnostic (post-filter approximation)
   SELECT count(*) INTO v_excluded_not_padova
     FROM public.padova_listings p
    WHERE p.expired_at IS NULL
@@ -179,7 +128,6 @@ BEGIN
   SELECT count(*) INTO v_excluded_no_zone
     FROM _base_ok WHERE czone_slug IS NULL;
 
-  -- Drop rows without a canonical zone → fail-closed.
   DELETE FROM _base_ok WHERE czone_slug IS NULL;
 
   SELECT count(*) INTO v_sanitized_bad_coords
@@ -202,8 +150,6 @@ BEGIN
     p.czone_slug
   FROM _base_ok p;
 
-  -- Identity clusters (same as before, but zone is prepended into identity_key
-  -- so groups NEVER span two commercial zones).
   CREATE TEMP TABLE _identity ON COMMIT DROP AS
   WITH civic_listings AS (
     SELECT id, czone_slug, czone_slug || '|C:' || civico_n AS identity_key
@@ -297,8 +243,6 @@ BEGIN
   FROM _grp2
   GROUP BY 1,2,3,4,5,6;
 
-  -- Group-level aggregate. chiave_match INCLUDES czone_slug (leading identity_key
-  -- already carries it, but we still store zone explicitly for downstream views).
   CREATE TEMP TABLE _fg ON COMMIT DROP AS
   SELECT
     g.czone_slug,
@@ -328,7 +272,6 @@ BEGIN
 
   SELECT count(*) INTO v_groups_total FROM _fg;
 
-  -- Confidence table (contendibili only)
   CREATE TEMP TABLE _conf ON COMMIT DROP AS
   SELECT f.chiave_match,
     CASE
@@ -348,15 +291,11 @@ BEGIN
     END AS confidenza
   FROM _fg f;
 
-  -- Classification split (mutually exclusive):
-  -- CONTENDIBILE  → n_agenzie >= 2
-  -- MULTI_PORTALE → n_portali >= 2 AND n_agenzie < 2
   CREATE TEMP TABLE _fg_cont ON COMMIT DROP AS
     SELECT * FROM _fg WHERE n_agenzie >= 2;
   CREATE TEMP TABLE _fg_mp ON COMMIT DROP AS
     SELECT * FROM _fg WHERE n_portali >= 2 AND n_agenzie < 2;
 
-  -- ── UPSERT into padova_contendibili (id/created_at preserved) ──
   INSERT INTO public.padova_contendibili AS pc
     (chiave_match, n_agenzie, agenzie, agencies_normalized, fonti, confidenza,
      prezzo_min, prezzo_max, mq, locali, bagni, quartiere, lat, lng, urls,
@@ -395,11 +334,9 @@ BEGIN
         last_seen_at        = EXCLUDED.last_seen_at,
         updated_at          = now();
 
-  -- Remove stale contendibili not seen in this recompute
   DELETE FROM public.padova_contendibili pc
    WHERE NOT EXISTS (SELECT 1 FROM _fg_cont f WHERE f.chiave_match = pc.chiave_match);
 
-  -- ── UPSERT into padova_multi_portale ──
   INSERT INTO public.padova_multi_portale AS mp
     (chiave_match, portals_seen, portal_count, agency_count_distinct,
      agencies_normalized, agenzie, prezzo_min, prezzo_max, mq, locali, bagni,
@@ -460,24 +397,11 @@ BEGIN
     'excluded_no_identity', v_excluded_no_identity,
     'excluded_no_zone', v_excluded_no_zone,
     'excluded_not_padova', v_excluded_not_padova,
-    -- cross-zona = 0 by construction because zone is in identity_key
     'excluded_cross_zone_groups', 0
   );
 END;
 $function$;
 
--- ────────────────────────────────────────────────────────────────
--- 4. RECREATE by_zone_v VIEWS
---    We DROP + CREATE (not CREATE OR REPLACE) because the base tables
---    gain columns (updated_at, last_seen_at) which, via mp.* / pc.*,
---    shift the position of `commercial_zone_slug` in the view output.
---    CREATE OR REPLACE VIEW cannot change existing column names/types
---    or reorder them — it would fail with "cannot change name of view
---    column". A DROP + CREATE is safe here because no other SQL object
---    depends on these views (verified via pg_depend/pg_rewrite: 0
---    external dependents at authoring time). PostgREST clients bind by
---    column name, not by position.
--- ────────────────────────────────────────────────────────────────
 DROP VIEW IF EXISTS public.padova_contendibili_by_zone_v;
 CREATE VIEW public.padova_contendibili_by_zone_v AS
 SELECT pc.*,
@@ -500,9 +424,6 @@ REVOKE ALL ON public.padova_multi_portale_by_zone_v FROM anon;
 REVOKE ALL ON public.padova_multi_portale_by_zone_v FROM authenticated;
 GRANT  SELECT ON public.padova_multi_portale_by_zone_v TO service_role;
 
--- ────────────────────────────────────────────────────────────────
--- 5. PRICE DROPS v2 — union with real price history
--- ────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.get_padova_verified_price_drops_by_zone_v2(
   p_commercial_zone_slug text,
   p_quartiere text DEFAULT NULL,
@@ -594,7 +515,6 @@ AS $$
            max(prezzo) FILTER (WHERE rn_desc = 1) AS last_price,
            max(created_at) FILTER (WHERE rn_asc  = 1) AS first_seen_at,
            max(created_at) FILTER (WHERE rn_desc = 1) AS last_seen_at,
-           -- drops count = strict decreases across chronological observations
            (SELECT count(*)::int
               FROM (
                 SELECT prezzo,
@@ -665,9 +585,6 @@ GRANT  EXECUTE ON FUNCTION public.get_padova_verified_price_drops_by_zone_v2(tex
 COMMENT ON FUNCTION public.get_padova_verified_price_drops_by_zone_v2(text, text, integer, numeric, integer) IS
   'Ribassi verificati Padova per zona: union snapshot RPC + storico prezzo listing. Fail-closed su zona; quartiere opzionale.';
 
--- ────────────────────────────────────────────────────────────────
--- 6. EOSC: quartiere column + fail-closed trigger + by_zone view
--- ────────────────────────────────────────────────────────────────
 ALTER TABLE public.early_offmarket_signal_candidates
   ADD COLUMN IF NOT EXISTS quartiere text NULL;
 
@@ -683,16 +600,13 @@ AS $$
 DECLARE
   s text;
 BEGIN
-  -- priority 1: explicit quartiere set → must resolve exactly to an 8-slug zone
   IF NEW.quartiere IS NOT NULL AND btrim(NEW.quartiere) <> '' THEN
     s := public.civiko_resolve_commercial_zone_slug(NEW.quartiere);
     IF s IS NOT NULL THEN
       RETURN NEW;
     END IF;
-    -- explicit but unresolved → fall through
   END IF;
 
-  -- priority 2: whole location_detail resolves exactly
   IF NEW.location_detail IS NOT NULL AND btrim(NEW.location_detail) <> '' THEN
     s := public.civiko_resolve_commercial_zone_slug(NEW.location_detail);
     IF s IS NOT NULL THEN
@@ -701,7 +615,6 @@ BEGIN
     END IF;
   END IF;
 
-  -- fail-closed
   NEW.quartiere := NULL;
   RETURN NEW;
 END;
@@ -713,7 +626,6 @@ CREATE TRIGGER eosc_resolve_quartiere
   ON public.early_offmarket_signal_candidates
   FOR EACH ROW EXECUTE FUNCTION public.eosc_resolve_quartiere_trg();
 
--- One-shot backfill (safe: trigger applies only on insert/update; do it explicitly)
 INSERT INTO public._bkp_20260724_eosc_touched
   SELECT * FROM public.early_offmarket_signal_candidates
    WHERE quartiere IS NULL
@@ -739,11 +651,6 @@ GRANT  SELECT ON public.early_offmarket_signal_candidates_by_zone_v TO service_r
 COMMENT ON VIEW public.early_offmarket_signal_candidates_by_zone_v IS
   'Server-only. EOSC con commercial_zone_slug derivato SOLO da civiko_resolve_commercial_zone_slug(quartiere) autorizzato dal trigger fail-closed.';
 
--- ────────────────────────────────────────────────────────────────
--- 7. CRON CLEANUP (canonical: central-core-padova-contendibili-recompute)
---   The legacy 'padova-contendibili-recompute' is unschedules only if present.
---   Wrapped in DO block because cron.unschedule raises if missing.
--- ────────────────────────────────────────────────────────────────
 DO $$
 DECLARE
   jid bigint;
