@@ -63,17 +63,18 @@ describe("civiko-one-signals-feed — static zone-isolation contract", () => {
   it("RPC ribassi usa la variante _by_zone con p_commercial_zone_slug", () => {
     expect(SRC).toContain('"get_padova_verified_price_drops_by_zone"');
     expect(SRC).toContain("p_commercial_zone_slug: assignedSlug");
-    // La vecchia RPC non deve più essere invocata
-    expect(SRC).not.toMatch(/rpc\(\s*"get_padova_verified_price_drops"[^_]/);
+    // v2 RPC is the primary path; v1 remains only as a documented fallback if v2 is missing.
+    expect(SRC).toContain("get_padova_verified_price_drops_by_zone_v2");
   });
 
   it("nessun fallback permissivo: no branch padova_collect_v2_items per ribassi", () => {
     // Nessun blocco 'fallback_collect_v2' o simile
     expect(SRC).not.toMatch(/fallback_collect_v2/);
     expect(SRC).not.toMatch(/rpcOk\s*=\s*false/);
-    // Off-market disabilitato fail-closed
-    expect(SRC).toContain("no_reliable_zone_column_fail_closed");
-    expect(SRC).not.toContain('from("early_offmarket_signal_candidates")');
+    // Off-market ora legge dalla vista server-only by_zone_v (DB-side zone filter).
+    expect(SRC).toContain("early_offmarket_signal_candidates_by_zone_v");
+    // La tabella base NON deve mai comparire senza suffisso _by_zone_v
+    expect(SRC).not.toMatch(/from\("early_offmarket_signal_candidates"\)/);
   });
 
   it("nessuna fetch globale (senza filtro zona) su tabelle sorgente sensibili", () => {

@@ -124,18 +124,26 @@ function buildItem(
     signal_type: SignalType;
     source_id: string;
     price_raw?: unknown;
+    price_optional?: boolean; // off_market: NULL price is legitimate, no invalid_price flag
+    price_label_override?: string;
     lat_raw?: unknown;
     lng_raw?: unknown;
   },
 ): FeedItem {
   const zone_code = partial.zone_code && partial.zone_code.trim() ? partial.zone_code : UNRESOLVED_OMI_CODE;
   const zone_label = partial.zone_label && partial.zone_label.trim() ? partial.zone_label : UNRESOLVED_OMI_LABEL;
+  const rawHasPrice = partial.price_raw !== undefined && partial.price_raw !== null && partial.price_raw !== "";
   const norm = normalizePrice(partial.price_raw ?? partial.price);
   const flags: string[] = [];
-  if (norm.invalid) flags.push("invalid_price");
+  const priceOptionalAndMissing = partial.price_optional === true && !rawHasPrice;
+  if (norm.invalid && !priceOptionalAndMissing) flags.push("invalid_price");
   if (zone_code === UNRESOLVED_OMI_CODE) flags.push("unresolved_zone");
   const qualityScore = Math.max(0, 100 - flags.length * 30);
   const needsReviewBase = flags.includes("invalid_price") || partial.needs_review === true;
+  const priceLabel = priceOptionalAndMissing
+    ? (partial.price_label_override || "Prezzo non applicabile")
+    : norm.label;
+  const priceValue = priceOptionalAndMissing ? null : norm.price;
   const item: FeedItem = {
     source_id: partial.source_id,
     signal_type: partial.signal_type,
@@ -145,8 +153,8 @@ function buildItem(
     zone_code,
     zone_label,
     display_zone: partial.display_zone?.trim() || zone_label,
-    price: norm.price,
-    price_label: norm.label,
+    price: priceValue,
+    price_label: priceLabel,
     url: partial.url || "",
     status: partial.status || "active",
     score: Number.isFinite(partial.score as number) ? Number(partial.score) : 0,
@@ -372,21 +380,30 @@ serve(async (req: Request) => {
   };
 
   // Freshness probes — SEMPRE con filtro zona lato DB.
-  const sourceFreshness: Record<string, { max_created_at: string | null; max_updated_at: string | null; max_last_seen_at: string | null; rows_last_24h: number | null }> = {};
-  async function probeFreshnessByZone(
-    table: string,
-    hasUpdated: boolean,
-    hasLastSeen: boolean,
-  ) {
+  // Column set configurable: padova_listings has no created_at (uses imported_at/last_seen_at).
+  const sourceFreshness: Record<string, { max_created_at: string | null; max_updated_at: string | null; max_last_seen_at: string | null; max_imported_at: string | null; rows_last_24h: number | null }> = {};
+  interface FreshnessCols {
+    hasCreated?: boolean;
+    hasUpdated?: boolean;
+    hasLastSeen?: boolean;
+    hasImported?: boolean;
+    orderBy?: "created_at" | "last_seen_at" | "imported_at" | "updated_at";
+  }
+  async function probeFreshnessByZone(table: string, cols: FreshnessCols = {}) {
+    const hasCreated = cols.hasCreated !== false;
+    const orderBy = cols.orderBy || (hasCreated ? "created_at" : (cols.hasLastSeen ? "last_seen_at" : (cols.hasImported ? "imported_at" : "updated_at")));
     try {
-      const cols = ["created_at"];
-      if (hasUpdated) cols.push("updated_at");
-      if (hasLastSeen) cols.push("last_seen_at");
+      const selCols: string[] = [];
+      if (hasCreated) selCols.push("created_at");
+      if (cols.hasUpdated) selCols.push("updated_at");
+      if (cols.hasLastSeen) selCols.push("last_seen_at");
+      if (cols.hasImported) selCols.push("imported_at");
+      if (selCols.length === 0) selCols.push(orderBy);
       const { data } = await supabase
         .from(table)
-        .select(cols.join(","))
+        .select(selCols.join(","))
         .eq("commercial_zone_slug", assignedSlug)
-        .order("created_at", { ascending: false })
+        .order(orderBy, { ascending: false })
         .limit(1);
       const top = (data && data[0]) as Record<string, unknown> | undefined;
       const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
@@ -394,34 +411,38 @@ serve(async (req: Request) => {
         .from(table)
         .select("id", { count: "exact", head: true })
         .eq("commercial_zone_slug", assignedSlug)
-        .gte("created_at", since);
+        .gte(orderBy, since);
       sourceFreshness[table] = {
-        max_created_at: (top?.created_at as string) ?? null,
-        max_updated_at: hasUpdated ? (top?.updated_at as string) ?? null : null,
-        max_last_seen_at: hasLastSeen ? (top?.last_seen_at as string) ?? null : null,
+        max_created_at: hasCreated ? ((top?.created_at as string) ?? null) : null,
+        max_updated_at: cols.hasUpdated ? ((top?.updated_at as string) ?? null) : null,
+        max_last_seen_at: cols.hasLastSeen ? ((top?.last_seen_at as string) ?? null) : null,
+        max_imported_at: cols.hasImported ? ((top?.imported_at as string) ?? null) : null,
         rows_last_24h: count ?? null,
       };
     } catch {
-      sourceFreshness[table] = { max_created_at: null, max_updated_at: null, max_last_seen_at: null, rows_last_24h: null };
+      sourceFreshness[table] = { max_created_at: null, max_updated_at: null, max_last_seen_at: null, max_imported_at: null, rows_last_24h: null };
     }
   }
 
   // ── CONTENDIBILI — padova_contendibili_by_zone_v, filtro DB ───────
   if (includeSet.has("contendibili")) {
-    await probeFreshnessByZone("padova_contendibili_by_zone_v", false, false);
+    await probeFreshnessByZone("padova_contendibili_by_zone_v", { hasUpdated: true, hasLastSeen: true, orderBy: "last_seen_at" });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let contQ: any = supabase
       .from("padova_contendibili_by_zone_v")
       .select("id, chiave_match, n_agenzie, agency_count_distinct, agencies_normalized, agenzie, portals_seen, fonti, confidenza, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, created_at, commercial_zone_slug")
       .eq("commercial_zone_slug", assignedSlug);
     if (quartiereFilter) contQ = contQ.eq("quartiere", quartiereFilter);
+    // Prefer last_seen_at when available (post-migration), fallback to created_at.
     const { data, error } = await contQ
       .or("agency_count_distinct.gte.2,and(agency_count_distinct.is.null,n_agenzie.gte.2)")
+      .order("last_seen_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false, nullsFirst: false })
       .order("agency_count_distinct", { ascending: false })
       .limit(limit);
     if (error) {
       console.error(`[civiko-one-signals-feed] ${debugId} contendibili`, error.message);
+      sourceErrors.push({ source: "padova_contendibili_by_zone_v", category: "query_error" });
     } else if (data) {
       sourcesUsed.push("padova_contendibili_by_zone_v");
       const rank: Record<string, number> = { ALTA: 30, MEDIA: 15, DA_CONFERMARE: 0 };
@@ -430,7 +451,7 @@ serve(async (req: Request) => {
         const minP = Number(row.prezzo_min) || 0;
         const maxP = Number(row.prezzo_max) || 0;
         const priceCandidate = minP && maxP ? Math.round((minP + maxP) / 2) : (maxP || minP || null);
-        const lastSeen = (row.created_at as string) || new Date().toISOString();
+        const lastSeen = (row.last_seen_at as string) || (row.created_at as string) || new Date().toISOString();
         bump(lastSeen);
         const urls = Array.isArray(row.urls) ? (row.urls as string[]) : [];
         const portals = Array.isArray(row.portals_seen) ? (row.portals_seen as string[])
@@ -441,8 +462,10 @@ serve(async (req: Request) => {
         const score = Math.min(100, 50 + Math.min(nAg, 10) * 4 + (rank[conf] || 0));
         const title = String(row.chiave_match || `Contendibile ${row.id}`)
           .split("|")[0].replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        // Stable source_id keyed by chiave_match (survives id regenerations).
+        const stableCont = String(row.chiave_match || `id:${row.id}`);
         rawItems.push(buildItem(assignedSlug, {
-          source_id: `cont:${row.id}`,
+          source_id: `cont:${stableCont}`,
           signal_type: "contendibile",
           title: `${title} — ${nAg} agenzie distinte`,
           zone_code: z.code, zone_label: z.label,
@@ -462,7 +485,7 @@ serve(async (req: Request) => {
           agencies_normalized: agenciesNorm,
           needs_review: false,
         }));
-        itemQuartiereBySourceId.set(`cont:${row.id}`, typeof row.quartiere === "string" ? row.quartiere : null);
+        itemQuartiereBySourceId.set(`cont:${stableCont}`, typeof row.quartiere === "string" ? row.quartiere : null);
 
       }
     }
@@ -470,7 +493,7 @@ serve(async (req: Request) => {
 
   // ── MULTI-PORTALE — padova_multi_portale_by_zone_v, filtro DB ────
   if (includeSet.has("contendibili") || includeSet.has("multi_portale")) {
-    await probeFreshnessByZone("padova_multi_portale_by_zone_v", false, false);
+    await probeFreshnessByZone("padova_multi_portale_by_zone_v", { hasUpdated: true, hasLastSeen: true, orderBy: "last_seen_at" });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let mpQ: any = supabase
       .from("padova_multi_portale_by_zone_v")
@@ -479,11 +502,13 @@ serve(async (req: Request) => {
     if (quartiereFilter) mpQ = mpQ.eq("quartiere", quartiereFilter);
     const { data, error } = await mpQ
       .gte("portal_count", 2)
+      .order("last_seen_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false, nullsFirst: false })
       .order("portal_count", { ascending: false })
       .limit(limit);
     if (error) {
       console.error(`[civiko-one-signals-feed] ${debugId} multi_portale`, error.message);
+      sourceErrors.push({ source: "padova_multi_portale_by_zone_v", category: "query_error" });
     } else if (data) {
       sourcesUsed.push("padova_multi_portale_by_zone_v");
       for (const row of data as Record<string, unknown>[]) {
@@ -491,7 +516,7 @@ serve(async (req: Request) => {
         const minP = Number(row.prezzo_min) || 0;
         const maxP = Number(row.prezzo_max) || 0;
         const priceCandidate = minP && maxP ? Math.round((minP + maxP) / 2) : (maxP || minP || null);
-        const lastSeen = (row.created_at as string) || new Date().toISOString();
+        const lastSeen = (row.last_seen_at as string) || (row.created_at as string) || new Date().toISOString();
         bump(lastSeen);
         const urls = Array.isArray(row.urls) ? (row.urls as string[]) : [];
         const portals = Array.isArray(row.portals_seen) ? (row.portals_seen as string[]) : [];
@@ -501,8 +526,9 @@ serve(async (req: Request) => {
         const score = Math.min(85, 40 + Math.min(nPortals, 6) * 5);
         const title = String(row.chiave_match || `Multi-portale ${row.id}`)
           .split("|")[0].replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        const stableMp = String(row.chiave_match || `id:${row.id}`);
         rawItems.push(buildItem(assignedSlug, {
-          source_id: `mp:${row.id}`,
+          source_id: `mp:${stableMp}`,
           signal_type: "multi_portale",
           title: `${title} — ${nPortals} portali`,
           zone_code: z.code, zone_label: z.label,
@@ -523,7 +549,7 @@ serve(async (req: Request) => {
           needs_review: true,
           operator_note: "Immobile presente su più portali. Verificare se la gestione è realmente frammentata prima di proporre l'esclusiva.",
         }));
-        itemQuartiereBySourceId.set(`mp:${row.id}`, typeof row.quartiere === "string" ? row.quartiere : null);
+        itemQuartiereBySourceId.set(`mp:${stableMp}`, typeof row.quartiere === "string" ? row.quartiere : null);
 
       }
     }
@@ -540,21 +566,42 @@ serve(async (req: Request) => {
   };
   if (includeSet.has("ribassi")) {
     ribassiDiag.ribassi_source = "listing_price_snapshots";
-    const { data: rpcRows, error: rpcErr } = await supabase.rpc(
-      "get_padova_verified_price_drops_by_zone",
-      {
-        p_commercial_zone_slug: assignedSlug,
-        p_limit: limit,
-        p_min_drop_pct: 5,
-        p_max_age_days: 14,
-      },
-    );
+    // Prefer v2 (union with real price history + optional quartiere filter).
+    // Fallback silently to v1 only if v2 is not deployed yet (pre-migration state).
+    let rpcRows: unknown = null;
+    let rpcErr: { message: string; code?: string } | null = null;
+    const v2 = await supabase.rpc("get_padova_verified_price_drops_by_zone_v2", {
+      p_commercial_zone_slug: assignedSlug,
+      p_quartiere: quartiereFilter ?? null,
+      p_limit: limit,
+      p_min_drop_pct: 5,
+      p_max_age_days: 14,
+    });
+    if (v2.error) {
+      // If v2 truly missing (function does not exist), fallback to v1; otherwise fail-closed.
+      const missing = /function .* does not exist/i.test(v2.error.message ?? "");
+      if (missing) {
+        const v1 = await supabase.rpc("get_padova_verified_price_drops_by_zone", {
+          p_commercial_zone_slug: assignedSlug,
+          p_limit: limit,
+          p_min_drop_pct: 5,
+          p_max_age_days: 14,
+        });
+        rpcRows = v1.data;
+        rpcErr = v1.error;
+        sourceErrors.push({ source: "get_padova_verified_price_drops_by_zone_v2", category: "missing_fallback_v1" });
+      } else {
+        rpcErr = v2.error;
+      }
+    } else {
+      rpcRows = v2.data;
+    }
     if (rpcErr) {
-      // Fail-closed: nessun fallback.
       ribassiDiag.ribassi_source = "rpc_error";
       console.error(`[civiko-one-signals-feed] ${debugId} ribassi RPC error: ${rpcErr.message}`);
+      sourceErrors.push({ source: "get_padova_verified_price_drops_by_zone_v2", category: "rpc_error" });
     } else if (Array.isArray(rpcRows)) {
-      sourcesUsed.push("get_padova_verified_price_drops_by_zone");
+      sourcesUsed.push("get_padova_verified_price_drops_by_zone_v2");
       ribassiDiag.ribassi_rpc_returned = rpcRows.length;
       for (const row of rpcRows as Record<string, unknown>[]) {
         // Difesa in profondità: la RPC filtra già, ma verifichiamo lo slug.
@@ -622,7 +669,7 @@ serve(async (req: Request) => {
     privati_max_last_seen_at: null as string | null,
   };
   if (includeSet.has("privati")) {
-    await probeFreshnessByZone("padova_listings", false, true);
+    await probeFreshnessByZone("padova_listings", { hasCreated: false, hasLastSeen: true, hasImported: true, orderBy: "last_seen_at" });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let prvQ: any = supabase
       .from("padova_listings")
@@ -675,22 +722,78 @@ serve(async (req: Request) => {
   }
 
 
-  // ── OFF-MARKET — DISABILITATO (fail-closed) ─────────────────────
-  // La tabella early_offmarket_signal_candidates non espone quartiere/OMI
-  // affidabile: senza una colonna zona non è possibile applicare un
-  // filtro DB-side. Fino a quando non sarà disponibile una vista
-  // early_offmarket_signal_candidates_by_zone_v con commercial_zone_slug
-  // derivato in modo autoritativo, questa fonte NON viene mai letta.
+  // ── OFF-MARKET — early_offmarket_signal_candidates_by_zone_v (fail-closed) ─
+  // DB-side zone filter via view derived from civiko_resolve_commercial_zone_slug(quartiere).
+  // Missing/legacy schema (view not yet created) → fail-closed to zero, recorded in source_errors.
   const offmarketDiag = {
     offmarket_candidates_read: 0,
     offmarket_privacy_excluded: 0,
     offmarket_auction_excluded: 0,
     offmarket_not_importable_excluded: 0,
     offmarket_published: 0,
-    offmarket_disabled_reason: includeSet.has("off_market")
-      ? "no_reliable_zone_column_fail_closed"
-      : "not_included_in_request",
+    offmarket_disabled_reason: null as string | null,
   };
+  if (includeSet.has("off_market")) {
+    const cutoff = new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let omQ: any = supabase
+      .from("early_offmarket_signal_candidates_by_zone_v")
+      .select("id, fingerprint, comune, signal_type, title, summary, source_url, source_name, confidence_score, quality, privacy_safe, needs_review, import_recommendation, status, quartiere, commercial_zone_slug, created_at, updated_at, location_detail")
+      .eq("commercial_zone_slug", assignedSlug)
+      .eq("comune", "Padova")
+      .eq("privacy_safe", true)
+      .eq("needs_review", false)
+      .eq("import_recommendation", "importable")
+      .neq("status", "rejected")
+      .ilike("source_url", "https://%")
+      .gte("created_at", cutoff);
+    if (quartiereFilter) omQ = omQ.eq("quartiere", quartiereFilter);
+    const { data, error } = await omQ
+      .order("created_at", { ascending: false, nullsFirst: false })
+      .limit(limit);
+    if (error) {
+      const missing = /relation .* does not exist/i.test(error.message ?? "");
+      offmarketDiag.offmarket_disabled_reason = missing
+        ? "view_not_deployed_fail_closed"
+        : "query_error";
+      sourceErrors.push({ source: "early_offmarket_signal_candidates_by_zone_v", category: missing ? "view_missing" : "query_error" });
+      console.error(`[civiko-one-signals-feed] ${debugId} off_market query error: ${error.message}`);
+    } else if (data) {
+      sourcesUsed.push("early_offmarket_signal_candidates_by_zone_v");
+      for (const row of data as Record<string, unknown>[]) {
+        offmarketDiag.offmarket_candidates_read++;
+        if (isAuctionRecord(row)) { offmarketDiag.offmarket_auction_excluded++; continue; }
+        const url = String(row.source_url || "");
+        if (!url.startsWith("https://")) continue;
+        const created = (row.created_at as string) || new Date().toISOString();
+        bump(created);
+        const stableOm = String(row.fingerprint || row.id);
+        rawItems.push(buildItem(assignedSlug, {
+          source_id: `om:${stableOm}`,
+          signal_type: "off_market",
+          title: String(row.title || "").slice(0, 240) || "Segnale off-market",
+          zone_code: UNRESOLVED_OMI_CODE,
+          zone_label: UNRESOLVED_OMI_LABEL,
+          // Off-market: price is legitimately absent — no invalid_price flag.
+          price_raw: null,
+          price_optional: true,
+          price_label_override: "Prezzo non applicabile",
+          url,
+          status: String(row.status || "active"),
+          score: Math.min(100, Math.round((Number(row.confidence_score) || 0.5) * 100)),
+          last_seen_at: (row.updated_at as string) || created,
+          raw_ref: `early_offmarket_signal_candidates:${row.id}`,
+          evidence_type: String(row.signal_type || "off_market"),
+          label_pubblica: "Segnale off-market verificato",
+          needs_review: false,
+        }));
+        itemQuartiereBySourceId.set(`om:${stableOm}`, typeof row.quartiere === "string" ? row.quartiere : null);
+        offmarketDiag.offmarket_published++;
+      }
+    }
+  } else {
+    offmarketDiag.offmarket_disabled_reason = "not_included_in_request";
+  }
 
   // ── Arricchimento OMI (SOLO display, nessuna implicazione di authz) ─
   try {
@@ -875,7 +978,7 @@ serve(async (req: Request) => {
       requested_limit: limit,
       included: include,
       include_raw: includeRawArr,
-      feed_build: "privati-runtime-v2",
+      feed_build: "real-sources-v3",
       source_errors: sourceErrors,
       sources_used: sourcesUsed,
       source_tables_used: sourcesUsed,

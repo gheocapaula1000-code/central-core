@@ -278,17 +278,28 @@ export async function runPadovaDailyRadar(opts: DailyRadarOptions = {}) {
   } as unknown as Awaited<ReturnType<typeof callStage>>;
   stages.push(sAuc);
 
-  // Stage 3 — Perplexity discovery (fonti pubbliche/istituzionali)
+  // Stage 3 — Off-market signals discovery (registry + Perplexity verified).
+  // NOTE: this stage triggers Firecrawl + Perplexity network calls when saveCandidates=true.
+  // Do NOT invoke during the current intervention; the daily cron will run it.
   if (!opts.skipPerplexity) {
     const sPx = await callStage(
-      "perplexity-discovery",
-      fnUrl("civiko-radar-veneto/jobs/perplexity-deep-padova"),
-      {},
+      "discover-early-offmarket-signals",
+      fnUrl("civiko-radar-veneto/jobs/discover-early-offmarket-signals"),
+      {
+        comuni: ["Padova"],
+        dryRun: false,
+        saveCandidates: true,
+        maxSources: 5,
+        maxPagesPerSource: 1,
+        scrape_budget_remaining: 10,
+        useFirecrawl: true,
+        usePerplexityDiscovery: true,
+      },
       jobSecret,
-      60_000,
+      90_000,
     );
     stages.push(sPx);
-    if (!sPx.ok) warnings.push(`perplexity_discovery_failed:${sPx.status}`);
+    if (!sPx.ok) warnings.push(`discover_early_offmarket_failed:${sPx.status}`);
   } else {
     warnings.push("perplexity_skipped");
   }

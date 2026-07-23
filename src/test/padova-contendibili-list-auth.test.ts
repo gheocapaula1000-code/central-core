@@ -366,9 +366,11 @@ describe("padova-contendibili-list — UUID_RE behaviour", () => {
 // 6) PWA reconciliation contract — source_id + snapshot envelope
 // ─────────────────────────────────────────────────────────────
 describe("padova-contendibili-list — reconciliation contract", () => {
-  it("civiko-one-signals-feed emits `cont:${row.id}` as source_id for contendibili", () => {
-    // Locks the shared identity formula: any change here breaks reconciliation.
-    expect(FEED_SRC).toMatch(/source_id:\s*`cont:\$\{row\.id\}`/);
+  it("civiko-one-signals-feed emits stable `cont:${chiave_match}` as source_id for contendibili", () => {
+    // Post real-sources-v3: source_id is keyed by chiave_match (stable across recomputes)
+    // rather than the regenerable row id. This lock prevents accidental regressions.
+    expect(FEED_SRC).toMatch(/source_id:\s*`cont:\$\{stableCont\}`/);
+    expect(FEED_SRC).toMatch(/stableCont\s*=\s*String\(row\.chiave_match/);
   });
 
   it("padova-contendibili-list emits the byte-identical source_id per item", () => {

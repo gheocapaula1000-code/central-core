@@ -20,6 +20,7 @@ import { perplexityAvailable, runPerplexityDiscovery, type DiscoveryHit } from "
 import { matchPadovaMicrozona } from "./padovaMicrozoneMatcher.ts";
 import { runPadovaMicrozonaDiscovery } from "./padovaMicrozonaPerplexity.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { commercialZoneForQuartiere } from "../../_shared/civikoCommercialZoneByQuartiere.ts";
 
 export interface DiscoveryBody {
   dryRun?: boolean;
@@ -409,6 +410,14 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
           const locDetail = ext.__location_detail
             ?? (c as { location_detail?: string }).location_detail
             ?? null;
+          // Quartiere is authoritative ONLY when microzona_label resolves EXACTLY
+          // to one of the 8 canonical commercial zones. Otherwise NULL (fail-closed);
+          // the DB trigger will confirm/clear it. No fuzzy/CAP/OMI/payload-based fallback.
+          let quartiereCandidate: string | null = null;
+          if (isPadova && ext.__location_detail) {
+            const slug = commercialZoneForQuartiere(ext.__location_detail);
+            if (slug) quartiereCandidate = ext.__location_detail;
+          }
           return {
             run_id, comune: c.comune, provincia: c.provincia,
             signal_type: c.signal_type, title: c.title, summary: c.summary,
@@ -418,6 +427,7 @@ export async function runEarlyOffmarketDiscovery(body: DiscoveryBody): Promise<D
             privacy_safe: c.privacy_safe, needs_review: c.needs_review,
             import_recommendation: c.import_recommendation, reject_reason: c.reject_reason ?? null,
             location_detail: locDetail,
+            quartiere: quartiereCandidate,
             payload: { matched_keywords: [], dryRun, microzona },
             fingerprint: c.fingerprint,
           };
