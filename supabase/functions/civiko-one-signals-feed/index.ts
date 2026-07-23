@@ -265,10 +265,27 @@ serve(async (req: Request) => {
   const zoneMode = pickStr("zone_mode") || "omi_microzone";
   const limitRaw = Number(qp.get("limit") ?? (body as Record<string, unknown>).limit) || 250;
   const limit = Math.max(1, Math.min(limitRaw, 1000));
-  const includeRaw = Array.isArray((body as Record<string, unknown>).include)
+  const DEFAULT_INCLUDE = ["contendibili", "ribassi", "privati", "off_market"];
+  const INCLUDE_ALIAS: Record<string, string> = {
+    contendibile: "contendibili",
+    contendibili: "contendibili",
+    ribasso: "ribassi",
+    ribassi: "ribassi",
+    privato: "privati",
+    privati: "privati",
+    multi_portale: "multi_portale",
+    off_market: "off_market",
+    offmarket: "off_market",
+  };
+  const includeRawArr = Array.isArray((body as Record<string, unknown>).include)
     ? ((body as Record<string, unknown>).include as unknown[]).filter((s) => typeof s === "string") as string[]
-    : (qp.get("include") ? qp.get("include")!.split(",") : ["contendibili", "ribassi", "privati", "off_market"]);
-  const include = includeRaw.length ? includeRaw : ["contendibili", "ribassi", "privati", "off_market"];
+    : (qp.get("include") ? qp.get("include")!.split(",") : []);
+  const includeNormalized = includeRawArr
+    .map((s) => s.trim().toLowerCase())
+    .map((s) => INCLUDE_ALIAS[s] ?? s)
+    .filter((s) => s.length > 0);
+  // include assente OR include:[] → feed completo
+  const include = includeNormalized.length ? includeNormalized : DEFAULT_INCLUDE;
   const includeSet = new Set(include);
   const quartiereRaw = pickStr("quartiere");
 
