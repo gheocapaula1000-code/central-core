@@ -105,8 +105,7 @@ describe("civiko-one-signals-feed — static zone-isolation contract", () => {
 
   it("errori HTTP coerenti per auth/workspace/zona", () => {
     for (const code of [
-      "MISSING_TENANT",
-      "INVALID_WORKSPACE",
+      "WORKSPACE_REQUIRED",
       "NO_ZONE_ASSIGNED",
       "MULTIPLE_ZONES_ASSIGNED",
       "SLUG_OUT_OF_CONTRACT",
