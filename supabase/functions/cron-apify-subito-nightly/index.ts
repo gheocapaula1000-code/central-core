@@ -11,7 +11,15 @@ Deno.serve(async (req) => {
   const base = Deno.env.get("SUPABASE_URL") ?? "";
   if (!secret || !base) {
     return new Response(JSON.stringify({ ok: false, error: "config_missing" }),
-      { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
+  // Gate: incoming caller must present the shared job secret before we touch
+  // body parsing or forward to the collector.
+  const incoming = req.headers.get("x-job-secret") ?? "";
+  if (incoming !== secret) {
+    return new Response(JSON.stringify({ ok: false, error: "unauthorized" }),
+      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
   let body: any = { async_start: true, max_items: 300 };
@@ -19,6 +27,7 @@ Deno.serve(async (req) => {
     const raw = await req.json();
     if (raw && typeof raw === "object") body = { async_start: true, max_items: 300, ...raw };
   } catch { /* empty ok */ }
+
 
   const r = await fetch(`${base}/functions/v1/padova-apify-subito-collect`, {
     method: "POST",
