@@ -364,6 +364,7 @@ serve(async (req: Request) => {
 
   const rawItems: FeedItem[] = [];
   const sourcesUsed: string[] = [];
+  const sourceErrors: Array<{ source: string; category: string }> = [];
   let lastProviderRefresh: string | null = null;
   const bump = (ts?: string | null) => {
     if (!ts) return;
