@@ -542,6 +542,10 @@ serve(async (req: Request) => {
         // Difesa in profondità: la RPC filtra già, ma verifichiamo lo slug.
         const slug = (row.commercial_zone_slug as string) || "";
         if (slug !== assignedSlug) { ribassiDiag.ribassi_unzoned_excluded++; continue; }
+        if (quartiereFilter) {
+          const rq = typeof row.quartiere === "string" ? row.quartiere : "";
+          if (rq !== quartiereFilter) continue;
+        }
         if (isAuctionRecord(row)) { ribassiDiag.ribassi_auction_excluded++; continue; }
         const url = String(row.url || "");
         if (!url.startsWith("https://")) { ribassiDiag.ribassi_invalid_price_excluded++; continue; }
