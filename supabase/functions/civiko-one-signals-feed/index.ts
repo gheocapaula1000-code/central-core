@@ -566,21 +566,42 @@ serve(async (req: Request) => {
   };
   if (includeSet.has("ribassi")) {
     ribassiDiag.ribassi_source = "listing_price_snapshots";
-    const { data: rpcRows, error: rpcErr } = await supabase.rpc(
-      "get_padova_verified_price_drops_by_zone",
-      {
-        p_commercial_zone_slug: assignedSlug,
-        p_limit: limit,
-        p_min_drop_pct: 5,
-        p_max_age_days: 14,
-      },
-    );
+    // Prefer v2 (union with real price history + optional quartiere filter).
+    // Fallback silently to v1 only if v2 is not deployed yet (pre-migration state).
+    let rpcRows: unknown = null;
+    let rpcErr: { message: string; code?: string } | null = null;
+    const v2 = await supabase.rpc("get_padova_verified_price_drops_by_zone_v2", {
+      p_commercial_zone_slug: assignedSlug,
+      p_quartiere: quartiereFilter ?? null,
+      p_limit: limit,
+      p_min_drop_pct: 5,
+      p_max_age_days: 14,
+    });
+    if (v2.error) {
+      // If v2 truly missing (function does not exist), fallback to v1; otherwise fail-closed.
+      const missing = /function .* does not exist/i.test(v2.error.message ?? "");
+      if (missing) {
+        const v1 = await supabase.rpc("get_padova_verified_price_drops_by_zone", {
+          p_commercial_zone_slug: assignedSlug,
+          p_limit: limit,
+          p_min_drop_pct: 5,
+          p_max_age_days: 14,
+        });
+        rpcRows = v1.data;
+        rpcErr = v1.error;
+        sourceErrors.push({ source: "get_padova_verified_price_drops_by_zone_v2", category: "missing_fallback_v1" });
+      } else {
+        rpcErr = v2.error;
+      }
+    } else {
+      rpcRows = v2.data;
+    }
     if (rpcErr) {
-      // Fail-closed: nessun fallback.
       ribassiDiag.ribassi_source = "rpc_error";
       console.error(`[civiko-one-signals-feed] ${debugId} ribassi RPC error: ${rpcErr.message}`);
+      sourceErrors.push({ source: "get_padova_verified_price_drops_by_zone_v2", category: "rpc_error" });
     } else if (Array.isArray(rpcRows)) {
-      sourcesUsed.push("get_padova_verified_price_drops_by_zone");
+      sourcesUsed.push("get_padova_verified_price_drops_by_zone_v2");
       ribassiDiag.ribassi_rpc_returned = rpcRows.length;
       for (const row of rpcRows as Record<string, unknown>[]) {
         // Difesa in profondità: la RPC filtra già, ma verifichiamo lo slug.
@@ -648,7 +669,7 @@ serve(async (req: Request) => {
     privati_max_last_seen_at: null as string | null,
   };
   if (includeSet.has("privati")) {
-    await probeFreshnessByZone("padova_listings", false, true);
+    await probeFreshnessByZone("padova_listings", { hasCreated: false, hasLastSeen: true, hasImported: true, orderBy: "last_seen_at" });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let prvQ: any = supabase
       .from("padova_listings")
@@ -701,22 +722,78 @@ serve(async (req: Request) => {
   }
 
 
-  // ── OFF-MARKET — DISABILITATO (fail-closed) ─────────────────────
-  // La tabella early_offmarket_signal_candidates non espone quartiere/OMI
-  // affidabile: senza una colonna zona non è possibile applicare un
-  // filtro DB-side. Fino a quando non sarà disponibile una vista
-  // early_offmarket_signal_candidates_by_zone_v con commercial_zone_slug
-  // derivato in modo autoritativo, questa fonte NON viene mai letta.
+  // ── OFF-MARKET — early_offmarket_signal_candidates_by_zone_v (fail-closed) ─
+  // DB-side zone filter via view derived from civiko_resolve_commercial_zone_slug(quartiere).
+  // Missing/legacy schema (view not yet created) → fail-closed to zero, recorded in source_errors.
   const offmarketDiag = {
     offmarket_candidates_read: 0,
     offmarket_privacy_excluded: 0,
     offmarket_auction_excluded: 0,
     offmarket_not_importable_excluded: 0,
     offmarket_published: 0,
-    offmarket_disabled_reason: includeSet.has("off_market")
-      ? "no_reliable_zone_column_fail_closed"
-      : "not_included_in_request",
+    offmarket_disabled_reason: null as string | null,
   };
+  if (includeSet.has("off_market")) {
+    const cutoff = new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let omQ: any = supabase
+      .from("early_offmarket_signal_candidates_by_zone_v")
+      .select("id, fingerprint, comune, signal_type, title, summary, source_url, source_name, confidence_score, quality, privacy_safe, needs_review, import_recommendation, status, quartiere, commercial_zone_slug, created_at, updated_at, location_detail")
+      .eq("commercial_zone_slug", assignedSlug)
+      .eq("comune", "Padova")
+      .eq("privacy_safe", true)
+      .eq("needs_review", false)
+      .eq("import_recommendation", "importable")
+      .neq("status", "rejected")
+      .ilike("source_url", "https://%")
+      .gte("created_at", cutoff);
+    if (quartiereFilter) omQ = omQ.eq("quartiere", quartiereFilter);
+    const { data, error } = await omQ
+      .order("created_at", { ascending: false, nullsFirst: false })
+      .limit(limit);
+    if (error) {
+      const missing = /relation .* does not exist/i.test(error.message ?? "");
+      offmarketDiag.offmarket_disabled_reason = missing
+        ? "view_not_deployed_fail_closed"
+        : "query_error";
+      sourceErrors.push({ source: "early_offmarket_signal_candidates_by_zone_v", category: missing ? "view_missing" : "query_error" });
+      console.error(`[civiko-one-signals-feed] ${debugId} off_market query error: ${error.message}`);
+    } else if (data) {
+      sourcesUsed.push("early_offmarket_signal_candidates_by_zone_v");
+      for (const row of data as Record<string, unknown>[]) {
+        offmarketDiag.offmarket_candidates_read++;
+        if (isAuctionRecord(row)) { offmarketDiag.offmarket_auction_excluded++; continue; }
+        const url = String(row.source_url || "");
+        if (!url.startsWith("https://")) continue;
+        const created = (row.created_at as string) || new Date().toISOString();
+        bump(created);
+        const stableOm = String(row.fingerprint || row.id);
+        rawItems.push(buildItem(assignedSlug, {
+          source_id: `om:${stableOm}`,
+          signal_type: "off_market",
+          title: String(row.title || "").slice(0, 240) || "Segnale off-market",
+          zone_code: UNRESOLVED_OMI_CODE,
+          zone_label: UNRESOLVED_OMI_LABEL,
+          // Off-market: price is legitimately absent — no invalid_price flag.
+          price_raw: null,
+          price_optional: true,
+          price_label_override: "Prezzo non applicabile",
+          url,
+          status: String(row.status || "active"),
+          score: Math.min(100, Math.round((Number(row.confidence_score) || 0.5) * 100)),
+          last_seen_at: (row.updated_at as string) || created,
+          raw_ref: `early_offmarket_signal_candidates:${row.id}`,
+          evidence_type: String(row.signal_type || "off_market"),
+          label_pubblica: "Segnale off-market verificato",
+          needs_review: false,
+        }));
+        itemQuartiereBySourceId.set(`om:${stableOm}`, typeof row.quartiere === "string" ? row.quartiere : null);
+        offmarketDiag.offmarket_published++;
+      }
+    }
+  } else {
+    offmarketDiag.offmarket_disabled_reason = "not_included_in_request";
+  }
 
   // ── Arricchimento OMI (SOLO display, nessuna implicazione di authz) ─
   try {
@@ -901,7 +978,7 @@ serve(async (req: Request) => {
       requested_limit: limit,
       included: include,
       include_raw: includeRawArr,
-      feed_build: "privati-runtime-v2",
+      feed_build: "real-sources-v3",
       source_errors: sourceErrors,
       sources_used: sourcesUsed,
       source_tables_used: sourcesUsed,
