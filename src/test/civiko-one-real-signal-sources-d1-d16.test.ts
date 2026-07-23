@@ -119,7 +119,7 @@ describe("D — real signal sources v1 (static contract)", () => {
   // D.10 ribasso calcolato cronologicamente
   it("D.10 STATIC — v2 RPC computes drops chronologically (LAG over snapshot_date, no MIN/MAX)", () => {
     const fn = MIGRATION.slice(MIGRATION.indexOf("get_padova_verified_price_drops_by_zone_v2"));
-    expect(fn).toMatch(/row_number\(\)\s+OVER\s*\(\s*PARTITION\s+BY\s+pl\.id\s+ORDER\s+BY\s+h\.snapshot_date\s+ASC/i);
+    expect(fn).toMatch(/row_number\(\)\s+OVER\s*\(\s*PARTITION\s+BY\s+hb\.listing_id\s+ORDER\s+BY\s+hb\.snapshot_date\s+ASC/i);
     expect(fn).toMatch(/LAG\(prezzo\)\s+OVER\s*\(\s*ORDER\s+BY\s+snapshot_date\s+ASC/i);
     // first_price / last_price selected via rn_asc=1 / rn_desc=1, not MIN/MAX(prezzo).
     expect(fn).toMatch(/max\(prezzo\)\s+FILTER\s+\(WHERE\s+rn_asc\s*=\s*1\)\s+AS\s+first_price/);
