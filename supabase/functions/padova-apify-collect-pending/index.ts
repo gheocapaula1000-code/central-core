@@ -352,6 +352,11 @@ Deno.serve(async (req) => {
   const zombieHours = Number(body.zombie_hours ?? 4);
   const autoEnrich = body.auto_enrich !== false; // default true
   const maxEnrichPerRun = Number(body.max_enrich_per_run ?? 200);
+  // Auto-backfill: quando un run immobiliare_*_enrich/refresh finisce, lancia
+  // il batch successivo di URL con agency IS NULL per completare la recovery.
+  const agencyBackfillEnabled = body.agency_backfill_enabled !== false; // default true
+  const agencyBackfillBatch = Math.max(1, Math.min(500, Number(body.agency_backfill_batch ?? 300)));
+  const agencyBackfillMaxLaunches = Math.max(0, Number(body.agency_backfill_max_launches ?? 1));
 
 
   // Seleziona candidati: RUNNING più vecchi di staleMinutes, oppure run_ids espliciti.
