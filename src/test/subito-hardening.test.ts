@@ -45,6 +45,25 @@ describe("padova-apify-subito-collect hardening", () => {
     expect(COLLECT).toMatch(/\.eq\("status", "RUNNING"\)/);
   });
 
+  it("fail-closes with APIFY_DEDUP_CHECK_FAILED (503) when dedup query errors, before budget/startRun/insert", () => {
+    // destructure error from dedup query
+    expect(COLLECT).toMatch(/data:\s*inflight,\s*error:\s*inflightErr/);
+    // returns 503 with sanitized code
+    expect(COLLECT).toMatch(/APIFY_DEDUP_CHECK_FAILED/);
+    expect(COLLECT).toMatch(/status:\s*503/);
+    // ordering: dedup-error branch precedes budget/start/insert
+    const errIdx = COLLECT.indexOf("APIFY_DEDUP_CHECK_FAILED");
+    const budgetIdx = COLLECT.indexOf("canSpendApify(estCostUsd)");
+    const startIdx = COLLECT.indexOf("const started = await startRun(");
+    const recordIdx = COLLECT.indexOf("recordApifySpend(estCostUsd");
+    const insertIdx = COLLECT.indexOf('.from("padova_apify_runs").insert(');
+    expect(errIdx).toBeGreaterThan(0);
+    expect(budgetIdx).toBeGreaterThan(errIdx);
+    expect(startIdx).toBeGreaterThan(errIdx);
+    expect(recordIdx).toBeGreaterThan(errIdx);
+    expect(insertIdx).toBeGreaterThan(errIdx);
+  });
+
   it("returns APIFY_BUDGET_BLOCKED without calling startRun when budget denied", () => {
     const budgetIdx = COLLECT.indexOf("APIFY_BUDGET_BLOCKED");
     const startIdx = COLLECT.indexOf("const started = await startRun(");
