@@ -391,10 +391,13 @@ serve(async (req: Request) => {
   // ── CONTENDIBILI — padova_contendibili_by_zone_v, filtro DB ───────
   if (includeSet.has("contendibili")) {
     await probeFreshnessByZone("padova_contendibili_by_zone_v", false, false);
-    const { data, error } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let contQ: any = supabase
       .from("padova_contendibili_by_zone_v")
       .select("id, chiave_match, n_agenzie, agency_count_distinct, agencies_normalized, agenzie, portals_seen, fonti, confidenza, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, created_at, commercial_zone_slug")
-      .eq("commercial_zone_slug", assignedSlug)
+      .eq("commercial_zone_slug", assignedSlug);
+    if (quartiereFilter) contQ = contQ.eq("quartiere", quartiereFilter);
+    const { data, error } = await contQ
       .or("agency_count_distinct.gte.2,and(agency_count_distinct.is.null,n_agenzie.gte.2)")
       .order("created_at", { ascending: false, nullsFirst: false })
       .order("agency_count_distinct", { ascending: false })
