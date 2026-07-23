@@ -31,69 +31,15 @@ import {
 } from "../_shared/padovaZoneResolver.ts";
 import { isAuctionRecord } from "../_shared/auctionExclusion.ts";
 import { isCivikoCommercialZoneSlug } from "../_shared/civikoCommercialZoneContract.ts";
+import { commercialZoneForQuartiere } from "../_shared/civikoCommercialZoneByQuartiere.ts";
+import { corsHeaders as buildCorsHeaders, handleOptions, requireSecret, makeDebugId } from "../_shared/http.ts";
 
 const SCHEMA_VERSION = "civiko_signals_feed_v1";
-const MAX_SKEW_MS = 5 * 60 * 1000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Città/provincia FORZATE server-side. Il client non può alterarle.
 const FORCED_CITY = "Padova";
 const FORCED_PROVINCE = "PD";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-source-app, x-tenant-id, x-timestamp, x-core-signature",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-function jsonResp(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      ...corsHeaders,
-      "Content-Type": "application/json",
-      "X-Core-Function": "civiko-one-signals-feed",
-      "X-Core-Contract": SCHEMA_VERSION,
-    },
-  });
-}
-
-function err(code: string, message: string, status: number, debugId: string) {
-  return jsonResp(
-    { ok: false, schema_version: SCHEMA_VERSION, error: { code, message }, debug_id: debugId },
-    status,
-  );
-}
-
-function constantTimeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
-
-async function hmacHex(secret: string, payload: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
-  return Array.from(new Uint8Array(sig))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function parseTimestamp(v: string | null): number | null {
-  if (!v) return null;
-  const n = Number(v);
-  if (Number.isFinite(n) && n > 0) return n < 1e12 ? n * 1000 : n;
-  const t = Date.parse(v);
-  return Number.isFinite(t) ? t : null;
-}
 
 // ─────────────────────────────────────────────────────────────
 // Price normalization
@@ -265,69 +211,75 @@ function dedupeItems(items: FeedItem[]): { kept: FeedItem[]; removed: number } {
 }
 
 serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  const debugId = crypto.randomUUID();
+  // 1. OPTIONS con CORS.
+  if (req.method === "OPTIONS") return handleOptions(req);
 
-  if (req.method !== "POST") return err("METHOD_NOT_ALLOWED", "Use POST", 405, debugId);
+  // 2. debug id.
+  const debugId = makeDebugId();
 
-  // ── Security gate: HMAC (invariato) ───────────────────────
-  const sourceApp = req.headers.get("x-source-app");
-  const tenantId = req.headers.get("x-tenant-id");
-  const tsHeader = req.headers.get("x-timestamp");
-  const signature = req.headers.get("x-core-signature");
-  const rawBody = await req.text();
+  const cors = buildCorsHeaders(req);
+  const jsonResp = (body: unknown, status = 200): Response =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: {
+        ...cors,
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Core-Function": "civiko-one-signals-feed",
+        "X-Core-Contract": SCHEMA_VERSION,
+        "x-debug-id": debugId,
+      },
+    });
+  const err = (code: string, message: string, status: number) =>
+    jsonResp({ ok: false, schema_version: SCHEMA_VERSION, error: { code, message }, debug_id: debugId }, status);
 
-  const secret = Deno.env.get("CORE_SHARED_SECRET") ?? "";
-  if (!secret) return err("CONFIG_MISSING", "Server secret missing", 500, debugId);
-
-  if (!sourceApp) return err("MISSING_SOURCE_APP", "x-source-app required", 401, debugId);
-  if (sourceApp !== "civiko-one") return err("INVALID_SOURCE_APP", "x-source-app must be civiko-one", 403, debugId);
-  if (!tenantId) return err("MISSING_TENANT", "x-tenant-id required", 401, debugId);
-  if (!tsHeader) return err("MISSING_TIMESTAMP", "x-timestamp required", 401, debugId);
-  if (!signature) return err("MISSING_SIGNATURE", "x-core-signature required", 401, debugId);
-
-  const tsMs = parseTimestamp(tsHeader);
-  if (tsMs === null) return err("INVALID_TIMESTAMP", "x-timestamp not parseable", 401, debugId);
-  if (Math.abs(Date.now() - tsMs) > MAX_SKEW_MS) {
-    return err("TIMESTAMP_SKEW", "x-timestamp too old or in the future", 401, debugId);
+  if (req.method !== "POST" && req.method !== "GET") {
+    return err("METHOD_NOT_ALLOWED", "Use POST", 405);
   }
 
-  const expected = await hmacHex(secret, `${tsHeader}${tenantId}${rawBody}`);
-  if (!constantTimeEqual(expected, signature.toLowerCase())) {
-    console.warn(`[civiko-one-signals-feed] bad signature tenant=${tenantId} debug=${debugId}`);
-    return err("INVALID_SIGNATURE", "HMAC signature mismatch", 403, debugId);
-  }
+  // 3. requireSecret PRIMA di body parsing, client Supabase o query.
+  const secretFail = requireSecret(req, debugId);
+  if (secretFail) return secretFail;
 
-  // ── Workspace identity (tenantId è l'unica fonte) ─────────
-  const workspaceId = tenantId.trim();
+  // 4. x-workspace-id obbligatorio, UUID valido. Unica fonte di identità.
+  const workspaceId = (req.headers.get("x-workspace-id") ?? "").trim();
   if (!UUID_RE.test(workspaceId)) {
-    return err("INVALID_WORKSPACE", "x-tenant-id must be a valid workspace UUID", 401, debugId);
+    return err("WORKSPACE_REQUIRED", "Missing or invalid x-workspace-id", 401);
   }
 
-  // ── Parse body (city/province/workspace CLIENT-SIDE IGNORATI) ──
+  // Parse body/query DOPO il gate. commercial_zone_slug e workspace_id
+  // eventualmente presenti sono IGNORATI. Il client non può scegliere zona.
   let body: Record<string, unknown> = {};
-  try { body = rawBody ? JSON.parse(rawBody) : {}; }
-  catch { return err("INVALID_JSON", "Body is not valid JSON", 400, debugId); }
+  if (req.method === "POST") {
+    try { body = await req.json(); } catch { body = {}; }
+    if (!body || typeof body !== "object") body = {};
+  }
+  const url = new URL(req.url);
+  const qp = url.searchParams;
+  const pickStr = (k: string): string | undefined => {
+    const v = qp.get(k) ?? (body as Record<string, unknown>)[k];
+    return typeof v === "string" && v.length > 0 ? v : undefined;
+  };
 
-  // Città/provincia sempre forzate. I campi city, province, workspace identity
-  // e slug commerciale eventualmente presenti nel body vengono ignorati.
   const city = FORCED_CITY;
   const province = FORCED_PROVINCE;
-  const zoneMode = (typeof body.zone_mode === "string" && body.zone_mode) || "omi_microzone";
-  const limit = Math.max(1, Math.min(Number(body.limit) || 250, 1000));
-  const include = Array.isArray(body.include) && body.include.length
-    ? (body.include as string[]).filter((s) => typeof s === "string")
-    : ["contendibili", "ribassi", "privati", "off_market"];
+  const zoneMode = pickStr("zone_mode") || "omi_microzone";
+  const limitRaw = Number(qp.get("limit") ?? (body as Record<string, unknown>).limit) || 250;
+  const limit = Math.max(1, Math.min(limitRaw, 1000));
+  const includeRaw = Array.isArray((body as Record<string, unknown>).include)
+    ? ((body as Record<string, unknown>).include as unknown[]).filter((s) => typeof s === "string") as string[]
+    : (qp.get("include") ? qp.get("include")!.split(",") : ["contendibili", "ribassi", "privati", "off_market"]);
+  const include = includeRaw.length ? includeRaw : ["contendibili", "ribassi", "privati", "off_market"];
   const includeSet = new Set(include);
+  const quartiereRaw = pickStr("quartiere");
 
-  // ── Supabase client (service_role) ────────────────────────
+  // 5. Supabase service-role client.
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
 
-  // ── Server-side zone resolution (identica a padova-contendibili-list) ─
+  // Risoluzione server-side della zona (occupata / in_trial valido).
   const { data: zonesRows, error: zoneErr } = await supabase
     .from("civiko_commercial_zones")
     .select("slug,status,occupied_agency_id,trial_agency_id,trial_reserved_until")
@@ -337,7 +289,7 @@ serve(async (req: Request) => {
     );
   if (zoneErr) {
     console.error(`[civiko-one-signals-feed] ${debugId} zone lookup`, zoneErr.message);
-    return err("DB_ERROR", "zone lookup failed", 500, debugId);
+    return err("DB_ERROR", "zone lookup failed", 500);
   }
   const now = Date.now();
   const valid = (zonesRows ?? []).filter((z: Record<string, unknown>) => {
@@ -350,16 +302,23 @@ serve(async (req: Request) => {
     ) return true;
     return false;
   });
-  if (valid.length === 0) {
-    return err("NO_ZONE_ASSIGNED", "No active zone for workspace", 403, debugId);
-  }
-  if (valid.length > 1) {
-    return err("MULTIPLE_ZONES_ASSIGNED", "Ambiguous zone assignment", 403, debugId);
-  }
+  if (valid.length === 0) return err("NO_ZONE_ASSIGNED", "No active zone for workspace", 403);
+  if (valid.length > 1) return err("MULTIPLE_ZONES_ASSIGNED", "Ambiguous zone assignment", 403);
   const assignedSlug = String(valid[0].slug ?? "");
   if (!isCivikoCommercialZoneSlug(assignedSlug)) {
-    return err("SLUG_OUT_OF_CONTRACT", "Assigned slug not in contract", 403, debugId);
+    return err("SLUG_OUT_OF_CONTRACT", "Assigned slug not in contract", 403);
   }
+
+  // Optional quartiere filter: consentito solo se risolve alla stessa zona.
+  let quartiereFilter: string | undefined;
+  if (quartiereRaw) {
+    const resolved = commercialZoneForQuartiere(quartiereRaw);
+    if (!resolved || resolved !== assignedSlug) {
+      return err("QUARTIERE_OUT_OF_ZONE", "Quartiere not in assigned zone", 403);
+    }
+    quartiereFilter = quartiereRaw;
+  }
+
 
   // slug→name lookup — caricata UNA sola volta da public.civiko_commercial_zones.
   // La risoluzione dello slug per singolo item è per-item (vedi loop finale).
@@ -432,10 +391,13 @@ serve(async (req: Request) => {
   // ── CONTENDIBILI — padova_contendibili_by_zone_v, filtro DB ───────
   if (includeSet.has("contendibili")) {
     await probeFreshnessByZone("padova_contendibili_by_zone_v", false, false);
-    const { data, error } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let contQ: any = supabase
       .from("padova_contendibili_by_zone_v")
       .select("id, chiave_match, n_agenzie, agency_count_distinct, agencies_normalized, agenzie, portals_seen, fonti, confidenza, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, created_at, commercial_zone_slug")
-      .eq("commercial_zone_slug", assignedSlug)
+      .eq("commercial_zone_slug", assignedSlug);
+    if (quartiereFilter) contQ = contQ.eq("quartiere", quartiereFilter);
+    const { data, error } = await contQ
       .or("agency_count_distinct.gte.2,and(agency_count_distinct.is.null,n_agenzie.gte.2)")
       .order("created_at", { ascending: false, nullsFirst: false })
       .order("agency_count_distinct", { ascending: false })
@@ -491,10 +453,13 @@ serve(async (req: Request) => {
   // ── MULTI-PORTALE — padova_multi_portale_by_zone_v, filtro DB ────
   if (includeSet.has("contendibili") || includeSet.has("multi_portale")) {
     await probeFreshnessByZone("padova_multi_portale_by_zone_v", false, false);
-    const { data, error } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let mpQ: any = supabase
       .from("padova_multi_portale_by_zone_v")
       .select("id, chiave_match, portal_count, portals_seen, agency_count_distinct, agencies_normalized, agenzie, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, n_annunci, created_at, commercial_zone_slug")
-      .eq("commercial_zone_slug", assignedSlug)
+      .eq("commercial_zone_slug", assignedSlug);
+    if (quartiereFilter) mpQ = mpQ.eq("quartiere", quartiereFilter);
+    const { data, error } = await mpQ
       .gte("portal_count", 2)
       .order("created_at", { ascending: false, nullsFirst: false })
       .order("portal_count", { ascending: false })
@@ -577,6 +542,10 @@ serve(async (req: Request) => {
         // Difesa in profondità: la RPC filtra già, ma verifichiamo lo slug.
         const slug = (row.commercial_zone_slug as string) || "";
         if (slug !== assignedSlug) { ribassiDiag.ribassi_unzoned_excluded++; continue; }
+        if (quartiereFilter) {
+          const rq = typeof row.quartiere === "string" ? row.quartiere : "";
+          if (rq !== quartiereFilter) continue;
+        }
         if (isAuctionRecord(row)) { ribassiDiag.ribassi_auction_excluded++; continue; }
         const url = String(row.url || "");
         if (!url.startsWith("https://")) { ribassiDiag.ribassi_invalid_price_excluded++; continue; }
@@ -628,10 +597,13 @@ serve(async (req: Request) => {
   // ── PRIVATI — padova_collect_v2_items_by_zone_v, filtro DB ───────
   if (includeSet.has("privati")) {
     await probeFreshnessByZone("padova_collect_v2_items_by_zone_v", false, false);
-    const { data, error } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let prvQ: any = supabase
       .from("padova_collect_v2_items_by_zone_v")
       .select("id, portal, listing_id, url, raw_address, citta, cap, lat, lng, omi_zone, quartiere, prezzo, mq, locali, agency, contendibile, created_at, processed_at, commercial_zone_slug")
-      .eq("commercial_zone_slug", assignedSlug)
+      .eq("commercial_zone_slug", assignedSlug);
+    if (quartiereFilter) prvQ = prvQ.eq("quartiere", quartiereFilter);
+    const { data, error } = await prvQ
       .order("processed_at", { ascending: false, nullsFirst: false })
       .limit(limit * 2);
     if (error) {
@@ -719,50 +691,22 @@ serve(async (req: Request) => {
     console.error(`[civiko-one-signals-feed] quartiere_zona_map display fallback error:`, (e as Error)?.message ?? e);
   }
 
-  // Risoluzione PER-ITEM di commercial_zone_slug e display_zone.
-  // Per ogni item chiamiamo public.civiko_resolve_commercial_zone_slug(quartiere)
-  // usando il quartiere di QUEL item come input. display_zone = nome canonico
-  // ricavato dalla mappa slug→nome precaricata; "Altre zone" solo se lo slug
-  // risolto è null o non presente nella mappa. Non condividiamo mai un valore
-  // tra item.
-  let distinctResolvedSlugs = 0;
-  let fallbackAltreZone = 0;
-  {
-    const seenSlugs = new Set<string>();
-    for (const it of rawItems) {
-      const quartiere = itemQuartiereBySourceId.get(it.source_id) ?? null;
-      let resolvedSlug: string | null = null;
-      if (quartiere && quartiere.trim() !== "") {
-        try {
-          const { data: r } = await supabase.rpc(
-            "civiko_resolve_commercial_zone_slug",
-            { p_quartiere: quartiere },
-          );
-          if (typeof r === "string" && r.trim() !== "") resolvedSlug = r;
-        } catch (e) {
-          console.error(
-            `[civiko-one-signals-feed] ${debugId} resolve slug error for source_id=${it.source_id}:`,
-            (e as Error)?.message ?? e,
-          );
-        }
-      }
-      const nome = resolvedSlug ? slugToName.get(resolvedSlug) : undefined;
-      if (resolvedSlug && nome) {
-        it.commercial_zone_slug = resolvedSlug;
-        it.display_zone = nome;
-        seenSlugs.add(resolvedSlug);
-      } else {
-        delete it.commercial_zone_slug;
-        it.display_zone = "Altre zone";
-        fallbackAltreZone++;
-      }
-    }
-    distinctResolvedSlugs = seenSlugs.size;
-    console.log(
-      `[civiko-one-signals-feed] ${debugId} zone_resolution items=${rawItems.length} ` +
-      `distinct_slugs=${distinctResolvedSlugs} altre_zone=${fallbackAltreZone}`,
-    );
+  // Slug commerciale e display_zone: forzati alla zona autorizzata server-side.
+  // Tutti gli item provengono già da viste filtrate DB-side su assignedSlug,
+  // quindi non esiste alcun caso in cui un item appartenga ad un'altra zona.
+  // Nessuna chiamata per-item alla RPC — nessun bypass possibile via quartiere.
+  const assignedName = slugToName.get(assignedSlug) || assignedSlug;
+  for (const it of rawItems) {
+    it.commercial_zone_slug = assignedSlug;
+    it.display_zone = assignedName;
   }
+  const distinctResolvedSlugs = rawItems.length > 0 ? 1 : 0;
+  const fallbackAltreZone = 0;
+  console.log(
+    `[civiko-one-signals-feed] ${debugId} zone_resolution items=${rawItems.length} ` +
+    `distinct_slugs=${distinctResolvedSlugs} altre_zone=${fallbackAltreZone} assigned=${assignedSlug}`,
+  );
+
 
   const preAssertCount = rawItems.length;
   const zoneAsserted = rawItems;
@@ -880,6 +824,7 @@ serve(async (req: Request) => {
   return jsonResp({
     ok: true,
     schema_version: SCHEMA_VERSION,
+    assigned_zone: assignedSlug,
     scope: { city, province, zone_mode: zoneMode, commercial_zone_slug: assignedSlug },
     generated_at: generatedAt,
     summary,
@@ -920,6 +865,8 @@ serve(async (req: Request) => {
       ribassi: ribassiDiag,
       offmarket: offmarketDiag,
       commercial_zone_scope: "db_side_zone_filter_only",
+      quartiere_filter: quartiereFilter ?? null,
+      distinct_resolved_slugs: distinctResolvedSlugs,
       security_gate: "ok",
       debug_id: debugId,
     },
