@@ -124,18 +124,26 @@ function buildItem(
     signal_type: SignalType;
     source_id: string;
     price_raw?: unknown;
+    price_optional?: boolean; // off_market: NULL price is legitimate, no invalid_price flag
+    price_label_override?: string;
     lat_raw?: unknown;
     lng_raw?: unknown;
   },
 ): FeedItem {
   const zone_code = partial.zone_code && partial.zone_code.trim() ? partial.zone_code : UNRESOLVED_OMI_CODE;
   const zone_label = partial.zone_label && partial.zone_label.trim() ? partial.zone_label : UNRESOLVED_OMI_LABEL;
+  const rawHasPrice = partial.price_raw !== undefined && partial.price_raw !== null && partial.price_raw !== "";
   const norm = normalizePrice(partial.price_raw ?? partial.price);
   const flags: string[] = [];
-  if (norm.invalid) flags.push("invalid_price");
+  const priceOptionalAndMissing = partial.price_optional === true && !rawHasPrice;
+  if (norm.invalid && !priceOptionalAndMissing) flags.push("invalid_price");
   if (zone_code === UNRESOLVED_OMI_CODE) flags.push("unresolved_zone");
   const qualityScore = Math.max(0, 100 - flags.length * 30);
   const needsReviewBase = flags.includes("invalid_price") || partial.needs_review === true;
+  const priceLabel = priceOptionalAndMissing
+    ? (partial.price_label_override || "Prezzo non applicabile")
+    : norm.label;
+  const priceValue = priceOptionalAndMissing ? null : norm.price;
   const item: FeedItem = {
     source_id: partial.source_id,
     signal_type: partial.signal_type,
@@ -145,8 +153,8 @@ function buildItem(
     zone_code,
     zone_label,
     display_zone: partial.display_zone?.trim() || zone_label,
-    price: norm.price,
-    price_label: norm.label,
+    price: priceValue,
+    price_label: priceLabel,
     url: partial.url || "",
     status: partial.status || "active",
     score: Number.isFinite(partial.score as number) ? Number(partial.score) : 0,
@@ -372,21 +380,30 @@ serve(async (req: Request) => {
   };
 
   // Freshness probes — SEMPRE con filtro zona lato DB.
-  const sourceFreshness: Record<string, { max_created_at: string | null; max_updated_at: string | null; max_last_seen_at: string | null; rows_last_24h: number | null }> = {};
-  async function probeFreshnessByZone(
-    table: string,
-    hasUpdated: boolean,
-    hasLastSeen: boolean,
-  ) {
+  // Column set configurable: padova_listings has no created_at (uses imported_at/last_seen_at).
+  const sourceFreshness: Record<string, { max_created_at: string | null; max_updated_at: string | null; max_last_seen_at: string | null; max_imported_at: string | null; rows_last_24h: number | null }> = {};
+  interface FreshnessCols {
+    hasCreated?: boolean;
+    hasUpdated?: boolean;
+    hasLastSeen?: boolean;
+    hasImported?: boolean;
+    orderBy?: "created_at" | "last_seen_at" | "imported_at" | "updated_at";
+  }
+  async function probeFreshnessByZone(table: string, cols: FreshnessCols = {}) {
+    const hasCreated = cols.hasCreated !== false;
+    const orderBy = cols.orderBy || (hasCreated ? "created_at" : (cols.hasLastSeen ? "last_seen_at" : (cols.hasImported ? "imported_at" : "updated_at")));
     try {
-      const cols = ["created_at"];
-      if (hasUpdated) cols.push("updated_at");
-      if (hasLastSeen) cols.push("last_seen_at");
+      const selCols: string[] = [];
+      if (hasCreated) selCols.push("created_at");
+      if (cols.hasUpdated) selCols.push("updated_at");
+      if (cols.hasLastSeen) selCols.push("last_seen_at");
+      if (cols.hasImported) selCols.push("imported_at");
+      if (selCols.length === 0) selCols.push(orderBy);
       const { data } = await supabase
         .from(table)
-        .select(cols.join(","))
+        .select(selCols.join(","))
         .eq("commercial_zone_slug", assignedSlug)
-        .order("created_at", { ascending: false })
+        .order(orderBy, { ascending: false })
         .limit(1);
       const top = (data && data[0]) as Record<string, unknown> | undefined;
       const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
@@ -394,15 +411,16 @@ serve(async (req: Request) => {
         .from(table)
         .select("id", { count: "exact", head: true })
         .eq("commercial_zone_slug", assignedSlug)
-        .gte("created_at", since);
+        .gte(orderBy, since);
       sourceFreshness[table] = {
-        max_created_at: (top?.created_at as string) ?? null,
-        max_updated_at: hasUpdated ? (top?.updated_at as string) ?? null : null,
-        max_last_seen_at: hasLastSeen ? (top?.last_seen_at as string) ?? null : null,
+        max_created_at: hasCreated ? ((top?.created_at as string) ?? null) : null,
+        max_updated_at: cols.hasUpdated ? ((top?.updated_at as string) ?? null) : null,
+        max_last_seen_at: cols.hasLastSeen ? ((top?.last_seen_at as string) ?? null) : null,
+        max_imported_at: cols.hasImported ? ((top?.imported_at as string) ?? null) : null,
         rows_last_24h: count ?? null,
       };
     } catch {
-      sourceFreshness[table] = { max_created_at: null, max_updated_at: null, max_last_seen_at: null, rows_last_24h: null };
+      sourceFreshness[table] = { max_created_at: null, max_updated_at: null, max_last_seen_at: null, max_imported_at: null, rows_last_24h: null };
     }
   }
 
