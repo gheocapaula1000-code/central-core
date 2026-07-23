@@ -6,6 +6,8 @@ const WRAPPER = readFileSync("supabase/functions/cron-apify-subito-nightly/index
 const COLLECT = readFileSync("supabase/functions/padova-apify-subito-collect/index.ts", "utf8");
 const MIGRATION_PATH = "docs/pending-migrations/20260723200000_cron_subito_weekly_job_secret_header.sql";
 const MIGRATION = readFileSync(MIGRATION_PATH, "utf8");
+const COMPENSATING_PATH = "docs/pending-migrations/20260723210000_cron_subito_weekly_restore_body_apikey.sql";
+const COMPENSATING = readFileSync(COMPENSATING_PATH, "utf8");
 
 describe("cron-apify-subito-nightly wrapper gate", () => {
   it("requires x-job-secret header matching CENTRAL_CORE_JOB_SECRET before fetch", () => {
