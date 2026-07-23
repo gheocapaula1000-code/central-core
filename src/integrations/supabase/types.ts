@@ -5917,6 +5917,36 @@ export type Database = {
           },
         ]
       }
+      padova_listings_subito_alias_backfill_20260723: {
+        Row: {
+          captured_at: string
+          commercial_zone_slug_before: string | null
+          id: number
+          matched_alias: string
+          quartiere_before: string | null
+          staging_quartiere: string | null
+          url: string
+        }
+        Insert: {
+          captured_at?: string
+          commercial_zone_slug_before?: string | null
+          id: number
+          matched_alias: string
+          quartiere_before?: string | null
+          staging_quartiere?: string | null
+          url: string
+        }
+        Update: {
+          captured_at?: string
+          commercial_zone_slug_before?: string | null
+          id?: number
+          matched_alias?: string
+          quartiere_before?: string | null
+          staging_quartiere?: string | null
+          url?: string
+        }
+        Relationships: []
+      }
       padova_multi_portale: {
         Row: {
           agencies_normalized: string[]
