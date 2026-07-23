@@ -5911,6 +5911,36 @@ export type Database = {
         }
         Relationships: []
       }
+      padova_listings_immobiliare_quartiere_backfill_20260723: {
+        Row: {
+          backfilled_at: string
+          commercial_zone_slug_before: string | null
+          listing_id: number
+          portal_id: string
+          quartiere_after: string
+          quartiere_before: string | null
+          url: string
+        }
+        Insert: {
+          backfilled_at?: string
+          commercial_zone_slug_before?: string | null
+          listing_id: number
+          portal_id: string
+          quartiere_after: string
+          quartiere_before?: string | null
+          url: string
+        }
+        Update: {
+          backfilled_at?: string
+          commercial_zone_slug_before?: string | null
+          listing_id?: number
+          portal_id?: string
+          quartiere_after?: string
+          quartiere_before?: string | null
+          url?: string
+        }
+        Relationships: []
+      }
       padova_listings_price_history: {
         Row: {
           created_at: string
