@@ -329,6 +329,228 @@ export type Database = {
         }
         Relationships: []
       }
+      _bkp_20260724020000_cont: {
+        Row: {
+          agencies_normalized: string[] | null
+          agency_count_distinct: number | null
+          agency_count_raw: number | null
+          agenzie: string[] | null
+          bagni: number | null
+          cambio_agenzia: boolean | null
+          cambio_agenzia_a: string | null
+          cambio_agenzia_da: string | null
+          cambio_agenzia_data: string | null
+          chiave_match: string | null
+          confidenza: string | null
+          created_at: string | null
+          data_primo_annuncio: string | null
+          differenza_zona_pct: number | null
+          fonti: string[] | null
+          giorni_fermo: number | null
+          giorni_sul_mercato: number | null
+          id: number | null
+          is_ripubblicato: boolean | null
+          last_seen_at: string | null
+          lat: number | null
+          lng: number | null
+          locali: number | null
+          mq: number | null
+          n_agenzie: number | null
+          n_annunci: number | null
+          n_portali: number | null
+          n_ribassi: number | null
+          portals_seen: string[] | null
+          prezzo_immobile_eur_mq: number | null
+          prezzo_max: number | null
+          prezzo_medio_zona_eur_mq: number | null
+          prezzo_min: number | null
+          quartiere: string | null
+          ribasso_pct: number | null
+          score_pressione: number | null
+          updated_at: string | null
+          urls: string[] | null
+        }
+        Insert: {
+          agencies_normalized?: string[] | null
+          agency_count_distinct?: number | null
+          agency_count_raw?: number | null
+          agenzie?: string[] | null
+          bagni?: number | null
+          cambio_agenzia?: boolean | null
+          cambio_agenzia_a?: string | null
+          cambio_agenzia_da?: string | null
+          cambio_agenzia_data?: string | null
+          chiave_match?: string | null
+          confidenza?: string | null
+          created_at?: string | null
+          data_primo_annuncio?: string | null
+          differenza_zona_pct?: number | null
+          fonti?: string[] | null
+          giorni_fermo?: number | null
+          giorni_sul_mercato?: number | null
+          id?: number | null
+          is_ripubblicato?: boolean | null
+          last_seen_at?: string | null
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          n_agenzie?: number | null
+          n_annunci?: number | null
+          n_portali?: number | null
+          n_ribassi?: number | null
+          portals_seen?: string[] | null
+          prezzo_immobile_eur_mq?: number | null
+          prezzo_max?: number | null
+          prezzo_medio_zona_eur_mq?: number | null
+          prezzo_min?: number | null
+          quartiere?: string | null
+          ribasso_pct?: number | null
+          score_pressione?: number | null
+          updated_at?: string | null
+          urls?: string[] | null
+        }
+        Update: {
+          agencies_normalized?: string[] | null
+          agency_count_distinct?: number | null
+          agency_count_raw?: number | null
+          agenzie?: string[] | null
+          bagni?: number | null
+          cambio_agenzia?: boolean | null
+          cambio_agenzia_a?: string | null
+          cambio_agenzia_da?: string | null
+          cambio_agenzia_data?: string | null
+          chiave_match?: string | null
+          confidenza?: string | null
+          created_at?: string | null
+          data_primo_annuncio?: string | null
+          differenza_zona_pct?: number | null
+          fonti?: string[] | null
+          giorni_fermo?: number | null
+          giorni_sul_mercato?: number | null
+          id?: number | null
+          is_ripubblicato?: boolean | null
+          last_seen_at?: string | null
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          n_agenzie?: number | null
+          n_annunci?: number | null
+          n_portali?: number | null
+          n_ribassi?: number | null
+          portals_seen?: string[] | null
+          prezzo_immobile_eur_mq?: number | null
+          prezzo_max?: number | null
+          prezzo_medio_zona_eur_mq?: number | null
+          prezzo_min?: number | null
+          quartiere?: string | null
+          ribasso_pct?: number | null
+          score_pressione?: number | null
+          updated_at?: string | null
+          urls?: string[] | null
+        }
+        Relationships: []
+      }
+      _bkp_20260724020000_cont_ids: {
+        Row: {
+          chiave_match: string | null
+          id: number | null
+        }
+        Insert: {
+          chiave_match?: string | null
+          id?: number | null
+        }
+        Update: {
+          chiave_match?: string | null
+          id?: number | null
+        }
+        Relationships: []
+      }
+      _bkp_20260724020000_mp: {
+        Row: {
+          agencies_normalized: string[] | null
+          agency_count_distinct: number | null
+          agenzie: string[] | null
+          bagni: number | null
+          chiave_match: string | null
+          created_at: string | null
+          id: number | null
+          last_seen_at: string | null
+          lat: number | null
+          lng: number | null
+          locali: number | null
+          mq: number | null
+          n_annunci: number | null
+          portal_count: number | null
+          portals_seen: string[] | null
+          prezzo_max: number | null
+          prezzo_min: number | null
+          quartiere: string | null
+          updated_at: string | null
+          urls: string[] | null
+        }
+        Insert: {
+          agencies_normalized?: string[] | null
+          agency_count_distinct?: number | null
+          agenzie?: string[] | null
+          bagni?: number | null
+          chiave_match?: string | null
+          created_at?: string | null
+          id?: number | null
+          last_seen_at?: string | null
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          n_annunci?: number | null
+          portal_count?: number | null
+          portals_seen?: string[] | null
+          prezzo_max?: number | null
+          prezzo_min?: number | null
+          quartiere?: string | null
+          updated_at?: string | null
+          urls?: string[] | null
+        }
+        Update: {
+          agencies_normalized?: string[] | null
+          agency_count_distinct?: number | null
+          agenzie?: string[] | null
+          bagni?: number | null
+          chiave_match?: string | null
+          created_at?: string | null
+          id?: number | null
+          last_seen_at?: string | null
+          lat?: number | null
+          lng?: number | null
+          locali?: number | null
+          mq?: number | null
+          n_annunci?: number | null
+          portal_count?: number | null
+          portals_seen?: string[] | null
+          prezzo_max?: number | null
+          prezzo_min?: number | null
+          quartiere?: string | null
+          updated_at?: string | null
+          urls?: string[] | null
+        }
+        Relationships: []
+      }
+      _bkp_20260724020000_mp_ids: {
+        Row: {
+          chiave_match: string | null
+          id: number | null
+        }
+        Insert: {
+          chiave_match?: string | null
+          id?: number | null
+        }
+        Update: {
+          chiave_match?: string | null
+          id?: number | null
+        }
+        Relationships: []
+      }
       agencies: {
         Row: {
           billing_email: string | null
@@ -5720,6 +5942,7 @@ export type Database = {
           cambio_agenzia_da: string | null
           cambio_agenzia_data: string | null
           chiave_match: string
+          commercial_zone_slug: string
           confidenza: string
           created_at: string
           data_primo_annuncio: string | null
@@ -5760,6 +5983,7 @@ export type Database = {
           cambio_agenzia_da?: string | null
           cambio_agenzia_data?: string | null
           chiave_match: string
+          commercial_zone_slug: string
           confidenza: string
           created_at?: string
           data_primo_annuncio?: string | null
@@ -5800,6 +6024,7 @@ export type Database = {
           cambio_agenzia_da?: string | null
           cambio_agenzia_data?: string | null
           chiave_match?: string
+          commercial_zone_slug?: string
           confidenza?: string
           created_at?: string
           data_primo_annuncio?: string | null
@@ -5829,7 +6054,15 @@ export type Database = {
           updated_at?: string
           urls?: string[]
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "padova_contendibili_commercial_zone_slug_fkey"
+            columns: ["commercial_zone_slug"]
+            isOneToOne: false
+            referencedRelation: "civiko_commercial_zones"
+            referencedColumns: ["slug"]
+          },
+        ]
       }
       padova_contendibili_quarantena: {
         Row: {
@@ -6341,6 +6574,7 @@ export type Database = {
           agenzie: string[]
           bagni: number | null
           chiave_match: string | null
+          commercial_zone_slug: string
           created_at: string
           id: number
           last_seen_at: string | null
@@ -6363,6 +6597,7 @@ export type Database = {
           agenzie?: string[]
           bagni?: number | null
           chiave_match?: string | null
+          commercial_zone_slug: string
           created_at?: string
           id?: number
           last_seen_at?: string | null
@@ -6385,6 +6620,7 @@ export type Database = {
           agenzie?: string[]
           bagni?: number | null
           chiave_match?: string | null
+          commercial_zone_slug?: string
           created_at?: string
           id?: number
           last_seen_at?: string | null
@@ -6401,7 +6637,15 @@ export type Database = {
           updated_at?: string
           urls?: string[]
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "padova_multi_portale_commercial_zone_slug_fkey"
+            columns: ["commercial_zone_slug"]
+            isOneToOne: false
+            referencedRelation: "civiko_commercial_zones"
+            referencedColumns: ["slug"]
+          },
+        ]
       }
       padova_subito_staging: {
         Row: {
@@ -8297,7 +8541,7 @@ export type Database = {
           cambio_agenzia_da?: string | null
           cambio_agenzia_data?: string | null
           chiave_match?: string | null
-          commercial_zone_slug?: never
+          commercial_zone_slug?: string | null
           confidenza?: string | null
           created_at?: string | null
           data_primo_annuncio?: string | null
@@ -8338,7 +8582,7 @@ export type Database = {
           cambio_agenzia_da?: string | null
           cambio_agenzia_data?: string | null
           chiave_match?: string | null
-          commercial_zone_slug?: never
+          commercial_zone_slug?: string | null
           confidenza?: string | null
           created_at?: string | null
           data_primo_annuncio?: string | null
@@ -8368,7 +8612,15 @@ export type Database = {
           updated_at?: string | null
           urls?: string[] | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "padova_contendibili_commercial_zone_slug_fkey"
+            columns: ["commercial_zone_slug"]
+            isOneToOne: false
+            referencedRelation: "civiko_commercial_zones"
+            referencedColumns: ["slug"]
+          },
+        ]
       }
       padova_contendibili_reachability_v: {
         Row: {
@@ -8427,7 +8679,7 @@ export type Database = {
           agenzie?: string[] | null
           bagni?: number | null
           chiave_match?: string | null
-          commercial_zone_slug?: never
+          commercial_zone_slug?: string | null
           created_at?: string | null
           id?: number | null
           last_seen_at?: string | null
@@ -8450,7 +8702,7 @@ export type Database = {
           agenzie?: string[] | null
           bagni?: number | null
           chiave_match?: string | null
-          commercial_zone_slug?: never
+          commercial_zone_slug?: string | null
           created_at?: string | null
           id?: number | null
           last_seen_at?: string | null
@@ -8467,7 +8719,15 @@ export type Database = {
           updated_at?: string | null
           urls?: string[] | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "padova_multi_portale_commercial_zone_slug_fkey"
+            columns: ["commercial_zone_slug"]
+            isOneToOne: false
+            referencedRelation: "civiko_commercial_zones"
+            referencedColumns: ["slug"]
+          },
+        ]
       }
       padova_quartieri_stats_v: {
         Row: {
