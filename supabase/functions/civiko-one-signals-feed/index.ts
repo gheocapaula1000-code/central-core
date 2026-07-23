@@ -824,6 +824,7 @@ serve(async (req: Request) => {
   return jsonResp({
     ok: true,
     schema_version: SCHEMA_VERSION,
+    assigned_zone: assignedSlug,
     scope: { city, province, zone_mode: zoneMode, commercial_zone_slug: assignedSlug },
     generated_at: generatedAt,
     summary,
