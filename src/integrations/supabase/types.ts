@@ -5878,6 +5878,39 @@ export type Database = {
           },
         ]
       }
+      padova_listings_casa_quartiere_backfill_20260723: {
+        Row: {
+          captured_at: string | null
+          commercial_zone_slug_pre: string | null
+          fonte: string | null
+          id: number | null
+          quartiere_pre: string | null
+          quartiere_structured: string | null
+          resolved_slug: string | null
+          url: string | null
+        }
+        Insert: {
+          captured_at?: string | null
+          commercial_zone_slug_pre?: string | null
+          fonte?: string | null
+          id?: number | null
+          quartiere_pre?: string | null
+          quartiere_structured?: string | null
+          resolved_slug?: string | null
+          url?: string | null
+        }
+        Update: {
+          captured_at?: string | null
+          commercial_zone_slug_pre?: string | null
+          fonte?: string | null
+          id?: number | null
+          quartiere_pre?: string | null
+          quartiere_structured?: string | null
+          resolved_slug?: string | null
+          url?: string | null
+        }
+        Relationships: []
+      }
       padova_listings_price_history: {
         Row: {
           created_at: string
