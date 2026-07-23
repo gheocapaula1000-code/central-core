@@ -272,13 +272,20 @@ Deno.serve(async (req) => {
     } else {
       // Guard: dedup run in-flight (RUNNING nelle ultime 6h)
       const sixHoursAgo = new Date(Date.now() - 6 * 3600 * 1000).toISOString();
-      const { data: inflight } = await sb
+      const { data: inflight, error: inflightErr } = await sb
         .from("padova_apify_runs")
         .select("run_id, created_at")
         .eq("portal", "subito_collect")
         .eq("status", "RUNNING")
         .gte("created_at", sixHoursAgo)
         .limit(1);
+      if (inflightErr) {
+        // Fail-closed: non avviare né contabilizzare nulla se il check dedup fallisce.
+        return new Response(
+          JSON.stringify({ ok: false, code: "APIFY_DEDUP_CHECK_FAILED" }),
+          { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
       if (inflight && inflight.length > 0) {
         return new Response(
           JSON.stringify({

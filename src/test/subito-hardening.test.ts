@@ -6,6 +6,8 @@ const WRAPPER = readFileSync("supabase/functions/cron-apify-subito-nightly/index
 const COLLECT = readFileSync("supabase/functions/padova-apify-subito-collect/index.ts", "utf8");
 const MIGRATION_PATH = "docs/pending-migrations/20260723200000_cron_subito_weekly_job_secret_header.sql";
 const MIGRATION = readFileSync(MIGRATION_PATH, "utf8");
+const COMPENSATING_PATH = "docs/pending-migrations/20260723210000_cron_subito_weekly_restore_body_apikey.sql";
+const COMPENSATING = readFileSync(COMPENSATING_PATH, "utf8");
 
 describe("cron-apify-subito-nightly wrapper gate", () => {
   it("requires x-job-secret header matching CENTRAL_CORE_JOB_SECRET before fetch", () => {
@@ -43,6 +45,25 @@ describe("padova-apify-subito-collect hardening", () => {
     expect(COLLECT).toMatch(/subito_run_already_running/);
     expect(COLLECT).toMatch(/6 \* 3600 \* 1000/);
     expect(COLLECT).toMatch(/\.eq\("status", "RUNNING"\)/);
+  });
+
+  it("fail-closes with APIFY_DEDUP_CHECK_FAILED (503) when dedup query errors, before budget/startRun/insert", () => {
+    // destructure error from dedup query
+    expect(COLLECT).toMatch(/data:\s*inflight,\s*error:\s*inflightErr/);
+    // returns 503 with sanitized code
+    expect(COLLECT).toMatch(/APIFY_DEDUP_CHECK_FAILED/);
+    expect(COLLECT).toMatch(/status:\s*503/);
+    // ordering: dedup-error branch precedes budget/start/insert
+    const errIdx = COLLECT.indexOf("APIFY_DEDUP_CHECK_FAILED");
+    const budgetIdx = COLLECT.indexOf("canSpendApify(estCostUsd)");
+    const startIdx = COLLECT.indexOf("const started = await startRun(");
+    const recordIdx = COLLECT.indexOf("recordApifySpend(estCostUsd");
+    const insertIdx = COLLECT.indexOf('.from("padova_apify_runs").insert(');
+    expect(errIdx).toBeGreaterThan(0);
+    expect(budgetIdx).toBeGreaterThan(errIdx);
+    expect(startIdx).toBeGreaterThan(errIdx);
+    expect(recordIdx).toBeGreaterThan(errIdx);
+    expect(insertIdx).toBeGreaterThan(errIdx);
   });
 
   it("returns APIFY_BUDGET_BLOCKED without calling startRun when budget denied", () => {
@@ -95,5 +116,42 @@ describe("cron migration (pending)", () => {
   it("does not change URL or actor", () => {
     expect(MIGRATION).toMatch(/cron-apify-subito-nightly/);
     expect(MIGRATION).not.toMatch(/emastra/);
+  });
+});
+
+describe("cron compensating migration (restore body {} + apikey)", () => {
+  it("has expected SHA-256", () => {
+    const sha = createHash("sha256").update(readFileSync(COMPENSATING_PATH)).digest("hex");
+    expect(sha).toBe("4bae14b68ee28cd90d106c48fe2a90f482bd5a5597c16a3a74a96160ee58900f");
+  });
+
+  it("has exactly one BEGIN and one COMMIT", () => {
+    expect(COMPENSATING.match(/^BEGIN;/m)?.length).toBe(1);
+    expect(COMPENSATING.match(/^COMMIT;/m)?.length).toBe(1);
+  });
+
+  it("restores body '{}'::jsonb and keeps URL unchanged", () => {
+    expect(COMPENSATING).toMatch(/body\s*:=\s*'\{\}'::jsonb/);
+    expect(COMPENSATING).toMatch(/\/functions\/v1\/cron-apify-subito-nightly/);
+  });
+
+  it("preserves Content-Type, restores apikey, and reads x-job-secret from Vault", () => {
+    expect(COMPENSATING).toMatch(/'Content-Type',\s*'application\/json'/);
+    expect(COMPENSATING).toMatch(/'apikey',\s*%L/);
+    expect(COMPENSATING).toMatch(/'x-job-secret',\s*\(SELECT decrypted_secret FROM vault\.decrypted_secrets WHERE name = 'central_core_job_secret'/);
+  });
+
+  it("fails fast if central_core_job_secret is missing", () => {
+    expect(COMPENSATING).toMatch(/aborting cron update/);
+  });
+
+  it("targets exactly one job by jobname", () => {
+    expect(COMPENSATING).toMatch(/jobname = 'apify-subito-weekly'/);
+    expect(COMPENSATING).toMatch(/expected exactly 1 cron job/);
+  });
+
+  it("does not alter schedule or actor", () => {
+    expect(COMPENSATING).not.toMatch(/schedule\s*:=/i);
+    expect(COMPENSATING).not.toMatch(/emastra/);
   });
 });
