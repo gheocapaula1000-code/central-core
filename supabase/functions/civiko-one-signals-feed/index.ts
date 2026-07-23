@@ -529,7 +529,9 @@ serve(async (req: Request) => {
         const stableMp = String(row.chiave_match || `id:${row.id}`);
         rawItems.push(buildItem(assignedSlug, {
           source_id: `mp:${stableMp}`,
-          signal_type: "multi_portale",
+          // PWA-compat: multi-portale mappato come "contendibile"; l'origine
+          // resta tracciabile via evidence_type/label_pubblica/raw_ref.
+          signal_type: "contendibile",
           title: `${title} — ${nPortals} portali`,
           zone_code: z.code, zone_label: z.label,
 
