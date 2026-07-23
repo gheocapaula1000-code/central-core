@@ -211,69 +211,75 @@ function dedupeItems(items: FeedItem[]): { kept: FeedItem[]; removed: number } {
 }
 
 serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  const debugId = crypto.randomUUID();
+  // 1. OPTIONS con CORS.
+  if (req.method === "OPTIONS") return handleOptions(req);
 
-  if (req.method !== "POST") return err("METHOD_NOT_ALLOWED", "Use POST", 405, debugId);
+  // 2. debug id.
+  const debugId = makeDebugId();
 
-  // ── Security gate: HMAC (invariato) ───────────────────────
-  const sourceApp = req.headers.get("x-source-app");
-  const tenantId = req.headers.get("x-tenant-id");
-  const tsHeader = req.headers.get("x-timestamp");
-  const signature = req.headers.get("x-core-signature");
-  const rawBody = await req.text();
+  const cors = buildCorsHeaders(req);
+  const jsonResp = (body: unknown, status = 200): Response =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: {
+        ...cors,
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Core-Function": "civiko-one-signals-feed",
+        "X-Core-Contract": SCHEMA_VERSION,
+        "x-debug-id": debugId,
+      },
+    });
+  const err = (code: string, message: string, status: number) =>
+    jsonResp({ ok: false, schema_version: SCHEMA_VERSION, error: { code, message }, debug_id: debugId }, status);
 
-  const secret = Deno.env.get("CORE_SHARED_SECRET") ?? "";
-  if (!secret) return err("CONFIG_MISSING", "Server secret missing", 500, debugId);
-
-  if (!sourceApp) return err("MISSING_SOURCE_APP", "x-source-app required", 401, debugId);
-  if (sourceApp !== "civiko-one") return err("INVALID_SOURCE_APP", "x-source-app must be civiko-one", 403, debugId);
-  if (!tenantId) return err("MISSING_TENANT", "x-tenant-id required", 401, debugId);
-  if (!tsHeader) return err("MISSING_TIMESTAMP", "x-timestamp required", 401, debugId);
-  if (!signature) return err("MISSING_SIGNATURE", "x-core-signature required", 401, debugId);
-
-  const tsMs = parseTimestamp(tsHeader);
-  if (tsMs === null) return err("INVALID_TIMESTAMP", "x-timestamp not parseable", 401, debugId);
-  if (Math.abs(Date.now() - tsMs) > MAX_SKEW_MS) {
-    return err("TIMESTAMP_SKEW", "x-timestamp too old or in the future", 401, debugId);
+  if (req.method !== "POST" && req.method !== "GET") {
+    return err("METHOD_NOT_ALLOWED", "Use POST", 405);
   }
 
-  const expected = await hmacHex(secret, `${tsHeader}${tenantId}${rawBody}`);
-  if (!constantTimeEqual(expected, signature.toLowerCase())) {
-    console.warn(`[civiko-one-signals-feed] bad signature tenant=${tenantId} debug=${debugId}`);
-    return err("INVALID_SIGNATURE", "HMAC signature mismatch", 403, debugId);
-  }
+  // 3. requireSecret PRIMA di body parsing, client Supabase o query.
+  const secretFail = requireSecret(req, debugId);
+  if (secretFail) return secretFail;
 
-  // ── Workspace identity (tenantId è l'unica fonte) ─────────
-  const workspaceId = tenantId.trim();
+  // 4. x-workspace-id obbligatorio, UUID valido. Unica fonte di identità.
+  const workspaceId = (req.headers.get("x-workspace-id") ?? "").trim();
   if (!UUID_RE.test(workspaceId)) {
-    return err("INVALID_WORKSPACE", "x-tenant-id must be a valid workspace UUID", 401, debugId);
+    return err("WORKSPACE_REQUIRED", "Missing or invalid x-workspace-id", 401);
   }
 
-  // ── Parse body (city/province/workspace CLIENT-SIDE IGNORATI) ──
+  // Parse body/query DOPO il gate. commercial_zone_slug e workspace_id
+  // eventualmente presenti sono IGNORATI. Il client non può scegliere zona.
   let body: Record<string, unknown> = {};
-  try { body = rawBody ? JSON.parse(rawBody) : {}; }
-  catch { return err("INVALID_JSON", "Body is not valid JSON", 400, debugId); }
+  if (req.method === "POST") {
+    try { body = await req.json(); } catch { body = {}; }
+    if (!body || typeof body !== "object") body = {};
+  }
+  const url = new URL(req.url);
+  const qp = url.searchParams;
+  const pickStr = (k: string): string | undefined => {
+    const v = qp.get(k) ?? (body as Record<string, unknown>)[k];
+    return typeof v === "string" && v.length > 0 ? v : undefined;
+  };
 
-  // Città/provincia sempre forzate. I campi city, province, workspace identity
-  // e slug commerciale eventualmente presenti nel body vengono ignorati.
   const city = FORCED_CITY;
   const province = FORCED_PROVINCE;
-  const zoneMode = (typeof body.zone_mode === "string" && body.zone_mode) || "omi_microzone";
-  const limit = Math.max(1, Math.min(Number(body.limit) || 250, 1000));
-  const include = Array.isArray(body.include) && body.include.length
-    ? (body.include as string[]).filter((s) => typeof s === "string")
-    : ["contendibili", "ribassi", "privati", "off_market"];
+  const zoneMode = pickStr("zone_mode") || "omi_microzone";
+  const limitRaw = Number(qp.get("limit") ?? (body as Record<string, unknown>).limit) || 250;
+  const limit = Math.max(1, Math.min(limitRaw, 1000));
+  const includeRaw = Array.isArray((body as Record<string, unknown>).include)
+    ? ((body as Record<string, unknown>).include as unknown[]).filter((s) => typeof s === "string") as string[]
+    : (qp.get("include") ? qp.get("include")!.split(",") : ["contendibili", "ribassi", "privati", "off_market"]);
+  const include = includeRaw.length ? includeRaw : ["contendibili", "ribassi", "privati", "off_market"];
   const includeSet = new Set(include);
+  const quartiereRaw = pickStr("quartiere");
 
-  // ── Supabase client (service_role) ────────────────────────
+  // 5. Supabase service-role client.
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
 
-  // ── Server-side zone resolution (identica a padova-contendibili-list) ─
+  // Risoluzione server-side della zona (occupata / in_trial valido).
   const { data: zonesRows, error: zoneErr } = await supabase
     .from("civiko_commercial_zones")
     .select("slug,status,occupied_agency_id,trial_agency_id,trial_reserved_until")
@@ -283,7 +289,7 @@ serve(async (req: Request) => {
     );
   if (zoneErr) {
     console.error(`[civiko-one-signals-feed] ${debugId} zone lookup`, zoneErr.message);
-    return err("DB_ERROR", "zone lookup failed", 500, debugId);
+    return err("DB_ERROR", "zone lookup failed", 500);
   }
   const now = Date.now();
   const valid = (zonesRows ?? []).filter((z: Record<string, unknown>) => {
@@ -296,16 +302,23 @@ serve(async (req: Request) => {
     ) return true;
     return false;
   });
-  if (valid.length === 0) {
-    return err("NO_ZONE_ASSIGNED", "No active zone for workspace", 403, debugId);
-  }
-  if (valid.length > 1) {
-    return err("MULTIPLE_ZONES_ASSIGNED", "Ambiguous zone assignment", 403, debugId);
-  }
+  if (valid.length === 0) return err("NO_ZONE_ASSIGNED", "No active zone for workspace", 403);
+  if (valid.length > 1) return err("MULTIPLE_ZONES_ASSIGNED", "Ambiguous zone assignment", 403);
   const assignedSlug = String(valid[0].slug ?? "");
   if (!isCivikoCommercialZoneSlug(assignedSlug)) {
-    return err("SLUG_OUT_OF_CONTRACT", "Assigned slug not in contract", 403, debugId);
+    return err("SLUG_OUT_OF_CONTRACT", "Assigned slug not in contract", 403);
   }
+
+  // Optional quartiere filter: consentito solo se risolve alla stessa zona.
+  let quartiereFilter: string | undefined;
+  if (quartiereRaw) {
+    const resolved = commercialZoneForQuartiere(quartiereRaw);
+    if (!resolved || resolved !== assignedSlug) {
+      return err("QUARTIERE_OUT_OF_ZONE", "Quartiere not in assigned zone", 403);
+    }
+    quartiereFilter = quartiereRaw;
+  }
+
 
   // slug→name lookup — caricata UNA sola volta da public.civiko_commercial_zones.
   // La risoluzione dello slug per singolo item è per-item (vedi loop finale).
