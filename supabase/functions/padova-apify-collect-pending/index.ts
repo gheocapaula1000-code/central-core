@@ -352,6 +352,11 @@ Deno.serve(async (req) => {
   const zombieHours = Number(body.zombie_hours ?? 4);
   const autoEnrich = body.auto_enrich !== false; // default true
   const maxEnrichPerRun = Number(body.max_enrich_per_run ?? 200);
+  // Auto-backfill: quando un run immobiliare_*_enrich/refresh finisce, lancia
+  // il batch successivo di URL con agency IS NULL per completare la recovery.
+  const agencyBackfillEnabled = body.agency_backfill_enabled !== false; // default true
+  const agencyBackfillBatch = Math.max(1, Math.min(500, Number(body.agency_backfill_batch ?? 300)));
+  const agencyBackfillMaxLaunches = Math.max(0, Number(body.agency_backfill_max_launches ?? 1));
 
 
   // Seleziona candidati: RUNNING più vecchi di staleMinutes, oppure run_ids espliciti.
@@ -526,6 +531,76 @@ Deno.serve(async (req) => {
     }
   }
 
+  // ============ AUTO-BACKFILL AGENCY (immobiliare) ============
+  // Se in questo tick almeno un run immobiliare detail/refresh ha completato
+  // ingest con successo, arruola il batch successivo di URL con agency IS NULL
+  // (parse_status='apify_immobiliare_detail' oppure legacy 'radar_ingested'/NULL)
+  // e avvia un nuovo run detail-by-URL. Serve a completare la recovery agenzie
+  // in modo automatico senza intervento manuale.
+  const backfillLaunches: any[] = [];
+  if (!dryRun && agencyBackfillEnabled && agencyBackfillMaxLaunches > 0) {
+    const immoIngestCompleted = results.some((r) =>
+      r &&
+      r.actor_id === ACTOR_IMMO_DETAIL &&
+      r.status === "SUCCEEDED" &&
+      typeof r.portal === "string" &&
+      /immobiliare_.*(enrich|refresh|autoenrich)/.test(r.portal) &&
+      ((r.created ?? 0) + (r.updated ?? 0)) > 0
+    );
+    if (immoIngestCompleted) {
+      try {
+        // Evita di sovrapporre più batch: se c'è già un run immobiliare
+        // detail/refresh RUNNING con meno di 2h di età, non lanciarne un altro.
+        const twoHoursAgo = new Date(Date.now() - 2 * 3600_000).toISOString();
+        const { count: runningCount } = await sb.from("padova_apify_runs")
+          .select("run_id", { count: "exact", head: true })
+          .eq("status", "RUNNING")
+          .eq("actor_id", ACTOR_IMMO_DETAIL)
+          .gt("started_at", twoHoursAgo);
+        if ((runningCount ?? 0) > 0) {
+          backfillLaunches.push({ skipped: "already_running", running: runningCount });
+        } else {
+          for (let launched = 0; launched < agencyBackfillMaxLaunches; launched++) {
+            // Seleziona URL candidati: portal immobiliare, agency null, non scaduti,
+            // già presenti come detail (per non re-arricchire listview vuote) o legacy.
+            const { data: candRows } = await sb.from("padova_collect_v2_items")
+              .select("url")
+              .eq("portal", "immobiliare")
+              .is("agency", null)
+              .in("parse_status", ["apify_immobiliare_detail", "radar_ingested"])
+              .order("processed_at", { ascending: true, nullsFirst: true })
+              .limit(agencyBackfillBatch);
+            const urls = Array.from(new Set((candRows ?? [])
+              .map((r: any) => r?.url).filter((u: any) => typeof u === "string" && u.length > 0)));
+            if (urls.length === 0) {
+              backfillLaunches.push({ skipped: "no_candidates" });
+              break;
+            }
+            const { run_id: bRid, dataset_id: bDid } = await startRun(ACTOR_IMMO_DETAIL, {
+              startUrls: urls.map((u) => ({ url: u })),
+              maxItems: urls.length,
+              includeAgencyDetails: false,
+              proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
+            }, token);
+            await sb.from("padova_apify_runs").insert({
+              portal: "immobiliare_agency_backfill",
+              actor_id: ACTOR_IMMO_DETAIL,
+              run_id: bRid,
+              dataset_id: bDid,
+              status: "RUNNING",
+              cost_cap_usd: 0.30,
+            });
+            backfillLaunches.push({ run_id: bRid, urls: urls.length });
+            console.log(`[collect-pending] agency-backfill launched run ${bRid} with ${urls.length} urls`);
+          }
+        }
+      } catch (e) {
+        backfillLaunches.push({ error: String((e as Error)?.message ?? e) });
+        console.error("[collect-pending] agency-backfill failed:", (e as Error)?.message ?? e);
+      }
+    }
+  }
+
   // ============ ZOMBIE CLEANUP ============
   // RUNNING più vecchi di zombieHours ma non più identificabili su Apify
   // (o comunque orfani) → marca TIMED_OUT per non re-processarli in eterno.
@@ -548,7 +623,8 @@ Deno.serve(async (req) => {
   }
 
   return new Response(JSON.stringify({
-    ok: true, scanned: candidates.length, zombies_marked: zombiesMarked, results,
+    ok: true, scanned: candidates.length, zombies_marked: zombiesMarked,
+    agency_backfill: backfillLaunches, results,
   }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 });
 
