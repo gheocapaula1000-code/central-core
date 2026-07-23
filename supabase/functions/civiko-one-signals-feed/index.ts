@@ -493,7 +493,7 @@ serve(async (req: Request) => {
 
   // ── MULTI-PORTALE — padova_multi_portale_by_zone_v, filtro DB ────
   if (includeSet.has("contendibili") || includeSet.has("multi_portale")) {
-    await probeFreshnessByZone("padova_multi_portale_by_zone_v", false, false);
+    await probeFreshnessByZone("padova_multi_portale_by_zone_v", { hasUpdated: true, hasLastSeen: true, orderBy: "last_seen_at" });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let mpQ: any = supabase
       .from("padova_multi_portale_by_zone_v")
@@ -502,11 +502,13 @@ serve(async (req: Request) => {
     if (quartiereFilter) mpQ = mpQ.eq("quartiere", quartiereFilter);
     const { data, error } = await mpQ
       .gte("portal_count", 2)
+      .order("last_seen_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false, nullsFirst: false })
       .order("portal_count", { ascending: false })
       .limit(limit);
     if (error) {
       console.error(`[civiko-one-signals-feed] ${debugId} multi_portale`, error.message);
+      sourceErrors.push({ source: "padova_multi_portale_by_zone_v", category: "query_error" });
     } else if (data) {
       sourcesUsed.push("padova_multi_portale_by_zone_v");
       for (const row of data as Record<string, unknown>[]) {
@@ -514,7 +516,7 @@ serve(async (req: Request) => {
         const minP = Number(row.prezzo_min) || 0;
         const maxP = Number(row.prezzo_max) || 0;
         const priceCandidate = minP && maxP ? Math.round((minP + maxP) / 2) : (maxP || minP || null);
-        const lastSeen = (row.created_at as string) || new Date().toISOString();
+        const lastSeen = (row.last_seen_at as string) || (row.created_at as string) || new Date().toISOString();
         bump(lastSeen);
         const urls = Array.isArray(row.urls) ? (row.urls as string[]) : [];
         const portals = Array.isArray(row.portals_seen) ? (row.portals_seen as string[]) : [];
@@ -524,8 +526,9 @@ serve(async (req: Request) => {
         const score = Math.min(85, 40 + Math.min(nPortals, 6) * 5);
         const title = String(row.chiave_match || `Multi-portale ${row.id}`)
           .split("|")[0].replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        const stableMp = String(row.chiave_match || `id:${row.id}`);
         rawItems.push(buildItem(assignedSlug, {
-          source_id: `mp:${row.id}`,
+          source_id: `mp:${stableMp}`,
           signal_type: "multi_portale",
           title: `${title} — ${nPortals} portali`,
           zone_code: z.code, zone_label: z.label,
@@ -546,7 +549,7 @@ serve(async (req: Request) => {
           needs_review: true,
           operator_note: "Immobile presente su più portali. Verificare se la gestione è realmente frammentata prima di proporre l'esclusiva.",
         }));
-        itemQuartiereBySourceId.set(`mp:${row.id}`, typeof row.quartiere === "string" ? row.quartiere : null);
+        itemQuartiereBySourceId.set(`mp:${stableMp}`, typeof row.quartiere === "string" ? row.quartiere : null);
 
       }
     }
