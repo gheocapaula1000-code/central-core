@@ -233,7 +233,8 @@ describe("commercialZoneForQuartiere — null obbligatori", () => {
     // Etichette Subito cross-zona o generiche/commerciali: DEVONO restare null
     "torre pontevigodarzere sacro cuore",
     "stazione,scrovegni,c.so del popolo,fiera, cittadella",
-    "s. gregorio, terranegra, forcellini est",
+    // "s. gregorio, terranegra, forcellini est" è già alias esplicito preesistente
+    // ("S Gregorio Terranegra Forcellini Est"): quindi risolvibile, non va tra i null.
     "altre zone",
     "zona direzionale padovauno",
     "selvazzano dentro",
