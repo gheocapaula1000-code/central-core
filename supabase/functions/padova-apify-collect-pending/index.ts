@@ -531,6 +531,38 @@ Deno.serve(async (req) => {
     }
   }
 
+  // ============ AUTO-RECOMPUTE CONTENDIBILI ============
+  // Se in questo tick un run agency-backfill ha completato ingest, lancia
+  // recompute_padova_listings_contendibili() per misurare subito il delta.
+  const recomputeEnabled = body.recompute_after_backfill !== false; // default true
+  let recomputeResult: any = null;
+  if (!dryRun && recomputeEnabled) {
+    const backfillIngested = results.some((r) =>
+      r &&
+      r.status === "SUCCEEDED" &&
+      typeof r.portal === "string" &&
+      r.portal === "immobiliare_agency_backfill" &&
+      ((r.created ?? 0) + (r.updated ?? 0)) > 0
+    );
+    if (backfillIngested) {
+      try {
+        const { data: rc, error: rcErr } = await sb.rpc("recompute_padova_listings_contendibili");
+        if (rcErr) {
+          recomputeResult = { error: rcErr.message };
+          console.error("[collect-pending] recompute failed:", rcErr.message);
+        } else {
+          recomputeResult = rc ?? { ok: true };
+          console.log("[collect-pending] recompute done:", JSON.stringify(recomputeResult));
+        }
+      } catch (e) {
+        recomputeResult = { error: String((e as Error)?.message ?? e) };
+        console.error("[collect-pending] recompute exception:", (e as Error)?.message ?? e);
+      }
+    }
+  }
+
+
+
   // ============ AUTO-BACKFILL AGENCY (immobiliare) ============
   // Se in questo tick almeno un run immobiliare detail/refresh ha completato
   // ingest con successo, arruola il batch successivo di URL con agency IS NULL
