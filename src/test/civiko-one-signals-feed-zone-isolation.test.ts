@@ -60,11 +60,13 @@ describe("civiko-one-signals-feed — static zone-isolation contract", () => {
     }
   });
 
-  it("RPC ribassi usa la variante _by_zone con p_commercial_zone_slug", () => {
-    expect(SRC).toContain('"get_padova_verified_price_drops_by_zone"');
-    expect(SRC).toContain("p_commercial_zone_slug: assignedSlug");
-    // v2 RPC is the primary path; v1 remains only as a documented fallback if v2 is missing.
+  it("RPC ribassi usa esclusivamente la variante v2 (no silent fallback v1)", () => {
     expect(SRC).toContain("get_padova_verified_price_drops_by_zone_v2");
+    expect(SRC).toContain("p_commercial_zone_slug: assignedSlug");
+    // v1 RPC must NOT be invoked as a runtime fallback.
+    expect(SRC).not.toMatch(/rpc\(\s*"get_padova_verified_price_drops_by_zone"\s*,/);
+    // Explicit diagnostic marker when v2 is missing.
+    expect(SRC).toContain("rpc_missing_no_fallback");
   });
 
   it("nessun fallback permissivo: no branch padova_collect_v2_items per ribassi", () => {
