@@ -118,3 +118,40 @@ describe("cron migration (pending)", () => {
     expect(MIGRATION).not.toMatch(/emastra/);
   });
 });
+
+describe("cron compensating migration (restore body {} + apikey)", () => {
+  it("has expected SHA-256", () => {
+    const sha = createHash("sha256").update(readFileSync(COMPENSATING_PATH)).digest("hex");
+    expect(sha).toBe("4bae14b68ee28cd90d106c48fe2a90f482bd5a5597c16a3a74a96160ee58900f");
+  });
+
+  it("has exactly one BEGIN and one COMMIT", () => {
+    expect(COMPENSATING.match(/^BEGIN;/m)?.length).toBe(1);
+    expect(COMPENSATING.match(/^COMMIT;/m)?.length).toBe(1);
+  });
+
+  it("restores body '{}'::jsonb and keeps URL unchanged", () => {
+    expect(COMPENSATING).toMatch(/body\s*:=\s*'\{\}'::jsonb/);
+    expect(COMPENSATING).toMatch(/\/functions\/v1\/cron-apify-subito-nightly/);
+  });
+
+  it("preserves Content-Type, restores apikey, and reads x-job-secret from Vault", () => {
+    expect(COMPENSATING).toMatch(/'Content-Type',\s*'application\/json'/);
+    expect(COMPENSATING).toMatch(/'apikey',\s*%L/);
+    expect(COMPENSATING).toMatch(/'x-job-secret',\s*\(SELECT decrypted_secret FROM vault\.decrypted_secrets WHERE name = 'central_core_job_secret'/);
+  });
+
+  it("fails fast if central_core_job_secret is missing", () => {
+    expect(COMPENSATING).toMatch(/aborting cron update/);
+  });
+
+  it("targets exactly one job by jobname", () => {
+    expect(COMPENSATING).toMatch(/jobname = 'apify-subito-weekly'/);
+    expect(COMPENSATING).toMatch(/expected exactly 1 cron job/);
+  });
+
+  it("does not alter schedule or actor", () => {
+    expect(COMPENSATING).not.toMatch(/schedule\s*:=/i);
+    expect(COMPENSATING).not.toMatch(/emastra/);
+  });
+});
