@@ -638,6 +638,7 @@ serve(async (req: Request) => {
       .limit(50);
     if (error) {
       console.error(`[civiko-one-signals-feed] ${debugId} privati`, error.message);
+      sourceErrors.push({ source: "padova_listings", category: "query_error" });
     } else if (data) {
       sourcesUsed.push("padova_listings");
       for (const row of data as Record<string, unknown>[]) {
