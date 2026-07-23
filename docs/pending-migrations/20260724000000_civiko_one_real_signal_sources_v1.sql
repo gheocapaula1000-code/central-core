@@ -467,10 +467,19 @@ END;
 $function$;
 
 -- ────────────────────────────────────────────────────────────────
--- 4. RECREATE by_zone_v VIEWS (unchanged semantics; ensure they pick
---    up new columns via SELECT *).
+-- 4. RECREATE by_zone_v VIEWS
+--    We DROP + CREATE (not CREATE OR REPLACE) because the base tables
+--    gain columns (updated_at, last_seen_at) which, via mp.* / pc.*,
+--    shift the position of `commercial_zone_slug` in the view output.
+--    CREATE OR REPLACE VIEW cannot change existing column names/types
+--    or reorder them — it would fail with "cannot change name of view
+--    column". A DROP + CREATE is safe here because no other SQL object
+--    depends on these views (verified via pg_depend/pg_rewrite: 0
+--    external dependents at authoring time). PostgREST clients bind by
+--    column name, not by position.
 -- ────────────────────────────────────────────────────────────────
-CREATE OR REPLACE VIEW public.padova_contendibili_by_zone_v AS
+DROP VIEW IF EXISTS public.padova_contendibili_by_zone_v;
+CREATE VIEW public.padova_contendibili_by_zone_v AS
 SELECT pc.*,
        public.civiko_resolve_commercial_zone_slug(pc.quartiere) AS commercial_zone_slug
 FROM public.padova_contendibili pc;
@@ -480,7 +489,8 @@ REVOKE ALL ON public.padova_contendibili_by_zone_v FROM anon;
 REVOKE ALL ON public.padova_contendibili_by_zone_v FROM authenticated;
 GRANT  SELECT ON public.padova_contendibili_by_zone_v TO service_role;
 
-CREATE OR REPLACE VIEW public.padova_multi_portale_by_zone_v AS
+DROP VIEW IF EXISTS public.padova_multi_portale_by_zone_v;
+CREATE VIEW public.padova_multi_portale_by_zone_v AS
 SELECT mp.*,
        public.civiko_resolve_commercial_zone_slug(mp.quartiere) AS commercial_zone_slug
 FROM public.padova_multi_portale mp;
