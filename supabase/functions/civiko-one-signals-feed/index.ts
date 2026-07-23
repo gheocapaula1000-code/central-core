@@ -31,69 +31,15 @@ import {
 } from "../_shared/padovaZoneResolver.ts";
 import { isAuctionRecord } from "../_shared/auctionExclusion.ts";
 import { isCivikoCommercialZoneSlug } from "../_shared/civikoCommercialZoneContract.ts";
+import { commercialZoneForQuartiere } from "../_shared/civikoCommercialZoneByQuartiere.ts";
+import { corsHeaders as buildCorsHeaders, handleOptions, requireSecret, makeDebugId } from "../_shared/http.ts";
 
 const SCHEMA_VERSION = "civiko_signals_feed_v1";
-const MAX_SKEW_MS = 5 * 60 * 1000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Città/provincia FORZATE server-side. Il client non può alterarle.
 const FORCED_CITY = "Padova";
 const FORCED_PROVINCE = "PD";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-source-app, x-tenant-id, x-timestamp, x-core-signature",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-function jsonResp(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      ...corsHeaders,
-      "Content-Type": "application/json",
-      "X-Core-Function": "civiko-one-signals-feed",
-      "X-Core-Contract": SCHEMA_VERSION,
-    },
-  });
-}
-
-function err(code: string, message: string, status: number, debugId: string) {
-  return jsonResp(
-    { ok: false, schema_version: SCHEMA_VERSION, error: { code, message }, debug_id: debugId },
-    status,
-  );
-}
-
-function constantTimeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
-
-async function hmacHex(secret: string, payload: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
-  return Array.from(new Uint8Array(sig))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function parseTimestamp(v: string | null): number | null {
-  if (!v) return null;
-  const n = Number(v);
-  if (Number.isFinite(n) && n > 0) return n < 1e12 ? n * 1000 : n;
-  const t = Date.parse(v);
-  return Number.isFinite(t) ? t : null;
-}
 
 // ─────────────────────────────────────────────────────────────
 // Price normalization
