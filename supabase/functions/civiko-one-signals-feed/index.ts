@@ -594,30 +594,47 @@ serve(async (req: Request) => {
     }
   }
 
-  // ── PRIVATI — padova_collect_v2_items_by_zone_v, filtro DB ───────
+  // ── PRIVATI — padova_listings (stessa sorgente di padova-privati-list) ─
+  // Solo annunci privati reali attivi (expired_at IS NULL), filtro zona DB
+  // prima di order/limit. Massimo 50 opportunità. Nessun telefono/email/PII.
+  const privatiDiag = {
+    privati_source: "padova_listings",
+    privati_returned: 0,
+    privati_auction_excluded: 0,
+    privati_max_last_seen_at: null as string | null,
+  };
   if (includeSet.has("privati")) {
-    await probeFreshnessByZone("padova_collect_v2_items_by_zone_v", false, false);
+    await probeFreshnessByZone("padova_listings", false, true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let prvQ: any = supabase
-      .from("padova_collect_v2_items_by_zone_v")
-      .select("id, portal, listing_id, url, raw_address, citta, cap, lat, lng, omi_zone, quartiere, prezzo, mq, locali, agency, contendibile, created_at, processed_at, commercial_zone_slug")
-      .eq("commercial_zone_slug", assignedSlug);
+      .from("padova_listings")
+      .select("id, fonte, url, mq, locali, bagni, prezzo, lat, lng, indirizzo, quartiere, imported_at, last_seen_at, tipo_lead, comune, omi_zone, commercial_zone_slug, raw_json")
+      .in("tipo_lead", ["PRIVATO", "privato", "privato_stanco"])
+      .eq("comune", "Padova")
+      .eq("commercial_zone_slug", assignedSlug)
+      .is("expired_at", null);
     if (quartiereFilter) prvQ = prvQ.eq("quartiere", quartiereFilter);
     const { data, error } = await prvQ
-      .order("processed_at", { ascending: false, nullsFirst: false })
-      .limit(limit * 2);
+      .order("last_seen_at", { ascending: false, nullsFirst: false })
+      .order("imported_at", { ascending: false, nullsFirst: false })
+      .limit(50);
     if (error) {
       console.error(`[civiko-one-signals-feed] ${debugId} privati`, error.message);
     } else if (data) {
-      sourcesUsed.push("padova_collect_v2_items_by_zone_v");
+      sourcesUsed.push("padova_listings");
       for (const row of data as Record<string, unknown>[]) {
-        if (isAuctionRecord(row)) continue;
-        if (row.agency && String(row.agency).trim() !== "") continue;
+        if (isAuctionRecord(row)) { privatiDiag.privati_auction_excluded++; continue; }
         const z = resolveZone(row);
         const price = Number(row.prezzo ?? 0) || 0;
-        const lastSeen = (row.processed_at as string) || (row.created_at as string) || new Date().toISOString();
+        const lastSeen =
+          (row.last_seen_at as string) ||
+          (row.imported_at as string) ||
+          new Date().toISOString();
         bump(lastSeen);
-        const baseTitle = (row.raw_address as string) || (row.listing_id as string) || `Listing ${row.id}`;
+        if (!privatiDiag.privati_max_last_seen_at || lastSeen > privatiDiag.privati_max_last_seen_at) {
+          privatiDiag.privati_max_last_seen_at = lastSeen;
+        }
+        const baseTitle = (row.indirizzo as string) || `Immobile ${z.label}`;
         rawItems.push(buildItem(assignedSlug, {
           source_id: `pdv:${row.id}`,
           signal_type: "privato",
@@ -628,10 +645,12 @@ serve(async (req: Request) => {
           status: "active",
           score: 55,
           last_seen_at: lastSeen,
-          raw_ref: `padova_collect_v2_items:${row.id}`,
+          raw_ref: `padova_listings:${row.id}`,
           lat_raw: row.lat, lng_raw: row.lng,
+          label_pubblica: "Opportunità privata attiva",
         }));
         itemQuartiereBySourceId.set(`pdv:${row.id}`, typeof row.quartiere === "string" ? row.quartiere : null);
+        privatiDiag.privati_returned++;
       }
     }
   }
