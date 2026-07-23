@@ -593,10 +593,13 @@ serve(async (req: Request) => {
   // ── PRIVATI — padova_collect_v2_items_by_zone_v, filtro DB ───────
   if (includeSet.has("privati")) {
     await probeFreshnessByZone("padova_collect_v2_items_by_zone_v", false, false);
-    const { data, error } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let prvQ: any = supabase
       .from("padova_collect_v2_items_by_zone_v")
       .select("id, portal, listing_id, url, raw_address, citta, cap, lat, lng, omi_zone, quartiere, prezzo, mq, locali, agency, contendibile, created_at, processed_at, commercial_zone_slug")
-      .eq("commercial_zone_slug", assignedSlug)
+      .eq("commercial_zone_slug", assignedSlug);
+    if (quartiereFilter) prvQ = prvQ.eq("quartiere", quartiereFilter);
+    const { data, error } = await prvQ
       .order("processed_at", { ascending: false, nullsFirst: false })
       .limit(limit * 2);
     if (error) {
