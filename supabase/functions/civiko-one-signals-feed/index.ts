@@ -882,6 +882,11 @@ serve(async (req: Request) => {
       upstream_refresh_status: newestSourceCreated && (Date.now() - new Date(newestSourceCreated).getTime() < 24 * 3600 * 1000) ? "fresh" : "stale",
       sort_strategy: "freshness_desc,score_desc",
       ribassi: ribassiDiag,
+      privati: {
+        ...privatiDiag,
+        private_opportunities_count: summary.privati,
+        by_assigned_zone: { [assignedSlug]: summary.privati },
+      },
       offmarket: offmarketDiag,
       commercial_zone_scope: "db_side_zone_filter_only",
       quartiere_filter: quartiereFilter ?? null,
