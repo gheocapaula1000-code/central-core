@@ -678,50 +678,22 @@ serve(async (req: Request) => {
     console.error(`[civiko-one-signals-feed] quartiere_zona_map display fallback error:`, (e as Error)?.message ?? e);
   }
 
-  // Risoluzione PER-ITEM di commercial_zone_slug e display_zone.
-  // Per ogni item chiamiamo public.civiko_resolve_commercial_zone_slug(quartiere)
-  // usando il quartiere di QUEL item come input. display_zone = nome canonico
-  // ricavato dalla mappa slug→nome precaricata; "Altre zone" solo se lo slug
-  // risolto è null o non presente nella mappa. Non condividiamo mai un valore
-  // tra item.
-  let distinctResolvedSlugs = 0;
-  let fallbackAltreZone = 0;
-  {
-    const seenSlugs = new Set<string>();
-    for (const it of rawItems) {
-      const quartiere = itemQuartiereBySourceId.get(it.source_id) ?? null;
-      let resolvedSlug: string | null = null;
-      if (quartiere && quartiere.trim() !== "") {
-        try {
-          const { data: r } = await supabase.rpc(
-            "civiko_resolve_commercial_zone_slug",
-            { p_quartiere: quartiere },
-          );
-          if (typeof r === "string" && r.trim() !== "") resolvedSlug = r;
-        } catch (e) {
-          console.error(
-            `[civiko-one-signals-feed] ${debugId} resolve slug error for source_id=${it.source_id}:`,
-            (e as Error)?.message ?? e,
-          );
-        }
-      }
-      const nome = resolvedSlug ? slugToName.get(resolvedSlug) : undefined;
-      if (resolvedSlug && nome) {
-        it.commercial_zone_slug = resolvedSlug;
-        it.display_zone = nome;
-        seenSlugs.add(resolvedSlug);
-      } else {
-        delete it.commercial_zone_slug;
-        it.display_zone = "Altre zone";
-        fallbackAltreZone++;
-      }
-    }
-    distinctResolvedSlugs = seenSlugs.size;
-    console.log(
-      `[civiko-one-signals-feed] ${debugId} zone_resolution items=${rawItems.length} ` +
-      `distinct_slugs=${distinctResolvedSlugs} altre_zone=${fallbackAltreZone}`,
-    );
+  // Slug commerciale e display_zone: forzati alla zona autorizzata server-side.
+  // Tutti gli item provengono già da viste filtrate DB-side su assignedSlug,
+  // quindi non esiste alcun caso in cui un item appartenga ad un'altra zona.
+  // Nessuna chiamata per-item alla RPC — nessun bypass possibile via quartiere.
+  const assignedName = slugToName.get(assignedSlug) || assignedSlug;
+  for (const it of rawItems) {
+    it.commercial_zone_slug = assignedSlug;
+    it.display_zone = assignedName;
   }
+  const distinctResolvedSlugs = rawItems.length > 0 ? 1 : 0;
+  const fallbackAltreZone = 0;
+  console.log(
+    `[civiko-one-signals-feed] ${debugId} zone_resolution items=${rawItems.length} ` +
+    `distinct_slugs=${distinctResolvedSlugs} altre_zone=${fallbackAltreZone} assigned=${assignedSlug}`,
+  );
+
 
   const preAssertCount = rawItems.length;
   const zoneAsserted = rawItems;
