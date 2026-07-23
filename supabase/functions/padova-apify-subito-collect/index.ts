@@ -20,8 +20,8 @@ const APIFY = "https://api.apify.com/v2";
 const ACTOR = "emastra~subito-it-immobili";
 
 const DEFAULT_SEARCH_URLS = [
-  "https://www.subito.it/annunci-veneto/vendita/case/padova/",
-  "https://www.subito.it/annunci-veneto/vendita/appartamenti/padova/",
+  "https://www.subito.it/annunci-veneto/vendita/immobili/padova/padova/",
+  "https://www.subito.it/annunci-veneto/vendita/appartamenti/padova/padova/",
 ];
 
 interface Body {
