@@ -865,6 +865,8 @@ serve(async (req: Request) => {
       ribassi: ribassiDiag,
       offmarket: offmarketDiag,
       commercial_zone_scope: "db_side_zone_filter_only",
+      quartiere_filter: quartiereFilter ?? null,
+      distinct_resolved_slugs: distinctResolvedSlugs,
       security_gate: "ok",
       debug_id: debugId,
     },
