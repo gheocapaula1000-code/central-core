@@ -265,10 +265,27 @@ serve(async (req: Request) => {
   const zoneMode = pickStr("zone_mode") || "omi_microzone";
   const limitRaw = Number(qp.get("limit") ?? (body as Record<string, unknown>).limit) || 250;
   const limit = Math.max(1, Math.min(limitRaw, 1000));
-  const includeRaw = Array.isArray((body as Record<string, unknown>).include)
+  const DEFAULT_INCLUDE = ["contendibili", "ribassi", "privati", "off_market"];
+  const INCLUDE_ALIAS: Record<string, string> = {
+    contendibile: "contendibili",
+    contendibili: "contendibili",
+    ribasso: "ribassi",
+    ribassi: "ribassi",
+    privato: "privati",
+    privati: "privati",
+    multi_portale: "multi_portale",
+    off_market: "off_market",
+    offmarket: "off_market",
+  };
+  const includeRawArr = Array.isArray((body as Record<string, unknown>).include)
     ? ((body as Record<string, unknown>).include as unknown[]).filter((s) => typeof s === "string") as string[]
-    : (qp.get("include") ? qp.get("include")!.split(",") : ["contendibili", "ribassi", "privati", "off_market"]);
-  const include = includeRaw.length ? includeRaw : ["contendibili", "ribassi", "privati", "off_market"];
+    : (qp.get("include") ? qp.get("include")!.split(",") : []);
+  const includeNormalized = includeRawArr
+    .map((s) => s.trim().toLowerCase())
+    .map((s) => INCLUDE_ALIAS[s] ?? s)
+    .filter((s) => s.length > 0);
+  // include assente OR include:[] → feed completo
+  const include = includeNormalized.length ? includeNormalized : DEFAULT_INCLUDE;
   const includeSet = new Set(include);
   const quartiereRaw = pickStr("quartiere");
 
@@ -347,6 +364,7 @@ serve(async (req: Request) => {
 
   const rawItems: FeedItem[] = [];
   const sourcesUsed: string[] = [];
+  const sourceErrors: Array<{ source: string; category: string }> = [];
   let lastProviderRefresh: string | null = null;
   const bump = (ts?: string | null) => {
     if (!ts) return;
@@ -620,6 +638,7 @@ serve(async (req: Request) => {
       .limit(50);
     if (error) {
       console.error(`[civiko-one-signals-feed] ${debugId} privati`, error.message);
+      sourceErrors.push({ source: "padova_listings", category: "query_error" });
     } else if (data) {
       sourcesUsed.push("padova_listings");
       for (const row of data as Record<string, unknown>[]) {
@@ -728,7 +747,7 @@ serve(async (req: Request) => {
 
 
   const preAssertCount = rawItems.length;
-  const zoneAsserted = rawItems;
+  const zoneAsserted = rawItems.filter((it) => it.commercial_zone_slug === assignedSlug);
   const droppedByAssert = preAssertCount - zoneAsserted.length;
   if (droppedByAssert > 0) {
 
@@ -855,6 +874,9 @@ serve(async (req: Request) => {
       generated_at: generatedAt,
       requested_limit: limit,
       included: include,
+      include_raw: includeRawArr,
+      feed_build: "privati-runtime-v2",
+      source_errors: sourceErrors,
       sources_used: sourcesUsed,
       source_tables_used: sourcesUsed,
       last_provider_refresh: lastProviderRefresh,

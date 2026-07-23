@@ -13,7 +13,7 @@ describe("civiko-one-signals-feed — static zone-isolation contract", () => {
   it("valida x-tenant-id come UUID (workspace) server-side", () => {
     expect(SRC).toMatch(/UUID_RE\s*=\s*\/\^\[0-9a-f\]/);
     expect(SRC).toMatch(/UUID_RE\.test\(workspaceId\)/);
-    expect(SRC).toContain("INVALID_WORKSPACE");
+    expect(SRC).toContain("WORKSPACE_REQUIRED");
   });
 
   it("risolve una sola zona autorizzata da civiko_commercial_zones (occupata/in_trial + trial scaduto)", () => {
@@ -105,8 +105,7 @@ describe("civiko-one-signals-feed — static zone-isolation contract", () => {
 
   it("errori HTTP coerenti per auth/workspace/zona", () => {
     for (const code of [
-      "MISSING_TENANT",
-      "INVALID_WORKSPACE",
+      "WORKSPACE_REQUIRED",
       "NO_ZONE_ASSIGNED",
       "MULTIPLE_ZONES_ASSIGNED",
       "SLUG_OUT_OF_CONTRACT",
