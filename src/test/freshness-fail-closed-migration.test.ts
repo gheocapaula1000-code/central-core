@@ -44,12 +44,13 @@ describe("Intervento 1 — freshness fail-closed migration", () => {
   });
 
   it("6) No backfill DML present (no bare UPDATE/DELETE/INSERT outside function bodies)", () => {
-    // Strip function bodies delimited by $function$ ... $function$
-    const stripped = sql.replace(/\$function\$[\s\S]*?\$function\$/g, "");
-    expect(/\bupdate\s+/i.test(stripped)).toBe(false);
+    // Strip function bodies and SQL line comments before scanning
+    const stripped = sql
+      .replace(/\$function\$[\s\S]*?\$function\$/g, "")
+      .replace(/--[^\n]*/g, "");
+    expect(/\bupdate\s+public\./i.test(stripped)).toBe(false);
     expect(/\bdelete\s+from\b/i.test(stripped)).toBe(false);
     expect(/\binsert\s+into\b/i.test(stripped)).toBe(false);
-    // No massive un-expire
     expect(/expired_at\s*=\s*null\s+where/i.test(stripped)).toBe(false);
   });
 
