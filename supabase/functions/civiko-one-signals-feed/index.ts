@@ -426,7 +426,7 @@ serve(async (req: Request) => {
 
   // ── CONTENDIBILI — padova_contendibili_by_zone_v, filtro DB ───────
   if (includeSet.has("contendibili")) {
-    await probeFreshnessByZone("padova_contendibili_by_zone_v", false, false);
+    await probeFreshnessByZone("padova_contendibili_by_zone_v", { hasUpdated: true, hasLastSeen: true, orderBy: "last_seen_at" });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let contQ: any = supabase
       .from("padova_contendibili_by_zone_v")
