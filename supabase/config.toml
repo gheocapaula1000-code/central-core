@@ -232,3 +232,6 @@ verify_jwt = false
 
 [functions.padova-private-leads-zone-backfill]
 verify_jwt = false
+
+[functions.civiko-one-signals-feed]
+verify_jwt = false

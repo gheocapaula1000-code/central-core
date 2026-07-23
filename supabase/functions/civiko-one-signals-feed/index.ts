@@ -720,30 +720,64 @@ serve(async (req: Request) => {
   // ── OFF-MARKET — early_offmarket_signal_candidates_by_zone_v (fail-closed) ─
   // DB-side zone filter via view derived from civiko_resolve_commercial_zone_slug(quartiere).
   // Missing/legacy schema (view not yet created) → fail-closed to zero, recorded in source_errors.
+  // FAIL-CLOSED: la sola presenza di commercial_zone_slug NON basta a considerare
+  // un candidato "verificato". Applichiamo lo stesso criterio canonico usato
+  // dai runner (earlyOffmarketRunner.reco): privacy_safe=true,
+  // import_recommendation='importable' (che il runner emette solo con
+  // confidence_score >= 0.7), needs_review=false e status non in
+  // ('rejected','needs_review','discovered'). Se nessuna riga supera il gate
+  // il feed emette 0 off-market: non inventiamo segnali.
+  const VERIFIED_STATUSES = ["approved", "promoted", "importable"] as const;
   const offmarketDiag = {
-    offmarket_candidates_read: 0,
-    offmarket_privacy_excluded: 0,
+    off_market_zone_resolved_count: 0,
+    off_market_verified_count: 0,
+    off_market_emitted_count: 0,
     offmarket_auction_excluded: 0,
-    offmarket_not_importable_excluded: 0,
-    offmarket_published: 0,
+    offmarket_invalid_url_excluded: 0,
     offmarket_disabled_reason: null as string | null,
   };
   if (includeSet.has("off_market")) {
     const cutoff = new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString();
+    // 1) zone-resolved count (informativo — NON usato per emettere)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let zoneCntQ: any = supabase
+      .from("early_offmarket_signal_candidates_by_zone_v")
+      .select("id", { count: "exact", head: true })
+      .eq("commercial_zone_slug", assignedSlug)
+      .eq("comune", "Padova");
+    if (quartiereFilter) zoneCntQ = zoneCntQ.eq("quartiere", quartiereFilter);
+    const { count: zoneResolvedCount, error: zoneCntErr } = await zoneCntQ;
+    if (zoneCntErr) {
+      const missing = /relation .* does not exist/i.test(zoneCntErr.message ?? "");
+      offmarketDiag.offmarket_disabled_reason = missing
+        ? "view_not_deployed_fail_closed"
+        : "query_error";
+      sourceErrors.push({
+        source: "early_offmarket_signal_candidates_by_zone_v",
+        category: missing ? "view_missing" : "query_error",
+      });
+      console.error(`[civiko-one-signals-feed] ${debugId} off_market zone-count error: ${zoneCntErr.message}`);
+    } else {
+      offmarketDiag.off_market_zone_resolved_count = zoneResolvedCount ?? 0;
+    }
+
+    // 2) verified fetch — criterio canonico allineato ai runner
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let omQ: any = supabase
       .from("early_offmarket_signal_candidates_by_zone_v")
-      .select("id, fingerprint, comune, signal_type, title, summary, source_url, source_name, confidence_score, quality, privacy_safe, needs_review, import_recommendation, status, quartiere, commercial_zone_slug, created_at, updated_at, location_detail")
+      .select("id, fingerprint, comune, signal_type, title, summary, source_url, source_name, confidence_score, quality, privacy_safe, needs_review, import_recommendation, status, quartiere, commercial_zone_slug, created_at, location_detail")
       .eq("commercial_zone_slug", assignedSlug)
       .eq("comune", "Padova")
       .eq("privacy_safe", true)
       .eq("needs_review", false)
       .eq("import_recommendation", "importable")
-      .neq("status", "rejected")
+      .gte("confidence_score", 0.7)
+      .in("status", VERIFIED_STATUSES as unknown as string[])
       .ilike("source_url", "https://%")
       .gte("created_at", cutoff);
     if (quartiereFilter) omQ = omQ.eq("quartiere", quartiereFilter);
     const { data, error } = await omQ
+      .order("confidence_score", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false, nullsFirst: false })
       .limit(limit);
     if (error) {
@@ -755,35 +789,35 @@ serve(async (req: Request) => {
       console.error(`[civiko-one-signals-feed] ${debugId} off_market query error: ${error.message}`);
     } else if (data) {
       sourcesUsed.push("early_offmarket_signal_candidates_by_zone_v");
+      offmarketDiag.off_market_verified_count = data.length;
       for (const row of data as Record<string, unknown>[]) {
-        offmarketDiag.offmarket_candidates_read++;
         if (isAuctionRecord(row)) { offmarketDiag.offmarket_auction_excluded++; continue; }
         const url = String(row.source_url || "");
-        if (!url.startsWith("https://")) continue;
+        if (!url.startsWith("https://")) { offmarketDiag.offmarket_invalid_url_excluded++; continue; }
         const created = (row.created_at as string) || new Date().toISOString();
         bump(created);
         const stableOm = String(row.fingerprint || row.id);
+        // NO PII: escludiamo summary/location_detail/payload dall'output.
         rawItems.push(buildItem(assignedSlug, {
           source_id: `om:${stableOm}`,
           signal_type: "off_market",
           title: String(row.title || "").slice(0, 240) || "Segnale off-market",
           zone_code: UNRESOLVED_OMI_CODE,
           zone_label: UNRESOLVED_OMI_LABEL,
-          // Off-market: price is legitimately absent — no invalid_price flag.
           price_raw: null,
           price_optional: true,
           price_label_override: "Prezzo non applicabile",
           url,
           status: String(row.status || "active"),
-          score: Math.min(100, Math.round((Number(row.confidence_score) || 0.5) * 100)),
-          last_seen_at: (row.updated_at as string) || created,
+          score: Math.min(100, Math.round((Number(row.confidence_score) || 0.7) * 100)),
+          last_seen_at: created,
           raw_ref: `early_offmarket_signal_candidates:${row.id}`,
           evidence_type: String(row.signal_type || "off_market"),
           label_pubblica: "Segnale off-market verificato",
           needs_review: false,
         }));
         itemQuartiereBySourceId.set(`om:${stableOm}`, typeof row.quartiere === "string" ? row.quartiere : null);
-        offmarketDiag.offmarket_published++;
+        offmarketDiag.off_market_emitted_count++;
       }
     }
   } else {
