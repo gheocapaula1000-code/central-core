@@ -249,9 +249,12 @@ Deno.serve(async (req) => {
   let body: Body = {};
   try { body = await req.json(); } catch { /* empty */ }
 
-  const maxItems = body.max_items ?? 200;
+  const rawMax = Number(body.max_items ?? 200);
+  const maxItems = Math.min(300, Math.max(1, Number.isFinite(rawMax) ? Math.trunc(rawMax) : 200));
   const timeoutSec = body.wait_seconds ?? 240;
   const searchUrls = body.search_urls ?? DEFAULT_SEARCH_URLS;
+  // Apify Subito cost estimate: 5 USD / 1000 items → max_items * 5 / 1000
+  const estCostUsd = Number(((maxItems * 5) / 1000).toFixed(3));
 
   try {
     // Modo "ingest_run_id": raccogli dataset di un run già terminato (usato da collect-pending)
@@ -267,6 +270,42 @@ Deno.serve(async (req) => {
       run_id = body.ingest_run_id;
       dataset_id = j.data.defaultDatasetId;
     } else {
+      // Guard: dedup run in-flight (RUNNING nelle ultime 6h)
+      const sixHoursAgo = new Date(Date.now() - 6 * 3600 * 1000).toISOString();
+      const { data: inflight } = await sb
+        .from("padova_apify_runs")
+        .select("run_id, created_at")
+        .eq("portal", "subito_collect")
+        .eq("status", "RUNNING")
+        .gte("created_at", sixHoursAgo)
+        .limit(1);
+      if (inflight && inflight.length > 0) {
+        return new Response(
+          JSON.stringify({
+            ok: true, skipped: true,
+            skipped_reason: "subito_run_already_running",
+            existing_run_id: inflight[0].run_id,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      // Guard: budget cap (giornaliero + mensile)
+      const budget = await canSpendApify(estCostUsd);
+      if (!budget.ok) {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: "APIFY_BUDGET_BLOCKED",
+            reason: budget.reason ?? "daily_cap_reached",
+            est_cost_usd: estCostUsd,
+            spent_today_usd: budget.spent,
+            cap_usd: budget.cap,
+          }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
       // Start — actor emastra/subito-it-immobili usa `startUrls` come stringList
       // e `maxResultItems` (0 = illimitato).
       const started = await startRun(
@@ -279,14 +318,20 @@ Deno.serve(async (req) => {
       run_id = started.run_id;
       dataset_id = started.dataset_id;
 
+      // Registra spesa solo dopo avvio Apify riuscito
+      try {
+        await recordApifySpend(estCostUsd, 1, { source: "padova-apify-subito-collect" } as any);
+      } catch { /* best effort */ }
+
       await sb.from("padova_apify_runs").insert({
         portal: "subito_collect",
         actor_id: ACTOR,
         run_id,
         dataset_id,
         status: "RUNNING",
-        cost_cap_usd: 0.05,
+        cost_cap_usd: estCostUsd,
       });
+
 
       if (body.async_start) {
         return new Response(
