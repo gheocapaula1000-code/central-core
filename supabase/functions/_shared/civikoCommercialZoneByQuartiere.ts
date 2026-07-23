@@ -106,6 +106,9 @@ const RAW_QUARTIERI_BY_ZONE: Record<CivikoCommercialZoneSlug, readonly string[]>
     "Forcellini Terranegra",
     "Camin Sud",
     "S Gregorio Terranegra Forcellini Est",
+    // Alias composto Subito validato: entrambe le parti ("Zona Industriale", "ZIP")
+    // già in mappa e puntano allo stesso slug (est-forcellini-camin).
+    "Zona Industriale ZIP",
   ],
   "sud-est-sant-osvaldo": [
     "Città Giardino",

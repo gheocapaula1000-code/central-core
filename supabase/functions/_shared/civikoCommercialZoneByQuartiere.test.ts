@@ -170,6 +170,10 @@ describe("commercialZoneForQuartiere — alias composti nuovi", () => {
     ["Forcellini Terranegra", "est-forcellini-camin"],
     ["Camin Sud", "est-forcellini-camin"],
     ["S Gregorio Terranegra Forcellini Est", "est-forcellini-camin"],
+    // Alias composto Subito validato same-zone
+    ["Zona Industriale ZIP", "est-forcellini-camin"],
+    ["ZONA INDUSTRIALE,ZIP", "est-forcellini-camin"],
+    ["BASSANELLO, GUIZZA, VOLTABAROZZO", "sud-voltabarozzo-guizza"],
     // sud-est-sant-osvaldo
     ["Sud Est Sant Osvaldo", "sud-est-sant-osvaldo"],
     ["Sant Osvaldo Facciolati", "sud-est-sant-osvaldo"],
@@ -226,6 +230,13 @@ describe("commercialZoneForQuartiere — null obbligatori", () => {
     "pontevigodarzere isola di torre",
     "san carlo san gregorio",
     "stazione scrovegni c so del popolo fiera cittadella",
+    // Etichette Subito cross-zona o generiche/commerciali: DEVONO restare null
+    "torre pontevigodarzere sacro cuore",
+    "stazione,scrovegni,c.so del popolo,fiera, cittadella",
+    // "s. gregorio, terranegra, forcellini est" è già alias esplicito preesistente
+    // ("S Gregorio Terranegra Forcellini Est"): quindi risolvibile, non va tra i null.
+    "altre zone",
+    "zona direzionale padovauno",
     "selvazzano dentro",
     "piazza del municipio",
     "via alsazia 3",
