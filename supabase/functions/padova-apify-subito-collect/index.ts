@@ -15,6 +15,8 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getApifyToken } from "../_shared/apify.ts";
+import { canSpendApify, recordApifySpend } from "../_shared/apifyBudget.ts";
+
 
 const APIFY = "https://api.apify.com/v2";
 const ACTOR = "emastra~subito-it-immobili";
