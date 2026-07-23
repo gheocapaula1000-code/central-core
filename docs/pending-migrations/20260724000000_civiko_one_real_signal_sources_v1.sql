@@ -671,6 +671,9 @@ COMMENT ON FUNCTION public.get_padova_verified_price_drops_by_zone_v2(text, text
 ALTER TABLE public.early_offmarket_signal_candidates
   ADD COLUMN IF NOT EXISTS quartiere text NULL;
 
+ALTER TABLE public._bkp_20260724_eosc_touched
+  ADD COLUMN IF NOT EXISTS quartiere text;
+
 CREATE OR REPLACE FUNCTION public.eosc_resolve_quartiere_trg()
 RETURNS trigger
 LANGUAGE plpgsql
