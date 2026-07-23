@@ -115,8 +115,8 @@ const PORTAL_CONFIGS: PortalConfig[] = [
   },
   {
     source: "idealista.it",
-    // Fix: l'URL `vendita-case/${slug}-comune/` restituiva 404 → uso pattern semplice.
-    buildUrl: (slug) => `https://www.idealista.it/vendita-case/${slug}/`,
+    // Fix: Padova città richiede lo slug "padova-padova"; "padova" porta alla pagina di errore.
+    buildUrl: (slug) => `https://www.idealista.it/vendita-case/${slug === "padova" ? "padova-padova" : slug}/`,
     prompt: "Estrai TUTTI gli annunci di vendita immobiliare presenti nella pagina dei risultati. Per ciascuno: titolo, indirizzo, prezzo numerico in euro, superficie in metri quadri, numero locali, tipologia, nome agenzia o 'Privato' se annuncio privato, latitudine e longitudine, link assoluto (https://www.idealista.it/...). Solo dati realmente presenti.",
     schema: standardSchema(),
     idFromLink: (l) => { const m = l.match(/\/immobile\/(\d{5,})/); return m ? `idl-${m[1]}` : null; },
@@ -130,8 +130,8 @@ const PORTAL_CONFIGS: PortalConfig[] = [
   },
   {
     source: "subito.it",
-    // Subito: vendita case privati + agenzie, scope Padova.
-    buildUrl: (slug) => `https://www.subito.it/annunci-veneto/vendita/case/${slug}/`,
+    // Subito: la categoria "case" non esiste più; URL valido per Padova città.
+    buildUrl: () => `https://www.subito.it/annunci-veneto/vendita/immobili/padova/padova/`,
     prompt: "Estrai TUTTI gli annunci di vendita case e appartamenti presenti nella pagina. Per ciascuno indica esplicitamente se è da 'Privato' o 'Agenzia' nel campo agency. Estrai: titolo, indirizzo o zona, prezzo numerico in euro, superficie in metri quadri, numero locali, tipologia, agency (nome agenzia oppure 'Privato'), latitudine, longitudine, link assoluto subito.it. Solo dati realmente presenti.",
     schema: standardSchema(),
     idFromLink: (l) => { const m = l.match(/-(\d{6,})\.htm/); return m ? `sub-${m[1]}` : null; },
