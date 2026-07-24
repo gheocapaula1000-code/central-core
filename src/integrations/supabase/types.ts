@@ -551,6 +551,27 @@ export type Database = {
         }
         Relationships: []
       }
+      _casa_scrape_debug_cache: {
+        Row: {
+          created_at: string
+          id: number
+          md: string
+          url: string
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          md: string
+          url: string
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          md?: string
+          url?: string
+        }
+        Relationships: []
+      }
       agencies: {
         Row: {
           billing_email: string | null

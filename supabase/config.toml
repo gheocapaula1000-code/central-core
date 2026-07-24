@@ -250,3 +250,6 @@ verify_jwt = false
 
 [functions.civiko-one-signals-feed]
 verify_jwt = false
+
+[functions.casa-scrape-debug]
+verify_jwt = false
