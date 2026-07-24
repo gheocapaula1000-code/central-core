@@ -102,12 +102,12 @@ describe("D — real signal sources v1 (static contract)", () => {
   });
 
   // D.9 viste by_zone filtrabili prima di paginazione/count
-  it("D.9 STATIC — feed applies commercial_zone_slug = assignedSlug at DB level for both by_zone views", () => {
+  it("D.9 STATIC — feed applies commercial_zone_slug IN zoneFilter at DB level for both by_zone views", () => {
     for (const view of ["padova_contendibili_by_zone_v", "padova_multi_portale_by_zone_v"]) {
       const idx = FEED.indexOf(`.from("${view}")`);
       expect(idx, `view ${view} not found in feed`).toBeGreaterThan(-1);
       const chunk = FEED.slice(idx, idx + 800);
-      expect(chunk).toMatch(/\.eq\(\s*["']commercial_zone_slug["']\s*,\s*assignedSlug\s*\)/);
+      expect(chunk).toMatch(/\.in\(\s*["']commercial_zone_slug["']\s*,\s*zoneFilter\s*\)/);
     }
     // Views are (re)created explicitly (DROP + CREATE) — signature-safe.
     expect(MIGRATION).toMatch(/DROP\s+VIEW\s+IF\s+EXISTS\s+public\.padova_contendibili_by_zone_v/);
@@ -147,13 +147,13 @@ describe("D — real signal sources v1 (static contract)", () => {
   it("D.13 STATIC — EOSC trigger sets NEW.quartiere := NULL when resolution fails", () => {
     const trg = MIGRATION.slice(MIGRATION.indexOf("eosc_resolve_quartiere_trg"));
     expect(trg).toMatch(/NEW\.quartiere\s*:=\s*NULL/);
-    // Feed must exclude items whose commercial_zone_slug does not equal the authorized slug.
+    // Feed must exclude items whose commercial_zone_slug is outside the authorized zoneFilter.
     // The EOSC by-zone view derives commercial_zone_slug from quartiere via the resolver;
-    // a NULL quartiere yields NULL slug, hence not equal to assignedSlug → excluded.
+    // a NULL quartiere yields NULL slug, hence not inside zoneFilter → excluded.
     const idx = FEED.indexOf('.from("early_offmarket_signal_candidates_by_zone_v")');
     expect(idx).toBeGreaterThan(-1);
     const chunk = FEED.slice(idx, idx + 800);
-    expect(chunk).toMatch(/\.eq\(\s*["']commercial_zone_slug["']\s*,\s*assignedSlug\s*\)/);
+    expect(chunk).toMatch(/\.in\(\s*["']commercial_zone_slug["']\s*,\s*zoneFilter\s*\)/);
   });
 
   // D.14 off-market verificato incluso solo nella propria zona
