@@ -100,6 +100,10 @@ serve(async (req) => {
   try {
     let targetUrl: string;
     let requestBody: unknown;
+    const upstreamMethod = normalizedEndpoint.startsWith("civiko/billing/my-zone") ||
+      normalizedEndpoint.startsWith("civiko/billing/sales-prospects")
+      ? "GET"
+      : method;
 
     if (SOTTRA_ROUTES.has(normalizedEndpoint)) {
       targetUrl = `${SUPABASE_URL}/functions/v1/sottra`;
@@ -164,9 +168,9 @@ serve(async (req) => {
     }
 
     const res = await fetch(targetUrl, {
-      method,
+      method: upstreamMethod,
       headers: upstreamHeaders,
-      body: JSON.stringify(requestBody),
+      body: upstreamMethod === "GET" || upstreamMethod === "HEAD" ? undefined : JSON.stringify(requestBody),
       signal: controller.signal,
     });
     clearTimeout(timer);
