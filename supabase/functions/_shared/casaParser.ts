@@ -155,8 +155,9 @@ export function parseCasaListPage(
     let agency_slug: string | null = null;
     let agency_url: string | null = null;
     if (agencyM) {
-      agency_url = agencyM[1];
+      // Il gruppo 1 può includere ` "title"` — canonicalizza a `/agenzie/<slug>/`.
       agency_slug = agencyM[2];
+      agency_url = `https://www.casa.it/agenzie/${agency_slug}/`;
       const before = block.slice(0, agencyM.index!);
       const nameM = before.match(AGENCY_NAME_BEFORE_RE);
       if (nameM) {
