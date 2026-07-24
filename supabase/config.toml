@@ -199,6 +199,21 @@ verify_jwt = false
 [functions.cron-apify-idealista-nightly]
 verify_jwt = false
 
+[functions.cron-apify-collect-pending]
+verify_jwt = false
+
+[functions.cron-apify-subito-nightly]
+verify_jwt = false
+
+[functions.padova-apify-collect-pending]
+verify_jwt = false
+
+[functions.padova-apify-subito-collect]
+verify_jwt = false
+
+[functions.padova-apify-multi-status]
+verify_jwt = false
+
 [functions.padova-cambi-agenzia-list]
 verify_jwt = false
 
