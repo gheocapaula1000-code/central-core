@@ -16,7 +16,7 @@
 import {
   makeDebugId, handleOptions, json, fail,
   CORE_VERSION, CORE_CONTRACT, addIdentityHeaders,
-  buildManifest, enforceOriginPolicy, requireSecret, extractVerifiedEmail,
+  buildManifest, enforceOriginPolicy, requireSecret, extractVerifiedEmail, isBootstrapAdmin,
 } from "../_shared/http.ts";
 import { sanitizeOutgoing, getServiceSupabase } from "../_shared/civiko.ts";
 import {
@@ -219,6 +219,20 @@ async function handleMyZone(req: Request, debugId: string): Promise<Response> {
     started_at: null, current_period_end: null,
   };
 
+  let isAdmin = false;
+  try {
+    const verifiedEmail = await extractVerifiedEmail(req);
+    if (verifiedEmail && isBootstrapAdmin(verifiedEmail)) isAdmin = true;
+  } catch { /* fail closed to non-admin */ }
+  if (!isAdmin) {
+    try {
+      const { data: adminRes } = await sb.rpc("civiko_is_admin_agency", { _agency_id: workspaceId });
+      isAdmin = adminRes === true;
+    } catch {
+      warnings.push("admin_lookup_unavailable");
+    }
+  }
+
   // ── Stripe subscription (status/plan/period): resta invariata ──
   const { data: sub, error: subErr } = await sb
     .from("billing_subscriptions")
@@ -237,6 +251,27 @@ async function handleMyZone(req: Request, debugId: string): Promise<Response> {
   const plan = sub?.billing_interval ?? sub?.plan_key ?? null;
   const startedAt = sub?.created_at ?? null;
   const currentPeriodEnd = sub?.current_period_end ?? null;
+
+  if (isAdmin) {
+    const { data: zones, error: zonesErr } = await sb
+      .from("civiko_commercial_zones")
+      .select("slug,nome,status,canone_mese_eur,trial_reserved_until,occupied_since")
+      .order("sort_order", { ascending: true });
+    if (zonesErr) warnings.push("admin_zones_lookup_failed");
+    return withIdentity(json(req, 200, {
+      data: {
+        status: subStatus,
+        plan,
+        zona_status: "admin_full_city",
+        zona_assegnata: null,
+        zones: zones ?? [],
+        started_at: startedAt,
+        current_period_end: currentPeriodEnd,
+      },
+      warnings,
+      diagnostics: { scope: "admin_full_city", workspace_id: workspaceId },
+    }, debugId), route);
+  }
 
   // ── Zona: fonte unica = civiko_commercial_zones ──
   let zonaStatus: string | null = null;
