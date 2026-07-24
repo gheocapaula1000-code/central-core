@@ -352,24 +352,29 @@ serve(async (req: Request) => {
       return err("SLUG_OUT_OF_CONTRACT", "Assigned slug not in contract", 403);
     }
   }
-  // Multi-zone workspaces (sales/demo): the feed still operates on ONE zone
-  // per request. Client selects it via `zone_slug`; default = first assigned.
+  // Multi-zone workspaces (sales/demo/admin): if the client passes an explicit
+  // `zone_slug`, we scope to that one zone; otherwise we AGGREGATE across all
+  // assigned zones. `assignedSlug` remains the primary/representative slug for
+  // legacy fields (assigned_zone, scope.commercial_zone_slug).
   const requestedZone = pickStr("zone_slug") ?? pickStr("commercial_zone_slug");
   let assignedSlug: string;
+  let zoneFilter: string[];
   if (requestedZone) {
     if (!assignedSlugs.includes(requestedZone)) {
       return err("ZONE_NOT_ASSIGNED", "Requested zone not assigned to workspace", 403);
     }
     assignedSlug = requestedZone;
+    zoneFilter = [requestedZone];
   } else {
     assignedSlug = assignedSlugs[0];
+    zoneFilter = assignedSlugs;
   }
 
-  // Optional quartiere filter: consentito solo se risolve alla zona attiva.
+  // Optional quartiere filter: consentito solo se risolve a una delle zone assegnate.
   let quartiereFilter: string | undefined;
   if (quartiereRaw) {
     const resolved = commercialZoneForQuartiere(quartiereRaw);
-    if (!resolved || resolved !== assignedSlug) {
+    if (!resolved || !zoneFilter.includes(resolved)) {
       return err("QUARTIERE_OUT_OF_ZONE", "Quartiere not in assigned zone", 403);
     }
     quartiereFilter = quartiereRaw;
@@ -433,7 +438,7 @@ serve(async (req: Request) => {
       const { data } = await supabase
         .from(table)
         .select(selCols.join(","))
-        .eq("commercial_zone_slug", assignedSlug)
+        .in("commercial_zone_slug", zoneFilter)
         .order(orderBy, { ascending: false })
         .limit(1);
       const top = (data && data[0]) as Record<string, unknown> | undefined;
@@ -441,7 +446,7 @@ serve(async (req: Request) => {
       const { count } = await supabase
         .from(table)
         .select("id", { count: "exact", head: true })
-        .eq("commercial_zone_slug", assignedSlug)
+        .in("commercial_zone_slug", zoneFilter)
         .gte(orderBy, since);
       sourceFreshness[table] = {
         max_created_at: hasCreated ? ((top?.created_at as string) ?? null) : null,
@@ -462,7 +467,7 @@ serve(async (req: Request) => {
     let contQ: any = supabase
       .from("padova_contendibili_by_zone_v")
       .select("id, chiave_match, n_agenzie, agency_count_distinct, agencies_normalized, agenzie, portals_seen, fonti, confidenza, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, created_at, commercial_zone_slug")
-      .eq("commercial_zone_slug", assignedSlug);
+      .in("commercial_zone_slug", zoneFilter);
     if (quartiereFilter) contQ = contQ.eq("quartiere", quartiereFilter);
     // Prefer last_seen_at when available (post-migration), fallback to created_at.
     const { data, error } = await contQ
@@ -495,7 +500,7 @@ serve(async (req: Request) => {
           .split("|")[0].replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
         // Stable source_id keyed by chiave_match (survives id regenerations).
         const stableCont = String(row.chiave_match || `id:${row.id}`);
-        rawItems.push(buildItem(assignedSlug, {
+        rawItems.push(buildItem(String(row.commercial_zone_slug || assignedSlug), {
           source_id: `cont:${stableCont}`,
           signal_type: "contendibile",
           title: `${title} — ${nAg} agenzie distinte`,
@@ -529,7 +534,7 @@ serve(async (req: Request) => {
     let mpQ: any = supabase
       .from("padova_multi_portale_by_zone_v")
       .select("id, chiave_match, portal_count, portals_seen, agency_count_distinct, agencies_normalized, agenzie, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, n_annunci, created_at, commercial_zone_slug")
-      .eq("commercial_zone_slug", assignedSlug);
+      .in("commercial_zone_slug", zoneFilter);
     if (quartiereFilter) mpQ = mpQ.eq("quartiere", quartiereFilter);
     const { data, error } = await mpQ
       .gte("portal_count", 2)
@@ -558,7 +563,7 @@ serve(async (req: Request) => {
         const title = String(row.chiave_match || `Multi-portale ${row.id}`)
           .split("|")[0].replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
         const stableMp = String(row.chiave_match || `id:${row.id}`);
-        rawItems.push(buildItem(assignedSlug, {
+        rawItems.push(buildItem(String(row.commercial_zone_slug || assignedSlug), {
           source_id: `mp:${stableMp}`,
           // PWA-compat: multi-portale mappato come "contendibile"; l'origine
           // resta tracciabile via evidence_type/label_pubblica/raw_ref.
@@ -605,22 +610,26 @@ serve(async (req: Request) => {
     // that is not zone-verified against padova_listings_price_history.
     let rpcRows: unknown = null;
     let rpcErr: { message: string; code?: string } | null = null;
-    const v2 = await supabase.rpc("get_padova_verified_price_drops_by_zone_v2", {
-      p_commercial_zone_slug: assignedSlug,
-      p_quartiere: quartiereFilter ?? null,
-      p_limit: limit,
-      p_min_drop_pct: 5,
-      p_max_age_days: 14,
-    });
-    if (v2.error) {
-      const missing = /function .* does not exist/i.test(v2.error.message ?? "");
-      rpcErr = v2.error;
+    // Aggregate over all zones in zoneFilter (single zone if requestedZone was set).
+    const rpcCalls = await Promise.all(zoneFilter.map((slug) =>
+      supabase.rpc("get_padova_verified_price_drops_by_zone_v2", {
+        p_commercial_zone_slug: slug,
+        p_quartiere: quartiereFilter ?? null,
+        p_limit: limit,
+        p_min_drop_pct: 5,
+        p_max_age_days: 14,
+      })
+    ));
+    const firstErr = rpcCalls.find((r) => r.error);
+    if (firstErr?.error) {
+      const missing = /function .* does not exist/i.test(firstErr.error.message ?? "");
+      rpcErr = firstErr.error;
       sourceErrors.push({
         source: "get_padova_verified_price_drops_by_zone_v2",
         category: missing ? "rpc_missing_no_fallback" : "rpc_error",
       });
     } else {
-      rpcRows = v2.data;
+      rpcRows = rpcCalls.flatMap((r) => Array.isArray(r.data) ? r.data : []);
     }
     if (rpcErr) {
       ribassiDiag.ribassi_source = "rpc_error";
@@ -632,7 +641,7 @@ serve(async (req: Request) => {
       for (const row of rpcRows as Record<string, unknown>[]) {
         // Difesa in profondità: la RPC filtra già, ma verifichiamo lo slug.
         const slug = (row.commercial_zone_slug as string) || "";
-        if (slug !== assignedSlug) { ribassiDiag.ribassi_unzoned_excluded++; continue; }
+        if (!zoneFilter.includes(slug)) { ribassiDiag.ribassi_unzoned_excluded++; continue; }
         if (quartiereFilter) {
           const rq = typeof row.quartiere === "string" ? row.quartiere : "";
           if (rq !== quartiereFilter) continue;
@@ -652,7 +661,7 @@ serve(async (req: Request) => {
         const omiCode = (row.omi_zone as string) || "";
         const zoneLabel = omiCode || UNRESOLVED_OMI_LABEL;
         const title = (row.title as string) || `Ribasso ${row.listing_id ?? ""}`;
-        rawItems.push(buildItem(assignedSlug, {
+        rawItems.push(buildItem(String(row.commercial_zone_slug || assignedSlug), {
           source_id: `drop:${row.source_id ?? row.listing_id ?? url}`,
           signal_type: "ribasso",
           title: `${title} — ribasso ${dropPct}%`,
@@ -702,7 +711,7 @@ serve(async (req: Request) => {
       .select("id, fonte, url, mq, locali, bagni, prezzo, lat, lng, indirizzo, quartiere, imported_at, last_seen_at, tipo_lead, comune, omi_zone, commercial_zone_slug")
       .in("tipo_lead", ["PRIVATO", "privato", "privato_stanco"])
       .eq("comune", "Padova")
-      .eq("commercial_zone_slug", assignedSlug)
+      .in("commercial_zone_slug", zoneFilter)
       .is("expired_at", null);
     if (quartiereFilter) prvQ = prvQ.eq("quartiere", quartiereFilter);
     const { data, error } = await prvQ
@@ -727,7 +736,7 @@ serve(async (req: Request) => {
           privatiDiag.privati_max_last_seen_at = lastSeen;
         }
         const baseTitle = (row.indirizzo as string) || `Immobile ${z.label}`;
-        rawItems.push(buildItem(assignedSlug, {
+        rawItems.push(buildItem(String(row.commercial_zone_slug || assignedSlug), {
           source_id: `pdv:${row.id}`,
           signal_type: "privato",
           title: baseTitle,
@@ -774,7 +783,7 @@ serve(async (req: Request) => {
     let zoneCntQ: any = supabase
       .from("early_offmarket_signal_candidates_by_zone_v")
       .select("id", { count: "exact", head: true })
-      .eq("commercial_zone_slug", assignedSlug)
+      .in("commercial_zone_slug", zoneFilter)
       .eq("comune", "Padova");
     if (quartiereFilter) zoneCntQ = zoneCntQ.eq("quartiere", quartiereFilter);
     const { count: zoneResolvedCount, error: zoneCntErr } = await zoneCntQ;
@@ -797,7 +806,7 @@ serve(async (req: Request) => {
     let omQ: any = supabase
       .from("early_offmarket_signal_candidates_by_zone_v")
       .select("id, fingerprint, comune, signal_type, title, summary, source_url, source_name, confidence_score, quality, privacy_safe, needs_review, import_recommendation, status, quartiere, commercial_zone_slug, created_at, location_detail")
-      .eq("commercial_zone_slug", assignedSlug)
+      .in("commercial_zone_slug", zoneFilter)
       .eq("comune", "Padova")
       .eq("privacy_safe", true)
       .eq("needs_review", false)
@@ -829,7 +838,7 @@ serve(async (req: Request) => {
         bump(created);
         const stableOm = String(row.fingerprint || row.id);
         // NO PII: escludiamo summary/location_detail/payload dall'output.
-        rawItems.push(buildItem(assignedSlug, {
+        rawItems.push(buildItem(String(row.commercial_zone_slug || assignedSlug), {
           source_id: `om:${stableOm}`,
           signal_type: "off_market",
           title: String(row.title || "").slice(0, 240) || "Segnale off-market",
@@ -892,25 +901,26 @@ serve(async (req: Request) => {
     console.error(`[civiko-one-signals-feed] quartiere_zona_map display fallback error:`, (e as Error)?.message ?? e);
   }
 
-  // Slug commerciale e display_zone: forzati alla zona autorizzata server-side.
-  // Tutti gli item provengono già da viste filtrate DB-side su assignedSlug,
-  // quindi non esiste alcun caso in cui un item appartenga ad un'altra zona.
-  // Nessuna chiamata per-item alla RPC — nessun bypass possibile via quartiere.
-  const assignedName = slugToName.get(assignedSlug) || assignedSlug;
+  // Slug commerciale e display_zone: normalizzati per-item, ma vincolati a zoneFilter.
+  // Ogni item proviene da viste filtrate DB-side su zoneFilter (una o piu` zone assegnate),
+  // quindi nessun item appartiene a una zona non autorizzata.
   for (const it of rawItems) {
-    it.commercial_zone_slug = assignedSlug;
-    it.display_zone = assignedName;
+    const itSlug = it.commercial_zone_slug && zoneFilter.includes(it.commercial_zone_slug)
+      ? it.commercial_zone_slug
+      : assignedSlug;
+    it.commercial_zone_slug = itSlug;
+    it.display_zone = slugToName.get(itSlug) || itSlug;
   }
-  const distinctResolvedSlugs = rawItems.length > 0 ? 1 : 0;
+  const distinctResolvedSlugs = new Set(rawItems.map((it) => it.commercial_zone_slug)).size;
   const fallbackAltreZone = 0;
   console.log(
     `[civiko-one-signals-feed] ${debugId} zone_resolution items=${rawItems.length} ` +
-    `distinct_slugs=${distinctResolvedSlugs} altre_zone=${fallbackAltreZone} assigned=${assignedSlug}`,
+    `distinct_slugs=${distinctResolvedSlugs} altre_zone=${fallbackAltreZone} assigned=${assignedSlug} zone_filter=${zoneFilter.join(",")}`,
   );
 
 
   const preAssertCount = rawItems.length;
-  const zoneAsserted = rawItems.filter((it) => it.commercial_zone_slug === assignedSlug);
+  const zoneAsserted = rawItems.filter((it) => zoneFilter.includes(it.commercial_zone_slug ?? ""));
   const droppedByAssert = preAssertCount - zoneAsserted.length;
   if (droppedByAssert > 0) {
 
@@ -986,12 +996,12 @@ serve(async (req: Request) => {
       const { count: total } = await supabase
         .from("padova_collect_v2_items_by_zone_v")
         .select("id", { count: "exact", head: true })
-        .eq("commercial_zone_slug", assignedSlug)
+        .in("commercial_zone_slug", zoneFilter)
         .eq("portal", p);
       const { count: withAg } = await supabase
         .from("padova_collect_v2_items_by_zone_v")
         .select("id", { count: "exact", head: true })
-        .eq("commercial_zone_slug", assignedSlug)
+        .in("commercial_zone_slug", zoneFilter)
         .eq("portal", p)
         .not("agency", "is", null)
         .neq("agency", "")
@@ -999,7 +1009,7 @@ serve(async (req: Request) => {
       const { data: lastRow } = await supabase
         .from("padova_collect_v2_items_by_zone_v")
         .select("created_at")
-        .eq("commercial_zone_slug", assignedSlug)
+        .in("commercial_zone_slug", zoneFilter)
         .eq("portal", p)
         .order("created_at", { ascending: false })
         .limit(1);
