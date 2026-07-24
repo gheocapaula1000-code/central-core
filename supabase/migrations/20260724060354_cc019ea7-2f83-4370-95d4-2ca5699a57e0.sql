@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.civiko_is_admin_agency(uuid) FROM anon, public;
