@@ -249,8 +249,8 @@ Deno.serve(async (req) => {
   let body: Body = {};
   try { body = await req.json(); } catch { /* empty */ }
 
-  const rawMax = Number(body.max_items ?? 200);
-  const maxItems = Math.min(300, Math.max(1, Number.isFinite(rawMax) ? Math.trunc(rawMax) : 200));
+  const rawMax = Number(body.max_items ?? 300);
+  const maxItems = Math.min(1000, Math.max(1, Number.isFinite(rawMax) ? Math.trunc(rawMax) : 300));
   const timeoutSec = body.wait_seconds ?? 240;
   const searchUrls = body.search_urls ?? DEFAULT_SEARCH_URLS;
   // Apify Subito cost estimate: 5 USD / 1000 items → max_items * 5 / 1000
