@@ -328,13 +328,29 @@ serve(async (req: Request) => {
     ) return true;
     return false;
   });
-  if (valid.length === 0) return err("NO_ZONE_ASSIGNED", "No active zone for workspace", 403);
-  const assignedSlugs = (valid as Array<Record<string, unknown>>)
-    .map((z) => String(z.slug ?? ""))
-    .filter((s) => isCivikoCommercialZoneSlug(s))
-    .sort();
-  if (assignedSlugs.length === 0) {
-    return err("SLUG_OUT_OF_CONTRACT", "Assigned slug not in contract", 403);
+
+  let isAdmin = false;
+  {
+    const { data: adminRes } = await supabase.rpc("civiko_is_admin_agency", { _agency_id: workspaceId });
+    isAdmin = adminRes === true;
+  }
+
+  let assignedSlugs: string[];
+  if (isAdmin) {
+    assignedSlugs = [
+      "centro-storico", "nord-arcella", "est-brenta", "est-forcellini-camin",
+      "sud-est-sant-osvaldo", "sud-voltabarozzo-guizza", "sud-ovest-mandria",
+      "ovest-chiesanuova-brentelle",
+    ];
+  } else {
+    if (valid.length === 0) return err("NO_ZONE_ASSIGNED", "No active zone for workspace", 403);
+    assignedSlugs = (valid as Array<Record<string, unknown>>)
+      .map((z) => String(z.slug ?? ""))
+      .filter((s) => isCivikoCommercialZoneSlug(s))
+      .sort();
+    if (assignedSlugs.length === 0) {
+      return err("SLUG_OUT_OF_CONTRACT", "Assigned slug not in contract", 403);
+    }
   }
   // Multi-zone workspaces (sales/demo): the feed still operates on ONE zone
   // per request. Client selects it via `zone_slug`; default = first assigned.

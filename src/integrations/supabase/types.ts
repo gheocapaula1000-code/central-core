@@ -8791,6 +8791,7 @@ export type Database = {
         Returns: boolean
       }
       civiko_ascii_fold: { Args: { p_value: string }; Returns: string }
+      civiko_is_admin_agency: { Args: { _agency_id: string }; Returns: boolean }
       civiko_normalize_quartiere: { Args: { p_value: string }; Returns: string }
       civiko_resolve_commercial_zone_slug: {
         Args: { p_quartiere: string }
