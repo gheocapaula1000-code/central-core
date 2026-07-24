@@ -616,14 +616,28 @@ serve(async (req: Request) => {
     let rpcRows: unknown = null;
     let rpcErr: { message: string; code?: string } | null = null;
     // Aggregate over all zones in zoneFilter (single zone if requestedZone was set).
+    // Cap per-zone limit and race each call against a client-side timeout so a
+    // slow/hanging RPC cannot stall the whole feed (fail-closed: zero ribassi
+    // on timeout, diagnostic recorded).
+    const RIBASSI_PER_ZONE_LIMIT = Math.min(20, limit);
+    const RIBASSI_RPC_TIMEOUT_MS = 3500;
+    const withTimeout = <T,>(p: Promise<T>): Promise<T | { data: null; error: { message: string; code?: string } }> =>
+      Promise.race([
+        p,
+        new Promise<{ data: null; error: { message: string; code: string } }>((resolve) =>
+          setTimeout(() => resolve({ data: null, error: { message: "client_timeout", code: "TIMEOUT" } }), RIBASSI_RPC_TIMEOUT_MS),
+        ),
+      ]) as Promise<T>;
     const rpcCalls = await Promise.all(zoneFilter.map((slug) =>
-      supabase.rpc("get_padova_verified_price_drops_by_zone_v2", {
-        p_commercial_zone_slug: slug,
-        p_quartiere: quartiereFilter ?? null,
-        p_limit: limit,
-        p_min_drop_pct: 5,
-        p_max_age_days: 14,
-      })
+      withTimeout(
+        supabase.rpc("get_padova_verified_price_drops_by_zone_v2", {
+          p_commercial_zone_slug: slug,
+          p_quartiere: quartiereFilter ?? null,
+          p_limit: RIBASSI_PER_ZONE_LIMIT,
+          p_min_drop_pct: 5,
+          p_max_age_days: 14,
+        })
+      )
     ));
     const firstErr = rpcCalls.find((r) => r.error);
     if (firstErr?.error) {
