@@ -153,17 +153,31 @@ serve(async (req) => {
     const soloConTel = pickBool("solo_con_telefono");
     const tipoLead = pickStr("tipo_lead");
     const quartiereRaw = pickStr("quartiere");
+    const zoneSlugRaw = pickStr("zone_slug") ?? pickStr("commercial_zone_slug");
+
+    // If client requests a specific zone, it must be in the authorized set.
+    let activeSlugs = assignedSlugs;
+    if (zoneSlugRaw) {
+      if (!assignedSlugs.includes(zoneSlugRaw)) {
+        return json(
+          { ok: false, error: { code: "ZONE_NOT_ASSIGNED", message: "Requested zone not assigned to workspace" } },
+          403,
+        );
+      }
+      activeSlugs = [zoneSlugRaw];
+    }
 
     let quartiereFilter: string | undefined;
     if (quartiereRaw) {
       const resolved = commercialZoneForQuartiere(quartiereRaw);
-      if (!resolved || resolved !== assignedSlug) {
+      if (!resolved || !activeSlugs.includes(resolved)) {
         return json(
           { ok: false, error: { code: "QUARTIERE_OUT_OF_ZONE", message: "Quartiere not in assigned zone" } },
           403,
         );
       }
       quartiereFilter = quartiereRaw;
+      activeSlugs = [resolved];
     }
 
     const tipoList = tipoLead ? [tipoLead] : ["PRIVATO", "privato", "privato_stanco"];
@@ -172,7 +186,7 @@ serve(async (req) => {
     const applyFilters = (q: any): any => {
       q = q.in("tipo_lead", tipoList)
            .eq("comune", "Padova")
-           .eq("commercial_zone_slug", assignedSlug);
+           .in("commercial_zone_slug", activeSlugs);
       if (quartiereFilter) q = q.eq("quartiere", quartiereFilter);
       if (soloConTel) q = q.not("telefono", "is", null);
       return q;
@@ -205,7 +219,9 @@ serve(async (req) => {
       con_telefono,
       offset,
       limit,
-      assigned_zone: assignedSlug,
+      assigned_zone: activeSlugs.length === 1 ? activeSlugs[0] : null,
+      assigned_zones: assignedSlugs,
+      active_zones: activeSlugs,
       data: { privati, total, con_telefono },
     };
     return json(body, 200);
