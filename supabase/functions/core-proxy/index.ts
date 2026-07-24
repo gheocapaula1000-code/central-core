@@ -164,7 +164,7 @@ serve(async (req) => {
         );
       }
       upstreamHeaders["x-internal-secret"] = civikoSecret;
-      upstreamHeaders["x-source-app"] = "civiko-one";
+      upstreamHeaders["x-source-app"] = normalizedEndpoint.startsWith("civiko/billing/") ? "civiko" : "civiko-one";
     }
 
     const res = await fetch(targetUrl, {

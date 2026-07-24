@@ -256,7 +256,7 @@ async function handleMyZone(req: Request, debugId: string): Promise<Response> {
     const { data: zones, error: zonesErr } = await sb
       .from("civiko_commercial_zones")
       .select("slug,nome,status,canone_mese_eur,trial_reserved_until,occupied_since")
-      .order("sort_order", { ascending: true });
+      .order("nome", { ascending: true });
     if (zonesErr) warnings.push("admin_zones_lookup_failed");
     return withIdentity(json(req, 200, {
       data: {
