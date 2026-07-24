@@ -370,11 +370,11 @@ serve(async (req: Request) => {
     zoneFilter = assignedSlugs;
   }
 
-  // Optional quartiere filter: consentito solo se risolve alla zona attiva.
+  // Optional quartiere filter: consentito solo se risolve a una delle zone assegnate.
   let quartiereFilter: string | undefined;
   if (quartiereRaw) {
     const resolved = commercialZoneForQuartiere(quartiereRaw);
-    if (!resolved || resolved !== assignedSlug) {
+    if (!resolved || !zoneFilter.includes(resolved)) {
       return err("QUARTIERE_OUT_OF_ZONE", "Quartiere not in assigned zone", 403);
     }
     quartiereFilter = quartiereRaw;
