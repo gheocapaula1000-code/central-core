@@ -36,8 +36,13 @@ export interface ParsedCasaListing {
 const TITLE_LINK_RE =
   /(^|[^!])\[([^\]\n]+?)\]\(https:\/\/www\.casa\.it\/immobili\/(\d+)\/[^)]*\)/g;
 
-const AGENCY_LINK_RE =
-  /\[([^\]\n]+?)\]\(https:\/\/www\.casa\.it\/agenzie\/([a-z0-9-]+)\/?[^)]*\)/i;
+// Match the /agenzie/<slug>/ URL anchor. Nested link text like
+//   [![alt](img)Nome Agenzia](https://www.casa.it/agenzie/<slug>/...)
+// breaks a naive `[text](url)` regex because the inner `![alt](img)` contains
+// `]` and `)`. We anchor on the URL and walk back to recover the visible name.
+const AGENCY_URL_RE =
+  /\]\((https:\/\/www\.casa\.it\/agenzie\/([a-z0-9-]+)\/?[^)]*)\)/i;
+const AGENCY_NAME_BEFORE_RE = /(?:\)|\[)([^\[\]\n()]{2,120})$/;
 
 // Cattura SOLO il primo importo nel formato "€ X.XXX[.XXX]" con separatore
 // punto delle migliaia (o un intero 4-7 cifre senza separatori). Si ferma al
