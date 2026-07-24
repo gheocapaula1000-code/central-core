@@ -25,6 +25,8 @@ const ROUTE_MAP: Record<string, string> = {
   "civiko/billing/check-subscription":   "civiko-billing",
   "civiko/billing/record-usage":         "civiko-billing",
   "civiko/billing/stripe-webhook":       "civiko-billing",
+  "civiko/billing/my-zone":              "civiko-billing",
+  "civiko/billing/sales-prospects":      "civiko-billing",
   // ── Padova Pilot (nuovi) ──
   "civiko/tram-padova":                  "civiko-tram-padova",
   "civiko/pnrr-padova":                  "civiko-pnrr-padova",
@@ -84,7 +86,8 @@ serve(async (req) => {
   }
 
   const normalizedEndpoint = endpoint.replace(/^\//, "");
-  const targetFunction = ROUTE_MAP[normalizedEndpoint];
+  const salesProspectsDetailMatch = normalizedEndpoint.match(/^civiko\/billing\/sales-prospects\/[a-f0-9]{40}$/i);
+  const targetFunction = ROUTE_MAP[normalizedEndpoint] ?? (salesProspectsDetailMatch ? "civiko-billing" : undefined);
 
   if (!targetFunction) {
     console.warn(`[core-proxy] endpoint non autorizzato: ${normalizedEndpoint}`);
@@ -97,6 +100,10 @@ serve(async (req) => {
   try {
     let targetUrl: string;
     let requestBody: unknown;
+    const upstreamMethod = normalizedEndpoint.startsWith("civiko/billing/my-zone") ||
+      normalizedEndpoint.startsWith("civiko/billing/sales-prospects")
+      ? "GET"
+      : method;
 
     if (SOTTRA_ROUTES.has(normalizedEndpoint)) {
       targetUrl = `${SUPABASE_URL}/functions/v1/sottra`;
@@ -137,9 +144,11 @@ serve(async (req) => {
       "padova-quartieri-stats",
       "padova-cambi-agenzia-list",
       "civiko-one-signals-feed",
+      "civiko/billing/my-zone",
+      "civiko/billing/sales-prospects",
     ]);
 
-    if (CIVIKO_ONE_SECRET_ROUTES.has(normalizedEndpoint)) {
+    if (CIVIKO_ONE_SECRET_ROUTES.has(normalizedEndpoint) || salesProspectsDetailMatch) {
       const civikoSecret = Deno.env.get("AI_CORE_SECRET_CIVIKO") ?? "";
       if (!civikoSecret) {
         clearTimeout(timer);
@@ -155,13 +164,13 @@ serve(async (req) => {
         );
       }
       upstreamHeaders["x-internal-secret"] = civikoSecret;
-      upstreamHeaders["x-source-app"] = "civiko-one";
+      upstreamHeaders["x-source-app"] = normalizedEndpoint.startsWith("civiko/billing/") ? "civiko" : "civiko-one";
     }
 
     const res = await fetch(targetUrl, {
-      method,
+      method: upstreamMethod,
       headers: upstreamHeaders,
-      body: JSON.stringify(requestBody),
+      body: upstreamMethod === "GET" || upstreamMethod === "HEAD" ? undefined : JSON.stringify(requestBody),
       signal: controller.signal,
     });
     clearTimeout(timer);

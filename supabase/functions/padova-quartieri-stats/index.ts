@@ -1,18 +1,33 @@
 // padova-quartieri-stats — Edge Function
-// Legge le viste normalizzate padova_quartieri_stats_v e padova_listings_totali_v.
-// Auth: verify_jwt=false. Chiamata via core-proxy della PWA.
+// Legge padova_contendibili_by_zone_v + viste riassuntive e applica lo stesso
+// isolamento server-side degli endpoint feed/list. Admin owner vede full-city
+// senza assegnazione zone.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { requireSecret, makeDebugId } from "../_shared/http.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-internal-secret, x-source-app",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-internal-secret, x-app-secret, x-core-secret, x-source-app, x-workspace-id, x-tenant-id, x-user-id",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Content-Type": "application/json; charset=utf-8",
 };
 
-const debugId = () => crypto.randomUUID().slice(0, 8);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const OFFICIAL_ZONES = [
+  { slug: "centro-storico", nome: "Centro Storico" },
+  { slug: "nord-arcella", nome: "Nord - Arcella" },
+  { slug: "est-brenta", nome: "Est - Brenta" },
+  { slug: "est-forcellini-camin", nome: "Est - Forcellini / Camin" },
+  { slug: "sud-est-sant-osvaldo", nome: "Sud-Est - Sant'Osvaldo" },
+  { slug: "sud-voltabarozzo-guizza", nome: "Sud - Voltabarozzo / Guizza" },
+  { slug: "sud-ovest-mandria", nome: "Sud-Ovest - Mandria" },
+  { slug: "ovest-chiesanuova-brentelle", nome: "Ovest - Chiesanuova / Brentelle" },
+] as const;
+
+const NAME_TO_ZONE = new Map(OFFICIAL_ZONES.map((z) => [z.nome.toLowerCase(), z]));
 
 async function fetchAll<T>(query: () => any, pageSize = 1000): Promise<T[]> {
   const out: T[] = [];
@@ -30,7 +45,18 @@ async function fetchAll<T>(query: () => any, pageSize = 1000): Promise<T[]> {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
-  const did = debugId();
+  const did = makeDebugId();
+
+  const secretFail = requireSecret(req, did);
+  if (secretFail) return secretFail;
+
+  const workspaceId = (req.headers.get("x-workspace-id") ?? req.headers.get("x-tenant-id") ?? "").trim();
+  if (!UUID_RE.test(workspaceId)) {
+    return new Response(JSON.stringify({
+      ok: false, data: null, debug_id: did,
+      error: { code: "WORKSPACE_REQUIRED", message: "Missing or invalid workspace id" },
+    }), { status: 401, headers: CORS });
+  }
 
   try {
     const supabase = createClient(
@@ -38,7 +64,46 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // 1) Righe per zona già aggregate/normalizzate
+    const { data: adminRes } = await supabase.rpc("civiko_is_admin_agency", { _agency_id: workspaceId });
+    const isAdmin = adminRes === true;
+
+    let authorizedSlugs: string[] = [];
+    if (isAdmin) {
+      authorizedSlugs = OFFICIAL_ZONES.map((z) => z.slug);
+    } else {
+      const { data: zonesRows, error: zoneErr } = await supabase
+        .from("civiko_commercial_zones")
+        .select("slug,status,occupied_agency_id,trial_agency_id,trial_reserved_until")
+        .or(
+          `and(status.eq.occupata,occupied_agency_id.eq.${workspaceId}),` +
+            `and(status.eq.in_trial,trial_agency_id.eq.${workspaceId})`,
+        );
+      if (zoneErr) {
+        return new Response(JSON.stringify({
+          ok: false, data: null, debug_id: did,
+          error: { code: "DB_ERROR", message: "zone lookup failed" },
+        }), { status: 500, headers: CORS });
+      }
+      const now = Date.now();
+      authorizedSlugs = (zonesRows ?? [])
+        .filter((z: Record<string, unknown>) => {
+          if (z.status === "occupata" && z.occupied_agency_id === workspaceId) return true;
+          return z.status === "in_trial" &&
+            z.trial_agency_id === workspaceId &&
+            typeof z.trial_reserved_until === "string" &&
+            new Date(z.trial_reserved_until).getTime() > now;
+        })
+        .map((z: Record<string, unknown>) => String(z.slug ?? ""))
+        .filter((slug) => OFFICIAL_ZONES.some((z) => z.slug === slug));
+      if (authorizedSlugs.length === 0) {
+        return new Response(JSON.stringify({
+          ok: false, data: null, debug_id: did,
+          error: { code: "NO_ZONE_ASSIGNED", message: "No active zone for workspace" },
+        }), { status: 403, headers: CORS });
+      }
+    }
+
+    // 1) Stats annuncio/privati/ribassi dalle sole 8 zone ufficiali.
     const rows = await fetchAll<{
       zona: string | null;
       n_contendibili: number | null;
@@ -51,6 +116,21 @@ serve(async (req) => {
     }>(() => supabase
       .from("padova_quartieri_stats_v")
       .select("zona, n_contendibili, n_annunci, n_agenzie, n_ribassi, n_privati, prezzo_min, prezzo_max"));
+
+    // 1b) Contendibili canonici dalla view by-zone, fonte autorevole PWA.
+    const contendibiliRows = await fetchAll<{
+      commercial_zone_slug: string | null;
+      n_agenzie: number | null;
+    }>(() => supabase
+      .from("padova_contendibili_by_zone_v")
+      .select("commercial_zone_slug, n_agenzie"));
+
+    const contendibiliBySlug = new Map<string, number>();
+    for (const r of contendibiliRows) {
+      const slug = String(r.commercial_zone_slug ?? "");
+      if (!authorizedSlugs.includes(slug)) continue;
+      contendibiliBySlug.set(slug, (contendibiliBySlug.get(slug) ?? 0) + 1);
+    }
 
     // 2) Totali globali (unica riga)
     const { data: totalsRow, error: totalsErr } = await supabase
@@ -76,24 +156,46 @@ serve(async (req) => {
       console.error(`[padova-quartieri-stats] totali error ${did}`, e);
     }
 
-    const quartieri = rows
-      .filter((r) => r.zona)
-      .map((r) => ({
-        quartiere: r.zona as string,
-        n_contendibili: Number(r.n_contendibili ?? 0),
+    const statsBySlug = new Map<string, {
+      n_annunci: number; n_agenzie: number; n_ribassi: number; n_privati: number;
+      prezzo_min: number | null; prezzo_max: number | null;
+    }>();
+    for (const r of rows) {
+      const z = NAME_TO_ZONE.get(String(r.zona ?? "").toLowerCase());
+      if (!z || !authorizedSlugs.includes(z.slug)) continue;
+      statsBySlug.set(z.slug, {
         n_annunci: Number(r.n_annunci ?? 0),
         n_agenzie: Number(r.n_agenzie ?? 0),
         n_ribassi: Number(r.n_ribassi ?? 0),
         n_privati: Number(r.n_privati ?? 0),
         prezzo_min: r.prezzo_min,
         prezzo_max: r.prezzo_max,
-      }))
-      .sort((a, b) => b.n_contendibili - a.n_contendibili);
+      });
+    }
+
+    const quartieri = OFFICIAL_ZONES
+      .filter((z) => authorizedSlugs.includes(z.slug))
+      .map((z) => {
+        const s = statsBySlug.get(z.slug);
+        return {
+          quartiere: z.nome,
+          commercial_zone_slug: z.slug,
+          n_contendibili: contendibiliBySlug.get(z.slug) ?? 0,
+          n_annunci: s?.n_annunci ?? 0,
+          n_agenzie: s?.n_agenzie ?? 0,
+          n_ribassi: s?.n_ribassi ?? 0,
+          n_privati: s?.n_privati ?? 0,
+          prezzo_min: s?.prezzo_min ?? null,
+          prezzo_max: s?.prezzo_max ?? null,
+        };
+      })
+      .sort((a, b) => b.n_contendibili - a.n_contendibili || a.quartiere.localeCompare(b.quartiere));
 
     const totals = {
       tot_annunci: Number(totalsRow?.tot_annunci ?? 0),
       tot_agenzie: Number(totalsRow?.tot_agenzie ?? 0),
       tot_quartieri_con_contendibili: quartieri.filter((q) => q.n_contendibili > 0).length,
+      scope_zones: authorizedSlugs.length,
     };
 
     return new Response(JSON.stringify({
@@ -101,7 +203,10 @@ serve(async (req) => {
       quartieri,
       ...totals,
       totali,
-      data: { quartieri, totals, totali },
+      assigned_zone: authorizedSlugs.length === 1 ? authorizedSlugs[0] : null,
+      assigned_zones: authorizedSlugs,
+      data: { quartieri, totals, totali, assigned_zones: authorizedSlugs },
+      diagnostics: { scope: isAdmin ? "admin_full_city" : "commercial_zone_isolated", workspace_id: workspaceId, authorized_zones: authorizedSlugs },
       debug_id: did,
     }), { status: 200, headers: CORS });
   } catch (e) {

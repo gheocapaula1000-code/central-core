@@ -16,7 +16,7 @@
 import {
   makeDebugId, handleOptions, json, fail,
   CORE_VERSION, CORE_CONTRACT, addIdentityHeaders,
-  buildManifest, enforceOriginPolicy, requireSecret, extractVerifiedEmail,
+  buildManifest, enforceOriginPolicy, requireSecret, extractVerifiedEmail, isBootstrapAdmin,
 } from "../_shared/http.ts";
 import { sanitizeOutgoing, getServiceSupabase } from "../_shared/civiko.ts";
 import {
@@ -56,31 +56,33 @@ async function handleSalesProspectsList(req: Request, debugId: string): Promise<
   if (!sb) return withIdentity(fail(req, 503, "STORAGE_UNAVAILABLE", "Backend not configured.", debugId), route);
 
   const { data, error } = await sb
-    .from("padova_collect_v2_items")
-    .select("agency, agency_phone, omi_zone, quartiere")
-    .eq("contendibile", true)
-    .not("agency", "is", null);
+    .from("padova_contendibili_by_zone_v")
+    .select("agencies_normalized, commercial_zone_slug, quartiere, n_agenzie, agency_count_distinct, last_seen_at")
+    .order("last_seen_at", { ascending: false });
 
   if (error) {
     console.error(`[${FUNCTION_NAME}] sales-prospects db error debug_id=${debugId}: ${error.message}`);
     return withIdentity(fail(req, 500, "DB_ERROR", `Database error. Reference: ${debugId}`, debugId), route);
   }
 
-  const byAgency = new Map<string, { name: string; phone: string | null; zones: Map<string, number> }>();
-  for (const row of (data as Array<{ agency: string | null; agency_phone: string | null; omi_zone: string | null; quartiere: string | null }> ?? [])) {
-    const name = (row.agency ?? "").trim();
-    if (!name) continue;
-    const zona = (row.omi_zone ?? row.quartiere ?? "N/D").toString();
-    const key = name.toLowerCase();
-    if (!byAgency.has(key)) byAgency.set(key, { name, phone: null, zones: new Map() });
-    const entry = byAgency.get(key)!;
-    entry.zones.set(zona, (entry.zones.get(zona) ?? 0) + 1);
-    if (!entry.phone && row.agency_phone) entry.phone = row.agency_phone;
+  const byAgency = new Map<string, { name: string; zones: Map<string, number> }>();
+  for (const row of (data as Array<{ agencies_normalized: string[] | null; commercial_zone_slug: string | null; quartiere: string | null }> ?? [])) {
+    const names = Array.isArray(row.agencies_normalized) ? row.agencies_normalized : [];
+    const zona = (row.commercial_zone_slug ?? row.quartiere ?? "N/D").toString();
+    for (const rawName of names) {
+      const name = String(rawName ?? "").trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (!byAgency.has(key)) byAgency.set(key, { name, zones: new Map() });
+      const entry = byAgency.get(key);
+      if (!entry) continue;
+      entry.zones.set(zona, (entry.zones.get(zona) ?? 0) + 1);
+    }
   }
 
   const agenzie: Array<Record<string, unknown>> = [];
   let totalContendibili = 0;
-  for (const { name, phone, zones } of byAgency.values()) {
+  for (const { name, zones } of byAgency.values()) {
     const zoneArr = Array.from(zones.entries())
       .map(([zona, n]) => ({ zona, n_immobili: n }))
       .sort((a, b) => b.n_immobili - a.n_immobili);
@@ -93,7 +95,7 @@ async function handleSalesProspectsList(req: Request, debugId: string): Promise<
     agenzie.push({
       id,
       agenzia_nome: name,
-      agenzia_telefono: phone,
+      agenzia_telefono: null,
       n_contendibili_totali: totale,
       zone_attive: zoneArr,
       concentrazione_top_zona: Math.round(concentrazione * 10000) / 10000,
@@ -124,22 +126,20 @@ async function handleSalesProspectsDetail(req: Request, prospectId: string, debu
   if (!sb) return withIdentity(fail(req, 503, "STORAGE_UNAVAILABLE", "Backend not configured.", debugId), route);
 
   const { data: distinctRows, error: e1 } = await sb
-    .from("padova_collect_v2_items")
-    .select("agency, agency_phone")
-    .eq("contendibile", true)
-    .not("agency", "is", null);
+    .from("padova_contendibili_by_zone_v")
+    .select("agencies_normalized");
   if (e1) {
     console.error(`[${FUNCTION_NAME}] sales-prospects detail db error debug_id=${debugId}: ${e1.message}`);
     return withIdentity(fail(req, 500, "DB_ERROR", `Database error. Reference: ${debugId}`, debugId), route);
   }
 
-  const phoneByName = new Map<string, string>();
   const names = new Set<string>();
-  for (const r of (distinctRows as Array<{ agency: string | null; agency_phone: string | null }> ?? [])) {
-    const n = (r.agency ?? "").trim();
-    if (!n) continue;
-    names.add(n);
-    if (r.agency_phone && !phoneByName.has(n)) phoneByName.set(n, r.agency_phone);
+  for (const r of (distinctRows as Array<{ agencies_normalized: string[] | null }> ?? [])) {
+    const agencyNames = Array.isArray(r.agencies_normalized) ? r.agencies_normalized : [];
+    for (const rawName of agencyNames) {
+      const n = String(rawName ?? "").trim();
+      if (n) names.add(n);
+    }
   }
   let matchedAgency: string | null = null;
   for (const name of names) {
@@ -148,42 +148,40 @@ async function handleSalesProspectsDetail(req: Request, prospectId: string, debu
   if (!matchedAgency) return withIdentity(fail(req, 404, "NOT_FOUND", "Agenzia non trovata.", debugId), route);
 
   const { data: immobili, error: e2 } = await sb
-    .from("padova_collect_v2_items")
-    .select("id, raw_address, civico, omi_zone, quartiere, prezzo, prezzo_iniziale, mq, locali, bagni, piano, url, created_at, agency_phone")
-    .eq("contendibile", true)
-    .eq("agency", matchedAgency)
-    .order("created_at", { ascending: false });
+    .from("padova_contendibili_by_zone_v")
+    .select("id, chiave_match, quartiere, commercial_zone_slug, prezzo_min, prezzo_max, mq, locali, bagni, urls, created_at, last_seen_at, agencies_normalized")
+    .contains("agencies_normalized", [matchedAgency])
+    .order("last_seen_at", { ascending: false });
   if (e2) {
     console.error(`[${FUNCTION_NAME}] sales-prospects detail listings error debug_id=${debugId}: ${e2.message}`);
     return withIdentity(fail(req, 500, "DB_ERROR", `Database error. Reference: ${debugId}`, debugId), route);
   }
 
   const totale = immobili?.length ?? 0;
-  const phoneFromImmobili = ((immobili as Array<{ agency_phone: string | null }>) ?? []).find((r) => r.agency_phone)?.agency_phone ?? null;
-  const agenziaTelefono = phoneByName.get(matchedAgency) ?? phoneFromImmobili ?? null;
   return withIdentity(json(req, 200, sanitizeOutgoing({
     ok: true,
     data: {
-      agenzia: { id: prospectId, agenzia_nome: matchedAgency, agenzia_telefono: agenziaTelefono, n_contendibili_totali: totale },
+      agenzia: { id: prospectId, agenzia_nome: matchedAgency, agenzia_telefono: null, n_contendibili_totali: totale },
       immobili: ((immobili as Array<Record<string, unknown>>) ?? []).map((r) => {
-        const prezzo = r.prezzo as number | null;
-        const prezzoIniz = r.prezzo_iniziale as number | null;
+        const prezzoMin = r.prezzo_min as number | null;
+        const prezzoMax = r.prezzo_max as number | null;
         const mq = r.mq as number | null;
+        const urls = Array.isArray(r.urls) ? r.urls : [];
         return {
           id: r.id,
-          indirizzo: [r.raw_address, r.civico].filter(Boolean).join(" "),
-          zona_omi: r.omi_zone,
+          indirizzo: r.chiave_match,
+          zona_omi: r.commercial_zone_slug,
           quartiere: r.quartiere,
-          prezzo_richiesto: prezzo,
-          prezzo_iniziale: prezzoIniz,
-          n_ribassi: (prezzoIniz && prezzo && prezzoIniz > prezzo) ? 1 : 0,
+          prezzo_richiesto: prezzoMin,
+          prezzo_iniziale: prezzoMax,
+          n_ribassi: (prezzoMax && prezzoMin && prezzoMax > prezzoMin) ? 1 : 0,
           mq,
-          prezzo_al_mq: (prezzo && mq) ? Math.round(prezzo / mq) : null,
+          prezzo_al_mq: (prezzoMin && mq) ? Math.round(prezzoMin / mq) : null,
           locali: r.locali,
           bagni: r.bagni,
-          piano: r.piano,
-          link_annuncio: r.url,
-          data_prima_pubblicazione: r.created_at,
+          piano: null,
+          link_annuncio: urls.length > 0 ? urls[0] : null,
+          data_prima_pubblicazione: r.created_at ?? r.last_seen_at,
         };
       }),
     },
@@ -219,6 +217,20 @@ async function handleMyZone(req: Request, debugId: string): Promise<Response> {
     started_at: null, current_period_end: null,
   };
 
+  let isAdmin = false;
+  try {
+    const verifiedEmail = await extractVerifiedEmail(req);
+    if (verifiedEmail && isBootstrapAdmin(verifiedEmail)) isAdmin = true;
+  } catch { /* fail closed to non-admin */ }
+  if (!isAdmin) {
+    try {
+      const { data: adminRes } = await sb.rpc("civiko_is_admin_agency", { _agency_id: workspaceId });
+      isAdmin = adminRes === true;
+    } catch {
+      warnings.push("admin_lookup_unavailable");
+    }
+  }
+
   // ── Stripe subscription (status/plan/period): resta invariata ──
   const { data: sub, error: subErr } = await sb
     .from("billing_subscriptions")
@@ -237,6 +249,27 @@ async function handleMyZone(req: Request, debugId: string): Promise<Response> {
   const plan = sub?.billing_interval ?? sub?.plan_key ?? null;
   const startedAt = sub?.created_at ?? null;
   const currentPeriodEnd = sub?.current_period_end ?? null;
+
+  if (isAdmin) {
+    const { data: zones, error: zonesErr } = await sb
+      .from("civiko_commercial_zones")
+      .select("slug,nome,status,canone_mese_eur,trial_reserved_until,occupied_since")
+      .order("nome", { ascending: true });
+    if (zonesErr) warnings.push("admin_zones_lookup_failed");
+    return withIdentity(json(req, 200, {
+      data: {
+        status: subStatus,
+        plan,
+        zona_status: "admin_full_city",
+        zona_assegnata: null,
+        zones: zones ?? [],
+        started_at: startedAt,
+        current_period_end: currentPeriodEnd,
+      },
+      warnings,
+      diagnostics: { scope: "admin_full_city", workspace_id: workspaceId },
+    }, debugId), route);
+  }
 
   // ── Zona: fonte unica = civiko_commercial_zones ──
   let zonaStatus: string | null = null;
@@ -1134,7 +1167,9 @@ Deno.serve(async (req) => {
         const auth = await authenticateDual(req, debugId);
         if (!auth.ok) return auth.res;
         if (isProspectsList) return await handleSalesProspectsList(req, debugId);
-        return await handleSalesProspectsDetail(req, prospectsDetailMatch![1], debugId);
+        const prospectId = prospectsDetailMatch?.[1];
+        if (!prospectId) return withIdentity(fail(req, 404, "NOT_FOUND", "Route not found", debugId), "not-found");
+        return await handleSalesProspectsDetail(req, prospectId, debugId);
       }
 
       // GET /my-zone — Civiko PWA dashboard data (job-secret auth)
