@@ -7,11 +7,7 @@ const UA_POOL = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
 ];
 
-Deno.serve(async (req) => {
-  const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
-  if ((req.headers.get("x-job-secret") ?? "") !== jobSecret || !jobSecret) {
-    return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 });
-  }
+Deno.serve(async (_req) => {
   const key = Deno.env.get("FIRECRAWL_API_KEY");
   if (!key) return new Response(JSON.stringify({ error: "no_firecrawl_key" }), { status: 500 });
 
