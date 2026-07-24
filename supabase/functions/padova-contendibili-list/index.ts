@@ -130,14 +130,30 @@ serve(async (req) => {
       ) return true;
       return false;
     });
-    if (valid.length === 0) {
-      return json({ ok: false, debug_id: did, error: { code: "NO_ZONE_ASSIGNED", message: "No active zone for workspace" } }, 403);
+
+    let isAdmin = false;
+    {
+      const { data: adminRes } = await supabase.rpc("civiko_is_admin_agency", { _agency_id: workspaceId });
+      isAdmin = adminRes === true;
     }
-    const assignedSlugs = valid
-      .map((z: Record<string, unknown>) => String(z.slug ?? ""))
-      .filter((s) => isCivikoCommercialZoneSlug(s));
-    if (assignedSlugs.length === 0) {
-      return json({ ok: false, debug_id: did, error: { code: "SLUG_OUT_OF_CONTRACT", message: "Assigned slug not in contract" } }, 403);
+
+    let assignedSlugs: string[];
+    if (isAdmin) {
+      assignedSlugs = [
+        "centro-storico", "nord-arcella", "est-brenta", "est-forcellini-camin",
+        "sud-est-sant-osvaldo", "sud-voltabarozzo-guizza", "sud-ovest-mandria",
+        "ovest-chiesanuova-brentelle",
+      ];
+    } else {
+      if (valid.length === 0) {
+        return json({ ok: false, debug_id: did, error: { code: "NO_ZONE_ASSIGNED", message: "No active zone for workspace" } }, 403);
+      }
+      assignedSlugs = valid
+        .map((z: Record<string, unknown>) => String(z.slug ?? ""))
+        .filter((s) => isCivikoCommercialZoneSlug(s));
+      if (assignedSlugs.length === 0) {
+        return json({ ok: false, debug_id: did, error: { code: "SLUG_OUT_OF_CONTRACT", message: "Assigned slug not in contract" } }, 403);
+      }
     }
 
     // Optional zone_slug: client may pick a specific authorized zone.
