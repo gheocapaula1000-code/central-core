@@ -772,6 +772,28 @@ async function readApifyReservoir(
   }
 }
 
+function sourceToPortalKey(source: NormalizedListing["source"]): string {
+  if (source === "immobiliare.it") return "immobiliare";
+  if (source === "idealista.it") return "idealista";
+  if (source === "casa.it") return "casa";
+  return "subito";
+}
+
+function suppressCoveredExtractionErrors(stats: IngestionStats | undefined, reservoir: NormalizedListing[]): void {
+  if (!stats || reservoir.length === 0) return;
+  const coveredKeys = new Set(reservoir.map((r) => sourceToPortalKey(r.source)));
+  stats.perPortal = stats.perPortal.filter((p) => {
+    const source = String(p.source ?? "");
+    if (!source.startsWith("extraction_empty_")) return true;
+    const key = source.replace(/^extraction_empty_/, "");
+    if (!coveredKeys.has(key)) return true;
+    // Firecrawl/direct parser was blocked, but the Apify-backed reservoir has
+    // fresh rows for the same portal. Do not surface this as a provider error
+    // in cron readiness; the fallback path covered the source.
+    return false;
+  });
+}
+
 export async function scrapeAllPortals(
   municipality: string,
   firecrawlKey: string,
@@ -796,6 +818,7 @@ export async function scrapeAllPortals(
       const apifyListings = await scrapeWithApify(municipality, provincia, mode, meta, stats);
       if (supabase) {
         const reservoir = await readApifyReservoir(supabase, stats);
+        suppressCoveredExtractionErrors(stats, reservoir);
         apifyListings.push(...reservoir);
       }
       return apifyListings;
@@ -825,6 +848,7 @@ export async function scrapeAllPortals(
   // Provider "apify_reservoir": SEMPRE eseguito dopo i portali diretti (non solo fallback).
   if (supabase) {
     const reservoir = await readApifyReservoir(supabase, stats);
+    suppressCoveredExtractionErrors(stats, reservoir);
     listings.push(...reservoir);
   }
   return listings;
