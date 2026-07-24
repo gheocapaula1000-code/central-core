@@ -248,10 +248,11 @@ serve(async (req: Request) => {
   const secretFail = requireSecret(req, debugId);
   if (secretFail) return secretFail;
 
-  // 4. x-workspace-id obbligatorio, UUID valido. Unica fonte di identità.
-  const workspaceId = (req.headers.get("x-workspace-id") ?? "").trim();
+  // 4. Workspace obbligatorio, UUID valido.
+  // Compatibilità runtime: alcune PWA storiche inviano x-tenant-id.
+  const workspaceId = (req.headers.get("x-workspace-id") ?? req.headers.get("x-tenant-id") ?? "").trim();
   if (!UUID_RE.test(workspaceId)) {
-    return err("WORKSPACE_REQUIRED", "Missing or invalid x-workspace-id", 401);
+    return err("WORKSPACE_REQUIRED", "Missing or invalid workspace id", 401);
   }
 
   // Parse body/query DOPO il gate. commercial_zone_slug e workspace_id
