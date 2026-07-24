@@ -360,16 +360,29 @@ Deno.serve(async (req) => {
 
 
   // Seleziona candidati: RUNNING più vecchi di staleMinutes, oppure run_ids espliciti.
+  // Include anche SUCCEEDED con imported=0: padova-apify-multi-status può
+  // arrivare prima di questo job e persistere lo stato finale Apify. Quella
+  // run NON va considerata completata finché il dataset non è stato promosso
+  // in padova_collect_v2_items.
   let candidates: any[] = [];
   if (Array.isArray(body.run_ids) && body.run_ids.length) {
     const { data } = await sb.from("padova_apify_runs").select("*").in("run_id", body.run_ids);
     candidates = data ?? [];
   } else {
     const cutoff = new Date(Date.now() - staleMinutes * 60_000).toISOString();
-    const { data } = await sb.from("padova_apify_runs").select("*")
+    const { data: runningRows } = await sb.from("padova_apify_runs").select("*")
       .eq("status", "RUNNING").lt("started_at", cutoff)
       .order("started_at", { ascending: true }).limit(maxRuns);
-    candidates = data ?? [];
+    const { data: succeededUnimportedRows } = await sb.from("padova_apify_runs").select("*")
+      .eq("status", "SUCCEEDED")
+      .or("imported.is.null,imported.eq.0")
+      .lt("started_at", cutoff)
+      .order("started_at", { ascending: true }).limit(maxRuns);
+    const byRunId = new Map<string, any>();
+    for (const r of [...(runningRows ?? []), ...(succeededUnimportedRows ?? [])]) {
+      if (r?.run_id) byRunId.set(String(r.run_id), r);
+    }
+    candidates = Array.from(byRunId.values()).slice(0, maxRuns);
   }
 
   const results: any[] = [];
