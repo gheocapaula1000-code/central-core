@@ -116,8 +116,27 @@ serve(async (req) => {
       "apikey": ANON_KEY,
     };
 
-    // Server-side secret injection for property-marketing-pack (Civiko One).
-    if (normalizedEndpoint === "civiko/property-marketing-pack") {
+    // Forward workspace identity (x-workspace-id or legacy x-tenant-id alias).
+    // Server-side isolation in target functions relies on this header.
+    const wsHeader = req.headers.get("x-workspace-id") ?? req.headers.get("x-tenant-id");
+    if (wsHeader) {
+      upstreamHeaders["x-workspace-id"] = wsHeader;
+    }
+    // Forward optional user id (for audit only; not authoritative).
+    const userHeader = req.headers.get("x-user-id");
+    if (userHeader) upstreamHeaders["x-user-id"] = userHeader;
+
+    // Endpoints served to the Civiko One PWA that require the shared internal
+    // secret. core-proxy injects it server-side so the PWA never sees it.
+    const CIVIKO_ONE_SECRET_ROUTES = new Set<string>([
+      "civiko/property-marketing-pack",
+      "padova-contendibili-list",
+      "padova-privati-list",
+      "padova-quartieri-stats",
+      "padova-cambi-agenzia-list",
+    ]);
+
+    if (CIVIKO_ONE_SECRET_ROUTES.has(normalizedEndpoint)) {
       const civikoSecret = Deno.env.get("AI_CORE_SECRET_CIVIKO") ?? "";
       if (!civikoSecret) {
         clearTimeout(timer);
@@ -133,7 +152,7 @@ serve(async (req) => {
         );
       }
       upstreamHeaders["x-internal-secret"] = civikoSecret;
-      upstreamHeaders["x-source-app"] = "civiko";
+      upstreamHeaders["x-source-app"] = "civiko-one";
     }
 
     const res = await fetch(targetUrl, {
