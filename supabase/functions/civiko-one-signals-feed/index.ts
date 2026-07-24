@@ -329,13 +329,27 @@ serve(async (req: Request) => {
     return false;
   });
   if (valid.length === 0) return err("NO_ZONE_ASSIGNED", "No active zone for workspace", 403);
-  if (valid.length > 1) return err("MULTIPLE_ZONES_ASSIGNED", "Ambiguous zone assignment", 403);
-  const assignedSlug = String(valid[0].slug ?? "");
-  if (!isCivikoCommercialZoneSlug(assignedSlug)) {
+  const assignedSlugs = (valid as Array<Record<string, unknown>>)
+    .map((z) => String(z.slug ?? ""))
+    .filter((s) => isCivikoCommercialZoneSlug(s))
+    .sort();
+  if (assignedSlugs.length === 0) {
     return err("SLUG_OUT_OF_CONTRACT", "Assigned slug not in contract", 403);
   }
+  // Multi-zone workspaces (sales/demo): the feed still operates on ONE zone
+  // per request. Client selects it via `zone_slug`; default = first assigned.
+  const requestedZone = pickStr("zone_slug") ?? pickStr("commercial_zone_slug");
+  let assignedSlug: string;
+  if (requestedZone) {
+    if (!assignedSlugs.includes(requestedZone)) {
+      return err("ZONE_NOT_ASSIGNED", "Requested zone not assigned to workspace", 403);
+    }
+    assignedSlug = requestedZone;
+  } else {
+    assignedSlug = assignedSlugs[0];
+  }
 
-  // Optional quartiere filter: consentito solo se risolve alla stessa zona.
+  // Optional quartiere filter: consentito solo se risolve alla zona attiva.
   let quartiereFilter: string | undefined;
   if (quartiereRaw) {
     const resolved = commercialZoneForQuartiere(quartiereRaw);
@@ -996,7 +1010,8 @@ serve(async (req: Request) => {
     ok: true,
     schema_version: SCHEMA_VERSION,
     assigned_zone: assignedSlug,
-    scope: { city, province, zone_mode: zoneMode, commercial_zone_slug: assignedSlug },
+    assigned_zones: assignedSlugs,
+    scope: { city, province, zone_mode: zoneMode, commercial_zone_slug: assignedSlug, assigned_zones: assignedSlugs },
     generated_at: generatedAt,
     summary,
     items: trimmed,
