@@ -1039,6 +1039,21 @@ serve(async (req: Request) => {
   else if (ide.with_real_agency === 0) idealistaStatus = ideAgeDays !== null && ideAgeDays > 7 ? "stale_no_agency_coverage" : "active_no_agency_coverage";
   else idealistaStatus = "active_with_agency_coverage";
 
+  // PWA legacy compatibility:
+  // The published Civiko One Radar rejects any feed item whose
+  // commercial_zone_slug differs from assigned_zone, so an admin aggregate
+  // feed across 8 zones is otherwise discarded client-side as CROSS_ZONE_ITEM.
+  // Expose compatibility both top-level and under `data.items` because the
+  // published PWA unwraps the proxy response and reads top-level `items`.
+  // The real source zone is preserved explicitly as actual_commercial_zone_slug.
+  const pwaCompatItems = isAdmin
+    ? trimmed.map((it) => ({
+      ...it,
+      actual_commercial_zone_slug: it.commercial_zone_slug,
+      commercial_zone_slug: assignedSlug,
+    }))
+    : trimmed;
+
   return jsonResp({
     ok: true,
     schema_version: SCHEMA_VERSION,
@@ -1047,9 +1062,9 @@ serve(async (req: Request) => {
     scope: { city, province, zone_mode: zoneMode, commercial_zone_slug: assignedSlug, assigned_zones: assignedSlugs },
     generated_at: generatedAt,
     summary,
-    items: trimmed,
+    items: pwaCompatItems,
     data: {
-      items: trimmed,
+      items: pwaCompatItems,
       total: summary.total,
       summary,
       assigned_zone: assignedSlug,
@@ -1100,6 +1115,7 @@ serve(async (req: Request) => {
       },
       offmarket: offmarketDiag,
       commercial_zone_scope: "db_side_zone_filter_only",
+      pwa_legacy_admin_zone_compat: isAdmin,
       quartiere_filter: quartiereFilter ?? null,
       distinct_resolved_slugs: distinctResolvedSlugs,
       security_gate: "ok",
