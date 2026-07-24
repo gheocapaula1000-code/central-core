@@ -136,6 +136,7 @@ serve(async (req) => {
       "padova-privati-list",
       "padova-quartieri-stats",
       "padova-cambi-agenzia-list",
+      "civiko-one-signals-feed",
     ]);
 
     if (CIVIKO_ONE_SECRET_ROUTES.has(normalizedEndpoint)) {
