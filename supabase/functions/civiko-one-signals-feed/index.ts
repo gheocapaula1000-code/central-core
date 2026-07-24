@@ -1043,9 +1043,9 @@ serve(async (req: Request) => {
   // The published Civiko One Radar rejects any feed item whose
   // commercial_zone_slug differs from assigned_zone, so an admin aggregate
   // feed across 8 zones is otherwise discarded client-side as CROSS_ZONE_ITEM.
-  // Keep the canonical top-level `items` truthful, but expose a compatibility
-  // payload under `data.items` for that legacy client. The real source zone is
-  // preserved explicitly as actual_commercial_zone_slug.
+  // Expose compatibility both top-level and under `data.items` because the
+  // published PWA unwraps the proxy response and reads top-level `items`.
+  // The real source zone is preserved explicitly as actual_commercial_zone_slug.
   const pwaCompatItems = isAdmin
     ? trimmed.map((it) => ({
       ...it,
@@ -1062,7 +1062,7 @@ serve(async (req: Request) => {
     scope: { city, province, zone_mode: zoneMode, commercial_zone_slug: assignedSlug, assigned_zones: assignedSlugs },
     generated_at: generatedAt,
     summary,
-    items: trimmed,
+    items: pwaCompatItems,
     data: {
       items: pwaCompatItems,
       total: summary.total,
