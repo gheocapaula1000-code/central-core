@@ -36,6 +36,8 @@ const ROUTE_MAP: Record<string, string> = {
   "padova-contendibili-list":            "padova-contendibili-list",
   "padova-quartieri-stats":              "padova-quartieri-stats",
   "padova-privati-list":                 "padova-privati-list",
+  "padova-cambi-agenzia-list":           "padova-cambi-agenzia-list",
+  "civiko-one-signals-feed":             "civiko-one-signals-feed",
   // ── Diagnostica ──
   "health":                              "health",
   "core-status":                         "core-status",
