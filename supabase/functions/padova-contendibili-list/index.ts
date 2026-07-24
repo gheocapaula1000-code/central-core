@@ -5,6 +5,7 @@
 //   • x-source-app        → resolves per-app secret (requireSecret)
 //   • x-internal-secret   → constant-time compared to AI_CORE_SECRET_<APP>
 //   • x-workspace-id      → UUID; ONLY source of workspace identity
+//     x-tenant-id is accepted as legacy alias from older PWA proxy calls.
 //
 // Zone isolation:
 //   The workspace has exactly one assigned commercial zone. That zone is
@@ -72,10 +73,10 @@ serve(async (req) => {
   if (secretFail) return secretFail;
 
   // ─── Gate 2: workspace identity (header only) ──────────────────────
-  const workspaceId = (req.headers.get("x-workspace-id") ?? "").trim();
+  const workspaceId = (req.headers.get("x-workspace-id") ?? req.headers.get("x-tenant-id") ?? "").trim();
   if (!UUID_RE.test(workspaceId)) {
     return json(
-      { ok: false, debug_id: did, error: { code: "WORKSPACE_REQUIRED", message: "Missing or invalid x-workspace-id" } },
+      { ok: false, debug_id: did, error: { code: "WORKSPACE_REQUIRED", message: "Missing or invalid workspace id" } },
       401,
     );
   }
