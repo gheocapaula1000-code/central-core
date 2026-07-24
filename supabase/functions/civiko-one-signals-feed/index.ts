@@ -469,7 +469,7 @@ serve(async (req: Request) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let contQ: any = supabase
       .from("padova_contendibili_by_zone_v")
-      .select("id, chiave_match, n_agenzie, agency_count_distinct, agencies_normalized, agenzie, portals_seen, fonti, confidenza, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, created_at, commercial_zone_slug")
+      .select("id, chiave_match, n_agenzie, agency_count_distinct, agencies_normalized, agenzie, portals_seen, fonti, confidenza, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, created_at, last_seen_at, commercial_zone_slug")
       .in("commercial_zone_slug", zoneFilter);
     if (quartiereFilter) contQ = contQ.eq("quartiere", quartiereFilter);
     // Prefer last_seen_at when available (post-migration), fallback to created_at.
@@ -514,6 +514,7 @@ serve(async (req: Request) => {
           status: "active",
           score,
           last_seen_at: lastSeen,
+          first_seen_at: lastSeen,
           raw_ref: `padova_contendibili:${row.id}`,
           lat_raw: row.lat,
           lng_raw: row.lng,
@@ -536,7 +537,7 @@ serve(async (req: Request) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let mpQ: any = supabase
       .from("padova_multi_portale_by_zone_v")
-      .select("id, chiave_match, portal_count, portals_seen, agency_count_distinct, agencies_normalized, agenzie, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, n_annunci, created_at, commercial_zone_slug")
+      .select("id, chiave_match, portal_count, portals_seen, agency_count_distinct, agencies_normalized, agenzie, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, n_annunci, created_at, last_seen_at, commercial_zone_slug")
       .in("commercial_zone_slug", zoneFilter);
     if (quartiereFilter) mpQ = mpQ.eq("quartiere", quartiereFilter);
     const { data, error } = await mpQ
@@ -579,6 +580,7 @@ serve(async (req: Request) => {
           status: "active",
           score,
           last_seen_at: lastSeen,
+          first_seen_at: lastSeen,
           raw_ref: `padova_multi_portale:${row.id}`,
           lat_raw: row.lat,
           lng_raw: row.lng,
@@ -675,6 +677,7 @@ serve(async (req: Request) => {
           status: "active",
           score: Math.min(100, 50 + Math.round(dropPct)),
           last_seen_at: lastSeen,
+          first_seen_at: lastSeen,
           raw_ref: `listing_price_snapshots:${row.source_id ?? ""}`,
           lat_raw: row.lat,
           lng_raw: row.lng,
@@ -854,6 +857,7 @@ serve(async (req: Request) => {
           status: String(row.status || "active"),
           score: Math.min(100, Math.round((Number(row.confidence_score) || 0.7) * 100)),
           last_seen_at: created,
+          first_seen_at: created,
           raw_ref: `early_offmarket_signal_candidates:${row.id}`,
           evidence_type: String(row.signal_type || "off_market"),
           label_pubblica: "Segnale off-market verificato",
@@ -1044,6 +1048,14 @@ serve(async (req: Request) => {
     generated_at: generatedAt,
     summary,
     items: trimmed,
+    data: {
+      items: trimmed,
+      total: summary.total,
+      summary,
+      assigned_zone: assignedSlug,
+      assigned_zones: assignedSlugs,
+      scope: { city, province, zone_mode: zoneMode, commercial_zone_slug: assignedSlug, assigned_zones: assignedSlugs },
+    },
     diagnostics: {
       tenant_id: workspaceId,
       workspace_id: workspaceId,
