@@ -356,7 +356,10 @@ serve(async (req: Request) => {
   // `zone_slug`, we scope to that one zone; otherwise we AGGREGATE across all
   // assigned zones. `assignedSlug` remains the primary/representative slug for
   // legacy fields (assigned_zone, scope.commercial_zone_slug).
-  const requestedZone = pickStr("zone_slug") ?? pickStr("commercial_zone_slug");
+  const requestedZoneRaw = pickStr("zone_slug") ?? pickStr("commercial_zone_slug");
+  // ADMIN BYPASS: admin sempre in modalita' aggregata su tutte le zone assegnate,
+  // anche se la PWA passa uno zone_slug specifico (es. 'centro-storico' di default).
+  const requestedZone = isAdmin ? undefined : requestedZoneRaw;
   let assignedSlug: string;
   let zoneFilter: string[];
   if (requestedZone) {
