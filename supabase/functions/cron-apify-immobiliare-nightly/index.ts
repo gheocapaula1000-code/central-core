@@ -52,13 +52,16 @@ Deno.serve(async (req) => {
   try { overrides = await req.json(); } catch { /* body vuoto ok */ }
 
   const DEFAULT_SEARCH_URLS = [
-    "https://www.immobiliare.it/vendita-case/padova/",
+    "https://www.immobiliare.it/vendita-case/padova/?prezzoMassimo=150000",
+    "https://www.immobiliare.it/vendita-case/padova/?prezzoMinimo=150000&prezzoMassimo=250000",
+    "https://www.immobiliare.it/vendita-case/padova/?prezzoMinimo=250000&prezzoMassimo=400000",
+    "https://www.immobiliare.it/vendita-case/padova/?prezzoMinimo=400000",
   ];
 
   const body = {
     mode: "mixed",
-    desired_results: 100,          // hint azzouzana per Pass A
-    max_items: 200,                // cap Pass B (detail-by-URL sui NEW)
+    desired_results: 300,          // hint azzouzana per Pass A
+    max_items: 800,                // cap Pass B (detail-by-URL sui NEW)
     search_urls: DEFAULT_SEARCH_URLS,
     refresh_urls: [] as string[],
     wait_seconds: 300,
