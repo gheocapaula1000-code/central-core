@@ -610,22 +610,26 @@ serve(async (req: Request) => {
     // that is not zone-verified against padova_listings_price_history.
     let rpcRows: unknown = null;
     let rpcErr: { message: string; code?: string } | null = null;
-    const v2 = await supabase.rpc("get_padova_verified_price_drops_by_zone_v2", {
-      p_commercial_zone_slug: assignedSlug,
-      p_quartiere: quartiereFilter ?? null,
-      p_limit: limit,
-      p_min_drop_pct: 5,
-      p_max_age_days: 14,
-    });
-    if (v2.error) {
-      const missing = /function .* does not exist/i.test(v2.error.message ?? "");
-      rpcErr = v2.error;
+    // Aggregate over all zones in zoneFilter (single zone if requestedZone was set).
+    const rpcCalls = await Promise.all(zoneFilter.map((slug) =>
+      supabase.rpc("get_padova_verified_price_drops_by_zone_v2", {
+        p_commercial_zone_slug: slug,
+        p_quartiere: quartiereFilter ?? null,
+        p_limit: limit,
+        p_min_drop_pct: 5,
+        p_max_age_days: 14,
+      })
+    ));
+    const firstErr = rpcCalls.find((r) => r.error);
+    if (firstErr?.error) {
+      const missing = /function .* does not exist/i.test(firstErr.error.message ?? "");
+      rpcErr = firstErr.error;
       sourceErrors.push({
         source: "get_padova_verified_price_drops_by_zone_v2",
         category: missing ? "rpc_missing_no_fallback" : "rpc_error",
       });
     } else {
-      rpcRows = v2.data;
+      rpcRows = rpcCalls.flatMap((r) => Array.isArray(r.data) ? r.data : []);
     }
     if (rpcErr) {
       ribassiDiag.ribassi_source = "rpc_error";
@@ -637,7 +641,7 @@ serve(async (req: Request) => {
       for (const row of rpcRows as Record<string, unknown>[]) {
         // Difesa in profondità: la RPC filtra già, ma verifichiamo lo slug.
         const slug = (row.commercial_zone_slug as string) || "";
-        if (slug !== assignedSlug) { ribassiDiag.ribassi_unzoned_excluded++; continue; }
+        if (!zoneFilter.includes(slug)) { ribassiDiag.ribassi_unzoned_excluded++; continue; }
         if (quartiereFilter) {
           const rq = typeof row.quartiere === "string" ? row.quartiere : "";
           if (rq !== quartiereFilter) continue;
