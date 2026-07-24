@@ -175,6 +175,8 @@ async function firecrawl(job: Job, timeoutMs: number): Promise<Outcome> {
         onlyMainContent: job.payload.onlyMainContent ?? true,
         waitFor: integer(job.payload.waitFor, 0, 0, 5000),
         timeout: Math.min(timeoutMs - 1000, 30000),
+        ...(job.payload.proxy ? { proxy: job.payload.proxy } : {}),
+        ...(job.payload.headers ? { headers: job.payload.headers } : {}),
       }),
     },
     timeoutMs,

@@ -205,6 +205,7 @@ Deno.serve(async (req) => {
       formats: ["markdown"],
       onlyMainContent: false,
       waitFor: FIRECRAWL_WAIT_FOR_MS,
+      proxy: "auto",
     };
     const processor_context = {
       municipality: MUNICIPALITY,
