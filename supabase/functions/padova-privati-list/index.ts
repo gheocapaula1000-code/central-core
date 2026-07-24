@@ -113,14 +113,10 @@ serve(async (req) => {
         403,
       );
     }
-    if (valid.length > 1) {
-      return json(
-        { ok: false, error: { code: "MULTIPLE_ZONES_ASSIGNED", message: "Ambiguous zone assignment" } },
-        403,
-      );
-    }
-    const assignedSlug = String(valid[0].slug ?? "");
-    if (!isCivikoCommercialZoneSlug(assignedSlug)) {
+    const assignedSlugs = valid
+      .map((z) => String(z.slug ?? ""))
+      .filter((s) => isCivikoCommercialZoneSlug(s));
+    if (assignedSlugs.length === 0) {
       return json(
         { ok: false, error: { code: "SLUG_OUT_OF_CONTRACT", message: "Assigned slug not in contract" } },
         403,
