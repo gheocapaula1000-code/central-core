@@ -133,31 +133,41 @@ serve(async (req) => {
     if (valid.length === 0) {
       return json({ ok: false, debug_id: did, error: { code: "NO_ZONE_ASSIGNED", message: "No active zone for workspace" } }, 403);
     }
-    if (valid.length > 1) {
-      return json({ ok: false, debug_id: did, error: { code: "MULTIPLE_ZONES_ASSIGNED", message: "Ambiguous zone assignment" } }, 403);
-    }
-    const assignedSlug = String(valid[0].slug ?? "");
-    if (!isCivikoCommercialZoneSlug(assignedSlug)) {
+    const assignedSlugs = valid
+      .map((z: Record<string, unknown>) => String(z.slug ?? ""))
+      .filter((s) => isCivikoCommercialZoneSlug(s));
+    if (assignedSlugs.length === 0) {
       return json({ ok: false, debug_id: did, error: { code: "SLUG_OUT_OF_CONTRACT", message: "Assigned slug not in contract" } }, 403);
     }
 
-    // Optional quartiere filter must resolve to the same authorized slug.
+    // Optional zone_slug: client may pick a specific authorized zone.
+    const zoneSlugRaw = ((body as Record<string, unknown>).zone_slug ?? (body as Record<string, unknown>).commercial_zone_slug ?? url.searchParams.get("zone_slug") ?? url.searchParams.get("commercial_zone_slug") ?? null) as string | null;
+    let activeSlugs = assignedSlugs;
+    if (zoneSlugRaw && zoneSlugRaw.trim()) {
+      if (!assignedSlugs.includes(zoneSlugRaw)) {
+        return json({ ok: false, debug_id: did, error: { code: "ZONE_NOT_ASSIGNED", message: "Requested zone not assigned to workspace" } }, 403);
+      }
+      activeSlugs = [zoneSlugRaw];
+    }
+
+    // Optional quartiere filter must resolve to one of the authorized slugs.
     let quartiereFilter: string | null = null;
     if (quartiereRaw && quartiereRaw.trim()) {
       const resolved = commercialZoneForQuartiere(quartiereRaw);
-      if (!resolved || resolved !== assignedSlug) {
+      if (!resolved || !activeSlugs.includes(resolved)) {
         return json(
           { ok: false, debug_id: did, error: { code: "QUARTIERE_OUT_OF_ZONE", message: "Quartiere not in assigned zone" } },
           403,
         );
       }
       quartiereFilter = quartiereRaw;
+      activeSlugs = [resolved];
     }
 
     // Apply the zone filter INSIDE the database — never in memory.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const applyZoneFilter = (q: any): any => {
-      q = q.eq("commercial_zone_slug", assignedSlug);
+      q = q.in("commercial_zone_slug", activeSlugs);
       if (quartiereFilter) q = q.eq("quartiere", quartiereFilter);
       return q;
     };
