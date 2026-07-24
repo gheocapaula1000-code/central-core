@@ -9220,6 +9220,7 @@ export type Database = {
         Args: { p_name: string; p_value: string }
         Returns: Json
       }
+      vault_secret_exists: { Args: { p_name: string }; Returns: boolean }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
