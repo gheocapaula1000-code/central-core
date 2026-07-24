@@ -352,17 +352,22 @@ serve(async (req: Request) => {
       return err("SLUG_OUT_OF_CONTRACT", "Assigned slug not in contract", 403);
     }
   }
-  // Multi-zone workspaces (sales/demo): the feed still operates on ONE zone
-  // per request. Client selects it via `zone_slug`; default = first assigned.
+  // Multi-zone workspaces (sales/demo/admin): if the client passes an explicit
+  // `zone_slug`, we scope to that one zone; otherwise we AGGREGATE across all
+  // assigned zones. `assignedSlug` remains the primary/representative slug for
+  // legacy fields (assigned_zone, scope.commercial_zone_slug).
   const requestedZone = pickStr("zone_slug") ?? pickStr("commercial_zone_slug");
   let assignedSlug: string;
+  let zoneFilter: string[];
   if (requestedZone) {
     if (!assignedSlugs.includes(requestedZone)) {
       return err("ZONE_NOT_ASSIGNED", "Requested zone not assigned to workspace", 403);
     }
     assignedSlug = requestedZone;
+    zoneFilter = [requestedZone];
   } else {
     assignedSlug = assignedSlugs[0];
+    zoneFilter = assignedSlugs;
   }
 
   // Optional quartiere filter: consentito solo se risolve alla zona attiva.
