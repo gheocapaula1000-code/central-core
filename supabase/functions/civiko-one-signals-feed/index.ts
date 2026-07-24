@@ -901,25 +901,26 @@ serve(async (req: Request) => {
     console.error(`[civiko-one-signals-feed] quartiere_zona_map display fallback error:`, (e as Error)?.message ?? e);
   }
 
-  // Slug commerciale e display_zone: forzati alla zona autorizzata server-side.
-  // Tutti gli item provengono già da viste filtrate DB-side su assignedSlug,
-  // quindi non esiste alcun caso in cui un item appartenga ad un'altra zona.
-  // Nessuna chiamata per-item alla RPC — nessun bypass possibile via quartiere.
-  const assignedName = slugToName.get(assignedSlug) || assignedSlug;
+  // Slug commerciale e display_zone: normalizzati per-item, ma vincolati a zoneFilter.
+  // Ogni item proviene da viste filtrate DB-side su zoneFilter (una o piu` zone assegnate),
+  // quindi nessun item appartiene a una zona non autorizzata.
   for (const it of rawItems) {
-    it.commercial_zone_slug = assignedSlug;
-    it.display_zone = assignedName;
+    const itSlug = it.commercial_zone_slug && zoneFilter.includes(it.commercial_zone_slug)
+      ? it.commercial_zone_slug
+      : assignedSlug;
+    it.commercial_zone_slug = itSlug;
+    it.display_zone = slugToName.get(itSlug) || itSlug;
   }
-  const distinctResolvedSlugs = rawItems.length > 0 ? 1 : 0;
+  const distinctResolvedSlugs = new Set(rawItems.map((it) => it.commercial_zone_slug)).size;
   const fallbackAltreZone = 0;
   console.log(
     `[civiko-one-signals-feed] ${debugId} zone_resolution items=${rawItems.length} ` +
-    `distinct_slugs=${distinctResolvedSlugs} altre_zone=${fallbackAltreZone} assigned=${assignedSlug}`,
+    `distinct_slugs=${distinctResolvedSlugs} altre_zone=${fallbackAltreZone} assigned=${assignedSlug} zone_filter=${zoneFilter.join(",")}`,
   );
 
 
   const preAssertCount = rawItems.length;
-  const zoneAsserted = rawItems.filter((it) => it.commercial_zone_slug === assignedSlug);
+  const zoneAsserted = rawItems.filter((it) => zoneFilter.includes(it.commercial_zone_slug ?? ""));
   const droppedByAssert = preAssertCount - zoneAsserted.length;
   if (droppedByAssert > 0) {
 
