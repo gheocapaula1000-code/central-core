@@ -956,7 +956,15 @@ serve(async (req: Request) => {
   const countBySignalType: Record<string, number> = {};
   for (const it of trimmed) {
     countBySignalType[it.signal_type] = (countBySignalType[it.signal_type] ?? 0) + 1;
-    if (it.signal_type === "contendibile") summary.contendibili++;
+    // Allineamento /quartieri ↔ /radar: contendibili contati SOLO dalla sorgente
+    // canonica padova_contendibili_by_zone_v. Le righe multi-portale (raw_ref
+    // padova_multi_portale:*) restano esposte come signal_type="contendibile"
+    // per compat PWA, ma nel summary vanno nel bucket multi_portale.
+    const rawRef = typeof it.raw_ref === "string" ? it.raw_ref : "";
+    if (it.signal_type === "contendibile") {
+      if (rawRef.startsWith("padova_multi_portale:")) summary.multi_portale++;
+      else summary.contendibili++;
+    }
     else if (it.signal_type === "multi_portale") summary.multi_portale++;
     else if (it.signal_type === "ribasso") summary.ribassi++;
     else if (it.signal_type === "privato") summary.privati++;
