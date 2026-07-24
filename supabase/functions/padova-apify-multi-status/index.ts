@@ -161,6 +161,27 @@ Deno.serve(async (req) => {
 
     let newlyImportedSubitoFull = 0;
 
+    const isCollectV2Run = [
+      "idealista_collect", "immobiliare_collect", "immobiliare_collect_mixed_discover",
+      "immobiliare_autoenrich", "immobiliare_agency_backfill", "subito_collect",
+    ].some((tag) => portal.includes(tag));
+
+    if (isCollectV2Run) {
+      // Queste run sono di competenza di padova-apify-collect-pending: qui
+      // persistiamo solo status/costo/dataset size, senza toccare imported né
+      // finished_at. Così collect-pending può ancora scaricare e promuovere il
+      // dataset anche se questo status poller arriva prima.
+      let itemCount: number | null = null;
+      if (datasetId) itemCount = (await fetchDataset(datasetId, token, 1)).length;
+      await sb.from("padova_apify_runs").update({
+        status,
+        cost_usd: cost,
+        ...(itemCount !== null ? { items_count: itemCount } : {}),
+      }).eq("id", r.id);
+      out.push({ portal, run_id: runId, status, cost_usd: cost, delegated_to: "padova-apify-collect-pending" });
+      continue;
+    }
+
     // SUCCEEDED — importa solo se non già importato
     if ((r.imported as number) > 0) {
       // già processata; ma persisti comunque cost_usd/status reali
