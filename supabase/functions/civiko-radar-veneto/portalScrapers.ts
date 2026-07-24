@@ -191,6 +191,7 @@ async function scrapeCasaViaMarkdown(
           "Accept-Language": pickLang(),
         },
         waitFor: FIRECRAWL_WAIT_FOR_MS,
+        proxy: "auto",
       }),
       signal: ctrl.signal,
     });

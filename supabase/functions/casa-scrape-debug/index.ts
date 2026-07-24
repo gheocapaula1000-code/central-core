@@ -65,6 +65,7 @@ Deno.serve(async (req) => {
       formats: ["markdown"],
       onlyMainContent: false,
       waitFor: 3000,
+      proxy: "auto",
       headers: { "User-Agent": UA, "Accept-Language": "it-IT,it;q=0.9,en;q=0.7" },
     }),
   });
