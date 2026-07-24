@@ -320,9 +320,12 @@ serve(async (req) => {
     const totalOut = count ?? enriched.length;
     const hot = hotCount ?? 0;
 
+    const primarySlug = activeSlugs.length === 1 ? activeSlugs[0] : null;
     const diagnostics = {
       scope: "commercial_zone_isolated",
-      assigned_zone: assignedSlug,
+      assigned_zone: primarySlug,
+      assigned_zones: assignedSlugs,
+      active_zones: activeSlugs,
       quartiere_filter: quartiereFilter,
       total_after_filters: totalOut,
       returned: enriched.length,
@@ -342,7 +345,9 @@ serve(async (req) => {
         total: totalOut,
         items_count: itemsCount,
         snapshot_complete: snapshotComplete,
-        assigned_zone: assignedSlug,
+        assigned_zone: primarySlug,
+        assigned_zones: assignedSlugs,
+        active_zones: activeSlugs,
         hot_3plus: hot,
         offset,
         limit,
@@ -352,7 +357,9 @@ serve(async (req) => {
       items_count: itemsCount,
       snapshot_complete: snapshotComplete,
       diagnostics,
-      assigned_zone: assignedSlug,
+      assigned_zone: primarySlug,
+      assigned_zones: assignedSlugs,
+      active_zones: activeSlugs,
       debug_id: did,
     });
 
