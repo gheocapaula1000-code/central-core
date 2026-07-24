@@ -148,13 +148,28 @@ export function parseCasaListPage(
       if (descLines.length) description = descLines.join(" ").slice(0, 1500);
     }
 
-    // agenzia: cerca link `/agenzie/<slug>/` nel blocco
-    const agencyM = block.match(AGENCY_LINK_RE);
-    const agency_name = agencyM ? agencyM[1].trim() : null;
-    const agency_slug = agencyM ? agencyM[2] : null;
-    const agency_url = agencyM
-      ? `https://www.casa.it/agenzie/${agencyM[2]}/`
-      : null;
+    // agenzia: ancora sull'URL /agenzie/<slug>/ e ricava il nome dal testo
+    // immediatamente prima del `](url)` (gestisce link annidato con immagine).
+    const agencyM = block.match(AGENCY_URL_RE);
+    let agency_name: string | null = null;
+    let agency_slug: string | null = null;
+    let agency_url: string | null = null;
+    if (agencyM) {
+      agency_url = agencyM[1];
+      agency_slug = agencyM[2];
+      const before = block.slice(0, agencyM.index!);
+      const nameM = before.match(AGENCY_NAME_BEFORE_RE);
+      if (nameM) {
+        agency_name = nameM[1].trim();
+      } else {
+        // fallback: slug -> nome (strip trailing -\d+ id, title case)
+        agency_name = agency_slug
+          .replace(/-\d+$/, "")
+          .split("-")
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(" ");
+      }
+    }
     const is_privato = !agencyM;
 
     // badge: cerca in linee prima del titolo (max 3 linee indietro nel md globale)
