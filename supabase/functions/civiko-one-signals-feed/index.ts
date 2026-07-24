@@ -438,7 +438,7 @@ serve(async (req: Request) => {
       const { data } = await supabase
         .from(table)
         .select(selCols.join(","))
-        .eq("commercial_zone_slug", assignedSlug)
+        .in("commercial_zone_slug", zoneFilter)
         .order(orderBy, { ascending: false })
         .limit(1);
       const top = (data && data[0]) as Record<string, unknown> | undefined;
@@ -446,7 +446,7 @@ serve(async (req: Request) => {
       const { count } = await supabase
         .from(table)
         .select("id", { count: "exact", head: true })
-        .eq("commercial_zone_slug", assignedSlug)
+        .in("commercial_zone_slug", zoneFilter)
         .gte(orderBy, since);
       sourceFreshness[table] = {
         max_created_at: hasCreated ? ((top?.created_at as string) ?? null) : null,
@@ -467,7 +467,7 @@ serve(async (req: Request) => {
     let contQ: any = supabase
       .from("padova_contendibili_by_zone_v")
       .select("id, chiave_match, n_agenzie, agency_count_distinct, agencies_normalized, agenzie, portals_seen, fonti, confidenza, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, created_at, commercial_zone_slug")
-      .eq("commercial_zone_slug", assignedSlug);
+      .in("commercial_zone_slug", zoneFilter);
     if (quartiereFilter) contQ = contQ.eq("quartiere", quartiereFilter);
     // Prefer last_seen_at when available (post-migration), fallback to created_at.
     const { data, error } = await contQ
@@ -534,7 +534,7 @@ serve(async (req: Request) => {
     let mpQ: any = supabase
       .from("padova_multi_portale_by_zone_v")
       .select("id, chiave_match, portal_count, portals_seen, agency_count_distinct, agencies_normalized, agenzie, prezzo_min, prezzo_max, mq, locali, quartiere, lat, lng, urls, n_annunci, created_at, commercial_zone_slug")
-      .eq("commercial_zone_slug", assignedSlug);
+      .in("commercial_zone_slug", zoneFilter);
     if (quartiereFilter) mpQ = mpQ.eq("quartiere", quartiereFilter);
     const { data, error } = await mpQ
       .gte("portal_count", 2)
@@ -707,7 +707,7 @@ serve(async (req: Request) => {
       .select("id, fonte, url, mq, locali, bagni, prezzo, lat, lng, indirizzo, quartiere, imported_at, last_seen_at, tipo_lead, comune, omi_zone, commercial_zone_slug")
       .in("tipo_lead", ["PRIVATO", "privato", "privato_stanco"])
       .eq("comune", "Padova")
-      .eq("commercial_zone_slug", assignedSlug)
+      .in("commercial_zone_slug", zoneFilter)
       .is("expired_at", null);
     if (quartiereFilter) prvQ = prvQ.eq("quartiere", quartiereFilter);
     const { data, error } = await prvQ
@@ -779,7 +779,7 @@ serve(async (req: Request) => {
     let zoneCntQ: any = supabase
       .from("early_offmarket_signal_candidates_by_zone_v")
       .select("id", { count: "exact", head: true })
-      .eq("commercial_zone_slug", assignedSlug)
+      .in("commercial_zone_slug", zoneFilter)
       .eq("comune", "Padova");
     if (quartiereFilter) zoneCntQ = zoneCntQ.eq("quartiere", quartiereFilter);
     const { count: zoneResolvedCount, error: zoneCntErr } = await zoneCntQ;
@@ -802,7 +802,7 @@ serve(async (req: Request) => {
     let omQ: any = supabase
       .from("early_offmarket_signal_candidates_by_zone_v")
       .select("id, fingerprint, comune, signal_type, title, summary, source_url, source_name, confidence_score, quality, privacy_safe, needs_review, import_recommendation, status, quartiere, commercial_zone_slug, created_at, location_detail")
-      .eq("commercial_zone_slug", assignedSlug)
+      .in("commercial_zone_slug", zoneFilter)
       .eq("comune", "Padova")
       .eq("privacy_safe", true)
       .eq("needs_review", false)
@@ -991,12 +991,12 @@ serve(async (req: Request) => {
       const { count: total } = await supabase
         .from("padova_collect_v2_items_by_zone_v")
         .select("id", { count: "exact", head: true })
-        .eq("commercial_zone_slug", assignedSlug)
+        .in("commercial_zone_slug", zoneFilter)
         .eq("portal", p);
       const { count: withAg } = await supabase
         .from("padova_collect_v2_items_by_zone_v")
         .select("id", { count: "exact", head: true })
-        .eq("commercial_zone_slug", assignedSlug)
+        .in("commercial_zone_slug", zoneFilter)
         .eq("portal", p)
         .not("agency", "is", null)
         .neq("agency", "")
@@ -1004,7 +1004,7 @@ serve(async (req: Request) => {
       const { data: lastRow } = await supabase
         .from("padova_collect_v2_items_by_zone_v")
         .select("created_at")
-        .eq("commercial_zone_slug", assignedSlug)
+        .in("commercial_zone_slug", zoneFilter)
         .eq("portal", p)
         .order("created_at", { ascending: false })
         .limit(1);
