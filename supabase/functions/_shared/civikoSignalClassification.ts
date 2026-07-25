@@ -9,6 +9,12 @@
 export type SignalSensitivity = "basso" | "medio" | "alto" | "escluso";
 export type SignalConfidence = "alta" | "media" | "bassa";
 export type RetentionPolicy = "30d" | "90d" | "180d" | "365d" | "permanent";
+export type SignalReasonCode =
+  | "pii_only"
+  | "legal_restricted"
+  | "stale_source"
+  | "no_commercial_phrase"
+  | null;
 
 // ─────────────────────────────────────────────
 // Record Core completo (NON esporre mai alla PWA)
@@ -26,6 +32,7 @@ export interface SignalCoreRecord {
   allowed_commercial_phrase: string | null;
   forbidden_phrases: string[];
   retention_policy: RetentionPolicy;
+  reason_code: SignalReasonCode;
 }
 
 // ─────────────────────────────────────────────
@@ -68,6 +75,17 @@ const BASE_FORBIDDEN: string[] = [
   "malattia", "ricovero", "anziano solo",
 ];
 
+// ─────────────────────────────────────────────
+// SORGENTI PRIMARIE — mapping signal_type → policy default.
+//
+// NOTE: listing_velocity_signals e pricing_error_signals sono ESCLUSI come sorgenti.
+// Sono tabelle derivate/aggregatrici calcolate a valle dei listing (velocity = età annuncio,
+// pricing_error = delta vs benchmark OMI), non segnali primari indipendenti.
+// Includerli come source produrrebbe double-counting: il segnale "prezzo anomalo" verrebbe
+// contato sia via pricing_error_signals sia via il match diretto listing↔zona OMI nel matcher.
+// Se in futuro diventano sorgenti primarie (es. alimentate da un motore esterno), rimuovere
+// questa esclusione e aggiungerle in SOURCES con il proprio mapper dedicato.
+// ─────────────────────────────────────────────
 const POLICY_DEFAULTS: Record<string, SignalPolicyDefaults> = {
   // Fonti dure / pubbliche
   omi: {
@@ -178,6 +196,43 @@ export function classifySignal(input: {
   // Regola 1: "alto" => mai visibile all'agenzia (e mai al proprietario)
   const high = policy.sensitivity_level === "alto";
 
+  const allowed_commercial_phrase = excluded ? null : (input.allowed_commercial_phrase ?? null);
+
+  // ─────────────────────────────────────────────
+  // reason_code: derivato dal signal_type e dallo stato del record.
+  // Mappatura interna (nessun nuovo campo di input richiesto).
+  //   - personal_data / social_private  → pii_only
+  //   - legal_distress                  → legal_restricted
+  //   - allowed_commercial_phrase null  → no_commercial_phrase (se non già excluded)
+  //   - default                          → null
+  // (stale_source resta riservato per il classifier job: sarà settato via override
+  //  quando collected_at supera la retention finestra della sorgente.)
+  // ─────────────────────────────────────────────
+  let reason_code: SignalReasonCode = null;
+  if (input.signal_type === "personal_data" || input.signal_type === "social_private") {
+    reason_code = "pii_only";
+  } else if (input.signal_type === "legal_distress") {
+    reason_code = "legal_restricted";
+  } else if (!excluded && allowed_commercial_phrase == null) {
+    reason_code = "no_commercial_phrase";
+  }
+  // override esplicito via policy.override.reason_code (per stale_source dal job)
+  const overrideReason = (input.override as { reason_code?: SignalReasonCode } | undefined)?.reason_code;
+  if (overrideReason !== undefined) reason_code = overrideReason;
+
+  // ─────────────────────────────────────────────
+  // usable_for_scoring — regola concordata (STEP 2):
+  //   sensitivity_level != 'escluso'
+  //   AND allowed_commercial_phrase IS NOT NULL
+  //   AND reason_code NOT IN ('pii_only', 'legal_restricted', 'stale_source')
+  // Sostituisce la vecchia derivazione (excluded ? false : policy.usable_for_scoring).
+  // ─────────────────────────────────────────────
+  const BLOCKING_REASONS: SignalReasonCode[] = ["pii_only", "legal_restricted", "stale_source"];
+  const usable_for_scoring =
+    !excluded
+    && allowed_commercial_phrase !== null
+    && !BLOCKING_REASONS.includes(reason_code);
+
   return {
     signal_id: input.signal_id,
     signal_type: input.signal_type,
@@ -185,12 +240,13 @@ export function classifySignal(input: {
     collected_at: input.collected_at ?? new Date().toISOString(),
     confidence_level: input.confidence_level ?? "media",
     sensitivity_level: policy.sensitivity_level,
-    usable_for_scoring: excluded ? false : policy.usable_for_scoring,
+    usable_for_scoring,
     visible_to_agency: excluded || high ? false : policy.visible_to_agency,
     visible_to_owner: excluded || high ? false : policy.visible_to_owner,
-    allowed_commercial_phrase: excluded ? null : (input.allowed_commercial_phrase ?? null),
+    allowed_commercial_phrase,
     forbidden_phrases: policy.forbidden_phrases,
     retention_policy: policy.retention_policy,
+    reason_code,
   };
 }
 
