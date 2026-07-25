@@ -229,6 +229,9 @@ verify_jwt = false
 [functions.civiko-signals-classify]
 verify_jwt = false
 
+[functions.civiko-property-signals-match]
+verify_jwt = false
+
 
 
 
