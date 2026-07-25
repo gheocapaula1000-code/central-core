@@ -162,6 +162,126 @@ const POLICY_DEFAULTS: Record<string, SignalPolicyDefaults> = {
     visible_to_agency: false, visible_to_owner: false,
     retention_policy: "30d", forbidden_phrases: BASE_FORBIDDEN,
   },
+
+  // ─────────────────────────────────────────────
+  // Fase 3.5 — estensione POLICY_DEFAULTS coprire i signal_type live
+  // trovati in radar_signals e territorial_signals (evita FALLBACK_POLICY).
+  // Alias 1:1 (motivato, mobility_dataset, roads_dataset, urban_planning_dataset)
+  // NON vengono aggiunti qui: sono normalizzati a monte nel mapper
+  // signalTypeFor dell'edge civiko-signals-classify, così restano una sola
+  // policy per famiglia e la libreria non si duplica.
+  // ─────────────────────────────────────────────
+
+  // Famiglia: Mercato derivato
+  price_drop: {
+    sensitivity_level: "medio", usable_for_scoring: true,
+    visible_to_agency: true, visible_to_owner: false,
+    retention_policy: "90d", forbidden_phrases: BASE_FORBIDDEN,
+  },
+  underpriced_listing: {
+    sensitivity_level: "medio", usable_for_scoring: true,
+    visible_to_agency: true, visible_to_owner: false,
+    retention_policy: "90d", forbidden_phrases: BASE_FORBIDDEN,
+  },
+  omi_gap: {
+    sensitivity_level: "medio", usable_for_scoring: true,
+    visible_to_agency: true, visible_to_owner: false,
+    retention_policy: "90d", forbidden_phrases: BASE_FORBIDDEN,
+  },
+  republished: {
+    sensitivity_level: "medio", usable_for_scoring: true,
+    visible_to_agency: true, visible_to_owner: false,
+    retention_policy: "90d", forbidden_phrases: BASE_FORBIDDEN,
+  },
+
+  // Famiglia: Ambientale neutro
+  natura_2000_dataset: {
+    sensitivity_level: "basso", usable_for_scoring: true,
+    visible_to_agency: true, visible_to_owner: true,
+    retention_policy: "365d", forbidden_phrases: BASE_FORBIDDEN,
+  },
+  forest_dataset: {
+    sensitivity_level: "basso", usable_for_scoring: true,
+    visible_to_agency: true, visible_to_owner: true,
+    retention_policy: "365d", forbidden_phrases: BASE_FORBIDDEN,
+  },
+  protected_area_dataset: {
+    sensitivity_level: "basso", usable_for_scoring: true,
+    visible_to_agency: true, visible_to_owner: true,
+    retention_policy: "365d", forbidden_phrases: BASE_FORBIDDEN,
+  },
+  park_dataset: {
+    sensitivity_level: "basso", usable_for_scoring: true,
+    visible_to_agency: true, visible_to_owner: true,
+    retention_policy: "365d", forbidden_phrases: BASE_FORBIDDEN,
+  },
+  environment_dataset: {
+    sensitivity_level: "basso", usable_for_scoring: true,
+    visible_to_agency: true, visible_to_owner: true,
+    retention_policy: "365d", forbidden_phrases: BASE_FORBIDDEN,
+  },
+  servizi: {
+    sensitivity_level: "basso", usable_for_scoring: true,
+    visible_to_agency: true, visible_to_owner: true,
+    retention_policy: "365d", forbidden_phrases: BASE_FORBIDDEN,
+  },
+  accessibilita: {
+    sensitivity_level: "basso", usable_for_scoring: true,
+    visible_to_agency: true, visible_to_owner: true,
+    retention_policy: "365d", forbidden_phrases: BASE_FORBIDDEN,
+  },
+  territorio: {
+    sensitivity_level: "basso", usable_for_scoring: true,
+    visible_to_agency: true, visible_to_owner: true,
+    retention_policy: "365d", forbidden_phrases: BASE_FORBIDDEN,
+  },
+  public_services_dataset: {
+    sensitivity_level: "basso", usable_for_scoring: true,
+    visible_to_agency: true, visible_to_owner: true,
+    retention_policy: "365d", forbidden_phrases: BASE_FORBIDDEN,
+  },
+
+  // Famiglia: Ambientale sensibile / rischio (owner=false per non allarmare)
+  seismic_risk_dataset: {
+    sensitivity_level: "basso", usable_for_scoring: true,
+    visible_to_agency: true, visible_to_owner: false,
+    retention_policy: "365d", forbidden_phrases: BASE_FORBIDDEN,
+  },
+  risk_constraint_dataset: {
+    sensitivity_level: "basso", usable_for_scoring: true,
+    visible_to_agency: true, visible_to_owner: false,
+    retention_policy: "365d", forbidden_phrases: BASE_FORBIDDEN,
+  },
+
+  // Famiglia: Pubblico sensibile
+  concession_or_lease_signal: {
+    sensitivity_level: "medio", usable_for_scoring: true,
+    visible_to_agency: true, visible_to_owner: false,
+    retention_policy: "180d", forbidden_phrases: BASE_FORBIDDEN,
+  },
+  public_asset_disposal_signal: {
+    sensitivity_level: "medio", usable_for_scoring: true,
+    visible_to_agency: true, visible_to_owner: false,
+    retention_policy: "180d", forbidden_phrases: BASE_FORBIDDEN,
+  },
+
+  // Famiglia: Pre-vendita pubblica.
+  // NB: sensitivity="alto" -> mai visibile ad agency/owner (Core-only),
+  // ma reason_code resta null così usable_for_scoring resta true e il segnale
+  // contribuisce allo scoring interno. È intenzione di vendita dichiarata
+  // pubblicamente, non un dato personale/giudiziario: non è legal_restricted.
+  pre_alienation_signal: {
+    sensitivity_level: "alto", usable_for_scoring: true,
+    visible_to_agency: false, visible_to_owner: false,
+    retention_policy: "180d", forbidden_phrases: BASE_FORBIDDEN,
+  },
+
+  // Famiglia: Esclusione totale
+  irrelevant: {
+    sensitivity_level: "escluso", usable_for_scoring: false,
+    visible_to_agency: false, visible_to_owner: false,
+    retention_policy: "30d", forbidden_phrases: BASE_FORBIDDEN,
+  },
 };
 
 const FALLBACK_POLICY: SignalPolicyDefaults = {

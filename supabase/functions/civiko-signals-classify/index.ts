@@ -96,14 +96,67 @@ function neutralize(input: string | null | undefined): string | null {
   return s.replace(/\s+/g, " ").slice(0, 240);
 }
 
+// ─────────────────────────────────────────────
+// Fase 3.5 — alias mapper.
+// Alcuni signal_type live in DB sono varianti lessicali di policy già presenti
+// in POLICY_DEFAULTS. Li normalizziamo qui a monte così restano UNA sola
+// policy per famiglia (evita duplicati nella libreria _shared).
+//   motivato               → motivated_seller
+//   mobility_dataset       → mobilita
+//   roads_dataset          → mobilita
+//   urban_planning_dataset → urbanistica
+// ─────────────────────────────────────────────
+const SIGNAL_TYPE_ALIAS: Record<string, string> = {
+  motivato: "motivated_seller",
+  mobility_dataset: "mobilita",
+  roads_dataset: "mobilita",
+  urban_planning_dataset: "urbanistica",
+};
+function normalizeSignalType(raw: unknown, fallback: string): string {
+  const s = String(raw ?? fallback);
+  return SIGNAL_TYPE_ALIAS[s] ?? s;
+}
+
+// Frasi canned per signal_type quando il record non ha un title utilizzabile.
+// Serve solo a garantire allowed_commercial_phrase != null (→ usable_for_scoring
+// resta true dove la policy lo prevede). NON sostituisce il title se presente.
+const CANNED_PHRASE_BY_TYPE: Record<string, string> = {
+  price_drop: "Ribasso di listino rilevato in zona",
+  underpriced_listing: "Prezzo sotto benchmark di zona",
+  omi_gap: "Scostamento vs benchmark OMI di zona",
+  republished: "Annuncio ripubblicato di recente",
+  natura_2000_dataset: "Area Natura 2000 nelle vicinanze",
+  forest_dataset: "Area forestale nelle vicinanze",
+  protected_area_dataset: "Area protetta nelle vicinanze",
+  park_dataset: "Parco/verde attrezzato nelle vicinanze",
+  environment_dataset: "Dato ambientale segnalato in zona",
+  servizi: "Servizi pubblici in zona",
+  accessibilita: "Buona accessibilità della zona",
+  territorio: "Dato territoriale segnalato in zona",
+  public_services_dataset: "Servizi pubblici nell'area",
+  seismic_risk_dataset: "Classificazione sismica dell'area",
+  risk_constraint_dataset: "Vincolo idrogeologico o di rischio nell'area",
+  concession_or_lease_signal: "Concessione o locazione pubblica segnalata in zona",
+  public_asset_disposal_signal: "Dismissione asset pubblico segnalata in zona",
+  pre_alienation_signal: "Pre-vendita pubblica rilevata in zona",
+  mobilita: "Segnale di mobilità in zona",
+  urbanistica: "Segnale urbanistico in zona",
+  motivated_seller: "Segnalata potenziale motivazione alla vendita",
+  // irrelevant: intenzionalmente assente (sensitivity=escluso → phrase=null)
+};
+function phraseWithFallback(title: string | null, signalType: string): string | null {
+  if (title) return title;
+  return CANNED_PHRASE_BY_TYPE[signalType] ?? null;
+}
+
 const SOURCES: Record<SourceKey, SourceConfig> = {
   radar_signals: {
     table: "radar_signals",
     tsSelect: "detected_at",
     tsAlias: "collected_at",
     activeFilter: "is_active.eq.true",
-    signalTypeFor: (r) => String(r.signal_type ?? "local_buzz"),
-    phraseFor: (r) => neutralize((r.title as string) ?? null),
+    signalTypeFor: (r) => normalizeSignalType(r.signal_type, "local_buzz"),
+    phraseFor: (r) => phraseWithFallback(neutralize((r.title as string) ?? null), normalizeSignalType(r.signal_type, "local_buzz")),
     extraColumns: ["signal_type", "title", "municipality", "province", "lat", "lng", "confidence"],
   },
   territorial_signals: {
@@ -111,8 +164,8 @@ const SOURCES: Record<SourceKey, SourceConfig> = {
     tsSelect: "COALESCE(fetched_at, detected_at)",
     tsAlias: "collected_at",
     activeFilter: "is_active.eq.true",
-    signalTypeFor: (r) => String(r.signal_type ?? "local_buzz"),
-    phraseFor: (r) => neutralize((r.title as string) ?? null),
+    signalTypeFor: (r) => normalizeSignalType(r.signal_type, "local_buzz"),
+    phraseFor: (r) => phraseWithFallback(neutralize((r.title as string) ?? null), normalizeSignalType(r.signal_type, "local_buzz")),
     extraColumns: ["signal_type", "title", "municipality", "province", "lat", "lng", "quality"],
   },
   inheritance_pressure_signals: {
