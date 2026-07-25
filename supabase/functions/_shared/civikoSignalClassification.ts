@@ -9,6 +9,12 @@
 export type SignalSensitivity = "basso" | "medio" | "alto" | "escluso";
 export type SignalConfidence = "alta" | "media" | "bassa";
 export type RetentionPolicy = "30d" | "90d" | "180d" | "365d" | "permanent";
+export type SignalReasonCode =
+  | "pii_only"
+  | "legal_restricted"
+  | "stale_source"
+  | "no_commercial_phrase"
+  | null;
 
 // ─────────────────────────────────────────────
 // Record Core completo (NON esporre mai alla PWA)
