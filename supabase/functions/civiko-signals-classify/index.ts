@@ -149,7 +149,40 @@ function phraseWithFallback(title: string | null, signalType: string): string | 
   return CANNED_PHRASE_BY_TYPE[signalType] ?? null;
 }
 
-const SOURCES: Record<SourceKey, SourceConfig> = {
+// ─────────────────────────────────────────────
+// Geo extractor per source (STEP 3.6)
+// Ritorna { lat, lng, municipality, quartiere, evidence_url } normalizzati.
+// NIENTE description grezza, NIENTE PII.
+// ─────────────────────────────────────────────
+interface GeoFields {
+  lat: number | null;
+  lng: number | null;
+  municipality: string | null;
+  quartiere: string | null;
+  evidence_url: string | null;
+}
+function toNum(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+function toStr(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  return s.length > 0 ? s : null;
+}
+function firstUrl(v: unknown): string | null {
+  if (Array.isArray(v)) {
+    for (const x of v) {
+      const s = toStr(x);
+      if (s) return s;
+    }
+    return null;
+  }
+  return toStr(v);
+}
+
+const SOURCES: Record<SourceKey, SourceConfig & { geoFor: (r: Record<string, unknown>) => GeoFields }> = {
   radar_signals: {
     table: "radar_signals",
     tsSelect: "detected_at",
@@ -157,7 +190,14 @@ const SOURCES: Record<SourceKey, SourceConfig> = {
     activeFilter: "is_active.eq.true",
     signalTypeFor: (r) => normalizeSignalType(r.signal_type, "local_buzz"),
     phraseFor: (r) => phraseWithFallback(neutralize((r.title as string) ?? null), normalizeSignalType(r.signal_type, "local_buzz")),
-    extraColumns: ["signal_type", "title", "municipality", "province", "lat", "lng", "confidence"],
+    extraColumns: ["signal_type", "title", "municipality", "province", "lat", "lng", "confidence", "evidence_url"],
+    geoFor: (r) => ({
+      lat: toNum(r.lat),
+      lng: toNum(r.lng),
+      municipality: toStr(r.municipality),
+      quartiere: null,
+      evidence_url: firstUrl(r.evidence_url),
+    }),
   },
   territorial_signals: {
     table: "territorial_signals",
@@ -166,7 +206,14 @@ const SOURCES: Record<SourceKey, SourceConfig> = {
     activeFilter: "is_active.eq.true",
     signalTypeFor: (r) => normalizeSignalType(r.signal_type, "local_buzz"),
     phraseFor: (r) => phraseWithFallback(neutralize((r.title as string) ?? null), normalizeSignalType(r.signal_type, "local_buzz")),
-    extraColumns: ["signal_type", "title", "municipality", "province", "lat", "lng", "quality"],
+    extraColumns: ["signal_type", "title", "municipality", "province", "lat", "lng", "quality", "source_url"],
+    geoFor: (r) => ({
+      lat: toNum(r.lat),
+      lng: toNum(r.lng),
+      municipality: toStr(r.municipality),
+      quartiere: null,
+      evidence_url: firstUrl(r.source_url),
+    }),
   },
   inheritance_pressure_signals: {
     table: "inheritance_pressure_signals",
@@ -178,7 +225,14 @@ const SOURCES: Record<SourceKey, SourceConfig> = {
       const area = neutralize((r.area_label as string) ?? (r.comune as string) ?? null);
       return area ? `Area con dinamica di ricambio proprietà elevata: ${area}` : null;
     },
-    extraColumns: ["area_label", "comune", "provincia", "lat", "lng", "score", "quality"],
+    extraColumns: ["area_label", "comune", "provincia", "lat", "lng", "score", "quality", "source_urls"],
+    geoFor: (r) => ({
+      lat: toNum(r.lat),
+      lng: toNum(r.lng),
+      municipality: toStr(r.comune),
+      quartiere: toStr(r.area_label),
+      evidence_url: firstUrl(r.source_urls),
+    }),
   },
   // NOTE: legal_life_event vs legal_distress.
   // legal_life_event = eventi vita da fonti aggregate/pubbliche (successioni, divorzi,
@@ -197,7 +251,14 @@ const SOURCES: Record<SourceKey, SourceConfig> = {
         ? `Evento di vita rilevato in zona con potenziale movimento immobiliare — ${area}`
         : "Evento di vita rilevato in zona con potenziale movimento immobiliare";
     },
-    extraColumns: ["signal_type", "municipality", "province", "area_or_microzone", "confidence"],
+    extraColumns: ["signal_type", "municipality", "province", "area_or_microzone", "confidence", "source_url"],
+    geoFor: (r) => ({
+      lat: null,
+      lng: null,
+      municipality: toStr(r.municipality),
+      quartiere: toStr(r.area_or_microzone),
+      evidence_url: firstUrl(r.source_url),
+    }),
   },
   legal_property_signals: {
     table: "legal_property_signals",
@@ -209,7 +270,14 @@ const SOURCES: Record<SourceKey, SourceConfig> = {
       const area = neutralize((r.area_label as string) ?? (r.comune as string) ?? null);
       return area ? `Segnale interno di contesto legale — ${area}` : "Segnale interno di contesto legale";
     },
-    extraColumns: ["signal_type", "comune", "provincia", "area_label", "lat", "lng", "quality"],
+    extraColumns: ["signal_type", "comune", "provincia", "area_label", "lat", "lng", "quality", "source_url"],
+    geoFor: (r) => ({
+      lat: toNum(r.lat),
+      lng: toNum(r.lng),
+      municipality: toStr(r.comune),
+      quartiere: toStr(r.area_label),
+      evidence_url: firstUrl(r.source_url),
+    }),
   },
   turnover_signals: {
     table: "turnover_signals",
@@ -225,6 +293,13 @@ const SOURCES: Record<SourceKey, SourceConfig> = {
       return area ? `Zona con potenziale di ricambio elevato${score}: ${area}` : null;
     },
     extraColumns: ["area_label", "comune", "provincia", "turnover_potential_score", "quality"],
+    geoFor: (r) => ({
+      lat: null,
+      lng: null,
+      municipality: toStr(r.comune),
+      quartiere: toStr(r.area_label),
+      evidence_url: null,
+    }),
   },
   early_offmarket_signal_candidates: {
     table: "early_offmarket_signal_candidates",
@@ -233,7 +308,14 @@ const SOURCES: Record<SourceKey, SourceConfig> = {
     activeFilter: "status.eq.promoted",
     signalTypeFor: () => "motivated_seller",
     phraseFor: (r) => neutralize((r.title as string) ?? (r.summary as string) ?? null),
-    extraColumns: ["signal_type", "title", "summary", "comune", "provincia", "quartiere", "quality", "status"],
+    extraColumns: ["signal_type", "title", "summary", "comune", "provincia", "quartiere", "quality", "status", "source_url"],
+    geoFor: (r) => ({
+      lat: null,
+      lng: null,
+      municipality: toStr(r.comune),
+      quartiere: toStr(r.quartiere),
+      evidence_url: firstUrl(r.source_url),
+    }),
   },
 };
 
