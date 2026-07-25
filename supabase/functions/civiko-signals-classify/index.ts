@@ -180,17 +180,22 @@ const SOURCES: Record<SourceKey, SourceConfig> = {
     },
     extraColumns: ["area_label", "comune", "provincia", "lat", "lng", "score", "quality"],
   },
+  // NOTE: legal_life_event vs legal_distress.
+  // legal_life_event = eventi vita da fonti aggregate/pubbliche (successioni, divorzi,
+  //   trasferimenti) — Core-only ma scorabile.
+  // legal_distress = procedure giudiziarie nominative (pignoramenti, aste da
+  //   legal_property_signals) — Core-only e NON scorabile per policy.
   legal_life_event_signals: {
     table: "legal_life_event_signals",
     tsSelect: "COALESCE(updated_at, detected_at, created_at)",
     tsAlias: "collected_at",
     activeFilter: "is_active.eq.true",
-    signalTypeFor: () => "legal_distress",
-    // NB: frase neutra generica; la sensitivity è "alto" -> mai visibile all'agenzia.
-    // La frase serve solo per rendere il segnale usable_for_scoring lato Core.
+    signalTypeFor: () => "legal_life_event",
     phraseFor: (r) => {
       const area = neutralize((r.area_or_microzone as string) ?? (r.municipality as string) ?? null);
-      return area ? `Segnale interno di contesto legale — ${area}` : "Segnale interno di contesto legale";
+      return area
+        ? `Evento di vita rilevato in zona con potenziale movimento immobiliare — ${area}`
+        : "Evento di vita rilevato in zona con potenziale movimento immobiliare";
     },
     extraColumns: ["signal_type", "municipality", "province", "area_or_microzone", "confidence"],
   },
