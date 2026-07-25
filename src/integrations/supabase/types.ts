@@ -7034,7 +7034,7 @@ export type Database = {
           property_id: string
           recommended_use: string | null
           relevance_score: number | null
-          signal_id: number
+          signal_id: string
           visible_in_owner_report: boolean
         }
         Insert: {
@@ -7045,7 +7045,7 @@ export type Database = {
           property_id: string
           recommended_use?: string | null
           relevance_score?: number | null
-          signal_id: number
+          signal_id: string
           visible_in_owner_report?: boolean
         }
         Update: {
@@ -7056,18 +7056,10 @@ export type Database = {
           property_id?: string
           recommended_use?: string | null
           relevance_score?: number | null
-          signal_id?: number
+          signal_id?: string
           visible_in_owner_report?: boolean
         }
-        Relationships: [
-          {
-            foreignKeyName: "property_signal_matches_signal_id_fkey"
-            columns: ["signal_id"]
-            isOneToOne: false
-            referencedRelation: "local_signals"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       provider_diagnostics_events: {
         Row: {
