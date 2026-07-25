@@ -32,6 +32,7 @@ export interface SignalCoreRecord {
   allowed_commercial_phrase: string | null;
   forbidden_phrases: string[];
   retention_policy: RetentionPolicy;
+  reason_code: SignalReasonCode;
 }
 
 // ─────────────────────────────────────────────
