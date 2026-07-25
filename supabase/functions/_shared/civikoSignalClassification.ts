@@ -147,6 +147,15 @@ const POLICY_DEFAULTS: Record<string, SignalPolicyDefaults> = {
     retention_policy: "180d", forbidden_phrases: BASE_FORBIDDEN,
   },
   legal_distress: {
+    // Procedure giudiziarie nominative (pignoramenti, aste da legal_property_signals).
+    // Core-only e NON scorabile per policy (reason_code=legal_restricted forzato downstream).
+    sensitivity_level: "alto", usable_for_scoring: true,
+    visible_to_agency: false, visible_to_owner: false,
+    retention_policy: "180d", forbidden_phrases: BASE_FORBIDDEN,
+  },
+  legal_life_event: {
+    // Eventi vita da fonti aggregate/pubbliche (successioni, divorzi, trasferimenti).
+    // Core-only ma scorabile: sensitivity=alto, no reason_code bloccante.
     sensitivity_level: "alto", usable_for_scoring: true,
     visible_to_agency: false, visible_to_owner: false,
     retention_policy: "180d", forbidden_phrases: BASE_FORBIDDEN,
