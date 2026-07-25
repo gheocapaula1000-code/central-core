@@ -149,7 +149,40 @@ function phraseWithFallback(title: string | null, signalType: string): string | 
   return CANNED_PHRASE_BY_TYPE[signalType] ?? null;
 }
 
-const SOURCES: Record<SourceKey, SourceConfig> = {
+// ─────────────────────────────────────────────
+// Geo extractor per source (STEP 3.6)
+// Ritorna { lat, lng, municipality, quartiere, evidence_url } normalizzati.
+// NIENTE description grezza, NIENTE PII.
+// ─────────────────────────────────────────────
+interface GeoFields {
+  lat: number | null;
+  lng: number | null;
+  municipality: string | null;
+  quartiere: string | null;
+  evidence_url: string | null;
+}
+function toNum(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+function toStr(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  return s.length > 0 ? s : null;
+}
+function firstUrl(v: unknown): string | null {
+  if (Array.isArray(v)) {
+    for (const x of v) {
+      const s = toStr(x);
+      if (s) return s;
+    }
+    return null;
+  }
+  return toStr(v);
+}
+
+const SOURCES: Record<SourceKey, SourceConfig & { geoFor: (r: Record<string, unknown>) => GeoFields }> = {
   radar_signals: {
     table: "radar_signals",
     tsSelect: "detected_at",
@@ -157,7 +190,14 @@ const SOURCES: Record<SourceKey, SourceConfig> = {
     activeFilter: "is_active.eq.true",
     signalTypeFor: (r) => normalizeSignalType(r.signal_type, "local_buzz"),
     phraseFor: (r) => phraseWithFallback(neutralize((r.title as string) ?? null), normalizeSignalType(r.signal_type, "local_buzz")),
-    extraColumns: ["signal_type", "title", "municipality", "province", "lat", "lng", "confidence"],
+    extraColumns: ["signal_type", "title", "municipality", "province", "lat", "lng", "confidence", "evidence_url"],
+    geoFor: (r) => ({
+      lat: toNum(r.lat),
+      lng: toNum(r.lng),
+      municipality: toStr(r.municipality),
+      quartiere: null,
+      evidence_url: firstUrl(r.evidence_url),
+    }),
   },
   territorial_signals: {
     table: "territorial_signals",
@@ -166,7 +206,14 @@ const SOURCES: Record<SourceKey, SourceConfig> = {
     activeFilter: "is_active.eq.true",
     signalTypeFor: (r) => normalizeSignalType(r.signal_type, "local_buzz"),
     phraseFor: (r) => phraseWithFallback(neutralize((r.title as string) ?? null), normalizeSignalType(r.signal_type, "local_buzz")),
-    extraColumns: ["signal_type", "title", "municipality", "province", "lat", "lng", "quality"],
+    extraColumns: ["signal_type", "title", "municipality", "province", "lat", "lng", "quality", "source_url"],
+    geoFor: (r) => ({
+      lat: toNum(r.lat),
+      lng: toNum(r.lng),
+      municipality: toStr(r.municipality),
+      quartiere: null,
+      evidence_url: firstUrl(r.source_url),
+    }),
   },
   inheritance_pressure_signals: {
     table: "inheritance_pressure_signals",
@@ -178,7 +225,14 @@ const SOURCES: Record<SourceKey, SourceConfig> = {
       const area = neutralize((r.area_label as string) ?? (r.comune as string) ?? null);
       return area ? `Area con dinamica di ricambio proprietà elevata: ${area}` : null;
     },
-    extraColumns: ["area_label", "comune", "provincia", "lat", "lng", "score", "quality"],
+    extraColumns: ["area_label", "comune", "provincia", "lat", "lng", "score", "quality", "source_urls"],
+    geoFor: (r) => ({
+      lat: toNum(r.lat),
+      lng: toNum(r.lng),
+      municipality: toStr(r.comune),
+      quartiere: toStr(r.area_label),
+      evidence_url: firstUrl(r.source_urls),
+    }),
   },
   // NOTE: legal_life_event vs legal_distress.
   // legal_life_event = eventi vita da fonti aggregate/pubbliche (successioni, divorzi,
@@ -197,7 +251,14 @@ const SOURCES: Record<SourceKey, SourceConfig> = {
         ? `Evento di vita rilevato in zona con potenziale movimento immobiliare — ${area}`
         : "Evento di vita rilevato in zona con potenziale movimento immobiliare";
     },
-    extraColumns: ["signal_type", "municipality", "province", "area_or_microzone", "confidence"],
+    extraColumns: ["signal_type", "municipality", "province", "area_or_microzone", "confidence", "source_url"],
+    geoFor: (r) => ({
+      lat: null,
+      lng: null,
+      municipality: toStr(r.municipality),
+      quartiere: toStr(r.area_or_microzone),
+      evidence_url: firstUrl(r.source_url),
+    }),
   },
   legal_property_signals: {
     table: "legal_property_signals",
@@ -209,7 +270,14 @@ const SOURCES: Record<SourceKey, SourceConfig> = {
       const area = neutralize((r.area_label as string) ?? (r.comune as string) ?? null);
       return area ? `Segnale interno di contesto legale — ${area}` : "Segnale interno di contesto legale";
     },
-    extraColumns: ["signal_type", "comune", "provincia", "area_label", "lat", "lng", "quality"],
+    extraColumns: ["signal_type", "comune", "provincia", "area_label", "lat", "lng", "quality", "source_url"],
+    geoFor: (r) => ({
+      lat: toNum(r.lat),
+      lng: toNum(r.lng),
+      municipality: toStr(r.comune),
+      quartiere: toStr(r.area_label),
+      evidence_url: firstUrl(r.source_url),
+    }),
   },
   turnover_signals: {
     table: "turnover_signals",
@@ -225,6 +293,13 @@ const SOURCES: Record<SourceKey, SourceConfig> = {
       return area ? `Zona con potenziale di ricambio elevato${score}: ${area}` : null;
     },
     extraColumns: ["area_label", "comune", "provincia", "turnover_potential_score", "quality"],
+    geoFor: (r) => ({
+      lat: null,
+      lng: null,
+      municipality: toStr(r.comune),
+      quartiere: toStr(r.area_label),
+      evidence_url: null,
+    }),
   },
   early_offmarket_signal_candidates: {
     table: "early_offmarket_signal_candidates",
@@ -233,7 +308,14 @@ const SOURCES: Record<SourceKey, SourceConfig> = {
     activeFilter: "status.eq.promoted",
     signalTypeFor: () => "motivated_seller",
     phraseFor: (r) => neutralize((r.title as string) ?? (r.summary as string) ?? null),
-    extraColumns: ["signal_type", "title", "summary", "comune", "provincia", "quartiere", "quality", "status"],
+    extraColumns: ["signal_type", "title", "summary", "comune", "provincia", "quartiere", "quality", "status", "source_url"],
+    geoFor: (r) => ({
+      lat: null,
+      lng: null,
+      municipality: toStr(r.comune),
+      quartiere: toStr(r.quartiere),
+      evidence_url: firstUrl(r.source_url),
+    }),
   },
 };
 
@@ -377,6 +459,7 @@ Deno.serve(async (req) => {
     dry_run?: boolean;
     sources?: string[];
     limit_per_source?: number;
+    reset_watermark?: boolean;
   } = {};
   try {
     body = (await req.json()) as typeof body;
@@ -384,6 +467,7 @@ Deno.serve(async (req) => {
     // body vuoto = default
   }
   const dry_run = Boolean(body.dry_run ?? false);
+  const reset_watermark = Boolean(body.reset_watermark ?? false);
   const limit_per_source = Math.max(1, Math.min(2000, Number(body.limit_per_source ?? 500)));
   const requestedSources = Array.isArray(body.sources) && body.sources.length > 0
     ? body.sources.filter((s): s is SourceKey => (ALL_SOURCES as string[]).includes(s))
@@ -395,6 +479,67 @@ Deno.serve(async (req) => {
 
   const policyOverrides = await loadPolicyOverrides(supa);
 
+  // ── Zone resolver (STEP 3.6) ──
+  const normQ = (s: string | null): string | null => {
+    if (!s) return null;
+    return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+  };
+  const quartiereToSlug = new Map<string, string>();
+  try {
+    const { data: qzRows } = await supa
+      .from("padova_listings")
+      .select("quartiere, commercial_zone_slug")
+      .not("quartiere", "is", null)
+      .not("commercial_zone_slug", "is", null)
+      .limit(20000);
+    const counts = new Map<string, Map<string, number>>();
+    for (const r of qzRows ?? []) {
+      const q = normQ((r as Record<string, unknown>).quartiere as string);
+      const slug = String((r as Record<string, unknown>).commercial_zone_slug);
+      if (!q || !slug) continue;
+      if (!counts.has(q)) counts.set(q, new Map());
+      const m = counts.get(q)!;
+      m.set(slug, (m.get(slug) ?? 0) + 1);
+    }
+    for (const [q, m] of counts) {
+      let best = ""; let bestN = -1;
+      for (const [slug, n] of m) if (n > bestN) { best = slug; bestN = n; }
+      if (best) quartiereToSlug.set(q, best);
+    }
+    console.log(`[classify] quartiere→slug map: ${quartiereToSlug.size} entries`);
+  } catch (e) {
+    console.warn("[classify] quartiere map build failed:", (e as Error).message);
+  }
+
+  const latLngCache = new Map<string, string | null>();
+  const resolveByLatLng = async (lat: number, lng: number): Promise<string | null> => {
+    const key = `${lat.toFixed(3)},${lng.toFixed(3)}`;
+    if (latLngCache.has(key)) return latLngCache.get(key) ?? null;
+    try {
+      const { data } = await supa
+        .from("padova_listings")
+        .select("commercial_zone_slug, lat, lng")
+        .not("commercial_zone_slug", "is", null)
+        .gte("lat", lat - 0.02).lte("lat", lat + 0.02)
+        .gte("lng", lng - 0.02).lte("lng", lng + 0.02)
+        .limit(50);
+      let best: string | null = null; let bestD = Infinity;
+      for (const r of data ?? []) {
+        const rec = r as Record<string, unknown>;
+        const d = Math.abs((rec.lat as number) - lat) + Math.abs((rec.lng as number) - lng);
+        if (d < bestD) { bestD = d; best = String(rec.commercial_zone_slug); }
+      }
+      latLngCache.set(key, best);
+      return best;
+    } catch { latLngCache.set(key, null); return null; }
+  };
+  const resolveZoneSlug = async (geo: GeoFields): Promise<string | null> => {
+    const q = normQ(geo.quartiere);
+    if (q && quartiereToSlug.has(q)) return quartiereToSlug.get(q)!;
+    if (geo.lat != null && geo.lng != null) return await resolveByLatLng(geo.lat, geo.lng);
+    return null;
+  };
+
   const processed_by_source: Record<string, number> = {};
   const sensitivity_breakdown: Record<string, number> = { basso: 0, medio: 0, alto: 0, escluso: 0 };
   const usable_breakdown: Record<string, number> = { true: 0, false: 0 };
@@ -405,16 +550,23 @@ Deno.serve(async (req) => {
   for (const src of requestedSources) {
     const cfg = SOURCES[src];
     try {
-      const watermark = await getWatermark(supa, src);
+      const watermark = reset_watermark ? null : await getWatermark(supa, src);
       const rows = await fetchSourceBatch(supa, cfg, watermark, limit_per_source);
       processed_by_source[src] = rows.length;
       if (rows.length === 0) continue;
 
-      const records = rows.map((row) => {
+      // Enrichment geo per riga (may query per lat/lng, cached)
+      const enriched = [] as Array<{ row: Record<string, unknown>; geo: GeoFields; zone_slug: string | null }>;
+      for (const row of rows) {
+        const geo = cfg.geoFor(row);
+        const zone_slug = await resolveZoneSlug(geo);
+        enriched.push({ row, geo, zone_slug });
+      }
+
+      const records = enriched.map(({ row, geo, zone_slug }) => {
         const signal_type = cfg.signalTypeFor(row);
         const phrase = cfg.phraseFor(row);
         const collected_at = (row.collected_at as string) ?? new Date().toISOString();
-        // Merge policy DB override sopra il default della lib
         const override = policyOverrides[signal_type];
         const rec = classifySignal({
           signal_id: `${src}:${row.id}`,
@@ -427,38 +579,48 @@ Deno.serve(async (req) => {
         });
         sensitivity_breakdown[rec.sensitivity_level] = (sensitivity_breakdown[rec.sensitivity_level] ?? 0) + 1;
         usable_breakdown[String(rec.usable_for_scoring)] += 1;
-        if (sample_records.length < 3) {
+        const payload = {
+          source_table: src,
+          source_id: row.id ?? null,
+          reason_code: rec.reason_code,
+          lat: geo.lat,
+          lng: geo.lng,
+          municipality: geo.municipality,
+          quartiere: geo.quartiere,
+          commercial_zone_slug: zone_slug,
+          evidence_url: geo.evidence_url,
+        };
+        if (sample_records.length < 5) {
           sample_records.push({
             signal_id: rec.signal_id,
             signal_type: rec.signal_type,
             sensitivity_level: rec.sensitivity_level,
             usable_for_scoring: rec.usable_for_scoring,
             allowed_commercial_phrase: rec.allowed_commercial_phrase,
-            reason_code: rec.reason_code,
             source_name_internal: rec.source_name_internal,
+            payload,
           });
         }
-        return rec;
+        return { rec, payload };
       });
 
       if (!dry_run && records.length > 0) {
-        // UPSERT in chunk da 200
         const chunk = 200;
         for (let i = 0; i < records.length; i += chunk) {
-          const batch = records.slice(i, i + chunk).map((r) => ({
-            signal_id: r.signal_id,
-            signal_type: r.signal_type,
-            source_name_internal: r.source_name_internal,
-            collected_at: r.collected_at,
-            confidence_level: r.confidence_level,
-            sensitivity_level: r.sensitivity_level,
-            usable_for_scoring: r.usable_for_scoring,
-            visible_to_agency: r.visible_to_agency,
-            visible_to_owner: r.visible_to_owner,
-            allowed_commercial_phrase: r.allowed_commercial_phrase,
-            forbidden_phrases: r.forbidden_phrases,
-            retention_policy: r.retention_policy,
-            payload: { reason_code: r.reason_code },
+          const batch = records.slice(i, i + chunk).map(({ rec, payload }) => ({
+            signal_id: rec.signal_id,
+            signal_type: rec.signal_type,
+            source_name_internal: rec.source_name_internal,
+            collected_at: rec.collected_at,
+            confidence_level: rec.confidence_level,
+            sensitivity_level: rec.sensitivity_level,
+            usable_for_scoring: rec.usable_for_scoring,
+            visible_to_agency: rec.visible_to_agency,
+            visible_to_owner: rec.visible_to_owner,
+            allowed_commercial_phrase: rec.allowed_commercial_phrase,
+            forbidden_phrases: rec.forbidden_phrases,
+            retention_policy: rec.retention_policy,
+            payload,
             updated_at: new Date().toISOString(),
           }));
           const { error: upErr } = await supa
@@ -472,6 +634,7 @@ Deno.serve(async (req) => {
           }
         }
       }
+
     } catch (e) {
       const msg = (e as Error).message ?? String(e);
       warnings.push(`${src}: ${msg}`);
