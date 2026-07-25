@@ -226,6 +226,9 @@ verify_jwt = false
 [functions.core-cron-health-public]
 verify_jwt = false
 
+[functions.civiko-signals-classify]
+verify_jwt = false
+
 
 
 
