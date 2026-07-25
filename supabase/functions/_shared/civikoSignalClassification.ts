@@ -75,6 +75,17 @@ const BASE_FORBIDDEN: string[] = [
   "malattia", "ricovero", "anziano solo",
 ];
 
+// ─────────────────────────────────────────────
+// SORGENTI PRIMARIE — mapping signal_type → policy default.
+//
+// NOTE: listing_velocity_signals e pricing_error_signals sono ESCLUSI come sorgenti.
+// Sono tabelle derivate/aggregatrici calcolate a valle dei listing (velocity = età annuncio,
+// pricing_error = delta vs benchmark OMI), non segnali primari indipendenti.
+// Includerli come source produrrebbe double-counting: il segnale "prezzo anomalo" verrebbe
+// contato sia via pricing_error_signals sia via il match diretto listing↔zona OMI nel matcher.
+// Se in futuro diventano sorgenti primarie (es. alimentate da un motore esterno), rimuovere
+// questa esclusione e aggiungerle in SOURCES con il proprio mapper dedicato.
+// ─────────────────────────────────────────────
 const POLICY_DEFAULTS: Record<string, SignalPolicyDefaults> = {
   // Fonti dure / pubbliche
   omi: {
