@@ -289,47 +289,22 @@ Deno.serve(async (req) => {
         );
       }
 
-      // Guard: budget cap (giornaliero + mensile)
-      const budget = await canSpendApify(estCostUsd);
-      if (!budget.ok) {
+      // Guardia budget + lancio unificato (canSpendApify/recordApifySpend + insert padova_apify_runs).
+      const launched = await startApifyRun(
+        ACTOR,
+        { startUrls: searchUrls, maxResultItems: maxItems },
+        { portal: "subito_collect", estUsd: estCostUsd, costCapUsd: estCostUsd },
+      );
+      if (!launched.started) {
+        console.warn(`[apify] lancio saltato: ${launched.reason} portal=subito_collect`);
         return new Response(
-          JSON.stringify({
-            ok: false,
-            error: "APIFY_BUDGET_BLOCKED",
-            reason: budget.reason ?? "daily_cap_reached",
-            est_cost_usd: estCostUsd,
-            spent_today_usd: budget.spent,
-            cap_usd: budget.cap,
-          }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          JSON.stringify({ ok: true, skipped: true, reason: launched.reason }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
+      run_id = launched.run_id;
+      dataset_id = launched.dataset_id;
 
-      // Start — actor emastra/subito-it-immobili usa `startUrls` come stringList
-      // e `maxResultItems` (0 = illimitato).
-      const started = await startRun(
-        {
-          startUrls: searchUrls,
-          maxResultItems: maxItems,
-        },
-        token,
-      );
-      run_id = started.run_id;
-      dataset_id = started.dataset_id;
-
-      // Registra spesa solo dopo avvio Apify riuscito
-      try {
-        await recordApifySpend(estCostUsd, 1, { source: "padova-apify-subito-collect" } as any);
-      } catch { /* best effort */ }
-
-      await sb.from("padova_apify_runs").insert({
-        portal: "subito_collect",
-        actor_id: ACTOR,
-        run_id,
-        dataset_id,
-        status: "RUNNING",
-        cost_cap_usd: estCostUsd,
-      });
 
 
       if (body.async_start) {
