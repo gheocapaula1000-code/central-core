@@ -122,13 +122,6 @@ const PORTAL_CONFIGS: PortalConfig[] = [
     idFromLink: (l) => { const m = l.match(/\/immobile\/(\d{5,})/); return m ? `idl-${m[1]}` : null; },
   },
   {
-    source: "casa.it",
-    buildUrl: (slug) => `https://www.casa.it/vendita/residenziale/${slug}`,
-    prompt: "Estrai la lista degli annunci di vendita immobiliare. Per ciascuno: titolo, indirizzo, prezzo numerico in euro, superficie in metri quadri, numero locali, tipologia, nome agenzia, latitudine, longitudine, link assoluto. Solo dati realmente presenti.",
-    schema: standardSchema(),
-    idFromLink: (l) => { const m = l.match(/\/(\d{6,})(?:[/?]|$)/); return m ? `casa-${m[1]}` : null; },
-  },
-  {
     source: "subito.it",
     // Subito: la categoria "case" non esiste più; URL valido per Padova città.
     buildUrl: () => `https://www.subito.it/annunci-veneto/vendita/immobili/padova/padova/`,
