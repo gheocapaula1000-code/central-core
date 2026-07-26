@@ -289,7 +289,7 @@ Deno.serve(async (req) => {
             console.warn(`[apify] lancio saltato: ${res.reason} portal=${portal}`);
             skipped.push({ role: "discover", search_url: surl, reason: res.reason });
             if (res.reason === "APIFY_DAILY_CAP_REACHED") {
-              return new Response(JSON.stringify({ ok: true, skipped: true, reason: res.reason, started, skipped }),
+              return new Response(JSON.stringify({ ok: true, skipped: true, reason: res.reason, started, skipped_runs: skipped }),
                 { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
             }
             continue;
