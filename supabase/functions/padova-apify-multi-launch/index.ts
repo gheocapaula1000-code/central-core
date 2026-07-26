@@ -7,7 +7,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getApifyToken, startApifyRun } from "../_shared/apify.ts";
 
-const APIFY = "https://api.apify.com/v2";
+// APIFY base URL non più necessario: il fetch avviene dentro startApifyRun.
 
 interface LaunchBody {
   idealista?: { url_list?: string[]; from_db?: boolean; max_urls?: number; cost_cap_usd?: number };
