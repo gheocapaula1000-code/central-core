@@ -373,10 +373,8 @@ async function scrapePortal(
   }
   const url = config.buildUrl(slug);
 
-  // casa.it: usa parser markdown rule-based (parseCasaListPage) invece di json/LLM extraction.
-  if (config.source === "casa.it") {
-    return scrapeCasaViaMarkdown(config, municipality, url, firecrawlKey, maxItems);
-  }
+
+
   console.log(`[DEBUG portalScrapers] ${config.source} URL:`, url, `mode=${mode} cap=${maxItems}`);
 
   const ctrl = new AbortController();
