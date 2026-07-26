@@ -9229,21 +9229,6 @@ export type Database = {
       }
       tick_padova_firecrawl_collect: { Args: never; Returns: undefined }
       unschedule_padova_detail_chain: { Args: never; Returns: boolean }
-      vault_ccjs_status: {
-        Args: never
-        Returns: {
-          len: number
-          name: string
-        }[]
-      }
-      vault_ccjs_sync: {
-        Args: { p_value: string }
-        Returns: {
-          action: string
-          len: number
-          name: string
-        }[]
-      }
       vault_create_secret_if_missing: {
         Args: { p_name: string; p_value: string }
         Returns: Json
