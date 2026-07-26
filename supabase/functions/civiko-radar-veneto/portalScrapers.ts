@@ -12,7 +12,7 @@ import { normalizePropertyType, type PropertyType } from "./listingIdentity.ts";
 import { getApifyToken } from "../_shared/apify.ts";
 import { canSpendApify, recordApifySpend } from "../_shared/apifyBudget.ts";
 import type { RadarRunMeta } from "../_shared/radarBudget.ts";
-import { parseCasaListPage } from "../_shared/casaParser.ts";
+
 
 export interface PortalIngestionStat {
   // Ammesso anche `extraction_empty_<portale>` come sorgente diagnostica sintetica:
@@ -122,13 +122,6 @@ const PORTAL_CONFIGS: PortalConfig[] = [
     idFromLink: (l) => { const m = l.match(/\/immobile\/(\d{5,})/); return m ? `idl-${m[1]}` : null; },
   },
   {
-    source: "casa.it",
-    buildUrl: (slug) => `https://www.casa.it/vendita/residenziale/${slug}`,
-    prompt: "Estrai la lista degli annunci di vendita immobiliare. Per ciascuno: titolo, indirizzo, prezzo numerico in euro, superficie in metri quadri, numero locali, tipologia, nome agenzia, latitudine, longitudine, link assoluto. Solo dati realmente presenti.",
-    schema: standardSchema(),
-    idFromLink: (l) => { const m = l.match(/\/(\d{6,})(?:[/?]|$)/); return m ? `casa-${m[1]}` : null; },
-  },
-  {
     source: "subito.it",
     // Subito: la categoria "case" non esiste più; URL valido per Padova città.
     buildUrl: () => `https://www.subito.it/annunci-veneto/vendita/immobili/padova/padova/`,
@@ -165,82 +158,6 @@ function standardSchema(): Record<string, unknown> {
   };
 }
 
-async function scrapeCasaViaMarkdown(
-  config: PortalConfig,
-  municipality: string,
-  url: string,
-  firecrawlKey: string,
-  maxItems: number,
-): Promise<NormalizedListing[]> {
-  console.log(`[DEBUG portalScrapers] casa.it URL: ${url} (markdown parser) cap=${maxItems}`);
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), SCRAPE_TIMEOUT_MS);
-  try {
-    const res = await fetch(FIRECRAWL_URL, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${firecrawlKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        url,
-        formats: ["markdown"],
-        onlyMainContent: false,
-        headers: {
-          "User-Agent": pickUA(),
-          "Accept-Language": pickLang(),
-        },
-        waitFor: FIRECRAWL_WAIT_FOR_MS,
-        proxy: "auto",
-      }),
-      signal: ctrl.signal,
-    });
-    if (!res.ok) {
-      console.warn(`[portalScrapers] casa.it HTTP ${res.status}`);
-      return [];
-    }
-    const data = await res.json();
-    const md: string =
-      (typeof data?.data?.markdown === "string" && data.data.markdown) ||
-      (typeof data?.markdown === "string" && data.markdown) ||
-      "";
-    if (!md) {
-      console.warn(`[portalScrapers] casa.it empty markdown`);
-      return [];
-    }
-    const parsed = parseCasaListPage(md, url);
-    const linkMatches = (md.match(/casa\.it\/immobili\/\d+/g) ?? []).length;
-    console.log(`[DEBUG portalScrapers] casa.it md_len=${md.length} immobili_links=${linkMatches} parsed=${parsed.length} head=${JSON.stringify(md.slice(0, 200))}`);
-    const out: NormalizedListing[] = [];
-    for (const p of parsed) {
-      const id = config.idFromLink(p.source_url) ?? `casa-${p.listing_id}`;
-      const rawAgency = (p.agency_name ?? "").trim();
-      const isPrivate = p.is_privato || /privat[oi]/i.test(rawAgency);
-      out.push({
-        source: "casa.it",
-        listing_id: id,
-        url: p.source_url.slice(0, 400),
-        title: (p.title ?? "Annuncio").slice(0, 200),
-        address: p.zone ? p.zone.slice(0, 200) : null,
-        price_eur: p.price_eur,
-        surface_sqm: p.surface_sqm,
-        rooms: p.rooms,
-        property_type: normalizePropertyType(null),
-        agency_name: rawAgency && !isPrivate ? rawAgency.slice(0, 150) : null,
-        is_private: isPrivate,
-        lat: null,
-        lng: null,
-      });
-      if (out.length >= maxItems) break;
-    }
-    return out;
-  } catch (e) {
-    console.error(`[portalScrapers] casa.it markdown error:`, e instanceof Error ? e.message : String(e));
-    return [];
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -456,10 +373,8 @@ async function scrapePortal(
   }
   const url = config.buildUrl(slug);
 
-  // casa.it: usa parser markdown rule-based (parseCasaListPage) invece di json/LLM extraction.
-  if (config.source === "casa.it") {
-    return scrapeCasaViaMarkdown(config, municipality, url, firecrawlKey, maxItems);
-  }
+
+
   console.log(`[DEBUG portalScrapers] ${config.source} URL:`, url, `mode=${mode} cap=${maxItems}`);
 
   const ctrl = new AbortController();
@@ -673,7 +588,7 @@ async function scrapeWithApify(
  *  - 08-13 → casa.it + subito.it                            (slot 11:00 Roma / 09:00 UTC)
  *  - 14-19 → casa.it + immobiliare.it + idealista.it + subito.it (slot 15:30 Roma / 13:30 UTC)
  *  - 20-23 → casa.it + immobiliare.it + subito.it
- * casa.it e subito.it sono SEMPRE incluse in ogni slot (fonti verified always-on).
+ * subito.it è SEMPRE inclusa in ogni slot (fonte verified always-on).
  * In full mode usa tutti i portali.
  */
 function selectPortalsForMode(mode: RadarMode): { configs: PortalConfig[]; rotationKey: string } {
@@ -685,13 +600,13 @@ function selectPortalsForMode(mode: RadarMode): { configs: PortalConfig[]; rotat
   let allow: Array<NormalizedListing["source"]>;
   let key: string;
   if (romaHour >= 8 && romaHour < 14) {
-    allow = ["casa.it", "subito.it"];
+    allow = ["subito.it"];
     key = "soft_morning";
   } else if (romaHour >= 14 && romaHour < 20) {
-    allow = ["casa.it", "immobiliare.it", "idealista.it", "subito.it"];
+    allow = ["immobiliare.it", "idealista.it", "subito.it"];
     key = "soft_afternoon";
   } else {
-    allow = ["casa.it", "immobiliare.it", "subito.it"];
+    allow = ["immobiliare.it", "subito.it"];
     key = "soft_night";
   }
   return { configs: PORTAL_CONFIGS.filter((c) => allow.includes(c.source)), rotationKey: key };
