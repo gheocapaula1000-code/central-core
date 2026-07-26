@@ -271,6 +271,7 @@ Deno.serve(async (req) => {
   if (body.async_start) {
     try {
       const started: Array<{ role: string; search_url?: string; run_id: string; dataset_id: string }> = [];
+      const skipped: Array<{ role: string; search_url?: string; reason: string }> = [];
 
       if (mode === "discovery" || mode === "mixed") {
         if (searchUrls.length === 0) {
@@ -278,36 +279,48 @@ Deno.serve(async (req) => {
             { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
         for (const surl of searchUrls) {
-          const { run_id, dataset_id } = await startRun(ACTOR_DISCOVER, {
-            startUrl: surl, maxItems: desiredResults,
-          }, token);
-          await sb.from("padova_apify_runs").insert({
-            portal: `immobiliare_collect_${mode}_discover`,
-            actor_id: ACTOR_DISCOVER, run_id, dataset_id,
-            status: "RUNNING", cost_cap_usd: 0.20,
-          });
-          started.push({ role: "discover", search_url: surl, run_id, dataset_id });
+          const portal = `immobiliare_collect_${mode}_discover`;
+          const res = await startApifyRun(
+            ACTOR_DISCOVER,
+            { startUrl: surl, maxItems: desiredResults },
+            { portal, estUsd: 0.20, costCapUsd: 0.20 },
+          );
+          if (!res.started) {
+            console.warn(`[apify] lancio saltato: ${res.reason} portal=${portal}`);
+            skipped.push({ role: "discover", search_url: surl, reason: res.reason });
+            if (res.reason === "APIFY_DAILY_CAP_REACHED") {
+              return new Response(JSON.stringify({ ok: true, skipped: true, reason: res.reason, started, skipped }),
+                { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+            }
+            continue;
+          }
+          started.push({ role: "discover", search_url: surl, run_id: res.run_id, dataset_id: res.dataset_id });
         }
       }
 
       if ((mode === "refresh") && refreshUrls.length > 0) {
         const capB = Math.min(refreshUrls.length, maxItems);
-        const { run_id, dataset_id } = await startRun(ACTOR_DETAIL, {
-          startUrls: refreshUrls.slice(0, capB).map((u) => ({ url: u })),
-          maxItems: capB,
-          includeAgencyDetails: false,
-          proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
-        }, token);
-        await sb.from("padova_apify_runs").insert({
-          portal: `immobiliare_collect_${mode}_enrich`,
-          actor_id: ACTOR_DETAIL, run_id, dataset_id,
-          status: "RUNNING", cost_cap_usd: 0.30,
-        });
-        started.push({ role: "enrich_refresh", run_id, dataset_id });
+        const portal = `immobiliare_collect_${mode}_enrich`;
+        const res = await startApifyRun(
+          ACTOR_DETAIL,
+          {
+            startUrls: refreshUrls.slice(0, capB).map((u) => ({ url: u })),
+            maxItems: capB,
+            includeAgencyDetails: false,
+            proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
+          },
+          { portal, estUsd: 0.30, costCapUsd: 0.30 },
+        );
+        if (!res.started) {
+          console.warn(`[apify] lancio saltato: ${res.reason} portal=${portal}`);
+          return new Response(JSON.stringify({ ok: true, skipped: true, reason: res.reason, started }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        started.push({ role: "enrich_refresh", run_id: res.run_id, dataset_id: res.dataset_id });
       }
 
       return new Response(JSON.stringify({
-        ok: true, async_start: true, mode, job_id: jobId, started,
+        ok: true, async_start: true, mode, job_id: jobId, started, skipped,
         note: "run avviati in async: collect-pending completerà ingest ed enrichment",
       }, null, 2), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     } catch (e) {
@@ -315,6 +328,7 @@ Deno.serve(async (req) => {
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
   }
+
 
   try {
 
