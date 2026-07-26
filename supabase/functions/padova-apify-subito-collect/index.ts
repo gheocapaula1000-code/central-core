@@ -34,15 +34,8 @@ interface Body {
   ingest_run_id?: string; // per raccogliere dataset di un run già terminato
 }
 
-async function startRun(input: Record<string, unknown>, token: string) {
-  const r = await fetch(
-    `${APIFY}/acts/${encodeURIComponent(ACTOR)}/runs?token=${encodeURIComponent(token)}&waitForFinish=0`,
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) },
-  );
-  const j = await r.json();
-  if (!r.ok) throw new Error(`apify_start_${r.status}: ${JSON.stringify(j).slice(0, 300)}`);
-  return { run_id: j.data.id as string, dataset_id: j.data.defaultDatasetId as string };
-}
+// startRun locale rimossa: usare startApifyRun da _shared/apify.ts.
+
 
 async function pollRun(runId: string, token: string, timeoutSec: number) {
   const t0 = Date.now();
