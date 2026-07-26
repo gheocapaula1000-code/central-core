@@ -280,6 +280,45 @@ function mapSubito(raw: any, jobId: string, nowIso: string) {
   return row;
 }
 
+// ============ CASA MAPPER ============
+function mapCasa(raw: any, jobId: string, nowIso: string) {
+  if (!raw || raw.error) return null;
+  const url = canonUrl(raw?.url ?? "");
+  if (!url) return null;
+  const listingId = raw?.id != null ? String(raw.id) : null;
+  const city = (raw?.city ?? "").toString().toLowerCase();
+  const prezzo = toInt(raw?.price);
+  const advType = (raw?.agency_type ?? "").toString().toLowerCase();
+  const isPrivato = advType.includes("priv");
+  const agency = raw?.agency ?? null;
+  const rawAddress = [raw?.street, raw?.city].filter(Boolean).join(", ") || null;
+  const row: any = {
+    job_id: jobId, portal: "casa", listing_id: listingId, url,
+    raw_address: rawAddress, citta: city || "padova", cap: null,
+    lat: toFloat(raw?.latitude), lng: toFloat(raw?.longitude),
+    omi_zone: null, quartiere: raw?.zone ?? raw?.district ?? null,
+    tipo_lead: isPrivato ? "PRIVATO" : "AGENZIA",
+    n_agenzie: null,
+    prezzo, prezzo_iniziale: null,
+    mq: toInt(raw?.area_sqm), locali: toInt(raw?.rooms), bagni: toInt(raw?.bathrooms),
+    agency, agency_phone: raw?.agency_phone ?? null,
+    tipologia: raw?.property_type ?? null,
+    piano: raw?.floor != null ? String(raw.floor) : null,
+    stato: null, anno_costruzione: null, cluster_key: null,
+    parse_status: "apify_casa_listview",
+    processed_at: nowIso, http_status: 200, log_reason: null, attempts: 0,
+    previous_price_eur: null, ribasso_pct: null, ribasso_eur: null, ribasso_date: null,
+    raw_json: raw,
+    updated_at: nowIso,
+  };
+  // Guardia: Padova comune, canale sale, prezzo >= 10.000€, no aste
+  if (city !== "padova") return null;
+  if ((raw?.channel ?? "").toString() !== "sale") return null;
+  if (!Number.isFinite(prezzo) || (prezzo ?? 0) < 10000) return null;
+  if (raw?.is_auction === true) return null;
+  return row;
+}
+
 function mapperFor(actorId: string, portalTag: string) {
   if (actorId === ACTOR_IDEALISTA) return { fn: mapIdealista, portal: "idealista", allowListviewOverwrite: true };
   if (actorId === ACTOR_IMMO_DETAIL) return { fn: mapImmoDetail, portal: "immobiliare", allowListviewOverwrite: true };
