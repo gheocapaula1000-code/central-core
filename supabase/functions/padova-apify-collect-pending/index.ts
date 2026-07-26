@@ -509,10 +509,17 @@ Deno.serve(async (req) => {
         // padova_collect_v2_items come detail). Il nuovo run verrà completato
         // dal prossimo tick di collect-pending.
         let enrichKicked: any = null;
-        const isDiscoveryRun =
+        // Enrichment Pass B è riservato SOLO alle discovery di immobiliare.
+        // Casa e altri portali non devono mai lanciarlo.
+        const isImmobiliareRun =
           actorId === ACTOR_IMMO_LISTVIEW ||
-          portalTag.includes("_discover") ||
-          deduped.some((r) => r.parse_status?.endsWith("_listview"));
+          portalTag.startsWith("immobiliare");
+        const isDiscoveryRun =
+          isImmobiliareRun && (
+            actorId === ACTOR_IMMO_LISTVIEW ||
+            portalTag.includes("_discover") ||
+            deduped.some((r) => r.parse_status?.endsWith("_listview"))
+          );
 
         if (autoEnrich && !dryRun && isDiscoveryRun) {
           try {
