@@ -293,22 +293,24 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { run_id, dataset_id } = await startRun(
+    const portalTag = `idealista_collect_${mode}`;
+    const launched = await startApifyRun(
+      ACTOR,
       {
         Property_urls: allUrls.map((u) => ({ url: u })),
         desiredResults,
       },
-      token,
+      { portal: portalTag, estUsd: 0.50, costCapUsd: 0.50 },
     );
+    if (!launched.started) {
+      console.warn(`[apify] lancio saltato: ${launched.reason} portal=${portalTag}`);
+      return new Response(
+        JSON.stringify({ ok: true, skipped: true, reason: launched.reason, mode }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    const { run_id, dataset_id } = launched;
 
-    await sb.from("padova_apify_runs").insert({
-      portal: `idealista_collect_${mode}`,
-      actor_id: ACTOR,
-      run_id,
-      dataset_id,
-      status: "RUNNING",
-      cost_cap_usd: 0.50,
-    });
 
     // ASYNC MODE: registra il run e ritorna. collect-pending farà polling,
     // ingest e (per discovery) Pass B enrichment.
