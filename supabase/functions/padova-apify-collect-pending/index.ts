@@ -23,6 +23,7 @@ const ACTOR_IDEALISTA = "dz_omar~idealista-scraper-api";
 const ACTOR_IMMO_DETAIL = "memo23~immobiliare-scraper";
 const ACTOR_IMMO_LISTVIEW = "azzouzana~immobiliare-it-listing-page-scraper-by-search-url";
 const ACTOR_SUBITO = "emastra~subito-it-immobili";
+const ACTOR_CASA = "benthepythondev~casa-it-scraper";
 
 async function apifyRunStatus(runId: string, token: string) {
   const r = await fetch(`${APIFY}/actor-runs/${runId}?token=${encodeURIComponent(token)}`);
