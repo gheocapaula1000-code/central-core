@@ -25,22 +25,8 @@ interface Spec {
   cost_cap_usd: number;
 }
 
-async function startActor(actor: string, input: Record<string, unknown>, token: string) {
-  const url = `${APIFY}/acts/${encodeURIComponent(actor)}/runs?token=${encodeURIComponent(token)}`;
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-  const txt = await r.text();
-  if (!r.ok) {
-    return { ok: false, error: `apify_${r.status}: ${txt.slice(0, 300)}` };
-  }
-  let j: Record<string, unknown> = {};
-  try { j = JSON.parse(txt); } catch { /* ignore */ }
-  const d = (j as { data?: { id?: string; defaultDatasetId?: string; status?: string } }).data ?? {};
-  return { ok: true, run_id: d.id, dataset_id: d.defaultDatasetId, status: d.status };
-}
+// startActor rimossa: usare startApifyRun da _shared/apify.ts (guardia budget + insert unificati).
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
