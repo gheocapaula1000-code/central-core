@@ -16,7 +16,7 @@
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { getApifyToken } from "../_shared/apify.ts";
+import { getApifyToken, startApifyRun } from "../_shared/apify.ts";
 
 const APIFY = "https://api.apify.com/v2";
 const ACTOR = "dz_omar~idealista-scraper-api";
@@ -293,22 +293,24 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { run_id, dataset_id } = await startRun(
+    const portalTag = `idealista_collect_${mode}`;
+    const launched = await startApifyRun(
+      ACTOR,
       {
         Property_urls: allUrls.map((u) => ({ url: u })),
         desiredResults,
       },
-      token,
+      { portal: portalTag, estUsd: 0.50, costCapUsd: 0.50 },
     );
+    if (!launched.started) {
+      console.warn(`[apify] lancio saltato: ${launched.reason} portal=${portalTag}`);
+      return new Response(
+        JSON.stringify({ ok: true, skipped: true, reason: launched.reason, mode }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    const { run_id, dataset_id } = launched;
 
-    await sb.from("padova_apify_runs").insert({
-      portal: `idealista_collect_${mode}`,
-      actor_id: ACTOR,
-      run_id,
-      dataset_id,
-      status: "RUNNING",
-      cost_cap_usd: 0.50,
-    });
 
     // ASYNC MODE: registra il run e ritorna. collect-pending farà polling,
     // ingest e (per discovery) Pass B enrichment.

@@ -5,9 +5,9 @@
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { getApifyToken } from "../_shared/apify.ts";
+import { getApifyToken, startApifyRun } from "../_shared/apify.ts";
 
-const APIFY = "https://api.apify.com/v2";
+// APIFY base URL non più necessario: il fetch avviene dentro startApifyRun.
 
 interface LaunchBody {
   idealista?: { url_list?: string[]; from_db?: boolean; max_urls?: number; cost_cap_usd?: number };
@@ -25,22 +25,8 @@ interface Spec {
   cost_cap_usd: number;
 }
 
-async function startActor(actor: string, input: Record<string, unknown>, token: string) {
-  const url = `${APIFY}/acts/${encodeURIComponent(actor)}/runs?token=${encodeURIComponent(token)}`;
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-  const txt = await r.text();
-  if (!r.ok) {
-    return { ok: false, error: `apify_${r.status}: ${txt.slice(0, 300)}` };
-  }
-  let j: Record<string, unknown> = {};
-  try { j = JSON.parse(txt); } catch { /* ignore */ }
-  const d = (j as { data?: { id?: string; defaultDatasetId?: string; status?: string } }).data ?? {};
-  return { ok: true, run_id: d.id, dataset_id: d.defaultDatasetId, status: d.status };
-}
+// startActor rimossa: usare startApifyRun da _shared/apify.ts (guardia budget + insert unificati).
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -191,24 +177,18 @@ Deno.serve(async (req) => {
   }
 
   const results = await Promise.all(specs.map(async (s) => {
-    const r = await startActor(s.actor_id, s.input, token);
-    if (!r.ok || !r.run_id) {
-      await sb.from("padova_apify_runs").insert({
-        portal: s.portal, actor_id: s.actor_id, run_id: "ERROR",
-        status: "FAILED_TO_START", cost_cap_usd: s.cost_cap_usd, error: r.error ?? "unknown",
-      });
-      return { portal: s.portal, started: false, error: r.error };
-    }
-    await sb.from("padova_apify_runs").insert({
+    const res = await startApifyRun(s.actor_id, s.input, {
       portal: s.portal,
-      actor_id: s.actor_id,
-      run_id: r.run_id,
-      dataset_id: r.dataset_id ?? null,
-      status: r.status ?? "RUNNING",
-      cost_cap_usd: s.cost_cap_usd,
+      estUsd: s.cost_cap_usd,
+      costCapUsd: s.cost_cap_usd,
     });
-    return { portal: s.portal, started: true, run_id: r.run_id, dataset_id: r.dataset_id, status: r.status };
+    if (!res.started) {
+      console.warn(`[apify] lancio saltato: ${res.reason} portal=${s.portal}`);
+      return { portal: s.portal, started: false, skipped: true, reason: res.reason };
+    }
+    return { portal: s.portal, started: true, run_id: res.run_id, dataset_id: res.dataset_id, status: "RUNNING" };
   }));
+
 
   return new Response(JSON.stringify({ ok: true, idealista_urls_from_db: idealistaFromDbCount, launched: results }, null, 2), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
