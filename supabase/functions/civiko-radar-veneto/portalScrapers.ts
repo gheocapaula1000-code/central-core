@@ -588,7 +588,7 @@ async function scrapeWithApify(
  *  - 08-13 → casa.it + subito.it                            (slot 11:00 Roma / 09:00 UTC)
  *  - 14-19 → casa.it + immobiliare.it + idealista.it + subito.it (slot 15:30 Roma / 13:30 UTC)
  *  - 20-23 → casa.it + immobiliare.it + subito.it
- * casa.it e subito.it sono SEMPRE incluse in ogni slot (fonti verified always-on).
+ * subito.it è SEMPRE inclusa in ogni slot (fonte verified always-on).
  * In full mode usa tutti i portali.
  */
 function selectPortalsForMode(mode: RadarMode): { configs: PortalConfig[]; rotationKey: string } {
@@ -600,13 +600,13 @@ function selectPortalsForMode(mode: RadarMode): { configs: PortalConfig[]; rotat
   let allow: Array<NormalizedListing["source"]>;
   let key: string;
   if (romaHour >= 8 && romaHour < 14) {
-    allow = ["casa.it", "subito.it"];
+    allow = ["subito.it"];
     key = "soft_morning";
   } else if (romaHour >= 14 && romaHour < 20) {
-    allow = ["casa.it", "immobiliare.it", "idealista.it", "subito.it"];
+    allow = ["immobiliare.it", "idealista.it", "subito.it"];
     key = "soft_afternoon";
   } else {
-    allow = ["casa.it", "immobiliare.it", "subito.it"];
+    allow = ["immobiliare.it", "subito.it"];
     key = "soft_night";
   }
   return { configs: PORTAL_CONFIGS.filter((c) => allow.includes(c.source)), rotationKey: key };
