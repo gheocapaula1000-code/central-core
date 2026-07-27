@@ -340,7 +340,7 @@ Deno.serve(async (req) => {
     // Filtro opzionale per commercial_zone_slug.
     let outItems = items;
     if (commercialZoneFilter) {
-      outItems = items.filter((it) => it.commercial_zone_slug === commercialZoneFilter);
+      outItems = items.filter((it) => it.commercial_zone_slug === commercialZoneFilter || it.commercial_zone_slug === null);
       // Ricalcola totals sul risultato filtrato.
       const t = { legal_life_events: 0, successioni: 0, distress: 0, patrimonio_comunale: 0, total: 0 };
       for (const it of outItems) {
