@@ -4,6 +4,10 @@
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import {
+  PADOVA_PILOT_ALLOWED_ZONE_SLUG,
+  isPadovaPilotAllowedZoneSlug,
+} from "../_shared/civikoTerritoryContractPadovaPilotV1.ts";
 
 const civikoOneCors = {
   "Access-Control-Allow-Origin": "*",
@@ -71,6 +75,21 @@ serve(async (req) => {
   const slug = typeof body.slug === "string" ? body.slug.trim() : "";
   if (!slug) {
     return jsonResponse({ ok: false, error: "errore", message: "slug required", debug_id }, 400);
+  }
+  // Territory Contract Padova Pilot v1 — fail-closed server-side:
+  // solo `centro-storico` è riservabile nel pilot. Ogni altro slug
+  // (inclusi slug legacy o manipolati dal client) viene respinto qui,
+  // prima di qualsiasi scrittura o chiamata alle RPC.
+  if (!isPadovaPilotAllowedZoneSlug(slug)) {
+    return jsonResponse(
+      {
+        ok: false,
+        error: "pilot_zone_locked",
+        message: `Nel pilot v1 è riservabile solo la zona '${PADOVA_PILOT_ALLOWED_ZONE_SLUG}'.`,
+        debug_id,
+      },
+      403,
+    );
   }
 
   // --- 4) Service-role client ---
