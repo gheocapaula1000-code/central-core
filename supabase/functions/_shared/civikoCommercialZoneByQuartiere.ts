@@ -180,6 +180,8 @@ const RAW_QUARTIERI_BY_ZONE: Record<CivikoCommercialZoneSlug, readonly string[]>
 
 // Costruisce la mappa normalizzata. In caso di collisione (stessa chiave
 // normalizzata assegnata a più zone) lanciamo subito: fail-closed sul contratto.
+// Inoltre nessuna chiave può citare insieme Stazione (centro-storico) e Fiera
+// (est-brenta): le stringhe miste sono ambigue e devono restare non risolte.
 export const PADOVA_QUARTIERE_TO_COMMERCIAL_ZONE: ReadonlyMap<string, CivikoCommercialZoneSlug> =
   (() => {
     const m = new Map<string, CivikoCommercialZoneSlug>();
@@ -194,6 +196,12 @@ export const PADOVA_QUARTIERE_TO_COMMERCIAL_ZONE: ReadonlyMap<string, CivikoComm
         if (key.length === 0) {
           throw new Error(`Contract violation: quartiere vuoto per "${slug}"`);
         }
+        const words = key.split(" ");
+        if (words.includes("stazione") && words.includes("fiera")) {
+          throw new Error(
+            `Contract violation: chiave ambigua Stazione/Fiera "${raw}" non è assegnabile`,
+          );
+        }
         const existing = m.get(key);
         if (existing && existing !== slug) {
           throw new Error(
@@ -205,6 +213,86 @@ export const PADOVA_QUARTIERE_TO_COMMERCIAL_ZONE: ReadonlyMap<string, CivikoComm
     }
     return m;
   })();
+
+/**
+ * Etichette quartieri mostrabili all'utente, una lista per ciascuno degli 8
+ * slug ufficiali. Additive e puramente descrittive: nessun impatto sul
+ * matching. "Stazione" compare SOLO in centro-storico, "Fiera" SOLO in
+ * est-brenta.
+ */
+export const PADOVA_QUARTIERI_LABELS_BY_ZONE: Readonly<
+  Record<CivikoCommercialZoneSlug, readonly string[]>
+> = {
+  "centro-storico": [
+    "Centro Storico",
+    "Duomo e Piazze",
+    "Prato della Valle",
+    "Riviere e Carmine",
+    "Santo",
+    "Santa Sofia / Altinate",
+    "Savonarola",
+    "Specola",
+    "Portello",
+    "Stazione",
+    "Scrovegni",
+  ],
+  "nord-arcella": [
+    "Arcella",
+    "San Bellino",
+    "San Carlo",
+    "Pontevigodarzere",
+    "Borgomagno",
+  ],
+  "est-brenta": [
+    "Fiera",
+    "Stanga",
+    "San Lazzaro",
+    "Mortise",
+    "Torre",
+    "Ponte di Brenta",
+  ],
+  "est-forcellini-camin": [
+    "Forcellini",
+    "Terranegra",
+    "San Gregorio",
+    "Camin",
+    "Granze",
+    "Zona Industriale (ZIP)",
+  ],
+  "sud-est-sant-osvaldo": [
+    "Città Giardino",
+    "Sant'Osvaldo",
+    "Santa Rita",
+    "Madonna Pellegrina",
+    "Santa Croce",
+    "San Paolo",
+  ],
+  "sud-voltabarozzo-guizza": [
+    "Voltabarozzo",
+    "Crocefisso",
+    "Salboro",
+    "Guizza",
+    "Bassanello",
+  ],
+  "sud-ovest-mandria": [
+    "Mandria",
+    "Armistizio",
+    "Voltabrusegana",
+    "Paltana",
+  ],
+  "ovest-chiesanuova-brentelle": [
+    "Sacra Famiglia",
+    "Palestro",
+    "San Giuseppe",
+    "Brusegana",
+    "Chiesanuova",
+    "Brentelle",
+    "Sant'Ignazio",
+    "Montà",
+    "Altichiero",
+  ],
+};
+
 
 /**
  * Restituisce la zona commerciale per un singolo quartiere.
