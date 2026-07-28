@@ -43,7 +43,13 @@ const APIFY_BASE = "https://api.apify.com/v2";
 
 export type StartApifyRunResult =
   | { started: true; run_id: string; dataset_id: string }
-  | { started: false; reason: string };
+  | {
+      started: false;
+      reason: string;
+      current_spend_usd?: number;
+      cap_usd?: number;
+      calls_today?: number;
+    };
 
 export interface StartApifyRunOpts {
   portal: string;
@@ -65,7 +71,13 @@ export async function startApifyRun(
   // a) Budget guard (daily + monthly).
   const allowed = await canSpendApify(opts.estUsd);
   if (!allowed.ok) {
-    return { started: false, reason: "APIFY_DAILY_CAP_REACHED" };
+    return {
+      started: false,
+      reason: allowed.reason ?? "APIFY_DAILY_CAP_REACHED",
+      current_spend_usd: allowed.spent,
+      cap_usd: allowed.cap,
+      calls_today: allowed.calls,
+    };
   }
 
   // b) Fire the run against Apify.
