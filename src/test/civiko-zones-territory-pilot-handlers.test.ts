@@ -182,9 +182,35 @@ describe("handler reale civiko-zones-reserve — gate territoriale", () => {
   /** Client fittizio: qualunque accesso DB viene registrato e interrompe il flusso. */
   function spyFactory() {
     const calls: string[] = [];
+    const query = {
+      select: () => query,
+      eq: () => query,
+      maybeSingle: async () => {
+        calls.push("select");
+        return { data: { id: WS }, error: null };
+      },
+      insert: async () => {
+        calls.push("insert");
+        return { error: null };
+      },
+      upsert: async () => {
+        calls.push("upsert");
+        return { error: null };
+      },
+    };
+    const client = {
+      from: (t: string) => {
+        calls.push(`from:${t}`);
+        return query;
+      },
+      rpc: async (fn: string) => {
+        calls.push(`rpc:${fn}`);
+        return { data: { slug: "centro-storico" }, error: null };
+      },
+    };
     const factory = () => {
       calls.push("createClient");
-      throw new Error("DB_REACHED");
+      return client;
     };
     return { calls, factory };
   }
@@ -193,10 +219,10 @@ describe("handler reale civiko-zones-reserve — gate territoriale", () => {
     const { calls, factory } = spyFactory();
     const res = await handleZonesReserve(req("centro-storico"), factory);
     expect(calls).toContain("createClient");
-    // Nessuna scrittura reale: il client fittizio interrompe subito.
-    expect(res.status).toBe(500);
+    expect(calls).toContain("rpc:reserve_commercial_zone");
+    expect(res.status).toBe(200);
     const b = await res.json();
-    expect(b.error).toBe("errore");
+    expect(b.ok).toBe(true);
   });
 
   it("gli altri 7 slug ufficiali ricevono 403 pilot_zone_locked senza toccare il DB", async () => {
