@@ -175,12 +175,37 @@ export async function handleZonesReserve(
     p_agency_id: workspaceId,
   });
 
+  // 7a) Errore tecnico Supabase (rete, permessi, eccezione SQL).
   if (error) {
     const msg = (error.message || "").toLowerCase();
     let code: "zona_in_trial" | "zona_occupata" | "errore" = "errore";
     if (msg.includes("trial") || msg.includes("reserved")) code = "zona_in_trial";
     else if (msg.includes("occup")) code = "zona_occupata";
     return jsonResponse({ ok: false, error: code, message: error.message, debug_id }, 409);
+  }
+
+  // 7b) Esito applicativo restituito nel payload della RPC.
+  // Fail-closed: solo un booleano ok === true produce successo.
+  const result = data as { ok?: unknown; error?: unknown; message?: unknown } | null;
+  if (!result || typeof result !== "object" || typeof result.ok !== "boolean") {
+    return jsonResponse(
+      { ok: false, error: "errore", message: "risposta RPC nulla o malformata", debug_id },
+      500,
+    );
+  }
+
+  if (result.ok === false) {
+    const appError = typeof result.error === "string" && result.error ? result.error : "errore";
+    const status = appError === "zona_non_trovata" ? 404 : 409;
+    return jsonResponse(
+      {
+        ok: false,
+        error: appError,
+        message: typeof result.message === "string" ? result.message : appError,
+        debug_id,
+      },
+      status,
+    );
   }
 
   return jsonResponse({ ok: true, data, debug_id });
