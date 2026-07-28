@@ -49,6 +49,9 @@ export type StartApifyRunResult =
       current_spend_usd?: number;
       cap_usd?: number;
       calls_today?: number;
+      current_month_spend_usd?: number;
+      cap_month_usd?: number;
+      monthly_cap_env?: string;
     };
 
 export interface StartApifyRunOpts {
@@ -77,8 +80,12 @@ export async function startApifyRun(
       current_spend_usd: allowed.spent,
       cap_usd: allowed.cap,
       calls_today: allowed.calls,
+      current_month_spend_usd: allowed.current_month_spend_usd,
+      cap_month_usd: allowed.cap_month_usd,
+      monthly_cap_env: allowed.monthly_cap_env,
     };
   }
+
 
   // b) Fire the run against Apify.
   const token = getApifyToken();
