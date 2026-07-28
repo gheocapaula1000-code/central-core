@@ -1,9 +1,11 @@
 // civiko-zones-reserve — prenota una zona commerciale in trial (7gg) per l'agenzia chiamante.
 // Auth: x-job-secret = CENTRAL_CORE_JOB_SECRET (server-to-server dal proxy Civiko One).
 // I valori x-user-id / x-user-email / x-workspace-id arrivano già verificati dal proxy.
+//
+// Gate territoriale Padova Pilot v1: SOLO `centro-storico` prosegue.
+// Il rifiuto (403 pilot_zone_locked) avviene PRIMA di qualsiasi insert,
+// upsert o RPC: nessun client DB viene creato per gli slug respinti.
 
-import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import {
   PADOVA_PILOT_ALLOWED_ZONE_SLUG,
   isPadovaPilotAllowedZoneSlug,
@@ -30,9 +32,31 @@ function constantTimeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+function getEnv(key: string): string {
+  const d = (globalThis as { Deno?: { env: { get(k: string): string | undefined } } }).Deno;
+  if (d?.env) return d.env.get(key) ?? "";
+  const p = (globalThis as { process?: { env: Record<string, string | undefined> } }).process;
+  return p?.env?.[key] ?? "";
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-serve(async (req) => {
+/** Factory del client service-role: unico punto d'accesso al DB, iniettabile nei test. */
+// deno-lint-ignore no-explicit-any
+export type ServiceClientFactory = (url: string, key: string) => any;
+
+const defaultServiceClientFactory: ServiceClientFactory = async (url, key) => {
+  const spec: string = "https://esm.sh/@supabase/supabase-js@2.45.0";
+  const { createClient } = await import(/* @vite-ignore */ spec);
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+};
+
+export async function handleZonesReserve(
+  req: Request,
+  createServiceClient: ServiceClientFactory = defaultServiceClientFactory,
+): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: civikoOneCors });
   if (req.method !== "POST") {
     return jsonResponse({ ok: false, error: "errore", message: "POST only" }, 405);
@@ -41,7 +65,7 @@ serve(async (req) => {
   const debug_id = crypto.randomUUID();
 
   // --- 1) Auth server-to-server via shared secret ---
-  const expected = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+  const expected = getEnv("CENTRAL_CORE_JOB_SECRET");
   const provided =
     req.headers.get("x-job-secret") ??
     req.headers.get("x-internal-secret") ??
@@ -93,14 +117,12 @@ serve(async (req) => {
   }
 
   // --- 4) Service-role client ---
-  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const supabaseUrl = getEnv("SUPABASE_URL");
+  const serviceKey = getEnv("SUPABASE_SERVICE_ROLE_KEY");
   if (!supabaseUrl || !serviceKey) {
     return jsonResponse({ ok: false, error: "errore", message: "core config missing", debug_id }, 500);
   }
-  const svc = createClient(supabaseUrl, serviceKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  const svc = await createServiceClient(supabaseUrl, serviceKey);
 
   // --- 5) Ensure agency exists (UUID = workspaceId) ---
   try {
@@ -162,4 +184,11 @@ serve(async (req) => {
   }
 
   return jsonResponse({ ok: true, data, debug_id });
-});
+}
+
+// Registrazione runtime solo in Deno (edge).
+if (typeof (globalThis as { Deno?: unknown }).Deno !== "undefined") {
+  const stdHttp: string = "https://deno.land/std@0.190.0/http/server.ts";
+  const { serve } = await import(/* @vite-ignore */ stdHttp);
+  serve((req: Request) => handleZonesReserve(req));
+}

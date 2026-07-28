@@ -16,7 +16,7 @@ const KEYS = PADOVA_PILOT_CENTRO_STORICO_QUARTIERE_KEYS;
 
 describe("Territory Contract Padova Pilot v1 — struttura", () => {
   it("versione dichiarata", () => {
-    expect(TERRITORY_CONTRACT_PADOVA_PILOT_V1_VERSION).toBe("1.0.0");
+    expect(TERRITORY_CONTRACT_PADOVA_PILOT_V1_VERSION).toBe("1.1.0");
   });
   it("slug pilot appartiene al set canonico degli 8 slug", () => {
     expect(
@@ -26,9 +26,9 @@ describe("Territory Contract Padova Pilot v1 — struttura", () => {
     ).toBe(true);
     expect(PADOVA_PILOT_ALLOWED_ZONE_SLUG).toBe("centro-storico");
   });
-  it("28 quartiere_key, uniche, non vuote", () => {
-    expect(KEYS).toHaveLength(28);
-    expect(new Set(KEYS).size).toBe(28);
+  it("27 quartiere_key non ambigue, uniche, non vuote", () => {
+    expect(KEYS).toHaveLength(27);
+    expect(new Set(KEYS).size).toBe(27);
     for (const k of KEYS) expect(k.trim().length).toBeGreaterThan(0);
   });
   it("denominazioni utente deduplicate (nessun duplicato)", () => {
@@ -48,6 +48,17 @@ describe("Territory Contract Padova Pilot v1 — inclusioni/esclusioni", () => {
   it("Fiera NON è chiave standalone nel perimetro", () => {
     expect(KEYS).not.toContain("fiera");
     expect(KEYS.some((k) => k === "fiera")).toBe(false);
+  });
+  it("nessuna chiave accettata cita insieme Stazione e Fiera", () => {
+    for (const k of KEYS) {
+      const w = k.split(" ");
+      expect(w.includes("stazione") && w.includes("fiera")).toBe(false);
+    }
+  });
+  it("il composto ambiguo Stazione–Fiera non è più accettato", () => {
+    expect(KEYS).not.toContain(
+      "stazione scrovegni c so del popolo fiera cittadella",
+    );
   });
   it("Fiera è dichiarata esplicitamente tra le aree escluse", () => {
     const names = PADOVA_PILOT_EXCLUDED_AREAS.map((a) => a.name.toLowerCase());
@@ -91,13 +102,13 @@ describe("Territory Contract Padova Pilot v1 — fail-closed slug", () => {
 describe("Territory Contract Padova Pilot v1 — descrittore", () => {
   it("descrizione serializzabile coerente", () => {
     const d = describePadovaPilotContract();
-    expect(d.contract_version).toBe("1.0.0");
+    expect(d.contract_version).toBe("1.1.0");
     expect(d.municipality).toBe("padova");
     expect(d.province).toBe("PD");
     expect(d.commercial_zone_slug).toBe("centro-storico");
     expect(d.derivation_rules.client_authoritative).toBe(false);
     expect(d.derivation_rules.fail_closed).toBe(true);
-    expect(d.accepted_quartiere_keys).toHaveLength(28);
+    expect(d.accepted_quartiere_keys).toHaveLength(27);
   });
 });
 
