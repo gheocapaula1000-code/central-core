@@ -4,14 +4,18 @@
 // il Central Core. Il client NON è mai autoritativo sulla zona.
 //
 // - Municipality: Padova (PD, Veneto)
-// - Unica zona commerciale riservabile nel pilot v1: `centro-storico`.
-// - Le 28 `quartiere_key` sotto sono l'insieme ESATTO letto (in sola lettura,
-//   il 2026-07-28) da public.civiko_quartiere_commercial_zone_map filtrata
-//   per commercial_zone_slug = 'centro-storico'. Rappresentano il perimetro
-//   tecnico di derivazione: chiavi normalizzate + alias + composti.
-// - Fiera è ESCLUSA: non compare come chiave standalone nel mapping. L'unica
-//   occorrenza è dentro l'alias composto "stazione scrovegni c so del popolo
-//   fiera cittadella", che descrive la macro-area Stazione, non Fiera.
+// - Unica zona commerciale riservabile nel pilot v1: `centro-storico`
+//   (`pilot_reservable = true`). Le altre 7 zone ufficiali restano nel
+//   contratto degli 8 slug ma NON sono riservabili (`pilot_reservable = false`).
+// - Le 27 `quartiere_key` sotto sono il perimetro tecnico accettato per
+//   `centro-storico`: chiavi normalizzate, alias e composti NON ambigui.
+// - Stazione, Stazione Ferroviaria e Scrovegni appartengono a `centro-storico`.
+// - Fiera appartiene a `est-brenta` e NON è disponibile nel pilot v1.
+// - Le stringhe miste Stazione–Fiera (incluso il composto
+//   "stazione scrovegni c so del popolo fiera cittadella") sono AMBIGUE:
+//   non sono accettate qui e il resolver deve restituire `null`.
+//   Nessun fuzzy matching, nessuno split automatico, nessun fallback su
+//   CAP, OMI o prima parola.
 // - Fail-closed: qualunque slug diverso da `centro-storico` è respinto
 //   server-side nel percorso di prenotazione del pilot.
 //
@@ -23,7 +27,7 @@ import {
   type CivikoCommercialZoneSlug,
 } from "./civikoCommercialZoneContract.ts";
 
-export const TERRITORY_CONTRACT_PADOVA_PILOT_V1_VERSION = "1.0.0" as const;
+export const TERRITORY_CONTRACT_PADOVA_PILOT_V1_VERSION = "1.1.0" as const;
 
 export const PADOVA_PILOT_MUNICIPALITY = "padova" as const;
 export const PADOVA_PILOT_PROVINCE = "PD" as const;
@@ -33,9 +37,11 @@ export const PADOVA_PILOT_ALLOWED_ZONE_SLUG: CivikoCommercialZoneSlug =
   "centro-storico";
 
 /**
- * Perimetro tecnico: 28 quartiere_key mappate a `centro-storico` in
- * public.civiko_quartiere_commercial_zone_map (verificato 2026-07-28).
- * Ordine alfabetico stabile; nessun editing manuale senza rilettura DB.
+ * Perimetro tecnico: 27 quartiere_key non ambigue mappate a `centro-storico`.
+ * Ordine alfabetico stabile.
+ *
+ * Il composto "stazione scrovegni c so del popolo fiera cittadella" è stato
+ * RIMOSSO: contiene Fiera (est-brenta) ed è quindi ambiguo → resolver null.
  */
 export const PADOVA_PILOT_CENTRO_STORICO_QUARTIERE_KEYS: readonly string[] = [
   "carmine savonarola riviere ext porta san giovanni citta giardino santa giustina santo santa sofia",
@@ -64,13 +70,22 @@ export const PADOVA_PILOT_CENTRO_STORICO_QUARTIERE_KEYS: readonly string[] = [
   "specola corso milano",
   "stazione",
   "stazione ferroviaria",
-  "stazione scrovegni c so del popolo fiera cittadella",
   "zona entro riviere via xx settembre",
 ] as const;
 
 /**
+ * Chiavi/etichette miste Stazione–Fiera: sempre ambigue, sempre `null`.
+ * Elenco esplicito e chiuso, usato dai test e dalla documentazione.
+ */
+export const PADOVA_PILOT_AMBIGUOUS_STAZIONE_FIERA_KEYS: readonly string[] = [
+  "stazione scrovegni c so del popolo fiera cittadella",
+  "stazione fiera",
+  "fiera stazione",
+] as const;
+
+/**
  * Denominazioni utente deduplicate per centro-storico.
- * Raggruppano le 28 chiavi tecniche in etichette mostrabili senza
+ * Raggruppano le chiavi tecniche in etichette mostrabili senza
  * proliferazione (nessuna "microzona per chiave").
  */
 export const PADOVA_PILOT_CENTRO_STORICO_USER_LABELS: readonly string[] = [
@@ -95,13 +110,23 @@ export const PADOVA_PILOT_EXCLUDED_AREAS: ReadonlyArray<{
   name: string;
   reason: string;
   evidence: string;
+  belongs_to_zone_slug: CivikoCommercialZoneSlug | null;
 }> = [
   {
     name: "Fiera",
     reason:
-      "Non presente come chiave standalone nel mapping ufficiale a centro-storico.",
+      "Fiera appartiene a est-brenta, zona non riservabile nel pilot v1 (pilot_reservable=false).",
     evidence:
-      "civiko_quartiere_commercial_zone_map: 'fiera' compare SOLO nell'alias composto 'stazione scrovegni c so del popolo fiera cittadella' (macro-area Stazione).",
+      "civikoCommercialZoneByQuartiere.ts: 'Fiera' è elencata sotto est-brenta e non compare tra i quartieri di centro-storico.",
+    belongs_to_zone_slug: "est-brenta",
+  },
+  {
+    name: "Stazione / Fiera (stringhe miste)",
+    reason:
+      "Etichette che citano insieme Stazione (centro-storico) e Fiera (est-brenta) sono ambigue: fail-closed, nessuna assegnazione automatica.",
+    evidence:
+      "PADOVA_PILOT_AMBIGUOUS_STAZIONE_FIERA_KEYS; il resolver non applica split, fuzzy match, CAP, OMI o prima-parola.",
+    belongs_to_zone_slug: null,
   },
 ];
 
@@ -124,13 +149,14 @@ export function describePadovaPilotContract() {
     commercial_zone_slug: PADOVA_PILOT_ALLOWED_ZONE_SLUG,
     commercial_zone_label: "Centro Storico",
     accepted_quartiere_keys: PADOVA_PILOT_CENTRO_STORICO_QUARTIERE_KEYS,
+    ambiguous_keys: PADOVA_PILOT_AMBIGUOUS_STAZIONE_FIERA_KEYS,
     user_labels: PADOVA_PILOT_CENTRO_STORICO_USER_LABELS,
     excluded_areas: PADOVA_PILOT_EXCLUDED_AREAS,
     derivation_rules: {
       authority: "central-core",
       client_authoritative: false,
       derivation_source:
-        "public.civiko_quartiere_commercial_zone_map (letta 2026-07-28)",
+        "civikoCommercialZoneByQuartiere.ts (contratto applicativo 8 zone)",
       fail_closed: true,
     },
   } as const;
