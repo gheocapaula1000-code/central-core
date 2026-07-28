@@ -180,7 +180,10 @@ describe("handler reale civiko-zones-reserve — gate territoriale", () => {
   }
 
   /** Client fittizio: qualunque accesso DB viene registrato e interrompe il flusso. */
-  function spyFactory() {
+  function spyFactory(rpcResult: { data: unknown; error: unknown } = {
+    data: { ok: true, slug: "centro-storico" },
+    error: null,
+  }) {
     const calls: string[] = [];
     const query = {
       select: () => query,
@@ -205,7 +208,7 @@ describe("handler reale civiko-zones-reserve — gate territoriale", () => {
       },
       rpc: async (fn: string) => {
         calls.push(`rpc:${fn}`);
-        return { data: { slug: "centro-storico" }, error: null };
+        return rpcResult;
       },
     };
     const factory = () => {
@@ -252,5 +255,105 @@ describe("handler reale civiko-zones-reserve — gate territoriale", () => {
     const res = await handleZonesReserve(req(""), factory);
     expect(res.status).toBe(400);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("handler reale civiko-zones-reserve — esito applicativo RPC", () => {
+  const SECRET = "test-job-secret";
+  const WS = "11111111-2222-3333-4444-555555555555";
+  const USER = "66666666-7777-8888-9999-000000000000";
+
+  beforeAll(() => {
+    process.env.CENTRAL_CORE_JOB_SECRET = SECRET;
+    process.env.SUPABASE_URL = "http://db.local";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "service-key";
+  });
+
+  function req(workspace = WS) {
+    return new Request("http://local/civiko-zones-reserve", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-job-secret": SECRET,
+        "x-workspace-id": workspace,
+        "x-user-id": USER,
+      },
+      body: JSON.stringify({ slug: "centro-storico" }),
+    });
+  }
+
+  function clientWith(rpcResult: { data: unknown; error: unknown }) {
+    const calls: string[] = [];
+    const query = {
+      select: () => query,
+      eq: () => query,
+      maybeSingle: async () => ({ data: { id: WS }, error: null }),
+      insert: async () => ({ error: null }),
+      upsert: async () => ({ error: null }),
+    };
+    const client = {
+      from: () => query,
+      rpc: async (fn: string) => {
+        calls.push(`rpc:${fn}`);
+        return rpcResult;
+      },
+    };
+    return { calls, factory: () => client };
+  }
+
+  it("data.ok === true → 200 successo", async () => {
+    const { factory } = clientWith({ data: { ok: true, slug: "centro-storico" }, error: null });
+    const res = await handleZonesReserve(req(), factory);
+    expect(res.status).toBe(200);
+    expect((await res.json()).ok).toBe(true);
+  });
+
+  const negatives: Array<[string, number]> = [
+    ["zona_in_trial", 409],
+    ["zona_occupata", 409],
+    ["agency_ha_gia_zona", 409],
+    ["zona_non_trovata", 404],
+  ];
+
+  for (const [code, status] of negatives) {
+    it(`data.ok === false (${code}) → risposta non riuscita, mai successo`, async () => {
+      const { calls, factory } = clientWith({ data: { ok: false, error: code }, error: null });
+      const res = await handleZonesReserve(req(), factory);
+      expect(res.status).toBe(status);
+      const b = await res.json();
+      expect(b.ok).toBe(false);
+      expect(b.error).toBe(code);
+      // nessuna RPC ulteriore dopo l'esito negativo
+      expect(calls.filter((c) => c.startsWith("rpc:"))).toHaveLength(1);
+    });
+  }
+
+  it("data null con error null → fail-closed 500", async () => {
+    const { factory } = clientWith({ data: null, error: null });
+    const res = await handleZonesReserve(req(), factory);
+    expect(res.status).toBe(500);
+    expect((await res.json()).ok).toBe(false);
+  });
+
+  it("payload senza booleano ok → fail-closed 500", async () => {
+    const { factory } = clientWith({ data: { slug: "centro-storico" }, error: null });
+    const res = await handleZonesReserve(req(), factory);
+    expect(res.status).toBe(500);
+    expect((await res.json()).ok).toBe(false);
+  });
+
+  it("due workspace in sequenza: esattamente una risposta riuscita", async () => {
+    const first = await handleZonesReserve(
+      req("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+      clientWith({ data: { ok: true, slug: "centro-storico" }, error: null }).factory,
+    );
+    const second = await handleZonesReserve(
+      req("bbbbbbbb-cccc-dddd-eeee-ffffffffffff"),
+      clientWith({ data: { ok: false, error: "zona_in_trial" }, error: null }).factory,
+    );
+    const bodies = [await first.json(), await second.json()];
+    expect(bodies.filter((b) => b.ok === true)).toHaveLength(1);
+    expect(bodies[1].error).toBe("zona_in_trial");
+    expect(second.status).toBe(409);
   });
 });
