@@ -212,8 +212,7 @@ export async function handleZonesReserve(
 }
 
 // Registrazione runtime solo in Deno (edge).
-if (typeof (globalThis as { Deno?: unknown }).Deno !== "undefined") {
-  const stdHttp: string = "https://deno.land/std@0.190.0/http/server.ts";
-  const { serve } = await import(/* @vite-ignore */ stdHttp);
-  serve((req: Request) => handleZonesReserve(req));
+const denoRuntime = (globalThis as { Deno?: { serve?: (h: (req: Request) => Response | Promise<Response>) => unknown } }).Deno;
+if (denoRuntime?.serve) {
+  denoRuntime.serve((req: Request) => handleZonesReserve(req));
 }
