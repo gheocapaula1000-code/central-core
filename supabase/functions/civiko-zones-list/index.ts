@@ -56,9 +56,8 @@ function getEnv(key: string): string {
 }
 
 const defaultLoader: ZonesLoader = async () => {
-  const { createClient } = await import(
-    /* @vite-ignore */ "npm:@supabase/supabase-js@2.57.2"
-  );
+  const spec: string = "npm:@supabase/supabase-js@2.57.2";
+  const { createClient } = await import(/* @vite-ignore */ spec);
   const sb = createClient(getEnv("SUPABASE_URL"), getEnv("SUPABASE_SERVICE_ROLE_KEY"), {
     auth: { persistSession: false },
   });
@@ -136,8 +135,7 @@ export async function handleZonesList(
 // Registrazione runtime solo in Deno (edge). Sotto test/bundler l'handler
 // viene importato direttamente senza attivare il server HTTP.
 if (typeof (globalThis as { Deno?: unknown }).Deno !== "undefined") {
-  const { serve } = await import(
-    /* @vite-ignore */ "https://deno.land/std@0.190.0/http/server.ts"
-  );
+  const stdHttp: string = "https://deno.land/std@0.190.0/http/server.ts";
+  const { serve } = await import(/* @vite-ignore */ stdHttp);
   serve((req: Request) => handleZonesList(req));
 }
