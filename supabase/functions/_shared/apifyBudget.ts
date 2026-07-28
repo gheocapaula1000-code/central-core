@@ -11,7 +11,17 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { isMonthlyCapReached } from "./monthlyBudget.ts";
 import { isRadarMonthlyHardCapReached, recordProviderUsage, type RadarRunMeta } from "./radarBudget.ts";
 
-export const APIFY_DAILY_CAP_USD = Number(Deno.env.get("APIFY_DAILY_CAP_USD") ?? "25");
+// Parsing robusto del tetto giornaliero: se l'env è assente/vuota/non numerica/<=0
+// usiamo il DEFAULT 10 USD invece di bloccare a budget intatto.
+const APIFY_DAILY_CAP_DEFAULT_USD = 10;
+const APIFY_DAILY_CAP_RAW = Deno.env.get("APIFY_DAILY_CAP_USD");
+const APIFY_DAILY_CAP_PARSED = parseFloat(APIFY_DAILY_CAP_RAW ?? "");
+export const APIFY_DAILY_CAP_USD = Number.isFinite(APIFY_DAILY_CAP_PARSED) && APIFY_DAILY_CAP_PARSED > 0
+  ? APIFY_DAILY_CAP_PARSED
+  : APIFY_DAILY_CAP_DEFAULT_USD;
+console.log(
+  `[apifyBudget] APIFY_DAILY_CAP_USD raw=${JSON.stringify(APIFY_DAILY_CAP_RAW)} effective=${APIFY_DAILY_CAP_USD}`,
+);
 
 function sb() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -39,17 +49,18 @@ export async function getApifySpendToday(): Promise<{ calls: number; est_usd: nu
 }
 
 /** Returns true if we have budget for est_usd more spend today AND monthly cap not reached. */
-export async function canSpendApify(estUsd: number): Promise<{ ok: boolean; spent: number; cap: number; reason?: string }> {
+export async function canSpendApify(estUsd: number): Promise<{ ok: boolean; spent: number; cap: number; calls: number; reason?: string }> {
   if (await isRadarMonthlyHardCapReached()) {
-    return { ok: false, spent: 0, cap: 0, reason: "radar_monthly_eur_cap_reached" };
+    return { ok: false, spent: 0, cap: 0, calls: 0, reason: "radar_monthly_eur_cap_reached" };
   }
   const monthly = await isMonthlyCapReached();
   if (monthly.reached) {
-    return { ok: false, spent: monthly.total, cap: monthly.cap, reason: "monthly_cap_reached" };
+    return { ok: false, spent: monthly.total, cap: monthly.cap, calls: 0, reason: "monthly_cap_reached" };
   }
   const cap = APIFY_DAILY_CAP_USD;
-  const { est_usd } = await getApifySpendToday();
-  return { ok: est_usd + estUsd <= cap, spent: est_usd, cap };
+  const { est_usd, calls } = await getApifySpendToday();
+  // Confronto in USD: spesa stimata oggi + spesa stimata del run corrente vs tetto.
+  return { ok: est_usd + estUsd <= cap, spent: est_usd, cap, calls };
 }
 
 export async function recordApifySpend(estUsd: number, calls = 1, meta?: RadarRunMeta): Promise<void> {
