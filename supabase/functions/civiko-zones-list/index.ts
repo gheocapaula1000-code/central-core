@@ -134,8 +134,7 @@ export async function handleZonesList(
 
 // Registrazione runtime solo in Deno (edge). Sotto test/bundler l'handler
 // viene importato direttamente senza attivare il server HTTP.
-if (typeof (globalThis as { Deno?: unknown }).Deno !== "undefined") {
-  const stdHttp: string = "https://deno.land/std@0.190.0/http/server.ts";
-  const { serve } = await import(/* @vite-ignore */ stdHttp);
-  serve((req: Request) => handleZonesList(req));
+const denoRuntime = (globalThis as { Deno?: { serve?: (h: (req: Request) => Response | Promise<Response>) => unknown } }).Deno;
+if (denoRuntime?.serve) {
+  denoRuntime.serve((req: Request) => handleZonesList(req));
 }
