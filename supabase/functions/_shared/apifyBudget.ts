@@ -11,7 +11,17 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { isMonthlyCapReached } from "./monthlyBudget.ts";
 import { isRadarMonthlyHardCapReached, recordProviderUsage, type RadarRunMeta } from "./radarBudget.ts";
 
-export const APIFY_DAILY_CAP_USD = Number(Deno.env.get("APIFY_DAILY_CAP_USD") ?? "25");
+// Parsing robusto del tetto giornaliero: se l'env è assente/vuota/non numerica/<=0
+// usiamo il DEFAULT 10 USD invece di bloccare a budget intatto.
+const APIFY_DAILY_CAP_DEFAULT_USD = 10;
+const APIFY_DAILY_CAP_RAW = Deno.env.get("APIFY_DAILY_CAP_USD");
+const APIFY_DAILY_CAP_PARSED = parseFloat(APIFY_DAILY_CAP_RAW ?? "");
+export const APIFY_DAILY_CAP_USD = Number.isFinite(APIFY_DAILY_CAP_PARSED) && APIFY_DAILY_CAP_PARSED > 0
+  ? APIFY_DAILY_CAP_PARSED
+  : APIFY_DAILY_CAP_DEFAULT_USD;
+console.log(
+  `[apifyBudget] APIFY_DAILY_CAP_USD raw=${JSON.stringify(APIFY_DAILY_CAP_RAW)} effective=${APIFY_DAILY_CAP_USD}`,
+);
 
 function sb() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
