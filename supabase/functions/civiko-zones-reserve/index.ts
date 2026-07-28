@@ -46,11 +46,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export type ServiceClientFactory = (url: string, key: string) => any;
 
 const defaultServiceClientFactory: ServiceClientFactory = async (url, key) => {
-  const spec: string = "https://esm.sh/@supabase/supabase-js@2.45.0";
-  const { createClient } = await import(/* @vite-ignore */ spec);
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  const { createServiceClient } = await import("../_shared/supabaseServiceClient.ts");
+  return createServiceClient(url, key);
 };
 
 export async function handleZonesReserve(
@@ -212,8 +209,7 @@ export async function handleZonesReserve(
 }
 
 // Registrazione runtime solo in Deno (edge).
-if (typeof (globalThis as { Deno?: unknown }).Deno !== "undefined") {
-  const stdHttp: string = "https://deno.land/std@0.190.0/http/server.ts";
-  const { serve } = await import(/* @vite-ignore */ stdHttp);
-  serve((req: Request) => handleZonesReserve(req));
+const denoRuntime = (globalThis as { Deno?: { serve?: (h: (req: Request) => Response | Promise<Response>) => unknown } }).Deno;
+if (denoRuntime?.serve) {
+  denoRuntime.serve((req: Request) => handleZonesReserve(req));
 }

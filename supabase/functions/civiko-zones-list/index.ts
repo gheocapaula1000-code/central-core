@@ -56,11 +56,8 @@ function getEnv(key: string): string {
 }
 
 const defaultLoader: ZonesLoader = async () => {
-  const spec: string = "npm:@supabase/supabase-js@2.57.2";
-  const { createClient } = await import(/* @vite-ignore */ spec);
-  const sb = createClient(getEnv("SUPABASE_URL"), getEnv("SUPABASE_SERVICE_ROLE_KEY"), {
-    auth: { persistSession: false },
-  });
+  const { createServiceClient } = await import("../_shared/supabaseServiceClient.ts");
+  const sb = createServiceClient(getEnv("SUPABASE_URL"), getEnv("SUPABASE_SERVICE_ROLE_KEY"));
   const { data, error } = await sb
     .from("civiko_commercial_zones")
     .select(
@@ -134,8 +131,7 @@ export async function handleZonesList(
 
 // Registrazione runtime solo in Deno (edge). Sotto test/bundler l'handler
 // viene importato direttamente senza attivare il server HTTP.
-if (typeof (globalThis as { Deno?: unknown }).Deno !== "undefined") {
-  const stdHttp: string = "https://deno.land/std@0.190.0/http/server.ts";
-  const { serve } = await import(/* @vite-ignore */ stdHttp);
-  serve((req: Request) => handleZonesList(req));
+const denoRuntime = (globalThis as { Deno?: { serve?: (h: (req: Request) => Response | Promise<Response>) => unknown } }).Deno;
+if (denoRuntime?.serve) {
+  denoRuntime.serve((req: Request) => handleZonesList(req));
 }
