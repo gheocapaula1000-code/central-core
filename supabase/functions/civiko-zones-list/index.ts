@@ -56,7 +56,7 @@ function getEnv(key: string): string {
 }
 
 const defaultLoader: ZonesLoader = async () => {
-  const spec: string = "npm:@supabase/supabase-js@2.57.2";
+  const spec: string = "https://esm.sh/@supabase/supabase-js@2.45.0";
   const { createClient } = await import(/* @vite-ignore */ spec);
   const sb = createClient(getEnv("SUPABASE_URL"), getEnv("SUPABASE_SERVICE_ROLE_KEY"), {
     auth: { persistSession: false },
