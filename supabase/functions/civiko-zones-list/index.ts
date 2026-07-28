@@ -56,11 +56,8 @@ function getEnv(key: string): string {
 }
 
 const defaultLoader: ZonesLoader = async () => {
-  const spec: string = "https://esm.sh/@supabase/supabase-js@2.45.0";
-  const { createClient } = await import(/* @vite-ignore */ spec);
-  const sb = createClient(getEnv("SUPABASE_URL"), getEnv("SUPABASE_SERVICE_ROLE_KEY"), {
-    auth: { persistSession: false },
-  });
+  const { createServiceClient } = await import("../_shared/supabaseServiceClient.ts");
+  const sb = createServiceClient(getEnv("SUPABASE_URL"), getEnv("SUPABASE_SERVICE_ROLE_KEY"));
   const { data, error } = await sb
     .from("civiko_commercial_zones")
     .select(
