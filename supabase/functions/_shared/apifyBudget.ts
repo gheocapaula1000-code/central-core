@@ -49,17 +49,18 @@ export async function getApifySpendToday(): Promise<{ calls: number; est_usd: nu
 }
 
 /** Returns true if we have budget for est_usd more spend today AND monthly cap not reached. */
-export async function canSpendApify(estUsd: number): Promise<{ ok: boolean; spent: number; cap: number; reason?: string }> {
+export async function canSpendApify(estUsd: number): Promise<{ ok: boolean; spent: number; cap: number; calls: number; reason?: string }> {
   if (await isRadarMonthlyHardCapReached()) {
-    return { ok: false, spent: 0, cap: 0, reason: "radar_monthly_eur_cap_reached" };
+    return { ok: false, spent: 0, cap: 0, calls: 0, reason: "radar_monthly_eur_cap_reached" };
   }
   const monthly = await isMonthlyCapReached();
   if (monthly.reached) {
-    return { ok: false, spent: monthly.total, cap: monthly.cap, reason: "monthly_cap_reached" };
+    return { ok: false, spent: monthly.total, cap: monthly.cap, calls: 0, reason: "monthly_cap_reached" };
   }
   const cap = APIFY_DAILY_CAP_USD;
-  const { est_usd } = await getApifySpendToday();
-  return { ok: est_usd + estUsd <= cap, spent: est_usd, cap };
+  const { est_usd, calls } = await getApifySpendToday();
+  // Confronto in USD: spesa stimata oggi + spesa stimata del run corrente vs tetto.
+  return { ok: est_usd + estUsd <= cap, spent: est_usd, cap, calls };
 }
 
 export async function recordApifySpend(estUsd: number, calls = 1, meta?: RadarRunMeta): Promise<void> {
