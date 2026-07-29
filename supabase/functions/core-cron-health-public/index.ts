@@ -80,6 +80,11 @@ function nextRunUtc(schedule: string): string | null {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
 
+  const authFail = requireDiagnosticSecret(req, makeDebugId());
+  if (authFail) return authFail;
+
+
+
   try {
     const sb = createClient(
       Deno.env.get("SUPABASE_URL")!,
