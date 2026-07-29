@@ -1139,6 +1139,11 @@ Deno.serve(async (req) => {
       ]);
       const isHeavy = [...HEAVY_JOBS].some((p) => pathname.endsWith(p));
       if (isHeavy && req.method === "POST") {
+        // Checkpoint 1B — authenticate BEFORE the budget gate: an anonymous or
+        // wrongly-authenticated request must never trigger operational mode or
+        // budget reads, nor learn anything about caps and spend.
+        const _heavyAuth = authorizeJob(req, debugId);
+        if (_heavyAuth) return _heavyAuth;
         try {
           const { shouldRunHeavyCron } = await import("../_shared/heavyCronGate.ts");
           const { isMonthlyCapReached } = await import("../_shared/monthlyBudget.ts");
@@ -1159,8 +1164,12 @@ Deno.serve(async (req) => {
             }, debugId), "heavy-cron-gate");
           }
         } catch (e) {
-          // Fail-open: se il gate stesso fallisce, lascia passare (preferiamo running che bloccare).
-          console.warn(`[heavy-cron-gate] check error, fail-open:`, e instanceof Error ? e.message : String(e));
+          // Checkpoint 1B — fail-closed: if the gate itself fails we do NOT start
+          // the job and do NOT call any provider. Generic, non-sensitive response.
+          console.error(`[heavy-cron-gate] check error, fail-closed:`, e instanceof Error ? e.message : String(e));
+          return withIdentity(json(req, 503, {
+            skipped: true, reason: "gate_unavailable",
+          }, debugId), "heavy-cron-gate");
         }
       }
     }
