@@ -270,3 +270,7 @@ verify_jwt = false
 
 [functions.debug-subito-schema]
 verify_jwt = false
+
+# Checkpoint 1A: nome orfano neutralizzato con tombstone (410).
+[functions.test-apify-immobiliare-padova]
+verify_jwt = true
