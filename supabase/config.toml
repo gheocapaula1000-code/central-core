@@ -274,3 +274,31 @@ verify_jwt = false
 # Checkpoint 1A: nome orfano neutralizzato con tombstone (410).
 [functions.test-apify-immobiliare-padova]
 verify_jwt = true
+
+# ─── Checkpoint 2 — perimetro Civiko One: verify_jwt esplicito ───
+# Queste funzioni usano route pubbliche controllate (sola lettura) oppure
+# autenticazione applicativa server-to-server (app-secret / job-secret)
+# verificata dentro la funzione: non devono dipendere dal gateway JWT Supabase.
+[functions.civiko-zones-list]
+verify_jwt = false
+
+[functions.civiko-zones-reserve]
+verify_jwt = false
+
+[functions.padova-contendibili-list]
+verify_jwt = false
+
+[functions.padova-quartieri-stats]
+verify_jwt = false
+
+[functions.padova-privati-list]
+verify_jwt = false
+
+[functions.core-offmarket-list-public]
+verify_jwt = false
+
+[functions.property-marketing-pack]
+verify_jwt = false
+
+[functions.property-outputs]
+verify_jwt = false
