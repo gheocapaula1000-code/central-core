@@ -376,3 +376,96 @@ export async function enrichListingAgency(
 
   return { ...ext, from_cache: false };
 }
+
+// ---------- Fairness helpers ----------
+export interface CacheMeta {
+  listing_url: string;
+  enriched_at: string | null;
+  raw_agency_name: string | null;
+  error: string | null;
+}
+
+/** Metadati cache per un insieme di URL (batch, nessuna chiamata provider). */
+export async function fetchCacheMeta(urls: string[]): Promise<Map<string, CacheMeta>> {
+  const out = new Map<string, CacheMeta>();
+  if (urls.length === 0) return out;
+  const c = sb();
+  const CHUNK = 100;
+  for (let i = 0; i < urls.length; i += CHUNK) {
+    const slice = urls.slice(i, i + CHUNK);
+    const { data } = await c
+      .from("listing_agency_enrichment")
+      .select("listing_url, enriched_at, raw_agency_name, error")
+      .in("listing_url", slice);
+    for (const r of (data ?? []) as CacheMeta[]) out.set(r.listing_url, r);
+  }
+  return out;
+}
+
+export type CandidateState = "never_tried" | "cache_stale" | "cache_fresh";
+
+export interface RankedCandidate {
+  url: string;
+  id: number;
+  state: CandidateState;
+  enriched_at: string | null;
+}
+
+/**
+ * Ordinamento stabile e deterministico:
+ *  1) mai tentati
+ *  2) cache scaduta, dalla piu' vecchia
+ *  3) cache valida (usata senza nuova chiamata)
+ * A parita' di stato/eta', ordine per url per garantire determinismo.
+ */
+export function rankCandidates(
+  rows: { id: number; url: string }[],
+  cache: Map<string, CacheMeta>,
+  now: number = Date.now(),
+): RankedCandidate[] {
+  const seen = new Set<string>();
+  const items: RankedCandidate[] = [];
+  for (const r of rows) {
+    if (!r.url || seen.has(r.url)) continue; // nessun URL due volte nello stesso run
+    seen.add(r.url);
+    const meta = cache.get(r.url);
+    const at = meta?.enriched_at ?? null;
+    let state: CandidateState = "never_tried";
+    if (at) {
+      state = now - new Date(at).getTime() < CACHE_TTL_MS ? "cache_fresh" : "cache_stale";
+    }
+    items.push({ url: r.url, id: r.id, state, enriched_at: at });
+  }
+  const rank: Record<CandidateState, number> = { never_tried: 0, cache_stale: 1, cache_fresh: 2 };
+  return items.sort((a, b) => {
+    if (rank[a.state] !== rank[b.state]) return rank[a.state] - rank[b.state];
+    const ta = a.enriched_at ? new Date(a.enriched_at).getTime() : 0;
+    const tb = b.enriched_at ? new Date(b.enriched_at).getTime() : 0;
+    if (ta !== tb) return ta - tb; // piu' vecchio prima
+    return a.url < b.url ? -1 : a.url > b.url ? 1 : 0;
+  });
+}
+
+/** Esegue task con concorrenza limitata e deadline; ritorna gli indici non avviati. */
+export async function runBounded<T>(
+  items: T[],
+  worker: (item: T) => Promise<void>,
+  opts: { concurrency: number; shouldStart: () => boolean },
+): Promise<T[]> {
+  const conc = Math.max(1, Math.min(3, opts.concurrency));
+  let next = 0;
+  const deferred: T[] = [];
+  async function lane() {
+    for (;;) {
+      if (next >= items.length) return;
+      if (!opts.shouldStart()) {
+        while (next < items.length) deferred.push(items[next++]);
+        return;
+      }
+      const item = items[next++];
+      await worker(item);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(conc, items.length) }, () => lane()));
+  return deferred;
+}
