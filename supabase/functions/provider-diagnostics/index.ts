@@ -90,12 +90,12 @@ async function probePerplexity(): Promise<TimedResult> {
       return { ok: true, status: r.status, message: "auth ok", meta: { model } };
     }
     const body = await r.text().catch(() => "");
-    log("warn", "perplexity probe non-2xx", { status: r.status, body: body.slice(0, 500), model, key: maskKey(key) });
+    log("warn", "perplexity probe non-2xx", { status: r.status, model });
     return {
       ok: false,
       status: r.status,
-      message: r.status === 401 ? "auth failed" : `HTTP ${r.status}: ${body.slice(0, 200)}`,
-      meta: { model, error_body: body.slice(0, 500) },
+      message: r.status === 401 ? "auth failed" : `HTTP ${r.status}`,
+      meta: { model },
     };
   });
 }
@@ -184,12 +184,12 @@ async function testPerplexity(): Promise<TimedResult> {
     });
     if (!r.ok) {
       const t = await r.text().catch(() => "");
-      log("warn", "perplexity test non-2xx", { status: r.status, body: t.slice(0, 500), model, key: maskKey(key) });
+      log("warn", "perplexity test non-2xx", { status: r.status, model });
       return {
         ok: false,
         status: r.status,
         message: `HTTP ${r.status}: ${t.slice(0, 200)}`,
-        meta: { model, error_body: t.slice(0, 500) },
+        meta: { model },
       };
     }
     const data = await r.json();
@@ -363,7 +363,6 @@ serve(async (req) => {
           provider: p,
           env_var: envName,
           configured: !!envVal,
-          key_preview: maskKey(envVal),
           reachable: r.ok || (r.status !== undefined && r.status > 0),
           auth_valid: r.ok,
           http_status: r.status ?? null,
