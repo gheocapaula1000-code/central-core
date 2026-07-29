@@ -94,22 +94,23 @@ function makeDb(seed?: {
       const key = `${agency}:${user}`;
 
       // ORDINE IDENTICO ALLA SQL:
-      // 1) lock agency + user, 2) lock zona, 3) GATE MEMBERSHIP (nessuna scrittura),
+      // 1) lock agency + user, 2) lock zona, 3) GATE MEMBERSHIP (nessuna scrittura):
+      //    3a) ruolo incompatibile nell'agenzia richiesta,
+      //    3b) conflitto cross-agency valutato SEMPRE (anche con membership presente),
       // 4) conflitti zona, 5) scritture (agenzia, membership, zona).
       const existing = state.memberships.get(key);
-      if (existing) {
-        if (existing.role !== "owner") {
-          return { data: { ok: false, error: "membership_incompatibile" }, error: null };
-        }
-      } else {
-        const conflict = [...state.memberships.entries()].some(
-          ([k, v]) => k.endsWith(`:${user}`) && !k.startsWith(`${agency}:`) && v.status === "active",
-        );
-        if (conflict) {
-          // fail-closed PRIMA di qualsiasi scrittura: nessuna agenzia orfana
-          return { data: { ok: false, error: "membership_incompatibile" }, error: null };
-        }
+      if (existing && existing.role !== "owner") {
+        return { data: { ok: false, error: "membership_incompatibile" }, error: null };
       }
+
+      const conflict = [...state.memberships.entries()].some(
+        ([k, v]) => k.endsWith(`:${user}`) && !k.startsWith(`${agency}:`) && v.status === "active",
+      );
+      if (conflict) {
+        // fail-closed PRIMA di qualsiasi scrittura: nessuna agenzia orfana
+        return { data: { ok: false, error: "membership_incompatibile" }, error: null };
+      }
+
 
       // il perdente sulla zona non crea nulla
       if (state.zoneOwner && state.zoneOwner !== agency) {
@@ -515,5 +516,84 @@ describe("4A — contratto territoriale invariato", () => {
     for (const k of [...PADOVA_PILOT_AMBIGUOUS_STAZIONE_FIERA_KEYS, "Stazione / Fiera"]) {
       expect(commercialZoneForQuartiere(k)).toBeNull();
     }
+  });
+});
+
+describe("4A — gate membership cross-agency valutato sempre", () => {
+  const UNTIL = new Date(Date.now() + 5 * 86400_000).toISOString();
+
+  it("membership owner inattiva nell'agenzia richiesta + membership attiva altrove: fail-closed, nessuna riattivazione", async () => {
+    const db = makeDb({
+      membershipRole: "owner",
+      membershipStatus: "revoked",
+      otherAgencyMembership: true,
+    });
+    const before = {
+      agencies: db.state.agencies.size,
+      memberships: db.state.memberships.size,
+      owner: db.state.zoneOwner,
+      until: db.state.zoneUntil,
+    };
+    const res = await handleZonesReserve(req("centro-storico", WS_A), db.factory);
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe("membership_incompatibile");
+    // membership inattiva NON riattivata
+    expect(db.state.memberships.get(`${WS_A}:${USER_A}`)).toEqual({
+      role: "owner",
+      status: "revoked",
+    });
+    expect(db.state.agencies.size).toBe(before.agencies);
+    expect(db.state.agencies.has(WS_A)).toBe(false);
+    expect(db.state.memberships.size).toBe(before.memberships);
+    expect(db.state.zoneOwner).toBe(before.owner);
+    expect(db.state.zoneUntil).toBe(before.until);
+    expect(db.calls).toEqual(["rpc:reserve_padova_pilot_zone_atomic"]);
+  });
+
+  it("membership owner attiva nell'agenzia richiesta + altra membership attiva: fail-closed senza mutazioni", async () => {
+    const db = makeDb({
+      zoneOwner: WS_A,
+      zoneUntil: UNTIL,
+      membershipRole: "owner",
+      otherAgencyMembership: true,
+    });
+    const before = {
+      agencies: db.state.agencies.size,
+      memberships: db.state.memberships.size,
+      until: db.state.zoneUntil,
+    };
+    const res = await handleZonesReserve(req("centro-storico", WS_A), db.factory);
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe("membership_incompatibile");
+    expect(db.state.agencies.size).toBe(before.agencies);
+    expect(db.state.memberships.size).toBe(before.memberships);
+    expect(db.state.memberships.get(`${WS_A}:${USER_A}`)).toEqual({
+      role: "owner",
+      status: "active",
+    });
+    expect(db.state.zoneOwner).toBe(WS_A);
+    expect(db.state.zoneUntil).toBe(before.until);
+  });
+
+  it("membership owner inattiva senza conflitti altrove: riattivazione e retry idempotente a trial invariato", async () => {
+    const db = makeDb({
+      zoneOwner: WS_A,
+      zoneUntil: UNTIL,
+      membershipRole: "owner",
+      membershipStatus: "revoked",
+    });
+    const first = await (await handleZonesReserve(req("centro-storico", WS_A), db.factory)).json();
+    expect(first.ok).toBe(true);
+    expect(first.already_mine).toBe(true);
+    expect(db.state.memberships.get(`${WS_A}:${USER_A}`)).toEqual({
+      role: "owner",
+      status: "active",
+    });
+    const second = await (await handleZonesReserve(req("centro-storico", WS_A), db.factory)).json();
+    expect(second.already_mine).toBe(true);
+    expect(second.data.trial_until).toBe(first.data.trial_until);
+    expect(db.state.zoneUntil).toBe(UNTIL);
+    expect(db.state.memberships.size).toBe(1);
+    expect(db.state.agencies.size).toBe(1);
   });
 });
