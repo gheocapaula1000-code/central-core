@@ -1,14 +1,17 @@
 // core-cron-health-public
-// Endpoint pubblico (no auth) che espone lo stato dei 6 cron Core e produce
-// alert in cron_alerts_pending per job fermi da > 36h. Solo dati operativi.
+// Diagnostica operativa interna sui cron Core. Checkpoint 1A: NON più pubblica —
+// protetta fail-closed da DIAGNOSTIC_SECRET (x-diagnostic-secret) prima di
+// qualunque client service-role, lettura DB o scrittura in cron_alerts_pending.
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { requireDiagnosticSecret, makeDebugId } from "../_shared/http.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-diagnostic-secret",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
 };
+
 
 type JobKind = "daily" | "frequent" | "weekly";
 
