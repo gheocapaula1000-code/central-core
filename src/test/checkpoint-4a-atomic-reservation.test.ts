@@ -93,23 +93,34 @@ function makeDb(seed?: {
       const user = args.p_user_id as string;
       const key = `${agency}:${user}`;
 
-      // il perdente non crea nulla
+      // ORDINE IDENTICO ALLA SQL:
+      // 1) lock agency + user, 2) lock zona, 3) GATE MEMBERSHIP (nessuna scrittura),
+      // 4) conflitti zona, 5) scritture (agenzia, membership, zona).
+      const existing = state.memberships.get(key);
+      if (existing) {
+        if (existing.role !== "owner") {
+          return { data: { ok: false, error: "membership_incompatibile" }, error: null };
+        }
+      } else {
+        const conflict = [...state.memberships.entries()].some(
+          ([k, v]) => k.endsWith(`:${user}`) && !k.startsWith(`${agency}:`) && v.status === "active",
+        );
+        if (conflict) {
+          // fail-closed PRIMA di qualsiasi scrittura: nessuna agenzia orfana
+          return { data: { ok: false, error: "membership_incompatibile" }, error: null };
+        }
+      }
+
+      // il perdente sulla zona non crea nulla
       if (state.zoneOwner && state.zoneOwner !== agency) {
         return { data: { ok: false, error: "zona_in_trial" }, error: null };
       }
       const already = state.zoneOwner === agency;
 
-      // coerenza membership: eseguita SEMPRE, anche nel retry idempotente
-      const existing = state.memberships.get(key);
+      // scritture
+      state.agencies.add(agency);
       if (!existing) {
-        const conflict = [...state.memberships.entries()].some(
-          ([k, v]) => k.endsWith(`:${user}`) && !k.startsWith(`${agency}:`) && v.status === "active",
-        );
-        if (conflict) return { data: { ok: false, error: "membership_incompatibile" }, error: null };
-        state.agencies.add(agency);
         state.memberships.set(key, { role: "owner", status: "active" });
-      } else if (existing.role !== "owner") {
-        return { data: { ok: false, error: "membership_incompatibile" }, error: null };
       } else if (existing.status !== "active") {
         state.memberships.set(key, { role: "owner", status: "active" });
       }
@@ -128,7 +139,6 @@ function makeDb(seed?: {
         };
       }
 
-      state.agencies.add(agency);
       state.zoneOwner = agency;
       state.zoneUntil = new Date(Date.now() + 7 * 86400_000).toISOString();
       return {
@@ -141,6 +151,8 @@ function makeDb(seed?: {
         },
         error: null,
       };
+    },
+
     },
   };
   return { state, calls, factory: () => client };
