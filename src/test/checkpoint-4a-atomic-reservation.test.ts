@@ -179,7 +179,7 @@ describe("4A — gate territoriale invariato", () => {
       const db = makeDb();
       const res = await handleZonesReserve(req(slug), db.factory);
       expect(res.status).toBe(403);
-      expect((await res.json()).error).toBe("pilot_zone_locked");
+      expect((await res.json()).error.code).toBe("pilot_zone_locked");
       expect(db.calls).toHaveLength(0);
     }
   });
@@ -237,7 +237,7 @@ describe("4A — atomicità e idempotenza", () => {
     const body = await res.json();
     expect(res.status).toBe(409);
     expect(body.ok).toBe(false);
-    expect(body.error).toBe("zona_in_trial");
+    expect(body.error.code).toBe("zona_in_trial");
     expect(db.state.agencies.has(WS_B)).toBe(false);
     expect([...db.state.memberships.keys()].some((k) => k.startsWith(WS_B))).toBe(false);
     expect(db.state.zoneOwner).toBe(WS_A);
@@ -249,7 +249,7 @@ describe("4A — atomicità e idempotenza", () => {
     const body = await res.json();
     expect(res.status).toBe(409);
     expect(body.ok).toBe(false);
-    expect(body.error).toBe("membership_incompatibile");
+    expect(body.error.code).toBe("membership_incompatibile");
     expect(db.state.zoneOwner).toBeNull();
   });
 });
@@ -282,7 +282,7 @@ describe("4A — fail-closed sul payload RPC", () => {
   it("errore applicativo sconosciuto → codice neutro", async () => {
     const db = staticDb({ data: { ok: false, error: "P0001: deadlock detected" }, error: null });
     const res = await handleZonesReserve(req("centro-storico"), db.factory);
-    expect((await res.json()).error).toBe("errore");
+    expect((await res.json()).error.code).toBe("errore");
   });
 });
 
