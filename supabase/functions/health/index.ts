@@ -2,7 +2,7 @@
 // Checkpoint 1A: public but STRICTLY PASSIVE.
 // - No secret names / presence, no version, no provider status.
 // - No external calls, no provider key reads, no logging of secret presence.
-// - `check_apis=true` is accepted but ignored (no side effects).
+// - Legacy provider-probe query flags are ignored (no side effects).
 
 import { handleOptions, ok, fail, CORE_CONTRACT, addIdentityHeaders, buildManifest, makeDebugId } from "../_shared/http.ts";
 
