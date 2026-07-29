@@ -65,9 +65,15 @@ function extractUrl(item: Record<string, unknown>, hostRe: RegExp): string | nul
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  // diag-only endpoint, no auth (temp)
+
+  // Checkpoint 1A: guardia fail-closed prima di leggere il token Apify,
+  // parsare parametri operativi o lanciare actor.
+  const authFail = requireDiagnosticSecret(req, makeDebugId());
+  if (authFail) return authFail;
+
   const token = getApifyToken();
   if (!token) return new Response(JSON.stringify({ ok: false, error: "no_apify_token" }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
 
   const u = new URL(req.url);
   const action = u.searchParams.get("action") ?? "run";
