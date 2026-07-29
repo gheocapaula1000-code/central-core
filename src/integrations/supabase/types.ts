@@ -9060,6 +9060,15 @@ export type Database = {
         Args: { p_agency_id: string; p_slug: string }
         Returns: Json
       }
+      reserve_padova_pilot_zone_atomic: {
+        Args: {
+          p_agency_id: string
+          p_slug: string
+          p_user_email?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       resolve_padova_geo_level: {
         Args: { p_lat: number; p_lng: number }
         Returns: {
