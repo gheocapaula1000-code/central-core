@@ -32,6 +32,7 @@ import {
 import { isAuctionRecord } from "../_shared/auctionExclusion.ts";
 import { isCivikoCommercialZoneSlug } from "../_shared/civikoCommercialZoneContract.ts";
 import { commercialZoneForQuartiere } from "../_shared/civikoCommercialZoneByQuartiere.ts";
+import { applyPadovaPilotZoneGate } from "../_shared/civikoTerritoryContractPadovaPilotV1.ts";
 import { corsHeaders as buildCorsHeaders, handleOptions, requireSecret, makeDebugId } from "../_shared/http.ts";
 
 const SCHEMA_VERSION = "civiko_signals_feed_v1";
@@ -350,6 +351,19 @@ serve(async (req: Request) => {
       .sort();
     if (assignedSlugs.length === 0) {
       return err("SLUG_OUT_OF_CONTRACT", "Assigned slug not in contract", 403);
+    }
+  }
+
+  // Checkpoint 3A — gate territoriale Padova Pilot v1 (source-aware, fail-closed).
+  // Per Civiko One niente modalita' aggregata admin: zoneFilter = ["centro-storico"].
+  {
+    const pilotGate = applyPadovaPilotZoneGate(req.headers.get("x-source-app"), assignedSlugs);
+    if (pilotGate.pilot) {
+      if (pilotGate.slugs.length === 0) {
+        return err("PILOT_ZONE_NOT_ASSIGNED", "Pilot zone not assigned to workspace", 403);
+      }
+      assignedSlugs = pilotGate.slugs;
+      isAdmin = false;
     }
   }
   // Multi-zone workspaces (sales/demo/admin): if the client passes an explicit

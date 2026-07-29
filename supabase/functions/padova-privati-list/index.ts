@@ -24,6 +24,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsHeaders, handleOptions, requireSecret, makeDebugId } from "../_shared/http.ts";
 import { isCivikoCommercialZoneSlug } from "../_shared/civikoCommercialZoneContract.ts";
 import { commercialZoneForQuartiere } from "../_shared/civikoCommercialZoneByQuartiere.ts";
+import { applyPadovaPilotZoneGate } from "../_shared/civikoTerritoryContractPadovaPilotV1.ts";
 
 const BANNED = /\b(AI|IA|intelligenza|stima|perizia|valutazione|valore reale|prezzo giusto|garantito)\b/gi;
 function sanitize<T>(v: T): T {
@@ -136,6 +137,20 @@ serve(async (req) => {
           { ok: false, error: { code: "SLUG_OUT_OF_CONTRACT", message: "Assigned slug not in contract" } },
           403,
         );
+      }
+    }
+
+    // Checkpoint 3A — gate territoriale Padova Pilot v1 (source-aware, fail-closed).
+    // Le 8 zone restano intatte: per le sole richieste Civiko One il perimetro
+    // dati e' ristretto a centro-storico, senza admin full-city.
+    {
+      const pilotGate = applyPadovaPilotZoneGate(req.headers.get("x-source-app"), assignedSlugs);
+      if (pilotGate.pilot) {
+        if (pilotGate.slugs.length === 0) {
+          return json({ ok: false, error: { code: "PILOT_ZONE_NOT_ASSIGNED", message: "Pilot zone not assigned to workspace" } }, 403);
+        }
+        assignedSlugs = pilotGate.slugs;
+        isAdmin = false;
       }
     }
 
