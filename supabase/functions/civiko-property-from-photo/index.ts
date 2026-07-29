@@ -20,6 +20,7 @@ import {
   makeDebugId, handleOptions, json, fail,
   CORE_VERSION, CORE_CONTRACT, addIdentityHeaders,
   buildManifest, enforceOriginPolicy,
+  requireCivikoCostSecret,
 } from "../_shared/http.ts";
 import {
   sanitizeOutgoing,
