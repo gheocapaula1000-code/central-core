@@ -3,6 +3,8 @@
 // - ?cache=1: re-parses the LATEST cached markdown (no Firecrawl call)
 import { parseCasaListPage } from "../_shared/casaParser.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireDiagnosticSecret, makeDebugId } from "../_shared/http.ts";
+
 
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36";
 const URL_TARGET = "https://www.casa.it/vendita/residenziale/padova";
