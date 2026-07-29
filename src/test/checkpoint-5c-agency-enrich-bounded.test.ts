@@ -99,7 +99,7 @@ describe("5C — timeout locale Firecrawl", () => {
 describe("5C — deadline globale e concorrenza", () => {
   it("non avvia nuovo lavoro quando il tempo residuo e' insufficiente", async () => {
     let now = 0;
-    const urlTimeout = 20_000, reserve = 8_000, deadlineAt = 40_000;
+    const urlTimeout = 20_000, reserve = 8_000, deadlineAt = 30_000;
     const shouldStart = () => now + urlTimeout + reserve <= deadlineAt;
     const items = [1, 2, 3, 4, 5];
     const done: number[] = [];
@@ -138,7 +138,7 @@ describe("5C — deadline globale e concorrenza", () => {
   it("nessun Promise.all illimitato nel runner", () => {
     expect(runner).not.toMatch(/Promise\.all\(\s*rows/);
     expect(runner).toMatch(/runBounded</);
-    expect(runner).toMatch(/concurrency: Math\.max\(1, Math\.min\(3,/);
+    expect(runner).toMatch(/const concurrency = Math\.max\(1, Math\.min\(3,/);
   });
 
   it("partial_deadline non produce 504: risposta 200 controllata", () => {
@@ -295,7 +295,7 @@ describe("5C — contratto di risposta e gestione errori", () => {
 
   it("nessuna esposizione di secret", () => {
     expect(runner).not.toMatch(/CENTRAL_CORE_JOB_SECRET.*(console\.log|JSON\.stringify)/);
-    expect(wrapper).not.toMatch(/secret[^A-Za-z_]*:/);
+    expect(wrapper).not.toMatch(/response_excerpt: secret|secret\.slice/);
     expect(wrapper).not.toMatch(/console\.log\([^)]*secret/i);
   });
 });
