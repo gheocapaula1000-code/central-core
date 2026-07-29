@@ -31,12 +31,12 @@ const EDGE_SRC = readFileSync(
   "utf-8",
 );
 
-function req(slug: unknown, workspace = WS_A, email?: string) {
+function req(slug: unknown, workspace = WS_A, email?: string, user = USER_A) {
   const headers: Record<string, string> = {
     "content-type": "application/json",
     "x-job-secret": SECRET,
     "x-workspace-id": workspace,
-    "x-user-id": USER_A,
+    "x-user-id": user,
   };
   if (email) headers["x-user-email"] = email;
   return new Request("http://local/civiko-zones-reserve", {
@@ -45,6 +45,7 @@ function req(slug: unknown, workspace = WS_A, email?: string) {
     body: JSON.stringify({ slug }),
   });
 }
+
 
 /**
  * Simulatore della RPC atomica: unica superficie di scrittura.
