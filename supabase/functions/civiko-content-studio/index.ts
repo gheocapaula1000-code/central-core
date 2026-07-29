@@ -259,6 +259,11 @@ Deno.serve(async (req) => {
     }
     if (req.method !== "POST") return withIdentity(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), "error");
 
+    // Checkpoint 1B — application auth before any cost (rate limit, body parse,
+    // provider key read, orchestration, fetch).
+    const authFailure = requireCivikoCostSecret(req, debugId);
+    if (authFailure) return withIdentity(authFailure, "unauthorized");
+
     const rl = rateLimit(req, FUNCTION_NAME, { windowMs: 60_000, max: 20 });
     if (!rl.ok) {
       const r = fail(req, 429, "RATE_LIMITED", "Troppe richieste, riprovare a breve.", debugId);

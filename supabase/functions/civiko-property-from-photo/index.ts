@@ -1386,6 +1386,11 @@ Deno.serve(async (req) => {
     }
     if (req.method !== "POST") return withIdentity(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), "error");
 
+    // Checkpoint 1B — application auth before any cost (body parse, service role,
+    // provider secrets, photo analysis, sibling functions, marketing pack, fetch).
+    const authFailure = requireCivikoCostSecret(req, debugId);
+    if (authFailure) return withIdentity(authFailure, "unauthorized");
+
     let raw: unknown;
     try { raw = await req.json(); }
     catch { return withIdentity(fail(req, 400, "INVALID_JSON", "Body is not valid JSON", debugId), "error"); }
