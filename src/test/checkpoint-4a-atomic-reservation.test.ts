@@ -152,8 +152,6 @@ function makeDb(seed?: {
         error: null,
       };
     },
-
-    },
   };
   return { state, calls, factory: () => client };
 }
