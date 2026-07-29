@@ -10,6 +10,8 @@
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { getApifyToken } from "../_shared/apify.ts";
+import { requireDiagnosticSecret, makeDebugId } from "../_shared/http.ts";
+
 
 const APIFY = "https://api.apify.com/v2";
 const POLL_TIMEOUT_MS = 140_000;
