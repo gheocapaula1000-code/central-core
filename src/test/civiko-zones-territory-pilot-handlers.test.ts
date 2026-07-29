@@ -234,7 +234,7 @@ describe("handler reale civiko-zones-reserve — gate territoriale", () => {
       const res = await handleZonesReserve(req(slug), factory);
       expect(res.status).toBe(403);
       const b = await res.json();
-      expect(b.error).toBe("pilot_zone_locked");
+      expect(b.error.code).toBe("pilot_zone_locked");
       expect(calls).toHaveLength(0);
     }
   });
@@ -245,7 +245,7 @@ describe("handler reale civiko-zones-reserve — gate territoriale", () => {
       const { calls, factory } = spyFactory();
       const res = await handleZonesReserve(req(slug), factory);
       expect(res.status).toBe(403);
-      expect((await res.json()).error).toBe("pilot_zone_locked");
+      expect((await res.json()).error.code).toBe("pilot_zone_locked");
       expect(calls).toHaveLength(0);
     }
   });
@@ -322,7 +322,7 @@ describe("handler reale civiko-zones-reserve — esito applicativo RPC", () => {
       expect(res.status).toBe(status);
       const b = await res.json();
       expect(b.ok).toBe(false);
-      expect(b.error).toBe(code);
+      expect(b.error.code).toBe(code);
       // nessuna RPC ulteriore dopo l'esito negativo
       expect(calls.filter((c) => c.startsWith("rpc:"))).toHaveLength(1);
     });
@@ -353,7 +353,7 @@ describe("handler reale civiko-zones-reserve — esito applicativo RPC", () => {
     );
     const bodies = [await first.json(), await second.json()];
     expect(bodies.filter((b) => b.ok === true)).toHaveLength(1);
-    expect(bodies[1].error).toBe("zona_in_trial");
+    expect(bodies[1].error.code).toBe("zona_in_trial");
     expect(second.status).toBe(409);
   });
 });

@@ -25,6 +25,38 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+/**
+ * Messaggi pubblici neutri: nessun codice interno, nome RPC, nome tabella,
+ * eccezione PostgreSQL o dettaglio Supabase può finire nell'interfaccia.
+ * Il `code` resta disponibile al client solo per classificare l'errore.
+ */
+const PUBLIC_MESSAGES: Record<string, string> = {
+  errore: "Operazione non riuscita. Riprova più tardi.",
+  richiesta_non_valida: "Richiesta non valida.",
+  non_autorizzato: "Accesso non consentito.",
+  parametri_non_validi: "Richiesta non valida.",
+  zona_non_trovata: "Zona non disponibile.",
+  pilot_zone_locked: "In questa fase è attivabile solo la zona Centro Storico.",
+  zona_in_trial: "La zona è già assegnata a un'altra agenzia.",
+  zona_occupata: "La zona è già assegnata a un'altra agenzia.",
+  agency_ha_gia_zona: "L'agenzia ha già una zona attiva.",
+  membership_incompatibile: "Non è possibile completare l'attivazione con questo account.",
+};
+
+function errorResponse(code: string, status: number, debug_id: string): Response {
+  return jsonResponse(
+    {
+      ok: false,
+      error: {
+        code,
+        message: PUBLIC_MESSAGES[code] ?? PUBLIC_MESSAGES.errore,
+      },
+      debug_id,
+    },
+    status,
+  );
+}
+
 function constantTimeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
@@ -55,11 +87,10 @@ export async function handleZonesReserve(
   createServiceClient: ServiceClientFactory = defaultServiceClientFactory,
 ): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: civikoOneCors });
-  if (req.method !== "POST") {
-    return jsonResponse({ ok: false, error: "errore", message: "POST only" }, 405);
-  }
-
   const debug_id = crypto.randomUUID();
+  if (req.method !== "POST") {
+    return errorResponse("richiesta_non_valida", 405, debug_id);
+  }
 
   // --- 1) Auth server-to-server via shared secret ---
   const expected = getEnv("CENTRAL_CORE_JOB_SECRET");
@@ -68,10 +99,8 @@ export async function handleZonesReserve(
     req.headers.get("x-internal-secret") ??
     "";
   if (!expected || !provided || !constantTimeEqual(provided, expected)) {
-    return jsonResponse(
-      { ok: false, error: "errore", message: "invalid or missing job secret", debug_id },
-      401,
-    );
+    console.error("[zones-reserve] auth_rejected", debug_id);
+    return errorResponse("non_autorizzato", 401, debug_id);
   }
 
   // --- 2) Headers fidati (verificati a monte dal proxy Civiko One) ---
@@ -80,10 +109,12 @@ export async function handleZonesReserve(
   const userEmail = (req.headers.get("x-user-email") ?? "").trim() || null;
 
   if (!UUID_RE.test(workspaceId)) {
-    return jsonResponse({ ok: false, error: "errore", message: "x-workspace-id missing or invalid", debug_id }, 400);
+    console.error("[zones-reserve] invalid_workspace_header", debug_id);
+    return errorResponse("richiesta_non_valida", 400, debug_id);
   }
   if (!UUID_RE.test(userId)) {
-    return jsonResponse({ ok: false, error: "errore", message: "x-user-id missing or invalid", debug_id }, 400);
+    console.error("[zones-reserve] invalid_user_header", debug_id);
+    return errorResponse("richiesta_non_valida", 400, debug_id);
   }
 
   // --- 3) Body ---
@@ -91,33 +122,27 @@ export async function handleZonesReserve(
   try {
     body = await req.json();
   } catch {
-    return jsonResponse({ ok: false, error: "errore", message: "invalid JSON", debug_id }, 400);
+    return errorResponse("richiesta_non_valida", 400, debug_id);
   }
   const slug = typeof body.slug === "string" ? body.slug.trim() : "";
   if (!slug) {
-    return jsonResponse({ ok: false, error: "errore", message: "slug required", debug_id }, 400);
+    return errorResponse("richiesta_non_valida", 400, debug_id);
   }
   // Territory Contract Padova Pilot v1 — fail-closed server-side:
   // solo `centro-storico` è riservabile nel pilot. Ogni altro slug
   // (inclusi slug legacy o manipolati dal client) viene respinto qui,
   // prima di qualsiasi scrittura o chiamata alle RPC.
   if (!isPadovaPilotAllowedZoneSlug(slug)) {
-    return jsonResponse(
-      {
-        ok: false,
-        error: "pilot_zone_locked",
-        message: `Nel pilot v1 è riservabile solo la zona '${PADOVA_PILOT_ALLOWED_ZONE_SLUG}'.`,
-        debug_id,
-      },
-      403,
-    );
+    console.warn("[zones-reserve] pilot_zone_locked", debug_id, PADOVA_PILOT_ALLOWED_ZONE_SLUG);
+    return errorResponse("pilot_zone_locked", 403, debug_id);
   }
 
   // --- 4) Service-role client ---
   const supabaseUrl = getEnv("SUPABASE_URL");
   const serviceKey = getEnv("SUPABASE_SERVICE_ROLE_KEY");
   if (!supabaseUrl || !serviceKey) {
-    return jsonResponse({ ok: false, error: "errore", message: "core config missing", debug_id }, 500);
+    console.error("[zones-reserve] core_config_missing", debug_id);
+    return errorResponse("errore", 500, debug_id);
   }
   const svc = await createServiceClient(supabaseUrl, serviceKey);
 
@@ -138,32 +163,23 @@ export async function handleZonesReserve(
     error = res.error ?? null;
   } catch (e) {
     console.error("[zones-reserve] rpc_throw", debug_id, (e as Error)?.message);
-    return jsonResponse(
-      { ok: false, error: "errore", message: "prenotazione non riuscita", debug_id },
-      500,
-    );
+    return errorResponse("errore", 500, debug_id);
   }
 
   // 5a) Errore tecnico: nessun dettaglio interno viene esposto al chiamante,
   // ma resta tracciato nei log server-side per la diagnosi operativa.
   if (error) {
     console.error("[zones-reserve] rpc_error", debug_id, error.message);
-    return jsonResponse(
-      { ok: false, error: "errore", message: "prenotazione non riuscita", debug_id },
-      500,
-    );
+    return errorResponse("errore", 500, debug_id);
   }
-
 
   // 5b) Esito applicativo. Fail-closed: solo ok === true booleano è successo.
   const result = data as
     | { ok?: unknown; error?: unknown; already_mine?: unknown; zona?: unknown; trial_until?: unknown }
     | null;
   if (!result || typeof result !== "object" || typeof result.ok !== "boolean") {
-    return jsonResponse(
-      { ok: false, error: "errore", message: "prenotazione non riuscita", debug_id },
-      500,
-    );
+    console.error("[zones-reserve] rpc_payload_invalid", debug_id);
+    return errorResponse("errore", 500, debug_id);
   }
 
   if (result.ok === false) {
@@ -178,6 +194,9 @@ export async function handleZonesReserve(
     ]);
     const raw = typeof result.error === "string" ? result.error : "";
     const appError = KNOWN.has(raw) ? raw : "errore";
+    if (appError === "errore") {
+      console.error("[zones-reserve] rpc_unknown_app_error", debug_id, raw);
+    }
     const status = appError === "zona_non_trovata"
       ? 404
       : appError === "pilot_zone_locked"
@@ -185,8 +204,9 @@ export async function handleZonesReserve(
       : appError === "errore" || appError === "parametri_non_validi"
       ? 400
       : 409;
-    return jsonResponse({ ok: false, error: appError, message: appError, debug_id }, status);
+    return errorResponse(appError, status, debug_id);
   }
+
 
   return jsonResponse({
     ok: true,
