@@ -13,6 +13,7 @@ const SECRET = "test-job-secret-4a";
 const WS_A = "11111111-1111-4111-8111-111111111111";
 const WS_B = "22222222-2222-4222-8222-222222222222";
 const USER_A = "33333333-3333-4333-8333-333333333333";
+const USER_B = "44444444-4444-4444-8444-444444444444";
 
 const OFFICIAL = [
   "centro-storico",
@@ -30,12 +31,12 @@ const EDGE_SRC = readFileSync(
   "utf-8",
 );
 
-function req(slug: unknown, workspace = WS_A, email?: string) {
+function req(slug: unknown, workspace = WS_A, email?: string, user = USER_A) {
   const headers: Record<string, string> = {
     "content-type": "application/json",
     "x-job-secret": SECRET,
     "x-workspace-id": workspace,
-    "x-user-id": USER_A,
+    "x-user-id": user,
   };
   if (email) headers["x-user-email"] = email;
   return new Request("http://local/civiko-zones-reserve", {
@@ -44,6 +45,7 @@ function req(slug: unknown, workspace = WS_A, email?: string) {
     body: JSON.stringify({ slug }),
   });
 }
+
 
 /**
  * Simulatore della RPC atomica: unica superficie di scrittura.
@@ -91,23 +93,34 @@ function makeDb(seed?: {
       const user = args.p_user_id as string;
       const key = `${agency}:${user}`;
 
-      // il perdente non crea nulla
+      // ORDINE IDENTICO ALLA SQL:
+      // 1) lock agency + user, 2) lock zona, 3) GATE MEMBERSHIP (nessuna scrittura),
+      // 4) conflitti zona, 5) scritture (agenzia, membership, zona).
+      const existing = state.memberships.get(key);
+      if (existing) {
+        if (existing.role !== "owner") {
+          return { data: { ok: false, error: "membership_incompatibile" }, error: null };
+        }
+      } else {
+        const conflict = [...state.memberships.entries()].some(
+          ([k, v]) => k.endsWith(`:${user}`) && !k.startsWith(`${agency}:`) && v.status === "active",
+        );
+        if (conflict) {
+          // fail-closed PRIMA di qualsiasi scrittura: nessuna agenzia orfana
+          return { data: { ok: false, error: "membership_incompatibile" }, error: null };
+        }
+      }
+
+      // il perdente sulla zona non crea nulla
       if (state.zoneOwner && state.zoneOwner !== agency) {
         return { data: { ok: false, error: "zona_in_trial" }, error: null };
       }
       const already = state.zoneOwner === agency;
 
-      // coerenza membership: eseguita SEMPRE, anche nel retry idempotente
-      const existing = state.memberships.get(key);
+      // scritture
+      state.agencies.add(agency);
       if (!existing) {
-        const conflict = [...state.memberships.entries()].some(
-          ([k, v]) => k.endsWith(`:${user}`) && !k.startsWith(`${agency}:`) && v.status === "active",
-        );
-        if (conflict) return { data: { ok: false, error: "membership_incompatibile" }, error: null };
-        state.agencies.add(agency);
         state.memberships.set(key, { role: "owner", status: "active" });
-      } else if (existing.role !== "owner") {
-        return { data: { ok: false, error: "membership_incompatibile" }, error: null };
       } else if (existing.status !== "active") {
         state.memberships.set(key, { role: "owner", status: "active" });
       }
@@ -126,7 +139,6 @@ function makeDb(seed?: {
         };
       }
 
-      state.agencies.add(agency);
       state.zoneOwner = agency;
       state.zoneUntil = new Date(Date.now() + 7 * 86400_000).toISOString();
       return {
@@ -230,10 +242,10 @@ describe("4A — atomicità e idempotenza", () => {
     expect(db.state.memberships.size).toBe(memberships);
   });
 
-  it("workspace B sulla stessa zona: fallimento coerente e nessuna riga orfana", async () => {
+  it("workspace B (utente diverso) sulla stessa zona: fallimento coerente e nessuna riga orfana", async () => {
     const db = makeDb();
     await handleZonesReserve(req("centro-storico", WS_A), db.factory);
-    const res = await handleZonesReserve(req("centro-storico", WS_B), db.factory);
+    const res = await handleZonesReserve(req("centro-storico", WS_B, undefined, USER_B), db.factory);
     const body = await res.json();
     expect(res.status).toBe(409);
     expect(body.ok).toBe(false);
@@ -243,6 +255,7 @@ describe("4A — atomicità e idempotenza", () => {
     expect(db.state.zoneOwner).toBe(WS_A);
   });
 
+
   it("membership con ruolo incompatibile: fail-closed, nessuna prenotazione silenziosa", async () => {
     const db = makeDb({ membershipRole: "viewer" });
     const res = await handleZonesReserve(req("centro-storico", WS_A), db.factory);
@@ -251,7 +264,63 @@ describe("4A — atomicità e idempotenza", () => {
     expect(body.ok).toBe(false);
     expect(body.error.code).toBe("membership_incompatibile");
     expect(db.state.zoneOwner).toBeNull();
+});
+
+describe("4A — ultimo blocco transazionale: nessuna scrittura prima del gate membership", () => {
+  it("utente già attivo in un'altra agenzia: nessuna agenzia, nessuna membership, zona intatta", async () => {
+    const db = makeDb({ otherAgencyMembership: true });
+    const before = {
+      agencies: db.state.agencies.size,
+      memberships: db.state.memberships.size,
+      owner: db.state.zoneOwner,
+      until: db.state.zoneUntil,
+    };
+    const res = await handleZonesReserve(req("centro-storico", WS_A), db.factory);
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe("membership_incompatibile");
+    expect(db.state.agencies.size).toBe(before.agencies);
+    expect(db.state.agencies.has(WS_A)).toBe(false);
+    expect(db.state.memberships.size).toBe(before.memberships);
+    expect(db.state.memberships.has(`${WS_A}:${USER_A}`)).toBe(false);
+    expect(db.state.zoneOwner).toBe(before.owner);
+    expect(db.state.zoneUntil).toBe(before.until);
   });
+
+  it("l'agenzia candidata non viene creata nemmeno quando la zona è libera", async () => {
+    const db = makeDb({ otherAgencyMembership: true });
+    await handleZonesReserve(req("centro-storico", WS_A), db.factory);
+    expect([...db.state.agencies]).toEqual([]); // zero righe orfane
+  });
+
+  it("due richieste concorrenti dello stesso utente per agenzie diverse: una sola membership owner attiva", async () => {
+    const db = makeDb();
+    const [r1, r2] = await Promise.all([
+      handleZonesReserve(req("centro-storico", WS_A), db.factory),
+      handleZonesReserve(req("centro-storico", WS_B), db.factory),
+    ]);
+    const codes = [r1.status, r2.status].sort();
+    expect(codes).toEqual([200, 409]);
+    const owners = [...db.state.memberships.entries()].filter(
+      ([k, v]) => k.endsWith(`:${USER_A}`) && v.role === "owner" && v.status === "active",
+    );
+    expect(owners).toHaveLength(1);
+    expect(db.state.agencies.size).toBe(1);
+    expect(db.state.agencies.has(owners[0][0].split(":")[0])).toBe(true);
+    expect(db.state.zoneOwner).toBe(owners[0][0].split(":")[0]);
+  });
+
+  it("retry legittimo: already_mine true, membership coerente, trial_until identico", async () => {
+    const db = makeDb();
+    const first = await (await handleZonesReserve(req("centro-storico", WS_A), db.factory)).json();
+    const second = await (await handleZonesReserve(req("centro-storico", WS_A), db.factory)).json();
+    expect(second.already_mine).toBe(true);
+    expect(second.data.trial_until).toBe(first.data.trial_until);
+    expect(db.state.memberships.get(`${WS_A}:${USER_A}`)).toEqual({ role: "owner", status: "active" });
+    expect(db.state.agencies.size).toBe(1);
+    expect(db.state.memberships.size).toBe(1);
+  });
+});
+
 });
 
 describe("4A — micro-correzione: coerenza membership nel retry idempotente", () => {
