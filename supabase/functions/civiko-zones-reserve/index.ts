@@ -25,6 +25,38 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+/**
+ * Messaggi pubblici neutri: nessun codice interno, nome RPC, nome tabella,
+ * eccezione PostgreSQL o dettaglio Supabase può finire nell'interfaccia.
+ * Il `code` resta disponibile al client solo per classificare l'errore.
+ */
+const PUBLIC_MESSAGES: Record<string, string> = {
+  errore: "Operazione non riuscita. Riprova più tardi.",
+  richiesta_non_valida: "Richiesta non valida.",
+  non_autorizzato: "Accesso non consentito.",
+  parametri_non_validi: "Richiesta non valida.",
+  zona_non_trovata: "Zona non disponibile.",
+  pilot_zone_locked: "In questa fase è attivabile solo la zona Centro Storico.",
+  zona_in_trial: "La zona è già assegnata a un'altra agenzia.",
+  zona_occupata: "La zona è già assegnata a un'altra agenzia.",
+  agency_ha_gia_zona: "L'agenzia ha già una zona attiva.",
+  membership_incompatibile: "Non è possibile completare l'attivazione con questo account.",
+};
+
+function errorResponse(code: string, status: number, debug_id: string): Response {
+  return jsonResponse(
+    {
+      ok: false,
+      error: {
+        code,
+        message: PUBLIC_MESSAGES[code] ?? PUBLIC_MESSAGES.errore,
+      },
+      debug_id,
+    },
+    status,
+  );
+}
+
 function constantTimeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
