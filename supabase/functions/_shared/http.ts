@@ -494,6 +494,79 @@ export function requireSecret(req: Request, debugId: string): Response | null {
   return null;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Checkpoint 1B — Civiko cost-bearing endpoints guard
+//
+// Restricted guard used ONLY by the expensive Civiko endpoints
+// (content studio, property-from-photo). It does not change the
+// behaviour of requireSecret, resolveExpectedSecret, or any other
+// application mapping.
+//
+// TEMPORARY CORE_INTERNAL_SECRET FALLBACK:
+//   The existing Civiko One PWA proxy (supabase/functions/core-proxy)
+//   always sends x-internal-secret using CORE_INTERNAL_SECRET, with
+//   x-source-app defaulting to "acquisitionradar". The values of
+//   CORE_INTERNAL_SECRET and the canonical per-app secrets are NOT
+//   assumed to be equal, so CORE_INTERNAL_SECRET is accepted as an
+//   additional candidate for compatibility with that proxy only.
+//   This fallback is restricted to the Civiko source apps below and
+//   MUST be removed after Checkpoint 1C.
+// ═══════════════════════════════════════════════════════════════
+
+/** Source apps allowed to reach the cost-bearing Civiko endpoints. */
+const CIVIKO_COST_SOURCE_APPS = new Set([
+  "civiko",
+  "civiko-one",
+  "civiko_one",
+  // transitional: default x-source-app of the existing Civiko PWA proxy
+  "acquisitionradar",
+]);
+
+/**
+ * Guard for cost-bearing Civiko endpoints.
+ * Accepts the canonical per-app secret resolved for x-source-app, or —
+ * temporarily — CORE_INTERNAL_SECRET (see note above).
+ * Never accepts DIAGNOSTIC_SECRET or CENTRAL_CORE_JOB_SECRET.
+ * Never logs values, lengths, prefixes, suffixes, fingerprints, or which
+ * candidate matched.
+ */
+export function requireCivikoCostSecret(req: Request, debugId: string): Response | null {
+  const sourceApp = (req.headers.get("x-source-app") ?? "").toLowerCase().trim();
+  if (!sourceApp || !CIVIKO_COST_SOURCE_APPS.has(sourceApp)) {
+    return fail(req, 401, "APP_SECRET_REQUIRED", "Missing or invalid application identity", debugId);
+  }
+
+  const candidates: string[] = [];
+  const { secret: canonical } = resolveExpectedSecret(sourceApp);
+  if (canonical) candidates.push(canonical);
+  const proxyCompat = Deno.env.get("CORE_INTERNAL_SECRET") ?? "";
+  if (proxyCompat) candidates.push(proxyCompat);
+
+  if (candidates.length === 0) {
+    console.error("[requireCivikoCostSecret] CRITICAL: no server-side candidate configured — rejecting with 500");
+    return fail(req, 500, "CONFIG_ERROR", "Authentication not configured", debugId);
+  }
+
+  const incoming =
+    req.headers.get("x-internal-secret") ??
+    req.headers.get("x-app-secret") ??
+    req.headers.get("x-core-secret") ??
+    (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
+  if (!incoming) return fail(req, 401, "APP_SECRET_REQUIRED", "Missing application secret", debugId);
+
+  let matched = false;
+  for (const candidate of candidates) {
+    // constant-time comparison; no early exit on match
+    if (constantTimeEqual(incoming, candidate)) matched = true;
+  }
+  if (!matched) {
+    console.warn(`[requireCivikoCostSecret] rejected source_app=${sourceApp} debug_id=${debugId}`);
+    return fail(req, 401, "APP_SECRET_REJECTED", "Invalid secret", debugId);
+  }
+  return null;
+}
+
+
 /** Checks diagnostic secret header: x-diagnostic-secret */
 export function requireDiagnosticSecret(req: Request, debugId: string): Response | null {
   const expected = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";

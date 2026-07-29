@@ -20,6 +20,7 @@ import {
   makeDebugId, handleOptions, json, fail,
   CORE_VERSION, CORE_CONTRACT, addIdentityHeaders,
   buildManifest, enforceOriginPolicy,
+  requireCivikoCostSecret,
 } from "../_shared/http.ts";
 import {
   sanitizeOutgoing,
@@ -1384,6 +1385,11 @@ Deno.serve(async (req) => {
       return withIdentity(fail(req, 404, "ROUTE_NOT_FOUND", `GET ${pathname}`, debugId), "error");
     }
     if (req.method !== "POST") return withIdentity(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), "error");
+
+    // Checkpoint 1B — application auth before any cost (body parse, service role,
+    // provider secrets, photo analysis, sibling functions, marketing pack, fetch).
+    const authFailure = requireCivikoCostSecret(req, debugId);
+    if (authFailure) return withIdentity(authFailure, "unauthorized");
 
     let raw: unknown;
     try { raw = await req.json(); }

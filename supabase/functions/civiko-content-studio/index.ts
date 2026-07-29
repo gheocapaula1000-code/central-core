@@ -15,6 +15,7 @@
 import {
   CORE_CONTRACT, CORE_VERSION, addIdentityHeaders, buildManifest,
   enforceOriginPolicy, fail, handleOptions, json, makeDebugId,
+  requireCivikoCostSecret,
 } from "../_shared/http.ts";
 import { sanitizeOutgoing } from "../_shared/civiko.ts";
 import { rateLimit } from "../_shared/rate-limit.ts";
@@ -257,6 +258,11 @@ Deno.serve(async (req) => {
       return withIdentity(fail(req, 404, "ROUTE_NOT_FOUND", `GET ${pathname}`, debugId), "error");
     }
     if (req.method !== "POST") return withIdentity(fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId), "error");
+
+    // Checkpoint 1B — application auth before any cost (rate limit, body parse,
+    // provider key read, orchestration, fetch).
+    const authFailure = requireCivikoCostSecret(req, debugId);
+    if (authFailure) return withIdentity(authFailure, "unauthorized");
 
     const rl = rateLimit(req, FUNCTION_NAME, { windowMs: 60_000, max: 20 });
     if (!rl.ok) {
