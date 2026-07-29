@@ -254,6 +254,136 @@ describe("4A — atomicità e idempotenza", () => {
   });
 });
 
+describe("4A — micro-correzione: coerenza membership nel retry idempotente", () => {
+  const NOW_UNTIL = new Date(Date.now() + 5 * 86400_000).toISOString();
+
+  it("retry con membership già presente: already_mine true, stesso trial_until, nessuna nuova riga", async () => {
+    const db = makeDb({ zoneOwner: WS_A, zoneUntil: NOW_UNTIL, membershipRole: "owner" });
+    const agencies = db.state.agencies.size;
+    const memberships = db.state.memberships.size;
+    const body = await (await handleZonesReserve(req("centro-storico", WS_A), db.factory)).json();
+    expect(body.ok).toBe(true);
+    expect(body.already_mine).toBe(true);
+    expect(body.data.trial_until).toBe(NOW_UNTIL);
+    expect(db.state.zoneUntil).toBe(NOW_UNTIL);
+    expect(db.state.agencies.size).toBe(agencies);
+    expect(db.state.memberships.size).toBe(memberships);
+  });
+
+  it("retry con membership owner mancante: membership creata nella stessa transazione, trial invariato", async () => {
+    const db = makeDb({ zoneOwner: WS_A, zoneUntil: NOW_UNTIL });
+    expect(db.state.memberships.size).toBe(0);
+    const body = await (await handleZonesReserve(req("centro-storico", WS_A), db.factory)).json();
+    expect(body.ok).toBe(true);
+    expect(body.already_mine).toBe(true);
+    expect(body.data.trial_until).toBe(NOW_UNTIL);
+    expect(db.state.memberships.get(`${WS_A}:${USER_A}`)).toEqual({ role: "owner", status: "active" });
+    expect(db.state.zoneUntil).toBe(NOW_UNTIL);
+    expect(db.calls).toEqual(["rpc:reserve_padova_pilot_zone_atomic"]);
+  });
+
+  it("retry con membership owner inattiva: riattivata, trial invariato", async () => {
+    const db = makeDb({
+      zoneOwner: WS_A,
+      zoneUntil: NOW_UNTIL,
+      membershipRole: "owner",
+      membershipStatus: "revoked",
+    });
+    const body = await (await handleZonesReserve(req("centro-storico", WS_A), db.factory)).json();
+    expect(body.ok).toBe(true);
+    expect(body.already_mine).toBe(true);
+    expect(db.state.memberships.get(`${WS_A}:${USER_A}`)?.status).toBe("active");
+    expect(db.state.memberships.size).toBe(1);
+    expect(body.data.trial_until).toBe(NOW_UNTIL);
+    expect(db.state.zoneUntil).toBe(NOW_UNTIL);
+  });
+
+  it("membership incompatibile nel retry: fallimento controllato, nessuna mutazione parziale", async () => {
+    const db = makeDb({ zoneOwner: WS_A, zoneUntil: NOW_UNTIL, membershipRole: "viewer" });
+    const res = await handleZonesReserve(req("centro-storico", WS_A), db.factory);
+    const body = await res.json();
+    expect(res.status).toBe(409);
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe("membership_incompatibile");
+    expect(db.state.memberships.get(`${WS_A}:${USER_A}`)).toEqual({ role: "viewer", status: "active" });
+    expect(db.state.zoneUntil).toBe(NOW_UNTIL);
+    expect(db.state.zoneOwner).toBe(WS_A);
+  });
+
+  it("utente già owner attivo di un'altra agenzia: nessuna agenzia/membership creata", async () => {
+    const db = makeDb({ otherAgencyMembership: true });
+    const res = await handleZonesReserve(req("centro-storico", WS_A), db.factory);
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe("membership_incompatibile");
+    expect(db.state.agencies.has(WS_A)).toBe(false);
+    expect(db.state.memberships.has(`${WS_A}:${USER_A}`)).toBe(false);
+    expect(db.state.zoneOwner).toBeNull();
+  });
+});
+
+describe("4A — micro-correzione: nessun codice tecnico mostrabile all'utente", () => {
+  const TECH = /membership_incompatibile|parametri_non_validi|reserve_padova|agency_memberships|agencies|service[_ ]role|supabase|P0001|relation|pg_|stack/i;
+
+  it("errore membership: message pubblico neutro, codice solo in error.code", async () => {
+    const db = staticDb({ data: { ok: false, error: "membership_incompatibile" }, error: null });
+    const body = await (await handleZonesReserve(req("centro-storico"), db.factory)).json();
+    expect(body.error.code).toBe("membership_incompatibile");
+    expect(typeof body.error.message).toBe("string");
+    expect(body.error.message).not.toMatch(TECH);
+    expect(body.message).toBeUndefined();
+  });
+
+  it("parametri non validi: messaggio pubblico privo del codice interno", async () => {
+    const db = staticDb({ data: { ok: false, error: "parametri_non_validi" }, error: null });
+    const body = await (await handleZonesReserve(req("centro-storico"), db.factory)).json();
+    expect(body.error.code).toBe("parametri_non_validi");
+    expect(body.error.message).not.toMatch(TECH);
+  });
+
+  it("eccezione PostgreSQL: nessun dettaglio tecnico nella risposta", async () => {
+    const db = staticDb({
+      data: null,
+      error: { message: 'P0001 relation "agency_memberships" does not exist' },
+    });
+    const body = await (await handleZonesReserve(req("centro-storico"), db.factory)).json();
+    expect(JSON.stringify(body)).not.toMatch(TECH);
+  });
+
+  it("tutti i codici applicativi hanno un messaggio pubblico distinto dal codice", async () => {
+    for (const code of [
+      "zona_in_trial",
+      "zona_occupata",
+      "agency_ha_gia_zona",
+      "zona_non_trovata",
+      "pilot_zone_locked",
+    ]) {
+      const db = staticDb({ data: { ok: false, error: code }, error: null });
+      const body = await (await handleZonesReserve(req("centro-storico"), db.factory)).json();
+      expect(body.error.code).toBe(code);
+      expect(body.error.message).not.toContain(code);
+      expect(body.error.message.length).toBeGreaterThan(5);
+    }
+  });
+
+  it("header non validi e metodo errato: messaggi neutri", async () => {
+    const bad = new Request("http://local/civiko-zones-reserve", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-job-secret": SECRET,
+        "x-workspace-id": "not-a-uuid",
+        "x-user-id": USER_A,
+      },
+      body: JSON.stringify({ slug: "centro-storico" }),
+    });
+    const body = await (await handleZonesReserve(bad, staticDb({ data: null, error: null }).factory)).json();
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe("richiesta_non_valida");
+    expect(body.error.message).not.toMatch(/x-workspace-id|uuid|header/i);
+  });
+});
+
+
 describe("4A — fail-closed sul payload RPC", () => {
   const cases: Array<[string, unknown]> = [
     ["payload nullo", null],
