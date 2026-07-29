@@ -242,10 +242,10 @@ describe("4A — atomicità e idempotenza", () => {
     expect(db.state.memberships.size).toBe(memberships);
   });
 
-  it("workspace B sulla stessa zona: fallimento coerente e nessuna riga orfana", async () => {
+  it("workspace B (utente diverso) sulla stessa zona: fallimento coerente e nessuna riga orfana", async () => {
     const db = makeDb();
     await handleZonesReserve(req("centro-storico", WS_A), db.factory);
-    const res = await handleZonesReserve(req("centro-storico", WS_B), db.factory);
+    const res = await handleZonesReserve(req("centro-storico", WS_B, undefined, USER_B), db.factory);
     const body = await res.json();
     expect(res.status).toBe(409);
     expect(body.ok).toBe(false);
@@ -254,6 +254,7 @@ describe("4A — atomicità e idempotenza", () => {
     expect([...db.state.memberships.keys()].some((k) => k.startsWith(WS_B))).toBe(false);
     expect(db.state.zoneOwner).toBe(WS_A);
   });
+
 
   it("membership con ruolo incompatibile: fail-closed, nessuna prenotazione silenziosa", async () => {
     const db = makeDb({ membershipRole: "viewer" });
