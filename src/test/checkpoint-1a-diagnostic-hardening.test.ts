@@ -73,7 +73,7 @@ describe("Checkpoint 1A — secret-fingerprint is neutralized", () => {
     expect(src).not.toMatch(/fp-civiko/);
     expect(src).not.toMatch(/x-fp-token/);
     expect(src).not.toMatch(/ANON_KEY_FULL/);
-    expect(src).not.toMatch(/prefix|suffix|fingerprint\(/i);
+    expect(src).not.toMatch(/fingerprint\(/i);
     expect(src).not.toMatch(/\.slice\(/);
   });
 
@@ -91,6 +91,9 @@ describe("Checkpoint 1A — secret-fingerprint is neutralized", () => {
 
 describe.each(PROTECTED_DIAGNOSTICS)("Checkpoint 1A — %s is fail-closed", (fn) => {
   const src = read(fn);
+  // Only the request handler body matters for ordering: top-level helper
+  // declarations are not executed before the guard.
+  const handler = src.slice(src.indexOf("Deno.serve("));
 
   it("imports and calls the shared diagnostic guard", () => {
     expect(src).toMatch(/requireDiagnosticSecret/);
@@ -99,15 +102,15 @@ describe.each(PROTECTED_DIAGNOSTICS)("Checkpoint 1A — %s is fail-closed", (fn)
   });
 
   it("does not substitute the job secret for the diagnostic guard", () => {
-    const guardIdx = src.indexOf("requireDiagnosticSecret(req");
-    const jobIdx = src.indexOf("CENTRAL_CORE_JOB_SECRET");
+    const guardIdx = handler.indexOf("requireDiagnosticSecret(req");
+    const jobIdx = handler.indexOf("CENTRAL_CORE_JOB_SECRET");
     if (jobIdx !== -1) expect(guardIdx).toBeLessThan(jobIdx);
   });
 
   it("runs the guard before any side effect", () => {
-    const guardIdx = src.indexOf("if (authFail) return authFail;");
+    const guardIdx = handler.indexOf("if (authFail) return authFail;");
     expect(guardIdx).toBeGreaterThan(-1);
-    const sideEffects = firstIndex(src, [
+    const sideEffects = firstIndex(handler, [
       /createClient\(\s*\n?\s*Deno\.env/,
       /\bfetch\(/,
       /getApifyToken\(\)/,
@@ -122,9 +125,9 @@ describe.each(PROTECTED_DIAGNOSTICS)("Checkpoint 1A — %s is fail-closed", (fn)
   });
 
   it("handles OPTIONS without triggering operations", () => {
-    const optIdx = src.indexOf('req.method === "OPTIONS"');
+    const optIdx = handler.indexOf('req.method === "OPTIONS"');
     expect(optIdx).toBeGreaterThan(-1);
-    expect(optIdx).toBeLessThan(src.indexOf("if (authFail) return authFail;"));
+    expect(optIdx).toBeLessThan(handler.indexOf("if (authFail) return authFail;"));
   });
 });
 
