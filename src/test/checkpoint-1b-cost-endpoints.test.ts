@@ -31,8 +31,15 @@ afterEach(() => {
   delete (globalThis as unknown as { Deno?: unknown }).Deno;
 });
 
+// The shared module targets Deno; transpile it in isolation (removing the
+// remote dynamic import that is never reached by this guard) and load it as a
+// data URL, so no external service is ever contacted.
 async function guard() {
-  const mod = await import("../../supabase/functions/_shared/http.ts");
+  const { transform } = await import("esbuild");
+  const raw = readFileSync(join(process.cwd(), "supabase/functions/_shared/http.ts"), "utf-8")
+    .replace(/await import\("https:\/\/esm\.sh\/[^"]+"\)/g, "({ createClient: () => null })");
+  const { code } = await transform(raw, { loader: "ts", format: "esm", target: "es2022" });
+  const mod = await import(/* @vite-ignore */ `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
   return mod.requireCivikoCostSecret as (req: Request, id: string) => Response | null;
 }
 
