@@ -41,6 +41,8 @@ Deno.serve(async (req) => {
   let httpStatus = 0;
   let responseText = "";
   let errorMsg: string | null = null;
+  let runStatus: string | null = null;
+  let counters: Record<string, unknown> | null = null;
 
   try {
     const r = await fetch(`${base}/functions/v1/padova-agency-enrich-run`, {
@@ -51,17 +53,42 @@ Deno.serve(async (req) => {
         "apikey": anon,
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(120_000),
+      // Sotto il limite Edge: il run ha deadline interna ~75s.
+      signal: AbortSignal.timeout(100_000),
     });
     httpStatus = r.status;
     responseText = await r.text();
+
+    // HTTP 200 non implica successo applicativo: valuta il payload.
+    let payload: Record<string, unknown> | null = null;
+    try { payload = JSON.parse(responseText) as Record<string, unknown>; } catch { /* non-json */ }
+
     if (!r.ok) {
       status = "failure";
       errorMsg = `http_${r.status}`;
+    } else if (!payload || payload.ok !== true) {
+      status = "failure";
+      errorMsg = payload ? `app_not_ok:${String(payload.run_status ?? "unknown")}` : "invalid_payload";
+    }
+
+    if (payload) {
+      runStatus = typeof payload.run_status === "string" ? payload.run_status : null;
+      counters = {
+        analyzed: payload.analyzed ?? null,
+        visited: payload.visited ?? null,
+        from_cache: payload.from_cache ?? null,
+        promoted: payload.promoted ?? null,
+        deferred: payload.deferred ?? null,
+        budget_skipped: payload.budget_skipped ?? null,
+        timed_out: payload.timed_out ?? null,
+        deadline_reached: payload.deadline_reached ?? null,
+        recompute_executed: payload.recompute_executed ?? null,
+        recompute_error: payload.recompute_error ?? null,
+      };
     }
   } catch (e) {
     status = "failure";
-    errorMsg = (e as Error).message || "fetch_failed";
+    errorMsg = (e as Error).name === "TimeoutError" ? "wrapper_timeout" : "fetch_failed";
   }
 
   const completedAt = new Date();
@@ -77,7 +104,15 @@ Deno.serve(async (req) => {
   });
 
   return new Response(
-    JSON.stringify({ ok: status === "success", status, http_status: httpStatus, error: errorMsg }),
+    JSON.stringify({
+      ok: status === "success",
+      status,
+      http_status: httpStatus,
+      run_status: runStatus,
+      duration_ms: completedAt.getTime() - triggeredAt.getTime(),
+      counters,
+      error: errorMsg,
+    }),
     { status: status === "success" ? 200 : 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
   );
 });

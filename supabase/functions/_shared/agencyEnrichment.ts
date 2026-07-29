@@ -191,9 +191,20 @@ function extractFromHtml(portal: Portal, html: string): { name: string | null; u
 }
 
 // ---------- Firecrawl scrape ----------
-async function firecrawlScrape(url: string): Promise<{ html: string | null; status: number | null; error: string | null }> {
+// Timeout locale reale: AbortController + AbortSignal.timeout combinati, cosi'
+// la fetch viene interrotta anche se il provider non risponde mai.
+export const DEFAULT_URL_TIMEOUT_MS = 20_000;
+
+async function firecrawlScrape(
+  url: string,
+  timeoutMs: number = DEFAULT_URL_TIMEOUT_MS,
+): Promise<{ html: string | null; status: number | null; error: string | null }> {
   const key = Deno.env.get("FIRECRAWL_API_KEY");
   if (!key) return { html: null, status: null, error: "no_firecrawl_api_key" };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  // Il timeout server-side di Firecrawl resta sotto quello locale.
+  const providerTimeout = Math.max(5_000, timeoutMs - 3_000);
   try {
     const resp = await fetch("https://api.firecrawl.dev/v2/scrape", {
       method: "POST",
@@ -202,9 +213,10 @@ async function firecrawlScrape(url: string): Promise<{ html: string | null; stat
         url,
         formats: ["html"],
         onlyMainContent: false,
-        waitFor: 3000,
-        timeout: 30000,
+        waitFor: 2000,
+        timeout: providerTimeout,
       }),
+      signal: ctrl.signal,
     });
     const httpStatus = resp.status;
     if (!resp.ok) {
@@ -216,7 +228,13 @@ async function firecrawlScrape(url: string): Promise<{ html: string | null; stat
     const pageStatus = j?.data?.metadata?.statusCode ?? httpStatus;
     return { html: html ?? null, status: pageStatus, error: html ? null : "empty_html" };
   } catch (e) {
-    return { html: null, status: null, error: `fetch_error:${String((e as Error).message).slice(0, 200)}` };
+    const err = e as Error;
+    if (err?.name === "AbortError" || ctrl.signal.aborted) {
+      return { html: null, status: null, error: "local_timeout" };
+    }
+    return { html: null, status: null, error: `fetch_error:${String(err.message).slice(0, 200)}` };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -229,11 +247,21 @@ function sb() {
   );
 }
 
+export const CACHE_TTL_MS = 72 * 3600 * 1000;
+
+export interface EnrichOpts {
+  forceRefresh?: boolean;
+  /** QA a costo zero: nessuna chiamata provider, nessuna spesa registrata. */
+  cacheOnly?: boolean;
+  /** Timeout locale per singolo URL. */
+  timeoutMs?: number;
+}
+
 export async function enrichListingAgency(
   listingUrl: string,
   portal: Portal,
-  opts?: { forceRefresh?: boolean },
-): Promise<AgencyExtraction & { from_cache: boolean; budget_skip?: string }> {
+  opts?: EnrichOpts,
+): Promise<AgencyExtraction & { from_cache: boolean; budget_skip?: string; cache_only_miss?: boolean }> {
   const c = sb();
 
   // Cache 72h
@@ -245,7 +273,7 @@ export async function enrichListingAgency(
       .maybeSingle();
     if (cached) {
       const ageMs = Date.now() - new Date(cached.enriched_at as string).getTime();
-      if (ageMs < 72 * 3600 * 1000) {
+      if (ageMs < CACHE_TTL_MS) {
         return {
           raw_agency_name: cached.raw_agency_name as string | null,
           normalized_agency_name: cached.normalized_agency_name as string | null,
@@ -262,6 +290,16 @@ export async function enrichListingAgency(
     }
   }
 
+  // Modalita' QA senza costo: mai chiamare il provider.
+  if (opts?.cacheOnly) {
+    return {
+      raw_agency_name: null, normalized_agency_name: null, agency_url: null,
+      agency_phone: null, agency_logo_url: null, extraction_method: "cache_only_miss",
+      confidence: "none", error: "cache_only_miss", raw_excerpt: {},
+      from_cache: false, cache_only_miss: true,
+    };
+  }
+
   // Budget gate
   const bud = await canSpendFirecrawl(1);
   if (!bud.ok) {
@@ -275,8 +313,8 @@ export async function enrichListingAgency(
     return out;
   }
 
-  // Scrape
-  const fc = await firecrawlScrape(listingUrl);
+  // Scrape (una sola chiamata, nessun retry)
+  const fc = await firecrawlScrape(listingUrl, opts?.timeoutMs ?? DEFAULT_URL_TIMEOUT_MS);
   await recordFirecrawlSpend(1, 1);
 
   let ext: AgencyExtraction;
@@ -337,4 +375,97 @@ export async function enrichListingAgency(
   } catch { /* ignore cache write errors */ }
 
   return { ...ext, from_cache: false };
+}
+
+// ---------- Fairness helpers ----------
+export interface CacheMeta {
+  listing_url: string;
+  enriched_at: string | null;
+  raw_agency_name: string | null;
+  error: string | null;
+}
+
+/** Metadati cache per un insieme di URL (batch, nessuna chiamata provider). */
+export async function fetchCacheMeta(urls: string[]): Promise<Map<string, CacheMeta>> {
+  const out = new Map<string, CacheMeta>();
+  if (urls.length === 0) return out;
+  const c = sb();
+  const CHUNK = 100;
+  for (let i = 0; i < urls.length; i += CHUNK) {
+    const slice = urls.slice(i, i + CHUNK);
+    const { data } = await c
+      .from("listing_agency_enrichment")
+      .select("listing_url, enriched_at, raw_agency_name, error")
+      .in("listing_url", slice);
+    for (const r of (data ?? []) as CacheMeta[]) out.set(r.listing_url, r);
+  }
+  return out;
+}
+
+export type CandidateState = "never_tried" | "cache_stale" | "cache_fresh";
+
+export interface RankedCandidate {
+  url: string;
+  id: number;
+  state: CandidateState;
+  enriched_at: string | null;
+}
+
+/**
+ * Ordinamento stabile e deterministico:
+ *  1) mai tentati
+ *  2) cache scaduta, dalla piu' vecchia
+ *  3) cache valida (usata senza nuova chiamata)
+ * A parita' di stato/eta', ordine per url per garantire determinismo.
+ */
+export function rankCandidates(
+  rows: { id: number; url: string }[],
+  cache: Map<string, CacheMeta>,
+  now: number = Date.now(),
+): RankedCandidate[] {
+  const seen = new Set<string>();
+  const items: RankedCandidate[] = [];
+  for (const r of rows) {
+    if (!r.url || seen.has(r.url)) continue; // nessun URL due volte nello stesso run
+    seen.add(r.url);
+    const meta = cache.get(r.url);
+    const at = meta?.enriched_at ?? null;
+    let state: CandidateState = "never_tried";
+    if (at) {
+      state = now - new Date(at).getTime() < CACHE_TTL_MS ? "cache_fresh" : "cache_stale";
+    }
+    items.push({ url: r.url, id: r.id, state, enriched_at: at });
+  }
+  const rank: Record<CandidateState, number> = { never_tried: 0, cache_stale: 1, cache_fresh: 2 };
+  return items.sort((a, b) => {
+    if (rank[a.state] !== rank[b.state]) return rank[a.state] - rank[b.state];
+    const ta = a.enriched_at ? new Date(a.enriched_at).getTime() : 0;
+    const tb = b.enriched_at ? new Date(b.enriched_at).getTime() : 0;
+    if (ta !== tb) return ta - tb; // piu' vecchio prima
+    return a.url < b.url ? -1 : a.url > b.url ? 1 : 0;
+  });
+}
+
+/** Esegue task con concorrenza limitata e deadline; ritorna gli indici non avviati. */
+export async function runBounded<T>(
+  items: T[],
+  worker: (item: T) => Promise<void>,
+  opts: { concurrency: number; shouldStart: () => boolean },
+): Promise<T[]> {
+  const conc = Math.max(1, Math.min(3, opts.concurrency));
+  let next = 0;
+  const deferred: T[] = [];
+  async function lane() {
+    for (;;) {
+      if (next >= items.length) return;
+      if (!opts.shouldStart()) {
+        while (next < items.length) deferred.push(items[next++]);
+        return;
+      }
+      const item = items[next++];
+      await worker(item);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(conc, items.length) }, () => lane()));
+  return deferred;
 }
