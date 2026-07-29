@@ -6,6 +6,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { requireSecret, makeDebugId } from "../_shared/http.ts";
+import { applyPadovaPilotZoneGate } from "../_shared/civikoTerritoryContractPadovaPilotV1.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -65,7 +66,7 @@ serve(async (req) => {
     );
 
     const { data: adminRes } = await supabase.rpc("civiko_is_admin_agency", { _agency_id: workspaceId });
-    const isAdmin = adminRes === true;
+    let isAdmin = adminRes === true;
 
     let authorizedSlugs: string[] = [];
     if (isAdmin) {
@@ -101,6 +102,21 @@ serve(async (req) => {
           error: { code: "NO_ZONE_ASSIGNED", message: "No active zone for workspace" },
         }), { status: 403, headers: CORS });
       }
+    }
+
+    // Checkpoint 3A — gate territoriale Padova Pilot v1 (source-aware, fail-closed).
+    // Le 8 zone restano intatte; per Civiko One il perimetro e' solo centro-storico.
+    const pilotGate = applyPadovaPilotZoneGate(req.headers.get("x-source-app"), authorizedSlugs);
+    const isPilot = pilotGate.pilot;
+    if (isPilot) {
+      if (pilotGate.slugs.length === 0) {
+        return new Response(JSON.stringify({
+          ok: false, data: null, debug_id: did,
+          error: { code: "PILOT_ZONE_NOT_ASSIGNED", message: "Pilot zone not assigned to workspace" },
+        }), { status: 403, headers: CORS });
+      }
+      authorizedSlugs = pilotGate.slugs;
+      isAdmin = false;
     }
 
     // 1) Stats annuncio/privati/ribassi dalle sole 8 zone ufficiali.
@@ -191,22 +207,33 @@ serve(async (req) => {
       })
       .sort((a, b) => b.n_contendibili - a.n_contendibili || a.quartiere.localeCompare(b.quartiere));
 
-    const totals = {
-      tot_annunci: Number(totalsRow?.tot_annunci ?? 0),
-      tot_agenzie: Number(totalsRow?.tot_agenzie ?? 0),
-      tot_quartieri_con_contendibili: quartieri.filter((q) => q.n_contendibili > 0).length,
-      scope_zones: authorizedSlugs.length,
-    };
+    // Pilot Civiko One: nessun totale globale di Padova nella risposta.
+    // Tutti i totali derivano esclusivamente dalle zone autorizzate.
+    const totals = isPilot
+      ? {
+        tot_annunci: quartieri.reduce((a, q) => a + q.n_annunci, 0),
+        tot_agenzie: quartieri.reduce((a, q) => a + q.n_agenzie, 0),
+        tot_contendibili: quartieri.reduce((a, q) => a + q.n_contendibili, 0),
+        tot_quartieri_con_contendibili: quartieri.filter((q) => q.n_contendibili > 0).length,
+        scope_zones: authorizedSlugs.length,
+      }
+      : {
+        tot_annunci: Number(totalsRow?.tot_annunci ?? 0),
+        tot_agenzie: Number(totalsRow?.tot_agenzie ?? 0),
+        tot_quartieri_con_contendibili: quartieri.filter((q) => q.n_contendibili > 0).length,
+        scope_zones: authorizedSlugs.length,
+      };
+    const totaliOut = isPilot ? null : totali;
 
     return new Response(JSON.stringify({
       ok: true,
       quartieri,
       ...totals,
-      totali,
+      totali: totaliOut,
       assigned_zone: authorizedSlugs.length === 1 ? authorizedSlugs[0] : null,
       assigned_zones: authorizedSlugs,
-      data: { quartieri, totals, totali, assigned_zones: authorizedSlugs },
-      diagnostics: { scope: isAdmin ? "admin_full_city" : "commercial_zone_isolated", workspace_id: workspaceId, authorized_zones: authorizedSlugs },
+      data: { quartieri, totals, totali: totaliOut, assigned_zones: authorizedSlugs },
+      diagnostics: { scope: isPilot ? "padova_pilot_v1_centro_storico" : (isAdmin ? "admin_full_city" : "commercial_zone_isolated"), workspace_id: workspaceId, authorized_zones: authorizedSlugs },
       debug_id: did,
     }), { status: 200, headers: CORS });
   } catch (e) {
