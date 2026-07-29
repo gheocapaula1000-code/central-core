@@ -183,12 +183,38 @@ describe("Checkpoint 1A — no credential fragments in touched functions", () =>
   });
 });
 
-describe("Checkpoint 1A — orphan config drift", () => {
+describe("Checkpoint 1A — orphan test-apify-immobiliare-padova is a tombstone", () => {
   const cfg = readFileSync(resolve(process.cwd(), "supabase/config.toml"), "utf-8");
+  const src = read("test-apify-immobiliare-padova");
 
-  it("has no orphan test-apify-immobiliare-padova block", () => {
-    expect(cfg).not.toMatch(/\[functions\.test-apify-immobiliare-padova\]/);
-    expect(existsSync(resolve(process.cwd(), "supabase/functions/test-apify-immobiliare-padova"))).toBe(false);
+  it("exists as a neutralized function", () => {
+    expect(existsSync(FN("test-apify-immobiliare-padova"))).toBe(true);
+  });
+
+  it("reads no env var and no secret", () => {
+    expect(src).not.toMatch(/Deno\.env\.get/);
+    expect(src).not.toMatch(/SECRET|_API_KEY|_TOKEN/);
+  });
+
+  it("performs no fetch and imports no backend client", () => {
+    expect(src).not.toMatch(/\bfetch\(/);
+    expect(src).not.toMatch(/supabase-js|createClient/);
+  });
+
+  it("references no provider", () => {
+    expect(src).not.toMatch(/apify|firecrawl|openai|perplexity|immobiliare/i);
+  });
+
+  it("returns 410 and handles OPTIONS without side effects", () => {
+    expect(src).toMatch(/status: 410/);
+    expect(src).toMatch(/OPTIONS/);
+    expect(src).not.toMatch(/\.insert\(|\.upsert\(|\.update\(|\.delete\(/);
+    expect(src).not.toMatch(/req\.json\(\)/);
+  });
+
+  it("is configured with verify_jwt = true", () => {
+    const block = cfg.split("[functions.test-apify-immobiliare-padova]")[1] ?? "";
+    expect(block.split("[functions.")[0]).toMatch(/verify_jwt\s*=\s*true/);
   });
 
   it("declares explicit blocks for the hardened diagnostics", () => {
