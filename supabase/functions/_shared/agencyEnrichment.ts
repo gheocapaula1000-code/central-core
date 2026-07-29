@@ -446,7 +446,29 @@ export function rankCandidates(
   });
 }
 
+/**
+ * Interleaving deterministico round-robin tra portali.
+ * Ordine dei portali = ordine della lista `order`.
+ * Esempio: casa[0], immobiliare[0], casa[1], immobiliare[1], ...
+ * Nessun portale puo' monopolizzare la deadline globale.
+ */
+export function interleaveByPortal<T>(
+  order: string[],
+  byPortal: Record<string, T[]>,
+): { portal: string; item: T }[] {
+  const out: { portal: string; item: T }[] = [];
+  const max = order.reduce((m, p) => Math.max(m, byPortal[p]?.length ?? 0), 0);
+  for (let i = 0; i < max; i++) {
+    for (const p of order) {
+      const list = byPortal[p];
+      if (list && i < list.length) out.push({ portal: p, item: list[i] });
+    }
+  }
+  return out;
+}
+
 /** Esegue task con concorrenza limitata e deadline; ritorna gli indici non avviati. */
+
 export async function runBounded<T>(
   items: T[],
   worker: (item: T) => Promise<void>,
