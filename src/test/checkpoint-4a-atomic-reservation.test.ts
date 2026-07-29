@@ -94,22 +94,23 @@ function makeDb(seed?: {
       const key = `${agency}:${user}`;
 
       // ORDINE IDENTICO ALLA SQL:
-      // 1) lock agency + user, 2) lock zona, 3) GATE MEMBERSHIP (nessuna scrittura),
+      // 1) lock agency + user, 2) lock zona, 3) GATE MEMBERSHIP (nessuna scrittura):
+      //    3a) ruolo incompatibile nell'agenzia richiesta,
+      //    3b) conflitto cross-agency valutato SEMPRE (anche con membership presente),
       // 4) conflitti zona, 5) scritture (agenzia, membership, zona).
       const existing = state.memberships.get(key);
-      if (existing) {
-        if (existing.role !== "owner") {
-          return { data: { ok: false, error: "membership_incompatibile" }, error: null };
-        }
-      } else {
-        const conflict = [...state.memberships.entries()].some(
-          ([k, v]) => k.endsWith(`:${user}`) && !k.startsWith(`${agency}:`) && v.status === "active",
-        );
-        if (conflict) {
-          // fail-closed PRIMA di qualsiasi scrittura: nessuna agenzia orfana
-          return { data: { ok: false, error: "membership_incompatibile" }, error: null };
-        }
+      if (existing && existing.role !== "owner") {
+        return { data: { ok: false, error: "membership_incompatibile" }, error: null };
       }
+
+      const conflict = [...state.memberships.entries()].some(
+        ([k, v]) => k.endsWith(`:${user}`) && !k.startsWith(`${agency}:`) && v.status === "active",
+      );
+      if (conflict) {
+        // fail-closed PRIMA di qualsiasi scrittura: nessuna agenzia orfana
+        return { data: { ok: false, error: "membership_incompatibile" }, error: null };
+      }
+
 
       // il perdente sulla zona non crea nulla
       if (state.zoneOwner && state.zoneOwner !== agency) {
