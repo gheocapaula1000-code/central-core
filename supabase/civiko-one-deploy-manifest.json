@@ -1,0 +1,118 @@
+{
+  "manifest_version": "1.0.0",
+  "checkpoint": "CHECKPOINT 2 — riproducibilità DB e deploy Civiko One",
+  "checkpoint_date": "2026-07-29",
+  "product": "civiko-one",
+  "deploy_mode": "selective_only",
+  "global_deploy_forbidden": true,
+  "notes": [
+    "Deploy consentito esclusivamente funzione per funzione: supabase functions deploy <name>.",
+    "È vietato il deploy globale di tutte le funzioni del Central Core.",
+    "KeyDraft e Sottra restano prodotti standalone: nessuna loro funzione o route fa parte del deploy Civiko One.",
+    "I secret sono elencati solo per nome: nessun valore, token, URL privato o project key è ammesso in questo file.",
+    "DIAGNOSTIC_SECRET riguarda esclusivamente la diagnostica interna e non è usato dalle 13 route utente."
+  ],
+  "auth_modes": {
+    "public_read": "Route pubblica di sola lettura, nessun secret richiesto.",
+    "custom_job_secret": "Autenticazione server-to-server con CENTRAL_CORE_JOB_SECRET verificata dentro la funzione.",
+    "custom_app_secret": "Autenticazione applicativa con secret per-app (x-source-app + x-internal-secret) verificata dentro la funzione.",
+    "proxy_member_only_no_core_secret": "Accesso mediato dal proxy Civiko One con verifica membership lato proxy; la funzione non richiede secret Core."
+  },
+  "functions": [
+    {
+      "name": "civiko-zones-list",
+      "verify_jwt": false,
+      "auth_mode": "public_read",
+      "required_secrets": []
+    },
+    {
+      "name": "civiko-zones-reserve",
+      "verify_jwt": false,
+      "auth_mode": "custom_job_secret",
+      "required_secrets": ["CENTRAL_CORE_JOB_SECRET"]
+    },
+    {
+      "name": "civiko-billing",
+      "verify_jwt": false,
+      "auth_mode": "custom_app_secret",
+      "required_secrets": [
+        "AI_CORE_SECRET_CIVIKO",
+        "STRIPE_SECRET_KEY",
+        "STRIPE_PRICE_CIVIKO_MONTHLY",
+        "STRIPE_PRICE_CIVIKO_YEARLY"
+      ]
+    },
+    {
+      "name": "padova-contendibili-list",
+      "verify_jwt": false,
+      "auth_mode": "custom_app_secret",
+      "required_secrets": ["AI_CORE_SECRET_CIVIKO"]
+    },
+    {
+      "name": "padova-quartieri-stats",
+      "verify_jwt": false,
+      "auth_mode": "custom_app_secret",
+      "required_secrets": ["AI_CORE_SECRET_CIVIKO"]
+    },
+    {
+      "name": "padova-privati-list",
+      "verify_jwt": false,
+      "auth_mode": "custom_app_secret",
+      "required_secrets": ["AI_CORE_SECRET_CIVIKO"]
+    },
+    {
+      "name": "core-offmarket-list-public",
+      "verify_jwt": false,
+      "auth_mode": "public_read",
+      "required_secrets": []
+    },
+    {
+      "name": "civiko-one-signals-feed",
+      "verify_jwt": false,
+      "auth_mode": "custom_app_secret",
+      "required_secrets": ["AI_CORE_SECRET_CIVIKO"]
+    },
+    {
+      "name": "civiko-radar-veneto",
+      "verify_jwt": false,
+      "auth_mode": "custom_app_secret",
+      "required_secrets": [
+        "AI_CORE_SECRET_CIVIKO",
+        "CORE_INTERNAL_SECRET",
+        "CENTRAL_CORE_JOB_SECRET",
+        "APIFY_TOKEN",
+        "FIRECRAWL_API_KEY",
+        "LOVABLE_API_KEY",
+        "PERPLEXITY_API_KEY"
+      ]
+    },
+    {
+      "name": "civiko-property-from-photo",
+      "verify_jwt": false,
+      "auth_mode": "custom_app_secret",
+      "required_secrets": [
+        "AI_CORE_SECRET_CIVIKO",
+        "CORE_INTERNAL_SECRET",
+        "MAPBOX_API_KEY"
+      ]
+    },
+    {
+      "name": "property-marketing-pack",
+      "verify_jwt": false,
+      "auth_mode": "custom_app_secret",
+      "required_secrets": ["AI_CORE_SECRET_CIVIKO", "LOVABLE_API_KEY"]
+    },
+    {
+      "name": "property-outputs",
+      "verify_jwt": false,
+      "auth_mode": "custom_app_secret",
+      "required_secrets": ["AI_CORE_SECRET_CIVIKO"]
+    },
+    {
+      "name": "civiko-property-owner-report",
+      "verify_jwt": false,
+      "auth_mode": "proxy_member_only_no_core_secret",
+      "required_secrets": []
+    }
+  ]
+}
