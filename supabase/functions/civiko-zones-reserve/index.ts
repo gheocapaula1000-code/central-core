@@ -121,92 +121,81 @@ export async function handleZonesReserve(
   }
   const svc = await createServiceClient(supabaseUrl, serviceKey);
 
-  // --- 5) Ensure agency exists (UUID = workspaceId) ---
+  // --- 5) Prenotazione atomica e idempotente (unica chiamata RPC).
+  // Agenzia, membership owner e prenotazione avvengono nella stessa
+  // transazione DB: nessuna riga orfana se un passo fallisce.
+  // Solo dati derivati dagli header verificati dal proxy vengono inoltrati.
+  let data: unknown;
+  let error: { message?: string } | null = null;
   try {
-    const { data: existingAgency } = await svc
-      .from("agencies")
-      .select("id")
-      .eq("id", workspaceId)
-      .maybeSingle();
-
-    if (!existingAgency) {
-      const displayName = userEmail ?? `Agenzia ${workspaceId.slice(0, 8)}`;
-      const { error: agencyErr } = await svc.from("agencies").insert({
-        id: workspaceId,
-        name: displayName,
-        billing_email: userEmail,
-        status: "active",
-        plan: "civiko_one_trial",
-      });
-      if (agencyErr && agencyErr.code !== "23505") {
-        return jsonResponse(
-          { ok: false, error: "errore", message: `ensure_agency_failed: ${agencyErr.message}`, debug_id },
-          500,
-        );
-      }
-    }
-
-    // --- 6) Ensure membership owner/active ---
-    const { error: memErr } = await svc
-      .from("agency_memberships")
-      .upsert(
-        { agency_id: workspaceId, user_id: userId, role: "owner", status: "active" },
-        { onConflict: "agency_id,user_id", ignoreDuplicates: true },
-      );
-    if (memErr && memErr.code !== "23505") {
-      return jsonResponse(
-        { ok: false, error: "errore", message: `ensure_membership_failed: ${memErr.message}`, debug_id },
-        500,
-      );
-    }
-  } catch (e) {
+    const res = await svc.rpc("reserve_padova_pilot_zone_atomic", {
+      p_slug: slug,
+      p_agency_id: workspaceId,
+      p_user_id: userId,
+      p_user_email: userEmail,
+    });
+    data = res.data;
+    error = res.error ?? null;
+  } catch {
     return jsonResponse(
-      { ok: false, error: "errore", message: `ensure_step_failed: ${(e as Error).message}`, debug_id },
+      { ok: false, error: "errore", message: "prenotazione non riuscita", debug_id },
       500,
     );
   }
 
-  // --- 7) Reserve commercial zone ---
-  const { data, error } = await svc.rpc("reserve_commercial_zone", {
-    p_slug: slug,
-    p_agency_id: workspaceId,
-  });
-
-  // 7a) Errore tecnico Supabase (rete, permessi, eccezione SQL).
+  // 5a) Errore tecnico: nessun dettaglio interno viene esposto.
   if (error) {
-    const msg = (error.message || "").toLowerCase();
-    let code: "zona_in_trial" | "zona_occupata" | "errore" = "errore";
-    if (msg.includes("trial") || msg.includes("reserved")) code = "zona_in_trial";
-    else if (msg.includes("occup")) code = "zona_occupata";
-    return jsonResponse({ ok: false, error: code, message: error.message, debug_id }, 409);
+    return jsonResponse(
+      { ok: false, error: "errore", message: "prenotazione non riuscita", debug_id },
+      500,
+    );
   }
 
-  // 7b) Esito applicativo restituito nel payload della RPC.
-  // Fail-closed: solo un booleano ok === true produce successo.
-  const result = data as { ok?: unknown; error?: unknown; message?: unknown } | null;
+  // 5b) Esito applicativo. Fail-closed: solo ok === true booleano è successo.
+  const result = data as
+    | { ok?: unknown; error?: unknown; already_mine?: unknown; zona?: unknown; trial_until?: unknown }
+    | null;
   if (!result || typeof result !== "object" || typeof result.ok !== "boolean") {
     return jsonResponse(
-      { ok: false, error: "errore", message: "risposta RPC nulla o malformata", debug_id },
+      { ok: false, error: "errore", message: "prenotazione non riuscita", debug_id },
       500,
     );
   }
 
   if (result.ok === false) {
-    const appError = typeof result.error === "string" && result.error ? result.error : "errore";
-    const status = appError === "zona_non_trovata" ? 404 : 409;
-    return jsonResponse(
-      {
-        ok: false,
-        error: appError,
-        message: typeof result.message === "string" ? result.message : appError,
-        debug_id,
-      },
-      status,
-    );
+    const KNOWN = new Set([
+      "zona_non_trovata",
+      "pilot_zone_locked",
+      "zona_in_trial",
+      "zona_occupata",
+      "agency_ha_gia_zona",
+      "membership_incompatibile",
+      "parametri_non_validi",
+    ]);
+    const raw = typeof result.error === "string" ? result.error : "";
+    const appError = KNOWN.has(raw) ? raw : "errore";
+    const status = appError === "zona_non_trovata"
+      ? 404
+      : appError === "pilot_zone_locked"
+      ? 403
+      : appError === "errore" || appError === "parametri_non_validi"
+      ? 400
+      : 409;
+    return jsonResponse({ ok: false, error: appError, message: appError, debug_id }, status);
   }
 
-  return jsonResponse({ ok: true, data, debug_id });
+  return jsonResponse({
+    ok: true,
+    already_mine: result.already_mine === true,
+    data: {
+      zona: result.zona ?? slug,
+      already_mine: result.already_mine === true,
+      trial_until: result.trial_until ?? null,
+    },
+    debug_id,
+  });
 }
+
 
 // Registrazione runtime solo in Deno (edge).
 const denoRuntime = (globalThis as { Deno?: { serve?: (h: (req: Request) => Response | Promise<Response>) => unknown } }).Deno;
