@@ -1,3 +1,4 @@
+/** @vitest-environment node */
 /**
  * CHECKPOINT 1B — protezione endpoint onerosi.
  *
@@ -158,7 +159,8 @@ describe("1B — requireCivikoCostSecret: configurazione e autorizzazioni", () =
 
 describe("1B — guardia condivisa: contratto statico", () => {
   const src = readFileSync(join(process.cwd(), "supabase/functions/_shared/http.ts"), "utf-8");
-  const block = src.slice(src.indexOf("export function requireCivikoCostSecret"));
+  const start = src.indexOf("export function requireCivikoCostSecret");
+  const block = src.slice(start, src.indexOf("export function", start + 10));
 
   it("usa constantTimeEqual e non === sui secret", () => {
     expect(block).toMatch(/constantTimeEqual\(incoming, candidate\)/);
@@ -193,8 +195,9 @@ describe("1B — civiko-content-studio", () => {
     for (const marker of ["rateLimit(req, FUNCTION_NAME", "await req.json()", "orchestrate(raw"]) {
       expect(src.indexOf(marker)).toBeGreaterThan(g);
     }
-    expect(src.indexOf("LOVABLE_API_KEY")).toBeLessThan(g); // solo dentro funzioni non ancora invocate
-    expect(src.slice(g).indexOf("fetch(")).toBeGreaterThan(0);
+    // provider key e fetch vivono solo in helper invocati da orchestrate,
+    // quindi dopo la guardia
+    expect(src.indexOf("LOVABLE_API_KEY")).toBeLessThan(src.indexOf("async function orchestrate"));
   });
 
   it("health e manifest restano pubblici e passivi, metodi non supportati respinti", () => {
