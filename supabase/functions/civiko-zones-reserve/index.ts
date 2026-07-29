@@ -136,20 +136,24 @@ export async function handleZonesReserve(
     });
     data = res.data;
     error = res.error ?? null;
-  } catch {
+  } catch (e) {
+    console.error("[zones-reserve] rpc_throw", debug_id, (e as Error)?.message);
     return jsonResponse(
       { ok: false, error: "errore", message: "prenotazione non riuscita", debug_id },
       500,
     );
   }
 
-  // 5a) Errore tecnico: nessun dettaglio interno viene esposto.
+  // 5a) Errore tecnico: nessun dettaglio interno viene esposto al chiamante,
+  // ma resta tracciato nei log server-side per la diagnosi operativa.
   if (error) {
+    console.error("[zones-reserve] rpc_error", debug_id, error.message);
     return jsonResponse(
       { ok: false, error: "errore", message: "prenotazione non riuscita", debug_id },
       500,
     );
   }
+
 
   // 5b) Esito applicativo. Fail-closed: solo ok === true booleano è successo.
   const result = data as
