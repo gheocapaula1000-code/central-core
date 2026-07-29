@@ -54,16 +54,26 @@ function makeDb(seed?: {
   zoneOwner?: string;
   zoneUntil?: string;
   membershipRole?: string;
+  membershipStatus?: string;
+  membershipMissing?: boolean;
+  otherAgencyMembership?: boolean;
 }) {
   const state = {
     agencies: new Set<string>(),
     memberships: new Map<string, { role: string; status: string }>(),
-    zoneOwner: seed?.zoneOwner ?? null as string | null,
-    zoneUntil: seed?.zoneUntil ?? null as string | null,
+    zoneOwner: (seed?.zoneOwner ?? null) as string | null,
+    zoneUntil: (seed?.zoneUntil ?? null) as string | null,
   };
   const calls: string[] = [];
+  if (seed?.zoneOwner) state.agencies.add(seed.zoneOwner);
   if (seed?.membershipRole) {
-    state.memberships.set(`${WS_A}:${USER_A}`, { role: seed.membershipRole, status: "active" });
+    state.memberships.set(`${WS_A}:${USER_A}`, {
+      role: seed.membershipRole,
+      status: seed.membershipStatus ?? "active",
+    });
+  }
+  if (seed?.otherAgencyMembership) {
+    state.memberships.set(`${WS_B}:${USER_A}`, { role: "owner", status: "active" });
   }
 
   const client = {
@@ -78,8 +88,32 @@ function makeDb(seed?: {
         return { data: null, error: { message: "unknown rpc" } };
       }
       const agency = args.p_agency_id as string;
-      // idempotenza: stessa agenzia, trial ancora valido
-      if (state.zoneOwner === agency) {
+      const user = args.p_user_id as string;
+      const key = `${agency}:${user}`;
+
+      // il perdente non crea nulla
+      if (state.zoneOwner && state.zoneOwner !== agency) {
+        return { data: { ok: false, error: "zona_in_trial" }, error: null };
+      }
+      const already = state.zoneOwner === agency;
+
+      // coerenza membership: eseguita SEMPRE, anche nel retry idempotente
+      const existing = state.memberships.get(key);
+      if (!existing) {
+        const conflict = [...state.memberships.entries()].some(
+          ([k, v]) => k.endsWith(`:${user}`) && !k.startsWith(`${agency}:`) && v.status === "active",
+        );
+        if (conflict) return { data: { ok: false, error: "membership_incompatibile" }, error: null };
+        state.agencies.add(agency);
+        state.memberships.set(key, { role: "owner", status: "active" });
+      } else if (existing.role !== "owner") {
+        return { data: { ok: false, error: "membership_incompatibile" }, error: null };
+      } else if (existing.status !== "active") {
+        state.memberships.set(key, { role: "owner", status: "active" });
+      }
+
+      if (already) {
+        // trial_until NON viene rinnovato
         return {
           data: {
             ok: true,
@@ -91,16 +125,8 @@ function makeDb(seed?: {
           error: null,
         };
       }
-      if (state.zoneOwner && state.zoneOwner !== agency) {
-        // il perdente non crea nulla
-        return { data: { ok: false, error: "zona_in_trial" }, error: null };
-      }
-      const existing = state.memberships.get(`${agency}:${args.p_user_id}`);
-      if (existing && existing.role !== "owner") {
-        return { data: { ok: false, error: "membership_incompatibile" }, error: null };
-      }
+
       state.agencies.add(agency);
-      state.memberships.set(`${agency}:${args.p_user_id}`, { role: "owner", status: "active" });
       state.zoneOwner = agency;
       state.zoneUntil = new Date(Date.now() + 7 * 86400_000).toISOString();
       return {
@@ -117,6 +143,7 @@ function makeDb(seed?: {
   };
   return { state, calls, factory: () => client };
 }
+
 
 function staticDb(rpcResult: { data: unknown; error: unknown }) {
   const calls: string[] = [];
