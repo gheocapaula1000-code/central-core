@@ -191,9 +191,20 @@ function extractFromHtml(portal: Portal, html: string): { name: string | null; u
 }
 
 // ---------- Firecrawl scrape ----------
-async function firecrawlScrape(url: string): Promise<{ html: string | null; status: number | null; error: string | null }> {
+// Timeout locale reale: AbortController + AbortSignal.timeout combinati, cosi'
+// la fetch viene interrotta anche se il provider non risponde mai.
+export const DEFAULT_URL_TIMEOUT_MS = 20_000;
+
+async function firecrawlScrape(
+  url: string,
+  timeoutMs: number = DEFAULT_URL_TIMEOUT_MS,
+): Promise<{ html: string | null; status: number | null; error: string | null }> {
   const key = Deno.env.get("FIRECRAWL_API_KEY");
   if (!key) return { html: null, status: null, error: "no_firecrawl_api_key" };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  // Il timeout server-side di Firecrawl resta sotto quello locale.
+  const providerTimeout = Math.max(5_000, timeoutMs - 3_000);
   try {
     const resp = await fetch("https://api.firecrawl.dev/v2/scrape", {
       method: "POST",
@@ -202,9 +213,10 @@ async function firecrawlScrape(url: string): Promise<{ html: string | null; stat
         url,
         formats: ["html"],
         onlyMainContent: false,
-        waitFor: 3000,
-        timeout: 30000,
+        waitFor: 2000,
+        timeout: providerTimeout,
       }),
+      signal: ctrl.signal,
     });
     const httpStatus = resp.status;
     if (!resp.ok) {
@@ -216,7 +228,13 @@ async function firecrawlScrape(url: string): Promise<{ html: string | null; stat
     const pageStatus = j?.data?.metadata?.statusCode ?? httpStatus;
     return { html: html ?? null, status: pageStatus, error: html ? null : "empty_html" };
   } catch (e) {
-    return { html: null, status: null, error: `fetch_error:${String((e as Error).message).slice(0, 200)}` };
+    const err = e as Error;
+    if (err?.name === "AbortError" || ctrl.signal.aborted) {
+      return { html: null, status: null, error: "local_timeout" };
+    }
+    return { html: null, status: null, error: `fetch_error:${String(err.message).slice(0, 200)}` };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
