@@ -119,7 +119,11 @@ serve(async (req) => {
       isAdmin = false;
     }
 
-    // 1) Stats annuncio/privati/ribassi dalle sole 8 zone ufficiali.
+    // 1) Stats annuncio/privati/ribassi — filtro zona applicato DB-side
+    //    sui nomi ufficiali delle sole zone autorizzate.
+    const authorizedNames = OFFICIAL_ZONES
+      .filter((z) => authorizedSlugs.includes(z.slug))
+      .map((z) => z.nome);
     const rows = await fetchAll<{
       zona: string | null;
       n_contendibili: number | null;
@@ -131,15 +135,18 @@ serve(async (req) => {
       prezzo_max: number | null;
     }>(() => supabase
       .from("padova_quartieri_stats_v")
-      .select("zona, n_contendibili, n_annunci, n_agenzie, n_ribassi, n_privati, prezzo_min, prezzo_max"));
+      .select("zona, n_contendibili, n_annunci, n_agenzie, n_ribassi, n_privati, prezzo_min, prezzo_max")
+      .in("zona", authorizedNames));
 
-    // 1b) Contendibili canonici dalla view by-zone, fonte autorevole PWA.
+    // 1b) Contendibili canonici dalla view by-zone, filtro zona DB-side.
     const contendibiliRows = await fetchAll<{
       commercial_zone_slug: string | null;
       n_agenzie: number | null;
     }>(() => supabase
       .from("padova_contendibili_by_zone_v")
-      .select("commercial_zone_slug, n_agenzie"));
+      .select("commercial_zone_slug, n_agenzie")
+      .in("commercial_zone_slug", authorizedSlugs));
+
 
     const contendibiliBySlug = new Map<string, number>();
     for (const r of contendibiliRows) {
