@@ -23,11 +23,8 @@ function ownerEmails(): string[] {
   return raw.split(/[,\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
 }
 
-function maskKey(v: string | undefined): string {
-  if (!v) return "missing";
-  if (v.length < 8) return "set";
-  return `${v.slice(0, 4)}…${v.slice(-3)}`;
-}
+// Checkpoint 1A: nessuna funzione di masking — non esporre mai frammenti di chiave.
+
 
 function log(level: "info" | "warn" | "error", msg: string, extra: Record<string, unknown> = {}) {
   // Structured JSON log line
