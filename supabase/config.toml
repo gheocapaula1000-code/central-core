@@ -158,9 +158,6 @@ verify_jwt = false
 
 
 
-[functions.test-apify-immobiliare-padova]
-verify_jwt = false
-
 [functions.keydraft-bridge]
 verify_jwt = false
 
@@ -168,8 +165,9 @@ verify_jwt = false
 
 
 
+# Checkpoint 1A: tombstone neutralizzata (410). Configurazione più restrittiva.
 [functions.secret-fingerprint]
-verify_jwt = false
+verify_jwt = true
 
 [functions.public-padova-quartieri-stats]
 verify_jwt = false
@@ -258,4 +256,17 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.casa-scrape-debug]
+verify_jwt = false
+
+# ─── Checkpoint 1A — diagnostiche interne protette da DIAGNOSTIC_SECRET ───
+# verify_jwt = false perché l'autenticazione è la guardia server-side
+# requireDiagnosticSecret (header x-diagnostic-secret), applicata fail-closed
+# prima di qualunque side effect.
+[functions.padova-discovery-diag]
+verify_jwt = false
+
+[functions.debug-subito-dryrun]
+verify_jwt = false
+
+[functions.debug-subito-schema]
 verify_jwt = false

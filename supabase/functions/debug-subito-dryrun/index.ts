@@ -1,8 +1,15 @@
-// debug-subito-dryrun — one-shot: invoca padova-apify-subito-collect in dry_run
-// leggendo CENTRAL_CORE_JOB_SECRET da env. Da rimuovere dopo l'audit.
+// debug-subito-dryrun — diagnostica interna.
+// Checkpoint 1A: protetta fail-closed da DIAGNOSTIC_SECRET (x-diagnostic-secret).
+// Nessuna lettura di token/secret e nessuna fetch prima della guardia.
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { requireDiagnosticSecret, makeDebugId } from "../_shared/http.ts";
 
-Deno.serve(async () => {
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  const authFail = requireDiagnosticSecret(req, makeDebugId());
+  if (authFail) return authFail;
+
   const secret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
   const base = Deno.env.get("SUPABASE_URL")!;
   const r = await fetch(`${base}/functions/v1/padova-apify-subito-collect`, {
