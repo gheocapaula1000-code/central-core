@@ -161,3 +161,45 @@ export function describePadovaPilotContract() {
     },
   } as const;
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// Runtime pilot gate (Checkpoint 3A) — funzioni pure, nessun DB, nessuna rete.
+// ───────────────────────────────────────────────────────────────────────────
+
+/** Source-app normalizzati considerati "Civiko One" ai fini del pilot. */
+export const CIVIKO_PILOT_SOURCE_APPS: readonly string[] = [
+  "civiko-one",
+  "civiko_one",
+  "civiko",
+] as const;
+
+/** Normalizza l'header x-source-app: trim + lowercase. Nessun fuzzy. */
+export function normalizeSourceApp(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+/**
+ * True solo per i source-app Civiko One del pilot.
+ * `acquisitionradar` e qualunque altro prodotto standalone → false.
+ */
+export function isCivikoPilotSourceApp(value: unknown): boolean {
+  return CIVIKO_PILOT_SOURCE_APPS.includes(normalizeSourceApp(value));
+}
+
+/**
+ * Interseca gli slug autorizzati (già risolti server-side) col perimetro
+ * pilot. Per source-app non Civiko restituisce l'insieme invariato.
+ * Per Civiko One restituisce esclusivamente ["centro-storico"] se presente,
+ * altrimenti insieme vuoto (fail-closed, nessun fallback).
+ */
+export function applyPadovaPilotZoneGate(
+  sourceApp: unknown,
+  authorizedSlugs: readonly string[],
+): { pilot: boolean; slugs: string[] } {
+  const pilot = isCivikoPilotSourceApp(sourceApp);
+  if (!pilot) return { pilot: false, slugs: [...authorizedSlugs] };
+  const slugs = authorizedSlugs.includes(PADOVA_PILOT_ALLOWED_ZONE_SLUG)
+    ? [PADOVA_PILOT_ALLOWED_ZONE_SLUG as string]
+    : [];
+  return { pilot: true, slugs };
+}
