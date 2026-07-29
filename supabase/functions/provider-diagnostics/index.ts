@@ -188,7 +188,7 @@ async function testPerplexity(): Promise<TimedResult> {
       return {
         ok: false,
         status: r.status,
-        message: `HTTP ${r.status}: ${t.slice(0, 200)}`,
+        message: `HTTP ${r.status}`,
         meta: { model },
       };
     }
