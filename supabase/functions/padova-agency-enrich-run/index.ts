@@ -120,8 +120,11 @@ Deno.serve(async (req) => {
     let deadlineReached = false;
     let anyPromoted = false;
 
+    // ── Fase 1: selezione e ranking per portale (nessuna chiamata provider) ──
+    const rankedByPortal: Record<string, RankedCandidate[]> = {};
     for (const portal of portals) {
       const stats = perPortal[portal] = emptyStats();
+      rankedByPortal[portal] = [];
 
       const q = c.from("padova_collect_v2_items")
         .select("id, url, agency, updated_at")
@@ -143,77 +146,90 @@ Deno.serve(async (req) => {
       const cacheMeta = forceRefresh ? new Map() : await fetchCacheMeta(urls);
       const ranked: RankedCandidate[] = rankCandidates(rows as { id: number; url: string }[], cacheMeta)
         .slice(0, limit);
+      rankedByPortal[portal] = ranked;
       stats.analyzed = ranked.length;
+    }
 
-      const deferred = await runBounded<RankedCandidate>(
-        ranked,
-        async (cand) => {
-          try {
-            const ext = await enrichListingAgency(cand.url, portal, {
-              forceRefresh, cacheOnly, timeoutMs: urlTimeoutMs,
-            });
-            if (ext.from_cache) stats.from_cache++;
-            else if (!ext.budget_skip && !ext.cache_only_miss) stats.visited++;
+    // ── Fase 2: coda globale interlacciata round-robin, una sola runBounded ──
+    // Deduplica cross-portale: nessun URL avviato due volte nello stesso run.
+    const seenUrls = new Set<string>();
+    for (const p of portals) {
+      rankedByPortal[p] = (rankedByPortal[p] ?? []).filter((cand) => {
+        if (seenUrls.has(cand.url)) return false;
+        seenUrls.add(cand.url);
+        return true;
+      });
+      perPortal[p].analyzed = rankedByPortal[p].length;
+    }
+    const queue = interleaveByPortal<RankedCandidate>(portals, rankedByPortal);
 
-            if (ext.budget_skip) {
-              stats.budget_skip++;
-              stats.errors[ext.budget_skip] = (stats.errors[ext.budget_skip] ?? 0) + 1;
-              return;
-            }
-            if (ext.cache_only_miss) {
-              stats.errors["cache_only_miss"] = (stats.errors["cache_only_miss"] ?? 0) + 1;
-              return;
-            }
-            if (ext.error === "blocked_by_antibot") stats.blocked_antibot++;
-            if (ext.error === "local_timeout") stats.timed_out++;
+    const deferredItems = await runBounded<{ portal: string; item: RankedCandidate }>(
+      queue,
+      async ({ portal, item: cand }) => {
+        const stats = perPortal[portal];
+        try {
+          const ext = await enrichListingAgency(cand.url, portal as Portal, {
+            forceRefresh, cacheOnly, timeoutMs: urlTimeoutMs,
+          });
+          if (ext.from_cache) stats.from_cache++;
+          else if (!ext.budget_skip && !ext.cache_only_miss) stats.visited++;
 
-            if (ext.raw_agency_name && ext.normalized_agency_name) {
-              stats.agency_found++;
-              if (ext.confidence === "high") stats.high_conf++;
-              if (stats.examples.length < 5) {
-                stats.examples.push({ url: cand.url, agency: ext.raw_agency_name, method: ext.extraction_method, confidence: ext.confidence });
-              }
-              if (!dryRun && !cacheOnly && (ext.confidence === "high" || ext.confidence === "medium")) {
-                const { error: upErr } = await c.from("padova_collect_v2_items")
-                  .update({ agency: ext.raw_agency_name })
-                  .eq("id", cand.id);
-                if (upErr) {
-                  stats.update_errors++;
-                  stats.errors["update_error"] = (stats.errors["update_error"] ?? 0) + 1;
-                } else {
-                  stats.promoted++;
-                  anyPromoted = true;
-                }
-              }
-            } else if (ext.error) {
-              stats.errors[ext.error] = (stats.errors[ext.error] ?? 0) + 1;
-            }
-          } catch (e) {
-            const msg = String((e as Error).message ?? e).slice(0, 80);
-            stats.errors[`exception:${msg}`] = (stats.errors[`exception:${msg}`] ?? 0) + 1;
+          if (ext.budget_skip) {
+            stats.budget_skip++;
+            stats.errors[ext.budget_skip] = (stats.errors[ext.budget_skip] ?? 0) + 1;
+            return;
           }
-        },
-        { concurrency, shouldStart },
-      );
+          if (ext.cache_only_miss) {
+            stats.errors["cache_only_miss"] = (stats.errors["cache_only_miss"] ?? 0) + 1;
+            return;
+          }
+          if (ext.error === "blocked_by_antibot") stats.blocked_antibot++;
+          if (ext.error === "local_timeout") stats.timed_out++;
 
-      stats.deferred = deferred.length;
-      if (deferred.length > 0) deadlineReached = true;
+          if (ext.raw_agency_name && ext.normalized_agency_name) {
+            stats.agency_found++;
+            if (ext.confidence === "high") stats.high_conf++;
+            if (stats.examples.length < 5) {
+              stats.examples.push({ url: cand.url, agency: ext.raw_agency_name, method: ext.extraction_method, confidence: ext.confidence });
+            }
+            if (!dryRun && !cacheOnly && (ext.confidence === "high" || ext.confidence === "medium")) {
+              const { error: upErr } = await c.from("padova_collect_v2_items")
+                .update({ agency: ext.raw_agency_name })
+                .eq("id", cand.id);
+              if (upErr) {
+                stats.update_errors++;
+                stats.errors["update_error"] = (stats.errors["update_error"] ?? 0) + 1;
+              } else {
+                stats.promoted++;
+                anyPromoted = true;
+              }
+            }
+          } else if (ext.error) {
+            stats.errors[ext.error] = (stats.errors[ext.error] ?? 0) + 1;
+          }
+        } catch (e) {
+          const msg = String((e as Error).message ?? e).slice(0, 80);
+          stats.errors[`exception:${msg}`] = (stats.errors[`exception:${msg}`] ?? 0) + 1;
+        }
+      },
+      { concurrency, shouldStart },
+    );
 
+    // Ogni candidato non avviato e' attribuito come deferred al portale corretto.
+    for (const d of deferredItems) {
+      perPortal[d.portal].deferred++;
+    }
+    if (deferredItems.length > 0) deadlineReached = true;
+
+    // ── Fase 3: coverage per portale ──
+    for (const portal of portals) {
+      const stats = perPortal[portal];
       const { count: total } = await c.from("padova_collect_v2_items").select("id", { count: "exact", head: true }).eq("portal", portal);
       const { count: withAg } = await c.from("padova_collect_v2_items").select("id", { count: "exact", head: true })
         .eq("portal", portal).not("agency", "is", null).neq("agency", "").not("agency", "ilike", "portal:%");
       stats.coverage_pct_after = total && total > 0 ? Math.round(((withAg ?? 0) / total) * 1000) / 10 : 0;
-
-      if (!shouldStart()) {
-        deadlineReached = true;
-        // Non iniziare un nuovo portale se il tempo residuo non basta.
-        const remaining = portals.slice(portals.indexOf(portal) + 1);
-        for (const p of remaining) {
-          if (!perPortal[p]) perPortal[p] = emptyStats();
-        }
-        break;
-      }
     }
+
 
     const totals = Object.values(perPortal).reduce(
       (a, b) => ({
