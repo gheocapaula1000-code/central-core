@@ -264,7 +264,63 @@ describe("4A — atomicità e idempotenza", () => {
     expect(body.ok).toBe(false);
     expect(body.error.code).toBe("membership_incompatibile");
     expect(db.state.zoneOwner).toBeNull();
+});
+
+describe("4A — ultimo blocco transazionale: nessuna scrittura prima del gate membership", () => {
+  it("utente già attivo in un'altra agenzia: nessuna agenzia, nessuna membership, zona intatta", async () => {
+    const db = makeDb({ otherAgencyMembership: true });
+    const before = {
+      agencies: db.state.agencies.size,
+      memberships: db.state.memberships.size,
+      owner: db.state.zoneOwner,
+      until: db.state.zoneUntil,
+    };
+    const res = await handleZonesReserve(req("centro-storico", WS_A), db.factory);
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe("membership_incompatibile");
+    expect(db.state.agencies.size).toBe(before.agencies);
+    expect(db.state.agencies.has(WS_A)).toBe(false);
+    expect(db.state.memberships.size).toBe(before.memberships);
+    expect(db.state.memberships.has(`${WS_A}:${USER_A}`)).toBe(false);
+    expect(db.state.zoneOwner).toBe(before.owner);
+    expect(db.state.zoneUntil).toBe(before.until);
   });
+
+  it("l'agenzia candidata non viene creata nemmeno quando la zona è libera", async () => {
+    const db = makeDb({ otherAgencyMembership: true });
+    await handleZonesReserve(req("centro-storico", WS_A), db.factory);
+    expect([...db.state.agencies]).toEqual([]); // zero righe orfane
+  });
+
+  it("due richieste concorrenti dello stesso utente per agenzie diverse: una sola membership owner attiva", async () => {
+    const db = makeDb();
+    const [r1, r2] = await Promise.all([
+      handleZonesReserve(req("centro-storico", WS_A), db.factory),
+      handleZonesReserve(req("centro-storico", WS_B), db.factory),
+    ]);
+    const codes = [r1.status, r2.status].sort();
+    expect(codes).toEqual([200, 409]);
+    const owners = [...db.state.memberships.entries()].filter(
+      ([k, v]) => k.endsWith(`:${USER_A}`) && v.role === "owner" && v.status === "active",
+    );
+    expect(owners).toHaveLength(1);
+    expect(db.state.agencies.size).toBe(1);
+    expect(db.state.agencies.has(owners[0][0].split(":")[0])).toBe(true);
+    expect(db.state.zoneOwner).toBe(owners[0][0].split(":")[0]);
+  });
+
+  it("retry legittimo: already_mine true, membership coerente, trial_until identico", async () => {
+    const db = makeDb();
+    const first = await (await handleZonesReserve(req("centro-storico", WS_A), db.factory)).json();
+    const second = await (await handleZonesReserve(req("centro-storico", WS_A), db.factory)).json();
+    expect(second.already_mine).toBe(true);
+    expect(second.data.trial_until).toBe(first.data.trial_until);
+    expect(db.state.memberships.get(`${WS_A}:${USER_A}`)).toEqual({ role: "owner", status: "active" });
+    expect(db.state.agencies.size).toBe(1);
+    expect(db.state.memberships.size).toBe(1);
+  });
+});
+
 });
 
 describe("4A — micro-correzione: coerenza membership nel retry idempotente", () => {
