@@ -1,4 +1,3 @@
-/** @vitest-environment node */
 /**
  * CHECKPOINT 1B — protezione endpoint onerosi.
  *
@@ -36,6 +35,10 @@ afterEach(() => {
 // remote dynamic import that is never reached by this guard) and load it as a
 // data URL, so no external service is ever contacted.
 async function guard() {
+  // jsdom replaces TextEncoder with a foreign-realm implementation; esbuild
+  // requires the native one.
+  const { TextEncoder, TextDecoder } = await import("node:util");
+  Object.assign(globalThis, { TextEncoder, TextDecoder });
   const { transform } = await import("esbuild");
   const raw = readFileSync(join(process.cwd(), "supabase/functions/_shared/http.ts"), "utf-8")
     .replace(/await import\("https:\/\/esm\.sh\/[^"]+"\)/g, "({ createClient: () => null })");
