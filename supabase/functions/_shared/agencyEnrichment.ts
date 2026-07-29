@@ -247,11 +247,21 @@ function sb() {
   );
 }
 
+export const CACHE_TTL_MS = 72 * 3600 * 1000;
+
+export interface EnrichOpts {
+  forceRefresh?: boolean;
+  /** QA a costo zero: nessuna chiamata provider, nessuna spesa registrata. */
+  cacheOnly?: boolean;
+  /** Timeout locale per singolo URL. */
+  timeoutMs?: number;
+}
+
 export async function enrichListingAgency(
   listingUrl: string,
   portal: Portal,
-  opts?: { forceRefresh?: boolean },
-): Promise<AgencyExtraction & { from_cache: boolean; budget_skip?: string }> {
+  opts?: EnrichOpts,
+): Promise<AgencyExtraction & { from_cache: boolean; budget_skip?: string; cache_only_miss?: boolean }> {
   const c = sb();
 
   // Cache 72h
@@ -263,7 +273,7 @@ export async function enrichListingAgency(
       .maybeSingle();
     if (cached) {
       const ageMs = Date.now() - new Date(cached.enriched_at as string).getTime();
-      if (ageMs < 72 * 3600 * 1000) {
+      if (ageMs < CACHE_TTL_MS) {
         return {
           raw_agency_name: cached.raw_agency_name as string | null,
           normalized_agency_name: cached.normalized_agency_name as string | null,
@@ -280,6 +290,16 @@ export async function enrichListingAgency(
     }
   }
 
+  // Modalita' QA senza costo: mai chiamare il provider.
+  if (opts?.cacheOnly) {
+    return {
+      raw_agency_name: null, normalized_agency_name: null, agency_url: null,
+      agency_phone: null, agency_logo_url: null, extraction_method: "cache_only_miss",
+      confidence: "none", error: "cache_only_miss", raw_excerpt: {},
+      from_cache: false, cache_only_miss: true,
+    };
+  }
+
   // Budget gate
   const bud = await canSpendFirecrawl(1);
   if (!bud.ok) {
@@ -293,8 +313,8 @@ export async function enrichListingAgency(
     return out;
   }
 
-  // Scrape
-  const fc = await firecrawlScrape(listingUrl);
+  // Scrape (una sola chiamata, nessun retry)
+  const fc = await firecrawlScrape(listingUrl, opts?.timeoutMs ?? DEFAULT_URL_TIMEOUT_MS);
   await recordFirecrawlSpend(1, 1);
 
   let ext: AgencyExtraction;
