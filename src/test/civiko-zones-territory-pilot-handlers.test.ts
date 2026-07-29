@@ -222,7 +222,7 @@ describe("handler reale civiko-zones-reserve — gate territoriale", () => {
     const { calls, factory } = spyFactory();
     const res = await handleZonesReserve(req("centro-storico"), factory);
     expect(calls).toContain("createClient");
-    expect(calls).toContain("rpc:reserve_commercial_zone");
+    expect(calls).toContain("rpc:reserve_padova_pilot_zone_atomic");
     expect(res.status).toBe(200);
     const b = await res.json();
     expect(b.ok).toBe(true);
