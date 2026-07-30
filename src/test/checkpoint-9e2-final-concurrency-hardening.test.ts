@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { CIVIKO_COMMERCIAL_ZONES } from "../../supabase/functions/_shared/civikoCommercialZoneContract";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -28,6 +29,7 @@ class RetryableError extends Error {
 }
 
 const PILOT = "centro-storico";
+const OFFICIAL_SLUGS = new Set(CIVIKO_COMMERCIAL_ZONES.map((z) => z.slug) as string[]);
 const PRICE_BY_TIER: Record<string, string> = { premium: "price_premium_live" };
 
 function isCivikoMeta(m: Record<string, string> = {}) {
