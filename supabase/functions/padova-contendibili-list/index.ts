@@ -27,7 +27,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { requireSecret, makeDebugId } from "../_shared/http.ts";
 import { isCivikoCommercialZoneSlug } from "../_shared/civikoCommercialZoneContract.ts";
 import { commercialZoneForQuartiere } from "../_shared/civikoCommercialZoneByQuartiere.ts";
-import { applyCivikoSingleZoneGate } from "../_shared/civikoZoneAccessGate.ts";
+import {
+  applyCivikoSingleZoneGate,
+  isCivikoSourceApp,
+} from "../_shared/civikoZoneAccessGate.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -139,7 +142,7 @@ serve(async (req) => {
     }
 
     let assignedSlugs: string[];
-    if (isAdmin) {
+    if (isAdmin && !isCivikoSourceApp(req.headers.get("x-source-app"))) {
       assignedSlugs = [
         "centro-storico", "nord-arcella", "est-brenta", "est-forcellini-camin",
         "sud-est-sant-osvaldo", "sud-voltabarozzo-guizza", "sud-ovest-mandria",
@@ -155,6 +158,7 @@ serve(async (req) => {
       if (assignedSlugs.length === 0) {
         return json({ ok: false, debug_id: did, error: { code: "SLUG_OUT_OF_CONTRACT", message: "Assigned slug not in contract" } }, 403);
       }
+      if (isCivikoSourceApp(req.headers.get("x-source-app"))) isAdmin = false;
     }
 
     // Optional zone_slug: client may pick a specific authorized zone.

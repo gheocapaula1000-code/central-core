@@ -28,6 +28,7 @@ import {
   resolveCivikoCheckoutContract, isAllowedCivikoReturnUrl,
   isCivikoLaunchInterval, resolveCivikoZonePricing,
 } from "../_shared/civikoCheckoutContract.ts";
+import { isCivikoSourceApp } from "../_shared/civikoZoneAccessGate.ts";
 
 
 const FUNCTION_NAME = "civiko-billing";
@@ -217,6 +218,7 @@ async function handleMyZone(req: Request, debugId: string): Promise<Response> {
   }
 
   const warnings: string[] = [];
+  const isCivikoRequest = isCivikoSourceApp(req.headers.get("x-source-app"));
   const empty = {
     status: null, plan: null, zona_status: null, zona_assegnata: null,
     started_at: null, current_period_end: null,
@@ -255,7 +257,9 @@ async function handleMyZone(req: Request, debugId: string): Promise<Response> {
   const startedAt = sub?.created_at ?? null;
   const currentPeriodEnd = sub?.current_period_end ?? null;
 
-  if (isAdmin) {
+  // Il ruolo tecnico di amministratore non concede full-city alla PWA:
+  // per Civiko One vale sempre il contratto una agenzia = una zona.
+  if (isAdmin && !isCivikoRequest) {
     const { data: zones, error: zonesErr } = await sb
       .from("civiko_commercial_zones")
       .select("slug,nome,status,canone_mese_eur,trial_reserved_until,occupied_since")

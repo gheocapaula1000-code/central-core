@@ -32,7 +32,10 @@ import {
 import { isAuctionRecord } from "../_shared/auctionExclusion.ts";
 import { isCivikoCommercialZoneSlug } from "../_shared/civikoCommercialZoneContract.ts";
 import { commercialZoneForQuartiere } from "../_shared/civikoCommercialZoneByQuartiere.ts";
-import { applyCivikoSingleZoneGate } from "../_shared/civikoZoneAccessGate.ts";
+import {
+  applyCivikoSingleZoneGate,
+  isCivikoSourceApp,
+} from "../_shared/civikoZoneAccessGate.ts";
 import { corsHeaders as buildCorsHeaders, handleOptions, requireSecret, makeDebugId } from "../_shared/http.ts";
 
 const SCHEMA_VERSION = "civiko_signals_feed_v1";
@@ -337,7 +340,7 @@ serve(async (req: Request) => {
   }
 
   let assignedSlugs: string[];
-  if (isAdmin) {
+  if (isAdmin && !isCivikoSourceApp(req.headers.get("x-source-app"))) {
     assignedSlugs = [
       "centro-storico", "nord-arcella", "est-brenta", "est-forcellini-camin",
       "sud-est-sant-osvaldo", "sud-voltabarozzo-guizza", "sud-ovest-mandria",
@@ -352,6 +355,7 @@ serve(async (req: Request) => {
     if (assignedSlugs.length === 0) {
       return err("SLUG_OUT_OF_CONTRACT", "Assigned slug not in contract", 403);
     }
+    if (isCivikoSourceApp(req.headers.get("x-source-app"))) isAdmin = false;
   }
 
   // Checkpoint 11B-A — gate "una sola zona ufficiale assegnata".
