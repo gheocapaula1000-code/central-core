@@ -12,12 +12,10 @@ import {
   commercialZoneForQuartiere,
 } from "../../supabase/functions/_shared/civikoCommercialZoneByQuartiere";
 import {
-  applyPadovaPilotZoneGate,
+  applyCivikoSingleZoneGate,
   isCivikoPilotSourceApp,
   normalizeSourceApp,
-  PADOVA_PILOT_ALLOWED_ZONE_SLUG,
   PADOVA_PILOT_AMBIGUOUS_STAZIONE_FIERA_KEYS,
-  isPadovaPilotAllowedZoneSlug,
 } from "../../supabase/functions/_shared/civikoTerritoryContractPadovaPilotV1";
 
 const fn = (p: string) => readFileSync(resolve(process.cwd(), "supabase/functions", p), "utf-8");
@@ -52,17 +50,14 @@ describe("3A — contratto 8 zone invariato", () => {
     }
   });
 
-  it("solo Centro Storico è pilot_reservable", () => {
-    expect(isPadovaPilotAllowedZoneSlug("centro-storico")).toBe(true);
-    for (const slug of ALL_SLUGS.filter((s) => s !== "centro-storico")) {
-      expect(isPadovaPilotAllowedZoneSlug(slug)).toBe(false);
-    }
+  it("11B-A: tutte e 8 le zone ufficiali sono prenotabili", () => {
+    for (const slug of ALL_SLUGS) expect(isCivikoCommercialZoneSlug(slug)).toBe(true);
   });
 
-  it("civiko-zones-reserve rifiuta gli altri 7 slug prima del DB", () => {
+  it("civiko-zones-reserve rifiuta gli slug fuori contratto prima del DB", () => {
     const src = fn("civiko-zones-reserve/index.ts");
-    expect(src).toMatch(/pilot_zone_locked/);
-    expect(src).toMatch(/isPadovaPilotAllowedZoneSlug/);
+    expect(src).toMatch(/isCivikoCommercialZoneSlug/);
+    expect(src).not.toMatch(/pilot_zone_locked/);
   });
 });
 
@@ -100,31 +95,34 @@ describe("3A — gate pilot puro", () => {
     expect(normalizeSourceApp(" Civiko-One ")).toBe("civiko-one");
   });
 
-  it("Civiko admin full-city → solo centro-storico", () => {
-    const g = applyPadovaPilotZoneGate("civiko-one", ALL_SLUGS);
-    expect(g.pilot).toBe(true);
-    expect(g.slugs).toEqual([PADOVA_PILOT_ALLOWED_ZONE_SLUG]);
+  it("Civiko full-city senza zona esplicita → fail-closed", () => {
+    const g = applyCivikoSingleZoneGate("civiko-one", ALL_SLUGS);
+    expect(g).toEqual({ civiko: true, ok: false, code: "MULTIPLE_ZONES_ASSIGNED" });
   });
 
   it("Civiko non-admin su centro-storico → consentito", () => {
-    expect(applyPadovaPilotZoneGate("civiko", ["centro-storico"]).slugs).toEqual(["centro-storico"]);
+    expect(applyCivikoSingleZoneGate("civiko", ["centro-storico"])).toEqual({
+      civiko: true, ok: true, slugs: ["centro-storico"],
+    });
   });
 
-  it("Civiko assegnato ad altra zona → insieme vuoto (fail-closed)", () => {
-    for (const slug of ALL_SLUGS.filter((s) => s !== "centro-storico")) {
-      expect(applyPadovaPilotZoneGate("civiko-one", [slug]).slugs).toEqual([]);
+  it("Civiko assegnato a una qualunque delle 8 zone → consentito (11B-A)", () => {
+    for (const slug of ALL_SLUGS) {
+      expect(applyCivikoSingleZoneGate("civiko-one", [slug])).toEqual({
+        civiko: true, ok: true, slugs: [slug],
+      });
     }
   });
 
   it("source-app non Civiko conserva il perimetro preesistente", () => {
-    const g = applyPadovaPilotZoneGate("acquisitionradar", ALL_SLUGS);
-    expect(g.pilot).toBe(false);
-    expect(g.slugs).toEqual(ALL_SLUGS);
+    const g = applyCivikoSingleZoneGate("acquisitionradar", ALL_SLUGS);
+    expect(g.civiko).toBe(false);
+    expect(g.ok && g.slugs).toEqual(ALL_SLUGS);
   });
 
   it("nessuno slug fuori contratto può essere restituito", () => {
-    expect(applyPadovaPilotZoneGate("civiko-one", ["fiera"]).slugs).toEqual([]);
-    expect(applyPadovaPilotZoneGate("civiko-one", ALL_SLUGS).slugs.every(isCivikoCommercialZoneSlug)).toBe(true);
+    const g = applyCivikoSingleZoneGate("civiko-one", ["fiera"]);
+    expect(g).toEqual({ civiko: true, ok: false, code: "SLUG_OUT_OF_CONTRACT" });
   });
 });
 
@@ -132,11 +130,10 @@ describe("3A — handler runtime dei 4 endpoint", () => {
   for (const p of PILOT_ENDPOINTS) {
     it(`${p} applica il gate pilot prima delle query dati`, () => {
       const src = fn(p);
-      expect(src).toMatch(/applyPadovaPilotZoneGate/);
-      expect(src).toMatch(/PILOT_ZONE_NOT_ASSIGNED/);
+      expect(src).toMatch(/applyCivikoSingleZoneGate/);
       expect(src).toMatch(/x-source-app/);
       // gate applicato prima di qualunque query sui dati
-      const gateIdx = src.indexOf("applyPadovaPilotZoneGate(");
+      const gateIdx = src.indexOf("applyCivikoSingleZoneGate(");
       const dataIdx = src.indexOf("padova_listings");
       if (dataIdx > -1) expect(gateIdx).toBeLessThan(dataIdx);
       // niente admin full-city per il pilot
@@ -157,9 +154,9 @@ describe("3A — handler runtime dei 4 endpoint", () => {
 
   it("padova-quartieri-stats non usa totali globali nella risposta pilot", () => {
     const src = fn("padova-quartieri-stats/index.ts");
-    expect(src).toMatch(/const totals = isPilot/);
-    expect(src).toMatch(/totaliOut = isPilot \? null : totali/);
-    expect(src).toMatch(/padova_pilot_v1_centro_storico/);
+    expect(src).toMatch(/const totals = isCivikoScope/);
+    expect(src).toMatch(/totaliOut = isCivikoScope \? null : totali/);
+    expect(src).toMatch(/civiko_single_zone/);
   });
 
   it("civiko-one-signals-feed non rinomina record di altra zona", () => {
