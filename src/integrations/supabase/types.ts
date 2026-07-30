@@ -1761,6 +1761,30 @@ export type Database = {
         }
         Relationships: []
       }
+      civiko_admin_workspaces: {
+        Row: {
+          active: boolean
+          created_at: string
+          label: string | null
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          label?: string | null
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          label?: string | null
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
       civiko_commercial_zones: {
         Row: {
           agency_id: string | null
