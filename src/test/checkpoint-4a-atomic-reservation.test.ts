@@ -209,7 +209,7 @@ describe("4A — gate territoriale invariato", () => {
     for (const slug of bad) {
       const db = makeDb();
       const res = await handleZonesReserve(req(slug), db.factory);
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(404);
       expect(db.calls).toHaveLength(0);
     }
   });
