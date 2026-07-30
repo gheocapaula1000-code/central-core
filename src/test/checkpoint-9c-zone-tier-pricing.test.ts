@@ -11,6 +11,8 @@ const SRC = readFileSync("supabase/functions/civiko-billing/index.ts", "utf8");
 const errCode = (r: { ok: boolean } & Record<string, unknown>) =>
   (r as { error?: { code?: string } }).error?.code ?? null;
 
+const ROUTE_SRC = SRC.slice(SRC.indexOf("async function handleCreateCheckoutDirect"));
+
 const WID = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";
 
@@ -105,16 +107,16 @@ describe("9C — derivazione server-side del prezzo", () => {
 describe("9C — integrazione nella route create-checkout-direct", () => {
   it("blocca l'annuale prima di qualunque chiamata Stripe", () => {
     expect(SRC).toContain("if (!isCivikoLaunchInterval(billingInterval))");
-    const gate = SRC.indexOf("isCivikoLaunchInterval(billingInterval)");
-    const firstStripeCall = SRC.indexOf("api.stripe.com/v1/customers/search");
+    const gate = ROUTE_SRC.indexOf("isCivikoLaunchInterval(billingInterval)");
+    const firstStripeCall = ROUTE_SRC.indexOf("api.stripe.com/v1/customers/search");
     expect(gate).toBeGreaterThan(0);
     expect(gate).toBeLessThan(firstStripeCall);
   });
 
   it("risolve la zona e il prezzo prima di qualunque chiamata Stripe", () => {
-    const pricing = SRC.indexOf("resolveCivikoZonePricing(zoneRows ?? [], workspaceId)");
-    const priceEnv = SRC.indexOf("Deno.env.get(pricing.value.priceEnvVar)");
-    const firstStripeCall = SRC.indexOf("api.stripe.com/v1/customers/search");
+    const pricing = ROUTE_SRC.indexOf("resolveCivikoZonePricing(zoneRows ?? [], workspaceId)");
+    const priceEnv = ROUTE_SRC.indexOf("Deno.env.get(pricing.value.priceEnvVar)");
+    const firstStripeCall = ROUTE_SRC.indexOf("api.stripe.com/v1/customers/search");
     expect(pricing).toBeGreaterThan(0);
     expect(priceEnv).toBeGreaterThan(pricing);
     expect(priceEnv).toBeLessThan(firstStripeCall);
