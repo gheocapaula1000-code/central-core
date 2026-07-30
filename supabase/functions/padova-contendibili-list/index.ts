@@ -142,7 +142,7 @@ serve(async (req) => {
     }
 
     let assignedSlugs: string[];
-    if (isAdmin && !isCivikoSourceApp(req.headers.get("x-source-app"))) {
+    if (isAdmin) {
       assignedSlugs = [
         "centro-storico", "nord-arcella", "est-brenta", "est-forcellini-camin",
         "sud-est-sant-osvaldo", "sud-voltabarozzo-guizza", "sud-ovest-mandria",
@@ -158,7 +158,6 @@ serve(async (req) => {
       if (assignedSlugs.length === 0) {
         return json({ ok: false, debug_id: did, error: { code: "SLUG_OUT_OF_CONTRACT", message: "Assigned slug not in contract" } }, 403);
       }
-      if (isCivikoSourceApp(req.headers.get("x-source-app"))) isAdmin = false;
     }
 
     // Optional zone_slug: client may pick a specific authorized zone.

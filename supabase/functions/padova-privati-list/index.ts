@@ -119,7 +119,7 @@ serve(async (req) => {
     }
 
     let assignedSlugs: string[];
-    if (isAdmin && !isCivikoSourceApp(req.headers.get("x-source-app"))) {
+    if (isAdmin) {
       assignedSlugs = [
         "centro-storico", "nord-arcella", "est-brenta", "est-forcellini-camin",
         "sud-est-sant-osvaldo", "sud-voltabarozzo-guizza", "sud-ovest-mandria",
@@ -141,7 +141,6 @@ serve(async (req) => {
           403,
         );
       }
-      if (isCivikoSourceApp(req.headers.get("x-source-app"))) isAdmin = false;
     }
 
     // ──────────────────────────────────────────────────────────
