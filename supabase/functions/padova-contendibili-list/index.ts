@@ -29,7 +29,6 @@ import { isCivikoCommercialZoneSlug } from "../_shared/civikoCommercialZoneContr
 import { commercialZoneForQuartiere } from "../_shared/civikoCommercialZoneByQuartiere.ts";
 import {
   applyCivikoSingleZoneGate,
-  isCivikoSourceApp,
 } from "../_shared/civikoZoneAccessGate.ts";
 
 const CORS = {
@@ -164,7 +163,8 @@ serve(async (req) => {
     const zoneSlugRaw = ((body as Record<string, unknown>).zone_slug ?? (body as Record<string, unknown>).commercial_zone_slug ?? url.searchParams.get("zone_slug") ?? url.searchParams.get("commercial_zone_slug") ?? null) as string | null;
 
     // Checkpoint 11B-A — gate "una sola zona ufficiale assegnata" (fail-closed).
-    {
+    // L'admin owner verificato server-side non e' un'agenzia cliente: nessun gate monozona.
+    if (!isAdmin) {
       const gate = applyCivikoSingleZoneGate(req.headers.get("x-source-app"), assignedSlugs, zoneSlugRaw);
       if (gate.civiko) {
         if (!gate.ok) {

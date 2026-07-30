@@ -34,7 +34,6 @@ import { isCivikoCommercialZoneSlug } from "../_shared/civikoCommercialZoneContr
 import { commercialZoneForQuartiere } from "../_shared/civikoCommercialZoneByQuartiere.ts";
 import {
   applyCivikoSingleZoneGate,
-  isCivikoSourceApp,
 } from "../_shared/civikoZoneAccessGate.ts";
 import { corsHeaders as buildCorsHeaders, handleOptions, requireSecret, makeDebugId } from "../_shared/http.ts";
 
@@ -359,7 +358,8 @@ serve(async (req: Request) => {
 
   // Checkpoint 11B-A — gate "una sola zona ufficiale assegnata".
   // Nessun full-city per Civiko One: lo slug client puo' solo restringere.
-  {
+  // L'admin owner verificato server-side non e' un'agenzia cliente: nessun gate monozona.
+  if (!isAdmin) {
     const requestedForGate =
       pickStr("zone_slug") ?? pickStr("commercial_zone_slug");
     const gate = applyCivikoSingleZoneGate(

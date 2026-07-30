@@ -70,7 +70,6 @@ serve(async (req) => {
 
     const { data: adminRes } = await supabase.rpc("civiko_is_admin_agency", { _agency_id: workspaceId });
     let isAdmin = adminRes === true;
-    if (isCivikoSourceApp(req.headers.get("x-source-app"))) isAdmin = false;
 
     let authorizedSlugs: string[] = [];
     if (isAdmin) {
@@ -111,7 +110,10 @@ serve(async (req) => {
     // Checkpoint 11B-A — gate "una sola zona ufficiale assegnata" (fail-closed).
     const url0 = new URL(req.url);
     const requestedZoneSlug = url0.searchParams.get("zone_slug") ?? url0.searchParams.get("commercial_zone_slug");
-    const gate = applyCivikoSingleZoneGate(req.headers.get("x-source-app"), authorizedSlugs, requestedZoneSlug);
+    // L'admin owner verificato server-side non e' un'agenzia cliente: nessun gate monozona.
+    const gate = isAdmin
+      ? ({ civiko: false, ok: true, slugs: authorizedSlugs } as const)
+      : applyCivikoSingleZoneGate(req.headers.get("x-source-app"), authorizedSlugs, requestedZoneSlug);
     const isCivikoScope = gate.civiko;
     if (gate.civiko) {
       if (!gate.ok) {
