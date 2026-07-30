@@ -137,3 +137,135 @@ export function isAllowedCivikoReturnUrl(raw: string): boolean {
   if (ALLOWED_HOSTS.has(host)) return true;
   return ALLOWED_SUFFIXES.some((s) => host.endsWith(s));
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Checkpoint 9C — prezzo mensile autoritativo per fascia territoriale.
+//
+// Al lancio esiste SOLO il pagamento mensile. Il prezzo è derivato
+// server-side dalla zona commerciale riservata all'agenzia
+// (trial o occupata). Il client non è mai autoritativo su tier,
+// importo, valuta o Price ID.
+// ═══════════════════════════════════════════════════════════════
+
+import {
+  CIVIKO_COMMERCIAL_ZONES,
+  isCivikoCommercialZoneSlug,
+  type CivikoCommercialZoneSlug,
+} from "./civikoCommercialZoneContract.ts";
+import { PADOVA_PILOT_ALLOWED_ZONE_SLUG } from "./civikoTerritoryContractPadovaPilotV1.ts";
+
+export type CivikoZoneTier = "premium" | "standard" | "entry";
+
+/** Canone mensile autoritativo in EUR per fascia. */
+export const CIVIKO_TIER_MONTHLY_EUR: Readonly<Record<CivikoZoneTier, number>> = {
+  premium: 2990,
+  standard: 1990,
+  entry: 990,
+};
+
+/** Variabile ambiente del Price Stripe mensile per fascia. */
+export const CIVIKO_TIER_PRICE_ENV: Readonly<Record<CivikoZoneTier, string>> = {
+  premium: "STRIPE_PRICE_CIVIKO_PREMIUM_MONTHLY",
+  standard: "STRIPE_PRICE_CIVIKO_STANDARD_MONTHLY",
+  entry: "STRIPE_PRICE_CIVIKO_ENTRY_MONTHLY",
+};
+
+/** Al lancio è ammesso soltanto il mensile. */
+export function isCivikoLaunchInterval(interval: string): boolean {
+  return interval === "month";
+}
+
+export function isCivikoZoneTier(value: unknown): value is CivikoZoneTier {
+  return value === "premium" || value === "standard" || value === "entry";
+}
+
+export interface CivikoZoneRowForPricing {
+  slug?: unknown;
+  tier?: unknown;
+  canone_mese_eur?: unknown;
+  trial_agency_id?: unknown;
+  occupied_agency_id?: unknown;
+}
+
+export interface CivikoZonePricing {
+  zoneSlug: CivikoCommercialZoneSlug;
+  zoneTier: CivikoZoneTier;
+  canoneMeseEur: number;
+  priceEnvVar: string;
+}
+
+export type CivikoZonePricingErrorCode =
+  | "NO_ZONE_ASSIGNED"
+  | "MULTIPLE_ZONES_ASSIGNED"
+  | "ZONE_NOT_OFFICIAL"
+  | "ZONE_NOT_IN_PILOT"
+  | "ZONE_PRICING_INVALID";
+
+export type CivikoZonePricingResult =
+  | { ok: true; value: CivikoZonePricing }
+  | { ok: false; error: { code: CivikoZonePricingErrorCode; message: string } };
+
+const OFFICIAL_SLUG_SET: ReadonlySet<string> = new Set(
+  CIVIKO_COMMERCIAL_ZONES.map((z) => z.slug),
+);
+
+/**
+ * Deriva la fascia e il prezzo mensile dalla zona riservata all'agenzia.
+ * Fail-closed: zero zone, più di una zona, slug non ufficiale, zona fuori
+ * pilot o tier/canone incoerenti bloccano il checkout.
+ */
+export function resolveCivikoZonePricing(
+  rows: readonly CivikoZoneRowForPricing[] | null | undefined,
+  workspaceId: string,
+  opts: { pilotOnly?: boolean } = {},
+): CivikoZonePricingResult {
+  const pilotOnly = opts.pilotOnly !== false;
+  const wid = (workspaceId ?? "").trim();
+  if (!wid) {
+    return { ok: false, error: { code: "NO_ZONE_ASSIGNED", message: "Nessuna zona attiva per questa agenzia." } };
+  }
+
+  const owned = (rows ?? []).filter((r) =>
+    (typeof r.trial_agency_id === "string" && r.trial_agency_id === wid) ||
+    (typeof r.occupied_agency_id === "string" && r.occupied_agency_id === wid)
+  );
+
+  const uniqueSlugs = [...new Set(owned.map((r) => String(r.slug ?? "")))].filter((s) => s.length > 0);
+
+  if (uniqueSlugs.length === 0) {
+    return { ok: false, error: { code: "NO_ZONE_ASSIGNED", message: "Nessuna zona attiva per questa agenzia." } };
+  }
+  if (uniqueSlugs.length > 1) {
+    return { ok: false, error: { code: "MULTIPLE_ZONES_ASSIGNED", message: "Più di una zona attiva per questa agenzia." } };
+  }
+
+  const slug = uniqueSlugs[0];
+  if (!OFFICIAL_SLUG_SET.has(slug) || !isCivikoCommercialZoneSlug(slug)) {
+    return { ok: false, error: { code: "ZONE_NOT_OFFICIAL", message: "Zona non riconosciuta." } };
+  }
+  if (pilotOnly && slug !== PADOVA_PILOT_ALLOWED_ZONE_SLUG) {
+    return { ok: false, error: { code: "ZONE_NOT_IN_PILOT", message: "Zona non disponibile in questa fase." } };
+  }
+
+  const row = owned.find((r) => String(r.slug ?? "") === slug)!;
+  const tier = typeof row.tier === "string" ? row.tier.trim().toLowerCase() : "";
+  if (!isCivikoZoneTier(tier)) {
+    return { ok: false, error: { code: "ZONE_PRICING_INVALID", message: "Configurazione di prezzo non valida." } };
+  }
+
+  const canoneRaw = row.canone_mese_eur;
+  const canone = typeof canoneRaw === "number" ? canoneRaw : Number(canoneRaw);
+  if (!Number.isFinite(canone) || canone !== CIVIKO_TIER_MONTHLY_EUR[tier]) {
+    return { ok: false, error: { code: "ZONE_PRICING_INVALID", message: "Configurazione di prezzo non valida." } };
+  }
+
+  return {
+    ok: true,
+    value: {
+      zoneSlug: slug,
+      zoneTier: tier,
+      canoneMeseEur: canone,
+      priceEnvVar: CIVIKO_TIER_PRICE_ENV[tier],
+    },
+  };
+}
