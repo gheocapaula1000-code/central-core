@@ -31,11 +31,11 @@ describe("P0 — admin owner full-city, agenzie clienti monozona", () => {
     expect(billing).toContain("extractVerifiedEmail(req)");
   });
 
-  it.each([
+  for (const fn of [
     "civiko-one-signals-feed",
     "padova-contendibili-list",
     "padova-privati-list",
-  ])("%s: admin owner ottiene le 8 zone senza gate monozona", (fn) => {
+  ]) it(`${fn}: admin owner ottiene le 8 zone senza gate monozona`, () => {
     const file = source(`supabase/functions/${fn}/index.ts`);
     expect(file).toContain("if (isAdmin) {");
     expect(file).not.toContain('isAdmin && !isCivikoSourceApp(req.headers.get("x-source-app"))');
@@ -54,13 +54,13 @@ describe("P0 — admin owner full-city, agenzie clienti monozona", () => {
   });
 
   // D) ruolo/admin inviato dal client viene ignorato
-  it.each([
+  for (const fn of [
     "civiko-billing",
     "civiko-one-signals-feed",
     "padova-contendibili-list",
     "padova-privati-list",
     "padova-quartieri-stats",
-  ])("%s non legge is_admin/role dal client", (fn) => {
+  ]) it(`${fn} non legge is_admin/role dal client`, () => {
     const file = source(`supabase/functions/${fn}/index.ts`);
     expect(file).not.toMatch(/\bis_admin\b\s*[:=]?[^\n]*(body|searchParams|payload)/);
     expect(file).not.toContain('pickStr("is_admin")');
