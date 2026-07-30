@@ -1,0 +1,1 @@
+GRANT EXECUTE ON FUNCTION public.civiko_is_admin_agency(uuid) TO supabase_read_only_user;
