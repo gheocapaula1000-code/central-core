@@ -556,6 +556,8 @@ async function handleCreateCheckoutDirect(
       "metadata[supabase_user_id]": supabaseUserId,
       "metadata[workspace_id]": workspaceId,
       "metadata[app]": "civiko",
+      "metadata[plan]": plan,
+      "metadata[billing_interval]": billingInterval,
     });
     if (!r.ok || !r.data?.id) {
       console.error(`[${FUNCTION_NAME}] customers.create failed status=${r.status} debug_id=${debugId}`);
@@ -582,11 +584,14 @@ async function handleCreateCheckoutDirect(
     "subscription_data[metadata][workspace_id]": workspaceId,
     "subscription_data[metadata][app]": "civiko",
     "subscription_data[metadata][plan]": plan,
+    "subscription_data[metadata][billing_interval]": billingInterval,
     "metadata[supabase_user_id]": supabaseUserId,
     "metadata[workspace_id]": workspaceId,
     "metadata[app]": "civiko",
     "metadata[plan]": plan,
+    "metadata[billing_interval]": billingInterval,
   };
+
   const r = await stripeForm(secretKey, "checkout/sessions", form);
   if (!r.ok || !r.data?.url) {
     const stripeMsg = (r.data as { error?: { message?: string } } | null)?.error?.message ?? null;
