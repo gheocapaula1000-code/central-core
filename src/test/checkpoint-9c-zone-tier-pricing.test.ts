@@ -8,6 +8,9 @@ import {
 } from "../../supabase/functions/_shared/civikoCheckoutContract";
 
 const SRC = readFileSync("supabase/functions/civiko-billing/index.ts", "utf8");
+const errCode = (r: { ok: boolean } & Record<string, unknown>) =>
+  (r as { error?: { code?: string } }).error?.code ?? null;
+
 const WID = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";
 
@@ -70,19 +73,19 @@ describe("9C — derivazione server-side del prezzo", () => {
       { pilotOnly: false },
     );
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error.code).toBe("MULTIPLE_ZONES_ASSIGNED");
+    expect(errCode(r)).toBe("MULTIPLE_ZONES_ASSIGNED");
   });
 
   it("slug estraneo al contratto → respinto", () => {
     const r = resolveCivikoZonePricing([zone("zona-fantasma", "premium", 2990)], WID, { pilotOnly: false });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error.code).toBe("ZONE_NOT_OFFICIAL");
+    expect(errCode(r)).toBe("ZONE_NOT_OFFICIAL");
   });
 
   it("zona ufficiale fuori pilot → respinta", () => {
     const r = resolveCivikoZonePricing([zone("nord-arcella", "standard", 1990)], WID);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error.code).toBe("ZONE_NOT_IN_PILOT");
+    expect(errCode(r)).toBe("ZONE_NOT_IN_PILOT");
   });
 
   it("tier/canone incoerenti → respinti", () => {
@@ -94,7 +97,7 @@ describe("9C — derivazione server-side del prezzo", () => {
     ]) {
       const r = resolveCivikoZonePricing([bad], WID);
       expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.error.code).toBe("ZONE_PRICING_INVALID");
+      expect(errCode(r)).toBe("ZONE_PRICING_INVALID");
     }
   });
 });
