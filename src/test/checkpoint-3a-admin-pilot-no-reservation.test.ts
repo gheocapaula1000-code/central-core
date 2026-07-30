@@ -48,7 +48,7 @@ function resolvePerimeter(opts: {
   }
   const gate = applyCivikoSingleZoneGate(opts.sourceApp, base, opts.requestedSlug);
   if (gate.ok) return { status: 200, slugs: [...gate.slugs] };
-  return { status: 403, code: gate.code, slugs: [] };
+  return { status: 403, code: "code" in gate ? gate.code : "ZONE_ACCESS_DENIED", slugs: [] };
 }
 
 describe("3A/11B-A — admin owner full-city senza prenotazione", () => {
