@@ -54,12 +54,12 @@ describe("9C — derivazione server-side del prezzo", () => {
   });
 
   it("zona occupata standard → variabile standard (fuori pilot)", () => {
-    const r = resolveCivikoZonePricing([zone("nord-arcella", "standard", 1990, "occ")], WID, { pilotOnly: false });
+    const r = resolveCivikoZonePricing([zone("nord-arcella", "standard", 1990, "occ")], WID);
     expect(r.ok && r.value.priceEnvVar).toBe("STRIPE_PRICE_CIVIKO_STANDARD_MONTHLY");
   });
 
   it("zona entry → variabile entry (fuori pilot)", () => {
-    const r = resolveCivikoZonePricing([zone("est-brenta", "entry", 990)], WID, { pilotOnly: false });
+    const r = resolveCivikoZonePricing([zone("est-brenta", "entry", 990)], WID);
     expect(r.ok && r.value.priceEnvVar).toBe("STRIPE_PRICE_CIVIKO_ENTRY_MONTHLY");
   });
 
@@ -72,22 +72,21 @@ describe("9C — derivazione server-side del prezzo", () => {
     const r = resolveCivikoZonePricing(
       [zone("centro-storico", "premium", 2990), zone("nord-arcella", "standard", 1990, "occ")],
       WID,
-      { pilotOnly: false },
     );
     expect(r.ok).toBe(false);
     expect(errCode(r)).toBe("MULTIPLE_ZONES_ASSIGNED");
   });
 
   it("slug estraneo al contratto → respinto", () => {
-    const r = resolveCivikoZonePricing([zone("zona-fantasma", "premium", 2990)], WID, { pilotOnly: false });
+    const r = resolveCivikoZonePricing([zone("zona-fantasma", "premium", 2990)], WID);
     expect(r.ok).toBe(false);
     expect(errCode(r)).toBe("ZONE_NOT_OFFICIAL");
   });
 
-  it("zona ufficiale fuori pilot → respinta", () => {
+  it("zona ufficiale non pilot → accettata (8 zone aperte, 11B-A)", () => {
     const r = resolveCivikoZonePricing([zone("nord-arcella", "standard", 1990)], WID);
-    expect(r.ok).toBe(false);
-    expect(errCode(r)).toBe("ZONE_NOT_IN_PILOT");
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.value.zoneSlug).toBe("nord-arcella");
   });
 
   it("tier/canone incoerenti → respinti", () => {

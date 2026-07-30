@@ -24,7 +24,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsHeaders, handleOptions, requireSecret, makeDebugId } from "../_shared/http.ts";
 import { isCivikoCommercialZoneSlug } from "../_shared/civikoCommercialZoneContract.ts";
 import { commercialZoneForQuartiere } from "../_shared/civikoCommercialZoneByQuartiere.ts";
-import { applyPadovaPilotZoneGate } from "../_shared/civikoTerritoryContractPadovaPilotV1.ts";
+import { applyCivikoSingleZoneGate } from "../_shared/civikoZoneAccessGate.ts";
 
 const BANNED = /\b(AI|IA|intelligenza|stima|perizia|valutazione|valore reale|prezzo giusto|garantito)\b/gi;
 function sanitize<T>(v: T): T {
@@ -140,20 +140,6 @@ serve(async (req) => {
       }
     }
 
-    // Checkpoint 3A — gate territoriale Padova Pilot v1 (source-aware, fail-closed).
-    // Le 8 zone restano intatte: per le sole richieste Civiko One il perimetro
-    // dati e' ristretto a centro-storico, senza admin full-city.
-    {
-      const pilotGate = applyPadovaPilotZoneGate(req.headers.get("x-source-app"), assignedSlugs);
-      if (pilotGate.pilot) {
-        if (pilotGate.slugs.length === 0) {
-          return json({ ok: false, error: { code: "PILOT_ZONE_NOT_ASSIGNED", message: "Pilot zone not assigned to workspace" } }, 403);
-        }
-        assignedSlugs = pilotGate.slugs;
-        isAdmin = false;
-      }
-    }
-
     // ──────────────────────────────────────────────────────────
     // 4) Parse client params. IGNORE workspace_id and
     //    commercial_zone_slug from body/query. They are never authority.
@@ -185,6 +171,19 @@ serve(async (req) => {
     const tipoLead = pickStr("tipo_lead");
     const quartiereRaw = pickStr("quartiere");
     const zoneSlugRaw = pickStr("zone_slug") ?? pickStr("commercial_zone_slug");
+
+    // Checkpoint 11B-A — gate "una sola zona ufficiale assegnata" (fail-closed).
+    // Lo slug del client puo' solo restringere entro le zone autorizzate.
+    {
+      const gate = applyCivikoSingleZoneGate(req.headers.get("x-source-app"), assignedSlugs, zoneSlugRaw);
+      if (gate.civiko) {
+        if (!gate.ok) {
+          return json({ ok: false, error: { code: gate.code, message: "Zone access denied" } }, 403);
+        }
+        assignedSlugs = gate.slugs;
+        isAdmin = false;
+      }
+    }
 
     // If client requests a specific zone, it must be in the authorized set.
     let activeSlugs = assignedSlugs;
