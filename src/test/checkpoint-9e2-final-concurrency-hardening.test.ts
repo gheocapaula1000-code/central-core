@@ -121,7 +121,7 @@ describe("9E2-FINAL — contratto HTTP checkout Civiko pagato", () => {
       paidCivikoSession({ metadata: { app: "civiko", zone_slug: PILOT, zone_tier: "premium" } }),
       paidCivikoSession({ subscription: null }),
       paidCivikoSession({ customer: null }),
-      paidCivikoSession({ metadata: { app: "civiko", workspace_id: "ws-1", zone_slug: "nord-arcella", zone_tier: "premium" } }),
+      paidCivikoSession({ metadata: { app: "civiko", workspace_id: "ws-1", zone_slug: "zona-fantasma", zone_tier: "premium" } }),
     ];
     for (const [i, s] of cases.entries()) {
       const reg = new Map<string, { status: string; attempts: number }>();
