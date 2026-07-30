@@ -46,7 +46,7 @@ function handleCheckout(s: Session, sub: Sub | null): { skipped?: string; activa
   }
   if (!s.subscription) throw new RetryableError("no_subscription");
   if (!String(meta.workspace_id ?? "").trim()) throw new RetryableError("no_workspace_id");
-  if (String(meta.zone_slug ?? "").trim() !== PILOT) throw new RetryableError("zone_not_in_pilot");
+  if (!OFFICIAL_SLUGS.has(String(meta.zone_slug ?? "").trim())) throw new RetryableError("zone_not_official");
   if (!s.customer) throw new RetryableError("no_customer");
   if (sub === "retrieve_error" || sub === null) throw new RetryableError("stripe_retrieve_failed");
   if (sub.status !== "active" && sub.status !== "trialing") {
@@ -298,7 +298,7 @@ describe("9E2-FINAL — codice webhook allineato al contratto", () => {
     for (const code of [
       "no_subscription",
       "no_workspace_id",
-      "zone_not_in_pilot",
+      "zone_not_official",
       "no_customer",
       "subscription_not_active",
       "price_tier_mismatch",
