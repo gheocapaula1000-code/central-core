@@ -204,34 +204,40 @@ async function handleCheckoutCompleted(stripe: Stripe, event: Stripe.Event) {
   const s = event.data.object as Stripe.Checkout.Session;
   const meta = (s.metadata ?? {}) as Record<string, string>;
 
+  // Gate di appartenenza: eventi di altri prodotti restano ignorabili.
   if (!isCivikoMeta(meta)) return { skipped: "non_civiko" };
   if (s.mode !== "subscription") return { skipped: "not_subscription_mode" };
   if (s.status !== "complete") return { skipped: "session_not_complete" };
   if (s.payment_status !== "paid" && s.payment_status !== "no_payment_required") {
     return { skipped: "not_paid" };
   }
-  if (!s.subscription) return { skipped: "no_subscription" };
+
+  // Da qui in poi: checkout Civiko riconosciuto, completo e pagato.
+  // Qualunque incoerenza è un difetto operativo → RetryableError (failed + 500).
+  // Nessun percorso può restituire skipped + 200 lasciando un pagante senza zona.
+  if (!s.subscription) throw new RetryableError("no_subscription");
 
   const workspaceId = String(meta.workspace_id ?? "").trim();
-  if (!workspaceId) return { skipped: "no_workspace_id" };
+  if (!workspaceId) throw new RetryableError("no_workspace_id");
 
   const zoneSlug = String(meta.zone_slug ?? "").trim();
-  if (zoneSlug !== PADOVA_PILOT_ALLOWED_ZONE_SLUG) return { skipped: "zone_not_in_pilot" };
+  if (zoneSlug !== PADOVA_PILOT_ALLOWED_ZONE_SLUG) throw new RetryableError("zone_not_in_pilot");
 
   const customerId = typeof s.customer === "string" ? s.customer : s.customer?.id ?? null;
-  if (!customerId) return { skipped: "no_customer" };
+  if (!customerId) throw new RetryableError("no_customer");
 
   const subId = typeof s.subscription === "string" ? s.subscription : s.subscription.id;
   const sub = await retrieveSubscription(stripe, subId);
   if (sub.status !== "active" && sub.status !== "trialing") {
-    return { skipped: "subscription_not_active" };
+    throw new RetryableError("subscription_not_active");
   }
 
   const priceId = sub.items.data[0]?.price?.id ?? null;
   const tier = String(meta.zone_tier ?? "").trim().toLowerCase();
   if (!priceMatchesTier(priceId, tier)) {
-    return { skipped: "price_tier_mismatch" };
+    throw new RetryableError("price_tier_mismatch");
   }
+
 
   const email = s.customer_details?.email ?? s.customer_email ?? null;
 
