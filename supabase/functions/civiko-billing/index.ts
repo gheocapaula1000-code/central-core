@@ -24,6 +24,10 @@ import {
   getActiveSubscription, getCurrentUsage, getEntitlements,
   CIVIKO_APP_ID, CIVIKO_PLANS, type CivikoPlanKey, type UsageType,
 } from "../_shared/billing.ts";
+import {
+  resolveCivikoCheckoutContract, isAllowedCivikoReturnUrl,
+} from "../_shared/civikoCheckoutContract.ts";
+
 
 const FUNCTION_NAME = "civiko-billing";
 const EXPECTED_BASE_PATH = "/functions/v1/civiko-billing";
