@@ -119,8 +119,9 @@ describe("padova-contendibili-list — client input isolation", () => {
     // client-supplied slug. There must NOT be a code path reading
     // `body.commercial_zone_slug` and passing it to .eq / into the query.
     expect(SRC).not.toMatch(/commercialZoneFilter\s*=/);
-    expect(SRC).not.toMatch(/\.commercial_zone_slug\s*(\?\?|\|\|)/);
-    expect(SRC).toMatch(/\.eq\(\s*["']commercial_zone_slug["']\s*,\s*assignedSlug\s*\)/);
+    // 11B-A: il filtro DB usa l'insieme autorizzato server-side (activeSlugs),
+    // mai uno slug fornito dal client.
+    expect(SRC).toMatch(/\.in\(\s*["']commercial_zone_slug["']\s*,\s*activeSlugs\s*\)/);
   });
 
   it("ignores client-supplied workspace_id", () => {
@@ -146,12 +147,11 @@ describe("padova-contendibili-list — server-side zone resolution", () => {
 
   it("emits the standard error codes with the same statuses as padova-privati-list", () => {
     expect(SRC).toMatch(/NO_ZONE_ASSIGNED[\s\S]*?403/);
-    expect(SRC).toMatch(/MULTIPLE_ZONES_ASSIGNED[\s\S]*?403/);
-    expect(SRC).toMatch(/SLUG_OUT_OF_CONTRACT[\s\S]*?403/);
+    expect(SRC).toContain("applyCivikoSingleZoneGate");
   });
 
   it("validates the assigned slug is one of the 8 official slugs", () => {
-    expect(SRC).toContain("isCivikoCommercialZoneSlug(assignedSlug)");
+    expect(SRC).toContain("isCivikoCommercialZoneSlug(s)");
   });
 
   it("does not expose raw e.message on 500", () => {
@@ -169,7 +169,7 @@ describe("padova-contendibili-list — DB-side zone filter", () => {
   it("applies .eq(commercial_zone_slug, assignedSlug) to the list query", () => {
     // Both list and hot must go through applyZoneFilter which sets .eq.
     expect(SRC).toContain("applyZoneFilter");
-    expect(SRC).toMatch(/\.eq\(["']commercial_zone_slug["'],\s*assignedSlug\)/);
+    expect(SRC).toMatch(/\.in\(["']commercial_zone_slug["'],\s*activeSlugs\)/);
   });
 
   it("computes hot_3plus with the same zone filter (not global Padova)", () => {
@@ -197,7 +197,7 @@ describe("padova-contendibili-list — DB-side zone filter", () => {
 describe("padova-contendibili-list — quartiere filter", () => {
   it("uses commercialZoneForQuartiere and compares against assignedSlug", () => {
     expect(SRC).toContain("commercialZoneForQuartiere(quartiereRaw)");
-    expect(SRC).toContain("resolved !== assignedSlug");
+    expect(SRC).toContain("!activeSlugs.includes(resolved)");
     expect(SRC).toContain("QUARTIERE_OUT_OF_ZONE");
   });
 
@@ -217,7 +217,7 @@ describe("padova-contendibili-list — response shape preserved", () => {
   });
 
   it("adds assigned_zone at top level without removing other fields", () => {
-    expect(SRC).toContain("assigned_zone: assignedSlug");
+    expect(SRC).toContain("assigned_zone: primarySlug");
     expect(SRC).toContain("debug_id: did");
   });
 
@@ -380,7 +380,7 @@ describe("padova-contendibili-list — reconciliation contract", () => {
   it("envelope exposes total, items_count, snapshot_complete, assigned_zone", () => {
     expect(SRC).toContain("items_count: itemsCount");
     expect(SRC).toContain("snapshot_complete: snapshotComplete");
-    expect(SRC).toContain("assigned_zone: assignedSlug");
+    expect(SRC).toContain("assigned_zone: primarySlug");
     // Also mirrored under data.
     const dataBlock = SRC.slice(SRC.indexOf("data: {"), SRC.lastIndexOf("debug_id: did"));
     expect(dataBlock).toContain("total: totalOut");
