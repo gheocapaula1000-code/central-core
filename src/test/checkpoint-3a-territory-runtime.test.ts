@@ -11,8 +11,8 @@ import {
 import {
   commercialZoneForQuartiere,
 } from "../../supabase/functions/_shared/civikoCommercialZoneByQuartiere";
+import { applyCivikoSingleZoneGate } from "../../supabase/functions/_shared/civikoZoneAccessGate";
 import {
-  applyCivikoSingleZoneGate,
   isCivikoPilotSourceApp,
   normalizeSourceApp,
   PADOVA_PILOT_AMBIGUOUS_STAZIONE_FIERA_KEYS,
