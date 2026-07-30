@@ -481,8 +481,8 @@ async function handleCreatePortalSession(
 }
 
 // ── /create-checkout-direct ───────────────────────────────────
-// Civiko One — direct Stripe Checkout for the consumer plan
-// (monthly/yearly), keyed by supabase_user_id (NOT agency_id).
+// Civiko One — direct Stripe Checkout per il piano "agenzia"
+// (billing_interval month|year), keyed by supabase_user_id.
 // Auth: x-source-app: civiko + (x-internal-secret | x-job-secret) = AI_CORE_SECRET_CIVIKO
 async function handleCreateCheckoutDirect(
   req: Request,
@@ -495,7 +495,13 @@ async function handleCreateCheckoutDirect(
     return withIdentity(fail(req, 503, "BILLING_NOT_CONFIGURED", "Stripe non configurato sul Core.", debugId), route);
   }
 
-  const plan = String(body.plan ?? "").trim().toLowerCase();
+  const contract = resolveCivikoCheckoutContract(body);
+  if (!contract.ok) {
+    return withIdentity(fail(req, 400, contract.error.code, contract.error.message, debugId), route);
+  }
+  const plan = contract.value.plan;
+  const billingInterval = contract.value.billingInterval;
+
   const supabaseUserId = String(body.supabase_user_id ?? "").trim();
   const email = String(body.email ?? "").trim();
   const workspaceId = String(body.workspace_id ?? "").trim();
@@ -505,9 +511,6 @@ async function handleCreateCheckoutDirect(
   const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-  if (plan !== "monthly" && plan !== "yearly") {
-    return withIdentity(fail(req, 400, "INVALID_BODY", "plan deve essere 'monthly' o 'yearly'.", debugId), route);
-  }
   if (!uuidRe.test(supabaseUserId)) {
     return withIdentity(fail(req, 400, "INVALID_BODY", "supabase_user_id non è un UUID valido.", debugId), route);
   }
@@ -517,16 +520,16 @@ async function handleCreateCheckoutDirect(
   if (!emailRe.test(email)) {
     return withIdentity(fail(req, 400, "INVALID_BODY", "email non valida.", debugId), route);
   }
-  if (!successUrl || !cancelUrl) {
-    return withIdentity(fail(req, 400, "INVALID_BODY", "success_url e cancel_url sono obbligatori.", debugId), route);
+  if (!isAllowedCivikoReturnUrl(successUrl) || !isAllowedCivikoReturnUrl(cancelUrl)) {
+    return withIdentity(fail(req, 400, "INVALID_BODY", "success_url e cancel_url devono essere HTTPS su un dominio consentito.", debugId), route);
   }
 
-  const priceId = plan === "monthly"
-    ? (Deno.env.get("STRIPE_PRICE_CIVIKO_MONTHLY") ?? "")
-    : (Deno.env.get("STRIPE_PRICE_CIVIKO_YEARLY") ?? "");
+  // Campi economici / client Stripe non sono mai accettati dal chiamante.
+  const priceId = Deno.env.get(contract.value.priceEnvVar) ?? "";
   if (!priceId) {
-    return withIdentity(fail(req, 503, "PRICE_NOT_CONFIGURED", `Price Stripe per piano ${plan} non configurato.`, debugId), route);
+    return withIdentity(fail(req, 503, "PRICE_NOT_CONFIGURED", `Price Stripe per intervallo ${billingInterval} non configurato.`, debugId), route);
   }
+
 
   // 1) Find existing customer by metadata.supabase_user_id (Stripe search)
   let customerId: string | null = null;
