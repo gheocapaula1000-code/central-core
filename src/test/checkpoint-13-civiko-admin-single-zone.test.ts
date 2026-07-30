@@ -1,10 +1,11 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { applyCivikoSingleZoneGate } from "../../supabase/functions/_shared/civikoZoneAccessGate.ts";
 
 const source = (path: string) =>
-  readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
+  readFileSync(resolve(process.cwd(), path), "utf8");
 
 const ALL_ZONES = [
   "centro-storico",
