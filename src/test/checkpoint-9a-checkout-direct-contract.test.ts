@@ -114,7 +114,7 @@ describe("checkpoint 9A — integrazione nella edge function", () => {
   });
 
   it("seleziona il price solo da variabili ambiente", () => {
-    expect(SRC).toContain("Deno.env.get(contract.value.priceEnvVar)");
+    expect(SRC).toContain("Deno.env.get(pricing.value.priceEnvVar)");
     const shared = readFileSync("supabase/functions/_shared/civikoCheckoutContract.ts", "utf8");
     expect(shared).toContain("STRIPE_PRICE_CIVIKO_MONTHLY");
     expect(shared).toContain("STRIPE_PRICE_CIVIKO_YEARLY");
