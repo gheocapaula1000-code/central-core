@@ -27,7 +27,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { requireSecret, makeDebugId } from "../_shared/http.ts";
 import { isCivikoCommercialZoneSlug } from "../_shared/civikoCommercialZoneContract.ts";
 import { commercialZoneForQuartiere } from "../_shared/civikoCommercialZoneByQuartiere.ts";
-import { applyPadovaPilotZoneGate } from "../_shared/civikoTerritoryContractPadovaPilotV1.ts";
+import { applyCivikoSingleZoneGate } from "../_shared/civikoZoneAccessGate.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -157,22 +157,20 @@ serve(async (req) => {
       }
     }
 
-    // Checkpoint 3A — gate territoriale Padova Pilot v1 (source-aware, fail-closed).
-    // Le 8 zone restano intatte: per le sole richieste Civiko One il perimetro
-    // dati e' ristretto a centro-storico, senza admin full-city.
+    // Optional zone_slug: client may pick a specific authorized zone.
+    const zoneSlugRaw = ((body as Record<string, unknown>).zone_slug ?? (body as Record<string, unknown>).commercial_zone_slug ?? url.searchParams.get("zone_slug") ?? url.searchParams.get("commercial_zone_slug") ?? null) as string | null;
+
+    // Checkpoint 11B-A — gate "una sola zona ufficiale assegnata" (fail-closed).
     {
-      const pilotGate = applyPadovaPilotZoneGate(req.headers.get("x-source-app"), assignedSlugs);
-      if (pilotGate.pilot) {
-        if (pilotGate.slugs.length === 0) {
-          return json({ ok: false, debug_id: did, error: { code: "PILOT_ZONE_NOT_ASSIGNED", message: "Pilot zone not assigned to workspace" } }, 403);
+      const gate = applyCivikoSingleZoneGate(req.headers.get("x-source-app"), assignedSlugs, zoneSlugRaw);
+      if (gate.civiko) {
+        if (!gate.ok) {
+          return json({ ok: false, debug_id: did, error: { code: gate.code, message: "Zone access denied" } }, 403);
         }
-        assignedSlugs = pilotGate.slugs;
+        assignedSlugs = gate.slugs;
         isAdmin = false;
       }
     }
-
-    // Optional zone_slug: client may pick a specific authorized zone.
-    const zoneSlugRaw = ((body as Record<string, unknown>).zone_slug ?? (body as Record<string, unknown>).commercial_zone_slug ?? url.searchParams.get("zone_slug") ?? url.searchParams.get("commercial_zone_slug") ?? null) as string | null;
     let activeSlugs = assignedSlugs;
     if (zoneSlugRaw && zoneSlugRaw.trim()) {
       if (!assignedSlugs.includes(zoneSlugRaw)) {

@@ -8838,6 +8838,10 @@ export type Database = {
       }
       civiko_ascii_fold: { Args: { p_value: string }; Returns: string }
       civiko_is_admin_agency: { Args: { _agency_id: string }; Returns: boolean }
+      civiko_is_official_zone_slug: {
+        Args: { p_slug: string }
+        Returns: boolean
+      }
       civiko_normalize_quartiere: { Args: { p_value: string }; Returns: string }
       civiko_release_zone_on_cancel_atomic: {
         Args: { p_stripe_subscription_id: string }

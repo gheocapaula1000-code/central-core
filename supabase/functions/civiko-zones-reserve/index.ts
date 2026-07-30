@@ -2,14 +2,12 @@
 // Auth: x-job-secret = CENTRAL_CORE_JOB_SECRET (server-to-server dal proxy Civiko One).
 // I valori x-user-id / x-user-email / x-workspace-id arrivano già verificati dal proxy.
 //
-// Gate territoriale Padova Pilot v1: SOLO `centro-storico` prosegue.
-// Il rifiuto (403 pilot_zone_locked) avviene PRIMA di qualsiasi insert,
-// upsert o RPC: nessun client DB viene creato per gli slug respinti.
+// Checkpoint 11B-A — gate territoriale: sono riservabili tutte e sole le 8
+// zone commerciali ufficiali di Padova (CIVIKO_COMMERCIAL_ZONES).
+// Il rifiuto avviene PRIMA di qualsiasi insert, upsert o RPC: nessun client
+// DB viene creato per gli slug non ufficiali.
 
-import {
-  PADOVA_PILOT_ALLOWED_ZONE_SLUG,
-  isPadovaPilotAllowedZoneSlug,
-} from "../_shared/civikoTerritoryContractPadovaPilotV1.ts";
+import { isCivikoCommercialZoneSlug } from "../_shared/civikoCommercialZoneContract.ts";
 
 const civikoOneCors = {
   "Access-Control-Allow-Origin": "*",
@@ -35,10 +33,9 @@ const PUBLIC_MESSAGES: Record<string, string> = {
   richiesta_non_valida: "Richiesta non valida.",
   non_autorizzato: "Accesso non consentito.",
   parametri_non_validi: "Richiesta non valida.",
-  zona_non_trovata: "Zona non disponibile.",
-  pilot_zone_locked: "In questa fase è attivabile solo la zona Centro Storico.",
-  zona_in_trial: "La zona è già assegnata a un'altra agenzia.",
-  zona_occupata: "La zona è già assegnata a un'altra agenzia.",
+  zona_non_trovata: "Questa zona non è disponibile. Scegli un'altra zona.",
+  zona_in_trial: "Questa zona non è disponibile. Scegli un'altra zona.",
+  zona_occupata: "Questa zona non è disponibile. Scegli un'altra zona.",
   agency_ha_gia_zona: "L'agenzia ha già una zona attiva.",
   membership_incompatibile: "Non è possibile completare l'attivazione con questo account.",
 };
@@ -128,13 +125,12 @@ export async function handleZonesReserve(
   if (!slug) {
     return errorResponse("richiesta_non_valida", 400, debug_id);
   }
-  // Territory Contract Padova Pilot v1 — fail-closed server-side:
-  // solo `centro-storico` è riservabile nel pilot. Ogni altro slug
-  // (inclusi slug legacy o manipolati dal client) viene respinto qui,
-  // prima di qualsiasi scrittura o chiamata alle RPC.
-  if (!isPadovaPilotAllowedZoneSlug(slug)) {
-    console.warn("[zones-reserve] pilot_zone_locked", debug_id, PADOVA_PILOT_ALLOWED_ZONE_SLUG);
-    return errorResponse("pilot_zone_locked", 403, debug_id);
+  // Fail-closed server-side: solo gli 8 slug ufficiali del contratto.
+  // Slug legacy o manipolati dal client vengono respinti qui, prima di
+  // qualsiasi scrittura o chiamata alle RPC.
+  if (!isCivikoCommercialZoneSlug(slug)) {
+    console.warn("[zones-reserve] slug_out_of_contract", debug_id);
+    return errorResponse("zona_non_trovata", 404, debug_id);
   }
 
   // --- 4) Service-role client ---
@@ -185,7 +181,6 @@ export async function handleZonesReserve(
   if (result.ok === false) {
     const KNOWN = new Set([
       "zona_non_trovata",
-      "pilot_zone_locked",
       "zona_in_trial",
       "zona_occupata",
       "agency_ha_gia_zona",
@@ -199,8 +194,6 @@ export async function handleZonesReserve(
     }
     const status = appError === "zona_non_trovata"
       ? 404
-      : appError === "pilot_zone_locked"
-      ? 403
       : appError === "errore" || appError === "parametri_non_validi"
       ? 400
       : 409;

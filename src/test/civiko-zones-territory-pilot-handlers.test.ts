@@ -111,11 +111,12 @@ describe("handler reale civiko-zones-list", () => {
     for (const s of LEGACY_SLUGS) expect(json).not.toContain(s);
   });
 
-  it("pilot_reservable=true solo per centro-storico", () => {
-    const reservable = body.data.zones.filter((z) => z.pilot_reservable === true);
-    expect(reservable).toHaveLength(1);
-    expect(reservable[0].slug).toBe("centro-storico");
-    for (const z of body.data.zones) expect(typeof z.pilot_reservable).toBe("boolean");
+  it("11B-A: tutte e 8 le zone sono selezionabili dal catalogo", () => {
+    expect(body.data.zones).toHaveLength(8);
+    for (const z of body.data.zones) {
+      expect(z.selectable).toBe(true);
+      expect(z.availability_action).toBe("verify");
+    }
   });
 
   it("Stazione compare una sola volta, sotto Centro Storico", () => {
@@ -228,24 +229,21 @@ describe("handler reale civiko-zones-reserve — gate territoriale", () => {
     expect(b.ok).toBe(true);
   });
 
-  it("gli altri 7 slug ufficiali ricevono 403 pilot_zone_locked senza toccare il DB", async () => {
-    for (const slug of EXPECTED_SLUGS.filter((s) => s !== "centro-storico")) {
-      const { calls, factory } = spyFactory();
+  it("11B-A: tutti e 8 gli slug ufficiali sono prenotabili via RPC atomica", async () => {
+    for (const slug of EXPECTED_SLUGS) {
+      const { calls, factory } = spyFactory({ data: { ok: true, slug }, error: null });
       const res = await handleZonesReserve(req(slug), factory);
-      expect(res.status).toBe(403);
-      const b = await res.json();
-      expect(b.error.code).toBe("pilot_zone_locked");
-      expect(calls).toHaveLength(0);
+      expect(res.status).toBe(200);
+      expect(calls).toContain("rpc:reserve_padova_pilot_zone_atomic");
     }
   });
 
-  it("slug legacy e manipolati ricevono 403 senza insert/upsert/RPC", async () => {
+  it("slug legacy e manipolati ricevono 404 senza insert/upsert/RPC", async () => {
     const bad = [...LEGACY_SLUGS, "CENTRO-STORICO", "centro storico", "fiera", "stazione-fiera"];
     for (const slug of bad) {
       const { calls, factory } = spyFactory();
       const res = await handleZonesReserve(req(slug), factory);
-      expect(res.status).toBe(403);
-      expect((await res.json()).error.code).toBe("pilot_zone_locked");
+      expect(res.status).toBe(404);
       expect(calls).toHaveLength(0);
     }
   });

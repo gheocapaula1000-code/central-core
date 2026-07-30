@@ -20,7 +20,7 @@ import {
   isCivikoZoneTier,
   type CivikoZoneTier,
 } from "../_shared/civikoCheckoutContract.ts";
-import { PADOVA_PILOT_ALLOWED_ZONE_SLUG } from "../_shared/civikoTerritoryContractPadovaPilotV1.ts";
+import { isCivikoCommercialZoneSlug } from "../_shared/civikoCommercialZoneContract.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -221,7 +221,7 @@ async function handleCheckoutCompleted(stripe: Stripe, event: Stripe.Event) {
   if (!workspaceId) throw new RetryableError("no_workspace_id");
 
   const zoneSlug = String(meta.zone_slug ?? "").trim();
-  if (zoneSlug !== PADOVA_PILOT_ALLOWED_ZONE_SLUG) throw new RetryableError("zone_not_in_pilot");
+  if (!isCivikoCommercialZoneSlug(zoneSlug)) throw new RetryableError("zone_not_official");
 
   const customerId = typeof s.customer === "string" ? s.customer : s.customer?.id ?? null;
   if (!customerId) throw new RetryableError("no_customer");
@@ -301,9 +301,9 @@ async function handleSubscriptionUpsert(event: Stripe.Event) {
     return { updated: true };
   }
 
-  // Non nota: attiva solo se il pagamento è valido e la zona è quella pilot.
+  // Non nota: attiva solo se il pagamento è valido e la zona è ufficiale.
   if (!workspaceId) return { skipped: "no_workspace_id" };
-  if (zoneSlug !== PADOVA_PILOT_ALLOWED_ZONE_SLUG) return { skipped: "zone_not_in_pilot" };
+  if (!isCivikoCommercialZoneSlug(zoneSlug)) return { skipped: "zone_not_official" };
   if (sub.status !== "active" && sub.status !== "trialing") return { skipped: "subscription_not_active" };
   if (!priceMatchesTier(priceId, tier)) return { skipped: "price_tier_mismatch" };
 

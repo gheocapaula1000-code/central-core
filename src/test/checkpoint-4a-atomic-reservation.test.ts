@@ -187,13 +187,12 @@ describe("4A — gate territoriale invariato", () => {
     expect(db.calls).toEqual(["rpc:reserve_padova_pilot_zone_atomic"]);
   });
 
-  it("gli altri 7 slug ufficiali sono respinti prima di creare il client DB", async () => {
-    for (const slug of OFFICIAL.filter((s) => s !== "centro-storico")) {
+  it("11B-A: tutti e 8 gli slug ufficiali passano il gate con una sola RPC", async () => {
+    for (const slug of OFFICIAL) {
       const db = makeDb();
       const res = await handleZonesReserve(req(slug), db.factory);
-      expect(res.status).toBe(403);
-      expect((await res.json()).error.code).toBe("pilot_zone_locked");
-      expect(db.calls).toHaveLength(0);
+      expect(res.status).toBe(200);
+      expect(db.calls).toEqual(["rpc:reserve_padova_pilot_zone_atomic"]);
     }
   });
 
@@ -210,7 +209,7 @@ describe("4A — gate territoriale invariato", () => {
     for (const slug of bad) {
       const db = makeDb();
       const res = await handleZonesReserve(req(slug), db.factory);
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(404);
       expect(db.calls).toHaveLength(0);
     }
   });
@@ -425,7 +424,6 @@ describe("4A — micro-correzione: nessun codice tecnico mostrabile all'utente",
       "zona_occupata",
       "agency_ha_gia_zona",
       "zona_non_trovata",
-      "pilot_zone_locked",
     ]) {
       const db = staticDb({ data: { ok: false, error: code }, error: null });
       const body = await (await handleZonesReserve(req("centro-storico"), db.factory)).json();
@@ -498,9 +496,9 @@ describe("4A — contratto Edge", () => {
   it("l'Edge non accetta agency/workspace/user/email dal body", () => {
     expect(EDGE_SRC).not.toMatch(/body\.(agency|workspace|user|email)/);
   });
-  it("il gate anticipato solo centro-storico resta presente", () => {
-    expect(EDGE_SRC).toMatch(/isPadovaPilotAllowedZoneSlug/);
-    expect(EDGE_SRC).toMatch(/pilot_zone_locked/);
+  it("il gate anticipato sulle 8 zone ufficiali resta presente", () => {
+    expect(EDGE_SRC).toMatch(/isCivikoCommercialZoneSlug/);
+    expect(EDGE_SRC).not.toMatch(/pilot_zone_locked/);
   });
 });
 

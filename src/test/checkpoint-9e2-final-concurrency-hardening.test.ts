@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { CIVIKO_COMMERCIAL_ZONES } from "../../supabase/functions/_shared/civikoCommercialZoneContract";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -28,6 +29,7 @@ class RetryableError extends Error {
 }
 
 const PILOT = "centro-storico";
+const OFFICIAL_SLUGS = new Set(CIVIKO_COMMERCIAL_ZONES.map((z) => z.slug) as string[]);
 const PRICE_BY_TIER: Record<string, string> = { premium: "price_premium_live" };
 
 function isCivikoMeta(m: Record<string, string> = {}) {
@@ -46,7 +48,7 @@ function handleCheckout(s: Session, sub: Sub | null): { skipped?: string; activa
   }
   if (!s.subscription) throw new RetryableError("no_subscription");
   if (!String(meta.workspace_id ?? "").trim()) throw new RetryableError("no_workspace_id");
-  if (String(meta.zone_slug ?? "").trim() !== PILOT) throw new RetryableError("zone_not_in_pilot");
+  if (!OFFICIAL_SLUGS.has(String(meta.zone_slug ?? "").trim())) throw new RetryableError("zone_not_official");
   if (!s.customer) throw new RetryableError("no_customer");
   if (sub === "retrieve_error" || sub === null) throw new RetryableError("stripe_retrieve_failed");
   if (sub.status !== "active" && sub.status !== "trialing") {
@@ -119,7 +121,7 @@ describe("9E2-FINAL — contratto HTTP checkout Civiko pagato", () => {
       paidCivikoSession({ metadata: { app: "civiko", zone_slug: PILOT, zone_tier: "premium" } }),
       paidCivikoSession({ subscription: null }),
       paidCivikoSession({ customer: null }),
-      paidCivikoSession({ metadata: { app: "civiko", workspace_id: "ws-1", zone_slug: "nord-arcella", zone_tier: "premium" } }),
+      paidCivikoSession({ metadata: { app: "civiko", workspace_id: "ws-1", zone_slug: "zona-fantasma", zone_tier: "premium" } }),
     ];
     for (const [i, s] of cases.entries()) {
       const reg = new Map<string, { status: string; attempts: number }>();
@@ -298,7 +300,7 @@ describe("9E2-FINAL — codice webhook allineato al contratto", () => {
     for (const code of [
       "no_subscription",
       "no_workspace_id",
-      "zone_not_in_pilot",
+      "zone_not_official",
       "no_customer",
       "subscription_not_active",
       "price_tier_mismatch",

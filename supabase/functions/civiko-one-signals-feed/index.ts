@@ -32,7 +32,7 @@ import {
 import { isAuctionRecord } from "../_shared/auctionExclusion.ts";
 import { isCivikoCommercialZoneSlug } from "../_shared/civikoCommercialZoneContract.ts";
 import { commercialZoneForQuartiere } from "../_shared/civikoCommercialZoneByQuartiere.ts";
-import { applyPadovaPilotZoneGate } from "../_shared/civikoTerritoryContractPadovaPilotV1.ts";
+import { applyCivikoSingleZoneGate } from "../_shared/civikoZoneAccessGate.ts";
 import { corsHeaders as buildCorsHeaders, handleOptions, requireSecret, makeDebugId } from "../_shared/http.ts";
 
 const SCHEMA_VERSION = "civiko_signals_feed_v1";
@@ -354,15 +354,19 @@ serve(async (req: Request) => {
     }
   }
 
-  // Checkpoint 3A — gate territoriale Padova Pilot v1 (source-aware, fail-closed).
-  // Per Civiko One niente modalita' aggregata admin: zoneFilter = ["centro-storico"].
+  // Checkpoint 11B-A — gate "una sola zona ufficiale assegnata".
+  // Nessun full-city per Civiko One: lo slug client puo' solo restringere.
   {
-    const pilotGate = applyPadovaPilotZoneGate(req.headers.get("x-source-app"), assignedSlugs);
-    if (pilotGate.pilot) {
-      if (pilotGate.slugs.length === 0) {
-        return err("PILOT_ZONE_NOT_ASSIGNED", "Pilot zone not assigned to workspace", 403);
-      }
-      assignedSlugs = pilotGate.slugs;
+    const requestedForGate =
+      pickStr("zone_slug") ?? pickStr("commercial_zone_slug");
+    const gate = applyCivikoSingleZoneGate(
+      req.headers.get("x-source-app"),
+      assignedSlugs,
+      requestedForGate,
+    );
+    if (gate.civiko) {
+      if (!gate.ok) return err(gate.code, "Zone access denied", 403);
+      assignedSlugs = gate.slugs;
       isAdmin = false;
     }
   }

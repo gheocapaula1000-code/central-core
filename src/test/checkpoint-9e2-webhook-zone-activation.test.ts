@@ -59,9 +59,10 @@ describe("CHECKPOINT 9E2 — gate checkout.session.completed", () => {
     expect(WEBHOOK).toContain("price_tier_mismatch");
   });
 
-  it("ammette solo la zona pilot centro-storico", () => {
-    expect(WEBHOOK).toContain("PADOVA_PILOT_ALLOWED_ZONE_SLUG");
-    expect(WEBHOOK).toContain("zone_not_in_pilot");
+  it("11B-A: ammette tutte e 8 le zone ufficiali, nulla oltre", () => {
+    expect(WEBHOOK).toContain("isCivikoCommercialZoneSlug");
+    expect(WEBHOOK).toContain("zone_not_official");
+    expect(WEBHOOK).not.toContain("PADOVA_PILOT_ALLOWED_ZONE_SLUG");
   });
 
   it("usa la RPC atomica per customer + subscription + zona", () => {

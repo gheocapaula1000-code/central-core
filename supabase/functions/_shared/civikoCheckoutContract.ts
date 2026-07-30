@@ -152,7 +152,6 @@ import {
   isCivikoCommercialZoneSlug,
   type CivikoCommercialZoneSlug,
 } from "./civikoCommercialZoneContract.ts";
-import { PADOVA_PILOT_ALLOWED_ZONE_SLUG } from "./civikoTerritoryContractPadovaPilotV1.ts";
 
 export type CivikoZoneTier = "premium" | "standard" | "entry";
 
@@ -198,7 +197,6 @@ export type CivikoZonePricingErrorCode =
   | "NO_ZONE_ASSIGNED"
   | "MULTIPLE_ZONES_ASSIGNED"
   | "ZONE_NOT_OFFICIAL"
-  | "ZONE_NOT_IN_PILOT"
   | "ZONE_PRICING_INVALID";
 
 export type CivikoZonePricingResult =
@@ -211,15 +209,14 @@ const OFFICIAL_SLUG_SET: ReadonlySet<string> = new Set(
 
 /**
  * Deriva la fascia e il prezzo mensile dalla zona riservata all'agenzia.
- * Fail-closed: zero zone, più di una zona, slug non ufficiale, zona fuori
- * pilot o tier/canone incoerenti bloccano il checkout.
+ * Checkpoint 11B-A: sono ammesse tutte e 8 le zone ufficiali.
+ * Fail-closed: zero zone, più di una zona, slug non ufficiale o
+ * tier/canone incoerenti bloccano il checkout.
  */
 export function resolveCivikoZonePricing(
   rows: readonly CivikoZoneRowForPricing[] | null | undefined,
   workspaceId: string,
-  opts: { pilotOnly?: boolean } = {},
 ): CivikoZonePricingResult {
-  const pilotOnly = opts.pilotOnly !== false;
   const wid = (workspaceId ?? "").trim();
   if (!wid) {
     return { ok: false, error: { code: "NO_ZONE_ASSIGNED", message: "Nessuna zona attiva per questa agenzia." } };
@@ -242,9 +239,6 @@ export function resolveCivikoZonePricing(
   const slug = uniqueSlugs[0];
   if (!OFFICIAL_SLUG_SET.has(slug) || !isCivikoCommercialZoneSlug(slug)) {
     return { ok: false, error: { code: "ZONE_NOT_OFFICIAL", message: "Zona non riconosciuta." } };
-  }
-  if (pilotOnly && slug !== PADOVA_PILOT_ALLOWED_ZONE_SLUG) {
-    return { ok: false, error: { code: "ZONE_NOT_IN_PILOT", message: "Zona non disponibile in questa fase." } };
   }
 
   const row = owned.find((r) => String(r.slug ?? "") === slug)!;

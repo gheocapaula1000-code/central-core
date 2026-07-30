@@ -22,9 +22,10 @@ describe("civiko-one-signals-feed — static zone-isolation contract", () => {
     expect(SRC).toContain("status.eq.in_trial");
     expect(SRC).toContain("trial_reserved_until");
     expect(SRC).toContain("NO_ZONE_ASSIGNED");
-    expect(SRC).toContain("MULTIPLE_ZONES_ASSIGNED");
     expect(SRC).toContain("SLUG_OUT_OF_CONTRACT");
     expect(SRC).toContain("isCivikoCommercialZoneSlug");
+    // 11B-A: il gate a zona singola vive nel modulo condiviso.
+    expect(SRC).toContain("applyCivikoSingleZoneGate");
   });
 
   it("forza Padova/PD server-side, ignora city/province/workspace_id/commercial_zone_slug dal body", () => {
@@ -56,13 +57,13 @@ describe("civiko-one-signals-feed — static zone-isolation contract", () => {
     for (const m of matches) {
       const start = m.index ?? 0;
       const chunk = SRC.slice(start, start + 800);
-      expect(chunk).toMatch(/\.eq\(\s*["']commercial_zone_slug["']\s*,\s*assignedSlug\s*\)/);
+      expect(chunk).toMatch(/\.in\(\s*["']commercial_zone_slug["']\s*,\s*zoneFilter\s*\)/);
     }
   });
 
   it("RPC ribassi usa esclusivamente la variante v2 (no silent fallback v1)", () => {
     expect(SRC).toContain("get_padova_verified_price_drops_by_zone_v2");
-    expect(SRC).toContain("p_commercial_zone_slug: assignedSlug");
+    expect(SRC).toMatch(/p_commercial_zone_slug:\s*slug/);
     // v1 RPC must NOT be invoked as a runtime fallback.
     expect(SRC).not.toMatch(/rpc\(\s*"get_padova_verified_price_drops_by_zone"\s*,/);
     // Explicit diagnostic marker when v2 is missing.
@@ -92,7 +93,7 @@ describe("civiko-one-signals-feed — static zone-isolation contract", () => {
     // buildItem riceve sempre authorizedSlug e lo assegna a commercial_zone_slug
     expect(SRC).toContain("commercial_zone_slug: authorizedSlug");
     // Assert finale filtra tutto ciò che non porta lo slug autorizzato
-    expect(SRC).toContain("it.commercial_zone_slug === assignedSlug");
+    expect(SRC).toContain("zoneFilter.includes(it.commercial_zone_slug ?? \"\")");
     // Nessuna vecchia propagazione OMI→slug con buildOmiToSlugMap
     expect(SRC).not.toContain("buildOmiToSlugMap");
     expect(SRC).not.toContain("omiToSlug");
@@ -100,7 +101,7 @@ describe("civiko-one-signals-feed — static zone-isolation contract", () => {
 
   it("agency coverage e freshness probes sono zone-scoped", () => {
     // La coverage per portale è filtrata via commercial_zone_slug
-    expect(SRC).toMatch(/agencyCoverage[\s\S]{0,600}\.eq\(\s*["']commercial_zone_slug["']\s*,\s*assignedSlug/);
+    expect(SRC).toMatch(/agencyCoverage[\s\S]{0,600}\.in\(\s*["']commercial_zone_slug["']\s*,\s*zoneFilter/);
     // Il probe di freshness usa la vista by_zone + filtro
     expect(SRC).toContain("probeFreshnessByZone");
     expect(SRC).not.toMatch(/probeFreshness\(\s*"padova_/);
@@ -110,7 +111,7 @@ describe("civiko-one-signals-feed — static zone-isolation contract", () => {
     for (const code of [
       "WORKSPACE_REQUIRED",
       "NO_ZONE_ASSIGNED",
-      "MULTIPLE_ZONES_ASSIGNED",
+      "ZONE_NOT_ASSIGNED",
       "SLUG_OUT_OF_CONTRACT",
     ]) {
       expect(SRC).toContain(code);

@@ -1,15 +1,18 @@
-// civiko-zones-list — public listing delle 8 zone commerciali ufficiali
-// con stato di occupazione e flag `pilot_reservable`.
+// civiko-zones-list — catalogo pubblico delle 8 zone commerciali ufficiali.
 //
 // Contratto territoriale:
 // - esattamente 8 slug ufficiali (nessuna tassonomia legacy a 10 zone);
-// - `pilot_reservable = true` solo per `centro-storico`;
+// - tutte e 8 le zone sono commercialmente selezionabili;
 // - quartieri mostrati derivati dal contratto applicativo
 //   (Stazione solo in centro-storico, Fiera solo in est-brenta);
 // - fail-closed: se il DB non restituisce esattamente gli 8 slug ufficiali
 //   la risposta è un errore territoriale esplicito.
 //
-// Privacy: NON espone trial_agency_id / occupied_agency_id.
+// Privacy (Checkpoint 11B-A): la risposta pubblica NON espone status,
+// trial_reserved_until, occupied_since, agency/workspace id o storia
+// operativa; usa `availability_action: "verify"`. I campi operativi sono
+// disponibili solo alla chiamata server-to-server autenticata del proxy.
+
 
 import {
   CIVIKO_COMMERCIAL_ZONES,
@@ -17,11 +20,12 @@ import {
   type CivikoCommercialZoneSlug,
 } from "../_shared/civikoCommercialZoneContract.ts";
 import { PADOVA_QUARTIERI_LABELS_BY_ZONE } from "../_shared/civikoCommercialZoneByQuartiere.ts";
-import { PADOVA_PILOT_ALLOWED_ZONE_SLUG } from "../_shared/civikoTerritoryContractPadovaPilotV1.ts";
+
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-source-app, x-job-secret, x-internal-secret",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
@@ -47,6 +51,23 @@ export type ZoneRow = {
 };
 
 export type ZonesLoader = () => Promise<{ rows: ZoneRow[] | null; error: string | null }>;
+
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
+ * Modalità privata server-to-server: solo il proxy Civiko autenticato con
+ * CENTRAL_CORE_JOB_SECRET riceve i campi operativi. Mai gli ID agenzia.
+ */
+export function isTrustedZonesCaller(req: Request, expectedSecret: string): boolean {
+  const provided = req.headers.get("x-job-secret") ?? req.headers.get("x-internal-secret") ?? "";
+  if (!expectedSecret || !provided) return false;
+  return constantTimeEqual(provided, expectedSecret);
+}
 
 function getEnv(key: string): string {
   const d = (globalThis as { Deno?: { env: { get(k: string): string | undefined } } }).Deno;
@@ -104,23 +125,40 @@ export async function handleZonesList(
       );
     }
 
+    // Checkpoint 11B-A — privacy disponibilità:
+    // la chiamata pubblica NON espone status, trial_reserved_until,
+    // occupied_since, agency/workspace id o storia operativa della zona.
+    // Tutte e 8 le zone sono commercialmente selezionabili.
+    const trusted = isTrustedZonesCaller(req, getEnv("CENTRAL_CORE_JOB_SECRET"));
+
     const zones = CIVIKO_COMMERCIAL_ZONES.map((z) => {
       const r = bySlug.get(z.slug) as ZoneRow;
-      return {
+      const base = {
         slug: z.slug,
         nome: r.nome ?? z.nome,
         tier: r.tier,
         canone_mese_eur: r.canone_mese_eur,
         provvigioni_anno_eur: r.provvigioni_anno_eur,
         contendibili_count: r.contendibili_count,
+        selectable: true,
+        availability_action: "verify" as const,
+        quartieri_principali: PADOVA_QUARTIERI_LABELS_BY_ZONE[z.slug] ?? [],
+      };
+      if (!trusted) return base;
+      // Solo server-to-server autenticato: mai ID agenzia.
+      return {
+        ...base,
         status: r.status,
         trial_reserved_until: r.trial_reserved_until,
-        pilot_reservable: z.slug === PADOVA_PILOT_ALLOWED_ZONE_SLUG,
-        quartieri_principali: PADOVA_QUARTIERI_LABELS_BY_ZONE[z.slug] ?? [],
+        occupied_since: r.occupied_since,
       };
     });
 
-    return json({ ok: true, data: { zones, count: zones.length }, debug_id });
+    return json({
+      ok: true,
+      data: { zones, count: zones.length, availability_action: "verify", scope: trusted ? "private" : "public" },
+      debug_id,
+    });
   } catch (e) {
     return json(
       { ok: false, error: { code: "INTERNAL_ERROR", message: (e as Error).message }, debug_id },
