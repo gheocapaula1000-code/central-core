@@ -98,7 +98,7 @@ describe("padova-privati-list — source guarantees", () => {
   });
 
   it("enforces isCivikoCommercialZoneSlug on the resolved slug", () => {
-    expect(SRC).toContain("isCivikoCommercialZoneSlug(assignedSlug)");
+    expect(SRC).toContain("isCivikoCommercialZoneSlug(s)");
   });
 
   it("filters EVERY padova_listings query by assignedSlug (server-side)", () => {
@@ -140,8 +140,11 @@ describe("padova-privati-list — source guarantees", () => {
     expect(SRC).toContain("sanitize(data ?? [])");
   });
 
-  it("does NOT introduce an all-zones admin bypass in this endpoint", () => {
-    expect(SRC).not.toMatch(/isBootstrapAdmin|isAdmin|bypass/i);
+  it("nessun bypass all-zones per i chiamanti Civiko One (11B-A)", () => {
+    // L'eventuale ramo admin (uso interno Central Core) resta subordinato al
+    // gate zona singola: per source-app Civiko l'admin viene disattivato.
+    expect(SRC).toContain("applyCivikoSingleZoneGate");
+    expect(SRC).toMatch(/gate\.civiko[\s\S]{0,400}isAdmin = false/);
   });
 
   it("keeps the successful response shape compatible with the PWA", () => {
