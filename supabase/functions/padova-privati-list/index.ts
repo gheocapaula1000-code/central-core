@@ -24,7 +24,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { corsHeaders, handleOptions, requireSecret, makeDebugId } from "../_shared/http.ts";
 import { isCivikoCommercialZoneSlug } from "../_shared/civikoCommercialZoneContract.ts";
 import { commercialZoneForQuartiere } from "../_shared/civikoCommercialZoneByQuartiere.ts";
-import { applyCivikoSingleZoneGate } from "../_shared/civikoZoneAccessGate.ts";
+import {
+  applyCivikoSingleZoneGate,
+  isCivikoSourceApp,
+} from "../_shared/civikoZoneAccessGate.ts";
 
 const BANNED = /\b(AI|IA|intelligenza|stima|perizia|valutazione|valore reale|prezzo giusto|garantito)\b/gi;
 function sanitize<T>(v: T): T {
@@ -108,7 +111,7 @@ serve(async (req) => {
       return false;
     });
 
-    // Admin bypass: owner/admin agencies see all 8 zones.
+    // Il bypass admin resta solo per strumenti interni, mai per Civiko One.
     let isAdmin = false;
     {
       const { data: adminRes } = await supabase.rpc("civiko_is_admin_agency", { _agency_id: workspaceId });
@@ -116,7 +119,7 @@ serve(async (req) => {
     }
 
     let assignedSlugs: string[];
-    if (isAdmin) {
+    if (isAdmin && !isCivikoSourceApp(req.headers.get("x-source-app"))) {
       assignedSlugs = [
         "centro-storico", "nord-arcella", "est-brenta", "est-forcellini-camin",
         "sud-est-sant-osvaldo", "sud-voltabarozzo-guizza", "sud-ovest-mandria",
@@ -138,6 +141,7 @@ serve(async (req) => {
           403,
         );
       }
+      if (isCivikoSourceApp(req.headers.get("x-source-app"))) isAdmin = false;
     }
 
     // ──────────────────────────────────────────────────────────
