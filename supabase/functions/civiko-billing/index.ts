@@ -26,6 +26,7 @@ import {
 } from "../_shared/billing.ts";
 import {
   resolveCivikoCheckoutContract, isAllowedCivikoReturnUrl,
+  isCivikoLaunchInterval, resolveCivikoZonePricing,
 } from "../_shared/civikoCheckoutContract.ts";
 
 
@@ -593,6 +594,8 @@ async function handleCreateCheckoutDirect(
       "metadata[app]": "civiko",
       "metadata[plan]": plan,
       "metadata[billing_interval]": billingInterval,
+      "metadata[zone_slug]": zoneSlug,
+      "metadata[zone_tier]": zoneTier,
     });
     if (!r.ok || !r.data?.id) {
       console.error(`[${FUNCTION_NAME}] customers.create failed status=${r.status} debug_id=${debugId}`);
@@ -620,11 +623,15 @@ async function handleCreateCheckoutDirect(
     "subscription_data[metadata][app]": "civiko",
     "subscription_data[metadata][plan]": plan,
     "subscription_data[metadata][billing_interval]": billingInterval,
+    "subscription_data[metadata][zone_slug]": zoneSlug,
+    "subscription_data[metadata][zone_tier]": zoneTier,
     "metadata[supabase_user_id]": supabaseUserId,
     "metadata[workspace_id]": workspaceId,
     "metadata[app]": "civiko",
     "metadata[plan]": plan,
     "metadata[billing_interval]": billingInterval,
+    "metadata[zone_slug]": zoneSlug,
+    "metadata[zone_tier]": zoneTier,
   };
 
   const r = await stripeForm(secretKey, "checkout/sessions", form);
