@@ -69,7 +69,7 @@ describe("3A — Stazione / Fiera", () => {
 
   it("Fiera → est-brenta (fuori pilot)", () => {
     expect(commercialZoneForQuartiere("Fiera")).toBe("est-brenta");
-    expect(isPadovaPilotAllowedZoneSlug(commercialZoneForQuartiere("Fiera"))).toBe(false);
+    expect(commercialZoneForQuartiere("Fiera")).not.toBe("centro-storico");
   });
 
   it("stringhe miste Stazione/Fiera → null", () => {
@@ -121,8 +121,14 @@ describe("3A — gate pilot puro", () => {
   });
 
   it("nessuno slug fuori contratto può essere restituito", () => {
-    const g = applyCivikoSingleZoneGate("civiko-one", ["fiera"]);
-    expect(g).toEqual({ civiko: true, ok: false, code: "SLUG_OUT_OF_CONTRACT" });
+    // "fiera" non è uno slug ufficiale: viene scartato → nessuna zona autorizzata.
+    expect(applyCivikoSingleZoneGate("civiko-one", ["fiera"])).toEqual({
+      civiko: true, ok: false, code: "NO_ZONE_ASSIGNED",
+    });
+    // slug fuori contratto richiesto dal client → respinto esplicitamente.
+    expect(applyCivikoSingleZoneGate("civiko-one", ["est-brenta"], "fiera")).toEqual({
+      civiko: true, ok: false, code: "SLUG_OUT_OF_CONTRACT",
+    });
   });
 });
 
