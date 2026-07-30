@@ -451,14 +451,25 @@ serve(async (req) => {
         result = { ignored: true };
     }
 
-    // 4) processed SOLO dopo il successo completo
-    const { error: markErr } = await supabase.rpc("stripe_webhook_event_mark_processed", {
+    // 4) processed SOLO dopo il successo completo.
+    //    Si controlla sia l'errore RPC sia il booleano restituito: data !== true
+    //    significa registro non chiuso → evento failed + 500, mai falso 200.
+    const { data: markData, error: markErr } = await supabase.rpc("stripe_webhook_event_mark_processed", {
       p_event_id: event.id,
     });
-    if (markErr) {
-      log("error", { outcome: "mark_processed_failed", id: event.id, msg: markErr.message });
+    if (markErr || markData !== true) {
+      log("error", {
+        outcome: "mark_processed_failed",
+        id: event.id,
+        msg: markErr?.message ?? "rpc_returned_false",
+      });
+      await supabase.rpc("stripe_webhook_event_mark_failed", {
+        p_event_id: event.id,
+        p_error: `registry_close_failed: ${markErr?.message ?? "rpc_returned_false"}`,
+      });
       return jsonRes({ error: "registry_close_failed", retryable: true }, 500);
     }
+
 
     log("info", { outcome: "processed", event: event.type, id: event.id, ...result });
     return jsonRes({ received: true, ...result });
