@@ -506,6 +506,13 @@ async function handleCreateCheckoutDirect(
   const plan = contract.value.plan;
   const billingInterval = contract.value.billingInterval;
 
+  // 9C — al lancio esiste solo il mensile. L'annuale è respinto fail-closed
+  // con errore interno neutro (nessun dettaglio commerciale esposto).
+  if (!isCivikoLaunchInterval(billingInterval)) {
+    console.warn(`[${FUNCTION_NAME}] checkout rejected: interval not available debug_id=${debugId}`);
+    return withIdentity(fail(req, 503, "BILLING_NOT_AVAILABLE", `Checkout non disponibile. Riferimento: ${debugId}`, debugId), route);
+  }
+
   const supabaseUserId = String(body.supabase_user_id ?? "").trim();
   const email = String(body.email ?? "").trim();
   const workspaceId = String(body.workspace_id ?? "").trim();
@@ -528,11 +535,35 @@ async function handleCreateCheckoutDirect(
     return withIdentity(fail(req, 400, "INVALID_BODY", "success_url e cancel_url devono essere HTTPS su un dominio consentito.", debugId), route);
   }
 
-  // Campi economici / client Stripe non sono mai accettati dal chiamante.
-  const priceId = Deno.env.get(contract.value.priceEnvVar) ?? "";
-  if (!priceId) {
-    return withIdentity(fail(req, 503, "PRICE_NOT_CONFIGURED", `Price Stripe per intervallo ${billingInterval} non configurato.`, debugId), route);
+  // ── 9C — prezzo autoritativo derivato dalla zona riservata all'agenzia.
+  // Nessun tier, importo, valuta o Price ID è mai letto dal body.
+  const sbZone = getServiceSupabase();
+  if (!sbZone) {
+    return withIdentity(fail(req, 503, "BILLING_NOT_CONFIGURED", "Backend non disponibile.", debugId), route);
   }
+  const { data: zoneRows, error: zoneLookupErr } = await sbZone
+    .from("civiko_commercial_zones")
+    .select("slug,tier,canone_mese_eur,trial_agency_id,occupied_agency_id")
+    .or(`trial_agency_id.eq.${workspaceId},occupied_agency_id.eq.${workspaceId}`);
+  if (zoneLookupErr) {
+    console.error(`[${FUNCTION_NAME}] zone lookup failed debug_id=${debugId}`);
+    return withIdentity(fail(req, 503, "BILLING_NOT_AVAILABLE", `Checkout non disponibile. Riferimento: ${debugId}`, debugId), route);
+  }
+
+  const pricing = resolveCivikoZonePricing(zoneRows ?? [], workspaceId);
+  if (!pricing.ok) {
+    console.warn(`[${FUNCTION_NAME}] checkout rejected code=${pricing.error.code} debug_id=${debugId}`);
+    return withIdentity(fail(req, 403, pricing.error.code, pricing.error.message, debugId), route);
+  }
+  const zoneSlug = pricing.value.zoneSlug;
+  const zoneTier = pricing.value.zoneTier;
+
+  const priceId = Deno.env.get(pricing.value.priceEnvVar) ?? "";
+  if (!priceId) {
+    console.error(`[${FUNCTION_NAME}] missing price env for tier=${zoneTier} debug_id=${debugId}`);
+    return withIdentity(fail(req, 503, "PRICE_NOT_CONFIGURED", `Checkout non disponibile. Riferimento: ${debugId}`, debugId), route);
+  }
+
 
 
   // 1) Find existing customer by metadata.supabase_user_id (Stripe search)
