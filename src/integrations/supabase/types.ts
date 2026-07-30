@@ -7783,19 +7783,34 @@ export type Database = {
       }
       stripe_webhook_events: {
         Row: {
+          attempts: number
+          claimed_at: string | null
           id: string
-          processed_at: string
+          last_error: string | null
+          processed_at: string | null
+          status: string
           type: string
+          updated_at: string
         }
         Insert: {
+          attempts?: number
+          claimed_at?: string | null
           id: string
-          processed_at?: string
+          last_error?: string | null
+          processed_at?: string | null
+          status?: string
           type: string
+          updated_at?: string
         }
         Update: {
+          attempts?: number
+          claimed_at?: string | null
           id?: string
-          processed_at?: string
+          last_error?: string | null
+          processed_at?: string | null
+          status?: string
           type?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -8803,9 +8818,31 @@ export type Database = {
         }
         Returns: boolean
       }
+      civiko_activate_paid_zone_atomic: {
+        Args: {
+          p_agency_id: string
+          p_app_id?: string
+          p_billing_interval?: string
+          p_cancel_at_period_end?: boolean
+          p_current_period_end?: string
+          p_email?: string
+          p_plan_key?: string
+          p_price_id?: string
+          p_status: string
+          p_stripe_customer_id: string
+          p_stripe_subscription_id: string
+          p_trial_end?: string
+          p_zone_slug: string
+        }
+        Returns: Json
+      }
       civiko_ascii_fold: { Args: { p_value: string }; Returns: string }
       civiko_is_admin_agency: { Args: { _agency_id: string }; Returns: boolean }
       civiko_normalize_quartiere: { Args: { p_value: string }; Returns: string }
+      civiko_release_zone_on_cancel_atomic: {
+        Args: { p_stripe_subscription_id: string }
+        Returns: Json
+      }
       civiko_resolve_commercial_zone_slug: {
         Args: { p_quartiere: string }
         Returns: string
@@ -9235,6 +9272,18 @@ export type Database = {
           lat: number
           lng: number
         }[]
+      }
+      stripe_webhook_event_claim: {
+        Args: { p_event_id: string; p_stale_after?: string; p_type: string }
+        Returns: Json
+      }
+      stripe_webhook_event_mark_failed: {
+        Args: { p_error?: string; p_event_id: string }
+        Returns: boolean
+      }
+      stripe_webhook_event_mark_processed: {
+        Args: { p_event_id: string }
+        Returns: boolean
       }
       tick_padova_firecrawl_collect: { Args: never; Returns: undefined }
       unschedule_padova_detail_chain: { Args: never; Returns: boolean }
