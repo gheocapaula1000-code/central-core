@@ -1,16 +1,26 @@
 // ═══════════════════════════════════════════════════════════════
-// Stripe Webhook (AcquisitionRadar / Civiko shared)
+// Stripe Webhook — Central Core (Civiko One)
+// CHECKPOINT 9E2 — zona pagata automatica e transazionale
 //
-// - Verifica firma Stripe (constructEventAsync + STRIPE_WEBHOOK_SECRET)
-// - Idempotenza via tabella public.stripe_webhook_events
-// - Aggiorna billing_customers / billing_subscriptions (mapping legacy)
-// - Per app="civiko" gestisce zona_status / zona_assegnata + notifiche email Resend
+// - Verifica SEMPRE la firma Stripe (constructEventAsync)
+// - Claim atomico dell'evento PRIMA delle scritture (processing)
+// - processed SOLO dopo il successo completo; altrimenti failed + non-2xx
+// - Pagamento valido → RPC atomica: customer + subscription + zona occupata
+// - Subscription cancellata → RPC atomica: zona liberata
+// - invoice.* risolve l'app dai metadata della SUBSCRIPTION, non dell'invoice
+// - Nessun flusso manuale "in attesa di assegnazione"
 // ═══════════════════════════════════════════════════════════════
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { getStripeConfig, planFromPriceId } from "../_shared/acquisitionradar-billing.ts";
+import { getStripeConfig } from "../_shared/acquisitionradar-billing.ts";
+import {
+  CIVIKO_TIER_PRICE_ENV,
+  isCivikoZoneTier,
+  type CivikoZoneTier,
+} from "../_shared/civikoCheckoutContract.ts";
+import { PADOVA_PILOT_ALLOWED_ZONE_SLUG } from "../_shared/civikoTerritoryContractPadovaPilotV1.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -20,6 +30,7 @@ const CORS = {
 const ADMIN_NOTIFY_EMAIL = "gheocapaula1000@gmail.com";
 const NOTIFY_FROM = "Civiko One <onboarding@resend.dev>";
 const PWA_BASE_URL = Deno.env.get("CIVIKO_PWA_BASE_URL") ?? "https://civiko-padova.lovable.app";
+const APP_ID = "civiko_one";
 
 function jsonRes(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -42,8 +53,17 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
 );
 
+/** Errore che rende l'evento ritentabile (failed + risposta non-2xx). */
+class RetryableError extends Error {
+  code: string;
+  constructor(code: string, message?: string) {
+    super(message ?? code);
+    this.code = code;
+  }
+}
+
 // ──────────────────────────────────────────────────────────────
-// Email helpers (Resend)
+// Email — SOLO informativa (zona già confermata). Mai bloccante.
 // ──────────────────────────────────────────────────────────────
 async function sendEmail(to: string | string[], subject: string, text: string) {
   const apiKey = Deno.env.get("RESEND_API_KEY");
@@ -54,169 +74,311 @@ async function sendEmail(to: string | string[], subject: string, text: string) {
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: NOTIFY_FROM,
-        to: Array.isArray(to) ? to : [to],
-        subject,
-        text,
-      }),
+      headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: NOTIFY_FROM, to: Array.isArray(to) ? to : [to], subject, text }),
     });
-    if (!res.ok) {
-      const body = await res.text();
-      log("error", { op: "send_email", status: res.status, body, subject });
-    } else {
-      log("info", { op: "send_email", outcome: "sent", subject, to });
-    }
+    if (!res.ok) log("error", { op: "send_email", status: res.status, subject });
+    else log("info", { op: "send_email", outcome: "sent", subject });
   } catch (e) {
     log("error", { op: "send_email", msg: e instanceof Error ? e.message : String(e) });
   }
 }
 
-async function notifyAdminNewSubscription(args: {
-  workspace_id: string | null;
-  supabase_user_id: string | null;
+async function notifyAdminZonaConfermata(args: {
+  workspace_id: string;
   email: string;
-  plan: string;
+  zone: string;
   amount: number;
   subscription_id: string;
 }) {
-  const body = `Nuovo abbonato Civiko One:
+  const body = `Pagamento ricevuto e zona GIA' CONFERMATA automaticamente.
 
-Email: ${args.email || "n/d"}
-User ID: ${args.supabase_user_id ?? "n/d"}
-Workspace / Agency ID: ${args.workspace_id ?? "n/d"}
+Email cliente: ${args.email || "n/d"}
+Workspace / Agency ID: ${args.workspace_id}
 Subscription ID: ${args.subscription_id}
-Piano: ${args.plan} (${args.amount.toFixed(2)} EUR)
-Pagamento ricevuto: ${new Date().toISOString()}
+Zona assegnata: ${args.zone}
+Importo: ${args.amount.toFixed(2)} EUR
+Confermata il: ${new Date().toISOString()}
 
-Azione richiesta entro 24h:
-- Contatta cliente per definire zona Padova esclusiva
-- Vai su admin -> /admin/esclusive
-- Assegna zona al workspace ${args.workspace_id ?? "(usa subscription id)"}
-- Stato passera automaticamente a "assegnata"
-
-Link admin: ${PWA_BASE_URL}/admin/esclusive`;
-  await sendEmail(ADMIN_NOTIFY_EMAIL, "🎉 Nuovo abbonato Civiko One — assegna zona", body);
+Nessuna azione manuale richiesta: la zona risulta occupata dall'agenzia pagante.
+Pannello: ${PWA_BASE_URL}/admin/esclusive`;
+  await sendEmail(ADMIN_NOTIFY_EMAIL, "✅ Civiko One — pagamento ricevuto, zona confermata", body);
 }
 
 async function notifyAdminZonaLiberata(args: {
   subscription_id: string;
   workspace_id: string | null;
   zona: string | null;
+  released: boolean;
 }) {
-  const body = `Una zona Padova e ora disponibile.
-
-Subscription cancellata: ${args.subscription_id}
+  const body = `Subscription cancellata: ${args.subscription_id}
 Workspace ex-titolare: ${args.workspace_id ?? "n/d"}
-Zona liberata: ${args.zona ?? "n/d"}
-
-La zona e ora libera per essere riassegnata a un nuovo abbonato.`;
-  await sendEmail(ADMIN_NOTIFY_EMAIL, "🔓 Zona Padova liberata — disponibile per nuovo abbonato", body);
+Zona: ${args.zona ?? "n/d"}
+Zona effettivamente liberata: ${args.released ? "si" : "no"}`;
+  await sendEmail(ADMIN_NOTIFY_EMAIL, "🔓 Civiko One — zona liberata automaticamente", body);
 }
 
 async function notifyUserPaymentFailed(args: { email: string | null; subscription_id: string }) {
-  if (!args.email) {
-    log("warn", { op: "notify_user_payment_failed", outcome: "no_email", subscription_id: args.subscription_id });
-    return;
-  }
-  const portalUrl = `${PWA_BASE_URL}/abbonamento`;
+  if (!args.email) return;
   const body = `Ciao,
 
 Il rinnovo del tuo abbonamento Civiko One non e andato a buon fine.
-
-Aggiorna il metodo di pagamento entro 7 giorni per non perdere l'esclusiva sulla tua zona:
-${portalUrl}
+La tua zona resta riservata: aggiorna il metodo di pagamento qui:
+${PWA_BASE_URL}/abbonamento
 
 Se hai bisogno di aiuto, scrivici a paula@civiko.it.`;
   await sendEmail(args.email, "⚠️ Problema con il pagamento Civiko One", body);
 }
 
 // ──────────────────────────────────────────────────────────────
-// Mapping helpers
+// Helpers
 // ──────────────────────────────────────────────────────────────
-async function resolveAgencyId(stripeCustomerId: string | null, metaWorkspaceId?: string, metaUserId?: string): Promise<string | null> {
-  if (metaWorkspaceId) return metaWorkspaceId;
-  if (metaUserId) return metaUserId;
-  if (!stripeCustomerId) return null;
-  const { data } = await supabase
-    .from("billing_customers")
-    .select("agency_id")
-    .eq("stripe_customer_id", stripeCustomerId)
-    .maybeSingle();
-  return (data?.agency_id as string | null) ?? null;
+function isCivikoMeta(meta: Record<string, string> | null | undefined): boolean {
+  const m = meta ?? {};
+  const app = String(m.app ?? "").toLowerCase();
+  const source = String(m.source ?? "").toLowerCase();
+  return app === "civiko" || app === "civiko_one" || source === "civiko";
 }
 
-async function upsertCustomer(agencyId: string, stripeCustomerId: string, email: string | null, app: string) {
-  const { error } = await supabase
-    .from("billing_customers")
-    .upsert(
-      { agency_id: agencyId, app_id: app, stripe_customer_id: stripeCustomerId, email: email ?? null },
-      { onConflict: "agency_id,app_id" },
-    );
-  if (error) log("error", { op: "upsert_customer", msg: error.message });
+/** Il price id deve corrispondere alla env var della fascia dichiarata. */
+function priceMatchesTier(priceId: string | null, tier: string): boolean {
+  if (!priceId) return false;
+  if (!isCivikoZoneTier(tier)) return false;
+  const envKey = CIVIKO_TIER_PRICE_ENV[tier as CivikoZoneTier];
+  const expected = (Deno.env.get(envKey) ?? "").trim();
+  if (!expected) return false;
+  return expected === priceId.trim();
 }
 
-async function upsertSubscription(args: {
+async function retrieveSubscription(stripe: Stripe, subId: string): Promise<Stripe.Subscription> {
+  try {
+    return await stripe.subscriptions.retrieve(subId);
+  } catch (e) {
+    throw new RetryableError("stripe_retrieve_failed", e instanceof Error ? e.message : "unknown");
+  }
+}
+
+function tsToIso(v: number | null | undefined): string | null {
+  return v ? new Date(v * 1000).toISOString() : null;
+}
+
+/** Attivazione atomica via RPC. Qualunque fallimento è ritentabile. */
+async function activatePaidZone(args: {
   agencyId: string;
-  app: string;
-  stripeCustomerId: string;
-  stripeSubscriptionId: string;
+  zoneSlug: string;
+  customerId: string;
+  subscriptionId: string;
   status: string;
   priceId: string | null;
   planKey: string | null;
+  email: string | null;
   currentPeriodEnd: number | null;
   trialEnd: number | null;
   cancelAtPeriodEnd: boolean;
-  billingInterval?: string | null;
-  zonaStatus?: string | null;
-  zonaAssegnata?: string | null;
-}) {
-  const row: Record<string, unknown> = {
-    agency_id: args.agencyId,
-    app_id: args.app,
-    stripe_customer_id: args.stripeCustomerId,
-    stripe_subscription_id: args.stripeSubscriptionId,
-    status: args.status,
-    price_id: args.priceId,
-    plan_key: args.planKey,
-    current_period_end: args.currentPeriodEnd ? new Date(args.currentPeriodEnd * 1000).toISOString() : null,
-    trial_end: args.trialEnd ? new Date(args.trialEnd * 1000).toISOString() : null,
-    cancel_at_period_end: args.cancelAtPeriodEnd,
-  };
-  if (args.billingInterval !== undefined) row.billing_interval = args.billingInterval;
-  if (args.zonaStatus !== undefined && args.zonaStatus !== null) row.zona_status = args.zonaStatus;
-  if (args.zonaAssegnata !== undefined) row.zona_assegnata = args.zonaAssegnata;
-
-  const { error } = await supabase
-    .from("billing_subscriptions")
-    .upsert(row, { onConflict: "stripe_subscription_id" });
-  if (error) log("error", { op: "upsert_subscription", msg: error.message });
-}
-
-async function getSubscriptionRow(stripeSubscriptionId: string) {
-  const { data } = await supabase
-    .from("billing_subscriptions")
-    .select("agency_id, app_id, zona_assegnata, stripe_customer_id")
-    .eq("stripe_subscription_id", stripeSubscriptionId)
-    .maybeSingle();
-  return data;
-}
-
-async function getCustomerEmail(stripeCustomerId: string): Promise<string | null> {
-  const { data } = await supabase
-    .from("billing_customers")
-    .select("email")
-    .eq("stripe_customer_id", stripeCustomerId)
-    .maybeSingle();
-  return (data?.email as string | null) ?? null;
+}): Promise<Record<string, unknown>> {
+  const { data, error } = await supabase.rpc("civiko_activate_paid_zone_atomic", {
+    p_agency_id: args.agencyId,
+    p_zone_slug: args.zoneSlug,
+    p_stripe_customer_id: args.customerId,
+    p_stripe_subscription_id: args.subscriptionId,
+    p_status: args.status,
+    p_price_id: args.priceId,
+    p_plan_key: args.planKey,
+    p_billing_interval: "monthly",
+    p_email: args.email,
+    p_current_period_end: tsToIso(args.currentPeriodEnd),
+    p_trial_end: tsToIso(args.trialEnd),
+    p_cancel_at_period_end: args.cancelAtPeriodEnd,
+    p_app_id: APP_ID,
+  });
+  if (error) throw new RetryableError("activate_rpc_error", error.message);
+  const res = (data ?? {}) as Record<string, unknown>;
+  if (res.ok !== true) throw new RetryableError("activate_rejected", String(res.code ?? "unknown"));
+  return res;
 }
 
 // ──────────────────────────────────────────────────────────────
-// Main handler
+// Event handlers — throw = evento ritentabile
+// ──────────────────────────────────────────────────────────────
+async function handleCheckoutCompleted(stripe: Stripe, event: Stripe.Event) {
+  const s = event.data.object as Stripe.Checkout.Session;
+  const meta = (s.metadata ?? {}) as Record<string, string>;
+
+  if (!isCivikoMeta(meta)) return { skipped: "non_civiko" };
+  if (s.mode !== "subscription") return { skipped: "not_subscription_mode" };
+  if (s.status !== "complete") return { skipped: "session_not_complete" };
+  if (s.payment_status !== "paid" && s.payment_status !== "no_payment_required") {
+    return { skipped: "not_paid" };
+  }
+  if (!s.subscription) return { skipped: "no_subscription" };
+
+  const workspaceId = String(meta.workspace_id ?? "").trim();
+  if (!workspaceId) return { skipped: "no_workspace_id" };
+
+  const zoneSlug = String(meta.zone_slug ?? "").trim();
+  if (zoneSlug !== PADOVA_PILOT_ALLOWED_ZONE_SLUG) return { skipped: "zone_not_in_pilot" };
+
+  const customerId = typeof s.customer === "string" ? s.customer : s.customer?.id ?? null;
+  if (!customerId) return { skipped: "no_customer" };
+
+  const subId = typeof s.subscription === "string" ? s.subscription : s.subscription.id;
+  const sub = await retrieveSubscription(stripe, subId);
+  if (sub.status !== "active" && sub.status !== "trialing") {
+    return { skipped: "subscription_not_active" };
+  }
+
+  const priceId = sub.items.data[0]?.price?.id ?? null;
+  const tier = String(meta.zone_tier ?? "").trim().toLowerCase();
+  if (!priceMatchesTier(priceId, tier)) {
+    return { skipped: "price_tier_mismatch" };
+  }
+
+  const email = s.customer_details?.email ?? s.customer_email ?? null;
+
+  const res = await activatePaidZone({
+    agencyId: workspaceId,
+    zoneSlug,
+    customerId,
+    subscriptionId: sub.id,
+    status: sub.status,
+    priceId,
+    planKey: tier,
+    email,
+    currentPeriodEnd: sub.current_period_end ?? null,
+    trialEnd: sub.trial_end ?? null,
+    cancelAtPeriodEnd: !!sub.cancel_at_period_end,
+  });
+
+  await notifyAdminZonaConfermata({
+    workspace_id: workspaceId,
+    email: email ?? "",
+    zone: zoneSlug,
+    amount: (s.amount_total ?? 0) / 100,
+    subscription_id: sub.id,
+  });
+
+  return { activated: true, zone: res.zone, occupied_since: res.occupied_since };
+}
+
+async function handleSubscriptionUpsert(event: Stripe.Event) {
+  const sub = event.data.object as Stripe.Subscription;
+  const meta = (sub.metadata ?? {}) as Record<string, string>;
+  if (!isCivikoMeta(meta)) return { skipped: "non_civiko" };
+
+  const workspaceId = String(meta.workspace_id ?? "").trim();
+  const zoneSlug = String(meta.zone_slug ?? "").trim();
+  const tier = String(meta.zone_tier ?? "").trim().toLowerCase();
+  const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
+  const priceId = sub.items.data[0]?.price?.id ?? null;
+
+  // Aggiorna lo stato di una subscription già nota, senza toccare la zona.
+  const { data: existing, error: selErr } = await supabase
+    .from("billing_subscriptions")
+    .select("id")
+    .eq("stripe_subscription_id", sub.id)
+    .maybeSingle();
+  if (selErr) throw new RetryableError("db_select_error", selErr.message);
+
+  if (existing) {
+    const { error } = await supabase
+      .from("billing_subscriptions")
+      .update({
+        status: sub.status,
+        price_id: priceId,
+        current_period_end: tsToIso(sub.current_period_end ?? null),
+        trial_end: tsToIso(sub.trial_end ?? null),
+        cancel_at_period_end: !!sub.cancel_at_period_end,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("stripe_subscription_id", sub.id);
+    if (error) throw new RetryableError("db_update_error", error.message);
+    return { updated: true };
+  }
+
+  // Non nota: attiva solo se il pagamento è valido e la zona è quella pilot.
+  if (!workspaceId) return { skipped: "no_workspace_id" };
+  if (zoneSlug !== PADOVA_PILOT_ALLOWED_ZONE_SLUG) return { skipped: "zone_not_in_pilot" };
+  if (sub.status !== "active" && sub.status !== "trialing") return { skipped: "subscription_not_active" };
+  if (!priceMatchesTier(priceId, tier)) return { skipped: "price_tier_mismatch" };
+
+  const res = await activatePaidZone({
+    agencyId: workspaceId,
+    zoneSlug,
+    customerId,
+    subscriptionId: sub.id,
+    status: sub.status,
+    priceId,
+    planKey: tier,
+    email: null,
+    currentPeriodEnd: sub.current_period_end ?? null,
+    trialEnd: sub.trial_end ?? null,
+    cancelAtPeriodEnd: !!sub.cancel_at_period_end,
+  });
+  return { activated: true, zone: res.zone };
+}
+
+async function handleSubscriptionDeleted(event: Stripe.Event) {
+  const sub = event.data.object as Stripe.Subscription;
+
+  const { data, error } = await supabase.rpc("civiko_release_zone_on_cancel_atomic", {
+    p_stripe_subscription_id: sub.id,
+  });
+  if (error) throw new RetryableError("release_rpc_error", error.message);
+
+  const res = (data ?? {}) as Record<string, unknown>;
+  if (res.ok !== true) throw new RetryableError("release_rejected", String(res.code ?? "unknown"));
+
+  if (res.zone) {
+    await notifyAdminZonaLiberata({
+      subscription_id: sub.id,
+      workspace_id: (res.agency_id as string | null) ?? null,
+      zona: (res.zone as string | null) ?? null,
+      released: res.released === true,
+    });
+  }
+  return { released: res.released === true, zone: res.zone ?? null };
+}
+
+async function handleInvoice(stripe: Stripe, event: Stripe.Event, succeeded: boolean) {
+  const inv = event.data.object as Stripe.Invoice;
+  const subId = typeof inv.subscription === "string" ? inv.subscription : inv.subscription?.id ?? null;
+  if (!subId) return { skipped: "no_subscription" };
+
+  // L'app si risolve dai metadata della SUBSCRIPTION, non dell'invoice.
+  const sub = await retrieveSubscription(stripe, subId);
+  if (!isCivikoMeta((sub.metadata ?? {}) as Record<string, string>)) {
+    return { skipped: "non_civiko" };
+  }
+
+  const { data: existing, error: selErr } = await supabase
+    .from("billing_subscriptions")
+    .select("id, agency_id, stripe_customer_id")
+    .eq("stripe_subscription_id", subId)
+    .maybeSingle();
+  if (selErr) throw new RetryableError("db_select_error", selErr.message);
+  if (!existing) return { skipped: "subscription_unknown" };
+
+  const { error } = await supabase
+    .from("billing_subscriptions")
+    .update({
+      status: succeeded ? "active" : "past_due",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("stripe_subscription_id", subId);
+  if (error) throw new RetryableError("db_update_error", error.message);
+
+  // past_due NON libera la zona.
+  if (!succeeded) {
+    await notifyUserPaymentFailed({
+      email: inv.customer_email ?? null,
+      subscription_id: subId,
+    });
+  }
+  return { status: succeeded ? "active" : "past_due", zone_preserved: true };
+}
+
+// ──────────────────────────────────────────────────────────────
+// Main
 // ──────────────────────────────────────────────────────────────
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -233,6 +395,7 @@ serve(async (req) => {
   const sig = req.headers.get("stripe-signature") ?? "";
   const raw = await req.text();
 
+  // 1) Firma SEMPRE verificata
   let event: Stripe.Event;
   try {
     event = await stripe.webhooks.constructEventAsync(raw, sig, cfg.webhookSecret);
@@ -241,199 +404,66 @@ serve(async (req) => {
     return jsonRes({ error: "invalid_signature" }, 400);
   }
 
-  // Idempotency check
-  const { data: alreadyProcessed } = await supabase
-    .from("stripe_webhook_events")
-    .select("id")
-    .eq("id", event.id)
-    .maybeSingle();
-  if (alreadyProcessed) {
-    log("info", { outcome: "idempotent_skip", event: event.type, id: event.id });
+  // 2) Claim atomico PRIMA di qualunque scrittura
+  const { data: claimData, error: claimErr } = await supabase.rpc("stripe_webhook_event_claim", {
+    p_event_id: event.id,
+    p_type: event.type,
+  });
+  if (claimErr) {
+    log("error", { outcome: "claim_error", event: event.type, id: event.id, msg: claimErr.message });
+    return jsonRes({ error: "claim_failed", retryable: true }, 500);
+  }
+  const claim = (claimData ?? {}) as Record<string, unknown>;
+  if (claim.claimed !== true) {
+    log("info", { outcome: "idempotent_skip", event: event.type, id: event.id, status: claim.status });
     return jsonRes({ ok: true, idempotent: true });
   }
 
-  // Surface every event with civiko detector (covers session/sub/invoice payloads)
-  const _evObj = (event.data?.object ?? {}) as Record<string, unknown>;
-  const _evMeta = ((_evObj.metadata ?? {}) as Record<string, string>) || {};
-  const _evApp = (_evMeta.app || "").toLowerCase();
-  const _evSource = (_evMeta.source || "").toLowerCase();
-  const _isCivikoEvent = _evSource === "civiko" || _evApp === "civiko" || _evApp === "civiko_one";
-  console.log("[stripe-webhook]", {
-    type: event.type,
-    id: event.id,
-    livemode: event.livemode,
-    civiko: _isCivikoEvent,
-  });
+  log("info", { outcome: "claimed", event: event.type, id: event.id, attempts: claim.attempts, livemode: event.livemode });
 
-  // Drop foreign-project events (same Stripe account, different product) → 200 OK so Stripe doesn't retry
-  if (!_isCivikoEvent && (event.type.startsWith("checkout.") || event.type.startsWith("customer.subscription.") || event.type.startsWith("invoice."))) {
-    log("info", { outcome: "skip_non_civiko", event: event.type, id: event.id });
-    await supabase.from("stripe_webhook_events").insert({ id: event.id, type: event.type });
-    return jsonRes({ received: true, skipped: "non_civiko" });
-  }
-
-  log("info", { event: event.type, id: event.id, mode: cfg.mode });
-
+  // 3) Elaborazione
   try {
+    let result: Record<string, unknown>;
     switch (event.type) {
-      case "checkout.session.completed": {
-        const s = event.data.object as Stripe.Checkout.Session;
-        if (s.mode !== "subscription") break;
-
-        const meta = (s.metadata ?? {}) as Record<string, string>;
-        const app = meta.app || (meta.source === "civiko" ? "civiko_one" : "civiko_one");
-        const isCiviko = app === "civiko" || app === "civiko_one" || meta.source === "civiko";
-        const stripeCustomerId = typeof s.customer === "string" ? s.customer : s.customer?.id ?? null;
-        const agencyId = await resolveAgencyId(stripeCustomerId, meta.workspace_id, meta.supabase_user_id || meta.user_id);
-
-        if (!agencyId || !stripeCustomerId) {
-          log("warn", { outcome: "skip_no_agency", event: event.type, customer: stripeCustomerId });
-          break;
-        }
-
-        await upsertCustomer(agencyId, stripeCustomerId, s.customer_details?.email ?? s.customer_email ?? null, app);
-
-        if (s.subscription) {
-          const subId = typeof s.subscription === "string" ? s.subscription : s.subscription.id;
-          const sub = await stripe.subscriptions.retrieve(subId);
-          const item = sub.items.data[0];
-          const priceId = item?.price?.id ?? null;
-          const interval = item?.price?.recurring?.interval; // 'month' | 'year'
-          const billingInterval = meta.plan === "yearly" || interval === "year" ? "yearly" : "monthly";
-
-          await upsertSubscription({
-            agencyId,
-            app,
-            stripeCustomerId,
-            stripeSubscriptionId: sub.id,
-            status: sub.status,
-            priceId,
-            planKey: priceId ? (planFromPriceId(priceId) || meta.plan || null) : (meta.plan || null),
-            currentPeriodEnd: sub.current_period_end ?? null,
-            trialEnd: sub.trial_end ?? null,
-            cancelAtPeriodEnd: !!sub.cancel_at_period_end,
-            billingInterval: isCiviko ? billingInterval : null,
-            zonaStatus: isCiviko ? "in_attesa" : undefined,
-          });
-
-          if (isCiviko) {
-            await notifyAdminNewSubscription({
-              workspace_id: meta.workspace_id ?? agencyId,
-              supabase_user_id: meta.supabase_user_id ?? meta.user_id ?? null,
-              email: s.customer_details?.email ?? s.customer_email ?? "",
-              plan: billingInterval,
-              amount: (s.amount_total ?? 0) / 100,
-              subscription_id: sub.id,
-            });
-          }
-        }
+      case "checkout.session.completed":
+        result = await handleCheckoutCompleted(stripe, event);
         break;
-      }
-
       case "customer.subscription.created":
-      case "customer.subscription.updated": {
-        const sub = event.data.object as Stripe.Subscription;
-        const stripeCustomerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
-        const meta = (sub.metadata ?? {}) as Record<string, string>;
-        const app = meta.app || "civiko_one";
-        const isCiviko = app === "civiko" || app === "civiko_one";
-        const agencyId = await resolveAgencyId(stripeCustomerId, meta.workspace_id, meta.supabase_user_id || meta.user_id);
-        if (!agencyId) {
-          log("warn", { outcome: "skip_no_agency", event: event.type, customer: stripeCustomerId });
-          break;
-        }
-        const item = sub.items.data[0];
-        const priceId = item?.price?.id ?? null;
-        const interval = item?.price?.recurring?.interval;
-        const billingInterval = interval === "year" ? "yearly" : "monthly";
-
-        await upsertSubscription({
-          agencyId,
-          app,
-          stripeCustomerId,
-          stripeSubscriptionId: sub.id,
-          status: sub.status,
-          priceId,
-          planKey: priceId ? (planFromPriceId(priceId) || null) : null,
-          currentPeriodEnd: sub.current_period_end ?? null,
-          trialEnd: sub.trial_end ?? null,
-          cancelAtPeriodEnd: !!sub.cancel_at_period_end,
-          billingInterval: isCiviko ? billingInterval : null,
-        });
+      case "customer.subscription.updated":
+        result = await handleSubscriptionUpsert(event);
         break;
-      }
-
-      case "customer.subscription.deleted": {
-        const sub = event.data.object as Stripe.Subscription;
-        const stripeCustomerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
-        const meta = (sub.metadata ?? {}) as Record<string, string>;
-        const app = meta.app || "civiko_one";
-        const isCiviko = app === "civiko" || app === "civiko_one";
-        const existing = await getSubscriptionRow(sub.id);
-
-        const update: Record<string, unknown> = {
-          status: "canceled",
-        };
-        if (isCiviko) update.zona_status = "liberata";
-
-        const { error } = await supabase
-          .from("billing_subscriptions")
-          .update(update)
-          .eq("stripe_subscription_id", sub.id);
-        if (error) log("error", { op: "cancel_sub", msg: error.message });
-
-        if (isCiviko) {
-          await notifyAdminZonaLiberata({
-            subscription_id: sub.id,
-            workspace_id: existing?.agency_id ?? meta.workspace_id ?? null,
-            zona: (existing?.zona_assegnata as string | null) ?? null,
-          });
-        }
+      case "customer.subscription.deleted":
+        result = await handleSubscriptionDeleted(event);
         break;
-      }
-
-      case "invoice.payment_succeeded": {
-        const inv = event.data.object as Stripe.Invoice;
-        const subId = typeof inv.subscription === "string" ? inv.subscription : inv.subscription?.id;
-        if (!subId) break;
-        const { error } = await supabase
-          .from("billing_subscriptions")
-          .update({ status: "active" })
-          .eq("stripe_subscription_id", subId);
-        if (error) log("error", { op: "invoice_succeeded", msg: error.message });
+      case "invoice.payment_succeeded":
+        result = await handleInvoice(stripe, event, true);
         break;
-      }
-
-      case "invoice.payment_failed": {
-        const inv = event.data.object as Stripe.Invoice;
-        const subId = typeof inv.subscription === "string" ? inv.subscription : inv.subscription?.id;
-        if (!subId) break;
-        const { error } = await supabase
-          .from("billing_subscriptions")
-          .update({ status: "past_due" })
-          .eq("stripe_subscription_id", subId);
-        if (error) log("error", { op: "invoice_failed", msg: error.message });
-
-        // Notify user
-        const stripeCustomerId = typeof inv.customer === "string" ? inv.customer : inv.customer?.id ?? null;
-        const email = inv.customer_email
-          ?? (stripeCustomerId ? await getCustomerEmail(stripeCustomerId) : null);
-        await notifyUserPaymentFailed({ email, subscription_id: subId });
+      case "invoice.payment_failed":
+        result = await handleInvoice(stripe, event, false);
         break;
-      }
-
       default:
-        log("info", { outcome: "ignored", event: event.type });
+        result = { ignored: true };
     }
 
-    // Mark as processed
-    await supabase.from("stripe_webhook_events").insert({
-      id: event.id,
-      type: event.type,
+    // 4) processed SOLO dopo il successo completo
+    const { error: markErr } = await supabase.rpc("stripe_webhook_event_mark_processed", {
+      p_event_id: event.id,
     });
-  } catch (e) {
-    log("error", { outcome: "handler_exception", event: event.type, msg: e instanceof Error ? e.message : "unknown" });
-  }
+    if (markErr) {
+      log("error", { outcome: "mark_processed_failed", id: event.id, msg: markErr.message });
+      return jsonRes({ error: "registry_close_failed", retryable: true }, 500);
+    }
 
-  return jsonRes({ received: true });
+    log("info", { outcome: "processed", event: event.type, id: event.id, ...result });
+    return jsonRes({ received: true, ...result });
+  } catch (e) {
+    const code = e instanceof RetryableError ? e.code : "handler_exception";
+    const msg = e instanceof Error ? e.message : "unknown";
+    log("error", { outcome: "failed", event: event.type, id: event.id, code, msg });
+    await supabase.rpc("stripe_webhook_event_mark_failed", {
+      p_event_id: event.id,
+      p_error: `${code}: ${msg}`,
+    });
+    return jsonRes({ error: code, retryable: true }, 500);
+  }
 });
