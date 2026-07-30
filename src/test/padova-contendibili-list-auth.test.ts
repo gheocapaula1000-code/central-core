@@ -386,7 +386,7 @@ describe("padova-contendibili-list — reconciliation contract", () => {
     expect(dataBlock).toContain("total: totalOut");
     expect(dataBlock).toContain("items_count: itemsCount");
     expect(dataBlock).toContain("snapshot_complete: snapshotComplete");
-    expect(dataBlock).toContain("assigned_zone: assignedSlug");
+    expect(dataBlock).toContain("assigned_zone: primarySlug");
   });
 
   it("snapshot_complete requires items_count === total AND offset === 0", () => {
