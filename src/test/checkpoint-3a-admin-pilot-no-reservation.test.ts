@@ -2,8 +2,8 @@
 // Test puri: nessuna rete, nessun DB, nessun provider, nessun cron.
 //
 // Matrice provata:
-//  - Civiko + admin (autorizzato su tutte e 8) senza zona esplicita → 403
-//  - Civiko + admin con zona esplicita ufficiale                    → quella zona
+//  - Civiko + admin owner senza zona esplicita → full-city (8 zone)
+//  - Civiko + admin owner con zona esplicita    → quella zona
 //  - Civiko + non-admin con la propria zona                         → quella zona
 //  - Civiko + non-admin senza zona                                  → 403 fail-closed
 //  - non Civiko (acquisitionradar)                                  → invariato
@@ -33,22 +33,30 @@ function resolvePerimeter(opts: {
   requestedSlug?: string;
 }): { status: number; code?: string; slugs: string[] } {
   const base = opts.isAdmin ? [...ALL_SLUGS] : [...opts.validAssignedSlugs];
-  if (!opts.isAdmin && base.length === 0) {
+  if (opts.isAdmin) {
+    // Admin owner della piattaforma: nessun gate monozona.
+    if (opts.requestedSlug) {
+      if (!base.includes(opts.requestedSlug)) {
+        return { status: 403, code: "ZONE_NOT_ASSIGNED", slugs: [] };
+      }
+      return { status: 200, slugs: [opts.requestedSlug] };
+    }
+    return { status: 200, slugs: base };
+  }
+  if (base.length === 0) {
     return { status: 403, code: "NO_ZONE_ASSIGNED", slugs: [] };
   }
   const gate = applyCivikoSingleZoneGate(opts.sourceApp, base, opts.requestedSlug);
-  if (!gate.ok) {
-    return { status: 403, code: gate.civiko ? gate.code : undefined, slugs: [] };
-  }
-  return { status: 200, slugs: [...gate.slugs] };
+  if (gate.ok) return { status: 200, slugs: [...gate.slugs] };
+  return { status: 403, code: gate.code, slugs: [] };
 }
 
-describe("3A/11B-A — admin collauda senza prenotazione, una zona per volta", () => {
-  it("admin senza zona esplicita → fail-closed (nessun full-city)", () => {
+describe("3A/11B-A — admin owner full-city senza prenotazione", () => {
+  it("admin owner senza zona esplicita → full-city sulle 8 zone", () => {
     for (const sourceApp of CIVIKO_SOURCES) {
       const r = resolvePerimeter({ sourceApp, isAdmin: true, validAssignedSlugs: [] });
-      expect(r.status).toBe(403);
-      expect(r.code).toBe("MULTIPLE_ZONES_ASSIGNED");
+      expect(r.status).toBe(200);
+      expect(r.slugs).toEqual(ALL_SLUGS);
     }
   });
 

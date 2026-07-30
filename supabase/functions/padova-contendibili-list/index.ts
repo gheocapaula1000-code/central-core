@@ -29,7 +29,6 @@ import { isCivikoCommercialZoneSlug } from "../_shared/civikoCommercialZoneContr
 import { commercialZoneForQuartiere } from "../_shared/civikoCommercialZoneByQuartiere.ts";
 import {
   applyCivikoSingleZoneGate,
-  isCivikoSourceApp,
 } from "../_shared/civikoZoneAccessGate.ts";
 
 const CORS = {
@@ -142,7 +141,7 @@ serve(async (req) => {
     }
 
     let assignedSlugs: string[];
-    if (isAdmin && !isCivikoSourceApp(req.headers.get("x-source-app"))) {
+    if (isAdmin) {
       assignedSlugs = [
         "centro-storico", "nord-arcella", "est-brenta", "est-forcellini-camin",
         "sud-est-sant-osvaldo", "sud-voltabarozzo-guizza", "sud-ovest-mandria",
@@ -158,14 +157,14 @@ serve(async (req) => {
       if (assignedSlugs.length === 0) {
         return json({ ok: false, debug_id: did, error: { code: "SLUG_OUT_OF_CONTRACT", message: "Assigned slug not in contract" } }, 403);
       }
-      if (isCivikoSourceApp(req.headers.get("x-source-app"))) isAdmin = false;
     }
 
     // Optional zone_slug: client may pick a specific authorized zone.
     const zoneSlugRaw = ((body as Record<string, unknown>).zone_slug ?? (body as Record<string, unknown>).commercial_zone_slug ?? url.searchParams.get("zone_slug") ?? url.searchParams.get("commercial_zone_slug") ?? null) as string | null;
 
     // Checkpoint 11B-A — gate "una sola zona ufficiale assegnata" (fail-closed).
-    {
+    // L'admin owner verificato server-side non e' un'agenzia cliente: nessun gate monozona.
+    if (!isAdmin) {
       const gate = applyCivikoSingleZoneGate(req.headers.get("x-source-app"), assignedSlugs, zoneSlugRaw);
       if (gate.civiko) {
         if (!gate.ok) {
