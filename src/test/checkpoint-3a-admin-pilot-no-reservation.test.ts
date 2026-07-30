@@ -37,7 +37,8 @@ function resolvePerimeter(opts: {
     return { status: 403, code: "NO_ZONE_ASSIGNED", slugs: [] };
   }
   const gate = applyCivikoSingleZoneGate(opts.sourceApp, base, opts.requestedSlug);
-  if (!gate.ok) return { status: 403, code: gate.code, slugs: [] };
+  if (gate.civiko && !gate.ok) return { status: 403, code: gate.code, slugs: [] };
+  if (!gate.ok) return { status: 403, slugs: [] };
   return { status: 200, slugs: [...gate.slugs] };
 }
 
