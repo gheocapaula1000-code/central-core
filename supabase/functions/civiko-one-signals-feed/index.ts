@@ -1082,37 +1082,50 @@ serve(async (req: Request) => {
   else if (ide.with_real_agency === 0) idealistaStatus = ideAgeDays !== null && ideAgeDays > 7 ? "stale_no_agency_coverage" : "active_no_agency_coverage";
   else idealistaStatus = "active_with_agency_coverage";
 
-  // PWA legacy compatibility:
-  // The published Civiko One Radar rejects any feed item whose
-  // commercial_zone_slug differs from assigned_zone, so an admin aggregate
-  // feed across 8 zones is otherwise discarded client-side as CROSS_ZONE_ITEM.
-  // Expose compatibility both top-level and under `data.items` because the
-  // published PWA unwraps the proxy response and reads top-level `items`.
-  // The real source zone is preserved explicitly as actual_commercial_zone_slug.
-  const pwaCompatItems = isAdmin
-    ? trimmed.map((it) => ({
-      ...it,
-      actual_commercial_zone_slug: it.commercial_zone_slug,
-      commercial_zone_slug: assignedSlug,
-    }))
-    : trimmed;
+  // Admin owner verificato server-side: full-city sulle 8 zone ufficiali.
+  // Ogni item conserva il proprio commercial_zone_slug ufficiale: nessuna
+  // riattribuzione a Centro Storico (o a qualsiasi altra zona).
+  const outItems = trimmed;
+  const responseScope = isAdmin ? "admin_full_city" : "commercial_zone_isolated";
+  const appliedZoneSlug = isAdmin ? null : assignedSlug;
+  const zonesInScope = isAdmin ? [...assignedSlugs] : [...zoneFilter];
 
   return jsonResp({
     ok: true,
     schema_version: SCHEMA_VERSION,
-    assigned_zone: assignedSlug,
-    assigned_zones: assignedSlugs,
-    scope: { city, province, zone_mode: zoneMode, commercial_zone_slug: assignedSlug, assigned_zones: assignedSlugs },
+    scope: responseScope,
+    applied_zone_slug: appliedZoneSlug,
+    zones_in_scope: zonesInScope,
+    assigned_zone: appliedZoneSlug,
+    assigned_zones: zonesInScope,
+    scope_detail: {
+      city,
+      province,
+      zone_mode: zoneMode,
+      mode: responseScope,
+      commercial_zone_slug: appliedZoneSlug,
+      assigned_zones: zonesInScope,
+    },
     generated_at: generatedAt,
     summary,
-    items: pwaCompatItems,
+    items: outItems,
     data: {
-      items: pwaCompatItems,
+      items: outItems,
       total: summary.total,
       summary,
-      assigned_zone: assignedSlug,
-      assigned_zones: assignedSlugs,
-      scope: { city, province, zone_mode: zoneMode, commercial_zone_slug: assignedSlug, assigned_zones: assignedSlugs },
+      scope: responseScope,
+      applied_zone_slug: appliedZoneSlug,
+      zones_in_scope: zonesInScope,
+      assigned_zone: appliedZoneSlug,
+      assigned_zones: zonesInScope,
+      scope_detail: {
+        city,
+        province,
+        zone_mode: zoneMode,
+        mode: responseScope,
+        commercial_zone_slug: appliedZoneSlug,
+        assigned_zones: zonesInScope,
+      },
     },
     diagnostics: {
       tenant_id: workspaceId,
