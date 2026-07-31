@@ -167,7 +167,10 @@ describe("3A — handler runtime dei 4 endpoint", () => {
 
   it("civiko-one-signals-feed non rinomina record di altra zona", () => {
     const src = fn("civiko-one-signals-feed/index.ts");
-    expect(src).toMatch(/actual_commercial_zone_slug/);
-    expect(src).toMatch(/const pwaCompatItems = isAdmin/);
+    // Nessuna riattribuzione legacy: ogni item conserva il proprio slug ufficiale.
+    expect(src).not.toMatch(/actual_commercial_zone_slug/);
+    expect(src).not.toMatch(/pwaCompatItems/);
+    expect(src).toMatch(/const responseScope = isAdmin \? "admin_full_city"/);
+    expect(src).toMatch(/const outItems = trimmed;/);
   });
 });
