@@ -1130,7 +1130,17 @@ serve(async (req: Request) => {
     diagnostics: {
       tenant_id: workspaceId,
       workspace_id: workspaceId,
-      assigned_zone: assignedSlug,
+      scope: responseScope,
+      is_admin: isAdmin,
+      applied_zone_slug: appliedZoneSlug,
+      zones_in_scope: zonesInScope,
+      assigned_zone: appliedZoneSlug,
+      count_by_zone: outItems.reduce<Record<string, number>>((acc, it) => {
+        const s = it.commercial_zone_slug ?? "";
+        if (s) acc[s] = (acc[s] ?? 0) + 1;
+        return acc;
+      }, {}),
+      items_without_zone: outItems.filter((it) => !it.commercial_zone_slug).length,
       generated_at: generatedAt,
       requested_limit: limit,
       included: include,
