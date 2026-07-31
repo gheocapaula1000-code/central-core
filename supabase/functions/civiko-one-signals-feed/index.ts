@@ -1177,11 +1177,10 @@ serve(async (req: Request) => {
       privati: {
         ...privatiDiag,
         private_opportunities_count: summary.privati,
-        by_assigned_zone: { [assignedSlug]: summary.privati },
       },
       offmarket: offmarketDiag,
       commercial_zone_scope: "db_side_zone_filter_only",
-      pwa_legacy_admin_zone_compat: isAdmin,
+      pwa_legacy_admin_zone_compat: false,
       quartiere_filter: quartiereFilter ?? null,
       distinct_resolved_slugs: distinctResolvedSlugs,
       security_gate: "ok",
