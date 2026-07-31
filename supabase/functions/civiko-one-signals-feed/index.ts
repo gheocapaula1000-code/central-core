@@ -947,11 +947,13 @@ serve(async (req: Request) => {
   // Ogni item proviene da viste filtrate DB-side su zoneFilter (una o piu` zone assegnate),
   // quindi nessun item appartiene a una zona non autorizzata.
   for (const it of rawItems) {
+    // Fail-closed: nessuna riattribuzione. Un item senza zona valida resta
+    // senza slug e viene scartato dall'assert finale (mai Centro Storico).
     const itSlug = it.commercial_zone_slug && zoneFilter.includes(it.commercial_zone_slug)
       ? it.commercial_zone_slug
-      : assignedSlug;
+      : "";
     it.commercial_zone_slug = itSlug;
-    it.display_zone = slugToName.get(itSlug) || itSlug;
+    it.display_zone = itSlug ? (slugToName.get(itSlug) || itSlug) : it.display_zone;
   }
   const distinctResolvedSlugs = new Set(rawItems.map((it) => it.commercial_zone_slug)).size;
   const fallbackAltreZone = 0;
