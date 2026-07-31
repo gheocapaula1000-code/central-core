@@ -524,7 +524,7 @@ serve(async (req: Request) => {
           .split("|")[0].replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
         // Stable source_id keyed by chiave_match (survives id regenerations).
         const stableCont = String(row.chiave_match || `id:${row.id}`);
-        rawItems.push(buildItem(String(row.commercial_zone_slug || assignedSlug), {
+        rawItems.push(buildItem(String(row.commercial_zone_slug || ""), {
           source_id: `cont:${stableCont}`,
           signal_type: "contendibile",
           title: `${title} — ${nAg} agenzie distinte`,
@@ -588,7 +588,7 @@ serve(async (req: Request) => {
         const title = String(row.chiave_match || `Multi-portale ${row.id}`)
           .split("|")[0].replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
         const stableMp = String(row.chiave_match || `id:${row.id}`);
-        rawItems.push(buildItem(String(row.commercial_zone_slug || assignedSlug), {
+        rawItems.push(buildItem(String(row.commercial_zone_slug || ""), {
           source_id: `mp:${stableMp}`,
           // PWA-compat: multi-portale mappato come "contendibile"; l'origine
           // resta tracciabile via evidence_type/label_pubblica/raw_ref.
@@ -701,7 +701,7 @@ serve(async (req: Request) => {
         const omiCode = (row.omi_zone as string) || "";
         const zoneLabel = omiCode || UNRESOLVED_OMI_LABEL;
         const title = (row.title as string) || `Ribasso ${row.listing_id ?? ""}`;
-        rawItems.push(buildItem(String(row.commercial_zone_slug || assignedSlug), {
+        rawItems.push(buildItem(String(row.commercial_zone_slug || ""), {
           source_id: `drop:${row.source_id ?? row.listing_id ?? url}`,
           signal_type: "ribasso",
           title: `${title} — ribasso ${dropPct}%`,
@@ -777,7 +777,7 @@ serve(async (req: Request) => {
           privatiDiag.privati_max_last_seen_at = lastSeen;
         }
         const baseTitle = (row.indirizzo as string) || `Immobile ${z.label}`;
-        rawItems.push(buildItem(String(row.commercial_zone_slug || assignedSlug), {
+        rawItems.push(buildItem(String(row.commercial_zone_slug || ""), {
           source_id: `pdv:${row.id}`,
           signal_type: "privato",
           title: baseTitle,
@@ -879,7 +879,7 @@ serve(async (req: Request) => {
         bump(created);
         const stableOm = String(row.fingerprint || row.id);
         // NO PII: escludiamo summary/location_detail/payload dall'output.
-        rawItems.push(buildItem(String(row.commercial_zone_slug || assignedSlug), {
+        rawItems.push(buildItem(String(row.commercial_zone_slug || ""), {
           source_id: `om:${stableOm}`,
           signal_type: "off_market",
           title: String(row.title || "").slice(0, 240) || "Segnale off-market",
