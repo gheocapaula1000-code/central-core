@@ -524,7 +524,7 @@ serve(async (req: Request) => {
           .split("|")[0].replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
         // Stable source_id keyed by chiave_match (survives id regenerations).
         const stableCont = String(row.chiave_match || `id:${row.id}`);
-        rawItems.push(buildItem(String(row.commercial_zone_slug || assignedSlug), {
+        rawItems.push(buildItem(String(row.commercial_zone_slug || ""), {
           source_id: `cont:${stableCont}`,
           signal_type: "contendibile",
           title: `${title} — ${nAg} agenzie distinte`,
@@ -588,7 +588,7 @@ serve(async (req: Request) => {
         const title = String(row.chiave_match || `Multi-portale ${row.id}`)
           .split("|")[0].replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
         const stableMp = String(row.chiave_match || `id:${row.id}`);
-        rawItems.push(buildItem(String(row.commercial_zone_slug || assignedSlug), {
+        rawItems.push(buildItem(String(row.commercial_zone_slug || ""), {
           source_id: `mp:${stableMp}`,
           // PWA-compat: multi-portale mappato come "contendibile"; l'origine
           // resta tracciabile via evidence_type/label_pubblica/raw_ref.
@@ -701,7 +701,7 @@ serve(async (req: Request) => {
         const omiCode = (row.omi_zone as string) || "";
         const zoneLabel = omiCode || UNRESOLVED_OMI_LABEL;
         const title = (row.title as string) || `Ribasso ${row.listing_id ?? ""}`;
-        rawItems.push(buildItem(String(row.commercial_zone_slug || assignedSlug), {
+        rawItems.push(buildItem(String(row.commercial_zone_slug || ""), {
           source_id: `drop:${row.source_id ?? row.listing_id ?? url}`,
           signal_type: "ribasso",
           title: `${title} — ribasso ${dropPct}%`,
@@ -777,7 +777,7 @@ serve(async (req: Request) => {
           privatiDiag.privati_max_last_seen_at = lastSeen;
         }
         const baseTitle = (row.indirizzo as string) || `Immobile ${z.label}`;
-        rawItems.push(buildItem(String(row.commercial_zone_slug || assignedSlug), {
+        rawItems.push(buildItem(String(row.commercial_zone_slug || ""), {
           source_id: `pdv:${row.id}`,
           signal_type: "privato",
           title: baseTitle,
@@ -879,7 +879,7 @@ serve(async (req: Request) => {
         bump(created);
         const stableOm = String(row.fingerprint || row.id);
         // NO PII: escludiamo summary/location_detail/payload dall'output.
-        rawItems.push(buildItem(String(row.commercial_zone_slug || assignedSlug), {
+        rawItems.push(buildItem(String(row.commercial_zone_slug || ""), {
           source_id: `om:${stableOm}`,
           signal_type: "off_market",
           title: String(row.title || "").slice(0, 240) || "Segnale off-market",
@@ -947,11 +947,13 @@ serve(async (req: Request) => {
   // Ogni item proviene da viste filtrate DB-side su zoneFilter (una o piu` zone assegnate),
   // quindi nessun item appartiene a una zona non autorizzata.
   for (const it of rawItems) {
+    // Fail-closed: nessuna riattribuzione. Un item senza zona valida resta
+    // senza slug e viene scartato dall'assert finale (mai Centro Storico).
     const itSlug = it.commercial_zone_slug && zoneFilter.includes(it.commercial_zone_slug)
       ? it.commercial_zone_slug
-      : assignedSlug;
+      : "";
     it.commercial_zone_slug = itSlug;
-    it.display_zone = slugToName.get(itSlug) || itSlug;
+    it.display_zone = itSlug ? (slugToName.get(itSlug) || itSlug) : it.display_zone;
   }
   const distinctResolvedSlugs = new Set(rawItems.map((it) => it.commercial_zone_slug)).size;
   const fallbackAltreZone = 0;
@@ -1082,42 +1084,65 @@ serve(async (req: Request) => {
   else if (ide.with_real_agency === 0) idealistaStatus = ideAgeDays !== null && ideAgeDays > 7 ? "stale_no_agency_coverage" : "active_no_agency_coverage";
   else idealistaStatus = "active_with_agency_coverage";
 
-  // PWA legacy compatibility:
-  // The published Civiko One Radar rejects any feed item whose
-  // commercial_zone_slug differs from assigned_zone, so an admin aggregate
-  // feed across 8 zones is otherwise discarded client-side as CROSS_ZONE_ITEM.
-  // Expose compatibility both top-level and under `data.items` because the
-  // published PWA unwraps the proxy response and reads top-level `items`.
-  // The real source zone is preserved explicitly as actual_commercial_zone_slug.
-  const pwaCompatItems = isAdmin
-    ? trimmed.map((it) => ({
-      ...it,
-      actual_commercial_zone_slug: it.commercial_zone_slug,
-      commercial_zone_slug: assignedSlug,
-    }))
-    : trimmed;
+  // Admin owner verificato server-side: full-city sulle 8 zone ufficiali.
+  // Ogni item conserva il proprio commercial_zone_slug ufficiale: nessuna
+  // riattribuzione a Centro Storico (o a qualsiasi altra zona).
+  const outItems = trimmed;
+  const responseScope = isAdmin ? "admin_full_city" : "commercial_zone_isolated";
+  const appliedZoneSlug = isAdmin ? null : assignedSlug;
+  const zonesInScope = isAdmin ? [...assignedSlugs] : [...zoneFilter];
 
   return jsonResp({
     ok: true,
     schema_version: SCHEMA_VERSION,
-    assigned_zone: assignedSlug,
-    assigned_zones: assignedSlugs,
-    scope: { city, province, zone_mode: zoneMode, commercial_zone_slug: assignedSlug, assigned_zones: assignedSlugs },
+    scope: responseScope,
+    applied_zone_slug: appliedZoneSlug,
+    zones_in_scope: zonesInScope,
+    assigned_zone: appliedZoneSlug,
+    assigned_zones: zonesInScope,
+    scope_detail: {
+      city,
+      province,
+      zone_mode: zoneMode,
+      mode: responseScope,
+      commercial_zone_slug: appliedZoneSlug,
+      assigned_zones: zonesInScope,
+    },
     generated_at: generatedAt,
     summary,
-    items: pwaCompatItems,
+    items: outItems,
     data: {
-      items: pwaCompatItems,
+      items: outItems,
       total: summary.total,
       summary,
-      assigned_zone: assignedSlug,
-      assigned_zones: assignedSlugs,
-      scope: { city, province, zone_mode: zoneMode, commercial_zone_slug: assignedSlug, assigned_zones: assignedSlugs },
+      scope: responseScope,
+      applied_zone_slug: appliedZoneSlug,
+      zones_in_scope: zonesInScope,
+      assigned_zone: appliedZoneSlug,
+      assigned_zones: zonesInScope,
+      scope_detail: {
+        city,
+        province,
+        zone_mode: zoneMode,
+        mode: responseScope,
+        commercial_zone_slug: appliedZoneSlug,
+        assigned_zones: zonesInScope,
+      },
     },
     diagnostics: {
       tenant_id: workspaceId,
       workspace_id: workspaceId,
-      assigned_zone: assignedSlug,
+      scope: responseScope,
+      is_admin: isAdmin,
+      applied_zone_slug: appliedZoneSlug,
+      zones_in_scope: zonesInScope,
+      assigned_zone: appliedZoneSlug,
+      count_by_zone: outItems.reduce<Record<string, number>>((acc, it) => {
+        const s = it.commercial_zone_slug ?? "";
+        if (s) acc[s] = (acc[s] ?? 0) + 1;
+        return acc;
+      }, {}),
+      items_without_zone: outItems.filter((it) => !it.commercial_zone_slug).length,
       generated_at: generatedAt,
       requested_limit: limit,
       included: include,
@@ -1154,11 +1179,10 @@ serve(async (req: Request) => {
       privati: {
         ...privatiDiag,
         private_opportunities_count: summary.privati,
-        by_assigned_zone: { [assignedSlug]: summary.privati },
       },
       offmarket: offmarketDiag,
       commercial_zone_scope: "db_side_zone_filter_only",
-      pwa_legacy_admin_zone_compat: isAdmin,
+      pwa_legacy_admin_zone_compat: false,
       quartiere_filter: quartiereFilter ?? null,
       distinct_resolved_slugs: distinctResolvedSlugs,
       security_gate: "ok",
