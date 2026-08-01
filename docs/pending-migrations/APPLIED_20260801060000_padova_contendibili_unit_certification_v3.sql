@@ -1,0 +1,41 @@
+-- APPLIED 2026-08-01 — CHECKPOINT P0 — ELIMINAZIONE FALSI CONTENDIBILI
+-- match_version: v3-unit-certified
+--
+-- CAUSA SQL ESATTA (prima di questa migration)
+--   public.recompute_padova_listings_contendibili() costruiva l'identità di un
+--   immobile con `_identity`:
+--     • 'C:' || civico            → stesso CIVICO = stessa unità (falso: è lo stabile)
+--     • 'G:' || via|locali|cluster → cluster geografico 50 m (falso: è l'isolato)
+--     • 'V:' || via|locali         → SOLO VIA + LOCALI (falso: è la strada)
+--   Il gruppo finale (_fg) veniva promosso a contendibile con l'unico vincolo
+--   `HAVING count(DISTINCT agency_key) >= 2`: nessun controllo su prezzo, mq,
+--   tipologia, piano o evidenza d'unità. Da qui i falsi come
+--   130 m² / 4 locali / 2 bagni / 3 agenzie / €150.000–€420.000
+--   (chiave 'voltabarozzo|4|2|2|sud-voltabarozzo-guizza|V:voltabarozzo:4').
+--
+-- CORREZIONE
+--   Il gruppo certificato è ora costruito su una chiave di UNITÀ:
+--     zona | via | CIVICO (obbligatorio) | locali | tipologia | EVIDENZA
+--   dove EVIDENZA ∈ { PIANO (stesso piano non nullo),
+--                     REF   (stesso riferimento immobile),
+--                     DESCR (stessa impronta deterministica della descrizione) }.
+--   Coordinate uguali o stesso civico, da soli, NON certificano l'unità.
+--
+--   Vincoli aggregati (min/max) → validi per OGNI coppia del gruppo,
+--   quindi nessuna concatenazione transitiva è possibile:
+--     • n_agenzie distinte >= 2
+--     • mq_max <= max(mq_min + 5, mq_min * 1.05)
+--     • prezzo_max <= prezzo_min * 1.35
+--     • bagni distinti <= 1, piani distinti <= 1
+--   Un annuncio non può appartenere a due gruppi certificati
+--   (deduplica greedy con preferenza PIANO > REF > DESCR).
+--
+--   Fail-closed: i gruppi senza evidenza sufficiente vanno in
+--   public.padova_contendibili_quarantena (motivi + metriche + urls) e non sono
+--   restituiti da padova_contendibili_by_zone_v né dagli endpoint pubblici.
+--
+--   Staging + QA transazionale: se un controllo fallisce la funzione solleva
+--   eccezione e nulla viene scritto.
+--
+-- Il testo integrale applicato è nella migration Supabase omonima.
+-- Questo file è la copia di riferimento per la revisione umana.

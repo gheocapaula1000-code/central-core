@@ -5992,6 +5992,8 @@ export type Database = {
           created_at: string
           data_primo_annuncio: string | null
           differenza_zona_pct: number | null
+          evidence_kind: string | null
+          evidence_ref: string | null
           fonti: string[]
           giorni_fermo: number | null
           giorni_sul_mercato: number | null
@@ -6001,6 +6003,8 @@ export type Database = {
           lat: number | null
           lng: number | null
           locali: number | null
+          match_metrics: Json | null
+          match_version: string | null
           mq: number | null
           n_agenzie: number
           n_annunci: number
@@ -6033,6 +6037,8 @@ export type Database = {
           created_at?: string
           data_primo_annuncio?: string | null
           differenza_zona_pct?: number | null
+          evidence_kind?: string | null
+          evidence_ref?: string | null
           fonti: string[]
           giorni_fermo?: number | null
           giorni_sul_mercato?: number | null
@@ -6042,6 +6048,8 @@ export type Database = {
           lat?: number | null
           lng?: number | null
           locali?: number | null
+          match_metrics?: Json | null
+          match_version?: string | null
           mq?: number | null
           n_agenzie: number
           n_annunci: number
@@ -6074,6 +6082,8 @@ export type Database = {
           created_at?: string
           data_primo_annuncio?: string | null
           differenza_zona_pct?: number | null
+          evidence_kind?: string | null
+          evidence_ref?: string | null
           fonti?: string[]
           giorni_fermo?: number | null
           giorni_sul_mercato?: number | null
@@ -6083,6 +6093,8 @@ export type Database = {
           lat?: number | null
           lng?: number | null
           locali?: number | null
+          match_metrics?: Json | null
+          match_version?: string | null
           mq?: number | null
           n_agenzie?: number
           n_annunci?: number
@@ -6114,12 +6126,16 @@ export type Database = {
           agenzie: string[] | null
           bagni: number | null
           chiave_match: string | null
+          commercial_zone_slug: string | null
           confidenza: string | null
           fonti: string[] | null
           id: number
           lat: number | null
           lng: number | null
           locali: number | null
+          match_version: string | null
+          metriche: Json | null
+          motivi: string[] | null
           motivo: string
           mq: number | null
           n_agenzie: number | null
@@ -6134,12 +6150,16 @@ export type Database = {
           agenzie?: string[] | null
           bagni?: number | null
           chiave_match?: string | null
+          commercial_zone_slug?: string | null
           confidenza?: string | null
           fonti?: string[] | null
           id?: number
           lat?: number | null
           lng?: number | null
           locali?: number | null
+          match_version?: string | null
+          metriche?: Json | null
+          motivi?: string[] | null
           motivo: string
           mq?: number | null
           n_agenzie?: number | null
@@ -6154,12 +6174,16 @@ export type Database = {
           agenzie?: string[] | null
           bagni?: number | null
           chiave_match?: string | null
+          commercial_zone_slug?: string | null
           confidenza?: string | null
           fonti?: string[] | null
           id?: number
           lat?: number | null
           lng?: number | null
           locali?: number | null
+          match_version?: string | null
+          metriche?: Json | null
+          motivi?: string[] | null
           motivo?: string
           mq?: number | null
           n_agenzie?: number | null
@@ -9087,6 +9111,8 @@ export type Database = {
           zona_descr: string
         }[]
       }
+      padova_unit_floor_key: { Args: { p_raw: Json }; Returns: string }
+      padova_unit_tipologia: { Args: { p_raw: Json }; Returns: string }
       process_padova_portal_collect_v2: {
         Args: { p_listings: Json; p_queue_id: string; p_worker_id: string }
         Returns: Json
