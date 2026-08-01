@@ -1,0 +1,1 @@
+SELECT public.recompute_padova_listings_contendibili();
