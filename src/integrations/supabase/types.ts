@@ -6415,6 +6415,13 @@ export type Database = {
           bagni: number | null
           commercial_zone_slug: string | null
           comune: string | null
+          ev_civico_norm: string | null
+          ev_derived_at: string | null
+          ev_descr_fp: string | null
+          ev_image_refs: Json | null
+          ev_piano_key: string | null
+          ev_provenance: Json | null
+          ev_via_norm: string | null
           expired_at: string | null
           fonte: string
           id: number
@@ -6443,6 +6450,13 @@ export type Database = {
           bagni?: number | null
           commercial_zone_slug?: string | null
           comune?: string | null
+          ev_civico_norm?: string | null
+          ev_derived_at?: string | null
+          ev_descr_fp?: string | null
+          ev_image_refs?: Json | null
+          ev_piano_key?: string | null
+          ev_provenance?: Json | null
+          ev_via_norm?: string | null
           expired_at?: string | null
           fonte: string
           id?: number
@@ -6471,6 +6485,13 @@ export type Database = {
           bagni?: number | null
           commercial_zone_slug?: string | null
           comune?: string | null
+          ev_civico_norm?: string | null
+          ev_derived_at?: string | null
+          ev_descr_fp?: string | null
+          ev_image_refs?: Json | null
+          ev_piano_key?: string | null
+          ev_provenance?: Json | null
+          ev_via_norm?: string | null
           expired_at?: string | null
           fonte?: string
           id?: number
@@ -9106,14 +9127,24 @@ export type Database = {
           zona: string
         }[]
       }
+      padova_backfill_unit_evidence: {
+        Args: { p_batch?: number; p_force?: boolean }
+        Returns: Json
+      }
+      padova_civico_norm: { Args: { p: string }; Returns: string }
       padova_cluster_points_50m: {
         Args: { p_lats: number[]; p_lngs: number[] }
         Returns: number[]
       }
+      padova_descr_fp: { Args: { p: string }; Returns: string }
+      padova_descr_norm: { Args: { p: string }; Returns: string }
+      padova_extract_civico: { Args: { p: string }; Returns: string }
+      padova_extract_via: { Args: { p: string }; Returns: string }
       padova_haversine_m: {
         Args: { lat1: number; lat2: number; lng1: number; lng2: number }
         Returns: number
       }
+      padova_is_quartiere_label: { Args: { p: string }; Returns: boolean }
       padova_listing_has_auction_evidence: {
         Args: { p_agency?: string; p_raw: Json }
         Returns: boolean
@@ -9145,8 +9176,12 @@ export type Database = {
           zona_descr: string
         }[]
       }
+      padova_piano_from_text: { Args: { p: string }; Returns: string }
+      padova_piano_key_norm: { Args: { p: string }; Returns: string }
       padova_unit_floor_key: { Args: { p_raw: Json }; Returns: string }
+      padova_unit_floor_key_v2: { Args: { p_raw: Json }; Returns: string }
       padova_unit_tipologia: { Args: { p_raw: Json }; Returns: string }
+      padova_via_key: { Args: { p: string }; Returns: string }
       process_padova_portal_collect_v2: {
         Args: { p_listings: Json; p_queue_id: string; p_worker_id: string }
         Returns: Json
