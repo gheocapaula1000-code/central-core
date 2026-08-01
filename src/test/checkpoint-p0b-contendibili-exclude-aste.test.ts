@@ -16,7 +16,7 @@ const DOC = readFileSync(
 describe("contendibili — contratto statico esclusione aste", () => {
   it("non indebolisce la certificazione unità v3", () => {
     expect(DOC).toContain("v3-unit-certified");
-    expect(DOC).toMatch(/regole v3 .* sono invariate/i);
+    expect(DOC).toMatch(/regole v3 [\s\S]*sono invariate/i);
   });
 
   it("dichiara la funzione deterministica e il motivo di quarantena", () => {
