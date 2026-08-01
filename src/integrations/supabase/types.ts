@@ -8581,6 +8581,8 @@ export type Database = {
           created_at: string | null
           data_primo_annuncio: string | null
           differenza_zona_pct: number | null
+          evidence_kind: string | null
+          evidence_ref: string | null
           fonti: string[] | null
           giorni_fermo: number | null
           giorni_sul_mercato: number | null
@@ -8590,6 +8592,8 @@ export type Database = {
           lat: number | null
           lng: number | null
           locali: number | null
+          match_metrics: Json | null
+          match_version: string | null
           mq: number | null
           n_agenzie: number | null
           n_annunci: number | null
@@ -8622,6 +8626,8 @@ export type Database = {
           created_at?: string | null
           data_primo_annuncio?: string | null
           differenza_zona_pct?: number | null
+          evidence_kind?: string | null
+          evidence_ref?: string | null
           fonti?: string[] | null
           giorni_fermo?: number | null
           giorni_sul_mercato?: number | null
@@ -8631,6 +8637,8 @@ export type Database = {
           lat?: number | null
           lng?: number | null
           locali?: number | null
+          match_metrics?: Json | null
+          match_version?: string | null
           mq?: number | null
           n_agenzie?: number | null
           n_annunci?: number | null
@@ -8663,6 +8671,8 @@ export type Database = {
           created_at?: string | null
           data_primo_annuncio?: string | null
           differenza_zona_pct?: number | null
+          evidence_kind?: string | null
+          evidence_ref?: string | null
           fonti?: string[] | null
           giorni_fermo?: number | null
           giorni_sul_mercato?: number | null
@@ -8672,6 +8682,8 @@ export type Database = {
           lat?: number | null
           lng?: number | null
           locali?: number | null
+          match_metrics?: Json | null
+          match_version?: string | null
           mq?: number | null
           n_agenzie?: number | null
           n_annunci?: number | null
@@ -9083,6 +9095,10 @@ export type Database = {
       padova_haversine_m: {
         Args: { lat1: number; lat2: number; lng1: number; lng2: number }
         Returns: number
+      }
+      padova_listing_has_auction_evidence: {
+        Args: { p_agency?: string; p_raw: Json }
+        Returns: boolean
       }
       padova_listing_has_mls_exclusive_evidence: {
         Args: { p_raw: Json }
