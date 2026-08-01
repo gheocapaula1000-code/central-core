@@ -20,6 +20,11 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { parseCasaListPage } from "../casaParser.ts";
+import {
+  extractViaFromText,
+  isQuartiereLabel,
+  normalizePianoKey,
+} from "../unitEvidenceExtractor.ts";
 
 export type PropertyType =
   | "appartamento"
@@ -62,7 +67,12 @@ export interface NormalizedListing {
   listing_id: string;
   url: string;
   title: string;
+  /** SOLO odonimo reale (via/piazza/corso…). Mai un quartiere. */
   address: string | null;
+  /** Etichetta di zona/quartiere del portale. Non è un indirizzo. */
+  quartiere?: string | null;
+  /** Piano normalizzato (T/R/S/M/A/Pn) quando dimostrabile. */
+  piano_key?: string | null;
   price_eur: number | null;
   surface_sqm: number | null;
   rooms: number | null;
@@ -128,7 +138,9 @@ function isInsidePadova(l: NormalizedListing): boolean {
     return l.lat! >= PADOVA_BOUNDS.minLat && l.lat! <= PADOVA_BOUNDS.maxLat &&
       l.lng! >= PADOVA_BOUNDS.minLng && l.lng! <= PADOVA_BOUNDS.maxLng;
   }
-  const txt = stripAccentsLower(`${l.title ?? ""} ${l.address ?? ""}`);
+  const txt = stripAccentsLower(
+    `${l.title ?? ""} ${l.address ?? ""} ${l.quartiere ?? ""}`,
+  );
   return !OTHER_COMUNI_RE.test(txt);
 }
 
@@ -155,8 +167,9 @@ function extractAgency(win: string): string | null {
   return m ? m[1].trim().slice(0, 150) : null;
 }
 function extractAddress(win: string): string | null {
-  const m = win.match(/((?:Via|Viale|V\.le|Piazza|P\.zza|Piazzale|P\.le|Corso|C\.so|Largo|Vicolo|Strada|Borgo|Lungargine|Riviera|Salita)\s+[A-ZÀ-Ù][^\n|·•]{2,120})/);
-  return m ? m[1].trim().slice(0, 200) : null;
+  // Solo odonimi reali: `extractViaFromText` rifiuta le etichette di quartiere.
+  const via = extractViaFromText(win.split(/\n/).slice(0, 8).join("\n"));
+  return via ? via.slice(0, 200) : null;
 }
 
 // ──────────────── casa.it ────────────────
@@ -168,12 +181,21 @@ function parseCasa(md: string, cap: number): NormalizedListing[] {
     const rawAgency = (p.agency_name ?? "").trim();
     const isPrivate = p.is_privato || /privat[oi]/i.test(rawAgency);
     const typeSource = `${p.title ?? ""} ${p.description ?? ""}`;
+    // `p.zone` è l'etichetta di quartiere della card: NON è un indirizzo.
+    const zoneLabel = p.zone ? p.zone.trim() : null;
+    // Una via si usa solo se realmente presente in titolo/descrizione.
+    const via =
+      extractViaFromText(p.title) ??
+      extractViaFromText(p.description) ??
+      (zoneLabel && !isQuartiereLabel(zoneLabel) ? extractViaFromText(zoneLabel) : null);
     const listing: NormalizedListing = {
       source: "casa.it",
       listing_id: `casa-${p.listing_id}`,
       url: p.source_url.slice(0, 400),
       title: (p.title ?? "Annuncio").slice(0, 200),
-      address: p.zone ? p.zone.slice(0, 200) : null,
+      address: via ? via.slice(0, 200) : null,
+      quartiere: zoneLabel ? zoneLabel.slice(0, 200) : null,
+      piano_key: normalizePianoKey(p.floor),
       price_eur: p.price_eur,
       surface_sqm: p.surface_sqm,
       rooms: p.rooms,
