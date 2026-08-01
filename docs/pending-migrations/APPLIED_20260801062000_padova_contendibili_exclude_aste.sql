@@ -1,0 +1,59 @@
+-- APPLIED 2026-08-01 — CHECKPOINT P0-B — ESCLUSIONE ASTE DAI CONTENDIBILI
+-- match_version invariato: v3-unit-certified (le regole di certificazione unità
+-- NON sono state indebolite).
+--
+-- MOTIVO
+--   L'unico gruppo certificato dal P0 —
+--   U3:nord-arcella|tullio-lombardo-18|18|2|appartamento|PIANO:P2
+--   (Aries Solutions, Aste Agency SRL, Aste Florio, €47.990–€48.000) —
+--   è un immobile in ASTA / PROCEDURA ESECUTIVA, quindi non è
+--   commercialmente contendibile per un incarico dal proprietario.
+--
+-- EVIDENZA OGGETTIVA TROVATA (non basata sul nome agenzia)
+--   • immobiliare.it/annunci/129946632 — campo strutturato "rty":"as"
+--     e testo: "Appartamento in asta a Padova (PD) – Via Tullio Lombardo 18".
+--   • immobiliare.it/annunci/130068602 — "rty":"as",
+--     "Acquisto Assistito in Asta Giudiziaria", "DATA ASTA : 30/09/26",
+--     verifica fattibilità "in PRE-ASTA".
+--   • immobiliare.it/annunci/130496316 — "* IMMOBILE IN PROCEDURA ESECUTIVA *",
+--     "Aste e pre-aste".
+--
+-- CORREZIONE
+--   1) public.padova_listing_has_auction_evidence(jsonb, text) — riconoscitore
+--      deterministico server-side, IMMUTABLE, search_path fisso:
+--        • campi strutturati: rty='as', auction, contract, typology,
+--          saleType, tipo_vendita;
+--        • testo normalizzato (lowercase + accenti rimossi, word-boundary):
+--          asta / aste / pre-asta / auction, giudiziar*, esecuzione immobiliare,
+--          procedura esecutiva, tribunale, lotto/lotti, base d'asta,
+--          offerta minima, senza incanto, RGE, custode giudiziario,
+--          delegato alla vendita, pignoram*, fallimentar*, concordato preventivo;
+--        • il NOME AGENZIA è solo segnale accessorio: vale unicamente se
+--          accompagnato da un riferimento testuale a procedura/vendita
+--          giudiziaria. Da solo NON classifica mai un annuncio come asta.
+--      EXECUTE revocato a PUBLIC, concesso a service_role.
+--
+--   2) recompute_padova_listings_contendibili() — patch chirurgica:
+--        • _asta_urls: staging degli annunci candidati con evidenza d'asta;
+--        • i gruppi che contengono ALMENO UN annuncio d'asta vengono eliminati
+--          da _unit_grp PRIMA dei vincoli di certificazione (esclusione
+--          integrale del gruppo, non del singolo annuncio);
+--        • quarantena con motivo dedicato ASTA_O_PROCEDURA;
+--        • QA post-scrittura fail-closed: se un contendibile contiene un
+--          annuncio con evidenza d'asta l'intera transazione viene annullata
+--          ('QA aste fallita');
+--        • diagnostica: aste_annunci_esclusi, aste_gruppi_esclusi.
+--      Le regole v3 (civico obbligatorio, PIANO/REF/DESCR, mq_min*1.05,
+--      prezzo_min*1.35, bagni/piani) sono invariate.
+--
+--   3) padova_contendibili_by_zone_v — difesa aggiuntiva: la vista server-only
+--      nasconde comunque qualsiasi gruppo con un annuncio d'asta residuo.
+--
+-- ESITO RICALCOLO (unico)
+--   contendibili_before = 1 → contendibili_after = 0
+--   aste_annunci_esclusi = 37, aste_gruppi_esclusi = 51 (varianti di evidenza)
+--   quarantinati = 51, di cui 1 con motivo ASTA_O_PROCEDURA (Tullio Lombardo 18)
+--   multi_portale invariato (13), nessun'altra tipologia di segnale alterata.
+--
+-- NON MODIFICATI: dati sorgente padova_listings, cron, provider, PWA, billing,
+-- zone, pipeline off-market e pipeline aste dedicate.
