@@ -6716,6 +6716,24 @@ export type Database = {
           },
         ]
       }
+      padova_recompute_last_result: {
+        Row: {
+          created_at: string
+          id: number
+          result: Json
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          result: Json
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          result?: Json
+        }
+        Relationships: []
+      }
       padova_subito_staging: {
         Row: {
           fetched_at: string
