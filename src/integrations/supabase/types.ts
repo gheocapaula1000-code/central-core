@@ -6737,6 +6737,72 @@ export type Database = {
           },
         ]
       }
+      padova_multi_portale_quarantena: {
+        Row: {
+          agenzie: string[] | null
+          bagni: number | null
+          chiave_match: string
+          commercial_zone_slug: string | null
+          created_at: string
+          id: number
+          locali: number | null
+          metriche: Json
+          motivi: string[]
+          mq: number | null
+          n_annunci: number | null
+          portal_count: number | null
+          portals_seen: string[] | null
+          prezzo_max: number | null
+          prezzo_min: number | null
+          quarantined_at: string
+          quartiere: string | null
+          updated_at: string
+          urls: string[] | null
+        }
+        Insert: {
+          agenzie?: string[] | null
+          bagni?: number | null
+          chiave_match: string
+          commercial_zone_slug?: string | null
+          created_at?: string
+          id?: number
+          locali?: number | null
+          metriche?: Json
+          motivi?: string[]
+          mq?: number | null
+          n_annunci?: number | null
+          portal_count?: number | null
+          portals_seen?: string[] | null
+          prezzo_max?: number | null
+          prezzo_min?: number | null
+          quarantined_at?: string
+          quartiere?: string | null
+          updated_at?: string
+          urls?: string[] | null
+        }
+        Update: {
+          agenzie?: string[] | null
+          bagni?: number | null
+          chiave_match?: string
+          commercial_zone_slug?: string | null
+          created_at?: string
+          id?: number
+          locali?: number | null
+          metriche?: Json
+          motivi?: string[]
+          mq?: number | null
+          n_annunci?: number | null
+          portal_count?: number | null
+          portals_seen?: string[] | null
+          prezzo_max?: number | null
+          prezzo_min?: number | null
+          quarantined_at?: string
+          quartiere?: string | null
+          updated_at?: string
+          urls?: string[] | null
+        }
+        Relationships: []
+      }
       padova_recompute_last_result: {
         Row: {
           created_at: string
@@ -9131,6 +9197,7 @@ export type Database = {
         Args: { p_batch?: number; p_force?: boolean }
         Returns: Json
       }
+      padova_certify_multi_portale: { Args: never; Returns: Json }
       padova_civico_norm: { Args: { p: string }; Returns: string }
       padova_cluster_points_50m: {
         Args: { p_lats: number[]; p_lngs: number[] }
