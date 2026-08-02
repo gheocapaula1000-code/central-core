@@ -87,11 +87,11 @@ BEGIN
   IF p_queue_id IS NULL OR p_worker_id IS NULL OR p_listing_id IS NULL THEN
     RAISE EXCEPTION 'invalid processor identity';
   END IF;
-  IF p_commercial_zone_slug <> ALL(ARRAY[
+  IF p_commercial_zone_slug IS NULL OR NOT (p_commercial_zone_slug = ANY(ARRAY[
     'centro-storico','nord-arcella','est-brenta','est-forcellini-camin',
     'sud-est-sant-osvaldo','sud-voltabarozzo-guizza',
     'sud-ovest-mandria','ovest-chiesanuova-brentelle'
-  ]) THEN
+  ])) THEN
     RAISE EXCEPTION 'invalid commercial zone';
   END IF;
   IF p_url IS NULL OR p_url !~ '^https://' OR length(p_url) > 500 THEN
