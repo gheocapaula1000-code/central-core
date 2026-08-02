@@ -97,8 +97,16 @@ export function parseContendibileDetail(
   if (text.length < 120) throw new Error("detail_text_too_short");
 
   const viaRaw = extractViaFromText(text);
-  const viaNorm = normalizeViaKey(viaRaw);
-  const civico = viaNorm ? extractCivicoFromText(text) : null;
+  const civico = viaRaw ? extractCivicoFromText(text) : null;
+  // extractViaFromText include talvolta il civico finale nell'odonimo.
+  // Lo separiamo prima della normalizzazione: evita conflitti artificiali
+  // con ev_via_norm già derivato dalla card (es. tullio-lombardo vs
+  // tullio-lombardo-18).
+  const viaWithoutCivico = viaRaw?.replace(
+    /[\\s,]+\\d{1,3}\\s*(?:\\/\\s*)?[a-z]?$/i,
+    "",
+  ) ?? null;
+  const viaNorm = normalizeViaKey(viaWithoutCivico);
   const piano = extractPianoFromText(text);
   const descrFpInput = descriptionFingerprintInput(text);
 
