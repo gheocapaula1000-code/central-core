@@ -103,7 +103,7 @@ export function parseContendibileDetail(
   // con ev_via_norm già derivato dalla card (es. tullio-lombardo vs
   // tullio-lombardo-18).
   const viaWithoutCivico = viaRaw?.replace(
-    /[\\s,]+\\d{1,3}\\s*(?:\\/\\s*)?[a-z]?$/i,
+    /[\s,]+\d{1,3}\s*(?:\/\s*)?[a-z]?$/i,
     "",
   ) ?? null;
   const viaNorm = normalizeViaKey(viaWithoutCivico);
