@@ -8,6 +8,7 @@ import {
   extractCivicoFromText,
   extractPianoFromText,
   extractViaFromText,
+  normalizePianoKey,
   normalizeViaKey,
 } from "../unitEvidenceExtractor.ts";
 
@@ -75,7 +76,7 @@ function collectPageText(result: unknown): string {
 
 export function extractUnitReference(text: string): string | null {
   const match = text.match(
-    /\b(?:rif(?:erimento)?|cod(?:ice)?)\s*(?:annuncio|immobile|interno|agenzia)?\s*[:#\-]?\s*([a-z0-9][a-z0-9\/_\-\.]{2,20})\b/i,
+    /\b(?:rif(?:erimento)?\.?|cod(?:ice)?\.?)\s*(?:annuncio|immobile|interno|agenzia)?\s*[:#\-]?\s*([a-z0-9][a-z0-9\/_\-\.]{2,20})\b/i,
   );
   if (!match) return null;
   const ref = match[1].toLowerCase().replace(/[^a-z0-9/_-]+/g, "");
@@ -107,7 +108,10 @@ export function parseContendibileDetail(
     "",
   ) ?? null;
   const viaNorm = normalizeViaKey(viaWithoutCivico);
-  const piano = extractPianoFromText(text);
+  const wordFloor = text.match(
+    /\\b(?:al|allo|il|del)\\s+(primo|secondo|terzo|quarto|quinto|sesto|settimo|ottavo|nono|decimo)\\s+piano\\b/i,
+  )?.[1] ?? null;
+  const piano = extractPianoFromText(text) ?? normalizePianoKey(wordFloor);
   const descrFpInput = descriptionFingerprintInput(text);
 
   return {
