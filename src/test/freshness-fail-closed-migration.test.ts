@@ -69,7 +69,6 @@ describe("Intervento 1 — freshness fail-closed migration", () => {
   it("reports SHA-256 and line count (informational)", () => {
     const sha = createHash("sha256").update(sql).digest("hex");
     const lines = sql.split("\n").length;
-    // eslint-disable-next-line no-console
     console.log(`[migration] lines=${lines} sha256=${sha}`);
     expect(sha).toHaveLength(64);
   });
