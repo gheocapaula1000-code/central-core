@@ -109,7 +109,7 @@ export function parseContendibileDetail(
   ) ?? null;
   const viaNorm = normalizeViaKey(viaWithoutCivico);
   const wordFloor = text.match(
-    /\\b(?:al|allo|il|del)\\s+(primo|secondo|terzo|quarto|quinto|sesto|settimo|ottavo|nono|decimo)\\s+piano\\b/i,
+    /\b(?:al|allo|il|del)\s+(primo|secondo|terzo|quarto|quinto|sesto|settimo|ottavo|nono|decimo)\s+piano\b/i,
   )?.[1] ?? null;
   const piano = extractPianoFromText(text) ?? normalizePianoKey(wordFloor);
   const descrFpInput = descriptionFingerprintInput(text);
