@@ -21,6 +21,9 @@ import {
   type Mode as PageMode,
   type Portal as PagePortal,
 } from "../_shared/queue-processors/padovaPortalPages.ts";
+import {
+  parseContendibileDetail,
+} from "../_shared/queue-processors/civikoContendibileDetail.ts";
 
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -89,6 +92,7 @@ type ProcessorFn = (
 const PROCESSOR_TIMEOUT_MS: Record<string, number> = {
   queue_smoke_test: 5_000,
   padova_portal_collect_v2: 20_000,
+  civiko_contendibile_detail_v1: 20_000,
 };
 
 
@@ -348,6 +352,88 @@ const PROCESSORS: Record<string, ProcessorFn> = {
       rejected,
       next_page,
       next_queue_id,
+    });
+    return { ok: true };
+  },
+
+  civiko_contendibile_detail_v1: async (job, signal, workerId) => {
+    if (signal.aborted) throw new ProcessorError("processor_aborted", true, "processor_aborted");
+    if (job.provider !== "firecrawl" || job.operation !== "scrape") {
+      throw new ProcessorError("invalid_detail_job", false, "invalid_context");
+    }
+    if (!job.result || typeof job.result !== "object") {
+      throw new ProcessorError("missing_result", false, "missing_result");
+    }
+    const ctx = (job.processor_context ?? {}) as Record<string, unknown>;
+    const listingId = Number(ctx.listing_id);
+    const url = String(ctx.url ?? "");
+    const zone = String(ctx.commercial_zone_slug ?? "");
+    if (!Number.isInteger(listingId) || listingId <= 0 || !/^https:\/\//i.test(url) || !zone) {
+      throw new ProcessorError("invalid_detail_context", false, "invalid_context");
+    }
+
+    let parsed;
+    try {
+      parsed = parseContendibileDetail(job.result, {
+        listing_id: listingId,
+        url,
+        commercial_zone_slug: zone,
+      });
+    } catch (e) {
+      throw new ProcessorError(
+        `detail_parser_error:${(e as Error).message}`.slice(0, 200),
+        false,
+        "parser_error",
+      );
+    }
+
+    let descrFp: string | null = null;
+    if (parsed.descr_fp_input) {
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(parsed.descr_fp_input),
+      );
+      descrFp = "sha256:" + Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, "0")).join("");
+    }
+
+    const evidence = {
+      via_norm: parsed.via_norm,
+      civico_norm: parsed.civico_norm,
+      piano_key: parsed.piano_key,
+      descr_fp: descrFp,
+      unit_ref: parsed.unit_ref,
+      image_refs: parsed.image_refs,
+      text_chars: parsed.text_chars,
+      version: parsed.version,
+    };
+    const { data, error } = await sb.rpc("process_civiko_contendibile_detail_v1", {
+      p_queue_id: job.id,
+      p_worker_id: workerId,
+      p_listing_id: listingId,
+      p_url: url,
+      p_commercial_zone_slug: zone,
+      p_evidence: evidence,
+    }).abortSignal(signal);
+    if (error) {
+      throw new ProcessorError(
+        `detail_rpc_error:${error.code ?? ""}:${(error.message ?? "").slice(0, 140)}`,
+        classifyRpcError(error.code),
+        "rpc_error",
+        { code: error.code },
+      );
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data) || (data as Record<string, unknown>).ok !== true) {
+      throw new ProcessorError("invalid_detail_rpc_summary", false, "invalid_rpc_summary");
+    }
+    console.log("[civiko_contendibile_detail_v1] ok", {
+      queue_id: job.id,
+      listing_id: listingId,
+      zone,
+      has_civico: Boolean(parsed.civico_norm),
+      has_piano: Boolean(parsed.piano_key),
+      has_descr_fp: Boolean(descrFp),
+      image_refs: parsed.image_refs.length,
     });
     return { ok: true };
   },
