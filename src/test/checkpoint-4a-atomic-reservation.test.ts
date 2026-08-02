@@ -83,8 +83,7 @@ function makeDb(seed?: {
       calls.push(`from:${t}`);
       throw new Error("accesso diretto alle tabelle non consentito in 4A");
     },
-    // deno-lint-ignore no-explicit-any
-    rpc: async (fn: string, args: any) => {
+    rpc: async (fn: string, args: Record<string, unknown>) => {
       calls.push(`rpc:${fn}`);
       if (fn !== "reserve_padova_pilot_zone_atomic") {
         return { data: null, error: { message: "unknown rpc" } };
