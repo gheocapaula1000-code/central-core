@@ -42,7 +42,6 @@ type ListingRow = {
   agency: string | null;
   commercial_zone_slug: string | null;
   last_seen_at: string | null;
-  updated_at: string | null;
   raw_json: Record<string, unknown> | null;
   ev_civico_norm: string | null;
   ev_piano_key: string | null;
@@ -83,7 +82,7 @@ function hasForbiddenEvidence(row: ListingRow): boolean {
 function mustRetry(row: ListingRow, attempt: AttemptRow | undefined, now: number): boolean {
   if (!attempt) return true;
   const attempted = Date.parse(attempt.last_attempt_at);
-  const seen = Date.parse(row.last_seen_at ?? row.updated_at ?? "");
+  const seen = Date.parse(row.last_seen_at ?? "");
   if (Number.isFinite(seen) && Number.isFinite(attempted) && seen > attempted) return true;
   const age = now - (Number.isFinite(attempted) ? attempted : 0);
   if (attempt.status === "failed" || attempt.status === "dead") return age >= 2 * 86400_000;
@@ -165,7 +164,7 @@ Deno.serve(async (req) => {
 
   const { data: lData, error: lError } = await sb
     .from("padova_listings")
-    .select("id,url,fonte,agency,commercial_zone_slug,last_seen_at,updated_at,raw_json,ev_civico_norm,ev_piano_key,ev_descr_fp")
+    .select("id,url,fonte,agency,commercial_zone_slug,last_seen_at,raw_json,ev_civico_norm,ev_piano_key,ev_descr_fp")
     .in("url", allUrls)
     .is("expired_at", null)
     .limit(500);

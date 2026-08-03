@@ -75,6 +75,14 @@ describe("P1-D — parser scheda dettaglio", () => {
 });
 
 describe("P1-D — produzione quotidiana isolata", () => {
+  it("legge padova_listings usando soltanto colonne esistenti", () => {
+    expect(enqueue).toContain(
+      '.select("id,url,fonte,agency,commercial_zone_slug,last_seen_at,raw_json,ev_civico_norm,ev_piano_key,ev_descr_fp")',
+    );
+    expect(enqueue).not.toContain("row.updated_at");
+    expect(enqueue).not.toContain("last_seen_at,updated_at");
+  });
+
   it("non accetta URL, zona o privilegi dal body", () => {
     expect(enqueue).not.toMatch(/body\.(url|urls|commercial_zone_slug|is_admin)/);
     expect(enqueue).toContain('.from("padova_contendibili_quarantena")');
