@@ -1870,6 +1870,133 @@ export type Database = {
           },
         ]
       }
+      civiko_contendibili_evidence_attempts: {
+        Row: {
+          chiave_match: string
+          commercial_zone_slug: string
+          completed_at: string | null
+          error_code: string | null
+          evidence: Json | null
+          last_attempt_at: string
+          listing_id: number
+          queue_id: string | null
+          run_id: string | null
+          status: string
+          updated_at: string
+          url: string
+        }
+        Insert: {
+          chiave_match: string
+          commercial_zone_slug: string
+          completed_at?: string | null
+          error_code?: string | null
+          evidence?: Json | null
+          last_attempt_at?: string
+          listing_id: number
+          queue_id?: string | null
+          run_id?: string | null
+          status: string
+          updated_at?: string
+          url: string
+        }
+        Update: {
+          chiave_match?: string
+          commercial_zone_slug?: string
+          completed_at?: string | null
+          error_code?: string | null
+          evidence?: Json | null
+          last_attempt_at?: string
+          listing_id?: number
+          queue_id?: string | null
+          run_id?: string | null
+          status?: string
+          updated_at?: string
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "civiko_contendibili_evidence_attempts_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: true
+            referencedRelation: "padova_listings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "civiko_contendibili_evidence_attempts_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: true
+            referencedRelation: "padova_listings_zone_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "civiko_contendibili_evidence_attempts_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "civiko_contendibili_evidence_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      civiko_contendibili_evidence_runs: {
+        Row: {
+          candidates_found: number
+          completed_at: string | null
+          enqueued: number
+          error_code: string | null
+          evidence_with_civico: number
+          evidence_with_piano: number
+          failed: number
+          groups_considered: number
+          groups_eligible: number
+          groups_forbidden: number
+          groups_invalid: number
+          id: string
+          processed: number
+          requested_limit: number
+          run_date: string
+          started_at: string
+          status: string
+        }
+        Insert: {
+          candidates_found?: number
+          completed_at?: string | null
+          enqueued?: number
+          error_code?: string | null
+          evidence_with_civico?: number
+          evidence_with_piano?: number
+          failed?: number
+          groups_considered?: number
+          groups_eligible?: number
+          groups_forbidden?: number
+          groups_invalid?: number
+          id: string
+          processed?: number
+          requested_limit?: number
+          run_date: string
+          started_at?: string
+          status: string
+        }
+        Update: {
+          candidates_found?: number
+          completed_at?: string | null
+          enqueued?: number
+          error_code?: string | null
+          evidence_with_civico?: number
+          evidence_with_piano?: number
+          failed?: number
+          groups_considered?: number
+          groups_eligible?: number
+          groups_forbidden?: number
+          groups_invalid?: number
+          id?: string
+          processed?: number
+          requested_limit?: number
+          run_date?: string
+          started_at?: string
+          status?: string
+        }
+        Relationships: []
+      }
       civiko_data_quality: {
         Row: {
           id: number
@@ -9249,6 +9376,17 @@ export type Database = {
       padova_unit_floor_key_v2: { Args: { p_raw: Json }; Returns: string }
       padova_unit_tipologia: { Args: { p_raw: Json }; Returns: string }
       padova_via_key: { Args: { p: string }; Returns: string }
+      process_civiko_contendibile_detail_v1: {
+        Args: {
+          p_commercial_zone_slug: string
+          p_evidence: Json
+          p_listing_id: number
+          p_queue_id: string
+          p_url: string
+          p_worker_id: string
+        }
+        Returns: Json
+      }
       process_padova_portal_collect_v2: {
         Args: { p_listings: Json; p_queue_id: string; p_worker_id: string }
         Returns: Json
