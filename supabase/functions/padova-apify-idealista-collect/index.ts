@@ -17,6 +17,7 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getApifyToken, startApifyRun } from "../_shared/apify.ts";
+import { canSpendApify } from "../_shared/apifyBudget.ts";
 
 const APIFY = "https://api.apify.com/v2";
 const ACTOR = "dz_omar~idealista-scraper-api";
@@ -291,6 +292,50 @@ Deno.serve(async (req) => {
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
+
+  // ── DRY_RUN FAIL-CLOSED ────────────────────────────────────────
+  // Valutato PRIMA di startApifyRun(): nessuna chiamata ad Apify,
+  // nessuna riga in padova_apify_runs, nessun aggiornamento di
+  // apify_spend_daily, nessuna scrittura su altre tabelle.
+  // Ritorna solo input sanitizzato, costo stimato e esito guardia budget.
+  if (body.dry_run === true) {
+    const portalTag = `idealista_collect_${mode}`;
+    const estUsd = 0.50;
+    const guard = await canSpendApify(estUsd);
+    const sanitizedInput = {
+      actor: ACTOR,
+      Property_urls: allUrls.map((u) => ({ url: u })),
+      desiredResults,
+    };
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        dry_run: true,
+        started: false,
+        actor_invoked: false,
+        writes_performed: false,
+        mode,
+        portal: portalTag,
+        discovery_count: discoveryUrls.length,
+        refresh_count: refreshUrls.length,
+        max_items: maxItems,
+        estimated_cost_usd: estUsd,
+        cost_cap_usd: estUsd,
+        budget_guard: {
+          allowed: guard.ok,
+          reason: guard.reason ?? null,
+          daily_spent_usd: guard.spent,
+          daily_cap_usd: guard.cap,
+          calls_today: guard.calls,
+          current_month_spend_usd: guard.current_month_spend_usd ?? null,
+          cap_month_usd: guard.cap_month_usd ?? null,
+        },
+        input: sanitizedInput,
+      }, null, 2),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
 
   try {
     const portalTag = `idealista_collect_${mode}`;
