@@ -17,6 +17,7 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getApifyToken, startApifyRun } from "../_shared/apify.ts";
+import { canSpendApify } from "../_shared/apifyBudget.ts";
 
 const APIFY = "https://api.apify.com/v2";
 const ACTOR = "dz_omar~idealista-scraper-api";
