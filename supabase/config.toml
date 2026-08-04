@@ -305,3 +305,9 @@ verify_jwt = false
 
 [functions.property-outputs]
 verify_jwt = false
+
+# Gateway additivo per l'orchestratore esterno (Replit).
+# Auth applicativa: Bearer CIVIKO_ORCHESTRATOR_DISPATCH_SECRET, fail-closed.
+[functions.civiko-orchestrator-dispatch]
+verify_jwt = false
+
