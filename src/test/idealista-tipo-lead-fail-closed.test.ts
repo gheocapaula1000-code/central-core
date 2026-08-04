@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 const MIGRATION = resolve(
   process.cwd(),
-  "supabase/migrations/20260804071500_idealista_tipo_lead_fail_closed.sql",
+  "docs/sql/20260804071500_idealista_tipo_lead_fail_closed.sql",
 );
 
 const sql = readFileSync(MIGRATION, "utf8");
