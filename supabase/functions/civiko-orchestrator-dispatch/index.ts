@@ -386,9 +386,11 @@ const CIVIKO_SCOPE_SLUGS = [
   "ovest-chiesanuova-brentelle",
 ] as const;
 
+const RIBASSI_RPC_CONCURRENCY = 2;
+
 async function verifiedPriceDropsCount(): Promise<number | null> {
   if (!SERVICE_KEY) return null;
-  const calls = CIVIKO_SCOPE_SLUGS.map(async (slug): Promise<number | null> => {
+  const callSlug = async (slug: string): Promise<number | null> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), GATE_TIMEOUT_MS);
     try {
@@ -434,12 +436,20 @@ async function verifiedPriceDropsCount(): Promise<number | null> {
     } finally {
       clearTimeout(timer);
     }
-  });
-  const counts = await Promise.all(calls);
+  };
+
+  // Batching deterministico: max 2 RPC contemporanee, ordine preservato.
+  const counts: Array<number | null> = [];
+  for (let i = 0; i < CIVIKO_SCOPE_SLUGS.length; i += RIBASSI_RPC_CONCURRENCY) {
+    const batch = CIVIKO_SCOPE_SLUGS.slice(i, i + RIBASSI_RPC_CONCURRENCY);
+    const batchCounts = await Promise.all(batch.map((slug) => callSlug(slug)));
+    for (const count of batchCounts) counts.push(count);
+  }
   return counts.some((count) => count === null)
     ? null
     : counts.reduce((sum, count) => sum + (count ?? 0), 0);
 }
+
 
 // Metriche reali, raggruppate. Nessun valore dedotto: se una query non è
 // verificabile il valore resta null e il gate è fail-closed.
