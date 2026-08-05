@@ -169,10 +169,113 @@ describe("civiko-orchestrator-dispatch — contratto statico", () => {
     expect(SRC).toContain("padova_collect_v2_items");
     expect(SRC).toContain("padova_listings");
     expect(SRC).toContain("civiko_signals_classified");
-    // count non verificabile => check non superato.
-    expect(SRC).toContain('passed: typeof count === "number" && count >= s.min');
-    expect(SRC).toContain("checks.every((c) => c.passed)");
+    expect(SRC).toContain("const GATE_WINDOW_HOURS = 4");
+    expect(SRC).toContain("window_hours: GATE_WINDOW_HOURS");
   });
+
+  it("release_gate interroga la prova Casa.it su scraping_queue", () => {
+    const seg = SRC.split("function gateSpecs")[1]?.split("async function releaseGate")[0] ?? "";
+    expect(seg).toContain("processor_context->>portal=eq.casa.it");
+    expect(seg).toContain("status=eq.succeeded");
+    expect(seg).toContain("processing_status=eq.succeeded");
+    expect(seg).toContain("processing_status=eq.dead");
+    expect(seg).toContain("created_at=gte.${since}");
+  });
+
+  it("release_gate verifica freschezza Casa.it su collect items e listings", () => {
+    const seg = SRC.split("function gateSpecs")[1]?.split("async function releaseGate")[0] ?? "";
+    expect(seg).toContain(
+      "padova_collect_v2_items?select=id&portal=eq.casa.it&or=(created_at.gte.${since},updated_at.gte.${since})",
+    );
+    expect(seg).toContain("padova_listings?select=id&fonte=eq.casa.it`");
+    expect(seg).toContain("fonte=eq.casa.it&imported_at=gte.${since}");
+    expect(seg).toContain("fonte=eq.casa.it&last_seen_at=gte.${since}");
+  });
+
+  it("release_gate conta le categorie reali richieste", () => {
+    const seg = SRC.split("function gateSpecs")[1]?.split("async function releaseGate")[0] ?? "";
+    expect(seg).toContain("padova_contendibili?select=id`");
+    expect(seg).toContain("n_agenzie=gte.3");
+    expect(seg).toContain("n_ribassi=gt.0");
+    expect(seg).toContain("cambio_agenzia=is.true");
+    expect(seg).toContain("comune=eq.Padova&tipo_lead=eq.PRIVATO");
+    expect(seg).toContain("early_offmarket_signal_candidates?select=id&status=eq.promoted");
+    expect(seg).toContain("civiko_signals_classified?select=signal_id&updated_at=gte.${since}");
+  });
+
+  it("release_gate raggruppa le metriche nei quattro gruppi richiesti", () => {
+    const seg = SRC.split("async function releaseGate")[1] ?? "";
+    expect(seg).toContain("imported: {}");
+    expect(seg).toContain("casa_pipeline: {}");
+    expect(seg).toContain("categories: {}");
+    expect(seg).toContain("classified_in_window: {}");
+    expect(seg).toContain("metrics,");
+  });
+
+  it("release_gate richiede provider succeeded, processor succeeded e nessun dead", () => {
+    const seg = SRC.split("async function releaseGate")[1] ?? "";
+    expect(seg).toContain('key: "casa_provider_succeeded"');
+    expect(seg).toContain('g("casa_pipeline", "queue_provider_succeeded") > 0');
+    expect(seg).toContain('key: "casa_processor_succeeded"');
+    expect(seg).toContain('g("casa_pipeline", "queue_processor_succeeded") > 0');
+    expect(seg).toContain('key: "casa_processor_no_dead"');
+    expect(seg).toContain('g("casa_pipeline", "queue_processor_dead") === 0');
+  });
+
+  it("release_gate richiede Casa.it fresca su collect e listings", () => {
+    const seg = SRC.split("async function releaseGate")[1] ?? "";
+    expect(seg).toContain('key: "casa_collect_fresh"');
+    expect(seg).toContain('g("casa_pipeline", "collect_items_casa_fresh") > 0');
+    expect(seg).toContain('key: "casa_listing_fresh"');
+    expect(seg).toContain('g("imported", "listings_casa_imported_in_window") > 0');
+    expect(seg).toContain('g("imported", "listings_casa_seen_in_window") > 0');
+  });
+
+  it("release_gate richiede somma categorie maggiore di zero", () => {
+    const seg = SRC.split("async function releaseGate")[1] ?? "";
+    expect(seg).toContain("const categoriesSum");
+    expect(seg).toContain('g("categories", "contendibili_total")');
+    expect(seg).toContain('g("categories", "privati_padova")');
+    expect(seg).toContain('g("categories", "contendibili_ribassi")');
+    expect(seg).toContain('g("categories", "contendibili_cambio_agenzia")');
+    expect(seg).toContain('g("categories", "offmarket_promoted")');
+    expect(seg).toContain('key: "categories_non_zero", passed: categoriesSum > 0');
+  });
+
+  it("gate verde solo se tutti i requisiti passano e le metriche sono disponibili", () => {
+    const seg = SRC.split("async function releaseGate")[1] ?? "";
+    expect(seg).toContain("const gate_passed = metricsAvailable && requirements.every((r) => r.passed)");
+    expect(seg).toContain("const cron_activation_allowed = gate_passed");
+    expect(seg).toContain("ok: gate_passed");
+  });
+
+  it("ritorna 409 se le metriche ci sono ma il gate non passa, 502 se non verificabili", () => {
+    const seg = SRC.split("async function releaseGate")[1] ?? "";
+    expect(seg).toContain('payload.error = "metrics_unavailable"');
+    expect(seg).toContain("return { status: 502, payload }");
+    expect(seg).toContain("return { status: gate_passed ? 200 : 409, payload }");
+    expect(SRC).toContain("const gate = await releaseGate()");
+    expect(SRC).toContain("return json(gate.status, gate.payload)");
+  });
+
+  it("query fallita non viene sostituita da zero e blocca il gate", () => {
+    const seg = SRC.split("async function releaseGate")[1] ?? "";
+    expect(seg).toContain("if (count === null) failedQueries.push(s.metric)");
+    expect(seg).toContain("failedQueries.length === 0");
+    expect(seg).toContain("failed_queries");
+    // realCount ritorna null (mai 0) quando la query non è verificabile
+    const rc = SRC.split("async function realCount")[1]?.split("const GATE_WINDOW_HOURS")[0] ?? "";
+    expect(rc).toContain("return null");
+    expect(rc).not.toContain("return 0");
+  });
+
+  it("cron_activation_allowed è false in ogni percorso non verde", () => {
+    const seg = SRC.split("async function releaseGate")[1] ?? "";
+    // metriche non disponibili => requirements vuoti => gate_passed false
+    expect(seg).toContain("const requirements = metricsAvailable");
+    expect(seg).toContain(": [];");
+  });
+
 
   it("non crea né attiva cron", () => {
     expect(SRC).not.toMatch(/cron\.schedule|pg_cron|cron\.alter_job|cron\.unschedule/);
