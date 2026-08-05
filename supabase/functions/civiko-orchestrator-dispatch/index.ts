@@ -1,3 +1,5 @@
+import { isAuctionRecord } from "../_shared/auctionExclusion.ts";
+
 // civiko-orchestrator-dispatch
 // Gateway additivo e isolato per l'orchestratore esterno (Replit / Civiko One).
 // NON modifica alcuna funzione esistente: si limita a inoltrare, con
@@ -29,6 +31,10 @@ type SimpleAction =
   | "apify_subito"
   | "portal_casa"
   | "collect_pending"
+  | "contendibili_backfill"
+  | "contendibili_recompute"
+  | "contendibili_evidence"
+  | "contendibili_extras"
   | "offmarket_discover"
   | "offmarket_scores"
   | "early_warning"
@@ -43,6 +49,7 @@ interface Target {
   // Solo nome funzione + query hardcoded: nessun URL o path arbitrario dal client.
   fn: string;
   query?: string;
+  rpc?: string;
   body: Record<string, unknown>;
 }
 
@@ -59,6 +66,29 @@ const ALLOWED: Record<SimpleAction, Target> = {
   collect_pending: {
     fn: "padova-apify-collect-pending",
     body: { stale_minutes: 5, max_runs: 10 },
+  },
+  // Preparazione gratuita delle evidenze già presenti sui listing.
+  contendibili_backfill: {
+    fn: "padova_backfill_unit_evidence",
+    rpc: "padova_backfill_unit_evidence",
+    body: { p_batch: 5000, p_force: false },
+  },
+  // Recompute v3 autoritativo, fail-closed e transazionale.
+  contendibili_recompute: {
+    fn: "recompute_padova_listings_contendibili",
+    rpc: "recompute_padova_listings_contendibili",
+    body: {},
+  },
+  // Solo candidati in quarantena: cap 24, idempotenza giornaliera.
+  contendibili_evidence: {
+    fn: "civiko-contendibili-evidence-refresh",
+    body: { limit: 24, trigger: "orchestrator" },
+  },
+  // Popola ribassi/pressione e la tabella autonoma dei cambi agenzia.
+  contendibili_extras: {
+    fn: "recompute_padova_contendibili_extras",
+    rpc: "recompute_padova_contendibili_extras",
+    body: {},
   },
   offmarket_discover: {
     fn: "cron-offmarket-padova-nightly",
@@ -166,6 +196,24 @@ function safeIdentifiers(raw: unknown): Record<string, unknown> {
     "inserted",
     "updated",
     "rows_out",
+    "enqueued",
+    "candidates_found",
+    "groups_considered",
+    "groups_eligible",
+    "contendibili_before",
+    "contendibili_after",
+    "certificati",
+    "quarantinati",
+    "righe_senza_civico",
+    "con_3_piu_agenzie",
+    "multi_portale_before",
+    "multi_portale_after",
+    "urls_scannati",
+    "urls_con_cambio",
+    "cambi_scritti",
+    "contendibili_marcati",
+    "remaining",
+    "match_version",
     "triggered_at",
   ];
   const out: Record<string, unknown> = {};
@@ -189,18 +237,40 @@ interface StepResult {
 
 async function runAction(action: SimpleAction): Promise<StepResult> {
   const target = ALLOWED[action];
-  const url = `${SUPABASE_URL}/functions/v1/${target.fn}${target.query ? `?${target.query}` : ""}`;
+  const isRpc = typeof target.rpc === "string";
+  const targetName = isRpc ? `rpc/${target.rpc}` : target.fn;
+  const url = isRpc
+    ? `${SUPABASE_URL}/rest/v1/rpc/${target.rpc}`
+    : `${SUPABASE_URL}/functions/v1/${target.fn}${target.query ? `?${target.query}` : ""}`;
+
+  if (isRpc && !SERVICE_KEY) {
+    return {
+      action,
+      target: targetName,
+      ok: false,
+      status: 500,
+      reason: "service_key_missing",
+      result: {},
+    };
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
   try {
+    const headers: Record<string, string> = isRpc
+      ? {
+        "Content-Type": "application/json",
+        apikey: SERVICE_KEY,
+        Authorization: `Bearer ${SERVICE_KEY}`,
+      }
+      : {
+        "Content-Type": "application/json",
+        "x-job-secret": JOB_SECRET,
+      };
     // Nessun retry interno: gestito dall'orchestratore.
     const res = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-job-secret": JOB_SECRET,
-      },
+      headers,
       body: JSON.stringify(target.body),
       signal: controller.signal,
     });
@@ -220,12 +290,12 @@ async function runAction(action: SimpleAction): Promise<StepResult> {
       : null;
 
     console.log(
-      `[civiko-orchestrator-dispatch] action=${action} target=${target.fn} status=${res.status}`,
+      `[civiko-orchestrator-dispatch] action=${action} target=${targetName} status=${res.status}`,
     );
 
     return {
       action,
-      target: target.fn,
+      target: targetName,
       ok: res.ok && (obj?.ok !== false),
       status: res.status,
       reason,
@@ -238,7 +308,7 @@ async function runAction(action: SimpleAction): Promise<StepResult> {
     );
     return {
       action,
-      target: target.fn,
+      target: targetName,
       ok: false,
       status: aborted ? 504 : 502,
       reason: aborted ? "timeout" : "network_error",
@@ -279,6 +349,71 @@ async function realCount(pathAndQuery: string): Promise<number | null> {
 }
 
 const GATE_WINDOW_HOURS = 4;
+const CIVIKO_SCOPE_SLUGS = [
+  "centro-storico",
+  "nord-arcella",
+  "est-brenta",
+  "est-forcellini-camin",
+  "sud-est-sant-osvaldo",
+  "sud-voltabarozzo-guizza",
+  "sud-ovest-mandria",
+  "ovest-chiesanuova-brentelle",
+] as const;
+
+async function verifiedPriceDropsCount(): Promise<number | null> {
+  if (!SERVICE_KEY) return null;
+  const calls = CIVIKO_SCOPE_SLUGS.map(async (slug): Promise<number | null> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), GATE_TIMEOUT_MS);
+    try {
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/rpc/get_padova_verified_price_drops_by_zone_v2`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: SERVICE_KEY,
+            Authorization: `Bearer ${SERVICE_KEY}`,
+          },
+          body: JSON.stringify({
+            p_commercial_zone_slug: slug,
+            p_quartiere: null,
+            p_limit: 20,
+            p_min_drop_pct: 5,
+            p_max_age_days: 14,
+          }),
+          signal: controller.signal,
+        },
+      );
+      if (!res.ok) return null;
+      const payload = await res.json().catch(() => null);
+      if (!Array.isArray(payload)) return null;
+      return payload.filter((value) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+        const row = value as Record<string, unknown>;
+        const current = Number(row.current_price_eur);
+        const initial = Number(row.initial_price_eur);
+        const drop = Number(row.total_drop_pct);
+        return row.commercial_zone_slug === slug &&
+          typeof row.url === "string" &&
+          row.url.startsWith("https://") &&
+          current >= 10_000 &&
+          current <= 5_000_000 &&
+          initial > current &&
+          drop >= 5 &&
+          !isAuctionRecord(row);
+      }).length;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+  const counts = await Promise.all(calls);
+  return counts.some((count) => count === null)
+    ? null
+    : counts.reduce((sum, count) => sum + (count ?? 0), 0);
+}
 
 // Metriche reali, raggruppate. Nessun valore dedotto: se una query non è
 // verificabile il valore resta null e il gate è fail-closed.
@@ -290,6 +425,8 @@ interface GateSpec {
 
 function gateSpecs(since: string): GateSpec[] {
   const casaCtx = `processor_context->>portal=eq.casa.it`;
+  const scope = CIVIKO_SCOPE_SLUGS.join(",");
+  const offmarketSince = new Date(Date.now() - 90 * 24 * 60 * 60_000).toISOString();
   return [
     // PROVA CASA.IT — coda di scraping (provider + processor)
     {
@@ -311,54 +448,53 @@ function gateSpecs(since: string): GateSpec[] {
       group: "casa_pipeline",
       metric: "collect_items_casa_fresh",
       q:
-        `padova_collect_v2_items?select=id&portal=eq.casa.it&or=(created_at.gte.${since},updated_at.gte.${since})`,
+        `padova_collect_v2_items?select=id&portal=eq.casa&or=(created_at.gte.${since},updated_at.gte.${since})`,
     },
     // IMPORTED — padova_listings fonte casa.it
     {
       group: "imported",
       metric: "listings_casa_total",
-      q: `padova_listings?select=id&fonte=eq.casa.it`,
+      q: `padova_listings?select=id&fonte=eq.casa`,
     },
     {
       group: "imported",
       metric: "listings_casa_imported_in_window",
-      q: `padova_listings?select=id&fonte=eq.casa.it&imported_at=gte.${since}`,
+      q: `padova_listings?select=id&fonte=eq.casa&imported_at=gte.${since}`,
     },
     {
       group: "imported",
       metric: "listings_casa_seen_in_window",
-      q: `padova_listings?select=id&fonte=eq.casa.it&last_seen_at=gte.${since}`,
+      q: `padova_listings?select=id&fonte=eq.casa&last_seen_at=gte.${since}`,
     },
-    // CATEGORIE REALI
+    // CATEGORIE REALMENTE VISIBILI DALLA PWA (scope Padova ufficiale).
     {
       group: "categories",
       metric: "contendibili_total",
-      q: `padova_contendibili?select=id`,
+      q:
+        `padova_contendibili_by_zone_v?select=id&commercial_zone_slug=in.(${scope})&or=(agency_count_distinct.gte.2,and(agency_count_distinct.is.null,n_agenzie.gte.2))`,
     },
     {
       group: "categories",
       metric: "contendibili_multi_agenzia",
-      q: `padova_contendibili?select=id&n_agenzie=gte.3`,
-    },
-    {
-      group: "categories",
-      metric: "contendibili_ribassi",
-      q: `padova_contendibili?select=id&n_ribassi=gt.0`,
+      q:
+        `padova_contendibili_by_zone_v?select=id&commercial_zone_slug=in.(${scope})&n_agenzie=gte.3`,
     },
     {
       group: "categories",
       metric: "contendibili_cambio_agenzia",
-      q: `padova_contendibili?select=id&cambio_agenzia=is.true`,
+      q: `padova_cambi_agenzia?select=id&is_active=eq.true`,
     },
     {
       group: "categories",
       metric: "privati_padova",
-      q: `padova_listings?select=id&comune=eq.Padova&tipo_lead=eq.PRIVATO`,
+      q:
+        `padova_listings?select=id&comune=eq.Padova&tipo_lead=in.(PRIVATO,privato,privato_stanco)&expired_at=is.null&commercial_zone_slug=in.(${scope})`,
     },
     {
       group: "categories",
-      metric: "offmarket_promoted",
-      q: `early_offmarket_signal_candidates?select=id&status=eq.promoted`,
+      metric: "offmarket_verified",
+      q:
+        `early_offmarket_signal_candidates_by_zone_v?select=id&commercial_zone_slug=in.(${scope})&comune=eq.Padova&privacy_safe=eq.true&needs_review=eq.false&import_recommendation=eq.importable&confidence_score=gte.0.7&status=in.(approved,promoted,importable)&source_url=like.https://*&created_at=gte.${offmarketSince}`,
     },
     // CLASSIFICAZIONE IN FINESTRA
     {
@@ -387,19 +523,14 @@ async function releaseGate() {
     // Nessuna sostituzione con zero: la query fallita è tracciata.
     if (count === null) failedQueries.push(s.metric);
   }
+  const ribassiCount = await verifiedPriceDropsCount();
+  metrics.categories.contendibili_ribassi = ribassiCount;
+  if (ribassiCount === null) failedQueries.push("contendibili_ribassi");
 
   const metricsAvailable = Boolean(SERVICE_KEY) && failedQueries.length === 0;
 
   const g = (group: keyof typeof metrics, metric: string): number =>
     (metrics[group][metric] as number) ?? 0;
-
-  const categoriesSum = metricsAvailable
-    ? g("categories", "contendibili_total") +
-      g("categories", "privati_padova") +
-      g("categories", "contendibili_ribassi") +
-      g("categories", "contendibili_cambio_agenzia") +
-      g("categories", "offmarket_promoted")
-    : 0;
 
   const requirements = metricsAvailable
     ? [
@@ -424,7 +555,30 @@ async function releaseGate() {
         passed: g("imported", "listings_casa_imported_in_window") > 0 ||
           g("imported", "listings_casa_seen_in_window") > 0,
       },
-      { key: "categories_non_zero", passed: categoriesSum > 0 },
+      {
+        key: "pwa_contendibili_non_zero",
+        passed: g("categories", "contendibili_total") > 0,
+      },
+      {
+        key: "pwa_multi_agenzia_non_zero",
+        passed: g("categories", "contendibili_multi_agenzia") > 0,
+      },
+      {
+        key: "pwa_ribassi_non_zero",
+        passed: g("categories", "contendibili_ribassi") > 0,
+      },
+      {
+        key: "pwa_cambi_agenzia_non_zero",
+        passed: g("categories", "contendibili_cambio_agenzia") > 0,
+      },
+      {
+        key: "pwa_privati_non_zero",
+        passed: g("categories", "privati_padova") > 0,
+      },
+      {
+        key: "pwa_offmarket_non_zero",
+        passed: g("categories", "offmarket_verified") > 0,
+      },
     ]
     : [];
 
