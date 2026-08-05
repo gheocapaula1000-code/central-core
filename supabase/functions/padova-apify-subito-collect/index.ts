@@ -266,10 +266,10 @@ Deno.serve(async (req) => {
       const sixHoursAgo = new Date(Date.now() - 6 * 3600 * 1000).toISOString();
       const { data: inflight, error: inflightErr } = await sb
         .from("padova_apify_runs")
-        .select("run_id, created_at")
+        .select("run_id, started_at")
         .eq("portal", "subito_collect")
         .eq("status", "RUNNING")
-        .gte("created_at", sixHoursAgo)
+        .gte("started_at", sixHoursAgo)
         .limit(1);
       if (inflightErr) {
         // Fail-closed: non avviare né contabilizzare nulla se il check dedup fallisce.
