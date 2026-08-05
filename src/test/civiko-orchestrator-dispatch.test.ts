@@ -250,7 +250,7 @@ describe("civiko-orchestrator-dispatch — contratto statico", () => {
     expect(seg).toContain("p_max_age_days: 14");
     expect(seg).toContain('row.url.startsWith("https://")');
     expect(seg).toContain("!isAuctionRecord(row)");
-    expect(seg).toContain("Promise.all(calls)");
+    expect(seg).toContain("Promise.all(batch.map((slug) => callSlug(slug)))");
   });
 
   it("release_gate raggruppa le metriche nei quattro gruppi richiesti", () => {

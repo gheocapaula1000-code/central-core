@@ -42,7 +42,7 @@ describe("civiko-orchestrator-dispatch — batching ribassi", () => {
   });
 
   it("mantiene GATE_TIMEOUT_MS = 15000 e i parametri RPC v2 invariati", () => {
-    expect(SRC).toMatch(/GATE_TIMEOUT_MS\s*=\s*15000/);
+    expect(SRC).toMatch(/GATE_TIMEOUT_MS\s*=\s*15_?000/);
     expect(SRC).toContain("get_padova_verified_price_drops_by_zone_v2");
     expect(SRC).toContain("p_limit: 20");
     expect(SRC).toContain("p_min_drop_pct: 5");
