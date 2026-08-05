@@ -226,6 +226,29 @@ function safeIdentifiers(raw: unknown): Record<string, unknown> {
   return out;
 }
 
+// Propaga solo un motivo diagnostico breve e sanificato. PostgREST usa
+// `message`/`code` (non `error`) per gli errori RPC; URL e token restano
+// sempre esclusi dalla risposta pubblica.
+function safeFailureReason(raw: unknown): string | null {
+  if (!raw || typeof raw !== "object") return null;
+  const src = raw as Record<string, unknown>;
+  const candidate = [src.reason, src.error, src.message]
+    .find((v): v is string => typeof v === "string" && v.trim().length > 0);
+  const code = typeof src.code === "string"
+    ? src.code.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32)
+    : "";
+  if (!candidate) return code || null;
+  const message = candidate
+    .replace(/https?:\/\/\S+/gi, "[url]")
+    .replace(/\beyJ[A-Za-z0-9._-]{20,}\b/g, "[token]")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
+  if (!message) return code || null;
+  return code ? `${code}: ${message}` : message;
+}
+
 interface StepResult {
   action: SimpleAction;
   target: string;
@@ -283,11 +306,7 @@ async function runAction(action: SimpleAction): Promise<StepResult> {
       payload = null;
     }
     const obj = payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
-    const reason = obj && typeof obj.reason === "string"
-      ? obj.reason
-      : obj && typeof obj.error === "string"
-      ? obj.error
-      : null;
+    const reason = safeFailureReason(payload);
 
     console.log(
       `[civiko-orchestrator-dispatch] action=${action} target=${targetName} status=${res.status}`,
