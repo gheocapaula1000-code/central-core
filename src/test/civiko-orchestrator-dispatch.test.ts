@@ -61,9 +61,10 @@ describe("civiko-orchestrator-dispatch — contratto statico", () => {
     expect(hc).toContain("dispatch_secret: Boolean(DISPATCH_SECRET)");
     expect(hc).toContain("job_secret: Boolean(JOB_SECRET)");
     expect(hc).toContain("supabase_url: Boolean(SUPABASE_URL)");
+    expect(hc).toContain("schedule: scheduleContract()");
   });
 
-  it("mappa esattamente le 7 azioni operative sulle funzioni corrette", () => {
+  it("mantiene le azioni storiche mappate sulle funzioni corrette", () => {
     const pairs: Array<[string, string]> = [
       ["apify_immobiliare", "cron-apify-immobiliare-nightly"],
       ["apify_idealista", "cron-apify-idealista-nightly"],
@@ -73,7 +74,7 @@ describe("civiko-orchestrator-dispatch — contratto statico", () => {
       ["offmarket_scores", "cron-offmarket-padova-nightly"],
       ["early_warning", "cron-offmarket-padova-nightly"],
     ];
-    const allow = SRC.split("const ALLOWED")[1]?.split("const ACTIONS")[0] ?? "";
+    const allow = SRC.split("const ALLOWED")[1]?.split("const PIPELINES")[0] ?? "";
     for (const [action, fn] of pairs) {
       expect(allow).toContain(`${action}: {`);
       const seg = allow.split(`${action}: {`)[1]?.split("},")[0] ?? "";
@@ -85,21 +86,114 @@ describe("civiko-orchestrator-dispatch — contratto statico", () => {
     expect(allow).toContain("body: { stale_minutes: 5, max_runs: 10 }");
   });
 
+  it("aggiunge le nuove azioni richieste", () => {
+    for (
+      const a of [
+        "portal_casa",
+        "radar_full",
+        "signals_classify",
+        "pipeline_0510",
+        "pipeline_0545",
+        "pipeline_0710",
+        "release_gate",
+      ]
+    ) {
+      expect(SRC).toContain(a);
+    }
+  });
+
+  it("Casa.it usa esclusivamente enqueue-padova-portal-scrapes", () => {
+    const allow = SRC.split("const ALLOWED")[1]?.split("const PIPELINES")[0] ?? "";
+    const seg = allow.split("portal_casa: {")[1]?.split("},")[0] ?? "";
+    expect(seg).toContain('fn: "enqueue-padova-portal-scrapes"');
+    expect(seg).toContain('portals: ["casa.it"]');
+    expect(seg).toContain("max_pages");
+    expect(SRC).not.toContain("cron-apify-casa-nightly");
+    expect(SRC).not.toContain("padova-apify-casa-collect");
+    expect(SRC).not.toContain("firecrawl");
+  });
+
+  it("radar_full e signals_classify puntano alle funzioni esistenti", () => {
+    const allow = SRC.split("const ALLOWED")[1]?.split("const PIPELINES")[0] ?? "";
+    const radar = allow.split("radar_full: {")[1]?.split("},")[0] ?? "";
+    expect(radar).toContain('fn: "cron-radar-padova-nightly"');
+    expect(radar).toContain('query: "mode=full"');
+    const cls = allow.split("signals_classify: {")[1]?.split("},")[0] ?? "";
+    expect(cls).toContain('fn: "civiko-signals-classify"');
+  });
+
+  it("espone il contratto orario Europe/Rome con 05:10, 05:45, 07:10 ed enabled=false", () => {
+    expect(SRC).toContain('const SCHEDULE_TIMEZONE = "Europe/Rome"');
+    expect(SRC).toContain("const CRON_ENABLED = false");
+    expect(SRC).toContain('at: "05:10"');
+    expect(SRC).toContain('at: "05:45"');
+    expect(SRC).toContain('at: "07:10"');
+  });
+
+  it("le pipeline sono sequenziali e fail-closed", () => {
+    const seg = SRC.split("if (action in PIPELINES)")[1] ?? "";
+    expect(seg).toContain("for (const step of pipeline.steps)");
+    expect(seg).toContain("const r = await runAction(step)");
+    expect(seg).toContain("if (!r.ok)");
+    expect(seg).toContain("break;");
+    expect(seg).toContain("failed_at: failedAt");
+    // Nessuna esecuzione parallela.
+    expect(seg).not.toContain("Promise.all");
+  });
+
+  it("le pipeline usano solo step dell'allowlist", () => {
+    const pipes = SRC.split("const PIPELINES")[1]?.split("const SCHEDULE_TIMEZONE")[0] ?? "";
+    const allowed = [
+      "portal_casa",
+      "apify_immobiliare",
+      "apify_idealista",
+      "apify_subito",
+      "collect_pending",
+      "radar_full",
+      "offmarket_discover",
+      "offmarket_scores",
+      "early_warning",
+      "signals_classify",
+    ];
+    const steps = Array.from(pipes.matchAll(/"([a-z_0-9]+)"/g)).map((m) => m[1]).filter((s) =>
+      !/^\d{2}:\d{2}$/.test(s)
+    );
+    for (const s of steps) expect(allowed).toContain(s);
+  });
+
+  it("release_gate usa conteggi reali del database ed è fail-closed", () => {
+    expect(SRC).toContain("async function releaseGate()");
+    expect(SRC).toContain('Prefer: "count=exact"');
+    expect(SRC).toContain("content-range");
+    expect(SRC).toContain("cron_activation_allowed");
+    expect(SRC).toContain("padova_collect_v2_items");
+    expect(SRC).toContain("padova_listings");
+    expect(SRC).toContain("civiko_signals_classified");
+    // count non verificabile => check non superato.
+    expect(SRC).toContain('passed: typeof count === "number" && count >= s.min');
+    expect(SRC).toContain("checks.every((c) => c.passed)");
+  });
+
+  it("non crea né attiva cron", () => {
+    expect(SRC).not.toMatch(/cron\.schedule|pg_cron|cron\.alter_job|cron\.unschedule/);
+  });
+
   it("non accetta URL o path dal client (anti-SSRF)", () => {
     expect(SRC).not.toMatch(/body\.(url|target_url|path|endpoint|fn)\b/);
-    // L'unico URL costruito usa SUPABASE_URL + allowlist hardcoded.
+    // Gli unici URL costruiti usano SUPABASE_URL + allowlist/PostgREST hardcoded.
     const urlLines = SRC.split("\n").filter((l) => l.includes("${SUPABASE_URL}"));
-    expect(urlLines).toHaveLength(1);
-    expect(urlLines[0]).toContain("target.fn");
-    expect(urlLines[0]).toContain("target.query");
+    expect(urlLines).toHaveLength(2);
+    expect(urlLines.some((l) => l.includes("target.fn") && l.includes("target.query"))).toBe(true);
+    expect(urlLines.some((l) => l.includes("/rest/v1/"))).toBe(true);
   });
 
   it("usa x-job-secret internamente senza mai restituirlo", () => {
     expect(SRC).toContain('"x-job-secret": JOB_SECRET');
     expect(SRC).not.toMatch(/job_secret: JOB_SECRET/);
-    const safe = SRC.split("function safeIdentifiers")[1]?.split("Deno.serve")[0] ?? "";
+    const safe = SRC.split("function safeIdentifiers")[1]?.split("interface StepResult")[0] ?? "";
     expect(safe).not.toContain("JOB_SECRET");
     expect(safe).not.toContain("DISPATCH_SECRET");
+    expect(SRC).not.toMatch(/service_key: SERVICE_KEY/);
   });
 
   it("non logga token, Authorization, payload o secret", () => {

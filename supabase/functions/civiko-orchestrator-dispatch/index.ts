@@ -1,5 +1,5 @@
 // civiko-orchestrator-dispatch
-// Gateway additivo e isolato per l'orchestratore esterno (Replit).
+// Gateway additivo e isolato per l'orchestratore esterno (Replit / Civiko One).
 // NON modifica alcuna funzione esistente: si limita a inoltrare, con
 // allowlist hardcoded, verso Edge Functions già presenti nel Central Core.
 //
@@ -9,23 +9,35 @@
 //
 // Nessun retry interno: la ripetizione è responsabilità dell'orchestratore.
 // Guardie di costo, idempotenza e lock restano quelle delle funzioni destinazione.
+//
+// Pipeline: sequenziali e fail-closed (si fermano al primo step non ok).
+// release_gate: conteggi reali dal database, nessuna stima.
+// Nessun cron viene creato o attivato da questa funzione (enabled=false).
 
 const DISPATCH_SECRET = Deno.env.get("CIVIKO_ORCHESTRATOR_DISPATCH_SECRET") ?? "";
 const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 const MAX_BODY_BYTES = 2048;
 const DEFAULT_TIMEOUT_MS = 150_000;
+const GATE_TIMEOUT_MS = 15_000;
 
-type Action =
-  | "healthcheck"
+type SimpleAction =
   | "apify_immobiliare"
   | "apify_idealista"
   | "apify_subito"
+  | "portal_casa"
   | "collect_pending"
   | "offmarket_discover"
   | "offmarket_scores"
-  | "early_warning";
+  | "early_warning"
+  | "radar_full"
+  | "signals_classify";
+
+type PipelineAction = "pipeline_0510" | "pipeline_0545" | "pipeline_0710";
+
+type Action = "healthcheck" | "release_gate" | SimpleAction | PipelineAction;
 
 interface Target {
   // Solo nome funzione + query hardcoded: nessun URL o path arbitrario dal client.
@@ -35,10 +47,15 @@ interface Target {
 }
 
 // Allowlist hardcoded — anti-SSRF. Nessun input del client entra in URL o path.
-const ALLOWED: Record<Exclude<Action, "healthcheck">, Target> = {
+const ALLOWED: Record<SimpleAction, Target> = {
   apify_immobiliare: { fn: "cron-apify-immobiliare-nightly", body: {} },
   apify_idealista: { fn: "cron-apify-idealista-nightly", body: {} },
   apify_subito: { fn: "cron-apify-subito-nightly", body: {} },
+  // Casa.it: esclusivamente pipeline multipagina esistente via scraping_queue.
+  portal_casa: {
+    fn: "enqueue-padova-portal-scrapes",
+    body: { mode: "full", portals: ["casa.it"], max_pages: 5 },
+  },
   collect_pending: {
     fn: "padova-apify-collect-pending",
     body: { stale_minutes: 5, max_runs: 10 },
@@ -58,9 +75,59 @@ const ALLOWED: Record<Exclude<Action, "healthcheck">, Target> = {
     query: "job=build-padova-early-warning",
     body: {},
   },
+  radar_full: {
+    fn: "cron-radar-padova-nightly",
+    query: "mode=full",
+    body: {},
+  },
+  signals_classify: {
+    fn: "civiko-signals-classify",
+    body: { dry_run: false },
+  },
 };
 
-const ACTIONS = ["healthcheck", ...Object.keys(ALLOWED)] as const;
+// Pipeline sequenziali e fail-closed. Solo azioni dell'allowlist.
+const PIPELINES: Record<PipelineAction, { at: string; steps: SimpleAction[] }> = {
+  // 05:10 Europe/Rome — raccolta portali (Casa.it multipagina + Apify).
+  pipeline_0510: {
+    at: "05:10",
+    steps: ["portal_casa", "apify_immobiliare", "apify_idealista", "apify_subito"],
+  },
+  // 05:45 Europe/Rome — raccolta risultati e radar.
+  pipeline_0545: {
+    at: "05:45",
+    steps: ["collect_pending", "radar_full"],
+  },
+  // 07:10 Europe/Rome — segnali off-market e classificazione.
+  pipeline_0710: {
+    at: "07:10",
+    steps: ["offmarket_discover", "offmarket_scores", "early_warning", "signals_classify"],
+  },
+};
+
+const SCHEDULE_TIMEZONE = "Europe/Rome";
+// Nessun cron creato o attivato da questa funzione.
+const CRON_ENABLED = false;
+
+const ACTIONS = [
+  "healthcheck",
+  "release_gate",
+  ...Object.keys(ALLOWED),
+  ...Object.keys(PIPELINES),
+] as const;
+
+function scheduleContract() {
+  return {
+    timezone: SCHEDULE_TIMEZONE,
+    enabled: CRON_ENABLED,
+    pipelines: (Object.keys(PIPELINES) as PipelineAction[]).map((k) => ({
+      action: k,
+      at: PIPELINES[k].at,
+      steps: PIPELINES[k].steps,
+      enabled: CRON_ENABLED,
+    })),
+  };
+}
 
 function timingSafeEqual(a: string, b: string): boolean {
   const enc = new TextEncoder();
@@ -109,6 +176,166 @@ function safeIdentifiers(raw: unknown): Record<string, unknown> {
     }
   }
   return out;
+}
+
+interface StepResult {
+  action: SimpleAction;
+  target: string;
+  ok: boolean;
+  status: number;
+  reason: string | null;
+  result: Record<string, unknown>;
+}
+
+async function runAction(action: SimpleAction): Promise<StepResult> {
+  const target = ALLOWED[action];
+  const url = `${SUPABASE_URL}/functions/v1/${target.fn}${target.query ? `?${target.query}` : ""}`;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  try {
+    // Nessun retry interno: gestito dall'orchestratore.
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-job-secret": JOB_SECRET,
+      },
+      body: JSON.stringify(target.body),
+      signal: controller.signal,
+    });
+
+    const text = await res.text();
+    let payload: unknown = null;
+    try {
+      payload = text ? JSON.parse(text) : null;
+    } catch {
+      payload = null;
+    }
+    const obj = payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
+    const reason = obj && typeof obj.reason === "string"
+      ? obj.reason
+      : obj && typeof obj.error === "string"
+      ? obj.error
+      : null;
+
+    console.log(
+      `[civiko-orchestrator-dispatch] action=${action} target=${target.fn} status=${res.status}`,
+    );
+
+    return {
+      action,
+      target: target.fn,
+      ok: res.ok && (obj?.ok !== false),
+      status: res.status,
+      reason,
+      result: safeIdentifiers(payload),
+    };
+  } catch (e) {
+    const aborted = e instanceof Error && e.name === "AbortError";
+    console.error(
+      `[civiko-orchestrator-dispatch] action=${action} failure=${aborted ? "timeout" : "network_error"}`,
+    );
+    return {
+      action,
+      target: target.fn,
+      ok: false,
+      status: aborted ? 504 : 502,
+      reason: aborted ? "timeout" : "network_error",
+      result: {},
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Conteggio reale via PostgREST (count=exact). Ritorna null se non verificabile:
+// il gate resta fail-closed.
+async function realCount(pathAndQuery: string): Promise<number | null> {
+  if (!SERVICE_KEY) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GATE_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${pathAndQuery}`, {
+      method: "HEAD",
+      headers: {
+        apikey: SERVICE_KEY,
+        Authorization: `Bearer ${SERVICE_KEY}`,
+        Prefer: "count=exact",
+        Range: "0-0",
+      },
+      signal: controller.signal,
+    });
+    if (!res.ok && res.status !== 206) return null;
+    const cr = res.headers.get("content-range") ?? "";
+    const total = cr.split("/")[1];
+    const n = Number(total);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+interface GateCheck {
+  metric: string;
+  count: number | null;
+  min_required: number;
+  passed: boolean;
+}
+
+async function releaseGate() {
+  const since = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
+  const specs: Array<{ metric: string; q: string; min: number }> = [
+    {
+      metric: "collect_items_24h",
+      q: `padova_collect_v2_items?select=id&created_at=gte.${since}`,
+      min: 10,
+    },
+    {
+      metric: "casa_items_24h",
+      q: `padova_collect_v2_items?select=id&created_at=gte.${since}&portal=eq.casa.it`,
+      min: 1,
+    },
+    {
+      metric: "listings_seen_24h",
+      q: `padova_listings?select=id&last_seen_at=gte.${since}`,
+      min: 10,
+    },
+    {
+      metric: "signals_classified_24h",
+      q: `civiko_signals_classified?select=signal_id&created_at=gte.${since}`,
+      min: 1,
+    },
+  ];
+
+  const checks: GateCheck[] = [];
+  for (const s of specs) {
+    const count = await realCount(s.q);
+    checks.push({
+      metric: s.metric,
+      count,
+      min_required: s.min,
+      // Fail-closed: count null (non verificabile) => non passa.
+      passed: typeof count === "number" && count >= s.min,
+    });
+  }
+
+  const allPassed = checks.length > 0 && checks.every((c) => c.passed);
+  const cron_activation_allowed = Boolean(SERVICE_KEY) && allPassed;
+
+  return {
+    ok: true,
+    action: "release_gate",
+    cron_activation_allowed,
+    evidence_sufficient: cron_activation_allowed,
+    window_hours: 24,
+    since,
+    checks,
+    schedule: scheduleContract(),
+    checked_at: new Date().toISOString(),
+  };
 }
 
 Deno.serve(async (req) => {
@@ -163,7 +390,10 @@ Deno.serve(async (req) => {
         dispatch_secret: Boolean(DISPATCH_SECRET),
         job_secret: Boolean(JOB_SECRET),
         supabase_url: Boolean(SUPABASE_URL),
+        service_key: Boolean(SERVICE_KEY),
       },
+      actions: ACTIONS,
+      schedule: scheduleContract(),
       checked_at: new Date().toISOString(),
     });
   }
@@ -173,63 +403,43 @@ Deno.serve(async (req) => {
     return json(500, { ok: false, error: "misconfigured" });
   }
 
-  const target = ALLOWED[action as Exclude<Action, "healthcheck">];
-  const url = `${SUPABASE_URL}/functions/v1/${target.fn}${target.query ? `?${target.query}` : ""}`;
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
-  try {
-    // Nessun retry interno: gestito dall'orchestratore.
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-job-secret": JOB_SECRET,
-      },
-      body: JSON.stringify(target.body),
-      signal: controller.signal,
-    });
-
-    const text = await res.text();
-    let payload: unknown = null;
-    try {
-      payload = text ? JSON.parse(text) : null;
-    } catch {
-      payload = null;
-    }
-    const reason =
-      payload && typeof payload === "object" && typeof (payload as Record<string, unknown>).reason === "string"
-        ? (payload as Record<string, unknown>).reason
-        : payload && typeof payload === "object" && typeof (payload as Record<string, unknown>).error === "string"
-        ? (payload as Record<string, unknown>).error
-        : null;
-
-    console.log(
-      `[civiko-orchestrator-dispatch] action=${action} target=${target.fn} status=${res.status}`,
-    );
-
-    return json(200, {
-      ok: res.ok,
-      action,
-      target: target.fn,
-      status: res.status,
-      reason,
-      result: safeIdentifiers(payload),
-    });
-  } catch (e) {
-    const aborted = e instanceof Error && e.name === "AbortError";
-    console.error(
-      `[civiko-orchestrator-dispatch] action=${action} failure=${aborted ? "timeout" : "network_error"}`,
-    );
-    return json(200, {
-      ok: false,
-      action,
-      target: target.fn,
-      status: aborted ? 504 : 502,
-      reason: aborted ? "timeout" : "network_error",
-      result: {},
-    });
-  } finally {
-    clearTimeout(timer);
+  if (action === "release_gate") {
+    return json(200, await releaseGate());
   }
+
+  if (action in PIPELINES) {
+    const pipeline = PIPELINES[action as PipelineAction];
+    const steps: StepResult[] = [];
+    let failedAt: string | null = null;
+    // Sequenziale e fail-closed: si ferma al primo step non ok.
+    for (const step of pipeline.steps) {
+      const r = await runAction(step);
+      steps.push(r);
+      if (!r.ok) {
+        failedAt = step;
+        break;
+      }
+    }
+    return json(200, {
+      ok: failedAt === null,
+      action,
+      at: pipeline.at,
+      timezone: SCHEDULE_TIMEZONE,
+      enabled: CRON_ENABLED,
+      failed_at: failedAt,
+      executed: steps.length,
+      planned: pipeline.steps.length,
+      steps,
+    });
+  }
+
+  const r = await runAction(action as SimpleAction);
+  return json(200, {
+    ok: r.ok,
+    action,
+    target: r.target,
+    status: r.status,
+    reason: r.reason,
+    result: r.result,
+  });
 });
