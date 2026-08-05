@@ -142,15 +142,20 @@ describe("civiko-orchestrator-dispatch — contratto statico", () => {
     expect(runner).toContain('reason: "service_key_missing"');
   });
 
-  it("propaga in modo sanificato code/message degli errori RPC PostgREST", () => {
-    const safe = SRC.split("function safeFailureReason")[1]?.split("interface StepResult")[0] ?? "";
-    expect(safe).toContain("src.message");
-    expect(safe).toContain("src.code");
-    expect(safe).toContain('"[url]"');
-    expect(safe).toContain('"[token]"');
-    expect(safe).toContain("slice(0, 240)");
+  it("propaga solo code/message sanitizzati per RPC PostgREST 400", () => {
+    const safe = SRC.split("function safePostgrestReason")[1]?.split("interface StepResult")[0] ?? "";
     const runner = SRC.split("async function runAction")[1]?.split("// Conteggio reale")[0] ?? "";
-    expect(runner).toContain("safeFailureReason(payload)");
+    expect(SRC).toContain("const SAFE_POSTGREST_CODE");
+    expect(SRC).toContain("const UNSAFE_POSTGREST_MESSAGE");
+    expect(safe).toContain('typeof src.code === "string"');
+    expect(safe).toContain('typeof src.message === "string"');
+    expect(safe).toContain("POSTGREST_REASON_MAX_LENGTH");
+    expect(safe).not.toMatch(/\bsrc\.(details|hint|error)\b/);
+    expect(safe).not.toContain("JSON.stringify");
+    expect(runner).toContain("isRpc && res.status === 400");
+    expect(runner).toContain("safePostgrestReason(payload)");
+    expect(runner).toContain('"postgrest_bad_request"');
+    expect(runner).not.toContain("reason: text");
   });
 
   it("espone il contratto orario Europe/Rome con 05:10, 05:45, 07:10 ed enabled=false", () => {
