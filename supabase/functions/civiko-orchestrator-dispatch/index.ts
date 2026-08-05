@@ -226,27 +226,28 @@ function safeIdentifiers(raw: unknown): Record<string, unknown> {
   return out;
 }
 
-// Propaga solo un motivo diagnostico breve e sanificato. PostgREST usa
-// `message`/`code` (non `error`) per gli errori RPC; URL e token restano
-// sempre esclusi dalla risposta pubblica.
-function safeFailureReason(raw: unknown): string | null {
-  if (!raw || typeof raw !== "object") return null;
+const POSTGREST_REASON_MAX_LENGTH = 240;
+const SAFE_POSTGREST_CODE = /^(?:[0-9A-Z]{5}|PGRST[0-9]{3})$/;
+const UNSAFE_POSTGREST_MESSAGE =
+  /(?:https?:\/\/|www\.|\b(?:authorization|bearer|apikey|api[_-]?key|token|secret|password|service[_-]?role)\b|[{}\[\]]|[A-Za-z0-9_-]{40,})/i;
+
+// Propaga per gli RPC 400 solo SQLSTATE/PGRST code e un eventuale messaggio
+// breve privo di URL, credenziali, JSON o token. `details` e `hint` ignorati.
+function safePostgrestReason(raw: unknown): string | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const src = raw as Record<string, unknown>;
-  const candidate = [src.reason, src.error, src.message]
-    .find((v): v is string => typeof v === "string" && v.trim().length > 0);
-  const code = typeof src.code === "string"
-    ? src.code.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32)
-    : "";
-  if (!candidate) return code || null;
-  const message = candidate
-    .replace(/https?:\/\/\S+/gi, "[url]")
-    .replace(/\beyJ[A-Za-z0-9._-]{20,}\b/g, "[token]")
-    .replace(/[\r\n\t]+/g, " ")
+  const code = typeof src.code === "string" && SAFE_POSTGREST_CODE.test(src.code)
+    ? src.code
+    : null;
+  if (!code) return null;
+  const message = typeof src.message === "string"
+    ? src.message
+      .replace(/[\u0000-\u001f\u007f]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 240);
-  if (!message) return code || null;
-  return code ? `${code}: ${message}` : message;
+    : "";
+  if (!message || UNSAFE_POSTGREST_MESSAGE.test(message)) return code;
+  return `${code}: ${message.slice(0, POSTGREST_REASON_MAX_LENGTH)}`;
 }
 
 interface StepResult {
@@ -306,7 +307,13 @@ async function runAction(action: SimpleAction): Promise<StepResult> {
       payload = null;
     }
     const obj = payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
-    const reason = safeFailureReason(payload);
+    const reason = isRpc && res.status === 400
+      ? safePostgrestReason(payload) ?? "postgrest_bad_request"
+      : obj && typeof obj.reason === "string"
+      ? obj.reason
+      : obj && typeof obj.error === "string"
+      ? obj.error
+      : null;
 
     console.log(
       `[civiko-orchestrator-dispatch] action=${action} target=${targetName} status=${res.status}`,
