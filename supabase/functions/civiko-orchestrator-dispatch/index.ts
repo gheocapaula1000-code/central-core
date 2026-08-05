@@ -523,8 +523,10 @@ Deno.serve(async (req) => {
   }
 
   if (action === "release_gate") {
-    return json(200, await releaseGate());
+    const gate = await releaseGate();
+    return json(gate.status, gate.payload);
   }
+
 
   if (action in PIPELINES) {
     const pipeline = PIPELINES[action as PipelineAction];
