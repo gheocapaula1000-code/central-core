@@ -96,6 +96,10 @@ describe("civiko-orchestrator-dispatch — contratto statico", () => {
         "pipeline_0545",
         "pipeline_0710",
         "release_gate",
+        "contendibili_backfill",
+        "contendibili_recompute",
+        "contendibili_evidence",
+        "contendibili_extras",
       ]
     ) {
       expect(SRC).toContain(a);
@@ -120,6 +124,22 @@ describe("civiko-orchestrator-dispatch — contratto statico", () => {
     expect(radar).toContain('query: "mode=full"');
     const cls = allow.split("signals_classify: {")[1]?.split("},")[0] ?? "";
     expect(cls).toContain('fn: "civiko-signals-classify"');
+  });
+
+  it("le azioni di completamento sono hardcoded, isolate e fail-closed", () => {
+    const allow = SRC.split("const ALLOWED")[1]?.split("const PIPELINES")[0] ?? "";
+    expect(allow).toContain('rpc: "padova_backfill_unit_evidence"');
+    expect(allow).toContain("p_batch: 5000");
+    expect(allow).toContain("p_force: false");
+    expect(allow).toContain('rpc: "recompute_padova_listings_contendibili"');
+    expect(allow).toContain('fn: "civiko-contendibili-evidence-refresh"');
+    expect(allow).toContain("limit: 24");
+    expect(allow).toContain('rpc: "recompute_padova_contendibili_extras"');
+    const runner = SRC.split("async function runAction")[1]?.split("// Conteggio reale")[0] ?? "";
+    expect(runner).toContain("/rest/v1/rpc/${target.rpc}");
+    expect(runner).toContain("apikey: SERVICE_KEY");
+    expect(runner).toContain("Authorization: `Bearer ${SERVICE_KEY}`");
+    expect(runner).toContain('reason: "service_key_missing"');
   });
 
   it("espone il contratto orario Europe/Rome con 05:10, 05:45, 07:10 ed enabled=false", () => {
@@ -185,22 +205,36 @@ describe("civiko-orchestrator-dispatch — contratto statico", () => {
   it("release_gate verifica freschezza Casa.it su collect items e listings", () => {
     const seg = SRC.split("function gateSpecs")[1]?.split("async function releaseGate")[0] ?? "";
     expect(seg).toContain(
-      "padova_collect_v2_items?select=id&portal=eq.casa.it&or=(created_at.gte.${since},updated_at.gte.${since})",
+      "padova_collect_v2_items?select=id&portal=eq.casa&or=(created_at.gte.${since},updated_at.gte.${since})",
     );
-    expect(seg).toContain("padova_listings?select=id&fonte=eq.casa.it`");
-    expect(seg).toContain("fonte=eq.casa.it&imported_at=gte.${since}");
-    expect(seg).toContain("fonte=eq.casa.it&last_seen_at=gte.${since}");
+    expect(seg).toContain("padova_listings?select=id&fonte=eq.casa`");
+    expect(seg).toContain("fonte=eq.casa&imported_at=gte.${since}");
+    expect(seg).toContain("fonte=eq.casa&last_seen_at=gte.${since}");
   });
 
-  it("release_gate conta le categorie reali richieste", () => {
+  it("release_gate conta le categorie dalle stesse sorgenti della PWA", () => {
     const seg = SRC.split("function gateSpecs")[1]?.split("async function releaseGate")[0] ?? "";
-    expect(seg).toContain("padova_contendibili?select=id`");
+    expect(seg).toContain("padova_contendibili_by_zone_v?select=id");
+    expect(seg).toContain("agency_count_distinct.gte.2");
     expect(seg).toContain("n_agenzie=gte.3");
-    expect(seg).toContain("n_ribassi=gt.0");
-    expect(seg).toContain("cambio_agenzia=is.true");
-    expect(seg).toContain("comune=eq.Padova&tipo_lead=eq.PRIVATO");
-    expect(seg).toContain("early_offmarket_signal_candidates?select=id&status=eq.promoted");
+    expect(seg).toContain("padova_cambi_agenzia?select=id&is_active=eq.true");
+    expect(seg).toContain("tipo_lead=in.(PRIVATO,privato,privato_stanco)");
+    expect(seg).toContain("expired_at=is.null");
+    expect(seg).toContain("early_offmarket_signal_candidates_by_zone_v?select=id");
+    expect(seg).toContain("privacy_safe=eq.true");
+    expect(seg).toContain("import_recommendation=eq.importable");
+    expect(seg).toContain("status=in.(approved,promoted,importable)");
     expect(seg).toContain("civiko_signals_classified?select=signal_id&updated_at=gte.${since}");
+  });
+
+  it("release_gate conta i ribassi dalla RPC usata dalla PWA con guardie reali", () => {
+    const seg = SRC.split("async function verifiedPriceDropsCount")[1]?.split("// Metriche reali")[0] ?? "";
+    expect(seg).toContain("/rpc/get_padova_verified_price_drops_by_zone_v2");
+    expect(seg).toContain("p_min_drop_pct: 5");
+    expect(seg).toContain("p_max_age_days: 14");
+    expect(seg).toContain('row.url.startsWith("https://")');
+    expect(seg).toContain("!isAuctionRecord(row)");
+    expect(seg).toContain("Promise.all(calls)");
   });
 
   it("release_gate raggruppa le metriche nei quattro gruppi richiesti", () => {
@@ -231,15 +265,16 @@ describe("civiko-orchestrator-dispatch — contratto statico", () => {
     expect(seg).toContain('g("imported", "listings_casa_seen_in_window") > 0');
   });
 
-  it("release_gate richiede somma categorie maggiore di zero", () => {
+  it("release_gate richiede ogni categoria PWA singolarmente maggiore di zero", () => {
     const seg = SRC.split("async function releaseGate")[1] ?? "";
-    expect(seg).toContain("const categoriesSum");
-    expect(seg).toContain('g("categories", "contendibili_total")');
-    expect(seg).toContain('g("categories", "privati_padova")');
-    expect(seg).toContain('g("categories", "contendibili_ribassi")');
-    expect(seg).toContain('g("categories", "contendibili_cambio_agenzia")');
-    expect(seg).toContain('g("categories", "offmarket_promoted")');
-    expect(seg).toContain('key: "categories_non_zero", passed: categoriesSum > 0');
+    expect(seg).not.toContain("const categoriesSum");
+    expect(seg).toContain('key: "pwa_contendibili_non_zero"');
+    expect(seg).toContain('key: "pwa_multi_agenzia_non_zero"');
+    expect(seg).toContain('key: "pwa_ribassi_non_zero"');
+    expect(seg).toContain('key: "pwa_cambi_agenzia_non_zero"');
+    expect(seg).toContain('key: "pwa_privati_non_zero"');
+    expect(seg).toContain('key: "pwa_offmarket_non_zero"');
+    expect(seg).toContain('g("categories", "offmarket_verified") > 0');
   });
 
   it("gate verde solo se tutti i requisiti passano e le metriche sono disponibili", () => {
@@ -284,10 +319,10 @@ describe("civiko-orchestrator-dispatch — contratto statico", () => {
   it("non accetta URL o path dal client (anti-SSRF)", () => {
     expect(SRC).not.toMatch(/body\.(url|target_url|path|endpoint|fn)\b/);
     // Gli unici URL costruiti usano SUPABASE_URL + allowlist/PostgREST hardcoded.
-    const urlLines = SRC.split("\n").filter((l) => l.includes("${SUPABASE_URL}"));
-    expect(urlLines).toHaveLength(2);
-    expect(urlLines.some((l) => l.includes("target.fn") && l.includes("target.query"))).toBe(true);
-    expect(urlLines.some((l) => l.includes("/rest/v1/"))).toBe(true);
+    expect(SRC).toContain("/functions/v1/${target.fn}");
+    expect(SRC).toContain("/rest/v1/rpc/${target.rpc}");
+    expect(SRC).toContain("/rest/v1/${pathAndQuery}");
+    expect(SRC).toContain("/rest/v1/rpc/get_padova_verified_price_drops_by_zone_v2");
   });
 
   it("usa x-job-secret internamente senza mai restituirlo", () => {
