@@ -641,7 +641,7 @@ serve(async (req: Request) => {
     // slow/hanging RPC cannot stall the whole feed (fail-closed: zero ribassi
     // on timeout, diagnostic recorded).
     const RIBASSI_PER_ZONE_LIMIT = Math.min(20, limit);
-    const RIBASSI_RPC_TIMEOUT_MS = 6000;
+    const RIBASSI_RPC_TIMEOUT_MS = 12000;
     const withTimeout = <T,>(p: Promise<T>): Promise<T | { data: null; error: { message: string; code?: string } }> =>
       Promise.race([
         p,
