@@ -142,6 +142,17 @@ describe("civiko-orchestrator-dispatch — contratto statico", () => {
     expect(runner).toContain('reason: "service_key_missing"');
   });
 
+  it("propaga in modo sanificato code/message degli errori RPC PostgREST", () => {
+    const safe = SRC.split("function safeFailureReason")[1]?.split("interface StepResult")[0] ?? "";
+    expect(safe).toContain("src.message");
+    expect(safe).toContain("src.code");
+    expect(safe).toContain('"[url]"');
+    expect(safe).toContain('"[token]"');
+    expect(safe).toContain("slice(0, 240)");
+    const runner = SRC.split("async function runAction")[1]?.split("// Conteggio reale")[0] ?? "";
+    expect(runner).toContain("safeFailureReason(payload)");
+  });
+
   it("espone il contratto orario Europe/Rome con 05:10, 05:45, 07:10 ed enabled=false", () => {
     expect(SRC).toContain('const SCHEDULE_TIMEZONE = "Europe/Rome"');
     expect(SRC).toContain("const CRON_ENABLED = false");
