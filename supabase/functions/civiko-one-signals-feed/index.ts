@@ -649,17 +649,27 @@ serve(async (req: Request) => {
           setTimeout(() => resolve({ data: null, error: { message: "client_timeout", code: "TIMEOUT" } }), RIBASSI_RPC_TIMEOUT_MS),
         ),
       ]) as Promise<T>;
-    const rpcCalls = await Promise.all(zoneFilter.map((slug) =>
-      withTimeout(
-        supabase.rpc("get_padova_verified_price_drops_by_zone_v2", {
-          p_commercial_zone_slug: slug,
-          p_quartiere: quartiereFilter ?? null,
-          p_limit: RIBASSI_PER_ZONE_LIMIT,
-          p_min_drop_pct: 5,
-          p_max_age_days: 14,
-        })
-      )
-    ));
+    // Batching deterministico: max 2 RPC contemporanee. Il fanout simultaneo
+    // su 8 zone saturava il DB e causava statement_timeout (57014).
+    // Ordine dei risultati identico a zoneFilter.
+    const RIBASSI_RPC_CONCURRENCY = 2;
+    const rpcCalls: Array<{ data?: unknown; error?: { message: string; code?: string } | null }> = [];
+    for (let i = 0; i < zoneFilter.length; i += RIBASSI_RPC_CONCURRENCY) {
+      const batch = zoneFilter.slice(i, i + RIBASSI_RPC_CONCURRENCY);
+      const settled = await Promise.all(batch.map((slug) =>
+        withTimeout(
+          supabase.rpc("get_padova_verified_price_drops_by_zone_v2", {
+            p_commercial_zone_slug: slug,
+            p_quartiere: quartiereFilter ?? null,
+            p_limit: RIBASSI_PER_ZONE_LIMIT,
+            p_min_drop_pct: 5,
+            p_max_age_days: 14,
+          })
+        )
+      ));
+      for (const r of settled) rpcCalls.push(r as { data?: unknown; error?: { message: string; code?: string } | null });
+    }
+
     const firstErr = rpcCalls.find((r) => r.error);
     if (firstErr?.error) {
       const missing = /function .* does not exist/i.test(firstErr.error.message ?? "");
