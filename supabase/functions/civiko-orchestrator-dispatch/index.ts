@@ -278,65 +278,184 @@ async function realCount(pathAndQuery: string): Promise<number | null> {
   }
 }
 
-interface GateCheck {
+const GATE_WINDOW_HOURS = 4;
+
+// Metriche reali, raggruppate. Nessun valore dedotto: se una query non è
+// verificabile il valore resta null e il gate è fail-closed.
+interface GateSpec {
+  group: "imported" | "casa_pipeline" | "categories" | "classified_in_window";
   metric: string;
-  count: number | null;
-  min_required: number;
-  passed: boolean;
+  q: string;
+}
+
+function gateSpecs(since: string): GateSpec[] {
+  const casaCtx = `processor_context->>portal=eq.casa.it`;
+  return [
+    // PROVA CASA.IT — coda di scraping (provider + processor)
+    {
+      group: "casa_pipeline",
+      metric: "queue_provider_succeeded",
+      q: `scraping_queue?select=id&${casaCtx}&created_at=gte.${since}&status=eq.succeeded`,
+    },
+    {
+      group: "casa_pipeline",
+      metric: "queue_processor_succeeded",
+      q: `scraping_queue?select=id&${casaCtx}&created_at=gte.${since}&processing_status=eq.succeeded`,
+    },
+    {
+      group: "casa_pipeline",
+      metric: "queue_processor_dead",
+      q: `scraping_queue?select=id&${casaCtx}&created_at=gte.${since}&processing_status=eq.dead`,
+    },
+    {
+      group: "casa_pipeline",
+      metric: "collect_items_casa_fresh",
+      q:
+        `padova_collect_v2_items?select=id&portal=eq.casa.it&or=(created_at.gte.${since},updated_at.gte.${since})`,
+    },
+    // IMPORTED — padova_listings fonte casa.it
+    {
+      group: "imported",
+      metric: "listings_casa_total",
+      q: `padova_listings?select=id&fonte=eq.casa.it`,
+    },
+    {
+      group: "imported",
+      metric: "listings_casa_imported_in_window",
+      q: `padova_listings?select=id&fonte=eq.casa.it&imported_at=gte.${since}`,
+    },
+    {
+      group: "imported",
+      metric: "listings_casa_seen_in_window",
+      q: `padova_listings?select=id&fonte=eq.casa.it&last_seen_at=gte.${since}`,
+    },
+    // CATEGORIE REALI
+    {
+      group: "categories",
+      metric: "contendibili_total",
+      q: `padova_contendibili?select=id`,
+    },
+    {
+      group: "categories",
+      metric: "contendibili_multi_agenzia",
+      q: `padova_contendibili?select=id&n_agenzie=gte.3`,
+    },
+    {
+      group: "categories",
+      metric: "contendibili_ribassi",
+      q: `padova_contendibili?select=id&n_ribassi=gt.0`,
+    },
+    {
+      group: "categories",
+      metric: "contendibili_cambio_agenzia",
+      q: `padova_contendibili?select=id&cambio_agenzia=is.true`,
+    },
+    {
+      group: "categories",
+      metric: "privati_padova",
+      q: `padova_listings?select=id&comune=eq.Padova&tipo_lead=eq.PRIVATO`,
+    },
+    {
+      group: "categories",
+      metric: "offmarket_promoted",
+      q: `early_offmarket_signal_candidates?select=id&status=eq.promoted`,
+    },
+    // CLASSIFICAZIONE IN FINESTRA
+    {
+      group: "classified_in_window",
+      metric: "signals_classified_updated",
+      q: `civiko_signals_classified?select=signal_id&updated_at=gte.${since}`,
+    },
+  ];
 }
 
 async function releaseGate() {
-  const since = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
-  const specs: Array<{ metric: string; q: string; min: number }> = [
-    {
-      metric: "collect_items_24h",
-      q: `padova_collect_v2_items?select=id&created_at=gte.${since}`,
-      min: 10,
-    },
-    {
-      metric: "casa_items_24h",
-      q: `padova_collect_v2_items?select=id&created_at=gte.${since}&portal=eq.casa.it`,
-      min: 1,
-    },
-    {
-      metric: "listings_seen_24h",
-      q: `padova_listings?select=id&last_seen_at=gte.${since}`,
-      min: 10,
-    },
-    {
-      metric: "signals_classified_24h",
-      q: `civiko_signals_classified?select=signal_id&created_at=gte.${since}`,
-      min: 1,
-    },
-  ];
+  const since = new Date(Date.now() - GATE_WINDOW_HOURS * 60 * 60_000).toISOString();
+  const specs = gateSpecs(since);
 
-  const checks: GateCheck[] = [];
+  const metrics: Record<string, Record<string, number | null>> = {
+    imported: {},
+    casa_pipeline: {},
+    categories: {},
+    classified_in_window: {},
+  };
+  const failedQueries: string[] = [];
+
   for (const s of specs) {
     const count = await realCount(s.q);
-    checks.push({
-      metric: s.metric,
-      count,
-      min_required: s.min,
-      // Fail-closed: count null (non verificabile) => non passa.
-      passed: typeof count === "number" && count >= s.min,
-    });
+    metrics[s.group][s.metric] = count;
+    // Nessuna sostituzione con zero: la query fallita è tracciata.
+    if (count === null) failedQueries.push(s.metric);
   }
 
-  const allPassed = checks.length > 0 && checks.every((c) => c.passed);
-  const cron_activation_allowed = Boolean(SERVICE_KEY) && allPassed;
+  const metricsAvailable = Boolean(SERVICE_KEY) && failedQueries.length === 0;
 
-  return {
-    ok: true,
+  const g = (group: keyof typeof metrics, metric: string): number =>
+    (metrics[group][metric] as number) ?? 0;
+
+  const categoriesSum = metricsAvailable
+    ? g("categories", "contendibili_total") +
+      g("categories", "privati_padova") +
+      g("categories", "contendibili_ribassi") +
+      g("categories", "contendibili_cambio_agenzia") +
+      g("categories", "offmarket_promoted")
+    : 0;
+
+  const requirements = metricsAvailable
+    ? [
+      {
+        key: "casa_provider_succeeded",
+        passed: g("casa_pipeline", "queue_provider_succeeded") > 0,
+      },
+      {
+        key: "casa_processor_succeeded",
+        passed: g("casa_pipeline", "queue_processor_succeeded") > 0,
+      },
+      {
+        key: "casa_processor_no_dead",
+        passed: g("casa_pipeline", "queue_processor_dead") === 0,
+      },
+      {
+        key: "casa_collect_fresh",
+        passed: g("casa_pipeline", "collect_items_casa_fresh") > 0,
+      },
+      {
+        key: "casa_listing_fresh",
+        passed: g("imported", "listings_casa_imported_in_window") > 0 ||
+          g("imported", "listings_casa_seen_in_window") > 0,
+      },
+      { key: "categories_non_zero", passed: categoriesSum > 0 },
+    ]
+    : [];
+
+  const gate_passed = metricsAvailable && requirements.every((r) => r.passed);
+  const cron_activation_allowed = gate_passed;
+  const missing = requirements.filter((r) => !r.passed).map((r) => r.key);
+
+  const payload: Record<string, unknown> = {
+    ok: gate_passed,
     action: "release_gate",
+    gate_passed,
     cron_activation_allowed,
-    evidence_sufficient: cron_activation_allowed,
-    window_hours: 24,
+    metrics_available: metricsAvailable,
+    window_hours: GATE_WINDOW_HOURS,
     since,
-    checks,
+    metrics,
+    requirements,
+    missing,
     schedule: scheduleContract(),
     checked_at: new Date().toISOString(),
   };
+
+  if (!metricsAvailable) {
+    payload.error = "metrics_unavailable";
+    payload.failed_queries = SERVICE_KEY ? failedQueries : ["service_key_missing"];
+    return { status: 502, payload };
+  }
+
+  return { status: gate_passed ? 200 : 409, payload };
 }
+
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
