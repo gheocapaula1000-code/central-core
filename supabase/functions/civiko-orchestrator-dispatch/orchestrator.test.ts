@@ -172,6 +172,18 @@ const allActionsOk: ActionRunRow[] = Array.from(
   ),
 ).map((a) => run(a, "2026-08-06T07:00:00Z", true));
 
+// Ultimo run OK di ciascuna pipeline (audit vincolante lato gate).
+const okPipelines = new Map<PipelineAction, PipelineRunRow>(
+  (Object.keys(PIPELINES) as PipelineAction[]).map((p) => [p, {
+    pipeline_run_id: `run-${p}`,
+    pipeline: p,
+    started_at: "2026-08-06T07:00:00Z",
+    finished_at: "2026-08-06T07:20:00Z",
+    ok: true,
+    error_code: null,
+  }]),
+);
+
 function metricFn(overrides: Record<string, number> = {}) {
   const base: Record<string, number> = {
     "portals.collect_items_casa_fresh": 3,
@@ -195,6 +207,7 @@ Deno.test("routine: zero novità è valido se tutti gli step hanno lavorato", ()
     metric: metricFn(),
     integrity: okIntegrity,
     actionRuns: allActionsOk,
+    pipelineRuns: okPipelines,
   });
   const failed = reqs.filter((r) => !r.passed).map((r) => r.key);
   assertEquals(failed, []);
@@ -210,6 +223,7 @@ Deno.test("routine: fallisce se una azione recente è in errore", () => {
     metric: metricFn(),
     integrity: okIntegrity,
     actionRuns: runs,
+    pipelineRuns: okPipelines,
   });
   assert(reqs.find((r) => r.key === "nessun_fallimento_recente")?.passed === false);
 });
@@ -220,6 +234,7 @@ Deno.test("routine: fallisce se un portale non è fresco", () => {
     metric: metricFn({ "portals.collect_items_subito_fresh": 0 }),
     integrity: okIntegrity,
     actionRuns: allActionsOk,
+    pipelineRuns: okPipelines,
   });
   assert(reqs.find((r) => r.key === "portale_subito_fresh")?.passed === false);
 });
@@ -230,6 +245,7 @@ Deno.test("routine: fallisce se manca la ricevuta PWA dopo la pipeline_0710", ()
     metric: metricFn(),
     integrity: { ...okIntegrity, pwa_sync_ack_ultimo_ok: "2026-08-06T07:00:00Z" },
     actionRuns: allActionsOk,
+    pipelineRuns: okPipelines,
   });
   assert(reqs.find((r) => r.key === "pwa_sync_ack_dopo_pipeline_0710")?.passed === false);
 });
@@ -240,6 +256,7 @@ Deno.test("routine: il recompute non è surrogato dell'ack PWA", () => {
     metric: metricFn(),
     integrity: { ...okIntegrity, pwa_sync_ack_corrente: false, recompute_corrente: true },
     actionRuns: allActionsOk,
+    pipelineRuns: okPipelines,
   });
   assert(reqs.find((r) => r.key === "pwa_sync_ack_dopo_pipeline_0710")?.passed === false);
 });
@@ -250,6 +267,7 @@ Deno.test("initial_validation: richiede import reali, contendibile 2+ e fingerpr
     metric: metricFn(),
     integrity: okIntegrity,
     actionRuns: allActionsOk,
+    pipelineRuns: okPipelines,
   }).filter((r) => !r.passed).map((r) => r.key);
   assertEquals(failing, [
     "initial_nuovi_import_reali",
@@ -266,6 +284,7 @@ Deno.test("initial_validation: richiede import reali, contendibile 2+ e fingerpr
     }),
     integrity: okIntegrity,
     actionRuns: allActionsOk,
+    pipelineRuns: okPipelines,
   });
   assertEquals(passing.filter((r) => !r.passed).map((r) => r.key), []);
 });
@@ -278,6 +297,7 @@ Deno.test("gate: step mai eseguito blocca il gate", () => {
     metric: metricFn(),
     integrity: okIntegrity,
     actionRuns: runs,
+    pipelineRuns: okPipelines,
   });
   assert(reqs.find((r) => r.key === "tutti_gli_step_hanno_lavorato")?.passed === false);
 });
