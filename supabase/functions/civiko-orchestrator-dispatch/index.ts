@@ -179,15 +179,35 @@ function scheduleContract() {
   return {
     timezone: SCHEDULE_TIMEZONE,
     enabled: CRON_ENABLED,
-    pipelines: (Object.keys(PIPELINES) as PipelineAction[]).map((k) => ({
-      action: k,
-      at: PIPELINES[k].at,
-      stages: PIPELINES[k].stages.map((stage) => stage.map((s) => s.action)),
-      steps: expandedSteps(k),
-      enabled: CRON_ENABLED,
-    })),
+    pipeline_count: PIPELINE_COUNT,
+    budget_ms: PIPELINE_BUDGET_MS,
+    pipelines: (Object.keys(PIPELINES) as PipelineAction[]).map((k) => {
+      const plan = pipelinePlan(k);
+      return {
+        action: k,
+        at: PIPELINES[k].at,
+        dag: PIPELINE_DAG[k].nodes.map((n) => ({
+          action: n.action,
+          needs: n.needs ?? [],
+          after: n.after ?? [],
+          ...(n.repeat ? { repeat: n.repeat } : {}),
+        })),
+        stages: PIPELINES[k].stages.map((stage) => stage.map((s) => s.action)),
+        steps: expandedSteps(k),
+        plan: {
+          mode: plan.mode,
+          critical_path_ms: plan.criticalPathMs,
+          nominal_total_ms: plan.nominalTotalMs,
+          worst_segment_nominal_ms: plan.worstSegmentNominalMs,
+          segments: plan.segments.length,
+          fits_budget: plan.fitsBudget,
+        },
+        enabled: CRON_ENABLED,
+      };
+    }),
   };
 }
+
 
 function timingSafeEqual(a: string, b: string): boolean {
   const enc = new TextEncoder();
