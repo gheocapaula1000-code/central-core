@@ -10019,6 +10019,7 @@ export type Database = {
           prezzo: number
           quartiere: string
           tipologia: string
+          title_type_ok: boolean
           url: string
           via_n: string
         }[]
