@@ -96,7 +96,7 @@ export function selectDueSource<T extends RankableSource>(
 
   const preferred = due.find((candidate) => {
     const candidateRegion = (candidate.region ?? "").trim().toLowerCase();
-    if (candidateRegion && candidateRegion !== region) return false;
+    if (candidateRegion !== region) return false;
     const delta = ((time(candidate.next_scan_at) ?? now) - headDue) / 60_000;
     return delta <= REGIONAL_BYPASS_MAX_MINUTES;
   });

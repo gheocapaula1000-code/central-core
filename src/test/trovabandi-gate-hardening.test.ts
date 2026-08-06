@@ -473,7 +473,7 @@ describe("NOT_OPPORTUNITY è l'unico esito negativo valido", () => {
   });
 
   it("lo stato del run dipende dai guasti operativi, non dal numero di warning", () => {
-    expect(ENGINE).toContain('status: operationalFailures > 0 ? "PARTIAL" : "SUCCEEDED"');
+    expect(ENGINE).toContain('const runStatus = operationalFailures > 0 ? "PARTIAL" : "SUCCEEDED";');
     expect(ENGINE).not.toContain('status: warnings.length ? "PARTIAL" : "SUCCEEDED"');
   });
 });
