@@ -1,67 +1,80 @@
 // civiko-cambi-agenzia-list
-// Endpoint pubblico white-label: elenca i cambi agenzia recenti a Padova
-// come lead autonomo (indipendente dai contendibili).
+// Elenca i cambi agenzia recenti a Padova come lead autonomo.
 //
-// Contratto conteggi (autorevole):
-//  - `total` è il COUNT esatto lato database con gli stessi filtri, non la
-//    lunghezza della pagina restituita;
-//  - `offset` è realmente applicato via range() ed è bounded dal total;
-//  - `items_count`, `has_more` e `snapshot_complete` descrivono la pagina.
-//
-// Nessun placeholder: titolo/indirizzo assenti restano null (stato DND),
-// mai riempiti con "Immobile a Padova" o "Padova".
-//
-// Query params: quartiere?, zona_omi?, days=30, limit=50, offset=0
+// Contratto autorevole:
+//  - server-to-server: `x-source-app` + segreto condiviso, `x-workspace-id`;
+//  - perimetro dati risolto SEMPRE server-side: il tenant vede solo le zone
+//    che gli sono assegnate, il full-city è riservato all'admin/owner;
+//  - `commercial_zone_slug` accettato solo come match ESATTO nelle 8 zone
+//    ufficiali: wildcard, pattern e slug sconosciuti sono rifiutati;
+//  - `total` è il COUNT esatto globale sui filtri, non la pagina;
+//  - offset oltre il totale ⇒ items=[] e has_more=false (mai clamp a total-1);
+//  - `snapshot_complete` prova conteggio esatto e assenza di troncamenti ed è
+//    indipendente da items.length;
+//  - nessun placeholder: titolo/indirizzo assenti restano null.
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { makeDebugId, requireSecret } from "../_shared/http.ts";
+import {
+  listEnvelope,
+  nullableText,
+  pageWindow,
+  parseZoneSlug,
+  resolveTenantScope,
+  snapshotComplete,
+} from "../_shared/listContracts.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-internal-secret, x-app-secret, x-core-secret, x-source-app, x-workspace-id, x-tenant-id",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
 };
 
 export const MAX_LIMIT = 200;
 export const DEFAULT_LIMIT = 50;
 
-function json(body: unknown, status = 200) {
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function json(body: unknown, status = 200, did?: string) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...CORS, "Content-Type": "application/json" },
+    headers: { ...CORS, "Content-Type": "application/json", ...(did ? { "x-debug-id": did } : {}) },
   });
-}
-
-/** Normalizza un testo opzionale: mai placeholder, mai stringa vuota. */
-export function nullableText(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const t = value.trim();
-  return t.length ? t : null;
-}
-
-export function boundedLimit(raw: string | null): number {
-  const n = parseInt(raw ?? String(DEFAULT_LIMIT), 10);
-  if (!Number.isFinite(n)) return DEFAULT_LIMIT;
-  return Math.min(Math.max(n, 1), MAX_LIMIT);
-}
-
-export function boundedOffset(raw: string | null, total: number): number {
-  const n = parseInt(raw ?? "0", 10);
-  if (!Number.isFinite(n) || n < 0) return 0;
-  if (total <= 0) return 0;
-  // offset oltre il totale => ultima posizione valida, mai range fuori scala
-  return Math.min(n, Math.max(0, total - 1));
 }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "GET") return json({ ok: false, error: "method_not_allowed" }, 405);
+  const did = makeDebugId();
+  if (req.method !== "GET") return json({ ok: false, error: "method_not_allowed" }, 405, did);
+
+  const secretFail = requireSecret(req, did);
+  if (secretFail) return secretFail;
+
+  const workspaceId = (req.headers.get("x-workspace-id") ?? req.headers.get("x-tenant-id") ?? "").trim();
+  if (!UUID_RE.test(workspaceId)) {
+    return json(
+      { ok: false, debug_id: did, error: { code: "WORKSPACE_REQUIRED", message: "Missing or invalid workspace id" } },
+      401,
+      did,
+    );
+  }
 
   const url = new URL(req.url);
   const quartiere = url.searchParams.get("quartiere");
   const zonaOmi = url.searchParams.get("zona_omi");
   const daysRaw = parseInt(url.searchParams.get("days") ?? "30", 10);
   const days = Number.isFinite(daysRaw) ? Math.min(Math.max(daysRaw, 1), 90) : 30;
-  const limit = boundedLimit(url.searchParams.get("limit"));
+  const slugRaw = url.searchParams.get("commercial_zone_slug") ?? url.searchParams.get("zone_slug");
+
+  // Slug fuori contratto: rifiuto prima di toccare il DB.
+  if (slugRaw !== null && !parseZoneSlug(slugRaw).ok) {
+    return json(
+      { ok: false, debug_id: did, error: { code: "SLUG_OUT_OF_CONTRACT", message: "Zona non riconosciuta." } },
+      400,
+      did,
+    );
+  }
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -72,81 +85,128 @@ Deno.serve(async (req) => {
   const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
   try {
-    // Stessa query, stessi filtri: count exact autorevole nella query dei dati.
-    let q = supabase
-      .from("padova_cambi_agenzia")
-      .select(
-        "id, data_cambio, portale, agenzia_precedente, agenzia_nuova, titolo, indirizzo, quartiere, zona_omi, prezzo_eur, mq, locali, contendibile_overlap",
-        { count: "exact" },
-      )
-      .eq("is_active", true)
-      .gte("data_cambio", sinceIso)
-      .order("data_cambio", { ascending: false })
-      .order("id", { ascending: false });
+    // ─── Perimetro tenant risolto server-side (mai dal client) ──────────
+    const { data: adminRes } = await supabase.rpc("civiko_is_admin_agency", { _agency_id: workspaceId });
+    const isAdmin = adminRes === true;
 
-    if (quartiere) q = q.ilike("quartiere", quartiere);
-    if (zonaOmi) q = q.ilike("zona_omi", zonaOmi);
-
-    // Il totale serve per limitare l'offset: prima si conta, poi si pagina.
-    let countQ = supabase
-      .from("padova_cambi_agenzia")
-      .select("id", { count: "exact", head: true })
-      .eq("is_active", true)
-      .gte("data_cambio", sinceIso);
-    if (quartiere) countQ = countQ.ilike("quartiere", quartiere);
-    if (zonaOmi) countQ = countQ.ilike("zona_omi", zonaOmi);
-    const { count: preCount, error: countErr } = await countQ;
-    if (countErr) throw countErr;
-    const total = typeof preCount === "number" ? preCount : 0;
-
-    const offset = boundedOffset(url.searchParams.get("offset"), total);
-
-    const { data, error, count } = await q.range(offset, offset + limit - 1);
-    if (error) throw error;
-
-    const authoritativeTotal = typeof count === "number" ? count : total;
+    const { data: zoneRows, error: zoneErr } = await supabase
+      .from("civiko_commercial_zones")
+      .select("slug,status,occupied_agency_id,trial_agency_id,trial_reserved_until")
+      .or(
+        `and(status.eq.occupata,occupied_agency_id.eq.${workspaceId}),` +
+          `and(status.eq.in_trial,trial_agency_id.eq.${workspaceId})`,
+      );
+    if (zoneErr) throw zoneErr;
     const now = Date.now();
-    const items = (data ?? []).map((r) => {
-      const dc = r.data_cambio ? new Date(r.data_cambio).getTime() : now;
-      const giorniFa = Math.max(0, Math.floor((now - dc) / (24 * 60 * 60 * 1000)));
+    const assignedSlugs = (zoneRows ?? [])
+      .filter((z: Record<string, unknown>) =>
+        (z.status === "occupata" && z.occupied_agency_id === workspaceId) ||
+        (z.status === "in_trial" && z.trial_agency_id === workspaceId &&
+          typeof z.trial_reserved_until === "string" &&
+          new Date(z.trial_reserved_until as string).getTime() > now)
+      )
+      .map((z: Record<string, unknown>) => String(z.slug ?? ""));
+
+    const scope = resolveTenantScope({ isAdmin, assignedSlugs, requestedSlug: slugRaw ?? undefined });
+    if (!scope.ok) {
+      return json({ ok: false, debug_id: did, error: { code: scope.code, message: "Zone access denied" } }, 403, did);
+    }
+
+    const applyFilters = <T extends { eq: unknown }>(q: T): T => {
+      let out = q as unknown as {
+        eq: (c: string, v: unknown) => typeof out;
+        gte: (c: string, v: unknown) => typeof out;
+        in: (c: string, v: unknown[]) => typeof out;
+      };
+      out = out.eq("is_active", true).gte("data_cambio", sinceIso);
+      // Isolamento zona SEMPRE nel database, mai in memoria.
+      out = out.in("commercial_zone_slug", scope.slugs);
+      if (quartiere) out = out.eq("quartiere", quartiere);
+      if (zonaOmi) out = out.eq("zona_omi", zonaOmi);
+      return out as unknown as T;
+    };
+
+    // Totale globale esatto (head) con gli stessi identici filtri.
+    const { count, error: countErr } = await applyFilters(
+      supabase.from("padova_cambi_agenzia_by_zone_v").select("id", { count: "exact", head: true }),
+    );
+    if (countErr) throw countErr;
+    const total = typeof count === "number" ? count : 0;
+    const countExact = typeof count === "number";
+
+    const page = pageWindow(
+      url.searchParams.get("limit"),
+      url.searchParams.get("offset"),
+      total,
+      MAX_LIMIT,
+      DEFAULT_LIMIT,
+    );
+
+    let rows: Array<Record<string, unknown>> = [];
+    if (!page.beyond_eof) {
+      const { data, error } = await applyFilters(
+        supabase
+          .from("padova_cambi_agenzia_by_zone_v")
+          .select(
+            "id, data_cambio, portale, agenzia_precedente, agenzia_nuova, titolo, indirizzo, quartiere, zona_omi, commercial_zone_slug, prezzo_eur, mq, locali, contendibile_overlap",
+          ),
+      )
+        .order("data_cambio", { ascending: false })
+        .order("id", { ascending: false })
+        .range(page.from, page.to);
+      if (error) throw error;
+      rows = (data ?? []) as Array<Record<string, unknown>>;
+    }
+
+    const nowMs = Date.now();
+    const items = rows.map((r) => {
+      const dc = r.data_cambio ? new Date(r.data_cambio as string).getTime() : nowMs;
       return {
         id: r.id,
-        data_cambio: r.data_cambio,
-        giorni_fa: giorniFa,
-        portale: r.portale ?? null,
-        agenzia_nuova: r.agenzia_nuova,
-        agenzia_precedente: r.agenzia_precedente,
+        data_cambio: r.data_cambio ?? null,
+        giorni_fa: Math.max(0, Math.floor((nowMs - dc) / (24 * 60 * 60 * 1000))),
+        portale: nullableText(r.portale),
+        agenzia_nuova: nullableText(r.agenzia_nuova),
+        agenzia_precedente: nullableText(r.agenzia_precedente),
         // Nessun dato inventato: assente resta assente.
         titolo: nullableText(r.titolo),
         indirizzo: nullableText(r.indirizzo),
         quartiere: nullableText(r.quartiere),
         zona_omi: nullableText(r.zona_omi),
-        prezzo_eur: r.prezzo_eur !== null ? Number(r.prezzo_eur) : null,
-        mq: r.mq !== null ? Number(r.mq) : null,
+        commercial_zone_slug: nullableText(r.commercial_zone_slug),
+        prezzo_eur: r.prezzo_eur !== null && r.prezzo_eur !== undefined ? Number(r.prezzo_eur) : null,
+        mq: r.mq !== null && r.mq !== undefined ? Number(r.mq) : null,
         locali: r.locali ?? null,
-        contendibile_overlap: !!r.contendibile_overlap,
+        contendibile_overlap: r.contendibile_overlap === true,
       };
     });
 
-    return json({
-      ok: true,
-      updated_at: new Date().toISOString(),
-      window_days: days,
-      // total = COUNT esatto sui filtri, indipendente dalla paginazione.
-      total: authoritativeTotal,
-      items_count: items.length,
-      limit,
-      offset,
-      has_more: offset + items.length < authoritativeTotal,
-      snapshot_complete: authoritativeTotal === items.length,
-      items,
-    });
+    return json(
+      {
+        ...listEnvelope({
+          items,
+          total,
+          limit: page.limit,
+          offset: page.offset,
+          // Indipendente da items.length: conteggio esatto e nessun troncamento.
+          snapshot_complete: snapshotComplete({ countExact, truncated: false }),
+          extra: {
+            updated_at: new Date().toISOString(),
+            window_days: days,
+            zone_scope: scope.slugs,
+            full_city: scope.full_city,
+          },
+        }),
+        debug_id: did,
+      },
+      200,
+      did,
+    );
   } catch (e) {
-    return json({
-      ok: false,
-      error: "internal_error",
-      message: (e as Error).message,
-      items: [],
-    }, 500);
+    return json(
+      { ok: false, debug_id: did, error: { code: "INTERNAL_ERROR", message: (e as Error).message }, items: [] },
+      500,
+      did,
+    );
   }
 });

@@ -12,6 +12,15 @@
 // Privacy, esclusione aste e perimetro restano invariati.
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { makeDebugId, requireSecret } from "../_shared/http.ts";
+import {
+  listEnvelope,
+  nullableText,
+  pageWindow,
+  parseZoneSlug,
+  resolveTenantScope,
+  snapshotComplete,
+} from "../_shared/listContracts.ts";
 import { isAuctionRecord } from "../_shared/auctionExclusion.ts";
 import {
   VALID_COMMERCIAL_ZONE_SLUGS,
@@ -24,7 +33,8 @@ import {
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-internal-secret, x-app-secret, x-core-secret, x-source-app, x-workspace-id, x-tenant-id",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
 };
 
@@ -38,9 +48,9 @@ type Item = {
   id: string;
   fonte: "legal_life_events" | "successioni" | "distress" | "patrimonio_comunale";
   badge: "Evento Vita" | "Successione" | "Distress" | "Patrimonio Comunale";
-  titolo: string;
-  indirizzo: string;
-  zona: string;
+  titolo: string | null;
+  indirizzo: string | null;
+  zona: string | null;
   prezzo_eur: number | null;
   mq: number | null;
   url_sorgente: string | null;
@@ -82,9 +92,19 @@ async function fetchAllRows(
   return { rows, truncated: true, error: null };
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "GET") return json({ ok: false, error: "method_not_allowed" }, 405);
+
+  const did = makeDebugId();
+  const secretFail = requireSecret(req, did);
+  if (secretFail) return secretFail;
+  const workspaceId = (req.headers.get("x-workspace-id") ?? req.headers.get("x-tenant-id") ?? "").trim();
+  if (!UUID_RE.test(workspaceId)) {
+    return json({ ok: false, error: "WORKSPACE_REQUIRED", message: "Missing or invalid workspace id" }, 401);
+  }
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -97,21 +117,50 @@ Deno.serve(async (req) => {
   const commercialZoneFilter = commercialZoneFilterRaw && commercialZoneFilterRaw.trim()
     ? commercialZoneFilterRaw.trim()
     : null;
-  if (commercialZoneFilter !== null && !isValidCommercialZoneSlug(commercialZoneFilter)) {
+  // Match ESATTO nell'allowlist canonica: niente wildcard, niente ILIKE.
+  if (commercialZoneFilter !== null && !parseZoneSlug(commercialZoneFilter).ok) {
     return json({
       ok: false,
       error: "INVALID_SLUG",
-      message: `commercial_zone_slug non valido: '${commercialZoneFilter}'`,
+      message: "commercial_zone_slug non riconosciuto",
       allowed: VALID_COMMERCIAL_ZONE_SLUGS,
     }, 400);
   }
 
-  const limitRaw = parseInt(url.searchParams.get("limit") ?? String(DEFAULT_PAGE_LIMIT), 10);
-  const pageLimit = Number.isFinite(limitRaw)
-    ? Math.min(Math.max(limitRaw, 1), MAX_PAGE_LIMIT)
-    : DEFAULT_PAGE_LIMIT;
-  const offsetRaw = parseInt(url.searchParams.get("offset") ?? "0", 10);
-  const pageOffsetReq = Number.isFinite(offsetRaw) && offsetRaw > 0 ? offsetRaw : 0;
+  // Isolamento tenant/admin identico agli altri endpoint autorevoli.
+  const { data: adminRes } = await supabase.rpc("civiko_is_admin_agency", { _agency_id: workspaceId });
+  const isAdminWorkspace = adminRes === true;
+  const { data: tenantZones, error: tenantZonesErr } = await supabase
+    .from("civiko_commercial_zones")
+    .select("slug,status,occupied_agency_id,trial_agency_id,trial_reserved_until")
+    .or(
+      `and(status.eq.occupata,occupied_agency_id.eq.${workspaceId}),` +
+        `and(status.eq.in_trial,trial_agency_id.eq.${workspaceId})`,
+    );
+  if (tenantZonesErr) {
+    return json({ ok: false, error: "zone_lookup_failed", message: tenantZonesErr.message }, 500);
+  }
+  const nowScope = Date.now();
+  const assignedSlugs = (tenantZones ?? [])
+    .filter((z: Record<string, unknown>) =>
+      (z.status === "occupata" && z.occupied_agency_id === workspaceId) ||
+      (z.status === "in_trial" && z.trial_agency_id === workspaceId &&
+        typeof z.trial_reserved_until === "string" &&
+        new Date(z.trial_reserved_until as string).getTime() > nowScope)
+    )
+    .map((z: Record<string, unknown>) => String(z.slug ?? ""));
+  const scope = resolveTenantScope({
+    isAdmin: isAdminWorkspace,
+    assignedSlugs,
+    requestedSlug: commercialZoneFilter ?? undefined,
+  });
+  if (!scope.ok) {
+    return json({ ok: false, error: scope.code, message: "Zone access denied" }, 403);
+  }
+  const allowedSlugs = new Set(scope.slugs);
+
+  const pageLimitRaw = url.searchParams.get("limit");
+  const pageOffsetRaw = url.searchParams.get("offset");
 
   // Carica una sola volta le zone commerciali attive.
   const { data: zonesRows } = await supabase
@@ -183,9 +232,10 @@ Deno.serve(async (req) => {
         id: `lle-${r.id}`,
         fonte: "legal_life_events",
         badge: "Evento Vita",
-        titolo: (r.explanation as string) ?? (r.signal_type as string) ?? "Segnalazione evento di vita",
-        indirizzo: (r.property_hint as string) ?? "Padova",
-        zona: (r.area_or_microzone as string) ?? "Padova",
+        // Nessun titolo/indirizzo/zona inventato: assente resta null.
+        titolo: nullableText(r.explanation) ?? nullableText(r.signal_type),
+        indirizzo: nullableText(r.property_hint),
+        zona: nullableText(r.area_or_microzone),
         prezzo_eur: null,
         mq: null,
         url_sorgente: (r.source_url as string) ?? null,
@@ -231,9 +281,9 @@ Deno.serve(async (req) => {
         id: `succ-${r.id}`,
         fonte: "successioni",
         badge: "Successione",
-        titolo: `Pressione successoria ${r.area_label ?? "Padova"}`,
-        indirizzo: (r.area_label as string) ?? "Padova",
-        zona: (r.area_label as string) ?? "Padova",
+        titolo: nullableText(r.area_label) ? `Pressione successoria ${r.area_label}` : null,
+        indirizzo: nullableText(r.area_label),
+        zona: nullableText(r.area_label),
         prezzo_eur: null,
         mq: null,
         url_sorgente: srcUrl,
@@ -268,16 +318,16 @@ Deno.serve(async (req) => {
           if (dropPct < 5) continue;
           const rowUrl = String(r.url || "");
           if (!rowUrl.startsWith("https://")) continue;
-          const title = String(r.title || "Annuncio in difficoltà");
+          const title = nullableText(r.title);
           const drops = Number(r.drops_count) || 0;
           const validSlug = isValidCommercialZoneSlug(slug) ? slug : null;
           items.push({
             id: `dist-${String(r.source_id || r.listing_id || rowUrl)}`,
             fonte: "distress",
             badge: "Distress",
-            titolo: `${title} — ribasso ${dropPct}%`,
+            titolo: title ? `${title} — ribasso ${dropPct}%` : null,
             indirizzo: title,
-            zona: (r.omi_zone as string) || "Padova",
+            zona: nullableText(r.omi_zone),
             prezzo_eur: Number(r.current_price_eur) || null,
             mq: r.mq === null || r.mq === undefined ? null : Number(r.mq),
             url_sorgente: rowUrl,
@@ -338,7 +388,7 @@ Deno.serve(async (req) => {
         if (!enrich || enrich.expired_at || !enrich.commercial_zone_slug) continue;
         const ribassiCount = Number(r.drops_count ?? 0);
         const ribassiTxt = `${ribassiCount} ribass${ribassiCount === 1 ? "o" : "i"}`;
-        const titolo = `${enrich.indirizzo ?? "Annuncio in difficoltà"} — ribasso ${dropPct.toFixed(1)}%`;
+        const titolo = enrich.indirizzo ? `${enrich.indirizzo} — ribasso ${dropPct.toFixed(1)}%` : null;
         const validSlug = isValidCommercialZoneSlug(enrich.commercial_zone_slug)
           ? enrich.commercial_zone_slug
           : null;
@@ -347,8 +397,8 @@ Deno.serve(async (req) => {
           fonte: "distress",
           badge: "Distress",
           titolo,
-          indirizzo: enrich.indirizzo ?? "Padova",
-          zona: enrich.quartiere ?? "Padova",
+          indirizzo: nullableText(enrich.indirizzo),
+          zona: nullableText(enrich.quartiere),
           prezzo_eur: r.last_price_eur ? Number(r.last_price_eur) : null,
           mq: enrich.mq,
           url_sorgente: (r.url as string) ?? null,
@@ -381,9 +431,9 @@ Deno.serve(async (req) => {
         id: `patr-${r.id}`,
         fonte: "patrimonio_comunale",
         badge: "Patrimonio Comunale",
-        titolo: (r.title as string) ?? "Immobile Comune di Padova",
-        indirizzo: (r.address_text as string) ?? "Padova",
-        zona: (r.microzone as string) ?? "Padova",
+        titolo: nullableText(r.title),
+        indirizzo: nullableText(r.address_text),
+        zona: nullableText(r.microzone),
         prezzo_eur: r.ask_price ? Number(r.ask_price) : null,
         mq: r.surface_mq ? Number(r.surface_mq) : null,
         url_sorgente: (r.source_url as string) ?? null,
@@ -431,47 +481,50 @@ Deno.serve(async (req) => {
     }
     for (const it of items) delete it.__resolveInput;
 
-    // Filtro opzionale per commercial_zone_slug.
-    let outItems = items;
-    if (commercialZoneFilter) {
-      outItems = items.filter((it) => it.commercial_zone_slug === commercialZoneFilter || it.commercial_zone_slug === null);
-      // Ricalcola totals sul risultato filtrato.
-      const t = { legal_life_events: 0, successioni: 0, distress: 0, patrimonio_comunale: 0, total: 0 };
-      for (const it of outItems) {
-        (t as Record<string, number>)[it.fonte]++;
-      }
-      t.total = t.legal_life_events + t.successioni + t.distress + t.patrimonio_comunale;
-      // Preserva contatore aste escluse (diagnostico).
-      const auct = (totals as Record<string, number>).legal_life_events_auction_excluded ?? 0;
-      Object.assign(totals, t, { legal_life_events_auction_excluded: auct });
-    } else {
-      totals.total =
-        totals.legal_life_events + totals.successioni + totals.distress + totals.patrimonio_comunale;
-    }
+    // Perimetro zona: con un filtro attivo si escludono anche le righe con
+    // slug NULL (non dimostrabilmente nella zona richiesta).
+    let outItems = items.filter((it) =>
+      commercialZoneFilter
+        ? it.commercial_zone_slug === commercialZoneFilter
+        : (it.commercial_zone_slug === null || allowedSlugs.has(it.commercial_zone_slug))
+    );
+
+    // totals = somma ESATTA delle quattro categorie sul risultato esposto.
+    const t = { legal_life_events: 0, successioni: 0, distress: 0, patrimonio_comunale: 0, total: 0 };
+    for (const it of outItems) (t as Record<string, number>)[it.fonte]++;
+    t.total = t.legal_life_events + t.successioni + t.distress + t.patrimonio_comunale;
+    const auct = (totals as Record<string, number>).legal_life_events_auction_excluded ?? 0;
+    Object.assign(totals, t);
 
     // Ordina per data segnalazione decrescente
     outItems.sort((a, b) => (a.data_segnalazione < b.data_segnalazione ? 1 : -1));
 
-    // Paginazione finale sul risultato completo (total autorevole).
-    const total = outItems.length;
-    const pageOffset = total > 0 ? Math.min(pageOffsetReq, Math.max(0, total - 1)) : 0;
-    const pageItems = outItems.slice(pageOffset, pageOffset + pageLimit);
+    // Paginazione: offset oltre il totale ⇒ pagina vuota, mai clamp.
+    const total = t.total;
+    const page = pageWindow(pageLimitRaw, pageOffsetRaw, total, MAX_PAGE_LIMIT, DEFAULT_PAGE_LIMIT);
+    const pageItems = page.beyond_eof ? [] : outItems.slice(page.offset, page.offset + page.limit);
 
     return json({
-      ok: true,
-      snapshot_complete: true,
-      updated_at: new Date().toISOString(),
-      commercial_zone_filter: commercialZoneFilter,
-      totals,
-      source_counts: sourceCounts,
-      source_caps: sourceCaps,
-      truncated_sources: truncatedSources,
-      total,
-      items_count: pageItems.length,
-      limit: pageLimit,
-      offset: pageOffset,
-      has_more: pageOffset + pageItems.length < total,
-      items: pageItems,
+      ...listEnvelope({
+        items: pageItems,
+        total,
+        limit: page.limit,
+        offset: page.offset,
+        // Prova server-side: nessuna fonte troncata dal cap.
+        snapshot_complete: snapshotComplete({ countExact: true, truncated: truncatedSources.length > 0 }),
+        extra: {
+          updated_at: new Date().toISOString(),
+          commercial_zone_filter: commercialZoneFilter,
+          zone_scope: scope.slugs,
+          full_city: scope.full_city,
+          totals,
+          source_counts: sourceCounts,
+          source_caps: sourceCaps,
+          truncated_sources: truncatedSources,
+        },
+      }),
+      // Diagnostica fuori dai totali.
+      diagnostics: { legal_life_events_auction_excluded: auct, debug_id: did },
     });
   } catch (e) {
     return failClosed({ error: "internal_error", message: (e as Error).message }, 500);

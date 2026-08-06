@@ -20,6 +20,7 @@ import {
   buildGateRequirements,
   CIVIKO_PORTALS,
   COLLECT_PENDING_CONTRACT_BODY,
+  CONTINUATION_RESERVE_MS,
   downstreamBudgetOk,
   expandedSteps,
   failingActions,
@@ -37,7 +38,11 @@ import {
   PIPELINES,
   pipelinesNotOk,
   pipelineStatus,
+  remainingStagesWorstCaseMs,
   sanitizeResult,
+  SEGMENT_CAPACITY_MS,
+  segmentPipeline,
+  segmentStartingAt,
   semanticFailure,
   shouldRepeatImageCertify,
   stageTimeoutMs,
@@ -484,6 +489,49 @@ async function recordPipelineMarker(
     durationMs: finished ? finished.durationMs : null,
   });
 }
+
+/**
+ * Continuazione della pipeline in una NUOVA invocazione, con lo stesso
+ * pipeline_run_id: fail-closed, se la richiesta non parte il marker si chiude
+ * come fallito. Non si attende l'esito del segmento successivo (chiuderà lui
+ * il marker), ma si attende l'accettazione HTTP entro la riserva.
+ */
+async function dispatchContinuation(
+  pipeline: PipelineAction,
+  pipelineRunId: string,
+  stageFrom: number,
+  startedAt: string,
+): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CONTINUATION_RESERVE_MS);
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/civiko-orchestrator-dispatch`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${DISPATCH_SECRET}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action: pipeline,
+        pipeline_run_id: pipelineRunId,
+        stage_from: stageFrom,
+        started_at: startedAt,
+      }),
+      signal: controller.signal,
+    });
+    await res.body?.cancel();
+    if (res.status >= 400 && res.status !== 202) return "CONTINUATION_REJECTED";
+    return null;
+  } catch (e) {
+    // L'abort dopo l'invio è atteso: la richiesta è già stata accettata.
+    if (e instanceof DOMException && e.name === "AbortError") return null;
+    return "CONTINUATION_DISPATCH_FAILED";
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+
 
 // ── Metriche reali del release gate ─────────────────────────────────────────
 async function realCount(pathAndQuery: string): Promise<number | null> {
@@ -972,28 +1020,54 @@ Deno.serve(async (req) => {
     const pipelineAction = action as PipelineAction;
     const pipeline = PIPELINES[pipelineAction];
     const planned = expandedSteps(pipelineAction);
+
+    // Segmentazione: ogni invocazione esegue un blocco di stage il cui costo
+    // peggiore è dimostrabilmente < PIPELINE_BUDGET_MS; la continuazione riusa
+    // lo STESSO pipeline_run_id, quindi l'audit resta una sola esecuzione.
+    const rawStageFrom = body.stage_from;
+    const stageFrom = typeof rawStageFrom === "number" && Number.isInteger(rawStageFrom)
+      ? rawStageFrom
+      : 0;
+    const segments = segmentPipeline(pipelineAction);
+    const segment = segmentStartingAt(pipelineAction, stageFrom);
+    if (!segment) {
+      return json(400, { ok: false, action, error: "invalid_segment", stage_from: stageFrom });
+    }
+    const isFirstSegment = stageFrom === 0;
+    const isLastSegment = segment.to >= pipeline.stages.length - 1;
+
+    const continuedRunId = typeof body.pipeline_run_id === "string" ? body.pipeline_run_id : "";
+    if (!isFirstSegment && !continuedRunId) {
+      return json(400, { ok: false, action, error: "continuation_run_id_missing" });
+    }
+    const pipelineRunId = isFirstSegment ? crypto.randomUUID() : continuedRunId;
+    const startedAtIso = (!isFirstSegment && typeof body.started_at === "string" &&
+        !Number.isNaN(Date.parse(body.started_at)))
+      ? body.started_at
+      : new Date().toISOString();
+
     const steps: StepResult[] = [];
     let failedAt: string | null = null;
     let exhausted = false;
     const startedMs = Date.now();
-    const startedAtIso = new Date().toISOString();
-    const pipelineRunId = crypto.randomUUID();
 
-    // Marker __pipeline__ failed/in-progress PRIMA di qualunque provider.
-    const startAudit = await recordPipelineMarker(
-      pipelineRunId,
-      pipelineAction,
-      startedAtIso,
-      null,
-    );
-    if (startAudit) {
-      return json(500, {
-        ok: false,
-        action,
-        pipeline_run_id: pipelineRunId,
-        run_id: pipelineRunId,
-        error: startAudit,
-      });
+    if (isFirstSegment) {
+      // Marker __pipeline__ failed/in-progress PRIMA di qualunque provider.
+      const startAudit = await recordPipelineMarker(
+        pipelineRunId,
+        pipelineAction,
+        startedAtIso,
+        null,
+      );
+      if (startAudit) {
+        return json(500, {
+          ok: false,
+          action,
+          pipeline_run_id: pipelineRunId,
+          run_id: pipelineRunId,
+          error: startAudit,
+        });
+      }
     }
 
     const remainingMs = () => PIPELINE_BUDGET_MS - (Date.now() - startedMs);
@@ -1013,9 +1087,16 @@ Deno.serve(async (req) => {
     };
 
     outer:
-    for (const stage of pipeline.stages) {
+    for (let stageIndex = segment.from; stageIndex <= segment.to; stageIndex++) {
+      const stage = pipeline.stages[stageIndex];
       const isImageStage = stage.length === 1 &&
         stage[0].action === "contendibili_image_certify";
+      // Riserva reale: solo gli stage RESIDUI DI QUESTO segmento.
+      const downstreamReserve = remainingStagesWorstCaseMs(
+        pipelineAction,
+        stageIndex,
+        segment.to,
+      ) + (isLastSegment ? 0 : CONTINUATION_RESERVE_MS);
 
       if (noBudgetLeft(remainingMs())) {
         pushBudgetFailure(stage[0].action, "pipeline_budget_exhausted");
@@ -1023,11 +1104,11 @@ Deno.serve(async (req) => {
       }
 
       if (isImageStage) {
-        // Fase immagini: mai oltre il budget downstream riservato di 0545.
+        // Fase immagini: almeno un batch hard-4, mai oltre la riserva residua.
         let marker: number | null = null;
         let attempt = 0;
         while (attempt < IMAGE_CERTIFY_MAX_INVOCATIONS) {
-          if (!imageBudgetAllows(remainingMs())) break;
+          if (!imageBudgetAllows(remainingMs(), downstreamReserve)) break;
           attempt++;
           const r = await runAuditedAction(
             "contendibili_image_certify",
@@ -1051,9 +1132,11 @@ Deno.serve(async (req) => {
           pushBudgetFailure("contendibili_image_certify", "image_budget_insufficient");
           break outer;
         }
-        // Downstream (pairs + snapshot/recompute + extras) deve restare fattibile.
-        if (!downstreamBudgetOk(remainingMs())) {
-          pushBudgetFailure("contendibili_pairs", "downstream_budget_insufficient");
+        if (!downstreamBudgetOk(remainingMs(), downstreamReserve)) {
+          pushBudgetFailure(
+            pipeline.stages[Math.min(stageIndex + 1, pipeline.stages.length - 1)][0].action,
+            "downstream_budget_insufficient",
+          );
           break outer;
         }
         continue;
@@ -1084,19 +1167,42 @@ Deno.serve(async (req) => {
 
     const failing = steps.find((s) => !s.ok);
     let status = pipelineStatus(steps, exhausted);
-    const endAudit = await recordPipelineMarker(pipelineRunId, pipelineAction, startedAtIso, {
-      ok: failedAt === null && status === 200,
-      status,
-      errorCode: failedAt === null ? null : (exhausted ? "BUDGET_EXHAUSTED" : "STEP_FAILED"),
-      durationMs: Date.now() - startedMs,
-    });
-    if (endAudit) {
-      failedAt = failedAt ?? "audit";
-      status = status === 200 ? 500 : status;
+    const segmentOk = failedAt === null && status === 200;
+
+    // Continuazione: solo se il segmento è riuscito e restano stage.
+    let continuation: string | null = null;
+    if (segmentOk && !isLastSegment) {
+      continuation = await dispatchContinuation(
+        pipelineAction,
+        pipelineRunId,
+        segment.to + 1,
+        startedAtIso,
+      );
+      if (continuation) {
+        failedAt = "continuation";
+        status = 502;
+      }
     }
 
-    return json(status, {
-      ok: failedAt === null && status === 200,
+    // Il marker finale si chiude SOLO all'ultimo segmento o su fallimento.
+    const closing = !segmentOk || isLastSegment || continuation !== null;
+    if (closing) {
+      const endAudit = await recordPipelineMarker(pipelineRunId, pipelineAction, startedAtIso, {
+        ok: failedAt === null && status === 200,
+        status,
+        errorCode: failedAt === null
+          ? null
+          : (exhausted ? "BUDGET_EXHAUSTED" : (continuation ?? "STEP_FAILED")),
+        durationMs: Date.now() - startedMs,
+      });
+      if (endAudit) {
+        failedAt = failedAt ?? "audit";
+        status = status === 200 ? 500 : status;
+      }
+    }
+
+    return json(closing ? status : 202, {
+      ok: failedAt === null && (status === 200 || !closing),
       action,
       pipeline_run_id: pipelineRunId,
       run_id: pipelineRunId,
@@ -1104,15 +1210,18 @@ Deno.serve(async (req) => {
       timezone: SCHEDULE_TIMEZONE,
       enabled: CRON_ENABLED,
       failed_at: failedAt,
-      failed_reason: failing?.reason ?? null,
+      failed_reason: failing?.reason ?? continuation ?? null,
       budget_exhausted: exhausted,
       elapsed_ms: Date.now() - startedMs,
       budget_ms: PIPELINE_BUDGET_MS,
+      segment: { index: segments.findIndex((s) => s.from === segment.from), ...segment },
+      segments: segments.length,
+      segment_capacity_ms: SEGMENT_CAPACITY_MS,
+      pipeline_complete: closing && failedAt === null,
+      continuation_dispatched: segmentOk && !isLastSegment && continuation === null,
       executed: steps.length,
       planned: planned.length,
       image_certify_max_invocations: IMAGE_CERTIFY_MAX_INVOCATIONS,
-      image_downstream_reserve_ms: ACTION_TIMEOUT_MS.contendibili_pairs +
-        ACTION_TIMEOUT_MS.contendibili_recompute + ACTION_TIMEOUT_MS.contendibili_extras,
       steps: steps.map(({ raw: _raw, ...s }) => s),
     });
   }

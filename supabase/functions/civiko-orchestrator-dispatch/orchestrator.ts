@@ -175,6 +175,83 @@ export function pipelineActions(pipeline: PipelineAction): SimpleAction[] {
   return PIPELINES[pipeline].stages.flatMap((stage) => stage.map((s) => s.action));
 }
 
+// ── Segmentazione: ogni invocazione resta sotto il budget hard ──────────────
+// Il timeout esterno REALE è PIPELINE_BUDGET_MS. La somma dei budget di stage
+// di 0545 e 0710 lo supera: gli stage vengono quindi impacchettati in segmenti
+// dimostrabilmente eseguibili in una singola invocazione e la pipeline prosegue
+// con una continuazione che riusa lo STESSO pipeline_run_id.
+
+/** Overhead deterministico per stage: audit di avvio + audit finale + rete. */
+export const STAGE_OVERHEAD_MS = 2_000;
+/** Riserva per avviare la continuazione (handshake) prima di rispondere. */
+export const CONTINUATION_RESERVE_MS = 2_000;
+/** Capacità massima dimostrabile di UNA invocazione. */
+export const SEGMENT_CAPACITY_MS = PIPELINE_BUDGET_MS - BUDGET_RESERVE_MS -
+  CONTINUATION_RESERVE_MS;
+
+/** Costo peggiore di uno stage: azione più lenta (le altre sono parallele). */
+export function stageWorstCaseMs(stage: PipelineStage): number {
+  const slowest = Math.max(...stage.map((s) => ACTION_TIMEOUT_MS[s.action]));
+  return slowest + STAGE_OVERHEAD_MS;
+}
+
+export interface PipelineSegment {
+  /** Indice del primo stage del segmento. */
+  from: number;
+  /** Indice dell'ultimo stage del segmento (incluso). */
+  to: number;
+  /** Somma dei costi peggiori degli stage del segmento. */
+  worstCaseMs: number;
+}
+
+/**
+ * Impacchettamento deterministico: ogni segmento ha worstCaseMs <=
+ * SEGMENT_CAPACITY_MS, quindi ogni stage è raggiungibile con riserva provabile.
+ */
+export function segmentPipeline(pipeline: PipelineAction): PipelineSegment[] {
+  const stages = PIPELINES[pipeline].stages;
+  const segments: PipelineSegment[] = [];
+  let from = 0;
+  let acc = 0;
+  for (let i = 0; i < stages.length; i++) {
+    const cost = stageWorstCaseMs(stages[i]);
+    if (cost > SEGMENT_CAPACITY_MS) {
+      // Contratto violato: nessuno stage può eccedere una singola invocazione.
+      throw new Error(`stage_${pipeline}_${i}_exceeds_segment_capacity`);
+    }
+    if (acc > 0 && acc + cost > SEGMENT_CAPACITY_MS) {
+      segments.push({ from, to: i - 1, worstCaseMs: acc });
+      from = i;
+      acc = 0;
+    }
+    acc += cost;
+  }
+  segments.push({ from, to: stages.length - 1, worstCaseMs: acc });
+  return segments;
+}
+
+/** Segmento che inizia esattamente allo stage indicato (fail-closed). */
+export function segmentStartingAt(
+  pipeline: PipelineAction,
+  stageFrom: number,
+): PipelineSegment | null {
+  return segmentPipeline(pipeline).find((s) => s.from === stageFrom) ?? null;
+}
+
+/** Costo peggiore degli stage residui del segmento, dopo `afterStage`. */
+export function remainingStagesWorstCaseMs(
+  pipeline: PipelineAction,
+  afterStage: number,
+  toStage: number,
+): number {
+  const stages = PIPELINES[pipeline].stages;
+  let total = 0;
+  for (let i = afterStage + 1; i <= Math.min(toStage, stages.length - 1); i++) {
+    total += stageWorstCaseMs(stages[i]);
+  }
+  return total;
+}
+
 // ── Parsing fail-closed ─────────────────────────────────────────────────────
 export interface ParsedBody {
   obj: Record<string, unknown> | null;
@@ -287,12 +364,19 @@ export function nestedFailure(value: unknown, depth = 0): string | null {
   }
   const obj = value as Record<string, unknown>;
   if (obj.ok === false) return "nested_ok_false";
+  if (obj.success === false) return "nested_success_false";
+  if (typeof obj.status === "string" && /^(failed|failure|error|aborted|timed[-_]?out)$/i.test(obj.status.trim())) {
+    return "nested_status_failed";
+  }
   if (truthyError(obj.error)) return "nested_error";
+  if (typeof obj.errors === "number" && obj.errors > 0) return "nested_errors_count";
   if (Array.isArray(obj.errors) && obj.errors.length > 0) return "nested_errors";
+  if (typeof obj.errors_count === "number" && obj.errors_count > 0) return "nested_errors_count";
+  if (Array.isArray(obj.failures) && obj.failures.length > 0) return "nested_failures";
   if (obj.skipped === true) return "nested_skipped";
   if (typeof obj.skipped === "string" && obj.skipped.trim()) return "nested_skipped";
-  for (const [k, v] of Object.entries(obj)) {
-    if (k === "counters" || k === "metrics") continue;
+  // Nessuna chiave esente: anche counters/metrics vengono ispezionati.
+  for (const v of Object.values(obj)) {
     const f = nestedFailure(v, depth + 1);
     if (f) return f;
   }
@@ -330,10 +414,9 @@ export function payloadFailure(
 
   if (action === "apify_immobiliare" || action === "apify_idealista" || action === "apify_subito") {
     if (!hasPositiveNumber(obj, "started_count")) return "apify_started_count_zero";
-    // async_start da solo non basta: serve un identificativo di run reale.
-    if (!hasNonEmptyString(obj, "run_id") && !hasNonEmptyString(obj, "dataset_id")) {
-      return "apify_run_identifier_missing";
-    }
+    // Lancio provato: servono ENTRAMBI gli identificativi del run corrente.
+    if (!hasNonEmptyString(obj, "run_id")) return "apify_run_id_missing";
+    if (!hasNonEmptyString(obj, "dataset_id")) return "apify_dataset_id_missing";
     return null;
   }
 
@@ -341,16 +424,55 @@ export function payloadFailure(
     if (!hasPositiveNumber(obj, "scanned")) return "collect_scanned_zero";
     const completed = sumNumber(obj, "completed_count");
     if (completed < COLLECT_REQUIRED_PORTALS.length) return "collect_completed_insufficient";
-    if (!hasTrue(obj, "required_portals_complete")) return "collect_required_portals_incomplete";
-    if (sumNumber(obj, "errors_count") > 0) return "collect_errors_present";
-    // Zero novità è ammesso SOLO come dichiarazione esplicita e non scavalca
-    // né i portali terminali né gli item provider già verificati sopra.
-    if (hasPositiveNumber(obj, "imports_count")) return null;
-    if (obj.zero_novelty === true) return null;
-    return "collect_no_imports";
+    if (!hasTrue(obj, "required_portals_complete") && !hasTrue(obj, "required_apify_complete")) {
+      return "collect_required_portals_incomplete";
+    }
+    // errors_count DEVE essere presente ed esattamente 0 (mai assente).
+    const errorsKey = ["errors_count", "errors"].find((k) => typeof obj[k] === "number");
+    if (!errorsKey) return "collect_errors_count_missing";
+    if ((obj[errorsKey] as number) !== 0) return "collect_errors_present";
+    return collectProviderFailure(obj);
   }
 
   return null;
+}
+
+/**
+ * Ogni risultato provider del run CORRENTE deve essere SUCCEEDED, con item > 0
+ * e identificativi di run/dataset. Import 0 è ammesso solo con prova di
+ * zero-novità riconciliata (dedup/skipped che spiegano gli item scaricati).
+ */
+export function collectProviderFailure(obj: Record<string, unknown>): string | null {
+  const results = obj.results;
+  if (!Array.isArray(results) || results.length === 0) return "collect_results_missing";
+  let importsTotal = 0;
+  let reconciled = 0;
+  let providers = 0;
+  for (const raw of results) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "collect_result_invalid";
+    const r = raw as Record<string, unknown>;
+    providers++;
+    if (String(r.status ?? "") !== "SUCCEEDED") return "collect_provider_not_succeeded";
+    const items = Number(r.items ?? NaN);
+    if (!Number.isFinite(items) || items <= 0) return "collect_provider_items_zero";
+    const runId = typeof r.run_id === "string" ? r.run_id.trim() : "";
+    const datasetId = typeof r.dataset_id === "string" ? r.dataset_id.trim() : "";
+    if (!runId && !datasetId) return "collect_provider_run_identifier_missing";
+    const created = Number(r.created ?? 0) || 0;
+    const updated = Number(r.updated ?? 0) || 0;
+    const deduped = Number(r.deduped ?? 0) || 0;
+    const skipped = Number(r.skipped ?? 0) || 0;
+    importsTotal += created + updated;
+    // Riconciliazione: gli item scaricati risultano già noti (dedup/skip).
+    if (created + updated === 0 && deduped + skipped > 0) reconciled++;
+  }
+  if (providers < COLLECT_REQUIRED_PORTALS.length) return "collect_providers_insufficient";
+  const declared = Number(obj.imports_count ?? NaN);
+  if (Number.isFinite(declared) && declared !== importsTotal) return "collect_imports_mismatch";
+  if (importsTotal > 0) return null;
+  // Zero novità del RUN CORRENTE: dichiarata e riconciliata su ogni provider.
+  if (obj.zero_novelty === true && reconciled === providers) return null;
+  return "collect_zero_novelty_unproven";
 }
 
 /** HTTP 200 non basta: skipped/error/zero provider inatteso sono guasti. */
@@ -488,17 +610,23 @@ export function shouldRepeatImageCertify(
 }
 
 /**
- * La fase immagini non può erodere il budget downstream di 0545: si ripete solo
- * se, dopo lo step, resta almeno IMAGE_DOWNSTREAM_RESERVE_MS.
+ * La fase immagini non può erodere il budget degli stage successivi: si ripete
+ * solo se, dopo lo step, resta la riserva richiesta dal segmento corrente.
  */
-export function imageBudgetAllows(remainingMs: number): boolean {
+export function imageBudgetAllows(
+  remainingMs: number,
+  downstreamReserveMs: number = IMAGE_DOWNSTREAM_RESERVE_MS,
+): boolean {
   return usableRemainingMs(remainingMs) - ACTION_TIMEOUT_MS.contendibili_image_certify >=
-    IMAGE_DOWNSTREAM_RESERVE_MS;
+    downstreamReserveMs;
 }
 
-/** Budget minimo per completare la coda downstream di 0545 dopo le immagini. */
-export function downstreamBudgetOk(remainingMs: number): boolean {
-  return usableRemainingMs(remainingMs) >= IMAGE_DOWNSTREAM_RESERVE_MS;
+/** Budget minimo per completare gli stage residui dopo le immagini. */
+export function downstreamBudgetOk(
+  remainingMs: number,
+  downstreamReserveMs: number = IMAGE_DOWNSTREAM_RESERVE_MS,
+): boolean {
+  return usableRemainingMs(remainingMs) >= downstreamReserveMs;
 }
 
 // ── Audit canonico: civiko_orchestrator_action_runs ─────────────────────────
@@ -512,11 +640,31 @@ export interface ActionRunRow {
   pipeline?: string | null;
   pipeline_run_id?: string | null;
   attempt_no?: number | null;
+  id?: string | number | null;
+  created_at?: string | null;
 }
 
-function runTime(r: ActionRunRow): number {
-  const t = Date.parse(r.finished_at ?? r.started_at);
+/**
+ * Ordine latest-wins: SEMPRE started_at (mai COALESCE su finished_at), così un
+ * run vecchio ma lento a chiudere non può mascherare un tentativo più recente.
+ */
+export function startedTime(r: ActionRunRow): number {
+  const t = Date.parse(r.started_at);
   return Number.isFinite(t) ? t : 0;
+}
+
+/** > 0 se `a` è più recente di `b`. Tie-break stabile: attempt_no, created_at, id. */
+export function compareRuns(a: ActionRunRow, b: ActionRunRow): number {
+  const ta = startedTime(a);
+  const tb = startedTime(b);
+  if (ta !== tb) return ta - tb;
+  const na = a.attempt_no ?? 1;
+  const nb = b.attempt_no ?? 1;
+  if (na !== nb) return na - nb;
+  const ca = Date.parse(a.created_at ?? "") || 0;
+  const cb = Date.parse(b.created_at ?? "") || 0;
+  if (ca !== cb) return ca - cb;
+  return String(a.id ?? "").localeCompare(String(b.id ?? ""));
 }
 
 /** Chiave anti-omonimia: la stessa azione in 0510 e 0545 non si maschera. */
@@ -539,7 +687,7 @@ export function latestPipelineMarkers(
     if (typeof r.pipeline_run_id !== "string" || !r.pipeline_run_id) continue;
     const key = r.pipeline as PipelineAction;
     const prev = out.get(key);
-    if (!prev || runTime(r) >= runTime(prev)) out.set(key, r);
+    if (!prev || compareRuns(r, prev) >= 0) out.set(key, r);
   }
   return out;
 }
@@ -561,19 +709,13 @@ export function stepsOfExactRuns(
   });
 }
 
-/** Ultimo TENTATIVO per (pipeline, azione): attempt_no più alto, poi tempo. */
+/** Ultimo TENTATIVO per (pipeline, azione): started_at DESC, tie-break stabile. */
 export function latestRunsByAction(rows: ActionRunRow[]): Map<string, ActionRunRow> {
   const out = new Map<string, ActionRunRow>();
   for (const r of rows) {
     const key = actionKey(r);
     const prev = out.get(key);
-    if (!prev) {
-      out.set(key, r);
-      continue;
-    }
-    const a = r.attempt_no ?? 1;
-    const b = prev.attempt_no ?? 1;
-    if (a > b || (a === b && runTime(r) >= runTime(prev))) out.set(key, r);
+    if (!prev || compareRuns(r, prev) >= 0) out.set(key, r);
   }
   return out;
 }

@@ -2158,26 +2158,35 @@ export type Database = {
         Row: {
           attempts: number
           created_at: string
+          image_source_fp: string | null
           last_attempt_at: string
           last_outcome: string | null
           last_pipeline_run_id: string | null
           listing_id: number
+          terminal: boolean
+          terminal_reason: string | null
         }
         Insert: {
           attempts?: number
           created_at?: string
+          image_source_fp?: string | null
           last_attempt_at?: string
           last_outcome?: string | null
           last_pipeline_run_id?: string | null
           listing_id: number
+          terminal?: boolean
+          terminal_reason?: string | null
         }
         Update: {
           attempts?: number
           created_at?: string
+          image_source_fp?: string | null
           last_attempt_at?: string
           last_outcome?: string | null
           last_pipeline_run_id?: string | null
           listing_id?: number
+          terminal?: boolean
+          terminal_reason?: string | null
         }
         Relationships: []
       }
@@ -9175,10 +9184,17 @@ export type Database = {
     Views: {
       civiko_padova_release_gate_v: {
         Row: {
+          categoria_snapshot_corrente: boolean | null
           checked_at: string | null
           classificazione_ultima: string | null
           contendibili_fuori_perimetro: number | null
+          contendibili_snapshot_correnti: number | null
           contendibili_totali: number | null
+          fingerprint_correnti: number | null
+          image_attempts_correnti: number | null
+          image_certify_corrente: boolean | null
+          import_corrente_ok: boolean | null
+          import_nuovi_ok: boolean | null
           listings_freschi: number | null
           mismatch_professionale: number | null
           pipeline_0510_avvio: string | null
@@ -9193,11 +9209,17 @@ export type Database = {
           pipeline_0710_ok: boolean | null
           pipeline_0710_run_id: string | null
           pipeline_0710_ultimo: string | null
+          portale_casa_lancio_ok: boolean | null
+          portale_idealista_lancio_ok: boolean | null
+          portale_immobiliare_lancio_ok: boolean | null
+          portale_subito_lancio_ok: boolean | null
           portali_freschi: number | null
+          portali_lancio_corrente_ok: boolean | null
           privati_fuori_perimetro: number | null
           pwa_sync_ack_avvio: string | null
           pwa_sync_ack_corrente: boolean | null
           pwa_sync_ack_counts: Json | null
+          pwa_sync_ack_pipeline_run_id: string | null
           pwa_sync_ack_ultimo_ok: string | null
           recompute_corrente: boolean | null
           recompute_ultimo: string | null
@@ -9389,6 +9411,75 @@ export type Database = {
           omi_max: number | null
           omi_min: number | null
           semestre_ultimo: string | null
+        }
+        Relationships: []
+      }
+      padova_cambi_agenzia_by_zone_v: {
+        Row: {
+          agenzia_nuova: string | null
+          agenzia_precedente: string | null
+          canon_url: string | null
+          commercial_zone_slug: string | null
+          contendibile_overlap: boolean | null
+          created_at: string | null
+          data_cambio: string | null
+          first_detected_at: string | null
+          id: string | null
+          indirizzo: string | null
+          is_active: boolean | null
+          last_seen_at: string | null
+          locali: number | null
+          mq: number | null
+          portale: string | null
+          prezzo_eur: number | null
+          quartiere: string | null
+          titolo: string | null
+          updated_at: string | null
+          zona_omi: string | null
+        }
+        Insert: {
+          agenzia_nuova?: string | null
+          agenzia_precedente?: string | null
+          canon_url?: string | null
+          commercial_zone_slug?: never
+          contendibile_overlap?: boolean | null
+          created_at?: string | null
+          data_cambio?: string | null
+          first_detected_at?: string | null
+          id?: string | null
+          indirizzo?: string | null
+          is_active?: boolean | null
+          last_seen_at?: string | null
+          locali?: number | null
+          mq?: number | null
+          portale?: string | null
+          prezzo_eur?: number | null
+          quartiere?: string | null
+          titolo?: string | null
+          updated_at?: string | null
+          zona_omi?: string | null
+        }
+        Update: {
+          agenzia_nuova?: string | null
+          agenzia_precedente?: string | null
+          canon_url?: string | null
+          commercial_zone_slug?: never
+          contendibile_overlap?: boolean | null
+          created_at?: string | null
+          data_cambio?: string | null
+          first_detected_at?: string | null
+          id?: string | null
+          indirizzo?: string | null
+          is_active?: boolean | null
+          last_seen_at?: string | null
+          locali?: number | null
+          mq?: number | null
+          portale?: string | null
+          prezzo_eur?: number | null
+          quartiere?: string | null
+          titolo?: string | null
+          updated_at?: string | null
+          zona_omi?: string | null
         }
         Relationships: []
       }
@@ -9932,6 +10023,10 @@ export type Database = {
         Returns: Json
       }
       civiko_repair_padova_tipo_lead: { Args: never; Returns: Json }
+      civiko_replace_photo_pair_evidence: {
+        Args: { p_computed_at: string; p_pairs: Json }
+        Returns: Json
+      }
       civiko_resolve_commercial_zone_slug: {
         Args: { p_quartiere: string }
         Returns: string

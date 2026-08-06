@@ -49,6 +49,15 @@ import {
   MATCH_VERSION,
   MIN_SHARED_PHOTOS_PER_PAIR,
 } from "../_shared/imagePhashV1Gate.ts";
+import {
+  type AttemptState,
+  chunk,
+  eligibilityReason,
+  isTerminalOutcome,
+  normalizeOutcome,
+  selectEligible,
+  sourceFingerprint,
+} from "./selection.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -58,13 +67,15 @@ const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
 export const TOTAL_LISTINGS_PER_INVOCATION = 4;
 /** Un listing non viene mai ritentato più di così. */
 export const MAX_ATTEMPTS_PER_LISTING = 4;
-/** Ampiezza della finestra di scansione dei candidati (bounded). */
-const CANDIDATE_SCAN_LIMIT = 200;
+/** Paginazione delle fonti candidate: nessun tetto arbitrario pre-filtro. */
+const CANDIDATE_PAGE_SIZE = 500;
+const CANDIDATE_MAX_PAGES = 200;
 /** Paginazione completa dei fingerprint: nessun tetto arbitrario. */
 const FINGERPRINT_PAGE_SIZE = 1000;
 const FINGERPRINT_MAX_PAGES = 200;
-/** Scansione bounded della tabella di avanzamento (non è un cap sui fingerprint). */
-const ATTEMPTS_PROGRESS_SCAN = 5000;
+/** Paginazione completa della tabella di avanzamento (nessun cap a 5000). */
+const ATTEMPTS_PAGE_SIZE = 1000;
+const ATTEMPTS_MAX_PAGES = 500;
 
 /** Perimetro ufficiale Civiko One / Padova: 8 zone commerciali. */
 export const CIVIKO_ZONE_SLUGS = [
@@ -151,104 +162,175 @@ Deno.serve(async (req) => {
   };
 
   // ── Selezione deterministica dei candidati ──────────────────────────────
-  type Candidate = { listing_id: number; source: "evidence" | "raw_json"; queue_id?: string };
+  type Candidate = {
+    listing_id: number;
+    source: "evidence" | "raw_json";
+    queue_id?: string;
+    source_fp: string | null;
+  };
   let selected: Candidate[] = [];
   let scanned = 0;
-  let poolSize = 0;
+  let remainingEligible = 0;
+  let remainingExact = true;
+  const exclusions: Record<string, number> = {};
 
   if (!pairsOnly) {
-    // Listing già esauriti (4 tentativi) o già trattati in QUESTO run.
-    const blocked = new Set<number>();
-    {
+    // Avanzamento: paginazione COMPLETA, nessun cap arbitrario a 5000 righe.
+    const attemptState = new Map<number, AttemptState>();
+    for (let page = 0; page < ATTEMPTS_MAX_PAGES; page++) {
+      const from = page * ATTEMPTS_PAGE_SIZE;
       const { data, error } = await sb
         .from("civiko_image_certify_attempts")
-        .select("listing_id,attempts,last_pipeline_run_id")
+        .select("listing_id,attempts,last_pipeline_run_id,terminal,image_source_fp")
         .order("listing_id", { ascending: true })
-        .limit(ATTEMPTS_PROGRESS_SCAN);
+        .range(from, from + ATTEMPTS_PAGE_SIZE - 1);
       if (error) {
         return json({ ok: false, error: "attempts_progress_read_failed", detail: error.message }, 500);
       }
-      for (const r of data ?? []) {
-        const id = Number(r.listing_id);
-        if (Number(r.attempts) >= MAX_ATTEMPTS_PER_LISTING) blocked.add(id);
-        if (pipelineRunId && r.last_pipeline_run_id === pipelineRunId) blocked.add(id);
+      const rows = data ?? [];
+      for (const r of rows) {
+        attemptState.set(Number(r.listing_id), {
+          attempts: Number(r.attempts) || 0,
+          last_pipeline_run_id: (r.last_pipeline_run_id as string | null) ?? null,
+          terminal: r.terminal === true,
+          image_source_fp: (r.image_source_fp as string | null) ?? null,
+        });
+      }
+      if (rows.length < ATTEMPTS_PAGE_SIZE) break;
+      if (page === ATTEMPTS_MAX_PAGES - 1) {
+        return json({ ok: false, error: "attempts_pagination_overflow" }, 500);
       }
     }
 
-    // Fonte A — detail già memorizzati e riusabili (oldest-first).
-    const { data: attRows, error: attErr } = await sb
-      .from("civiko_contendibili_evidence_attempts")
-      .select("listing_id,queue_id,commercial_zone_slug")
-      .eq("status", "succeeded")
-      .not("queue_id", "is", null)
-      .order("listing_id", { ascending: true })
-      .limit(CANDIDATE_SCAN_LIMIT);
-    if (attErr) {
-      return json({ ok: false, error: "attempts_read_failed", detail: attErr.message }, 500);
-    }
-
-    // Fonte B — foto già memorizzate in raw_json (oldest-first), perimetro esatto.
-    const { data: rawRows, error: rawErr } = await sb
-      .from("padova_listings")
-      .select("id")
-      .is("expired_at", null)
-      .eq("comune", "Padova")
-      .in("commercial_zone_slug", zoneScope)
-      .not("raw_json->media->images", "is", null)
-      .order("id", { ascending: true })
-      .limit(CANDIDATE_SCAN_LIMIT);
-    if (rawErr) {
-      return json({ ok: false, error: "raw_json_read_failed", detail: rawErr.message }, 500);
-    }
-
-    // Pool unico ordinato: un solo tetto TOTALE, mai 4+4.
+    // Pool unico ordinato oldest-first: nessun limite PRIMA delle esclusioni.
+    // Fonte A — detail già memorizzati e riusabili.
     const pool = new Map<number, Candidate>();
-    for (const r of attRows ?? []) {
-      const id = Number(r.listing_id);
-      if (!Number.isFinite(id)) continue;
-      if (!pool.has(id)) pool.set(id, { listing_id: id, source: "evidence", queue_id: String(r.queue_id) });
+    for (let page = 0; page < CANDIDATE_MAX_PAGES; page++) {
+      const from = page * CANDIDATE_PAGE_SIZE;
+      const { data, error } = await sb
+        .from("civiko_contendibili_evidence_attempts")
+        .select("listing_id,queue_id")
+        .eq("status", "succeeded")
+        .not("queue_id", "is", null)
+        .order("listing_id", { ascending: true })
+        .range(from, from + CANDIDATE_PAGE_SIZE - 1);
+      if (error) {
+        return json({ ok: false, error: "attempts_read_failed", detail: error.message }, 500);
+      }
+      const rows = data ?? [];
+      for (const r of rows) {
+        const id = Number(r.listing_id);
+        if (!Number.isFinite(id) || pool.has(id)) continue;
+        pool.set(id, { listing_id: id, source: "evidence", queue_id: String(r.queue_id), source_fp: null });
+      }
+      if (rows.length < CANDIDATE_PAGE_SIZE) break;
+      if (page === CANDIDATE_MAX_PAGES - 1) remainingExact = false;
     }
-    for (const r of rawRows ?? []) {
-      const id = Number(r.id);
-      if (!Number.isFinite(id)) continue;
-      if (!pool.has(id)) pool.set(id, { listing_id: id, source: "raw_json" });
+
+    // Fonte B — foto già memorizzate in raw_json, perimetro esatto.
+    for (let page = 0; page < CANDIDATE_MAX_PAGES; page++) {
+      const from = page * CANDIDATE_PAGE_SIZE;
+      const { data, error } = await sb
+        .from("padova_listings")
+        .select("id")
+        .is("expired_at", null)
+        .eq("comune", "Padova")
+        .in("commercial_zone_slug", zoneScope)
+        .not("raw_json->media->images", "is", null)
+        .order("id", { ascending: true })
+        .range(from, from + CANDIDATE_PAGE_SIZE - 1);
+      if (error) {
+        return json({ ok: false, error: "raw_json_read_failed", detail: error.message }, 500);
+      }
+      const rows = data ?? [];
+      for (const r of rows) {
+        const id = Number(r.id);
+        if (!Number.isFinite(id) || pool.has(id)) continue;
+        pool.set(id, { listing_id: id, source: "raw_json", source_fp: null });
+      }
+      if (rows.length < CANDIDATE_PAGE_SIZE) break;
+      if (page === CANDIDATE_MAX_PAGES - 1) remainingExact = false;
     }
     scanned = pool.size;
 
-    // Idempotenza: chi ha già fingerprint viene saltato e NON blocca la coda.
     const poolIds = Array.from(pool.keys()).sort((a, b) => a - b);
-    if (poolIds.length) {
-      const { data: already, error: fpErr } = await sb
+
+    // Chi ha già fingerprint viene saltato (query .in in chunk bounded).
+    const fingerprinted = new Set<number>();
+    for (const part of chunk(poolIds)) {
+      const { data, error } = await sb
         .from("civiko_listing_image_fingerprints")
         .select("listing_id")
-        .in("listing_id", poolIds);
-      if (fpErr) {
-        return json({ ok: false, error: "fingerprints_read_failed", detail: fpErr.message }, 500);
+        .in("listing_id", part);
+      if (error) {
+        return json({ ok: false, error: "fingerprints_read_failed", detail: error.message }, 500);
       }
-      for (const r of already ?? []) blocked.add(Number(r.listing_id));
+      for (const r of data ?? []) fingerprinted.add(Number(r.listing_id));
     }
 
-    // Perimetro esatto: solo Padova + 8 zone ufficiali, annunci attivi.
+    // Perimetro esatto: attivi, Comune di Padova, 8 slug ufficiali.
     const inScope = new Set<number>();
-    if (poolIds.length) {
-      const { data: scopeRows, error: scopeErr } = await sb
+    for (const part of chunk(poolIds)) {
+      const { data, error } = await sb
         .from("padova_listings")
         .select("id")
-        .in("id", poolIds)
+        .in("id", part)
         .is("expired_at", null)
         .eq("comune", "Padova")
         .in("commercial_zone_slug", zoneScope);
-      if (scopeErr) {
-        return json({ ok: false, error: "scope_read_failed", detail: scopeErr.message }, 500);
+      if (error) {
+        return json({ ok: false, error: "scope_read_failed", detail: error.message }, 500);
       }
-      for (const r of scopeRows ?? []) inScope.add(Number(r.id));
+      for (const r of data ?? []) inScope.add(Number(r.id));
     }
 
-    const eligible = poolIds
-      .filter((id) => inScope.has(id) && !blocked.has(id))
-      .map((id) => pool.get(id)!);
-    poolSize = eligible.length;
-    selected = eligible.slice(0, limit);
+    // Impronta CORRENTE della fonte immagine, solo per i terminali in perimetro:
+    // un no_photo torna lavorabile appena la fonte cambia davvero.
+    const terminalIds = poolIds.filter((id) =>
+      inScope.has(id) && !fingerprinted.has(id) && attemptState.get(id)?.terminal === true &&
+      (attemptState.get(id)?.attempts ?? 0) < MAX_ATTEMPTS_PER_LISTING
+    );
+    const currentSourceFp = new Map<number, string | null>();
+    for (const part of chunk(terminalIds)) {
+      const { data, error } = await sb
+        .from("padova_listings")
+        .select("id,ev_image_refs,images:raw_json->media->images")
+        .in("id", part);
+      if (error) {
+        return json({ ok: false, error: "source_fp_read_failed", detail: error.message }, 500);
+      }
+      for (const r of data ?? []) {
+        currentSourceFp.set(
+          Number(r.id),
+          await sourceFingerprint({
+            images: (r as Record<string, unknown>).images ?? null,
+            refs: (r as Record<string, unknown>).ev_image_refs ?? null,
+          }),
+        );
+      }
+    }
+
+    // Scansione oldest-first fino a `limit` eleggibili oppure EOF: il residuo
+    // è autoritativo perché deriva dalla scansione completa del pool.
+    const outcome = selectEligible(
+      poolIds.map((id) => pool.get(id)!),
+      (cand) =>
+        eligibilityReason({
+          attempt: attemptState.get(cand.listing_id),
+          maxAttempts: MAX_ATTEMPTS_PER_LISTING,
+          pipelineRunId,
+          hasFingerprint: fingerprinted.has(cand.listing_id),
+          inScope: inScope.has(cand.listing_id),
+          currentSourceFp: currentSourceFp.get(cand.listing_id) ?? null,
+        }),
+      limit,
+    );
+    selected = outcome.selected;
+    remainingEligible = outcome.remaining;
+    for (const [k, v] of Object.entries(outcome.exclusions)) exclusions[k] = v;
+    for (const cand of selected) {
+      cand.source_fp = currentSourceFp.get(cand.listing_id) ?? null;
+    }
 
     if (!selected.length) {
       return json({
@@ -257,6 +339,8 @@ Deno.serve(async (req) => {
         attempted: 0,
         scanned,
         remaining: 0,
+        remaining_exact: remainingExact,
+        exclusions,
         progress_marker: await progressMarker(),
         pipeline_run_id: pipelineRunId,
         zero_novelty: true,
@@ -267,28 +351,26 @@ Deno.serve(async (req) => {
     // Marcatura ATOMICA prima di lavorare: anche no-photo/undecodable avanzano.
     if (!dryRun) {
       const ids = selected.map((c) => c.listing_id);
-      const { data: prev, error: prevErr } = await sb
-        .from("civiko_image_certify_attempts")
-        .select("listing_id,attempts")
-        .in("listing_id", ids);
-      if (prevErr) {
-        return json({ ok: false, error: "attempts_progress_read_failed", detail: prevErr.message }, 500);
-      }
-      const prevCount = new Map((prev ?? []).map((r) => [Number(r.listing_id), Number(r.attempts) || 0]));
       const { error: markErr } = await sb
         .from("civiko_image_certify_attempts")
         .upsert(
-          ids.map((id) => ({
-            listing_id: id,
-            attempts: (prevCount.get(id) ?? 0) + 1,
+          selected.map((c) => ({
+            listing_id: c.listing_id,
+            attempts: (attemptState.get(c.listing_id)?.attempts ?? 0) + 1,
             last_pipeline_run_id: pipelineRunId,
             last_outcome: "claimed",
             last_attempt_at: runStartedAt,
+            // Il claim riapre il tentativo: lo stato terminale si ricalcola.
+            terminal: false,
+            terminal_reason: null,
           })),
           { onConflict: "listing_id" },
         );
       if (markErr) {
         return json({ ok: false, error: "attempts_progress_write_failed", detail: markErr.message }, 500);
+      }
+      if (ids.length > MAX_ATTEMPTS_PER_LISTING) {
+        return json({ ok: false, error: "hard_limit_violated" }, 500);
       }
     }
   }
@@ -333,12 +415,30 @@ Deno.serve(async (req) => {
     }
   }
 
-  const { data: listings, error: lErr } = await sb
-    .from("padova_listings")
-    .select("id,url,fonte,agency,commercial_zone_slug,ev_via_norm,ev_image_refs")
-    .in("id", listingIds);
-  if (lErr) return json({ ok: false, error: "listings_read_failed", detail: lErr.message }, 500);
-  const listingById = new Map((listings ?? []).map((l) => [Number(l.id), l]));
+  // Perimetro esatto anche in pairs_only: solo annunci ATTIVI del Comune di
+  // Padova nelle 8 zone ufficiali. Query .in() sempre in chunk bounded.
+  const listingRows: Array<Record<string, unknown>> = [];
+  for (const part of chunk(listingIds)) {
+    const { data, error: lErr } = await sb
+      .from("padova_listings")
+      .select("id,url,fonte,agency,commercial_zone_slug,ev_via_norm,ev_image_refs")
+      .in("id", part)
+      .is("expired_at", null)
+      .eq("comune", "Padova")
+      .in("commercial_zone_slug", zoneScope);
+    if (lErr) return json({ ok: false, error: "listings_read_failed", detail: lErr.message }, 500);
+    for (const r of data ?? []) listingRows.push(r as Record<string, unknown>);
+  }
+  const listingById = new Map(listingRows.map((l) => [Number(l.id), l]));
+  const outOfScopeFingerprintListings = pairsOnly
+    ? listingIds.filter((id) => !listingById.has(id)).length
+    : 0;
+  if (pairsOnly) {
+    // I fingerprint fuori perimetro (scaduti/altro comune/altra zona) non
+    // possono generare prove: si escludono prima del pairing.
+    storedFingerprints = storedFingerprints.filter((f) => listingById.has(f.listing_id));
+    listingIds = Array.from(new Set(storedFingerprints.map((f) => f.listing_id)));
+  }
 
   // ── Estrazione multi-foto + fingerprint sui byte reali ──────────────────
   let reprocessed = 0;
@@ -351,6 +451,8 @@ Deno.serve(async (req) => {
   let rawJsonRefs = 0;
   const fingerprints: Fp[] = pairsOnly ? storedFingerprints : [];
   const outcomeByListing = new Map<number, string>();
+  /** Impronta deterministica della fonte immagine osservata in questo giro. */
+  const sourceFpByListing = new Map<number, string | null>();
 
   const ingestRefs = async (listingId: number, refs: string[]): Promise<void> => {
     const fetched = await fetchImagesBounded(refs, budget);
@@ -403,7 +505,8 @@ Deno.serve(async (req) => {
       for (const r of queueRows ?? []) resultById.set(r.id as string, r.result);
     }
 
-    const rawJsonIds = selected.filter((c) => c.source === "raw_json").map((c) => c.listing_id);
+    // raw_json serve a TUTTI i selezionati: entra nell'impronta della fonte.
+    const rawJsonIds = selected.map((c) => c.listing_id);
     const rawJsonById = new Map<number, Record<string, unknown> | null>();
     if (rawJsonIds.length) {
       const { data: rj, error: rjErr } = await sb
@@ -425,6 +528,8 @@ Deno.serve(async (req) => {
         continue;
       }
       let refs: string[] = [];
+      const rawImages = (rawJsonById.get(listingId)?.media as Record<string, unknown> | undefined)
+        ?.images ?? null;
       if (cand.source === "evidence") {
         const result = cand.queue_id ? resultById.get(cand.queue_id) : null;
         if (result) {
@@ -432,8 +537,7 @@ Deno.serve(async (req) => {
           reprocessed++;
         }
       } else {
-        const media = (rawJsonById.get(listingId)?.media ?? null) as Record<string, unknown> | null;
-        const images = media?.images ?? null;
+        const images = rawImages;
         if (images) {
           refs = extractDetailImageRefs(images, MAX_DETAIL_IMAGE_REFS);
           rawJsonProcessed++;
@@ -441,6 +545,17 @@ Deno.serve(async (req) => {
         }
       }
       refsTotal += refs.length;
+      // Impronta della fonte: stessa forma usata in selezione, così un
+      // no_photo terminale si riapre solo se la fonte cambia davvero.
+      sourceFpByListing.set(
+        listingId,
+        await sourceFingerprint({
+          images: rawImages,
+          refs: refs.length
+            ? refs
+            : ((listingById.get(listingId)?.ev_image_refs as unknown) ?? null),
+        }),
+      );
       if (!refs.length) {
         outcomeByListing.set(listingId, "no_photo");
         continue;
@@ -510,11 +625,20 @@ Deno.serve(async (req) => {
   }
 
   // Esito definitivo dell'avanzamento (il claim resta comunque registrato).
+  // no_photo/no_valid_image diventano TERMINALI: non bruciano quattro notti,
+  // ma tornano lavorabili appena l'impronta della fonte immagine cambia.
   if (!dryRun && !pairsOnly && selected.length) {
     for (const cand of selected) {
+      const outcome = normalizeOutcome(outcomeByListing.get(cand.listing_id) ?? "no_photo");
+      const terminal = isTerminalOutcome(outcome);
       const { error } = await sb
         .from("civiko_image_certify_attempts")
-        .update({ last_outcome: outcomeByListing.get(cand.listing_id) ?? "no_photo" })
+        .update({
+          last_outcome: outcome,
+          terminal,
+          terminal_reason: terminal ? outcome : null,
+          image_source_fp: sourceFpByListing.get(cand.listing_id) ?? cand.source_fp ?? null,
+        })
         .eq("listing_id", cand.listing_id);
       if (error) {
         return json({ ok: false, error: "attempts_progress_write_failed", detail: error.message }, 500);
@@ -606,22 +730,22 @@ Deno.serve(async (req) => {
   }
 
   let stalePairsRemoved = 0;
-  if (!dryRun && pairRows.length) {
+  if (!dryRun && pairsOnly) {
+    // Sostituzione ATOMICA in UNA sola transazione DB (upsert + delete stantie):
+    // nessuna finestra in cui le prove risultino parziali.
+    const { data: replaced, error } = await sb.rpc("civiko_replace_photo_pair_evidence", {
+      p_pairs: pairRows.map(({ computed_at: _c, updated_at: _u, ...row }) => row),
+      p_computed_at: runStartedAt,
+    });
+    if (error) {
+      return json({ ok: false, error: "pairs_replace_failed", detail: error.message }, 500);
+    }
+    stalePairsRemoved = Number((replaced as Record<string, unknown> | null)?.stale_deleted ?? 0);
+  } else if (!dryRun && pairRows.length) {
     const { error } = await sb
       .from("civiko_listing_photo_pair_evidence")
       .upsert(pairRows, { onConflict: "listing_a,listing_b" });
     if (error) return json({ ok: false, error: "pairs_write_failed", detail: error.message }, 500);
-  }
-  if (!dryRun && pairsOnly) {
-    // Sostituzione atomica: pairs_only ha ricalcolato TUTTO l'insieme, quindi
-    // ogni prova non riscritta in questo giro è stantia e va rimossa.
-    const { data: removed, error } = await sb
-      .from("civiko_listing_photo_pair_evidence")
-      .delete()
-      .lt("computed_at", runStartedAt)
-      .select("listing_a");
-    if (error) return json({ ok: false, error: "stale_pairs_delete_failed", detail: error.message }, 500);
-    stalePairsRemoved = (removed ?? []).length;
   }
 
   return json({
@@ -632,7 +756,10 @@ Deno.serve(async (req) => {
     progress_marker: await progressMarker(),
     attempted: listingIds.length,
     scanned,
-    remaining: pairsOnly ? 0 : Math.max(0, poolSize - selected.length),
+    remaining: pairsOnly ? 0 : remainingEligible,
+    remaining_exact: pairsOnly ? true : remainingExact,
+    exclusions,
+    fingerprint_fuori_perimetro: outOfScopeFingerprintListings,
     pipeline_run_id: pipelineRunId,
     limit,
     zone_scope: zoneScope,
