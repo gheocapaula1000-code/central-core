@@ -119,7 +119,12 @@ describe("Migrazione P0 — contenuto e ambito", () => {
     }
   });
 
-  it("non tocca TrovaBandi o altre PWA", () => {
+  it("non tocca TrovaBandi o altre PWA (SQL eseguibile, commenti esclusi)", () => {
+    const executable = sql
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("--"))
+      .join("\n")
+      .toLowerCase();
     for (const foreign of [
       "trovabandi",
       "wyloni",
@@ -128,9 +133,16 @@ describe("Migrazione P0 — contenuto e ambito", () => {
       "luxu",
       "b2b_",
     ]) {
-      expect(sql.toLowerCase()).not.toContain(foreign);
+      expect(executable).not.toContain(foreign);
+    }
+    // Tocca solo oggetti Civiko/Padova.
+    const tables = Array.from(executable.matchAll(/(?:from|update|into|join)\s+public\.(\w+)/g))
+      .map((m) => m[1]);
+    for (const t of tables) {
+      expect(/^(padova_|civiko_)/.test(t)).toBe(true);
     }
   });
+
 
   it("non crea né attiva cron", () => {
     expect(sql.toLowerCase()).not.toContain("cron.schedule");
