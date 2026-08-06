@@ -26,7 +26,7 @@ export const MATCH_VERSION = "v4-padova-photo-pair";
 export const EVIDENCE_KIND = "IMAGE_PHASH_V1";
 export const EXPECTED_ALGO = PHASH_ALGO;
 
-/** Bande di prezzo del contratto v4 (nessun 35% legacy). */
+/** Bande di prezzo del contratto v4: nessuna soglia legacy piu' permissiva. */
 export const PRICE_RATIO_PHOTO_1 = 1.10;
 export const PRICE_RATIO_MAX = 1.15;
 /** Foto minime per la fascia 10-15%. */
