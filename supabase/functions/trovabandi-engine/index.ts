@@ -653,7 +653,7 @@ async function storeOpportunity(
   const expired = deadline ? new Date(deadline).getTime() < now.getTime() : false;
   const hasEvidence = markdown.length > 200 && source.official_domain.length > 3;
   const deadlineProven = dateIsPresentInEvidence(markdown, deadline);
-  const verification =
+  const verification: PersistVerification =
     expired && deadlineProven
       ? "SCADUTO"
       : hasEvidence && deadline && deadlineProven
@@ -666,11 +666,13 @@ async function storeOpportunity(
   const discoveredBy = safeTextArray([
     ...new Set(hit.provider.split("+").concat(extractionProvider, "perplexity")),
   ]);
-  // I valori vincolati da CHECK non possono essere inventati: se non sono
-  // ammessi si degrada in modo conservativo (categoria ALTRO) o si rifiuta.
-  const category = normalizeCategoryCode(extracted.category) ?? "ALTRO";
+  // Valori vincolati da CHECK: mai inventati e mai degradati in un valore
+  // plausibile. Categoria non ammessa ⇒ rifiuto fail-closed.
+  const category = normalizeCategoryCode(extracted.category);
+  if (!category) return { stored: false, verified: false, code: "CATEGORY_INVALID" };
   const authorityLevel = normalizeAuthorityLevel(source.authority_level);
   if (!authorityLevel) return { stored: false, verified: false, code: "AUTHORITY_LEVEL_INVALID" };
+
   const row = {
     canonical_key: canonicalKey,
     title: normalizeText(extracted.title).slice(0, 500) || hit.title || "Opportunità senza titolo",
