@@ -14,6 +14,23 @@ export const PADOVA_ZONE_SLUGS: readonly string[] = [
   "ovest-chiesanuova-brentelle",
 ];
 
+/**
+ * Chiavi di conteggio obbligatorie: sono la prova firmata dalla PWA di aver
+ * renderizzato ogni superficie. Zero è un valore lecito, l'assenza no.
+ */
+export const REQUIRED_COUNT_KEYS: readonly string[] = [
+  "dashboard",
+  "radar",
+  "mappa",
+  "contendibili",
+  "privati",
+  "ribassi",
+  "cambi_agenzia",
+  "offmarket",
+  "quartieri",
+];
+
+
 /** Source app ammesse dal contratto app-secret Civiko PWA. */
 export const CIVIKO_SOURCE_APPS = new Set(["civiko", "civiko-one", "civiko_one"]);
 
