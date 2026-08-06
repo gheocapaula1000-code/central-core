@@ -128,7 +128,7 @@ Deno.serve(async (req) => {
 
     // Totale globale esatto (head) con gli stessi identici filtri.
     const { count, error: countErr } = await applyFilters(
-      supabase.from("padova_cambi_agenzia").select("id", { count: "exact", head: true }),
+      supabase.from("padova_cambi_agenzia_by_zone_v").select("id", { count: "exact", head: true }),
     );
     if (countErr) throw countErr;
     const total = typeof count === "number" ? count : 0;
@@ -146,7 +146,7 @@ Deno.serve(async (req) => {
     if (!page.beyond_eof) {
       const { data, error } = await applyFilters(
         supabase
-          .from("padova_cambi_agenzia")
+          .from("padova_cambi_agenzia_by_zone_v")
           .select(
             "id, data_cambio, portale, agenzia_precedente, agenzia_nuova, titolo, indirizzo, quartiere, zona_omi, commercial_zone_slug, prezzo_eur, mq, locali, contendibile_overlap",
           ),
