@@ -8396,13 +8396,16 @@ export type Database = {
           canonical_key: string
           category: string
           click_day: boolean
+          consortium_required: boolean | null
           content_hash: string | null
           created_at: string
           de_minimis: boolean | null
           deadline_at: string | null
+          direct_applicant_allowed: boolean | null
           discovered_by: string[]
           eligible_ateco_prefixes: string[]
           eligible_company_sizes: string[]
+          eligible_countries: string[]
           eligible_expenses: string[]
           eligible_legal_forms: string[]
           excluded_ateco_prefixes: string[]
@@ -8410,16 +8413,22 @@ export type Database = {
           first_seen_at: string
           forms_url: string | null
           id: string
+          implementing_body: string | null
           innovative_only: boolean
           last_seen_at: string
           last_verified_at: string | null
           max_grant_amount: number | null
           min_grant_amount: number | null
+          min_partners: number | null
           municipality: string | null
           notice_url: string | null
           official_source: boolean
           official_url: string
           opens_at: string | null
+          pnrr_component: string | null
+          pnrr_mission: string | null
+          programme_code: string | null
+          programme_name: string | null
           protocol_email: string | null
           province: string | null
           publication_reference: string | null
@@ -8444,13 +8453,16 @@ export type Database = {
           canonical_key: string
           category: string
           click_day?: boolean
+          consortium_required?: boolean | null
           content_hash?: string | null
           created_at?: string
           de_minimis?: boolean | null
           deadline_at?: string | null
+          direct_applicant_allowed?: boolean | null
           discovered_by?: string[]
           eligible_ateco_prefixes?: string[]
           eligible_company_sizes?: string[]
+          eligible_countries?: string[]
           eligible_expenses?: string[]
           eligible_legal_forms?: string[]
           excluded_ateco_prefixes?: string[]
@@ -8458,16 +8470,22 @@ export type Database = {
           first_seen_at?: string
           forms_url?: string | null
           id?: string
+          implementing_body?: string | null
           innovative_only?: boolean
           last_seen_at?: string
           last_verified_at?: string | null
           max_grant_amount?: number | null
           min_grant_amount?: number | null
+          min_partners?: number | null
           municipality?: string | null
           notice_url?: string | null
           official_source?: boolean
           official_url: string
           opens_at?: string | null
+          pnrr_component?: string | null
+          pnrr_mission?: string | null
+          programme_code?: string | null
+          programme_name?: string | null
           protocol_email?: string | null
           province?: string | null
           publication_reference?: string | null
@@ -8492,13 +8510,16 @@ export type Database = {
           canonical_key?: string
           category?: string
           click_day?: boolean
+          consortium_required?: boolean | null
           content_hash?: string | null
           created_at?: string
           de_minimis?: boolean | null
           deadline_at?: string | null
+          direct_applicant_allowed?: boolean | null
           discovered_by?: string[]
           eligible_ateco_prefixes?: string[]
           eligible_company_sizes?: string[]
+          eligible_countries?: string[]
           eligible_expenses?: string[]
           eligible_legal_forms?: string[]
           excluded_ateco_prefixes?: string[]
@@ -8506,16 +8527,22 @@ export type Database = {
           first_seen_at?: string
           forms_url?: string | null
           id?: string
+          implementing_body?: string | null
           innovative_only?: boolean
           last_seen_at?: string
           last_verified_at?: string | null
           max_grant_amount?: number | null
           min_grant_amount?: number | null
+          min_partners?: number | null
           municipality?: string | null
           notice_url?: string | null
           official_source?: boolean
           official_url?: string
           opens_at?: string | null
+          pnrr_component?: string | null
+          pnrr_mission?: string | null
+          programme_code?: string | null
+          programme_name?: string | null
           protocol_email?: string | null
           province?: string | null
           publication_reference?: string | null
@@ -8537,30 +8564,48 @@ export type Database = {
       trovabandi_refresh_requests: {
         Row: {
           ateco_prefix: string | null
+          company_size: string | null
+          female_business: boolean
           id: string
+          innovative_business: boolean
+          interest_categories: string[]
+          municipality: string | null
           processed_at: string | null
           province: string | null
           region: string | null
           request_key: string
           requested_at: string
+          youth_business: boolean
         }
         Insert: {
           ateco_prefix?: string | null
+          company_size?: string | null
+          female_business?: boolean
           id?: string
+          innovative_business?: boolean
+          interest_categories?: string[]
+          municipality?: string | null
           processed_at?: string | null
           province?: string | null
           region?: string | null
           request_key: string
           requested_at?: string
+          youth_business?: boolean
         }
         Update: {
           ateco_prefix?: string | null
+          company_size?: string | null
+          female_business?: boolean
           id?: string
+          innovative_business?: boolean
+          interest_categories?: string[]
+          municipality?: string | null
           processed_at?: string | null
           province?: string | null
           region?: string | null
           request_key?: string
           requested_at?: string
+          youth_business?: boolean
         }
         Relationships: []
       }
@@ -8625,6 +8670,7 @@ export type Database = {
           authority_level: string
           created_at: string
           enabled: boolean
+          fast_lane: boolean
           id: string
           last_scanned_at: string | null
           name: string
@@ -8634,6 +8680,7 @@ export type Database = {
           province: string | null
           rarity_base: number
           region: string | null
+          scan_interval_minutes: number
           search_query: string
           source_kind: string
           updated_at: string
@@ -8642,6 +8689,7 @@ export type Database = {
           authority_level: string
           created_at?: string
           enabled?: boolean
+          fast_lane?: boolean
           id?: string
           last_scanned_at?: string | null
           name: string
@@ -8651,6 +8699,7 @@ export type Database = {
           province?: string | null
           rarity_base?: number
           region?: string | null
+          scan_interval_minutes?: number
           search_query: string
           source_kind?: string
           updated_at?: string
@@ -8659,6 +8708,7 @@ export type Database = {
           authority_level?: string
           created_at?: string
           enabled?: boolean
+          fast_lane?: boolean
           id?: string
           last_scanned_at?: string | null
           name?: string
@@ -8668,6 +8718,7 @@ export type Database = {
           province?: string | null
           rarity_base?: number
           region?: string | null
+          scan_interval_minutes?: number
           search_query?: string
           source_kind?: string
           updated_at?: string
