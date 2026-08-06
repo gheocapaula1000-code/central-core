@@ -49,6 +49,14 @@ import {
   MATCH_VERSION,
   MIN_SHARED_PHOTOS_PER_PAIR,
 } from "../_shared/imagePhashV1Gate.ts";
+import {
+  type AttemptState,
+  chunk,
+  eligibilityReason,
+  isTerminalOutcome,
+  normalizeOutcome,
+  sourceFingerprint,
+} from "./selection.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -720,22 +728,22 @@ Deno.serve(async (req) => {
   }
 
   let stalePairsRemoved = 0;
-  if (!dryRun && pairRows.length) {
+  if (!dryRun && pairsOnly) {
+    // Sostituzione ATOMICA in UNA sola transazione DB (upsert + delete stantie):
+    // nessuna finestra in cui le prove risultino parziali.
+    const { data: replaced, error } = await sb.rpc("civiko_replace_photo_pair_evidence", {
+      p_pairs: pairRows.map(({ computed_at: _c, updated_at: _u, ...row }) => row),
+      p_computed_at: runStartedAt,
+    });
+    if (error) {
+      return json({ ok: false, error: "pairs_replace_failed", detail: error.message }, 500);
+    }
+    stalePairsRemoved = Number((replaced as Record<string, unknown> | null)?.stale_deleted ?? 0);
+  } else if (!dryRun && pairRows.length) {
     const { error } = await sb
       .from("civiko_listing_photo_pair_evidence")
       .upsert(pairRows, { onConflict: "listing_a,listing_b" });
     if (error) return json({ ok: false, error: "pairs_write_failed", detail: error.message }, 500);
-  }
-  if (!dryRun && pairsOnly) {
-    // Sostituzione atomica: pairs_only ha ricalcolato TUTTO l'insieme, quindi
-    // ogni prova non riscritta in questo giro è stantia e va rimossa.
-    const { data: removed, error } = await sb
-      .from("civiko_listing_photo_pair_evidence")
-      .delete()
-      .lt("computed_at", runStartedAt)
-      .select("listing_a");
-    if (error) return json({ ok: false, error: "stale_pairs_delete_failed", detail: error.message }, 500);
-    stalePairsRemoved = (removed ?? []).length;
   }
 
   return json({
@@ -746,7 +754,10 @@ Deno.serve(async (req) => {
     progress_marker: await progressMarker(),
     attempted: listingIds.length,
     scanned,
-    remaining: pairsOnly ? 0 : Math.max(0, poolSize - selected.length),
+    remaining: pairsOnly ? 0 : remainingEligible,
+    remaining_exact: pairsOnly ? true : remainingExact,
+    exclusions,
+    fingerprint_fuori_perimetro: outOfScopeFingerprintListings,
     pipeline_run_id: pipelineRunId,
     limit,
     zone_scope: zoneScope,
