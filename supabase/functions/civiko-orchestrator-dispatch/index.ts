@@ -485,6 +485,49 @@ async function recordPipelineMarker(
   });
 }
 
+/**
+ * Continuazione della pipeline in una NUOVA invocazione, con lo stesso
+ * pipeline_run_id: fail-closed, se la richiesta non parte il marker si chiude
+ * come fallito. Non si attende l'esito del segmento successivo (chiuderà lui
+ * il marker), ma si attende l'accettazione HTTP entro la riserva.
+ */
+async function dispatchContinuation(
+  pipeline: PipelineAction,
+  pipelineRunId: string,
+  stageFrom: number,
+  startedAt: string,
+): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CONTINUATION_RESERVE_MS);
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/civiko-orchestrator-dispatch`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${DISPATCH_SECRET}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action: pipeline,
+        pipeline_run_id: pipelineRunId,
+        stage_from: stageFrom,
+        started_at: startedAt,
+      }),
+      signal: controller.signal,
+    });
+    await res.body?.cancel();
+    if (res.status >= 400 && res.status !== 202) return "CONTINUATION_REJECTED";
+    return null;
+  } catch (e) {
+    // L'abort dopo l'invio è atteso: la richiesta è già stata accettata.
+    if (e instanceof DOMException && e.name === "AbortError") return null;
+    return "CONTINUATION_DISPATCH_FAILED";
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+
+
 // ── Metriche reali del release gate ─────────────────────────────────────────
 async function realCount(pathAndQuery: string): Promise<number | null> {
   if (!SERVICE_KEY) return null;
