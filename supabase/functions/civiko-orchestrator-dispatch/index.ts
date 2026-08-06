@@ -798,7 +798,45 @@ async function readGateIntegrity(): Promise<GateIntegrity | null> {
   }
 }
 
-async function releaseGate() {
+/** Ultime esecuzioni delle azioni nella finestra (latest-wins lato gate). */
+async function readActionRuns(since: string): Promise<ActionRunRow[] | null> {
+  if (!SERVICE_KEY) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GATE_TIMEOUT_MS);
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/civiko_orchestrator_action_runs` +
+        `?select=action,started_at,finished_at,ok,status,error_code` +
+        `&started_at=gte.${since}&order=started_at.asc&limit=2000`,
+      {
+        headers: {
+          apikey: SERVICE_KEY,
+          Authorization: `Bearer ${SERVICE_KEY}`,
+          Accept: "application/json",
+        },
+        signal: controller.signal,
+      },
+    );
+    if (!res.ok) return null;
+    const rows = await res.json().catch(() => null);
+    if (!Array.isArray(rows)) return null;
+    return rows.filter((r) => r && typeof r === "object" && typeof r.action === "string")
+      .map((r) => ({
+        action: String(r.action),
+        started_at: String(r.started_at ?? ""),
+        finished_at: typeof r.finished_at === "string" ? r.finished_at : null,
+        ok: typeof r.ok === "boolean" ? r.ok : null,
+        status: typeof r.status === "number" ? r.status : null,
+        error_code: typeof r.error_code === "string" ? r.error_code : null,
+      }));
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function releaseGate(mode: GateMode) {
   const since = new Date(Date.now() - GATE_WINDOW_HOURS * 60 * 60_000).toISOString();
   const specs = gateSpecs(since);
 
