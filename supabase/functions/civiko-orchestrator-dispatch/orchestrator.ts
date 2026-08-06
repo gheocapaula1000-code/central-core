@@ -30,7 +30,9 @@ export type PipelineAction = "pipeline_0510" | "pipeline_0545" | "pipeline_0710"
 // Budget totale massimo della pipeline: deve restare sotto il timeout esterno.
 export const PIPELINE_BUDGET_MS = 165_000;
 // Nessun default illimitato: ogni azione ha un timeout esplicito e bounded.
-export const MAX_ACTION_TIMEOUT_MS = 60_000;
+// Radar e offmarket hanno runtime interni reali di 85/80 s: abortirli a 45 s
+// produceva falsi timeout, quindi il tetto è 100 s (sotto il budget totale).
+export const MAX_ACTION_TIMEOUT_MS = 100_000;
 export const MIN_ACTION_TIMEOUT_MS = 5_000;
 export const STEP_MIN_MS = 5_000;
 // Margine sempre lasciato al budget complessivo per chiudere la risposta.
@@ -52,12 +54,19 @@ export const ACTION_TIMEOUT_MS: Record<SimpleAction, number> = {
   contendibili_pairs: 30_000,
   contendibili_evidence: 30_000,
   contendibili_extras: 45_000,
-  offmarket_discover: 45_000,
-  offmarket_scores: 30_000,
-  early_warning: 30_000,
-  radar_full: 45_000,
+  // Runtime interno reale ~80 s.
+  offmarket_discover: 95_000,
+  offmarket_scores: 95_000,
+  early_warning: 95_000,
+  // Runtime interno reale ~85 s.
+  radar_full: 100_000,
   signals_classify: 30_000,
 };
+
+/** Budget residuo utilizzabile: mai negativo, riserva sempre sottratta. */
+export function usableRemainingMs(remainingMs: number): number {
+  return Math.max(0, remainingMs - BUDGET_RESERVE_MS);
+}
 
 /** Timeout effettivo dello step: esplicito, bounded e compatibile col budget. */
 export function stepTimeoutMs(action: SimpleAction, remainingMs: number): number {
@@ -65,8 +74,14 @@ export function stepTimeoutMs(action: SimpleAction, remainingMs: number): number
     MAX_ACTION_TIMEOUT_MS,
     Math.max(MIN_ACTION_TIMEOUT_MS, ACTION_TIMEOUT_MS[action]),
   );
-  return Math.max(1_000, Math.min(base, remainingMs - BUDGET_RESERVE_MS));
+  return Math.max(1_000, Math.min(base, usableRemainingMs(remainingMs)));
 }
+
+/** Non resta budget sufficiente per eseguire un altro step: 504. */
+export function budgetExhausted(remainingMs: number): boolean {
+  return usableRemainingMs(remainingMs) < STEP_MIN_MS;
+}
+
 
 // ── Contratto pipeline ──────────────────────────────────────────────────────
 export interface PipelineStep {
