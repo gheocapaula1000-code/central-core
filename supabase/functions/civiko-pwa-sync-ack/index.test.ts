@@ -2,6 +2,7 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   type AckRecord,
+  isCivikoSourceApp,
   isIdenticalAck,
   PADOVA_ZONE_SLUGS,
   REQUIRED_COUNT_KEYS,
@@ -192,6 +193,7 @@ function record(): AckRecord {
 function storedFrom(rec: AckRecord, over: Record<string, unknown> = {}) {
   return {
     run_id: rec.run_id,
+    source_app: rec.source_app,
     started_at: rec.started_at,
     finished_at: rec.finished_at,
     ok: rec.ok,
@@ -237,4 +239,79 @@ Deno.test("riga legacy con soli alias resta confrontabile", () => {
   (stored as Record<string, unknown>).scope_comune = rec.municipality;
   (stored as Record<string, unknown>).scope_slugs = [...rec.commercial_zone_slugs];
   assertEquals(isIdenticalAck(stored, rec, PIPE), true);
+});
+
+// ── Source identity locale (oltre la guard shared) ─────────────────────────
+Deno.test("source identity: acquisitionradar sempre rifiutata", () => {
+  assertEquals(isCivikoSourceApp("acquisitionradar"), false);
+  assertEquals(isCivikoSourceApp("ACQUISITIONRADAR"), false);
+  assertEquals(isCivikoSourceApp(""), false);
+  assertEquals(isCivikoSourceApp(null), false);
+  assertEquals(isCivikoSourceApp("keydraft"), false);
+});
+
+Deno.test("source identity: solo alias Civiko contrattualizzati", () => {
+  for (const app of ["civiko-one", "civiko", "civiko_one", " Civiko-One "]) {
+    assertEquals(isCivikoSourceApp(app), true);
+  }
+});
+
+Deno.test("endpoint: check source-app locale prima di body/read/write", async () => {
+  const src = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
+  const guard = src.indexOf("isCivikoSourceApp(sourceApp)");
+  const body = src.indexOf("await req.text()");
+  const read = src.indexOf("await fetchPipelineMarkers(");
+  const write = src.indexOf("await insertAck(");
+  assertEquals(guard > -1, true);
+  assertEquals(body > guard, true);
+  assertEquals(read > guard, true);
+  assertEquals(write > guard, true);
+  assertEquals(src.includes("SOURCE_APP_FORBIDDEN"), true);
+});
+
+// Simulazione reale del ramo di handler: secret valido ma identità non Civiko.
+Deno.test("handler: acquisitionradar + secret valido => 403", () => {
+  const req = new Request("https://core.local/civiko-pwa-sync-ack", {
+    method: "POST",
+    headers: {
+      "x-source-app": "acquisitionradar",
+      "x-internal-secret": "secret-valido-shared",
+      "x-idempotency-key": RUN_ID,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(base()),
+  });
+  const sourceApp = (req.headers.get("x-source-app") ?? "").toLowerCase().trim();
+  // la guard shared passerebbe (compat costi); quella locale deve bloccare
+  const status = isCivikoSourceApp(sourceApp) ? 200 : 403;
+  assertEquals(status, 403);
+});
+
+// ── Replay immutabile: anche la source_app deve coincidere ─────────────────
+Deno.test("replay: source_app diversa non è un replay identico", () => {
+  const r = ok_();
+  if (!r.ok) throw new Error("fixture invalida");
+  const pipelineRunId = "33333333-3333-4333-8333-333333333333";
+  const stored: Record<string, unknown> = {
+    started_at: r.record.started_at,
+    finished_at: r.record.finished_at,
+    ok: r.record.ok,
+    error_code: null,
+    source_app: r.record.source_app,
+    pipeline_run_id: pipelineRunId,
+    municipality: r.record.municipality,
+    commercial_zone_slugs: [...r.record.commercial_zone_slugs],
+    counts: { ...r.record.counts },
+  };
+  assertEquals(isIdenticalAck(stored, r.record, pipelineRunId), true);
+  assertEquals(isIdenticalAck({ ...stored, source_app: "civiko" }, r.record, pipelineRunId), false);
+  assertEquals(isIdenticalAck({ ...stored, source_app: undefined }, r.record, pipelineRunId), false);
+});
+
+Deno.test("config: commento allineato all'implementazione (requireCivikoCostSecret)", async () => {
+  const toml = await Deno.readTextFile(new URL("../../config.toml", import.meta.url));
+  const idx = toml.indexOf("[functions.civiko-pwa-sync-ack]");
+  const header = toml.slice(Math.max(0, idx - 400), idx);
+  assertEquals(header.includes("requireCivikoCostSecret"), true);
+  assertEquals(/via requireSecret/.test(header), false);
 });

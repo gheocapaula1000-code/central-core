@@ -243,6 +243,7 @@ export function isIdenticalAck(
   if (!sameTs(stored.finished_at, record.finished_at)) return false;
   if (stored.ok !== record.ok) return false;
   if ((stored.error_code ?? null) !== record.error_code) return false;
+  if (String(stored.source_app ?? "").toLowerCase() !== record.source_app.toLowerCase()) return false;
   if (String(stored.pipeline_run_id ?? "").toLowerCase() !== pipelineRunId.toLowerCase()) return false;
 
   const municipality = stored.municipality ?? stored.scope_comune;
@@ -262,4 +263,15 @@ export function isIdenticalAck(
     if (sc[k] !== record.counts[k]) return false;
   }
   return true;
+}
+
+/**
+ * Identità canonica del contratto PWA Civiko One.
+ * La guard shared accetta anche `acquisitionradar` per compatibilità di costo:
+ * questo endpoint NON la ammette mai.
+ */
+export function isCivikoSourceApp(sourceApp: string | null | undefined): boolean {
+  const v = (sourceApp ?? "").toLowerCase().trim();
+  if (!v || v === "acquisitionradar") return false;
+  return CIVIKO_SOURCE_APPS.has(v);
 }

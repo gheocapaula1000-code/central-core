@@ -19,6 +19,7 @@ import {
 } from "../_shared/http.ts";
 import {
   type AckRecord,
+  isCivikoSourceApp,
   isIdenticalAck,
   validateAck,
 } from "./validation.ts";
@@ -51,10 +52,10 @@ function restHeaders(extra: Record<string, string> = {}): Record<string, string>
 async function fetchPipelineMarkers(startedAtMs: number): Promise<ActionRunRow[] | null> {
   const since = new Date(startedAtMs - PIPELINE_MAX_AGE_MS - 60 * 60_000).toISOString();
   const url = `${SUPABASE_URL}/rest/v1/civiko_orchestrator_action_runs` +
-    `?select=pipeline_run_id,action,pipeline,started_at,finished_at,ok,status` +
+    `?select=id,pipeline_run_id,action,pipeline,started_at,finished_at,ok,status,attempt_no,created_at` +
     `&action=eq.${PIPELINE_MARKER_ACTION}&pipeline=eq.${PIPELINE_ACK}` +
     `&started_at=gte.${encodeURIComponent(since)}` +
-    `&order=started_at.desc&limit=50`;
+    `&order=started_at.desc,attempt_no.desc,created_at.desc,id.desc&limit=50`;
   const res = await fetch(url, { headers: restHeaders() });
   if (!res.ok) {
     console.error(`[civiko-pwa-sync-ack] pipeline audit read failed status=${res.status}`);
@@ -118,6 +119,14 @@ Deno.serve(async (req) => {
   const authBlock = requireCivikoCostSecret(req, debugId);
   if (authBlock) return authBlock;
   const sourceApp = (req.headers.get("x-source-app") ?? "").toLowerCase().trim();
+  // La guard shared accetta anche identità non-Civiko (compat acquisitionradar):
+  // qui si esige l'identità canonica del contratto PWA Civiko One, PRIMA di
+  // leggere il body e di qualunque read/write. Fail-closed, nessun alias extra.
+  if (!isCivikoSourceApp(sourceApp)) {
+    console.warn(`[civiko-pwa-sync-ack] source app rejected debug_id=${debugId}`);
+    return fail(req, 403, "SOURCE_APP_FORBIDDEN", "Source app not allowed for this endpoint", debugId);
+  }
+
 
   if (!SUPABASE_URL || !SERVICE_KEY) {
     console.error("[civiko-pwa-sync-ack] misconfigured");

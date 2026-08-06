@@ -44,12 +44,78 @@ Deno.test("binding: civiko_pipeline_runs non è più la fonte (solo __pipeline__
 
 Deno.test("binding: l'ultimo tentativo fallito maschera un vecchio successo", () => {
   const r = bindAckToPipeline([
-    marker({ pipeline_run_id: RUN_A, finished_at: "2026-08-06T05:00:00.000Z", ok: true }),
-    marker({ pipeline_run_id: RUN_B, finished_at: "2026-08-06T07:20:00.000Z", ok: false, status: 504 }),
+    marker({
+      pipeline_run_id: RUN_A,
+      started_at: "2026-08-06T05:00:00.000Z",
+      finished_at: "2026-08-06T05:10:00.000Z",
+      ok: true,
+    }),
+    marker({
+      pipeline_run_id: RUN_B,
+      started_at: "2026-08-06T07:10:00.000Z",
+      finished_at: "2026-08-06T07:20:00.000Z",
+      ok: false,
+      status: 504,
+    }),
   ], STARTED);
   assertEquals(r.ok, false);
   if (!r.ok) assertEquals(r.code, "PIPELINE_RUN_FAILED");
 });
+
+// Fixture P0: un vecchio successo che FINISCE dopo l'avvio del nuovo tentativo
+// non deve mai mascherare il tentativo più recente ancora in corso.
+Deno.test("binding: vecchio successo (07:00→07:25) non maschera il nuovo in-progress (07:20)", () => {
+  const r = bindAckToPipeline([
+    marker({
+      pipeline_run_id: RUN_A,
+      started_at: "2026-08-06T07:00:00.000Z",
+      finished_at: "2026-08-06T07:25:00.000Z",
+      ok: true,
+      status: 200,
+    }),
+    marker({
+      pipeline_run_id: RUN_B,
+      started_at: "2026-08-06T07:20:00.000Z",
+      finished_at: null,
+      ok: null,
+      status: null,
+    }),
+  ], STARTED);
+  assertEquals(r.ok, false);
+  if (!r.ok) assertEquals(r.code, "PIPELINE_RUN_IN_PROGRESS");
+});
+
+Deno.test("binding: tie-break stabile su attempt_no a parità di started_at", () => {
+  const r = bindAckToPipeline([
+    marker({ pipeline_run_id: RUN_A, attempt_no: 1, ok: true, status: 200 }),
+    marker({ pipeline_run_id: RUN_B, attempt_no: 2, ok: false, status: 504 }),
+  ], STARTED);
+  assertEquals(r.ok, false);
+  if (!r.ok) assertEquals(r.code, "PIPELINE_RUN_FAILED");
+});
+
+Deno.test("binding: tie-break created_at/id quando attempt_no coincide", () => {
+  const r = bindAckToPipeline([
+    marker({ pipeline_run_id: RUN_A, attempt_no: 1, created_at: "2026-08-06T07:11:00.000Z", id: "a" }),
+    marker({
+      pipeline_run_id: RUN_B,
+      attempt_no: 1,
+      created_at: "2026-08-06T07:12:00.000Z",
+      id: "b",
+      ok: false,
+      status: 504,
+    }),
+  ], STARTED);
+  assertEquals(r.ok, false);
+  if (!r.ok) assertEquals(r.code, "PIPELINE_RUN_FAILED");
+});
+
+Deno.test("binding: l'ordinamento non usa mai finished_at", async () => {
+  const src = await Deno.readTextFile(new URL("./binding.ts", import.meta.url));
+  assertEquals(/finished_at\s*\?\?\s*/.test(src), false);
+  assertEquals(src.includes("compareAttempts"), true);
+});
+
 
 Deno.test("binding: status non 2xx rifiutato anche con ok=true", () => {
   const r = bindAckToPipeline([marker({ status: 500 })], STARTED);

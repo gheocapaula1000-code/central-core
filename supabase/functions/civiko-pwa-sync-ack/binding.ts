@@ -12,6 +12,7 @@ export const PIPELINE_MAX_AGE_MS = 4 * 60 * 60_000;
 
 /** Riga dell'audit canonico degli step/pipeline dell'orchestratore. */
 export interface ActionRunRow {
+  id?: string | null;
   pipeline_run_id: string | null;
   action: string;
   pipeline: string | null;
@@ -19,22 +20,41 @@ export interface ActionRunRow {
   finished_at: string | null;
   ok: boolean | null;
   status: number | null;
+  attempt_no?: number | null;
+  created_at?: string | null;
 }
 
 export type BindingResult =
   | { ok: true; pipelineRunId: string; pipelineFinishedAt: string }
   | { ok: false; code: string; message: string };
 
-function orderTime(r: ActionRunRow): number {
-  const t = Date.parse(r.finished_at ?? r.started_at ?? "");
+function ts(value: unknown): number {
+  const t = Date.parse(typeof value === "string" ? value : "");
   return Number.isFinite(t) ? t : 0;
+}
+
+/**
+ * Ordinamento canonico dei tentativi: ULTIMO TENTATIVO AVVIATO.
+ * Mai `finished_at`: un run vecchio che termina tardi non deve mascherare un
+ * tentativo più nuovo ancora in corso o fallito.
+ * Tie-break stabile e deterministico: attempt_no, created_at, id.
+ */
+export function compareAttempts(a: ActionRunRow, b: ActionRunRow): number {
+  const byStart = ts(b.started_at) - ts(a.started_at);
+  if (byStart !== 0) return byStart;
+  const byAttempt = (b.attempt_no ?? 0) - (a.attempt_no ?? 0);
+  if (byAttempt !== 0) return byAttempt;
+  const byCreated = ts(b.created_at) - ts(a.created_at);
+  if (byCreated !== 0) return byCreated;
+  return String(b.id ?? "").localeCompare(String(a.id ?? ""));
 }
 
 /**
  * Contratto (latest-wins, mai filtrare per ok prima di scegliere):
  *  - si considera SOLO il marker `__pipeline__` di `pipeline_0710`;
- *  - si prende l'ULTIMO tentativo in assoluto, anche fallito o in corso:
- *    un tentativo più recente impedisce di legare un vecchio successo;
+ *  - si prende l'ULTIMO TENTATIVO PER started_at, anche fallito o in corso:
+ *    un tentativo più recente impedisce di legare un vecchio successo che è
+ *    terminato dopo l'avvio del nuovo;
  *  - l'ack è accettato solo se quel tentativo è concluso, ok=true, con
  *    status HTTP 2xx, finished_at STRETTAMENTE < started_at del sync e
  *    distante meno di 4 ore.
@@ -50,7 +70,7 @@ export function bindAckToPipeline(
       typeof r.pipeline_run_id === "string" &&
       r.pipeline_run_id.length > 0
     )
-    .sort((a, b) => orderTime(b) - orderTime(a));
+    .sort(compareAttempts);
 
   if (candidates.length === 0) {
     return {
