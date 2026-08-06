@@ -1014,10 +1014,6 @@ serve(async (req) => {
               warnings: [...new Set(warnings)],
               finished_at: finished,
             })
-
-              warnings,
-              finished_at: finished,
-            })
             .eq("id", run.id)
         : Promise.resolve(),
       refreshSignal?.id
@@ -1034,8 +1030,10 @@ serve(async (req) => {
       attempted: hits.length,
       processed,
       verified,
-      warnings,
+      warnings: [...new Set(warnings)],
+      diagnostics: diagnosticCounters,
     });
+
   } catch (error) {
     if (run?.id)
       await sb
