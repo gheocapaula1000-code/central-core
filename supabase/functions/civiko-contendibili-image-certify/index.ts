@@ -476,9 +476,16 @@ Deno.serve(async (req) => {
     ok: true,
     dry_run: dryRun,
     pairs_only: pairsOnly,
-    offset,
+    // Progressione oldest-first: marker stabile su coda mutante.
+    after_listing_id: afterListingId,
+    last_listing_id: lastListingId,
+    attempted: listingIds.length,
+    scanned,
+    remaining: remaining ?? 0,
+    pipeline_run_id: pipelineRunId,
     limit,
     match_version: MATCH_VERSION,
+
     evidence_kind: EVIDENCE_KIND,
     algo: PHASH_ALGO,
     soglia_hamming: PHASH_MATCH_MAX_DISTANCE,
