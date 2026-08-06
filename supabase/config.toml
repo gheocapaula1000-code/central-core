@@ -316,3 +316,9 @@ verify_jwt = false
 [functions.trovabandi-engine]
 verify_jwt = false
 
+
+# Ack di sincronizzazione della PWA Civiko One (isolato).
+# Protetto fail-closed dentro la funzione: x-source-app=civiko-one +
+# AI_CORE_SECRET_CIVIKO via requireSecret. Nessun endpoint pubblico senza guard.
+[functions.civiko-pwa-sync-ack]
+verify_jwt = false
