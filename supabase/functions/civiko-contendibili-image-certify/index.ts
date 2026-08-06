@@ -104,7 +104,11 @@ Deno.serve(async (req) => {
     HARD_LIMIT,
     Math.max(1, Number(body.limit ?? DEFAULT_LIMIT) || DEFAULT_LIMIT),
   );
-  const offset = Math.max(0, Number(body.offset ?? 0) || 0);
+  // Coda mutante: nessun offset. L'avanzamento è oldest-first via marker.
+  const afterListingId = Number.isFinite(Number(body.after_listing_id))
+    ? Math.max(0, Number(body.after_listing_id))
+    : 0;
+  const pipelineRunId = typeof body.pipeline_run_id === "string" ? body.pipeline_run_id : null;
   const dryRun = body.dry_run === true;
   // pairs_only: ricalcola le prove per coppia dai fingerprint GIA' persistiti,
   // senza scaricare né decodificare nulla (nessun costo, nessun provider).
@@ -121,8 +125,9 @@ Deno.serve(async (req) => {
       .select("listing_id,url,queue_id,evidence,commercial_zone_slug")
       .eq("status", "succeeded")
       .not("queue_id", "is", null)
+      .gt("listing_id", afterListingId)
       .order("listing_id", { ascending: true })
-      .range(offset, offset + limit - 1);
+      .limit(limit);
     if (attErr) return json({ ok: false, error: "attempts_read_failed", detail: attErr.message }, 500);
     // Nessun detail riusabile non è un errore: resta la fonte raw_json (2b).
     attempts = (data ?? []) as Array<Record<string, unknown>>;
@@ -152,6 +157,8 @@ Deno.serve(async (req) => {
     raw_json: Record<string, unknown> | null;
   };
   let rawJsonRows: RawJsonRow[] = [];
+  let scanned = 0;
+  let remaining: number | null = null;
   if (!pairsOnly) {
     const { data: rj, error: rjErr } = await sb
       .from("padova_listings")
@@ -159,12 +166,14 @@ Deno.serve(async (req) => {
       .is("expired_at", null)
       .not("commercial_zone_slug", "is", null)
       .not("raw_json->media->images", "is", null)
+      .gt("id", afterListingId)
       .order("id", { ascending: true })
-      .range(offset, offset + limit - 1);
+      .limit(limit);
     if (rjErr) {
       return json({ ok: false, error: "raw_json_read_failed", detail: rjErr.message }, 500);
     }
     rawJsonRows = (rj ?? []) as RawJsonRow[];
+    scanned = rawJsonRows.length;
     // Idempotenza: salta gli annunci che hanno già fingerprint persistiti.
     if (rawJsonRows.length) {
       const ids = rawJsonRows.map((r) => Number(r.id));
@@ -178,7 +187,20 @@ Deno.serve(async (req) => {
       const done = new Set((already ?? []).map((r) => Number(r.listing_id)));
       rawJsonRows = rawJsonRows.filter((r) => !done.has(Number(r.id)));
     }
+    // Quanti annunci restano oltre l'ultimo marker di questo giro.
+    const lastScanned = scanned
+      ? Math.max(...(rj ?? []).map((r) => Number(r.id)))
+      : afterListingId;
+    const { count: rest } = await sb
+      .from("padova_listings")
+      .select("id", { count: "exact", head: true })
+      .is("expired_at", null)
+      .not("commercial_zone_slug", "is", null)
+      .not("raw_json->media->images", "is", null)
+      .gt("id", lastScanned);
+    remaining = typeof rest === "number" ? rest : null;
   }
+
 
 
   // Annunci coinvolti: nel giro pairs_only sono quelli con fingerprint persistiti.
