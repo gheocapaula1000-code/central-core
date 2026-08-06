@@ -565,8 +565,8 @@ interface GateSpec {
   q: string;
 }
 
-/** I 4 portali del perimetro Civiko One / Padova. */
-const CIVIKO_PORTALS = ["casa", "immobiliare", "idealista", "subito"] as const;
+// I 4 portali del perimetro Civiko One / Padova: ./orchestrator.ts
+
 
 function gateSpecs(since: string): GateSpec[] {
   const casaCtx = `processor_context->>portal=eq.casa.it`;
