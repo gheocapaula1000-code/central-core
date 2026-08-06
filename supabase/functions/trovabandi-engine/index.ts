@@ -4,6 +4,7 @@ import {
   aggregateDiagnostics,
   boundedInteger,
   boundedNumeric,
+  extractSearchRows,
   httpFailureCode,
   isOperationalFailure,
   normalizeAuthorityLevel,
@@ -11,12 +12,16 @@ import {
   parseExtractionContent,
   safeTextArray,
   safeTimestamp,
-  sanitizeDbErrorCode,
+  searchDiagnostics,
+  searchFailureFromError,
   shouldTryPlainJsonFallback,
   validateExtraction,
   type ExtractionFailureCode,
   type ExtractionOutcome,
+  type SearchOutcome,
 } from "./extraction.ts";
+import { persistOpportunityFailClosed, type PersistVerification } from "./persist.ts";
+
 
 
 
