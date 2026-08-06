@@ -7,9 +7,11 @@ La Reserved VM Replit è l'unico scheduler. Lovable serve la PWA; Central Core c
 Replit può chiamare soltanto:
 
 - `collect`: seleziona una fonte dovuta, scopre candidati, estrae al massimo `max_pages` documenti e persiste prove e risultato.
-- `maintenance`: marca come scaduti i bandi con termine passato.
-- `release_gate`: certifica catalogo attivo, run recenti e scansione di almeno una fonte profonda.
+- `maintenance`: marca come scaduti i bandi con termine passato e chiude fail-closed i run `RUNNING` bloccati da oltre 20 minuti.
+- `release_gate`: certifica catalogo attivo, copertura reale di tutte le fonti abilitate nelle ultime 26 ore e assenza di run bloccati.
 - `status`: stato sintetico senza segreti.
+
+Per il collaudo, `collect` accetta `"dry_run": true`: esegue soltanto la selezione fair e restituisce la fonte che verrebbe raccolta, senza lease, provider o scritture database.
 
 Endpoint: `POST {CENTRAL_CORE_API_URL}/functions/v1/trovabandi-engine`
 
@@ -70,41 +72,10 @@ Body iniziale: `{ "offset": 0, "limit": 10 }`. Usare il `next_offset` restituito
 
 ## Gate operativo
 
-Non considerare la mattina pronta se `release_gate` non restituisce 200. Registrare per ogni job: ora inizio/fine, azione, status HTTP, discovered, processed, verified, warnings e tentativo. Non registrare URL completi, payload dei profili o secret.
+Non considerare la mattina pronta se `release_gate` non restituisce 200. Il gate richiede, nelle ultime 26 ore, almeno una scansione `SUCCEEDED` con telemetria provider valida per ciascuna delle fonti abilitate e quindi per ogni `source_kind` abilitato. Una scansione reale con zero risultati è valida: il gate non richiede novità artificiali né `verified_count > 0`. Il catalogo deve comunque contenere opportunità ufficiali, verificate, corredate da evidenza e non scadute; il minimo è dinamico e pari al numero di corsie `source_kind` abilitate. Qualsiasi errore di query chiude il gate con esito negativo.
 
-## Runtime hardening (selezione fonti, run SKIPPED, gate dinamico)
+La rotazione seleziona prima la fonte con `next_scan_at` più vecchio, poi quelle mai scansionate; la priorità decide soltanto gli ex aequo. Un refresh regionale pendente può preferire una fonte della stessa regione (o nazionale) soltanto entro 30 minuti dalla fonte più arretrata: oltre quel limite prevale sempre l'ordine fair, evitando starvation. Una prenotazione ottimistica di 20 minuti impedisce che due job sovrapposti consumino budget sulla stessa fonte. I limiti `max_pages` restano invariati.
 
-Selezione equa: `collect` sceglie sempre la fonte abilitata con `next_scan_at` più vecchio, poi quella
-mai scansionata (o con `last_scanned_at` più remoto); la priorità interviene solo a parità. La cadenza
-rapida resta garantita perché una fonte a intervallo breve torna dovuta prima delle altre. Una
-richiesta di refresh regionale può anticipare una fonte della regione richiesta soltanto se il suo
-ritardo dista al massimo 30 minuti dalla fonte più arretrata: nessuna fonte può restare indietro.
+Il conteggio del catalogo usa un RPC TrovaBandi isolato con `count(DISTINCT opportunity.id)` ed `EXISTS` sull'evidenza: più prove della stessa opportunità non possono gonfiare il gate.
 
-Lease ottimistico: prima di lavorare, la fonte viene prenotata con un confronto sul valore osservato di
-`next_scan_at`. Se un altro worker l'ha già presa, la chiamata risponde `200` con
-`status: "SKIPPED"`, `error_code: "LEASE_LOST"` e non esegue alcun provider.
-
-Esiti di `collect`:
-
-- `dry_run: true` è realmente in sola lettura: nessun provider, nessun run, nessuna scrittura. Ritorna
-  `would_collect`, `reason` e il numero di fonti dovute.
-- Nessuna fonte dovuta in modalità live: viene persistito un run `SKIPPED` con
-  `error_code: "NO_SOURCE_DUE"` e `finished_at`. Un `SKIPPED` non è mai un `SUCCEEDED` e non concorre
-  alla copertura del gate.
-- I cap su `max_pages` restano 1..5.
-
-Manutenzione: `maintenance` riconcilia i run rimasti `RUNNING` da più di 20 minuti in `FAILED` con
-`error_code: "STALE_RUN_TIMEOUT"`, poi scade solo le opportunità in stato appropriato. Entrambe le
-scritture sono fail-closed.
-
-Gate dinamico: `release_gate` non usa soglie commerciali. Richiede, con finestra di copertura di 26 ore:
-
-- tutte le fonti abilitate coperte da uno scan reale;
-- tutti i `source_kind` abilitati coperti;
-- nessun run `RUNNING` stale;
-- catalogo ufficiale VERIFICATO attivo con prova documentale almeno pari al numero dinamico di
-  `source_kind` abilitati (conteggio DISTINCT via RPC dedicata, mai un join).
-
-Uno scan reale è valido anche a zero novità, purché il run sia `SUCCEEDED`, legato a una fonte, con
-entrambi gli status provider `OK` e contatori pagine interi e coerenti. Qualsiasi query in errore o
-nulla fa fallire il gate.
+Registrare per ogni job: ora inizio/fine, azione, status HTTP, stato persistito (`SUCCEEDED`, `PARTIAL`, `FAILED` o `SKIPPED`), discovered, processed, verified, warnings e tentativo. Un run `PARTIAL` conserva contatori e diagnostica, ma risponde HTTP 502 con `ok: false` e `COLLECTION_PARTIAL`, quindi l'orchestratore deve fallire il job. `NO_SOURCE_DUE` deve risultare `SKIPPED`, non `SUCCEEDED`, e non vale come raccolta riuscita. Non registrare URL completi, payload dei profili o secret.

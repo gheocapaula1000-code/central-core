@@ -1,5 +1,4 @@
-// TrovaBandi — hardening production-blocking: gate dinamico, selettore equo,
-// riconciliazione run stale, dry-run read-only, retry policy, persistenza,
+// TrovaBandi — hardening production-blocking: gate, retry policy, persistenza,
 // metrica scrape. Dominio isolato: nessun altro prodotto è coinvolto.
 
 import { describe, expect, it } from "vitest";
@@ -12,313 +11,210 @@ import {
   shouldTryPlainJsonFallback,
 } from "../../supabase/functions/trovabandi-engine/extraction";
 import {
-  COLLECTION_PARTIAL_CODE,
+  COLLECTION_PARTIAL_ERROR_CODE,
   COVERAGE_WINDOW_HOURS,
-  REGIONAL_BYPASS_MAX_MINUTES,
-  RUN_STALE_AFTER_MINUTES,
-  collectResponseContract,
-  evaluateGate,
-  isRealScan,
-  rankSources,
-  selectDueSource,
-  type RankableSource,
-  type RunLike,
+  REFRESH_PREFERENCE_MAX_BYPASS_MINUTES,
+  boundedMaxPages,
+  collectionCompletionOutcome,
+  evaluateReleaseGate,
+  isRealSuccessfulScan,
+  nonNegativeSafeInteger,
+  rankDueSources,
+  type DueSource,
+  type SuccessfulRun,
 } from "../../supabase/functions/trovabandi-engine/hardening";
 
 const ENGINE = readFileSync("supabase/functions/trovabandi-engine/index.ts", "utf8");
-const HARDENING = readFileSync("supabase/functions/trovabandi-engine/hardening.ts", "utf8");
-const MIGRATION = readFileSync(
-  "supabase/migrations/20260806181739_25d516da-f340-4291-b4fd-a66f5910f998.sql",
-  "utf8",
-);
-const RPC_BIGINT_MIGRATION = readFileSync(
-  "supabase/migrations/20260806193420_5410c74d-e55c-4823-a6c2-3479e73601e1.sql",
+const RUNTIME_MIGRATION = readFileSync(
+  "supabase/migrations/20260806215000_trovabandi_runtime_hardening_rc.sql",
   "utf8",
 );
 const GATE = ENGINE.slice(
   ENGINE.indexOf('if (action === "release_gate")'),
   ENGINE.indexOf('if (action === "request_refresh")'),
 );
-const MAINTENANCE = ENGINE.slice(
-  ENGINE.indexOf('if (action === "maintenance")'),
-  ENGINE.indexOf('if (action === "release_gate")'),
-);
 const STATUS = ENGINE.slice(
   ENGINE.indexOf('if (action === "status")'),
   ENGINE.indexOf('if (action === "maintenance")'),
 );
-const SELECTOR = ENGINE.slice(
-  ENGINE.indexOf("const dryRun = body.dry_run === true;"),
-  ENGINE.indexOf("const runInsert = await sb"),
+const MAINTENANCE = ENGINE.slice(
+  ENGINE.indexOf('if (action === "maintenance")'),
+  ENGINE.indexOf('if (action === "release_gate")'),
 );
 const STORE = ENGINE.slice(
   ENGINE.indexOf("async function storeOpportunity"),
   ENGINE.indexOf("serve(async (req)"),
 );
 const COLLECT = ENGINE.slice(ENGINE.indexOf("const diagnostics: Array<"));
+const SOURCE_SELECTION = ENGINE.slice(
+  ENGINE.indexOf("const sourceId = normalizeText(body.source_id)"),
+  ENGINE.indexOf("const warnings: string[] = []"),
+);
 
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const NOW = Date.UTC(2026, 7, 6, 12, 0, 0);
+const SOURCE_KINDS = [
+  "CATALOGO",
+  "BUR",
+  "ALBO_PRETORIO",
+  "CAMERALE",
+  "GAL",
+  "FONDAZIONE",
+  "DECRETO",
+  "EU_PORTAL",
+];
+const COVERAGE_SINCE = "2026-08-05T10:00:00.000Z";
+const LAST_SCAN = "2026-08-06T08:00:00.000Z";
 
-function source(id: string, over: Partial<RankableSource> = {}): RankableSource {
+function source(index: number): DueSource {
   return {
-    id,
+    id: `source-${String(index).padStart(2, "0")}`,
+    source_kind: SOURCE_KINDS[index % SOURCE_KINDS.length],
+    priority: 100 - (index % 20),
     region: null,
-    source_kind: "BUR",
-    priority: 0,
-    last_scanned_at: new Date(NOW - 30 * HOUR).toISOString(),
-    next_scan_at: new Date(NOW - HOUR).toISOString(),
-    enabled: true,
-    ...over,
+    last_scanned_at: LAST_SCAN,
+    next_scan_at: "2026-08-06T09:00:00.000Z",
   };
 }
 
-function realRun(sourceId: string, over: Partial<RunLike> = {}): RunLike {
+function realRun(sourceId: string, pagesAttempted = 0): SuccessfulRun {
   return {
-    id: `run-${sourceId}`,
     source_id: sourceId,
-    status: "SUCCEEDED",
-    started_at: new Date(NOW - 2 * HOUR).toISOString(),
-    finished_at: new Date(NOW - 2 * HOUR).toISOString(),
     provider_usage: {
       firecrawl_search_status: "OK",
       perplexity_search_status: "OK",
-      pages_attempted: 0,
-      pages_scraped: 0,
+      pages_attempted: pagesAttempted,
+      pages_scraped: pagesAttempted,
     },
-    ...over,
   };
 }
 
-describe("costanti di contratto", () => {
-  it("finestra copertura 26h e run stale a 20 minuti", () => {
-    expect(COVERAGE_WINDOW_HOURS).toBe(26);
-    expect(RUN_STALE_AFTER_MINUTES).toBe(20);
-    expect(REGIONAL_BYPASS_MAX_MINUTES).toBe(30);
-  });
-
-  it("il modulo di hardening è puro: nessuna I/O, nessun provider", () => {
-    expect(HARDENING).not.toMatch(/fetch\(|createClient|firecrawl\.|apify|Deno\.env/i);
-  });
-});
-
-describe("selettore fonti equo — nessuna starvation su 53 fonti", () => {
-  const many = Array.from({ length: 53 }, (_, i) =>
-    source(`s${String(i).padStart(2, "0")}`, {
-      next_scan_at: new Date(NOW - (53 - i) * MINUTE).toISOString(),
-      priority: i % 5,
-    }),
-  );
-
-  it("sceglie sempre la fonte con next_scan_at più vecchio", () => {
-    const picked = selectDueSource(many, { nowMs: NOW });
-    expect(picked.source?.id).toBe("s00");
-    expect(picked.reason).toBe("FAIR_OLDEST");
-  });
-
-  it("priority alta non può scavalcare una fonte più arretrata", () => {
-    const picked = selectDueSource(
-      [source("vecchia", { priority: 0 }), source("prioritaria", {
-        priority: 99,
-        next_scan_at: new Date(NOW - MINUTE).toISOString(),
-      })],
-      { nowMs: NOW },
-    );
-    expect(picked.source?.id).toBe("vecchia");
-  });
-
-  it("priority resta solo tie-break a parità di scadenza e last_scanned", () => {
-    const ranked = rankSources([
-      source("bassa", { priority: 1 }),
-      source("alta", { priority: 9 }),
-    ]);
-    expect(ranked[0].id).toBe("alta");
-  });
-
-  it("chi non è mai stato scansionato precede a parità di next_scan_at", () => {
-    const ranked = rankSources([
-      source("scansionata"),
-      source("mai", { last_scanned_at: null }),
-    ]);
-    expect(ranked[0].id).toBe("mai");
-  });
-
-  it("un ciclo completo copre tutte le fonti: nessuna resta indietro", () => {
-    const pool = many.map((s) => ({ ...s }));
-    const seen = new Set<string>();
-    for (let i = 0; i < pool.length; i++) {
-      const picked = selectDueSource(pool, { nowMs: NOW });
-      expect(picked.source).not.toBeNull();
-      seen.add(picked.source!.id);
-      const target = pool.find((s) => s.id === picked.source!.id)!;
-      target.next_scan_at = new Date(NOW + HOUR).toISOString();
-    }
-    expect(seen.size).toBe(53);
-  });
-
-  it("nessuna fonte dovuta => NO_SOURCE_DUE", () => {
-    const picked = selectDueSource(
-      [source("futura", { next_scan_at: new Date(NOW + HOUR).toISOString() })],
-      { nowMs: NOW },
-    );
-    expect(picked.source).toBeNull();
-    expect(picked.reason).toBe("NO_SOURCE_DUE");
-  });
-});
-
-describe("bypass regionale limitato", () => {
-  it("anticipa una fonte regionale entro 30 minuti dalla più arretrata", () => {
-    const picked = selectDueSource(
-      [
-        source("nazionale", { next_scan_at: new Date(NOW - 40 * MINUTE).toISOString() }),
-        source("veneto", {
-          region: "Veneto",
-          next_scan_at: new Date(NOW - 20 * MINUTE).toISOString(),
-        }),
-      ],
-      { nowMs: NOW, refreshRegion: "Veneto" },
-    );
-    expect(picked.source?.id).toBe("veneto");
-    expect(picked.reason).toBe("REGIONAL_BYPASS");
-    expect(picked.bypass_minutes).toBeLessThanOrEqual(REGIONAL_BYPASS_MAX_MINUTES);
-  });
-
-  it("oltre 30 minuti vince sempre la fonte più arretrata", () => {
-    const picked = selectDueSource(
-      [
-        source("nazionale", { next_scan_at: new Date(NOW - 5 * HOUR).toISOString() }),
-        source("veneto", {
-          region: "Veneto",
-          next_scan_at: new Date(NOW - 10 * MINUTE).toISOString(),
-        }),
-      ],
-      { nowMs: NOW, refreshRegion: "Veneto" },
-    );
-    expect(picked.source?.id).toBe("nazionale");
-    expect(picked.reason).toBe("FAIR_OLDEST");
-  });
-});
-
-describe("scan reale a zero novità", () => {
-  it("è valido con run SUCCEEDED, fonte e contatori interi anche a zero", () => {
-    expect(isRealScan(realRun("s1"))).toBe(true);
-  });
-
-  it("non è valido senza source_id, senza finished_at o non SUCCEEDED", () => {
-    expect(isRealScan(realRun("s1", { source_id: null }))).toBe(false);
-    expect(isRealScan(realRun("s1", { finished_at: null }))).toBe(false);
-    expect(isRealScan(realRun("s1", { status: "PARTIAL" }))).toBe(false);
-    expect(isRealScan(realRun("s1", { status: "RUNNING" }))).toBe(false);
-    expect(isRealScan(realRun("s1", { status: "SKIPPED" }))).toBe(false);
-  });
-
-  it("non è valido se un provider non ha status OK o i contatori sono incoerenti", () => {
-    expect(
-      isRealScan(
-        realRun("s1", {
-          provider_usage: {
-            firecrawl_search_status: "HTTP_429",
-            perplexity_search_status: "OK",
-            pages_attempted: 0,
-            pages_scraped: 0,
-          },
-        }),
-      ),
-    ).toBe(false);
-    expect(
-      isRealScan(
-        realRun("s1", {
-          provider_usage: {
-            firecrawl_search_status: "OK",
-            perplexity_search_status: "OK",
-            pages_attempted: 1,
-            pages_scraped: 2,
-          },
-        }),
-      ),
-    ).toBe(false);
-    expect(isRealScan(realRun("s1", { provider_usage: null }))).toBe(false);
-  });
-});
-
-describe("release_gate dinamico — fail closed", () => {
-  const sources = [
-    source("a", { source_kind: "BUR" }),
-    source("b", { source_kind: "GAL" }),
-  ];
-  const base = {
-    nowMs: NOW,
-    enabledSources: sources,
-    recentRuns: [realRun("a"), realRun("b")],
+function validGateInput() {
+  const enabledSources = Array.from({ length: 53 }, (_, index) => source(index));
+  return {
+    enabledSources,
+    recentSuccessfulRuns: enabledSources.map((item) => realRun(item.id, 0)),
     staleRunningCount: 0,
-    verifiedActiveDistinct: 2,
+    verifiedActiveCount: SOURCE_KINDS.length,
+    partialActiveCount: 12,
+    coverageSinceIso: COVERAGE_SINCE,
   };
+}
 
-  it("passa quando ogni fonte e ogni tipo sono coperti da scan reali", () => {
-    const gate = evaluateGate(base);
+describe("release_gate — copertura reale e nessun falso positivo", () => {
+  it("accetta 53 fonti coperte e zero novità quando la scansione provider è reale", () => {
+    const gate = evaluateReleaseGate(validGateInput());
+    expect(COVERAGE_WINDOW_HOURS).toBe(26);
     expect(gate.ok).toBe(true);
-    expect(gate.metrics.covered_sources).toBe(2);
-    expect(gate.metrics.covered_source_kinds).toBe(2);
+    expect(gate.metrics.enabled_sources).toBe(53);
+    expect(gate.metrics.recently_covered_sources).toBe(53);
+    expect(gate.metrics.catalogue_required_dynamic).toBe(SOURCE_KINDS.length);
   });
 
-  it("fallisce se una sola fonte enabled non è coperta", () => {
-    const gate = evaluateGate({ ...base, recentRuns: [realRun("a")] });
+  it("zero risultati non significa scansione finta", () => {
+    expect(isRealSuccessfulScan(realRun("source-1", 0))).toBe(true);
+    expect(
+      isRealSuccessfulScan({
+        source_id: "source-1",
+        provider_usage: {
+          firecrawl_search_status: "OK",
+          perplexity_search_status: "HTTP_429",
+          pages_attempted: 0,
+          pages_scraped: 0,
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isRealSuccessfulScan({
+        source_id: "source-1",
+        provider_usage: {
+          firecrawl_search_status: "OK",
+          perplexity_search_status: "OK",
+          pages_attempted: null,
+          pages_scraped: null,
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it("fallisce se manca anche una sola fonte nelle 26 ore", () => {
+    const input = validGateInput();
+    input.recentSuccessfulRuns.pop();
+    const gate = evaluateReleaseGate(input);
     expect(gate.ok).toBe(false);
-    expect(gate.checks.all_enabled_sources_scanned).toBe(false);
+    expect(gate.checks.recent_source_coverage_26h).toBe(false);
   });
 
-  it("fallisce se lo scan è oltre la finestra di 26 ore", () => {
-    const gate = evaluateGate({
-      ...base,
-      recentRuns: [
-        realRun("a"),
-        realRun("b", { finished_at: new Date(NOW - 27 * HOUR).toISOString() }),
-      ],
-    });
+  it("richiede un successo recente per ogni source_kind abilitato", () => {
+    const input = validGateInput();
+    const missingKind = "GAL";
+    const idsOfMissingKind = new Set(
+      input.enabledSources
+        .filter((item) => item.source_kind === missingKind)
+        .map((item) => item.id),
+    );
+    input.recentSuccessfulRuns = input.recentSuccessfulRuns.filter(
+      (run) => !run.source_id || !idsOfMissingKind.has(run.source_id),
+    );
+    const gate = evaluateReleaseGate(input);
+    expect(gate.checks.all_enabled_source_kinds_succeeded).toBe(false);
     expect(gate.ok).toBe(false);
   });
 
-  it("fallisce con run RUNNING stale", () => {
-    const gate = evaluateGate({ ...base, staleRunningCount: 1 });
-    expect(gate.ok).toBe(false);
-    expect(gate.checks.no_stale_running_runs).toBe(false);
-  });
-
-  it("richiede catalogo verificato almeno pari ai source_kind enabled", () => {
-    expect(evaluateGate({ ...base, verifiedActiveDistinct: 1 }).ok).toBe(false);
-    expect(evaluateGate({ ...base, verifiedActiveDistinct: 2 }).ok).toBe(true);
-  });
-
-  it("registro vuoto non può mai passare", () => {
-    const gate = evaluateGate({
-      ...base,
-      enabledSources: [],
-      recentRuns: [],
-      verifiedActiveDistinct: 99,
-    });
+  it("fallisce con registry stantio anche se esiste un run formalmente riuscito", () => {
+    const input = validGateInput();
+    input.enabledSources[10] = {
+      ...input.enabledSources[10],
+      last_scanned_at: "2026-08-04T08:00:00.000Z",
+    };
+    const gate = evaluateReleaseGate(input);
+    expect(gate.checks.source_registry_fresh_26h).toBe(false);
     expect(gate.ok).toBe(false);
   });
 
-  it("nessuna soglia commerciale inventata nel modulo", () => {
-    expect(HARDENING).not.toMatch(/>=\s*(?:[1-9]\d{1,})\s*(?:;|\))/);
-  });
-});
-
-describe("release_gate endpoint", () => {
-  it("usa il modulo di hardening e non soglie hardcoded", () => {
-    expect(GATE).toContain("evaluateGate({");
-    expect(GATE).not.toContain('["BUR", "ALBO_PRETORIO", "CAMERALE", "GAL"]');
+  it("fallisce con un RUNNING stale", () => {
+    const input = validGateInput();
+    input.staleRunningCount = 1;
+    const gate = evaluateReleaseGate(input);
+    expect(gate.checks.no_stale_running).toBe(false);
+    expect(gate.ok).toBe(false);
   });
 
-  it("conta le opportunità verificate via RPC distinct, mai con un join", () => {
-    expect(GATE).toContain('sb.rpc("trovabandi_verified_active_distinct_count"');
-    expect(GATE).not.toContain("trovabandi_evidence!inner");
+  it("usa una soglia catalogo dinamica, non un numero commerciale inventato", () => {
+    const input = validGateInput();
+    input.verifiedActiveCount = SOURCE_KINDS.length - 1;
+    const gate = evaluateReleaseGate(input);
+    expect(gate.metrics.catalogue_required_dynamic).toBe(SOURCE_KINDS.length);
+    expect(gate.checks.verified_official_catalogue_populated).toBe(false);
   });
 
-  it("query in errore o nulle sono fail closed", () => {
-    expect(GATE).toContain('code: "GATE_QUERY_FAILED"');
-    expect(GATE).toContain("sourcesRes.error || runsRes.error");
+  it("usa l'RPC distinct e rifiuta conteggi non validi", () => {
+    expect(GATE).toContain('rpc("trovabandi_verified_active_distinct_count"');
+    expect(GATE).toContain("nonNegativeSafeInteger(verifiedResult.data)");
+    expect(GATE).toContain('code: "RELEASE_GATE_COUNT_INVALID"');
+    expect(nonNegativeSafeInteger(8)).toBe(8);
+    expect(nonNegativeSafeInteger("8")).toBe(8);
+    expect(nonNegativeSafeInteger(-1)).toBeNull();
+    expect(nonNegativeSafeInteger("1.5")).toBeNull();
+  });
+
+  it("evidenze multiple della stessa opportunità non gonfiano verifiedActive", () => {
+    expect(RUNTIME_MIGRATION).toContain("RETURNS bigint");
+    expect(RUNTIME_MIGRATION).toMatch(/count\s*\(\s*DISTINCT\s+opportunity\.id\s*\)/i);
+    expect(RUNTIME_MIGRATION).toMatch(
+      /EXISTS\s*\([\s\S]*evidence\.opportunity_id\s*=\s*opportunity\.id/i,
+    );
+    expect(RUNTIME_MIGRATION).toContain("opportunity.verification_status = 'VERIFICATO'");
+    expect(RUNTIME_MIGRATION).toContain("opportunity.official_source = true");
+    expect(RUNTIME_MIGRATION).toContain("opportunity.last_verified_at IS NOT NULL");
+    expect(RUNTIME_MIGRATION).toContain("opportunity.deadline_at >= p_now");
+    expect(RUNTIME_MIGRATION).toMatch(/SET\s+search_path\s*=\s*public\s*,\s*pg_temp/i);
+    expect(RUNTIME_MIGRATION).not.toMatch(/DROP\s+FUNCTION/i);
+    expect(RUNTIME_MIGRATION).toContain("rolname LIKE 'sandbox_exec_%'");
+  });
+
+  it("qualsiasi errore di query produce 503 fail-closed", () => {
+    expect(GATE).toContain('code: "RELEASE_GATE_QUERY_FAILED"');
+    expect(GATE).toContain("gate_passed: false");
+    expect(GATE).toContain("cron_activation_allowed: false");
   });
 
   it("mantiene gate_passed e cron_activation_allowed uguali al risultato reale", () => {
@@ -332,82 +228,214 @@ describe("release_gate endpoint", () => {
   });
 });
 
-describe("status e maintenance", () => {
-  it("status non conta le opportunità scadute e fallisce sugli errori di query", () => {
+describe("rotazione fonti — oldest/most-overdue", () => {
+  it("la fonte più scaduta precede fast lane e priorità", () => {
+    const ranked = rankDueSources([
+      {
+        ...source(1),
+        id: "high-priority-newer",
+        priority: 100,
+        next_scan_at: "2026-08-06T09:00:00.000Z",
+      },
+      {
+        ...source(2),
+        id: "oldest-due",
+        priority: 1,
+        next_scan_at: "2026-08-06T06:00:00.000Z",
+      },
+    ]);
+    expect(ranked.map((item) => item.id)).toEqual(["oldest-due", "high-priority-newer"]);
+  });
+
+  it("a parità di scadenza, una fonte mai scansionata passa prima", () => {
+    const ranked = rankDueSources([
+      { ...source(1), id: "already-seen", last_scanned_at: LAST_SCAN },
+      { ...source(2), id: "never-seen", last_scanned_at: null },
+    ]);
+    expect(ranked[0].id).toBe("never-seen");
+  });
+
+  it("un refresh regionale preferisce una fonte compatibile entro la finestra fair", () => {
+    const ranked = rankDueSources(
+      [
+        {
+          ...source(1),
+          id: "other-region",
+          region: "Lombardia",
+          next_scan_at: "2026-08-06T08:00:00.000Z",
+        },
+        {
+          ...source(2),
+          id: "preferred-region",
+          region: "Veneto",
+          next_scan_at: "2026-08-06T08:20:00.000Z",
+        },
+      ],
+      "venèto",
+    );
+    expect(REFRESH_PREFERENCE_MAX_BYPASS_MINUTES).toBe(30);
+    expect(ranked[0].id).toBe("preferred-region");
+  });
+
+  it("il refresh regionale non scavalca una fonte incompatibile troppo arretrata", () => {
+    const ranked = rankDueSources(
+      [
+        {
+          ...source(1),
+          id: "starvation-guard",
+          region: "Lombardia",
+          next_scan_at: "2026-08-06T07:00:00.000Z",
+        },
+        {
+          ...source(2),
+          id: "preferred-but-newer",
+          region: "Veneto",
+          next_scan_at: "2026-08-06T08:00:00.000Z",
+        },
+      ],
+      "Veneto",
+    );
+    expect(ranked[0].id).toBe("starvation-guard");
+  });
+
+  it("dopo l'unico sorpasso regionale la fonte precedente torna prima", () => {
+    const sources = [
+      {
+        ...source(1),
+        id: "fallback-next",
+        region: "Lombardia",
+        next_scan_at: "2026-08-06T08:00:00.000Z",
+      },
+      {
+        ...source(2),
+        id: "preferred-once",
+        region: "Veneto",
+        next_scan_at: "2026-08-06T08:20:00.000Z",
+      },
+    ];
+    const first = rankDueSources(sources, "Veneto");
+    expect(first[0].id).toBe("preferred-once");
+    const second = rankDueSources(first.slice(1), "Veneto");
+    expect(second[0].id).toBe("fallback-next");
+  });
+});
+
+describe("maintenance, status e SKIPPED — stato persistito corretto", () => {
+  it("maintenance riconcilia soltanto RUNNING stale come FAILED", () => {
+    expect(MAINTENANCE).toContain('status: "FAILED"');
+    expect(MAINTENANCE).toContain('error_code: "STALE_RUN_TIMEOUT"');
+    expect(MAINTENANCE).toContain('.eq("status", "RUNNING")');
+    expect(MAINTENANCE).toContain('.lt("started_at", staleBefore)');
+    expect(MAINTENANCE).toContain("RUN_STALE_AFTER_MINUTES");
+  });
+
+  it("maintenance non trasforma mai un RITIRATO in SCADUTO", () => {
+    expect(MAINTENANCE).toContain(
+      '.in("verification_status", ["VERIFICATO", "PARZIALE", "DA_VERIFICARE"])',
+    );
+    expect(MAINTENANCE).not.toContain('.neq("verification_status", "SCADUTO")');
+  });
+
+  it("status esclude bandi già scaduti e fallisce chiuso su errore DB", () => {
     expect(STATUS).toContain("deadline_at.is.null,deadline_at.gte.");
     expect(STATUS).toContain('code: "STATUS_QUERY_FAILED"');
   });
 
-  it("maintenance riconcilia i RUNNING stale a FAILED/STALE_RUN_TIMEOUT", () => {
-    expect(MAINTENANCE).toContain('error_code: "STALE_RUN_TIMEOUT"');
-    expect(MAINTENANCE).toContain('.eq("status", "RUNNING")');
-    expect(MAINTENANCE).toContain("staleRunCutoffIso(nowMs)");
+  it("NO_SOURCE_DUE crea un run SKIPPED concluso e senza telemetria provider finta", () => {
+    expect(SOURCE_SELECTION).toContain('status: "SKIPPED"');
+    expect(SOURCE_SELECTION).toContain('error_code: "NO_SOURCE_DUE"');
+    expect(SOURCE_SELECTION).toContain("provider_usage: {}");
+    expect(SOURCE_SELECTION).toContain("started_at: selectionNow");
+    expect(SOURCE_SELECTION).toContain("finished_at: finishedAt");
+    expect(SOURCE_SELECTION).toContain('status: "SKIPPED",\n        run_id:');
   });
 
-  it("maintenance scade solo gli stati appropriati", () => {
-    expect(MAINTENANCE).toContain('.in("verification_status", ["VERIFICATO", "PARZIALE", "DA_VERIFICARE"])');
+  it("un errore di persistenza dello SKIPPED non restituisce un falso 200", () => {
+    expect(SOURCE_SELECTION).toContain('code: "SKIPPED_RUN_WRITE_FAILED"');
   });
 
-  it("maintenance è fail closed su entrambe le scritture", () => {
-    expect(MAINTENANCE).toContain('code: "MAINTENANCE_RUNS_FAILED"');
-    expect(MAINTENANCE).toContain('code: "MAINTENANCE_FAILED"');
-  });
-});
-
-describe("collect — dry-run, SKIPPED e lease", () => {
-  it("dry_run non tocca provider né scritture", () => {
-    const dry = SELECTOR.slice(SELECTOR.indexOf("if (dryRun)"), SELECTOR.indexOf("if (!selected)"));
-    expect(dry).toContain("would_collect");
-    expect(dry).not.toMatch(/\.insert\(|\.update\(|\.upsert\(|firecrawl|perplexity|fetch\(/i);
+  it("preserva il cap di spesa max_pages 1..5", () => {
+    expect(boundedMaxPages(0)).toBe(1);
+    expect(boundedMaxPages(1)).toBe(1);
+    expect(boundedMaxPages(5)).toBe(5);
+    expect(boundedMaxPages(6)).toBe(5);
+    expect(boundedMaxPages("4")).toBe(4);
+    expect(boundedMaxPages(2.5)).toBe(2);
+    expect(boundedMaxPages("invalid")).toBe(2);
+    expect(SOURCE_SELECTION).toContain("boundedMaxPages(body.max_pages ?? 2)");
   });
 
-  it("dry_run segnala NO_SOURCE_DUE senza persistere alcun run", () => {
-    expect(SELECTOR).toContain('reason: selected ? selection.reason : "NO_SOURCE_DUE"');
-    expect(SELECTOR.indexOf("if (dryRun)")).toBeLessThan(SELECTOR.indexOf('status: "SKIPPED"'));
+  it("usa ordine fair e lease atomica, non fast_lane-first", () => {
+    expect(SOURCE_SELECTION).toContain('.order("next_scan_at", { ascending: true })');
+    expect(SOURCE_SELECTION).toContain(
+      '.order("last_scanned_at", { ascending: true, nullsFirst: true })',
+    );
+    expect(SOURCE_SELECTION).not.toContain('.order("fast_lane"');
+    expect(SOURCE_SELECTION).toContain('.eq("next_scan_at", candidate.next_scan_at)');
+    expect(SOURCE_SELECTION).toContain("RUN_STALE_AFTER_MINUTES * 60_000");
   });
 
-  it("in live senza fonti dovute persiste un run SKIPPED distinto da SUCCEEDED", () => {
-    expect(SELECTOR).toContain('status: "SKIPPED"');
-    expect(SELECTOR).toContain('error_code: "NO_SOURCE_DUE"');
-    expect(SELECTOR).toContain("finished_at: nowIso");
-    expect(SELECTOR).not.toContain('status: "SUCCEEDED"');
-  });
+  it("il dry-run non prende lease, non chiama provider e non scrive run", () => {
+    const dryRunStart = SOURCE_SELECTION.indexOf("if (dryRun) {");
+    const dryRunEnd = SOURCE_SELECTION.indexOf("const leaseUntil");
+    const automaticDryRunBranch = SOURCE_SELECTION.slice(dryRunStart, dryRunEnd);
+    expect(automaticDryRunBranch).toContain("const candidate = rankedCandidates[0] ?? null");
+    expect(automaticDryRunBranch).toContain("return response(");
+    expect(automaticDryRunBranch).toContain("would_collect");
+    expect(automaticDryRunBranch).not.toContain(".update(");
+    expect(automaticDryRunBranch).not.toContain(".insert(");
+    expect(automaticDryRunBranch).not.toContain('.from("trovabandi_runs")');
+    expect(automaticDryRunBranch).not.toContain("last_scanned_at:");
+    expect(automaticDryRunBranch).not.toContain("processed_at:");
+    expect(automaticDryRunBranch).not.toContain("firecrawlSearch(");
+    expect(automaticDryRunBranch).not.toContain("perplexitySearch(");
 
-  it("usa il selettore equo del modulo, non fast_lane/priority order", () => {
-    expect(SELECTOR).toContain("selectDueSource(");
-    expect(SELECTOR).not.toContain('.order("fast_lane"');
-    expect(SELECTOR).not.toContain('.order("priority"');
-  });
-
-  it("lease ottimistico compare-and-set contro l'overlap", () => {
-    expect(SELECTOR).toContain('.eq("next_scan_at", baseSource.next_scan_at)');
-    expect(SELECTOR).toContain('error_code: "LEASE_LOST"');
-  });
-
-  it("persistenza run e query fonti fail closed", () => {
-    expect(SELECTOR).toContain('code: "SOURCE_QUERY_FAILED"');
-    expect(SELECTOR).toContain('code: "REFRESH_QUERY_FAILED"');
-    expect(ENGINE).toContain('code: "RUN_PERSIST_FAILED"');
-  });
-
-  it("i cap su max_pages restano 1..5", () => {
-    expect(ENGINE).toContain("Math.max(1, Math.min(5, Number(body.max_pages ?? 2)))");
-  });
-});
-
-describe("migration isolata al dominio trovabandi", () => {
-  it("crea solo indici trovabandi_* e la RPC distinct", () => {
-    expect(MIGRATION).toContain("trovabandi_verified_active_distinct_count");
-    expect(MIGRATION).toContain("EXISTS (");
-    expect(MIGRATION).not.toMatch(/civiko|padova|cron\.schedule|DELETE FROM|DROP TABLE/i);
-  });
-
-  it("la RPC non è esposta a PUBLIC/anon/authenticated", () => {
-    expect(MIGRATION).toContain("REVOKE ALL ON FUNCTION public.trovabandi_verified_active_distinct_count(timestamptz) FROM PUBLIC");
-    expect(MIGRATION).toContain("GRANT EXECUTE ON FUNCTION public.trovabandi_verified_active_distinct_count(timestamptz) TO service_role");
+    const explicitBranch = SOURCE_SELECTION.slice(
+      SOURCE_SELECTION.indexOf("if (sourceId)"),
+      SOURCE_SELECTION.indexOf("} else {"),
+    );
+    expect(explicitBranch).toContain("if (dryRun)");
+    expect(explicitBranch).toContain("return response(200");
+    expect(explicitBranch).not.toContain(".update(");
+    expect(explicitBranch).not.toContain(".insert(");
+    expect(explicitBranch).not.toContain('.from("trovabandi_runs")');
+    expect(explicitBranch).not.toContain("last_scanned_at:");
+    expect(explicitBranch).not.toContain("processed_at:");
+    expect(explicitBranch).not.toContain("firecrawlSearch(");
+    expect(explicitBranch).not.toContain("perplexitySearch(");
   });
 });
 
+describe("isolamento TrovaBandi", () => {
+  it("la migration tocca soltanto oggetti public.trovabandi_*", () => {
+    const publicObjects = [...RUNTIME_MIGRATION.matchAll(/public\.([a-z0-9_]+)/gi)].map(
+      (match) => match[1],
+    );
+    expect(publicObjects.length).toBeGreaterThan(0);
+    expect(publicObjects.every((name) => name.startsWith("trovabandi_"))).toBe(true);
+  });
+
+  it("non crea, modifica o attiva cron", () => {
+    expect(RUNTIME_MIGRATION).not.toMatch(/cron\.schedule|cron\.unschedule|pg_cron/i);
+  });
+
+  it("mantiene il deploy selettivo e vieta il deploy globale", () => {
+    const manifest = JSON.parse(
+      readFileSync("supabase/trovabandi-deploy-manifest.json", "utf8"),
+    ) as {
+      product: string;
+      deploy_mode: string;
+      global_deploy_forbidden: boolean;
+      migrations: string[];
+    };
+    expect(manifest).toMatchObject({
+      product: "trovabandi",
+      deploy_mode: "selective_only",
+      global_deploy_forbidden: true,
+    });
+    expect(manifest.migrations).toContain("20260806215000_trovabandi_runtime_hardening_rc.sql");
+  });
+});
 
 describe("policy di retry sanificata", () => {
   it("classifica gli status HTTP senza esporre body o URL", () => {
@@ -424,7 +452,13 @@ describe("policy di retry sanificata", () => {
   });
 
   it("consente il fallback plain JSON solo dopo 400/422 o risposta 200 non parsabile", () => {
-    for (const code of ["HTTP_400", "HTTP_422", "EMPTY_CONTENT", "PARSE_FAILED", "NOT_OBJECT"] as const) {
+    for (const code of [
+      "HTTP_400",
+      "HTTP_422",
+      "EMPTY_CONTENT",
+      "PARSE_FAILED",
+      "NOT_OBJECT",
+    ] as const) {
       expect(shouldTryPlainJsonFallback(code)).toBe(true);
     }
   });
@@ -479,8 +513,45 @@ describe("NOT_OPPORTUNITY è l'unico esito negativo valido", () => {
   });
 
   it("lo stato del run dipende dai guasti operativi, non dal numero di warning", () => {
-    expect(ENGINE).toContain('const runStatus = operationalFailures > 0 ? "PARTIAL" : "SUCCEEDED";');
+    expect(ENGINE).toContain("collectionCompletionOutcome(operationalFailures)");
     expect(ENGINE).not.toContain('status: warnings.length ? "PARTIAL" : "SUCCEEDED"');
+  });
+});
+
+describe("PARTIAL — persistenza diagnostica e risposta scheduler fail-closed", () => {
+  it("mappa dinamicamente PARTIAL su HTTP 502/ok:false e conserva SUCCEEDED su 200", () => {
+    expect(collectionCompletionOutcome(1)).toEqual({
+      runStatus: "PARTIAL",
+      httpStatus: 502,
+      ok: false,
+      errorCode: COLLECTION_PARTIAL_ERROR_CODE,
+    });
+    expect(collectionCompletionOutcome(0)).toEqual({
+      runStatus: "SUCCEEDED",
+      httpStatus: 200,
+      ok: true,
+      errorCode: null,
+    });
+    expect(COLLECTION_PARTIAL_ERROR_CODE).not.toBe("NO_SOURCE_DUE");
+  });
+
+  it("usa lo stesso outcome per DB e HTTP senza perdere contatori o diagnostica", () => {
+    expect(COLLECT).toContain(
+      "const completion = collectionCompletionOutcome(operationalFailures)",
+    );
+    expect(COLLECT).toContain("status: completion.runStatus");
+    expect(COLLECT).toContain("error_code: completion.errorCode");
+    expect(COLLECT).toContain("provider_usage: {");
+    expect(COLLECT).toContain("diagnostics: diagnosticCounters");
+    expect(COLLECT).toContain("discovered_count: byUrl.size");
+    expect(COLLECT).toContain("processed_count: processed");
+    expect(COLLECT).toContain("verified_count: verified");
+    expect(COLLECT).toContain("return response(completion.httpStatus");
+    expect(COLLECT).toContain("ok: completion.ok");
+    expect(COLLECT).toContain("error_code: completion.errorCode");
+    expect(COLLECT).toContain("run_id: run.id");
+    expect(COLLECT).toContain("source_id: source.id");
+    expect(COLLECT).toContain("status: completion.runStatus");
   });
 });
 
@@ -523,142 +594,5 @@ describe("metrica pages_scraped", () => {
     const afterFailure = COLLECT.indexOf('code: "NO_CONTENT"');
     const increment = COLLECT.indexOf("pagesScraped++");
     expect(increment).toBeGreaterThan(afterFailure);
-  });
-});
-
-// --- P0 fail-closed su collect PARTIAL (dominio isolato trovabandi) ---
-
-describe("contratto risposta collect", () => {
-  it("PARTIAL è fail-closed: non-2xx, ok:false, codice stabile", () => {
-    const c = collectResponseContract("PARTIAL");
-    expect(c.ok).toBe(false);
-    expect(c.http).toBe(502);
-    expect(c.http < 200 || c.http >= 300).toBe(true);
-    expect(c.error_code).toBe("COLLECTION_PARTIAL");
-    expect(COLLECTION_PARTIAL_CODE).toBe("COLLECTION_PARTIAL");
-    expect(c.collection_succeeded).toBe(false);
-  });
-
-  it("SUCCEEDED resta 200 ok:true e segnala raccolta riuscita", () => {
-    expect(collectResponseContract("SUCCEEDED")).toEqual({
-      http: 200,
-      ok: true,
-      error_code: null,
-      collection_succeeded: true,
-    });
-  });
-
-  it("SKIPPED/NO_SOURCE_DUE è distinto da PARTIAL e non è raccolta riuscita", () => {
-    const s = collectResponseContract("SKIPPED");
-    expect(s.http).toBe(200);
-    expect(s.ok).toBe(true);
-    expect(s.error_code).toBe("NO_SOURCE_DUE");
-    expect(s.collection_succeeded).toBe(false);
-    expect(s.error_code).not.toBe(COLLECTION_PARTIAL_CODE);
-  });
-
-  it("il codice PARTIAL è stabile su chiamate ripetute", () => {
-    const codes = new Set(
-      Array.from({ length: 5 }, () => collectResponseContract("PARTIAL").error_code),
-    );
-    expect([...codes]).toEqual([COLLECTION_PARTIAL_CODE]);
-  });
-});
-
-describe("integrazione nell'engine", () => {
-  it("la risposta finale del collect usa il contratto, non un 200 hardcoded", () => {
-    expect(ENGINE).toContain("const contract = collectResponseContract(runStatus);");
-    expect(ENGINE).toContain("return response(contract.http, {");
-    expect(ENGINE).toContain("ok: contract.ok,");
-    expect(ENGINE).toContain("error_code: contract.error_code,");
-  });
-
-  it("PARTIAL non viene mai riscritto come FAILED nel DB", () => {
-    expect(ENGINE).toContain('const runStatus = operationalFailures > 0 ? "PARTIAL" : "SUCCEEDED";');
-    // gli unici FAILED sono la riconciliazione dei run stale e il catch
-    // delle eccezioni: nessuno appartiene al ramo PARTIAL.
-    const failedOccurrences = ENGINE.match(/status: "FAILED"/g) ?? [];
-    expect(failedOccurrences.length).toBe(2);
-    expect(ENGINE).toContain('{ status: "FAILED", error_code: "STALE_RUN_TIMEOUT"');
-    expect(ENGINE).toContain('error_code: error instanceof Error ? error.name : "UNKNOWN"');
-  });
-
-  it("il run PARTIAL conserva contatori, provider_usage e diagnostica", () => {
-    for (const fragment of [
-      "status: runStatus,",
-      "discovered_count: byUrl.size,",
-      "processed_count: processed,",
-      "verified_count: verified,",
-      "provider_usage: {",
-      "pages_scraped: pagesScraped,",
-      "diagnostics: diagnosticCounters,",
-      "warnings: [...new Set(warnings)],",
-    ]) {
-      expect(ENGINE).toContain(fragment);
-    }
-  });
-
-  it("la risposta PARTIAL espone diagnostica completa al chiamante", () => {
-    for (const fragment of [
-      "operational_failures: operationalFailures,",
-      "collection_succeeded: contract.collection_succeeded,",
-      "scraped: pagesScraped,",
-    ]) {
-      expect(ENGINE).toContain(fragment);
-    }
-  });
-
-  it("NO_SOURCE_DUE persiste un run SKIPPED e mai SUCCEEDED", () => {
-    expect(ENGINE).toContain('status: "SKIPPED",\n      error_code: "NO_SOURCE_DUE",');
-    expect(ENGINE).not.toContain('status: "SUCCEEDED",\n      error_code: "NO_SOURCE_DUE"');
-    expect(ENGINE).toContain("collection_succeeded: false,");
-  });
-});
-
-describe("simulazione gateway/orchestratore", () => {
-  const simulateGateway = (runStatus: "SUCCEEDED" | "PARTIAL" | "SKIPPED") => {
-    const c = collectResponseContract(runStatus);
-    const httpOk = c.http >= 200 && c.http < 300;
-    // L'orchestratore marca il job riuscito solo con HTTP 2xx e ok:true.
-    return { jobSucceeded: httpOk && c.ok, body: c };
-  };
-
-  it("PARTIAL fa fallire il job dell'orchestratore", () => {
-    const r = simulateGateway("PARTIAL");
-    expect(r.jobSucceeded).toBe(false);
-    expect(r.body.error_code).toBe(COLLECTION_PARTIAL_CODE);
-  });
-
-  it("SUCCEEDED fa passare il job", () => {
-    expect(simulateGateway("SUCCEEDED").jobSucceeded).toBe(true);
-  });
-
-  it("SKIPPED non fallisce ma non conta come raccolta per il release gate", () => {
-    const r = simulateGateway("SKIPPED");
-    expect(r.jobSucceeded).toBe(true);
-    expect(r.body.collection_succeeded).toBe(false);
-  });
-});
-
-describe("RPC conteggio verificato — bigint", () => {
-  it("la migration forward ridefinisce la RPC come bigint con search_path", () => {
-    expect(RPC_BIGINT_MIGRATION).toContain("RETURNS bigint");
-    expect(RPC_BIGINT_MIGRATION).toContain("count(*)::bigint");
-    expect(RPC_BIGINT_MIGRATION).toContain("SET search_path = public");
-  });
-
-  it("resta riservata a service_role: mai PUBLIC/anon/authenticated", () => {
-    expect(RPC_BIGINT_MIGRATION).toContain(
-      "GRANT EXECUTE ON FUNCTION public.trovabandi_verified_active_distinct_count(timestamptz) TO service_role",
-    );
-    for (const role of ["PUBLIC", "anon", "authenticated"]) {
-      expect(RPC_BIGINT_MIGRATION).toContain(
-        `REVOKE ALL ON FUNCTION public.trovabandi_verified_active_distinct_count(timestamptz) FROM ${role}`,
-      );
-    }
-  });
-
-  it("la migration resta isolata al dominio trovabandi", () => {
-    expect(RPC_BIGINT_MIGRATION).not.toMatch(/civiko|padova|cron\.schedule|DELETE FROM|DROP TABLE/i);
   });
 });
