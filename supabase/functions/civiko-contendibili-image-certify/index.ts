@@ -336,6 +336,9 @@ Deno.serve(async (req) => {
   return json({
     ok: true,
     dry_run: dryRun,
+    pairs_only: pairsOnly,
+    offset,
+    limit,
     match_version: MATCH_VERSION,
     evidence_kind: EVIDENCE_KIND,
     algo: PHASH_ALGO,
