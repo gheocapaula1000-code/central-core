@@ -106,14 +106,6 @@ export interface PipelineStep {
 /** Uno stage: le azioni al suo interno partono in parallelo bounded. */
 export type PipelineStage = PipelineStep[];
 
-/** Certificazione fotografica: hard limit 4 listing totali, max 6 invocazioni. */
-export const IMAGE_CERTIFY_HARD_LIMIT = 4;
-export const IMAGE_CERTIFY_MAX_INVOCATIONS = 6;
-/**
- * Budget downstream che la fase immagini NON può mai consumare in 0545:
- * pairs (25) + snapshot/recompute in parallelo (35) + extras (25).
- */
-export const IMAGE_DOWNSTREAM_RESERVE_MS = 85_000;
 
 // ── DAG esplicito: dipendenze dichiarate, livelli derivati ──────────────────
 // `needs` = dipendenza DI DATO: lo step legge ciò che il predecessore scrive.
