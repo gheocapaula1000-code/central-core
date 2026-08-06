@@ -193,6 +193,7 @@ function record(): AckRecord {
 function storedFrom(rec: AckRecord, over: Record<string, unknown> = {}) {
   return {
     run_id: rec.run_id,
+    source_app: rec.source_app,
     started_at: rec.started_at,
     finished_at: rec.finished_at,
     ok: rec.ok,
@@ -257,9 +258,9 @@ Deno.test("source identity: solo alias Civiko contrattualizzati", () => {
 
 Deno.test("endpoint: check source-app locale prima di body/read/write", async () => {
   const src = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
-  const guard = src.indexOf("CIVIKO_SOURCE_APPS.has(sourceApp)");
+  const guard = src.indexOf("isCivikoSourceApp(sourceApp)");
   const body = src.indexOf("await req.text()");
-  const read = src.indexOf("fetchPipelineMarkers(");
+  const read = src.indexOf("await fetchPipelineMarkers(");
   const write = src.indexOf("await insertAck(");
   assertEquals(guard > -1, true);
   assertEquals(body > guard, true);

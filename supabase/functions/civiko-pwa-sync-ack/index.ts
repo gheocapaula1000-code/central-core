@@ -19,7 +19,7 @@ import {
 } from "../_shared/http.ts";
 import {
   type AckRecord,
-  CIVIKO_SOURCE_APPS,
+  isCivikoSourceApp,
   isIdenticalAck,
   validateAck,
 } from "./validation.ts";
@@ -122,7 +122,7 @@ Deno.serve(async (req) => {
   // La guard shared accetta anche identità non-Civiko (compat acquisitionradar):
   // qui si esige l'identità canonica del contratto PWA Civiko One, PRIMA di
   // leggere il body e di qualunque read/write. Fail-closed, nessun alias extra.
-  if (!CIVIKO_SOURCE_APPS.has(sourceApp)) {
+  if (!isCivikoSourceApp(sourceApp)) {
     console.warn(`[civiko-pwa-sync-ack] source app rejected debug_id=${debugId}`);
     return fail(req, 403, "SOURCE_APP_FORBIDDEN", "Source app not allowed for this endpoint", debugId);
   }
