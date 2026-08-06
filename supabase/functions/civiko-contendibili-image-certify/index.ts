@@ -3,19 +3,19 @@
 // Collega END-TO-END la prova fotografica al percorso Civiko dei contendibili.
 //
 // Cosa fa (solo Civiko / Padova, additivo):
-//  1. rilegge i result detail GIÀ memorizzati in scraping_queue (nessuno
-//     scraping, nessuna chiamata a pagamento);
-//  2. estrae fino a 5 URL di fotografie reali (multi-foto) e li persiste in
+//  1. seleziona in modo DETERMINISTICO al massimo 4 listing unici TOTALI
+//     (evidence attempts + raw_json), oldest-first, perimetro Padova + 8 zone;
+//  2. li marca ATOMICAMENTE per pipeline_run_id PRIMA di lavorarli (anche se
+//     non hanno foto o non sono decodificabili): la coda avanza sempre e nessun
+//     listing viene ritentato più di 4 volte;
+//  3. estrae fino a 5 URL di fotografie reali e li persiste in
 //     padova_listings.ev_image_refs + civiko_contendibili_evidence_attempts;
-//  3. scarica i byte con allowlist/SSRF/redirect/timeout/budget e calcola il
-//     fingerprint percettivo sui BYTE decodificati (mai su URL o filename);
-//  4. persiste i fingerprint (idempotente, service_role only) senza
-//     conservare alcun file immagine originale;
-//  5. calcola le prove per COPPIA cross-agenzia (>= 2 foto reali condivise)
-//     che il recompute autoritativo consuma per la certificazione
-//     IMAGE_PHASH_V1.
+//  4. scarica i byte con allowlist/SSRF/redirect/timeout/budget e calcola il
+//     fingerprint percettivo sui BYTE decodificati;
+//  5. calcola le prove per COPPIA cross-agenzia (pairs_only pagina TUTTI i
+//     fingerprint) sostituendo le prove stantie senza residui.
 //
-// Nessun cron viene attivato da questa funzione.
+// Nessuno scraping, nessun provider a pagamento, nessun cron attivato qui.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { extractDetailImageRefs, MAX_DETAIL_IMAGE_REFS } from "../_shared/detailImageRefs.ts";
@@ -54,8 +54,27 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
 
-const DEFAULT_LIMIT = 40;
-const HARD_LIMIT = 120;
+/** Hard limit TOTALE di listing unici trattati per invocazione. */
+export const TOTAL_LISTINGS_PER_INVOCATION = 4;
+/** Un listing non viene mai ritentato più di così. */
+export const MAX_ATTEMPTS_PER_LISTING = 4;
+/** Ampiezza della finestra di scansione dei candidati (bounded). */
+const CANDIDATE_SCAN_LIMIT = 200;
+/** Paginazione completa dei fingerprint: nessun tetto arbitrario. */
+const FINGERPRINT_PAGE_SIZE = 1000;
+const FINGERPRINT_MAX_PAGES = 200;
+
+/** Perimetro ufficiale Civiko One / Padova: 8 zone commerciali. */
+export const CIVIKO_ZONE_SLUGS = [
+  "centro-storico",
+  "nord-arcella",
+  "est-brenta",
+  "est-forcellini-camin",
+  "sud-est-sant-osvaldo",
+  "sud-voltabarozzo-guizza",
+  "sud-ovest-mandria",
+  "ovest-chiesanuova-brentelle",
+] as const;
 
 const sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
@@ -100,153 +119,217 @@ Deno.serve(async (req) => {
     body = (await req.json()) as Record<string, unknown>;
   } catch { /* body opzionale */ }
 
+  // Nessun cursore e nessun offset: la coda muta mentre la si consuma.
+  // Il limite è un tetto TOTALE di listing unici, mai due limiti sommati.
   const limit = Math.min(
-    HARD_LIMIT,
-    Math.max(1, Number(body.limit ?? DEFAULT_LIMIT) || DEFAULT_LIMIT),
+    TOTAL_LISTINGS_PER_INVOCATION,
+    Math.max(1, Number(body.limit ?? TOTAL_LISTINGS_PER_INVOCATION) || TOTAL_LISTINGS_PER_INVOCATION),
   );
-  // Coda mutante: nessun offset. L'avanzamento è oldest-first via marker.
-  const afterListingId = Number.isFinite(Number(body.after_listing_id))
-    ? Math.max(0, Number(body.after_listing_id))
-    : 0;
   const pipelineRunId = typeof body.pipeline_run_id === "string" ? body.pipeline_run_id : null;
   const dryRun = body.dry_run === true;
-  // pairs_only: ricalcola le prove per coppia dai fingerprint GIA' persistiti,
+  // pairs_only: ricalcola le prove per coppia dai fingerprint GIÀ persistiti,
   // senza scaricare né decodificare nulla (nessun costo, nessun provider).
   const pairsOnly = body.pairs_only === true;
 
+  const runStartedAt = new Date().toISOString();
   const diagnostics: Record<string, unknown> = {};
   const budget: FetchBudget = { used: 0, max: MAX_TOTAL_REQUESTS };
+  const zoneScope = [...CIVIKO_ZONE_SLUGS];
 
-  // 1) result detail già memorizzati e riusabili --------------------------------
-  let attempts: Array<Record<string, unknown>> = [];
+  // ── Marker di progresso monotono (non offset, non id) ───────────────────
+  const progressMarker = async (): Promise<number> => {
+    const q = sb
+      .from("civiko_image_certify_attempts")
+      .select("listing_id", { count: "exact", head: true });
+    const { count, error } = pipelineRunId
+      ? await q.eq("last_pipeline_run_id", pipelineRunId)
+      : await q;
+    if (error) return 0;
+    return typeof count === "number" ? count : 0;
+  };
+
+  // ── Selezione deterministica dei candidati ──────────────────────────────
+  type Candidate = { listing_id: number; source: "evidence" | "raw_json"; queue_id?: string };
+  let selected: Candidate[] = [];
+  let scanned = 0;
+  let poolSize = 0;
+
   if (!pairsOnly) {
-    const { data, error: attErr } = await sb
+    // Listing già esauriti (4 tentativi) o già trattati in QUESTO run.
+    const blocked = new Set<number>();
+    {
+      const { data, error } = await sb
+        .from("civiko_image_certify_attempts")
+        .select("listing_id,attempts,last_pipeline_run_id")
+        .order("listing_id", { ascending: true })
+        .limit(5000);
+      if (error) {
+        return json({ ok: false, error: "attempts_progress_read_failed", detail: error.message }, 500);
+      }
+      for (const r of data ?? []) {
+        const id = Number(r.listing_id);
+        if (Number(r.attempts) >= MAX_ATTEMPTS_PER_LISTING) blocked.add(id);
+        if (pipelineRunId && r.last_pipeline_run_id === pipelineRunId) blocked.add(id);
+      }
+    }
+
+    // Fonte A — detail già memorizzati e riusabili (oldest-first).
+    const { data: attRows, error: attErr } = await sb
       .from("civiko_contendibili_evidence_attempts")
-      .select("listing_id,url,queue_id,evidence,commercial_zone_slug")
+      .select("listing_id,queue_id,commercial_zone_slug")
       .eq("status", "succeeded")
       .not("queue_id", "is", null)
-      .gt("listing_id", afterListingId)
       .order("listing_id", { ascending: true })
-      .limit(limit);
-    if (attErr) return json({ ok: false, error: "attempts_read_failed", detail: attErr.message }, 500);
-    // Nessun detail riusabile non è un errore: resta la fonte raw_json (2b).
-    attempts = (data ?? []) as Array<Record<string, unknown>>;
-
-  }
-
-  const resultById = new Map<string, unknown>();
-  if (!pairsOnly && attempts.length) {
-    const queueIds = attempts.map((a) => a.queue_id as string);
-    const { data: queueRows, error: qErr } = await sb
-      .from("scraping_queue")
-      .select("id,result")
-      .in("id", queueIds);
-    if (qErr) return json({ ok: false, error: "queue_read_failed", detail: qErr.message }, 500);
-    for (const r of queueRows ?? []) resultById.set(r.id as string, r.result);
-  }
-
-  // 1b) Fonte additiva: fotografie GIÀ memorizzate in
-  // padova_listings.raw_json.media.images (nessuno scraping, nessun provider).
-  // Solo annunci attivi del perimetro Civiko con zona ufficiale valorizzata.
-  type RawJsonRow = {
-    id: number;
-    url: string | null;
-    fonte: string | null;
-    agency: string | null;
-    commercial_zone_slug: string | null;
-    raw_json: Record<string, unknown> | null;
-  };
-  let rawJsonRows: RawJsonRow[] = [];
-  let scanned = 0;
-  let remaining: number | null = null;
-  if (!pairsOnly) {
-    const { data: rj, error: rjErr } = await sb
-      .from("padova_listings")
-      .select("id,url,fonte,agency,commercial_zone_slug,raw_json")
-      .is("expired_at", null)
-      .not("commercial_zone_slug", "is", null)
-      .not("raw_json->media->images", "is", null)
-      .gt("id", afterListingId)
-      .order("id", { ascending: true })
-      .limit(limit);
-    if (rjErr) {
-      return json({ ok: false, error: "raw_json_read_failed", detail: rjErr.message }, 500);
+      .limit(CANDIDATE_SCAN_LIMIT);
+    if (attErr) {
+      return json({ ok: false, error: "attempts_read_failed", detail: attErr.message }, 500);
     }
-    rawJsonRows = (rj ?? []) as RawJsonRow[];
-    scanned = rawJsonRows.length;
-    // Idempotenza: salta gli annunci che hanno già fingerprint persistiti.
-    if (rawJsonRows.length) {
-      const ids = rawJsonRows.map((r) => Number(r.id));
-      const { data: already, error: aErr } = await sb
+
+    // Fonte B — foto già memorizzate in raw_json (oldest-first), perimetro esatto.
+    const { data: rawRows, error: rawErr } = await sb
+      .from("padova_listings")
+      .select("id")
+      .is("expired_at", null)
+      .eq("comune", "Padova")
+      .in("commercial_zone_slug", zoneScope)
+      .not("raw_json->media->images", "is", null)
+      .order("id", { ascending: true })
+      .limit(CANDIDATE_SCAN_LIMIT);
+    if (rawErr) {
+      return json({ ok: false, error: "raw_json_read_failed", detail: rawErr.message }, 500);
+    }
+
+    // Pool unico ordinato: un solo tetto TOTALE, mai 4+4.
+    const pool = new Map<number, Candidate>();
+    for (const r of attRows ?? []) {
+      const id = Number(r.listing_id);
+      if (!Number.isFinite(id)) continue;
+      if (!pool.has(id)) pool.set(id, { listing_id: id, source: "evidence", queue_id: String(r.queue_id) });
+    }
+    for (const r of rawRows ?? []) {
+      const id = Number(r.id);
+      if (!Number.isFinite(id)) continue;
+      if (!pool.has(id)) pool.set(id, { listing_id: id, source: "raw_json" });
+    }
+    scanned = pool.size;
+
+    // Idempotenza: chi ha già fingerprint viene saltato e NON blocca la coda.
+    const poolIds = Array.from(pool.keys()).sort((a, b) => a - b);
+    if (poolIds.length) {
+      const { data: already, error: fpErr } = await sb
         .from("civiko_listing_image_fingerprints")
         .select("listing_id")
-        .in("listing_id", ids);
-      if (aErr) {
-        return json({ ok: false, error: "fingerprints_read_failed", detail: aErr.message }, 500);
+        .in("listing_id", poolIds);
+      if (fpErr) {
+        return json({ ok: false, error: "fingerprints_read_failed", detail: fpErr.message }, 500);
       }
-      const done = new Set((already ?? []).map((r) => Number(r.listing_id)));
-      rawJsonRows = rawJsonRows.filter((r) => !done.has(Number(r.id)));
+      for (const r of already ?? []) blocked.add(Number(r.listing_id));
     }
-    // Quanti annunci restano oltre l'ultimo marker di questo giro.
-    const lastScanned = scanned
-      ? Math.max(...(rj ?? []).map((r) => Number(r.id)))
-      : afterListingId;
-    const { count: rest } = await sb
-      .from("padova_listings")
-      .select("id", { count: "exact", head: true })
-      .is("expired_at", null)
-      .not("commercial_zone_slug", "is", null)
-      .not("raw_json->media->images", "is", null)
-      .gt("id", lastScanned);
-    remaining = typeof rest === "number" ? rest : null;
+
+    // Perimetro esatto: solo Padova + 8 zone ufficiali, annunci attivi.
+    const inScope = new Set<number>();
+    if (poolIds.length) {
+      const { data: scopeRows, error: scopeErr } = await sb
+        .from("padova_listings")
+        .select("id")
+        .in("id", poolIds)
+        .is("expired_at", null)
+        .eq("comune", "Padova")
+        .in("commercial_zone_slug", zoneScope);
+      if (scopeErr) {
+        return json({ ok: false, error: "scope_read_failed", detail: scopeErr.message }, 500);
+      }
+      for (const r of scopeRows ?? []) inScope.add(Number(r.id));
+    }
+
+    const eligible = poolIds
+      .filter((id) => inScope.has(id) && !blocked.has(id))
+      .map((id) => pool.get(id)!);
+    poolSize = eligible.length;
+    selected = eligible.slice(0, limit);
+
+    if (!selected.length) {
+      return json({
+        ok: true,
+        dry_run: dryRun,
+        attempted: 0,
+        scanned,
+        remaining: 0,
+        progress_marker: await progressMarker(),
+        pipeline_run_id: pipelineRunId,
+        zero_novelty: true,
+        note: "no_reusable_photo_sources",
+      });
+    }
+
+    // Marcatura ATOMICA prima di lavorare: anche no-photo/undecodable avanzano.
+    if (!dryRun) {
+      const ids = selected.map((c) => c.listing_id);
+      const { data: prev, error: prevErr } = await sb
+        .from("civiko_image_certify_attempts")
+        .select("listing_id,attempts")
+        .in("listing_id", ids);
+      if (prevErr) {
+        return json({ ok: false, error: "attempts_progress_read_failed", detail: prevErr.message }, 500);
+      }
+      const prevCount = new Map((prev ?? []).map((r) => [Number(r.listing_id), Number(r.attempts) || 0]));
+      const { error: markErr } = await sb
+        .from("civiko_image_certify_attempts")
+        .upsert(
+          ids.map((id) => ({
+            listing_id: id,
+            attempts: (prevCount.get(id) ?? 0) + 1,
+            last_pipeline_run_id: pipelineRunId,
+            last_outcome: "claimed",
+            last_attempt_at: runStartedAt,
+          })),
+          { onConflict: "listing_id" },
+        );
+      if (markErr) {
+        return json({ ok: false, error: "attempts_progress_write_failed", detail: markErr.message }, 500);
+      }
+    }
   }
 
-
-
-  // Annunci coinvolti: nel giro pairs_only sono quelli con fingerprint persistiti.
-  let listingIds: number[] = Array.from(
-    new Set([
-      ...attempts.map((a) => Number(a.listing_id)),
-      ...rawJsonRows.map((r) => Number(r.id)),
-    ]),
-  );
+  // ── Fingerprint già persistiti (pairs_only: paginazione COMPLETA) ────────
+  let listingIds: number[] = selected.map((c) => c.listing_id);
   let storedFingerprints: Fp[] = [];
   if (pairsOnly) {
-    const { data: fps, error: fErr } = await sb
-      .from("civiko_listing_image_fingerprints")
-      .select("listing_id,sha256,phash,width,height,bytes,entropy,algo,source_host")
-      .limit(5000);
-    if (fErr) return json({ ok: false, error: "fingerprints_read_failed", detail: fErr.message }, 500);
-    storedFingerprints = (fps ?? []).map((f) => ({
-      listing_id: Number(f.listing_id),
-      sha256: f.sha256 as string,
-      phash: f.phash as string,
-      width: Number(f.width),
-      height: Number(f.height),
-      bytes: Number(f.bytes),
-      entropy: Number(f.entropy),
-      algo: f.algo as string,
-      source_host: (f.source_host as string) ?? "",
-    }));
+    for (let page = 0; page < FINGERPRINT_MAX_PAGES; page++) {
+      const from = page * FINGERPRINT_PAGE_SIZE;
+      const { data: fps, error: fErr } = await sb
+        .from("civiko_listing_image_fingerprints")
+        .select("listing_id,sha256,phash,width,height,bytes,entropy,algo,source_host")
+        .order("listing_id", { ascending: true })
+        .order("sha256", { ascending: true })
+        .range(from, from + FINGERPRINT_PAGE_SIZE - 1);
+      if (fErr) {
+        return json({ ok: false, error: "fingerprints_read_failed", detail: fErr.message }, 500);
+      }
+      const rows = fps ?? [];
+      for (const f of rows) {
+        storedFingerprints.push({
+          listing_id: Number(f.listing_id),
+          sha256: f.sha256 as string,
+          phash: f.phash as string,
+          width: Number(f.width),
+          height: Number(f.height),
+          bytes: Number(f.bytes),
+          entropy: Number(f.entropy),
+          algo: f.algo as string,
+          source_host: (f.source_host as string) ?? "",
+        });
+      }
+      if (rows.length < FINGERPRINT_PAGE_SIZE) break;
+      if (page === FINGERPRINT_MAX_PAGES - 1) {
+        return json({ ok: false, error: "fingerprints_pagination_overflow" }, 500);
+      }
+    }
     listingIds = Array.from(new Set(storedFingerprints.map((f) => f.listing_id)));
-    if (!listingIds.length) return json({ ok: true, pairs_only: true, note: "no_fingerprints" });
+    if (!listingIds.length) {
+      return json({ ok: true, pairs_only: true, zero_novelty: true, note: "no_fingerprints" });
+    }
   }
-  if (!listingIds.length) {
-    // Nessun candidato nuovo dopo il marker: zero-novità esplicita, non guasto.
-    return json({
-      ok: true,
-      reprocessed: 0,
-      attempted: 0,
-      scanned,
-      remaining: remaining ?? 0,
-      last_listing_id: afterListingId,
-      pipeline_run_id: pipelineRunId,
-      zero_novelty: true,
-      note: "no_reusable_photo_sources",
-    });
-  }
-  const lastListingId = Math.max(afterListingId, ...listingIds);
-
 
   const { data: listings, error: lErr } = await sb
     .from("padova_listings")
@@ -255,18 +338,18 @@ Deno.serve(async (req) => {
   if (lErr) return json({ ok: false, error: "listings_read_failed", detail: lErr.message }, 500);
   const listingById = new Map((listings ?? []).map((l) => [Number(l.id), l]));
 
-
-  // 2) estrazione multi-foto + 3) fingerprint sui byte reali --------------------
+  // ── Estrazione multi-foto + fingerprint sui byte reali ──────────────────
   let reprocessed = 0;
   let refsTotal = 0;
   let decoded = 0;
   let undecodable = 0;
   let downloadFailed = 0;
   let rejectedQuality = 0;
+  let rawJsonProcessed = 0;
+  let rawJsonRefs = 0;
   const fingerprints: Fp[] = pairsOnly ? storedFingerprints : [];
+  const outcomeByListing = new Map<number, string>();
 
-  // Scarica i byte reali e calcola i fingerprint. La protezione resource-limit
-  // (allowlist host, SSRF, redirect, timeout, budget globale) resta invariata.
   const ingestRefs = async (listingId: number, refs: string[]): Promise<void> => {
     const fetched = await fetchImagesBounded(refs, budget);
     for (const item of fetched) {
@@ -303,56 +386,94 @@ Deno.serve(async (req) => {
     }
   };
 
-  for (const att of pairsOnly ? [] : attempts) {
-    const listingId = Number(att.listing_id);
-    const listing = listingById.get(listingId);
-    if (!listing) continue;
-    const result = resultById.get(att.queue_id as string);
-    if (!result) continue;
-
-    const refs = extractDetailImageRefs(result, MAX_DETAIL_IMAGE_REFS);
-    reprocessed++;
-    refsTotal += refs.length;
-    if (!refs.length) continue;
-
-    if (!dryRun) {
-      await sb.from("padova_listings").update({ ev_image_refs: refs }).eq("id", listingId);
-      const evidence = (att.evidence ?? {}) as Record<string, unknown>;
-      await sb
-        .from("civiko_contendibili_evidence_attempts")
-        .update({
-          evidence: { ...evidence, image_refs: refs, image_refs_version: "civiko-image-refs-v2" },
-          updated_at: new Date().toISOString(),
-        })
-        .eq("listing_id", listingId);
+  if (!pairsOnly) {
+    // Detail memorizzati per i candidati selezionati (una sola lettura).
+    const queueIds = selected
+      .filter((c) => c.source === "evidence" && c.queue_id)
+      .map((c) => c.queue_id!);
+    const resultById = new Map<string, unknown>();
+    if (queueIds.length) {
+      const { data: queueRows, error: qErr } = await sb
+        .from("scraping_queue")
+        .select("id,result")
+        .in("id", queueIds);
+      if (qErr) return json({ ok: false, error: "queue_read_failed", detail: qErr.message }, 500);
+      for (const r of queueRows ?? []) resultById.set(r.id as string, r.result);
     }
 
-    await ingestRefs(listingId, refs);
-  }
-
-  // 2b) estrazione multi-foto dalle immagini già memorizzate in raw_json.
-  let rawJsonProcessed = 0;
-  let rawJsonRefs = 0;
-  for (const row of pairsOnly ? [] : rawJsonRows) {
-    const listingId = Number(row.id);
-    if (!listingById.has(listingId)) continue;
-    const media = (row.raw_json?.media ?? null) as Record<string, unknown> | null;
-    const images = media?.images ?? null;
-    if (!images) continue;
-
-    const refs = extractDetailImageRefs(images, MAX_DETAIL_IMAGE_REFS);
-    rawJsonProcessed++;
-    refsTotal += refs.length;
-    rawJsonRefs += refs.length;
-    if (!refs.length) continue;
-
-    if (!dryRun) {
-      await sb.from("padova_listings").update({ ev_image_refs: refs }).eq("id", listingId);
+    const rawJsonIds = selected.filter((c) => c.source === "raw_json").map((c) => c.listing_id);
+    const rawJsonById = new Map<number, Record<string, unknown> | null>();
+    if (rawJsonIds.length) {
+      const { data: rj, error: rjErr } = await sb
+        .from("padova_listings")
+        .select("id,raw_json")
+        .in("id", rawJsonIds);
+      if (rjErr) {
+        return json({ ok: false, error: "raw_json_read_failed", detail: rjErr.message }, 500);
+      }
+      for (const r of rj ?? []) {
+        rawJsonById.set(Number(r.id), (r.raw_json ?? null) as Record<string, unknown> | null);
+      }
     }
 
-    await ingestRefs(listingId, refs);
-  }
+    for (const cand of selected) {
+      const listingId = cand.listing_id;
+      if (!listingById.has(listingId)) {
+        outcomeByListing.set(listingId, "listing_missing");
+        continue;
+      }
+      let refs: string[] = [];
+      if (cand.source === "evidence") {
+        const result = cand.queue_id ? resultById.get(cand.queue_id) : null;
+        if (result) {
+          refs = extractDetailImageRefs(result, MAX_DETAIL_IMAGE_REFS);
+          reprocessed++;
+        }
+      } else {
+        const media = (rawJsonById.get(listingId)?.media ?? null) as Record<string, unknown> | null;
+        const images = media?.images ?? null;
+        if (images) {
+          refs = extractDetailImageRefs(images, MAX_DETAIL_IMAGE_REFS);
+          rawJsonProcessed++;
+          rawJsonRefs += refs.length;
+        }
+      }
+      refsTotal += refs.length;
+      if (!refs.length) {
+        outcomeByListing.set(listingId, "no_photo");
+        continue;
+      }
 
+      if (!dryRun) {
+        const { error: refErr } = await sb
+          .from("padova_listings")
+          .update({ ev_image_refs: refs })
+          .eq("id", listingId);
+        if (refErr) {
+          return json({ ok: false, error: "image_refs_write_failed", detail: refErr.message }, 500);
+        }
+        if (cand.source === "evidence") {
+          const { error: attErr } = await sb
+            .from("civiko_contendibili_evidence_attempts")
+            .update({
+              evidence: { image_refs: refs, image_refs_version: "civiko-image-refs-v2" },
+              updated_at: new Date().toISOString(),
+            })
+            .eq("listing_id", listingId);
+          if (attErr) {
+            return json({ ok: false, error: "evidence_write_failed", detail: attErr.message }, 500);
+          }
+        }
+      }
+
+      const before = fingerprints.length;
+      await ingestRefs(listingId, refs);
+      outcomeByListing.set(
+        listingId,
+        fingerprints.length > before ? "fingerprinted" : "undecodable",
+      );
+    }
+  }
 
   // materiale generico/ricorrente: stessa immagine in >= 3 annunci scollegati
   const reuse = new Map<string, Set<number>>();
@@ -373,7 +494,7 @@ Deno.serve(async (req) => {
     return true;
   });
 
-  // 4) persistenza idempotente dei fingerprint ---------------------------------
+  // Persistenza idempotente dei fingerprint (errore = fail-closed).
   if (!dryRun && !pairsOnly && usable.length) {
     const { error } = await sb
       .from("civiko_listing_image_fingerprints")
@@ -381,40 +502,58 @@ Deno.serve(async (req) => {
         usable.map((f) => ({ ...f, updated_at: new Date().toISOString() })),
         { onConflict: "listing_id,sha256" },
       );
-    if (error) return json({ ok: false, error: "fingerprints_write_failed", detail: error.message }, 500);
+    if (error) {
+      return json({ ok: false, error: "fingerprints_write_failed", detail: error.message }, 500);
+    }
   }
 
-  // 5) prove per coppia cross-agenzia ------------------------------------------
+  // Esito definitivo dell'avanzamento (il claim resta comunque registrato).
+  if (!dryRun && !pairsOnly && selected.length) {
+    for (const cand of selected) {
+      const { error } = await sb
+        .from("civiko_image_certify_attempts")
+        .update({ last_outcome: outcomeByListing.get(cand.listing_id) ?? "no_photo" })
+        .eq("listing_id", cand.listing_id);
+      if (error) {
+        return json({ ok: false, error: "attempts_progress_write_failed", detail: error.message }, 500);
+      }
+    }
+  }
+
+  // ── Prove per coppia cross-agenzia ──────────────────────────────────────
   const byListing = new Map<number, Fp[]>();
   for (const f of usable) {
     const arr = byListing.get(f.listing_id) ?? [];
     arr.push(f);
     byListing.set(f.listing_id, arr);
   }
-  const eligible = Array.from(byListing.entries()).filter(([, v]) => v.length >= MIN_SHARED_PHOTOS_PER_PAIR);
-  const withTwoFingerprints = eligible.length;
+  const eligiblePairs = Array.from(byListing.entries())
+    .filter(([, v]) => v.length >= MIN_SHARED_PHOTOS_PER_PAIR);
+  const withTwoFingerprints = eligiblePairs.length;
 
-  // Identità canonica: due righe che sono lo STESSO annuncio di portale
-  // (stesso id canonico) non possono mai costituire prova di contendibilità,
-  // anche se le agenzie dichiarate differiscono per filiale o formattazione.
+  // Identità canonica: due righe che sono lo STESSO annuncio di portale non
+  // possono mai costituire prova di contendibilità. Errore RPC = fail-closed.
   const canonicalById = new Map<number, string>();
-  for (const [id] of eligible) {
+  for (const [id] of eligiblePairs) {
     const l = listingById.get(id);
     const url = (l?.url as string | undefined) ?? "";
     if (!url) continue;
-    const { data: canon } = await sb.rpc("padova_listing_canonical_id", {
+    const { data: canon, error: canonErr } = await sb.rpc("padova_listing_canonical_id", {
       p_url: url,
       p_fonte: (l?.fonte as string | null) ?? null,
     });
+    if (canonErr) {
+      return json({ ok: false, error: "canonical_id_failed", detail: canonErr.message }, 500);
+    }
     if (typeof canon === "string" && canon) canonicalById.set(id, canon);
   }
   let scartatiStessoAnnuncio = 0;
 
   const pairRows: Array<Record<string, unknown>> = [];
-  for (let i = 0; i < eligible.length; i++) {
-    for (let j = i + 1; j < eligible.length; j++) {
-      const [idA] = eligible[i];
-      const [idB] = eligible[j];
+  for (let i = 0; i < eligiblePairs.length; i++) {
+    for (let j = i + 1; j < eligiblePairs.length; j++) {
+      const [idA] = eligiblePairs[i];
+      const [idB] = eligiblePairs[j];
       const la = listingById.get(idA);
       const lb = listingById.get(idB);
       if (!la || !lb) continue;
@@ -428,7 +567,6 @@ Deno.serve(async (req) => {
       const agencyB = normAgency(lb.agency as string | null);
       if (!agencyA || !agencyB || agencyA === agencyB) continue;
       if ((la.commercial_zone_slug ?? null) !== (lb.commercial_zone_slug ?? null)) continue;
-
 
       const pa = byListing.get(idA)!;
       const pb = byListing.get(idB)!;
@@ -459,33 +597,45 @@ Deno.serve(async (req) => {
         soglia: PHASH_MATCH_MAX_DISTANCE,
         match_version: MATCH_VERSION,
         evidence_kind: EVIDENCE_KIND,
-        computed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        computed_at: runStartedAt,
+        updated_at: runStartedAt,
       });
     }
   }
 
+  let stalePairsRemoved = 0;
   if (!dryRun && pairRows.length) {
     const { error } = await sb
       .from("civiko_listing_photo_pair_evidence")
       .upsert(pairRows, { onConflict: "listing_a,listing_b" });
     if (error) return json({ ok: false, error: "pairs_write_failed", detail: error.message }, 500);
   }
+  if (!dryRun && pairsOnly) {
+    // Sostituzione atomica: pairs_only ha ricalcolato TUTTO l'insieme, quindi
+    // ogni prova non riscritta in questo giro è stantia e va rimossa.
+    const { data: removed, error } = await sb
+      .from("civiko_listing_photo_pair_evidence")
+      .delete()
+      .lt("computed_at", runStartedAt)
+      .select("listing_a");
+    if (error) return json({ ok: false, error: "stale_pairs_delete_failed", detail: error.message }, 500);
+    stalePairsRemoved = (removed ?? []).length;
+  }
 
   return json({
     ok: true,
     dry_run: dryRun,
     pairs_only: pairsOnly,
-    // Progressione oldest-first: marker stabile su coda mutante.
-    after_listing_id: afterListingId,
-    last_listing_id: lastListingId,
+    // Avanzamento monotono indipendente da offset e id di coda.
+    progress_marker: await progressMarker(),
     attempted: listingIds.length,
     scanned,
-    remaining: remaining ?? 0,
+    remaining: pairsOnly ? 0 : Math.max(0, poolSize - selected.length),
     pipeline_run_id: pipelineRunId,
     limit,
+    zone_scope: zoneScope,
+    max_attempts_per_listing: MAX_ATTEMPTS_PER_LISTING,
     match_version: MATCH_VERSION,
-
     evidence_kind: EVIDENCE_KIND,
     algo: PHASH_ALGO,
     soglia_hamming: PHASH_MATCH_MAX_DISTANCE,
@@ -494,7 +644,6 @@ Deno.serve(async (req) => {
     raw_json_annunci_processati: rawJsonProcessed,
     raw_json_image_refs_estratti: rawJsonRefs,
     image_refs_estratti: refsTotal,
-
     immagini_decodificate: decoded,
     immagini_non_decodificabili: undecodable,
     download_falliti: downloadFailed,
@@ -503,7 +652,9 @@ Deno.serve(async (req) => {
     annunci_con_2_fingerprint: withTwoFingerprints,
     coppie_con_foto_condivise: pairRows.length,
     coppie_scartate_stesso_annuncio: scartatiStessoAnnuncio,
-    coppie_certificanti: pairRows.filter((p) => (p.shared_photos as number) >= MIN_SHARED_PHOTOS_PER_PAIR).length,
+    coppie_stantie_rimosse: stalePairsRemoved,
+    coppie_certificanti:
+      pairRows.filter((p) => (p.shared_photos as number) >= MIN_SHARED_PHOTOS_PER_PAIR).length,
     budget_richieste_usate: budget.used,
     diagnostics,
   });
