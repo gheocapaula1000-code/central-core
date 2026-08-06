@@ -405,12 +405,30 @@ Deno.serve(async (req) => {
     }
   }
 
-  const { data: listings, error: lErr } = await sb
-    .from("padova_listings")
-    .select("id,url,fonte,agency,commercial_zone_slug,ev_via_norm,ev_image_refs")
-    .in("id", listingIds);
-  if (lErr) return json({ ok: false, error: "listings_read_failed", detail: lErr.message }, 500);
-  const listingById = new Map((listings ?? []).map((l) => [Number(l.id), l]));
+  // Perimetro esatto anche in pairs_only: solo annunci ATTIVI del Comune di
+  // Padova nelle 8 zone ufficiali. Query .in() sempre in chunk bounded.
+  const listingRows: Array<Record<string, unknown>> = [];
+  for (const part of chunk(listingIds)) {
+    const { data, error: lErr } = await sb
+      .from("padova_listings")
+      .select("id,url,fonte,agency,commercial_zone_slug,ev_via_norm,ev_image_refs")
+      .in("id", part)
+      .is("expired_at", null)
+      .eq("comune", "Padova")
+      .in("commercial_zone_slug", zoneScope);
+    if (lErr) return json({ ok: false, error: "listings_read_failed", detail: lErr.message }, 500);
+    for (const r of data ?? []) listingRows.push(r as Record<string, unknown>);
+  }
+  const listingById = new Map(listingRows.map((l) => [Number(l.id), l]));
+  const outOfScopeFingerprintListings = pairsOnly
+    ? listingIds.filter((id) => !listingById.has(id)).length
+    : 0;
+  if (pairsOnly) {
+    // I fingerprint fuori perimetro (scaduti/altro comune/altra zona) non
+    // possono generare prove: si escludono prima del pairing.
+    storedFingerprints = storedFingerprints.filter((f) => listingById.has(f.listing_id));
+    listingIds = Array.from(new Set(storedFingerprints.map((f) => f.listing_id)));
+  }
 
   // ── Estrazione multi-foto + fingerprint sui byte reali ──────────────────
   let reprocessed = 0;
