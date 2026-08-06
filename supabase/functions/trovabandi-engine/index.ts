@@ -2,10 +2,15 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   aggregateDiagnostics,
+  httpFailureCode,
+  isOperationalFailure,
   parseExtractionContent,
+  shouldTryPlainJsonFallback,
   validateExtraction,
+  type ExtractionFailureCode,
   type ExtractionOutcome,
 } from "./extraction.ts";
+
 
 
 type JsonObject = Record<string, unknown>;
@@ -516,7 +521,7 @@ async function callExtraction(
   model: string,
   prompt: string,
   useSchema: boolean,
-): Promise<{ ok: true; content: string } | { ok: false; code: "TIMEOUT" | "HTTP_ERROR"; status?: number }> {
+): Promise<{ ok: true; content: string } | { ok: false; code: ExtractionFailureCode }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 35_000);
   try {
@@ -540,9 +545,9 @@ async function callExtraction(
       signal: controller.signal,
     });
     if (!res.ok) {
-      // Il corpo non viene letto né registrato: solo lo status non sensibile.
+      // Il corpo non viene letto né registrato: solo la classe HTTP sanificata.
       await res.body?.cancel();
-      return { ok: false, code: "HTTP_ERROR", status: res.status };
+      return { ok: false, code: httpFailureCode(res.status) };
     }
     const payload = (await res.json()) as JsonObject;
     const choices = Array.isArray(payload.choices) ? payload.choices : [];
@@ -569,19 +574,21 @@ async function extractOpportunity(
   const schemaHint = `Campi ammessi: is_opportunity (boolean), title, authority_name, category (uno tra FONDO_PERDUTO, FINANZIAMENTO_AGEVOLATO, TASSO_ZERO, CREDITO_IMPOSTA, GARANZIA, VOUCHER, IMPRENDITORIA_FEMMINILE, IMPRENDITORIA_GIOVANILE, DIGITALIZZAZIONE, TRANSIZIONE_ENERGETICA, RICERCA_SVILUPPO, INTERNAZIONALIZZAZIONE, STARTUP_INNOVAZIONE, FORMAZIONE_OCCUPAZIONE, AGRICOLTURA_RURALE, TURISMO_CULTURA, ECONOMIA_CIRCOLARE, ALTRO), summary, official_url, notice_url, application_url, forms_url, protocol_email, region, province, municipality, eligible_ateco_prefixes[], excluded_ateco_prefixes[], eligible_legal_forms[], eligible_company_sizes[], female_only, youth_only, startup_only, innovative_only, de_minimis, aid_intensity_percent, min_grant_amount, max_grant_amount, total_budget, opens_at, deadline_at, click_day, requirements[], eligible_expenses[], publication_reference, programme_name, programme_code, pnrr_mission, pnrr_component, implementing_body, eligible_countries[], consortium_required, min_partners, direct_applicant_allowed.`;
   const prompt = `Estrai esclusivamente dati presenti nel testo ufficiale seguente. Non dedurre requisiti, date o importi mancanti. Se la pagina non descrive un bando, incentivo o finanziamento per imprese aperto, in apertura o con documentazione ancora rilevante, imposta is_opportunity=false. official_url deve essere ${hit.url}. Date ISO 8601. Prefissi ATECO senza punteggiatura superflua. Per opportunità UE estrai programma, codice call/topic, Paesi ammessi e obbligo/minimo partner. Per PNRR estrai Missione, Componente e soggetto attuatore soltanto se espliciti.\n${schemaHint}\n\n${markdown}`;
 
+  // Massimo due tentativi: schema JSON, poi eventuale fallback plain JSON.
   const modes: Array<"json_schema" | "json_fallback"> = ["json_schema", "json_fallback"];
   let lastFailure: ExtractionOutcome = { ok: false, code: "UNKNOWN" };
   for (const mode of modes) {
     const call = await callExtraction(key, model, prompt, mode === "json_schema");
     if (!call.ok) {
       lastFailure = { ok: false, code: call.code, mode };
-      // Timeout: non si ritenta, per non moltiplicare costo e latenza.
-      if (call.code === "TIMEOUT") return lastFailure;
+      // Nessun retry su 401/402/403/429/5xx/timeout: sono errori operativi.
+      if (!shouldTryPlainJsonFallback(call.code)) return lastFailure;
       continue;
     }
     const parsed = parseExtractionContent(call.content);
     if (!parsed.ok) {
       lastFailure = { ok: false, code: parsed.code, mode };
+      if (!shouldTryPlainJsonFallback(parsed.code)) return lastFailure;
       continue;
     }
     const validated = validateExtraction(parsed.value, source.official_domain, hit.url);
@@ -596,6 +603,7 @@ async function extractOpportunity(
 
 
 
+
 async function storeOpportunity(
   sb: ReturnType<typeof createClient>,
   source: Source,
@@ -603,10 +611,11 @@ async function storeOpportunity(
   extracted: JsonObject,
   markdown: string,
   extractionProvider: string,
-) {
+): Promise<{ stored: boolean; verified: boolean; code: string }> {
   const officialUrl = normalizeUrl(hit.url);
   if (!officialUrl || !hostMatches(officialUrl, source.official_domain))
-    return { stored: false, verified: false };
+    return { stored: false, verified: false, code: "OFF_DOMAIN" };
+
   const deadline = isoOrNull(extracted.deadline_at);
   const now = new Date();
   const expired = deadline ? new Date(deadline).getTime() < now.getTime() : false;
@@ -686,7 +695,8 @@ async function storeOpportunity(
     content_hash: contentHash,
     raw_excerpt: markdown.slice(0, 4000),
     last_seen_at: now.toISOString(),
-    last_verified_at: hasEvidence ? now.toISOString() : null,
+    // last_verified_at è valorizzato soltanto quando la verifica è completa.
+    last_verified_at: verification === "VERIFICATO" ? now.toISOString() : null,
     updated_at: now.toISOString(),
   };
   const { data, error } = await sb
@@ -694,8 +704,8 @@ async function storeOpportunity(
     .upsert(row, { onConflict: "official_url" })
     .select("id")
     .single();
-  if (error || !data) return { stored: false, verified: false };
-  await sb.from("trovabandi_evidence").upsert(
+  if (error || !data) return { stored: false, verified: false, code: "OPPORTUNITY_WRITE_FAILED" };
+  const { error: evidenceError } = await sb.from("trovabandi_evidence").upsert(
     {
       opportunity_id: data.id,
       source_url: officialUrl,
@@ -707,8 +717,26 @@ async function storeOpportunity(
     },
     { onConflict: "opportunity_id,source_url" },
   );
-  return { stored: true, verified: verification === "VERIFICATO" };
+  if (evidenceError) {
+    // Fail-closed: senza prova persistita l'opportunità non può risultare verificata.
+    // Compensazione non distruttiva: si declassa lo stato, non si cancella nulla.
+    await sb
+      .from("trovabandi_opportunities")
+      .update({
+        verification_status: "DA_VERIFICARE",
+        last_verified_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", data.id);
+    return { stored: false, verified: false, code: "EVIDENCE_WRITE_FAILED" };
+  }
+  return {
+    stored: true,
+    verified: verification === "VERIFICATO",
+    code: verification === "VERIFICATO" ? "OK_VERIFICATO" : `OK_${verification}`,
+  };
 }
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return response(204, {});
@@ -770,27 +798,50 @@ serve(async (req) => {
   }
 
   if (action === "release_gate") {
+    const nowIso = new Date().toISOString();
     const since = new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString();
-    const [{ count: active }, { count: successfulRuns }, { count: deepRuns }] = await Promise.all([
+    // Gate fail-closed: PARZIALE, PARTIAL, RUNNING e FAILED non contano mai.
+    const [
+      { count: verifiedActive },
+      { count: partialActive },
+      { count: recentVerifiedRuns },
+      { count: deepSuccessfulRuns },
+    ] = await Promise.all([
       sb
         .from("trovabandi_opportunities")
         .select("id", { count: "exact", head: true })
-        .in("verification_status", ["VERIFICATO", "PARZIALE"]),
+        .eq("verification_status", "VERIFICATO")
+        .eq("official_source", true)
+        .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`),
+      sb
+        .from("trovabandi_opportunities")
+        .select("id", { count: "exact", head: true })
+        .eq("verification_status", "PARZIALE"),
       sb
         .from("trovabandi_runs")
         .select("id", { count: "exact", head: true })
         .gte("started_at", since)
-        .in("status", ["SUCCEEDED", "PARTIAL"]),
+        .eq("status", "SUCCEEDED")
+        .not("finished_at", "is", null)
+        .gt("verified_count", 0),
       sb
         .from("trovabandi_runs")
         .select("id,trovabandi_sources!inner(source_kind)", { count: "exact", head: true })
         .gte("started_at", since)
+        .eq("status", "SUCCEEDED")
+        .not("finished_at", "is", null)
         .in("trovabandi_sources.source_kind", ["BUR", "ALBO_PRETORIO", "CAMERALE", "GAL"]),
     ]);
+    const metrics = {
+      verified_active: verifiedActive ?? 0,
+      partial_active: partialActive ?? 0,
+      recent_verified_runs: recentVerifiedRuns ?? 0,
+      deep_successful_runs: deepSuccessfulRuns ?? 0,
+    };
     const checks = {
-      active_catalogue: (active ?? 0) > 0,
-      recent_runs: (successfulRuns ?? 0) > 0,
-      deep_sources_scanned: (deepRuns ?? 0) > 0,
+      verified_catalogue: metrics.verified_active > 0,
+      recent_verified_runs: metrics.recent_verified_runs > 0,
+      deep_sources_verified_scan: metrics.deep_successful_runs > 0,
     };
     const ok = Object.values(checks).every(Boolean);
     return response(ok ? 200 : 409, {
@@ -798,13 +849,10 @@ serve(async (req) => {
       gate_passed: ok,
       cron_activation_allowed: ok,
       checks,
-      metrics: {
-        active: active ?? 0,
-        successful_runs_8h: successfulRuns ?? 0,
-        deep_runs_8h: deepRuns ?? 0,
-      },
+      metrics,
     });
   }
+
 
   if (action === "request_refresh") {
     const profile = (body.profile ?? {}) as CompanyProfile;
@@ -951,6 +999,9 @@ serve(async (req) => {
     const hits = [...byUrl.values()].slice(0, maxPages);
     let processed = 0;
     let verified = 0;
+    let pagesScraped = 0;
+    // Guasti operativi: degradano il run a PARTIAL e non sbloccano il gate.
+    let operationalFailures = 0;
     // Diagnostica non sensibile: solo fase + codice, mai URL completi o contenuti.
     const diagnostics: Array<{ phase: string; code: string }> = [];
     for (const hit of hits) {
@@ -958,13 +1009,20 @@ serve(async (req) => {
       if (!scraped) {
         diagnostics.push({ phase: "scrape", code: "NO_CONTENT" });
         warnings.push(`scrape_failed:${new URL(hit.url).hostname}`);
+        operationalFailures++;
         continue;
       }
+      // pages_scraped misura gli scrape riusciti, non i tentativi.
+      pagesScraped++;
       diagnostics.push({ phase: "scrape", code: `OK_${scraped.provider.toUpperCase()}` });
       const extracted = await extractOpportunity(source, hit, scraped.markdown);
       if (!extracted.ok) {
         diagnostics.push({ phase: "extract", code: extracted.code });
-        warnings.push(`extract_${extracted.code.toLowerCase()}`);
+        // NOT_OPPORTUNITY e gli altri esiti negativi validi non generano warning.
+        if (isOperationalFailure(extracted.code)) {
+          warnings.push(`extract_${extracted.code.toLowerCase()}`);
+          operationalFailures++;
+        }
         continue;
       }
       diagnostics.push({
@@ -979,11 +1037,16 @@ serve(async (req) => {
         scraped.markdown,
         scraped.provider,
       );
-      diagnostics.push({ phase: "store", code: stored.stored ? "OK" : "REJECTED" });
-      if (!stored.stored) warnings.push("store_rejected");
-      if (stored.stored) processed++;
+      diagnostics.push({ phase: "store", code: stored.code });
+      if (!stored.stored) {
+        warnings.push(`store_${stored.code.toLowerCase()}`);
+        operationalFailures++;
+        continue;
+      }
+      processed++;
       if (stored.verified) verified++;
     }
+
     const diagnosticCounters = aggregateDiagnostics(diagnostics);
     const finished = new Date().toISOString();
     await Promise.all([
@@ -1001,16 +1064,18 @@ serve(async (req) => {
         ? sb
             .from("trovabandi_runs")
             .update({
-              status: warnings.length ? "PARTIAL" : "SUCCEEDED",
+              status: operationalFailures > 0 ? "PARTIAL" : "SUCCEEDED",
               discovered_count: byUrl.size,
               processed_count: processed,
               verified_count: verified,
               provider_usage: {
                 firecrawl_search: fc.length,
                 perplexity_search: pp.length,
-                pages_scraped: hits.length,
+                pages_attempted: hits.length,
+                pages_scraped: pagesScraped,
                 diagnostics: diagnosticCounters,
               },
+
               warnings: [...new Set(warnings)],
               finished_at: finished,
             })
@@ -1026,10 +1091,13 @@ serve(async (req) => {
     return response(200, {
       ok: true,
       source: source.name,
+      status: operationalFailures > 0 ? "PARTIAL" : "SUCCEEDED",
       discovered: byUrl.size,
       attempted: hits.length,
+      scraped: pagesScraped,
       processed,
       verified,
+
       warnings: [...new Set(warnings)],
       diagnostics: diagnosticCounters,
     });
