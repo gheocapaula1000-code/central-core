@@ -631,15 +631,20 @@ async function storeOpportunity(
           : "DA_VERIFICARE";
   const contentHash = await sha256(markdown);
   const canonicalKey = await sha256(officialUrl.toLowerCase());
-  const discoveredBy = [
+  const discoveredBy = safeTextArray([
     ...new Set(hit.provider.split("+").concat(extractionProvider, "perplexity")),
-  ];
+  ]);
+  // I valori vincolati da CHECK non possono essere inventati: se non sono
+  // ammessi si degrada in modo conservativo (categoria ALTRO) o si rifiuta.
+  const category = normalizeCategoryCode(extracted.category) ?? "ALTRO";
+  const authorityLevel = normalizeAuthorityLevel(source.authority_level);
+  if (!authorityLevel) return { stored: false, verified: false, code: "AUTHORITY_LEVEL_INVALID" };
   const row = {
     canonical_key: canonicalKey,
     title: normalizeText(extracted.title).slice(0, 500) || hit.title || "Opportunità senza titolo",
     authority_name: normalizeText(extracted.authority_name).slice(0, 300) || source.name,
-    authority_level: source.authority_level,
-    category: normalizeCode(extracted.category) || "ALTRO",
+    authority_level: authorityLevel,
+    category,
     summary:
       normalizeText(extracted.summary).slice(0, 5000) ||
       hit.description ||
@@ -648,44 +653,42 @@ async function storeOpportunity(
     notice_url: normalizeUrl(extracted.notice_url),
     application_url: normalizeUrl(extracted.application_url),
     forms_url: normalizeUrl(extracted.forms_url),
-    protocol_email: normalizeText(extracted.protocol_email) || null,
-    region: normalizeText(extracted.region) || source.region,
-    province: normalizeText(extracted.province) || source.province,
-    municipality: normalizeText(extracted.municipality) || null,
-    eligible_ateco_prefixes: stringArray(extracted.eligible_ateco_prefixes),
-    excluded_ateco_prefixes: stringArray(extracted.excluded_ateco_prefixes),
-    eligible_legal_forms: stringArray(extracted.eligible_legal_forms),
-    eligible_company_sizes: stringArray(extracted.eligible_company_sizes),
+    protocol_email: normalizeText(extracted.protocol_email).slice(0, 320) || null,
+    region: normalizeText(extracted.region).slice(0, 120) || source.region,
+    province: normalizeText(extracted.province).slice(0, 120) || source.province,
+    municipality: normalizeText(extracted.municipality).slice(0, 120) || null,
+    eligible_ateco_prefixes: safeTextArray(extracted.eligible_ateco_prefixes),
+    excluded_ateco_prefixes: safeTextArray(extracted.excluded_ateco_prefixes),
+    eligible_legal_forms: safeTextArray(extracted.eligible_legal_forms),
+    eligible_company_sizes: safeTextArray(extracted.eligible_company_sizes),
     female_only: extracted.female_only === true,
     youth_only: extracted.youth_only === true,
     startup_only: extracted.startup_only === true,
     innovative_only: extracted.innovative_only === true,
     de_minimis: typeof extracted.de_minimis === "boolean" ? extracted.de_minimis : null,
-    aid_intensity_percent:
-      typeof extracted.aid_intensity_percent === "number" ? extracted.aid_intensity_percent : null,
-    min_grant_amount:
-      typeof extracted.min_grant_amount === "number" ? extracted.min_grant_amount : null,
-    max_grant_amount:
-      typeof extracted.max_grant_amount === "number" ? extracted.max_grant_amount : null,
-    total_budget: typeof extracted.total_budget === "number" ? extracted.total_budget : null,
-    opens_at: isoOrNull(extracted.opens_at),
+    // numeric(6,2) / numeric(15,2) / numeric(18,2): overflow ⇒ dato assente.
+    aid_intensity_percent: boundedNumeric(extracted.aid_intensity_percent, 6, 2),
+    min_grant_amount: boundedNumeric(extracted.min_grant_amount, 15, 2),
+    max_grant_amount: boundedNumeric(extracted.max_grant_amount, 15, 2),
+    total_budget: boundedNumeric(extracted.total_budget, 18, 2),
+    opens_at: safeTimestamp(extracted.opens_at),
     deadline_at: deadline,
     click_day: extracted.click_day === true,
-    requirements: stringArray(extracted.requirements),
-    eligible_expenses: stringArray(extracted.eligible_expenses),
+    requirements: safeTextArray(extracted.requirements, 100, 1000),
+    eligible_expenses: safeTextArray(extracted.eligible_expenses, 100, 1000),
     verification_status: verification,
-    rarity_score: Math.max(1, Math.min(5, Number(source.rarity_base ?? 1))),
-    source_kind: source.source_kind || "CATALOGO",
-    publication_reference: normalizeText(extracted.publication_reference) || null,
-    programme_name: normalizeText(extracted.programme_name) || null,
-    programme_code: normalizeText(extracted.programme_code) || null,
-    pnrr_mission: normalizeText(extracted.pnrr_mission) || null,
-    pnrr_component: normalizeText(extracted.pnrr_component) || null,
-    implementing_body: normalizeText(extracted.implementing_body) || null,
-    eligible_countries: stringArray(extracted.eligible_countries),
+    rarity_score: boundedInteger(Math.trunc(Number(source.rarity_base ?? 1)), 1, 5) ?? 1,
+    source_kind: normalizeText(source.source_kind).slice(0, 60) || "CATALOGO",
+    publication_reference: normalizeText(extracted.publication_reference).slice(0, 300) || null,
+    programme_name: normalizeText(extracted.programme_name).slice(0, 300) || null,
+    programme_code: normalizeText(extracted.programme_code).slice(0, 120) || null,
+    pnrr_mission: normalizeText(extracted.pnrr_mission).slice(0, 120) || null,
+    pnrr_component: normalizeText(extracted.pnrr_component).slice(0, 120) || null,
+    implementing_body: normalizeText(extracted.implementing_body).slice(0, 300) || null,
+    eligible_countries: safeTextArray(extracted.eligible_countries),
     consortium_required:
       typeof extracted.consortium_required === "boolean" ? extracted.consortium_required : null,
-    min_partners: typeof extracted.min_partners === "number" ? extracted.min_partners : null,
+    min_partners: boundedInteger(extracted.min_partners, 0, 2_147_483_647),
     direct_applicant_allowed:
       typeof extracted.direct_applicant_allowed === "boolean"
         ? extracted.direct_applicant_allowed
@@ -704,12 +707,19 @@ async function storeOpportunity(
     .upsert(row, { onConflict: "official_url" })
     .select("id")
     .single();
-  if (error || !data) return { stored: false, verified: false, code: "OPPORTUNITY_WRITE_FAILED" };
+  if (error || !data) {
+    // Telemetria sicura: soltanto il codice sanificato dell'errore di scrittura.
+    return {
+      stored: false,
+      verified: false,
+      code: `OPPORTUNITY_WRITE_FAILED_${error ? sanitizeDbErrorCode(error) : "DB_NO_ROW"}`,
+    };
+  }
   const { error: evidenceError } = await sb.from("trovabandi_evidence").upsert(
     {
       opportunity_id: data.id,
       source_url: officialUrl,
-      source_title: hit.title || row.title,
+      source_title: (hit.title || row.title).slice(0, 500),
       evidence_type: officialUrl.toLowerCase().includes(".pdf") ? "PDF" : "OFFICIAL_PAGE",
       excerpt: markdown.slice(0, 3000),
       fetched_at: now.toISOString(),
@@ -728,8 +738,13 @@ async function storeOpportunity(
         updated_at: new Date().toISOString(),
       })
       .eq("id", data.id);
-    return { stored: false, verified: false, code: "EVIDENCE_WRITE_FAILED" };
+    return {
+      stored: false,
+      verified: false,
+      code: `EVIDENCE_WRITE_FAILED_${sanitizeDbErrorCode(evidenceError)}`,
+    };
   }
+
   return {
     stored: true,
     verified: verification === "VERIFICATO",
