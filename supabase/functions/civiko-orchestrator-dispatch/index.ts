@@ -184,7 +184,7 @@ function scheduleContract() {
     pipelines: (Object.keys(PIPELINES) as PipelineAction[]).map((k) => ({
       action: k,
       at: PIPELINES[k].at,
-      steps: PIPELINES[k].steps,
+      steps: expandedSteps(k),
       enabled: CRON_ENABLED,
     })),
   };
