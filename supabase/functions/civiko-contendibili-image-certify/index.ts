@@ -153,104 +153,174 @@ Deno.serve(async (req) => {
   };
 
   // ── Selezione deterministica dei candidati ──────────────────────────────
-  type Candidate = { listing_id: number; source: "evidence" | "raw_json"; queue_id?: string };
+  type Candidate = {
+    listing_id: number;
+    source: "evidence" | "raw_json";
+    queue_id?: string;
+    source_fp: string | null;
+  };
   let selected: Candidate[] = [];
   let scanned = 0;
-  let poolSize = 0;
+  let remainingEligible = 0;
+  let remainingExact = true;
+  const exclusions: Record<string, number> = {};
 
   if (!pairsOnly) {
-    // Listing già esauriti (4 tentativi) o già trattati in QUESTO run.
-    const blocked = new Set<number>();
-    {
+    // Avanzamento: paginazione COMPLETA, nessun cap arbitrario a 5000 righe.
+    const attemptState = new Map<number, AttemptState>();
+    for (let page = 0; page < ATTEMPTS_MAX_PAGES; page++) {
+      const from = page * ATTEMPTS_PAGE_SIZE;
       const { data, error } = await sb
         .from("civiko_image_certify_attempts")
-        .select("listing_id,attempts,last_pipeline_run_id")
+        .select("listing_id,attempts,last_pipeline_run_id,terminal,image_source_fp")
         .order("listing_id", { ascending: true })
-        .limit(ATTEMPTS_PROGRESS_SCAN);
+        .range(from, from + ATTEMPTS_PAGE_SIZE - 1);
       if (error) {
         return json({ ok: false, error: "attempts_progress_read_failed", detail: error.message }, 500);
       }
-      for (const r of data ?? []) {
-        const id = Number(r.listing_id);
-        if (Number(r.attempts) >= MAX_ATTEMPTS_PER_LISTING) blocked.add(id);
-        if (pipelineRunId && r.last_pipeline_run_id === pipelineRunId) blocked.add(id);
+      const rows = data ?? [];
+      for (const r of rows) {
+        attemptState.set(Number(r.listing_id), {
+          attempts: Number(r.attempts) || 0,
+          last_pipeline_run_id: (r.last_pipeline_run_id as string | null) ?? null,
+          terminal: r.terminal === true,
+          image_source_fp: (r.image_source_fp as string | null) ?? null,
+        });
+      }
+      if (rows.length < ATTEMPTS_PAGE_SIZE) break;
+      if (page === ATTEMPTS_MAX_PAGES - 1) {
+        return json({ ok: false, error: "attempts_pagination_overflow" }, 500);
       }
     }
 
-    // Fonte A — detail già memorizzati e riusabili (oldest-first).
-    const { data: attRows, error: attErr } = await sb
-      .from("civiko_contendibili_evidence_attempts")
-      .select("listing_id,queue_id,commercial_zone_slug")
-      .eq("status", "succeeded")
-      .not("queue_id", "is", null)
-      .order("listing_id", { ascending: true })
-      .limit(CANDIDATE_SCAN_LIMIT);
-    if (attErr) {
-      return json({ ok: false, error: "attempts_read_failed", detail: attErr.message }, 500);
-    }
-
-    // Fonte B — foto già memorizzate in raw_json (oldest-first), perimetro esatto.
-    const { data: rawRows, error: rawErr } = await sb
-      .from("padova_listings")
-      .select("id")
-      .is("expired_at", null)
-      .eq("comune", "Padova")
-      .in("commercial_zone_slug", zoneScope)
-      .not("raw_json->media->images", "is", null)
-      .order("id", { ascending: true })
-      .limit(CANDIDATE_SCAN_LIMIT);
-    if (rawErr) {
-      return json({ ok: false, error: "raw_json_read_failed", detail: rawErr.message }, 500);
-    }
-
-    // Pool unico ordinato: un solo tetto TOTALE, mai 4+4.
+    // Pool unico ordinato oldest-first: nessun limite PRIMA delle esclusioni.
+    // Fonte A — detail già memorizzati e riusabili.
     const pool = new Map<number, Candidate>();
-    for (const r of attRows ?? []) {
-      const id = Number(r.listing_id);
-      if (!Number.isFinite(id)) continue;
-      if (!pool.has(id)) pool.set(id, { listing_id: id, source: "evidence", queue_id: String(r.queue_id) });
+    for (let page = 0; page < CANDIDATE_MAX_PAGES; page++) {
+      const from = page * CANDIDATE_PAGE_SIZE;
+      const { data, error } = await sb
+        .from("civiko_contendibili_evidence_attempts")
+        .select("listing_id,queue_id")
+        .eq("status", "succeeded")
+        .not("queue_id", "is", null)
+        .order("listing_id", { ascending: true })
+        .range(from, from + CANDIDATE_PAGE_SIZE - 1);
+      if (error) {
+        return json({ ok: false, error: "attempts_read_failed", detail: error.message }, 500);
+      }
+      const rows = data ?? [];
+      for (const r of rows) {
+        const id = Number(r.listing_id);
+        if (!Number.isFinite(id) || pool.has(id)) continue;
+        pool.set(id, { listing_id: id, source: "evidence", queue_id: String(r.queue_id), source_fp: null });
+      }
+      if (rows.length < CANDIDATE_PAGE_SIZE) break;
+      if (page === CANDIDATE_MAX_PAGES - 1) remainingExact = false;
     }
-    for (const r of rawRows ?? []) {
-      const id = Number(r.id);
-      if (!Number.isFinite(id)) continue;
-      if (!pool.has(id)) pool.set(id, { listing_id: id, source: "raw_json" });
+
+    // Fonte B — foto già memorizzate in raw_json, perimetro esatto.
+    for (let page = 0; page < CANDIDATE_MAX_PAGES; page++) {
+      const from = page * CANDIDATE_PAGE_SIZE;
+      const { data, error } = await sb
+        .from("padova_listings")
+        .select("id")
+        .is("expired_at", null)
+        .eq("comune", "Padova")
+        .in("commercial_zone_slug", zoneScope)
+        .not("raw_json->media->images", "is", null)
+        .order("id", { ascending: true })
+        .range(from, from + CANDIDATE_PAGE_SIZE - 1);
+      if (error) {
+        return json({ ok: false, error: "raw_json_read_failed", detail: error.message }, 500);
+      }
+      const rows = data ?? [];
+      for (const r of rows) {
+        const id = Number(r.id);
+        if (!Number.isFinite(id) || pool.has(id)) continue;
+        pool.set(id, { listing_id: id, source: "raw_json", source_fp: null });
+      }
+      if (rows.length < CANDIDATE_PAGE_SIZE) break;
+      if (page === CANDIDATE_MAX_PAGES - 1) remainingExact = false;
     }
     scanned = pool.size;
 
-    // Idempotenza: chi ha già fingerprint viene saltato e NON blocca la coda.
     const poolIds = Array.from(pool.keys()).sort((a, b) => a - b);
-    if (poolIds.length) {
-      const { data: already, error: fpErr } = await sb
+
+    // Chi ha già fingerprint viene saltato (query .in in chunk bounded).
+    const fingerprinted = new Set<number>();
+    for (const part of chunk(poolIds)) {
+      const { data, error } = await sb
         .from("civiko_listing_image_fingerprints")
         .select("listing_id")
-        .in("listing_id", poolIds);
-      if (fpErr) {
-        return json({ ok: false, error: "fingerprints_read_failed", detail: fpErr.message }, 500);
+        .in("listing_id", part);
+      if (error) {
+        return json({ ok: false, error: "fingerprints_read_failed", detail: error.message }, 500);
       }
-      for (const r of already ?? []) blocked.add(Number(r.listing_id));
+      for (const r of data ?? []) fingerprinted.add(Number(r.listing_id));
     }
 
-    // Perimetro esatto: solo Padova + 8 zone ufficiali, annunci attivi.
+    // Perimetro esatto: attivi, Comune di Padova, 8 slug ufficiali.
     const inScope = new Set<number>();
-    if (poolIds.length) {
-      const { data: scopeRows, error: scopeErr } = await sb
+    for (const part of chunk(poolIds)) {
+      const { data, error } = await sb
         .from("padova_listings")
         .select("id")
-        .in("id", poolIds)
+        .in("id", part)
         .is("expired_at", null)
         .eq("comune", "Padova")
         .in("commercial_zone_slug", zoneScope);
-      if (scopeErr) {
-        return json({ ok: false, error: "scope_read_failed", detail: scopeErr.message }, 500);
+      if (error) {
+        return json({ ok: false, error: "scope_read_failed", detail: error.message }, 500);
       }
-      for (const r of scopeRows ?? []) inScope.add(Number(r.id));
+      for (const r of data ?? []) inScope.add(Number(r.id));
     }
 
-    const eligible = poolIds
-      .filter((id) => inScope.has(id) && !blocked.has(id))
-      .map((id) => pool.get(id)!);
-    poolSize = eligible.length;
-    selected = eligible.slice(0, limit);
+    // Impronta CORRENTE della fonte immagine, solo per i terminali in perimetro:
+    // un no_photo torna lavorabile appena la fonte cambia davvero.
+    const terminalIds = poolIds.filter((id) =>
+      inScope.has(id) && !fingerprinted.has(id) && attemptState.get(id)?.terminal === true &&
+      (attemptState.get(id)?.attempts ?? 0) < MAX_ATTEMPTS_PER_LISTING
+    );
+    const currentSourceFp = new Map<number, string | null>();
+    for (const part of chunk(terminalIds)) {
+      const { data, error } = await sb
+        .from("padova_listings")
+        .select("id,ev_image_refs,images:raw_json->media->images")
+        .in("id", part);
+      if (error) {
+        return json({ ok: false, error: "source_fp_read_failed", detail: error.message }, 500);
+      }
+      for (const r of data ?? []) {
+        currentSourceFp.set(
+          Number(r.id),
+          await sourceFingerprint({
+            images: (r as Record<string, unknown>).images ?? null,
+            refs: (r as Record<string, unknown>).ev_image_refs ?? null,
+          }),
+        );
+      }
+    }
+
+    // Scansione oldest-first fino a `limit` eleggibili oppure EOF: il residuo
+    // è autoritativo perché deriva dalla scansione completa del pool.
+    for (const id of poolIds) {
+      const cand = pool.get(id)!;
+      const reason = eligibilityReason({
+        attempt: attemptState.get(id),
+        maxAttempts: MAX_ATTEMPTS_PER_LISTING,
+        pipelineRunId,
+        hasFingerprint: fingerprinted.has(id),
+        inScope: inScope.has(id),
+        currentSourceFp: currentSourceFp.get(id) ?? null,
+      });
+      if (reason) {
+        exclusions[reason] = (exclusions[reason] ?? 0) + 1;
+        continue;
+      }
+      cand.source_fp = currentSourceFp.get(id) ?? null;
+      if (selected.length < limit) selected.push(cand);
+      else remainingEligible++;
+    }
 
     if (!selected.length) {
       return json({
@@ -259,6 +329,8 @@ Deno.serve(async (req) => {
         attempted: 0,
         scanned,
         remaining: 0,
+        remaining_exact: remainingExact,
+        exclusions,
         progress_marker: await progressMarker(),
         pipeline_run_id: pipelineRunId,
         zero_novelty: true,
@@ -269,28 +341,26 @@ Deno.serve(async (req) => {
     // Marcatura ATOMICA prima di lavorare: anche no-photo/undecodable avanzano.
     if (!dryRun) {
       const ids = selected.map((c) => c.listing_id);
-      const { data: prev, error: prevErr } = await sb
-        .from("civiko_image_certify_attempts")
-        .select("listing_id,attempts")
-        .in("listing_id", ids);
-      if (prevErr) {
-        return json({ ok: false, error: "attempts_progress_read_failed", detail: prevErr.message }, 500);
-      }
-      const prevCount = new Map((prev ?? []).map((r) => [Number(r.listing_id), Number(r.attempts) || 0]));
       const { error: markErr } = await sb
         .from("civiko_image_certify_attempts")
         .upsert(
-          ids.map((id) => ({
-            listing_id: id,
-            attempts: (prevCount.get(id) ?? 0) + 1,
+          selected.map((c) => ({
+            listing_id: c.listing_id,
+            attempts: (attemptState.get(c.listing_id)?.attempts ?? 0) + 1,
             last_pipeline_run_id: pipelineRunId,
             last_outcome: "claimed",
             last_attempt_at: runStartedAt,
+            // Il claim riapre il tentativo: lo stato terminale si ricalcola.
+            terminal: false,
+            terminal_reason: null,
           })),
           { onConflict: "listing_id" },
         );
       if (markErr) {
         return json({ ok: false, error: "attempts_progress_write_failed", detail: markErr.message }, 500);
+      }
+      if (ids.length > MAX_ATTEMPTS_PER_LISTING) {
+        return json({ ok: false, error: "hard_limit_violated" }, 500);
       }
     }
   }
