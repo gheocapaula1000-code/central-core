@@ -495,7 +495,8 @@ Deno.serve(async (req) => {
       for (const r of queueRows ?? []) resultById.set(r.id as string, r.result);
     }
 
-    const rawJsonIds = selected.filter((c) => c.source === "raw_json").map((c) => c.listing_id);
+    // raw_json serve a TUTTI i selezionati: entra nell'impronta della fonte.
+    const rawJsonIds = selected.map((c) => c.listing_id);
     const rawJsonById = new Map<number, Record<string, unknown> | null>();
     if (rawJsonIds.length) {
       const { data: rj, error: rjErr } = await sb
@@ -538,7 +539,12 @@ Deno.serve(async (req) => {
       // no_photo terminale si riapre solo se la fonte cambia davvero.
       sourceFpByListing.set(
         listingId,
-        await sourceFingerprint({ images: rawImages, refs: refs.length ? refs : null }),
+        await sourceFingerprint({
+          images: rawImages,
+          refs: refs.length
+            ? refs
+            : ((listingById.get(listingId)?.ev_image_refs as unknown) ?? null),
+        }),
       );
       if (!refs.length) {
         outcomeByListing.set(listingId, "no_photo");
