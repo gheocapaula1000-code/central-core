@@ -49,7 +49,7 @@ export function resolveTenantScope(opts: {
   const assigned = [
     ...new Set(opts.assignedSlugs.filter((s) => typeof s === "string" && isCivikoCommercialZoneSlug(s))),
   ];
-  const allowed = opts.isAdmin ? [...OFFICIAL_ZONE_SLUGS] : assigned;
+  const allowed: string[] = opts.isAdmin ? [...OFFICIAL_ZONE_SLUGS] : assigned;
   if (!allowed.length) return { ok: false, code: "NO_ZONE_ASSIGNED" };
 
   const raw = opts.requestedSlug;
