@@ -2154,6 +2154,33 @@ export type Database = {
         }
         Relationships: []
       }
+      civiko_image_certify_attempts: {
+        Row: {
+          attempts: number
+          created_at: string
+          last_attempt_at: string
+          last_outcome: string | null
+          last_pipeline_run_id: string | null
+          listing_id: number
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          last_attempt_at?: string
+          last_outcome?: string | null
+          last_pipeline_run_id?: string | null
+          listing_id: number
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          last_attempt_at?: string
+          last_outcome?: string | null
+          last_pipeline_run_id?: string | null
+          listing_id?: number
+        }
+        Relationships: []
+      }
       civiko_listing_image_fingerprints: {
         Row: {
           algo: string
@@ -2525,45 +2552,63 @@ export type Database = {
       civiko_orchestrator_action_runs: {
         Row: {
           action: string
+          attempt_no: number
           counters: Json
           created_at: string
+          duration_ms: number | null
           error_code: string | null
           finished_at: string | null
+          http_status: number | null
           id: string
           ok: boolean | null
           pipeline: string | null
+          pipeline_action: string | null
           pipeline_run_id: string | null
+          result: Json
           run_id: string
           started_at: string
           status: number | null
+          target: string | null
         }
         Insert: {
           action: string
+          attempt_no?: number
           counters?: Json
           created_at?: string
+          duration_ms?: number | null
           error_code?: string | null
           finished_at?: string | null
+          http_status?: number | null
           id?: string
           ok?: boolean | null
           pipeline?: string | null
+          pipeline_action?: string | null
           pipeline_run_id?: string | null
+          result?: Json
           run_id: string
           started_at?: string
           status?: number | null
+          target?: string | null
         }
         Update: {
           action?: string
+          attempt_no?: number
           counters?: Json
           created_at?: string
+          duration_ms?: number | null
           error_code?: string | null
           finished_at?: string | null
+          http_status?: number | null
           id?: string
           ok?: boolean | null
           pipeline?: string | null
+          pipeline_action?: string | null
           pipeline_run_id?: string | null
+          result?: Json
           run_id?: string
           started_at?: string
           status?: number | null
+          target?: string | null
         }
         Relationships: []
       }
