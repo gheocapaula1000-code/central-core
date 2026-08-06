@@ -118,7 +118,20 @@ Deno.serve(async (req) => {
     return fail(req, 400, validation.code, validation.message, debugId);
   }
 
-  const written = await upsertAck(validation.record);
+  // Binding server-side: la PWA non dichiara la pipeline, la deriva il Core.
+  const runs = await fetchPipelineRuns(Date.parse(validation.record.started_at));
+  if (runs === null) {
+    return fail(req, 502, "PIPELINE_LOOKUP_FAILED", "Pipeline audit not readable", debugId);
+  }
+  const binding = bindAckToPipeline(runs, Date.parse(validation.record.started_at));
+  if (!binding.ok) {
+    return fail(req, 409, binding.code, binding.message, debugId);
+  }
+
+  const written = await upsertAck({
+    ...validation.record,
+    pipeline_run_id: binding.pipelineRunId,
+  });
   if (!written.ok) {
     return fail(req, 502, written.code ?? "ACK_WRITE_FAILED", "Ack not persisted", debugId);
   }
@@ -126,9 +139,12 @@ Deno.serve(async (req) => {
   return ok(req, {
     run_id: validation.record.run_id,
     idempotency_key: validation.record.idempotency_key,
+    pipeline_run_id: binding.pipelineRunId,
+    pipeline_finished_at: binding.pipelineFinishedAt,
     ok: validation.record.ok,
     finished_at: validation.record.finished_at,
     scope_comune: validation.record.scope_comune,
     zones: validation.record.scope_slugs.length,
   }, [], debugId);
+
 });
