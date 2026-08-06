@@ -131,7 +131,7 @@ Deno.test("semanticFailure: 200 con ok:false/skipped/error/zero è guasto", () =
   assertEquals(semanticFailure("radar_full", { ok: false }), "ok_false");
   assertEquals(semanticFailure("radar_full", { skipped: true }), "skipped");
   assertEquals(semanticFailure("radar_full", { error: "boom" }), "error");
-  assertEquals(semanticFailure("apify_subito", { processed: 0 }), "zero_provider_result");
+  assertEquals(semanticFailure("apify_subito", { processed: 0 }), "apify_started_count_zero");
 });
 
 Deno.test("nestedFailure: guasti a qualunque profondità, counters inclusi", () => {
@@ -273,7 +273,7 @@ Deno.test("pipeline_0510: casa + 3 apify + classificazione privati", () => {
     "apify_immobiliare",
     "apify_idealista",
     "apify_subito",
-    "private_leads_classify",
+    "private_leads_nightly",
   ]);
 });
 
