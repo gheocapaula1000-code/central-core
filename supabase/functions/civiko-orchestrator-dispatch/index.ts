@@ -862,11 +862,15 @@ async function releaseGate(mode: GateMode) {
   const integrity = await readGateIntegrity();
   if (!integrity) failedQueries.push("release_gate_integrity_view");
 
-  const metricsAvailable = Boolean(SERVICE_KEY) && failedQueries.length === 0 &&
-    integrity !== null;
+  const actionRuns = await readActionRuns(since);
+  if (!actionRuns) failedQueries.push("orchestrator_action_runs");
 
-  const g = (group: keyof typeof metrics, metric: string): number =>
-    (metrics[group][metric] as number) ?? 0;
+  const metricsAvailable = Boolean(SERVICE_KEY) && failedQueries.length === 0 &&
+    integrity !== null && actionRuns !== null;
+
+  const g = (group: string, metric: string): number =>
+    (metrics[group]?.[metric] as number) ?? 0;
+
 
 
   const requirements = metricsAvailable
