@@ -236,3 +236,88 @@ export function aggregateDiagnostics(entries: Array<{ phase: string; code: strin
   }
   return counters;
 }
+
+/**
+ * Categoria: normalizzazione conservativa (underscore preservati) e
+ * validazione contro l'enum ufficiale. Nessun valore inventato: se il
+ * risultato non è ammesso dal CHECK di database si ritorna null.
+ */
+export function normalizeCategoryCode(value: unknown): ExtractionCategory | null {
+  const code = (typeof value === "string" ? value : "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return (EXTRACTION_CATEGORIES as readonly string[]).includes(code)
+    ? (code as ExtractionCategory)
+    : null;
+}
+
+export const AUTHORITY_LEVELS = ["EU", "NAZIONALE", "REGIONALE", "CAMERALE", "COMUNALE"] as const;
+
+export function normalizeAuthorityLevel(value: unknown): string | null {
+  const code = (typeof value === "string" ? value : "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return (AUTHORITY_LEVELS as readonly string[]).includes(code) ? code : null;
+}
+
+/**
+ * Valore per colonne numeric(p,s): rifiuta non finiti, negativi e overflow.
+ * Non arrotonda verso valori "plausibili": fuori range ⇒ null (dato assente).
+ */
+export function boundedNumeric(value: unknown, precision: number, scale: number): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  if (value < 0) return null;
+  const max = Math.pow(10, precision - scale);
+  if (value >= max) return null;
+  return Math.round(value * Math.pow(10, scale)) / Math.pow(10, scale);
+}
+
+/** Intero non negativo entro il range int4; qualsiasi altro valore ⇒ null. */
+export function boundedInteger(value: unknown, min: number, max: number): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  if (!Number.isInteger(value)) return null;
+  if (value < min || value > max) return null;
+  return value;
+}
+
+/** Timestamptz sicuro: solo date reali entro un intervallo plausibile. */
+export function safeTimestamp(value: unknown): string | null {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return null;
+  const date = new Date(raw);
+  const time = date.getTime();
+  if (!Number.isFinite(time)) return null;
+  const year = date.getUTCFullYear();
+  if (year < 1990 || year > 2100) return null;
+  return date.toISOString();
+}
+
+/** Array di testo per colonne text[]: elementi non vuoti, deduplicati, limitati. */
+export function safeTextArray(value: unknown, maxItems = 100, maxLength = 500): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const trimmed = item.trim().slice(0, maxLength);
+    if (!trimmed) continue;
+    if (!out.includes(trimmed)) out.push(trimmed);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+/**
+ * Telemetria sicura degli errori di scrittura: SOLO il codice Postgres/PostgREST.
+ * Mai message, details, hint, riga, URL o contenuto.
+ */
+export function sanitizeDbErrorCode(error: unknown): string {
+  const code = (error as { code?: unknown } | null)?.code;
+  const raw = typeof code === "string" ? code.trim().toUpperCase() : "";
+  const safe = raw.replace(/[^A-Z0-9]/g, "");
+  if (!safe) return "DB_UNKNOWN";
+  return `DB_${safe.slice(0, 12)}`;
+}
