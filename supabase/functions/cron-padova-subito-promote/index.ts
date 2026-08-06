@@ -8,6 +8,12 @@
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  bumpCounter,
+  createScopeCounters,
+  normalizeCounters,
+  reconcileScopeCounters,
+} from "../_shared/civikoPadovaScopeGuard.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -53,8 +59,28 @@ Deno.serve(async (req) => {
     errMsg = String((e as Error)?.message ?? e);
   }
 
+  // Contatori bounded del perimetro Civiko per la run corrente.
+  const counters = createScopeCounters();
+  if (result && typeof result === "object") {
+    const r = result as Record<string, number>;
+    bumpCounter(counters, "scanned", Number(r.staging_rows_found ?? 0));
+    bumpCounter(counters, "padova_kept", Number(r.staging_rows_processed ?? 0));
+    bumpCounter(counters, "out_of_scope_rejected", Number(r.skipped_out_of_scope ?? 0));
+    bumpCounter(counters, "other_rejected", Number(r.skipped_bad_data ?? 0));
+    bumpCounter(counters, "writes", Number(r.collect_created ?? 0) + Number(r.collect_updated ?? 0));
+  }
+  const scope_counters = normalizeCounters(counters);
+  const scope_reconciliation = reconcileScopeCounters(scope_counters);
+  // Fail-closed: nessuna scrittura fuori perimetro ammessa in questa run.
+  if (status === "success" && scope_counters.out_of_scope_written > 0) {
+    status = "failure";
+    errMsg = "OUT_OF_SCOPE_WRITE_DETECTED";
+  }
+
   const finished = new Date();
-  const excerpt = JSON.stringify(result ?? { error: errMsg }).slice(0, 900);
+  const excerpt = JSON.stringify(
+    result ? { ...(result as Record<string, unknown>), scope_counters } : { error: errMsg },
+  ).slice(0, 900);
   await sb.from("cron_executions_log").insert({
     job_name: "central-core-padova-subito-promote",
     status,
@@ -67,7 +93,7 @@ Deno.serve(async (req) => {
   });
 
   return new Response(
-    JSON.stringify({ ok: status === "success", result, error: errMsg }, null, 2),
+    JSON.stringify({ ok: status === "success", result, error: errMsg, scope_counters, scope_reconciliation }, null, 2),
     { status: status === "success" ? 200 : 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
   );
 });
