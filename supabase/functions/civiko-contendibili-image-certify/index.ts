@@ -124,12 +124,13 @@ Deno.serve(async (req) => {
       .order("listing_id", { ascending: true })
       .range(offset, offset + limit - 1);
     if (attErr) return json({ ok: false, error: "attempts_read_failed", detail: attErr.message }, 500);
-    if (!data?.length) return json({ ok: true, reprocessed: 0, offset, note: "no_succeeded_details" });
-    attempts = data as Array<Record<string, unknown>>;
+    // Nessun detail riusabile non è un errore: resta la fonte raw_json (2b).
+    attempts = (data ?? []) as Array<Record<string, unknown>>;
+
   }
 
   const resultById = new Map<string, unknown>();
-  if (!pairsOnly) {
+  if (!pairsOnly && attempts.length) {
     const queueIds = attempts.map((a) => a.queue_id as string);
     const { data: queueRows, error: qErr } = await sb
       .from("scraping_queue")
@@ -139,8 +140,54 @@ Deno.serve(async (req) => {
     for (const r of queueRows ?? []) resultById.set(r.id as string, r.result);
   }
 
+  // 1b) Fonte additiva: fotografie GIÀ memorizzate in
+  // padova_listings.raw_json.media.images (nessuno scraping, nessun provider).
+  // Solo annunci attivi del perimetro Civiko con zona ufficiale valorizzata.
+  type RawJsonRow = {
+    id: number;
+    url: string | null;
+    fonte: string | null;
+    agency: string | null;
+    commercial_zone_slug: string | null;
+    raw_json: Record<string, unknown> | null;
+  };
+  let rawJsonRows: RawJsonRow[] = [];
+  if (!pairsOnly) {
+    const { data: rj, error: rjErr } = await sb
+      .from("padova_listings")
+      .select("id,url,fonte,agency,commercial_zone_slug,raw_json")
+      .is("expired_at", null)
+      .not("commercial_zone_slug", "is", null)
+      .not("raw_json->media->images", "is", null)
+      .order("id", { ascending: true })
+      .range(offset, offset + limit - 1);
+    if (rjErr) {
+      return json({ ok: false, error: "raw_json_read_failed", detail: rjErr.message }, 500);
+    }
+    rawJsonRows = (rj ?? []) as RawJsonRow[];
+    // Idempotenza: salta gli annunci che hanno già fingerprint persistiti.
+    if (rawJsonRows.length) {
+      const ids = rawJsonRows.map((r) => Number(r.id));
+      const { data: already, error: aErr } = await sb
+        .from("civiko_listing_image_fingerprints")
+        .select("listing_id")
+        .in("listing_id", ids);
+      if (aErr) {
+        return json({ ok: false, error: "fingerprints_read_failed", detail: aErr.message }, 500);
+      }
+      const done = new Set((already ?? []).map((r) => Number(r.listing_id)));
+      rawJsonRows = rawJsonRows.filter((r) => !done.has(Number(r.id)));
+    }
+  }
+
+
   // Annunci coinvolti: nel giro pairs_only sono quelli con fingerprint persistiti.
-  let listingIds: number[] = attempts.map((a) => Number(a.listing_id));
+  let listingIds: number[] = Array.from(
+    new Set([
+      ...attempts.map((a) => Number(a.listing_id)),
+      ...rawJsonRows.map((r) => Number(r.id)),
+    ]),
+  );
   let storedFingerprints: Fp[] = [];
   if (pairsOnly) {
     const { data: fps, error: fErr } = await sb
@@ -162,6 +209,9 @@ Deno.serve(async (req) => {
     listingIds = Array.from(new Set(storedFingerprints.map((f) => f.listing_id)));
     if (!listingIds.length) return json({ ok: true, pairs_only: true, note: "no_fingerprints" });
   }
+  if (!listingIds.length) {
+    return json({ ok: true, reprocessed: 0, offset, note: "no_reusable_photo_sources" });
+  }
 
   const { data: listings, error: lErr } = await sb
     .from("padova_listings")
@@ -169,6 +219,7 @@ Deno.serve(async (req) => {
     .in("id", listingIds);
   if (lErr) return json({ ok: false, error: "listings_read_failed", detail: lErr.message }, 500);
   const listingById = new Map((listings ?? []).map((l) => [Number(l.id), l]));
+
 
   // 2) estrazione multi-foto + 3) fingerprint sui byte reali --------------------
   let reprocessed = 0;
@@ -179,30 +230,9 @@ Deno.serve(async (req) => {
   let rejectedQuality = 0;
   const fingerprints: Fp[] = pairsOnly ? storedFingerprints : [];
 
-  for (const att of pairsOnly ? [] : attempts) {
-    const listingId = Number(att.listing_id);
-    const listing = listingById.get(listingId);
-    if (!listing) continue;
-    const result = resultById.get(att.queue_id as string);
-    if (!result) continue;
-
-    const refs = extractDetailImageRefs(result, MAX_DETAIL_IMAGE_REFS);
-    reprocessed++;
-    refsTotal += refs.length;
-    if (!refs.length) continue;
-
-    if (!dryRun) {
-      await sb.from("padova_listings").update({ ev_image_refs: refs }).eq("id", listingId);
-      const evidence = (att.evidence ?? {}) as Record<string, unknown>;
-      await sb
-        .from("civiko_contendibili_evidence_attempts")
-        .update({
-          evidence: { ...evidence, image_refs: refs, image_refs_version: "civiko-image-refs-v2" },
-          updated_at: new Date().toISOString(),
-        })
-        .eq("listing_id", listingId);
-    }
-
+  // Scarica i byte reali e calcola i fingerprint. La protezione resource-limit
+  // (allowlist host, SSRF, redirect, timeout, budget globale) resta invariata.
+  const ingestRefs = async (listingId: number, refs: string[]): Promise<void> => {
     const fetched = await fetchImagesBounded(refs, budget);
     for (const item of fetched) {
       if (!isFetched(item)) {
@@ -236,7 +266,58 @@ Deno.serve(async (req) => {
         source_host: host,
       });
     }
+  };
+
+  for (const att of pairsOnly ? [] : attempts) {
+    const listingId = Number(att.listing_id);
+    const listing = listingById.get(listingId);
+    if (!listing) continue;
+    const result = resultById.get(att.queue_id as string);
+    if (!result) continue;
+
+    const refs = extractDetailImageRefs(result, MAX_DETAIL_IMAGE_REFS);
+    reprocessed++;
+    refsTotal += refs.length;
+    if (!refs.length) continue;
+
+    if (!dryRun) {
+      await sb.from("padova_listings").update({ ev_image_refs: refs }).eq("id", listingId);
+      const evidence = (att.evidence ?? {}) as Record<string, unknown>;
+      await sb
+        .from("civiko_contendibili_evidence_attempts")
+        .update({
+          evidence: { ...evidence, image_refs: refs, image_refs_version: "civiko-image-refs-v2" },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("listing_id", listingId);
+    }
+
+    await ingestRefs(listingId, refs);
   }
+
+  // 2b) estrazione multi-foto dalle immagini già memorizzate in raw_json.
+  let rawJsonProcessed = 0;
+  let rawJsonRefs = 0;
+  for (const row of pairsOnly ? [] : rawJsonRows) {
+    const listingId = Number(row.id);
+    if (!listingById.has(listingId)) continue;
+    const media = (row.raw_json?.media ?? null) as Record<string, unknown> | null;
+    const images = media?.images ?? null;
+    if (!images) continue;
+
+    const refs = extractDetailImageRefs(images, MAX_DETAIL_IMAGE_REFS);
+    rawJsonProcessed++;
+    refsTotal += refs.length;
+    rawJsonRefs += refs.length;
+    if (!refs.length) continue;
+
+    if (!dryRun) {
+      await sb.from("padova_listings").update({ ev_image_refs: refs }).eq("id", listingId);
+    }
+
+    await ingestRefs(listingId, refs);
+  }
+
 
   // materiale generico/ricorrente: stessa immagine in >= 3 annunci scollegati
   const reuse = new Map<string, Set<number>>();
@@ -368,7 +449,10 @@ Deno.serve(async (req) => {
     soglia_hamming: PHASH_MATCH_MAX_DISTANCE,
     soglia_generico: GENERIC_REUSE_THRESHOLD,
     result_riprocessati: reprocessed,
+    raw_json_annunci_processati: rawJsonProcessed,
+    raw_json_image_refs_estratti: rawJsonRefs,
     image_refs_estratti: refsTotal,
+
     immagini_decodificate: decoded,
     immagini_non_decodificabili: undecodable,
     download_falliti: downloadFailed,

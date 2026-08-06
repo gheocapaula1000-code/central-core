@@ -169,12 +169,44 @@ describe("civiko-orchestrator-dispatch — contratto statico", () => {
   it("le pipeline sono sequenziali e fail-closed", () => {
     const seg = SRC.split("if (action in PIPELINES)")[1] ?? "";
     expect(seg).toContain("for (const step of pipeline.steps)");
-    expect(seg).toContain("const r = await runAction(step)");
+    expect(seg).toContain("await runAction(step,");
     expect(seg).toContain("if (!r.ok)");
     expect(seg).toContain("break;");
     expect(seg).toContain("failed_at: failedAt");
     // Nessuna esecuzione parallela.
     expect(seg).not.toContain("Promise.all");
+  });
+
+  it("le pipeline rispettano il budget 180s Replit e rispondono 504 se esaurito", () => {
+    expect(SRC).toContain("const PIPELINE_BUDGET_MS = 175_000");
+    expect(SRC).toContain("const STEP_MIN_MS = 5_000");
+    const seg = SRC.split("if (action in PIPELINES)")[1] ?? "";
+    expect(seg).toContain("PIPELINE_BUDGET_MS - (Date.now() - startedAt)");
+    expect(seg).toContain("remaining <= STEP_MIN_MS");
+    expect(seg).toContain('reason: "pipeline_budget_exhausted"');
+    expect(seg).toContain("budgetExhausted");
+    expect(seg).toContain("? 504");
+  });
+
+  it("una pipeline o azione fallita non risponde mai HTTP 2xx", () => {
+    const seg = SRC.split("if (action in PIPELINES)")[1] ?? "";
+    // Nessun `json(200, ...)` sul percorso di fallimento.
+    expect(seg).not.toContain("return json(200, {");
+    expect(seg).toContain("failedAt === null\n      ? 200");
+    expect(seg).toContain("r.ok ? 200 : (r.status >= 400 && r.status <= 599 ? r.status : 502)");
+  });
+
+  it("HTTP 200 con skipped/error/zero provider è un guasto semantico", () => {
+    expect(SRC).toContain("export function semanticFailure(");
+    expect(SRC).toContain('if (obj.ok === false) return "ok_false"');
+    expect(SRC).toContain('if (obj.skipped === true) return "skipped"');
+    expect(SRC).toContain('if (typeof obj.error === "string" && obj.error.trim()) return "error"');
+    expect(SRC).toContain('return "zero_provider_result"');
+    expect(SRC).toContain("ok: res.ok && semantic === null");
+    // I 4 portali + collect sono coperti dal guard sullo zero.
+    for (const a of ["apify_immobiliare", "apify_idealista", "apify_subito", "portal_casa", "collect_pending"]) {
+      expect(SRC.split("const ZERO_GUARD")[1]?.split("};")[0] ?? "").toContain(a);
+    }
   });
 
   it("le pipeline usano solo step dell'allowlist", () => {
@@ -186,6 +218,7 @@ describe("civiko-orchestrator-dispatch — contratto statico", () => {
       "apify_subito",
       "collect_pending",
       "listings_promote",
+      "tipo_lead_repair",
       "private_leads_classify",
       "price_snapshot",
       "contendibili_backfill",
@@ -205,6 +238,30 @@ describe("civiko-orchestrator-dispatch — contratto statico", () => {
     );
     for (const s of steps) expect(allowed).toContain(s);
   });
+
+  it("release_gate di 4 ore richiede i 4 portali, integrità e perimetro Padova/8 zone", () => {
+    expect(SRC).toContain("const GATE_WINDOW_HOURS = 4");
+    expect(SRC).toContain('const CIVIKO_PORTALS = ["casa", "immobiliare", "idealista", "subito"]');
+    expect(SRC).toContain("collect_items_${p}_fresh");
+    expect(SRC).toContain("civiko_padova_release_gate_v");
+    for (
+      const key of [
+        "portale_${p}_fresh",
+        "promozione_corrente",
+        "mismatch_professionale_zero",
+        "recompute_corrente",
+        "sync_pwa_dopo_classificazione",
+        "perimetro_contendibili_padova_8_zone",
+        "perimetro_privati_padova_8_zone",
+      ]
+    ) {
+      expect(SRC).toContain(key);
+    }
+    // Integrità non verificabile => gate fail-closed (502 metrics_unavailable).
+    expect(SRC).toContain('if (!integrity) failedQueries.push("release_gate_integrity_view")');
+    expect(SRC).toContain("integrity !== null");
+  });
+
 
   it("release_gate usa conteggi reali del database ed è fail-closed", () => {
     expect(SRC).toContain("async function releaseGate()");

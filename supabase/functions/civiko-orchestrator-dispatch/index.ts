@@ -23,6 +23,11 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 const MAX_BODY_BYTES = 2048;
 const DEFAULT_TIMEOUT_MS = 150_000;
+// Budget complessivo di una pipeline: deve restare sotto il timeout Replit
+// di 180s. Oltre il budget la pipeline si ferma e risponde 504.
+const PIPELINE_BUDGET_MS = 175_000;
+const STEP_MIN_MS = 5_000;
+
 const GATE_TIMEOUT_MS = 15_000;
 
 type SimpleAction =
@@ -33,6 +38,8 @@ type SimpleAction =
   | "collect_pending"
   | "listings_promote"
   | "private_leads_classify"
+  | "tipo_lead_repair"
+
   | "price_snapshot"
   | "contendibili_backfill"
   | "contendibili_recompute"
@@ -84,6 +91,16 @@ const ALLOWED: Record<SimpleAction, Target> = {
     fn: "civiko-private-leads-classify",
     body: { since_hours: 36 },
   },
+  // Riallineamento fail-closed della natura del contatto (agenzia/privato)
+  // con la sola regola ufficiale: nessun PRIVATO d'ufficio.
+  tipo_lead_repair: {
+    fn: "civiko_repair_padova_tipo_lead",
+    rpc: "civiko_repair_padova_tipo_lead",
+    body: {},
+  },
+
+
+
   // Snapshot prezzi giornaliero + promozione privato_stanco su ribasso reale.
   price_snapshot: {
     fn: "civiko-private-leads-price-snapshot",
@@ -162,7 +179,9 @@ const PIPELINES: Record<PipelineAction, { at: string; steps: SimpleAction[] }> =
     steps: [
       "collect_pending",
       "listings_promote",
+      "tipo_lead_repair",
       "private_leads_classify",
+
       "price_snapshot",
       "radar_full",
     ],
@@ -264,6 +283,10 @@ function safeIdentifiers(raw: unknown): Record<string, unknown> {
     "cambi_scritti",
     "contendibili_marcati",
     "remaining",
+    "mismatch_residuo",
+    "raw_json_annunci_processati",
+    "raw_json_image_refs_estratti",
+
     "match_version",
     "triggered_at",
   ];
@@ -310,7 +333,44 @@ interface StepResult {
   result: Record<string, unknown>;
 }
 
-async function runAction(action: SimpleAction): Promise<StepResult> {
+// Azioni per cui uno zero è un esito ANOMALO: la raccolta/importazione deve
+// produrre almeno un progresso reale, altrimenti la pipeline si ferma.
+const ZERO_GUARD: Partial<Record<SimpleAction, readonly string[]>> = {
+  apify_immobiliare: ["run_id", "dataset_id", "processed", "inserted", "enqueued"],
+  apify_idealista: ["run_id", "dataset_id", "processed", "inserted", "enqueued"],
+  apify_subito: ["run_id", "dataset_id", "processed", "inserted", "enqueued"],
+  portal_casa: ["enqueued", "processed", "rows_out"],
+  collect_pending: ["processed", "inserted", "updated", "rows_out"],
+};
+
+function hasProgress(obj: Record<string, unknown>, keys: readonly string[]): boolean {
+  return keys.some((k) => {
+    const v = obj[k];
+    if (typeof v === "number") return Number.isFinite(v) && v > 0;
+    if (typeof v === "string") return v.trim().length > 0;
+    return v === true;
+  });
+}
+
+/** HTTP 200 non basta: skipped/error/zero provider inatteso sono guasti. */
+export function semanticFailure(
+  action: SimpleAction,
+  obj: Record<string, unknown> | null,
+): string | null {
+  if (!obj) return null;
+  if (obj.ok === false) return "ok_false";
+  if (obj.skipped === true) return "skipped";
+  if (typeof obj.error === "string" && obj.error.trim()) return "error";
+  const keys = ZERO_GUARD[action];
+  if (keys && !hasProgress(obj, keys)) return "zero_provider_result";
+  return null;
+}
+
+async function runAction(
+  action: SimpleAction,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+): Promise<StepResult> {
+
   const target = ALLOWED[action];
   const isRpc = typeof target.rpc === "string";
   const targetName = isRpc ? `rpc/${target.rpc}` : target.fn;
@@ -330,7 +390,7 @@ async function runAction(action: SimpleAction): Promise<StepResult> {
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), Math.max(1_000, timeoutMs));
   try {
     const headers: Record<string, string> = isRpc
       ? {
@@ -358,22 +418,26 @@ async function runAction(action: SimpleAction): Promise<StepResult> {
       payload = null;
     }
     const obj = payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
+    const semantic = res.ok ? semanticFailure(action, obj) : null;
     const reason = isRpc && res.status === 400
       ? safePostgrestReason(payload) ?? "postgrest_bad_request"
       : obj && typeof obj.reason === "string"
       ? obj.reason
       : obj && typeof obj.error === "string"
       ? obj.error
-      : null;
+      : semantic;
 
     console.log(
-      `[civiko-orchestrator-dispatch] action=${action} target=${targetName} status=${res.status}`,
+      `[civiko-orchestrator-dispatch] action=${action} target=${targetName} status=${res.status}${
+        semantic ? ` semantic=${semantic}` : ""
+      }`,
     );
 
     return {
       action,
       target: targetName,
-      ok: res.ok && (obj?.ok !== false),
+      ok: res.ok && semantic === null,
+
       status: res.status,
       reason,
       result: safeIdentifiers(payload),
@@ -498,23 +562,34 @@ async function verifiedPriceDropsCount(): Promise<number | null> {
   }
   return counts.some((count) => count === null)
     ? null
-    : counts.reduce((sum, count) => sum + (count ?? 0), 0);
+    : counts.reduce<number>((sum, count) => sum + (count ?? 0), 0);
 }
 
 
 // Metriche reali, raggruppate. Nessun valore dedotto: se una query non è
 // verificabile il valore resta null e il gate è fail-closed.
 interface GateSpec {
-  group: "imported" | "casa_pipeline" | "categories" | "classified_in_window";
+  group: "imported" | "casa_pipeline" | "categories" | "classified_in_window" | "portals";
   metric: string;
   q: string;
 }
+
+/** I 4 portali del perimetro Civiko One / Padova. */
+const CIVIKO_PORTALS = ["casa", "immobiliare", "idealista", "subito"] as const;
 
 function gateSpecs(since: string): GateSpec[] {
   const casaCtx = `processor_context->>portal=eq.casa.it`;
   const scope = CIVIKO_SCOPE_SLUGS.join(",");
   const offmarketSince = new Date(Date.now() - 90 * 24 * 60 * 60_000).toISOString();
   return [
+    // ESECUZIONE SEMANTICA DEI 4 PORTALI NELLA FINESTRA (solo Padova).
+    ...CIVIKO_PORTALS.map((p) => ({
+      group: "portals" as const,
+      metric: `collect_items_${p}_fresh`,
+      q:
+        `padova_collect_v2_items?select=id&portal=eq.${p}&citta=ilike.padova&or=(created_at.gte.${since},updated_at.gte.${since})`,
+    })),
+
     // PROVA CASA.IT — coda di scraping (provider + processor)
     {
       group: "casa_pipeline",
@@ -592,6 +667,72 @@ function gateSpecs(since: string): GateSpec[] {
   ];
 }
 
+/** Integrità Civiko One letta dalla vista autoritativa. null = non verificabile. */
+interface GateIntegrity {
+  portali_freschi: number;
+  mismatch_professionale: number;
+  listings_freschi: number;
+  classificazione_ultima: string | null;
+  recompute_ultimo: string | null;
+  contendibili_totali: number;
+  recompute_corrente: boolean;
+  sync_pwa_dopo_classificazione: boolean;
+  contendibili_fuori_perimetro: number;
+  privati_fuori_perimetro: number;
+}
+
+async function readGateIntegrity(): Promise<GateIntegrity | null> {
+  if (!SERVICE_KEY) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GATE_TIMEOUT_MS);
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/civiko_padova_release_gate_v?select=*&limit=1`,
+      {
+        headers: {
+          apikey: SERVICE_KEY,
+          Authorization: `Bearer ${SERVICE_KEY}`,
+          Accept: "application/json",
+        },
+        signal: controller.signal,
+      },
+    );
+    if (!res.ok) return null;
+    const rows = await res.json().catch(() => null);
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row || typeof row !== "object") return null;
+    const r = row as Record<string, unknown>;
+    const num = (k: string) => Number(r[k] ?? NaN);
+    const out: GateIntegrity = {
+      portali_freschi: num("portali_freschi"),
+      mismatch_professionale: num("mismatch_professionale"),
+      listings_freschi: num("listings_freschi"),
+      classificazione_ultima: typeof r.classificazione_ultima === "string"
+        ? r.classificazione_ultima
+        : null,
+      recompute_ultimo: typeof r.recompute_ultimo === "string" ? r.recompute_ultimo : null,
+      contendibili_totali: num("contendibili_totali"),
+      recompute_corrente: r.recompute_corrente === true,
+      sync_pwa_dopo_classificazione: r.sync_pwa_dopo_classificazione === true,
+      contendibili_fuori_perimetro: num("contendibili_fuori_perimetro"),
+      privati_fuori_perimetro: num("privati_fuori_perimetro"),
+    };
+    const numeric: Array<number> = [
+      out.portali_freschi,
+      out.mismatch_professionale,
+      out.listings_freschi,
+      out.contendibili_totali,
+      out.contendibili_fuori_perimetro,
+      out.privati_fuori_perimetro,
+    ];
+    return numeric.every((n) => Number.isFinite(n)) ? out : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function releaseGate() {
   const since = new Date(Date.now() - GATE_WINDOW_HOURS * 60 * 60_000).toISOString();
   const specs = gateSpecs(since);
@@ -601,6 +742,7 @@ async function releaseGate() {
     casa_pipeline: {},
     categories: {},
     classified_in_window: {},
+    portals: {},
   };
   const failedQueries: string[] = [];
 
@@ -614,10 +756,15 @@ async function releaseGate() {
   metrics.categories.contendibili_ribassi = ribassiCount;
   if (ribassiCount === null) failedQueries.push("contendibili_ribassi");
 
-  const metricsAvailable = Boolean(SERVICE_KEY) && failedQueries.length === 0;
+  const integrity = await readGateIntegrity();
+  if (!integrity) failedQueries.push("release_gate_integrity_view");
+
+  const metricsAvailable = Boolean(SERVICE_KEY) && failedQueries.length === 0 &&
+    integrity !== null;
 
   const g = (group: keyof typeof metrics, metric: string): number =>
     (metrics[group][metric] as number) ?? 0;
+
 
   const requirements = metricsAvailable
     ? [
@@ -666,6 +813,38 @@ async function releaseGate() {
         key: "pwa_offmarket_non_zero",
         passed: g("categories", "offmarket_verified") > 0,
       },
+      // ESECUZIONE SEMANTICA DEI 4 PORTALI NELLA FINESTRA
+      ...CIVIKO_PORTALS.map((p) => ({
+        key: `portale_${p}_fresh`,
+        passed: g("portals", `collect_items_${p}_fresh`) > 0,
+      })),
+      // PROMOZIONE / CLASSIFICAZIONE CORRENTE
+      {
+        key: "promozione_corrente",
+        passed: (integrity?.listings_freschi ?? 0) > 0,
+      },
+      {
+        key: "mismatch_professionale_zero",
+        passed: integrity?.mismatch_professionale === 0,
+      },
+      // RECOMPUTE CORRENTE E SYNC PWA SUCCESSIVO ALLA CLASSIFICAZIONE
+      {
+        key: "recompute_corrente",
+        passed: integrity?.recompute_corrente === true,
+      },
+      {
+        key: "sync_pwa_dopo_classificazione",
+        passed: integrity?.sync_pwa_dopo_classificazione === true,
+      },
+      // PERIMETRO PADOVA / 8 ZONE UFFICIALI
+      {
+        key: "perimetro_contendibili_padova_8_zone",
+        passed: integrity?.contendibili_fuori_perimetro === 0,
+      },
+      {
+        key: "perimetro_privati_padova_8_zone",
+        passed: integrity?.privati_fuori_perimetro === 0,
+      },
     ]
     : [];
 
@@ -682,11 +861,13 @@ async function releaseGate() {
     window_hours: GATE_WINDOW_HOURS,
     since,
     metrics,
+    integrity,
     requirements,
     missing,
     schedule: scheduleContract(),
     checked_at: new Date().toISOString(),
   };
+
 
   if (!metricsAvailable) {
     payload.error = "metrics_unavailable";
@@ -773,22 +954,51 @@ Deno.serve(async (req) => {
     const pipeline = PIPELINES[action as PipelineAction];
     const steps: StepResult[] = [];
     let failedAt: string | null = null;
-    // Sequenziale e fail-closed: si ferma al primo step non ok.
+    let budgetExhausted = false;
+    const startedAt = Date.now();
+    // Sequenziale e fail-closed: si ferma al primo step non ok e comunque
+    // entro il budget complessivo (< timeout Replit 180s).
     for (const step of pipeline.steps) {
-      const r = await runAction(step);
+      const remaining = PIPELINE_BUDGET_MS - (Date.now() - startedAt);
+      if (remaining <= STEP_MIN_MS) {
+        budgetExhausted = true;
+        failedAt = step;
+        steps.push({
+          action: step,
+          target: ALLOWED[step].rpc ? `rpc/${ALLOWED[step].rpc}` : ALLOWED[step].fn,
+          ok: false,
+          status: 504,
+          reason: "pipeline_budget_exhausted",
+          result: {},
+        });
+        break;
+      }
+      const r = await runAction(step, Math.min(DEFAULT_TIMEOUT_MS, remaining - 1_000));
       steps.push(r);
       if (!r.ok) {
         failedAt = step;
         break;
       }
     }
-    return json(200, {
+    const failing = steps.find((s) => !s.ok);
+    const status = failedAt === null
+      ? 200
+      : budgetExhausted
+      ? 504
+      : failing && failing.status >= 400 && failing.status <= 599
+      ? failing.status
+      : 502;
+    return json(status, {
       ok: failedAt === null,
       action,
       at: pipeline.at,
       timezone: SCHEDULE_TIMEZONE,
       enabled: CRON_ENABLED,
       failed_at: failedAt,
+      failed_reason: failing?.reason ?? null,
+      budget_exhausted: budgetExhausted,
+      elapsed_ms: Date.now() - startedAt,
+      budget_ms: PIPELINE_BUDGET_MS,
       executed: steps.length,
       planned: pipeline.steps.length,
       steps,
@@ -796,12 +1006,16 @@ Deno.serve(async (req) => {
   }
 
   const r = await runAction(action as SimpleAction);
-  return json(200, {
-    ok: r.ok,
-    action,
-    target: r.target,
-    status: r.status,
-    reason: r.reason,
-    result: r.result,
-  });
+  return json(
+    r.ok ? 200 : (r.status >= 400 && r.status <= 599 ? r.status : 502),
+    {
+      ok: r.ok,
+      action,
+      target: r.target,
+      status: r.status,
+      reason: r.reason,
+      result: r.result,
+    },
+  );
+
 });
