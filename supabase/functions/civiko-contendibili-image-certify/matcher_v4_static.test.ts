@@ -58,8 +58,17 @@ Deno.test("matcher v4: il ramo foto non impone piano/bagni come requisito", asyn
   }
   // tipologia/locali/mq/civico compaiono solo come segnali alternativi di
   // plausibilita' (OR), mai come requisito congiunto.
-  assert(!/AND \(b\.x\)\.tipologia = /.test(photo), "tipologia non puo' essere obbligatoria");
+  assert(
+    /OR \(\(b\.x\)\.tipologia IS NOT NULL AND \(b\.x\)\.tipologia = \(b\.y\)\.tipologia\)/
+      .test(photo),
+    "tipologia ammessa solo come segnale alternativo di plausibilita'",
+  );
+  assert(
+    /OR \(coalesce\(\(b\.x\)\.civico_n,''\) <> ''/.test(photo),
+    "il civico e' solo un segnale alternativo, mai un requisito",
+  );
   assert(!/AND \(b\.x\)\.locali = /.test(photo), "locali non puo' essere obbligatorio");
+
   assert(
     /shared_photos >= 2/.test(photo),
     "la fascia 10-15% deve accettare 2 pHash condivisi come prova forte",
