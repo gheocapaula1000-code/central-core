@@ -8422,9 +8422,12 @@ export type Database = {
           opens_at: string | null
           protocol_email: string | null
           province: string | null
+          publication_reference: string | null
+          rarity_score: number
           raw_excerpt: string | null
           region: string | null
           requirements: string[]
+          source_kind: string
           startup_only: boolean
           summary: string
           title: string
@@ -8467,9 +8470,12 @@ export type Database = {
           opens_at?: string | null
           protocol_email?: string | null
           province?: string | null
+          publication_reference?: string | null
+          rarity_score?: number
           raw_excerpt?: string | null
           region?: string | null
           requirements?: string[]
+          source_kind?: string
           startup_only?: boolean
           summary: string
           title: string
@@ -8512,9 +8518,12 @@ export type Database = {
           opens_at?: string | null
           protocol_email?: string | null
           province?: string | null
+          publication_reference?: string | null
+          rarity_score?: number
           raw_excerpt?: string | null
           region?: string | null
           requirements?: string[]
+          source_kind?: string
           startup_only?: boolean
           summary?: string
           title?: string
@@ -8623,8 +8632,10 @@ export type Database = {
           official_domain: string
           priority: number
           province: string | null
+          rarity_base: number
           region: string | null
           search_query: string
+          source_kind: string
           updated_at: string
         }
         Insert: {
@@ -8638,8 +8649,10 @@ export type Database = {
           official_domain: string
           priority?: number
           province?: string | null
+          rarity_base?: number
           region?: string | null
           search_query: string
+          source_kind?: string
           updated_at?: string
         }
         Update: {
@@ -8653,8 +8666,10 @@ export type Database = {
           official_domain?: string
           priority?: number
           province?: string | null
+          rarity_base?: number
           region?: string | null
           search_query?: string
+          source_kind?: string
           updated_at?: string
         }
         Relationships: []
