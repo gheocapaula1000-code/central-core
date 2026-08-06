@@ -330,13 +330,18 @@ Deno.serve(async (req) => {
           }
         }
 
+        bumpCounter(counters, "writes", created + updated);
+        const scope_counters = normalizeCounters(counters);
+        const scope_reconciliation = reconcileScopeCounters(scope_counters);
         results.push({
           run_id: runId, actor_id: actorId, portal: portalTag,
           status: finalStatus, items: itemsCount, deduped: deduped.length,
           created, updated, skipped, errors, dry_run: dryRun,
           promoted, promote_error: promoteError,
           auto_enrich: enrichKicked,
+          scope_counters, scope_reconciliation,
         });
+
 
       } else if (["FAILED", "ABORTED", "TIMED-OUT"].includes(finalStatus)) {
         if (!dryRun) {
