@@ -2522,6 +2522,48 @@ export type Database = {
           },
         ]
       }
+      civiko_orchestrator_action_runs: {
+        Row: {
+          action: string
+          counters: Json
+          created_at: string
+          error_code: string | null
+          finished_at: string | null
+          id: string
+          ok: boolean | null
+          pipeline: string | null
+          run_id: string
+          started_at: string
+          status: number | null
+        }
+        Insert: {
+          action: string
+          counters?: Json
+          created_at?: string
+          error_code?: string | null
+          finished_at?: string | null
+          id?: string
+          ok?: boolean | null
+          pipeline?: string | null
+          run_id: string
+          started_at?: string
+          status?: number | null
+        }
+        Update: {
+          action?: string
+          counters?: Json
+          created_at?: string
+          error_code?: string | null
+          finished_at?: string | null
+          id?: string
+          ok?: boolean | null
+          pipeline?: string | null
+          run_id?: string
+          started_at?: string
+          status?: number | null
+        }
+        Relationships: []
+      }
       civiko_pipeline_runs: {
         Row: {
           created_at: string
