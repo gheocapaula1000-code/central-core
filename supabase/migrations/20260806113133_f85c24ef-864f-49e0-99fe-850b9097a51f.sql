@@ -1,0 +1,1 @@
+grant execute on function public.trovabandi_diag_invoke(uuid, int) to public;

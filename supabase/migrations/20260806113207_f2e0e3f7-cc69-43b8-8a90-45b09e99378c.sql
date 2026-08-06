@@ -1,0 +1,1 @@
+drop function if exists public.trovabandi_diag_invoke(uuid, int);
