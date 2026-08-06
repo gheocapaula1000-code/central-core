@@ -31,8 +31,12 @@ type SimpleAction =
   | "apify_subito"
   | "portal_casa"
   | "collect_pending"
+  | "listings_promote"
+  | "private_leads_classify"
+  | "price_snapshot"
   | "contendibili_backfill"
   | "contendibili_recompute"
+  | "contendibili_image_certify"
   | "contendibili_evidence"
   | "contendibili_extras"
   | "offmarket_discover"
@@ -44,6 +48,7 @@ type SimpleAction =
 type PipelineAction = "pipeline_0510" | "pipeline_0545" | "pipeline_0710";
 
 type Action = "healthcheck" | "release_gate" | SimpleAction | PipelineAction;
+
 
 interface Target {
   // Solo nome funzione + query hardcoded: nessun URL o path arbitrario dal client.
@@ -67,6 +72,23 @@ const ALLOWED: Record<SimpleAction, Target> = {
     fn: "padova-apify-collect-pending",
     body: { stale_minutes: 5, max_runs: 10 },
   },
+  // Importazione/promozione degli item raccolti in padova_listings.
+  // Classificazione tipo_lead fail-closed lato SQL (nessun PRIVATO d'ufficio).
+  listings_promote: {
+    fn: "promote_padova_collect_v2_to_listings",
+    rpc: "promote_padova_collect_v2_to_listings",
+    body: {},
+  },
+  // Classificazione lead privati Subito (privato / privato_stanco).
+  private_leads_classify: {
+    fn: "civiko-private-leads-classify",
+    body: { since_hours: 36 },
+  },
+  // Snapshot prezzi giornaliero + promozione privato_stanco su ribasso reale.
+  price_snapshot: {
+    fn: "civiko-private-leads-price-snapshot",
+    body: {},
+  },
   // Preparazione gratuita delle evidenze già presenti sui listing.
   contendibili_backfill: {
     fn: "padova_backfill_unit_evidence",
@@ -79,6 +101,12 @@ const ALLOWED: Record<SimpleAction, Target> = {
     rpc: "recompute_padova_listings_contendibili",
     body: {},
   },
+  // Certificazione fotografica IMAGE_PHASH_V1: solo detail già memorizzati,
+  // nessuno scraping e nessun provider a pagamento. Esclusiva Civiko One.
+  contendibili_image_certify: {
+    fn: "civiko-contendibili-image-certify",
+    body: { limit: 40, dry_run: false },
+  },
   // Solo candidati in quarantena: cap 24, idempotenza giornaliera.
   contendibili_evidence: {
     fn: "civiko-contendibili-evidence-refresh",
@@ -90,6 +118,7 @@ const ALLOWED: Record<SimpleAction, Target> = {
     rpc: "recompute_padova_contendibili_extras",
     body: {},
   },
+
   offmarket_discover: {
     fn: "cron-offmarket-padova-nightly",
     query: "job=discover-early-offmarket-signals",
@@ -117,23 +146,45 @@ const ALLOWED: Record<SimpleAction, Target> = {
 };
 
 // Pipeline sequenziali e fail-closed. Solo azioni dell'allowlist.
+// Copertura end-to-end Civiko: raccolta -> importazione/promozione ->
+// classificazione -> snapshot prezzi -> contendibili/evidence/foto ->
+// extra segnali -> off-market. Nessun cron DB viene creato o attivato qui.
 const PIPELINES: Record<PipelineAction, { at: string; steps: SimpleAction[] }> = {
   // 05:10 Europe/Rome — raccolta portali (Casa.it multipagina + Apify).
   pipeline_0510: {
     at: "05:10",
     steps: ["portal_casa", "apify_immobiliare", "apify_idealista", "apify_subito"],
   },
-  // 05:45 Europe/Rome — raccolta risultati e radar.
+  // 05:45 Europe/Rome — raccolta risultati, importazione/promozione,
+  // classificazione lead privati, snapshot prezzi e radar.
   pipeline_0545: {
     at: "05:45",
-    steps: ["collect_pending", "radar_full"],
+    steps: [
+      "collect_pending",
+      "listings_promote",
+      "private_leads_classify",
+      "price_snapshot",
+      "radar_full",
+    ],
   },
-  // 07:10 Europe/Rome — segnali off-market e classificazione.
+  // 07:10 Europe/Rome — contendibili (evidenze, recompute, certificazione
+  // fotografica, extra segnali), off-market e classificazione segnali.
   pipeline_0710: {
     at: "07:10",
-    steps: ["offmarket_discover", "offmarket_scores", "early_warning", "signals_classify"],
+    steps: [
+      "contendibili_backfill",
+      "contendibili_image_certify",
+      "contendibili_recompute",
+      "contendibili_evidence",
+      "contendibili_extras",
+      "offmarket_discover",
+      "offmarket_scores",
+      "early_warning",
+      "signals_classify",
+    ],
   },
 };
+
 
 const SCHEDULE_TIMEZONE = "Europe/Rome";
 // Nessun cron creato o attivato da questa funzione.

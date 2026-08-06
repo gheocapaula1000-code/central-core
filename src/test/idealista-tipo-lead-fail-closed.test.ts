@@ -2,14 +2,19 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const MIGRATION = resolve(
+const LEGACY_MIGRATION = resolve(
   process.cwd(),
   "docs/sql/20260804071500_idealista_tipo_lead_fail_closed.sql",
 );
+const MIGRATION = resolve(
+  process.cwd(),
+  "docs/pending-migrations/20260806150000_civiko_padova_tipo_lead_fail_closed_all_portals.sql",
+);
 
+const legacySql = readFileSync(LEGACY_MIGRATION, "utf8");
 const sql = readFileSync(MIGRATION, "utf8");
 
-/** Mirror TS della normalizzazione SQL applicata al ramo Idealista. */
+/** Mirror TS della normalizzazione esplicita della sorgente. */
 function normalizeTipoLead(raw: string | null | undefined): "AGENZIA" | "PRIVATO" | null {
   const v = (raw ?? "").trim().toUpperCase();
   if (v === "AGENZIA") return "AGENZIA";
@@ -34,22 +39,23 @@ describe("Idealista tipo_lead fail-closed", () => {
     }
   });
 
-  it("il ramo Idealista non hardcoda piu' 'PRIVATO'", () => {
-    const idealistaBranch = sql.slice(sql.indexOf("WITH src_id AS"));
+  it("la migrazione storica introduceva il fail-closed solo su Idealista", () => {
+    const idealistaBranch = legacySql.slice(legacySql.indexOf("WITH src_id AS"));
     expect(idealistaBranch).not.toContain("'PRIVATO'::text");
-    expect(idealistaBranch).toContain("WHEN 'AGENZIA' THEN 'AGENZIA'");
-    expect(idealistaBranch).toContain("WHEN 'PRIVATO' THEN 'PRIVATO'");
-    expect(idealistaBranch).toContain("ELSE NULL");
-    expect(idealistaBranch).toContain("s.tipo_lead");
   });
 
-  it("il ramo altri portali resta invariato", () => {
+  it("la migrazione corrente elimina il default PRIVATO su TUTTI i portali", () => {
+    expect(sql).not.toContain("'PRIVATO'::text");
     const otherBranch = sql.slice(sql.indexOf("WITH src AS"), sql.indexOf("WITH src_id AS"));
-    expect(otherBranch).toContain("'PRIVATO'::text");
-    expect(otherBranch).not.toContain("WHEN 'AGENZIA' THEN 'AGENZIA'");
+    expect(otherBranch).toContain("public.civiko_classify_tipo_lead(tipo_lead, n_agenzie, agency)");
   });
 
-  it("l'update preserva il valore esistente quando la sorgente e' NULL", () => {
-    expect(sql.match(/tipo_lead = COALESCE\(EXCLUDED\.tipo_lead, public\.padova_listings\.tipo_lead\)/g)?.length).toBe(2);
+  it("l'update non declassa mai una classificazione affidabile", () => {
+    expect(
+      sql.match(
+        /tipo_lead = public\.civiko_merge_tipo_lead\(public\.padova_listings\.tipo_lead, EXCLUDED\.tipo_lead\)/g,
+      )?.length,
+    ).toBe(2);
+    expect(sql).not.toContain("tipo_lead = COALESCE(EXCLUDED.tipo_lead");
   });
 });

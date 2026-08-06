@@ -185,12 +185,21 @@ describe("civiko-orchestrator-dispatch — contratto statico", () => {
       "apify_idealista",
       "apify_subito",
       "collect_pending",
+      "listings_promote",
+      "private_leads_classify",
+      "price_snapshot",
+      "contendibili_backfill",
+      "contendibili_image_certify",
+      "contendibili_recompute",
+      "contendibili_evidence",
+      "contendibili_extras",
       "radar_full",
       "offmarket_discover",
       "offmarket_scores",
       "early_warning",
       "signals_classify",
     ];
+
     const steps = Array.from(pipes.matchAll(/"([a-z_0-9]+)"/g)).map((m) => m[1]).filter((s) =>
       !/^\d{2}:\d{2}$/.test(s)
     );
