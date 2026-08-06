@@ -500,13 +500,17 @@ export interface GateEvaluationInput {
   /** metrica -> valore (già appiattito, null = non verificabile). */
   metric: (group: string, name: string) => number;
   integrity: GateIntegrity;
+  /** SOLO gli step degli esatti ultimi run delle 3 pipeline. */
   actionRuns: ActionRunRow[];
+  /** Ultimo run di ciascuna pipeline (anche fallito). */
+  pipelineRuns: Map<PipelineAction, PipelineRunRow>;
 }
 
 export function buildGateRequirements(input: GateEvaluationInput): GateRequirement[] {
-  const { metric: g, integrity, mode, actionRuns } = input;
+  const { metric: g, integrity, mode, actionRuns, pipelineRuns } = input;
   const failing = failingActions(actionRuns);
   const missing = missingActions(actionRuns);
+  const badPipelines = pipelinesNotOk(pipelineRuns);
 
   const base: GateRequirement[] = [
     // I 4 portali devono essere freschi nella finestra.
@@ -532,7 +536,9 @@ export function buildGateRequirements(input: GateEvaluationInput): GateRequireme
     // Integrità perimetro Padova / 8 zone ufficiali.
     { key: "perimetro_contendibili_padova_8_zone", passed: integrity.contendibili_fuori_perimetro === 0 },
     { key: "perimetro_privati_padova_8_zone", passed: integrity.privati_fuori_perimetro === 0 },
-    // Nessun fallimento nell'ultima esecuzione di ciascuna azione.
+    // Le 3 pipeline devono avere un ULTIMO run concluso e riuscito.
+    { key: "ultime_tre_pipeline_ok", passed: badPipelines.length === 0 },
+    // Nessun fallimento negli step di quegli esatti run.
     { key: "nessun_fallimento_recente", passed: failing.length === 0 },
     { key: "tutti_gli_step_hanno_lavorato", passed: missing.length === 0 },
   ];
@@ -543,14 +549,14 @@ export function buildGateRequirements(input: GateEvaluationInput): GateRequireme
     return base;
   }
 
-  // Collaudo iniziale: servono novità reali dimostrabili.
+  // Collaudo iniziale: servono novità reali dimostrabili su TUTTI i 4 portali
+  // nello stesso ciclo (nessun OR fra Casa e gli altri).
   return [
     ...base,
-    {
-      key: "initial_nuovi_import_reali",
-      passed: g("imported", "listings_casa_imported_in_window") > 0 ||
-        g("imported", "listings_imported_in_window") > 0,
-    },
+    ...CIVIKO_PORTALS.map((p) => ({
+      key: `initial_nuovi_import_${p}`,
+      passed: g("imported", `listings_${p}_imported_in_window`) > 0,
+    })),
     {
       key: "initial_contendibile_certificato_2_piu",
       passed: g("categories", "contendibili_total") > 0,
@@ -561,3 +567,4 @@ export function buildGateRequirements(input: GateEvaluationInput): GateRequireme
     },
   ];
 }
+
