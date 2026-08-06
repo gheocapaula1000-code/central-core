@@ -79,3 +79,34 @@ export async function sourceFingerprint(value: unknown): Promise<string | null> 
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
+
+export interface SelectionOutcome<T> {
+  selected: T[];
+  remaining: number;
+  exclusions: Record<string, number>;
+}
+
+/**
+ * Scansione oldest-first dell'INTERO pool: si selezionano al massimo `limit`
+ * candidati, ma il residuo continua a essere contato fino a EOF, quindi è
+ * autoritativo e non coincide mai con selected.length.
+ */
+export function selectEligible<T>(
+  pool: T[],
+  reasonOf: (item: T) => string | null,
+  limit: number,
+): SelectionOutcome<T> {
+  const selected: T[] = [];
+  const exclusions: Record<string, number> = {};
+  let remaining = 0;
+  for (const item of pool) {
+    const reason = reasonOf(item);
+    if (reason) {
+      exclusions[reason] = (exclusions[reason] ?? 0) + 1;
+      continue;
+    }
+    if (selected.length < limit) selected.push(item);
+    else remaining++;
+  }
+  return { selected, remaining, exclusions };
+}
