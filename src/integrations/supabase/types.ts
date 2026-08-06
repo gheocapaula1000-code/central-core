@@ -9969,6 +9969,7 @@ export type Database = {
         Returns: string
       }
       civiko_is_admin_agency: { Args: { _agency_id: string }; Returns: boolean }
+      civiko_is_comune_padova: { Args: { p_value: string }; Returns: boolean }
       civiko_is_official_zone_slug: {
         Args: { p_slug: string }
         Returns: boolean
@@ -9977,6 +9978,7 @@ export type Database = {
         Args: { p_existing: string; p_incoming: string }
         Returns: string
       }
+      civiko_normalize_comune: { Args: { p_value: string }; Returns: string }
       civiko_normalize_quartiere: { Args: { p_value: string }; Returns: string }
       civiko_padova_img_group_gate_ok: {
         Args: {
