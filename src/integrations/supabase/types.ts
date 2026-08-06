@@ -9805,6 +9805,47 @@ export type Database = {
         Returns: string
       }
       civiko_normalize_quartiere: { Args: { p_value: string }; Returns: string }
+      civiko_padova_matcher_v4_candidates: {
+        Args: never
+        Returns: {
+          agency_key: string
+          agency_raw: string
+          bagni: number
+          canonical_listing_id: string
+          civico_n: string
+          czone_slug: string
+          descr_fp: string
+          fonte: string
+          id: number
+          identity_key: string
+          is_asta: boolean
+          is_mls: boolean
+          l_last_seen_at: string
+          lat: number
+          lng: number
+          locali: number
+          mq: number
+          piano_k: string
+          prezzo: number
+          quartiere: string
+          tipologia: string
+          url: string
+          via_n: string
+        }[]
+      }
+      civiko_padova_matcher_v4_pairs: {
+        Args: never
+        Returns: {
+          a_id: number
+          b_id: number
+          dist_m: number
+          geo_unita_testo_ok: boolean
+          match_version: string
+          pair_kind: string
+          prezzo_ratio: number
+          shared_photos: number
+        }[]
+      }
       civiko_release_zone_on_cancel_atomic: {
         Args: { p_stripe_subscription_id: string }
         Returns: Json
