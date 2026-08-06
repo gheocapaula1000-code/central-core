@@ -197,3 +197,28 @@ export function evaluateGate(input: GateInput): GateResult {
   };
   return { ok: Object.values(checks).every(Boolean), checks, metrics };
 }
+
+/**
+ * Contratto di risposta del collect.
+ * P0: un run PARTIAL resta persistito con contatori/provider_usage/diagnostica,
+ * ma la risposta HTTP deve essere fail-closed (ok:false, non-2xx) così che
+ * gateway/orchestratore non marchino il job come riuscito.
+ * SKIPPED/NO_SOURCE_DUE resta separato: nessun errore, ma neppure un segnale
+ * di raccolta riuscita.
+ */
+export type CollectRunStatus = "SUCCEEDED" | "PARTIAL" | "SKIPPED";
+
+export const COLLECTION_PARTIAL_CODE = "COLLECTION_PARTIAL";
+
+export function collectResponseContract(runStatus: CollectRunStatus): {
+  http: number;
+  ok: boolean;
+  error_code: string | null;
+  collection_succeeded: boolean;
+} {
+  if (runStatus === "PARTIAL")
+    return { http: 502, ok: false, error_code: COLLECTION_PARTIAL_CODE, collection_succeeded: false };
+  if (runStatus === "SKIPPED")
+    return { http: 200, ok: true, error_code: "NO_SOURCE_DUE", collection_succeeded: false };
+  return { http: 200, ok: true, error_code: null, collection_succeeded: true };
+}

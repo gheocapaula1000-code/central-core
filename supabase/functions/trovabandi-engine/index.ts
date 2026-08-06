@@ -24,6 +24,7 @@ import { persistOpportunityFailClosed, type PersistVerification } from "./persis
 import {
   COVERAGE_WINDOW_HOURS,
   RUN_STALE_AFTER_MINUTES,
+  collectResponseContract,
   coverageCutoffIso,
   evaluateGate,
   selectDueSource,
@@ -1064,9 +1065,11 @@ serve(async (req) => {
       finished_at: nowIso,
     });
     if (skipped.error) return response(500, { ok: false, code: "RUN_PERSIST_FAILED" });
+    // SKIPPED non è mai un segnale di raccolta riuscita né di release gate.
     return response(200, {
       ok: true,
       skipped: true,
+      collection_succeeded: false,
       status: "SKIPPED",
       reason: "NO_SOURCE_DUE",
       error_code: "NO_SOURCE_DUE",
@@ -1090,6 +1093,7 @@ serve(async (req) => {
     return response(200, {
       ok: true,
       skipped: true,
+      collection_succeeded: false,
       status: "SKIPPED",
       reason: "LEASE_LOST",
       error_code: "LEASE_LOST",
@@ -1251,8 +1255,14 @@ serve(async (req) => {
     ]);
     if (sourceWrite.error || runWrite.error || refreshWrite.error)
       return response(500, { ok: false, code: "RUN_PERSIST_FAILED" });
-    return response(200, {
-      ok: true,
+    // Il run PARTIAL resta persistito con contatori e diagnostica completi,
+    // ma la risposta è fail-closed: ok:false + HTTP 502 così l'orchestratore
+    // non può marcare il job come riuscito.
+    const contract = collectResponseContract(runStatus);
+    return response(contract.http, {
+      ok: contract.ok,
+      error_code: contract.error_code,
+      collection_succeeded: contract.collection_succeeded,
       source: source.name,
       status: runStatus,
       discovered: byUrl.size,
@@ -1260,7 +1270,7 @@ serve(async (req) => {
       scraped: pagesScraped,
       processed,
       verified,
-
+      operational_failures: operationalFailures,
       warnings: [...new Set(warnings)],
       diagnostics: diagnosticCounters,
     });
