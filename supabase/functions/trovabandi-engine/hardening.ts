@@ -93,15 +93,7 @@ export function selectDueSource<T extends RankableSource>(
   if (!region) return { source: head, reason: "FAIR_OLDEST", bypass_minutes: 0 };
 
   const headDue = time(head.next_scan_at) ?? now;
-  for (const candidate of due) {
-    if (candidate.id === head.id) break;
-    const candidateRegion = (candidate.region ?? "").trim().toLowerCase();
-    if (candidateRegion && candidateRegion !== region) continue;
-    const delta = ((time(candidate.next_scan_at) ?? now) - headDue) / 60_000;
-    if (delta <= REGIONAL_BYPASS_MAX_MINUTES) {
-      return { source: candidate, reason: "REGIONAL_BYPASS", bypass_minutes: Math.round(delta) };
-    }
-  }
+
   const preferred = due.find((candidate) => {
     const candidateRegion = (candidate.region ?? "").trim().toLowerCase();
     if (candidateRegion && candidateRegion !== region) return false;
