@@ -676,9 +676,79 @@ interface GateIntegrity {
   recompute_ultimo: string | null;
   contendibili_totali: number;
   recompute_corrente: boolean;
+  pipeline_0710_ultimo_ok: string | null;
+  pwa_sync_ack_ultimo_ok: string | null;
+  pwa_sync_ack_corrente: boolean;
   sync_pwa_dopo_classificazione: boolean;
   contendibili_fuori_perimetro: number;
   privati_fuori_perimetro: number;
+}
+
+/**
+ * Traccia reale delle pipeline Civiko: il release gate esige un ack PWA
+ * successivo alla fine dell'ultima pipeline_0710 riuscita, quindi la fine
+ * della pipeline deve essere registrata in modo verificabile.
+ */
+async function recordPipelineStart(runId: string, pipeline: string): Promise<void> {
+  if (!SERVICE_KEY) return;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/civiko_pipeline_runs`, {
+      method: "POST",
+      headers: {
+        apikey: SERVICE_KEY,
+        Authorization: `Bearer ${SERVICE_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify([{
+        run_id: runId,
+        pipeline,
+        started_at: new Date().toISOString(),
+      }]),
+    });
+    await res.body?.cancel();
+    if (!res.ok) console.error(`[dispatch] pipeline_run start not recorded status=${res.status}`);
+  } catch {
+    console.error("[dispatch] pipeline_run start not recorded");
+  }
+}
+
+async function recordPipelineEnd(
+  runId: string,
+  okRun: boolean,
+  steps: StepResult[],
+  errorCode: string | null,
+): Promise<void> {
+  if (!SERVICE_KEY) return;
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/civiko_pipeline_runs?run_id=eq.${runId}`,
+      {
+        method: "PATCH",
+        headers: {
+          apikey: SERVICE_KEY,
+          Authorization: `Bearer ${SERVICE_KEY}`,
+          "Content-Type": "application/json",
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({
+          finished_at: new Date().toISOString(),
+          ok: okRun,
+          error_code: errorCode,
+          steps: steps.map((s) => ({
+            action: s.action,
+            ok: s.ok,
+            status: s.status,
+            reason: s.reason ?? null,
+          })),
+        }),
+      },
+    );
+    await res.body?.cancel();
+    if (!res.ok) console.error(`[dispatch] pipeline_run end not recorded status=${res.status}`);
+  } catch {
+    console.error("[dispatch] pipeline_run end not recorded");
+  }
 }
 
 async function readGateIntegrity(): Promise<GateIntegrity | null> {
