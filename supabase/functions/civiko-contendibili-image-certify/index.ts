@@ -441,6 +441,8 @@ Deno.serve(async (req) => {
   let rawJsonRefs = 0;
   const fingerprints: Fp[] = pairsOnly ? storedFingerprints : [];
   const outcomeByListing = new Map<number, string>();
+  /** Impronta deterministica della fonte immagine osservata in questo giro. */
+  const sourceFpByListing = new Map<number, string | null>();
 
   const ingestRefs = async (listingId: number, refs: string[]): Promise<void> => {
     const fetched = await fetchImagesBounded(refs, budget);
