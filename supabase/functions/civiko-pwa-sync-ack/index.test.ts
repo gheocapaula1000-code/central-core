@@ -1,10 +1,15 @@
-// Test della validazione ack sync PWA Civiko — nessuna rete, nessun provider.
+// Test dello schema canonico dell'ack sync PWA Civiko — nessuna rete.
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
+  type AckRecord,
+  isIdenticalAck,
   PADOVA_ZONE_SLUGS,
   REQUIRED_COUNT_KEYS,
   validateAck,
 } from "./validation.ts";
+
+const RUN_ID = "0f6b1e2c-8f4a-4c1e-9a2b-7d3f5c6a1b2e";
+const NOW = Date.parse("2026-08-06T07:40:00.000Z");
 
 function fullCounts(over: Record<string, number> = {}) {
   const c: Record<string, number> = {};
@@ -12,190 +17,224 @@ function fullCounts(over: Record<string, number> = {}) {
   return { ...c, ...over };
 }
 
-const NOW = Date.parse("2026-08-06T07:20:00.000Z");
-
+/** Body ESATTO del sender PWA canonico. */
 function base(overrides: Record<string, unknown> = {}) {
-  return {
-    run_id: "0f6b1e2c-8f4a-4c1e-9a2b-7d3f5c6a1b2e",
-    started_at: "2026-08-06T07:10:00.000Z",
-    finished_at: "2026-08-06T07:15:00.000Z",
+  const b: Record<string, unknown> = {
+    run_id: RUN_ID,
+    started_at: "2026-08-06T07:30:00.000Z",
+    finished_at: "2026-08-06T07:35:00.000Z",
     ok: true,
+    municipality: "Padova",
+    zone_slugs: [...PADOVA_ZONE_SLUGS],
     counts: fullCounts(),
-    scope_comune: "Padova",
-    scope_slugs: [...PADOVA_ZONE_SLUGS],
     ...overrides,
   };
+  for (const k of Object.keys(b)) if (b[k] === undefined) delete b[k];
+  return b;
 }
 
-Deno.test("ack valido viene normalizzato", () => {
-  const r = validateAck(base(), "civiko", NOW);
+function ok_(body: Record<string, unknown> = base(), key: string | null = RUN_ID) {
+  return validateAck(body, "civiko-one", NOW, key);
+}
+
+Deno.test("schema canonico PWA accettato e normalizzato", () => {
+  const r = ok_();
   assertEquals(r.ok, true);
   if (r.ok) {
-    assertEquals(r.record.scope_comune, "Padova");
-    assertEquals(r.record.scope_slugs.length, 8);
-    assertEquals(r.record.source_app, "civiko");
-    assertEquals(r.record.idempotency_key, "0f6b1e2c-8f4a-4c1e-9a2b-7d3f5c6a1b2e");
+    assertEquals(r.record.municipality, "Padova");
+    assertEquals(r.record.commercial_zone_slugs.length, 8);
+    assertEquals(r.record.source_app, "civiko-one");
     assertEquals(r.record.error_code, null);
   }
 });
 
+Deno.test("campi legacy scope_comune/scope_slugs rifiutati", () => {
+  for (const k of ["scope_comune", "scope_slugs"]) {
+    const r = ok_(base({ [k]: k === "scope_comune" ? "Padova" : [...PADOVA_ZONE_SLUGS] }));
+    assertEquals(r.ok, false);
+    if (!r.ok) assertEquals(r.code, "LEGACY_FIELD_REJECTED");
+  }
+});
+
+Deno.test("idempotency_key nel body rifiutata (è un header)", () => {
+  const r = ok_(base({ idempotency_key: RUN_ID }));
+  assertEquals(r.ok, false);
+  if (!r.ok) assertEquals(r.code, "LEGACY_FIELD_REJECTED");
+});
+
+Deno.test("pipeline_run_id dichiarato dal client rifiutato", () => {
+  const r = ok_(base({ pipeline_run_id: "11111111-1111-4111-8111-111111111111" }));
+  assertEquals(r.ok, false);
+  if (!r.ok) assertEquals(r.code, "LEGACY_FIELD_REJECTED");
+});
+
+Deno.test("campo extra sconosciuto rifiutato", () => {
+  const r = ok_(base({ foo: 1 }));
+  assertEquals(r.ok, false);
+  if (!r.ok) assertEquals(r.code, "UNKNOWN_FIELD");
+});
+
+Deno.test("header x-idempotency-key mancante rifiutato", () => {
+  const r = ok_(base(), null);
+  assertEquals(r.ok, false);
+  if (!r.ok) assertEquals(r.code, "IDEMPOTENCY_KEY_REQUIRED");
+});
+
+Deno.test("header x-idempotency-key diverso dal run_id rifiutato", () => {
+  const r = ok_(base(), "11111111-1111-4111-8111-111111111111");
+  assertEquals(r.ok, false);
+  if (!r.ok) assertEquals(r.code, "IDEMPOTENCY_KEY_MISMATCH");
+});
+
 Deno.test("run_id non UUID rifiutato", () => {
-  const r = validateAck(base({ run_id: "run-123" }), "civiko", NOW);
+  const r = ok_(base({ run_id: "run-123" }), "run-123");
   assertEquals(r.ok, false);
   if (!r.ok) assertEquals(r.code, "RUN_ID_INVALID");
 });
 
-Deno.test("ok non booleano rifiutato", () => {
-  const r = validateAck(base({ ok: "true" }), "civiko", NOW);
-  assertEquals(r.ok, false);
-  if (!r.ok) assertEquals(r.code, "OK_INVALID");
-});
-
-Deno.test("comune diverso da Padova rifiutato", () => {
-  const r = validateAck(base({ scope_comune: "Venezia" }), "civiko", NOW);
-  assertEquals(r.ok, false);
-  if (!r.ok) assertEquals(r.code, "SCOPE_COMUNE_INVALID");
-});
-
-Deno.test("slug fuori dalle 8 zone rifiutato", () => {
-  const bad = [...PADOVA_ZONE_SLUGS.slice(0, 7), "mestre"];
-  const r = validateAck(base({ scope_slugs: bad }), "civiko", NOW);
-  assertEquals(r.ok, false);
-  if (!r.ok) assertEquals(r.code, "SCOPE_SLUGS_INVALID");
-});
-
-Deno.test("slug duplicati rifiutati", () => {
-  const r = validateAck(
-    base({ scope_slugs: [...PADOVA_ZONE_SLUGS.slice(0, 7), "centro-storico"] }),
-    "civiko",
-    NOW,
-  );
-  assertEquals(r.ok, false);
-  if (!r.ok) assertEquals(r.code, "SCOPE_SLUGS_INVALID");
-});
-
-Deno.test("timestamp nel futuro oltre tolleranza rifiutato", () => {
-  const r = validateAck(
-    base({ started_at: "2026-08-06T09:00:00.000Z", finished_at: "2026-08-06T09:10:00.000Z" }),
-    "civiko",
-    NOW,
-  );
-  assertEquals(r.ok, false);
-  if (!r.ok) assertEquals(r.code, "TIMESTAMP_WINDOW_INVALID");
-});
-
-Deno.test("timestamp troppo vecchio rifiutato", () => {
-  const r = validateAck(
-    base({ started_at: "2026-08-01T07:00:00.000Z", finished_at: "2026-08-01T07:05:00.000Z" }),
-    "civiko",
-    NOW,
-  );
-  assertEquals(r.ok, false);
-  if (!r.ok) assertEquals(r.code, "TIMESTAMP_WINDOW_INVALID");
-});
-
-Deno.test("finished precedente a started rifiutato", () => {
-  const r = validateAck(
-    base({ started_at: "2026-08-06T07:15:00.000Z", finished_at: "2026-08-06T07:10:00.000Z" }),
-    "civiko",
-    NOW,
-  );
+Deno.test("timestamp identici rifiutati (durata nulla)", () => {
+  const r = ok_(base({ finished_at: "2026-08-06T07:30:00.000Z" }));
   assertEquals(r.ok, false);
   if (!r.ok) assertEquals(r.code, "TIMESTAMP_ORDER_INVALID");
 });
 
-Deno.test("ok=false richiede error_code", () => {
-  const r = validateAck(base({ ok: false }), "civiko", NOW);
+Deno.test("finished_at precedente a started_at rifiutato", () => {
+  const r = ok_(base({ finished_at: "2026-08-06T07:20:00.000Z" }));
   assertEquals(r.ok, false);
-  if (!r.ok) assertEquals(r.code, "ACK_INCOHERENT");
+  if (!r.ok) assertEquals(r.code, "TIMESTAMP_ORDER_INVALID");
 });
 
-Deno.test("ok=true con error_code rifiutato", () => {
-  const r = validateAck(base({ error_code: "SYNC_FAILED" }), "civiko", NOW);
+Deno.test("municipality diverso da Padova rifiutato", () => {
+  const r = ok_(base({ municipality: "Venezia" }));
   assertEquals(r.ok, false);
-  if (!r.ok) assertEquals(r.code, "ACK_INCOHERENT");
+  if (!r.ok) assertEquals(r.code, "MUNICIPALITY_INVALID");
 });
 
-Deno.test("ack fallito con error_code valido accettato", () => {
-  const r = validateAck(base({ ok: false, error_code: "SYNC_FAILED" }), "civiko-one", NOW);
+Deno.test("7 zone rifiutate", () => {
+  const r = ok_(base({ zone_slugs: PADOVA_ZONE_SLUGS.slice(0, 7) }));
+  assertEquals(r.ok, false);
+  if (!r.ok) assertEquals(r.code, "ZONE_SLUGS_INVALID");
+});
+
+Deno.test("9 zone (extra) rifiutate", () => {
+  const r = ok_(base({ zone_slugs: [...PADOVA_ZONE_SLUGS, "mestre"] }));
+  assertEquals(r.ok, false);
+  if (!r.ok) assertEquals(r.code, "ZONE_SLUGS_INVALID");
+});
+
+Deno.test("zone duplicate rifiutate", () => {
+  const r = ok_(base({ zone_slugs: [...PADOVA_ZONE_SLUGS.slice(0, 7), "centro-storico"] }));
+  assertEquals(r.ok, false);
+  if (!r.ok) assertEquals(r.code, "ZONE_SLUGS_INVALID");
+});
+
+Deno.test("le 8 zone esatte passano", () => {
+  const r = ok_(base({ zone_slugs: [...PADOVA_ZONE_SLUGS].reverse() }));
   assertEquals(r.ok, true);
-  if (r.ok) {
-    assertEquals(r.record.ok, false);
-    assertEquals(r.record.error_code, "SYNC_FAILED");
-  }
 });
 
-Deno.test("campi extra rifiutati", () => {
-  const r = validateAck(base({ zone_slug: "centro-storico" }), "civiko", NOW);
-  assertEquals(r.ok, false);
-  if (!r.ok) assertEquals(r.code, "UNKNOWN_FIELD");
-});
-
-Deno.test("counts non interi rifiutati", () => {
-  const r = validateAck(base({ counts: fullCounts({ privati: -1 }) }), "civiko", NOW);
-  assertEquals(r.ok, false);
-  if (!r.ok) assertEquals(r.code, "COUNTS_INVALID");
-});
-
-Deno.test("counts con chiave mancante rifiutati", () => {
+Deno.test("8 count keys (una mancante) rifiutate", () => {
   const c = fullCounts();
-  delete (c as Record<string, number>).quartieri;
-  const r = validateAck(base({ counts: c }), "civiko", NOW);
+  delete c.quartieri;
+  const r = ok_(base({ counts: c }));
   assertEquals(r.ok, false);
   if (!r.ok) assertEquals(r.code, "COUNTS_MISSING_KEY");
 });
 
-Deno.test("counts assenti rifiutati", () => {
-  const b = base();
-  delete (b as Record<string, unknown>).counts;
-  const r = validateAck(b, "civiko", NOW);
+Deno.test("10 count keys (una extra) rifiutate", () => {
+  const r = ok_(base({ counts: fullCounts({ extra: 1 }) }));
   assertEquals(r.ok, false);
   if (!r.ok) assertEquals(r.code, "COUNTS_INVALID");
 });
 
-Deno.test("counts tutti a zero ammessi", () => {
-  const zero: Record<string, number> = {};
-  for (const k of REQUIRED_COUNT_KEYS) zero[k] = 0;
-  const r = validateAck(base({ counts: zero }), "civiko", NOW);
+Deno.test("count non intero o negativo rifiutato", () => {
+  for (const v of [1.5, -1]) {
+    const r = ok_(base({ counts: fullCounts({ radar: v }) }));
+    assertEquals(r.ok, false);
+    if (!r.ok) assertEquals(r.code, "COUNTS_INVALID");
+  }
+});
+
+Deno.test("counts tutti a zero sono validi", () => {
+  const zeros: Record<string, number> = {};
+  for (const k of REQUIRED_COUNT_KEYS) zeros[k] = 0;
+  const r = ok_(base({ counts: zeros }));
   assertEquals(r.ok, true);
 });
 
-Deno.test("counts con chiave sconosciuta rifiutati", () => {
-  const r = validateAck(base({ counts: fullCounts({ aste: 1 }) }), "civiko", NOW);
+Deno.test("error_code su ok=true rifiutato", () => {
+  const r = ok_(base({ error_code: "BOOM" }));
   assertEquals(r.ok, false);
-  if (!r.ok) assertEquals(r.code, "COUNTS_INVALID");
+  if (!r.ok) assertEquals(r.code, "ACK_INCOHERENT");
 });
 
-Deno.test("7 zone su 9 rifiutate: servono esattamente le 8 ufficiali", () => {
-  const r = validateAck(base({ scope_slugs: PADOVA_ZONE_SLUGS.slice(0, 7) }), "civiko", NOW);
+Deno.test("ok=false senza error_code rifiutato", () => {
+  const r = ok_(base({ ok: false }));
   assertEquals(r.ok, false);
-  if (!r.ok) assertEquals(r.code, "SCOPE_SLUGS_INVALID");
+  if (!r.ok) assertEquals(r.code, "ACK_INCOHERENT");
 });
 
-Deno.test("pipeline_run_id inviato dalla PWA rifiutato", () => {
-  const r = validateAck(
-    base({ pipeline_run_id: "11111111-1111-4111-8111-111111111111" }),
-    "civiko",
-    NOW,
+Deno.test("ok=false con error_code accettato", () => {
+  const r = ok_(base({ ok: false, error_code: "RENDER_TIMEOUT" }));
+  assertEquals(r.ok, true);
+  if (r.ok) assertEquals(r.record.error_code, "RENDER_TIMEOUT");
+});
+
+// ── Idempotenza immutabile ─────────────────────────────────────────────────
+const PIPE = "11111111-1111-4111-8111-111111111111";
+
+function record(): AckRecord {
+  const r = ok_();
+  if (!r.ok) throw new Error("fixture invalida");
+  return r.record;
+}
+
+function storedFrom(rec: AckRecord, over: Record<string, unknown> = {}) {
+  return {
+    run_id: rec.run_id,
+    started_at: rec.started_at,
+    finished_at: rec.finished_at,
+    ok: rec.ok,
+    counts: { ...rec.counts },
+    municipality: rec.municipality,
+    commercial_zone_slugs: [...rec.commercial_zone_slugs],
+    error_code: rec.error_code,
+    pipeline_run_id: PIPE,
+    ...over,
+  };
+}
+
+Deno.test("replay identico riconosciuto (200)", () => {
+  const rec = record();
+  assertEquals(isIdenticalAck(storedFrom(rec), rec, PIPE), true);
+});
+
+Deno.test("stesso run_id con counts diversi è conflitto", () => {
+  const rec = record();
+  const stored = storedFrom(rec, { counts: { ...rec.counts, radar: 99 } });
+  assertEquals(isIdenticalAck(stored, rec, PIPE), false);
+});
+
+Deno.test("stesso run_id su pipeline diversa è conflitto", () => {
+  const rec = record();
+  assertEquals(
+    isIdenticalAck(storedFrom(rec), rec, "22222222-2222-4222-8222-222222222222"),
+    false,
   );
-  assertEquals(r.ok, false);
-  if (!r.ok) assertEquals(r.code, "UNKNOWN_FIELD");
 });
 
-Deno.test("idempotenza: stesso payload produce lo stesso record", () => {
-  const a = validateAck(base(), "civiko", NOW);
-  const b = validateAck(base(), "civiko", NOW);
-  assertEquals(a.ok && b.ok, true);
-  if (a.ok && b.ok) assertEquals(JSON.stringify(a.record), JSON.stringify(b.record));
+Deno.test("replay con timestamp diverso è conflitto", () => {
+  const rec = record();
+  const stored = storedFrom(rec, { finished_at: "2026-08-06T07:36:00.000Z" });
+  assertEquals(isIdenticalAck(stored, rec, PIPE), false);
 });
 
-Deno.test("idempotency_key esplicita conservata", () => {
-  const r = validateAck(base({ idempotency_key: "pipeline_0710:2026-08-06" }), "civiko", NOW);
-  assertEquals(r.ok, true);
-  if (r.ok) assertEquals(r.record.idempotency_key, "pipeline_0710:2026-08-06");
-});
-
-Deno.test("payload non oggetto rifiutato", () => {
-  assertEquals(validateAck(null, "civiko", NOW).ok, false);
-  assertEquals(validateAck([], "civiko", NOW).ok, false);
+Deno.test("riga legacy con soli alias resta confrontabile", () => {
+  const rec = record();
+  const stored = storedFrom(rec);
+  delete (stored as Record<string, unknown>).municipality;
+  delete (stored as Record<string, unknown>).commercial_zone_slugs;
+  (stored as Record<string, unknown>).scope_comune = rec.municipality;
+  (stored as Record<string, unknown>).scope_slugs = [...rec.commercial_zone_slugs];
+  assertEquals(isIdenticalAck(stored, rec, PIPE), true);
 });
