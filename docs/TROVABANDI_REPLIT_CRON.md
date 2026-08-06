@@ -71,3 +71,40 @@ Body iniziale: `{ "offset": 0, "limit": 10 }`. Usare il `next_offset` restituito
 ## Gate operativo
 
 Non considerare la mattina pronta se `release_gate` non restituisce 200. Registrare per ogni job: ora inizio/fine, azione, status HTTP, discovered, processed, verified, warnings e tentativo. Non registrare URL completi, payload dei profili o secret.
+
+## Runtime hardening (selezione fonti, run SKIPPED, gate dinamico)
+
+Selezione equa: `collect` sceglie sempre la fonte abilitata con `next_scan_at` più vecchio, poi quella
+mai scansionata (o con `last_scanned_at` più remoto); la priorità interviene solo a parità. La cadenza
+rapida resta garantita perché una fonte a intervallo breve torna dovuta prima delle altre. Una
+richiesta di refresh regionale può anticipare una fonte della regione richiesta soltanto se il suo
+ritardo dista al massimo 30 minuti dalla fonte più arretrata: nessuna fonte può restare indietro.
+
+Lease ottimistico: prima di lavorare, la fonte viene prenotata con un confronto sul valore osservato di
+`next_scan_at`. Se un altro worker l'ha già presa, la chiamata risponde `200` con
+`status: "SKIPPED"`, `error_code: "LEASE_LOST"` e non esegue alcun provider.
+
+Esiti di `collect`:
+
+- `dry_run: true` è realmente in sola lettura: nessun provider, nessun run, nessuna scrittura. Ritorna
+  `would_collect`, `reason` e il numero di fonti dovute.
+- Nessuna fonte dovuta in modalità live: viene persistito un run `SKIPPED` con
+  `error_code: "NO_SOURCE_DUE"` e `finished_at`. Un `SKIPPED` non è mai un `SUCCEEDED` e non concorre
+  alla copertura del gate.
+- I cap su `max_pages` restano 1..5.
+
+Manutenzione: `maintenance` riconcilia i run rimasti `RUNNING` da più di 20 minuti in `FAILED` con
+`error_code: "STALE_RUN_TIMEOUT"`, poi scade solo le opportunità in stato appropriato. Entrambe le
+scritture sono fail-closed.
+
+Gate dinamico: `release_gate` non usa soglie commerciali. Richiede, con finestra di copertura di 26 ore:
+
+- tutte le fonti abilitate coperte da uno scan reale;
+- tutti i `source_kind` abilitati coperti;
+- nessun run `RUNNING` stale;
+- catalogo ufficiale VERIFICATO attivo con prova documentale almeno pari al numero dinamico di
+  `source_kind` abilitati (conteggio DISTINCT via RPC dedicata, mai un join).
+
+Uno scan reale è valido anche a zero novità, purché il run sia `SUCCEEDED`, legato a una fonte, con
+entrambi gli status provider `OK` e contatori pagine interi e coerenti. Qualsiasi query in errore o
+nulla fa fallire il gate.
