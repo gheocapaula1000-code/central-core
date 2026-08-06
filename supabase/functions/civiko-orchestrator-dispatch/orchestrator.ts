@@ -106,62 +106,150 @@ export interface PipelineStep {
 /** Uno stage: le azioni al suo interno partono in parallelo bounded. */
 export type PipelineStage = PipelineStep[];
 
+
+// ── DAG esplicito: dipendenze dichiarate, livelli derivati ──────────────────
+// `needs` = dipendenza DI DATO: lo step legge ciò che il predecessore scrive.
+//           Non può mai essere parallelizzato col predecessore.
+// `after`  = vincolo di RISORSA (costo provider / rate limit / stesso target di
+//           scrittura): serializzazione voluta, non parallelizzabile.
+// I livelli (stage) sono DERIVATI dal DAG: due azioni finiscono nello stesso
+// stage solo se sono reciprocamente indipendenti su entrambi i tipi di arco.
+export interface DagNode {
+  action: SimpleAction;
+  needs?: SimpleAction[];
+  after?: SimpleAction[];
+  /** Invocazioni consecutive dello stesso step (hard limit bounded). */
+  repeat?: number;
+}
+
+/** Esattamente TRE pipeline Civiko: nessun quarto job, nessuna pipeline ad hoc. */
+export const PIPELINE_ORDER = ["pipeline_0510", "pipeline_0545", "pipeline_0710"] as const;
+export const PIPELINE_COUNT = 3;
+
 /** Certificazione fotografica: hard limit 4 listing totali, max 6 invocazioni. */
 export const IMAGE_CERTIFY_HARD_LIMIT = 4;
 export const IMAGE_CERTIFY_MAX_INVOCATIONS = 6;
 /**
  * Budget downstream che la fase immagini NON può mai consumare in 0545:
- * pairs (25) + snapshot/recompute in parallelo (35) + extras (25).
+ * pairs (25) + recompute (35) + extras (25).
  */
 export const IMAGE_DOWNSTREAM_RESERVE_MS = 85_000;
 
-export const PIPELINES: Record<PipelineAction, { at: string; stages: PipelineStage[] }> = {
-  // 05:10 — raccolta Casa.it multipagina, i 3 Apify in parallelo bounded e la
-  // routine notturna dei lead privati. Nessuna classificazione qui: avviene
-  // una sola volta, in 0545.
+export const PIPELINE_DAG: Record<PipelineAction, { at: string; nodes: DagNode[] }> = {
+  // 05:10 — raccolta. Casa.it apre la finestra, i 3 Apify partono in parallelo
+  // (indipendenti tra loro, serializzati DOPO Casa solo per costo provider),
+  // la routine lead privati chiude quando i lanci sono avvenuti.
   pipeline_0510: {
     at: "05:10",
-    stages: [
-      [{ action: "portal_casa" }],
-      [
-        { action: "apify_immobiliare" },
-        { action: "apify_idealista" },
-        { action: "apify_subito" },
-      ],
-      [{ action: "private_leads_nightly" }],
+    nodes: [
+      { action: "portal_casa" },
+      { action: "apify_immobiliare", after: ["portal_casa"] },
+      { action: "apify_idealista", after: ["portal_casa"] },
+      { action: "apify_subito", after: ["portal_casa"] },
+      {
+        action: "private_leads_nightly",
+        after: ["apify_immobiliare", "apify_idealista", "apify_subito"],
+      },
     ],
   },
-  // 05:45 — collect/import corrente (collect-pending importa e promuove già:
-  // nessuna promozione duplicata), classificazione privati + backfill +
-  // evidence in parallelo, fingerprint fotografico bounded, pairs,
-  // snapshot/recompute in parallelo, extras.
+  // 05:45 — import/promozione, poi la catena contendibili. Le dipendenze di
+  // scrittura su tipo_lead e sui ribassi sono ESPLICITE: classify → repair,
+  // snapshot → recompute. Nessuno step dipendente resta in parallelo.
   pipeline_0545: {
     at: "05:45",
-    stages: [
-      [{ action: "collect_pending" }],
-      [
-        { action: "private_leads_classify" },
-        { action: "tipo_lead_repair" },
-        { action: "contendibili_backfill" },
-        { action: "contendibili_evidence" },
-      ],
-      [{ action: "contendibili_image_certify", repeat: IMAGE_CERTIFY_MAX_INVOCATIONS }],
-      [{ action: "contendibili_pairs" }],
-      [{ action: "price_snapshot" }, { action: "contendibili_recompute" }],
-      [{ action: "contendibili_extras" }],
+    nodes: [
+      { action: "collect_pending" },
+      // Indipendenti tra loro: leggono le righe importate, scrivono tabelle
+      // diverse (tipo_lead vs evidence vs snapshot prezzi).
+      { action: "private_leads_classify", needs: ["collect_pending"] },
+      { action: "contendibili_evidence", needs: ["collect_pending"] },
+      { action: "price_snapshot", needs: ["collect_pending"] },
+      // Scrive lo STESSO campo di classify: dipendenza di dato, mai parallelo.
+      { action: "tipo_lead_repair", needs: ["private_leads_classify"] },
+      // L'identità canonica richiede tipo_lead già consolidato.
+      { action: "contendibili_backfill", needs: ["tipo_lead_repair"] },
+      {
+        action: "contendibili_image_certify",
+        needs: ["contendibili_backfill", "contendibili_evidence"],
+        repeat: IMAGE_CERTIFY_MAX_INVOCATIONS,
+      },
+      { action: "contendibili_pairs", needs: ["contendibili_image_certify"] },
+      // Legge le coppie foto E i ribassi: dipende da entrambi.
+      { action: "contendibili_recompute", needs: ["contendibili_pairs", "price_snapshot"] },
+      { action: "contendibili_extras", needs: ["contendibili_recompute"] },
     ],
   },
-  // 07:10 — stage paralleli bounded: radar+discover, poi scores+early warning,
-  // infine la classificazione dei segnali.
+  // 07:10 — radar e offmarket. discover → scores → early_warning è una catena
+  // di dato (early warning consuma i punteggi): resta serializzata.
   pipeline_0710: {
     at: "07:10",
-    stages: [
-      [{ action: "radar_full" }, { action: "offmarket_discover" }],
-      [{ action: "offmarket_scores" }, { action: "early_warning" }],
-      [{ action: "signals_classify" }],
+    nodes: [
+      { action: "radar_full" },
+      { action: "offmarket_discover" },
+      { action: "offmarket_scores", needs: ["offmarket_discover"] },
+      { action: "early_warning", needs: ["offmarket_scores"] },
+      { action: "signals_classify", needs: ["radar_full", "early_warning"] },
     ],
   },
 };
+
+/** Larghezza massima di uno stage: fan-out bounded, mai illimitato. */
+export const MAX_STAGE_WIDTH = 4;
+
+/**
+ * Livellazione topologica fail-closed: cicli, archi verso azioni non dichiarate
+ * e duplicati sono errori di contratto. Uno stage contiene solo azioni
+ * mutualmente indipendenti; i livelli larghi vengono spezzati a MAX_STAGE_WIDTH
+ * mantenendo l'ordine dichiarato.
+ */
+export function topoStages(pipeline: PipelineAction): PipelineStage[] {
+  const nodes = PIPELINE_DAG[pipeline].nodes;
+  const known = new Set<SimpleAction>();
+  for (const n of nodes) {
+    if (known.has(n.action)) throw new Error(`dag_${pipeline}_duplicate_${n.action}`);
+    known.add(n.action);
+  }
+  const edges = (n: DagNode) => [...(n.needs ?? []), ...(n.after ?? [])];
+  for (const n of nodes) {
+    for (const dep of edges(n)) {
+      if (!known.has(dep)) throw new Error(`dag_${pipeline}_unknown_dep_${dep}`);
+      if (dep === n.action) throw new Error(`dag_${pipeline}_self_dep_${dep}`);
+    }
+  }
+  const level = new Map<SimpleAction, number>();
+  let guard = 0;
+  while (level.size < nodes.length) {
+    if (guard++ > nodes.length + 1) throw new Error(`dag_${pipeline}_cycle`);
+    let progressed = false;
+    for (const n of nodes) {
+      if (level.has(n.action)) continue;
+      const deps = edges(n);
+      if (deps.some((d) => !level.has(d))) continue;
+      level.set(n.action, deps.length ? Math.max(...deps.map((d) => level.get(d)!)) + 1 : 0);
+      progressed = true;
+    }
+    if (!progressed) throw new Error(`dag_${pipeline}_cycle`);
+  }
+  const maxLevel = Math.max(...level.values());
+  const stages: PipelineStage[] = [];
+  for (let l = 0; l <= maxLevel; l++) {
+    const same = nodes.filter((n) => level.get(n.action) === l);
+    for (let i = 0; i < same.length; i += MAX_STAGE_WIDTH) {
+      stages.push(
+        same.slice(i, i + MAX_STAGE_WIDTH).map((n) => ({
+          action: n.action,
+          ...(n.repeat ? { repeat: n.repeat } : {}),
+        })),
+      );
+    }
+  }
+  return stages;
+}
+
+export const PIPELINES: Record<PipelineAction, { at: string; stages: PipelineStage[] }> = Object
+  .fromEntries(
+    PIPELINE_ORDER.map((p) => [p, { at: PIPELINE_DAG[p].at, stages: topoStages(p) }]),
+  ) as Record<PipelineAction, { at: string; stages: PipelineStage[] }>;
 
 /** Ordine deterministico effettivo (stage appiattiti, repeat espanso). */
 export function expandedSteps(pipeline: PipelineAction): SimpleAction[] {
@@ -174,6 +262,14 @@ export function expandedSteps(pipeline: PipelineAction): SimpleAction[] {
 export function pipelineActions(pipeline: PipelineAction): SimpleAction[] {
   return PIPELINES[pipeline].stages.flatMap((stage) => stage.map((s) => s.action));
 }
+
+/** Coppie (a → b) che NON possono mai stare nello stesso stage. */
+export function dependencyPairs(pipeline: PipelineAction): Array<[SimpleAction, SimpleAction]> {
+  return PIPELINE_DAG[pipeline].nodes.flatMap((n) =>
+    [...(n.needs ?? []), ...(n.after ?? [])].map((d) => [d, n.action] as [SimpleAction, SimpleAction])
+  );
+}
+
 
 // ── Segmentazione: ogni invocazione resta sotto il budget hard ──────────────
 // Il timeout esterno REALE è PIPELINE_BUDGET_MS. La somma dei budget di stage
@@ -189,9 +285,14 @@ export const CONTINUATION_RESERVE_MS = 2_000;
 export const SEGMENT_CAPACITY_MS = PIPELINE_BUDGET_MS - BUDGET_RESERVE_MS -
   CONTINUATION_RESERVE_MS;
 
-/** Costo peggiore di uno stage: azione più lenta (le altre sono parallele). */
+/**
+ * Costo peggiore di uno stage: l'azione più lenta (le altre sono parallele),
+ * con i `repeat` contati per intero perché sono invocazioni SEQUENZIALI.
+ */
 export function stageWorstCaseMs(stage: PipelineStage): number {
-  const slowest = Math.max(...stage.map((s) => ACTION_TIMEOUT_MS[s.action]));
+  const slowest = Math.max(
+    ...stage.map((s) => ACTION_TIMEOUT_MS[s.action] * Math.max(1, s.repeat ?? 1)),
+  );
   return slowest + STAGE_OVERHEAD_MS;
 }
 
@@ -251,6 +352,245 @@ export function remainingStagesWorstCaseMs(
   }
   return total;
 }
+
+// ── Critical path nominale e completabilità ─────────────────────────────────
+/**
+ * Runtime NOMINALE dichiarato per azione (ms). Valore osservato/atteso, non un
+ * timeout: serve a calcolare il critical path del DAG. Invariante dura: nessuna
+ * azione può avere runtime nominale superiore al proprio timeout, altrimenti lo
+ * step non è completabile e il contratto fallisce chiuso in fase di caricamento.
+ * I valori vanno riconfermati con durate reali nel task autorizzato di
+ * rollback/micro-run: qui restano conservativi (>= osservato noto).
+ */
+export const NOMINAL_RUNTIME_MS: Record<SimpleAction, number> = {
+  portal_casa: 20_000,
+  apify_immobiliare: 35_000,
+  apify_idealista: 35_000,
+  apify_subito: 35_000,
+  private_leads_nightly: 25_000,
+  collect_pending: 35_000,
+  private_leads_classify: 20_000,
+  tipo_lead_repair: 20_000,
+  price_snapshot: 30_000,
+  contendibili_backfill: 25_000,
+  contendibili_evidence: 20_000,
+  contendibili_image_certify: 20_000,
+  contendibili_pairs: 20_000,
+  contendibili_recompute: 30_000,
+  contendibili_extras: 20_000,
+  // Runtime interni reali noti: ~80 s offmarket, ~85 s radar.
+  offmarket_discover: 80_000,
+  offmarket_scores: 45_000,
+  early_warning: 45_000,
+  radar_full: 85_000,
+  signals_classify: 20_000,
+};
+
+/** Overhead fisso di invocazione: auth, marker di apertura, chiusura audit. */
+export const INVOCATION_OVERHEAD_MS = BUDGET_RESERVE_MS + CONTINUATION_RESERVE_MS;
+
+/** Azioni il cui runtime nominale supera il proprio timeout: non completabili. */
+export function nonCompletableActions(): SimpleAction[] {
+  return (Object.keys(NOMINAL_RUNTIME_MS) as SimpleAction[]).filter(
+    (a) => NOMINAL_RUNTIME_MS[a] > ACTION_TIMEOUT_MS[a],
+  );
+}
+
+/** Costo nominale di uno stage: il ramo più lento, repeat inclusi. */
+export function stageNominalMs(stage: PipelineStage): number {
+  const slowest = Math.max(
+    ...stage.map((s) => NOMINAL_RUNTIME_MS[s.action] * Math.max(1, s.repeat ?? 1)),
+  );
+  return slowest + STAGE_OVERHEAD_MS;
+}
+
+/**
+ * Critical path nominale del DAG: catena di dipendenze più lunga, non la somma
+ * degli stage. Gli step indipendenti contano una sola volta.
+ */
+export function criticalPathMs(pipeline: PipelineAction): number {
+  const nodes = PIPELINE_DAG[pipeline].nodes;
+  const byAction = new Map(nodes.map((n) => [n.action, n]));
+  const memo = new Map<SimpleAction, number>();
+  const cost = (n: DagNode) =>
+    NOMINAL_RUNTIME_MS[n.action] * Math.max(1, n.repeat ?? 1) + STAGE_OVERHEAD_MS;
+  const walk = (action: SimpleAction, seen: Set<SimpleAction>): number => {
+    if (memo.has(action)) return memo.get(action)!;
+    if (seen.has(action)) throw new Error(`dag_${pipeline}_cycle`);
+    seen.add(action);
+    const n = byAction.get(action)!;
+    const deps = [...(n.needs ?? []), ...(n.after ?? [])];
+    const upstream = deps.length ? Math.max(...deps.map((d) => walk(d, seen))) : 0;
+    const total = upstream + cost(n);
+    seen.delete(action);
+    memo.set(action, total);
+    return total;
+  };
+  return Math.max(...nodes.map((n) => walk(n.action, new Set())));
+}
+
+export interface PipelinePlan {
+  pipeline: PipelineAction;
+  /** "single" = un'unica invocazione basta; "segmented" = continuazione async. */
+  mode: "single" | "segmented";
+  criticalPathMs: number;
+  /** Critical path + overhead di invocazione. */
+  nominalTotalMs: number;
+  segments: PipelineSegment[];
+  /** Critical path nominale del segmento più costoso. */
+  worstSegmentNominalMs: number;
+  /** Il piano è dimostrabilmente eseguibile entro il budget hard. */
+  fitsBudget: boolean;
+}
+
+/**
+ * Piano esigibile: o il critical path nominale + overhead sta dentro 165 s in
+ * una sola invocazione, oppure la pipeline è segmentata e OGNI segmento sta
+ * dentro 165 s sia nel nominale sia nel caso peggiore, con continuazione
+ * async sullo STESSO pipeline_run_id (nessun quarto job, prova terminale nello
+ * stesso ciclo). Ridurre i timeout non rende mai verde un piano: il nominale è
+ * indipendente dai timeout e il caso peggiore resta vincolato dai timeout.
+ */
+export function pipelinePlan(pipeline: PipelineAction): PipelinePlan {
+  const segments = segmentPipeline(pipeline);
+  const stages = PIPELINES[pipeline].stages;
+  const cp = criticalPathMs(pipeline);
+  const nominalTotal = cp + INVOCATION_OVERHEAD_MS;
+  const segNominal = segments.map((s) => {
+    let acc = 0;
+    for (let i = s.from; i <= s.to; i++) acc += stageNominalMs(stages[i]);
+    return acc + INVOCATION_OVERHEAD_MS;
+  });
+  const worstSegmentNominalMs = Math.max(...segNominal);
+  const single = segments.length === 1 && nominalTotal <= PIPELINE_BUDGET_MS;
+  const fitsBudget = single ||
+    (segNominal.every((ms) => ms <= PIPELINE_BUDGET_MS) &&
+      segments.every((s) => s.worstCaseMs + INVOCATION_OVERHEAD_MS <= PIPELINE_BUDGET_MS));
+  return {
+    pipeline,
+    mode: single ? "single" : "segmented",
+    criticalPathMs: cp,
+    nominalTotalMs: nominalTotal,
+    segments,
+    worstSegmentNominalMs,
+    fitsBudget,
+  };
+}
+
+/**
+ * Invarianti di contratto verificate al CARICAMENTO del modulo: esattamente tre
+ * pipeline, nessuno step non completabile, nessuno step dipendente in parallelo,
+ * ogni piano dentro il budget. Qualunque violazione impedisce l'avvio.
+ */
+export function assertPipelineContracts(): void {
+  const keys = Object.keys(PIPELINES);
+  if (keys.length !== PIPELINE_COUNT) throw new Error("pipeline_count_violation");
+  for (const p of PIPELINE_ORDER) {
+    if (!keys.includes(p)) throw new Error(`pipeline_missing_${p}`);
+  }
+  const bad = nonCompletableActions();
+  if (bad.length) throw new Error(`action_nominal_exceeds_timeout_${bad.join(",")}`);
+  for (const p of PIPELINE_ORDER) {
+    const stages = PIPELINES[p].stages;
+    const stageOf = new Map<SimpleAction, number>();
+    stages.forEach((st, i) => st.forEach((s) => stageOf.set(s.action, i)));
+    for (const [dep, act] of dependencyPairs(p)) {
+      if (stageOf.get(dep)! >= stageOf.get(act)!) {
+        throw new Error(`dependent_steps_parallel_${p}_${dep}_${act}`);
+      }
+    }
+    if (!pipelinePlan(p).fitsBudget) throw new Error(`pipeline_plan_over_budget_${p}`);
+  }
+}
+
+assertPipelineContracts();
+
+// ── Simulazione a orologio finto (nessuna rete, nessun timer reale) ─────────
+export interface SimulatedStep {
+  segment: number;
+  stage: number;
+  action: SimpleAction;
+  startedAtMs: number;
+  finishedAtMs: number;
+  timeoutMs: number;
+  /** true se la durata reale ha superato il timeout: step NON completato. */
+  timedOut: boolean;
+}
+
+export interface SimulatedRun {
+  pipeline: PipelineAction;
+  steps: SimulatedStep[];
+  /** Durata di ciascuna invocazione (segmento), overhead incluso. */
+  invocationMs: number[];
+  /** Nessuna invocazione supera il budget hard. */
+  withinBudget: boolean;
+  /** Prima azione andata in timeout: il run non è completabile. */
+  failedAt: SimpleAction | null;
+  completed: boolean;
+}
+
+/**
+ * Esegue la pipeline su un orologio finto con durate imposte (worst case =
+ * timeout di ogni azione). Serve a PROVARE che il piano regge il caso peggiore
+ * senza toccare rete, provider o DB. Uno step la cui durata supera il proprio
+ * timeout viene marcato timedOut e interrompe il run: non è mai "completato".
+ */
+export function simulatePipeline(
+  pipeline: PipelineAction,
+  durationMs: (action: SimpleAction) => number,
+): SimulatedRun {
+  const stages = PIPELINES[pipeline].stages;
+  const segments = segmentPipeline(pipeline);
+  const steps: SimulatedStep[] = [];
+  const invocationMs: number[] = [];
+  let failedAt: SimpleAction | null = null;
+
+  for (let si = 0; si < segments.length && !failedAt; si++) {
+    const seg = segments[si];
+    // Ogni invocazione riparte da zero: overhead fisso all'apertura.
+    let clock = BUDGET_RESERVE_MS;
+    for (let i = seg.from; i <= seg.to && !failedAt; i++) {
+      const stageStart = clock;
+      let stageEnd = clock;
+      for (const step of stages[i]) {
+        const reps = Math.max(1, step.repeat ?? 1);
+        const timeout = ACTION_TIMEOUT_MS[step.action];
+        // Le azioni dello stage sono parallele: partono tutte da stageStart.
+        let branch = stageStart;
+        for (let r = 0; r < reps && !failedAt; r++) {
+          const real = durationMs(step.action);
+          const timedOut = real > timeout;
+          const spent = Math.min(real, timeout);
+          steps.push({
+            segment: si,
+            stage: i,
+            action: step.action,
+            startedAtMs: branch,
+            finishedAtMs: branch + spent,
+            timeoutMs: timeout,
+            timedOut,
+          });
+          branch += spent;
+          if (timedOut) failedAt = step.action;
+        }
+        stageEnd = Math.max(stageEnd, branch);
+      }
+      clock = stageEnd + STAGE_OVERHEAD_MS;
+    }
+    invocationMs.push(clock + CONTINUATION_RESERVE_MS);
+  }
+
+  return {
+    pipeline,
+    steps,
+    invocationMs,
+    withinBudget: invocationMs.every((ms) => ms <= PIPELINE_BUDGET_MS),
+    failedAt,
+    completed: failedAt === null &&
+      new Set(steps.map((s) => s.action)).size === new Set(pipelineActions(pipeline)).size,
+  };
+}
+
 
 // ── Parsing fail-closed ─────────────────────────────────────────────────────
 export interface ParsedBody {
