@@ -611,10 +611,11 @@ async function storeOpportunity(
   extracted: JsonObject,
   markdown: string,
   extractionProvider: string,
-) {
+): Promise<{ stored: boolean; verified: boolean; code: string }> {
   const officialUrl = normalizeUrl(hit.url);
   if (!officialUrl || !hostMatches(officialUrl, source.official_domain))
-    return { stored: false, verified: false };
+    return { stored: false, verified: false, code: "OFF_DOMAIN" };
+
   const deadline = isoOrNull(extracted.deadline_at);
   const now = new Date();
   const expired = deadline ? new Date(deadline).getTime() < now.getTime() : false;
@@ -694,7 +695,8 @@ async function storeOpportunity(
     content_hash: contentHash,
     raw_excerpt: markdown.slice(0, 4000),
     last_seen_at: now.toISOString(),
-    last_verified_at: hasEvidence ? now.toISOString() : null,
+    // last_verified_at è valorizzato soltanto quando la verifica è completa.
+    last_verified_at: verification === "VERIFICATO" ? now.toISOString() : null,
     updated_at: now.toISOString(),
   };
   const { data, error } = await sb
@@ -702,8 +704,8 @@ async function storeOpportunity(
     .upsert(row, { onConflict: "official_url" })
     .select("id")
     .single();
-  if (error || !data) return { stored: false, verified: false };
-  await sb.from("trovabandi_evidence").upsert(
+  if (error || !data) return { stored: false, verified: false, code: "OPPORTUNITY_WRITE_FAILED" };
+  const { error: evidenceError } = await sb.from("trovabandi_evidence").upsert(
     {
       opportunity_id: data.id,
       source_url: officialUrl,
@@ -715,8 +717,26 @@ async function storeOpportunity(
     },
     { onConflict: "opportunity_id,source_url" },
   );
-  return { stored: true, verified: verification === "VERIFICATO" };
+  if (evidenceError) {
+    // Fail-closed: senza prova persistita l'opportunità non può risultare verificata.
+    // Compensazione non distruttiva: si declassa lo stato, non si cancella nulla.
+    await sb
+      .from("trovabandi_opportunities")
+      .update({
+        verification_status: "DA_VERIFICARE",
+        last_verified_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", data.id);
+    return { stored: false, verified: false, code: "EVIDENCE_WRITE_FAILED" };
+  }
+  return {
+    stored: true,
+    verified: verification === "VERIFICATO",
+    code: verification === "VERIFICATO" ? "OK_VERIFICATO" : `OK_${verification}`,
+  };
 }
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return response(204, {});
