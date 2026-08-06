@@ -232,8 +232,21 @@ Deno.serve(async (req) => {
     if (!listingIds.length) return json({ ok: true, pairs_only: true, note: "no_fingerprints" });
   }
   if (!listingIds.length) {
-    return json({ ok: true, reprocessed: 0, offset, note: "no_reusable_photo_sources" });
+    // Nessun candidato nuovo dopo il marker: zero-novità esplicita, non guasto.
+    return json({
+      ok: true,
+      reprocessed: 0,
+      attempted: 0,
+      scanned,
+      remaining: remaining ?? 0,
+      last_listing_id: afterListingId,
+      pipeline_run_id: pipelineRunId,
+      zero_novelty: true,
+      note: "no_reusable_photo_sources",
+    });
   }
+  const lastListingId = Math.max(afterListingId, ...listingIds);
+
 
   const { data: listings, error: lErr } = await sb
     .from("padova_listings")
