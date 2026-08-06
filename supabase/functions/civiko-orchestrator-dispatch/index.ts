@@ -709,9 +709,13 @@ function gateSpecs(since: string): GateSpec[] {
  * Traccia reale delle pipeline Civiko: il release gate esige un ack PWA
  * successivo alla fine dell'ultima pipeline_0710 riuscita, quindi la fine
  * della pipeline deve essere registrata in modo verificabile.
+ * L'audit è parte del contratto: se non si scrive, la pipeline non è ok.
  */
-async function recordPipelineStart(runId: string, pipeline: string): Promise<void> {
-  if (!SERVICE_KEY) return;
+async function recordPipelineStart(
+  pipelineRunId: string,
+  pipeline: string,
+): Promise<string | null> {
+  if (!SERVICE_KEY) return "audit_service_key_missing";
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/civiko_pipeline_runs`, {
       method: "POST",
@@ -722,28 +726,34 @@ async function recordPipelineStart(runId: string, pipeline: string): Promise<voi
         Prefer: "return=minimal",
       },
       body: JSON.stringify([{
-        run_id: runId,
+        run_id: pipelineRunId,
+        pipeline_run_id: pipelineRunId,
         pipeline,
         started_at: new Date().toISOString(),
       }]),
     });
     await res.body?.cancel();
-    if (!res.ok) console.error(`[dispatch] pipeline_run start not recorded status=${res.status}`);
+    if (!res.ok) {
+      console.error(`[dispatch] pipeline_run start not recorded status=${res.status}`);
+      return "audit_pipeline_start_failed";
+    }
+    return null;
   } catch {
     console.error("[dispatch] pipeline_run start not recorded");
+    return "audit_pipeline_start_failed";
   }
 }
 
 async function recordPipelineEnd(
-  runId: string,
+  pipelineRunId: string,
   okRun: boolean,
   steps: StepResult[],
   errorCode: string | null,
-): Promise<void> {
-  if (!SERVICE_KEY) return;
+): Promise<string | null> {
+  if (!SERVICE_KEY) return "audit_service_key_missing";
   try {
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/civiko_pipeline_runs?run_id=eq.${runId}`,
+      `${SUPABASE_URL}/rest/v1/civiko_pipeline_runs?run_id=eq.${pipelineRunId}`,
       {
         method: "PATCH",
         headers: {
@@ -766,11 +776,17 @@ async function recordPipelineEnd(
       },
     );
     await res.body?.cancel();
-    if (!res.ok) console.error(`[dispatch] pipeline_run end not recorded status=${res.status}`);
+    if (!res.ok) {
+      console.error(`[dispatch] pipeline_run end not recorded status=${res.status}`);
+      return "audit_pipeline_end_failed";
+    }
+    return null;
   } catch {
     console.error("[dispatch] pipeline_run end not recorded");
+    return "audit_pipeline_end_failed";
   }
 }
+
 
 async function readGateIntegrity(): Promise<GateIntegrity | null> {
   if (!SERVICE_KEY) return null;
