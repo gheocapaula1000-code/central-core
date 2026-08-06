@@ -1918,6 +1918,13 @@ export type Database = {
             foreignKeyName: "civiko_contendibili_evidence_attempts_listing_id_fkey"
             columns: ["listing_id"]
             isOneToOne: true
+            referencedRelation: "civiko_padova_tipo_lead_mismatch_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "civiko_contendibili_evidence_attempts_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: true
             referencedRelation: "padova_listings"
             referencedColumns: ["id"]
           },
@@ -6829,6 +6836,13 @@ export type Database = {
             foreignKeyName: "padova_listings_price_history_listing_id_fkey"
             columns: ["listing_id"]
             isOneToOne: false
+            referencedRelation: "civiko_padova_tipo_lead_mismatch_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "padova_listings_price_history_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
             referencedRelation: "padova_listings"
             referencedColumns: ["id"]
           },
@@ -8976,6 +8990,59 @@ export type Database = {
       }
     }
     Views: {
+      civiko_padova_release_gate_v: {
+        Row: {
+          classificazione_ultima: string | null
+          contendibili_fuori_perimetro: number | null
+          contendibili_totali: number | null
+          listings_freschi: number | null
+          mismatch_professionale: number | null
+          portali_freschi: number | null
+          privati_fuori_perimetro: number | null
+          recompute_corrente: boolean | null
+          recompute_ultimo: string | null
+          sync_pwa_dopo_classificazione: boolean | null
+        }
+        Relationships: []
+      }
+      civiko_padova_tipo_lead_mismatch_v: {
+        Row: {
+          agency: string | null
+          commercial_zone_slug: string | null
+          fonte: string | null
+          id: number | null
+          last_seen_at: string | null
+          tipo_lead: string | null
+          url: string | null
+        }
+        Insert: {
+          agency?: string | null
+          commercial_zone_slug?: string | null
+          fonte?: string | null
+          id?: number | null
+          last_seen_at?: string | null
+          tipo_lead?: string | null
+          url?: string | null
+        }
+        Update: {
+          agency?: string | null
+          commercial_zone_slug?: string | null
+          fonte?: string | null
+          id?: number | null
+          last_seen_at?: string | null
+          tipo_lead?: string | null
+          url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "padova_listings_commercial_zone_slug_fkey"
+            columns: ["commercial_zone_slug"]
+            isOneToOne: false
+            referencedRelation: "civiko_commercial_zones"
+            referencedColumns: ["slug"]
+          },
+        ]
+      }
       early_offmarket_signal_candidates_by_zone_v: {
         Row: {
           agent_action: string | null
@@ -9616,6 +9683,7 @@ export type Database = {
         Args: { p_stripe_subscription_id: string }
         Returns: Json
       }
+      civiko_repair_padova_tipo_lead: { Args: never; Returns: Json }
       civiko_resolve_commercial_zone_slug: {
         Args: { p_quartiere: string }
         Returns: string
