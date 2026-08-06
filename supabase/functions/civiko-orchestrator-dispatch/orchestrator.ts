@@ -610,17 +610,23 @@ export function shouldRepeatImageCertify(
 }
 
 /**
- * La fase immagini non può erodere il budget downstream di 0545: si ripete solo
- * se, dopo lo step, resta almeno IMAGE_DOWNSTREAM_RESERVE_MS.
+ * La fase immagini non può erodere il budget degli stage successivi: si ripete
+ * solo se, dopo lo step, resta la riserva richiesta dal segmento corrente.
  */
-export function imageBudgetAllows(remainingMs: number): boolean {
+export function imageBudgetAllows(
+  remainingMs: number,
+  downstreamReserveMs: number = IMAGE_DOWNSTREAM_RESERVE_MS,
+): boolean {
   return usableRemainingMs(remainingMs) - ACTION_TIMEOUT_MS.contendibili_image_certify >=
-    IMAGE_DOWNSTREAM_RESERVE_MS;
+    downstreamReserveMs;
 }
 
-/** Budget minimo per completare la coda downstream di 0545 dopo le immagini. */
-export function downstreamBudgetOk(remainingMs: number): boolean {
-  return usableRemainingMs(remainingMs) >= IMAGE_DOWNSTREAM_RESERVE_MS;
+/** Budget minimo per completare gli stage residui dopo le immagini. */
+export function downstreamBudgetOk(
+  remainingMs: number,
+  downstreamReserveMs: number = IMAGE_DOWNSTREAM_RESERVE_MS,
+): boolean {
+  return usableRemainingMs(remainingMs) >= downstreamReserveMs;
 }
 
 // ── Audit canonico: civiko_orchestrator_action_runs ─────────────────────────
