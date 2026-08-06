@@ -951,25 +951,40 @@ serve(async (req) => {
     const hits = [...byUrl.values()].slice(0, maxPages);
     let processed = 0;
     let verified = 0;
+    // Diagnostica non sensibile: solo fase + codice, mai URL completi o contenuti.
+    const diagnostics: Array<{ phase: string; code: string }> = [];
     for (const hit of hits) {
       const scraped = await loadPage(hit.url);
       if (!scraped) {
+        diagnostics.push({ phase: "scrape", code: "NO_CONTENT" });
         warnings.push(`scrape_failed:${new URL(hit.url).hostname}`);
         continue;
       }
+      diagnostics.push({ phase: "scrape", code: `OK_${scraped.provider.toUpperCase()}` });
       const extracted = await extractOpportunity(source, hit, scraped.markdown);
-      if (!extracted) continue;
+      if (!extracted.ok) {
+        diagnostics.push({ phase: "extract", code: extracted.code });
+        warnings.push(`extract_${extracted.code.toLowerCase()}`);
+        continue;
+      }
+      diagnostics.push({
+        phase: "extract",
+        code: extracted.mode === "json_fallback" ? "OK_FALLBACK" : "OK_SCHEMA",
+      });
       const stored = await storeOpportunity(
         sb,
         source,
         hit,
-        extracted,
+        extracted.data,
         scraped.markdown,
         scraped.provider,
       );
+      diagnostics.push({ phase: "store", code: stored.stored ? "OK" : "REJECTED" });
+      if (!stored.stored) warnings.push("store_rejected");
       if (stored.stored) processed++;
       if (stored.verified) verified++;
     }
+    const diagnosticCounters = aggregateDiagnostics(diagnostics);
     const finished = new Date().toISOString();
     await Promise.all([
       sb
@@ -994,7 +1009,12 @@ serve(async (req) => {
                 firecrawl_search: fc.length,
                 perplexity_search: pp.length,
                 pages_scraped: hits.length,
+                diagnostics: diagnosticCounters,
               },
+              warnings: [...new Set(warnings)],
+              finished_at: finished,
+            })
+
               warnings,
               finished_at: finished,
             })
