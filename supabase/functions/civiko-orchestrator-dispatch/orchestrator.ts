@@ -640,11 +640,31 @@ export interface ActionRunRow {
   pipeline?: string | null;
   pipeline_run_id?: string | null;
   attempt_no?: number | null;
+  id?: string | number | null;
+  created_at?: string | null;
 }
 
-function runTime(r: ActionRunRow): number {
-  const t = Date.parse(r.finished_at ?? r.started_at);
+/**
+ * Ordine latest-wins: SEMPRE started_at (mai COALESCE su finished_at), così un
+ * run vecchio ma lento a chiudere non può mascherare un tentativo più recente.
+ */
+export function startedTime(r: ActionRunRow): number {
+  const t = Date.parse(r.started_at);
   return Number.isFinite(t) ? t : 0;
+}
+
+/** > 0 se `a` è più recente di `b`. Tie-break stabile: attempt_no, created_at, id. */
+export function compareRuns(a: ActionRunRow, b: ActionRunRow): number {
+  const ta = startedTime(a);
+  const tb = startedTime(b);
+  if (ta !== tb) return ta - tb;
+  const na = a.attempt_no ?? 1;
+  const nb = b.attempt_no ?? 1;
+  if (na !== nb) return na - nb;
+  const ca = Date.parse(a.created_at ?? "") || 0;
+  const cb = Date.parse(b.created_at ?? "") || 0;
+  if (ca !== cb) return ca - cb;
+  return String(a.id ?? "").localeCompare(String(b.id ?? ""));
 }
 
 /** Chiave anti-omonimia: la stessa azione in 0510 e 0545 non si maschera. */
