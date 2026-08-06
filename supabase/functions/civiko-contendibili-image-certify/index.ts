@@ -600,11 +600,20 @@ Deno.serve(async (req) => {
   }
 
   // Esito definitivo dell'avanzamento (il claim resta comunque registrato).
+  // no_photo/no_valid_image diventano TERMINALI: non bruciano quattro notti,
+  // ma tornano lavorabili appena l'impronta della fonte immagine cambia.
   if (!dryRun && !pairsOnly && selected.length) {
     for (const cand of selected) {
+      const outcome = normalizeOutcome(outcomeByListing.get(cand.listing_id) ?? "no_photo");
+      const terminal = isTerminalOutcome(outcome);
       const { error } = await sb
         .from("civiko_image_certify_attempts")
-        .update({ last_outcome: outcomeByListing.get(cand.listing_id) ?? "no_photo" })
+        .update({
+          last_outcome: outcome,
+          terminal,
+          terminal_reason: terminal ? outcome : null,
+          image_source_fp: sourceFpByListing.get(cand.listing_id) ?? cand.source_fp ?? null,
+        })
         .eq("listing_id", cand.listing_id);
       if (error) {
         return json({ ok: false, error: "attempts_progress_write_failed", detail: error.message }, 500);
