@@ -702,6 +702,13 @@ function gateSpecs(since: string): GateSpec[] {
       metric: "listings_imported_in_window",
       q: `padova_listings?select=id&imported_at=gte.${since}`,
     },
+    // Import reali per CIASCUNO dei 4 portali nello stesso ciclo.
+    ...CIVIKO_PORTALS.map((p) => ({
+      group: "imported" as const,
+      metric: `listings_${p}_imported_in_window`,
+      q: `padova_listings?select=id&fonte=eq.${p}&imported_at=gte.${since}`,
+    })),
+
     {
       group: "categories",
       metric: "image_fingerprints_fresh",
