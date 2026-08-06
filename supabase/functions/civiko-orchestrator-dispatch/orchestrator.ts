@@ -353,6 +353,158 @@ export function remainingStagesWorstCaseMs(
   return total;
 }
 
+// ── Critical path nominale e completabilità ─────────────────────────────────
+/**
+ * Runtime NOMINALE dichiarato per azione (ms). Valore osservato/atteso, non un
+ * timeout: serve a calcolare il critical path del DAG. Invariante dura: nessuna
+ * azione può avere runtime nominale superiore al proprio timeout, altrimenti lo
+ * step non è completabile e il contratto fallisce chiuso in fase di caricamento.
+ * I valori vanno riconfermati con durate reali nel task autorizzato di
+ * rollback/micro-run: qui restano conservativi (>= osservato noto).
+ */
+export const NOMINAL_RUNTIME_MS: Record<SimpleAction, number> = {
+  portal_casa: 20_000,
+  apify_immobiliare: 35_000,
+  apify_idealista: 35_000,
+  apify_subito: 35_000,
+  private_leads_nightly: 25_000,
+  collect_pending: 35_000,
+  private_leads_classify: 20_000,
+  tipo_lead_repair: 20_000,
+  price_snapshot: 30_000,
+  contendibili_backfill: 25_000,
+  contendibili_evidence: 20_000,
+  contendibili_image_certify: 20_000,
+  contendibili_pairs: 20_000,
+  contendibili_recompute: 30_000,
+  contendibili_extras: 20_000,
+  // Runtime interni reali noti: ~80 s offmarket, ~85 s radar.
+  offmarket_discover: 80_000,
+  offmarket_scores: 45_000,
+  early_warning: 45_000,
+  radar_full: 85_000,
+  signals_classify: 20_000,
+};
+
+/** Overhead fisso di invocazione: auth, marker di apertura, chiusura audit. */
+export const INVOCATION_OVERHEAD_MS = BUDGET_RESERVE_MS + CONTINUATION_RESERVE_MS;
+
+/** Azioni il cui runtime nominale supera il proprio timeout: non completabili. */
+export function nonCompletableActions(): SimpleAction[] {
+  return (Object.keys(NOMINAL_RUNTIME_MS) as SimpleAction[]).filter(
+    (a) => NOMINAL_RUNTIME_MS[a] > ACTION_TIMEOUT_MS[a],
+  );
+}
+
+/** Costo nominale di uno stage: il ramo più lento, repeat inclusi. */
+export function stageNominalMs(stage: PipelineStage): number {
+  const slowest = Math.max(
+    ...stage.map((s) => NOMINAL_RUNTIME_MS[s.action] * Math.max(1, s.repeat ?? 1)),
+  );
+  return slowest + STAGE_OVERHEAD_MS;
+}
+
+/**
+ * Critical path nominale del DAG: catena di dipendenze più lunga, non la somma
+ * degli stage. Gli step indipendenti contano una sola volta.
+ */
+export function criticalPathMs(pipeline: PipelineAction): number {
+  const nodes = PIPELINE_DAG[pipeline].nodes;
+  const byAction = new Map(nodes.map((n) => [n.action, n]));
+  const memo = new Map<SimpleAction, number>();
+  const cost = (n: DagNode) =>
+    NOMINAL_RUNTIME_MS[n.action] * Math.max(1, n.repeat ?? 1) + STAGE_OVERHEAD_MS;
+  const walk = (action: SimpleAction, seen: Set<SimpleAction>): number => {
+    if (memo.has(action)) return memo.get(action)!;
+    if (seen.has(action)) throw new Error(`dag_${pipeline}_cycle`);
+    seen.add(action);
+    const n = byAction.get(action)!;
+    const deps = [...(n.needs ?? []), ...(n.after ?? [])];
+    const upstream = deps.length ? Math.max(...deps.map((d) => walk(d, seen))) : 0;
+    const total = upstream + cost(n);
+    seen.delete(action);
+    memo.set(action, total);
+    return total;
+  };
+  return Math.max(...nodes.map((n) => walk(n.action, new Set())));
+}
+
+export interface PipelinePlan {
+  pipeline: PipelineAction;
+  /** "single" = un'unica invocazione basta; "segmented" = continuazione async. */
+  mode: "single" | "segmented";
+  criticalPathMs: number;
+  /** Critical path + overhead di invocazione. */
+  nominalTotalMs: number;
+  segments: PipelineSegment[];
+  /** Critical path nominale del segmento più costoso. */
+  worstSegmentNominalMs: number;
+  /** Il piano è dimostrabilmente eseguibile entro il budget hard. */
+  fitsBudget: boolean;
+}
+
+/**
+ * Piano esigibile: o il critical path nominale + overhead sta dentro 165 s in
+ * una sola invocazione, oppure la pipeline è segmentata e OGNI segmento sta
+ * dentro 165 s sia nel nominale sia nel caso peggiore, con continuazione
+ * async sullo STESSO pipeline_run_id (nessun quarto job, prova terminale nello
+ * stesso ciclo). Ridurre i timeout non rende mai verde un piano: il nominale è
+ * indipendente dai timeout e il caso peggiore resta vincolato dai timeout.
+ */
+export function pipelinePlan(pipeline: PipelineAction): PipelinePlan {
+  const segments = segmentPipeline(pipeline);
+  const stages = PIPELINES[pipeline].stages;
+  const cp = criticalPathMs(pipeline);
+  const nominalTotal = cp + INVOCATION_OVERHEAD_MS;
+  const segNominal = segments.map((s) => {
+    let acc = 0;
+    for (let i = s.from; i <= s.to; i++) acc += stageNominalMs(stages[i]);
+    return acc + INVOCATION_OVERHEAD_MS;
+  });
+  const worstSegmentNominalMs = Math.max(...segNominal);
+  const single = segments.length === 1 && nominalTotal <= PIPELINE_BUDGET_MS;
+  const fitsBudget = single ||
+    (segNominal.every((ms) => ms <= PIPELINE_BUDGET_MS) &&
+      segments.every((s) => s.worstCaseMs + INVOCATION_OVERHEAD_MS <= PIPELINE_BUDGET_MS));
+  return {
+    pipeline,
+    mode: single ? "single" : "segmented",
+    criticalPathMs: cp,
+    nominalTotalMs: nominalTotal,
+    segments,
+    worstSegmentNominalMs,
+    fitsBudget,
+  };
+}
+
+/**
+ * Invarianti di contratto verificate al CARICAMENTO del modulo: esattamente tre
+ * pipeline, nessuno step non completabile, nessuno step dipendente in parallelo,
+ * ogni piano dentro il budget. Qualunque violazione impedisce l'avvio.
+ */
+export function assertPipelineContracts(): void {
+  const keys = Object.keys(PIPELINES);
+  if (keys.length !== PIPELINE_COUNT) throw new Error("pipeline_count_violation");
+  for (const p of PIPELINE_ORDER) {
+    if (!keys.includes(p)) throw new Error(`pipeline_missing_${p}`);
+  }
+  const bad = nonCompletableActions();
+  if (bad.length) throw new Error(`action_nominal_exceeds_timeout_${bad.join(",")}`);
+  for (const p of PIPELINE_ORDER) {
+    const stages = PIPELINES[p].stages;
+    const stageOf = new Map<SimpleAction, number>();
+    stages.forEach((st, i) => st.forEach((s) => stageOf.set(s.action, i)));
+    for (const [dep, act] of dependencyPairs(p)) {
+      if (stageOf.get(dep)! >= stageOf.get(act)!) {
+        throw new Error(`dependent_steps_parallel_${p}_${dep}_${act}`);
+      }
+    }
+    if (!pipelinePlan(p).fitsBudget) throw new Error(`pipeline_plan_over_budget_${p}`);
+  }
+}
+
+assertPipelineContracts();
+
 // ── Parsing fail-closed ─────────────────────────────────────────────────────
 export interface ParsedBody {
   obj: Record<string, unknown> | null;
