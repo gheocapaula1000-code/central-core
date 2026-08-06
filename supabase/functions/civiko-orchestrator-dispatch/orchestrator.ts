@@ -364,12 +364,19 @@ export function nestedFailure(value: unknown, depth = 0): string | null {
   }
   const obj = value as Record<string, unknown>;
   if (obj.ok === false) return "nested_ok_false";
+  if (obj.success === false) return "nested_success_false";
+  if (typeof obj.status === "string" && /^(failed|failure|error|aborted|timed[-_]?out)$/i.test(obj.status.trim())) {
+    return "nested_status_failed";
+  }
   if (truthyError(obj.error)) return "nested_error";
+  if (typeof obj.errors === "number" && obj.errors > 0) return "nested_errors_count";
   if (Array.isArray(obj.errors) && obj.errors.length > 0) return "nested_errors";
+  if (typeof obj.errors_count === "number" && obj.errors_count > 0) return "nested_errors_count";
+  if (Array.isArray(obj.failures) && obj.failures.length > 0) return "nested_failures";
   if (obj.skipped === true) return "nested_skipped";
   if (typeof obj.skipped === "string" && obj.skipped.trim()) return "nested_skipped";
-  for (const [k, v] of Object.entries(obj)) {
-    if (k === "counters" || k === "metrics") continue;
+  // Nessuna chiave esente: anche counters/metrics vengono ispezionati.
+  for (const v of Object.values(obj)) {
     const f = nestedFailure(v, depth + 1);
     if (f) return f;
   }
