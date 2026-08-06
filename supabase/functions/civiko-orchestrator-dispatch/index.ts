@@ -16,43 +16,39 @@ import { isAuctionRecord } from "../_shared/auctionExclusion.ts";
 // release_gate: conteggi reali dal database, nessuna stima.
 // Nessun cron viene creato o attivato da questa funzione (enabled=false).
 
+import {
+  ackAfterPipeline,
+  buildGateRequirements,
+  CIVIKO_PORTALS,
+  expandedSteps,
+  failingActions,
+  IMAGE_CERTIFY_HARD_LIMIT,
+  IMAGE_CERTIFY_MAX_INVOCATIONS,
+  missingActions,
+  parseGateMode,
+  PIPELINE_BUDGET_MS,
+  PIPELINES,
+  pipelineStatus,
+  semanticFailure,
+  STEP_MIN_MS,
+  stepTimeoutMs,
+} from "./orchestrator.ts";
+import type {
+  ActionRunRow,
+  GateIntegrity,
+  GateMode,
+  PipelineAction,
+  SimpleAction,
+} from "./orchestrator.ts";
+
 const DISPATCH_SECRET = Deno.env.get("CIVIKO_ORCHESTRATOR_DISPATCH_SECRET") ?? "";
 const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 const MAX_BODY_BYTES = 2048;
-const DEFAULT_TIMEOUT_MS = 150_000;
-// Budget complessivo di una pipeline: deve restare sotto il timeout Replit
-// di 180s. Oltre il budget la pipeline si ferma e risponde 504.
-const PIPELINE_BUDGET_MS = 175_000;
-const STEP_MIN_MS = 5_000;
 
 const GATE_TIMEOUT_MS = 15_000;
-
-type SimpleAction =
-  | "apify_immobiliare"
-  | "apify_idealista"
-  | "apify_subito"
-  | "portal_casa"
-  | "collect_pending"
-  | "listings_promote"
-  | "private_leads_classify"
-  | "tipo_lead_repair"
-
-  | "price_snapshot"
-  | "contendibili_backfill"
-  | "contendibili_recompute"
-  | "contendibili_image_certify"
-  | "contendibili_evidence"
-  | "contendibili_extras"
-  | "offmarket_discover"
-  | "offmarket_scores"
-  | "early_warning"
-  | "radar_full"
-  | "signals_classify";
-
-type PipelineAction = "pipeline_0510" | "pipeline_0545" | "pipeline_0710";
 
 type Action = "healthcheck" | "release_gate" | SimpleAction | PipelineAction;
 
