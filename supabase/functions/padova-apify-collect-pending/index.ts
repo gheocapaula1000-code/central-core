@@ -16,14 +16,26 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getApifyToken } from "../_shared/apify.ts";
+import {
+  ACTOR_CASA,
+  ACTOR_IDEALISTA,
+  ACTOR_IMMO_DETAIL,
+  ACTOR_IMMO_LISTVIEW,
+  ACTOR_SUBITO,
+  isScopeReject,
+  mapperFor,
+} from "./mappers.ts";
+import {
+  bumpCounter,
+  createScopeCounters,
+  evaluateZoneExposure,
+  isComunePadova,
+  normalizeCounters,
+  reconcileScopeCounters,
+} from "../_shared/civikoPadovaScopeGuard.ts";
 
 const APIFY = "https://api.apify.com/v2";
 
-const ACTOR_IDEALISTA = "dz_omar~idealista-scraper-api";
-const ACTOR_IMMO_DETAIL = "memo23~immobiliare-scraper";
-const ACTOR_IMMO_LISTVIEW = "azzouzana~immobiliare-it-listing-page-scraper-by-search-url";
-const ACTOR_SUBITO = "emastra~subito-it-immobili";
-const ACTOR_CASA = "benthepythondev~casa-it-scraper";
 
 async function apifyRunStatus(runId: string, token: string) {
   const r = await fetch(`${APIFY}/actor-runs/${runId}?token=${encodeURIComponent(token)}`);
