@@ -197,7 +197,7 @@ Deno.serve(async (req) => {
   }
   const r = await runJob(slug, triggeredAt);
   return new Response(
-    JSON.stringify({ ok: r.ok, job: JOB_NAMES[slug], slug, triggered_at: triggeredAt, ...r }),
+    JSON.stringify({ job: JOB_NAMES[slug], slug, triggered_at: triggeredAt, ...r, ok: r.ok }),
     {
       // Il wrapper propaga il guasto: nessun 200 opaco sopra un run fallito.
       status: r.ok ? 200 : (r.http_status && r.http_status >= 400 ? r.http_status : 502),
