@@ -414,10 +414,9 @@ export function payloadFailure(
 
   if (action === "apify_immobiliare" || action === "apify_idealista" || action === "apify_subito") {
     if (!hasPositiveNumber(obj, "started_count")) return "apify_started_count_zero";
-    // async_start da solo non basta: serve un identificativo di run reale.
-    if (!hasNonEmptyString(obj, "run_id") && !hasNonEmptyString(obj, "dataset_id")) {
-      return "apify_run_identifier_missing";
-    }
+    // Lancio provato: servono ENTRAMBI gli identificativi del run corrente.
+    if (!hasNonEmptyString(obj, "run_id")) return "apify_run_id_missing";
+    if (!hasNonEmptyString(obj, "dataset_id")) return "apify_dataset_id_missing";
     return null;
   }
 
@@ -425,16 +424,55 @@ export function payloadFailure(
     if (!hasPositiveNumber(obj, "scanned")) return "collect_scanned_zero";
     const completed = sumNumber(obj, "completed_count");
     if (completed < COLLECT_REQUIRED_PORTALS.length) return "collect_completed_insufficient";
-    if (!hasTrue(obj, "required_portals_complete")) return "collect_required_portals_incomplete";
-    if (sumNumber(obj, "errors_count") > 0) return "collect_errors_present";
-    // Zero novità è ammesso SOLO come dichiarazione esplicita e non scavalca
-    // né i portali terminali né gli item provider già verificati sopra.
-    if (hasPositiveNumber(obj, "imports_count")) return null;
-    if (obj.zero_novelty === true) return null;
-    return "collect_no_imports";
+    if (!hasTrue(obj, "required_portals_complete") && !hasTrue(obj, "required_apify_complete")) {
+      return "collect_required_portals_incomplete";
+    }
+    // errors_count DEVE essere presente ed esattamente 0 (mai assente).
+    const errorsKey = ["errors_count", "errors"].find((k) => typeof obj[k] === "number");
+    if (!errorsKey) return "collect_errors_count_missing";
+    if ((obj[errorsKey] as number) !== 0) return "collect_errors_present";
+    return collectProviderFailure(obj);
   }
 
   return null;
+}
+
+/**
+ * Ogni risultato provider del run CORRENTE deve essere SUCCEEDED, con item > 0
+ * e identificativi di run/dataset. Import 0 è ammesso solo con prova di
+ * zero-novità riconciliata (dedup/skipped che spiegano gli item scaricati).
+ */
+export function collectProviderFailure(obj: Record<string, unknown>): string | null {
+  const results = obj.results;
+  if (!Array.isArray(results) || results.length === 0) return "collect_results_missing";
+  let importsTotal = 0;
+  let reconciled = 0;
+  let providers = 0;
+  for (const raw of results) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "collect_result_invalid";
+    const r = raw as Record<string, unknown>;
+    providers++;
+    if (String(r.status ?? "") !== "SUCCEEDED") return "collect_provider_not_succeeded";
+    const items = Number(r.items ?? NaN);
+    if (!Number.isFinite(items) || items <= 0) return "collect_provider_items_zero";
+    const runId = typeof r.run_id === "string" ? r.run_id.trim() : "";
+    const datasetId = typeof r.dataset_id === "string" ? r.dataset_id.trim() : "";
+    if (!runId && !datasetId) return "collect_provider_run_identifier_missing";
+    const created = Number(r.created ?? 0) || 0;
+    const updated = Number(r.updated ?? 0) || 0;
+    const deduped = Number(r.deduped ?? 0) || 0;
+    const skipped = Number(r.skipped ?? 0) || 0;
+    importsTotal += created + updated;
+    // Riconciliazione: gli item scaricati risultano già noti (dedup/skip).
+    if (created + updated === 0 && deduped + skipped > 0) reconciled++;
+  }
+  if (providers < COLLECT_REQUIRED_PORTALS.length) return "collect_providers_insufficient";
+  const declared = Number(obj.imports_count ?? NaN);
+  if (Number.isFinite(declared) && declared !== importsTotal) return "collect_imports_mismatch";
+  if (importsTotal > 0) return null;
+  // Zero novità del RUN CORRENTE: dichiarata e riconciliata su ogni provider.
+  if (obj.zero_novelty === true && reconciled === providers) return null;
+  return "collect_zero_novelty_unproven";
 }
 
 /** HTTP 200 non basta: skipped/error/zero provider inatteso sono guasti. */
