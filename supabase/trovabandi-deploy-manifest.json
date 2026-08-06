@@ -7,7 +7,8 @@
     "20260806040000_trovabandi_engine_v1.sql",
     "20260806040500_trovabandi_deep_sources.sql",
     "20260806041000_trovabandi_national_sources.sql",
-    "20260806041500_trovabandi_eu_pnrr_sources.sql"
+    "20260806041500_trovabandi_eu_pnrr_sources.sql",
+    "20260806181739_25d516da-f340-4291-b4fd-a66f5910f998.sql"
   ],
   "functions": [
     {
@@ -21,12 +22,17 @@
         "FIRECRAWL_API_KEY",
         "PERPLEXITY_API_KEY"
       ],
-      "optional_secrets": ["APIFY_TOKEN", "TROVABANDI_APIFY_ACTOR_ID", "TROVABANDI_PERPLEXITY_MODEL"]
+      "optional_secrets": [
+        "APIFY_TOKEN",
+        "TROVABANDI_APIFY_ACTOR_ID",
+        "TROVABANDI_PERPLEXITY_MODEL"
+      ]
     }
   ],
   "notes": [
     "Deploy only the listed TrovaBandi function; never deploy all Central Core functions.",
     "The domain is additive and does not modify shared Civiko, Wyloni, Sottra or KeyDraft behaviour.",
-    "Secret values and company profiles must never be logged."
+    "Secret values and company profiles must never be logged.",
+    "Runtime hardening: fair source selector, optimistic lease, SKIPPED runs on NO_SOURCE_DUE, stale RUNNING reconciliation (20m), dynamic release gate over a 26h coverage window."
   ]
 }

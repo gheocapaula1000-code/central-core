@@ -21,6 +21,17 @@ import {
   type SearchOutcome,
 } from "./extraction.ts";
 import { persistOpportunityFailClosed, type PersistVerification } from "./persist.ts";
+import {
+  COVERAGE_WINDOW_HOURS,
+  RUN_STALE_AFTER_MINUTES,
+  coverageCutoffIso,
+  evaluateGate,
+  selectDueSource,
+  staleRunCutoffIso,
+  type RankableSource,
+  type RunLike,
+} from "./hardening.ts";
+
 
 
 
@@ -62,7 +73,12 @@ type Source = {
   rarity_base: number;
   fast_lane: boolean;
   scan_interval_minutes: number;
+  next_scan_at: string | null;
+  last_scanned_at?: string | null;
+  priority?: number | null;
+  enabled?: boolean | null;
 };
+
 
 type SearchHit = { url: string; title: string; description: string; provider: string };
 
@@ -796,11 +812,14 @@ serve(async (req) => {
   });
 
   if (action === "status") {
-    const [{ count: active }, { data: run }] = await Promise.all([
+    const nowIso = new Date().toISOString();
+    // Le opportunità scadute non sono "attive": mai conteggiate.
+    const [activeRes, runRes] = await Promise.all([
       sb
         .from("trovabandi_opportunities")
         .select("id", { count: "exact", head: true })
-        .in("verification_status", ["VERIFICATO", "PARZIALE"]),
+        .in("verification_status", ["VERIFICATO", "PARZIALE"])
+        .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`),
       sb
         .from("trovabandi_runs")
         .select("*")
@@ -808,10 +827,11 @@ serve(async (req) => {
         .limit(1)
         .maybeSingle(),
     ]);
+    if (activeRes.error || runRes.error) return response(500, { ok: false, code: "STATUS_QUERY_FAILED" });
     return response(200, {
       ok: true,
-      active: active ?? 0,
-      last_run: run ?? null,
+      active: activeRes.count ?? 0,
+      last_run: runRes.data ?? null,
       providers: {
         firecrawl: !!env("FIRECRAWL_API_KEY"),
         perplexity: !!env("PERPLEXITY_API_KEY"),
@@ -821,71 +841,86 @@ serve(async (req) => {
   }
 
   if (action === "maintenance") {
-    const now = new Date().toISOString();
-    const { count, error } = await sb
+    const nowMs = Date.now();
+    const now = new Date(nowMs).toISOString();
+    // 1) Riconciliazione dei run RUNNING rimasti appesi oltre la soglia.
+    const stale = await sb
+      .from("trovabandi_runs")
+      .update(
+        { status: "FAILED", error_code: "STALE_RUN_TIMEOUT", finished_at: now },
+        { count: "exact" },
+      )
+      .eq("status", "RUNNING")
+      .lt("started_at", staleRunCutoffIso(nowMs));
+    if (stale.error) return response(500, { ok: false, code: "MAINTENANCE_RUNS_FAILED" });
+    // 2) Scadenza solo degli stati appropriati: SCADUTO resta invariato.
+    const expired = await sb
       .from("trovabandi_opportunities")
       .update({ verification_status: "SCADUTO", updated_at: now }, { count: "exact" })
       .lt("deadline_at", now)
-      .neq("verification_status", "SCADUTO");
-    if (error) return response(500, { ok: false, code: "MAINTENANCE_FAILED" });
-    return response(200, { ok: true, expired: count ?? 0 });
+      .in("verification_status", ["VERIFICATO", "PARZIALE", "DA_VERIFICARE"]);
+    if (expired.error) return response(500, { ok: false, code: "MAINTENANCE_FAILED" });
+    return response(200, {
+      ok: true,
+      expired: expired.count ?? 0,
+      stale_runs_reconciled: stale.count ?? 0,
+      stale_after_minutes: RUN_STALE_AFTER_MINUTES,
+    });
   }
 
   if (action === "release_gate") {
-    const nowIso = new Date().toISOString();
-    const since = new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString();
-    // Gate fail-closed: PARZIALE, PARTIAL, RUNNING e FAILED non contano mai.
-    const [
-      { count: verifiedActive },
-      { count: partialActive },
-      { count: recentVerifiedRuns },
-      { count: deepSuccessfulRuns },
-    ] = await Promise.all([
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    // Gate dinamico e fail-closed: nessuna soglia commerciale inventata.
+    // PARZIALE, PARTIAL, RUNNING e FAILED non contano mai come scan reale.
+    const [sourcesRes, runsRes, staleRes, verifiedRes] = await Promise.all([
       sb
-        .from("trovabandi_opportunities")
-        .select("id", { count: "exact", head: true })
-        .eq("verification_status", "VERIFICATO")
-        .eq("official_source", true)
-        .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`),
+        .from("trovabandi_sources")
+        .select("id,region,source_kind,priority,last_scanned_at,next_scan_at,enabled")
+        .eq("enabled", true),
       sb
-        .from("trovabandi_opportunities")
-        .select("id", { count: "exact", head: true })
-        .eq("verification_status", "PARZIALE"),
+        .from("trovabandi_runs")
+        .select("id,source_id,status,started_at,finished_at,provider_usage")
+        .gte("finished_at", coverageCutoffIso(nowMs))
+        .eq("status", "SUCCEEDED")
+        .not("source_id", "is", null),
       sb
         .from("trovabandi_runs")
         .select("id", { count: "exact", head: true })
-        .gte("started_at", since)
-        .eq("status", "SUCCEEDED")
-        .not("finished_at", "is", null)
-        .gt("verified_count", 0),
-      sb
-        .from("trovabandi_runs")
-        .select("id,trovabandi_sources!inner(source_kind)", { count: "exact", head: true })
-        .gte("started_at", since)
-        .eq("status", "SUCCEEDED")
-        .not("finished_at", "is", null)
-        .in("trovabandi_sources.source_kind", ["BUR", "ALBO_PRETORIO", "CAMERALE", "GAL"]),
+        .eq("status", "RUNNING")
+        .lt("started_at", staleRunCutoffIso(nowMs)),
+      // Conteggio DISTINCT degli opportunity con evidenza (EXISTS), mai un
+      // join count che duplicherebbe una riga per ogni prova.
+      sb.rpc("trovabandi_verified_active_distinct_count", { p_now: nowIso }),
     ]);
-    const metrics = {
-      verified_active: verifiedActive ?? 0,
-      partial_active: partialActive ?? 0,
-      recent_verified_runs: recentVerifiedRuns ?? 0,
-      deep_successful_runs: deepSuccessfulRuns ?? 0,
-    };
-    const checks = {
-      verified_catalogue: metrics.verified_active > 0,
-      recent_verified_runs: metrics.recent_verified_runs > 0,
-      deep_sources_verified_scan: metrics.deep_successful_runs > 0,
-    };
-    const ok = Object.values(checks).every(Boolean);
-    return response(ok ? 200 : 409, {
-      ok,
-      gate_passed: ok,
-      cron_activation_allowed: ok,
-      checks,
-      metrics,
+    if (sourcesRes.error || runsRes.error || staleRes.error || verifiedRes.error)
+      return response(500, { ok: false, code: "GATE_QUERY_FAILED" });
+    const verifiedActiveDistinct = Number(verifiedRes.data);
+    if (
+      !sourcesRes.data ||
+      !runsRes.data ||
+      staleRes.count === null ||
+      staleRes.count === undefined ||
+      !Number.isFinite(verifiedActiveDistinct)
+    )
+      return response(500, { ok: false, code: "GATE_QUERY_FAILED" });
+
+    const gate = evaluateGate({
+      nowMs,
+      enabledSources: sourcesRes.data as unknown as RankableSource[],
+      recentRuns: runsRes.data as unknown as RunLike[],
+      staleRunningCount: staleRes.count,
+      verifiedActiveDistinct,
+    });
+    return response(gate.ok ? 200 : 409, {
+      ok: gate.ok,
+      gate_passed: gate.ok,
+      cron_activation_allowed: gate.ok,
+      checks: gate.checks,
+      metrics: gate.metrics,
     });
   }
+
 
 
   if (action === "request_refresh") {
@@ -962,10 +997,17 @@ serve(async (req) => {
     });
   }
 
+  // ─── collect ────────────────────────────────────────────────────────────
+  // dry_run: sola lettura assoluta. Nessun provider, nessun insert/update,
+  // nessun run, nessuna fonte toccata, nessun refresh consumato.
+  const dryRun = body.dry_run === true;
   const sourceId = normalizeText(body.source_id);
   const maxPages = Math.max(1, Math.min(5, Number(body.max_pages ?? 2)));
-  const { data: refreshSignal } = sourceId
-    ? { data: null }
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+
+  const refreshRes = sourceId
+    ? { data: null, error: null }
     : await sb
         .from("trovabandi_refresh_requests")
         .select("*")
@@ -973,22 +1015,86 @@ serve(async (req) => {
         .order("requested_at", { ascending: true })
         .limit(1)
         .maybeSingle();
-  let sourceQuery = sb.from("trovabandi_sources").select("*").eq("enabled", true);
-  sourceQuery = sourceId
-    ? sourceQuery.eq("id", sourceId)
-    : sourceQuery
-        .lte("next_scan_at", new Date().toISOString())
-        .or(
-          refreshSignal?.region
-            ? `region.is.null,region.eq.${refreshSignal.region}`
-            : "region.is.null,region.not.is.null",
-        )
-        .order("fast_lane", { ascending: false })
-        .order("priority", { ascending: false })
-        .limit(1);
-  const { data: sourceData } = await sourceQuery.maybeSingle();
-  if (!sourceData) return response(200, { ok: true, skipped: true, reason: "NO_SOURCE_DUE" });
-  const baseSource = sourceData as Source;
+  if (refreshRes.error) return response(500, { ok: false, code: "REFRESH_QUERY_FAILED" });
+  const refreshSignal = (refreshRes.data ?? null) as JsonObject | null;
+
+  const candidatesRes = sourceId
+    ? await sb.from("trovabandi_sources").select("*").eq("enabled", true).eq("id", sourceId)
+    : await sb
+        .from("trovabandi_sources")
+        .select("*")
+        .eq("enabled", true)
+        .lte("next_scan_at", nowIso);
+  if (candidatesRes.error) return response(500, { ok: false, code: "SOURCE_QUERY_FAILED" });
+  const candidates = (candidatesRes.data ?? []) as unknown as Source[];
+  // Selettore equo: next_scan_at più vecchio, poi mai/oldest last_scanned,
+  // priority solo come tie-break; bypass regionale limitato a 30 minuti.
+  const selection = sourceId
+    ? {
+        source: candidates[0] ?? null,
+        reason: candidates[0] ? ("FAIR_OLDEST" as const) : ("NO_SOURCE_DUE" as const),
+        bypass_minutes: 0,
+      }
+    : selectDueSource(candidates as unknown as RankableSource[], {
+        nowMs,
+        refreshRegion: normalizeText(refreshSignal?.region) || null,
+      });
+  const selected = (selection.source ?? null) as Source | null;
+
+  if (dryRun) {
+    return response(200, {
+      ok: true,
+      dry_run: true,
+      would_collect: !!selected,
+      reason: selected ? selection.reason : "NO_SOURCE_DUE",
+      source: selected?.name ?? null,
+      due_candidates: candidates.length,
+      max_pages: maxPages,
+    });
+  }
+
+  if (!selected) {
+    // Nessuna fonte dovuta: run SKIPPED persistito, mai confuso con SUCCEEDED.
+    const skipped = await sb.from("trovabandi_runs").insert({
+      action: "collect",
+      trigger_source: normalizeText(body.trigger_source) || "replit",
+      status: "SKIPPED",
+      error_code: "NO_SOURCE_DUE",
+      warnings: ["NO_SOURCE_DUE"],
+      finished_at: nowIso,
+    });
+    if (skipped.error) return response(500, { ok: false, code: "RUN_PERSIST_FAILED" });
+    return response(200, {
+      ok: true,
+      skipped: true,
+      status: "SKIPPED",
+      reason: "NO_SOURCE_DUE",
+      error_code: "NO_SOURCE_DUE",
+    });
+  }
+
+  const baseSource = selected;
+  // Lease ottimistico compare-and-set: se un altro worker ha già spostato
+  // next_scan_at, questa esecuzione si ferma senza sovrapporsi.
+  const leaseUntil = new Date(
+    nowMs + Math.max(15, Number(baseSource.scan_interval_minutes || 360)) * 60_000,
+  ).toISOString();
+  const lease = await sb
+    .from("trovabandi_sources")
+    .update({ next_scan_at: leaseUntil, updated_at: nowIso })
+    .eq("id", baseSource.id)
+    .eq("next_scan_at", baseSource.next_scan_at)
+    .select("id");
+  if (lease.error) return response(500, { ok: false, code: "SOURCE_LEASE_FAILED" });
+  if (!lease.data || lease.data.length === 0)
+    return response(200, {
+      ok: true,
+      skipped: true,
+      status: "SKIPPED",
+      reason: "LEASE_LOST",
+      error_code: "LEASE_LOST",
+    });
+
   const personalisedTerms = refreshSignal
     ? [
         refreshSignal.region,
@@ -996,7 +1102,7 @@ serve(async (req) => {
         refreshSignal.municipality,
         refreshSignal.ateco_prefix ? `ATECO ${refreshSignal.ateco_prefix}` : null,
         refreshSignal.company_size,
-        ...(refreshSignal.interest_categories ?? []),
+        ...((refreshSignal.interest_categories as string[]) ?? []),
         refreshSignal.female_business ? "imprenditoria femminile" : null,
         refreshSignal.youth_business ? "imprenditoria giovanile" : null,
         refreshSignal.innovative_business ? "startup PMI innovativa" : null,
@@ -1008,7 +1114,7 @@ serve(async (req) => {
     ...baseSource,
     search_query: `${baseSource.search_query} ${personalisedTerms}`.trim(),
   };
-  const { data: run } = await sb
+  const runInsert = await sb
     .from("trovabandi_runs")
     .insert({
       action: "collect",
@@ -1017,6 +1123,10 @@ serve(async (req) => {
     })
     .select("id")
     .single();
+  if (runInsert.error || !runInsert.data?.id)
+    return response(500, { ok: false, code: "RUN_PERSIST_FAILED" });
+  const run = runInsert.data as { id: string };
+
   const warnings: string[] = [];
   try {
     const [fc, pp] = await Promise.all([firecrawlSearch(source), perplexitySearch(source)]);
@@ -1097,7 +1207,9 @@ serve(async (req) => {
 
     const diagnosticCounters = aggregateDiagnostics(diagnostics);
     const finished = new Date().toISOString();
-    await Promise.all([
+    const runStatus = operationalFailures > 0 ? "PARTIAL" : "SUCCEEDED";
+    // Finalizzazione verificata: ogni scrittura critica controlla l'errore.
+    const [sourceWrite, runWrite, refreshWrite] = await Promise.all([
       sb
         .from("trovabandi_sources")
         .update({
@@ -1108,41 +1220,41 @@ serve(async (req) => {
           updated_at: finished,
         })
         .eq("id", source.id),
-      run?.id
-        ? sb
-            .from("trovabandi_runs")
-            .update({
-              status: operationalFailures > 0 ? "PARTIAL" : "SUCCEEDED",
-              discovered_count: byUrl.size,
-              processed_count: processed,
-              verified_count: verified,
-              provider_usage: {
-                firecrawl_search: fcHits.length,
-                perplexity_search: ppHits.length,
-                firecrawl_search_status: fc.ok ? "OK" : fc.code,
-                perplexity_search_status: pp.ok ? "OK" : pp.code,
+      sb
+        .from("trovabandi_runs")
+        .update({
+          status: runStatus,
+          discovered_count: byUrl.size,
+          processed_count: processed,
+          verified_count: verified,
+          provider_usage: {
+            firecrawl_search: fcHits.length,
+            perplexity_search: ppHits.length,
+            firecrawl_search_status: fc.ok ? "OK" : fc.code,
+            perplexity_search_status: pp.ok ? "OK" : pp.code,
 
-                pages_attempted: hits.length,
-                pages_scraped: pagesScraped,
-                diagnostics: diagnosticCounters,
-              },
+            pages_attempted: hits.length,
+            pages_scraped: pagesScraped,
+            diagnostics: diagnosticCounters,
+          },
 
-              warnings: [...new Set(warnings)],
-              finished_at: finished,
-            })
-            .eq("id", run.id)
-        : Promise.resolve(),
+          warnings: [...new Set(warnings)],
+          finished_at: finished,
+        })
+        .eq("id", run.id),
       refreshSignal?.id
         ? sb
             .from("trovabandi_refresh_requests")
             .update({ processed_at: finished })
-            .eq("id", refreshSignal.id)
-        : Promise.resolve(),
+            .eq("id", refreshSignal.id as string)
+        : Promise.resolve({ error: null }),
     ]);
+    if (sourceWrite.error || runWrite.error || refreshWrite.error)
+      return response(500, { ok: false, code: "RUN_PERSIST_FAILED" });
     return response(200, {
       ok: true,
       source: source.name,
-      status: operationalFailures > 0 ? "PARTIAL" : "SUCCEEDED",
+      status: runStatus,
       discovered: byUrl.size,
       attempted: hits.length,
       scraped: pagesScraped,
@@ -1153,8 +1265,10 @@ serve(async (req) => {
       diagnostics: diagnosticCounters,
     });
 
+
   } catch (error) {
-    if (run?.id)
+    if (run.id)
+
       await sb
         .from("trovabandi_runs")
         .update({
