@@ -127,13 +127,24 @@ describe("migrazione P0 canonical listing identity", () => {
     expect(SQL).toMatch(/RAISE EXCEPTION 'QA identita canonica fallita/);
   });
 
-  it("non modifica soglie, aste/MLS, mq, prezzi né esegue operazioni distruttive", () => {
-    expect(SQL).toContain("prezzo_min::numeric * 1.35");
-    expect(SQL).toContain("greatest(mq_min::numeric + 5, mq_min::numeric * 1.05)");
-    expect(SQL).toContain("padova_listing_has_auction_evidence");
-    expect(SQL).toContain("v3-unit-certified");
+  it("è un patch ancorato fail-closed che non tocca soglie, aste o dati", () => {
+    for (const anchor of [
+      "anchor v_no_civico non trovato",
+      "anchor costruzione _cand non trovato",
+      "anchor _unit non trovato",
+      "anchor _unit_grp non trovato",
+      "anchor _unit_ok non trovato",
+      "anchor QA staging non trovato",
+      "anchor QA post-pubblicazione non trovato",
+      "patch canonical-listing-dedup-v1 non applicata",
+    ]) {
+      expect(SQL).toContain(anchor);
+    }
+    expect(SQL).toContain("pg_get_functiondef");
+    expect(SQL).not.toMatch(/1\.35|1\.05|greatest\(mq_min/);
     expect(SQL).not.toMatch(/DROP\s+TABLE\s+public\./i);
     expect(SQL).not.toMatch(/TRUNCATE/i);
-    expect(SQL).not.toMatch(/DELETE\s+FROM\s+public\.padova_listings/i);
+    expect(SQL).not.toMatch(/DELETE\s+FROM\s+public\./i);
+    expect(SQL).not.toMatch(/CREATE\s+OR\s+REPLACE\s+FUNCTION\s+public\.recompute/i);
   });
 });
