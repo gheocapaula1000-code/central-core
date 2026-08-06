@@ -33,11 +33,15 @@ export type ReleaseOrderResult = {
     | "PIPELINE_0510_NOT_OK"
     | "PIPELINE_0545_NOT_OK"
     | "PIPELINE_0710_NOT_OK"
+    | "PIPELINE_0510_WINDOW_INVALID"
+    | "PIPELINE_0545_WINDOW_INVALID"
+    | "PIPELINE_0710_WINDOW_INVALID"
     | "ACK_MISSING"
     | "OVERLAP_0510_0545"
     | "OVERLAP_0545_0710"
     | "ACK_BEFORE_0710_END"
     | "ACK_WINDOW_INVALID"
+    | "CHECKED_AT_INVALID"
     | "ACK_AFTER_CHECK";
 };
 
@@ -53,6 +57,17 @@ export function attemptSucceeded(a: PipelineAttempt | null): boolean {
   if (a.ok !== true) return false;
   if (a.status === null || a.status < 200 || a.status > 299) return false;
   return t(a.finished_at) !== null && t(a.started_at) !== null;
+}
+
+// Finestra interna STRETTAMENTE valida: entrambi finiti e started_at < finished_at.
+// Il solo parsing dei due timestamp non basta.
+export function windowValid(
+  started_at: string | null | undefined,
+  finished_at: string | null | undefined,
+): boolean {
+  const s = t(started_at);
+  const f = t(finished_at);
+  return s !== null && f !== null && s < f;
 }
 
 export function evaluateReleaseOrder(input: ReleaseOrderInput): ReleaseOrderResult {
