@@ -157,13 +157,12 @@ describe("persistenza fail-closed dell'evidenza", () => {
   });
 
   it("restituisce un codice store specifico e non conteggia stored/verified", () => {
-    expect(STORE).toContain(
-      'return { stored: false, verified: false, code: "EVIDENCE_WRITE_FAILED" };',
-    );
-    expect(STORE).toContain(
-      'return { stored: false, verified: false, code: "OPPORTUNITY_WRITE_FAILED" };',
-    );
+    expect(STORE).toContain("code: `EVIDENCE_WRITE_FAILED_${sanitizeDbErrorCode(evidenceError)}`");
+    expect(STORE).toContain("OPPORTUNITY_WRITE_FAILED_${error ? sanitizeDbErrorCode(error)");
+    expect(STORE).not.toContain("error.message");
+    expect(STORE).not.toContain("error.details");
   });
+
 
   it("valorizza last_verified_at soltanto per VERIFICATO", () => {
     expect(STORE).toContain(
