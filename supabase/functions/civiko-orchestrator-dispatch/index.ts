@@ -873,92 +873,8 @@ async function releaseGate(mode: GateMode) {
 
 
 
-  const requirements = metricsAvailable
-    ? [
-      {
-        key: "casa_provider_succeeded",
-        passed: g("casa_pipeline", "queue_provider_succeeded") > 0,
-      },
-      {
-        key: "casa_processor_succeeded",
-        passed: g("casa_pipeline", "queue_processor_succeeded") > 0,
-      },
-      {
-        key: "casa_processor_no_dead",
-        passed: g("casa_pipeline", "queue_processor_dead") === 0,
-      },
-      {
-        key: "casa_collect_fresh",
-        passed: g("casa_pipeline", "collect_items_casa_fresh") > 0,
-      },
-      {
-        key: "casa_listing_fresh",
-        passed: g("imported", "listings_casa_imported_in_window") > 0 ||
-          g("imported", "listings_casa_seen_in_window") > 0,
-      },
-      {
-        key: "pwa_contendibili_non_zero",
-        passed: g("categories", "contendibili_total") > 0,
-      },
-      {
-        key: "pwa_multi_agenzia_non_zero",
-        passed: g("categories", "contendibili_multi_agenzia") > 0,
-      },
-      {
-        key: "pwa_ribassi_non_zero",
-        passed: g("categories", "contendibili_ribassi") > 0,
-      },
-      {
-        key: "pwa_cambi_agenzia_non_zero",
-        passed: g("categories", "contendibili_cambio_agenzia") > 0,
-      },
-      {
-        key: "pwa_privati_non_zero",
-        passed: g("categories", "privati_padova") > 0,
-      },
-      {
-        key: "pwa_offmarket_non_zero",
-        passed: g("categories", "offmarket_verified") > 0,
-      },
-      // ESECUZIONE SEMANTICA DEI 4 PORTALI NELLA FINESTRA
-      ...CIVIKO_PORTALS.map((p) => ({
-        key: `portale_${p}_fresh`,
-        passed: g("portals", `collect_items_${p}_fresh`) > 0,
-      })),
-      // PROMOZIONE / CLASSIFICAZIONE CORRENTE
-      {
-        key: "promozione_corrente",
-        passed: (integrity?.listings_freschi ?? 0) > 0,
-      },
-      {
-        key: "mismatch_professionale_zero",
-        passed: integrity?.mismatch_professionale === 0,
-      },
-      // RECOMPUTE CORRENTE E SYNC PWA SUCCESSIVO ALLA CLASSIFICAZIONE
-      {
-        key: "recompute_corrente",
-        passed: integrity?.recompute_corrente === true,
-      },
-      {
-        // Prova diretta: ack PWA ok, corrente, successivo alla fine
-        // dell'ultima pipeline_0710 riuscita nella finestra.
-        key: "pwa_sync_ack_corrente",
-        passed: integrity?.pwa_sync_ack_corrente === true,
-      },
-      {
-        key: "sync_pwa_dopo_classificazione",
-        passed: integrity?.sync_pwa_dopo_classificazione === true,
-      },
-      // PERIMETRO PADOVA / 8 ZONE UFFICIALI
-      {
-        key: "perimetro_contendibili_padova_8_zone",
-        passed: integrity?.contendibili_fuori_perimetro === 0,
-      },
-      {
-        key: "perimetro_privati_padova_8_zone",
-        passed: integrity?.privati_fuori_perimetro === 0,
-      },
-    ]
+  const requirements = metricsAvailable && integrity && actionRuns
+    ? buildGateRequirements({ mode, metric: g, integrity, actionRuns })
     : [];
 
   const gate_passed = metricsAvailable && requirements.every((r) => r.passed);
@@ -968,6 +884,7 @@ async function releaseGate(mode: GateMode) {
   const payload: Record<string, unknown> = {
     ok: gate_passed,
     action: "release_gate",
+    mode,
     gate_passed,
     cron_activation_allowed,
     metrics_available: metricsAvailable,
@@ -975,11 +892,26 @@ async function releaseGate(mode: GateMode) {
     since,
     metrics,
     integrity,
+    actions_latest: actionRuns
+      ? Array.from(latestRunsByAction(actionRuns).values()).map((r) => ({
+        action: r.action,
+        ok: r.ok,
+        status: r.status,
+        error_code: r.error_code,
+        finished_at: r.finished_at,
+      }))
+      : null,
+    actions_failing: actionRuns ? failingActions(actionRuns) : null,
+    actions_missing: actionRuns ? missingActions(actionRuns) : null,
+    pwa_ack_after_pipeline_0710: integrity
+      ? ackAfterPipeline(integrity.pwa_sync_ack_ultimo_ok, integrity.pipeline_0710_ultimo_ok)
+      : null,
     requirements,
     missing,
     schedule: scheduleContract(),
     checked_at: new Date().toISOString(),
   };
+
 
 
   if (!metricsAvailable) {
