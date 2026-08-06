@@ -390,6 +390,67 @@ async function runAction(
   }
 }
 
+// ── Audit esecuzioni azione (latest-wins) ───────────────────────────────────
+// Solo contatori numerici sanificati: nessun payload, nessun segreto.
+function sanitizedCounters(result: Record<string, unknown>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(result)) {
+    if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+  }
+  return out;
+}
+
+async function recordActionRun(
+  runId: string,
+  pipeline: string | null,
+  step: StepResult,
+  startedAt: string,
+): Promise<void> {
+  if (!SERVICE_KEY) return;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/civiko_orchestrator_action_runs`, {
+      method: "POST",
+      headers: {
+        apikey: SERVICE_KEY,
+        Authorization: `Bearer ${SERVICE_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify([{
+        run_id: runId,
+        action: step.action,
+        pipeline,
+        started_at: startedAt,
+        finished_at: new Date().toISOString(),
+        ok: step.ok,
+        status: step.status,
+        error_code: step.ok ? null : (step.reason ?? "unknown").slice(0, 120),
+        counters: sanitizedCounters(step.result),
+      }]),
+    });
+    await res.body?.cancel();
+    if (!res.ok) console.error(`[dispatch] action_run not recorded status=${res.status}`);
+  } catch {
+    console.error("[dispatch] action_run not recorded");
+  }
+}
+
+/** Esegue e registra sempre l'esito nell'audit (anche in caso di guasto). */
+async function runAuditedAction(
+  action: SimpleAction,
+  timeoutMs: number,
+  runId: string,
+  pipeline: string | null,
+  bodyOverride?: Record<string, unknown>,
+): Promise<StepResult> {
+  const startedAt = new Date().toISOString();
+  const step = await runAction(action, timeoutMs, bodyOverride);
+  await recordActionRun(runId, pipeline, step, startedAt);
+  return step;
+}
+
+
+
 // Conteggio reale via PostgREST (count=exact). Ritorna null se non verificabile:
 // il gate resta fail-closed.
 async function realCount(pathAndQuery: string): Promise<number | null> {
