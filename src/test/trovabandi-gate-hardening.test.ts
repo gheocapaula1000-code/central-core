@@ -12,9 +12,11 @@ import {
   shouldTryPlainJsonFallback,
 } from "../../supabase/functions/trovabandi-engine/extraction";
 import {
+  COLLECTION_PARTIAL_CODE,
   COVERAGE_WINDOW_HOURS,
   REGIONAL_BYPASS_MAX_MINUTES,
   RUN_STALE_AFTER_MINUTES,
+  collectResponseContract,
   evaluateGate,
   isRealScan,
   rankSources,
@@ -27,6 +29,10 @@ const ENGINE = readFileSync("supabase/functions/trovabandi-engine/index.ts", "ut
 const HARDENING = readFileSync("supabase/functions/trovabandi-engine/hardening.ts", "utf8");
 const MIGRATION = readFileSync(
   "supabase/migrations/20260806181739_25d516da-f340-4291-b4fd-a66f5910f998.sql",
+  "utf8",
+);
+const RPC_BIGINT_MIGRATION = readFileSync(
+  "supabase/migrations/20260806193420_5410c74d-e55c-4823-a6c2-3479e73601e1.sql",
   "utf8",
 );
 const GATE = ENGINE.slice(
@@ -517,5 +523,142 @@ describe("metrica pages_scraped", () => {
     const afterFailure = COLLECT.indexOf('code: "NO_CONTENT"');
     const increment = COLLECT.indexOf("pagesScraped++");
     expect(increment).toBeGreaterThan(afterFailure);
+  });
+});
+
+// --- P0 fail-closed su collect PARTIAL (dominio isolato trovabandi) ---
+
+describe("contratto risposta collect", () => {
+  it("PARTIAL è fail-closed: non-2xx, ok:false, codice stabile", () => {
+    const c = collectResponseContract("PARTIAL");
+    expect(c.ok).toBe(false);
+    expect(c.http).toBe(502);
+    expect(c.http < 200 || c.http >= 300).toBe(true);
+    expect(c.error_code).toBe("COLLECTION_PARTIAL");
+    expect(COLLECTION_PARTIAL_CODE).toBe("COLLECTION_PARTIAL");
+    expect(c.collection_succeeded).toBe(false);
+  });
+
+  it("SUCCEEDED resta 200 ok:true e segnala raccolta riuscita", () => {
+    expect(collectResponseContract("SUCCEEDED")).toEqual({
+      http: 200,
+      ok: true,
+      error_code: null,
+      collection_succeeded: true,
+    });
+  });
+
+  it("SKIPPED/NO_SOURCE_DUE è distinto da PARTIAL e non è raccolta riuscita", () => {
+    const s = collectResponseContract("SKIPPED");
+    expect(s.http).toBe(200);
+    expect(s.ok).toBe(true);
+    expect(s.error_code).toBe("NO_SOURCE_DUE");
+    expect(s.collection_succeeded).toBe(false);
+    expect(s.error_code).not.toBe(COLLECTION_PARTIAL_CODE);
+  });
+
+  it("il codice PARTIAL è stabile su chiamate ripetute", () => {
+    const codes = new Set(
+      Array.from({ length: 5 }, () => collectResponseContract("PARTIAL").error_code),
+    );
+    expect([...codes]).toEqual([COLLECTION_PARTIAL_CODE]);
+  });
+});
+
+describe("integrazione nell'engine", () => {
+  it("la risposta finale del collect usa il contratto, non un 200 hardcoded", () => {
+    expect(ENGINE).toContain("const contract = collectResponseContract(runStatus);");
+    expect(ENGINE).toContain("return response(contract.http, {");
+    expect(ENGINE).toContain("ok: contract.ok,");
+    expect(ENGINE).toContain("error_code: contract.error_code,");
+  });
+
+  it("PARTIAL non viene mai riscritto come FAILED nel DB", () => {
+    expect(ENGINE).toContain('const runStatus = operationalFailures > 0 ? "PARTIAL" : "SUCCEEDED";');
+    // gli unici FAILED sono la riconciliazione dei run stale e il catch
+    // delle eccezioni: nessuno appartiene al ramo PARTIAL.
+    const failedOccurrences = ENGINE.match(/status: "FAILED"/g) ?? [];
+    expect(failedOccurrences.length).toBe(2);
+    expect(ENGINE).toContain('{ status: "FAILED", error_code: "STALE_RUN_TIMEOUT"');
+    expect(ENGINE).toContain('error_code: error instanceof Error ? error.name : "UNKNOWN"');
+  });
+
+  it("il run PARTIAL conserva contatori, provider_usage e diagnostica", () => {
+    for (const fragment of [
+      "status: runStatus,",
+      "discovered_count: byUrl.size,",
+      "processed_count: processed,",
+      "verified_count: verified,",
+      "provider_usage: {",
+      "pages_scraped: pagesScraped,",
+      "diagnostics: diagnosticCounters,",
+      "warnings: [...new Set(warnings)],",
+    ]) {
+      expect(ENGINE).toContain(fragment);
+    }
+  });
+
+  it("la risposta PARTIAL espone diagnostica completa al chiamante", () => {
+    for (const fragment of [
+      "operational_failures: operationalFailures,",
+      "collection_succeeded: contract.collection_succeeded,",
+      "scraped: pagesScraped,",
+    ]) {
+      expect(ENGINE).toContain(fragment);
+    }
+  });
+
+  it("NO_SOURCE_DUE persiste un run SKIPPED e mai SUCCEEDED", () => {
+    expect(ENGINE).toContain('status: "SKIPPED",\n      error_code: "NO_SOURCE_DUE",');
+    expect(ENGINE).not.toContain('status: "SUCCEEDED",\n      error_code: "NO_SOURCE_DUE"');
+    expect(ENGINE).toContain("collection_succeeded: false,");
+  });
+});
+
+describe("simulazione gateway/orchestratore", () => {
+  const simulateGateway = (runStatus: "SUCCEEDED" | "PARTIAL" | "SKIPPED") => {
+    const c = collectResponseContract(runStatus);
+    const httpOk = c.http >= 200 && c.http < 300;
+    // L'orchestratore marca il job riuscito solo con HTTP 2xx e ok:true.
+    return { jobSucceeded: httpOk && c.ok, body: c };
+  };
+
+  it("PARTIAL fa fallire il job dell'orchestratore", () => {
+    const r = simulateGateway("PARTIAL");
+    expect(r.jobSucceeded).toBe(false);
+    expect(r.body.error_code).toBe(COLLECTION_PARTIAL_CODE);
+  });
+
+  it("SUCCEEDED fa passare il job", () => {
+    expect(simulateGateway("SUCCEEDED").jobSucceeded).toBe(true);
+  });
+
+  it("SKIPPED non fallisce ma non conta come raccolta per il release gate", () => {
+    const r = simulateGateway("SKIPPED");
+    expect(r.jobSucceeded).toBe(true);
+    expect(r.body.collection_succeeded).toBe(false);
+  });
+});
+
+describe("RPC conteggio verificato — bigint", () => {
+  it("la migration forward ridefinisce la RPC come bigint con search_path", () => {
+    expect(RPC_BIGINT_MIGRATION).toContain("RETURNS bigint");
+    expect(RPC_BIGINT_MIGRATION).toContain("count(*)::bigint");
+    expect(RPC_BIGINT_MIGRATION).toContain("SET search_path = public");
+  });
+
+  it("resta riservata a service_role: mai PUBLIC/anon/authenticated", () => {
+    expect(RPC_BIGINT_MIGRATION).toContain(
+      "GRANT EXECUTE ON FUNCTION public.trovabandi_verified_active_distinct_count(timestamptz) TO service_role",
+    );
+    for (const role of ["PUBLIC", "anon", "authenticated"]) {
+      expect(RPC_BIGINT_MIGRATION).toContain(
+        `REVOKE ALL ON FUNCTION public.trovabandi_verified_active_distinct_count(timestamptz) FROM ${role}`,
+      );
+    }
+  });
+
+  it("la migration resta isolata al dominio trovabandi", () => {
+    expect(RPC_BIGINT_MIGRATION).not.toMatch(/civiko|padova|cron\.schedule|DELETE FROM|DROP TABLE/i);
   });
 });
