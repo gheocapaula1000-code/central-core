@@ -293,7 +293,10 @@ interface StepResult {
   status: number;
   reason: string | null;
   result: Record<string, unknown>;
+  /** Payload oggetto (solo per progressione interna, mai restituito). */
+  raw?: Record<string, unknown> | null;
 }
+
 
 // Esito semantico e zero-guard: ./orchestrator.ts (fail-closed).
 
