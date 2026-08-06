@@ -376,6 +376,7 @@ Deno.serve(async (req) => {
     fingerprint_scartati: rejectedQuality,
     annunci_con_2_fingerprint: withTwoFingerprints,
     coppie_con_foto_condivise: pairRows.length,
+    coppie_scartate_stesso_annuncio: scartatiStessoAnnuncio,
     coppie_certificanti: pairRows.filter((p) => (p.shared_photos as number) >= MIN_SHARED_PHOTOS_PER_PAIR).length,
     budget_richieste_usate: budget.used,
     diagnostics,
