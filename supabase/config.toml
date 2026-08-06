@@ -311,3 +311,8 @@ verify_jwt = false
 [functions.civiko-orchestrator-dispatch]
 verify_jwt = false
 
+# Dominio additivo TrovaBandi (isolato). Auth applicativa server-to-server
+# via AI_CORE_SECRET_TROVABANDI, fail-closed dentro la funzione.
+[functions.trovabandi-engine]
+verify_jwt = false
+

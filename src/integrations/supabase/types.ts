@@ -8343,6 +8343,388 @@ export type Database = {
         }
         Relationships: []
       }
+      trovabandi_evidence: {
+        Row: {
+          content_hash: string | null
+          evidence_type: string
+          excerpt: string | null
+          fetched_at: string
+          id: string
+          opportunity_id: string
+          published_at: string | null
+          source_title: string | null
+          source_url: string
+        }
+        Insert: {
+          content_hash?: string | null
+          evidence_type: string
+          excerpt?: string | null
+          fetched_at?: string
+          id?: string
+          opportunity_id: string
+          published_at?: string | null
+          source_title?: string | null
+          source_url: string
+        }
+        Update: {
+          content_hash?: string | null
+          evidence_type?: string
+          excerpt?: string | null
+          fetched_at?: string
+          id?: string
+          opportunity_id?: string
+          published_at?: string | null
+          source_title?: string | null
+          source_url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trovabandi_evidence_opportunity_id_fkey"
+            columns: ["opportunity_id"]
+            isOneToOne: false
+            referencedRelation: "trovabandi_opportunities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trovabandi_opportunities: {
+        Row: {
+          aid_intensity_percent: number | null
+          application_url: string | null
+          authority_level: string
+          authority_name: string
+          canonical_key: string
+          category: string
+          click_day: boolean
+          consortium_required: boolean | null
+          content_hash: string | null
+          created_at: string
+          de_minimis: boolean | null
+          deadline_at: string | null
+          direct_applicant_allowed: boolean | null
+          discovered_by: string[]
+          eligible_ateco_prefixes: string[]
+          eligible_company_sizes: string[]
+          eligible_countries: string[]
+          eligible_expenses: string[]
+          eligible_legal_forms: string[]
+          excluded_ateco_prefixes: string[]
+          female_only: boolean
+          first_seen_at: string
+          forms_url: string | null
+          id: string
+          implementing_body: string | null
+          innovative_only: boolean
+          last_seen_at: string
+          last_verified_at: string | null
+          max_grant_amount: number | null
+          min_grant_amount: number | null
+          min_partners: number | null
+          municipality: string | null
+          notice_url: string | null
+          official_source: boolean
+          official_url: string
+          opens_at: string | null
+          pnrr_component: string | null
+          pnrr_mission: string | null
+          programme_code: string | null
+          programme_name: string | null
+          protocol_email: string | null
+          province: string | null
+          publication_reference: string | null
+          rarity_score: number
+          raw_excerpt: string | null
+          region: string | null
+          requirements: string[]
+          source_kind: string
+          startup_only: boolean
+          summary: string
+          title: string
+          total_budget: number | null
+          updated_at: string
+          verification_status: string
+          youth_only: boolean
+        }
+        Insert: {
+          aid_intensity_percent?: number | null
+          application_url?: string | null
+          authority_level: string
+          authority_name: string
+          canonical_key: string
+          category: string
+          click_day?: boolean
+          consortium_required?: boolean | null
+          content_hash?: string | null
+          created_at?: string
+          de_minimis?: boolean | null
+          deadline_at?: string | null
+          direct_applicant_allowed?: boolean | null
+          discovered_by?: string[]
+          eligible_ateco_prefixes?: string[]
+          eligible_company_sizes?: string[]
+          eligible_countries?: string[]
+          eligible_expenses?: string[]
+          eligible_legal_forms?: string[]
+          excluded_ateco_prefixes?: string[]
+          female_only?: boolean
+          first_seen_at?: string
+          forms_url?: string | null
+          id?: string
+          implementing_body?: string | null
+          innovative_only?: boolean
+          last_seen_at?: string
+          last_verified_at?: string | null
+          max_grant_amount?: number | null
+          min_grant_amount?: number | null
+          min_partners?: number | null
+          municipality?: string | null
+          notice_url?: string | null
+          official_source?: boolean
+          official_url: string
+          opens_at?: string | null
+          pnrr_component?: string | null
+          pnrr_mission?: string | null
+          programme_code?: string | null
+          programme_name?: string | null
+          protocol_email?: string | null
+          province?: string | null
+          publication_reference?: string | null
+          rarity_score?: number
+          raw_excerpt?: string | null
+          region?: string | null
+          requirements?: string[]
+          source_kind?: string
+          startup_only?: boolean
+          summary: string
+          title: string
+          total_budget?: number | null
+          updated_at?: string
+          verification_status?: string
+          youth_only?: boolean
+        }
+        Update: {
+          aid_intensity_percent?: number | null
+          application_url?: string | null
+          authority_level?: string
+          authority_name?: string
+          canonical_key?: string
+          category?: string
+          click_day?: boolean
+          consortium_required?: boolean | null
+          content_hash?: string | null
+          created_at?: string
+          de_minimis?: boolean | null
+          deadline_at?: string | null
+          direct_applicant_allowed?: boolean | null
+          discovered_by?: string[]
+          eligible_ateco_prefixes?: string[]
+          eligible_company_sizes?: string[]
+          eligible_countries?: string[]
+          eligible_expenses?: string[]
+          eligible_legal_forms?: string[]
+          excluded_ateco_prefixes?: string[]
+          female_only?: boolean
+          first_seen_at?: string
+          forms_url?: string | null
+          id?: string
+          implementing_body?: string | null
+          innovative_only?: boolean
+          last_seen_at?: string
+          last_verified_at?: string | null
+          max_grant_amount?: number | null
+          min_grant_amount?: number | null
+          min_partners?: number | null
+          municipality?: string | null
+          notice_url?: string | null
+          official_source?: boolean
+          official_url?: string
+          opens_at?: string | null
+          pnrr_component?: string | null
+          pnrr_mission?: string | null
+          programme_code?: string | null
+          programme_name?: string | null
+          protocol_email?: string | null
+          province?: string | null
+          publication_reference?: string | null
+          rarity_score?: number
+          raw_excerpt?: string | null
+          region?: string | null
+          requirements?: string[]
+          source_kind?: string
+          startup_only?: boolean
+          summary?: string
+          title?: string
+          total_budget?: number | null
+          updated_at?: string
+          verification_status?: string
+          youth_only?: boolean
+        }
+        Relationships: []
+      }
+      trovabandi_refresh_requests: {
+        Row: {
+          ateco_prefix: string | null
+          company_size: string | null
+          female_business: boolean
+          id: string
+          innovative_business: boolean
+          interest_categories: string[]
+          municipality: string | null
+          processed_at: string | null
+          province: string | null
+          region: string | null
+          request_key: string
+          requested_at: string
+          youth_business: boolean
+        }
+        Insert: {
+          ateco_prefix?: string | null
+          company_size?: string | null
+          female_business?: boolean
+          id?: string
+          innovative_business?: boolean
+          interest_categories?: string[]
+          municipality?: string | null
+          processed_at?: string | null
+          province?: string | null
+          region?: string | null
+          request_key: string
+          requested_at?: string
+          youth_business?: boolean
+        }
+        Update: {
+          ateco_prefix?: string | null
+          company_size?: string | null
+          female_business?: boolean
+          id?: string
+          innovative_business?: boolean
+          interest_categories?: string[]
+          municipality?: string | null
+          processed_at?: string | null
+          province?: string | null
+          region?: string | null
+          request_key?: string
+          requested_at?: string
+          youth_business?: boolean
+        }
+        Relationships: []
+      }
+      trovabandi_runs: {
+        Row: {
+          action: string
+          discovered_count: number
+          error_code: string | null
+          finished_at: string | null
+          id: string
+          processed_count: number
+          provider_usage: Json
+          source_id: string | null
+          started_at: string
+          status: string
+          trigger_source: string
+          verified_count: number
+          warnings: string[]
+        }
+        Insert: {
+          action: string
+          discovered_count?: number
+          error_code?: string | null
+          finished_at?: string | null
+          id?: string
+          processed_count?: number
+          provider_usage?: Json
+          source_id?: string | null
+          started_at?: string
+          status?: string
+          trigger_source?: string
+          verified_count?: number
+          warnings?: string[]
+        }
+        Update: {
+          action?: string
+          discovered_count?: number
+          error_code?: string | null
+          finished_at?: string | null
+          id?: string
+          processed_count?: number
+          provider_usage?: Json
+          source_id?: string | null
+          started_at?: string
+          status?: string
+          trigger_source?: string
+          verified_count?: number
+          warnings?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trovabandi_runs_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "trovabandi_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trovabandi_sources: {
+        Row: {
+          authority_level: string
+          created_at: string
+          enabled: boolean
+          fast_lane: boolean
+          id: string
+          last_scanned_at: string | null
+          name: string
+          next_scan_at: string
+          official_domain: string
+          priority: number
+          province: string | null
+          rarity_base: number
+          region: string | null
+          scan_interval_minutes: number
+          search_query: string
+          source_kind: string
+          updated_at: string
+        }
+        Insert: {
+          authority_level: string
+          created_at?: string
+          enabled?: boolean
+          fast_lane?: boolean
+          id?: string
+          last_scanned_at?: string | null
+          name: string
+          next_scan_at?: string
+          official_domain: string
+          priority?: number
+          province?: string | null
+          rarity_base?: number
+          region?: string | null
+          scan_interval_minutes?: number
+          search_query: string
+          source_kind?: string
+          updated_at?: string
+        }
+        Update: {
+          authority_level?: string
+          created_at?: string
+          enabled?: boolean
+          fast_lane?: boolean
+          id?: string
+          last_scanned_at?: string | null
+          name?: string
+          next_scan_at?: string
+          official_domain?: string
+          priority?: number
+          province?: string | null
+          rarity_base?: number
+          region?: string | null
+          scan_interval_minutes?: number
+          search_query?: string
+          source_kind?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       turnover_signals: {
         Row: {
           area_label: string | null
