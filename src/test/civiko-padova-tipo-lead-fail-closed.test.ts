@@ -89,11 +89,13 @@ describe("Migrazione P0 — contenuto e ambito", () => {
     expect(sql).not.toContain("'PRIVATO'::text");
   });
 
-  it("entrambi i rami usano il classificatore fail-closed", () => {
+  it("entrambi i rami di promozione usano il classificatore fail-closed", () => {
+    const promote = sql.slice(sql.indexOf("-- ── 3."), sql.indexOf("-- ── 4."));
     expect(
-      sql.match(/public\.civiko_classify_tipo_lead\(tipo_lead, n_agenzie, agency\)/g)?.length,
+      promote.match(/public\.civiko_classify_tipo_lead\(tipo_lead, n_agenzie, agency\)/g)?.length,
     ).toBe(2);
   });
+
 
   it("il risanamento storico è limitato ai record Civiko attivi", () => {
     const heal = sql.slice(sql.indexOf("-- ── 4."));
