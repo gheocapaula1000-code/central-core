@@ -9175,23 +9175,33 @@ export type Database = {
     Views: {
       civiko_padova_release_gate_v: {
         Row: {
+          checked_at: string | null
           classificazione_ultima: string | null
           contendibili_fuori_perimetro: number | null
           contendibili_totali: number | null
           listings_freschi: number | null
           mismatch_professionale: number | null
+          pipeline_0510_avvio: string | null
+          pipeline_0510_ok: boolean | null
           pipeline_0510_run_id: string | null
+          pipeline_0510_ultimo: string | null
+          pipeline_0545_avvio: string | null
+          pipeline_0545_ok: boolean | null
           pipeline_0545_run_id: string | null
+          pipeline_0545_ultimo: string | null
+          pipeline_0710_avvio: string | null
           pipeline_0710_ok: boolean | null
           pipeline_0710_run_id: string | null
           pipeline_0710_ultimo: string | null
           portali_freschi: number | null
           privati_fuori_perimetro: number | null
+          pwa_sync_ack_avvio: string | null
           pwa_sync_ack_corrente: boolean | null
           pwa_sync_ack_counts: Json | null
           pwa_sync_ack_ultimo_ok: string | null
           recompute_corrente: boolean | null
           recompute_ultimo: string | null
+          release_order_ok: boolean | null
           sync_pwa_dopo_classificazione: boolean | null
         }
         Relationships: []
