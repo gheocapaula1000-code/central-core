@@ -655,25 +655,22 @@ function gateSpecs(since: string): GateSpec[] {
       metric: "signals_classified_updated",
       q: `civiko_signals_classified?select=signal_id&updated_at=gte.${since}`,
     },
+    // COLLAUDO INIZIALE: import reali e fingerprint fotografici freschi.
+    {
+      group: "imported",
+      metric: "listings_imported_in_window",
+      q: `padova_listings?select=id&imported_at=gte.${since}`,
+    },
+    {
+      group: "categories",
+      metric: "image_fingerprints_fresh",
+      q: `civiko_listing_image_fingerprints?select=id&created_at=gte.${since}`,
+    },
   ];
 }
 
-/** Integrità Civiko One letta dalla vista autoritativa. null = non verificabile. */
-interface GateIntegrity {
-  portali_freschi: number;
-  mismatch_professionale: number;
-  listings_freschi: number;
-  classificazione_ultima: string | null;
-  recompute_ultimo: string | null;
-  contendibili_totali: number;
-  recompute_corrente: boolean;
-  pipeline_0710_ultimo_ok: string | null;
-  pwa_sync_ack_ultimo_ok: string | null;
-  pwa_sync_ack_corrente: boolean;
-  sync_pwa_dopo_classificazione: boolean;
-  contendibili_fuori_perimetro: number;
-  privati_fuori_perimetro: number;
-}
+// Integrità Civiko One letta dalla vista autoritativa: tipo in ./orchestrator.ts
+
 
 /**
  * Traccia reale delle pipeline Civiko: il release gate esige un ack PWA
