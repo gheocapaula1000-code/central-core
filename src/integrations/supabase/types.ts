@@ -2522,6 +2522,87 @@ export type Database = {
           },
         ]
       }
+      civiko_pipeline_runs: {
+        Row: {
+          created_at: string
+          error_code: string | null
+          finished_at: string | null
+          ok: boolean | null
+          pipeline: string
+          run_id: string
+          started_at: string
+          steps: Json
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          error_code?: string | null
+          finished_at?: string | null
+          ok?: boolean | null
+          pipeline: string
+          run_id: string
+          started_at?: string
+          steps?: Json
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          error_code?: string | null
+          finished_at?: string | null
+          ok?: boolean | null
+          pipeline?: string
+          run_id?: string
+          started_at?: string
+          steps?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      civiko_pwa_sync_acks: {
+        Row: {
+          counts: Json
+          created_at: string
+          error_code: string | null
+          finished_at: string
+          idempotency_key: string
+          ok: boolean
+          run_id: string
+          scope_comune: string
+          scope_slugs: string[]
+          source_app: string
+          started_at: string
+          updated_at: string
+        }
+        Insert: {
+          counts?: Json
+          created_at?: string
+          error_code?: string | null
+          finished_at: string
+          idempotency_key: string
+          ok: boolean
+          run_id: string
+          scope_comune: string
+          scope_slugs: string[]
+          source_app: string
+          started_at: string
+          updated_at?: string
+        }
+        Update: {
+          counts?: Json
+          created_at?: string
+          error_code?: string | null
+          finished_at?: string
+          idempotency_key?: string
+          ok?: boolean
+          run_id?: string
+          scope_comune?: string
+          scope_slugs?: string[]
+          source_app?: string
+          started_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       civiko_quartiere_commercial_zone_map: {
         Row: {
           commercial_zone_slug: string
@@ -8997,8 +9078,11 @@ export type Database = {
           contendibili_totali: number | null
           listings_freschi: number | null
           mismatch_professionale: number | null
+          pipeline_0710_ultimo_ok: string | null
           portali_freschi: number | null
           privati_fuori_perimetro: number | null
+          pwa_sync_ack_corrente: boolean | null
+          pwa_sync_ack_ultimo_ok: string | null
           recompute_corrente: boolean | null
           recompute_ultimo: string | null
           sync_pwa_dopo_classificazione: boolean | null
