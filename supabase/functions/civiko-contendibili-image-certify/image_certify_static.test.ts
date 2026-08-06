@@ -12,12 +12,14 @@ Deno.test("tetto TOTALE di 4 listing unici, mai 4+4", () => {
   assertStringIncludes(SRC, "TOTAL_LISTINGS_PER_INVOCATION = 4");
   const limitCalls = SRC.match(/\.limit\(limit\)/g) ?? [];
   assertEquals(limitCalls.length, 0, "il limite non va applicato per singola fonte");
-  assertStringIncludes(SRC, "eligible.slice(0, limit)");
+  assertStringIncludes(SRC, "selectEligible(");
+  assertStringIncludes(SRC, "outcome.selected");
 });
 
 Deno.test("hard max 4 tentativi per listing", () => {
   assertStringIncludes(SRC, "MAX_ATTEMPTS_PER_LISTING = 4");
-  assertStringIncludes(SRC, ">= MAX_ATTEMPTS_PER_LISTING) blocked.add(id)");
+  assertStringIncludes(SRC, "maxAttempts: MAX_ATTEMPTS_PER_LISTING");
+  assertStringIncludes(SRC, "attempts ?? 0) < MAX_ATTEMPTS_PER_LISTING");
 });
 
 Deno.test("marcatura atomica prima della lavorazione (no-photo incluso)", () => {
@@ -29,7 +31,8 @@ Deno.test("marcatura atomica prima della lavorazione (no-photo incluso)", () => 
 });
 
 Deno.test("listing già fingerprintati non bloccano la coda", () => {
-  assertStringIncludes(SRC, "for (const r of already ?? []) blocked.add(Number(r.listing_id));");
+  assertStringIncludes(SRC, "for (const r of data ?? []) fingerprinted.add(Number(r.listing_id));");
+  assertStringIncludes(SRC, "hasFingerprint: fingerprinted.has(cand.listing_id)");
 });
 
 Deno.test("progress marker monotono non basato su offset/id", () => {
@@ -57,9 +60,14 @@ Deno.test("errore RPC canonica = fail-closed", () => {
   assertStringIncludes(SRC, "if (canonErr)");
 });
 
-Deno.test("coppie stantie sostituite senza residui", () => {
-  assertStringIncludes(SRC, '.lt("computed_at", runStartedAt)');
-  assertStringIncludes(SRC, "stale_pairs_delete_failed");
+Deno.test("coppie stantie sostituite atomicamente in una sola transazione", () => {
+  assertStringIncludes(SRC, 'sb.rpc("civiko_replace_photo_pair_evidence"');
+  assertStringIncludes(SRC, "p_computed_at: runStartedAt");
+  assertStringIncludes(SRC, "stale_deleted");
+  assert(
+    !SRC.includes('.lt("computed_at", runStartedAt)'),
+    "nessuna delete separata: la sostituzione deve restare atomica",
+  );
 });
 
 Deno.test("ogni scrittura critica controlla l'errore", () => {
