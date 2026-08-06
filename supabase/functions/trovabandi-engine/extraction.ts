@@ -33,10 +33,22 @@ export const EXTRACTION_CATEGORIES = [
 
 export type ExtractionCategory = (typeof EXTRACTION_CATEGORIES)[number];
 
+/** Classi HTTP sanificate: mai body, mai URL, mai secret. */
+export type HttpFailureCode =
+  | "HTTP_400"
+  | "HTTP_401"
+  | "HTTP_402"
+  | "HTTP_403"
+  | "HTTP_422"
+  | "HTTP_429"
+  | "HTTP_4XX"
+  | "HTTP_5XX"
+  | "HTTP_ERROR";
+
 export type ExtractionFailureCode =
   | "NO_KEY"
   | "TIMEOUT"
-  | "HTTP_ERROR"
+  | HttpFailureCode
   | "EMPTY_CONTENT"
   | "PARSE_FAILED"
   | "NOT_OBJECT"
@@ -49,6 +61,54 @@ export type ExtractionFailureCode =
 export type ExtractionOutcome =
   | { ok: true; data: JsonObject; mode: "json_schema" | "json_fallback" }
   | { ok: false; code: ExtractionFailureCode; mode?: "json_schema" | "json_fallback" };
+
+/** Mappa uno status HTTP in una classe sanificata. */
+export function httpFailureCode(status?: number): HttpFailureCode {
+  if (typeof status !== "number" || !Number.isFinite(status)) return "HTTP_ERROR";
+  if (status >= 500) return "HTTP_5XX";
+  if (status === 400 || status === 401 || status === 402 || status === 403) {
+    return `HTTP_${status}` as HttpFailureCode;
+  }
+  if (status === 422) return "HTTP_422";
+  if (status === 429) return "HTTP_429";
+  if (status >= 400) return "HTTP_4XX";
+  return "HTTP_ERROR";
+}
+
+/**
+ * Il fallback plain JSON è ammesso soltanto dopo un rifiuto dello schema
+ * (HTTP 400/422) oppure una risposta 200 non parsabile/vuota.
+ * Mai dopo 401/402/403/429/5xx/timeout: sono errori operativi, non di formato.
+ */
+const FALLBACK_ALLOWED_AFTER = new Set<ExtractionFailureCode>([
+  "HTTP_400",
+  "HTTP_422",
+  "EMPTY_CONTENT",
+  "PARSE_FAILED",
+  "NOT_OBJECT",
+]);
+
+export function shouldTryPlainJsonFallback(code: ExtractionFailureCode): boolean {
+  return FALLBACK_ALLOWED_AFTER.has(code);
+}
+
+/** Esiti negativi validi: diagnosticati, ma non sono guasti operativi. */
+const NEGATIVE_OUTCOME_CODES = new Set<ExtractionFailureCode>([
+  "NOT_OPPORTUNITY",
+  "SCHEMA_INVALID",
+  "CATEGORY_INVALID",
+  "URL_OFF_DOMAIN",
+]);
+
+export function isNegativeOutcome(code: ExtractionFailureCode): boolean {
+  return NEGATIVE_OUTCOME_CODES.has(code);
+}
+
+/** Guasti operativi: degradano il run a PARTIAL e non devono sbloccare il gate. */
+export function isOperationalFailure(code: ExtractionFailureCode): boolean {
+  return !NEGATIVE_OUTCOME_CODES.has(code);
+}
+
 
 /** Estrae un oggetto JSON da contenuto testuale del modello (fences, prefazioni). */
 export function parseExtractionContent(
