@@ -115,53 +115,149 @@ export const IMAGE_CERTIFY_MAX_INVOCATIONS = 6;
  */
 export const IMAGE_DOWNSTREAM_RESERVE_MS = 85_000;
 
-export const PIPELINES: Record<PipelineAction, { at: string; stages: PipelineStage[] }> = {
-  // 05:10 — raccolta Casa.it multipagina, i 3 Apify in parallelo bounded e la
-  // routine notturna dei lead privati. Nessuna classificazione qui: avviene
-  // una sola volta, in 0545.
+// ── DAG esplicito: dipendenze dichiarate, livelli derivati ──────────────────
+// `needs` = dipendenza DI DATO: lo step legge ciò che il predecessore scrive.
+//           Non può mai essere parallelizzato col predecessore.
+// `after`  = vincolo di RISORSA (costo provider / rate limit / stesso target di
+//           scrittura): serializzazione voluta, non parallelizzabile.
+// I livelli (stage) sono DERIVATI dal DAG: due azioni finiscono nello stesso
+// stage solo se sono reciprocamente indipendenti su entrambi i tipi di arco.
+export interface DagNode {
+  action: SimpleAction;
+  needs?: SimpleAction[];
+  after?: SimpleAction[];
+  /** Invocazioni consecutive dello stesso step (hard limit bounded). */
+  repeat?: number;
+}
+
+/** Esattamente TRE pipeline Civiko: nessun quarto job, nessuna pipeline ad hoc. */
+export const PIPELINE_ORDER = ["pipeline_0510", "pipeline_0545", "pipeline_0710"] as const;
+export const PIPELINE_COUNT = 3;
+
+/** Certificazione fotografica: hard limit 4 listing totali, max 6 invocazioni. */
+export const IMAGE_CERTIFY_HARD_LIMIT = 4;
+export const IMAGE_CERTIFY_MAX_INVOCATIONS = 6;
+/**
+ * Budget downstream che la fase immagini NON può mai consumare in 0545:
+ * pairs (25) + recompute (35) + extras (25).
+ */
+export const IMAGE_DOWNSTREAM_RESERVE_MS = 85_000;
+
+export const PIPELINE_DAG: Record<PipelineAction, { at: string; nodes: DagNode[] }> = {
+  // 05:10 — raccolta. Casa.it apre la finestra, i 3 Apify partono in parallelo
+  // (indipendenti tra loro, serializzati DOPO Casa solo per costo provider),
+  // la routine lead privati chiude quando i lanci sono avvenuti.
   pipeline_0510: {
     at: "05:10",
-    stages: [
-      [{ action: "portal_casa" }],
-      [
-        { action: "apify_immobiliare" },
-        { action: "apify_idealista" },
-        { action: "apify_subito" },
-      ],
-      [{ action: "private_leads_nightly" }],
+    nodes: [
+      { action: "portal_casa" },
+      { action: "apify_immobiliare", after: ["portal_casa"] },
+      { action: "apify_idealista", after: ["portal_casa"] },
+      { action: "apify_subito", after: ["portal_casa"] },
+      {
+        action: "private_leads_nightly",
+        after: ["apify_immobiliare", "apify_idealista", "apify_subito"],
+      },
     ],
   },
-  // 05:45 — collect/import corrente (collect-pending importa e promuove già:
-  // nessuna promozione duplicata), classificazione privati + backfill +
-  // evidence in parallelo, fingerprint fotografico bounded, pairs,
-  // snapshot/recompute in parallelo, extras.
+  // 05:45 — import/promozione, poi la catena contendibili. Le dipendenze di
+  // scrittura su tipo_lead e sui ribassi sono ESPLICITE: classify → repair,
+  // snapshot → recompute. Nessuno step dipendente resta in parallelo.
   pipeline_0545: {
     at: "05:45",
-    stages: [
-      [{ action: "collect_pending" }],
-      [
-        { action: "private_leads_classify" },
-        { action: "tipo_lead_repair" },
-        { action: "contendibili_backfill" },
-        { action: "contendibili_evidence" },
-      ],
-      [{ action: "contendibili_image_certify", repeat: IMAGE_CERTIFY_MAX_INVOCATIONS }],
-      [{ action: "contendibili_pairs" }],
-      [{ action: "price_snapshot" }, { action: "contendibili_recompute" }],
-      [{ action: "contendibili_extras" }],
+    nodes: [
+      { action: "collect_pending" },
+      // Indipendenti tra loro: leggono le righe importate, scrivono tabelle
+      // diverse (tipo_lead vs evidence vs snapshot prezzi).
+      { action: "private_leads_classify", needs: ["collect_pending"] },
+      { action: "contendibili_evidence", needs: ["collect_pending"] },
+      { action: "price_snapshot", needs: ["collect_pending"] },
+      // Scrive lo STESSO campo di classify: dipendenza di dato, mai parallelo.
+      { action: "tipo_lead_repair", needs: ["private_leads_classify"] },
+      // L'identità canonica richiede tipo_lead già consolidato.
+      { action: "contendibili_backfill", needs: ["tipo_lead_repair"] },
+      {
+        action: "contendibili_image_certify",
+        needs: ["contendibili_backfill", "contendibili_evidence"],
+        repeat: IMAGE_CERTIFY_MAX_INVOCATIONS,
+      },
+      { action: "contendibili_pairs", needs: ["contendibili_image_certify"] },
+      // Legge le coppie foto E i ribassi: dipende da entrambi.
+      { action: "contendibili_recompute", needs: ["contendibili_pairs", "price_snapshot"] },
+      { action: "contendibili_extras", needs: ["contendibili_recompute"] },
     ],
   },
-  // 07:10 — stage paralleli bounded: radar+discover, poi scores+early warning,
-  // infine la classificazione dei segnali.
+  // 07:10 — radar e offmarket. discover → scores → early_warning è una catena
+  // di dato (early warning consuma i punteggi): resta serializzata.
   pipeline_0710: {
     at: "07:10",
-    stages: [
-      [{ action: "radar_full" }, { action: "offmarket_discover" }],
-      [{ action: "offmarket_scores" }, { action: "early_warning" }],
-      [{ action: "signals_classify" }],
+    nodes: [
+      { action: "radar_full" },
+      { action: "offmarket_discover" },
+      { action: "offmarket_scores", needs: ["offmarket_discover"] },
+      { action: "early_warning", needs: ["offmarket_scores"] },
+      { action: "signals_classify", needs: ["radar_full", "early_warning"] },
     ],
   },
 };
+
+/** Larghezza massima di uno stage: fan-out bounded, mai illimitato. */
+export const MAX_STAGE_WIDTH = 4;
+
+/**
+ * Livellazione topologica fail-closed: cicli, archi verso azioni non dichiarate
+ * e duplicati sono errori di contratto. Uno stage contiene solo azioni
+ * mutualmente indipendenti; i livelli larghi vengono spezzati a MAX_STAGE_WIDTH
+ * mantenendo l'ordine dichiarato.
+ */
+export function topoStages(pipeline: PipelineAction): PipelineStage[] {
+  const nodes = PIPELINE_DAG[pipeline].nodes;
+  const known = new Set<SimpleAction>();
+  for (const n of nodes) {
+    if (known.has(n.action)) throw new Error(`dag_${pipeline}_duplicate_${n.action}`);
+    known.add(n.action);
+  }
+  const edges = (n: DagNode) => [...(n.needs ?? []), ...(n.after ?? [])];
+  for (const n of nodes) {
+    for (const dep of edges(n)) {
+      if (!known.has(dep)) throw new Error(`dag_${pipeline}_unknown_dep_${dep}`);
+      if (dep === n.action) throw new Error(`dag_${pipeline}_self_dep_${dep}`);
+    }
+  }
+  const level = new Map<SimpleAction, number>();
+  let guard = 0;
+  while (level.size < nodes.length) {
+    if (guard++ > nodes.length + 1) throw new Error(`dag_${pipeline}_cycle`);
+    let progressed = false;
+    for (const n of nodes) {
+      if (level.has(n.action)) continue;
+      const deps = edges(n);
+      if (deps.some((d) => !level.has(d))) continue;
+      level.set(n.action, deps.length ? Math.max(...deps.map((d) => level.get(d)!)) + 1 : 0);
+      progressed = true;
+    }
+    if (!progressed) throw new Error(`dag_${pipeline}_cycle`);
+  }
+  const maxLevel = Math.max(...level.values());
+  const stages: PipelineStage[] = [];
+  for (let l = 0; l <= maxLevel; l++) {
+    const same = nodes.filter((n) => level.get(n.action) === l);
+    for (let i = 0; i < same.length; i += MAX_STAGE_WIDTH) {
+      stages.push(
+        same.slice(i, i + MAX_STAGE_WIDTH).map((n) => ({
+          action: n.action,
+          ...(n.repeat ? { repeat: n.repeat } : {}),
+        })),
+      );
+    }
+  }
+  return stages;
+}
+
+export const PIPELINES: Record<PipelineAction, { at: string; stages: PipelineStage[] }> = Object
+  .fromEntries(
+    PIPELINE_ORDER.map((p) => [p, { at: PIPELINE_DAG[p].at, stages: topoStages(p) }]),
+  ) as Record<PipelineAction, { at: string; stages: PipelineStage[] }>;
 
 /** Ordine deterministico effettivo (stage appiattiti, repeat espanso). */
 export function expandedSteps(pipeline: PipelineAction): SimpleAction[] {
@@ -174,6 +270,14 @@ export function expandedSteps(pipeline: PipelineAction): SimpleAction[] {
 export function pipelineActions(pipeline: PipelineAction): SimpleAction[] {
   return PIPELINES[pipeline].stages.flatMap((stage) => stage.map((s) => s.action));
 }
+
+/** Coppie (a → b) che NON possono mai stare nello stesso stage. */
+export function dependencyPairs(pipeline: PipelineAction): Array<[SimpleAction, SimpleAction]> {
+  return PIPELINE_DAG[pipeline].nodes.flatMap((n) =>
+    [...(n.needs ?? []), ...(n.after ?? [])].map((d) => [d, n.action] as [SimpleAction, SimpleAction])
+  );
+}
+
 
 // ── Segmentazione: ogni invocazione resta sotto il budget hard ──────────────
 // Il timeout esterno REALE è PIPELINE_BUDGET_MS. La somma dei budget di stage
