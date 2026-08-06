@@ -28,7 +28,7 @@ import {
 import {
   bumpCounter,
   createScopeCounters,
-  evaluateZoneExposure,
+  
   isComunePadova,
   normalizeCounters,
   reconcileScopeCounters,
