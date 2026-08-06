@@ -9180,6 +9180,7 @@ export type Database = {
           contendibili_totali: number | null
           listings_freschi: number | null
           mismatch_professionale: number | null
+          pipeline_0510_run_id: string | null
           pipeline_0545_run_id: string | null
           pipeline_0710_ok: boolean | null
           pipeline_0710_run_id: string | null
