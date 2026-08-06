@@ -1219,17 +1219,19 @@ Deno.serve(async (req) => {
     return json(status, {
       ok: failedAt === null && status === 200,
       action,
-      run_id: runId,
+      pipeline_run_id: pipelineRunId,
+      run_id: pipelineRunId,
       at: pipeline.at,
       timezone: SCHEDULE_TIMEZONE,
       enabled: CRON_ENABLED,
       failed_at: failedAt,
       failed_reason: failing?.reason ?? null,
-      budget_exhausted: budgetExhausted,
+      budget_exhausted: exhausted,
       elapsed_ms: Date.now() - startedAt,
       budget_ms: PIPELINE_BUDGET_MS,
       executed: steps.length,
       planned: planned.length,
+
       image_certify_max_invocations: IMAGE_CERTIFY_MAX_INVOCATIONS,
       steps,
     });
