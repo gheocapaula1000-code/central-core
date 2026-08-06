@@ -505,6 +505,93 @@ export function assertPipelineContracts(): void {
 
 assertPipelineContracts();
 
+// ── Simulazione a orologio finto (nessuna rete, nessun timer reale) ─────────
+export interface SimulatedStep {
+  segment: number;
+  stage: number;
+  action: SimpleAction;
+  startedAtMs: number;
+  finishedAtMs: number;
+  timeoutMs: number;
+  /** true se la durata reale ha superato il timeout: step NON completato. */
+  timedOut: boolean;
+}
+
+export interface SimulatedRun {
+  pipeline: PipelineAction;
+  steps: SimulatedStep[];
+  /** Durata di ciascuna invocazione (segmento), overhead incluso. */
+  invocationMs: number[];
+  /** Nessuna invocazione supera il budget hard. */
+  withinBudget: boolean;
+  /** Prima azione andata in timeout: il run non è completabile. */
+  failedAt: SimpleAction | null;
+  completed: boolean;
+}
+
+/**
+ * Esegue la pipeline su un orologio finto con durate imposte (worst case =
+ * timeout di ogni azione). Serve a PROVARE che il piano regge il caso peggiore
+ * senza toccare rete, provider o DB. Uno step la cui durata supera il proprio
+ * timeout viene marcato timedOut e interrompe il run: non è mai "completato".
+ */
+export function simulatePipeline(
+  pipeline: PipelineAction,
+  durationMs: (action: SimpleAction) => number,
+): SimulatedRun {
+  const stages = PIPELINES[pipeline].stages;
+  const segments = segmentPipeline(pipeline);
+  const steps: SimulatedStep[] = [];
+  const invocationMs: number[] = [];
+  let failedAt: SimpleAction | null = null;
+
+  for (let si = 0; si < segments.length && !failedAt; si++) {
+    const seg = segments[si];
+    // Ogni invocazione riparte da zero: overhead fisso all'apertura.
+    let clock = BUDGET_RESERVE_MS;
+    for (let i = seg.from; i <= seg.to && !failedAt; i++) {
+      const stageStart = clock;
+      let stageEnd = clock;
+      for (const step of stages[i]) {
+        const reps = Math.max(1, step.repeat ?? 1);
+        const timeout = ACTION_TIMEOUT_MS[step.action];
+        // Le azioni dello stage sono parallele: partono tutte da stageStart.
+        let branch = stageStart;
+        for (let r = 0; r < reps && !failedAt; r++) {
+          const real = durationMs(step.action);
+          const timedOut = real > timeout;
+          const spent = Math.min(real, timeout);
+          steps.push({
+            segment: si,
+            stage: i,
+            action: step.action,
+            startedAtMs: branch,
+            finishedAtMs: branch + spent,
+            timeoutMs: timeout,
+            timedOut,
+          });
+          branch += spent;
+          if (timedOut) failedAt = step.action;
+        }
+        stageEnd = Math.max(stageEnd, branch);
+      }
+      clock = stageEnd + STAGE_OVERHEAD_MS;
+    }
+    invocationMs.push(clock + CONTINUATION_RESERVE_MS);
+  }
+
+  return {
+    pipeline,
+    steps,
+    invocationMs,
+    withinBudget: invocationMs.every((ms) => ms <= PIPELINE_BUDGET_MS),
+    failedAt,
+    completed: failedAt === null &&
+      new Set(steps.map((s) => s.action)).size === new Set(pipelineActions(pipeline)).size,
+  };
+}
+
+
 // ── Parsing fail-closed ─────────────────────────────────────────────────────
 export interface ParsedBody {
   obj: Record<string, unknown> | null;
