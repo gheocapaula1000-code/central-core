@@ -278,6 +278,19 @@ Deno.serve(async (req) => {
   const eligible = Array.from(byListing.entries()).filter(([, v]) => v.length >= MIN_SHARED_PHOTOS_PER_PAIR);
   const withTwoFingerprints = eligible.length;
 
+  // Identità canonica: due righe che sono lo STESSO annuncio di portale
+  // (stesso id canonico) non possono mai costituire prova di contendibilità,
+  // anche se le agenzie dichiarate differiscono per filiale o formattazione.
+  const canonicalById = new Map<number, string>();
+  for (const [id] of eligible) {
+    const l = listingById.get(id);
+    const url = (l?.url as string | undefined) ?? "";
+    if (!url) continue;
+    const { data: canon } = await sb.rpc("padova_listing_canonical_id", { p_url: url });
+    if (typeof canon === "string" && canon) canonicalById.set(id, canon);
+  }
+  let scartatiStessoAnnuncio = 0;
+
   const pairRows: Array<Record<string, unknown>> = [];
   for (let i = 0; i < eligible.length; i++) {
     for (let j = i + 1; j < eligible.length; j++) {
@@ -286,10 +299,17 @@ Deno.serve(async (req) => {
       const la = listingById.get(idA);
       const lb = listingById.get(idB);
       if (!la || !lb) continue;
+      const canA = canonicalById.get(idA);
+      const canB = canonicalById.get(idB);
+      if (canA && canB && canA === canB) {
+        scartatiStessoAnnuncio++;
+        continue;
+      }
       const agencyA = normAgency(la.agency as string | null);
       const agencyB = normAgency(lb.agency as string | null);
       if (!agencyA || !agencyB || agencyA === agencyB) continue;
       if ((la.commercial_zone_slug ?? null) !== (lb.commercial_zone_slug ?? null)) continue;
+
 
       const pa = byListing.get(idA)!;
       const pb = byListing.get(idB)!;
