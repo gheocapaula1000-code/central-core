@@ -143,6 +143,10 @@ Deno.serve(async (req) => {
   // pairs_only: ricalcola le prove per coppia dai fingerprint GIÀ persistiti,
   // senza scaricare né decodificare nulla (nessun costo, nessun provider).
   const pairsOnly = body.pairs_only === true;
+  const fingerprintsOnly = body.fingerprints_only === true;
+  if (pairsOnly && fingerprintsOnly) {
+    return json({ ok: false, error: "conflicting_modes" }, 400);
+  }
 
   const runStartedAt = new Date().toISOString();
   const diagnostics: Record<string, unknown> = {};
@@ -336,10 +340,13 @@ Deno.serve(async (req) => {
       return json({
         ok: true,
         dry_run: dryRun,
+        fingerprints_only: fingerprintsOnly,
         attempted: 0,
         scanned,
         remaining: 0,
         remaining_exact: remainingExact,
+        queue_complete: remainingExact,
+        pairs_snapshot_complete: false,
         exclusions,
         progress_marker: await progressMarker(),
         pipeline_run_id: pipelineRunId,
@@ -411,7 +418,17 @@ Deno.serve(async (req) => {
     }
     listingIds = Array.from(new Set(storedFingerprints.map((f) => f.listing_id)));
     if (!listingIds.length) {
-      return json({ ok: true, pairs_only: true, zero_novelty: true, note: "no_fingerprints" });
+      return json({
+        ok: true,
+        pairs_only: true,
+        fingerprints_only: false,
+        zero_novelty: true,
+        remaining: 0,
+        remaining_exact: true,
+        queue_complete: true,
+        pairs_snapshot_complete: true,
+        note: "no_fingerprints",
+      });
     }
   }
 
@@ -752,12 +769,15 @@ Deno.serve(async (req) => {
     ok: true,
     dry_run: dryRun,
     pairs_only: pairsOnly,
+    fingerprints_only: fingerprintsOnly,
     // Avanzamento monotono indipendente da offset e id di coda.
     progress_marker: await progressMarker(),
     attempted: listingIds.length,
     scanned,
     remaining: pairsOnly ? 0 : remainingEligible,
     remaining_exact: pairsOnly ? true : remainingExact,
+    queue_complete: pairsOnly ? true : (remainingExact && remainingEligible === 0),
+    pairs_snapshot_complete: pairsOnly,
     exclusions,
     fingerprint_fuori_perimetro: outOfScopeFingerprintListings,
     pipeline_run_id: pipelineRunId,

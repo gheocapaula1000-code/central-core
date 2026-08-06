@@ -215,6 +215,9 @@ verify_jwt = false
 [functions.padova-cambi-agenzia-list]
 verify_jwt = false
 
+[functions.civiko-cambi-agenzia-list]
+verify_jwt = false
+
 [functions.civiko-private-leads-nightly]
 verify_jwt = false
 
@@ -306,6 +309,29 @@ verify_jwt = false
 [functions.property-outputs]
 verify_jwt = false
 
+# Civiko-only server-to-server entrypoints. Each function enforces its
+# dedicated application secret before reading a provider payload or writing.
+[functions.cron-offmarket-padova-nightly]
+verify_jwt = false
+
+[functions.padova-apify-multi-launch]
+verify_jwt = false
+
+[functions.civiko-private-leads-classify]
+verify_jwt = false
+
+[functions.civiko-private-leads-price-snapshot]
+verify_jwt = false
+
+[functions.civiko-contendibili-image-certify]
+verify_jwt = false
+
+[functions.cron-apify-casa-nightly]
+verify_jwt = false
+
+[functions.padova-apify-casa-collect]
+verify_jwt = false
+
 # Gateway additivo per l'orchestratore esterno (Replit).
 # Auth applicativa: Bearer CIVIKO_ORCHESTRATOR_DISPATCH_SECRET, fail-closed.
 [functions.civiko-orchestrator-dispatch]
@@ -319,7 +345,10 @@ verify_jwt = false
 
 # Ack di sincronizzazione della PWA Civiko One (isolato).
 # Protetto fail-closed dentro la funzione: requireCivikoCostSecret
-# (AI_CORE_SECRET_CIVIKO / compat) + check locale x-source-app canonico Civiko
-# (civiko-one | civiko | civiko_one; acquisitionradar sempre rifiutata).
+# (AI_CORE_SECRET_CIVIKO / compat) + x-source-app canonico unico civiko-one.
 [functions.civiko-pwa-sync-ack]
+verify_jwt = false
+
+# Sequential paid-provider launcher; x-job-secret is mandatory in-function.
+[functions.civiko-padova-apify-launch-batch]
 verify_jwt = false

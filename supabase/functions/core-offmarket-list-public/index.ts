@@ -1,26 +1,8 @@
 // core-offmarket-list-public
-// Endpoint pubblico (no auth) che aggrega i segnali off-market per Padova
+// Endpoint Core autenticato che aggrega i segnali off-market per Padova
 // da 4 fonti: eventi vita legali, successioni potenziali, annunci in difficolta',
 // patrimonio Comune di Padova.
-//
-// Contratto completezza (fail-closed):
-//  - ogni fonte viene letta con paginazione interna fino a un cap esplicito;
-//  - se una fonte raggiunge il cap, lo snapshot NON è probante: la risposta è
-//    ok:false / snapshot_complete:false, senza totals presentati come veri;
-//  - `source_counts` e `source_caps` sono sempre esposti;
-//  - la risposta finale è paginata (limit/offset) con `total` autorevole.
-// Privacy, esclusione aste e perimetro restano invariati.
 
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { makeDebugId, requireSecret } from "../_shared/http.ts";
-import {
-  listEnvelope,
-  nullableText,
-  pageWindow,
-  parseZoneSlug,
-  resolveTenantScope,
-  snapshotComplete,
-} from "../_shared/listContracts.ts";
 import { isAuctionRecord } from "../_shared/auctionExclusion.ts";
 import {
   VALID_COMMERCIAL_ZONE_SLUGS,
@@ -30,19 +12,11 @@ import {
   type ActiveZoneRow,
   type CommercialZoneSlug,
 } from "../_shared/commercialZoneMapping.ts";
-
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-internal-secret, x-app-secret, x-core-secret, x-source-app, x-workspace-id, x-tenant-id",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-};
-
-/** Cap esplicito per fonte: superarlo significa snapshot non probante. */
-export const SOURCE_CAP = 5000;
-const PAGE_SIZE = 1000;
-export const MAX_PAGE_LIMIT = 200;
-const DEFAULT_PAGE_LIMIT = 100;
+import {
+  authorizeCivikoSnapshot,
+  CIVIKO_SNAPSHOT_CORS as CORS,
+  snapshotAccessError,
+} from "../civiko-authorized-snapshot/access.ts";
 
 type Item = {
   id: string;
@@ -63,6 +37,26 @@ type Item = {
   __resolveInput?: Record<string, unknown> | null;
 };
 
+const SOURCE_PAGE_SIZE = 500;
+const MAX_SOURCE_ROWS = 20_000;
+const OUTPUT_LIMIT_MAX = 500;
+
+type PageResult<T> = { data: T[] | null; error: unknown };
+
+/** Pagina una sorgente fino a EOF; qualunque errore/troncamento chiude lo snapshot. */
+async function fetchAllSourceRows<T>(
+  page: (from: number, to: number) => PromiseLike<PageResult<T>>,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; from < MAX_SOURCE_ROWS; from += SOURCE_PAGE_SIZE) {
+    const { data, error } = await page(from, from + SOURCE_PAGE_SIZE - 1);
+    if (error || !Array.isArray(data)) throw new Error("source_query_failed");
+    out.push(...data);
+    if (data.length < SOURCE_PAGE_SIZE) return out;
+  }
+  throw new Error("source_snapshot_cap_reached");
+}
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -70,103 +64,59 @@ function json(body: unknown, status = 200) {
   });
 }
 
-/**
- * Legge TUTTE le righe di una fonte con paginazione interna.
- * `truncated` = la fonte ha raggiunto il cap: lo snapshot non è completo.
- */
-async function fetchAllRows(
-  build: () => { range: (a: number, b: number) => PromiseLike<{ data: unknown[] | null; error: unknown }> },
-  cap = SOURCE_CAP,
-): Promise<{ rows: Record<string, unknown>[]; truncated: boolean; error: string | null }> {
-  const rows: Record<string, unknown>[] = [];
-  for (let from = 0; from < cap; from += PAGE_SIZE) {
-    const to = Math.min(from + PAGE_SIZE, cap) - 1;
-    const { data, error } = await build().range(from, to);
-    if (error) {
-      return { rows, truncated: false, error: (error as { message?: string }).message ?? "read_failed" };
-    }
-    const page = (data ?? []) as Record<string, unknown>[];
-    rows.push(...page);
-    if (page.length < to - from + 1) return { rows, truncated: false, error: null };
-  }
-  return { rows, truncated: true, error: null };
-}
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "GET") return json({ ok: false, error: "method_not_allowed" }, 405);
 
-  const did = makeDebugId();
-  const secretFail = requireSecret(req, did);
-  if (secretFail) return secretFail;
-  const workspaceId = (req.headers.get("x-workspace-id") ?? req.headers.get("x-tenant-id") ?? "").trim();
-  if (!UUID_RE.test(workspaceId)) {
-    return json({ ok: false, error: "WORKSPACE_REQUIRED", message: "Missing or invalid workspace id" }, 401);
-  }
-
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    { auth: { persistSession: false } },
-  );
+  const access = await authorizeCivikoSnapshot(req);
+  if (!access.ok) return snapshotAccessError(access);
+  const supabase = access.client;
 
   const url = new URL(req.url);
   const commercialZoneFilterRaw = url.searchParams.get("commercial_zone_slug");
   const commercialZoneFilter = commercialZoneFilterRaw && commercialZoneFilterRaw.trim()
     ? commercialZoneFilterRaw.trim()
     : null;
-  // Match ESATTO nell'allowlist canonica: niente wildcard, niente ILIKE.
-  if (commercialZoneFilter !== null && !parseZoneSlug(commercialZoneFilter).ok) {
+  if (commercialZoneFilter !== null && !isValidCommercialZoneSlug(commercialZoneFilter)) {
     return json({
       ok: false,
       error: "INVALID_SLUG",
-      message: "commercial_zone_slug non riconosciuto",
+      message: `commercial_zone_slug non valido: '${commercialZoneFilter}'`,
       allowed: VALID_COMMERCIAL_ZONE_SLUGS,
     }, 400);
   }
-
-  // Isolamento tenant/admin identico agli altri endpoint autorevoli.
-  const { data: adminRes } = await supabase.rpc("civiko_is_admin_agency", { _agency_id: workspaceId });
-  const isAdminWorkspace = adminRes === true;
-  const { data: tenantZones, error: tenantZonesErr } = await supabase
-    .from("civiko_commercial_zones")
-    .select("slug,status,occupied_agency_id,trial_agency_id,trial_reserved_until")
-    .or(
-      `and(status.eq.occupata,occupied_agency_id.eq.${workspaceId}),` +
-        `and(status.eq.in_trial,trial_agency_id.eq.${workspaceId})`,
-    );
-  if (tenantZonesErr) {
-    return json({ ok: false, error: "zone_lookup_failed", message: tenantZonesErr.message }, 500);
+  // authorizeCivikoSnapshot already enforces assignment/admin scope; repeat
+  // the containment check here so later refactors cannot widen the query.
+  if (commercialZoneFilter && !access.slugs.includes(commercialZoneFilter)) {
+    return json({ ok: false, error: "ZONE_NOT_ASSIGNED" }, 403);
   }
-  const nowScope = Date.now();
-  const assignedSlugs = (tenantZones ?? [])
-    .filter((z: Record<string, unknown>) =>
-      (z.status === "occupata" && z.occupied_agency_id === workspaceId) ||
-      (z.status === "in_trial" && z.trial_agency_id === workspaceId &&
-        typeof z.trial_reserved_until === "string" &&
-        new Date(z.trial_reserved_until as string).getTime() > nowScope)
-    )
-    .map((z: Record<string, unknown>) => String(z.slug ?? ""));
-  const scope = resolveTenantScope({
-    isAdmin: isAdminWorkspace,
-    assignedSlugs,
-    requestedSlug: commercialZoneFilter ?? undefined,
-  });
-  if (!scope.ok) {
-    return json({ ok: false, error: scope.code, message: "Zone access denied" }, 403);
-  }
-  const allowedSlugs = new Set(scope.slugs);
-
-  const pageLimitRaw = url.searchParams.get("limit");
-  const pageOffsetRaw = url.searchParams.get("offset");
+  const effectiveZoneFilter = commercialZoneFilter ??
+    (!access.isAdmin ? access.slugs[0] : null);
+  const limitRaw = Number.parseInt(url.searchParams.get("limit") ?? "200", 10);
+  const offsetRaw = Number.parseInt(url.searchParams.get("offset") ?? "0", 10);
+  const limit = Number.isFinite(limitRaw)
+    ? Math.min(Math.max(limitRaw, 1), OUTPUT_LIMIT_MAX)
+    : 200;
+  const offset = Number.isFinite(offsetRaw)
+    ? Math.min(Math.max(offsetRaw, 0), 1_000_000)
+    : 0;
 
   // Carica una sola volta le zone commerciali attive.
-  const { data: zonesRows } = await supabase
+  const { data: zonesRows, error: zonesError } = await supabase
     .from("civiko_commercial_zones")
     .select("slug, omi_codes, attiva")
     .eq("attiva", true);
+  if (zonesError || !Array.isArray(zonesRows)) {
+    return json({
+      ok: false,
+      error: "zone_snapshot_unavailable",
+      snapshot_complete: false,
+      total: null,
+      items_count: 0,
+      items: [],
+      data: { snapshot_complete: false, total: null, items_count: 0, items: [] },
+    }, 502);
+  }
   const activeZones: ActiveZoneRow[] = (zonesRows ?? []).map((z: any) => ({
     slug: String(z.slug ?? ""),
     omi_codes: Array.isArray(z.omi_codes) ? (z.omi_codes as string[]) : [],
@@ -181,49 +131,39 @@ Deno.serve(async (req) => {
     patrimonio_comunale: 0,
     total: 0,
   };
-  const sourceCounts: Record<string, number> = {};
-  const sourceCaps: Record<string, number> = {
-    legal_life_events: SOURCE_CAP,
-    successioni: SOURCE_CAP,
-    distress: SOURCE_CAP,
-    patrimonio_comunale: SOURCE_CAP,
+  const sourceCounts = {
+    legal_life_events: 0,
+    successioni: 0,
+    distress: 0,
+    patrimonio_comunale: 0,
   };
-  const truncatedSources: string[] = [];
-
-  const failClosed = (extra: Record<string, unknown>, status: number) =>
-    json({
-      ok: false,
-      snapshot_complete: false,
-      updated_at: new Date().toISOString(),
-      commercial_zone_filter: commercialZoneFilter,
-      source_counts: sourceCounts,
-      source_caps: sourceCaps,
-      truncated_sources: truncatedSources,
-      items: [],
-      ...extra,
-    }, status);
+  const sourceCaps = {
+    page_size: SOURCE_PAGE_SIZE,
+    max_source_rows: MAX_SOURCE_ROWS,
+    distress_rpc_limit: SOURCE_PAGE_SIZE,
+    distress_rpc_cap_reached: false,
+  };
+  const diagnostics = { legal_life_events_auction_excluded: 0 };
 
   try {
     // 1) Legal life events (Padova, privacy-safe attivi)
     // Esclusione aste: riusa auctionExclusion.ts (guardia condivisa).
-    const lleRes = await fetchAllRows(() =>
-      supabase
-        .from("legal_life_event_signals")
-        .select("id, signal_type, source_name, source_url, event_date, detected_at, area_or_microzone, property_hint, explanation")
-        .ilike("municipality", "padova")
-        .eq("is_active", true)
-        .eq("privacy_safe", true)
-        .eq("pii_redacted", true)
-        .eq("contains_personal_data", false)
-        .order("detected_at", { ascending: false })
-        .order("id", { ascending: false }) as never
-    );
-    if (lleRes.error) return failClosed({ error: "legal_life_events_read_failed", message: lleRes.error }, 500);
-    sourceCounts.legal_life_events = lleRes.rows.length;
-    if (lleRes.truncated) truncatedSources.push("legal_life_events");
+
+    const lle = await fetchAllSourceRows<any>((from, to) => supabase
+      .from("legal_life_event_signals")
+      .select("id, signal_type, source_name, source_url, event_date, detected_at, area_or_microzone, property_hint, explanation")
+      .ilike("municipality", "padova")
+      .eq("is_active", true)
+      .eq("privacy_safe", true)
+      .eq("pii_redacted", true)
+      .eq("contains_personal_data", false)
+      .order("detected_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, to));
+    sourceCounts.legal_life_events = lle.length;
 
     let lleAuctionExcluded = 0;
-    for (const r of lleRes.rows) {
+    for (const r of lle) {
       if (isAuctionRecord(r)) {
         lleAuctionExcluded++;
         continue;
@@ -232,15 +172,14 @@ Deno.serve(async (req) => {
         id: `lle-${r.id}`,
         fonte: "legal_life_events",
         badge: "Evento Vita",
-        // Nessun titolo/indirizzo/zona inventato: assente resta null.
-        titolo: nullableText(r.explanation) ?? nullableText(r.signal_type),
-        indirizzo: nullableText(r.property_hint),
-        zona: nullableText(r.area_or_microzone),
+        titolo: r.explanation ?? r.signal_type ?? null,
+        indirizzo: r.property_hint ?? null,
+        zona: r.area_or_microzone ?? null,
         prezzo_eur: null,
         mq: null,
-        url_sorgente: (r.source_url as string) ?? null,
-        data_segnalazione: ((r.event_date ?? r.detected_at ?? new Date().toISOString()) as string).toString(),
-        note: (r.source_name as string) ?? null,
+        url_sorgente: r.source_url ?? null,
+        data_segnalazione: (r.event_date ?? r.detected_at ?? new Date().toISOString()).toString(),
+        note: r.source_name ?? null,
         commercial_zone_slug: null,
         zone_match_method: "unresolved",
         zone_match_confidence: null,
@@ -253,41 +192,36 @@ Deno.serve(async (req) => {
       });
       totals.legal_life_events++;
     }
-    (totals as Record<string, number>).legal_life_events_auction_excluded = lleAuctionExcluded;
+    diagnostics.legal_life_events_auction_excluded = lleAuctionExcluded;
 
     // 2) Successioni potenziali (aggregate only, mai nominativi/PII)
-    const succRes = await fetchAllRows(() =>
-      supabase
-        .from("inheritance_pressure_signals")
-        .select("id, area_label, area_type, score, signal_basis, source_urls, source_names, computed_at, indicators, standard_radar_visible, agency_private_only")
-        .ilike("comune", "padova")
-        .eq("is_active", true)
-        .eq("standard_radar_visible", true)
-        .eq("agency_private_only", false)
-        .order("computed_at", { ascending: false })
-        .order("id", { ascending: false }) as never
-    );
-    if (succRes.error) return failClosed({ error: "successioni_read_failed", message: succRes.error }, 500);
-    sourceCounts.successioni = succRes.rows.length;
-    if (succRes.truncated) truncatedSources.push("successioni");
+    const succ = await fetchAllSourceRows<any>((from, to) => supabase
+      .from("inheritance_pressure_signals")
+      .select("id, area_label, area_type, score, signal_basis, source_urls, source_names, computed_at, indicators, standard_radar_visible, agency_private_only")
+      .ilike("comune", "padova")
+      .eq("is_active", true)
+      .eq("standard_radar_visible", true)
+      .eq("agency_private_only", false)
+      .order("computed_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, to));
+    sourceCounts.successioni = succ.length;
 
-    for (const r of succRes.rows) {
+    for (const r of succ) {
       if (isAuctionRecord(r)) continue;
-      const srcUrl = Array.isArray(r.source_urls) && r.source_urls.length ? (r.source_urls as string[])[0] : null;
-      const nomeFonte = Array.isArray(r.source_names) && (r.source_names as string[]).length
-        ? (r.source_names as string[]).join(", ")
-        : null;
+      const url = Array.isArray(r.source_urls) && r.source_urls.length ? r.source_urls[0] : null;
+      const nomeFonte = Array.isArray(r.source_names) && r.source_names.length ? r.source_names.join(", ") : null;
       items.push({
         id: `succ-${r.id}`,
         fonte: "successioni",
         badge: "Successione",
-        titolo: nullableText(r.area_label) ? `Pressione successoria ${r.area_label}` : null,
-        indirizzo: nullableText(r.area_label),
-        zona: nullableText(r.area_label),
+        titolo: r.area_label ?? null,
+        indirizzo: null,
+        zona: r.area_label ?? null,
         prezzo_eur: null,
         mq: null,
-        url_sorgente: srcUrl,
-        data_segnalazione: ((r.computed_at ?? new Date().toISOString()) as string).toString(),
+        url_sorgente: url,
+        data_segnalazione: (r.computed_at ?? new Date().toISOString()).toString(),
         note: nomeFonte,
         // Successioni aggregate: MAI assegnate a una zona esatta.
         commercial_zone_slug: null,
@@ -298,39 +232,41 @@ Deno.serve(async (req) => {
     }
 
     // 3) Distress — fonte primaria RPC get_padova_verified_price_drops.
-    // La RPC non espone count: se restituisce esattamente il cap, la
-    // completezza non è dimostrabile => fail-closed.
+    // Fallback sicuro su motivated_sellers solo se la RPC non esiste.
     let rpcOkDist = false;
-    {
+    try {
       const { data: rpcRows, error: rpcErr } = await supabase.rpc(
         "get_padova_verified_price_drops",
-        { p_limit: SOURCE_CAP, p_min_drop_pct: 5, p_max_age_days: 14 },
+        { p_limit: 500, p_min_drop_pct: 5, p_max_age_days: 14 },
       );
       if (!rpcErr && Array.isArray(rpcRows)) {
+        if (rpcRows.length >= SOURCE_PAGE_SIZE) {
+          sourceCaps.distress_rpc_cap_reached = true;
+          throw new Error("distress_snapshot_cap_reached");
+        }
         rpcOkDist = true;
         sourceCounts.distress = rpcRows.length;
-        if (rpcRows.length >= SOURCE_CAP) truncatedSources.push("distress");
         for (const r of rpcRows as Record<string, unknown>[]) {
           if (isAuctionRecord(r)) continue;
           const slug = (r.commercial_zone_slug as string) || null;
           if (!slug) continue;
           const dropPct = Number(r.total_drop_pct) || 0;
           if (dropPct < 5) continue;
-          const rowUrl = String(r.url || "");
-          if (!rowUrl.startsWith("https://")) continue;
-          const title = nullableText(r.title);
+          const url = String(r.url || "");
+          if (!url.startsWith("https://")) continue;
+          const title = typeof r.title === "string" && r.title.trim() ? r.title.trim() : null;
           const drops = Number(r.drops_count) || 0;
           const validSlug = isValidCommercialZoneSlug(slug) ? slug : null;
           items.push({
-            id: `dist-${String(r.source_id || r.listing_id || rowUrl)}`,
+            id: `dist-${String(r.source_id || r.listing_id || url)}`,
             fonte: "distress",
             badge: "Distress",
             titolo: title ? `${title} — ribasso ${dropPct}%` : null,
-            indirizzo: title,
-            zona: nullableText(r.omi_zone),
+            indirizzo: null,
+            zona: typeof r.omi_zone === "string" && r.omi_zone.trim() ? r.omi_zone : null,
             prezzo_eur: Number(r.current_price_eur) || null,
             mq: r.mq === null || r.mq === undefined ? null : Number(r.mq),
-            url_sorgente: rowUrl,
+            url_sorgente: url,
             data_segnalazione: (r.last_seen_at as string) || new Date().toISOString(),
             note: `Ribasso ${dropPct}% · ${drops} ribass${drops === 1 ? "o" : "i"}`,
             commercial_zone_slug: validSlug,
@@ -340,35 +276,37 @@ Deno.serve(async (req) => {
           totals.distress++;
         }
       }
+    } catch (error) {
+      // Un cap raggiunto non puo' degradare al fallback: renderebbe il totale
+      // apparentemente completo ma semanticamente diverso dalla fonte primaria.
+      if (error instanceof Error && error.message === "distress_snapshot_cap_reached") throw error;
+      // Errori/assenza della RPC possono usare il fallback storico completo.
     }
 
     if (!rpcOkDist) {
       // Fallback storico su motivated_sellers (attivo, no aste, prezzo minimo, zona da padova_listings)
-      const distRes = await fetchAllRows(() =>
-        supabase
-          .from("motivated_sellers")
-          .select("id, url, municipality, last_price_eur, total_drop_pct, drops_count, days_online, fatigue_label, detected_at, payload")
-          .ilike("municipality", "padova")
-          .eq("is_active", true)
-          .or("last_price_eur.is.null,last_price_eur.gte.10000")
-          .order("detected_at", { ascending: false })
-          .order("id", { ascending: false }) as never
-      );
-      if (distRes.error) return failClosed({ error: "distress_read_failed", message: distRes.error }, 500);
-      sourceCounts.distress = distRes.rows.length;
-      if (distRes.truncated) truncatedSources.push("distress");
+      const dist = await fetchAllSourceRows<any>((from, to) => supabase
+        .from("motivated_sellers")
+        .select("id, url, municipality, last_price_eur, total_drop_pct, drops_count, days_online, fatigue_label, detected_at, payload")
+        .ilike("municipality", "padova")
+        .eq("is_active", true)
+        .or("last_price_eur.is.null,last_price_eur.gte.10000")
+        .order("detected_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to));
+      sourceCounts.distress = dist.length;
 
       const distUrls = Array.from(
-        new Set(distRes.rows.map((r) => r.url).filter((u): u is string => typeof u === "string" && u.length > 0)),
+        new Set(dist.map((r) => r.url).filter((u): u is string => typeof u === "string" && u.length > 0)),
       );
       const listingMap = new Map<string, { indirizzo: string | null; quartiere: string | null; mq: number | null; commercial_zone_slug: string | null; expired_at: string | null }>();
-      for (let i = 0; i < distUrls.length; i += 500) {
-        const chunk = distUrls.slice(i, i + 500);
-        const { data: listings, error: lErr } = await supabase
+      for (let i = 0; i < distUrls.length; i += 100) {
+        const chunk = distUrls.slice(i, i + 100);
+        const { data: listings, error: listingsError } = await supabase
           .from("padova_listings")
           .select("url, indirizzo, quartiere, mq, commercial_zone_slug, expired_at")
           .in("url", chunk);
-        if (lErr) return failClosed({ error: "listings_read_failed", message: lErr.message }, 500);
+        if (listingsError || !Array.isArray(listings)) throw new Error("distress_enrichment_failed");
         for (const l of listings ?? []) {
           if (l.url) listingMap.set(l.url, {
             indirizzo: l.indirizzo ?? null,
@@ -380,15 +318,17 @@ Deno.serve(async (req) => {
         }
       }
 
-      for (const r of distRes.rows) {
+      for (const r of dist) {
         if (isAuctionRecord(r)) continue;
         const dropPct = Number(r.total_drop_pct ?? 0) || 0;
         if (dropPct < 5) continue;
-        const enrich = (typeof r.url === "string" && listingMap.get(r.url)) || null;
+        const enrich = (r.url && listingMap.get(r.url)) || null;
         if (!enrich || enrich.expired_at || !enrich.commercial_zone_slug) continue;
-        const ribassiCount = Number(r.drops_count ?? 0);
+        const ribassiCount = r.drops_count ?? 0;
         const ribassiTxt = `${ribassiCount} ribass${ribassiCount === 1 ? "o" : "i"}`;
-        const titolo = enrich.indirizzo ? `${enrich.indirizzo} — ribasso ${dropPct.toFixed(1)}%` : null;
+        const titolo = enrich.indirizzo
+          ? `${enrich.indirizzo} — ribasso ${dropPct.toFixed(1)}%`
+          : null;
         const validSlug = isValidCommercialZoneSlug(enrich.commercial_zone_slug)
           ? enrich.commercial_zone_slug
           : null;
@@ -397,12 +337,12 @@ Deno.serve(async (req) => {
           fonte: "distress",
           badge: "Distress",
           titolo,
-          indirizzo: nullableText(enrich.indirizzo),
-          zona: nullableText(enrich.quartiere),
+          indirizzo: enrich.indirizzo ?? null,
+          zona: enrich.quartiere ?? null,
           prezzo_eur: r.last_price_eur ? Number(r.last_price_eur) : null,
           mq: enrich.mq,
-          url_sorgente: (r.url as string) ?? null,
-          data_segnalazione: ((r.detected_at ?? new Date().toISOString()) as string).toString(),
+          url_sorgente: r.url ?? null,
+          data_segnalazione: (r.detected_at ?? new Date().toISOString()).toString(),
           note: [r.fatigue_label, ribassiTxt].filter(Boolean).join(" · ") || null,
           commercial_zone_slug: validSlug,
           zone_match_method: validSlug ? "listing_slug" : "unresolved",
@@ -412,33 +352,32 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 4) Patrimonio Comune di Padova (albo pretorio / dismissioni)
-    const patrRes = await fetchAllRows(() =>
-      supabase
-        .from("normalized_opportunities")
-        .select("id, title, address_text, microzone, ask_price, surface_mq, source_url, source_name, data_rilevamento, tags")
-        .ilike("municipality", "padova")
-        .or("tags.cs.{albo_pretorio},tags.cs.{patrimonio_comunale},source_name.ilike.%comune%,source_name.ilike.%albo%,source_name.ilike.%patrimonio%")
-        .order("data_rilevamento", { ascending: false })
-        .order("id", { ascending: false }) as never
-    );
-    if (patrRes.error) return failClosed({ error: "patrimonio_read_failed", message: patrRes.error }, 500);
-    sourceCounts.patrimonio_comunale = patrRes.rows.length;
-    if (patrRes.truncated) truncatedSources.push("patrimonio_comunale");
 
-    for (const r of patrRes.rows) {
+
+    // 4) Patrimonio Comune di Padova (albo pretorio / dismissioni)
+    const patr = await fetchAllSourceRows<any>((from, to) => supabase
+      .from("normalized_opportunities")
+      .select("id, title, address_text, microzone, ask_price, surface_mq, source_url, source_name, data_rilevamento, tags")
+      .ilike("municipality", "padova")
+      .or("tags.cs.{albo_pretorio},tags.cs.{patrimonio_comunale},source_name.ilike.%comune%,source_name.ilike.%albo%,source_name.ilike.%patrimonio%")
+      .order("data_rilevamento", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, to));
+    sourceCounts.patrimonio_comunale = patr.length;
+
+    for (const r of patr) {
       items.push({
         id: `patr-${r.id}`,
         fonte: "patrimonio_comunale",
         badge: "Patrimonio Comunale",
-        titolo: nullableText(r.title),
-        indirizzo: nullableText(r.address_text),
-        zona: nullableText(r.microzone),
+        titolo: r.title ?? null,
+        indirizzo: r.address_text ?? null,
+        zona: r.microzone ?? null,
         prezzo_eur: r.ask_price ? Number(r.ask_price) : null,
         mq: r.surface_mq ? Number(r.surface_mq) : null,
-        url_sorgente: (r.source_url as string) ?? null,
-        data_segnalazione: ((r.data_rilevamento ?? new Date().toISOString()) as string).toString(),
-        note: (r.source_name as string) ?? null,
+        url_sorgente: r.source_url ?? null,
+        data_segnalazione: (r.data_rilevamento ?? new Date().toISOString()).toString(),
+        note: r.source_name ?? null,
         commercial_zone_slug: null,
         zone_match_method: "unresolved",
         zone_match_confidence: null,
@@ -450,14 +389,6 @@ Deno.serve(async (req) => {
         },
       });
       totals.patrimonio_comunale++;
-    }
-
-    // Troncamento su qualunque fonte => snapshot non probante (fail-closed).
-    if (truncatedSources.length > 0) {
-      return failClosed({
-        error: "SOURCE_TRUNCATED",
-        message: `Snapshot non completo: fonti troncate al cap ${SOURCE_CAP} (${truncatedSources.join(", ")}).`,
-      }, 503);
     }
 
     // ── Risoluzione zona commerciale per gli item con __resolveInput ────
@@ -481,52 +412,104 @@ Deno.serve(async (req) => {
     }
     for (const it of items) delete it.__resolveInput;
 
-    // Perimetro zona: con un filtro attivo si escludono anche le righe con
-    // slug NULL (non dimostrabilmente nella zona richiesta).
+    // Filtro opzionale per commercial_zone_slug.
+    // Every visible snapshot, including owner/admin full-city, is restricted
+    // to Padova's literal exact-8 scope. NULL/unknown zones remain quarantined.
     let outItems = items.filter((it) =>
-      commercialZoneFilter
-        ? it.commercial_zone_slug === commercialZoneFilter
-        : (it.commercial_zone_slug === null || allowedSlugs.has(it.commercial_zone_slug))
+      it.commercial_zone_slug !== null && access.slugs.includes(it.commercial_zone_slug)
     );
-
-    // totals = somma ESATTA delle quattro categorie sul risultato esposto.
-    const t = { legal_life_events: 0, successioni: 0, distress: 0, patrimonio_comunale: 0, total: 0 };
-    for (const it of outItems) (t as Record<string, number>)[it.fonte]++;
-    t.total = t.legal_life_events + t.successioni + t.distress + t.patrimonio_comunale;
-    const auct = (totals as Record<string, number>).legal_life_events_auction_excluded ?? 0;
-    Object.assign(totals, t);
+    if (effectiveZoneFilter) {
+      // Tenant snapshots never inherit NULL-zone rows: a missing assignment
+      // cannot be interpreted as belonging to the requested zone.
+      outItems = items.filter((it) => it.commercial_zone_slug === effectiveZoneFilter);
+    } else {
+      // Absence of a filter is full-city and was already restricted to admin.
+      if (!access.isAdmin) throw new Error("tenant_full_city_forbidden");
+    }
+    // Ricalcola sempre i totals sullo stesso exact-scope degli item visibili.
+    const visibleTotals = {
+      legal_life_events: 0,
+      successioni: 0,
+      distress: 0,
+      patrimonio_comunale: 0,
+      total: 0,
+    };
+    for (const it of outItems) (visibleTotals as Record<string, number>)[it.fonte]++;
+    visibleTotals.total = visibleTotals.legal_life_events + visibleTotals.successioni +
+      visibleTotals.distress + visibleTotals.patrimonio_comunale;
+    Object.assign(totals, visibleTotals);
 
     // Ordina per data segnalazione decrescente
-    outItems.sort((a, b) => (a.data_segnalazione < b.data_segnalazione ? 1 : -1));
+    outItems.sort((a, b) => {
+      if (a.data_segnalazione === b.data_segnalazione) return a.id.localeCompare(b.id);
+      return a.data_segnalazione < b.data_segnalazione ? 1 : -1;
+    });
 
-    // Paginazione: offset oltre il totale ⇒ pagina vuota, mai clamp.
-    const total = t.total;
-    const page = pageWindow(pageLimitRaw, pageOffsetRaw, total, MAX_PAGE_LIMIT, DEFAULT_PAGE_LIMIT);
-    const pageItems = page.beyond_eof ? [] : outItems.slice(page.offset, page.offset + page.limit);
+    const total = outItems.length;
+    // Invariante autorevole: il totale pubblico e' sempre la somma delle
+    // quattro categorie dopo gli stessi filtri degli item restituiti.
+    if (totals.total !== total || totals.total !==
+      totals.legal_life_events + totals.successioni + totals.distress + totals.patrimonio_comunale) {
+      throw new Error("offmarket_total_invariant_failed");
+    }
+    const pageItems = outItems.slice(offset, offset + limit);
+    const itemsCount = pageItems.length;
+    const hasMore = offset + itemsCount < total;
+    const snapshot = {
+      items: pageItems,
+      totals,
+      total,
+      items_count: itemsCount,
+      offset,
+      limit,
+      has_more: hasMore,
+      snapshot_complete: true,
+      scope: {
+        municipality: "Padova",
+        commercial_zone_slugs: access.slugs,
+        full_city: access.isAdmin && access.slugs.length === 8,
+      },
+      source_counts: sourceCounts,
+      source_caps: sourceCaps,
+      diagnostics,
+    };
 
     return json({
-      ...listEnvelope({
-        items: pageItems,
-        total,
-        limit: page.limit,
-        offset: page.offset,
-        // Prova server-side: nessuna fonte troncata dal cap.
-        snapshot_complete: snapshotComplete({ countExact: true, truncated: truncatedSources.length > 0 }),
-        extra: {
-          updated_at: new Date().toISOString(),
-          commercial_zone_filter: commercialZoneFilter,
-          zone_scope: scope.slugs,
-          full_city: scope.full_city,
-          totals,
-          source_counts: sourceCounts,
-          source_caps: sourceCaps,
-          truncated_sources: truncatedSources,
-        },
-      }),
-      // Diagnostica fuori dai totali.
-      diagnostics: { legal_life_events_auction_excluded: auct, debug_id: did },
+      ok: true,
+      updated_at: new Date().toISOString(),
+      commercial_zone_filter: effectiveZoneFilter,
+      ...snapshot,
+      data: snapshot,
     });
   } catch (e) {
-    return failClosed({ error: "internal_error", message: (e as Error).message }, 500);
+    const code = e instanceof Error && e.message.includes("cap_reached")
+      ? "snapshot_cap_reached"
+      : "authoritative_snapshot_failed";
+    console.error(`[core-offmarket-list-public] ${code}`);
+    return json({
+      ok: false,
+      error: code,
+      updated_at: new Date().toISOString(),
+      snapshot_complete: false,
+      total: null,
+      items_count: 0,
+      has_more: false,
+      totals,
+      source_counts: sourceCounts,
+      source_caps: sourceCaps,
+      diagnostics,
+      items: [],
+      data: {
+        snapshot_complete: false,
+        total: null,
+        items_count: 0,
+        has_more: false,
+        totals,
+        source_counts: sourceCounts,
+        source_caps: sourceCaps,
+        diagnostics,
+        items: [],
+      },
+    }, code === "snapshot_cap_reached" ? 503 : 502);
   }
 });

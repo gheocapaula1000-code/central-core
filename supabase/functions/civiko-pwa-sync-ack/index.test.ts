@@ -250,10 +250,11 @@ Deno.test("source identity: acquisitionradar sempre rifiutata", () => {
   assertEquals(isCivikoSourceApp("keydraft"), false);
 });
 
-Deno.test("source identity: solo alias Civiko contrattualizzati", () => {
-  for (const app of ["civiko-one", "civiko", "civiko_one", " Civiko-One "]) {
-    assertEquals(isCivikoSourceApp(app), true);
-  }
+Deno.test("source identity: solo civiko-one canonico", () => {
+  assertEquals(isCivikoSourceApp("civiko-one"), true);
+  assertEquals(isCivikoSourceApp(" Civiko-One "), true);
+  assertEquals(isCivikoSourceApp("civiko"), false);
+  assertEquals(isCivikoSourceApp("civiko_one"), false);
 });
 
 Deno.test("endpoint: check source-app locale prima di body/read/write", async () => {

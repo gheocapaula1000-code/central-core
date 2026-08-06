@@ -11,6 +11,13 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
 
+function safeEqual(a: string, b: string): boolean {
+  if (!a || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 type JobSlug =
   | "offmarket-padova"
   | "discover-early-offmarket-signals"
@@ -29,10 +36,8 @@ const JOB_NAMES: Record<JobSlug, string> = {
 // - discover-early-offmarket-signals: default saveCandidates in runner is false; MUST pass true.
 // - build-offmarket-opportunity-scores: engine upserts unconditionally; pass no-op body.
 function buildBody(slug: JobSlug): Record<string, unknown> {
-  const COMUNI_PD = [
-    "Padova","Vigonza","Selvazzano Dentro","Rubano","Albignasego",
-    "Cadoneghe","Limena","Noventa Padovana","Abano Terme","Montegrotto Terme",
-  ];
+  // Perimetro commerciale definitivo: solo Comune di Padova.
+  const COMUNI_PD = ["Padova"];
   switch (slug) {
     case "offmarket-padova":
       return { triggered_by: "cron-nightly" };
@@ -109,7 +114,8 @@ async function runJob(slug: JobSlug, triggeredAt: string) {
 
   try {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 300_000); // 5 min per job
+    const targetTimeout = slug === "discover-early-offmarket-signals" ? 80_000 : 35_000;
+    const timer = setTimeout(() => ctrl.abort(), targetTimeout);
     const res = await fetch(target, {
       method: "POST",
       headers: {
@@ -126,21 +132,8 @@ async function runJob(slug: JobSlug, triggeredAt: string) {
     const text = await res.text().catch(() => "");
     const dur = Date.now() - t0;
     let parsed: any = null;
-    let parseError: string | null = null;
-    if (!text.trim()) parseError = "empty_body";
-    else {
-      try {
-        parsed = JSON.parse(text);
-        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-          parseError = "invalid_payload";
-        }
-      } catch {
-        parseError = "invalid_json";
-      }
-    }
-    // Fail-closed: ok:false o errors[] annidati non possono passare per successo.
-    const nestedErrors = Array.isArray(parsed?.errors) && parsed.errors.length > 0;
-    const okFlag = !parseError && parsed?.ok !== false && !nestedErrors;
+    try { parsed = text ? JSON.parse(text) : null; } catch { /* raw */ }
+    const okFlag = parsed?.ok !== false; // endpoints return {ok:true|false, ...}
     const excerpt = (text || "").slice(0, 1600);
     const status: "success" | "failure" = res.ok && okFlag ? "success" : "failure";
     await logExecution(jobName, {
@@ -149,20 +142,10 @@ async function runJob(slug: JobSlug, triggeredAt: string) {
       status,
       http_status: res.status,
       response_excerpt: excerpt,
-      error_message: status === "success"
-        ? null
-        : (parseError ?? parsed?.error?.message ?? (nestedErrors ? "nested_errors" : `HTTP ${res.status}`)),
+      error_message: status === "success" ? null : (parsed?.error?.message ?? `HTTP ${res.status}`),
       duration_ms: dur,
     });
-    return {
-      ok: status === "success",
-      http_status: res.status,
-      duration_ms: dur,
-      error: status === "success"
-        ? undefined
-        : (parseError ?? (nestedErrors ? "nested_errors" : `http_${res.status}`)),
-    };
-
+    return { ok: status === "success", http_status: res.status, duration_ms: dur };
   } catch (err) {
     const dur = Date.now() - t0;
     const msg = err instanceof Error ? err.message : String(err);
@@ -181,11 +164,19 @@ async function runJob(slug: JobSlug, triggeredAt: string) {
 
 Deno.serve(async (req) => {
   const triggeredAt = new Date().toISOString();
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ ok: false, error: "method_not_allowed" }),
+      { status: 405, headers: { "Content-Type": "application/json" } });
+  }
   if (!JOB_SECRET) {
     return new Response(
       JSON.stringify({ ok: false, error: "CENTRAL_CORE_JOB_SECRET missing" }),
       { status: 500, headers: { "Content-Type": "application/json" } },
     );
+  }
+  if (!safeEqual(req.headers.get("x-job-secret") ?? "", JOB_SECRET)) {
+    return new Response(JSON.stringify({ ok: false, error: "unauthorized" }),
+      { status: 401, headers: { "Content-Type": "application/json" } });
   }
   const url = new URL(req.url);
   const slug = url.searchParams.get("job") as JobSlug | null;
@@ -197,12 +188,8 @@ Deno.serve(async (req) => {
   }
   const r = await runJob(slug, triggeredAt);
   return new Response(
-    JSON.stringify({ job: JOB_NAMES[slug], slug, triggered_at: triggeredAt, ...r, ok: r.ok }),
-    {
-      // Il wrapper propaga il guasto: nessun 200 opaco sopra un run fallito.
-      status: r.ok ? 200 : (r.http_status && r.http_status >= 400 ? r.http_status : 502),
-      headers: { "Content-Type": "application/json" },
-    },
+    JSON.stringify({ ok: r.ok, job: JOB_NAMES[slug], slug, triggered_at: triggeredAt, ...r }),
+    { status: r.ok ? 200 : (r.http_status && r.http_status >= 400 ? r.http_status : 502),
+      headers: { "Content-Type": "application/json" } },
   );
-
 });

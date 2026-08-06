@@ -36,6 +36,22 @@ const FULL_COST_CAP = 2.50;
 const INC_MAX_ITEMS = 200;
 const INC_EST_COST = 0.30;       // ~200 × $0.0015
 const INC_COST_CAP = 0.50;
+const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+
+type LaunchIdentifier = { run_id: string; dataset_id: string };
+
+function launchIdentifier(entry: unknown): LaunchIdentifier | null {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+  const row = entry as Record<string, unknown>;
+  if (row.started !== true) return null;
+  const runId = typeof row.run_id === "string" && SAFE_ID.test(row.run_id)
+    ? row.run_id
+    : null;
+  const datasetId = typeof row.dataset_id === "string" && SAFE_ID.test(row.dataset_id)
+    ? row.dataset_id
+    : null;
+  return runId && datasetId ? { run_id: runId, dataset_id: datasetId } : null;
+}
 
 function pickMode(override?: string): { mode: "full" | "incremental"; max_items: number; est_cost: number; cost_cap: number } {
   if (override === "full" || override === "incremental") {
@@ -69,10 +85,25 @@ Deno.serve(async (req) => {
 
   const started = Date.now();
   const result: Record<string, unknown> = {};
+  let launchedCount = 0;
+  let launchedIdentifiers: LaunchIdentifier[] = [];
+  const failures: string[] = [];
+
+  // Controllo job-level: la pipeline Civiko autenticata deve poter eseguire
+  // il proprio ciclo anche quando la cadenza globale dei cron pesanti e' in
+  // saving mode. Il budget monetario dedicato resta sempre vincolante.
+  let requestBody: Record<string, unknown> = {};
+  try {
+    const parsed = await req.json();
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      requestBody = parsed as Record<string, unknown>;
+    }
+  } catch { /* body opzionale */ }
+  const orchestratorTrigger = requestBody.trigger === "orchestrator";
 
   // Heavy cron gate (saving mode rispetta heavy_cron_every_n_days)
   const gate = await shouldRunHeavyCron();
-  if (!gate.run) {
+  if (!gate.run && !orchestratorTrigger) {
     await sb.from("private_leads_run_status").insert([
       { source: "subito", opportunita_totali: 0, privato_stanco_count: 0, status: "skipped", error_message: `gate: ${gate.reason}`, duration_ms: 0 },
     ]);
@@ -95,11 +126,7 @@ Deno.serve(async (req) => {
   }
 
   // Determina modalità (full lun/gio, incremental altri giorni)
-  let modeOverride: string | undefined;
-  try {
-    const body = await req.json();
-    modeOverride = typeof body?.mode === "string" ? body.mode : undefined;
-  } catch { /* body opzionale */ }
+  const modeOverride = typeof requestBody.mode === "string" ? requestBody.mode : undefined;
   const sampling = pickMode(modeOverride);
 
   // --- Subito tramite padova-apify-multi-launch ---
@@ -118,10 +145,19 @@ Deno.serve(async (req) => {
     const j = await r.json().catch(() => ({}));
     result.subito = j;
 
-    if (r.ok && Array.isArray((j as { launched?: unknown[] }).launched)) {
+    const launched = Array.isArray((j as { launched?: Array<{ started?: boolean }> }).launched)
+      ? (j as { launched: Array<{ started?: boolean }> }).launched
+      : [];
+    launchedCount = launched.filter((entry) => entry?.started === true).length;
+    launchedIdentifiers = launched
+      .map(launchIdentifier)
+      .filter((entry): entry is LaunchIdentifier => entry !== null);
+    result.identifiers = launchedIdentifiers;
+    const completeIdentifiers = launchedCount > 0 && launchedIdentifiers.length === launchedCount;
+    if (r.ok && (j as { ok?: boolean }).ok !== false && completeIdentifiers) {
       await recordPrivateLeadsSpend("apify", sampling.est_cost);
       // Conteggi reali arrivano async dall'actor → status iniziale
-      await sb.from("private_leads_run_status").insert({
+      const { error: auditError } = await sb.from("private_leads_run_status").insert({
         source: "subito",
         opportunita_totali: 0,
         privato_stanco_count: 0,
@@ -137,13 +173,18 @@ Deno.serve(async (req) => {
           est_usd: sampling.est_cost,
         },
       });
+      if (auditError) failures.push("run_status_write_failed");
     } else {
+      const failure = launchedCount > 0 && !completeIdentifiers
+        ? "launch_identifiers_missing"
+        : `launch_failed_${r.status}`;
+      failures.push(failure);
       await sb.from("private_leads_run_status").insert({
         source: "subito",
         opportunita_totali: 0,
         privato_stanco_count: 0,
         status: "error",
-        error_message: `launch_failed_${r.status}`,
+        error_message: failure,
         duration_ms: Date.now() - started,
         notes: { ...j, sampling_mode: sampling.mode },
       });
@@ -151,6 +192,7 @@ Deno.serve(async (req) => {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     result.subito = { error: msg };
+    failures.push("launch_exception");
     await sb.from("private_leads_run_status").insert({
       source: "subito",
       opportunita_totali: 0,
@@ -180,13 +222,20 @@ Deno.serve(async (req) => {
   //   result.bakeca = { error: msg };
   // }
 
+  const ok = failures.length === 0 && launchedCount > 0;
   return new Response(JSON.stringify({
-    ok: true,
+    ok,
     duration_ms: Date.now() - started,
     sampling: { mode: sampling.mode, max_items: sampling.max_items, est_usd: sampling.est_cost, day_utc: new Date().getUTCDay() },
     budget_before: budget,
     result,
+    identifiers: launchedIdentifiers,
+    started_count: launchedCount,
+    errors_count: failures.length,
+    error: ok ? undefined : "private_leads_launch_failed",
     bakeca_disabled_since: "2026-06-20",
-  }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }, null, 2), {
+    status: ok ? 200 : 502,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 });
-
