@@ -178,6 +178,15 @@ const extractionSchema = {
   },
 };
 
+// Client di servizio: factory unica, così il tipo del client resta coerente
+// tra il punto di creazione e le funzioni che lo ricevono.
+function createDb() {
+  return createClient(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"), {
+    auth: { persistSession: false },
+  });
+}
+type Db = ReturnType<typeof createDb>;
+
 function response(status: number, body: unknown) {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
 }
