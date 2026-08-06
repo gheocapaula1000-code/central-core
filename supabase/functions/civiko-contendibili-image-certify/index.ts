@@ -258,7 +258,7 @@ Deno.serve(async (req) => {
   });
 
   // 4) persistenza idempotente dei fingerprint ---------------------------------
-  if (!dryRun && usable.length) {
+  if (!dryRun && !pairsOnly && usable.length) {
     const { error } = await sb
       .from("civiko_listing_image_fingerprints")
       .upsert(
