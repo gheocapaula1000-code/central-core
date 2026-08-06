@@ -399,6 +399,17 @@ Deno.serve(async (req) => {
   const agencyBackfillEnabled = body.agency_backfill_enabled !== false; // default true
   const agencyBackfillBatch = Math.max(1, Math.min(500, Number(body.agency_backfill_batch ?? 300)));
   const agencyBackfillMaxLaunches = Math.max(0, Number(body.agency_backfill_max_launches ?? 1));
+  // Contratto semantico richiesto dall'orchestratore (fail-closed lato chiamante):
+  //  - require_candidates: senza run candidati la risposta NON è un successo;
+  //  - require_terminal: tutti i run trattati devono essere in stato terminale;
+  //  - required_portals: portali che devono avere almeno un run completato.
+  const requireCandidates = body.require_candidates === true;
+  const requireTerminal = body.require_terminal === true;
+  const requiredPortals: string[] = Array.isArray(body.required_portals)
+    ? (body.required_portals as unknown[]).map((p) => String(p)).filter((p) => p.length > 0)
+    : [];
+
+
 
 
   // Seleziona candidati: RUNNING più vecchi di staleMinutes, oppure run_ids espliciti.
