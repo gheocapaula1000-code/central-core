@@ -418,13 +418,18 @@ function sanitizedCounters(result: Record<string, unknown>): Record<string, numb
   return out;
 }
 
+/**
+ * L'audit è parte del contratto: se la scrittura fallisce, lo step (e quindi
+ * la pipeline) NON può risultare riuscito. Ritorna null se scritto, altrimenti
+ * il motivo del guasto.
+ */
 async function recordActionRun(
-  runId: string,
+  pipelineRunId: string,
   pipeline: string | null,
   step: StepResult,
   startedAt: string,
-): Promise<void> {
-  if (!SERVICE_KEY) return;
+): Promise<string | null> {
+  if (!SERVICE_KEY) return "audit_service_key_missing";
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/civiko_orchestrator_action_runs`, {
       method: "POST",
@@ -435,7 +440,8 @@ async function recordActionRun(
         Prefer: "return=minimal",
       },
       body: JSON.stringify([{
-        run_id: runId,
+        run_id: pipelineRunId,
+        pipeline_run_id: pipelineRunId,
         action: step.action,
         pipeline,
         started_at: startedAt,
@@ -447,9 +453,14 @@ async function recordActionRun(
       }]),
     });
     await res.body?.cancel();
-    if (!res.ok) console.error(`[dispatch] action_run not recorded status=${res.status}`);
+    if (!res.ok) {
+      console.error(`[dispatch] action_run not recorded status=${res.status}`);
+      return "audit_write_failed";
+    }
+    return null;
   } catch {
     console.error("[dispatch] action_run not recorded");
+    return "audit_write_failed";
   }
 }
 
@@ -457,15 +468,19 @@ async function recordActionRun(
 async function runAuditedAction(
   action: SimpleAction,
   timeoutMs: number,
-  runId: string,
+  pipelineRunId: string,
   pipeline: string | null,
   bodyOverride?: Record<string, unknown>,
 ): Promise<StepResult> {
   const startedAt = new Date().toISOString();
   const step = await runAction(action, timeoutMs, bodyOverride);
-  await recordActionRun(runId, pipeline, step, startedAt);
+  const auditError = await recordActionRun(pipelineRunId, pipeline, step, startedAt);
+  if (auditError) {
+    return { ...step, ok: false, status: step.ok ? 500 : step.status, reason: auditError };
+  }
   return step;
 }
+
 
 
 
