@@ -33,11 +33,15 @@ export type ReleaseOrderResult = {
     | "PIPELINE_0510_NOT_OK"
     | "PIPELINE_0545_NOT_OK"
     | "PIPELINE_0710_NOT_OK"
+    | "PIPELINE_0510_WINDOW_INVALID"
+    | "PIPELINE_0545_WINDOW_INVALID"
+    | "PIPELINE_0710_WINDOW_INVALID"
     | "ACK_MISSING"
     | "OVERLAP_0510_0545"
     | "OVERLAP_0545_0710"
     | "ACK_BEFORE_0710_END"
     | "ACK_WINDOW_INVALID"
+    | "CHECKED_AT_INVALID"
     | "ACK_AFTER_CHECK";
 };
 
@@ -55,12 +59,34 @@ export function attemptSucceeded(a: PipelineAttempt | null): boolean {
   return t(a.finished_at) !== null && t(a.started_at) !== null;
 }
 
+// Finestra interna STRETTAMENTE valida: entrambi finiti e started_at < finished_at.
+// Il solo parsing dei due timestamp non basta.
+export function windowValid(
+  started_at: string | null | undefined,
+  finished_at: string | null | undefined,
+): boolean {
+  const s = t(started_at);
+  const f = t(finished_at);
+  return s !== null && f !== null && s < f;
+}
+
 export function evaluateReleaseOrder(input: ReleaseOrderInput): ReleaseOrderResult {
   const { p0510, p0545, p0710, ack, checked_at } = input;
 
   if (!attemptSucceeded(p0510)) return { ok: false, reason: "PIPELINE_0510_NOT_OK" };
   if (!attemptSucceeded(p0545)) return { ok: false, reason: "PIPELINE_0545_NOT_OK" };
   if (!attemptSucceeded(p0710)) return { ok: false, reason: "PIPELINE_0710_NOT_OK" };
+
+  // Finestra interna stretta per OGNI latest attempt.
+  if (!windowValid(p0510!.started_at, p0510!.finished_at)) {
+    return { ok: false, reason: "PIPELINE_0510_WINDOW_INVALID" };
+  }
+  if (!windowValid(p0545!.started_at, p0545!.finished_at)) {
+    return { ok: false, reason: "PIPELINE_0545_WINDOW_INVALID" };
+  }
+  if (!windowValid(p0710!.started_at, p0710!.finished_at)) {
+    return { ok: false, reason: "PIPELINE_0710_WINDOW_INVALID" };
+  }
   if (!ack) return { ok: false, reason: "ACK_MISSING" };
 
   const end0510 = t(p0510!.finished_at)!;
@@ -76,8 +102,11 @@ export function evaluateReleaseOrder(input: ReleaseOrderInput): ReleaseOrderResu
   if (!(end0545 < start0710)) return { ok: false, reason: "OVERLAP_0545_0710" };
   if (ackStart === null || ackEnd === null) return { ok: false, reason: "ACK_MISSING" };
   if (!(end0710 < ackStart)) return { ok: false, reason: "ACK_BEFORE_0710_END" };
-  if (!(ackStart < ackEnd)) return { ok: false, reason: "ACK_WINDOW_INVALID" };
-  if (checked === null || !(ackEnd < checked)) return { ok: false, reason: "ACK_AFTER_CHECK" };
+  if (!windowValid(ack.started_at, ack.finished_at)) {
+    return { ok: false, reason: "ACK_WINDOW_INVALID" };
+  }
+  if (checked === null) return { ok: false, reason: "CHECKED_AT_INVALID" };
+  if (!(ackEnd < checked)) return { ok: false, reason: "ACK_AFTER_CHECK" };
 
   return { ok: true, reason: "OK" };
 }
