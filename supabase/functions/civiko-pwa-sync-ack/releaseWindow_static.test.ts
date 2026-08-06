@@ -3,12 +3,14 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 // Contratto statico: la view live del release gate deve imporre la finestra
 // interna STRETTA su ogni latest attempt (started_at < finished_at) e un
 // checked_at finito strettamente successivo a ack.finished_at.
-const sql = await Deno.readTextFile(
-  new URL(
-    "../../migrations/20260806194900_civiko_release_gate_strict_windows.sql",
-    import.meta.url,
-  ),
-);
+const migDir = new URL("../../migrations/", import.meta.url);
+let sql = "";
+for await (const e of Deno.readDir(migDir)) {
+  if (!e.isFile || !e.name.endsWith(".sql")) continue;
+  const body = await Deno.readTextFile(new URL(e.name, migDir));
+  if (body.includes("CIVIKO-ONLY forward addendum (release window)")) sql = body;
+}
+if (!sql) throw new Error("migration release-window non trovata");
 
 const strictWindow = (alias: string) =>
   `(${alias}.started_at IS NOT NULL AND ${alias}.finished_at IS NOT NULL AND ${alias}.started_at < ${alias}.finished_at)`;
