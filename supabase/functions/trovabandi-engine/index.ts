@@ -1117,8 +1117,11 @@ serve(async (req) => {
               processed_count: processed,
               verified_count: verified,
               provider_usage: {
-                firecrawl_search: fc.length,
-                perplexity_search: pp.length,
+                firecrawl_search: fcHits.length,
+                perplexity_search: ppHits.length,
+                firecrawl_search_status: fc.ok ? "OK" : fc.code,
+                perplexity_search_status: pp.ok ? "OK" : pp.code,
+
                 pages_attempted: hits.length,
                 pages_scraped: pagesScraped,
                 diagnostics: diagnosticCounters,
