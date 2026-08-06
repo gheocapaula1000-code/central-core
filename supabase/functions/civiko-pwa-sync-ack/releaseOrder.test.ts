@@ -89,3 +89,98 @@ Deno.test("ack assente => reject", () => {
   const r = evaluateReleaseOrder({ ...happy, ack: null });
   assertEquals(r, { ok: false, reason: "ACK_MISSING" });
 });
+
+// ── ADDENDUM release-window: finestra interna STRETTA per ogni attempt ──
+// Il solo parsing dei due timestamp non basta: serve started_at < finished_at.
+
+const badWindows: Array<[string, string | null, string | null]> = [
+  ["invertita", "05:38", "05:10"],
+  ["uguale", "05:10", "05:10"],
+  ["finished mancante", "05:10", null],
+  ["started mancante", null, "05:38"],
+  ["entrambi mancanti", null, null],
+];
+
+for (const [label, s, f] of badWindows) {
+  Deno.test(`0510 finestra ${label} => reject`, () => {
+    const p: PipelineAttempt = {
+      pipeline_run_id: "r",
+      started_at: s ? at(s) : null,
+      finished_at: f ? at(f) : null,
+      ok: true,
+      status: 200,
+    };
+    const r = evaluateReleaseOrder({ ...happy, p0510: p });
+    assertEquals(r.ok, false);
+  });
+
+  Deno.test(`0545 finestra ${label} => reject`, () => {
+    const p: PipelineAttempt = {
+      pipeline_run_id: "r",
+      started_at: s ? at(s) : null,
+      finished_at: f ? at(f) : null,
+      ok: true,
+      status: 200,
+    };
+    const r = evaluateReleaseOrder({ ...happy, p0545: p });
+    assertEquals(r.ok, false);
+  });
+
+  Deno.test(`0710 finestra ${label} => reject`, () => {
+    const p: PipelineAttempt = {
+      pipeline_run_id: "r",
+      started_at: s ? at(s) : null,
+      finished_at: f ? at(f) : null,
+      ok: true,
+      status: 200,
+    };
+    const r = evaluateReleaseOrder({ ...happy, p0710: p });
+    assertEquals(r.ok, false);
+  });
+
+  Deno.test(`ack finestra ${label} => reject`, () => {
+    const r = evaluateReleaseOrder({
+      ...happy,
+      p0710: pipe("04:00", "04:30"),
+      ack: { started_at: s ? at(s) : null, finished_at: f ? at(f) : null },
+    });
+    assertEquals(r.ok, false);
+  });
+}
+
+Deno.test("timestamp pipeline non parsabile => reject", () => {
+  const bad: PipelineAttempt = {
+    pipeline_run_id: "r",
+    started_at: "non-una-data",
+    finished_at: at("05:38"),
+    ok: true,
+    status: 200,
+  };
+  assertEquals(evaluateReleaseOrder({ ...happy, p0545: bad }).ok, false);
+  assertEquals(evaluateReleaseOrder({ ...happy, p0510: bad }).ok, false);
+  assertEquals(evaluateReleaseOrder({ ...happy, p0710: bad }).ok, false);
+});
+
+Deno.test("ack con timestamp non parsabile => reject", () => {
+  const r = evaluateReleaseOrder({
+    ...happy,
+    ack: { started_at: at("07:25"), finished_at: "07:26" },
+  });
+  assertEquals(r.ok, false);
+});
+
+Deno.test("checked_at mancante/invalido => reject", () => {
+  for (const c of ["", "non-una-data", "NaN"]) {
+    const r = evaluateReleaseOrder({ ...happy, checked_at: c });
+    assertEquals(r, { ok: false, reason: "CHECKED_AT_INVALID" });
+  }
+});
+
+Deno.test("checked_at uguale alla fine ack => reject (serve strettamente dopo)", () => {
+  const r = evaluateReleaseOrder({ ...happy, checked_at: at("07:26") });
+  assertEquals(r, { ok: false, reason: "ACK_AFTER_CHECK" });
+});
+
+Deno.test("finestre interne valide + ordine cross-run mantenuto => pass", () => {
+  assertEquals(evaluateReleaseOrder(happy), { ok: true, reason: "OK" });
+});
