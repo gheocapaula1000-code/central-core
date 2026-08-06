@@ -12,7 +12,7 @@ Deno.test("accetta i requisiti fail-closed del dispatcher", () => {
 Deno.test("espone i contatori richiesti", () => {
   for (
     const k of [
-      "scanned:",
+      "scanned,",
       "completed_count:",
       "imports_count:",
       "errors:",

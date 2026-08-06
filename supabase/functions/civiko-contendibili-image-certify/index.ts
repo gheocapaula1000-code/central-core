@@ -63,6 +63,8 @@ const CANDIDATE_SCAN_LIMIT = 200;
 /** Paginazione completa dei fingerprint: nessun tetto arbitrario. */
 const FINGERPRINT_PAGE_SIZE = 1000;
 const FINGERPRINT_MAX_PAGES = 200;
+/** Scansione bounded della tabella di avanzamento (non è un cap sui fingerprint). */
+const ATTEMPTS_PROGRESS_SCAN = 5000;
 
 /** Perimetro ufficiale Civiko One / Padova: 8 zone commerciali. */
 export const CIVIKO_ZONE_SLUGS = [
@@ -162,7 +164,7 @@ Deno.serve(async (req) => {
         .from("civiko_image_certify_attempts")
         .select("listing_id,attempts,last_pipeline_run_id")
         .order("listing_id", { ascending: true })
-        .limit(5000);
+        .limit(ATTEMPTS_PROGRESS_SCAN);
       if (error) {
         return json({ ok: false, error: "attempts_progress_read_failed", detail: error.message }, 500);
       }
