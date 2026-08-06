@@ -243,6 +243,7 @@ export function isIdenticalAck(
   if (!sameTs(stored.finished_at, record.finished_at)) return false;
   if (stored.ok !== record.ok) return false;
   if ((stored.error_code ?? null) !== record.error_code) return false;
+  if (String(stored.source_app ?? "").toLowerCase() !== record.source_app.toLowerCase()) return false;
   if (String(stored.pipeline_run_id ?? "").toLowerCase() !== pipelineRunId.toLowerCase()) return false;
 
   const municipality = stored.municipality ?? stored.scope_comune;
