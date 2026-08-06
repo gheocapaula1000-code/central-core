@@ -22,20 +22,16 @@ import {
 } from "./extraction.ts";
 import { persistOpportunityFailClosed, type PersistVerification } from "./persist.ts";
 import {
+  collectionCompletionOutcome,
   COVERAGE_WINDOW_HOURS,
   RUN_STALE_AFTER_MINUTES,
-  collectResponseContract,
-  coverageCutoffIso,
-  evaluateGate,
-  selectDueSource,
-  staleRunCutoffIso,
-  type RankableSource,
-  type RunLike,
+  boundedMaxPages,
+  evaluateReleaseGate,
+  nonNegativeSafeInteger,
+  rankDueSources,
+  type DueSource,
+  type SuccessfulRun,
 } from "./hardening.ts";
-
-
-
-
 
 type JsonObject = Record<string, unknown>;
 
@@ -74,12 +70,23 @@ type Source = {
   rarity_base: number;
   fast_lane: boolean;
   scan_interval_minutes: number;
-  next_scan_at: string | null;
-  last_scanned_at?: string | null;
-  priority?: number | null;
-  enabled?: boolean | null;
+  priority: number;
+  last_scanned_at: string | null;
+  next_scan_at: string;
 };
 
+type RefreshSignal = {
+  id: string;
+  region: string | null;
+  province: string | null;
+  municipality: string | null;
+  ateco_prefix: string | null;
+  company_size: string | null;
+  interest_categories: string[];
+  female_business: boolean;
+  youth_business: boolean;
+  innovative_business: boolean;
+};
 
 type SearchHit = { url: string; title: string; description: string; provider: string };
 
@@ -178,8 +185,8 @@ const extractionSchema = {
   },
 };
 
-// Client di servizio: factory unica, così il tipo del client resta coerente
-// tra il punto di creazione e le funzioni che lo ricevono.
+// Keep the service client type anchored to one factory. Deno's ungenerated
+// Supabase schema otherwise resolves different generic overloads at call sites.
 function createDb() {
   return createClient(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"), {
     auth: { persistSession: false },
@@ -499,7 +506,6 @@ async function perplexitySearch(source: Source): Promise<SearchOutcome<SearchHit
   }
 }
 
-
 async function scrapePage(
   url: string,
 ): Promise<{ markdown: string; title: string; provider: string } | null> {
@@ -659,9 +665,6 @@ async function extractOpportunity(
   return lastFailure;
 }
 
-
-
-
 async function storeOpportunity(
   sb: Db,
   source: Source,
@@ -764,7 +767,6 @@ async function storeOpportunity(
       async upsertOpportunity(candidate) {
         const { data, error } = await sb
           .from("trovabandi_opportunities")
-          // Schema non tipizzato lato Deno: cast limitato al confine di scrittura.
           .upsert(candidate as never, { onConflict: "official_url" })
           .select("id")
           .single();
@@ -773,12 +775,14 @@ async function storeOpportunity(
       async upsertEvidence(candidate) {
         const { error } = await sb
           .from("trovabandi_evidence")
-          // Schema non tipizzato lato Deno: cast limitato al confine di scrittura.
           .upsert(candidate as never, { onConflict: "opportunity_id,source_url" });
         return { error: error ?? undefined };
       },
       async promote(id, patch) {
-        const { error } = await sb.from("trovabandi_opportunities").update(patch as never).eq("id", id);
+        const { error } = await sb
+          .from("trovabandi_opportunities")
+          .update(patch as never)
+          .eq("id", id);
         return { error: error ?? undefined };
       },
     },
@@ -797,8 +801,6 @@ async function storeOpportunity(
     },
   );
 }
-
-
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return response(204, {});
@@ -823,8 +825,7 @@ serve(async (req) => {
 
   if (action === "status") {
     const nowIso = new Date().toISOString();
-    // Le opportunità scadute non sono "attive": mai conteggiate.
-    const [activeRes, runRes] = await Promise.all([
+    const [activeResult, runResult] = await Promise.all([
       sb
         .from("trovabandi_opportunities")
         .select("id", { count: "exact", head: true })
@@ -837,11 +838,13 @@ serve(async (req) => {
         .limit(1)
         .maybeSingle(),
     ]);
-    if (activeRes.error || runRes.error) return response(500, { ok: false, code: "STATUS_QUERY_FAILED" });
+    if (activeResult.error || runResult.error || activeResult.count == null) {
+      return response(503, { ok: false, code: "STATUS_QUERY_FAILED" });
+    }
     return response(200, {
       ok: true,
-      active: activeRes.count ?? 0,
-      last_run: runRes.data ?? null,
+      active: activeResult.count,
+      last_run: runResult.data ?? null,
       providers: {
         firecrawl: !!env("FIRECRAWL_API_KEY"),
         perplexity: !!env("PERPLEXITY_API_KEY"),
@@ -851,76 +854,105 @@ serve(async (req) => {
   }
 
   if (action === "maintenance") {
-    const nowMs = Date.now();
-    const now = new Date(nowMs).toISOString();
-    // 1) Riconciliazione dei run RUNNING rimasti appesi oltre la soglia.
-    const stale = await sb
+    const now = new Date().toISOString();
+    const staleBefore = new Date(Date.now() - RUN_STALE_AFTER_MINUTES * 60_000).toISOString();
+    const staleResult = await sb
       .from("trovabandi_runs")
       .update(
-        { status: "FAILED", error_code: "STALE_RUN_TIMEOUT", finished_at: now },
+        {
+          status: "FAILED",
+          error_code: "STALE_RUN_TIMEOUT",
+          warnings: ["stale_run_reconciled"],
+          finished_at: now,
+        },
         { count: "exact" },
       )
       .eq("status", "RUNNING")
-      .lt("started_at", staleRunCutoffIso(nowMs));
-    if (stale.error) return response(500, { ok: false, code: "MAINTENANCE_RUNS_FAILED" });
-    // 2) Scadenza solo degli stati appropriati: SCADUTO resta invariato.
-    const expired = await sb
+      .lt("started_at", staleBefore);
+    if (staleResult.error || staleResult.count == null) {
+      return response(500, { ok: false, code: "STALE_RUN_RECONCILIATION_FAILED" });
+    }
+    const expiryResult = await sb
       .from("trovabandi_opportunities")
       .update({ verification_status: "SCADUTO", updated_at: now }, { count: "exact" })
       .lt("deadline_at", now)
       .in("verification_status", ["VERIFICATO", "PARZIALE", "DA_VERIFICARE"]);
-    if (expired.error) return response(500, { ok: false, code: "MAINTENANCE_FAILED" });
+    if (expiryResult.error || expiryResult.count == null) {
+      return response(500, { ok: false, code: "OPPORTUNITY_EXPIRY_FAILED" });
+    }
     return response(200, {
       ok: true,
-      expired: expired.count ?? 0,
-      stale_runs_reconciled: stale.count ?? 0,
-      stale_after_minutes: RUN_STALE_AFTER_MINUTES,
+      stale_runs_reconciled: staleResult.count,
+      expired: expiryResult.count,
     });
   }
 
   if (action === "release_gate") {
-    const nowMs = Date.now();
-    const nowIso = new Date(nowMs).toISOString();
-    // Gate dinamico e fail-closed: nessuna soglia commerciale inventata.
-    // PARZIALE, PARTIAL, RUNNING e FAILED non contano mai come scan reale.
-    const [sourcesRes, runsRes, staleRes, verifiedRes] = await Promise.all([
-      sb
-        .from("trovabandi_sources")
-        .select("id,region,source_kind,priority,last_scanned_at,next_scan_at,enabled")
-        .eq("enabled", true),
-      sb
-        .from("trovabandi_runs")
-        .select("id,source_id,status,started_at,finished_at,provider_usage")
-        .gte("finished_at", coverageCutoffIso(nowMs))
-        .eq("status", "SUCCEEDED")
-        .not("source_id", "is", null),
-      sb
-        .from("trovabandi_runs")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "RUNNING")
-        .lt("started_at", staleRunCutoffIso(nowMs)),
-      // Conteggio DISTINCT degli opportunity con evidenza (EXISTS), mai un
-      // join count che duplicherebbe una riga per ogni prova.
-      sb.rpc("trovabandi_verified_active_distinct_count", { p_now: nowIso }),
-    ]);
-    if (sourcesRes.error || runsRes.error || staleRes.error || verifiedRes.error)
-      return response(500, { ok: false, code: "GATE_QUERY_FAILED" });
-    const verifiedActiveDistinct = Number(verifiedRes.data);
-    if (
-      !sourcesRes.data ||
-      !runsRes.data ||
-      staleRes.count === null ||
-      staleRes.count === undefined ||
-      !Number.isFinite(verifiedActiveDistinct)
-    )
-      return response(500, { ok: false, code: "GATE_QUERY_FAILED" });
+    const nowIso = new Date().toISOString();
+    const coverageSince = new Date(
+      Date.now() - COVERAGE_WINDOW_HOURS * 60 * 60 * 1000,
+    ).toISOString();
+    const staleBefore = new Date(Date.now() - RUN_STALE_AFTER_MINUTES * 60_000).toISOString();
+    const [enabledSourcesResult, recentRunsResult, staleRunsResult, verifiedResult, partialResult] =
+      await Promise.all([
+        sb
+          .from("trovabandi_sources")
+          .select("id,source_kind,priority,last_scanned_at,next_scan_at")
+          .eq("enabled", true),
+        sb
+          .from("trovabandi_runs")
+          .select("source_id,provider_usage")
+          .eq("status", "SUCCEEDED")
+          .not("source_id", "is", null)
+          .not("finished_at", "is", null)
+          .gte("finished_at", coverageSince),
+        sb
+          .from("trovabandi_runs")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "RUNNING")
+          .lt("started_at", staleBefore),
+        sb.rpc("trovabandi_verified_active_distinct_count", { p_now: nowIso }),
+        sb
+          .from("trovabandi_opportunities")
+          .select("id", { count: "exact", head: true })
+          .eq("verification_status", "PARZIALE")
+          .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`),
+      ]);
 
-    const gate = evaluateGate({
-      nowMs,
-      enabledSources: sourcesRes.data as unknown as RankableSource[],
-      recentRuns: runsRes.data as unknown as RunLike[],
-      staleRunningCount: staleRes.count,
-      verifiedActiveDistinct,
+    if (
+      enabledSourcesResult.error ||
+      recentRunsResult.error ||
+      staleRunsResult.error ||
+      verifiedResult.error ||
+      partialResult.error ||
+      staleRunsResult.count == null ||
+      partialResult.count == null
+    ) {
+      return response(503, {
+        ok: false,
+        gate_passed: false,
+        cron_activation_allowed: false,
+        code: "RELEASE_GATE_QUERY_FAILED",
+      });
+    }
+
+    const verifiedActiveCount = nonNegativeSafeInteger(verifiedResult.data);
+    if (verifiedActiveCount == null) {
+      return response(503, {
+        ok: false,
+        gate_passed: false,
+        cron_activation_allowed: false,
+        code: "RELEASE_GATE_COUNT_INVALID",
+      });
+    }
+
+    const gate = evaluateReleaseGate({
+      enabledSources: (enabledSourcesResult.data ?? []) as DueSource[],
+      recentSuccessfulRuns: (recentRunsResult.data ?? []) as SuccessfulRun[],
+      staleRunningCount: staleRunsResult.count,
+      verifiedActiveCount,
+      partialActiveCount: partialResult.count,
+      coverageSinceIso: coverageSince,
     });
     return response(gate.ok ? 200 : 409, {
       ok: gate.ok,
@@ -930,8 +962,6 @@ serve(async (req) => {
       metrics: gate.metrics,
     });
   }
-
-
 
   if (action === "request_refresh") {
     const profile = (body.profile ?? {}) as CompanyProfile;
@@ -948,7 +978,7 @@ serve(async (req) => {
         interests.sort().join(","),
       ].join("|"),
     );
-    await sb.from("trovabandi_refresh_requests").upsert(
+    const refreshWriteResult = await sb.from("trovabandi_refresh_requests").upsert(
       {
         request_key: requestKey,
         region: normalizeText(profile.regione) || null,
@@ -965,6 +995,9 @@ serve(async (req) => {
       },
       { onConflict: "request_key" },
     );
+    if (refreshWriteResult.error) {
+      return response(503, { ok: false, code: "REFRESH_REQUEST_WRITE_FAILED" });
+    }
     return response(202, { ok: true, queued: true });
   }
 
@@ -1007,118 +1040,166 @@ serve(async (req) => {
     });
   }
 
-  // ─── collect ────────────────────────────────────────────────────────────
-  // dry_run: sola lettura assoluta. Nessun provider, nessun insert/update,
-  // nessun run, nessuna fonte toccata, nessun refresh consumato.
-  const dryRun = body.dry_run === true;
   const sourceId = normalizeText(body.source_id);
-  const maxPages = Math.max(1, Math.min(5, Number(body.max_pages ?? 2)));
-  const nowMs = Date.now();
-  const nowIso = new Date(nowMs).toISOString();
+  const maxPages = boundedMaxPages(body.max_pages ?? 2);
+  const dryRun = body.dry_run === true;
+  const triggerSource = normalizeText(body.trigger_source).slice(0, 120) || "replit";
+  let refreshSignal: RefreshSignal | null = null;
+  if (!sourceId) {
+    const refreshResult = await sb
+      .from("trovabandi_refresh_requests")
+      .select("*")
+      .is("processed_at", null)
+      .order("requested_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (refreshResult.error) {
+      return response(503, { ok: false, code: "REFRESH_SIGNAL_QUERY_FAILED" });
+    }
+    refreshSignal = (refreshResult.data as RefreshSignal | null) ?? null;
+  }
 
-  const refreshRes = sourceId
-    ? { data: null, error: null }
-    : await sb
-        .from("trovabandi_refresh_requests")
-        .select("*")
-        .is("processed_at", null)
-        .order("requested_at", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-  if (refreshRes.error) return response(500, { ok: false, code: "REFRESH_QUERY_FAILED" });
-  const refreshSignal = (refreshRes.data ?? null) as JsonObject | null;
-
-  const candidatesRes = sourceId
-    ? await sb.from("trovabandi_sources").select("*").eq("enabled", true).eq("id", sourceId)
-    : await sb
-        .from("trovabandi_sources")
-        .select("*")
-        .eq("enabled", true)
-        .lte("next_scan_at", nowIso);
-  if (candidatesRes.error) return response(500, { ok: false, code: "SOURCE_QUERY_FAILED" });
-  const candidates = (candidatesRes.data ?? []) as unknown as Source[];
-  // Selettore equo: next_scan_at più vecchio, poi mai/oldest last_scanned,
-  // priority solo come tie-break; bypass regionale limitato a 30 minuti.
-  const selection = sourceId
-    ? {
-        source: candidates[0] ?? null,
-        reason: candidates[0] ? ("FAIR_OLDEST" as const) : ("NO_SOURCE_DUE" as const),
-        bypass_minutes: 0,
-      }
-    : selectDueSource(candidates as unknown as RankableSource[], {
-        nowMs,
-        refreshRegion: normalizeText(refreshSignal?.region) || null,
+  const selectionNow = new Date().toISOString();
+  let sourceData: Source | null = null;
+  if (sourceId) {
+    const explicitResult = await sb
+      .from("trovabandi_sources")
+      .select("*")
+      .eq("enabled", true)
+      .eq("id", sourceId)
+      .maybeSingle();
+    if (explicitResult.error) {
+      return response(503, { ok: false, code: "SOURCE_QUERY_FAILED" });
+    }
+    if (!explicitResult.data) {
+      return response(404, { ok: false, code: "SOURCE_NOT_AVAILABLE" });
+    }
+    sourceData = explicitResult.data as Source;
+    if (dryRun) {
+      return response(200, {
+        ok: true,
+        dry_run: true,
+        would_collect: {
+          source_id: sourceData.id,
+          source_kind: sourceData.source_kind,
+          next_scan_at: sourceData.next_scan_at,
+          max_pages: maxPages,
+        },
       });
-  const selected = (selection.source ?? null) as Source | null;
+    }
+  } else {
+    const dueResult = await sb
+      .from("trovabandi_sources")
+      .select("*")
+      .eq("enabled", true)
+      .lte("next_scan_at", selectionNow)
+      .order("next_scan_at", { ascending: true })
+      .order("last_scanned_at", { ascending: true, nullsFirst: true })
+      .order("priority", { ascending: false })
+      .order("id", { ascending: true })
+      .limit(1000);
+    if (dueResult.error) {
+      return response(503, { ok: false, code: "SOURCE_QUERY_FAILED" });
+    }
 
-  if (dryRun) {
-    return response(200, {
-      ok: true,
-      dry_run: true,
-      would_collect: !!selected,
-      reason: selected ? selection.reason : "NO_SOURCE_DUE",
-      source: selected?.name ?? null,
-      due_candidates: candidates.length,
-      max_pages: maxPages,
-    });
+    const rankedCandidates = rankDueSources(
+      (dueResult.data ?? []) as Source[],
+      refreshSignal?.region,
+    );
+    if (dryRun) {
+      const candidate = rankedCandidates[0] ?? null;
+      return response(
+        200,
+        candidate
+          ? {
+              ok: true,
+              dry_run: true,
+              would_collect: {
+                source_id: candidate.id,
+                source_kind: candidate.source_kind,
+                next_scan_at: candidate.next_scan_at,
+                max_pages: maxPages,
+              },
+            }
+          : {
+              ok: true,
+              dry_run: true,
+              skipped: true,
+              reason: "NO_SOURCE_DUE",
+              max_pages: maxPages,
+            },
+      );
+    }
+
+    const leaseUntil = new Date(Date.now() + RUN_STALE_AFTER_MINUTES * 60_000).toISOString();
+    for (const candidate of rankedCandidates) {
+      // Optimistic lease: only one overlapping scheduler can move the exact
+      // due timestamp. A failed worker releases itself naturally after 20 min.
+      const claimResult = await sb
+        .from("trovabandi_sources")
+        .update({ next_scan_at: leaseUntil, updated_at: selectionNow })
+        .eq("id", candidate.id)
+        .eq("enabled", true)
+        .eq("next_scan_at", candidate.next_scan_at)
+        .lte("next_scan_at", selectionNow)
+        .select("*")
+        .maybeSingle();
+      if (claimResult.error) {
+        return response(503, { ok: false, code: "SOURCE_CLAIM_FAILED" });
+      }
+      if (claimResult.data) {
+        sourceData = claimResult.data as Source;
+        break;
+      }
+    }
+
+    if (!sourceData) {
+      const finishedAt = new Date().toISOString();
+      const skippedResult = await sb
+        .from("trovabandi_runs")
+        .insert({
+          action: "collect",
+          source_id: null,
+          trigger_source: triggerSource,
+          status: "SKIPPED",
+          error_code: "NO_SOURCE_DUE",
+          provider_usage: {},
+          warnings: [],
+          started_at: selectionNow,
+          finished_at: finishedAt,
+        })
+        .select("id")
+        .single();
+      if (skippedResult.error || !skippedResult.data?.id) {
+        return response(503, { ok: false, code: "SKIPPED_RUN_WRITE_FAILED" });
+      }
+      return response(200, {
+        ok: true,
+        skipped: true,
+        reason: "NO_SOURCE_DUE",
+        status: "SKIPPED",
+        run_id: skippedResult.data.id,
+      });
+    }
   }
 
-  if (!selected) {
-    // Nessuna fonte dovuta: run SKIPPED persistito, mai confuso con SUCCEEDED.
-    const skipped = await sb.from("trovabandi_runs").insert({
-      action: "collect",
-      trigger_source: normalizeText(body.trigger_source) || "replit",
-      status: "SKIPPED",
-      error_code: "NO_SOURCE_DUE",
-      warnings: ["NO_SOURCE_DUE"],
-      finished_at: nowIso,
-    });
-    if (skipped.error) return response(500, { ok: false, code: "RUN_PERSIST_FAILED" });
-    // SKIPPED non è mai un segnale di raccolta riuscita né di release gate.
-    return response(200, {
-      ok: true,
-      skipped: true,
-      collection_succeeded: false,
-      status: "SKIPPED",
-      reason: "NO_SOURCE_DUE",
-      error_code: "NO_SOURCE_DUE",
-    });
-  }
-
-  const baseSource = selected;
-  // Lease ottimistico compare-and-set: se un altro worker ha già spostato
-  // next_scan_at, questa esecuzione si ferma senza sovrapporsi.
-  const leaseUntil = new Date(
-    nowMs + Math.max(15, Number(baseSource.scan_interval_minutes || 360)) * 60_000,
-  ).toISOString();
-  const lease = await sb
-    .from("trovabandi_sources")
-    .update({ next_scan_at: leaseUntil, updated_at: nowIso })
-    .eq("id", baseSource.id)
-    .eq("next_scan_at", baseSource.next_scan_at)
-    .select("id");
-  if (lease.error) return response(500, { ok: false, code: "SOURCE_LEASE_FAILED" });
-  if (!lease.data || lease.data.length === 0)
-    return response(200, {
-      ok: true,
-      skipped: true,
-      collection_succeeded: false,
-      status: "SKIPPED",
-      reason: "LEASE_LOST",
-      error_code: "LEASE_LOST",
-    });
-
-  const personalisedTerms = refreshSignal
+  const baseSource = sourceData;
+  const refreshMatchesSource =
+    !!refreshSignal &&
+    (!baseSource.region ||
+      normalizeCode(baseSource.region) === normalizeCode(refreshSignal.region));
+  const appliedRefreshSignal = refreshMatchesSource ? refreshSignal : null;
+  const personalisedTerms = appliedRefreshSignal
     ? [
-        refreshSignal.region,
-        refreshSignal.province,
-        refreshSignal.municipality,
-        refreshSignal.ateco_prefix ? `ATECO ${refreshSignal.ateco_prefix}` : null,
-        refreshSignal.company_size,
-        ...((refreshSignal.interest_categories as string[]) ?? []),
-        refreshSignal.female_business ? "imprenditoria femminile" : null,
-        refreshSignal.youth_business ? "imprenditoria giovanile" : null,
-        refreshSignal.innovative_business ? "startup PMI innovativa" : null,
+        appliedRefreshSignal.region,
+        appliedRefreshSignal.province,
+        appliedRefreshSignal.municipality,
+        appliedRefreshSignal.ateco_prefix ? `ATECO ${appliedRefreshSignal.ateco_prefix}` : null,
+        appliedRefreshSignal.company_size,
+        ...(appliedRefreshSignal.interest_categories ?? []),
+        appliedRefreshSignal.female_business ? "imprenditoria femminile" : null,
+        appliedRefreshSignal.youth_business ? "imprenditoria giovanile" : null,
+        appliedRefreshSignal.innovative_business ? "startup PMI innovativa" : null,
       ]
         .filter(Boolean)
         .join(" ")
@@ -1127,19 +1208,19 @@ serve(async (req) => {
     ...baseSource,
     search_query: `${baseSource.search_query} ${personalisedTerms}`.trim(),
   };
-  const runInsert = await sb
+  const runCreateResult = await sb
     .from("trovabandi_runs")
     .insert({
       action: "collect",
       source_id: source.id,
-      trigger_source: normalizeText(body.trigger_source) || "replit",
+      trigger_source: triggerSource,
     })
     .select("id")
     .single();
-  if (runInsert.error || !runInsert.data?.id)
-    return response(500, { ok: false, code: "RUN_PERSIST_FAILED" });
-  const run = runInsert.data as { id: string };
-
+  if (runCreateResult.error || !runCreateResult.data?.id) {
+    return response(503, { ok: false, code: "RUN_CREATE_FAILED" });
+  }
+  const run = runCreateResult.data;
   const warnings: string[] = [];
   try {
     const [fc, pp] = await Promise.all([firecrawlSearch(source), perplexitySearch(source)]);
@@ -1220,83 +1301,105 @@ serve(async (req) => {
 
     const diagnosticCounters = aggregateDiagnostics(diagnostics);
     const finished = new Date().toISOString();
-    const runStatus = operationalFailures > 0 ? "PARTIAL" : "SUCCEEDED";
-    // Finalizzazione verificata: ogni scrittura critica controlla l'errore.
-    const [sourceWrite, runWrite, refreshWrite] = await Promise.all([
-      sb
-        .from("trovabandi_sources")
-        .update({
-          last_scanned_at: finished,
-          next_scan_at: new Date(
-            Date.now() + Math.max(15, Number(source.scan_interval_minutes || 360)) * 60_000,
-          ).toISOString(),
-          updated_at: finished,
-        })
-        .eq("id", source.id),
-      sb
+    const sourceStateResult = await sb
+      .from("trovabandi_sources")
+      .update({
+        last_scanned_at: finished,
+        next_scan_at: new Date(
+          Date.now() + Math.max(15, Number(source.scan_interval_minutes || 360)) * 60_000,
+        ).toISOString(),
+        updated_at: finished,
+      })
+      .eq("id", source.id);
+    if (sourceStateResult.error) {
+      await sb
         .from("trovabandi_runs")
         .update({
-          status: runStatus,
-          discovered_count: byUrl.size,
-          processed_count: processed,
-          verified_count: verified,
-          provider_usage: {
-            firecrawl_search: fcHits.length,
-            perplexity_search: ppHits.length,
-            firecrawl_search_status: fc.ok ? "OK" : fc.code,
-            perplexity_search_status: pp.ok ? "OK" : pp.code,
-
-            pages_attempted: hits.length,
-            pages_scraped: pagesScraped,
-            diagnostics: diagnosticCounters,
-          },
-
-          warnings: [...new Set(warnings)],
+          status: "FAILED",
+          error_code: "SOURCE_STATE_WRITE_FAILED",
           finished_at: finished,
         })
-        .eq("id", run.id),
-      refreshSignal?.id
-        ? sb
-            .from("trovabandi_refresh_requests")
-            .update({ processed_at: finished })
-            .eq("id", refreshSignal.id as string)
-        : Promise.resolve({ error: null }),
-    ]);
-    if (sourceWrite.error || runWrite.error || refreshWrite.error)
-      return response(500, { ok: false, code: "RUN_PERSIST_FAILED" });
-    // Il run PARTIAL resta persistito con contatori e diagnostica completi,
-    // ma la risposta è fail-closed: ok:false + HTTP 502 così l'orchestratore
-    // non può marcare il job come riuscito.
-    const contract = collectResponseContract(runStatus);
-    return response(contract.http, {
-      ok: contract.ok,
-      error_code: contract.error_code,
-      collection_succeeded: contract.collection_succeeded,
+        .eq("id", run.id)
+        .eq("status", "RUNNING");
+      return response(500, { ok: false, code: "SOURCE_STATE_WRITE_FAILED" });
+    }
+
+    if (appliedRefreshSignal?.id) {
+      const refreshStateResult = await sb
+        .from("trovabandi_refresh_requests")
+        .update({ processed_at: finished })
+        .eq("id", appliedRefreshSignal.id);
+      if (refreshStateResult.error) {
+        await sb
+          .from("trovabandi_runs")
+          .update({
+            status: "FAILED",
+            error_code: "REFRESH_STATE_WRITE_FAILED",
+            finished_at: finished,
+          })
+          .eq("id", run.id)
+          .eq("status", "RUNNING");
+        return response(500, { ok: false, code: "REFRESH_STATE_WRITE_FAILED" });
+      }
+    }
+
+    const completion = collectionCompletionOutcome(operationalFailures);
+    const runFinishResult = await sb
+      .from("trovabandi_runs")
+      .update({
+        status: completion.runStatus,
+        error_code: completion.errorCode,
+        discovered_count: byUrl.size,
+        processed_count: processed,
+        verified_count: verified,
+        provider_usage: {
+          firecrawl_search: fcHits.length,
+          perplexity_search: ppHits.length,
+          firecrawl_search_status: fc.ok ? "OK" : fc.code,
+          perplexity_search_status: pp.ok ? "OK" : pp.code,
+          pages_attempted: hits.length,
+          pages_scraped: pagesScraped,
+          diagnostics: diagnosticCounters,
+        },
+        warnings: [...new Set(warnings)],
+        finished_at: finished,
+      })
+      .eq("id", run.id)
+      .eq("status", "RUNNING")
+      .select("id")
+      .maybeSingle();
+    if (runFinishResult.error || !runFinishResult.data?.id) {
+      return response(503, { ok: false, code: "RUN_FINALIZE_FAILED" });
+    }
+    return response(completion.httpStatus, {
+      ok: completion.ok,
+      ...(completion.errorCode
+        ? { code: completion.errorCode, error_code: completion.errorCode }
+        : {}),
+      run_id: run.id,
+      source_id: source.id,
       source: source.name,
-      status: runStatus,
+      status: completion.runStatus,
       discovered: byUrl.size,
       attempted: hits.length,
       scraped: pagesScraped,
       processed,
       verified,
-      operational_failures: operationalFailures,
+
       warnings: [...new Set(warnings)],
       diagnostics: diagnosticCounters,
     });
-
-
   } catch (error) {
-    if (run.id)
-
-      await sb
-        .from("trovabandi_runs")
-        .update({
-          status: "FAILED",
-          error_code: error instanceof Error ? error.name : "UNKNOWN",
-          warnings,
-          finished_at: new Date().toISOString(),
-        })
-        .eq("id", run.id);
+    await sb
+      .from("trovabandi_runs")
+      .update({
+        status: "FAILED",
+        error_code: error instanceof Error ? error.name : "UNKNOWN",
+        warnings,
+        finished_at: new Date().toISOString(),
+      })
+      .eq("id", run.id)
+      .eq("status", "RUNNING");
     return response(500, { ok: false, code: "COLLECT_FAILED" });
   }
 });

@@ -8,7 +8,9 @@
     "20260806040500_trovabandi_deep_sources.sql",
     "20260806041000_trovabandi_national_sources.sql",
     "20260806041500_trovabandi_eu_pnrr_sources.sql",
-    "20260806181739_25d516da-f340-4291-b4fd-a66f5910f998.sql"
+    "20260806181739_25d516da-f340-4291-b4fd-a66f5910f998.sql",
+    "20260806193420_5410c74d-e55c-4823-a6c2-3479e73601e1.sql",
+    "20260806215000_trovabandi_runtime_hardening_rc.sql"
   ],
   "functions": [
     {
@@ -32,7 +34,6 @@
   "notes": [
     "Deploy only the listed TrovaBandi function; never deploy all Central Core functions.",
     "The domain is additive and does not modify shared Civiko, Wyloni, Sottra or KeyDraft behaviour.",
-    "Secret values and company profiles must never be logged.",
-    "Runtime hardening: fair source selector, optimistic lease, SKIPPED runs on NO_SOURCE_DUE, stale RUNNING reconciliation (20m), dynamic release gate over a 26h coverage window."
+    "Secret values and company profiles must never be logged."
   ]
 }
