@@ -22,7 +22,10 @@ Deno.test("prove foto: contratto esatto evidence_kind + match_version v4 + algo"
 Deno.test("gate di gruppo: metadata SOLO nel ramo interamente strutturale", () => {
   const start = sql.indexOf("civiko_padova_img_group_gate_ok");
   assert(start > -1, "gate helper assente");
-  const body = sql.slice(start, sql.indexOf("$function$", sql.indexOf("$function$", start) + 1));
+  // Solo l'espressione booleana, non la firma dei parametri.
+  const exprStart = sql.indexOf("-- REJECT COMUNI A OGNI RAMO", start);
+  assert(exprStart > -1, "espressione del gate non trovata");
+  const body = sql.slice(exprStart, sql.indexOf("$function$", exprStart));
   assert(/coalesce\(p_n_pairs_photo, 0\) > 0/.test(body), "ramo PHOTO deve bypassare i metadata");
   // I vincoli di metadata devono comparire dopo il ramo PHOTO, mai prima.
   const photoIdx = body.indexOf("coalesce(p_n_pairs_photo, 0) > 0");

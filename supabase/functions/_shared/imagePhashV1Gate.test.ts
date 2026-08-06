@@ -10,9 +10,16 @@ import {
   type PhotoFp,
 } from "../_shared/imagePhashV1Gate.ts";
 
+const HASHES: Record<string, string> = {
+  f1: "0000000000000000",
+  f2: "ffffffffffffffff",
+  f3: "0f0f0f0f0f0f0f0f",
+  f4: "f0f0f0f0f0f0f0f0",
+};
+
 const ph = (seed: string): PhotoFp => ({
   sha256: seed,
-  phash: seed.padEnd(16, "0").slice(0, 16),
+  phash: HASHES[seed] ?? seed.padEnd(16, "0").slice(0, 16),
   width: 800,
   height: 600,
   entropy: 6,
