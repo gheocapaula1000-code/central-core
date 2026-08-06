@@ -999,6 +999,9 @@ serve(async (req) => {
     const hits = [...byUrl.values()].slice(0, maxPages);
     let processed = 0;
     let verified = 0;
+    let pagesScraped = 0;
+    // Guasti operativi: degradano il run a PARTIAL e non sbloccano il gate.
+    let operationalFailures = 0;
     // Diagnostica non sensibile: solo fase + codice, mai URL completi o contenuti.
     const diagnostics: Array<{ phase: string; code: string }> = [];
     for (const hit of hits) {
@@ -1006,13 +1009,20 @@ serve(async (req) => {
       if (!scraped) {
         diagnostics.push({ phase: "scrape", code: "NO_CONTENT" });
         warnings.push(`scrape_failed:${new URL(hit.url).hostname}`);
+        operationalFailures++;
         continue;
       }
+      // pages_scraped misura gli scrape riusciti, non i tentativi.
+      pagesScraped++;
       diagnostics.push({ phase: "scrape", code: `OK_${scraped.provider.toUpperCase()}` });
       const extracted = await extractOpportunity(source, hit, scraped.markdown);
       if (!extracted.ok) {
         diagnostics.push({ phase: "extract", code: extracted.code });
-        warnings.push(`extract_${extracted.code.toLowerCase()}`);
+        // NOT_OPPORTUNITY e gli altri esiti negativi validi non generano warning.
+        if (isOperationalFailure(extracted.code)) {
+          warnings.push(`extract_${extracted.code.toLowerCase()}`);
+          operationalFailures++;
+        }
         continue;
       }
       diagnostics.push({
@@ -1027,11 +1037,16 @@ serve(async (req) => {
         scraped.markdown,
         scraped.provider,
       );
-      diagnostics.push({ phase: "store", code: stored.stored ? "OK" : "REJECTED" });
-      if (!stored.stored) warnings.push("store_rejected");
-      if (stored.stored) processed++;
+      diagnostics.push({ phase: "store", code: stored.code });
+      if (!stored.stored) {
+        warnings.push(`store_${stored.code.toLowerCase()}`);
+        operationalFailures++;
+        continue;
+      }
+      processed++;
       if (stored.verified) verified++;
     }
+
     const diagnosticCounters = aggregateDiagnostics(diagnostics);
     const finished = new Date().toISOString();
     await Promise.all([
