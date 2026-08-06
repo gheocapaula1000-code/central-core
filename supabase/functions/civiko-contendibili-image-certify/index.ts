@@ -176,11 +176,12 @@ Deno.serve(async (req) => {
         continue;
       }
       const format = sniffImageFormat(item.bytes);
-      const img = await decodeImage(item.bytes);
+      const outcome = await decodeImageWithReason(item.bytes, DECODERS);
+      const img = outcome.image;
       if (!img) {
         undecodable++;
-        diagnostics[`undecodable_${format}`] =
-          (Number(diagnostics[`undecodable_${format}`] ?? 0) as number) + 1;
+        const key = `undecodable_${format}_${outcome.reason ?? "SCONOSCIUTO"}`;
+        diagnostics[key] = (Number(diagnostics[key] ?? 0) as number) + 1;
         continue;
       }
       decoded++;
