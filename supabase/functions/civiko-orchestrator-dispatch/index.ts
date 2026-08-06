@@ -116,9 +116,15 @@ const ALLOWED: Record<SimpleAction, Target> = {
   },
   // Certificazione fotografica IMAGE_PHASH_V1: solo detail già memorizzati,
   // nessuno scraping e nessun provider a pagamento. Esclusiva Civiko One.
+  // Hard limit bounded: IMAGE_CERTIFY_HARD_LIMIT elementi per invocazione.
   contendibili_image_certify: {
     fn: "civiko-contendibili-image-certify",
-    body: { limit: 40, dry_run: false },
+    body: { limit: IMAGE_CERTIFY_HARD_LIMIT, dry_run: false, offset: 0 },
+  },
+  // Prove per coppia ricalcolate dai fingerprint già persistiti: nessun costo.
+  contendibili_pairs: {
+    fn: "civiko-contendibili-image-certify",
+    body: { pairs_only: true, dry_run: false },
   },
   // Solo candidati in quarantena: cap 24, idempotenza giornaliera.
   contendibili_evidence: {
