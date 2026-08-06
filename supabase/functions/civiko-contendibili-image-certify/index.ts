@@ -286,7 +286,10 @@ Deno.serve(async (req) => {
     const l = listingById.get(id);
     const url = (l?.url as string | undefined) ?? "";
     if (!url) continue;
-    const { data: canon } = await sb.rpc("padova_listing_canonical_id", { p_url: url });
+    const { data: canon } = await sb.rpc("padova_listing_canonical_id", {
+      p_url: url,
+      p_fonte: (l?.fonte as string | null) ?? null,
+    });
     if (typeof canon === "string" && canon) canonicalById.set(id, canon);
   }
   let scartatiStessoAnnuncio = 0;
