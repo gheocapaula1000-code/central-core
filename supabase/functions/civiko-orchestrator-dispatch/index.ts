@@ -386,7 +386,7 @@ async function runAction(
 
       status: res.status,
       reason,
-      result: safeIdentifiers(payload),
+      result: safeIdentifiers(rawPayload),
       raw: obj,
     };
 
