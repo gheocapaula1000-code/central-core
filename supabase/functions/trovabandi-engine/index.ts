@@ -2,9 +2,16 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   aggregateDiagnostics,
+  boundedInteger,
+  boundedNumeric,
   httpFailureCode,
   isOperationalFailure,
+  normalizeAuthorityLevel,
+  normalizeCategoryCode,
   parseExtractionContent,
+  safeTextArray,
+  safeTimestamp,
+  sanitizeDbErrorCode,
   shouldTryPlainJsonFallback,
   validateExtraction,
   type ExtractionFailureCode,
@@ -616,7 +623,7 @@ async function storeOpportunity(
   if (!officialUrl || !hostMatches(officialUrl, source.official_domain))
     return { stored: false, verified: false, code: "OFF_DOMAIN" };
 
-  const deadline = isoOrNull(extracted.deadline_at);
+  const deadline = safeTimestamp(extracted.deadline_at);
   const now = new Date();
   const expired = deadline ? new Date(deadline).getTime() < now.getTime() : false;
   const hasEvidence = markdown.length > 200 && source.official_domain.length > 3;
