@@ -199,11 +199,31 @@ Deno.serve(async (req) => {
         itemsCount = items.length;
         const nowIso = new Date().toISOString();
         const jobId = `recovery-${nowIso.slice(0, 10)}-${crypto.randomUUID().slice(0, 8)}`;
-        const mapped = items.map((it) => mapper.fn(it, jobId, nowIso)).filter(Boolean) as any[];
+        // Guard perimetro Civiko: comune autoritativo validato PRIMA di ogni upsert.
+        const counters = createScopeCounters();
+        const mapped: any[] = [];
+        for (const it of items) {
+          bumpCounter(counters, "scanned");
+          const outcome = mapper.fn(it, jobId, nowIso);
+          if (!outcome.ok) {
+            bumpCounter(counters, isScopeReject(outcome.code) ? "out_of_scope_rejected" : "other_rejected");
+            continue;
+          }
+          // Doppia barriera: la riga costruita non può uscire dal perimetro.
+          if (!isComunePadova(outcome.row.citta)) {
+            bumpCounter(counters, "out_of_scope_rejected");
+            continue;
+          }
+          bumpCounter(counters, "padova_kept");
+          mapped.push(outcome.row);
+        }
         // Dedup by URL
         const byUrl = new Map<string, any>();
         for (const r of mapped) byUrl.set(r.url, r);
         const deduped = Array.from(byUrl.values());
+        const outOfScopeInWrites = deduped.filter((r) => !isComunePadova(r.citta)).length;
+        bumpCounter(counters, "out_of_scope_written", outOfScopeInWrites);
+
 
         let promoted: { new: number; updated: number } | null = null;
         let promoteError: string | null = null;
