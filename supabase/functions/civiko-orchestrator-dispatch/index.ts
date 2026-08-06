@@ -1096,7 +1096,6 @@ Deno.serve(async (req) => {
       steps,
     });
   }
-  }
 
   const r = await runAction(action as SimpleAction);
   return json(
