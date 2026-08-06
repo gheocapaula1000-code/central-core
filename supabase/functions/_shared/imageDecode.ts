@@ -91,29 +91,53 @@ function toRgba(
   return out;
 }
 
-/** Decodifica JPEG/PNG in RGBA. Ritorna null (fail closed) su qualunque errore. */
-export async function decodeImage(bytes: Uint8Array): Promise<DecodedImage | null> {
+export interface DecodeOutcome {
+  image: DecodedImage | null;
+  /** Motivo verificabile del fallimento (diagnostica, mai promozione). */
+  reason: string | null;
+}
+
+/** Decodifica JPEG/PNG in RGBA riportando il motivo del fallimento. */
+export async function decodeImageWithReason(
+  bytes: Uint8Array,
+  decoders: Decoders = {},
+): Promise<DecodeOutcome> {
   const format = sniffImageFormat(bytes);
-  if (!isDecodableFormat(format)) return null;
+  if (!isDecodableFormat(format)) return { image: null, reason: `FORMATO_NON_SUPPORTATO_${format}` };
   try {
     if (format === "jpeg") {
-      const jpeg = await loadJpeg();
+      const jpeg = decoders.jpeg ?? await loadJpeg();
       const img = jpeg.decode(bytes, { useTArray: true, maxMemoryUsageInMB: 64 });
-      if (!img?.width || !img?.height) return null;
-      return { width: img.width, height: img.height, data: new Uint8Array(img.data), format };
+      if (!img?.width || !img?.height) return { image: null, reason: "JPEG_DIMENSIONI_ASSENTI" };
+      return {
+        image: { width: img.width, height: img.height, data: new Uint8Array(img.data), format },
+        reason: null,
+      };
     }
-    const png = await loadPng();
+    const png = decoders.png ?? await loadPng();
     const img = png.decode(bytes);
-    if (!img?.width || !img?.height) return null;
+    if (!img?.width || !img?.height) return { image: null, reason: "PNG_DIMENSIONI_ASSENTI" };
     const depth16 = img.data instanceof Uint16Array;
     const channels = img.channels ?? (img.data.length / (img.width * img.height));
     return {
-      width: img.width,
-      height: img.height,
-      data: toRgba(img.data, img.width, img.height, Math.round(channels), depth16),
-      format,
+      image: {
+        width: img.width,
+        height: img.height,
+        data: toRgba(img.data, img.width, img.height, Math.round(channels), depth16),
+        format,
+      },
+      reason: null,
     };
-  } catch {
-    return null;
+  } catch (e) {
+    const msg = (e as Error)?.message ?? String(e);
+    return { image: null, reason: `${format.toUpperCase()}_ERRORE_${msg.slice(0, 120)}` };
   }
+}
+
+/** Decodifica JPEG/PNG in RGBA. Ritorna null (fail closed) su qualunque errore. */
+export async function decodeImage(
+  bytes: Uint8Array,
+  decoders: Decoders = {},
+): Promise<DecodedImage | null> {
+  return (await decodeImageWithReason(bytes, decoders)).image;
 }
