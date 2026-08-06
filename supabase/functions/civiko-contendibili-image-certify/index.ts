@@ -25,7 +25,16 @@ import {
   MAX_TOTAL_REQUESTS,
   type FetchBudget,
 } from "../_shared/imageFetchGuard.ts";
-import { decodeImage, sniffImageFormat } from "../_shared/imageDecode.ts";
+import { decodeImageWithReason, sniffImageFormat, type Decoders } from "../_shared/imageDecode.ts";
+// Import statici: l'edge runtime non risolve import dinamici con specifier
+// variabile. I decoder vengono iniettati nel modulo condiviso.
+import jpegJs from "npm:jpeg-js@0.4.4";
+import * as fastPng from "npm:fast-png@8.0.0";
+
+const DECODERS: Decoders = {
+  jpeg: jpegJs as unknown as Decoders["jpeg"],
+  png: fastPng as unknown as Decoders["png"],
+};
 import {
   fingerprintImage,
   GENERIC_REUSE_THRESHOLD,
