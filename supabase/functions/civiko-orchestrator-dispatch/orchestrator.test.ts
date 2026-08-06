@@ -264,7 +264,7 @@ Deno.test("routine: il recompute non è surrogato dell'ack PWA", () => {
   assert(reqs.find((r) => r.key === "pwa_sync_ack_dopo_pipeline_0710")?.passed === false);
 });
 
-Deno.test("initial_validation: richiede import reali, contendibile 2+ e fingerprint", () => {
+Deno.test("initial_validation: import reali per TUTTI e 4 i portali, contendibile 2+ e fingerprint", () => {
   const failing = buildGateRequirements({
     mode: "initial_validation",
     metric: metricFn(),
@@ -273,14 +273,39 @@ Deno.test("initial_validation: richiede import reali, contendibile 2+ e fingerpr
     pipelineRuns: okPipelines,
   }).filter((r) => !r.passed).map((r) => r.key);
   assertEquals(failing, [
-    "initial_nuovi_import_reali",
+    "initial_nuovi_import_casa",
+    "initial_nuovi_import_immobiliare",
+    "initial_nuovi_import_idealista",
+    "initial_nuovi_import_subito",
     "initial_contendibile_certificato_2_piu",
     "initial_fingerprint_fresco",
+  ]);
+
+  // Un solo portale con import non basta: serve l'intero ciclo.
+  const partial = buildGateRequirements({
+    mode: "initial_validation",
+    metric: metricFn({
+      "imported.listings_casa_imported_in_window": 4,
+      "categories.contendibili_total": 1,
+      "categories.image_fingerprints_fresh": 12,
+    }),
+    integrity: okIntegrity,
+    actionRuns: allActionsOk,
+    pipelineRuns: okPipelines,
+  }).filter((r) => !r.passed).map((r) => r.key);
+  assertEquals(partial, [
+    "initial_nuovi_import_immobiliare",
+    "initial_nuovi_import_idealista",
+    "initial_nuovi_import_subito",
   ]);
 
   const passing = buildGateRequirements({
     mode: "initial_validation",
     metric: metricFn({
+      "imported.listings_casa_imported_in_window": 4,
+      "imported.listings_immobiliare_imported_in_window": 4,
+      "imported.listings_idealista_imported_in_window": 4,
+      "imported.listings_subito_imported_in_window": 4,
       "imported.listings_imported_in_window": 9,
       "categories.contendibili_total": 1,
       "categories.image_fingerprints_fresh": 12,
@@ -291,6 +316,25 @@ Deno.test("initial_validation: richiede import reali, contendibile 2+ e fingerpr
   });
   assertEquals(passing.filter((r) => !r.passed).map((r) => r.key), []);
 });
+
+// ── Audit vincolante: l'ultimo run di pipeline deve essere ok ───────────────
+Deno.test("gate: ultimo run di una pipeline fallito blocca il gate", () => {
+  const runs = new Map(okPipelines);
+  runs.set("pipeline_0710", {
+    ...okPipelines.get("pipeline_0710")!,
+    ok: false,
+    error_code: "STEP_FAILED",
+  });
+  const reqs = buildGateRequirements({
+    mode: "routine",
+    metric: metricFn(),
+    integrity: okIntegrity,
+    actionRuns: allActionsOk,
+    pipelineRuns: runs,
+  });
+  assert(reqs.some((r) => !r.passed));
+});
+
 
 Deno.test("gate: step mai eseguito blocca il gate", () => {
   const runs = allActionsOk.filter((r) => r.action !== "contendibili_pairs");
