@@ -910,6 +910,12 @@ async function releaseGate() {
         passed: integrity?.recompute_corrente === true,
       },
       {
+        // Prova diretta: ack PWA ok, corrente, successivo alla fine
+        // dell'ultima pipeline_0710 riuscita nella finestra.
+        key: "pwa_sync_ack_corrente",
+        passed: integrity?.pwa_sync_ack_corrente === true,
+      },
+      {
         key: "sync_pwa_dopo_classificazione",
         passed: integrity?.sync_pwa_dopo_classificazione === true,
       },
