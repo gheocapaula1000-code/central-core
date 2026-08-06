@@ -43,7 +43,7 @@ async function loadJpeg(): Promise<{ decode: (b: Uint8Array, o?: unknown) => { w
 }
 
 async function loadPng(): Promise<{ decode: (b: Uint8Array) => { width: number; height: number; data: Uint8Array | Uint16Array; channels: number } }> {
-  const spec = isDeno ? "npm:fast-png@6.2.0" : "fast-png";
+  const spec = isDeno ? "npm:fast-png@8.0.0" : "fast-png";
   const mod = await import(/* @vite-ignore */ spec) as Record<string, unknown>;
   return (mod.default ?? mod) as { decode: (b: Uint8Array) => { width: number; height: number; data: Uint8Array | Uint16Array; channels: number } };
 }
