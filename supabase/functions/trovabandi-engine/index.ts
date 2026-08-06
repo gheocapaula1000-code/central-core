@@ -2,10 +2,15 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   aggregateDiagnostics,
+  httpFailureCode,
+  isOperationalFailure,
   parseExtractionContent,
+  shouldTryPlainJsonFallback,
   validateExtraction,
+  type ExtractionFailureCode,
   type ExtractionOutcome,
 } from "./extraction.ts";
+
 
 
 type JsonObject = Record<string, unknown>;
@@ -516,7 +521,7 @@ async function callExtraction(
   model: string,
   prompt: string,
   useSchema: boolean,
-): Promise<{ ok: true; content: string } | { ok: false; code: "TIMEOUT" | "HTTP_ERROR"; status?: number }> {
+): Promise<{ ok: true; content: string } | { ok: false; code: ExtractionFailureCode }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 35_000);
   try {
@@ -540,9 +545,9 @@ async function callExtraction(
       signal: controller.signal,
     });
     if (!res.ok) {
-      // Il corpo non viene letto né registrato: solo lo status non sensibile.
+      // Il corpo non viene letto né registrato: solo la classe HTTP sanificata.
       await res.body?.cancel();
-      return { ok: false, code: "HTTP_ERROR", status: res.status };
+      return { ok: false, code: httpFailureCode(res.status) };
     }
     const payload = (await res.json()) as JsonObject;
     const choices = Array.isArray(payload.choices) ? payload.choices : [];
@@ -569,19 +574,21 @@ async function extractOpportunity(
   const schemaHint = `Campi ammessi: is_opportunity (boolean), title, authority_name, category (uno tra FONDO_PERDUTO, FINANZIAMENTO_AGEVOLATO, TASSO_ZERO, CREDITO_IMPOSTA, GARANZIA, VOUCHER, IMPRENDITORIA_FEMMINILE, IMPRENDITORIA_GIOVANILE, DIGITALIZZAZIONE, TRANSIZIONE_ENERGETICA, RICERCA_SVILUPPO, INTERNAZIONALIZZAZIONE, STARTUP_INNOVAZIONE, FORMAZIONE_OCCUPAZIONE, AGRICOLTURA_RURALE, TURISMO_CULTURA, ECONOMIA_CIRCOLARE, ALTRO), summary, official_url, notice_url, application_url, forms_url, protocol_email, region, province, municipality, eligible_ateco_prefixes[], excluded_ateco_prefixes[], eligible_legal_forms[], eligible_company_sizes[], female_only, youth_only, startup_only, innovative_only, de_minimis, aid_intensity_percent, min_grant_amount, max_grant_amount, total_budget, opens_at, deadline_at, click_day, requirements[], eligible_expenses[], publication_reference, programme_name, programme_code, pnrr_mission, pnrr_component, implementing_body, eligible_countries[], consortium_required, min_partners, direct_applicant_allowed.`;
   const prompt = `Estrai esclusivamente dati presenti nel testo ufficiale seguente. Non dedurre requisiti, date o importi mancanti. Se la pagina non descrive un bando, incentivo o finanziamento per imprese aperto, in apertura o con documentazione ancora rilevante, imposta is_opportunity=false. official_url deve essere ${hit.url}. Date ISO 8601. Prefissi ATECO senza punteggiatura superflua. Per opportunità UE estrai programma, codice call/topic, Paesi ammessi e obbligo/minimo partner. Per PNRR estrai Missione, Componente e soggetto attuatore soltanto se espliciti.\n${schemaHint}\n\n${markdown}`;
 
+  // Massimo due tentativi: schema JSON, poi eventuale fallback plain JSON.
   const modes: Array<"json_schema" | "json_fallback"> = ["json_schema", "json_fallback"];
   let lastFailure: ExtractionOutcome = { ok: false, code: "UNKNOWN" };
   for (const mode of modes) {
     const call = await callExtraction(key, model, prompt, mode === "json_schema");
     if (!call.ok) {
       lastFailure = { ok: false, code: call.code, mode };
-      // Timeout: non si ritenta, per non moltiplicare costo e latenza.
-      if (call.code === "TIMEOUT") return lastFailure;
+      // Nessun retry su 401/402/403/429/5xx/timeout: sono errori operativi.
+      if (!shouldTryPlainJsonFallback(call.code)) return lastFailure;
       continue;
     }
     const parsed = parseExtractionContent(call.content);
     if (!parsed.ok) {
       lastFailure = { ok: false, code: parsed.code, mode };
+      if (!shouldTryPlainJsonFallback(parsed.code)) return lastFailure;
       continue;
     }
     const validated = validateExtraction(parsed.value, source.official_domain, hit.url);
@@ -593,6 +600,7 @@ async function extractOpportunity(
   }
   return lastFailure;
 }
+
 
 
 
