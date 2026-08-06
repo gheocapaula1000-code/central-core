@@ -30,7 +30,9 @@ export type PipelineAction = "pipeline_0510" | "pipeline_0545" | "pipeline_0710"
 // Budget totale massimo della pipeline: deve restare sotto il timeout esterno.
 export const PIPELINE_BUDGET_MS = 165_000;
 // Nessun default illimitato: ogni azione ha un timeout esplicito e bounded.
-export const MAX_ACTION_TIMEOUT_MS = 60_000;
+// Radar e offmarket hanno runtime interni reali di 85/80 s: abortirli a 45 s
+// produceva falsi timeout, quindi il tetto è 100 s (sotto il budget totale).
+export const MAX_ACTION_TIMEOUT_MS = 100_000;
 export const MIN_ACTION_TIMEOUT_MS = 5_000;
 export const STEP_MIN_MS = 5_000;
 // Margine sempre lasciato al budget complessivo per chiudere la risposta.
@@ -52,12 +54,19 @@ export const ACTION_TIMEOUT_MS: Record<SimpleAction, number> = {
   contendibili_pairs: 30_000,
   contendibili_evidence: 30_000,
   contendibili_extras: 45_000,
-  offmarket_discover: 45_000,
-  offmarket_scores: 30_000,
-  early_warning: 30_000,
-  radar_full: 45_000,
+  // Runtime interno reale ~80 s.
+  offmarket_discover: 95_000,
+  offmarket_scores: 95_000,
+  early_warning: 95_000,
+  // Runtime interno reale ~85 s.
+  radar_full: 100_000,
   signals_classify: 30_000,
 };
+
+/** Budget residuo utilizzabile: mai negativo, riserva sempre sottratta. */
+export function usableRemainingMs(remainingMs: number): number {
+  return Math.max(0, remainingMs - BUDGET_RESERVE_MS);
+}
 
 /** Timeout effettivo dello step: esplicito, bounded e compatibile col budget. */
 export function stepTimeoutMs(action: SimpleAction, remainingMs: number): number {
@@ -65,8 +74,14 @@ export function stepTimeoutMs(action: SimpleAction, remainingMs: number): number
     MAX_ACTION_TIMEOUT_MS,
     Math.max(MIN_ACTION_TIMEOUT_MS, ACTION_TIMEOUT_MS[action]),
   );
-  return Math.max(1_000, Math.min(base, remainingMs - BUDGET_RESERVE_MS));
+  return Math.max(1_000, Math.min(base, usableRemainingMs(remainingMs)));
 }
+
+/** Non resta budget sufficiente per eseguire un altro step: 504. */
+export function budgetExhausted(remainingMs: number): boolean {
+  return usableRemainingMs(remainingMs) < STEP_MIN_MS;
+}
+
 
 // ── Contratto pipeline ──────────────────────────────────────────────────────
 export interface PipelineStep {
@@ -131,22 +146,135 @@ export function expandedSteps(pipeline: PipelineAction): SimpleAction[] {
   );
 }
 
+// ── Parsing fail-closed ─────────────────────────────────────────────────────
+export interface ParsedBody {
+  obj: Record<string, unknown> | null;
+  error: string | null;
+}
+
+/**
+ * Body JSON nullo, vuoto, non-oggetto o invalido = guasto.
+ * Nessuna risposta opaca può passare per successo.
+ */
+export function parseStepBody(text: string | null | undefined): ParsedBody {
+  if (typeof text !== "string" || !text.trim()) {
+    return { obj: null, error: "empty_body" };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { obj: null, error: "invalid_json" };
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { obj: null, error: "invalid_payload" };
+  }
+  return { obj: parsed as Record<string, unknown>, error: null };
+}
+
 // ── Esito semantico ─────────────────────────────────────────────────────────
+// Chiavi di avanzamento dei payload REALI (non ipotetici).
 export const ZERO_GUARD: Partial<Record<SimpleAction, readonly string[]>> = {
-  apify_immobiliare: ["run_id", "dataset_id", "processed", "inserted", "enqueued"],
-  apify_idealista: ["run_id", "dataset_id", "processed", "inserted", "enqueued"],
-  apify_subito: ["run_id", "dataset_id", "processed", "inserted", "enqueued"],
-  portal_casa: ["enqueued", "processed", "rows_out"],
-  collect_pending: ["processed", "inserted", "updated", "rows_out"],
+  // padova-apify-*-collect: async_start restituisce run_id/dataset_id,
+  // il wrapper nightly rilancia lo stesso corpo con started_count.
+  apify_immobiliare: [
+    "started_count",
+    "run_id",
+    "dataset_id",
+    "ingest_run_id",
+    "async_start",
+    "processed",
+    "inserted",
+    "enqueued",
+  ],
+  apify_idealista: [
+    "started_count",
+    "run_id",
+    "dataset_id",
+    "ingest_run_id",
+    "async_start",
+    "processed",
+    "inserted",
+    "enqueued",
+  ],
+  apify_subito: [
+    "started_count",
+    "run_id",
+    "dataset_id",
+    "ingest_run_id",
+    "async_start",
+    "processed",
+    "inserted",
+    "enqueued",
+  ],
+  portal_casa: ["enqueued", "queued", "processed", "rows_out"],
+  // padova-apify-collect-pending: scanned + import/completamenti reali.
+  collect_pending: [
+    "scanned",
+    "imports_count",
+    "completed_count",
+    "processed",
+    "inserted",
+    "updated",
+    "rows_out",
+  ],
 };
 
-function hasProgress(obj: Record<string, unknown>, keys: readonly string[]): boolean {
-  return keys.some((k) => {
+/** Oggetti dove cercare gli indicatori: radice + wrapper comuni. */
+function progressScopes(obj: Record<string, unknown>): Array<Record<string, unknown>> {
+  const out = [obj];
+  for (const k of ["result", "data", "run"]) {
     const v = obj[k];
-    if (typeof v === "number") return Number.isFinite(v) && v > 0;
-    if (typeof v === "string") return v.trim().length > 0;
-    return v === true;
-  });
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      out.push(v as Record<string, unknown>);
+    }
+  }
+  return out;
+}
+
+function hasProgress(obj: Record<string, unknown>, keys: readonly string[]): boolean {
+  return progressScopes(obj).some((scope) =>
+    keys.some((k) => {
+      const v = scope[k];
+      if (typeof v === "number") return Number.isFinite(v) && v > 0;
+      if (typeof v === "string") return v.trim().length > 0;
+      return v === true;
+    })
+  );
+}
+
+/** Una routine può dichiarare esplicitamente zero novità: è un successo. */
+export function declaresZeroNovelty(obj: Record<string, unknown>): boolean {
+  return progressScopes(obj).some((scope) => scope.zero_novelty === true);
+}
+
+function truthyError(v: unknown): boolean {
+  if (typeof v === "string") return v.trim().length > 0;
+  if (Array.isArray(v)) return v.length > 0;
+  if (v && typeof v === "object") return Object.keys(v).length > 0;
+  return false;
+}
+
+/** Qualunque ok:false o error annidato, a qualsiasi profondità, è guasto. */
+export function nestedFailure(value: unknown, depth = 0): string | null {
+  if (depth > 6 || !value || typeof value !== "object") return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const f = nestedFailure(item, depth + 1);
+      if (f) return f;
+    }
+    return null;
+  }
+  const obj = value as Record<string, unknown>;
+  if (obj.ok === false) return "nested_ok_false";
+  if (truthyError(obj.error)) return "nested_error";
+  if (Array.isArray(obj.errors) && obj.errors.length > 0) return "nested_errors";
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === "counters" || k === "metrics") continue;
+    const f = nestedFailure(v, depth + 1);
+    if (f) return f;
+  }
+  return null;
 }
 
 /** HTTP 200 non basta: skipped/error/zero provider inatteso sono guasti. */
@@ -154,12 +282,20 @@ export function semanticFailure(
   action: SimpleAction,
   obj: Record<string, unknown> | null,
 ): string | null {
-  if (!obj) return null;
+  if (!obj) return "invalid_body";
   if (obj.ok === false) return "ok_false";
+  // skipped: booleano oppure stringa motivazionale ("in_flight_run_recent").
   if (obj.skipped === true) return "skipped";
-  if (typeof obj.error === "string" && obj.error.trim()) return "error";
+  if (typeof obj.skipped === "string" && obj.skipped.trim()) return "skipped";
+  if (truthyError(obj.error)) return "error";
+  if (Array.isArray(obj.errors) && obj.errors.length > 0) return "errors";
+  const nested = nestedFailure(obj);
+  if (nested) return nested;
   const keys = ZERO_GUARD[action];
-  if (keys && !hasProgress(obj, keys)) return "zero_provider_result";
+  if (keys) {
+    if (declaresZeroNovelty(obj)) return null;
+    if (!hasProgress(obj, keys)) return "zero_provider_result";
+  }
   return null;
 }
 
@@ -175,13 +311,60 @@ export function pipelineStatus(
   return 502;
 }
 
-// ── Audit latest-wins ───────────────────────────────────────────────────────
+// ── Certificazione fotografica su coda mutante ──────────────────────────────
+export interface ImageCertifyProgress {
+  attempted?: unknown;
+  remaining?: unknown;
+  last_listing_id?: unknown;
+}
+
+function numOrNull(v: unknown): number | null {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Nessun offset su una coda che si svuota mentre la si consuma: l'avanzamento
+ * è dato dal marker oldest-first (last_listing_id) e da attempted/remaining.
+ */
+export function shouldRepeatImageCertify(
+  invocation: number,
+  progress: ImageCertifyProgress,
+  previousMarker: number | null,
+): boolean {
+  if (invocation >= IMAGE_CERTIFY_MAX_INVOCATIONS) return false;
+  const remaining = numOrNull(progress.remaining);
+  if (remaining !== null && remaining <= 0) return false;
+  const attempted = numOrNull(progress.attempted);
+  if (attempted !== null && attempted <= 0) return false;
+  const marker = numOrNull(progress.last_listing_id);
+  if (marker === null) return attempted !== null && attempted > 0;
+  if (previousMarker !== null && marker <= previousMarker) return false;
+  return true;
+}
+
+export function imageCertifyMarker(progress: ImageCertifyProgress): number | null {
+  return numOrNull(progress.last_listing_id);
+}
+
+// ── Audit dell'ESATTO ultimo run ────────────────────────────────────────────
 export interface ActionRunRow {
   action: string;
   finished_at: string | null;
   started_at: string;
   ok: boolean | null;
   status: number | null;
+  error_code: string | null;
+  pipeline?: string | null;
+  pipeline_run_id?: string | null;
+}
+
+export interface PipelineRunRow {
+  pipeline_run_id: string;
+  pipeline: string;
+  started_at: string;
+  finished_at: string | null;
+  ok: boolean | null;
   error_code: string | null;
 }
 
@@ -200,7 +383,38 @@ export function latestRunsByAction(rows: ActionRunRow[]): Map<string, ActionRunR
   return out;
 }
 
-/** Azioni la cui ULTIMA esecuzione non è ok (o non è mai terminata). */
+function pipelineTime(r: PipelineRunRow): number {
+  const t = Date.parse(r.finished_at ?? r.started_at);
+  return Number.isFinite(t) ? t : 0;
+}
+
+/** ESATTO ultimo run di ciascuna delle 3 pipeline (anche se fallito). */
+export function latestRunPerPipeline(
+  rows: PipelineRunRow[],
+): Map<PipelineAction, PipelineRunRow> {
+  const out = new Map<PipelineAction, PipelineRunRow>();
+  const known = new Set(Object.keys(PIPELINES));
+  for (const r of rows) {
+    if (!known.has(r.pipeline)) continue;
+    const key = r.pipeline as PipelineAction;
+    const prev = out.get(key);
+    if (!prev || pipelineTime(r) >= pipelineTime(prev)) out.set(key, r);
+  }
+  return out;
+}
+
+/** Solo gli step appartenenti a quegli esatti run: niente righe vecchie. */
+export function stepsOfExactRuns(
+  actionRows: ActionRunRow[],
+  latest: Map<PipelineAction, PipelineRunRow>,
+): ActionRunRow[] {
+  const ids = new Set(Array.from(latest.values()).map((r) => r.pipeline_run_id));
+  return actionRows.filter((r) =>
+    typeof r.pipeline_run_id === "string" && ids.has(r.pipeline_run_id)
+  );
+}
+
+/** Azioni la cui esecuzione nell'esatto run non è ok (o non è terminata). */
 export function failingActions(rows: ActionRunRow[]): string[] {
   const latest = latestRunsByAction(rows);
   const bad: string[] = [];
@@ -224,6 +438,17 @@ export function missingActions(rows: ActionRunRow[]): string[] {
     return !run || run.ok !== true;
   });
 }
+
+/** Le 3 pipeline devono avere un ultimo run presente e riuscito. */
+export function pipelinesNotOk(
+  latest: Map<PipelineAction, PipelineRunRow>,
+): string[] {
+  return (Object.keys(PIPELINES) as PipelineAction[]).filter((p) => {
+    const run = latest.get(p);
+    return !run || run.ok !== true || !run.finished_at;
+  });
+}
+
 
 // ── Release gate ────────────────────────────────────────────────────────────
 export type GateMode = "routine" | "initial_validation";
@@ -275,13 +500,17 @@ export interface GateEvaluationInput {
   /** metrica -> valore (già appiattito, null = non verificabile). */
   metric: (group: string, name: string) => number;
   integrity: GateIntegrity;
+  /** SOLO gli step degli esatti ultimi run delle 3 pipeline. */
   actionRuns: ActionRunRow[];
+  /** Ultimo run di ciascuna pipeline (anche fallito). */
+  pipelineRuns: Map<PipelineAction, PipelineRunRow>;
 }
 
 export function buildGateRequirements(input: GateEvaluationInput): GateRequirement[] {
-  const { metric: g, integrity, mode, actionRuns } = input;
+  const { metric: g, integrity, mode, actionRuns, pipelineRuns } = input;
   const failing = failingActions(actionRuns);
   const missing = missingActions(actionRuns);
+  const badPipelines = pipelinesNotOk(pipelineRuns);
 
   const base: GateRequirement[] = [
     // I 4 portali devono essere freschi nella finestra.
@@ -307,7 +536,9 @@ export function buildGateRequirements(input: GateEvaluationInput): GateRequireme
     // Integrità perimetro Padova / 8 zone ufficiali.
     { key: "perimetro_contendibili_padova_8_zone", passed: integrity.contendibili_fuori_perimetro === 0 },
     { key: "perimetro_privati_padova_8_zone", passed: integrity.privati_fuori_perimetro === 0 },
-    // Nessun fallimento nell'ultima esecuzione di ciascuna azione.
+    // Le 3 pipeline devono avere un ULTIMO run concluso e riuscito.
+    { key: "ultime_tre_pipeline_ok", passed: badPipelines.length === 0 },
+    // Nessun fallimento negli step di quegli esatti run.
     { key: "nessun_fallimento_recente", passed: failing.length === 0 },
     { key: "tutti_gli_step_hanno_lavorato", passed: missing.length === 0 },
   ];
@@ -318,14 +549,14 @@ export function buildGateRequirements(input: GateEvaluationInput): GateRequireme
     return base;
   }
 
-  // Collaudo iniziale: servono novità reali dimostrabili.
+  // Collaudo iniziale: servono novità reali dimostrabili su TUTTI i 4 portali
+  // nello stesso ciclo (nessun OR fra Casa e gli altri).
   return [
     ...base,
-    {
-      key: "initial_nuovi_import_reali",
-      passed: g("imported", "listings_casa_imported_in_window") > 0 ||
-        g("imported", "listings_imported_in_window") > 0,
-    },
+    ...CIVIKO_PORTALS.map((p) => ({
+      key: `initial_nuovi_import_${p}`,
+      passed: g("imported", `listings_${p}_imported_in_window`) > 0,
+    })),
     {
       key: "initial_contendibile_certificato_2_piu",
       passed: g("categories", "contendibili_total") > 0,
@@ -336,3 +567,4 @@ export function buildGateRequirements(input: GateEvaluationInput): GateRequireme
     },
   ];
 }
+

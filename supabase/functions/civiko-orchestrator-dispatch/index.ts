@@ -18,20 +18,26 @@ import { isAuctionRecord } from "../_shared/auctionExclusion.ts";
 
 import {
   ackAfterPipeline,
+  budgetExhausted as noBudgetLeft,
   buildGateRequirements,
   CIVIKO_PORTALS,
   expandedSteps,
   failingActions,
   IMAGE_CERTIFY_HARD_LIMIT,
   IMAGE_CERTIFY_MAX_INVOCATIONS,
+  imageCertifyMarker,
+  latestRunPerPipeline,
   latestRunsByAction,
   missingActions,
   parseGateMode,
+  parseStepBody,
   PIPELINE_BUDGET_MS,
   PIPELINES,
+  pipelinesNotOk,
   pipelineStatus,
   semanticFailure,
-  STEP_MIN_MS,
+  shouldRepeatImageCertify,
+  stepsOfExactRuns,
   stepTimeoutMs,
 } from "./orchestrator.ts";
 import type {
@@ -39,8 +45,10 @@ import type {
   GateIntegrity,
   GateMode,
   PipelineAction,
+  PipelineRunRow,
   SimpleAction,
 } from "./orchestrator.ts";
+
 
 const DISPATCH_SECRET = Deno.env.get("CIVIKO_ORCHESTRATOR_DISPATCH_SECRET") ?? "";
 const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
@@ -293,7 +301,10 @@ interface StepResult {
   status: number;
   reason: string | null;
   result: Record<string, unknown>;
+  /** Payload oggetto (solo per progressione interna, mai restituito). */
+  raw?: Record<string, unknown> | null;
 }
+
 
 // Esito semantico e zero-guard: ./orchestrator.ts (fail-closed).
 
@@ -342,21 +353,33 @@ async function runAction(
     });
 
     const text = await res.text();
-    let payload: unknown = null;
-    try {
-      payload = text ? JSON.parse(text) : null;
-    } catch {
-      payload = null;
+    const parsedBody = parseStepBody(text);
+    // Gli RPC PostgREST possono legittimamente restituire array/scalari o un
+    // body vuoto: per loro vale solo lo stato HTTP. Le Edge Function invece
+    // devono restituire un oggetto JSON valido, altrimenti è guasto.
+    let rawPayload: unknown = parsedBody.obj;
+    if (isRpc && parsedBody.error) {
+      try {
+        rawPayload = text.trim() ? JSON.parse(text) : null;
+      } catch {
+        rawPayload = null;
+      }
     }
-    const obj = payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
-    const semantic = res.ok ? semanticFailure(action, obj) : null;
+    const obj = parsedBody.obj;
+    // Parsing fail-closed: body nullo/vuoto/invalido è guasto anche con 200.
+    const parseError = isRpc ? null : parsedBody.error;
+    const semantic = res.ok
+      ? (parseError ?? (isRpc && !obj ? null : semanticFailure(action, obj)))
+      : null;
+
     const reason = isRpc && res.status === 400
-      ? safePostgrestReason(payload) ?? "postgrest_bad_request"
+      ? safePostgrestReason(rawPayload) ?? "postgrest_bad_request"
       : obj && typeof obj.reason === "string"
       ? obj.reason
       : obj && typeof obj.error === "string"
       ? obj.error
       : semantic;
+
 
     console.log(
       `[civiko-orchestrator-dispatch] action=${action} target=${targetName} status=${res.status}${
@@ -371,8 +394,10 @@ async function runAction(
 
       status: res.status,
       reason,
-      result: safeIdentifiers(payload),
+      result: safeIdentifiers(rawPayload),
+      raw: obj,
     };
+
   } catch (e) {
     const aborted = e instanceof Error && e.name === "AbortError";
     console.error(
@@ -401,13 +426,18 @@ function sanitizedCounters(result: Record<string, unknown>): Record<string, numb
   return out;
 }
 
+/**
+ * L'audit è parte del contratto: se la scrittura fallisce, lo step (e quindi
+ * la pipeline) NON può risultare riuscito. Ritorna null se scritto, altrimenti
+ * il motivo del guasto.
+ */
 async function recordActionRun(
-  runId: string,
+  pipelineRunId: string,
   pipeline: string | null,
   step: StepResult,
   startedAt: string,
-): Promise<void> {
-  if (!SERVICE_KEY) return;
+): Promise<string | null> {
+  if (!SERVICE_KEY) return "audit_service_key_missing";
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/civiko_orchestrator_action_runs`, {
       method: "POST",
@@ -418,7 +448,8 @@ async function recordActionRun(
         Prefer: "return=minimal",
       },
       body: JSON.stringify([{
-        run_id: runId,
+        run_id: pipelineRunId,
+        pipeline_run_id: pipelineRunId,
         action: step.action,
         pipeline,
         started_at: startedAt,
@@ -430,9 +461,14 @@ async function recordActionRun(
       }]),
     });
     await res.body?.cancel();
-    if (!res.ok) console.error(`[dispatch] action_run not recorded status=${res.status}`);
+    if (!res.ok) {
+      console.error(`[dispatch] action_run not recorded status=${res.status}`);
+      return "audit_write_failed";
+    }
+    return null;
   } catch {
     console.error("[dispatch] action_run not recorded");
+    return "audit_write_failed";
   }
 }
 
@@ -440,15 +476,19 @@ async function recordActionRun(
 async function runAuditedAction(
   action: SimpleAction,
   timeoutMs: number,
-  runId: string,
+  pipelineRunId: string,
   pipeline: string | null,
   bodyOverride?: Record<string, unknown>,
 ): Promise<StepResult> {
   const startedAt = new Date().toISOString();
   const step = await runAction(action, timeoutMs, bodyOverride);
-  await recordActionRun(runId, pipeline, step, startedAt);
+  const auditError = await recordActionRun(pipelineRunId, pipeline, step, startedAt);
+  if (auditError) {
+    return { ...step, ok: false, status: step.ok ? 500 : step.status, reason: auditError };
+  }
   return step;
 }
+
 
 
 
@@ -662,6 +702,13 @@ function gateSpecs(since: string): GateSpec[] {
       metric: "listings_imported_in_window",
       q: `padova_listings?select=id&imported_at=gte.${since}`,
     },
+    // Import reali per CIASCUNO dei 4 portali nello stesso ciclo.
+    ...CIVIKO_PORTALS.map((p) => ({
+      group: "imported" as const,
+      metric: `listings_${p}_imported_in_window`,
+      q: `padova_listings?select=id&fonte=eq.${p}&imported_at=gte.${since}`,
+    })),
+
     {
       group: "categories",
       metric: "image_fingerprints_fresh",
@@ -677,9 +724,13 @@ function gateSpecs(since: string): GateSpec[] {
  * Traccia reale delle pipeline Civiko: il release gate esige un ack PWA
  * successivo alla fine dell'ultima pipeline_0710 riuscita, quindi la fine
  * della pipeline deve essere registrata in modo verificabile.
+ * L'audit è parte del contratto: se non si scrive, la pipeline non è ok.
  */
-async function recordPipelineStart(runId: string, pipeline: string): Promise<void> {
-  if (!SERVICE_KEY) return;
+async function recordPipelineStart(
+  pipelineRunId: string,
+  pipeline: string,
+): Promise<string | null> {
+  if (!SERVICE_KEY) return "audit_service_key_missing";
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/civiko_pipeline_runs`, {
       method: "POST",
@@ -690,28 +741,34 @@ async function recordPipelineStart(runId: string, pipeline: string): Promise<voi
         Prefer: "return=minimal",
       },
       body: JSON.stringify([{
-        run_id: runId,
+        run_id: pipelineRunId,
+        pipeline_run_id: pipelineRunId,
         pipeline,
         started_at: new Date().toISOString(),
       }]),
     });
     await res.body?.cancel();
-    if (!res.ok) console.error(`[dispatch] pipeline_run start not recorded status=${res.status}`);
+    if (!res.ok) {
+      console.error(`[dispatch] pipeline_run start not recorded status=${res.status}`);
+      return "audit_pipeline_start_failed";
+    }
+    return null;
   } catch {
     console.error("[dispatch] pipeline_run start not recorded");
+    return "audit_pipeline_start_failed";
   }
 }
 
 async function recordPipelineEnd(
-  runId: string,
+  pipelineRunId: string,
   okRun: boolean,
   steps: StepResult[],
   errorCode: string | null,
-): Promise<void> {
-  if (!SERVICE_KEY) return;
+): Promise<string | null> {
+  if (!SERVICE_KEY) return "audit_service_key_missing";
   try {
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/civiko_pipeline_runs?run_id=eq.${runId}`,
+      `${SUPABASE_URL}/rest/v1/civiko_pipeline_runs?run_id=eq.${pipelineRunId}`,
       {
         method: "PATCH",
         headers: {
@@ -734,11 +791,17 @@ async function recordPipelineEnd(
       },
     );
     await res.body?.cancel();
-    if (!res.ok) console.error(`[dispatch] pipeline_run end not recorded status=${res.status}`);
+    if (!res.ok) {
+      console.error(`[dispatch] pipeline_run end not recorded status=${res.status}`);
+      return "audit_pipeline_end_failed";
+    }
+    return null;
   } catch {
     console.error("[dispatch] pipeline_run end not recorded");
+    return "audit_pipeline_end_failed";
   }
 }
+
 
 async function readGateIntegrity(): Promise<GateIntegrity | null> {
   if (!SERVICE_KEY) return null;
@@ -799,7 +862,7 @@ async function readGateIntegrity(): Promise<GateIntegrity | null> {
   }
 }
 
-/** Ultime esecuzioni delle azioni nella finestra (latest-wins lato gate). */
+/** Esecuzioni delle azioni nella finestra, con il run di appartenenza. */
 async function readActionRuns(since: string): Promise<ActionRunRow[] | null> {
   if (!SERVICE_KEY) return null;
   const controller = new AbortController();
@@ -807,7 +870,7 @@ async function readActionRuns(since: string): Promise<ActionRunRow[] | null> {
   try {
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/civiko_orchestrator_action_runs` +
-        `?select=action,started_at,finished_at,ok,status,error_code` +
+        `?select=action,pipeline,pipeline_run_id,started_at,finished_at,ok,status,error_code` +
         `&started_at=gte.${since}&order=started_at.asc&limit=2000`,
       {
         headers: {
@@ -824,10 +887,50 @@ async function readActionRuns(since: string): Promise<ActionRunRow[] | null> {
     return rows.filter((r) => r && typeof r === "object" && typeof r.action === "string")
       .map((r) => ({
         action: String(r.action),
+        pipeline: typeof r.pipeline === "string" ? r.pipeline : null,
+        pipeline_run_id: typeof r.pipeline_run_id === "string" ? r.pipeline_run_id : null,
         started_at: String(r.started_at ?? ""),
         finished_at: typeof r.finished_at === "string" ? r.finished_at : null,
         ok: typeof r.ok === "boolean" ? r.ok : null,
         status: typeof r.status === "number" ? r.status : null,
+        error_code: typeof r.error_code === "string" ? r.error_code : null,
+      }));
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Run delle pipeline nella finestra: serve l'ESATTO ultimo run di ognuna. */
+async function readPipelineRuns(since: string): Promise<PipelineRunRow[] | null> {
+  if (!SERVICE_KEY) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GATE_TIMEOUT_MS);
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/civiko_pipeline_runs` +
+        `?select=run_id,pipeline,started_at,finished_at,ok,error_code` +
+        `&started_at=gte.${since}&order=started_at.asc&limit=500`,
+      {
+        headers: {
+          apikey: SERVICE_KEY,
+          Authorization: `Bearer ${SERVICE_KEY}`,
+          Accept: "application/json",
+        },
+        signal: controller.signal,
+      },
+    );
+    if (!res.ok) return null;
+    const rows = await res.json().catch(() => null);
+    if (!Array.isArray(rows)) return null;
+    return rows.filter((r) => r && typeof r === "object" && typeof r.pipeline === "string")
+      .map((r) => ({
+        pipeline_run_id: String(r.run_id ?? ""),
+        pipeline: String(r.pipeline),
+        started_at: String(r.started_at ?? ""),
+        finished_at: typeof r.finished_at === "string" ? r.finished_at : null,
+        ok: typeof r.ok === "boolean" ? r.ok : null,
         error_code: typeof r.error_code === "string" ? r.error_code : null,
       }));
   } catch {
@@ -863,11 +966,21 @@ async function releaseGate(mode: GateMode) {
   const integrity = await readGateIntegrity();
   if (!integrity) failedQueries.push("release_gate_integrity_view");
 
-  const actionRuns = await readActionRuns(since);
-  if (!actionRuns) failedQueries.push("orchestrator_action_runs");
+  const allActionRuns = await readActionRuns(since);
+  if (!allActionRuns) failedQueries.push("orchestrator_action_runs");
+
+  const pipelineRunRows = await readPipelineRuns(since);
+  if (!pipelineRunRows) failedQueries.push("orchestrator_pipeline_runs");
+
+  const latestPipelines = latestRunPerPipeline(pipelineRunRows ?? []);
+  // Solo gli step degli ESATTI ultimi run delle 3 pipeline: nessuna riga
+  // vecchia e nessun latest globale per azione.
+  const actionRuns = allActionRuns
+    ? stepsOfExactRuns(allActionRuns, latestPipelines)
+    : null;
 
   const metricsAvailable = Boolean(SERVICE_KEY) && failedQueries.length === 0 &&
-    integrity !== null && actionRuns !== null;
+    integrity !== null && actionRuns !== null && pipelineRunRows !== null;
 
   const g = (group: string, metric: string): number =>
     (metrics[group]?.[metric] as number) ?? 0;
@@ -875,7 +988,13 @@ async function releaseGate(mode: GateMode) {
 
 
   const requirements = metricsAvailable && integrity && actionRuns
-    ? buildGateRequirements({ mode, metric: g, integrity, actionRuns })
+    ? buildGateRequirements({
+      mode,
+      metric: g,
+      integrity,
+      actionRuns,
+      pipelineRuns: latestPipelines,
+    })
     : [];
 
   const gate_passed = metricsAvailable && requirements.every((r) => r.passed);
@@ -893,6 +1012,14 @@ async function releaseGate(mode: GateMode) {
     since,
     metrics,
     integrity,
+    pipelines_latest: Array.from(latestPipelines.entries()).map(([pipeline, r]) => ({
+      pipeline,
+      pipeline_run_id: r.pipeline_run_id,
+      ok: r.ok,
+      finished_at: r.finished_at,
+      error_code: r.error_code,
+    })),
+    pipelines_not_ok: pipelineRunRows ? pipelinesNotOk(latestPipelines) : null,
     actions_latest: actionRuns
       ? Array.from(latestRunsByAction(actionRuns).values()).map((r) => ({
         action: r.action,
@@ -904,6 +1031,7 @@ async function releaseGate(mode: GateMode) {
       : null,
     actions_failing: actionRuns ? failingActions(actionRuns) : null,
     actions_missing: actionRuns ? missingActions(actionRuns) : null,
+
     pwa_ack_after_pipeline_0710: integrity
       ? ackAfterPipeline(integrity.pwa_sync_ack_ultimo_ok, integrity.pipeline_0710_ultimo_ok)
       : null,
@@ -1001,74 +1129,109 @@ Deno.serve(async (req) => {
     const planned = expandedSteps(pipelineAction);
     const steps: StepResult[] = [];
     let failedAt: string | null = null;
-    let budgetExhausted = false;
+    let exhausted = false;
     const startedAt = Date.now();
-    const runId = crypto.randomUUID();
-    await recordPipelineStart(runId, action);
+    const pipelineRunId = crypto.randomUUID();
+    const startAudit = await recordPipelineStart(pipelineRunId, action);
+    if (startAudit) {
+      // L'audit è parte del contratto: senza traccia la pipeline non parte.
+      return json(500, {
+        ok: false,
+        action,
+        pipeline_run_id: pipelineRunId,
+        run_id: pipelineRunId,
+        error: startAudit,
+      });
+    }
     // Sequenziale, deterministica e fail-closed: si ferma al primo step non ok
     // e comunque entro il budget complessivo.
-    const repeatIndex = new Map<SimpleAction, number>();
-    for (const step of planned) {
-      const iteration = repeatIndex.get(step) ?? 0;
-      repeatIndex.set(step, iteration + 1);
-      const remaining = PIPELINE_BUDGET_MS - (Date.now() - startedAt);
-      if (remaining <= STEP_MIN_MS) {
-        budgetExhausted = true;
-        failedAt = step;
-        steps.push({
-          action: step,
-          target: ALLOWED[step].rpc ? `rpc/${ALLOWED[step].rpc}` : ALLOWED[step].fn,
-          ok: false,
-          status: 504,
-          reason: "pipeline_budget_exhausted",
-          result: {},
-        });
-        break;
-      }
-      // Certificazione fotografica: hard limit per invocazione e finestra
-      // avanzata a ogni iterazione (max IMAGE_CERTIFY_MAX_INVOCATIONS).
-      const override = step === "contendibili_image_certify"
-        ? {
-          limit: IMAGE_CERTIFY_HARD_LIMIT,
-          offset: iteration * IMAGE_CERTIFY_HARD_LIMIT,
+    const remainingMs = () => PIPELINE_BUDGET_MS - (Date.now() - startedAt);
+    const pushBudgetFailure = (step: SimpleAction) => {
+      exhausted = true;
+      failedAt = step;
+      steps.push({
+        action: step,
+        target: ALLOWED[step].rpc ? `rpc/${ALLOWED[step].rpc}` : ALLOWED[step].fn,
+        ok: false,
+        status: 504,
+        reason: "pipeline_budget_exhausted",
+        result: {},
+      });
+    };
+
+    outer:
+    for (const declared of pipeline.steps) {
+      const step = declared.action;
+      const isImage = step === "contendibili_image_certify";
+      const maxIterations = isImage
+        ? IMAGE_CERTIFY_MAX_INVOCATIONS
+        : Math.max(1, declared.repeat ?? 1);
+      let marker: number | null = null;
+
+      for (let iteration = 0; iteration < maxIterations; iteration++) {
+        if (noBudgetLeft(remainingMs())) {
+          pushBudgetFailure(step);
+          break outer;
         }
-        : undefined;
-      const r = await runAuditedAction(
-        step,
-        stepTimeoutMs(step, remaining),
-        runId,
-        action,
-        override,
-      );
-      steps.push(r);
-      if (!r.ok) {
-        failedAt = step;
-        break;
+        // Certificazione fotografica su coda mutante: nessun offset, hard limit
+        // 4 e avanzamento oldest-first tramite marker.
+        const override = isImage
+          ? {
+            limit: IMAGE_CERTIFY_HARD_LIMIT,
+            pipeline_run_id: pipelineRunId,
+            ...(marker !== null ? { after_listing_id: marker } : {}),
+          }
+          : { pipeline_run_id: pipelineRunId };
+        const r = await runAuditedAction(
+          step,
+          stepTimeoutMs(step, remainingMs()),
+          pipelineRunId,
+          action,
+          override,
+        );
+        steps.push(r);
+        if (!r.ok) {
+          failedAt = step;
+          break outer;
+        }
+        if (isImage) {
+          const progress = (r.raw ?? {}) as Record<string, unknown>;
+          const next = imageCertifyMarker(progress);
+          if (!shouldRepeatImageCertify(iteration + 1, progress, marker)) break;
+          marker = next ?? marker;
+        }
       }
     }
     const failing = steps.find((s) => !s.ok);
-    const status = pipelineStatus(steps, budgetExhausted);
-    await recordPipelineEnd(
-      runId,
+    let status = pipelineStatus(steps, exhausted);
+    const endAudit = await recordPipelineEnd(
+      pipelineRunId,
       failedAt === null,
       steps,
-      failedAt === null ? null : (budgetExhausted ? "BUDGET_EXHAUSTED" : "STEP_FAILED"),
+      failedAt === null ? null : (exhausted ? "BUDGET_EXHAUSTED" : "STEP_FAILED"),
     );
+    if (endAudit) {
+      failedAt = failedAt ?? "audit";
+      status = status === 200 ? 500 : status;
+    }
+
     // Nessun wrapper ok:true quando un solo step fallisce.
     return json(status, {
       ok: failedAt === null && status === 200,
       action,
-      run_id: runId,
+      pipeline_run_id: pipelineRunId,
+      run_id: pipelineRunId,
       at: pipeline.at,
       timezone: SCHEDULE_TIMEZONE,
       enabled: CRON_ENABLED,
       failed_at: failedAt,
       failed_reason: failing?.reason ?? null,
-      budget_exhausted: budgetExhausted,
+      budget_exhausted: exhausted,
       elapsed_ms: Date.now() - startedAt,
       budget_ms: PIPELINE_BUDGET_MS,
       executed: steps.length,
       planned: planned.length,
+
       image_certify_max_invocations: IMAGE_CERTIFY_MAX_INVOCATIONS,
       steps,
     });

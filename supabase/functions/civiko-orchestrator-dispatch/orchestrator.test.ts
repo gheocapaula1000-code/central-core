@@ -20,7 +20,10 @@ import {
   stepTimeoutMs,
   type ActionRunRow,
   type GateIntegrity,
+  type PipelineAction,
+  type PipelineRunRow,
   type SimpleAction,
+
 } from "./orchestrator.ts";
 
 // ── 1) Budget e timeout ────────────────────────────────────────────────────
@@ -172,6 +175,18 @@ const allActionsOk: ActionRunRow[] = Array.from(
   ),
 ).map((a) => run(a, "2026-08-06T07:00:00Z", true));
 
+// Ultimo run OK di ciascuna pipeline (audit vincolante lato gate).
+const okPipelines = new Map<PipelineAction, PipelineRunRow>(
+  (Object.keys(PIPELINES) as PipelineAction[]).map((p) => [p, {
+    pipeline_run_id: `run-${p}`,
+    pipeline: p,
+    started_at: "2026-08-06T07:00:00Z",
+    finished_at: "2026-08-06T07:20:00Z",
+    ok: true,
+    error_code: null,
+  }]),
+);
+
 function metricFn(overrides: Record<string, number> = {}) {
   const base: Record<string, number> = {
     "portals.collect_items_casa_fresh": 3,
@@ -195,6 +210,7 @@ Deno.test("routine: zero novità è valido se tutti gli step hanno lavorato", ()
     metric: metricFn(),
     integrity: okIntegrity,
     actionRuns: allActionsOk,
+    pipelineRuns: okPipelines,
   });
   const failed = reqs.filter((r) => !r.passed).map((r) => r.key);
   assertEquals(failed, []);
@@ -210,6 +226,7 @@ Deno.test("routine: fallisce se una azione recente è in errore", () => {
     metric: metricFn(),
     integrity: okIntegrity,
     actionRuns: runs,
+    pipelineRuns: okPipelines,
   });
   assert(reqs.find((r) => r.key === "nessun_fallimento_recente")?.passed === false);
 });
@@ -220,6 +237,7 @@ Deno.test("routine: fallisce se un portale non è fresco", () => {
     metric: metricFn({ "portals.collect_items_subito_fresh": 0 }),
     integrity: okIntegrity,
     actionRuns: allActionsOk,
+    pipelineRuns: okPipelines,
   });
   assert(reqs.find((r) => r.key === "portale_subito_fresh")?.passed === false);
 });
@@ -230,6 +248,7 @@ Deno.test("routine: fallisce se manca la ricevuta PWA dopo la pipeline_0710", ()
     metric: metricFn(),
     integrity: { ...okIntegrity, pwa_sync_ack_ultimo_ok: "2026-08-06T07:00:00Z" },
     actionRuns: allActionsOk,
+    pipelineRuns: okPipelines,
   });
   assert(reqs.find((r) => r.key === "pwa_sync_ack_dopo_pipeline_0710")?.passed === false);
 });
@@ -240,35 +259,82 @@ Deno.test("routine: il recompute non è surrogato dell'ack PWA", () => {
     metric: metricFn(),
     integrity: { ...okIntegrity, pwa_sync_ack_corrente: false, recompute_corrente: true },
     actionRuns: allActionsOk,
+    pipelineRuns: okPipelines,
   });
   assert(reqs.find((r) => r.key === "pwa_sync_ack_dopo_pipeline_0710")?.passed === false);
 });
 
-Deno.test("initial_validation: richiede import reali, contendibile 2+ e fingerprint", () => {
+Deno.test("initial_validation: import reali per TUTTI e 4 i portali, contendibile 2+ e fingerprint", () => {
   const failing = buildGateRequirements({
     mode: "initial_validation",
     metric: metricFn(),
     integrity: okIntegrity,
     actionRuns: allActionsOk,
+    pipelineRuns: okPipelines,
   }).filter((r) => !r.passed).map((r) => r.key);
   assertEquals(failing, [
-    "initial_nuovi_import_reali",
+    "initial_nuovi_import_casa",
+    "initial_nuovi_import_immobiliare",
+    "initial_nuovi_import_idealista",
+    "initial_nuovi_import_subito",
     "initial_contendibile_certificato_2_piu",
     "initial_fingerprint_fresco",
+  ]);
+
+  // Un solo portale con import non basta: serve l'intero ciclo.
+  const partial = buildGateRequirements({
+    mode: "initial_validation",
+    metric: metricFn({
+      "imported.listings_casa_imported_in_window": 4,
+      "categories.contendibili_total": 1,
+      "categories.image_fingerprints_fresh": 12,
+    }),
+    integrity: okIntegrity,
+    actionRuns: allActionsOk,
+    pipelineRuns: okPipelines,
+  }).filter((r) => !r.passed).map((r) => r.key);
+  assertEquals(partial, [
+    "initial_nuovi_import_immobiliare",
+    "initial_nuovi_import_idealista",
+    "initial_nuovi_import_subito",
   ]);
 
   const passing = buildGateRequirements({
     mode: "initial_validation",
     metric: metricFn({
+      "imported.listings_casa_imported_in_window": 4,
+      "imported.listings_immobiliare_imported_in_window": 4,
+      "imported.listings_idealista_imported_in_window": 4,
+      "imported.listings_subito_imported_in_window": 4,
       "imported.listings_imported_in_window": 9,
       "categories.contendibili_total": 1,
       "categories.image_fingerprints_fresh": 12,
     }),
     integrity: okIntegrity,
     actionRuns: allActionsOk,
+    pipelineRuns: okPipelines,
   });
   assertEquals(passing.filter((r) => !r.passed).map((r) => r.key), []);
 });
+
+// ── Audit vincolante: l'ultimo run di pipeline deve essere ok ───────────────
+Deno.test("gate: ultimo run di una pipeline fallito blocca il gate", () => {
+  const runs = new Map(okPipelines);
+  runs.set("pipeline_0710", {
+    ...okPipelines.get("pipeline_0710")!,
+    ok: false,
+    error_code: "STEP_FAILED",
+  });
+  const reqs = buildGateRequirements({
+    mode: "routine",
+    metric: metricFn(),
+    integrity: okIntegrity,
+    actionRuns: allActionsOk,
+    pipelineRuns: runs,
+  });
+  assert(reqs.some((r) => !r.passed));
+});
+
 
 Deno.test("gate: step mai eseguito blocca il gate", () => {
   const runs = allActionsOk.filter((r) => r.action !== "contendibili_pairs");
@@ -278,6 +344,7 @@ Deno.test("gate: step mai eseguito blocca il gate", () => {
     metric: metricFn(),
     integrity: okIntegrity,
     actionRuns: runs,
+    pipelineRuns: okPipelines,
   });
   assert(reqs.find((r) => r.key === "tutti_gli_step_hanno_lavorato")?.passed === false);
 });

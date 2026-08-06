@@ -2532,6 +2532,7 @@ export type Database = {
           id: string
           ok: boolean | null
           pipeline: string | null
+          pipeline_run_id: string | null
           run_id: string
           started_at: string
           status: number | null
@@ -2545,6 +2546,7 @@ export type Database = {
           id?: string
           ok?: boolean | null
           pipeline?: string | null
+          pipeline_run_id?: string | null
           run_id: string
           started_at?: string
           status?: number | null
@@ -2558,6 +2560,7 @@ export type Database = {
           id?: string
           ok?: boolean | null
           pipeline?: string | null
+          pipeline_run_id?: string | null
           run_id?: string
           started_at?: string
           status?: number | null
@@ -2571,6 +2574,7 @@ export type Database = {
           finished_at: string | null
           ok: boolean | null
           pipeline: string
+          pipeline_run_id: string | null
           run_id: string
           started_at: string
           steps: Json
@@ -2582,6 +2586,7 @@ export type Database = {
           finished_at?: string | null
           ok?: boolean | null
           pipeline: string
+          pipeline_run_id?: string | null
           run_id: string
           started_at?: string
           steps?: Json
@@ -2593,6 +2598,7 @@ export type Database = {
           finished_at?: string | null
           ok?: boolean | null
           pipeline?: string
+          pipeline_run_id?: string | null
           run_id?: string
           started_at?: string
           steps?: Json

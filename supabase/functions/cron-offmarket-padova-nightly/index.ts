@@ -126,8 +126,21 @@ async function runJob(slug: JobSlug, triggeredAt: string) {
     const text = await res.text().catch(() => "");
     const dur = Date.now() - t0;
     let parsed: any = null;
-    try { parsed = text ? JSON.parse(text) : null; } catch { /* raw */ }
-    const okFlag = parsed?.ok !== false; // endpoints return {ok:true|false, ...}
+    let parseError: string | null = null;
+    if (!text.trim()) parseError = "empty_body";
+    else {
+      try {
+        parsed = JSON.parse(text);
+        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+          parseError = "invalid_payload";
+        }
+      } catch {
+        parseError = "invalid_json";
+      }
+    }
+    // Fail-closed: ok:false o errors[] annidati non possono passare per successo.
+    const nestedErrors = Array.isArray(parsed?.errors) && parsed.errors.length > 0;
+    const okFlag = !parseError && parsed?.ok !== false && !nestedErrors;
     const excerpt = (text || "").slice(0, 1600);
     const status: "success" | "failure" = res.ok && okFlag ? "success" : "failure";
     await logExecution(jobName, {
@@ -136,10 +149,20 @@ async function runJob(slug: JobSlug, triggeredAt: string) {
       status,
       http_status: res.status,
       response_excerpt: excerpt,
-      error_message: status === "success" ? null : (parsed?.error?.message ?? `HTTP ${res.status}`),
+      error_message: status === "success"
+        ? null
+        : (parseError ?? parsed?.error?.message ?? (nestedErrors ? "nested_errors" : `HTTP ${res.status}`)),
       duration_ms: dur,
     });
-    return { ok: status === "success", http_status: res.status, duration_ms: dur };
+    return {
+      ok: status === "success",
+      http_status: res.status,
+      duration_ms: dur,
+      error: status === "success"
+        ? undefined
+        : (parseError ?? (nestedErrors ? "nested_errors" : `http_${res.status}`)),
+    };
+
   } catch (err) {
     const dur = Date.now() - t0;
     const msg = err instanceof Error ? err.message : String(err);
@@ -174,7 +197,12 @@ Deno.serve(async (req) => {
   }
   const r = await runJob(slug, triggeredAt);
   return new Response(
-    JSON.stringify({ ok: r.ok, job: JOB_NAMES[slug], slug, triggered_at: triggeredAt, ...r }),
-    { status: 200, headers: { "Content-Type": "application/json" } },
+    JSON.stringify({ job: JOB_NAMES[slug], slug, triggered_at: triggeredAt, ...r, ok: r.ok }),
+    {
+      // Il wrapper propaga il guasto: nessun 200 opaco sopra un run fallito.
+      status: r.ok ? 200 : (r.http_status && r.http_status >= 400 ? r.http_status : 502),
+      headers: { "Content-Type": "application/json" },
+    },
   );
+
 });
