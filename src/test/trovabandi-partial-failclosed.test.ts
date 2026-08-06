@@ -61,9 +61,11 @@ describe("integrazione nell'engine", () => {
 
   it("PARTIAL non viene mai riscritto come FAILED nel DB", () => {
     expect(INDEX).toContain('const runStatus = operationalFailures > 0 ? "PARTIAL" : "SUCCEEDED";');
-    // l'unico FAILED è nel catch delle eccezioni, non nel ramo PARTIAL
+    // gli unici FAILED sono la riconciliazione dei run stale e il catch
+    // delle eccezioni: nessuno appartiene al ramo PARTIAL.
     const failedOccurrences = INDEX.match(/status: "FAILED"/g) ?? [];
-    expect(failedOccurrences.length).toBe(1);
+    expect(failedOccurrences.length).toBe(2);
+    expect(INDEX).toContain('{ status: "FAILED", error_code: "STALE_RUN_TIMEOUT"');
     expect(INDEX).toContain('error_code: error instanceof Error ? error.name : "UNKNOWN"');
   });
 
