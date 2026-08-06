@@ -361,3 +361,18 @@ export function sanitizeDbErrorCode(error: unknown): string {
   if (!safe) return "DB_UNKNOWN";
   return `DB_${safe.slice(0, 12)}`;
 }
+
+/**
+ * Traduce un esito di ricerca in una voce di diagnostica sanificata.
+ * Zero risultati con risposta valida non è un guasto operativo.
+ */
+export function searchDiagnostics(
+  provider: "firecrawl" | "perplexity",
+  outcome: SearchOutcome<unknown>,
+): { phase: string; code: string; operational: boolean } {
+  const phase = `search_${provider}`;
+  if (outcome.ok) {
+    return { phase, code: outcome.hits.length > 0 ? "OK" : "OK_EMPTY", operational: false };
+  }
+  return { phase, code: outcome.code, operational: true };
+}
