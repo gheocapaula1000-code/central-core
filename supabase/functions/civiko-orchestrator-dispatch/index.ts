@@ -346,19 +346,29 @@ async function runAction(
 
     const text = await res.text();
     const parsedBody = parseStepBody(text);
-    const payload = parsedBody.obj;
+    // Gli RPC PostgREST possono legittimamente restituire array/scalari o un
+    // body vuoto: per loro vale solo lo stato HTTP. Le Edge Function invece
+    // devono restituire un oggetto JSON valido, altrimenti è guasto.
+    let rawPayload: unknown = parsedBody.obj;
+    if (isRpc && parsedBody.error) {
+      try {
+        rawPayload = text.trim() ? JSON.parse(text) : null;
+      } catch {
+        rawPayload = null;
+      }
+    }
     const obj = parsedBody.obj;
     // Parsing fail-closed: body nullo/vuoto/invalido è guasto anche con 200.
-    const semantic = res.ok
-      ? (parsedBody.error ?? semanticFailure(action, obj))
-      : (parsedBody.error === null ? null : null);
+    const parseError = isRpc ? null : parsedBody.error;
+    const semantic = res.ok ? (parseError ?? semanticFailure(action, obj)) : null;
     const reason = isRpc && res.status === 400
-      ? safePostgrestReason(payload) ?? "postgrest_bad_request"
+      ? safePostgrestReason(rawPayload) ?? "postgrest_bad_request"
       : obj && typeof obj.reason === "string"
       ? obj.reason
       : obj && typeof obj.error === "string"
       ? obj.error
       : semantic;
+
 
     console.log(
       `[civiko-orchestrator-dispatch] action=${action} target=${targetName} status=${res.status}${
