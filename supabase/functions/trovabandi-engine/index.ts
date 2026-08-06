@@ -1064,16 +1064,18 @@ serve(async (req) => {
         ? sb
             .from("trovabandi_runs")
             .update({
-              status: warnings.length ? "PARTIAL" : "SUCCEEDED",
+              status: operationalFailures > 0 ? "PARTIAL" : "SUCCEEDED",
               discovered_count: byUrl.size,
               processed_count: processed,
               verified_count: verified,
               provider_usage: {
                 firecrawl_search: fc.length,
                 perplexity_search: pp.length,
-                pages_scraped: hits.length,
+                pages_attempted: hits.length,
+                pages_scraped: pagesScraped,
                 diagnostics: diagnosticCounters,
               },
+
               warnings: [...new Set(warnings)],
               finished_at: finished,
             })
@@ -1089,10 +1091,13 @@ serve(async (req) => {
     return response(200, {
       ok: true,
       source: source.name,
+      status: operationalFailures > 0 ? "PARTIAL" : "SUCCEEDED",
       discovered: byUrl.size,
       attempted: hits.length,
+      scraped: pagesScraped,
       processed,
       verified,
+
       warnings: [...new Set(warnings)],
       diagnostics: diagnosticCounters,
     });
