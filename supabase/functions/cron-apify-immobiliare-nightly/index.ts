@@ -6,14 +6,20 @@
 // Body opzionale:
 //   { max_urls_from_db?: number, max_items?: number, wait_seconds?: number, dry_run?: boolean, start_urls?: string[] }
 //
-// Auth: nessuna (verify_jwt=false, no x-job-secret richiesto sul wrapper).
-// Il segreto è iniettato server-side verso la funzione target.
+// Auth: x-job-secret fail-closed prima di body/log/provider.
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
 const JOB_NAME = "central-core-apify-immobiliare-nightly";
 const TARGET = `${SUPABASE_URL}/functions/v1/padova-apify-immobiliare-collect`;
+
+function safeEqual(a: string, b: string): boolean {
+  if (!a || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
 
 async function logExecution(row: {
   triggered_at: string;
@@ -41,11 +47,19 @@ async function logExecution(row: {
 
 Deno.serve(async (req) => {
   const triggeredAt = new Date().toISOString();
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ ok: false, error: "method_not_allowed" }),
+      { status: 405, headers: { "Content-Type": "application/json" } });
+  }
   if (!JOB_SECRET) {
     return new Response(
       JSON.stringify({ ok: false, error: "CENTRAL_CORE_JOB_SECRET missing" }),
       { status: 500, headers: { "Content-Type": "application/json" } },
     );
+  }
+  if (!safeEqual(req.headers.get("x-job-secret") ?? "", JOB_SECRET)) {
+    return new Response(JSON.stringify({ ok: false, error: "unauthorized" }),
+      { status: 401, headers: { "Content-Type": "application/json" } });
   }
 
   let overrides: Record<string, unknown> = {};
@@ -83,7 +97,7 @@ Deno.serve(async (req) => {
   const t0 = Date.now();
   try {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 330_000);
+    const timer = setTimeout(() => ctrl.abort(), 35_000);
     const res = await fetch(TARGET, {
       method: "POST",
       headers: {
@@ -98,18 +112,27 @@ Deno.serve(async (req) => {
     const dur = Date.now() - t0;
     let parsed: unknown = null;
     try { parsed = text ? JSON.parse(text) : null; } catch { /* keep raw */ }
+    const obj = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown> : null;
+    const started = Array.isArray(obj?.started) ? obj.started as unknown[] : [];
+    const errors = Array.isArray(obj?.errors) ? obj.errors as unknown[] : [];
+    const skipped = obj?.skipped === true ||
+      (typeof obj?.skipped === "string" && obj.skipped.trim() !== "");
+    const semanticOk = res.ok && obj?.ok !== false && !obj?.error &&
+      !skipped && started.length > 0 && errors.length === 0;
     await logExecution({
       triggered_at: triggeredAt,
       completed_at: new Date().toISOString(),
-      status: res.ok ? "success" : "failure",
+      status: semanticOk ? "success" : "failure",
       http_status: res.status,
       response_excerpt: text.slice(0, 1500),
-      error_message: res.ok ? null : `HTTP ${res.status}`,
+      error_message: semanticOk ? null : (res.ok ? "downstream_semantic_failure" : `HTTP ${res.status}`),
       duration_ms: dur,
     });
     return new Response(
-      JSON.stringify({ ok: res.ok, http_status: res.status, duration_ms: dur, result: parsed ?? text }, null, 2),
-      { status: 200, headers: { "Content-Type": "application/json" } },
+      JSON.stringify({ ok: semanticOk, http_status: res.status, duration_ms: dur,
+        started_count: started.length, errors_count: errors.length, result: parsed ?? null }, null, 2),
+      { status: semanticOk ? 200 : (res.ok ? 502 : res.status), headers: { "Content-Type": "application/json" } },
     );
   } catch (err) {
     const dur = Date.now() - t0;

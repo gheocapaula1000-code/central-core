@@ -62,8 +62,8 @@ Deno.serve(async (req) => {
   if (!launched.started) {
     console.warn(`[apify] lancio saltato: ${launched.reason} portal=casa_collect`);
     return new Response(
-      JSON.stringify({ ok: true, skipped: true, reason: launched.reason }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      JSON.stringify({ ok: false, skipped: true, reason: launched.reason }),
+      { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 

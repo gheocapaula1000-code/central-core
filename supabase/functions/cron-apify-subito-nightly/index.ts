@@ -29,7 +29,11 @@ Deno.serve(async (req) => {
   } catch { /* empty ok */ }
 
 
-  const r = await fetch(`${base}/functions/v1/padova-apify-subito-collect`, {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 35_000);
+  let r: Response;
+  try {
+    r = await fetch(`${base}/functions/v1/padova-apify-subito-collect`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -37,10 +41,35 @@ Deno.serve(async (req) => {
       "apikey": Deno.env.get("SUPABASE_ANON_KEY") ?? "",
     },
     body: JSON.stringify(body),
-  });
+    signal: controller.signal,
+    });
+  } catch (error) {
+    clearTimeout(timer);
+    const timeout = error instanceof Error && error.name === "AbortError";
+    return new Response(JSON.stringify({ ok: false, error: timeout ? "timeout" : "network_error" }), {
+      status: timeout ? 504 : 502,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+  clearTimeout(timer);
   const text = await r.text();
-  return new Response(text, {
-    status: r.status,
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const value = text ? JSON.parse(text) : null;
+    if (value && typeof value === "object" && !Array.isArray(value)) parsed = value;
+  } catch { /* invalid JSON = failure */ }
+  const hasRun = typeof parsed?.run_id === "string" && parsed.run_id.length > 0;
+  const skipped = parsed?.skipped === true ||
+    (typeof parsed?.skipped === "string" && parsed.skipped.trim() !== "");
+  const semanticOk = r.ok && parsed?.ok !== false && !parsed?.error &&
+    !skipped && hasRun;
+  return new Response(JSON.stringify({
+    ok: semanticOk,
+    http_status: r.status,
+    started_count: hasRun ? 1 : 0,
+    result: parsed,
+  }), {
+    status: semanticOk ? 200 : (r.ok ? 502 : r.status),
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });

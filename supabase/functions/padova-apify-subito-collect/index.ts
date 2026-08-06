@@ -15,14 +15,6 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getApifyToken, startApifyRun } from "../_shared/apify.ts";
-import {
-  bumpCounter,
-  createScopeCounters,
-  evaluateRawComuneScope,
-  isComunePadova,
-  normalizeCounters,
-  reconcileScopeCounters,
-} from "../_shared/civikoPadovaScopeGuard.ts";
 
 
 const APIFY = "https://api.apify.com/v2";
@@ -114,10 +106,6 @@ function pickPhotos(raw: any): string[] | null {
 // Campi verificati via dry_run 2026-07-02.
 function mapSubito(raw: any, jobId: string, nowIso: string) {
   if (!raw || raw.error) return null;
-
-  // Perimetro Civiko: il comune autoritativo raw deve essere esattamente
-  // 'padova' PRIMA di costruire la riga. Nessuno stamp "Padova" preventivo.
-  if (!evaluateRawComuneScope("subito", raw).ok) return null;
 
   const url = canonUrl(raw?.page_url ?? "");
   if (!url) return null;
@@ -216,8 +204,8 @@ function mapSubito(raw: any, jobId: string, nowIso: string) {
 
 // Guard: solo Padova comune, solo vendita, prezzo >= 10.000€
 function isPadovaSaleValid(row: any): boolean {
-  if (!isComunePadova(row?.citta)) return false;
-  if (!isComunePadova(row?.raw_json?._city)) return false;
+  const city = (row?.raw_json?._city ?? "").toString().toLowerCase();
+  if (city !== "padova") return false;
   const tipo = (row?.raw_json?._tipo_transazione ?? "").toString().toLowerCase();
   if (tipo && !tipo.includes("vendita")) return false;
   const prezzo = Number(row?.prezzo);
@@ -293,11 +281,11 @@ Deno.serve(async (req) => {
       if (inflight && inflight.length > 0) {
         return new Response(
           JSON.stringify({
-            ok: true, skipped: true,
+            ok: false, skipped: true,
             skipped_reason: "subito_run_already_running",
             existing_run_id: inflight[0].run_id,
           }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
 
@@ -310,8 +298,8 @@ Deno.serve(async (req) => {
       if (!launched.started) {
         console.warn(`[apify] lancio saltato: ${launched.reason} portal=subito_collect`);
         return new Response(
-          JSON.stringify({ ok: true, skipped: true, reason: launched.reason }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          JSON.stringify({ ok: false, skipped: true, reason: launched.reason }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
       run_id = launched.run_id;
@@ -343,30 +331,20 @@ Deno.serve(async (req) => {
     }
 
     const items = await fetchDataset(dataset_id, token, maxItems);
+    if (items.length === 0) {
+      return new Response(JSON.stringify({ ok: false, error: "provider_returned_zero_items", run_id, dataset_id }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     const nowIso = new Date().toISOString();
     const jobId = `apify-subito-${nowIso.slice(0, 10)}-${crypto.randomUUID().slice(0, 8)}`;
-    // Guard fail-closed applicata sull'item raw PRIMA del mapping.
-    const counters = createScopeCounters();
-    const inScopeRaw: any[] = [];
-    for (const it of items) {
-      bumpCounter(counters, "scanned");
-      if (!evaluateRawComuneScope("subito", it).ok) {
-        bumpCounter(counters, "out_of_scope_rejected");
-        continue;
-      }
-      inScopeRaw.push(it);
-    }
-    const mappedAll = inScopeRaw.map((it) => mapSubito(it, jobId, nowIso)).filter(Boolean) as any[];
+    const mappedAll = items.map((it) => mapSubito(it, jobId, nowIso)).filter(Boolean) as any[];
     const mapped = mappedAll.filter(isPadovaSaleValid);
-    bumpCounter(counters, "padova_kept", mapped.length);
-    bumpCounter(counters, "other_rejected", inScopeRaw.length - mapped.length);
-    const droppedOutOfScope = counters.out_of_scope_rejected;
+    const droppedOutOfScope = mappedAll.length - mapped.length;
 
     // Dedup per url
     const byUrl = new Map<string, any>();
     for (const r of mapped) byUrl.set(r.url, r);
     const deduped = Array.from(byUrl.values());
-    bumpCounter(counters, "out_of_scope_written", deduped.filter((r) => !isComunePadova(r.citta)).length);
 
     if (body.dry_run) {
       // Estrai le "top-level keys" del primo raw per capire la shape reale
@@ -387,8 +365,6 @@ Deno.serve(async (req) => {
           padova_kept: mapped.length,
           dropped_out_of_scope: droppedOutOfScope,
           deduped: deduped.length,
-          scope_counters: normalizeCounters(counters),
-          scope_reconciliation: reconcileScopeCounters(counters),
           schema_probe: {
             raw_top_level_keys: rawKeys,
             geo_keys: geoKeys,
@@ -433,19 +409,18 @@ Deno.serve(async (req) => {
 
     await sb.from("padova_apify_runs").update({ status: "SUCCEEDED" }).eq("run_id", run_id);
 
+    const ok = errors.length === 0 && deduped.length > 0 && created + updated > 0;
     return new Response(
       JSON.stringify({
-        ok: true, run_id, dataset_id, job_id: jobId,
+        ok, run_id, dataset_id, job_id: jobId,
         dataset_size: items.length,
         mapped_total: mappedAll.length,
         padova_kept: mapped.length,
         dropped_out_of_scope: droppedOutOfScope,
         deduped: deduped.length,
         created, updated, errors,
-        scope_counters: { ...normalizeCounters(counters), writes: created + updated },
-        scope_reconciliation: reconcileScopeCounters(counters),
       }, null, 2),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      { status: ok ? 200 : 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
 
   } catch (e) {

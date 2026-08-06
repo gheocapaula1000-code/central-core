@@ -9,8 +9,8 @@
 //
 // Zonizzazione: SOLO per i lead con comune normalizzato === "padova"
 // invoca resolvePadovaOmiBatch e mappa il codice OMI ottenuto sulla zona
-// commerciale reale (civiko_commercial_zones.omi_codes @> [code]). Per gli
-// altri comuni della provincia il lead viene conservato ma senza zona.
+// commerciale reale (civiko_commercial_zones.omi_codes @> [code]). Le fonti
+// che non dichiarano esplicitamente Padova città sono scartate fail-closed.
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -176,6 +176,7 @@ Deno.serve(async (req) => {
   let scartati_agenzia = 0;
   let scartati_no_url = 0;
   let scartati_no_padova_provincia = 0;
+  let scartati_no_padova_citta = 0;
   let upserted = 0;
   let n_privato = 0;
   let n_privato_stanco = 0;
@@ -258,8 +259,14 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Zonizzazione: Padova città + records con Comune sconosciuto (potenzialmente promuovibili via PIP/precomputed).
-  const resolvableRecs = base.filter((b) => b.isPadova || !b.comuneKnown);
+  // Perimetro definitivo: la fonte più recente deve dichiarare Padova città.
+  // Coordinate/PIP non possono promuovere un comune mancante o diverso.
+  const basePadova = base.filter((b) => b.isPadova);
+  scartati_no_padova_citta = base.length - basePadova.length;
+  n_privato = basePadova.filter((b) => b.tipo_lead === "privato").length;
+  n_privato_stanco = basePadova.filter((b) => b.tipo_lead === "privato_stanco").length;
+  n_padova_citta = basePadova.length;
+  const resolvableRecs = basePadova;
 
   // Carica UNA sola volta le zone commerciali attive
   let zones: Array<{ slug: string; nome: string; omi_codes: string[] | null }> = [];
@@ -328,20 +335,6 @@ Deno.serve(async (req) => {
       ? res.omi_zone_code
       : null;
 
-    // Rule 4: unknown comune → can be promoted to "Padova" only via PIP or precomputed.
-    const canPromoteUnknown = !rec.isPadova && !rec.comuneKnown &&
-      (method === "point_in_polygon" || method === "precomputed_omi") && !!validCode;
-    const treatAsPadova = rec.isPadova || canPromoteUnknown;
-
-    if (!treatAsPadova) {
-      // Unknown comune not promotable, keep as-is.
-      zoneByUrl.set(rec.url, {
-        comune: rec.comune, omi_zone: null, commercial_zone_slug: null,
-        quartiere: null, method: "unresolved", confidence: null, resolved_at: nowIso,
-      });
-      continue;
-    }
-
     // Assign commercial zone only when strong method + confidence >= 0.70 + code active.
     if (validCode && STRONG_METHODS.has(method) && confidence !== null && confidence >= MIN_CONF) {
       const zoneHit = mapOmiToZone(validCode, zones);
@@ -376,7 +369,7 @@ Deno.serve(async (req) => {
 
 
   // Costruisci record finali per upsert
-  const records: Array<Record<string, unknown>> = base.map((b) => {
+  const records: Array<Record<string, unknown>> = basePadova.map((b) => {
     const z = zoneByUrl.get(b.url);
     const zoneFields = z
       ? {
@@ -444,6 +437,7 @@ Deno.serve(async (req) => {
       scartati_agenzia,
       scartati_no_url,
       scartati_no_padova: scartati_no_padova_provincia,
+      scartati_no_padova_citta,
       upserted,
       privato: n_privato,
       privato_stanco: n_privato_stanco,

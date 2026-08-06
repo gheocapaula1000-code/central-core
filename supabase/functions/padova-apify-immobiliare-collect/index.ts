@@ -289,8 +289,8 @@ Deno.serve(async (req) => {
             console.warn(`[apify] lancio saltato: ${res.reason} portal=${portal}`);
             skipped.push({ role: "discover", search_url: surl, reason: res.reason });
             if (res.reason === "APIFY_DAILY_CAP_REACHED") {
-              return new Response(JSON.stringify({ ok: true, skipped: true, reason: res.reason, started, skipped_runs: skipped }),
-                { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+              return new Response(JSON.stringify({ ok: false, skipped: true, reason: res.reason, started, skipped_runs: skipped }),
+                { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
             }
             continue;
           }
@@ -313,12 +313,16 @@ Deno.serve(async (req) => {
         );
         if (!res.started) {
           console.warn(`[apify] lancio saltato: ${res.reason} portal=${portal}`);
-          return new Response(JSON.stringify({ ok: true, skipped: true, reason: res.reason, started }),
-            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ ok: false, skipped: true, reason: res.reason, started }),
+            { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
         started.push({ role: "enrich_refresh", run_id: res.run_id, dataset_id: res.dataset_id });
       }
 
+      if (started.length === 0) {
+        return new Response(JSON.stringify({ ok: false, error: "no_apify_run_started", async_start: true, mode, skipped }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       return new Response(JSON.stringify({
         ok: true, async_start: true, mode, job_id: jobId, started, skipped,
         note: "run avviati in async: collect-pending completerà ingest ed enrichment",
@@ -428,6 +432,11 @@ Deno.serve(async (req) => {
     // refresh_urls: solo detail (se assente in dataset, salta)
     for (const u of refreshUrls) if (detailByUrl.has(u) && !discoveredUrls.includes(u)) mapped.push(detailByUrl.get(u));
 
+    if (mapped.length === 0) {
+      return new Response(JSON.stringify({ ok: false, error: "provider_returned_no_mappable_items", job_id: jobId, enrichment }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     if (body.dry_run) {
       return new Response(JSON.stringify({
         ok: true, dry_run: true, job_id: jobId,
@@ -465,11 +474,12 @@ Deno.serve(async (req) => {
       if (error) errors.push(`ins:${error.message}`); else created += slice.length;
     }
 
+    const ok = errors.length === 0 && created + updated + skipped_listview_existing > 0;
     return new Response(JSON.stringify({
-      ok: true, job_id: jobId,
+      ok, job_id: jobId,
       mapped: mapped.length, created, updated, skipped_listview_existing, errors,
       enrichment,
-    }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }, null, 2), { status: ok ? 200 : 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
     return new Response(JSON.stringify({ ok: false, error: String((e as Error)?.message ?? e), enrichment }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });

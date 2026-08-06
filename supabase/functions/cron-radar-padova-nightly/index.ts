@@ -18,6 +18,13 @@ const JOB_NAME_SOFT = "central-core-radar-padova-soft";
 // Nicolò, Abano Terme) NON sono più target del radar Central Core.
 const COMUNI = ["Padova"];
 
+function safeEqual(a: string, b: string): boolean {
+  if (!a || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 async function logExecution(jobName: string, row: {
   triggered_at: string;
   completed_at: string;
@@ -72,15 +79,16 @@ async function runOneComune(comune: string, triggeredAt: string, mode: Mode, job
     limit: mode === "full" ? 200 : 80,
   };
 
-  // Retry hardening: 1 retry on AbortError/502/503/504 (leggero, senza saturare provider).
-  const perComuneTimeout = mode === "full" ? 240_000 : 120_000;
+  // Un solo tentativo: l'orchestratore esterno gestisce il retry. Il wrapper
+  // deve terminare prima del timeout azione (100 s) del dispatcher.
+  const perComuneTimeout = mode === "full" ? 85_000 : 55_000;
   let res: Response | null = null;
   let text = "";
   let lastErr: unknown = null;
   let attempts = 0;
   let retryReason: string | null = null;
 
-  for (attempts = 1; attempts <= 2; attempts++) {
+  for (attempts = 1; attempts <= 1; attempts++) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), perComuneTimeout);
     try {
@@ -108,10 +116,6 @@ async function runOneComune(comune: string, triggeredAt: string, mode: Mode, job
       const abort = err instanceof Error && (err.name === "AbortError" || /aborted/i.test(msg));
       retryReason = abort ? "abort" : `err:${msg.slice(0, 40)}`;
       if (!abort) break;
-    }
-    if (attempts === 1) {
-      // backoff breve prima del retry
-      await new Promise((r) => setTimeout(r, 1500));
     }
   }
 
@@ -208,35 +212,34 @@ async function runAll(triggeredAt: string, mode: Mode, jobName: string) {
   }
   const okCount = results.filter((r) => r.ok).length;
   const totalDur = results.reduce((s, r) => s + r.duration_ms, 0);
-  const allOk = okCount === COMUNI.length;
   await logExecution(jobName, {
     triggered_at: triggeredAt,
     completed_at: new Date().toISOString(),
-    status: allOk ? "success" : "failure",
+    status: okCount === COMUNI.length ? "success" : "failure",
     http_status: 200,
     response_excerpt: `SUMMARY mode=${mode} ok=${okCount}/${COMUNI.length} ` +
       results.map((r) => `${r.comune}:${r.ok ? "ok" : "fail"}`).join(","),
     error_message: null,
     duration_ms: totalDur,
   });
-  // Il wrapper non può restituire ok:true se un comune è fallito.
-  return {
-    ok: allOk,
-    ok_count: okCount,
-    total: COMUNI.length,
-    errors: results.filter((r) => !r.ok).map((r) => ({
-      comune: r.comune,
-      status: r.http_status,
-      result_status: r.result_status,
-      error: r.error ?? null,
-    })),
-  };
+  return { ok: okCount === COMUNI.length, ok_count: okCount, results };
 }
-
 
 Deno.serve(async (req) => {
   const triggeredAt = new Date().toISOString();
   const t0 = Date.now();
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ ok: false, error: "method_not_allowed" }),
+      { status: 405, headers: { "Content-Type": "application/json" } });
+  }
+  if (!JOB_SECRET) {
+    return new Response(JSON.stringify({ ok: false, error: "misconfigured" }),
+      { status: 500, headers: { "Content-Type": "application/json" } });
+  }
+  if (!safeEqual(req.headers.get("x-job-secret") ?? "", JOB_SECRET)) {
+    return new Response(JSON.stringify({ ok: false, error: "unauthorized" }),
+      { status: 401, headers: { "Content-Type": "application/json" } });
+  }
   const url = new URL(req.url);
   const mode: Mode = (url.searchParams.get("mode") === "soft" ? "soft" : "full");
   const jobName = mode === "soft" ? JOB_NAME_SOFT : JOB_NAME_FULL;
@@ -309,7 +312,7 @@ Deno.serve(async (req) => {
     let rowsWritten: number | null = null;
     try {
       const countRes = await fetch(
-        `${SUPABASE_URL}/rest/v1/radar_signals?created_at=gte.${triggeredAt}&select=id`,
+        `${SUPABASE_URL}/rest/v1/radar_signals?detected_at=gte.${triggeredAt}&municipality=eq.Padova&select=id`,
         {
           headers: {
             apikey: SERVICE_KEY,
@@ -326,37 +329,36 @@ Deno.serve(async (req) => {
       }
     } catch { /* best effort */ }
 
-    if (rowsWritten === 0) {
+    if (!summary.ok || rowsWritten === 0 || rowsWritten === null) {
       await logExecution(jobName, {
         triggered_at: triggeredAt,
         completed_at: new Date().toISOString(),
-        status: "success_no_rows",
-        http_status: 200,
-        response_excerpt: `mode=${mode} radar_signals_written=0 comuni=${COMUNI.length}`,
-        error_message: null,
+        status: "failure",
+        http_status: 502,
+        response_excerpt: `mode=${mode} radar_signals_written=${rowsWritten ?? "unavailable"} comuni=${COMUNI.length}`,
+        error_message: summary.ok ? "radar_write_verification_failed" : "radar_downstream_failure",
         duration_ms: Date.now() - t0,
       });
+      return new Response(JSON.stringify({
+        ok: false,
+        error: summary.ok ? "radar_write_verification_failed" : "radar_downstream_failure",
+        radar_signals_written: rowsWritten,
+        completed_count: summary.ok_count,
+      }), { status: 502, headers: { "Content-Type": "application/json" } });
     }
 
-    // Fail-closed: un solo comune fallito propaga ok:false e stato non-2xx.
     return new Response(
       JSON.stringify({
-        ok: summary.ok,
+        ok: true,
         mode: "sync",
         run_mode: mode,
         job: jobName,
         triggered_at: triggeredAt,
         comuni: COMUNI,
-        ok_count: summary.ok_count,
-        errors: summary.errors,
         radar_signals_written: rowsWritten,
       }),
-      {
-        status: summary.ok ? 200 : 502,
-        headers: { "Content-Type": "application/json" },
-      },
+      { status: 200, headers: { "Content-Type": "application/json" } },
     );
-
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error && err.stack ? err.stack : "";

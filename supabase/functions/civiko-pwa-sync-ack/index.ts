@@ -3,7 +3,7 @@
 // La PWA Civiko conferma qui l'esito reale del proprio sync. Il release gate
 // legge SOLO questa tabella: nessuna prova indiretta, nessuna deduzione da
 // altri job. Contratto di autenticazione (già esistente, invariato):
-//   x-source-app: civiko-one (o civiko / civiko_one)
+//   x-source-app: civiko-one (identità canonica unica)
 //   x-internal-secret: AI_CORE_SECRET_CIVIKO (o CORE_INTERNAL_SECRET compat)
 //   x-idempotency-key: uguale a run_id
 //

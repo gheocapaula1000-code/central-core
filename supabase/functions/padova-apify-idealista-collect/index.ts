@@ -350,8 +350,8 @@ Deno.serve(async (req) => {
     if (!launched.started) {
       console.warn(`[apify] lancio saltato: ${launched.reason} portal=${portalTag}`);
       return new Response(
-        JSON.stringify({ ok: true, skipped: true, reason: launched.reason, mode }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        JSON.stringify({ ok: false, skipped: true, reason: launched.reason, mode }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
     const { run_id, dataset_id } = launched;
@@ -386,6 +386,10 @@ Deno.serve(async (req) => {
     }
 
     const items = await fetchDataset(dataset_id, token, maxItems);
+    if (items.length === 0) {
+      return new Response(JSON.stringify({ ok: false, error: "provider_returned_zero_items", run_id, dataset_id }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     const nowIso = new Date().toISOString();
     const jobId = `apify-idealista-${nowIso.slice(0, 10)}-${crypto.randomUUID().slice(0, 8)}`;
     const mappedA = items.map((it) => mapItem(it, jobId, nowIso)).filter(Boolean) as any[];
@@ -514,9 +518,10 @@ Deno.serve(async (req) => {
 
     await sb.from("padova_apify_runs").update({ status: "SUCCEEDED" }).eq("run_id", run_id);
 
+    const ok = errors.length === 0 && deduped.length > 0 && created + updated > 0;
     return new Response(
       JSON.stringify({
-        ok: true, run_id, dataset_id, job_id: jobId, mode,
+        ok, run_id, dataset_id, job_id: jobId, mode,
         discovery_count: discoveryUrls.length,
         refresh_count: refreshUrls.length,
         dataset_size: items.length,
@@ -526,7 +531,7 @@ Deno.serve(async (req) => {
         enrichment,
         created, updated, errors,
       }, null, 2),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      { status: ok ? 200 : 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
 
   } catch (e) {

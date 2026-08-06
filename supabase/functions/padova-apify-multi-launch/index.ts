@@ -189,8 +189,16 @@ Deno.serve(async (req) => {
     return { portal: s.portal, started: true, run_id: res.run_id, dataset_id: res.dataset_id, status: "RUNNING" };
   }));
 
-
-  return new Response(JSON.stringify({ ok: true, idealista_urls_from_db: idealistaFromDbCount, launched: results }, null, 2), {
+  const startedCount = results.filter((result) => result.started === true).length;
+  const ok = startedCount === specs.length && startedCount > 0;
+  return new Response(JSON.stringify({
+    ok,
+    idealista_urls_from_db: idealistaFromDbCount,
+    started_count: startedCount,
+    errors_count: specs.length - startedCount,
+    launched: results,
+  }, null, 2), {
+    status: ok ? 200 : 429,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });

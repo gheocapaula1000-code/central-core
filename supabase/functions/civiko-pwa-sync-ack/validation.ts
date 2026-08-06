@@ -56,8 +56,8 @@ export const FORBIDDEN_FIELDS: readonly string[] = [
   "source_app",
 ];
 
-/** Source app ammesse dal contratto app-secret Civiko PWA. */
-export const CIVIKO_SOURCE_APPS = new Set(["civiko", "civiko-one", "civiko_one"]);
+/** Identità canonica unica del sender PWA Civiko One. */
+export const CIVIKO_SOURCE_APPS = new Set(["civiko-one"]);
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ERROR_CODE_RE = /^[A-Z0-9_]{1,64}$/;
