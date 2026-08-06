@@ -2147,6 +2147,93 @@ export type Database = {
         }
         Relationships: []
       }
+      civiko_listing_image_fingerprints: {
+        Row: {
+          algo: string
+          bytes: number
+          created_at: string
+          entropy: number
+          height: number
+          listing_id: number
+          phash: string
+          sha256: string
+          source_host: string | null
+          updated_at: string
+          width: number
+        }
+        Insert: {
+          algo: string
+          bytes: number
+          created_at?: string
+          entropy: number
+          height: number
+          listing_id: number
+          phash: string
+          sha256: string
+          source_host?: string | null
+          updated_at?: string
+          width: number
+        }
+        Update: {
+          algo?: string
+          bytes?: number
+          created_at?: string
+          entropy?: number
+          height?: number
+          listing_id?: number
+          phash?: string
+          sha256?: string
+          source_host?: string | null
+          updated_at?: string
+          width?: number
+        }
+        Relationships: []
+      }
+      civiko_listing_photo_pair_evidence: {
+        Row: {
+          agency_a: string
+          agency_b: string
+          algo: string
+          computed_at: string
+          distances: Json
+          evidence_kind: string
+          listing_a: number
+          listing_b: number
+          match_version: string
+          shared_photos: number
+          soglia: number
+          updated_at: string
+        }
+        Insert: {
+          agency_a: string
+          agency_b: string
+          algo: string
+          computed_at?: string
+          distances?: Json
+          evidence_kind: string
+          listing_a: number
+          listing_b: number
+          match_version: string
+          shared_photos: number
+          soglia: number
+          updated_at?: string
+        }
+        Update: {
+          agency_a?: string
+          agency_b?: string
+          algo?: string
+          computed_at?: string
+          distances?: Json
+          evidence_kind?: string
+          listing_a?: number
+          listing_b?: number
+          match_version?: string
+          shared_photos?: number
+          soglia?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       civiko_one_generated_outputs: {
         Row: {
           agency_id: string
