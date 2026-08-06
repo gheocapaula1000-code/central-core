@@ -35,17 +35,37 @@ export function isDecodableFormat(format: ImageFormat): boolean {
 
 const isDeno = typeof (globalThis as { Deno?: unknown }).Deno !== "undefined";
 
-async function loadJpeg(): Promise<{ decode: (b: Uint8Array, o?: unknown) => { width: number; height: number; data: Uint8Array } }> {
-  const spec = isDeno ? "npm:jpeg-js@0.4.4" : "jpeg-js";
-  const mod = await import(/* @vite-ignore */ spec) as Record<string, unknown>;
-  const m = (mod.default ?? mod) as { decode: (b: Uint8Array, o?: unknown) => { width: number; height: number; data: Uint8Array } };
-  return m;
+export interface JpegDecoder {
+  decode: (b: Uint8Array, o?: unknown) => { width: number; height: number; data: Uint8Array };
+}
+export interface PngDecoder {
+  decode: (b: Uint8Array) => {
+    width: number;
+    height: number;
+    data: Uint8Array | Uint16Array;
+    channels: number;
+  };
+}
+/**
+ * Decoder iniettabili: l'edge runtime NON risolve import dinamici con
+ * specifier variabile, quindi la funzione edge passa i moduli importati
+ * staticamente. In Node/test si usa il fallback dinamico.
+ */
+export interface Decoders {
+  jpeg?: JpegDecoder;
+  png?: PngDecoder;
 }
 
-async function loadPng(): Promise<{ decode: (b: Uint8Array) => { width: number; height: number; data: Uint8Array | Uint16Array; channels: number } }> {
+async function loadJpeg(): Promise<JpegDecoder> {
+  const spec = isDeno ? "npm:jpeg-js@0.4.4" : "jpeg-js";
+  const mod = await import(/* @vite-ignore */ spec) as Record<string, unknown>;
+  return (mod.default ?? mod) as JpegDecoder;
+}
+
+async function loadPng(): Promise<PngDecoder> {
   const spec = isDeno ? "npm:fast-png@8.0.0" : "fast-png";
   const mod = await import(/* @vite-ignore */ spec) as Record<string, unknown>;
-  return (mod.default ?? mod) as { decode: (b: Uint8Array) => { width: number; height: number; data: Uint8Array | Uint16Array; channels: number } };
+  return (mod.default ?? mod) as PngDecoder;
 }
 
 function toRgba(
