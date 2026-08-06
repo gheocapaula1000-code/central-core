@@ -7,11 +7,16 @@ import { readFileSync } from "node:fs";
 import {
   EXTRACTION_CATEGORIES,
   aggregateDiagnostics,
+  httpFailureCode,
+  isNegativeOutcome,
+  isOperationalFailure,
   parseExtractionContent,
+  shouldTryPlainJsonFallback,
   validateExtraction,
 } from "../../supabase/functions/trovabandi-engine/extraction";
 
 const ENGINE = readFileSync("supabase/functions/trovabandi-engine/index.ts", "utf8");
+
 
 const VALID = {
   is_opportunity: true,
