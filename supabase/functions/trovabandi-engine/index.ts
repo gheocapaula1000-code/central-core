@@ -807,11 +807,14 @@ serve(async (req) => {
   });
 
   if (action === "status") {
-    const [{ count: active }, { data: run }] = await Promise.all([
+    const nowIso = new Date().toISOString();
+    // Le opportunità scadute non sono "attive": mai conteggiate.
+    const [activeRes, runRes] = await Promise.all([
       sb
         .from("trovabandi_opportunities")
         .select("id", { count: "exact", head: true })
-        .in("verification_status", ["VERIFICATO", "PARZIALE"]),
+        .in("verification_status", ["VERIFICATO", "PARZIALE"])
+        .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`),
       sb
         .from("trovabandi_runs")
         .select("*")
@@ -819,10 +822,11 @@ serve(async (req) => {
         .limit(1)
         .maybeSingle(),
     ]);
+    if (activeRes.error || runRes.error) return response(500, { ok: false, code: "STATUS_QUERY_FAILED" });
     return response(200, {
       ok: true,
-      active: active ?? 0,
-      last_run: run ?? null,
+      active: activeRes.count ?? 0,
+      last_run: runRes.data ?? null,
       providers: {
         firecrawl: !!env("FIRECRAWL_API_KEY"),
         perplexity: !!env("PERPLEXITY_API_KEY"),
@@ -832,71 +836,86 @@ serve(async (req) => {
   }
 
   if (action === "maintenance") {
-    const now = new Date().toISOString();
-    const { count, error } = await sb
+    const nowMs = Date.now();
+    const now = new Date(nowMs).toISOString();
+    // 1) Riconciliazione dei run RUNNING rimasti appesi oltre la soglia.
+    const stale = await sb
+      .from("trovabandi_runs")
+      .update(
+        { status: "FAILED", error_code: "STALE_RUN_TIMEOUT", finished_at: now },
+        { count: "exact" },
+      )
+      .eq("status", "RUNNING")
+      .lt("started_at", staleRunCutoffIso(nowMs));
+    if (stale.error) return response(500, { ok: false, code: "MAINTENANCE_RUNS_FAILED" });
+    // 2) Scadenza solo degli stati appropriati: SCADUTO resta invariato.
+    const expired = await sb
       .from("trovabandi_opportunities")
       .update({ verification_status: "SCADUTO", updated_at: now }, { count: "exact" })
       .lt("deadline_at", now)
-      .neq("verification_status", "SCADUTO");
-    if (error) return response(500, { ok: false, code: "MAINTENANCE_FAILED" });
-    return response(200, { ok: true, expired: count ?? 0 });
+      .in("verification_status", ["VERIFICATO", "PARZIALE", "DA_VERIFICARE"]);
+    if (expired.error) return response(500, { ok: false, code: "MAINTENANCE_FAILED" });
+    return response(200, {
+      ok: true,
+      expired: expired.count ?? 0,
+      stale_runs_reconciled: stale.count ?? 0,
+      stale_after_minutes: RUN_STALE_AFTER_MINUTES,
+    });
   }
 
   if (action === "release_gate") {
-    const nowIso = new Date().toISOString();
-    const since = new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString();
-    // Gate fail-closed: PARZIALE, PARTIAL, RUNNING e FAILED non contano mai.
-    const [
-      { count: verifiedActive },
-      { count: partialActive },
-      { count: recentVerifiedRuns },
-      { count: deepSuccessfulRuns },
-    ] = await Promise.all([
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    // Gate dinamico e fail-closed: nessuna soglia commerciale inventata.
+    // PARZIALE, PARTIAL, RUNNING e FAILED non contano mai come scan reale.
+    const [sourcesRes, runsRes, staleRes, verifiedRes] = await Promise.all([
       sb
-        .from("trovabandi_opportunities")
-        .select("id", { count: "exact", head: true })
-        .eq("verification_status", "VERIFICATO")
-        .eq("official_source", true)
-        .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`),
+        .from("trovabandi_sources")
+        .select("id,region,source_kind,priority,last_scanned_at,next_scan_at,enabled")
+        .eq("enabled", true),
       sb
-        .from("trovabandi_opportunities")
-        .select("id", { count: "exact", head: true })
-        .eq("verification_status", "PARZIALE"),
+        .from("trovabandi_runs")
+        .select("id,source_id,status,started_at,finished_at,provider_usage")
+        .gte("finished_at", coverageCutoffIso(nowMs))
+        .eq("status", "SUCCEEDED")
+        .not("source_id", "is", null),
       sb
         .from("trovabandi_runs")
         .select("id", { count: "exact", head: true })
-        .gte("started_at", since)
-        .eq("status", "SUCCEEDED")
-        .not("finished_at", "is", null)
-        .gt("verified_count", 0),
-      sb
-        .from("trovabandi_runs")
-        .select("id,trovabandi_sources!inner(source_kind)", { count: "exact", head: true })
-        .gte("started_at", since)
-        .eq("status", "SUCCEEDED")
-        .not("finished_at", "is", null)
-        .in("trovabandi_sources.source_kind", ["BUR", "ALBO_PRETORIO", "CAMERALE", "GAL"]),
+        .eq("status", "RUNNING")
+        .lt("started_at", staleRunCutoffIso(nowMs)),
+      // Conteggio DISTINCT degli opportunity con evidenza (EXISTS), mai un
+      // join count che duplicherebbe una riga per ogni prova.
+      sb.rpc("trovabandi_verified_active_distinct_count", { p_now: nowIso }),
     ]);
-    const metrics = {
-      verified_active: verifiedActive ?? 0,
-      partial_active: partialActive ?? 0,
-      recent_verified_runs: recentVerifiedRuns ?? 0,
-      deep_successful_runs: deepSuccessfulRuns ?? 0,
-    };
-    const checks = {
-      verified_catalogue: metrics.verified_active > 0,
-      recent_verified_runs: metrics.recent_verified_runs > 0,
-      deep_sources_verified_scan: metrics.deep_successful_runs > 0,
-    };
-    const ok = Object.values(checks).every(Boolean);
-    return response(ok ? 200 : 409, {
-      ok,
-      gate_passed: ok,
-      cron_activation_allowed: ok,
-      checks,
-      metrics,
+    if (sourcesRes.error || runsRes.error || staleRes.error || verifiedRes.error)
+      return response(500, { ok: false, code: "GATE_QUERY_FAILED" });
+    const verifiedActiveDistinct = Number(verifiedRes.data);
+    if (
+      !sourcesRes.data ||
+      !runsRes.data ||
+      staleRes.count === null ||
+      staleRes.count === undefined ||
+      !Number.isFinite(verifiedActiveDistinct)
+    )
+      return response(500, { ok: false, code: "GATE_QUERY_FAILED" });
+
+    const gate = evaluateGate({
+      nowMs,
+      enabledSources: sourcesRes.data as unknown as RankableSource[],
+      recentRuns: runsRes.data as unknown as RunLike[],
+      staleRunningCount: staleRes.count,
+      verifiedActiveDistinct,
+    });
+    return response(gate.ok ? 200 : 409, {
+      ok: gate.ok,
+      gate_passed: gate.ok,
+      cron_activation_allowed: gate.ok,
+      checks: gate.checks,
+      metrics: gate.metrics,
     });
   }
+
 
 
   if (action === "request_refresh") {
