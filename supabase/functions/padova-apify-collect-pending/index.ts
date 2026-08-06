@@ -399,6 +399,17 @@ Deno.serve(async (req) => {
   const agencyBackfillEnabled = body.agency_backfill_enabled !== false; // default true
   const agencyBackfillBatch = Math.max(1, Math.min(500, Number(body.agency_backfill_batch ?? 300)));
   const agencyBackfillMaxLaunches = Math.max(0, Number(body.agency_backfill_max_launches ?? 1));
+  // Contratto semantico richiesto dall'orchestratore (fail-closed lato chiamante):
+  //  - require_candidates: senza run candidati la risposta NON è un successo;
+  //  - require_terminal: tutti i run trattati devono essere in stato terminale;
+  //  - required_portals: portali che devono avere almeno un run completato.
+  const requireCandidates = body.require_candidates === true;
+  const requireTerminal = body.require_terminal === true;
+  const requiredPortals: string[] = Array.isArray(body.required_portals)
+    ? (body.required_portals as unknown[]).map((p) => String(p)).filter((p) => p.length > 0)
+    : [];
+
+
 
 
   // Seleziona candidati: RUNNING più vecchi di staleMinutes, oppure run_ids espliciti.
@@ -716,9 +727,58 @@ Deno.serve(async (req) => {
     }
   }
 
+  // ============ CONTRATTO SEMANTICO PER L'ORCHESTRATORE ============
+  // Espone conteggi espliciti: nessun consumatore deve dedurre il successo
+  // dalla sola presenza di un HTTP 200.
+  const scanned = candidates.length;
+  const terminalStates = new Set(["SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT", "TIMED_OUT"]);
+  const importsCount = results.reduce(
+    (acc, r) => acc + (Number(r?.created ?? 0) || 0) + (Number(r?.updated ?? 0) || 0),
+    0,
+  );
+  const completedCount = results.filter((r) => r?.status === "SUCCEEDED").length;
+  const stillRunning = results.filter((r) => r?.action === "still_running").length;
+  const nonTerminal = results.filter(
+    (r) => r?.status && !terminalStates.has(String(r.status)),
+  ).length;
+  const errorsCount = results.reduce(
+    (acc, r) => acc + (Number(r?.errors ?? 0) || 0) + (r?.error ? 1 : 0),
+    0,
+  );
+  const portalsCompleted = new Set(
+    results
+      .filter((r) => r?.status === "SUCCEEDED" && typeof r?.portal === "string")
+      .map((r) => String(r.portal).split("_")[0]),
+  );
+  const missingPortals = requiredPortals.filter((p) => !portalsCompleted.has(p));
+  const requiredPortalsComplete = missingPortals.length === 0;
+  // Zero novità esplicita: catena completata, nessun errore, nessun import nuovo.
+  const zeroNovelty = errorsCount === 0 && completedCount > 0 && importsCount === 0;
+
+  const failures: string[] = [];
+  if (requireCandidates && scanned === 0) failures.push("NO_CANDIDATES");
+  if (requireTerminal && (stillRunning > 0 || nonTerminal > 0)) failures.push("NON_TERMINAL_RUNS");
+  if (requiredPortals.length > 0 && !requiredPortalsComplete) failures.push("REQUIRED_PORTALS_INCOMPLETE");
+  const ok = failures.length === 0;
+
   return new Response(JSON.stringify({
-    ok: true, scanned: candidates.length, zombies_marked: zombiesMarked,
+    ok,
+    failures,
+    scanned,
+    completed_count: completedCount,
+    still_running: stillRunning,
+    imports_count: importsCount,
+    errors: errorsCount,
+    required_portals: requiredPortals,
+    required_portals_complete: requiredPortalsComplete,
+    missing_portals: missingPortals,
+    zero_novelty: zeroNovelty,
+    zombies_marked: zombiesMarked,
     agency_backfill: backfillLaunches, recompute: recomputeResult, results,
-  }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }, null, 2), {
+    status: ok ? 200 : 422,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+
 });
 
