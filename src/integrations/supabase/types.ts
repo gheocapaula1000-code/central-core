@@ -2608,46 +2608,52 @@ export type Database = {
       }
       civiko_pwa_sync_acks: {
         Row: {
+          commercial_zone_slugs: string[]
           counts: Json
           created_at: string
           error_code: string | null
           finished_at: string
-          idempotency_key: string
+          idempotency_key: string | null
+          municipality: string
           ok: boolean
           pipeline_run_id: string
           run_id: string
-          scope_comune: string
-          scope_slugs: string[]
+          scope_comune: string | null
+          scope_slugs: string[] | null
           source_app: string
           started_at: string
           updated_at: string
         }
         Insert: {
+          commercial_zone_slugs: string[]
           counts?: Json
           created_at?: string
           error_code?: string | null
           finished_at: string
-          idempotency_key: string
+          idempotency_key?: string | null
+          municipality: string
           ok: boolean
           pipeline_run_id: string
           run_id: string
-          scope_comune: string
-          scope_slugs: string[]
+          scope_comune?: string | null
+          scope_slugs?: string[] | null
           source_app: string
           started_at: string
           updated_at?: string
         }
         Update: {
+          commercial_zone_slugs?: string[]
           counts?: Json
           created_at?: string
           error_code?: string | null
           finished_at?: string
-          idempotency_key?: string
+          idempotency_key?: string | null
+          municipality?: string
           ok?: boolean
           pipeline_run_id?: string
           run_id?: string
-          scope_comune?: string
-          scope_slugs?: string[]
+          scope_comune?: string | null
+          scope_slugs?: string[] | null
           source_app?: string
           started_at?: string
           updated_at?: string
@@ -9129,6 +9135,7 @@ export type Database = {
           contendibili_totali: number | null
           listings_freschi: number | null
           mismatch_professionale: number | null
+          pipeline_0545_run_id: string | null
           pipeline_0710_ok: boolean | null
           pipeline_0710_run_id: string | null
           pipeline_0710_ultimo: string | null
