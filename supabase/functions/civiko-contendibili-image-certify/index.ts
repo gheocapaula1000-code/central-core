@@ -104,31 +104,65 @@ Deno.serve(async (req) => {
     HARD_LIMIT,
     Math.max(1, Number(body.limit ?? DEFAULT_LIMIT) || DEFAULT_LIMIT),
   );
+  const offset = Math.max(0, Number(body.offset ?? 0) || 0);
   const dryRun = body.dry_run === true;
+  // pairs_only: ricalcola le prove per coppia dai fingerprint GIA' persistiti,
+  // senza scaricare né decodificare nulla (nessun costo, nessun provider).
+  const pairsOnly = body.pairs_only === true;
 
   const diagnostics: Record<string, unknown> = {};
   const budget: FetchBudget = { used: 0, max: MAX_TOTAL_REQUESTS };
 
   // 1) result detail già memorizzati e riusabili --------------------------------
-  const { data: attempts, error: attErr } = await sb
-    .from("civiko_contendibili_evidence_attempts")
-    .select("listing_id,url,queue_id,evidence,commercial_zone_slug")
-    .eq("status", "succeeded")
-    .not("queue_id", "is", null)
-    .order("listing_id", { ascending: true })
-    .limit(limit);
-  if (attErr) return json({ ok: false, error: "attempts_read_failed", detail: attErr.message }, 500);
-  if (!attempts?.length) return json({ ok: true, reprocessed: 0, note: "no_succeeded_details" });
+  let attempts: Array<Record<string, unknown>> = [];
+  if (!pairsOnly) {
+    const { data, error: attErr } = await sb
+      .from("civiko_contendibili_evidence_attempts")
+      .select("listing_id,url,queue_id,evidence,commercial_zone_slug")
+      .eq("status", "succeeded")
+      .not("queue_id", "is", null)
+      .order("listing_id", { ascending: true })
+      .range(offset, offset + limit - 1);
+    if (attErr) return json({ ok: false, error: "attempts_read_failed", detail: attErr.message }, 500);
+    if (!data?.length) return json({ ok: true, reprocessed: 0, offset, note: "no_succeeded_details" });
+    attempts = data as Array<Record<string, unknown>>;
+  }
 
-  const queueIds = attempts.map((a) => a.queue_id as string);
-  const { data: queueRows, error: qErr } = await sb
-    .from("scraping_queue")
-    .select("id,result")
-    .in("id", queueIds);
-  if (qErr) return json({ ok: false, error: "queue_read_failed", detail: qErr.message }, 500);
-  const resultById = new Map((queueRows ?? []).map((r) => [r.id as string, r.result]));
+  const resultById = new Map<string, unknown>();
+  if (!pairsOnly) {
+    const queueIds = attempts.map((a) => a.queue_id as string);
+    const { data: queueRows, error: qErr } = await sb
+      .from("scraping_queue")
+      .select("id,result")
+      .in("id", queueIds);
+    if (qErr) return json({ ok: false, error: "queue_read_failed", detail: qErr.message }, 500);
+    for (const r of queueRows ?? []) resultById.set(r.id as string, r.result);
+  }
 
-  const listingIds = attempts.map((a) => Number(a.listing_id));
+  // Annunci coinvolti: nel giro pairs_only sono quelli con fingerprint persistiti.
+  let listingIds: number[] = attempts.map((a) => Number(a.listing_id));
+  let storedFingerprints: Fp[] = [];
+  if (pairsOnly) {
+    const { data: fps, error: fErr } = await sb
+      .from("civiko_listing_image_fingerprints")
+      .select("listing_id,sha256,phash,width,height,bytes,entropy,algo,source_host")
+      .limit(5000);
+    if (fErr) return json({ ok: false, error: "fingerprints_read_failed", detail: fErr.message }, 500);
+    storedFingerprints = (fps ?? []).map((f) => ({
+      listing_id: Number(f.listing_id),
+      sha256: f.sha256 as string,
+      phash: f.phash as string,
+      width: Number(f.width),
+      height: Number(f.height),
+      bytes: Number(f.bytes),
+      entropy: Number(f.entropy),
+      algo: f.algo as string,
+      source_host: (f.source_host as string) ?? "",
+    }));
+    listingIds = Array.from(new Set(storedFingerprints.map((f) => f.listing_id)));
+    if (!listingIds.length) return json({ ok: true, pairs_only: true, note: "no_fingerprints" });
+  }
+
   const { data: listings, error: lErr } = await sb
     .from("padova_listings")
     .select("id,url,fonte,agency,commercial_zone_slug,ev_via_norm,ev_image_refs")
