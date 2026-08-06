@@ -778,7 +778,7 @@ async function readGateIntegrity(): Promise<GateIntegrity | null> {
         ? r.pwa_sync_ack_ultimo_ok
         : null,
       pwa_sync_ack_corrente: r.pwa_sync_ack_corrente === true,
-      sync_pwa_dopo_classificazione: r.sync_pwa_dopo_classificazione === true,
+      // Nessun surrogato: il gate usa solo la ricevuta PWA reale.
       contendibili_fuori_perimetro: num("contendibili_fuori_perimetro"),
       privati_fuori_perimetro: num("privati_fuori_perimetro"),
     };
