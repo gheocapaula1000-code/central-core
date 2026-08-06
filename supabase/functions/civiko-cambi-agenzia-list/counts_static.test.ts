@@ -34,6 +34,10 @@ Deno.test("nessun placeholder inventato su titolo/indirizzo", () => {
 });
 
 Deno.test("i filtri restano applicati anche al conteggio", () => {
-  assertStringIncludes(SRC, "if (quartiere) countQ = countQ.ilike");
-  assertStringIncludes(SRC, "if (zonaOmi) countQ = countQ.ilike");
+  // Stessi identici filtri per conteggio e pagina, con match esatto (mai ILIKE).
+  assertStringIncludes(SRC, "const applyFilters =");
+  assertStringIncludes(SRC, "await applyFilters(\n      supabase.from(\"padova_cambi_agenzia_by_zone_v\").select(\"id\", { count: \"exact\", head: true }),");
+  assertStringIncludes(SRC, 'if (quartiere) out = out.eq("quartiere", quartiere);');
+  assertStringIncludes(SRC, 'if (zonaOmi) out = out.eq("zona_omi", zonaOmi);');
+  assert(!/\.ilike\(/.test(SRC), "nessun ILIKE su input utente");
 });
