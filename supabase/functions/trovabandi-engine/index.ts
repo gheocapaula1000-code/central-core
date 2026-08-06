@@ -73,7 +73,12 @@ type Source = {
   rarity_base: number;
   fast_lane: boolean;
   scan_interval_minutes: number;
+  next_scan_at: string | null;
+  last_scanned_at?: string | null;
+  priority?: number | null;
+  enabled?: boolean | null;
 };
+
 
 type SearchHit = { url: string; title: string; description: string; provider: string };
 
