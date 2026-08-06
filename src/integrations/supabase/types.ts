@@ -9339,6 +9339,10 @@ export type Database = {
         Returns: number
       }
       padova_is_quartiere_label: { Args: { p: string }; Returns: boolean }
+      padova_listing_canonical_id: {
+        Args: { p_fonte?: string; p_url: string }
+        Returns: string
+      }
       padova_listing_has_auction_evidence: {
         Args: { p_agency?: string; p_raw: Json }
         Returns: boolean
