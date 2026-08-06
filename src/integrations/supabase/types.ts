@@ -10400,6 +10400,10 @@ export type Database = {
         Returns: boolean
       }
       tick_padova_firecrawl_collect: { Args: never; Returns: undefined }
+      trovabandi_verified_active_distinct_count: {
+        Args: { p_now?: string }
+        Returns: number
+      }
       unschedule_padova_detail_chain: { Args: never; Returns: boolean }
       vault_create_secret_if_missing: {
         Args: { p_name: string; p_value: string }
