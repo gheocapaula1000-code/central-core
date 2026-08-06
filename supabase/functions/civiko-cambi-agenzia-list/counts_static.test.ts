@@ -4,23 +4,27 @@ import { assert, assertStringIncludes } from "https://deno.land/std@0.224.0/asse
 const SRC = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
 
 Deno.test("total deriva da un COUNT esatto, non dalla lunghezza della pagina", () => {
-  assertStringIncludes(SRC, '{ count: "exact" }');
   assertStringIncludes(SRC, 'select("id", { count: "exact", head: true })');
   assert(!SRC.includes("total: items.length"), "total non può essere la pagina");
-  assertStringIncludes(SRC, "total: authoritativeTotal");
+  assertStringIncludes(SRC, "const total = typeof count === \"number\" ? count : 0;");
 });
 
 Deno.test("offset applicato davvero e bounded, limit <= 200", () => {
-  assertStringIncludes(SRC, ".range(offset, offset + limit - 1)");
+  assertStringIncludes(SRC, ".range(page.from, page.to)");
   assertStringIncludes(SRC, "MAX_LIMIT = 200");
-  assertStringIncludes(SRC, "boundedOffset");
+  // Oltre EOF nessuna query di pagina e nessun clamp a total-1.
+  assertStringIncludes(SRC, "if (!page.beyond_eof)");
 });
 
 Deno.test("contratto pagina: items_count, has_more, snapshot_complete", () => {
+  const ENV = Deno.readTextFileSync(new URL("../_shared/listContracts.ts", import.meta.url));
   for (const k of ["items_count", "has_more", "snapshot_complete"]) {
-    assertStringIncludes(SRC, `${k}:`);
+    assertStringIncludes(ENV, `${k}`);
   }
+  assertStringIncludes(SRC, "listEnvelope({");
+  assertStringIncludes(SRC, "snapshot_complete: snapshotComplete(");
 });
+
 
 Deno.test("nessun placeholder inventato su titolo/indirizzo", () => {
   assert(!SRC.includes('?? "Immobile a Padova"'));
