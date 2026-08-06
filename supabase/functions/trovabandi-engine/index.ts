@@ -798,27 +798,50 @@ serve(async (req) => {
   }
 
   if (action === "release_gate") {
+    const nowIso = new Date().toISOString();
     const since = new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString();
-    const [{ count: active }, { count: successfulRuns }, { count: deepRuns }] = await Promise.all([
+    // Gate fail-closed: PARZIALE, PARTIAL, RUNNING e FAILED non contano mai.
+    const [
+      { count: verifiedActive },
+      { count: partialActive },
+      { count: recentVerifiedRuns },
+      { count: deepSuccessfulRuns },
+    ] = await Promise.all([
       sb
         .from("trovabandi_opportunities")
         .select("id", { count: "exact", head: true })
-        .in("verification_status", ["VERIFICATO", "PARZIALE"]),
+        .eq("verification_status", "VERIFICATO")
+        .eq("official_source", true)
+        .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`),
+      sb
+        .from("trovabandi_opportunities")
+        .select("id", { count: "exact", head: true })
+        .eq("verification_status", "PARZIALE"),
       sb
         .from("trovabandi_runs")
         .select("id", { count: "exact", head: true })
         .gte("started_at", since)
-        .in("status", ["SUCCEEDED", "PARTIAL"]),
+        .eq("status", "SUCCEEDED")
+        .not("finished_at", "is", null)
+        .gt("verified_count", 0),
       sb
         .from("trovabandi_runs")
         .select("id,trovabandi_sources!inner(source_kind)", { count: "exact", head: true })
         .gte("started_at", since)
+        .eq("status", "SUCCEEDED")
+        .not("finished_at", "is", null)
         .in("trovabandi_sources.source_kind", ["BUR", "ALBO_PRETORIO", "CAMERALE", "GAL"]),
     ]);
+    const metrics = {
+      verified_active: verifiedActive ?? 0,
+      partial_active: partialActive ?? 0,
+      recent_verified_runs: recentVerifiedRuns ?? 0,
+      deep_successful_runs: deepSuccessfulRuns ?? 0,
+    };
     const checks = {
-      active_catalogue: (active ?? 0) > 0,
-      recent_runs: (successfulRuns ?? 0) > 0,
-      deep_sources_scanned: (deepRuns ?? 0) > 0,
+      verified_catalogue: metrics.verified_active > 0,
+      recent_verified_runs: metrics.recent_verified_runs > 0,
+      deep_sources_verified_scan: metrics.deep_successful_runs > 0,
     };
     const ok = Object.values(checks).every(Boolean);
     return response(ok ? 200 : 409, {
@@ -826,13 +849,10 @@ serve(async (req) => {
       gate_passed: ok,
       cron_activation_allowed: ok,
       checks,
-      metrics: {
-        active: active ?? 0,
-        successful_runs_8h: successfulRuns ?? 0,
-        deep_runs_8h: deepRuns ?? 0,
-      },
+      metrics,
     });
   }
+
 
   if (action === "request_refresh") {
     const profile = (body.profile ?? {}) as CompanyProfile;
