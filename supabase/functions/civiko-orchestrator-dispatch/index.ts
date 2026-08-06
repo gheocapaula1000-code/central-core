@@ -783,6 +783,13 @@ async function readGateIntegrity(): Promise<GateIntegrity | null> {
       recompute_ultimo: typeof r.recompute_ultimo === "string" ? r.recompute_ultimo : null,
       contendibili_totali: num("contendibili_totali"),
       recompute_corrente: r.recompute_corrente === true,
+      pipeline_0710_ultimo_ok: typeof r.pipeline_0710_ultimo_ok === "string"
+        ? r.pipeline_0710_ultimo_ok
+        : null,
+      pwa_sync_ack_ultimo_ok: typeof r.pwa_sync_ack_ultimo_ok === "string"
+        ? r.pwa_sync_ack_ultimo_ok
+        : null,
+      pwa_sync_ack_corrente: r.pwa_sync_ack_corrente === true,
       sync_pwa_dopo_classificazione: r.sync_pwa_dopo_classificazione === true,
       contendibili_fuori_perimetro: num("contendibili_fuori_perimetro"),
       privati_fuori_perimetro: num("privati_fuori_perimetro"),
