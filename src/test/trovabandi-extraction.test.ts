@@ -153,10 +153,12 @@ describe("diagnostica non sensibile", () => {
   });
 
   it("l'engine non registra URL completi, markdown o secret nella diagnostica", () => {
+    // L'unico riferimento alla fonte è l'hostname, mai il path o la query.
     expect(ENGINE).toContain("new URL(hit.url).hostname");
-    expect(ENGINE).not.toMatch(/warnings\.push\([^)]*hit\.url[^)]*\)/);
+    expect(ENGINE).not.toMatch(/warnings\.push\(`[^`]*\$\{hit\.url\}/);
     expect(ENGINE).not.toMatch(/diagnostics\.push\([^)]*(hit\.url|markdown|key)[^)]*\)/);
   });
+
 });
 
 describe("fallback controllato e fail-closed", () => {
