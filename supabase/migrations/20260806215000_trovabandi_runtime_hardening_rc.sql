@@ -10,7 +10,9 @@ CREATE INDEX IF NOT EXISTS trovabandi_runs_recent_success_rc_idx
   ON public.trovabandi_runs (finished_at DESC, source_id)
   WHERE status = 'SUCCEEDED' AND finished_at IS NOT NULL AND source_id IS NOT NULL;
 
-CREATE OR REPLACE FUNCTION public.trovabandi_verified_active_distinct_count(p_now timestamptz)
+CREATE OR REPLACE FUNCTION public.trovabandi_verified_active_distinct_count(
+  p_now timestamptz DEFAULT now()
+)
 RETURNS bigint
 LANGUAGE sql
 STABLE
