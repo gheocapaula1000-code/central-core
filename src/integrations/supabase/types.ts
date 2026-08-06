@@ -2608,6 +2608,7 @@ export type Database = {
           finished_at: string
           idempotency_key: string
           ok: boolean
+          pipeline_run_id: string
           run_id: string
           scope_comune: string
           scope_slugs: string[]
@@ -2622,6 +2623,7 @@ export type Database = {
           finished_at: string
           idempotency_key: string
           ok: boolean
+          pipeline_run_id: string
           run_id: string
           scope_comune: string
           scope_slugs: string[]
@@ -2636,6 +2638,7 @@ export type Database = {
           finished_at?: string
           idempotency_key?: string
           ok?: boolean
+          pipeline_run_id?: string
           run_id?: string
           scope_comune?: string
           scope_slugs?: string[]
@@ -9120,10 +9123,13 @@ export type Database = {
           contendibili_totali: number | null
           listings_freschi: number | null
           mismatch_professionale: number | null
-          pipeline_0710_ultimo_ok: string | null
+          pipeline_0710_ok: boolean | null
+          pipeline_0710_run_id: string | null
+          pipeline_0710_ultimo: string | null
           portali_freschi: number | null
           privati_fuori_perimetro: number | null
           pwa_sync_ack_corrente: boolean | null
+          pwa_sync_ack_counts: Json | null
           pwa_sync_ack_ultimo_ok: string | null
           recompute_corrente: boolean | null
           recompute_ultimo: string | null
@@ -9845,6 +9851,10 @@ export type Database = {
           prezzo_ratio: number
           shared_photos: number
         }[]
+      }
+      civiko_pwa_counts_contract_ok: {
+        Args: { p_counts: Json }
+        Returns: boolean
       }
       civiko_release_zone_on_cancel_atomic: {
         Args: { p_stripe_subscription_id: string }
