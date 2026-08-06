@@ -342,14 +342,13 @@ async function runAction(
     });
 
     const text = await res.text();
-    let payload: unknown = null;
-    try {
-      payload = text ? JSON.parse(text) : null;
-    } catch {
-      payload = null;
-    }
-    const obj = payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
-    const semantic = res.ok ? semanticFailure(action, obj) : null;
+    const parsedBody = parseStepBody(text);
+    const payload = parsedBody.obj;
+    const obj = parsedBody.obj;
+    // Parsing fail-closed: body nullo/vuoto/invalido è guasto anche con 200.
+    const semantic = res.ok
+      ? (parsedBody.error ?? semanticFailure(action, obj))
+      : (parsedBody.error === null ? null : null);
     const reason = isRpc && res.status === 400
       ? safePostgrestReason(payload) ?? "postgrest_bad_request"
       : obj && typeof obj.reason === "string"
@@ -372,7 +371,9 @@ async function runAction(
       status: res.status,
       reason,
       result: safeIdentifiers(payload),
+      raw: obj,
     };
+
   } catch (e) {
     const aborted = e instanceof Error && e.name === "AbortError";
     console.error(
