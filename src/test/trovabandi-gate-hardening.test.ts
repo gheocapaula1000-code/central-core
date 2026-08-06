@@ -26,7 +26,7 @@ import {
 const ENGINE = readFileSync("supabase/functions/trovabandi-engine/index.ts", "utf8");
 const HARDENING = readFileSync("supabase/functions/trovabandi-engine/hardening.ts", "utf8");
 const MIGRATION = readFileSync(
-  "supabase/migrations/20260807000000_trovabandi_runtime_hardening.sql",
+  "supabase/migrations/20260806181739_25d516da-f340-4291-b4fd-a66f5910f998.sql",
   "utf8",
 );
 const GATE = ENGINE.slice(
