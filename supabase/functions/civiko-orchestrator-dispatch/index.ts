@@ -676,9 +676,79 @@ interface GateIntegrity {
   recompute_ultimo: string | null;
   contendibili_totali: number;
   recompute_corrente: boolean;
+  pipeline_0710_ultimo_ok: string | null;
+  pwa_sync_ack_ultimo_ok: string | null;
+  pwa_sync_ack_corrente: boolean;
   sync_pwa_dopo_classificazione: boolean;
   contendibili_fuori_perimetro: number;
   privati_fuori_perimetro: number;
+}
+
+/**
+ * Traccia reale delle pipeline Civiko: il release gate esige un ack PWA
+ * successivo alla fine dell'ultima pipeline_0710 riuscita, quindi la fine
+ * della pipeline deve essere registrata in modo verificabile.
+ */
+async function recordPipelineStart(runId: string, pipeline: string): Promise<void> {
+  if (!SERVICE_KEY) return;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/civiko_pipeline_runs`, {
+      method: "POST",
+      headers: {
+        apikey: SERVICE_KEY,
+        Authorization: `Bearer ${SERVICE_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify([{
+        run_id: runId,
+        pipeline,
+        started_at: new Date().toISOString(),
+      }]),
+    });
+    await res.body?.cancel();
+    if (!res.ok) console.error(`[dispatch] pipeline_run start not recorded status=${res.status}`);
+  } catch {
+    console.error("[dispatch] pipeline_run start not recorded");
+  }
+}
+
+async function recordPipelineEnd(
+  runId: string,
+  okRun: boolean,
+  steps: StepResult[],
+  errorCode: string | null,
+): Promise<void> {
+  if (!SERVICE_KEY) return;
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/civiko_pipeline_runs?run_id=eq.${runId}`,
+      {
+        method: "PATCH",
+        headers: {
+          apikey: SERVICE_KEY,
+          Authorization: `Bearer ${SERVICE_KEY}`,
+          "Content-Type": "application/json",
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({
+          finished_at: new Date().toISOString(),
+          ok: okRun,
+          error_code: errorCode,
+          steps: steps.map((s) => ({
+            action: s.action,
+            ok: s.ok,
+            status: s.status,
+            reason: s.reason ?? null,
+          })),
+        }),
+      },
+    );
+    await res.body?.cancel();
+    if (!res.ok) console.error(`[dispatch] pipeline_run end not recorded status=${res.status}`);
+  } catch {
+    console.error("[dispatch] pipeline_run end not recorded");
+  }
 }
 
 async function readGateIntegrity(): Promise<GateIntegrity | null> {
@@ -713,6 +783,13 @@ async function readGateIntegrity(): Promise<GateIntegrity | null> {
       recompute_ultimo: typeof r.recompute_ultimo === "string" ? r.recompute_ultimo : null,
       contendibili_totali: num("contendibili_totali"),
       recompute_corrente: r.recompute_corrente === true,
+      pipeline_0710_ultimo_ok: typeof r.pipeline_0710_ultimo_ok === "string"
+        ? r.pipeline_0710_ultimo_ok
+        : null,
+      pwa_sync_ack_ultimo_ok: typeof r.pwa_sync_ack_ultimo_ok === "string"
+        ? r.pwa_sync_ack_ultimo_ok
+        : null,
+      pwa_sync_ack_corrente: r.pwa_sync_ack_corrente === true,
       sync_pwa_dopo_classificazione: r.sync_pwa_dopo_classificazione === true,
       contendibili_fuori_perimetro: num("contendibili_fuori_perimetro"),
       privati_fuori_perimetro: num("privati_fuori_perimetro"),
@@ -831,6 +908,12 @@ async function releaseGate() {
       {
         key: "recompute_corrente",
         passed: integrity?.recompute_corrente === true,
+      },
+      {
+        // Prova diretta: ack PWA ok, corrente, successivo alla fine
+        // dell'ultima pipeline_0710 riuscita nella finestra.
+        key: "pwa_sync_ack_corrente",
+        passed: integrity?.pwa_sync_ack_corrente === true,
       },
       {
         key: "sync_pwa_dopo_classificazione",
@@ -956,6 +1039,8 @@ Deno.serve(async (req) => {
     let failedAt: string | null = null;
     let budgetExhausted = false;
     const startedAt = Date.now();
+    const runId = crypto.randomUUID();
+    await recordPipelineStart(runId, action);
     // Sequenziale e fail-closed: si ferma al primo step non ok e comunque
     // entro il budget complessivo (< timeout Replit 180s).
     for (const step of pipeline.steps) {
@@ -988,9 +1073,16 @@ Deno.serve(async (req) => {
       : failing && failing.status >= 400 && failing.status <= 599
       ? failing.status
       : 502;
+    await recordPipelineEnd(
+      runId,
+      failedAt === null,
+      steps,
+      failedAt === null ? null : (budgetExhausted ? "BUDGET_EXHAUSTED" : "STEP_FAILED"),
+    );
     return json(status, {
       ok: failedAt === null,
       action,
+      run_id: runId,
       at: pipeline.at,
       timezone: SCHEDULE_TIMEZONE,
       enabled: CRON_ENABLED,
