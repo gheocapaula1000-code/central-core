@@ -1020,17 +1020,6 @@ serve(async (req) => {
   const warnings: string[] = [];
   try {
     const [fc, pp] = await Promise.all([firecrawlSearch(source), perplexitySearch(source)]);
-    if (!env("FIRECRAWL_API_KEY")) warnings.push("FIRECRAWL_API_KEY missing");
-    if (!env("PERPLEXITY_API_KEY")) warnings.push("PERPLEXITY_API_KEY missing");
-    const byUrl = new Map<string, SearchHit>();
-    for (const hit of [...fc, ...pp]) {
-      const previous = byUrl.get(hit.url);
-      byUrl.set(
-        hit.url,
-        previous ? { ...previous, provider: `${previous.provider}+${hit.provider}` } : hit,
-      );
-    }
-    const hits = [...byUrl.values()].slice(0, maxPages);
     let processed = 0;
     let verified = 0;
     let pagesScraped = 0;
@@ -1038,6 +1027,31 @@ serve(async (req) => {
     let operationalFailures = 0;
     // Diagnostica non sensibile: solo fase + codice, mai URL completi o contenuti.
     const diagnostics: Array<{ phase: string; code: string }> = [];
+    // La ricerca non fallisce mai silenziosamente in []: ogni guasto provider
+    // è diagnosticato, genera warning e rende il run PARTIAL.
+    for (const [provider, outcome] of [
+      ["firecrawl", fc],
+      ["perplexity", pp],
+    ] as const) {
+      const entry = searchDiagnostics(provider, outcome);
+      diagnostics.push({ phase: entry.phase, code: entry.code });
+      if (entry.operational) {
+        warnings.push(`${entry.phase}_${entry.code.toLowerCase()}`);
+        operationalFailures++;
+      }
+    }
+    const fcHits = fc.ok ? fc.hits : [];
+    const ppHits = pp.ok ? pp.hits : [];
+    const byUrl = new Map<string, SearchHit>();
+    for (const hit of [...fcHits, ...ppHits]) {
+      const previous = byUrl.get(hit.url);
+      byUrl.set(
+        hit.url,
+        previous ? { ...previous, provider: `${previous.provider}+${hit.provider}` } : hit,
+      );
+    }
+    const hits = [...byUrl.values()].slice(0, maxPages);
+
     for (const hit of hits) {
       const scraped = await loadPage(hit.url);
       if (!scraped) {
