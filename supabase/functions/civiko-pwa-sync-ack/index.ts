@@ -119,6 +119,14 @@ Deno.serve(async (req) => {
   const authBlock = requireCivikoCostSecret(req, debugId);
   if (authBlock) return authBlock;
   const sourceApp = (req.headers.get("x-source-app") ?? "").toLowerCase().trim();
+  // La guard shared accetta anche identità non-Civiko (compat acquisitionradar):
+  // qui si esige l'identità canonica del contratto PWA Civiko One, PRIMA di
+  // leggere il body e di qualunque read/write. Fail-closed, nessun alias extra.
+  if (!CIVIKO_SOURCE_APPS.has(sourceApp)) {
+    console.warn(`[civiko-pwa-sync-ack] source app rejected debug_id=${debugId}`);
+    return fail(req, 403, "SOURCE_APP_FORBIDDEN", "Source app not allowed for this endpoint", debugId);
+  }
+
 
   if (!SUPABASE_URL || !SERVICE_KEY) {
     console.error("[civiko-pwa-sync-ack] misconfigured");
