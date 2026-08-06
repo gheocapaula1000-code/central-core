@@ -990,22 +990,26 @@ Deno.serve(async (req) => {
   }
 
   if (action === "release_gate") {
-    const gate = await releaseGate();
+    const gate = await releaseGate(parseGateMode(body.mode));
     return json(gate.status, gate.payload);
   }
 
-
   if (action in PIPELINES) {
-    const pipeline = PIPELINES[action as PipelineAction];
+    const pipelineAction = action as PipelineAction;
+    const pipeline = PIPELINES[pipelineAction];
+    const planned = expandedSteps(pipelineAction);
     const steps: StepResult[] = [];
     let failedAt: string | null = null;
     let budgetExhausted = false;
     const startedAt = Date.now();
     const runId = crypto.randomUUID();
     await recordPipelineStart(runId, action);
-    // Sequenziale e fail-closed: si ferma al primo step non ok e comunque
-    // entro il budget complessivo (< timeout Replit 180s).
-    for (const step of pipeline.steps) {
+    // Sequenziale, deterministica e fail-closed: si ferma al primo step non ok
+    // e comunque entro il budget complessivo.
+    const repeatIndex = new Map<SimpleAction, number>();
+    for (const step of planned) {
+      const iteration = repeatIndex.get(step) ?? 0;
+      repeatIndex.set(step, iteration + 1);
       const remaining = PIPELINE_BUDGET_MS - (Date.now() - startedAt);
       if (remaining <= STEP_MIN_MS) {
         budgetExhausted = true;
@@ -1020,7 +1024,21 @@ Deno.serve(async (req) => {
         });
         break;
       }
-      const r = await runAction(step, Math.min(DEFAULT_TIMEOUT_MS, remaining - 1_000));
+      // Certificazione fotografica: hard limit per invocazione e finestra
+      // avanzata a ogni iterazione (max IMAGE_CERTIFY_MAX_INVOCATIONS).
+      const override = step === "contendibili_image_certify"
+        ? {
+          limit: IMAGE_CERTIFY_HARD_LIMIT,
+          offset: iteration * IMAGE_CERTIFY_HARD_LIMIT,
+        }
+        : undefined;
+      const r = await runAuditedAction(
+        step,
+        stepTimeoutMs(step, remaining),
+        runId,
+        action,
+        override,
+      );
       steps.push(r);
       if (!r.ok) {
         failedAt = step;
@@ -1028,21 +1046,16 @@ Deno.serve(async (req) => {
       }
     }
     const failing = steps.find((s) => !s.ok);
-    const status = failedAt === null
-      ? 200
-      : budgetExhausted
-      ? 504
-      : failing && failing.status >= 400 && failing.status <= 599
-      ? failing.status
-      : 502;
+    const status = pipelineStatus(steps, budgetExhausted);
     await recordPipelineEnd(
       runId,
       failedAt === null,
       steps,
       failedAt === null ? null : (budgetExhausted ? "BUDGET_EXHAUSTED" : "STEP_FAILED"),
     );
+    // Nessun wrapper ok:true quando un solo step fallisce.
     return json(status, {
-      ok: failedAt === null,
+      ok: failedAt === null && status === 200,
       action,
       run_id: runId,
       at: pipeline.at,
@@ -1054,22 +1067,32 @@ Deno.serve(async (req) => {
       elapsed_ms: Date.now() - startedAt,
       budget_ms: PIPELINE_BUDGET_MS,
       executed: steps.length,
-      planned: pipeline.steps.length,
+      planned: planned.length,
+      image_certify_max_invocations: IMAGE_CERTIFY_MAX_INVOCATIONS,
       steps,
     });
   }
 
-  const r = await runAction(action as SimpleAction);
+  const single = action as SimpleAction;
+  const runId = crypto.randomUUID();
+  const r = await runAuditedAction(
+    single,
+    stepTimeoutMs(single, PIPELINE_BUDGET_MS),
+    runId,
+    null,
+  );
   return json(
     r.ok ? 200 : (r.status >= 400 && r.status <= 599 ? r.status : 502),
     {
       ok: r.ok,
       action,
+      run_id: runId,
       target: r.target,
       status: r.status,
       reason: r.reason,
       result: r.result,
     },
   );
+
 
 });
