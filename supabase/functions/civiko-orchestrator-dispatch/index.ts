@@ -847,7 +847,7 @@ async function readGateIntegrity(): Promise<GateIntegrity | null> {
   }
 }
 
-/** Ultime esecuzioni delle azioni nella finestra (latest-wins lato gate). */
+/** Esecuzioni delle azioni nella finestra, con il run di appartenenza. */
 async function readActionRuns(since: string): Promise<ActionRunRow[] | null> {
   if (!SERVICE_KEY) return null;
   const controller = new AbortController();
@@ -855,7 +855,7 @@ async function readActionRuns(since: string): Promise<ActionRunRow[] | null> {
   try {
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/civiko_orchestrator_action_runs` +
-        `?select=action,started_at,finished_at,ok,status,error_code` +
+        `?select=action,pipeline,pipeline_run_id,started_at,finished_at,ok,status,error_code` +
         `&started_at=gte.${since}&order=started_at.asc&limit=2000`,
       {
         headers: {
@@ -872,10 +872,50 @@ async function readActionRuns(since: string): Promise<ActionRunRow[] | null> {
     return rows.filter((r) => r && typeof r === "object" && typeof r.action === "string")
       .map((r) => ({
         action: String(r.action),
+        pipeline: typeof r.pipeline === "string" ? r.pipeline : null,
+        pipeline_run_id: typeof r.pipeline_run_id === "string" ? r.pipeline_run_id : null,
         started_at: String(r.started_at ?? ""),
         finished_at: typeof r.finished_at === "string" ? r.finished_at : null,
         ok: typeof r.ok === "boolean" ? r.ok : null,
         status: typeof r.status === "number" ? r.status : null,
+        error_code: typeof r.error_code === "string" ? r.error_code : null,
+      }));
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Run delle pipeline nella finestra: serve l'ESATTO ultimo run di ognuna. */
+async function readPipelineRuns(since: string): Promise<PipelineRunRow[] | null> {
+  if (!SERVICE_KEY) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GATE_TIMEOUT_MS);
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/civiko_pipeline_runs` +
+        `?select=run_id,pipeline,started_at,finished_at,ok,error_code` +
+        `&started_at=gte.${since}&order=started_at.asc&limit=500`,
+      {
+        headers: {
+          apikey: SERVICE_KEY,
+          Authorization: `Bearer ${SERVICE_KEY}`,
+          Accept: "application/json",
+        },
+        signal: controller.signal,
+      },
+    );
+    if (!res.ok) return null;
+    const rows = await res.json().catch(() => null);
+    if (!Array.isArray(rows)) return null;
+    return rows.filter((r) => r && typeof r === "object" && typeof r.pipeline === "string")
+      .map((r) => ({
+        pipeline_run_id: String(r.run_id ?? ""),
+        pipeline: String(r.pipeline),
+        started_at: String(r.started_at ?? ""),
+        finished_at: typeof r.finished_at === "string" ? r.finished_at : null,
+        ok: typeof r.ok === "boolean" ? r.ok : null,
         error_code: typeof r.error_code === "string" ? r.error_code : null,
       }));
   } catch {
@@ -911,11 +951,21 @@ async function releaseGate(mode: GateMode) {
   const integrity = await readGateIntegrity();
   if (!integrity) failedQueries.push("release_gate_integrity_view");
 
-  const actionRuns = await readActionRuns(since);
-  if (!actionRuns) failedQueries.push("orchestrator_action_runs");
+  const allActionRuns = await readActionRuns(since);
+  if (!allActionRuns) failedQueries.push("orchestrator_action_runs");
+
+  const pipelineRunRows = await readPipelineRuns(since);
+  if (!pipelineRunRows) failedQueries.push("orchestrator_pipeline_runs");
+
+  const latestPipelines = latestRunPerPipeline(pipelineRunRows ?? []);
+  // Solo gli step degli ESATTI ultimi run delle 3 pipeline: nessuna riga
+  // vecchia e nessun latest globale per azione.
+  const actionRuns = allActionRuns
+    ? stepsOfExactRuns(allActionRuns, latestPipelines)
+    : null;
 
   const metricsAvailable = Boolean(SERVICE_KEY) && failedQueries.length === 0 &&
-    integrity !== null && actionRuns !== null;
+    integrity !== null && actionRuns !== null && pipelineRunRows !== null;
 
   const g = (group: string, metric: string): number =>
     (metrics[group]?.[metric] as number) ?? 0;
@@ -923,7 +973,13 @@ async function releaseGate(mode: GateMode) {
 
 
   const requirements = metricsAvailable && integrity && actionRuns
-    ? buildGateRequirements({ mode, metric: g, integrity, actionRuns })
+    ? buildGateRequirements({
+      mode,
+      metric: g,
+      integrity,
+      actionRuns,
+      pipelineRuns: latestPipelines,
+    })
     : [];
 
   const gate_passed = metricsAvailable && requirements.every((r) => r.passed);
@@ -941,6 +997,14 @@ async function releaseGate(mode: GateMode) {
     since,
     metrics,
     integrity,
+    pipelines_latest: Array.from(latestPipelines.entries()).map(([pipeline, r]) => ({
+      pipeline,
+      pipeline_run_id: r.pipeline_run_id,
+      ok: r.ok,
+      finished_at: r.finished_at,
+      error_code: r.error_code,
+    })),
+    pipelines_not_ok: pipelineRunRows ? pipelinesNotOk(latestPipelines) : null,
     actions_latest: actionRuns
       ? Array.from(latestRunsByAction(actionRuns).values()).map((r) => ({
         action: r.action,
@@ -952,6 +1016,7 @@ async function releaseGate(mode: GateMode) {
       : null,
     actions_failing: actionRuns ? failingActions(actionRuns) : null,
     actions_missing: actionRuns ? missingActions(actionRuns) : null,
+
     pwa_ack_after_pipeline_0710: integrity
       ? ackAfterPipeline(integrity.pwa_sync_ack_ultimo_ok, integrity.pipeline_0710_ultimo_ok)
       : null,
