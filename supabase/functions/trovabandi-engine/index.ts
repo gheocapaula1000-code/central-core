@@ -21,6 +21,17 @@ import {
   type SearchOutcome,
 } from "./extraction.ts";
 import { persistOpportunityFailClosed, type PersistVerification } from "./persist.ts";
+import {
+  COVERAGE_WINDOW_HOURS,
+  RUN_STALE_AFTER_MINUTES,
+  coverageCutoffIso,
+  evaluateGate,
+  selectDueSource,
+  staleRunCutoffIso,
+  type RankableSource,
+  type RunLike,
+} from "./hardening.ts";
+
 
 
 
