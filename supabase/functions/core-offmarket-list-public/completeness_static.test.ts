@@ -26,9 +26,13 @@ Deno.test("source_counts e source_caps sempre esposti", () => {
 });
 
 Deno.test("risposta finale paginata con total autorevole", () => {
-  assertStringIncludes(SRC, "const total = outItems.length;");
-  assertStringIncludes(SRC, "outItems.slice(pageOffset, pageOffset + pageLimit)");
-  assertStringIncludes(SRC, "has_more: pageOffset + pageItems.length < total");
+  // total = somma esatta delle quattro categorie, non la lunghezza della pagina.
+  assertStringIncludes(SRC, "t.total = t.legal_life_events + t.successioni + t.distress + t.patrimonio_comunale;");
+  assertStringIncludes(SRC, "const total = t.total;");
+  // Oltre EOF: pagina vuota, mai clamp all'ultima pagina.
+  assertStringIncludes(SRC, "page.beyond_eof ? [] : outItems.slice(page.offset, page.offset + page.limit)");
+  assertStringIncludes(SRC, "listEnvelope({");
+  assertStringIncludes(SRC, "snapshot_complete: snapshotComplete({ countExact: true, truncated: truncatedSources.length > 0 })");
 });
 
 Deno.test("privacy, aste e perimetro invariati", () => {
