@@ -9414,6 +9414,75 @@ export type Database = {
         }
         Relationships: []
       }
+      padova_cambi_agenzia_by_zone_v: {
+        Row: {
+          agenzia_nuova: string | null
+          agenzia_precedente: string | null
+          canon_url: string | null
+          commercial_zone_slug: string | null
+          contendibile_overlap: boolean | null
+          created_at: string | null
+          data_cambio: string | null
+          first_detected_at: string | null
+          id: string | null
+          indirizzo: string | null
+          is_active: boolean | null
+          last_seen_at: string | null
+          locali: number | null
+          mq: number | null
+          portale: string | null
+          prezzo_eur: number | null
+          quartiere: string | null
+          titolo: string | null
+          updated_at: string | null
+          zona_omi: string | null
+        }
+        Insert: {
+          agenzia_nuova?: string | null
+          agenzia_precedente?: string | null
+          canon_url?: string | null
+          commercial_zone_slug?: never
+          contendibile_overlap?: boolean | null
+          created_at?: string | null
+          data_cambio?: string | null
+          first_detected_at?: string | null
+          id?: string | null
+          indirizzo?: string | null
+          is_active?: boolean | null
+          last_seen_at?: string | null
+          locali?: number | null
+          mq?: number | null
+          portale?: string | null
+          prezzo_eur?: number | null
+          quartiere?: string | null
+          titolo?: string | null
+          updated_at?: string | null
+          zona_omi?: string | null
+        }
+        Update: {
+          agenzia_nuova?: string | null
+          agenzia_precedente?: string | null
+          canon_url?: string | null
+          commercial_zone_slug?: never
+          contendibile_overlap?: boolean | null
+          created_at?: string | null
+          data_cambio?: string | null
+          first_detected_at?: string | null
+          id?: string | null
+          indirizzo?: string | null
+          is_active?: boolean | null
+          last_seen_at?: string | null
+          locali?: number | null
+          mq?: number | null
+          portale?: string | null
+          prezzo_eur?: number | null
+          quartiere?: string | null
+          titolo?: string | null
+          updated_at?: string | null
+          zona_omi?: string | null
+        }
+        Relationships: []
+      }
       padova_collect_v2_items_by_zone_v: {
         Row: {
           agency: string | null
