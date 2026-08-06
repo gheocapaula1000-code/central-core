@@ -363,9 +363,9 @@ function matchOpportunity(opportunity: JsonObject, profile: CompanyProfile) {
   return { status, score, confirmed, missing, blockers };
 }
 
-async function firecrawlSearch(source: Source): Promise<SearchHit[]> {
+async function firecrawlSearch(source: Source): Promise<SearchOutcome<SearchHit>> {
   const key = env("FIRECRAWL_API_KEY");
-  if (!key) return [];
+  if (!key) return { ok: false, code: "NO_KEY" };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20_000);
   try {
@@ -379,38 +379,45 @@ async function firecrawlSearch(source: Source): Promise<SearchHit[]> {
       }),
       signal: controller.signal,
     });
-    if (!res.ok) return [];
-    const payload = (await res.json()) as JsonObject;
-    const data = payload.data as JsonObject | unknown[] | undefined;
-    const rows = Array.isArray(data)
-      ? data
-      : Array.isArray((data as JsonObject | undefined)?.web)
-        ? ((data as JsonObject).web as unknown[])
-        : [];
-    return rows.flatMap((row): SearchHit[] => {
-      const item = row as JsonObject;
-      const url = normalizeUrl(item.url);
-      return url && hostMatches(url, source.official_domain)
-        ? [
-            {
-              url,
-              title: normalizeText(item.title),
-              description: normalizeText(item.description),
-              provider: "firecrawl",
-            },
-          ]
-        : [];
-    });
-  } catch {
-    return [];
+    if (!res.ok) {
+      await res.body?.cancel();
+      return { ok: false, code: httpFailureCode(res.status) };
+    }
+    let payload: unknown;
+    try {
+      payload = await res.json();
+    } catch {
+      return { ok: false, code: "PARSE_FAILED" };
+    }
+    const rows = extractSearchRows(payload, "firecrawl");
+    if (!rows.ok) return { ok: false, code: rows.code };
+    return {
+      ok: true,
+      hits: rows.rows.flatMap((row): SearchHit[] => {
+        const item = row as JsonObject;
+        const url = normalizeUrl(item.url);
+        return url && hostMatches(url, source.official_domain)
+          ? [
+              {
+                url,
+                title: normalizeText(item.title),
+                description: normalizeText(item.description),
+                provider: "firecrawl",
+              },
+            ]
+          : [];
+      }),
+    };
+  } catch (error) {
+    return { ok: false, code: searchFailureFromError(error) };
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function perplexitySearch(source: Source): Promise<SearchHit[]> {
+async function perplexitySearch(source: Source): Promise<SearchOutcome<SearchHit>> {
   const key = env("PERPLEXITY_API_KEY");
-  if (!key) return [];
+  if (!key) return { ok: false, code: "NO_KEY" };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20_000);
   try {
@@ -425,29 +432,42 @@ async function perplexitySearch(source: Source): Promise<SearchHit[]> {
       }),
       signal: controller.signal,
     });
-    if (!res.ok) return [];
-    const payload = (await res.json()) as JsonObject;
-    const rows = Array.isArray(payload.results) ? payload.results : [];
-    return rows.flatMap((row): SearchHit[] => {
-      const item = row as JsonObject;
-      const url = normalizeUrl(item.url);
-      return url && hostMatches(url, source.official_domain)
-        ? [
-            {
-              url,
-              title: normalizeText(item.title),
-              description: normalizeText(item.snippet),
-              provider: "perplexity",
-            },
-          ]
-        : [];
-    });
-  } catch {
-    return [];
+    if (!res.ok) {
+      await res.body?.cancel();
+      return { ok: false, code: httpFailureCode(res.status) };
+    }
+    let payload: unknown;
+    try {
+      payload = await res.json();
+    } catch {
+      return { ok: false, code: "PARSE_FAILED" };
+    }
+    const rows = extractSearchRows(payload, "perplexity");
+    if (!rows.ok) return { ok: false, code: rows.code };
+    return {
+      ok: true,
+      hits: rows.rows.flatMap((row): SearchHit[] => {
+        const item = row as JsonObject;
+        const url = normalizeUrl(item.url);
+        return url && hostMatches(url, source.official_domain)
+          ? [
+              {
+                url,
+                title: normalizeText(item.title),
+                description: normalizeText(item.snippet),
+                provider: "perplexity",
+              },
+            ]
+          : [];
+      }),
+    };
+  } catch (error) {
+    return { ok: false, code: searchFailureFromError(error) };
   } finally {
     clearTimeout(timer);
   }
 }
+
 
 async function scrapePage(
   url: string,
