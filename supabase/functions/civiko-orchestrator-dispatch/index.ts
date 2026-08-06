@@ -1039,6 +1039,8 @@ Deno.serve(async (req) => {
     let failedAt: string | null = null;
     let budgetExhausted = false;
     const startedAt = Date.now();
+    const runId = crypto.randomUUID();
+    await recordPipelineStart(runId, action);
     // Sequenziale e fail-closed: si ferma al primo step non ok e comunque
     // entro il budget complessivo (< timeout Replit 180s).
     for (const step of pipeline.steps) {
@@ -1071,9 +1073,16 @@ Deno.serve(async (req) => {
       : failing && failing.status >= 400 && failing.status <= 599
       ? failing.status
       : 502;
+    await recordPipelineEnd(
+      runId,
+      failedAt === null,
+      steps,
+      failedAt === null ? null : (budgetExhausted ? "BUDGET_EXHAUSTED" : "STEP_FAILED"),
+    );
     return json(status, {
       ok: failedAt === null,
       action,
+      run_id: runId,
       at: pipeline.at,
       timezone: SCHEDULE_TIMEZONE,
       enabled: CRON_ENABLED,
@@ -1086,6 +1095,7 @@ Deno.serve(async (req) => {
       planned: pipeline.steps.length,
       steps,
     });
+  }
   }
 
   const r = await runAction(action as SimpleAction);
