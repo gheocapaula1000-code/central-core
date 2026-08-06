@@ -1262,7 +1262,8 @@ serve(async (req) => {
 
 
   } catch (error) {
-    if (run?.id)
+    if (run.id)
+
       await sb
         .from("trovabandi_runs")
         .update({
