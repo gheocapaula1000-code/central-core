@@ -92,13 +92,12 @@ export function shouldTryPlainJsonFallback(code: ExtractionFailureCode): boolean
   return FALLBACK_ALLOWED_AFTER.has(code);
 }
 
-/** Esiti negativi validi: diagnosticati, ma non sono guasti operativi. */
-const NEGATIVE_OUTCOME_CODES = new Set<ExtractionFailureCode>([
-  "NOT_OPPORTUNITY",
-  "SCHEMA_INVALID",
-  "CATEGORY_INVALID",
-  "URL_OFF_DOMAIN",
-]);
+/**
+ * Unico esito negativo valido e non operativo: la pagina non è un'opportunità.
+ * SCHEMA_INVALID, CATEGORY_INVALID e URL_OFF_DOMAIN sono guasti operativi
+ * (estrazione inaffidabile o fuori dominio) e devono degradare il run.
+ */
+const NEGATIVE_OUTCOME_CODES = new Set<ExtractionFailureCode>(["NOT_OPPORTUNITY"]);
 
 export function isNegativeOutcome(code: ExtractionFailureCode): boolean {
   return NEGATIVE_OUTCOME_CODES.has(code);
@@ -108,6 +107,47 @@ export function isNegativeOutcome(code: ExtractionFailureCode): boolean {
 export function isOperationalFailure(code: ExtractionFailureCode): boolean {
   return !NEGATIVE_OUTCOME_CODES.has(code);
 }
+
+/** Esiti tipizzati della ricerca provider: mai [] silenzioso su guasto. */
+export type SearchFailureCode =
+  | "NO_KEY"
+  | "TIMEOUT"
+  | HttpFailureCode
+  | "RESPONSE_INVALID"
+  | "PARSE_FAILED";
+
+export type SearchOutcome<T> = { ok: true; hits: T[] } | { ok: false; code: SearchFailureCode };
+
+/** Classifica un errore di rete/abort in un codice sanificato. */
+export function searchFailureFromError(error: unknown): SearchFailureCode {
+  return error instanceof Error && error.name === "AbortError" ? "TIMEOUT" : "HTTP_ERROR";
+}
+
+/**
+ * Estrae le righe di risultato dal payload provider.
+ * Una risposta valida con zero risultati NON è un guasto; una risposta di
+ * forma inattesa sì (RESPONSE_INVALID).
+ */
+export function extractSearchRows(
+  payload: unknown,
+  provider: "firecrawl" | "perplexity",
+): { ok: true; rows: unknown[] } | { ok: false; code: "RESPONSE_INVALID" } {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return { ok: false, code: "RESPONSE_INVALID" };
+  }
+  const obj = payload as JsonObject;
+  if (provider === "perplexity") {
+    if (Array.isArray(obj.results)) return { ok: true, rows: obj.results };
+    return { ok: false, code: "RESPONSE_INVALID" };
+  }
+  const data = obj.data;
+  if (Array.isArray(data)) return { ok: true, rows: data };
+  if (data && typeof data === "object" && Array.isArray((data as JsonObject).web)) {
+    return { ok: true, rows: (data as JsonObject).web as unknown[] };
+  }
+  return { ok: false, code: "RESPONSE_INVALID" };
+}
+
 
 
 /** Estrae un oggetto JSON da contenuto testuale del modello (fences, prefazioni). */
@@ -321,3 +361,19 @@ export function sanitizeDbErrorCode(error: unknown): string {
   if (!safe) return "DB_UNKNOWN";
   return `DB_${safe.slice(0, 12)}`;
 }
+
+/**
+ * Traduce un esito di ricerca in una voce di diagnostica sanificata.
+ * Zero risultati con risposta valida non è un guasto operativo.
+ */
+export function searchDiagnostics(
+  provider: "firecrawl" | "perplexity",
+  outcome: { ok: true; hits: unknown[] } | { ok: false; code: SearchFailureCode },
+): { phase: string; code: string; operational: boolean } {
+  const phase = `search_${provider}`;
+  if (outcome.ok === true) {
+    return { phase, code: outcome.hits.length > 0 ? "OK" : "OK_EMPTY", operational: false };
+  }
+  return { phase, code: outcome.code, operational: true };
+}
+

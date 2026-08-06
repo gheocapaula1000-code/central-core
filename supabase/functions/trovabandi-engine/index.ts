@@ -4,6 +4,7 @@ import {
   aggregateDiagnostics,
   boundedInteger,
   boundedNumeric,
+  extractSearchRows,
   httpFailureCode,
   isOperationalFailure,
   normalizeAuthorityLevel,
@@ -11,12 +12,16 @@ import {
   parseExtractionContent,
   safeTextArray,
   safeTimestamp,
-  sanitizeDbErrorCode,
+  searchDiagnostics,
+  searchFailureFromError,
   shouldTryPlainJsonFallback,
   validateExtraction,
   type ExtractionFailureCode,
   type ExtractionOutcome,
+  type SearchOutcome,
 } from "./extraction.ts";
+import { persistOpportunityFailClosed, type PersistVerification } from "./persist.ts";
+
 
 
 
@@ -363,9 +368,9 @@ function matchOpportunity(opportunity: JsonObject, profile: CompanyProfile) {
   return { status, score, confirmed, missing, blockers };
 }
 
-async function firecrawlSearch(source: Source): Promise<SearchHit[]> {
+async function firecrawlSearch(source: Source): Promise<SearchOutcome<SearchHit>> {
   const key = env("FIRECRAWL_API_KEY");
-  if (!key) return [];
+  if (!key) return { ok: false, code: "NO_KEY" };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20_000);
   try {
@@ -379,38 +384,45 @@ async function firecrawlSearch(source: Source): Promise<SearchHit[]> {
       }),
       signal: controller.signal,
     });
-    if (!res.ok) return [];
-    const payload = (await res.json()) as JsonObject;
-    const data = payload.data as JsonObject | unknown[] | undefined;
-    const rows = Array.isArray(data)
-      ? data
-      : Array.isArray((data as JsonObject | undefined)?.web)
-        ? ((data as JsonObject).web as unknown[])
-        : [];
-    return rows.flatMap((row): SearchHit[] => {
-      const item = row as JsonObject;
-      const url = normalizeUrl(item.url);
-      return url && hostMatches(url, source.official_domain)
-        ? [
-            {
-              url,
-              title: normalizeText(item.title),
-              description: normalizeText(item.description),
-              provider: "firecrawl",
-            },
-          ]
-        : [];
-    });
-  } catch {
-    return [];
+    if (!res.ok) {
+      await res.body?.cancel();
+      return { ok: false, code: httpFailureCode(res.status) };
+    }
+    let payload: unknown;
+    try {
+      payload = await res.json();
+    } catch {
+      return { ok: false, code: "PARSE_FAILED" };
+    }
+    const rows = extractSearchRows(payload, "firecrawl");
+    if (!rows.ok) return { ok: false, code: rows.code };
+    return {
+      ok: true,
+      hits: rows.rows.flatMap((row): SearchHit[] => {
+        const item = row as JsonObject;
+        const url = normalizeUrl(item.url);
+        return url && hostMatches(url, source.official_domain)
+          ? [
+              {
+                url,
+                title: normalizeText(item.title),
+                description: normalizeText(item.description),
+                provider: "firecrawl",
+              },
+            ]
+          : [];
+      }),
+    };
+  } catch (error) {
+    return { ok: false, code: searchFailureFromError(error) };
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function perplexitySearch(source: Source): Promise<SearchHit[]> {
+async function perplexitySearch(source: Source): Promise<SearchOutcome<SearchHit>> {
   const key = env("PERPLEXITY_API_KEY");
-  if (!key) return [];
+  if (!key) return { ok: false, code: "NO_KEY" };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20_000);
   try {
@@ -425,29 +437,42 @@ async function perplexitySearch(source: Source): Promise<SearchHit[]> {
       }),
       signal: controller.signal,
     });
-    if (!res.ok) return [];
-    const payload = (await res.json()) as JsonObject;
-    const rows = Array.isArray(payload.results) ? payload.results : [];
-    return rows.flatMap((row): SearchHit[] => {
-      const item = row as JsonObject;
-      const url = normalizeUrl(item.url);
-      return url && hostMatches(url, source.official_domain)
-        ? [
-            {
-              url,
-              title: normalizeText(item.title),
-              description: normalizeText(item.snippet),
-              provider: "perplexity",
-            },
-          ]
-        : [];
-    });
-  } catch {
-    return [];
+    if (!res.ok) {
+      await res.body?.cancel();
+      return { ok: false, code: httpFailureCode(res.status) };
+    }
+    let payload: unknown;
+    try {
+      payload = await res.json();
+    } catch {
+      return { ok: false, code: "PARSE_FAILED" };
+    }
+    const rows = extractSearchRows(payload, "perplexity");
+    if (!rows.ok) return { ok: false, code: rows.code };
+    return {
+      ok: true,
+      hits: rows.rows.flatMap((row): SearchHit[] => {
+        const item = row as JsonObject;
+        const url = normalizeUrl(item.url);
+        return url && hostMatches(url, source.official_domain)
+          ? [
+              {
+                url,
+                title: normalizeText(item.title),
+                description: normalizeText(item.snippet),
+                provider: "perplexity",
+              },
+            ]
+          : [];
+      }),
+    };
+  } catch (error) {
+    return { ok: false, code: searchFailureFromError(error) };
   } finally {
     clearTimeout(timer);
   }
 }
+
 
 async function scrapePage(
   url: string,
@@ -628,7 +653,7 @@ async function storeOpportunity(
   const expired = deadline ? new Date(deadline).getTime() < now.getTime() : false;
   const hasEvidence = markdown.length > 200 && source.official_domain.length > 3;
   const deadlineProven = dateIsPresentInEvidence(markdown, deadline);
-  const verification =
+  const verification: PersistVerification =
     expired && deadlineProven
       ? "SCADUTO"
       : hasEvidence && deadline && deadlineProven
@@ -641,11 +666,13 @@ async function storeOpportunity(
   const discoveredBy = safeTextArray([
     ...new Set(hit.provider.split("+").concat(extractionProvider, "perplexity")),
   ]);
-  // I valori vincolati da CHECK non possono essere inventati: se non sono
-  // ammessi si degrada in modo conservativo (categoria ALTRO) o si rifiuta.
-  const category = normalizeCategoryCode(extracted.category) ?? "ALTRO";
+  // Valori vincolati da CHECK: mai inventati e mai degradati in un valore
+  // plausibile. Categoria non ammessa ⇒ rifiuto fail-closed.
+  const category = normalizeCategoryCode(extracted.category);
+  if (!category) return { stored: false, verified: false, code: "CATEGORY_INVALID" };
   const authorityLevel = normalizeAuthorityLevel(source.authority_level);
   if (!authorityLevel) return { stored: false, verified: false, code: "AUTHORITY_LEVEL_INVALID" };
+
   const row = {
     canonical_key: canonicalKey,
     title: normalizeText(extracted.title).slice(0, 500) || hit.title || "Opportunità senza titolo",
@@ -683,7 +710,6 @@ async function storeOpportunity(
     click_day: extracted.click_day === true,
     requirements: safeTextArray(extracted.requirements, 100, 1000),
     eligible_expenses: safeTextArray(extracted.eligible_expenses, 100, 1000),
-    verification_status: verification,
     rarity_score: boundedInteger(Math.trunc(Number(source.rarity_base ?? 1)), 1, 5) ?? 1,
     source_kind: normalizeText(source.source_kind).slice(0, 60) || "CATALOGO",
     publication_reference: normalizeText(extracted.publication_reference).slice(0, 300) || null,
@@ -705,59 +731,45 @@ async function storeOpportunity(
     content_hash: contentHash,
     raw_excerpt: markdown.slice(0, 4000),
     last_seen_at: now.toISOString(),
-    // last_verified_at è valorizzato soltanto quando la verifica è completa.
-    last_verified_at: verification === "VERIFICATO" ? now.toISOString() : null,
-    updated_at: now.toISOString(),
   };
-  const { data, error } = await sb
-    .from("trovabandi_opportunities")
-    .upsert(row, { onConflict: "official_url" })
-    .select("id")
-    .single();
-  if (error || !data) {
-    // Telemetria sicura: soltanto il codice sanificato dell'errore di scrittura.
-    return {
-      stored: false,
-      verified: false,
-      code: `OPPORTUNITY_WRITE_FAILED_${error ? sanitizeDbErrorCode(error) : "DB_NO_ROW"}`,
-    };
-  }
-  const { error: evidenceError } = await sb.from("trovabandi_evidence").upsert(
+  // Ordine fail-closed: DA_VERIFICARE ⇒ evidence ⇒ promozione.
+  return await persistOpportunityFailClosed(
     {
-      opportunity_id: data.id,
-      source_url: officialUrl,
-      source_title: (hit.title || row.title).slice(0, 500),
-      evidence_type: officialUrl.toLowerCase().includes(".pdf") ? "PDF" : "OFFICIAL_PAGE",
-      excerpt: markdown.slice(0, 3000),
-      fetched_at: now.toISOString(),
-      content_hash: contentHash,
+      async upsertOpportunity(candidate) {
+        const { data, error } = await sb
+          .from("trovabandi_opportunities")
+          .upsert(candidate, { onConflict: "official_url" })
+          .select("id")
+          .single();
+        return { id: (data as { id?: string } | null)?.id ?? null, error: error ?? undefined };
+      },
+      async upsertEvidence(candidate) {
+        const { error } = await sb
+          .from("trovabandi_evidence")
+          .upsert(candidate, { onConflict: "opportunity_id,source_url" });
+        return { error: error ?? undefined };
+      },
+      async promote(id, patch) {
+        const { error } = await sb.from("trovabandi_opportunities").update(patch).eq("id", id);
+        return { error: error ?? undefined };
+      },
     },
-    { onConflict: "opportunity_id,source_url" },
+    {
+      row,
+      evidence: {
+        source_url: officialUrl,
+        source_title: (hit.title || (row.title as string)).slice(0, 500),
+        evidence_type: officialUrl.toLowerCase().includes(".pdf") ? "PDF" : "OFFICIAL_PAGE",
+        excerpt: markdown.slice(0, 3000),
+        fetched_at: now.toISOString(),
+        content_hash: contentHash,
+      },
+      verification,
+      nowIso: now.toISOString(),
+    },
   );
-  if (evidenceError) {
-    // Fail-closed: senza prova persistita l'opportunità non può risultare verificata.
-    // Compensazione non distruttiva: si declassa lo stato, non si cancella nulla.
-    await sb
-      .from("trovabandi_opportunities")
-      .update({
-        verification_status: "DA_VERIFICARE",
-        last_verified_at: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", data.id);
-    return {
-      stored: false,
-      verified: false,
-      code: `EVIDENCE_WRITE_FAILED_${sanitizeDbErrorCode(evidenceError)}`,
-    };
-  }
-
-  return {
-    stored: true,
-    verified: verification === "VERIFICATO",
-    code: verification === "VERIFICATO" ? "OK_VERIFICATO" : `OK_${verification}`,
-  };
 }
+
 
 
 serve(async (req) => {
@@ -1008,17 +1020,6 @@ serve(async (req) => {
   const warnings: string[] = [];
   try {
     const [fc, pp] = await Promise.all([firecrawlSearch(source), perplexitySearch(source)]);
-    if (!env("FIRECRAWL_API_KEY")) warnings.push("FIRECRAWL_API_KEY missing");
-    if (!env("PERPLEXITY_API_KEY")) warnings.push("PERPLEXITY_API_KEY missing");
-    const byUrl = new Map<string, SearchHit>();
-    for (const hit of [...fc, ...pp]) {
-      const previous = byUrl.get(hit.url);
-      byUrl.set(
-        hit.url,
-        previous ? { ...previous, provider: `${previous.provider}+${hit.provider}` } : hit,
-      );
-    }
-    const hits = [...byUrl.values()].slice(0, maxPages);
     let processed = 0;
     let verified = 0;
     let pagesScraped = 0;
@@ -1026,6 +1027,31 @@ serve(async (req) => {
     let operationalFailures = 0;
     // Diagnostica non sensibile: solo fase + codice, mai URL completi o contenuti.
     const diagnostics: Array<{ phase: string; code: string }> = [];
+    // La ricerca non fallisce mai silenziosamente in []: ogni guasto provider
+    // è diagnosticato, genera warning e rende il run PARTIAL.
+    for (const [provider, outcome] of [
+      ["firecrawl", fc],
+      ["perplexity", pp],
+    ] as const) {
+      const entry = searchDiagnostics(provider, outcome);
+      diagnostics.push({ phase: entry.phase, code: entry.code });
+      if (entry.operational) {
+        warnings.push(`${entry.phase}_${entry.code.toLowerCase()}`);
+        operationalFailures++;
+      }
+    }
+    const fcHits = fc.ok ? fc.hits : [];
+    const ppHits = pp.ok ? pp.hits : [];
+    const byUrl = new Map<string, SearchHit>();
+    for (const hit of [...fcHits, ...ppHits]) {
+      const previous = byUrl.get(hit.url);
+      byUrl.set(
+        hit.url,
+        previous ? { ...previous, provider: `${previous.provider}+${hit.provider}` } : hit,
+      );
+    }
+    const hits = [...byUrl.values()].slice(0, maxPages);
+
     for (const hit of hits) {
       const scraped = await loadPage(hit.url);
       if (!scraped) {
@@ -1091,8 +1117,11 @@ serve(async (req) => {
               processed_count: processed,
               verified_count: verified,
               provider_usage: {
-                firecrawl_search: fc.length,
-                perplexity_search: pp.length,
+                firecrawl_search: fcHits.length,
+                perplexity_search: ppHits.length,
+                firecrawl_search_status: fc.ok ? "OK" : fc.code,
+                perplexity_search_status: pp.ok ? "OK" : pp.code,
+
                 pages_attempted: hits.length,
                 pages_scraped: pagesScraped,
                 diagnostics: diagnosticCounters,

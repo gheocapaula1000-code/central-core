@@ -117,13 +117,14 @@ describe("policy di retry sanificata", () => {
   });
 });
 
-describe("NOT_OPPORTUNITY è esito negativo valido", () => {
-  it("non è un guasto operativo", () => {
+describe("NOT_OPPORTUNITY è l'unico esito negativo valido", () => {
+  it("solo NOT_OPPORTUNITY non è un guasto operativo", () => {
     expect(isNegativeOutcome("NOT_OPPORTUNITY")).toBe(true);
     expect(isOperationalFailure("NOT_OPPORTUNITY")).toBe(false);
-    expect(isOperationalFailure("SCHEMA_INVALID")).toBe(false);
-    expect(isOperationalFailure("CATEGORY_INVALID")).toBe(false);
-    expect(isOperationalFailure("URL_OFF_DOMAIN")).toBe(false);
+    for (const code of ["SCHEMA_INVALID", "CATEGORY_INVALID", "URL_OFF_DOMAIN"] as const) {
+      expect(isNegativeOutcome(code)).toBe(false);
+      expect(isOperationalFailure(code)).toBe(true);
+    }
   });
 
   it("gli errori operativi restano tali", () => {
@@ -145,30 +146,21 @@ describe("NOT_OPPORTUNITY è esito negativo valido", () => {
 });
 
 describe("persistenza fail-closed dell'evidenza", () => {
-  it("controlla l'errore dell'upsert su trovabandi_evidence", () => {
-    expect(STORE).toContain("const { error: evidenceError } = await sb.from(\"trovabandi_evidence\")");
-    expect(STORE).toContain("if (evidenceError) {");
-  });
-
-  it("compensa portando l'opportunità a DA_VERIFICARE senza cancellare nulla", () => {
-    expect(STORE).toContain('verification_status: "DA_VERIFICARE"');
-    expect(STORE).toContain("last_verified_at: null");
+  it("l'engine delega la sequenza al modulo fail-closed", () => {
+    expect(STORE).toContain("persistOpportunityFailClosed(");
     expect(STORE).not.toContain(".delete()");
   });
 
-  it("restituisce un codice store specifico e non conteggia stored/verified", () => {
-    expect(STORE).toContain("code: `EVIDENCE_WRITE_FAILED_${sanitizeDbErrorCode(evidenceError)}`");
-    expect(STORE).toContain("OPPORTUNITY_WRITE_FAILED_${error ? sanitizeDbErrorCode(error)");
-    expect(STORE).not.toContain("error.message");
-    expect(STORE).not.toContain("error.details");
-  });
-
-
-  it("valorizza last_verified_at soltanto per VERIFICATO", () => {
-    expect(STORE).toContain(
+  it("non scrive mai stati verificati direttamente nella riga iniziale", () => {
+    expect(STORE).not.toContain("verification_status: verification,");
+    expect(STORE).not.toContain(
       'last_verified_at: verification === "VERIFICATO" ? now.toISOString() : null',
     );
-    expect(STORE).not.toContain("last_verified_at: hasEvidence ? now.toISOString() : null");
+  });
+
+  it("rifiuta fail-closed una categoria non ammessa", () => {
+    expect(STORE).toContain('code: "CATEGORY_INVALID"');
+    expect(STORE).not.toContain('normalizeCategoryCode(extracted.category) ?? "ALTRO"');
   });
 
   it("un fallimento di store incrementa i guasti operativi e non processed", () => {
