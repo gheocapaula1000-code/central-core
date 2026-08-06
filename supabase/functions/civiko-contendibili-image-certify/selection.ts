@@ -1,0 +1,81 @@
+// Logica pura di selezione dei candidati per la certificazione fotografica.
+// Nessuna rete, nessun DB: testabile in modo deterministico.
+
+/** Dimensione massima di una clausola .in() verso PostgREST. */
+export const IN_CHUNK_SIZE = 200;
+
+export function chunk<T>(items: T[], size = IN_CHUNK_SIZE): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+export interface AttemptState {
+  attempts: number;
+  last_pipeline_run_id: string | null;
+  terminal: boolean;
+  image_source_fp: string | null;
+}
+
+/** Esiti che NON vanno ritentati finché la fonte immagine non cambia. */
+export const TERMINAL_OUTCOMES = new Set(["no_photo", "no_valid_image"]);
+
+export function normalizeOutcome(outcome: string): string {
+  return outcome === "undecodable" ? "no_valid_image" : outcome;
+}
+
+export function isTerminalOutcome(outcome: string): boolean {
+  return TERMINAL_OUTCOMES.has(normalizeOutcome(outcome));
+}
+
+export interface EligibilityInput {
+  attempt?: AttemptState;
+  maxAttempts: number;
+  /** Run corrente: un listing non viene lavorato due volte nello stesso run. */
+  pipelineRunId: string | null;
+  /** Il listing ha già almeno un fingerprint persistito. */
+  hasFingerprint: boolean;
+  /** Il listing è attivo, a Padova e in una delle 8 zone ufficiali. */
+  inScope: boolean;
+  /** Impronta CORRENTE della fonte immagine, se calcolabile. */
+  currentSourceFp: string | null;
+}
+
+/** null = eleggibile; stringa = motivo di esclusione (fail-closed). */
+export function eligibilityReason(i: EligibilityInput): string | null {
+  if (!i.inScope) return "out_of_scope";
+  if (i.hasFingerprint) return "already_fingerprinted";
+  const a = i.attempt;
+  if (!a) return null;
+  if (i.pipelineRunId && a.last_pipeline_run_id === i.pipelineRunId) return "same_run";
+  if (a.attempts >= i.maxAttempts) return "attempts_exhausted";
+  if (a.terminal) {
+    // Terminale finché l'impronta della fonte immagine non cambia davvero.
+    if (!i.currentSourceFp) return "terminal_no_source";
+    if (a.image_source_fp && a.image_source_fp === i.currentSourceFp) return "terminal_unchanged";
+  }
+  return null;
+}
+
+/** Serializzazione canonica e stabile della fonte immagine. */
+export function canonicalSource(value: unknown): string {
+  const seen = new WeakSet<object>();
+  const norm = (v: unknown): unknown => {
+    if (v === null || typeof v !== "object") return v ?? null;
+    if (seen.has(v as object)) return null;
+    seen.add(v as object);
+    if (Array.isArray(v)) return v.map(norm);
+    const o = v as Record<string, unknown>;
+    return Object.fromEntries(Object.keys(o).sort().map((k) => [k, norm(o[k])]));
+  };
+  return JSON.stringify(norm(value) ?? null);
+}
+
+/** Impronta deterministica (sha256 esadecimale) della fonte immagine. */
+export async function sourceFingerprint(value: unknown): Promise<string | null> {
+  const canonical = canonicalSource(value);
+  if (!canonical || canonical === "null" || canonical === "[]" || canonical === "{}") return null;
+  const bytes = new TextEncoder().encode(canonical);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
