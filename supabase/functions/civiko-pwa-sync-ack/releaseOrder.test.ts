@@ -67,7 +67,7 @@ Deno.test("finestra ack invertita => reject", () => {
 
 Deno.test("ack conclusa dopo il checked_at del gate => reject", () => {
   const r = evaluateReleaseOrder({ ...happy, checked_at: at("07:25") });
-  assertEquals(r, { ok: false, reason: "ACK_BEFORE_0710_END" === "x" ? "OK" : "ACK_AFTER_CHECK" });
+  assertEquals(r, { ok: false, reason: "ACK_AFTER_CHECK" });
 });
 
 Deno.test("latest 0545 in-progress maschera successi precedenti", () => {
