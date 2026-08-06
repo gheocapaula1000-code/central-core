@@ -1202,7 +1202,9 @@ serve(async (req) => {
 
     const diagnosticCounters = aggregateDiagnostics(diagnostics);
     const finished = new Date().toISOString();
-    await Promise.all([
+    const runStatus = operationalFailures > 0 ? "PARTIAL" : "SUCCEEDED";
+    // Finalizzazione verificata: ogni scrittura critica controlla l'errore.
+    const [sourceWrite, runWrite, refreshWrite] = await Promise.all([
       sb
         .from("trovabandi_sources")
         .update({
@@ -1213,41 +1215,41 @@ serve(async (req) => {
           updated_at: finished,
         })
         .eq("id", source.id),
-      run?.id
-        ? sb
-            .from("trovabandi_runs")
-            .update({
-              status: operationalFailures > 0 ? "PARTIAL" : "SUCCEEDED",
-              discovered_count: byUrl.size,
-              processed_count: processed,
-              verified_count: verified,
-              provider_usage: {
-                firecrawl_search: fcHits.length,
-                perplexity_search: ppHits.length,
-                firecrawl_search_status: fc.ok ? "OK" : fc.code,
-                perplexity_search_status: pp.ok ? "OK" : pp.code,
+      sb
+        .from("trovabandi_runs")
+        .update({
+          status: runStatus,
+          discovered_count: byUrl.size,
+          processed_count: processed,
+          verified_count: verified,
+          provider_usage: {
+            firecrawl_search: fcHits.length,
+            perplexity_search: ppHits.length,
+            firecrawl_search_status: fc.ok ? "OK" : fc.code,
+            perplexity_search_status: pp.ok ? "OK" : pp.code,
 
-                pages_attempted: hits.length,
-                pages_scraped: pagesScraped,
-                diagnostics: diagnosticCounters,
-              },
+            pages_attempted: hits.length,
+            pages_scraped: pagesScraped,
+            diagnostics: diagnosticCounters,
+          },
 
-              warnings: [...new Set(warnings)],
-              finished_at: finished,
-            })
-            .eq("id", run.id)
-        : Promise.resolve(),
+          warnings: [...new Set(warnings)],
+          finished_at: finished,
+        })
+        .eq("id", run.id),
       refreshSignal?.id
         ? sb
             .from("trovabandi_refresh_requests")
             .update({ processed_at: finished })
-            .eq("id", refreshSignal.id)
-        : Promise.resolve(),
+            .eq("id", refreshSignal.id as string)
+        : Promise.resolve({ error: null }),
     ]);
+    if (sourceWrite.error || runWrite.error || refreshWrite.error)
+      return response(500, { ok: false, code: "RUN_PERSIST_FAILED" });
     return response(200, {
       ok: true,
       source: source.name,
-      status: operationalFailures > 0 ? "PARTIAL" : "SUCCEEDED",
+      status: runStatus,
       discovered: byUrl.size,
       attempted: hits.length,
       scraped: pagesScraped,
@@ -1257,6 +1259,7 @@ serve(async (req) => {
       warnings: [...new Set(warnings)],
       diagnostics: diagnosticCounters,
     });
+
 
   } catch (error) {
     if (run?.id)
