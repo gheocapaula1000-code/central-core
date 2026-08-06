@@ -10087,10 +10087,6 @@ export type Database = {
         Returns: boolean
       }
       tick_padova_firecrawl_collect: { Args: never; Returns: undefined }
-      trovabandi_diag_invoke: {
-        Args: { p_max_pages?: number; p_source_id: string }
-        Returns: number
-      }
       unschedule_padova_detail_chain: { Args: never; Returns: boolean }
       vault_create_secret_if_missing: {
         Args: { p_name: string; p_value: string }
