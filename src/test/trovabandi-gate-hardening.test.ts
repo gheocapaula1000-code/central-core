@@ -26,7 +26,7 @@ import {
 
 const ENGINE = readFileSync("supabase/functions/trovabandi-engine/index.ts", "utf8");
 const RUNTIME_MIGRATION = readFileSync(
-  "supabase/migrations/20260806215000_trovabandi_runtime_hardening_rc.sql",
+  "supabase/migrations/20260806201632_52f5ff47-98e2-42bf-b088-424b41f6fc85.sql",
   "utf8",
 );
 const GATE = ENGINE.slice(
@@ -433,7 +433,9 @@ describe("isolamento TrovaBandi", () => {
       deploy_mode: "selective_only",
       global_deploy_forbidden: true,
     });
-    expect(manifest.migrations).toContain("20260806215000_trovabandi_runtime_hardening_rc.sql");
+    expect(manifest.migrations).toContain(
+      "20260806201632_52f5ff47-98e2-42bf-b088-424b41f6fc85.sql",
+    );
   });
 });
 
