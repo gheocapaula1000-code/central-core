@@ -72,6 +72,23 @@ const ALLOWED: Record<SimpleAction, Target> = {
     fn: "padova-apify-collect-pending",
     body: { stale_minutes: 5, max_runs: 10 },
   },
+  // Importazione/promozione degli item raccolti in padova_listings.
+  // Classificazione tipo_lead fail-closed lato SQL (nessun PRIVATO d'ufficio).
+  listings_promote: {
+    fn: "promote_padova_collect_v2_to_listings",
+    rpc: "promote_padova_collect_v2_to_listings",
+    body: {},
+  },
+  // Classificazione lead privati Subito (privato / privato_stanco).
+  private_leads_classify: {
+    fn: "civiko-private-leads-classify",
+    body: { since_hours: 36 },
+  },
+  // Snapshot prezzi giornaliero + promozione privato_stanco su ribasso reale.
+  price_snapshot: {
+    fn: "civiko-private-leads-price-snapshot",
+    body: {},
+  },
   // Preparazione gratuita delle evidenze già presenti sui listing.
   contendibili_backfill: {
     fn: "padova_backfill_unit_evidence",
@@ -84,6 +101,12 @@ const ALLOWED: Record<SimpleAction, Target> = {
     rpc: "recompute_padova_listings_contendibili",
     body: {},
   },
+  // Certificazione fotografica IMAGE_PHASH_V1: solo detail già memorizzati,
+  // nessuno scraping e nessun provider a pagamento. Esclusiva Civiko One.
+  contendibili_image_certify: {
+    fn: "civiko-contendibili-image-certify",
+    body: { limit: 40, dry_run: false },
+  },
   // Solo candidati in quarantena: cap 24, idempotenza giornaliera.
   contendibili_evidence: {
     fn: "civiko-contendibili-evidence-refresh",
@@ -95,6 +118,7 @@ const ALLOWED: Record<SimpleAction, Target> = {
     rpc: "recompute_padova_contendibili_extras",
     body: {},
   },
+
   offmarket_discover: {
     fn: "cron-offmarket-padova-nightly",
     query: "job=discover-early-offmarket-signals",
