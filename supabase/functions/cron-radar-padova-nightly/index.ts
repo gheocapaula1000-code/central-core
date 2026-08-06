@@ -208,17 +208,31 @@ async function runAll(triggeredAt: string, mode: Mode, jobName: string) {
   }
   const okCount = results.filter((r) => r.ok).length;
   const totalDur = results.reduce((s, r) => s + r.duration_ms, 0);
+  const allOk = okCount === COMUNI.length;
   await logExecution(jobName, {
     triggered_at: triggeredAt,
     completed_at: new Date().toISOString(),
-    status: okCount === COMUNI.length ? "success" : "failure",
+    status: allOk ? "success" : "failure",
     http_status: 200,
     response_excerpt: `SUMMARY mode=${mode} ok=${okCount}/${COMUNI.length} ` +
       results.map((r) => `${r.comune}:${r.ok ? "ok" : "fail"}`).join(","),
     error_message: null,
     duration_ms: totalDur,
   });
+  // Il wrapper non può restituire ok:true se un comune è fallito.
+  return {
+    ok: allOk,
+    ok_count: okCount,
+    total: COMUNI.length,
+    errors: results.filter((r) => !r.ok).map((r) => ({
+      comune: r.comune,
+      status: r.http_status,
+      result_status: r.result_status,
+      error: r.error ?? null,
+    })),
+  };
 }
+
 
 Deno.serve(async (req) => {
   const triggeredAt = new Date().toISOString();
