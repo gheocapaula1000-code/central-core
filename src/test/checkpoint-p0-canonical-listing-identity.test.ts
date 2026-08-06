@@ -124,7 +124,7 @@ describe("migrazione P0 canonical listing identity", () => {
   it("QA post-pubblicazione con rollback totale", () => {
     expect(SQL).toContain("QA identita canonica fallita");
     expect(SQL).toContain("count(DISTINCT public.padova_listing_canonical_id(u, NULL))");
-    expect(SQL).toMatch(/RAISE EXCEPTION 'QA identita canonica fallita/);
+    expect(SQL).toMatch(/RAISE EXCEPTION ''QA identita canonica fallita/);
   });
 
   it("è un patch ancorato fail-closed che non tocca soglie, aste o dati", () => {
