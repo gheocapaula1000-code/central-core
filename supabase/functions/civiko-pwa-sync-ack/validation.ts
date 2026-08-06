@@ -115,8 +115,8 @@ export function validateAck(
   if (b.scope_comune !== PADOVA_COMUNE) {
     return { ok: false, code: "SCOPE_COMUNE_INVALID", message: "scope_comune must be Padova" };
   }
-  if (!Array.isArray(b.scope_slugs) || b.scope_slugs.length === 0) {
-    return { ok: false, code: "SCOPE_SLUGS_INVALID", message: "scope_slugs must be a non-empty array" };
+  if (!Array.isArray(b.scope_slugs) || b.scope_slugs.length !== PADOVA_ZONE_SLUGS.length) {
+    return { ok: false, code: "SCOPE_SLUGS_INVALID", message: "scope_slugs must cover the 8 official zones" };
   }
   const slugs: string[] = [];
   for (const s of b.scope_slugs) {
@@ -129,25 +129,28 @@ export function validateAck(
     slugs.push(s);
   }
 
+  // Counts obbligatori con chiavi esatte: zero è ammesso, chiavi mancanti no.
+  if (!b.counts || typeof b.counts !== "object" || Array.isArray(b.counts)) {
+    return { ok: false, code: "COUNTS_INVALID", message: "counts must be an object" };
+  }
   const counts: Record<string, number> = {};
-  if (b.counts !== undefined) {
-    if (!b.counts || typeof b.counts !== "object" || Array.isArray(b.counts)) {
-      return { ok: false, code: "COUNTS_INVALID", message: "counts must be an object" };
-    }
-    const entries = Object.entries(b.counts as Record<string, unknown>);
-    if (entries.length > 32) {
-      return { ok: false, code: "COUNTS_INVALID", message: "counts has too many keys" };
-    }
-    for (const [k, v] of entries) {
-      if (!/^[a-z0-9_]{1,48}$/.test(k)) {
-        return { ok: false, code: "COUNTS_INVALID", message: "counts key malformed" };
-      }
-      if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 10_000_000) {
-        return { ok: false, code: "COUNTS_INVALID", message: "counts values must be non-negative integers" };
-      }
-      counts[k] = v;
+  const provided = b.counts as Record<string, unknown>;
+  for (const k of Object.keys(provided)) {
+    if (!REQUIRED_COUNT_KEYS.includes(k)) {
+      return { ok: false, code: "COUNTS_INVALID", message: `Unexpected counts key: ${k}` };
     }
   }
+  for (const k of REQUIRED_COUNT_KEYS) {
+    const v = provided[k];
+    if (v === undefined) {
+      return { ok: false, code: "COUNTS_MISSING_KEY", message: `counts.${k} is required` };
+    }
+    if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 10_000_000) {
+      return { ok: false, code: "COUNTS_INVALID", message: `counts.${k} must be a non-negative integer` };
+    }
+    counts[k] = v;
+  }
+
 
   let errorCode: string | null = null;
   if (b.error_code !== undefined && b.error_code !== null) {
