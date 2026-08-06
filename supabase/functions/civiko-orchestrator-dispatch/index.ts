@@ -164,48 +164,7 @@ const ALLOWED: Record<SimpleAction, Target> = {
   },
 };
 
-// Pipeline sequenziali e fail-closed. Solo azioni dell'allowlist.
-// Copertura end-to-end Civiko: raccolta -> importazione/promozione ->
-// classificazione -> snapshot prezzi -> contendibili/evidence/foto ->
-// extra segnali -> off-market. Nessun cron DB viene creato o attivato qui.
-const PIPELINES: Record<PipelineAction, { at: string; steps: SimpleAction[] }> = {
-  // 05:10 Europe/Rome — raccolta portali (Casa.it multipagina + Apify).
-  pipeline_0510: {
-    at: "05:10",
-    steps: ["portal_casa", "apify_immobiliare", "apify_idealista", "apify_subito"],
-  },
-  // 05:45 Europe/Rome — raccolta risultati, importazione/promozione,
-  // classificazione lead privati, snapshot prezzi e radar.
-  pipeline_0545: {
-    at: "05:45",
-    steps: [
-      "collect_pending",
-      "listings_promote",
-      "tipo_lead_repair",
-      "private_leads_classify",
-
-      "price_snapshot",
-      "radar_full",
-    ],
-  },
-  // 07:10 Europe/Rome — contendibili (evidenze, recompute, certificazione
-  // fotografica, extra segnali), off-market e classificazione segnali.
-  pipeline_0710: {
-    at: "07:10",
-    steps: [
-      "contendibili_backfill",
-      "contendibili_image_certify",
-      "contendibili_recompute",
-      "contendibili_evidence",
-      "contendibili_extras",
-      "offmarket_discover",
-      "offmarket_scores",
-      "early_warning",
-      "signals_classify",
-    ],
-  },
-};
-
+// Pipeline sequenziali e fail-closed: contratto in ./orchestrator.ts.
 
 const SCHEDULE_TIMEZONE = "Europe/Rome";
 // Nessun cron creato o attivato da questa funzione.
