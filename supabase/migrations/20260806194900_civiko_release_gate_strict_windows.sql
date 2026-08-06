@@ -115,6 +115,8 @@ WITH pipe0510 AS (
     AND array_length(a.commercial_zone_slugs, 1) = 8
     AND public.civiko_pwa_counts_contract_ok(a.counts)
     AND p.finished_at IS NOT NULL
+    AND a.started_at IS NOT NULL AND a.finished_at IS NOT NULL
+    AND p.started_at IS NOT NULL AND p.started_at < p.finished_at
     AND a.started_at > p.finished_at
     AND a.finished_at > a.started_at
   ORDER BY a.started_at DESC, a.finished_at DESC
@@ -167,30 +169,33 @@ SELECT
   pipe0510.pipeline_run_id AS pipeline_0510_run_id,
   pipe0510.started_at AS pipeline_0510_avvio,
   pipe0510.finished_at AS pipeline_0510_ultimo,
-  (pipe0510.ok IS TRUE AND pipe0510.status BETWEEN 200 AND 299 AND pipe0510.finished_at IS NOT NULL) AS pipeline_0510_ok,
+  (pipe0510.ok IS TRUE AND pipe0510.status BETWEEN 200 AND 299 AND (pipe0510.started_at IS NOT NULL AND pipe0510.finished_at IS NOT NULL AND pipe0510.started_at < pipe0510.finished_at)) AS pipeline_0510_ok,
   pipe0545.pipeline_run_id AS pipeline_0545_run_id,
   pipe0545.started_at AS pipeline_0545_avvio,
   pipe0545.finished_at AS pipeline_0545_ultimo,
-  (pipe0545.ok IS TRUE AND pipe0545.status BETWEEN 200 AND 299 AND pipe0545.finished_at IS NOT NULL) AS pipeline_0545_ok,
+  (pipe0545.ok IS TRUE AND pipe0545.status BETWEEN 200 AND 299 AND (pipe0545.started_at IS NOT NULL AND pipe0545.finished_at IS NOT NULL AND pipe0545.started_at < pipe0545.finished_at)) AS pipeline_0545_ok,
   pipe.pipeline_run_id AS pipeline_0710_run_id,
   pipe.started_at AS pipeline_0710_avvio,
   pipe.finished_at AS pipeline_0710_ultimo,
-  (pipe.ok IS TRUE AND pipe.status BETWEEN 200 AND 299 AND pipe.finished_at IS NOT NULL) AS pipeline_0710_ok,
+  (pipe.ok IS TRUE AND pipe.status BETWEEN 200 AND 299 AND (pipe.started_at IS NOT NULL AND pipe.finished_at IS NOT NULL AND pipe.started_at < pipe.finished_at)) AS pipeline_0710_ok,
   ack.pipeline_run_id AS pwa_sync_ack_pipeline_run_id,
   ack.started_at AS pwa_sync_ack_avvio,
   ack.finished_at AS pwa_sync_ack_ultimo_ok,
   ack.counts AS pwa_sync_ack_counts,
   (pipe.ok IS TRUE AND pipe.status BETWEEN 200 AND 299 AND ack.run_id IS NOT NULL) AS pwa_sync_ack_corrente,
   (
-    pipe0510.ok IS TRUE AND pipe0510.status BETWEEN 200 AND 299 AND pipe0510.finished_at IS NOT NULL
-    AND pipe0545.ok IS TRUE AND pipe0545.status BETWEEN 200 AND 299 AND pipe0545.finished_at IS NOT NULL
-    AND pipe.ok IS TRUE AND pipe.status BETWEEN 200 AND 299 AND pipe.finished_at IS NOT NULL
+    pipe0510.ok IS TRUE AND pipe0510.status BETWEEN 200 AND 299
+    AND (pipe0510.started_at IS NOT NULL AND pipe0510.finished_at IS NOT NULL AND pipe0510.started_at < pipe0510.finished_at)
+    AND pipe0545.ok IS TRUE AND pipe0545.status BETWEEN 200 AND 299
+    AND (pipe0545.started_at IS NOT NULL AND pipe0545.finished_at IS NOT NULL AND pipe0545.started_at < pipe0545.finished_at)
+    AND pipe.ok IS TRUE AND pipe.status BETWEEN 200 AND 299
+    AND (pipe.started_at IS NOT NULL AND pipe.finished_at IS NOT NULL AND pipe.started_at < pipe.finished_at)
     AND pipe0510.finished_at < pipe0545.started_at
     AND pipe0545.finished_at < pipe.started_at
-    AND ack.started_at IS NOT NULL
+    AND ack.started_at IS NOT NULL AND ack.finished_at IS NOT NULL
     AND pipe.finished_at < ack.started_at
     AND ack.started_at < ack.finished_at
-    AND ack.finished_at < now()
+    AND now() IS NOT NULL AND ack.finished_at < now()
   ) AS release_order_ok,
   (
     pipe.ok IS TRUE AND pipe.status BETWEEN 200 AND 299 AND ack.run_id IS NOT NULL
