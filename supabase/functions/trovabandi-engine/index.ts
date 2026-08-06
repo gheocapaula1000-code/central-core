@@ -746,6 +746,8 @@ serve(async (req) => {
     const ok = Object.values(checks).every(Boolean);
     return response(ok ? 200 : 409, {
       ok,
+      gate_passed: ok,
+      cron_activation_allowed: ok,
       checks,
       metrics: {
         active: active ?? 0,
