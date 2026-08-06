@@ -336,7 +336,7 @@ async function runAction(
     const res = await fetch(url, {
       method: "POST",
       headers,
-      body: JSON.stringify(target.body),
+      body: JSON.stringify({ ...target.body, ...(bodyOverride ?? {}) }),
       signal: controller.signal,
     });
 
