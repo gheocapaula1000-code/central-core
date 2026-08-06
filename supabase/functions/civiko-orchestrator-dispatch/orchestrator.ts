@@ -709,19 +709,13 @@ export function stepsOfExactRuns(
   });
 }
 
-/** Ultimo TENTATIVO per (pipeline, azione): attempt_no più alto, poi tempo. */
+/** Ultimo TENTATIVO per (pipeline, azione): started_at DESC, tie-break stabile. */
 export function latestRunsByAction(rows: ActionRunRow[]): Map<string, ActionRunRow> {
   const out = new Map<string, ActionRunRow>();
   for (const r of rows) {
     const key = actionKey(r);
     const prev = out.get(key);
-    if (!prev) {
-      out.set(key, r);
-      continue;
-    }
-    const a = r.attempt_no ?? 1;
-    const b = prev.attempt_no ?? 1;
-    if (a > b || (a === b && runTime(r) >= runTime(prev))) out.set(key, r);
+    if (!prev || compareRuns(r, prev) >= 0) out.set(key, r);
   }
   return out;
 }
