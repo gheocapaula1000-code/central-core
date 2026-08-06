@@ -21,13 +21,40 @@ import {
   CIVIKO_SOURCE_APPS,
   validateAck,
 } from "./validation.ts";
+import {
+  bindAckToPipeline,
+  PIPELINE_ACK,
+  PIPELINE_MAX_AGE_MS,
+  type PipelineRunRow,
+} from "./binding.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 const MAX_BODY_BYTES = 16_384;
 
-async function upsertAck(record: AckRecord): Promise<{ ok: boolean; code?: string }> {
+/** Le esecuzioni pipeline candidate al binding: mai fornite dal client. */
+async function fetchPipelineRuns(startedAtMs: number): Promise<PipelineRunRow[] | null> {
+  const since = new Date(startedAtMs - PIPELINE_MAX_AGE_MS - 60_000).toISOString();
+  const url = `${SUPABASE_URL}/rest/v1/civiko_pipeline_runs` +
+    `?select=run_id,pipeline,finished_at,ok&pipeline=eq.${PIPELINE_ACK}` +
+    `&finished_at=not.is.null&finished_at=gte.${encodeURIComponent(since)}` +
+    `&order=finished_at.desc&limit=20`;
+  const res = await fetch(url, {
+    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+  });
+  if (!res.ok) {
+    console.error(`[civiko-pwa-sync-ack] pipeline read failed status=${res.status}`);
+    await res.body?.cancel();
+    return null;
+  }
+  return await res.json() as PipelineRunRow[];
+}
+
+async function upsertAck(
+  record: AckRecord & { pipeline_run_id: string },
+): Promise<{ ok: boolean; code?: string }> {
+
   const res = await fetch(
     `${SUPABASE_URL}/rest/v1/civiko_pwa_sync_acks?on_conflict=run_id`,
     {
@@ -91,7 +118,20 @@ Deno.serve(async (req) => {
     return fail(req, 400, validation.code, validation.message, debugId);
   }
 
-  const written = await upsertAck(validation.record);
+  // Binding server-side: la PWA non dichiara la pipeline, la deriva il Core.
+  const runs = await fetchPipelineRuns(Date.parse(validation.record.started_at));
+  if (runs === null) {
+    return fail(req, 502, "PIPELINE_LOOKUP_FAILED", "Pipeline audit not readable", debugId);
+  }
+  const binding = bindAckToPipeline(runs, Date.parse(validation.record.started_at));
+  if (!binding.ok) {
+    return fail(req, 409, binding.code, binding.message, debugId);
+  }
+
+  const written = await upsertAck({
+    ...validation.record,
+    pipeline_run_id: binding.pipelineRunId,
+  });
   if (!written.ok) {
     return fail(req, 502, written.code ?? "ACK_WRITE_FAILED", "Ack not persisted", debugId);
   }
@@ -99,9 +139,12 @@ Deno.serve(async (req) => {
   return ok(req, {
     run_id: validation.record.run_id,
     idempotency_key: validation.record.idempotency_key,
+    pipeline_run_id: binding.pipelineRunId,
+    pipeline_finished_at: binding.pipelineFinishedAt,
     ok: validation.record.ok,
     finished_at: validation.record.finished_at,
     scope_comune: validation.record.scope_comune,
     zones: validation.record.scope_slugs.length,
   }, [], debugId);
+
 });
