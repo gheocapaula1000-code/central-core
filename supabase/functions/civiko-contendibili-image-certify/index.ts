@@ -177,9 +177,9 @@ Deno.serve(async (req) => {
   let undecodable = 0;
   let downloadFailed = 0;
   let rejectedQuality = 0;
-  const fingerprints: Fp[] = [];
+  const fingerprints: Fp[] = pairsOnly ? storedFingerprints : [];
 
-  for (const att of attempts) {
+  for (const att of pairsOnly ? [] : attempts) {
     const listingId = Number(att.listing_id);
     const listing = listingById.get(listingId);
     if (!listing) continue;
