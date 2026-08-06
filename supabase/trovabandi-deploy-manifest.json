@@ -1,0 +1,32 @@
+{
+  "manifest_version": "1.0.0",
+  "product": "trovabandi",
+  "deploy_mode": "selective_only",
+  "global_deploy_forbidden": true,
+  "migrations": [
+    "20260806040000_trovabandi_engine_v1.sql",
+    "20260806040500_trovabandi_deep_sources.sql",
+    "20260806041000_trovabandi_national_sources.sql",
+    "20260806041500_trovabandi_eu_pnrr_sources.sql"
+  ],
+  "functions": [
+    {
+      "name": "trovabandi-engine",
+      "verify_jwt": false,
+      "auth_mode": "custom_app_secret_server_to_server",
+      "required_secrets": [
+        "AI_CORE_SECRET_TROVABANDI",
+        "SUPABASE_URL",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "FIRECRAWL_API_KEY",
+        "PERPLEXITY_API_KEY"
+      ],
+      "optional_secrets": ["APIFY_TOKEN", "TROVABANDI_APIFY_ACTOR_ID", "TROVABANDI_PERPLEXITY_MODEL"]
+    }
+  ],
+  "notes": [
+    "Deploy only the listed TrovaBandi function; never deploy all Central Core functions.",
+    "The domain is additive and does not modify shared Civiko, Wyloni, Sottra or KeyDraft behaviour.",
+    "Secret values and company profiles must never be logged."
+  ]
+}
