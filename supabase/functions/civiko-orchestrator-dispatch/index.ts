@@ -31,8 +31,12 @@ type SimpleAction =
   | "apify_subito"
   | "portal_casa"
   | "collect_pending"
+  | "listings_promote"
+  | "private_leads_classify"
+  | "price_snapshot"
   | "contendibili_backfill"
   | "contendibili_recompute"
+  | "contendibili_image_certify"
   | "contendibili_evidence"
   | "contendibili_extras"
   | "offmarket_discover"
@@ -44,6 +48,7 @@ type SimpleAction =
 type PipelineAction = "pipeline_0510" | "pipeline_0545" | "pipeline_0710";
 
 type Action = "healthcheck" | "release_gate" | SimpleAction | PipelineAction;
+
 
 interface Target {
   // Solo nome funzione + query hardcoded: nessun URL o path arbitrario dal client.
