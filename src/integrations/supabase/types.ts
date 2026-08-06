@@ -9903,9 +9903,11 @@ export type Database = {
           a_id: number
           b_id: number
           dist_m: number
+          evidence_branch: string
           geo_unita_testo_ok: boolean
           match_version: string
           pair_kind: string
+          photo_strong: boolean
           prezzo_ratio: number
           shared_photos: number
         }[]
