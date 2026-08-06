@@ -285,9 +285,14 @@ export const CONTINUATION_RESERVE_MS = 2_000;
 export const SEGMENT_CAPACITY_MS = PIPELINE_BUDGET_MS - BUDGET_RESERVE_MS -
   CONTINUATION_RESERVE_MS;
 
-/** Costo peggiore di uno stage: azione più lenta (le altre sono parallele). */
+/**
+ * Costo peggiore di uno stage: l'azione più lenta (le altre sono parallele),
+ * con i `repeat` contati per intero perché sono invocazioni SEQUENZIALI.
+ */
 export function stageWorstCaseMs(stage: PipelineStage): number {
-  const slowest = Math.max(...stage.map((s) => ACTION_TIMEOUT_MS[s.action]));
+  const slowest = Math.max(
+    ...stage.map((s) => ACTION_TIMEOUT_MS[s.action] * Math.max(1, s.repeat ?? 1)),
+  );
   return slowest + STAGE_OVERHEAD_MS;
 }
 
