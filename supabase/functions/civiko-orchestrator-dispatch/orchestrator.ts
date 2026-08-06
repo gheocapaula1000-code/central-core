@@ -687,7 +687,7 @@ export function latestPipelineMarkers(
     if (typeof r.pipeline_run_id !== "string" || !r.pipeline_run_id) continue;
     const key = r.pipeline as PipelineAction;
     const prev = out.get(key);
-    if (!prev || runTime(r) >= runTime(prev)) out.set(key, r);
+    if (!prev || compareRuns(r, prev) >= 0) out.set(key, r);
   }
   return out;
 }
