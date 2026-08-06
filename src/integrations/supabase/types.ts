@@ -9971,6 +9971,30 @@ export type Database = {
         Returns: string
       }
       civiko_normalize_quartiere: { Args: { p_value: string }; Returns: string }
+      civiko_padova_img_group_gate_ok: {
+        Args: {
+          p_has_asta: boolean
+          p_has_mls: boolean
+          p_mq_max: number
+          p_mq_min: number
+          p_n_agenzie: number
+          p_n_annunci_canonici: number
+          p_n_bagni: number
+          p_n_locali: number
+          p_n_pairs: number
+          p_n_pairs_attese: number
+          p_n_pairs_over15: number
+          p_n_pairs_photo: number
+          p_n_pairs_photo_weak: number
+          p_n_piani: number
+          p_n_rows: number
+          p_n_tipologie: number
+          p_n_zone: number
+          p_prezzo_max: number
+          p_prezzo_min: number
+        }
+        Returns: boolean
+      }
       civiko_padova_matcher_v4_candidates: {
         Args: never
         Returns: {
@@ -10012,6 +10036,14 @@ export type Database = {
           photo_strong: boolean
           prezzo_ratio: number
           shared_photos: number
+        }[]
+      }
+      civiko_photo_evidence_contract: {
+        Args: never
+        Returns: {
+          algo: string
+          evidence_kind: string
+          match_version: string
         }[]
       }
       civiko_pwa_counts_contract_ok: {
