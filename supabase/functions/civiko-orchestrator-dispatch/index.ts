@@ -1129,59 +1129,92 @@ Deno.serve(async (req) => {
     const planned = expandedSteps(pipelineAction);
     const steps: StepResult[] = [];
     let failedAt: string | null = null;
-    let budgetExhausted = false;
+    let exhausted = false;
     const startedAt = Date.now();
-    const runId = crypto.randomUUID();
-    await recordPipelineStart(runId, action);
+    const pipelineRunId = crypto.randomUUID();
+    const startAudit = await recordPipelineStart(pipelineRunId, action);
+    if (startAudit) {
+      // L'audit è parte del contratto: senza traccia la pipeline non parte.
+      return json(500, {
+        ok: false,
+        action,
+        pipeline_run_id: pipelineRunId,
+        run_id: pipelineRunId,
+        error: startAudit,
+      });
+    }
     // Sequenziale, deterministica e fail-closed: si ferma al primo step non ok
     // e comunque entro il budget complessivo.
-    const repeatIndex = new Map<SimpleAction, number>();
-    for (const step of planned) {
-      const iteration = repeatIndex.get(step) ?? 0;
-      repeatIndex.set(step, iteration + 1);
-      const remaining = PIPELINE_BUDGET_MS - (Date.now() - startedAt);
-      if (remaining <= STEP_MIN_MS) {
-        budgetExhausted = true;
-        failedAt = step;
-        steps.push({
-          action: step,
-          target: ALLOWED[step].rpc ? `rpc/${ALLOWED[step].rpc}` : ALLOWED[step].fn,
-          ok: false,
-          status: 504,
-          reason: "pipeline_budget_exhausted",
-          result: {},
-        });
-        break;
-      }
-      // Certificazione fotografica: hard limit per invocazione e finestra
-      // avanzata a ogni iterazione (max IMAGE_CERTIFY_MAX_INVOCATIONS).
-      const override = step === "contendibili_image_certify"
-        ? {
-          limit: IMAGE_CERTIFY_HARD_LIMIT,
-          offset: iteration * IMAGE_CERTIFY_HARD_LIMIT,
+    const remainingMs = () => PIPELINE_BUDGET_MS - (Date.now() - startedAt);
+    const pushBudgetFailure = (step: SimpleAction) => {
+      exhausted = true;
+      failedAt = step;
+      steps.push({
+        action: step,
+        target: ALLOWED[step].rpc ? `rpc/${ALLOWED[step].rpc}` : ALLOWED[step].fn,
+        ok: false,
+        status: 504,
+        reason: "pipeline_budget_exhausted",
+        result: {},
+      });
+    };
+
+    outer:
+    for (const declared of pipeline.steps) {
+      const step = declared.action;
+      const isImage = step === "contendibili_image_certify";
+      const maxIterations = isImage
+        ? IMAGE_CERTIFY_MAX_INVOCATIONS
+        : Math.max(1, declared.repeat ?? 1);
+      let marker: number | null = null;
+
+      for (let iteration = 0; iteration < maxIterations; iteration++) {
+        if (noBudgetLeft(remainingMs())) {
+          pushBudgetFailure(step);
+          break outer;
         }
-        : undefined;
-      const r = await runAuditedAction(
-        step,
-        stepTimeoutMs(step, remaining),
-        runId,
-        action,
-        override,
-      );
-      steps.push(r);
-      if (!r.ok) {
-        failedAt = step;
-        break;
+        // Certificazione fotografica su coda mutante: nessun offset, hard limit
+        // 4 e avanzamento oldest-first tramite marker.
+        const override = isImage
+          ? {
+            limit: IMAGE_CERTIFY_HARD_LIMIT,
+            pipeline_run_id: pipelineRunId,
+            ...(marker !== null ? { after_listing_id: marker } : {}),
+          }
+          : { pipeline_run_id: pipelineRunId };
+        const r = await runAuditedAction(
+          step,
+          stepTimeoutMs(step, remainingMs()),
+          pipelineRunId,
+          action,
+          override,
+        );
+        steps.push(r);
+        if (!r.ok) {
+          failedAt = step;
+          break outer;
+        }
+        if (isImage) {
+          const progress = (r.raw ?? {}) as Record<string, unknown>;
+          const next = imageCertifyMarker(progress);
+          if (!shouldRepeatImageCertify(iteration + 1, progress, marker)) break;
+          marker = next ?? marker;
+        }
       }
     }
     const failing = steps.find((s) => !s.ok);
-    const status = pipelineStatus(steps, budgetExhausted);
-    await recordPipelineEnd(
-      runId,
+    let status = pipelineStatus(steps, exhausted);
+    const endAudit = await recordPipelineEnd(
+      pipelineRunId,
       failedAt === null,
       steps,
-      failedAt === null ? null : (budgetExhausted ? "BUDGET_EXHAUSTED" : "STEP_FAILED"),
+      failedAt === null ? null : (exhausted ? "BUDGET_EXHAUSTED" : "STEP_FAILED"),
     );
+    if (endAudit) {
+      failedAt = failedAt ?? "audit";
+      status = status === 200 ? 500 : status;
+    }
+
     // Nessun wrapper ok:true quando un solo step fallisce.
     return json(status, {
       ok: failedAt === null && status === 200,
