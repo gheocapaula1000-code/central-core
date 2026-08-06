@@ -104,7 +104,7 @@ Deno.test("auth: guard requireCivikoCostSecret prima di body e write", async () 
   assertEquals(src.includes("requireSecret(req"), false);
   const guard = src.indexOf("requireCivikoCostSecret(req");
   const body = src.indexOf("await req.text()");
-  const write = src.indexOf("insertAck(");
+  const write = src.indexOf("await insertAck(");
   assertEquals(guard > -1 && body > guard, true);
   assertEquals(write > guard, true);
 });
