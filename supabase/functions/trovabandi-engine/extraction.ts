@@ -368,11 +368,12 @@ export function sanitizeDbErrorCode(error: unknown): string {
  */
 export function searchDiagnostics(
   provider: "firecrawl" | "perplexity",
-  outcome: SearchOutcome<unknown>,
+  outcome: { ok: true; hits: unknown[] } | { ok: false; code: SearchFailureCode },
 ): { phase: string; code: string; operational: boolean } {
   const phase = `search_${provider}`;
-  if (outcome.ok) {
+  if (outcome.ok === true) {
     return { phase, code: outcome.hits.length > 0 ? "OK" : "OK_EMPTY", operational: false };
   }
   return { phase, code: outcome.code, operational: true };
 }
+
