@@ -58,13 +58,15 @@ const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
 export const TOTAL_LISTINGS_PER_INVOCATION = 4;
 /** Un listing non viene mai ritentato più di così. */
 export const MAX_ATTEMPTS_PER_LISTING = 4;
-/** Ampiezza della finestra di scansione dei candidati (bounded). */
-const CANDIDATE_SCAN_LIMIT = 200;
+/** Paginazione delle fonti candidate: nessun tetto arbitrario pre-filtro. */
+const CANDIDATE_PAGE_SIZE = 500;
+const CANDIDATE_MAX_PAGES = 200;
 /** Paginazione completa dei fingerprint: nessun tetto arbitrario. */
 const FINGERPRINT_PAGE_SIZE = 1000;
 const FINGERPRINT_MAX_PAGES = 200;
-/** Scansione bounded della tabella di avanzamento (non è un cap sui fingerprint). */
-const ATTEMPTS_PROGRESS_SCAN = 5000;
+/** Paginazione completa della tabella di avanzamento (nessun cap a 5000). */
+const ATTEMPTS_PAGE_SIZE = 1000;
+const ATTEMPTS_MAX_PAGES = 500;
 
 /** Perimetro ufficiale Civiko One / Padova: 8 zone commerciali. */
 export const CIVIKO_ZONE_SLUGS = [
