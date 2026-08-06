@@ -6099,6 +6099,7 @@ export type Database = {
           agenzia_nuova: string
           agenzia_precedente: string
           canon_url: string
+          commercial_zone_slug: string | null
           contendibile_overlap: boolean
           created_at: string
           data_cambio: string
@@ -6120,6 +6121,7 @@ export type Database = {
           agenzia_nuova: string
           agenzia_precedente: string
           canon_url: string
+          commercial_zone_slug?: string | null
           contendibile_overlap?: boolean
           created_at?: string
           data_cambio: string
@@ -6141,6 +6143,7 @@ export type Database = {
           agenzia_nuova?: string
           agenzia_precedente?: string
           canon_url?: string
+          commercial_zone_slug?: string | null
           contendibile_overlap?: boolean
           created_at?: string
           data_cambio?: string
@@ -9441,7 +9444,7 @@ export type Database = {
           agenzia_nuova?: string | null
           agenzia_precedente?: string | null
           canon_url?: string | null
-          commercial_zone_slug?: never
+          commercial_zone_slug?: string | null
           contendibile_overlap?: boolean | null
           created_at?: string | null
           data_cambio?: string | null
@@ -9463,7 +9466,7 @@ export type Database = {
           agenzia_nuova?: string | null
           agenzia_precedente?: string | null
           canon_url?: string | null
-          commercial_zone_slug?: never
+          commercial_zone_slug?: string | null
           contendibile_overlap?: boolean | null
           created_at?: string | null
           data_cambio?: string | null
@@ -9957,6 +9960,10 @@ export type Database = {
         Returns: Json
       }
       civiko_ascii_fold: { Args: { p_value: string }; Returns: string }
+      civiko_cambi_zone_slug: {
+        Args: { _curl: string; _quartiere: string }
+        Returns: string
+      }
       civiko_classify_tipo_lead: {
         Args: { p_agency: string; p_n_agenzie: number; p_src_tipo_lead: string }
         Returns: string
@@ -10019,6 +10026,7 @@ export type Database = {
           prezzo: number
           quartiere: string
           tipologia: string
+          title_type_ok: boolean
           url: string
           via_n: string
         }[]
