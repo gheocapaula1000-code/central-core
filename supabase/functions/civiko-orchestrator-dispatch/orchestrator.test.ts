@@ -550,3 +550,201 @@ Deno.test("parseGateMode: default routine, fail-closed su input arbitrario", () 
   assertEquals(parseGateMode("qualsiasi"), "routine");
   assertEquals(parseGateMode("initial_validation"), "initial_validation");
 });
+
+// ── Supplemento Gate3: DAG esplicito, critical path, orologio finto ─────────
+import {
+  ACTION_TIMEOUT_MS as TIMEOUTS,
+  criticalPathMs,
+  dependencyPairs,
+  INVOCATION_OVERHEAD_MS,
+  NOMINAL_RUNTIME_MS,
+  nonCompletableActions,
+  PIPELINE_COUNT,
+  PIPELINE_DAG,
+  PIPELINE_ORDER,
+  pipelineActions,
+  pipelinePlan,
+  simulatePipeline,
+  topoStages,
+} from "./orchestrator.ts";
+
+Deno.test("esattamente tre pipeline Civiko: nessun quarto job", () => {
+  assertEquals(Object.keys(PIPELINES).length, PIPELINE_COUNT);
+  assertEquals(Object.keys(PIPELINES).sort(), [...PIPELINE_ORDER].sort());
+  assertEquals(Object.keys(PIPELINE_DAG).length, PIPELINE_COUNT);
+});
+
+Deno.test("nessuno step dipendente viene parallelizzato", () => {
+  for (const p of PIPELINE_ORDER) {
+    const stageOf = new Map<string, number>();
+    PIPELINES[p].stages.forEach((st, i) => st.forEach((s) => stageOf.set(s.action, i)));
+    for (const [dep, act] of dependencyPairs(p)) {
+      assert(
+        stageOf.get(dep)! < stageOf.get(act)!,
+        `${p}: ${dep} e ${act} sono dipendenti ma non serializzati`,
+      );
+    }
+  }
+});
+
+Deno.test("dipendenze note esplicite: classify→repair, snapshot→recompute, scores→early", () => {
+  const p0545 = dependencyPairs("pipeline_0545").map((x) => x.join("→"));
+  assert(p0545.includes("private_leads_classify→tipo_lead_repair"));
+  assert(p0545.includes("price_snapshot→contendibili_recompute"));
+  assert(p0545.includes("contendibili_pairs→contendibili_recompute"));
+  const p0710 = dependencyPairs("pipeline_0710").map((x) => x.join("→"));
+  assert(p0710.includes("offmarket_discover→offmarket_scores"));
+  assert(p0710.includes("offmarket_scores→early_warning"));
+  assert(p0710.includes("early_warning→signals_classify"));
+});
+
+Deno.test("DAG fail-closed: ciclo e dipendenza ignota sono errori di contratto", () => {
+  const clone = structuredClone(PIPELINE_DAG.pipeline_0710);
+  try {
+    (PIPELINE_DAG as Record<string, unknown>).pipeline_0710 = {
+      at: "07:10",
+      nodes: [
+        { action: "radar_full", needs: ["signals_classify"] },
+        { action: "signals_classify", needs: ["radar_full"] },
+      ],
+    };
+    let threw = false;
+    try {
+      topoStages("pipeline_0710");
+    } catch (e) {
+      threw = String((e as Error).message).includes("cycle");
+    }
+    assert(threw, "un ciclo deve fallire chiuso");
+  } finally {
+    (PIPELINE_DAG as Record<string, unknown>).pipeline_0710 = clone;
+  }
+});
+
+Deno.test("nessuno step con runtime nominale superiore al proprio timeout", () => {
+  assertEquals(nonCompletableActions(), []);
+  for (const a of Object.keys(NOMINAL_RUNTIME_MS) as SimpleAction[]) {
+    assert(
+      NOMINAL_RUNTIME_MS[a] <= TIMEOUTS[a],
+      `${a}: nominale ${NOMINAL_RUNTIME_MS[a]} > timeout ${TIMEOUTS[a]}`,
+    );
+  }
+  // Runtime interni reali noti: mai dichiarati sotto il valore osservato.
+  assert(NOMINAL_RUNTIME_MS.radar_full >= 85_000);
+  assert(NOMINAL_RUNTIME_MS.offmarket_discover >= 80_000);
+});
+
+Deno.test("piano esigibile per ogni pipeline: single oppure segmentato provato", () => {
+  for (const p of PIPELINE_ORDER) {
+    const plan = pipelinePlan(p);
+    assertEquals(plan.criticalPathMs, criticalPathMs(p));
+    assert(plan.fitsBudget, `${p}: piano non dimostrabile entro il budget`);
+    if (plan.mode === "single") {
+      assert(
+        plan.nominalTotalMs <= PIPELINE_BUDGET_MS,
+        `${p}: critical path ${plan.nominalTotalMs} oltre 165s in singola invocazione`,
+      );
+      assertEquals(plan.segments.length, 1);
+    } else {
+      // Batch/async: continuazione sullo STESSO pipeline_run_id, stesso ciclo.
+      assert(plan.segments.length > 1);
+      assert(
+        plan.worstSegmentNominalMs <= PIPELINE_BUDGET_MS,
+        `${p}: segmento oltre budget nel nominale`,
+      );
+      for (const s of plan.segments) {
+        assert(
+          s.worstCaseMs + INVOCATION_OVERHEAD_MS <= PIPELINE_BUDGET_MS,
+          `${p}: segmento ${s.from}-${s.to} oltre budget nel caso peggiore`,
+        );
+      }
+    }
+  }
+});
+
+Deno.test("0510 sta in una sola invocazione; 0545 e 0710 sono segmentate", () => {
+  assertEquals(pipelinePlan("pipeline_0510").mode, "single");
+  assertEquals(pipelinePlan("pipeline_0545").mode, "segmented");
+  assertEquals(pipelinePlan("pipeline_0710").mode, "segmented");
+});
+
+Deno.test("critical path indipendente dai timeout: non si va verdi accorciandoli", () => {
+  const before = criticalPathMs("pipeline_0710");
+  const saved = TIMEOUTS.radar_full;
+  try {
+    (TIMEOUTS as Record<string, number>).radar_full = 10_000;
+    assertEquals(criticalPathMs("pipeline_0710"), before);
+    // ...e ridurre il timeout rende lo step NON completabile.
+    assert(nonCompletableActions().includes("radar_full"));
+  } finally {
+    (TIMEOUTS as Record<string, number>).radar_full = saved;
+  }
+});
+
+Deno.test("orologio finto worst-case: ogni invocazione resta sotto 165s", () => {
+  for (const p of PIPELINE_ORDER) {
+    const run = simulatePipeline(p, (a) => TIMEOUTS[a]);
+    assertEquals(run.failedAt, null);
+    assert(run.completed, `${p}: worst case non completa tutte le azioni`);
+    for (const ms of run.invocationMs) {
+      assert(ms <= PIPELINE_BUDGET_MS, `${p}: invocazione ${ms}ms oltre il budget`);
+    }
+    assertEquals(run.invocationMs.length, pipelinePlan(p).segments.length);
+  }
+});
+
+Deno.test("orologio finto worst-case: gli step dipendenti non si sovrappongono mai", () => {
+  for (const p of PIPELINE_ORDER) {
+    const run = simulatePipeline(p, (a) => TIMEOUTS[a]);
+    const end = new Map<string, { seg: number; t: number }>();
+    const start = new Map<string, { seg: number; t: number }>();
+    for (const s of run.steps) {
+      const e = end.get(s.action);
+      if (!e || s.segment > e.seg || (s.segment === e.seg && s.finishedAtMs > e.t)) {
+        end.set(s.action, { seg: s.segment, t: s.finishedAtMs });
+      }
+      if (!start.has(s.action)) start.set(s.action, { seg: s.segment, t: s.startedAtMs });
+    }
+    for (const [dep, act] of dependencyPairs(p)) {
+      const d = end.get(dep)!;
+      const a = start.get(act)!;
+      const ordered = a.seg > d.seg || (a.seg === d.seg && a.t >= d.t);
+      assert(ordered, `${p}: ${act} parte prima della fine di ${dep}`);
+    }
+  }
+});
+
+Deno.test("orologio finto: durata reale oltre il timeout = step non completato", () => {
+  const run = simulatePipeline(
+    "pipeline_0710",
+    (a) => a === "offmarket_discover" ? TIMEOUTS[a] + 1 : TIMEOUTS[a],
+  );
+  assertEquals(run.failedAt, "offmarket_discover");
+  assertEquals(run.completed, false);
+  const timedOut = run.steps.filter((s) => s.timedOut).map((s) => s.action);
+  assertEquals(timedOut, ["offmarket_discover"]);
+  // Nessuno step a valle della catena viene eseguito.
+  const executed = new Set(run.steps.map((s) => s.action));
+  assert(!executed.has("offmarket_scores"));
+  assert(!executed.has("signals_classify"));
+});
+
+Deno.test("il repeat della certificazione foto è contato per intero nel worst case", () => {
+  const stage = PIPELINES.pipeline_0545.stages.find((s) =>
+    s.some((x) => x.action === "contendibili_image_certify")
+  )!;
+  assertEquals(stage.length, 1);
+  assertEquals(stage[0].repeat, IMAGE_CERTIFY_MAX_INVOCATIONS);
+  assertEquals(
+    stageWorstCaseMs(stage),
+    ACTION_TIMEOUT_MS.contendibili_image_certify * IMAGE_CERTIFY_MAX_INVOCATIONS + 2_000,
+  );
+});
+
+Deno.test("ogni azione dichiarata nel DAG compare esattamente una volta negli stage", () => {
+  for (const p of PIPELINE_ORDER) {
+    const declared = PIPELINE_DAG[p].nodes.map((n) => n.action).sort();
+    const staged = pipelineActions(p).sort();
+    assertEquals(staged, declared);
+    assertEquals(new Set(staged).size, staged.length);
+  }
+});
