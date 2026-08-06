@@ -1,28 +1,38 @@
 // Regressione statica — Civiko One / Padova, matcher contendibili v4.
-// Contratto: rami photo_edges e structural_edges separati e poi UNION.
-// - Il ramo foto NON puo' imporre piano/tipologia/locali/mq/bagni.
-// - La stessa identita' immobiliare fra agenzie diverse NON e' un veto.
-// - Oltre il 15% di scarto prezzo nessuna coppia e' ammessa.
+// Contratto propagato PER OGNI EDGE fino al gruppo/certificazione:
+// - rami photo_edges e structural_edges separati e poi UNION;
+// - il ramo foto NON puo' imporre piano/tipologia/locali/mq/bagni/civico;
+// - la stessa identita' immobiliare fra agenzie diverse NON e' un veto;
+// - reject comuni: stessa canonical, stessa agenzia, asta/MLS, fuori zona,
+//   scarto prezzo oltre il 15%;
+// - il gate di gruppo e' complete-link e branch-aware (i vincoli di metadata
+//   valgono solo per i gruppi interamente strutturali).
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
 const MIGRATION =
-  "supabase/migrations/20260806173226_5fe22790-0787-4a3d-95af-e8c58b0e5399.sql";
+  "supabase/migrations/20260806181048_9f50aafc-7278-4e4c-8bc6-11beaf0b8153.sql";
 
 async function readMigration(): Promise<string> {
   return await Deno.readTextFile(MIGRATION);
 }
 
 function pairsFunctionBody(sql: string): string {
-  const start = sql.indexOf("$fn_pairs$");
-  const end = sql.indexOf("$fn_pairs$", start + 1);
+  const start = sql.indexOf("$function$");
+  const end = sql.indexOf("$function$", start + 1);
   assert(start > -1 && end > start, "corpo di civiko_padova_matcher_v4_pairs non trovato");
+  return sql.slice(start, end);
+}
+
+function groupBlock(sql: string): string {
+  const start = sql.indexOf("$blk$");
+  const end = sql.indexOf("$blk$", start + 1);
+  assert(start > -1 && end > start, "blocco gruppo/QA branch-aware non trovato");
   return sql.slice(start, end);
 }
 
 function branch(body: string, name: string): string {
   const start = body.indexOf(`${name} AS (`);
   assert(start > -1, `ramo ${name} assente`);
-  // dal marcatore fino al ramo successivo di primo livello
   const rest = body.slice(start);
   const next = rest.slice(1).search(/\n  \w+ AS \(/);
   return next > -1 ? rest.slice(0, next + 1) : rest;
@@ -38,19 +48,36 @@ Deno.test("matcher v4: rami photo_edges e structural_edges separati e uniti", as
   );
 });
 
-Deno.test("matcher v4: il ramo foto non impone piano/tipologia/bagni", async () => {
+Deno.test("matcher v4: il ramo foto non impone piano/bagni come requisito", async () => {
   const photo = branch(pairsFunctionBody(await readMigration()), "photo_edges");
-  for (const forbidden of ["piano_k", "tipologia", "bagni"]) {
+  for (const forbidden of ["piano_k", "bagni"]) {
     assert(
       !new RegExp(forbidden).test(photo),
       `requisito ${forbidden} vietato nel ramo fotografico`,
     );
   }
+  // tipologia/locali/mq/civico compaiono solo come segnali alternativi di
+  // plausibilita' (OR), mai come requisito congiunto.
+  assert(
+    /OR \(\(b\.x\)\.tipologia IS NOT NULL AND \(b\.x\)\.tipologia = \(b\.y\)\.tipologia\)/
+      .test(photo),
+    "tipologia ammessa solo come segnale alternativo di plausibilita'",
+  );
+  assert(
+    /OR \(coalesce\(\(b\.x\)\.civico_n,''\) <> ''/.test(photo),
+    "il civico e' solo un segnale alternativo, mai un requisito",
+  );
+  assert(!/AND \(b\.x\)\.locali = /.test(photo), "locali non puo' essere obbligatorio");
+
   assert(
     /shared_photos >= 2/.test(photo),
     "la fascia 10-15% deve accettare 2 pHash condivisi come prova forte",
   );
   assert(/shared_photos >= 1/.test(photo), "la fascia <=10% richiede almeno 1 pHash");
+  assert(
+    /prezzo_ratio <= 1\.10[\s\S]*shared_photos >= 1[\s\S]*OR/.test(photo),
+    "la fascia <=10% richiede 1 pHash piu' almeno un segnale di plausibilita'",
+  );
 });
 
 Deno.test("matcher v4: identita' immobiliare uguale non e' un veto", async () => {
@@ -64,6 +91,14 @@ Deno.test("matcher v4: identita' immobiliare uguale non e' un veto", async () =>
   assert(
     /canonical_listing_id <> x\.canonical_listing_id/.test(body),
     "la stessa canonical/ripubblicazione deve restare esclusa",
+  );
+  assert(
+    /x\.is_asta IS NOT TRUE AND y\.is_asta IS NOT TRUE/.test(body),
+    "asta esclusa in ogni ramo",
+  );
+  assert(
+    /x\.is_mls IS NOT TRUE AND y\.is_mls IS NOT TRUE/.test(body),
+    "MLS/esclusiva esclusa in ogni ramo",
   );
 });
 
@@ -82,6 +117,53 @@ Deno.test("matcher v4: tetto assoluto del 15%", async () => {
   assert(
     /WHERE m\.prezzo_ratio <= 1\.15/.test(body),
     "il tetto del 15% deve valere sull'output finale",
+  );
+});
+
+Deno.test("matcher v4: ogni edge espone il proprio ramo di prova", async () => {
+  const body = pairsFunctionBody(await readMigration());
+  assert(/evidence_branch text/.test(body) || /evidence_branch/.test(body));
+  assert(/'PHOTO'::text AS evidence_branch/.test(body), "ramo PHOTO esplicito");
+  assert(/'STRUCTURAL'::text AS evidence_branch/.test(body), "ramo STRUCTURAL esplicito");
+  assert(/photo_strong/.test(body), "il flag photo_strong deve essere propagato");
+});
+
+Deno.test("gate di gruppo: complete-link senza transitivita'", async () => {
+  const blk = groupBlock(await readMigration());
+  assert(/_photo_cliques/.test(blk), "manca la costruzione delle clique");
+  assert(/n_pairs = g\.n_pairs_attese/.test(blk), "complete-link obbligatorio");
+  assert(/n_rows BETWEEN 2 AND 4/.test(blk), "gruppi da 2 a 4 annunci");
+  assert(
+    /JOIN _pe p3 ON p3\.a_id = p1\.b_id AND p3\.b_id = p2\.b_id/.test(blk),
+    "la clique da 3 deve richiedere anche l'edge A-C",
+  );
+});
+
+Deno.test("gate di gruppo: metadata solo per gruppi interamente strutturali", async () => {
+  const blk = groupBlock(await readMigration());
+  assert(
+    /g\.n_pairs_photo > 0\s*\n\s*OR \(/.test(blk),
+    "i gruppi con prova fotografica devono bypassare i vincoli di metadata",
+  );
+  assert(
+    /coalesce\(n_pairs_photo, 0\) = 0\s*\n\s*AND \(/.test(blk),
+    "la QA applica i vincoli di metadata solo ai gruppi strutturali",
+  );
+  assert(/n_pairs_over15, 0\) > 0/.test(blk), "nessuna coppia oltre il 15% nel gruppo");
+  assert(/n_pairs_photo_weak, 0\) > 0/.test(blk), "nessuna prova fotografica debole");
+  assert(/has_asta IS TRUE/.test(blk), "asta rifiutata a livello gruppo");
+  assert(/has_mls IS TRUE/.test(blk), "MLS rifiutato a livello gruppo");
+  assert(/n_agenzie >= 2/.test(blk), "gruppo cross-agency obbligatorio");
+  assert(/n_annunci_canonici >= 2/.test(blk), "canonical distinti obbligatori");
+});
+
+Deno.test("regression fixture: negativi noti mai riammessi", async () => {
+  const sql = await readMigration();
+  assert(/\(2309, 60498\), \(3619, 60735\)/.test(sql), "fixture negativi assenti");
+  assert(/\(44787, 101390\)/.test(sql), "fixture positivi assenti");
+  assert(
+    /Regressione matcher: % coppie negative note riammesse/.test(sql),
+    "la fixture negativa deve essere fail-closed",
   );
 });
 
