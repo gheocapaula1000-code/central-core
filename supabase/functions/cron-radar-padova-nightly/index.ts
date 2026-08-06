@@ -338,18 +338,25 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Fail-closed: un solo comune fallito propaga ok:false e stato non-2xx.
     return new Response(
       JSON.stringify({
-        ok: true,
+        ok: summary.ok,
         mode: "sync",
         run_mode: mode,
         job: jobName,
         triggered_at: triggeredAt,
         comuni: COMUNI,
+        ok_count: summary.ok_count,
+        errors: summary.errors,
         radar_signals_written: rowsWritten,
       }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
+      {
+        status: summary.ok ? 200 : 502,
+        headers: { "Content-Type": "application/json" },
+      },
     );
+
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error && err.stack ? err.stack : "";
