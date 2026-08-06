@@ -992,10 +992,17 @@ serve(async (req) => {
     });
   }
 
+  // ─── collect ────────────────────────────────────────────────────────────
+  // dry_run: sola lettura assoluta. Nessun provider, nessun insert/update,
+  // nessun run, nessuna fonte toccata, nessun refresh consumato.
+  const dryRun = body.dry_run === true;
   const sourceId = normalizeText(body.source_id);
   const maxPages = Math.max(1, Math.min(5, Number(body.max_pages ?? 2)));
-  const { data: refreshSignal } = sourceId
-    ? { data: null }
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+
+  const refreshRes = sourceId
+    ? { data: null, error: null }
     : await sb
         .from("trovabandi_refresh_requests")
         .select("*")
@@ -1003,22 +1010,86 @@ serve(async (req) => {
         .order("requested_at", { ascending: true })
         .limit(1)
         .maybeSingle();
-  let sourceQuery = sb.from("trovabandi_sources").select("*").eq("enabled", true);
-  sourceQuery = sourceId
-    ? sourceQuery.eq("id", sourceId)
-    : sourceQuery
-        .lte("next_scan_at", new Date().toISOString())
-        .or(
-          refreshSignal?.region
-            ? `region.is.null,region.eq.${refreshSignal.region}`
-            : "region.is.null,region.not.is.null",
-        )
-        .order("fast_lane", { ascending: false })
-        .order("priority", { ascending: false })
-        .limit(1);
-  const { data: sourceData } = await sourceQuery.maybeSingle();
-  if (!sourceData) return response(200, { ok: true, skipped: true, reason: "NO_SOURCE_DUE" });
-  const baseSource = sourceData as Source;
+  if (refreshRes.error) return response(500, { ok: false, code: "REFRESH_QUERY_FAILED" });
+  const refreshSignal = (refreshRes.data ?? null) as JsonObject | null;
+
+  const candidatesRes = sourceId
+    ? await sb.from("trovabandi_sources").select("*").eq("enabled", true).eq("id", sourceId)
+    : await sb
+        .from("trovabandi_sources")
+        .select("*")
+        .eq("enabled", true)
+        .lte("next_scan_at", nowIso);
+  if (candidatesRes.error) return response(500, { ok: false, code: "SOURCE_QUERY_FAILED" });
+  const candidates = (candidatesRes.data ?? []) as unknown as Source[];
+  // Selettore equo: next_scan_at più vecchio, poi mai/oldest last_scanned,
+  // priority solo come tie-break; bypass regionale limitato a 30 minuti.
+  const selection = sourceId
+    ? {
+        source: candidates[0] ?? null,
+        reason: candidates[0] ? ("FAIR_OLDEST" as const) : ("NO_SOURCE_DUE" as const),
+        bypass_minutes: 0,
+      }
+    : selectDueSource(candidates as unknown as RankableSource[], {
+        nowMs,
+        refreshRegion: normalizeText(refreshSignal?.region) || null,
+      });
+  const selected = (selection.source ?? null) as Source | null;
+
+  if (dryRun) {
+    return response(200, {
+      ok: true,
+      dry_run: true,
+      would_collect: !!selected,
+      reason: selected ? selection.reason : "NO_SOURCE_DUE",
+      source: selected?.name ?? null,
+      due_candidates: candidates.length,
+      max_pages: maxPages,
+    });
+  }
+
+  if (!selected) {
+    // Nessuna fonte dovuta: run SKIPPED persistito, mai confuso con SUCCEEDED.
+    const skipped = await sb.from("trovabandi_runs").insert({
+      action: "collect",
+      trigger_source: normalizeText(body.trigger_source) || "replit",
+      status: "SKIPPED",
+      error_code: "NO_SOURCE_DUE",
+      warnings: ["NO_SOURCE_DUE"],
+      finished_at: nowIso,
+    });
+    if (skipped.error) return response(500, { ok: false, code: "RUN_PERSIST_FAILED" });
+    return response(200, {
+      ok: true,
+      skipped: true,
+      status: "SKIPPED",
+      reason: "NO_SOURCE_DUE",
+      error_code: "NO_SOURCE_DUE",
+    });
+  }
+
+  const baseSource = selected;
+  // Lease ottimistico compare-and-set: se un altro worker ha già spostato
+  // next_scan_at, questa esecuzione si ferma senza sovrapporsi.
+  const leaseUntil = new Date(
+    nowMs + Math.max(15, Number(baseSource.scan_interval_minutes || 360)) * 60_000,
+  ).toISOString();
+  const lease = await sb
+    .from("trovabandi_sources")
+    .update({ next_scan_at: leaseUntil, updated_at: nowIso })
+    .eq("id", baseSource.id)
+    .eq("next_scan_at", baseSource.next_scan_at)
+    .select("id");
+  if (lease.error) return response(500, { ok: false, code: "SOURCE_LEASE_FAILED" });
+  if (!lease.data || lease.data.length === 0)
+    return response(200, {
+      ok: true,
+      skipped: true,
+      status: "SKIPPED",
+      reason: "LEASE_LOST",
+      error_code: "LEASE_LOST",
+    });
+
   const personalisedTerms = refreshSignal
     ? [
         refreshSignal.region,
@@ -1026,7 +1097,7 @@ serve(async (req) => {
         refreshSignal.municipality,
         refreshSignal.ateco_prefix ? `ATECO ${refreshSignal.ateco_prefix}` : null,
         refreshSignal.company_size,
-        ...(refreshSignal.interest_categories ?? []),
+        ...((refreshSignal.interest_categories as string[]) ?? []),
         refreshSignal.female_business ? "imprenditoria femminile" : null,
         refreshSignal.youth_business ? "imprenditoria giovanile" : null,
         refreshSignal.innovative_business ? "startup PMI innovativa" : null,
@@ -1038,7 +1109,7 @@ serve(async (req) => {
     ...baseSource,
     search_query: `${baseSource.search_query} ${personalisedTerms}`.trim(),
   };
-  const { data: run } = await sb
+  const runInsert = await sb
     .from("trovabandi_runs")
     .insert({
       action: "collect",
@@ -1047,6 +1118,10 @@ serve(async (req) => {
     })
     .select("id")
     .single();
+  if (runInsert.error || !runInsert.data?.id)
+    return response(500, { ok: false, code: "RUN_PERSIST_FAILED" });
+  const run = runInsert.data as { id: string };
+
   const warnings: string[] = [];
   try {
     const [fc, pp] = await Promise.all([firecrawlSearch(source), perplexitySearch(source)]);
