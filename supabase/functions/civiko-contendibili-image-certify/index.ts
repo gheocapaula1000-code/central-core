@@ -55,6 +55,7 @@ import {
   eligibilityReason,
   isTerminalOutcome,
   normalizeOutcome,
+  selectEligible,
   sourceFingerprint,
 } from "./selection.ts";
 
@@ -311,23 +312,24 @@ Deno.serve(async (req) => {
 
     // Scansione oldest-first fino a `limit` eleggibili oppure EOF: il residuo
     // è autoritativo perché deriva dalla scansione completa del pool.
-    for (const id of poolIds) {
-      const cand = pool.get(id)!;
-      const reason = eligibilityReason({
-        attempt: attemptState.get(id),
-        maxAttempts: MAX_ATTEMPTS_PER_LISTING,
-        pipelineRunId,
-        hasFingerprint: fingerprinted.has(id),
-        inScope: inScope.has(id),
-        currentSourceFp: currentSourceFp.get(id) ?? null,
-      });
-      if (reason) {
-        exclusions[reason] = (exclusions[reason] ?? 0) + 1;
-        continue;
-      }
-      cand.source_fp = currentSourceFp.get(id) ?? null;
-      if (selected.length < limit) selected.push(cand);
-      else remainingEligible++;
+    const outcome = selectEligible(
+      poolIds.map((id) => pool.get(id)!),
+      (cand) =>
+        eligibilityReason({
+          attempt: attemptState.get(cand.listing_id),
+          maxAttempts: MAX_ATTEMPTS_PER_LISTING,
+          pipelineRunId,
+          hasFingerprint: fingerprinted.has(cand.listing_id),
+          inScope: inScope.has(cand.listing_id),
+          currentSourceFp: currentSourceFp.get(cand.listing_id) ?? null,
+        }),
+      limit,
+    );
+    selected = outcome.selected;
+    remainingEligible = outcome.remaining;
+    for (const [k, v] of Object.entries(outcome.exclusions)) exclusions[k] = v;
+    for (const cand of selected) {
+      cand.source_fp = currentSourceFp.get(cand.listing_id) ?? null;
     }
 
     if (!selected.length) {
