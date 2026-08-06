@@ -360,7 +360,10 @@ async function runAction(
     const obj = parsedBody.obj;
     // Parsing fail-closed: body nullo/vuoto/invalido è guasto anche con 200.
     const parseError = isRpc ? null : parsedBody.error;
-    const semantic = res.ok ? (parseError ?? semanticFailure(action, obj)) : null;
+    const semantic = res.ok
+      ? (parseError ?? (isRpc && !obj ? null : semanticFailure(action, obj)))
+      : null;
+
     const reason = isRpc && res.status === 400
       ? safePostgrestReason(rawPayload) ?? "postgrest_bad_request"
       : obj && typeof obj.reason === "string"
