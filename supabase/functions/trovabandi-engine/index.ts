@@ -1252,8 +1252,14 @@ serve(async (req) => {
     ]);
     if (sourceWrite.error || runWrite.error || refreshWrite.error)
       return response(500, { ok: false, code: "RUN_PERSIST_FAILED" });
-    return response(200, {
-      ok: true,
+    // Il run PARTIAL resta persistito con contatori e diagnostica completi,
+    // ma la risposta è fail-closed: ok:false + HTTP 502 così l'orchestratore
+    // non può marcare il job come riuscito.
+    const contract = collectResponseContract(runStatus);
+    return response(contract.http, {
+      ok: contract.ok,
+      error_code: contract.error_code,
+      collection_succeeded: contract.collection_succeeded,
       source: source.name,
       status: runStatus,
       discovered: byUrl.size,
@@ -1261,7 +1267,7 @@ serve(async (req) => {
       scraped: pagesScraped,
       processed,
       verified,
-
+      operational_failures: operationalFailures,
       warnings: [...new Set(warnings)],
       diagnostics: diagnosticCounters,
     });
