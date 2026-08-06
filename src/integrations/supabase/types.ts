@@ -9598,10 +9598,18 @@ export type Database = {
         Returns: Json
       }
       civiko_ascii_fold: { Args: { p_value: string }; Returns: string }
+      civiko_classify_tipo_lead: {
+        Args: { p_agency: string; p_n_agenzie: number; p_src_tipo_lead: string }
+        Returns: string
+      }
       civiko_is_admin_agency: { Args: { _agency_id: string }; Returns: boolean }
       civiko_is_official_zone_slug: {
         Args: { p_slug: string }
         Returns: boolean
+      }
+      civiko_merge_tipo_lead: {
+        Args: { p_existing: string; p_incoming: string }
+        Returns: string
       }
       civiko_normalize_quartiere: { Args: { p_value: string }; Returns: string }
       civiko_release_zone_on_cancel_atomic: {
