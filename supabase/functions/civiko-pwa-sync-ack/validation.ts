@@ -264,3 +264,14 @@ export function isIdenticalAck(
   }
   return true;
 }
+
+/**
+ * Identità canonica del contratto PWA Civiko One.
+ * La guard shared accetta anche `acquisitionradar` per compatibilità di costo:
+ * questo endpoint NON la ammette mai.
+ */
+export function isCivikoSourceApp(sourceApp: string | null | undefined): boolean {
+  const v = (sourceApp ?? "").toLowerCase().trim();
+  if (!v || v === "acquisitionradar") return false;
+  return CIVIKO_SOURCE_APPS.has(v);
+}
