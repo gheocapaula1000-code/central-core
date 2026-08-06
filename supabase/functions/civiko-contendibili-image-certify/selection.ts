@@ -73,6 +73,11 @@ export function canonicalSource(value: unknown): string {
 
 /** Impronta deterministica (sha256 esadecimale) della fonte immagine. */
 export async function sourceFingerprint(value: unknown): Promise<string | null> {
+  const isEmpty = (v: unknown): boolean =>
+    v === null || v === undefined ||
+    (Array.isArray(v) && v.length === 0) ||
+    (typeof v === "object" && Object.values(v as Record<string, unknown>).every(isEmpty));
+  if (isEmpty(value)) return null;
   const canonical = canonicalSource(value);
   if (!canonical || canonical === "null" || canonical === "[]" || canonical === "{}") return null;
   const bytes = new TextEncoder().encode(canonical);
