@@ -710,7 +710,6 @@ async function storeOpportunity(
     click_day: extracted.click_day === true,
     requirements: safeTextArray(extracted.requirements, 100, 1000),
     eligible_expenses: safeTextArray(extracted.eligible_expenses, 100, 1000),
-    verification_status: verification,
     rarity_score: boundedInteger(Math.trunc(Number(source.rarity_base ?? 1)), 1, 5) ?? 1,
     source_kind: normalizeText(source.source_kind).slice(0, 60) || "CATALOGO",
     publication_reference: normalizeText(extracted.publication_reference).slice(0, 300) || null,
@@ -732,59 +731,45 @@ async function storeOpportunity(
     content_hash: contentHash,
     raw_excerpt: markdown.slice(0, 4000),
     last_seen_at: now.toISOString(),
-    // last_verified_at è valorizzato soltanto quando la verifica è completa.
-    last_verified_at: verification === "VERIFICATO" ? now.toISOString() : null,
-    updated_at: now.toISOString(),
   };
-  const { data, error } = await sb
-    .from("trovabandi_opportunities")
-    .upsert(row, { onConflict: "official_url" })
-    .select("id")
-    .single();
-  if (error || !data) {
-    // Telemetria sicura: soltanto il codice sanificato dell'errore di scrittura.
-    return {
-      stored: false,
-      verified: false,
-      code: `OPPORTUNITY_WRITE_FAILED_${error ? sanitizeDbErrorCode(error) : "DB_NO_ROW"}`,
-    };
-  }
-  const { error: evidenceError } = await sb.from("trovabandi_evidence").upsert(
+  // Ordine fail-closed: DA_VERIFICARE ⇒ evidence ⇒ promozione.
+  return await persistOpportunityFailClosed(
     {
-      opportunity_id: data.id,
-      source_url: officialUrl,
-      source_title: (hit.title || row.title).slice(0, 500),
-      evidence_type: officialUrl.toLowerCase().includes(".pdf") ? "PDF" : "OFFICIAL_PAGE",
-      excerpt: markdown.slice(0, 3000),
-      fetched_at: now.toISOString(),
-      content_hash: contentHash,
+      async upsertOpportunity(candidate) {
+        const { data, error } = await sb
+          .from("trovabandi_opportunities")
+          .upsert(candidate, { onConflict: "official_url" })
+          .select("id")
+          .single();
+        return { id: (data as { id?: string } | null)?.id ?? null, error: error ?? undefined };
+      },
+      async upsertEvidence(candidate) {
+        const { error } = await sb
+          .from("trovabandi_evidence")
+          .upsert(candidate, { onConflict: "opportunity_id,source_url" });
+        return { error: error ?? undefined };
+      },
+      async promote(id, patch) {
+        const { error } = await sb.from("trovabandi_opportunities").update(patch).eq("id", id);
+        return { error: error ?? undefined };
+      },
     },
-    { onConflict: "opportunity_id,source_url" },
+    {
+      row,
+      evidence: {
+        source_url: officialUrl,
+        source_title: (hit.title || (row.title as string)).slice(0, 500),
+        evidence_type: officialUrl.toLowerCase().includes(".pdf") ? "PDF" : "OFFICIAL_PAGE",
+        excerpt: markdown.slice(0, 3000),
+        fetched_at: now.toISOString(),
+        content_hash: contentHash,
+      },
+      verification,
+      nowIso: now.toISOString(),
+    },
   );
-  if (evidenceError) {
-    // Fail-closed: senza prova persistita l'opportunità non può risultare verificata.
-    // Compensazione non distruttiva: si declassa lo stato, non si cancella nulla.
-    await sb
-      .from("trovabandi_opportunities")
-      .update({
-        verification_status: "DA_VERIFICARE",
-        last_verified_at: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", data.id);
-    return {
-      stored: false,
-      verified: false,
-      code: `EVIDENCE_WRITE_FAILED_${sanitizeDbErrorCode(evidenceError)}`,
-    };
-  }
-
-  return {
-    stored: true,
-    verified: verification === "VERIFICATO",
-    code: verification === "VERIFICATO" ? "OK_VERIFICATO" : `OK_${verification}`,
-  };
 }
+
 
 
 serve(async (req) => {
