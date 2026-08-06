@@ -20,7 +20,10 @@ import {
   stepTimeoutMs,
   type ActionRunRow,
   type GateIntegrity,
+  type PipelineAction,
+  type PipelineRunRow,
   type SimpleAction,
+
 } from "./orchestrator.ts";
 
 // ── 1) Budget e timeout ────────────────────────────────────────────────────
