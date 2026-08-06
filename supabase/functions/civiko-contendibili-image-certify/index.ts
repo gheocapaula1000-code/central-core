@@ -517,6 +517,8 @@ Deno.serve(async (req) => {
         continue;
       }
       let refs: string[] = [];
+      const rawImages = (rawJsonById.get(listingId)?.media as Record<string, unknown> | undefined)
+        ?.images ?? null;
       if (cand.source === "evidence") {
         const result = cand.queue_id ? resultById.get(cand.queue_id) : null;
         if (result) {
@@ -524,8 +526,7 @@ Deno.serve(async (req) => {
           reprocessed++;
         }
       } else {
-        const media = (rawJsonById.get(listingId)?.media ?? null) as Record<string, unknown> | null;
-        const images = media?.images ?? null;
+        const images = rawImages;
         if (images) {
           refs = extractDetailImageRefs(images, MAX_DETAIL_IMAGE_REFS);
           rawJsonProcessed++;
@@ -533,6 +534,12 @@ Deno.serve(async (req) => {
         }
       }
       refsTotal += refs.length;
+      // Impronta della fonte: stessa forma usata in selezione, così un
+      // no_photo terminale si riapre solo se la fonte cambia davvero.
+      sourceFpByListing.set(
+        listingId,
+        await sourceFingerprint({ images: rawImages, refs: refs.length ? refs : null }),
+      );
       if (!refs.length) {
         outcomeByListing.set(listingId, "no_photo");
         continue;
