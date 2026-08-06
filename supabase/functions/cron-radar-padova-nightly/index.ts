@@ -301,7 +301,7 @@ Deno.serve(async (req) => {
       duration_ms: 0,
     });
 
-    await runAll(triggeredAt, mode, jobName);
+    const summary = await runAll(triggeredAt, mode, jobName);
 
     // Verifica se il run ha effettivamente prodotto scritture su radar_signals
     // dall'inizio dell'invocazione. Best-effort: non fallisce il run se la
