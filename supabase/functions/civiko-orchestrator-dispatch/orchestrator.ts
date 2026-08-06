@@ -175,6 +175,83 @@ export function pipelineActions(pipeline: PipelineAction): SimpleAction[] {
   return PIPELINES[pipeline].stages.flatMap((stage) => stage.map((s) => s.action));
 }
 
+// ── Segmentazione: ogni invocazione resta sotto il budget hard ──────────────
+// Il timeout esterno REALE è PIPELINE_BUDGET_MS. La somma dei budget di stage
+// di 0545 e 0710 lo supera: gli stage vengono quindi impacchettati in segmenti
+// dimostrabilmente eseguibili in una singola invocazione e la pipeline prosegue
+// con una continuazione che riusa lo STESSO pipeline_run_id.
+
+/** Overhead deterministico per stage: audit di avvio + audit finale + rete. */
+export const STAGE_OVERHEAD_MS = 2_000;
+/** Riserva per avviare la continuazione (handshake) prima di rispondere. */
+export const CONTINUATION_RESERVE_MS = 2_000;
+/** Capacità massima dimostrabile di UNA invocazione. */
+export const SEGMENT_CAPACITY_MS = PIPELINE_BUDGET_MS - BUDGET_RESERVE_MS -
+  CONTINUATION_RESERVE_MS;
+
+/** Costo peggiore di uno stage: azione più lenta (le altre sono parallele). */
+export function stageWorstCaseMs(stage: PipelineStage): number {
+  const slowest = Math.max(...stage.map((s) => ACTION_TIMEOUT_MS[s.action]));
+  return slowest + STAGE_OVERHEAD_MS;
+}
+
+export interface PipelineSegment {
+  /** Indice del primo stage del segmento. */
+  from: number;
+  /** Indice dell'ultimo stage del segmento (incluso). */
+  to: number;
+  /** Somma dei costi peggiori degli stage del segmento. */
+  worstCaseMs: number;
+}
+
+/**
+ * Impacchettamento deterministico: ogni segmento ha worstCaseMs <=
+ * SEGMENT_CAPACITY_MS, quindi ogni stage è raggiungibile con riserva provabile.
+ */
+export function segmentPipeline(pipeline: PipelineAction): PipelineSegment[] {
+  const stages = PIPELINES[pipeline].stages;
+  const segments: PipelineSegment[] = [];
+  let from = 0;
+  let acc = 0;
+  for (let i = 0; i < stages.length; i++) {
+    const cost = stageWorstCaseMs(stages[i]);
+    if (cost > SEGMENT_CAPACITY_MS) {
+      // Contratto violato: nessuno stage può eccedere una singola invocazione.
+      throw new Error(`stage_${pipeline}_${i}_exceeds_segment_capacity`);
+    }
+    if (acc > 0 && acc + cost > SEGMENT_CAPACITY_MS) {
+      segments.push({ from, to: i - 1, worstCaseMs: acc });
+      from = i;
+      acc = 0;
+    }
+    acc += cost;
+  }
+  segments.push({ from, to: stages.length - 1, worstCaseMs: acc });
+  return segments;
+}
+
+/** Segmento che inizia esattamente allo stage indicato (fail-closed). */
+export function segmentStartingAt(
+  pipeline: PipelineAction,
+  stageFrom: number,
+): PipelineSegment | null {
+  return segmentPipeline(pipeline).find((s) => s.from === stageFrom) ?? null;
+}
+
+/** Costo peggiore degli stage residui del segmento, dopo `afterStage`. */
+export function remainingStagesWorstCaseMs(
+  pipeline: PipelineAction,
+  afterStage: number,
+  toStage: number,
+): number {
+  const stages = PIPELINES[pipeline].stages;
+  let total = 0;
+  for (let i = afterStage + 1; i <= Math.min(toStage, stages.length - 1); i++) {
+    total += stageWorstCaseMs(stages[i]);
+  }
+  return total;
+}
+
 // ── Parsing fail-closed ─────────────────────────────────────────────────────
 export interface ParsedBody {
   obj: Record<string, unknown> | null;
