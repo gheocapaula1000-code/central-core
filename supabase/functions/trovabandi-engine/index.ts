@@ -24,6 +24,7 @@ import { persistOpportunityFailClosed, type PersistVerification } from "./persis
 import {
   COVERAGE_WINDOW_HOURS,
   RUN_STALE_AFTER_MINUTES,
+  collectResponseContract,
   coverageCutoffIso,
   evaluateGate,
   selectDueSource,
