@@ -294,44 +294,13 @@ interface StepResult {
   result: Record<string, unknown>;
 }
 
-// Azioni per cui uno zero è un esito ANOMALO: la raccolta/importazione deve
-// produrre almeno un progresso reale, altrimenti la pipeline si ferma.
-const ZERO_GUARD: Partial<Record<SimpleAction, readonly string[]>> = {
-  apify_immobiliare: ["run_id", "dataset_id", "processed", "inserted", "enqueued"],
-  apify_idealista: ["run_id", "dataset_id", "processed", "inserted", "enqueued"],
-  apify_subito: ["run_id", "dataset_id", "processed", "inserted", "enqueued"],
-  portal_casa: ["enqueued", "processed", "rows_out"],
-  collect_pending: ["processed", "inserted", "updated", "rows_out"],
-};
-
-function hasProgress(obj: Record<string, unknown>, keys: readonly string[]): boolean {
-  return keys.some((k) => {
-    const v = obj[k];
-    if (typeof v === "number") return Number.isFinite(v) && v > 0;
-    if (typeof v === "string") return v.trim().length > 0;
-    return v === true;
-  });
-}
-
-/** HTTP 200 non basta: skipped/error/zero provider inatteso sono guasti. */
-export function semanticFailure(
-  action: SimpleAction,
-  obj: Record<string, unknown> | null,
-): string | null {
-  if (!obj) return null;
-  if (obj.ok === false) return "ok_false";
-  if (obj.skipped === true) return "skipped";
-  if (typeof obj.error === "string" && obj.error.trim()) return "error";
-  const keys = ZERO_GUARD[action];
-  if (keys && !hasProgress(obj, keys)) return "zero_provider_result";
-  return null;
-}
+// Esito semantico e zero-guard: ./orchestrator.ts (fail-closed).
 
 async function runAction(
   action: SimpleAction,
-  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  timeoutMs: number,
+  bodyOverride?: Record<string, unknown>,
 ): Promise<StepResult> {
-
   const target = ALLOWED[action];
   const isRpc = typeof target.rpc === "string";
   const targetName = isRpc ? `rpc/${target.rpc}` : target.fn;
