@@ -663,7 +663,7 @@ async function extractOpportunity(
 
 
 async function storeOpportunity(
-  sb: ReturnType<typeof createClient>,
+  sb: Db,
   source: Source,
   hit: SearchHit,
   extracted: JsonObject,
@@ -764,7 +764,8 @@ async function storeOpportunity(
       async upsertOpportunity(candidate) {
         const { data, error } = await sb
           .from("trovabandi_opportunities")
-          .upsert(candidate, { onConflict: "official_url" })
+          // Schema non tipizzato lato Deno: cast limitato al confine di scrittura.
+          .upsert(candidate as never, { onConflict: "official_url" })
           .select("id")
           .single();
         return { id: (data as { id?: string } | null)?.id ?? null, error: error ?? undefined };
@@ -772,11 +773,12 @@ async function storeOpportunity(
       async upsertEvidence(candidate) {
         const { error } = await sb
           .from("trovabandi_evidence")
-          .upsert(candidate, { onConflict: "opportunity_id,source_url" });
+          // Schema non tipizzato lato Deno: cast limitato al confine di scrittura.
+          .upsert(candidate as never, { onConflict: "opportunity_id,source_url" });
         return { error: error ?? undefined };
       },
       async promote(id, patch) {
-        const { error } = await sb.from("trovabandi_opportunities").update(patch).eq("id", id);
+        const { error } = await sb.from("trovabandi_opportunities").update(patch as never).eq("id", id);
         return { error: error ?? undefined };
       },
     },
@@ -817,9 +819,7 @@ serve(async (req) => {
   const action = normalizeText(body.action || "feed");
   if (!ALLOWED_ACTIONS.has(action)) return response(400, { ok: false, code: "INVALID_ACTION" });
 
-  const sb = createClient(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"), {
-    auth: { persistSession: false },
-  });
+  const sb = createDb();
 
   if (action === "status") {
     const nowIso = new Date().toISOString();
