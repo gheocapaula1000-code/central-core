@@ -318,7 +318,12 @@ describe("gate IMAGE_PHASH_V1", () => {
     ];
     for (const [over, motivo] of conflicts) {
       const res = evaluateImagePhashV1([
-        base({ url: "https://a/1", agencyKey: "alfa", photos: shared, civico: null }),
+        base({
+          url: "https://a/1",
+          agencyKey: "alfa",
+          photos: shared,
+          civico: over.civico ? "10" : null,
+        }),
         base({ url: "https://b/2", agencyKey: "beta", photos: shared, ...over }),
       ]);
       expect(res.certificato, motivo).toBe(false);
