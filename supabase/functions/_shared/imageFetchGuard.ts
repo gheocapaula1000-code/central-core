@@ -11,15 +11,19 @@ export const IMAGE_HOST_ALLOWLIST: readonly string[] = [
   // immobiliare.it
   "pwm.im-cdn.it",
   "pic.im-cdn.it",
+  "s1.immobiliare.it",
   // idealista.it
   "st3.idealista.it",
   "st3v.idealista.it",
+  "img4.idealista.it",
   // casa.it
   "img.casa.it",
   "images.casa.it",
+  "images-1.casa.it",
   // subito.it
   "images.selezione.subito.it",
 ];
+
 
 export const FETCH_TIMEOUT_MS = 8_000;
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
