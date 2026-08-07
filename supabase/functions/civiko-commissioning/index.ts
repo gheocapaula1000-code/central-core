@@ -909,10 +909,16 @@ async function runMicroRun(
         actual_cost_usd: outcome.actual_cost_usd,
         counters: outcome.counters,
         persistence_target: persistenceSpec.table,
+        // Staging persistito ≠ dati PWA: l'attivazione non è mai consentita da
+        // un micro-run di commissioning.
+        staging_persisted: Boolean(outcome.counters.staging_persisted ?? false),
+        pwa_ready: false,
+        activation_allowed: false,
         domain_proof: proof
           ? { table_name: proof.table_name, row_ref: proof.row_ref, change_kind: proof.change_kind }
           : null,
         artifacts_persisted: ok ? allArtifacts.length : 0,
+
         error_code: errorCode,
         started_at: startedAt,
         finished_at: new Date().toISOString(),
