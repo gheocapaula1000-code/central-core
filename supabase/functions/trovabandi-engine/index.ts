@@ -20,8 +20,15 @@ import {
   type ExtractionOutcome,
   type SearchOutcome,
 } from "./extraction.ts";
-import { persistOpportunityFailClosed, type PersistVerification } from "./persist.ts";
-import { htmlToEvidenceText, isAllowedOfficialUrl, readLimitedText } from "./scrape.ts";
+import {
+  persistOpportunityFailClosed,
+  type PersistVerification,
+} from "./persist.ts";
+import {
+  htmlToEvidenceText,
+  isAllowedOfficialUrl,
+  readLimitedText,
+} from "./scrape.ts";
 import {
   collectionCompletionOutcome,
   COVERAGE_WINDOW_HOURS,
@@ -89,9 +96,17 @@ type RefreshSignal = {
   innovative_business: boolean;
 };
 
-type SearchHit = { url: string; title: string; description: string; provider: string };
+type SearchHit = {
+  url: string;
+  title: string;
+  description: string;
+  provider: string;
+};
 
-const JSON_HEADERS = { "Content-Type": "application/json", "Cache-Control": "no-store" };
+const JSON_HEADERS = {
+  "Content-Type": "application/json",
+  "Cache-Control": "no-store",
+};
 const ALLOWED_ACTIONS = new Set([
   "feed",
   "request_refresh",
@@ -240,7 +255,9 @@ function hostMatches(url: string, domain: string) {
 async function sha256(value: string) {
   const bytes = new TextEncoder().encode(value);
   const hash = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return [...new Uint8Array(hash)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 async function safeSecretEqual(left: string, right: string) {
@@ -299,7 +316,8 @@ function stringArray(value: unknown): string[] {
 }
 
 function inferCompanySize(profile: CompanyProfile) {
-  if (profile.dimensione_impresa) return normalizeCode(profile.dimensione_impresa);
+  if (profile.dimensione_impresa)
+    return normalizeCode(profile.dimensione_impresa);
   const employees = Number(profile.numero_dipendenti ?? 0);
   const revenue = Number(profile.fatturato_annuo ?? 0);
   if (employees < 10 && revenue <= 2_000_000) return "MICRO";
@@ -322,26 +340,34 @@ function matchOpportunity(opportunity: JsonObject, profile: CompanyProfile) {
     if (region === profileRegion) confirmed.push("Sede nella regione ammessa");
     else blockers.push("Regione non ammessa");
   } else if ((level === "CAMERALE" || level === "COMUNALE") && province) {
-    if (province === profileProvince) confirmed.push("Sede nella provincia ammessa");
+    if (province === profileProvince)
+      confirmed.push("Sede nella provincia ammessa");
     else blockers.push("Provincia non ammessa");
   } else {
     confirmed.push("Ambito territoriale compatibile");
   }
 
   if (level === "EU") {
-    const countries = stringArray(opportunity.eligible_countries).map(normalizeCode);
+    const countries = stringArray(opportunity.eligible_countries).map(
+      normalizeCode,
+    );
     const country = normalizeCode(profile.paese_sede || "IT");
     const italyAliases = new Set(["IT", "ITA", "ITALIA", "ITALY"]);
     const admitsItaly = countries.some(
       (item) =>
-        italyAliases.has(item) || item === "EU" || item === "UE" || item === "ALLEUMEMBERSTATES",
+        italyAliases.has(item) ||
+        item === "EU" ||
+        item === "UE" ||
+        item === "ALLEUMEMBERSTATES",
     );
-    if (countries.length === 0) missing.push("Ammissibilità dell'Italia da verificare");
+    if (countries.length === 0)
+      missing.push("Ammissibilità dell'Italia da verificare");
     else if (admitsItaly || countries.includes(country))
       confirmed.push("Italia tra i Paesi ammissibili");
     else blockers.push("Italia non indicata tra i Paesi ammissibili");
     if (opportunity.consortium_required === true) {
-      if (profile.disponibile_consorzio_europeo) confirmed.push("Disponibilità al partenariato UE");
+      if (profile.disponibile_consorzio_europeo)
+        confirmed.push("Disponibilità al partenariato UE");
       else missing.push("Partenariato o consorzio europeo richiesto");
     }
   }
@@ -349,24 +375,38 @@ function matchOpportunity(opportunity: JsonObject, profile: CompanyProfile) {
   const atecos = [profile.codice_ateco, ...(profile.ateco_secondari ?? [])]
     .map(normalizeCode)
     .filter(Boolean);
-  const included = stringArray(opportunity.eligible_ateco_prefixes).map(normalizeCode);
-  const excluded = stringArray(opportunity.excluded_ateco_prefixes).map(normalizeCode);
-  if (excluded.some((prefix) => atecos.some((ateco) => ateco.startsWith(prefix))))
+  const included = stringArray(opportunity.eligible_ateco_prefixes).map(
+    normalizeCode,
+  );
+  const excluded = stringArray(opportunity.excluded_ateco_prefixes).map(
+    normalizeCode,
+  );
+  if (
+    excluded.some((prefix) => atecos.some((ateco) => ateco.startsWith(prefix)))
+  )
     blockers.push("Codice ATECO escluso");
-  else if (included.length === 0) missing.push("ATECO da verificare nel testo ufficiale");
-  else if (included.some((prefix) => atecos.some((ateco) => ateco.startsWith(prefix))))
+  else if (included.length === 0)
+    missing.push("ATECO da verificare nel testo ufficiale");
+  else if (
+    included.some((prefix) => atecos.some((ateco) => ateco.startsWith(prefix)))
+  )
     confirmed.push("Codice ATECO ammesso");
   else blockers.push("Codice ATECO non compreso");
 
-  const forms = stringArray(opportunity.eligible_legal_forms).map(normalizeCode);
+  const forms = stringArray(opportunity.eligible_legal_forms).map(
+    normalizeCode,
+  );
   if (forms.length === 0) missing.push("Forma giuridica da verificare");
   else if (forms.includes(normalizeCode(profile.forma_giuridica)))
     confirmed.push("Forma giuridica ammessa");
   else blockers.push("Forma giuridica non ammessa");
 
-  const sizes = stringArray(opportunity.eligible_company_sizes).map(normalizeCode);
+  const sizes = stringArray(opportunity.eligible_company_sizes).map(
+    normalizeCode,
+  );
   if (sizes.length === 0) missing.push("Dimensione impresa da verificare");
-  else if (sizes.includes(inferCompanySize(profile))) confirmed.push("Dimensione impresa ammessa");
+  else if (sizes.includes(inferCompanySize(profile)))
+    confirmed.push("Dimensione impresa ammessa");
   else blockers.push("Dimensione impresa non ammessa");
 
   if (opportunity.female_only === true && !profile.imprenditoria_femminile)
@@ -381,11 +421,16 @@ function matchOpportunity(opportunity: JsonObject, profile: CompanyProfile) {
     !profile.pmi_innovativa
   )
     blockers.push("Requisito impresa innovativa non presente");
-  if (opportunity.de_minimis === true && profile.de_minimis_ultimi_3_anni == null)
+  if (
+    opportunity.de_minimis === true &&
+    profile.de_minimis_ultimi_3_anni == null
+  )
     missing.push("Plafond de minimis da verificare");
-  if (profile.impresa_in_difficolta) missing.push("Verificare esclusione impresa in difficoltà");
+  if (profile.impresa_in_difficolta)
+    missing.push("Verificare esclusione impresa in difficoltà");
 
-  const verified = normalizeCode(opportunity.verification_status) === "VERIFICATO";
+  const verified =
+    normalizeCode(opportunity.verification_status) === "VERIFICATO";
   const status =
     blockers.length > 0
       ? "NON_COMPATIBILE"
@@ -397,12 +442,20 @@ function matchOpportunity(opportunity: JsonObject, profile: CompanyProfile) {
       ? 0
       : Math.max(
           35,
-          Math.min(100, 45 + confirmed.length * 11 - missing.length * 5 + (verified ? 10 : 0)),
+          Math.min(
+            100,
+            45 +
+              confirmed.length * 11 -
+              missing.length * 5 +
+              (verified ? 10 : 0),
+          ),
         );
   return { status, score, confirmed, missing, blockers };
 }
 
-async function firecrawlSearch(source: Source): Promise<SearchOutcome<SearchHit>> {
+async function firecrawlSearch(
+  source: Source,
+): Promise<SearchOutcome<SearchHit>> {
   const key = env("FIRECRAWL_API_KEY");
   if (!key) return { ok: false, code: "NO_KEY" };
   const controller = new AbortController();
@@ -410,7 +463,10 @@ async function firecrawlSearch(source: Source): Promise<SearchOutcome<SearchHit>
   try {
     const res = await fetch("https://api.firecrawl.dev/v2/search", {
       method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         query: source.search_query,
         includeDomains: [source.official_domain],
@@ -454,7 +510,9 @@ async function firecrawlSearch(source: Source): Promise<SearchOutcome<SearchHit>
   }
 }
 
-async function perplexitySearch(source: Source): Promise<SearchOutcome<SearchHit>> {
+async function perplexitySearch(
+  source: Source,
+): Promise<SearchOutcome<SearchHit>> {
   const key = env("PERPLEXITY_API_KEY");
   if (!key) return { ok: false, code: "NO_KEY" };
   const controller = new AbortController();
@@ -462,7 +520,10 @@ async function perplexitySearch(source: Source): Promise<SearchOutcome<SearchHit
   try {
     const res = await fetch("https://api.perplexity.ai/search", {
       method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         query: source.search_query,
         search_domain_filter: [source.official_domain],
@@ -517,7 +578,10 @@ async function scrapePage(
   try {
     const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
       method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         url,
         formats: ["markdown"],
@@ -533,7 +597,11 @@ async function scrapePage(
     const markdown = normalizeText(data.markdown).slice(0, 60_000);
     const metadata = (data.metadata ?? {}) as JsonObject;
     return markdown.length > 200
-      ? { markdown, title: normalizeText(metadata.title), provider: "firecrawl" }
+      ? {
+          markdown,
+          title: normalizeText(metadata.title),
+          provider: "firecrawl",
+        }
       : null;
   } catch {
     return null;
@@ -547,7 +615,8 @@ async function apifyScrape(
 ): Promise<{ markdown: string; title: string; provider: string } | null> {
   const token = env("APIFY_TOKEN");
   if (!token) return null;
-  const actor = env("TROVABANDI_APIFY_ACTOR_ID") || "apify~website-content-crawler";
+  const actor =
+    env("TROVABANDI_APIFY_ACTOR_ID") || "apify~website-content-crawler";
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 55_000);
   try {
@@ -566,7 +635,9 @@ async function apifyScrape(
     if (!res.ok) return null;
     const rows = (await res.json()) as JsonObject[];
     const item = rows[0] ?? {};
-    const markdown = normalizeText(item.markdown || item.text || item.content).slice(0, 60_000);
+    const markdown = normalizeText(
+      item.markdown || item.text || item.content,
+    ).slice(0, 60_000);
     return markdown.length > 200
       ? { markdown, title: normalizeText(item.title), provider: "apify" }
       : null;
@@ -592,7 +663,8 @@ async function directOfficialScrape(
         redirect: "manual",
         headers: {
           Accept: "text/html,text/plain;q=0.9",
-          "User-Agent": "UEradar/1.0 (+https://ueradar.com; official-grant-indexer)",
+          "User-Agent":
+            "UEradar/1.0 (+https://ueradar.com; official-grant-indexer)",
         },
         signal: controller.signal,
       });
@@ -608,7 +680,10 @@ async function directOfficialScrape(
         return null;
       }
       const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
-      if (!contentType.includes("text/html") && !contentType.includes("text/plain")) {
+      if (
+        !contentType.includes("text/html") &&
+        !contentType.includes("text/plain")
+      ) {
         await res.body?.cancel();
         return null;
       }
@@ -648,13 +723,18 @@ async function callExtraction(
   model: string,
   prompt: string,
   useSchema: boolean,
-): Promise<{ ok: true; content: string } | { ok: false; code: ExtractionFailureCode }> {
+): Promise<
+  { ok: true; content: string } | { ok: false; code: ExtractionFailureCode }
+> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 35_000);
   try {
     const res = await fetch("https://api.perplexity.ai/chat/completions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         model,
         messages: [
@@ -678,12 +758,16 @@ async function callExtraction(
     }
     const payload = (await res.json()) as JsonObject;
     const choices = Array.isArray(payload.choices) ? payload.choices : [];
-    const message = ((choices[0] as JsonObject | undefined)?.message ?? {}) as JsonObject;
+    const message = ((choices[0] as JsonObject | undefined)?.message ??
+      {}) as JsonObject;
     return { ok: true, content: normalizeText(message.content) };
   } catch (error) {
     return {
       ok: false,
-      code: error instanceof Error && error.name === "AbortError" ? "TIMEOUT" : "HTTP_ERROR",
+      code:
+        error instanceof Error && error.name === "AbortError"
+          ? "TIMEOUT"
+          : "HTTP_ERROR",
     };
   } finally {
     clearTimeout(timer);
@@ -702,10 +786,18 @@ async function extractOpportunity(
   const prompt = `Estrai esclusivamente dati presenti nel testo ufficiale seguente. Non dedurre requisiti, date o importi mancanti. Se la pagina non descrive un bando, incentivo o finanziamento per imprese aperto, in apertura o con documentazione ancora rilevante, imposta is_opportunity=false. official_url deve essere ${hit.url}. Date ISO 8601. Prefissi ATECO senza punteggiatura superflua. Per opportunità UE estrai programma, codice call/topic, Paesi ammessi e obbligo/minimo partner. Per PNRR estrai Missione, Componente e soggetto attuatore soltanto se espliciti.\n${schemaHint}\n\n${markdown}`;
 
   // Massimo due tentativi: schema JSON, poi eventuale fallback plain JSON.
-  const modes: Array<"json_schema" | "json_fallback"> = ["json_schema", "json_fallback"];
+  const modes: Array<"json_schema" | "json_fallback"> = [
+    "json_schema",
+    "json_fallback",
+  ];
   let lastFailure: ExtractionOutcome = { ok: false, code: "UNKNOWN" };
   for (const mode of modes) {
-    const call = await callExtraction(key, model, prompt, mode === "json_schema");
+    const call = await callExtraction(
+      key,
+      model,
+      prompt,
+      mode === "json_schema",
+    );
     if (!call.ok) {
       lastFailure = { ok: false, code: call.code, mode };
       // Nessun retry su 401/402/403/429/5xx/timeout: sono errori operativi.
@@ -718,7 +810,11 @@ async function extractOpportunity(
       if (!shouldTryPlainJsonFallback(parsed.code)) return lastFailure;
       continue;
     }
-    const validated = validateExtraction(parsed.value, source.official_domain, hit.url);
+    const validated = validateExtraction(
+      parsed.value,
+      source.official_domain,
+      hit.url,
+    );
     if (!validated.ok) {
       // Contenuto leggibile ma non ammissibile: fail-closed, nessun retry.
       return { ok: false, code: validated.code, mode };
@@ -742,8 +838,11 @@ async function storeOpportunity(
 
   const deadline = safeTimestamp(extracted.deadline_at);
   const now = new Date();
-  const expired = deadline ? new Date(deadline).getTime() < now.getTime() : false;
-  const hasEvidence = markdown.length > 200 && source.official_domain.length > 3;
+  const expired = deadline
+    ? new Date(deadline).getTime() < now.getTime()
+    : false;
+  const hasEvidence =
+    markdown.length > 200 && source.official_domain.length > 3;
   const deadlineProven = dateIsPresentInEvidence(markdown, deadline);
   const verification: PersistVerification =
     expired && deadlineProven
@@ -756,19 +855,27 @@ async function storeOpportunity(
   const contentHash = await sha256(markdown);
   const canonicalKey = await sha256(officialUrl.toLowerCase());
   const discoveredBy = safeTextArray([
-    ...new Set(hit.provider.split("+").concat(extractionProvider, "perplexity")),
+    ...new Set(
+      hit.provider.split("+").concat(extractionProvider, "perplexity"),
+    ),
   ]);
   // Valori vincolati da CHECK: mai inventati e mai degradati in un valore
   // plausibile. Categoria non ammessa ⇒ rifiuto fail-closed.
   const category = normalizeCategoryCode(extracted.category);
-  if (!category) return { stored: false, verified: false, code: "CATEGORY_INVALID" };
+  if (!category)
+    return { stored: false, verified: false, code: "CATEGORY_INVALID" };
   const authorityLevel = normalizeAuthorityLevel(source.authority_level);
-  if (!authorityLevel) return { stored: false, verified: false, code: "AUTHORITY_LEVEL_INVALID" };
+  if (!authorityLevel)
+    return { stored: false, verified: false, code: "AUTHORITY_LEVEL_INVALID" };
 
   const row = {
     canonical_key: canonicalKey,
-    title: normalizeText(extracted.title).slice(0, 500) || hit.title || "Opportunità senza titolo",
-    authority_name: normalizeText(extracted.authority_name).slice(0, 300) || source.name,
+    title:
+      normalizeText(extracted.title).slice(0, 500) ||
+      hit.title ||
+      "Opportunità senza titolo",
+    authority_name:
+      normalizeText(extracted.authority_name).slice(0, 300) || source.name,
     authority_level: authorityLevel,
     category,
     summary:
@@ -779,9 +886,11 @@ async function storeOpportunity(
     notice_url: normalizeUrl(extracted.notice_url),
     application_url: normalizeUrl(extracted.application_url),
     forms_url: normalizeUrl(extracted.forms_url),
-    protocol_email: normalizeText(extracted.protocol_email).slice(0, 320) || null,
+    protocol_email:
+      normalizeText(extracted.protocol_email).slice(0, 320) || null,
     region: normalizeText(extracted.region).slice(0, 120) || source.region,
-    province: normalizeText(extracted.province).slice(0, 120) || source.province,
+    province:
+      normalizeText(extracted.province).slice(0, 120) || source.province,
     municipality: normalizeText(extracted.municipality).slice(0, 120) || null,
     eligible_ateco_prefixes: safeTextArray(extracted.eligible_ateco_prefixes),
     excluded_ateco_prefixes: safeTextArray(extracted.excluded_ateco_prefixes),
@@ -791,9 +900,14 @@ async function storeOpportunity(
     youth_only: extracted.youth_only === true,
     startup_only: extracted.startup_only === true,
     innovative_only: extracted.innovative_only === true,
-    de_minimis: typeof extracted.de_minimis === "boolean" ? extracted.de_minimis : null,
+    de_minimis:
+      typeof extracted.de_minimis === "boolean" ? extracted.de_minimis : null,
     // numeric(6,2) / numeric(15,2) / numeric(18,2): overflow ⇒ dato assente.
-    aid_intensity_percent: boundedNumeric(extracted.aid_intensity_percent, 6, 2),
+    aid_intensity_percent: boundedNumeric(
+      extracted.aid_intensity_percent,
+      6,
+      2,
+    ),
     min_grant_amount: boundedNumeric(extracted.min_grant_amount, 15, 2),
     max_grant_amount: boundedNumeric(extracted.max_grant_amount, 15, 2),
     total_budget: boundedNumeric(extracted.total_budget, 18, 2),
@@ -802,17 +916,25 @@ async function storeOpportunity(
     click_day: extracted.click_day === true,
     requirements: safeTextArray(extracted.requirements, 100, 1000),
     eligible_expenses: safeTextArray(extracted.eligible_expenses, 100, 1000),
-    rarity_score: boundedInteger(Math.trunc(Number(source.rarity_base ?? 1)), 1, 5) ?? 1,
+    rarity_score:
+      boundedInteger(Math.trunc(Number(source.rarity_base ?? 1)), 1, 5) ?? 1,
     source_kind: normalizeText(source.source_kind).slice(0, 60) || "CATALOGO",
-    publication_reference: normalizeText(extracted.publication_reference).slice(0, 300) || null,
-    programme_name: normalizeText(extracted.programme_name).slice(0, 300) || null,
-    programme_code: normalizeText(extracted.programme_code).slice(0, 120) || null,
+    publication_reference:
+      normalizeText(extracted.publication_reference).slice(0, 300) || null,
+    programme_name:
+      normalizeText(extracted.programme_name).slice(0, 300) || null,
+    programme_code:
+      normalizeText(extracted.programme_code).slice(0, 120) || null,
     pnrr_mission: normalizeText(extracted.pnrr_mission).slice(0, 120) || null,
-    pnrr_component: normalizeText(extracted.pnrr_component).slice(0, 120) || null,
-    implementing_body: normalizeText(extracted.implementing_body).slice(0, 300) || null,
+    pnrr_component:
+      normalizeText(extracted.pnrr_component).slice(0, 120) || null,
+    implementing_body:
+      normalizeText(extracted.implementing_body).slice(0, 300) || null,
     eligible_countries: safeTextArray(extracted.eligible_countries),
     consortium_required:
-      typeof extracted.consortium_required === "boolean" ? extracted.consortium_required : null,
+      typeof extracted.consortium_required === "boolean"
+        ? extracted.consortium_required
+        : null,
     min_partners: boundedInteger(extracted.min_partners, 0, 2_147_483_647),
     direct_applicant_allowed:
       typeof extracted.direct_applicant_allowed === "boolean"
@@ -833,12 +955,17 @@ async function storeOpportunity(
           .upsert(candidate as never, { onConflict: "official_url" })
           .select("id")
           .single();
-        return { id: (data as { id?: string } | null)?.id ?? null, error: error ?? undefined };
+        return {
+          id: (data as { id?: string } | null)?.id ?? null,
+          error: error ?? undefined,
+        };
       },
       async upsertEvidence(candidate) {
         const { error } = await sb
           .from("trovabandi_evidence")
-          .upsert(candidate as never, { onConflict: "opportunity_id,source_url" });
+          .upsert(candidate as never, {
+            onConflict: "opportunity_id,source_url",
+          });
         return { error: error ?? undefined };
       },
       async promote(id, patch) {
@@ -854,7 +981,9 @@ async function storeOpportunity(
       evidence: {
         source_url: officialUrl,
         source_title: (hit.title || (row.title as string)).slice(0, 500),
-        evidence_type: officialUrl.toLowerCase().includes(".pdf") ? "PDF" : "OFFICIAL_PAGE",
+        evidence_type: officialUrl.toLowerCase().includes(".pdf")
+          ? "PDF"
+          : "OFFICIAL_PAGE",
         excerpt: markdown.slice(0, 3000),
         fetched_at: now.toISOString(),
         content_hash: contentHash,
@@ -867,8 +996,10 @@ async function storeOpportunity(
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return response(204, {});
-  if (req.method !== "POST") return response(405, { ok: false, code: "METHOD_NOT_ALLOWED" });
-  if (req.headers.get("origin")) return response(403, { ok: false, code: "SERVER_TO_SERVER_ONLY" });
+  if (req.method !== "POST")
+    return response(405, { ok: false, code: "METHOD_NOT_ALLOWED" });
+  if (req.headers.get("origin"))
+    return response(403, { ok: false, code: "SERVER_TO_SERVER_ONLY" });
   const secret = env("AI_CORE_SECRET_TROVABANDI");
   const supplied = req.headers.get("x-internal-secret") ?? "";
   if (!secret) return response(503, { ok: false, code: "AUTH_NOT_CONFIGURED" });
@@ -882,7 +1013,8 @@ serve(async (req) => {
     return response(400, { ok: false, code: "INVALID_JSON" });
   }
   const action = normalizeText(body.action || "feed");
-  if (!ALLOWED_ACTIONS.has(action)) return response(400, { ok: false, code: "INVALID_ACTION" });
+  if (!ALLOWED_ACTIONS.has(action))
+    return response(400, { ok: false, code: "INVALID_ACTION" });
 
   const sb = createDb();
 
@@ -918,7 +1050,9 @@ serve(async (req) => {
 
   if (action === "maintenance") {
     const now = new Date().toISOString();
-    const staleBefore = new Date(Date.now() - RUN_STALE_AFTER_MINUTES * 60_000).toISOString();
+    const staleBefore = new Date(
+      Date.now() - RUN_STALE_AFTER_MINUTES * 60_000,
+    ).toISOString();
     const staleResult = await sb
       .from("trovabandi_runs")
       .update(
@@ -933,11 +1067,17 @@ serve(async (req) => {
       .eq("status", "RUNNING")
       .lt("started_at", staleBefore);
     if (staleResult.error || staleResult.count == null) {
-      return response(500, { ok: false, code: "STALE_RUN_RECONCILIATION_FAILED" });
+      return response(500, {
+        ok: false,
+        code: "STALE_RUN_RECONCILIATION_FAILED",
+      });
     }
     const expiryResult = await sb
       .from("trovabandi_opportunities")
-      .update({ verification_status: "SCADUTO", updated_at: now }, { count: "exact" })
+      .update(
+        { verification_status: "SCADUTO", updated_at: now },
+        { count: "exact" },
+      )
       .lt("deadline_at", now)
       .in("verification_status", ["VERIFICATO", "PARZIALE", "DA_VERIFICARE"]);
     if (expiryResult.error || expiryResult.count == null) {
@@ -955,32 +1095,39 @@ serve(async (req) => {
     const coverageSince = new Date(
       Date.now() - COVERAGE_WINDOW_HOURS * 60 * 60 * 1000,
     ).toISOString();
-    const staleBefore = new Date(Date.now() - RUN_STALE_AFTER_MINUTES * 60_000).toISOString();
-    const [enabledSourcesResult, recentRunsResult, staleRunsResult, verifiedResult, partialResult] =
-      await Promise.all([
-        sb
-          .from("trovabandi_sources")
-          .select("id,source_kind,priority,last_scanned_at,next_scan_at")
-          .eq("enabled", true),
-        sb
-          .from("trovabandi_runs")
-          .select("source_id,provider_usage")
-          .eq("status", "SUCCEEDED")
-          .not("source_id", "is", null)
-          .not("finished_at", "is", null)
-          .gte("finished_at", coverageSince),
-        sb
-          .from("trovabandi_runs")
-          .select("id", { count: "exact", head: true })
-          .eq("status", "RUNNING")
-          .lt("started_at", staleBefore),
-        sb.rpc("trovabandi_verified_active_distinct_count", { p_now: nowIso }),
-        sb
-          .from("trovabandi_opportunities")
-          .select("id", { count: "exact", head: true })
-          .eq("verification_status", "PARZIALE")
-          .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`),
-      ]);
+    const staleBefore = new Date(
+      Date.now() - RUN_STALE_AFTER_MINUTES * 60_000,
+    ).toISOString();
+    const [
+      enabledSourcesResult,
+      recentRunsResult,
+      staleRunsResult,
+      verifiedResult,
+      partialResult,
+    ] = await Promise.all([
+      sb
+        .from("trovabandi_sources")
+        .select("id,source_kind,priority,last_scanned_at,next_scan_at")
+        .eq("enabled", true),
+      sb
+        .from("trovabandi_runs")
+        .select("source_id,provider_usage")
+        .eq("status", "SUCCEEDED")
+        .not("source_id", "is", null)
+        .not("finished_at", "is", null)
+        .gte("finished_at", coverageSince),
+      sb
+        .from("trovabandi_runs")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "RUNNING")
+        .lt("started_at", staleBefore),
+      sb.rpc("trovabandi_verified_active_distinct_count", { p_now: nowIso }),
+      sb
+        .from("trovabandi_opportunities")
+        .select("id", { count: "exact", head: true })
+        .eq("verification_status", "PARZIALE")
+        .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`),
+    ]);
 
     if (
       enabledSourcesResult.error ||
@@ -1028,7 +1175,9 @@ serve(async (req) => {
 
   if (action === "request_refresh") {
     const profile = (body.profile ?? {}) as CompanyProfile;
-    const interests = stringArray(profile.investimenti_previsti).map(normalizeCode);
+    const interests = stringArray(profile.investimenti_previsti).map(
+      normalizeCode,
+    );
     const requestKey = await sha256(
       [
         normalizeCode(profile.regione),
@@ -1041,23 +1190,27 @@ serve(async (req) => {
         interests.sort().join(","),
       ].join("|"),
     );
-    const refreshWriteResult = await sb.from("trovabandi_refresh_requests").upsert(
-      {
-        request_key: requestKey,
-        region: normalizeText(profile.regione) || null,
-        province: normalizeText(profile.provincia) || null,
-        municipality: normalizeText(profile.comune) || null,
-        ateco_prefix: normalizeCode(profile.codice_ateco).slice(0, 2) || null,
-        company_size: inferCompanySize(profile),
-        interest_categories: interests,
-        female_business: profile.imprenditoria_femminile === true,
-        youth_business: profile.impresa_giovanile === true,
-        innovative_business: profile.startup_innovativa === true || profile.pmi_innovativa === true,
-        requested_at: new Date().toISOString(),
-        processed_at: null,
-      },
-      { onConflict: "request_key" },
-    );
+    const refreshWriteResult = await sb
+      .from("trovabandi_refresh_requests")
+      .upsert(
+        {
+          request_key: requestKey,
+          region: normalizeText(profile.regione) || null,
+          province: normalizeText(profile.provincia) || null,
+          municipality: normalizeText(profile.comune) || null,
+          ateco_prefix: normalizeCode(profile.codice_ateco).slice(0, 2) || null,
+          company_size: inferCompanySize(profile),
+          interest_categories: interests,
+          female_business: profile.imprenditoria_femminile === true,
+          youth_business: profile.impresa_giovanile === true,
+          innovative_business:
+            profile.startup_innovativa === true ||
+            profile.pmi_innovativa === true,
+          requested_at: new Date().toISOString(),
+          processed_at: null,
+        },
+        { onConflict: "request_key" },
+      );
     if (refreshWriteResult.error) {
       return response(503, { ok: false, code: "REFRESH_REQUEST_WRITE_FAILED" });
     }
@@ -1071,7 +1224,9 @@ serve(async (req) => {
     const limit = Math.max(1, Math.min(300, Number(body.limit ?? 200)));
     const { data, error } = await sb
       .from("trovabandi_opportunities")
-      .select("*, trovabandi_evidence(source_url,source_title,evidence_type,excerpt,fetched_at)")
+      .select(
+        "*, trovabandi_evidence(source_url,source_title,evidence_type,excerpt,fetched_at)",
+      )
       .in("verification_status", ["VERIFICATO", "PARZIALE", "DA_VERIFICARE"])
       .or(`deadline_at.is.null,deadline_at.gte.${new Date().toISOString()}`)
       .order("deadline_at", { ascending: true, nullsFirst: false })
@@ -1081,16 +1236,24 @@ serve(async (req) => {
       ...item,
       match: matchOpportunity(item as JsonObject, profile),
     }));
-    const statusRank: Record<string, number> = { COMPATIBILE: 0, DA_VERIFICARE: 1 };
+    const statusRank: Record<string, number> = {
+      COMPATIBILE: 0,
+      DA_VERIFICARE: 1,
+    };
     const visible = matched
       .filter((item) => item.match.status !== "NON_COMPATIBILE")
       .sort((a, b) => {
-        const rank = (statusRank[a.match.status] ?? 9) - (statusRank[b.match.status] ?? 9);
+        const rank =
+          (statusRank[a.match.status] ?? 9) - (statusRank[b.match.status] ?? 9);
         if (rank !== 0) return rank;
         const score = b.match.score - a.match.score;
         if (score !== 0) return score;
-        const ad = a.deadline_at ? new Date(a.deadline_at as string).getTime() : Infinity;
-        const bd = b.deadline_at ? new Date(b.deadline_at as string).getTime() : Infinity;
+        const ad = a.deadline_at
+          ? new Date(a.deadline_at as string).getTime()
+          : Infinity;
+        const bd = b.deadline_at
+          ? new Date(b.deadline_at as string).getTime()
+          : Infinity;
         return ad - bd;
       });
     return response(200, {
@@ -1106,7 +1269,8 @@ serve(async (req) => {
   const sourceId = normalizeText(body.source_id);
   const maxPages = boundedMaxPages(body.max_pages ?? 2);
   const dryRun = body.dry_run === true;
-  const triggerSource = normalizeText(body.trigger_source).slice(0, 120) || "replit";
+  const triggerSource =
+    normalizeText(body.trigger_source).slice(0, 120) || "replit";
   let refreshSignal: RefreshSignal | null = null;
   if (!sourceId) {
     const refreshResult = await sb
@@ -1194,7 +1358,9 @@ serve(async (req) => {
       );
     }
 
-    const leaseUntil = new Date(Date.now() + RUN_STALE_AFTER_MINUTES * 60_000).toISOString();
+    const leaseUntil = new Date(
+      Date.now() + RUN_STALE_AFTER_MINUTES * 60_000,
+    ).toISOString();
     for (const candidate of rankedCandidates) {
       // Optimistic lease: only one overlapping scheduler can move the exact
       // due timestamp. A failed worker releases itself naturally after 20 min.
@@ -1257,12 +1423,16 @@ serve(async (req) => {
         appliedRefreshSignal.region,
         appliedRefreshSignal.province,
         appliedRefreshSignal.municipality,
-        appliedRefreshSignal.ateco_prefix ? `ATECO ${appliedRefreshSignal.ateco_prefix}` : null,
+        appliedRefreshSignal.ateco_prefix
+          ? `ATECO ${appliedRefreshSignal.ateco_prefix}`
+          : null,
         appliedRefreshSignal.company_size,
         ...(appliedRefreshSignal.interest_categories ?? []),
         appliedRefreshSignal.female_business ? "imprenditoria femminile" : null,
         appliedRefreshSignal.youth_business ? "imprenditoria giovanile" : null,
-        appliedRefreshSignal.innovative_business ? "startup PMI innovativa" : null,
+        appliedRefreshSignal.innovative_business
+          ? "startup PMI innovativa"
+          : null,
       ]
         .filter(Boolean)
         .join(" ")
@@ -1286,7 +1456,10 @@ serve(async (req) => {
   const run = runCreateResult.data;
   const warnings: string[] = [];
   try {
-    const [fc, pp] = await Promise.all([firecrawlSearch(source), perplexitySearch(source)]);
+    const [fc, pp] = await Promise.all([
+      firecrawlSearch(source),
+      perplexitySearch(source),
+    ]);
     let processed = 0;
     let verified = 0;
     let pagesScraped = 0;
@@ -1314,7 +1487,9 @@ serve(async (req) => {
       const previous = byUrl.get(hit.url);
       byUrl.set(
         hit.url,
-        previous ? { ...previous, provider: `${previous.provider}+${hit.provider}` } : hit,
+        previous
+          ? { ...previous, provider: `${previous.provider}+${hit.provider}` }
+          : hit,
       );
     }
     const hits = [...byUrl.values()].slice(0, maxPages);
@@ -1329,7 +1504,10 @@ serve(async (req) => {
       }
       // pages_scraped misura gli scrape riusciti, non i tentativi.
       pagesScraped++;
-      diagnostics.push({ phase: "scrape", code: `OK_${scraped.provider.toUpperCase()}` });
+      diagnostics.push({
+        phase: "scrape",
+        code: `OK_${scraped.provider.toUpperCase()}`,
+      });
       const extracted = await extractOpportunity(source, hit, scraped.markdown);
       if (!extracted.ok) {
         diagnostics.push({ phase: "extract", code: extracted.code });
@@ -1369,7 +1547,8 @@ serve(async (req) => {
       .update({
         last_scanned_at: finished,
         next_scan_at: new Date(
-          Date.now() + Math.max(15, Number(source.scan_interval_minutes || 360)) * 60_000,
+          Date.now() +
+            Math.max(15, Number(source.scan_interval_minutes || 360)) * 60_000,
         ).toISOString(),
         updated_at: finished,
       })
