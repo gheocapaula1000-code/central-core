@@ -603,6 +603,86 @@ const ADAPTERS: Record<CivikoCommissioningProvider, (runId: string) => Promise<A
   perplexity: perplexityMicroRun,
 };
 
+// ────────────── prova persistita Civiko provider-specifica ──────────────────
+//
+// Un artifact di audit NON è una prova: la scansione vale solo se il provider
+// ha davvero scritto in una tabella di dominio Civiko (PWA/listing) una riga
+// correlabile a questo micro-run. Le tabelle di audit del commissioning sono
+// escluse per definizione.
+//
+// `writer_available = false` significa che nel Central Core non esiste oggi
+// alcun writer che leghi l'output di quel provider a una riga di dominio
+// Civiko: in quel caso il micro-run è BLOCKED PRIMA di qualsiasi spesa, senza
+// simulare la prova. Firecrawl (pagina Comune) e Perplexity (query generica)
+// ricadono in questo caso: producono testo, non dati PWA/listing.
+export const CIVIKO_PROVIDER_PERSISTENCE: Record<
+  CivikoCommissioningProvider,
+  { table: string; writer_available: boolean; note: string }
+> = {
+  apify: {
+    table: "padova_apify_runs",
+    writer_available: true,
+    note: "run del portale persistito con run_id/dataset_id e stato reale",
+  },
+  firecrawl: {
+    table: "padova_listings",
+    writer_available: false,
+    note: "nessun writer lega una pagina scrapata a una riga listing Civiko",
+  },
+  perplexity: {
+    table: "civiko_signals_classified",
+    writer_available: false,
+    note: "nessun writer lega una query generica a un segnale Civiko classificato",
+  },
+};
+
+export const CIVIKO_AUDIT_TABLES = [
+  "civiko_commissioning_artifacts",
+  "civiko_commissioning_runs",
+  "civiko_commissioning_baselines",
+  "civiko_commissioning_claims",
+];
+
+export function isCivikoDomainProofTable(table: unknown): boolean {
+  return typeof table === "string" && table.length > 0 &&
+    !CIVIKO_AUDIT_TABLES.includes(table);
+}
+
+/** Cerca la riga di dominio Civiko realmente scritta dal provider. */
+async function domainProof(
+  provider: CivikoCommissioningProvider,
+  outcome: AdapterOutcome,
+): Promise<Artifact | null> {
+  const spec = CIVIKO_PROVIDER_PERSISTENCE[provider];
+  if (!spec.writer_available) return null;
+  if (provider === "apify") {
+    const apifyRunId = outcome.counters.apify_run_id;
+    if (typeof apifyRunId !== "string" || !apifyRunId) return null;
+    const rows = await realRows(
+      `padova_apify_runs?run_id=eq.${encodeURIComponent(apifyRunId)}` +
+        `&select=id,run_id,portal,status,items_count,imported,started_at,finished_at&limit=1`,
+    );
+    const row = rows?.[0];
+    if (!row) return null;
+    return {
+      table_name: "padova_apify_runs",
+      change_kind: "insert",
+      row_ref: String(row.id),
+      evidence: {
+        provider: "apify",
+        run_id: row.run_id,
+        portal: row.portal,
+        status: row.status,
+        items_count: row.items_count ?? null,
+        imported: row.imported ?? null,
+        started_at: row.started_at ?? null,
+        finished_at: row.finished_at ?? null,
+      },
+    };
+  }
+  return null;
+}
+
 async function runMicroRun(
   provider: CivikoCommissioningProvider,
   action: string,
