@@ -534,7 +534,7 @@ describe("Civiko commissioning — auth Bearer (primary/fallback/missing/wrong)"
 
   it("l'handler usa authorizeBearer con entrambi i secret", () => {
     expect(SRC).toContain('Deno.env.get("CENTRAL_CORE_API_KEY")');
-    expect(SRC).toContain("authorizeBearer(bearer, [DISPATCH_SECRET, CENTRAL_CORE_API_KEY])");
+    expect(SRC).toContain("authorizeBearer(bearer, [DISPATCH_SECRET, CENTRAL_CORE_API_KEY, AI_CORE_SECRET])");
   });
 });
 
