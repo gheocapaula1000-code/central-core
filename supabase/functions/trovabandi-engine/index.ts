@@ -1505,18 +1505,28 @@ serve(async (req) => {
     // Diagnostica non sensibile: solo fase + codice, mai URL completi o contenuti.
     const diagnostics: Array<{ phase: string; code: string }> = [];
     // La ricerca non fallisce mai silenziosamente in []: ogni guasto provider
-    // è diagnosticato, genera warning e rende il run PARTIAL.
-    for (const [provider, outcome] of [
+    // è diagnosticato e genera warning. Firecrawl e Perplexity sono però
+    // fallback reciproci: il guasto di uno non degrada il run quando l'altro
+    // ha completato con almeno una hit ufficiale valida (warning informativo).
+    const searchEntries = ([
       ["firecrawl", fc],
       ["perplexity", pp],
-    ] as const) {
+    ] as const).map(([provider, outcome]) => {
       const entry = searchDiagnostics(provider, outcome);
+      return { ...entry, hits: outcome.ok ? outcome.hits.length : 0 };
+    });
+    for (const entry of searchRedundancyOutcome(searchEntries)) {
       diagnostics.push({ phase: entry.phase, code: entry.code });
+      if (!entry.degraded) continue;
+      const base = `${entry.phase}_${entry.code.toLowerCase()}`;
       if (entry.operational) {
-        warnings.push(`${entry.phase}_${entry.code.toLowerCase()}`);
+        warnings.push(base);
         operationalFailures++;
+      } else {
+        warnings.push(`${base}_non_blocking`);
       }
     }
+
     const fcHits = fc.ok ? fc.hits : [];
     const ppHits = pp.ok ? pp.hits : [];
     const byUrl = new Map<string, SearchHit>();
