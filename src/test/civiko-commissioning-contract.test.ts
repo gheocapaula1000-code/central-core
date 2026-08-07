@@ -359,10 +359,9 @@ describe("micro-run apify: solo percorso Civiko esistente", () => {
     expect(SRC).toContain("apify_run_row_missing");
   });
 
-  it("staging non è PWA-ready e non consente attivazione", () => {
-    expect(SRC).toContain("pwa_ready: false");
+  it("attivazione mai consentita da un micro-run", () => {
     expect(SRC).toContain("activation_allowed: false");
-    expect(SRC).toContain("promozione a padova_listings non eseguita");
+    expect(SRC).not.toContain("activation_allowed: true");
   });
 
   it("preflight/health/baseline restano a costo zero senza chiamare Apify", () => {
@@ -371,5 +370,97 @@ describe("micro-run apify: solo percorso Civiko esistente", () => {
     // La chiamata al collector avviene solo dentro apifyMicroRun.
     const calls = SRC.match(/APIFY_MICRORUN_COLLECTOR\}/g) ?? [];
     expect(calls.length).toBe(1);
+  });
+});
+
+
+describe("promozione PWA-ready Apify (RPC Civiko isolata)", () => {
+  it("il micro-run chiama la RPC dedicata con job_id e run_id", () => {
+    expect(SRC).toContain('"civiko_commissioning_promote_apify_job"');
+    expect(SRC).toContain("{ p_job_id: jobId, p_run_id: runId }");
+    // Non usa né ridefinisce la RPC globale esistente.
+    expect(SRC).not.toContain("promote_padova_collect_v2_to_listings");
+  });
+
+  it("SUCCESS solo con writes>0, out_of_scope_written=0 e URL promossi", () => {
+    expect(SRC).toContain("apify_promotion_rpc_failed");
+    expect(SRC).toContain("apify_promotion_no_writes");
+    expect(SRC).toContain("apify_promotion_out_of_scope_written");
+    expect(SRC).toContain("apify_promotion_no_urls");
+    expect(SRC).toContain("promoWrites) || promoWrites <= 0");
+    expect(SRC).toContain("promoOutOfScope) || promoOutOfScope !== 0");
+  });
+
+  it("prova attribuibile: padova_listings con last_seen_at >= started_at del micro-run", () => {
+    expect(SRC).toMatch(/padova_listings\?select=id,url,fonte,comune,quartiere,last_seen_at/);
+    expect(SRC).toContain("last_seen_at=gte.${encodeURIComponent(startedAt)}");
+    expect(SRC).toContain("apify_pwa_listing_proof_missing");
+    expect(SRC).toContain("promoUrls.every((u) => freshUrls.has(u))");
+  });
+
+  it("il solo staging non è più prova di dominio", () => {
+    expect(SRC).toMatch(/apify:\s*\{[\s\S]{0,400}table: "padova_listings",[\s\S]{0,200}writer_available: true/);
+    // Il proof restituito è padova_listings, non lo staging.
+    expect(SRC).not.toContain('table_name: "padova_collect_v2_items"');
+  });
+
+  it("gli stati reali restano fail-closed (BLOCKED/PARTIAL, mai SUCCESS finto)", () => {
+    const successes = SRC.match(/status: "SUCCESS"/g) ?? [];
+    // apify + firecrawl + perplexity adapters, nessuna scorciatoia extra.
+    expect(successes.length).toBeLessThanOrEqual(3);
+    expect(SRC).toContain('status: "BLOCKED"');
+    expect(SRC).toContain('status: "PARTIAL"');
+  });
+});
+
+describe("RPC SQL civiko_commissioning_promote_apify_job", () => {
+  const SQL = MIGRATION_SQL;
+
+  it("esiste una migrazione additiva che crea la RPC", () => {
+    expect(SQL).toContain("CREATE OR REPLACE FUNCTION public.civiko_commissioning_promote_apify_job");
+    expect(SQL).toContain("p_job_id text");
+    expect(SQL).toContain("p_run_id uuid");
+    expect(SQL).toContain("SECURITY DEFINER");
+    expect(SQL).toContain("SET search_path TO 'public'");
+    // Nessuna ridefinizione di funzioni esistenti.
+    expect(SQL).not.toContain("FUNCTION public.promote_padova_collect_v2_to_listings");
+    expect(SQL).not.toMatch(/DROP\s+(TABLE|FUNCTION)/i);
+  });
+
+  it("scope chiuso: solo job_id, comune Padova, max 3 righe", () => {
+    expect(SQL).toContain("job_id = p_job_id");
+    expect(SQL).toContain("public.civiko_is_comune_padova(citta)");
+    expect(SQL).toContain("v_max_rows constant int := 3");
+    expect(SQL).toContain("LIMIT v_max_rows");
+  });
+
+  it("ritorna i contatori richiesti e gli URL promossi", () => {
+    for (const k of ["'scanned'", "'kept'", "'new'", "'updated'", "'writes'", "'out_of_scope_written'", "'urls'", "'run_id'"]) {
+      expect(SQL).toContain(k);
+    }
+  });
+
+  it("audit legato al run di commissioning", () => {
+    expect(SQL).toContain("INSERT INTO public.civiko_commissioning_artifacts");
+    expect(SQL).toContain("FROM public.civiko_commissioning_runs r WHERE r.run_id = p_run_id");
+  });
+
+  it("ACL fail-closed: nessun accesso public/anon/authenticated", () => {
+    expect(SQL).toContain("REVOKE ALL ON FUNCTION public.civiko_commissioning_promote_apify_job(text, uuid) FROM PUBLIC");
+    expect(SQL).toContain("FROM anon");
+    expect(SQL).toContain("FROM authenticated");
+    expect(SQL).toContain("GRANT EXECUTE ON FUNCTION public.civiko_commissioning_promote_apify_job(text, uuid) TO service_role");
+    expect(SQL).not.toMatch(/GRANT EXECUTE ON FUNCTION public\.civiko_commissioning_promote_apify_job\(text, uuid\) TO (anon|authenticated)/);
+  });
+
+  it("input mancanti sono rifiutati fail-closed", () => {
+    expect(SQL).toContain("'job_id_required'");
+    expect(SQL).toContain("'run_id_required'");
+  });
+
+  it("le 8 zone restano invariate anche nella migrazione", () => {
+    const slugs = SQL.match(/"(centro|nord|est|sud|ovest)[-a-z']*"/g) ?? [];
+    expect(slugs).toEqual([]);
+    expect(EXPECTED_ZONES).toHaveLength(8);
   });
 });
