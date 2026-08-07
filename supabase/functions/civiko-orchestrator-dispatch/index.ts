@@ -1150,13 +1150,17 @@ function gateSpecs(since: string): GateSpec[] {
     {
       group: "scope",
       metric: "new_active_non_padova",
-      q: `padova_listings?select=id&expired_at=is.null&comune=not.ilike.Padova&created_at=gte.${since}`,
+      // padova_listings non ha created_at: la colonna reale di ingresso è
+      // imported_at. Con created_at PostgREST rispondeva 400 e il gate restava
+      // permanentemente metrics_available=false.
+      q: `padova_listings?select=id&expired_at=is.null&comune=not.ilike.Padova&imported_at=gte.${since}`,
     },
     {
       group: "scope",
       metric: "new_padova_null_zone",
-      q: `padova_listings?select=id&expired_at=is.null&comune=ilike.Padova&commercial_zone_slug=is.null&created_at=gte.${since}`,
+      q: `padova_listings?select=id&expired_at=is.null&comune=ilike.Padova&commercial_zone_slug=is.null&imported_at=gte.${since}`,
     },
+
     {
       group: "scope",
       metric: "invalid_assigned_zone",
@@ -1227,7 +1231,9 @@ async function releaseGate(
   if (recomputeAuditRows === null) failedQueries.push("recompute_audit_evidence");
 
   const pwaAckRows = await realRows(
-    `civiko_pwa_sync_acks?select=run_id,pipeline_run_id,source_app,municipality,commercial_zone_slugs,started_at,finished_at,ok,counts,error_code,received_at&finished_at=gte.${since}&order=finished_at.desc&limit=20`,
+    // La tabella espone created_at, non received_at: la vecchia proiezione
+    // faceva fallire la query e quindi l'intero gate.
+    `civiko_pwa_sync_acks?select=run_id,pipeline_run_id,source_app,municipality,commercial_zone_slugs,started_at,finished_at,ok,counts,error_code,created_at&finished_at=gte.${since}&order=finished_at.desc&limit=20`,
   );
   if (pwaAckRows === null) failedQueries.push("pwa_sync_ack");
 
@@ -1693,7 +1699,7 @@ async function releaseGate(
         commercial_zone_slugs: pwaSyncAck.commercial_zone_slugs,
         started_at: pwaSyncAck.started_at,
         finished_at: pwaSyncAck.finished_at,
-        received_at: pwaSyncAck.received_at,
+        received_at: pwaSyncAck.created_at,
         ok: pwaSyncAck.ok,
         error_code: pwaSyncAck.error_code,
         counts: pwaSyncAck.counts,
