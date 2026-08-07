@@ -48,3 +48,30 @@ describe("release_gate — colonne reali dello schema Civiko", () => {
     expect(SRC).not.toMatch(/altre-zone/);
   });
 });
+
+describe("release_gate — prerequisiti assenti vs query fallite", () => {
+  const SRC = readFileSync(
+    resolve(process.cwd(), "supabase/functions/civiko-orchestrator-dispatch/index.ts"),
+    "utf8",
+  );
+
+  it("l'assenza dell'audit recompute non viene contata come query fallita", () => {
+    expect(SRC).toContain('missingPrerequisites.push("contendibili_recompute_audit_absent")');
+    expect(SRC).toMatch(/if \(Number\.isFinite\(recomputeActionStartedMs\)\) \{\s*failedQueries\.push\("contendibili_exact_recompute"\);/);
+  });
+
+  it("l'assenza del run pipeline_0510 non viene contata come query fallita", () => {
+    expect(SRC).toContain('missingPrerequisites.push("pipeline_0510_run_absent")');
+    expect(SRC).not.toContain('failedQueries.push("pipeline_0510_exact_run_start")');
+  });
+
+  it("espone missing_prerequisites nel payload del gate", () => {
+    expect(SRC).toContain("missing_prerequisites: missingPrerequisites,");
+  });
+
+  it("resta fail-closed: metricsAvailable dipende ancora solo da failedQueries", () => {
+    expect(SRC).toContain(
+      "const metricsAvailable = Boolean(SERVICE_KEY) && failedQueries.length === 0;",
+    );
+  });
+});
