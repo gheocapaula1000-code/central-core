@@ -923,7 +923,7 @@ async function verifyDelta(
       finished_at: run.finished_at,
       deltas,
       delta_inserts_total: inserts,
-      persisted_proof: (artifacts ?? []).map((a) => ({
+      persisted_proof: domainArtifacts.map((a) => ({
         table_name: a.table_name,
         change_kind: a.change_kind,
         row_ref: a.row_ref,
