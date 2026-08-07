@@ -88,3 +88,4 @@ export async function persistOpportunityFailClosed(
     code: `OK_${verification}`,
   };
 }
+
