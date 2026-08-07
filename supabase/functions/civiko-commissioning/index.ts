@@ -590,6 +590,10 @@ async function apifyMicroRun(runId: string, startedAt: string): Promise<AdapterO
   );
   const freshUrls = new Set((listingRows ?? []).map((r) => String(r.url ?? "")));
   const allFresh = promoUrls.every((u) => freshUrls.has(u));
+  const listingIds = (listingRows ?? [])
+    .filter((r) => freshUrls.has(String(r.url ?? "")))
+    .map((r) => r.id)
+    .filter((id) => typeof id === "string" || typeof id === "number");
   counters.pwa_listings_fresh = freshUrls.size;
   counters.pwa_listings_expected = promoUrls.length;
 
@@ -607,6 +611,7 @@ async function apifyMicroRun(runId: string, startedAt: string): Promise<AdapterO
 
   counters.pwa_ready = true;
   counters.activation_allowed = false;
+  counters.pwa_listing_ids = listingIds;
 
   return {
     status: "SUCCESS",
@@ -629,6 +634,8 @@ async function apifyMicroRun(runId: string, startedAt: string): Promise<AdapterO
         promoted_urls: promoUrls,
         promotion_new: promoPayload.new ?? null,
         promotion_updated: promoPayload.updated ?? null,
+        promotion_writes: promoWrites,
+        listing_ids: listingIds,
         out_of_scope_written: promoOutOfScope,
         micro_run_started_at: startedAt,
         listings_last_seen_ok: true,
