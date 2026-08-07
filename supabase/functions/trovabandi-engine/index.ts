@@ -346,6 +346,10 @@ function dateIsPresentInEvidence(markdown: string, iso: string | null) {
   return dayFirst.test(normalized) || monthFirst.test(normalized);
 }
 
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map(normalizeText).filter(Boolean))].slice(0, 100);
+}
 
 /**
  * Ridondanza dei provider di ricerca (fail-closed conservativo).
@@ -362,9 +366,16 @@ type SearchRedundancyEntry = {
   hits: number;
 };
 
+type SearchRedundancyResult = {
+  phase: string;
+  code: string;
+  operational: boolean;
+  degraded: boolean;
+};
+
 function searchRedundancyOutcome(
   entries: SearchRedundancyEntry[],
-): Array<{ phase: string; code: string; operational: boolean; degraded: boolean }> {
+): SearchRedundancyResult[] {
   const covered = entries.some((entry) => !entry.operational && entry.hits > 0);
   return entries.map((entry) => ({
     phase: entry.phase,
@@ -374,11 +385,6 @@ function searchRedundancyOutcome(
   }));
 }
 
-
-function stringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return [...new Set(value.map(normalizeText).filter(Boolean))].slice(0, 100);
-}
 
 function inferCompanySize(profile: CompanyProfile) {
   if (profile.dimensione_impresa)
