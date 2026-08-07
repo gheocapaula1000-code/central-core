@@ -883,8 +883,13 @@ async function verifyDelta(
     if (d !== null && d > 0) inserts += d;
   }
 
-  const persistedProof = (artifacts ?? []).length > 0;
-  const updateProof = (artifacts ?? []).some((a) => a.change_kind === "update" || a.change_kind === "insert");
+  // Un artifact di audit non basta: serve almeno una riga di dominio Civiko
+  // (fuori dalle tabelle di commissioning) legata a questo run.
+  const domainArtifacts = (artifacts ?? []).filter((a) => isCivikoDomainProofTable(a.table_name));
+  const persistedProof = domainArtifacts.length > 0;
+  const updateProof = domainArtifacts.some(
+    (a) => a.change_kind === "update" || a.change_kind === "insert",
+  );
   const runSucceeded = run.status === "SUCCESS";
   const metricsComplete = failed.length === 0;
 
