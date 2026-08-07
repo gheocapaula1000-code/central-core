@@ -1331,12 +1331,30 @@ interface ChainStep {
   query?: string;
   rpcName?: string;
   body?: Record<string, unknown>;
+  /** Timeout dedicato: i ricalcoli Civiko superano i 30s di default. */
+  timeoutMs?: number;
 }
+
+// I due ricalcoli Padova sono pesanti (stesso lavoro del job notturno in-DB):
+// senza budget dedicato l'abort client produce falsi FAILED.
+const CIVIKO_RECOMPUTE_TIMEOUT_MS = 150_000;
 
 const CHAIN_STEPS: ChainStep[] = [
   { key: "classificazione", kind: "function", fn: "civiko-signals-classify", body: { dry_run: false } },
-  { key: "contendibili", kind: "rpc", rpcName: "recompute_padova_listings_contendibili", body: {} },
-  { key: "ribassi_cambi_agenzia", kind: "rpc", rpcName: "recompute_padova_contendibili_extras", body: {} },
+  {
+    key: "contendibili",
+    kind: "rpc",
+    rpcName: "recompute_padova_listings_contendibili",
+    body: {},
+    timeoutMs: CIVIKO_RECOMPUTE_TIMEOUT_MS,
+  },
+  {
+    key: "ribassi_cambi_agenzia",
+    kind: "rpc",
+    rpcName: "recompute_padova_contendibili_extras",
+    body: {},
+    timeoutMs: CIVIKO_RECOMPUTE_TIMEOUT_MS,
+  },
   {
     key: "off_market",
     kind: "function",
@@ -1411,12 +1429,25 @@ async function runChainStep(step: ChainStep): Promise<Record<string, unknown>> {
   }
 
   if (step.kind === "rpc") {
-    const r = await rpc(step.rpcName as string, step.body ?? {}, CHAIN_STEP_TIMEOUT_MS);
+    const r = await rpc(
+      step.rpcName as string,
+      step.body ?? {},
+      step.timeoutMs ?? CHAIN_STEP_TIMEOUT_MS,
+    );
+    // L'errore reale non viene mascherato: viene riportato codice e messaggio
+    // restituiti da PostgREST/Postgres (nessun dato sensibile).
+    const err = r.ok ? null : (r.payload as Record<string, unknown> | null);
     return {
       step: step.key,
       status: r.ok ? "SUCCESS" : "FAILED",
       http_status: r.status,
       error_code: r.ok ? null : "rpc_failed",
+      rpc_name: step.rpcName ?? null,
+      rpc_error: r.ok ? null : {
+        code: typeof err?.code === "string" ? err.code : null,
+        message: typeof err?.message === "string" ? err.message : null,
+      },
+      rpc_result: r.ok ? r.payload ?? null : null,
       started_at: startedAt,
       finished_at: new Date().toISOString(),
     };
