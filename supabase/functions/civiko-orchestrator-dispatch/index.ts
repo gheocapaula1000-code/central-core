@@ -1,3 +1,10 @@
+// Runtime shim: Deno globals sono forniti dal runtime edge; tipizzati qui
+// localmente per il typecheck del repo (comportamento invariato).
+// deno-lint-ignore no-explicit-any
+const DenoRT = (globalThis as any).Deno as {
+  env: { get(key: string): string | undefined };
+  serve: (handler: (req: Request) => Response | Promise<Response>) => unknown;
+};
 import { isAuctionRecord } from "../_shared/auctionExclusion.ts";
 
 // civiko-orchestrator-dispatch
@@ -16,10 +23,10 @@ import { isAuctionRecord } from "../_shared/auctionExclusion.ts";
 // release_gate: conteggi reali dal database, nessuna stima.
 // Nessun cron viene creato o attivato da questa funzione (enabled=false).
 
-const DISPATCH_SECRET = Deno.env.get("CIVIKO_ORCHESTRATOR_DISPATCH_SECRET") ?? "";
-const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const DISPATCH_SECRET = DenoRT.env.get("CIVIKO_ORCHESTRATOR_DISPATCH_SECRET") ?? "";
+const JOB_SECRET = DenoRT.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+const SUPABASE_URL = DenoRT.env.get("SUPABASE_URL") ?? "";
+const SERVICE_KEY = DenoRT.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 const MAX_BODY_BYTES = 2048;
 // Il client Replit chiude ogni azione a 180 s. Il gateway mantiene sempre
@@ -1719,7 +1726,7 @@ async function releaseGate(
 }
 
 
-Deno.serve(async (req) => {
+DenoRT.serve(async (req) => {
   if (req.method !== "POST") {
     return json(405, { ok: false, error: "method_not_allowed" });
   }
