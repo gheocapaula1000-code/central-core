@@ -1488,9 +1488,82 @@ const CHAIN_SEVERITY: Record<string, number> = {
   SUCCESS: 0, PARTIAL: 1, BLOCKED: 2, FAILED: 3,
 };
 
-async function runChain(): Promise<{ status: number; payload: Record<string, unknown> }> {
-  const runId = crypto.randomUUID();
-  const startedAt = new Date().toISOString();
+/**
+ * Chain resumibile per step (Civiko-specific).
+ *
+ * Ogni invocazione esegue UN SOLO step e persiste l'esito reale in
+ * civiko_commissioning_runs.counters. Questo elimina il 504 del gateway sui
+ * ricalcoli pesanti senza alterare la semantica: il run resta RUNNING finché
+ * tutti gli step non sono realmente eseguiti e persistiti, e diventa SUCCESS
+ * solo se ogni step è SUCCESS. Un timeout o un lavoro incompleto non viene
+ * mai convertito in SUCCESS (fail-closed).
+ */
+interface ChainProgress {
+  steps: Record<string, unknown>[];
+  next_index: number;
+  started_at: string;
+}
+
+function readChainProgress(row: Record<string, unknown> | undefined): ChainProgress | null {
+  if (!row) return null;
+  const counters = row.counters;
+  if (!counters || typeof counters !== "object" || Array.isArray(counters)) return null;
+  const c = counters as Record<string, unknown>;
+  const steps = Array.isArray(c.step_results)
+    ? (c.step_results as Record<string, unknown>[])
+    : [];
+  const nextIndex = typeof c.next_index === "number" && Number.isInteger(c.next_index)
+    ? c.next_index
+    : steps.length;
+  return {
+    steps,
+    next_index: nextIndex,
+    started_at: typeof row.started_at === "string" ? row.started_at : new Date().toISOString(),
+  };
+}
+
+function chainOverall(steps: Record<string, unknown>[]): CivikoCommissioningStatus {
+  const worst = steps.reduce(
+    (acc, s) => Math.max(acc, CHAIN_SEVERITY[String(s.status)] ?? 3),
+    0,
+  );
+  return (Object.keys(CHAIN_SEVERITY) as string[])
+    .find((k) => CHAIN_SEVERITY[k] === worst) as CivikoCommissioningStatus;
+}
+
+async function runChain(
+  resumeRunId?: string,
+): Promise<{ status: number; payload: Record<string, unknown> }> {
+  const runId = resumeRunId ?? crypto.randomUUID();
+  let progress: ChainProgress | null = null;
+
+  if (resumeRunId) {
+    const rows = await realRows(
+      `civiko_commissioning_runs?run_id=eq.${resumeRunId}&select=run_id,action,provider,status,counters,started_at&limit=1`,
+    );
+    if (rows === null) {
+      return {
+        status: 502,
+        payload: {
+          ok: false, action: "civiko_commissioning_chain", run_id: resumeRunId,
+          status: "FAILED", error_code: "chain_run_unreadable",
+        },
+      };
+    }
+    const row = rows[0];
+    if (!row || row.action !== "civiko_commissioning_chain" || row.status !== "RUNNING") {
+      return {
+        status: 409,
+        payload: {
+          ok: false, action: "civiko_commissioning_chain", run_id: resumeRunId,
+          status: "BLOCKED", error_code: "chain_run_not_resumable",
+        },
+      };
+    }
+    progress = readChainProgress(row);
+  }
+
+  const startedAt = progress?.started_at ?? new Date().toISOString();
   const claimed = await claim("chain", runId);
   if (!claimed) {
     return {
@@ -1501,49 +1574,87 @@ async function runChain(): Promise<{ status: number; payload: Record<string, unk
       },
     };
   }
-  await openRun({
-    runId, provider: "chain", action: "civiko_commissioning_chain",
-    startedAt, baselineSnapshotId: null, requestedCap: {},
-  });
 
-  const steps: Record<string, unknown>[] = [];
+  if (!progress) {
+    const opened = await openRun({
+      runId, provider: "chain", action: "civiko_commissioning_chain",
+      startedAt, baselineSnapshotId: null, requestedCap: {},
+    });
+    if (!opened) {
+      await releaseClaim("chain", runId);
+      return {
+        status: 502,
+        payload: {
+          ok: false, action: "civiko_commissioning_chain", run_id: runId,
+          status: "FAILED", error_code: "chain_run_open_failed", started_at: startedAt,
+        },
+      };
+    }
+    progress = { steps: [], next_index: 0, started_at: startedAt };
+  }
+
+  const index = progress.next_index;
+  let result: Record<string, unknown> | null = null;
   try {
-    for (const step of CHAIN_STEPS) {
-      const result = await runChainStep(step);
-      steps.push(result);
-      // Fail-closed: nessuna trasformazione semantica dello stato reale.
-      if (result.status === "FAILED" || result.status === "BLOCKED") break;
+    if (index < CHAIN_STEPS.length) {
+      result = await runChainStep(CHAIN_STEPS[index]);
+      progress.steps.push(result);
+      progress.next_index = index + 1;
     }
   } finally {
     await releaseClaim("chain", runId);
   }
 
-  const worst = steps.reduce(
-    (acc, s) => Math.max(acc, CHAIN_SEVERITY[String(s.status)] ?? 3),
-    0,
-  );
-  const overall = (Object.keys(CHAIN_SEVERITY) as string[])
-    .find((k) => CHAIN_SEVERITY[k] === worst) as CivikoCommissioningStatus;
-  const executedAll = steps.length === CHAIN_STEPS.length;
-  const finalStatus: CivikoCommissioningStatus = executedAll ? overall : (overall === "SUCCESS" ? "PARTIAL" : overall);
+  const halted = result !== null &&
+    (result.status === "FAILED" || result.status === "BLOCKED");
+  const executedAll = progress.next_index >= CHAIN_STEPS.length;
+  const done = halted || executedAll;
 
-  await closeRun(runId, {
-    status: finalStatus,
-    counters: { steps_executed: steps.length, steps_planned: CHAIN_STEPS.length },
-    error_code: finalStatus === "SUCCESS" ? null : "chain_not_fully_successful",
-  });
+  const overall = chainOverall(progress.steps);
+  // Fail-closed: se la chain non ha eseguito tutti gli step, non può essere SUCCESS.
+  const finalStatus: CivikoCommissioningStatus = executedAll
+    ? overall
+    : (overall === "SUCCESS" ? "PARTIAL" : overall);
+
+  const counters = {
+    steps_executed: progress.steps.length,
+    steps_planned: CHAIN_STEPS.length,
+    next_index: progress.next_index,
+    step_results: progress.steps,
+  };
+
+  if (done) {
+    await closeRun(runId, {
+      status: finalStatus,
+      counters,
+      error_code: finalStatus === "SUCCESS" ? null : "chain_not_fully_successful",
+    });
+  } else {
+    await patchRow(`civiko_commissioning_runs?run_id=eq.${runId}`, {
+      status: "RUNNING",
+      counters,
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  const nextStepKey = done ? null : CHAIN_STEPS[progress.next_index].key;
 
   return {
-    status: finalStatus === "SUCCESS" ? 200 : 409,
+    status: done ? (finalStatus === "SUCCESS" ? 200 : 409) : 202,
     payload: {
-      ok: finalStatus === "SUCCESS",
+      ok: done ? finalStatus === "SUCCESS" : false,
       action: "civiko_commissioning_chain",
       run_id: runId,
-      status: finalStatus,
-      steps,
+      // Presente finché restano step: il chiamante reinvoca con resume_run_id.
+      resume_run_id: done ? null : runId,
+      status: done ? finalStatus : "RUNNING",
+      chain_complete: done,
+      steps: progress.steps,
       steps_planned: CHAIN_STEPS.map((s) => s.key),
+      steps_executed: progress.steps.length,
+      next_step: nextStepKey,
       started_at: startedAt,
-      finished_at: new Date().toISOString(),
+      finished_at: done ? new Date().toISOString() : null,
     },
   };
 }
@@ -1641,7 +1752,7 @@ Deno.serve(async (req) => {
     return json(r.status, r.payload);
   }
   if (validated.action === "civiko_commissioning_chain") {
-    const r = await runChain();
+    const r = await runChain(validated.resumeRunId);
     return json(r.status, r.payload);
   }
 
