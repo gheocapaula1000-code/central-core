@@ -50,10 +50,10 @@ describe("otto zone Padova — invarianti", () => {
   });
 
   it("il commissioning non introduce né rinomina slug", () => {
-    for (const slug of EXPECTED_ZONES) expect(FN).toContain(slug);
-    const slugsInFile = FN.match(/"[a-z]+(?:-[a-z']+)+"/g) ?? [];
-    const suspicious = slugsInFile
-      .map((s) => s.replace(/"/g, ""))
+    // Gli slug non sono mai hardcoded: derivano dal contratto condiviso.
+    expect(FN).toContain("CIVIKO_COMMERCIAL_ZONES.map((z) => z.slug)");
+    const literals = (FN.match(/"[a-z]+(?:-[a-z']+)+"/g) ?? []).map((s) => s.replace(/"/g, ""));
+    const suspicious = literals
       .filter((s) => /^(centro|nord|est|sud|ovest)[-a-z']*$/.test(s))
       .filter((s) => !EXPECTED_ZONES.includes(s));
     expect(suspicious).toEqual([]);
