@@ -82,7 +82,7 @@ describe("cap minimi server-side", () => {
   it("nessuna azione accetta cap, url o target dal body", () => {
     for (const fields of Object.values(CIVIKO_COMMISSIONING_BODY_SCHEMA)) {
       for (const f of fields) {
-        expect(["run_id", "baseline_snapshot_id"]).toContain(f);
+        expect(["run_id", "baseline_snapshot_id", "resume_run_id"]).toContain(f);
       }
     }
   });
