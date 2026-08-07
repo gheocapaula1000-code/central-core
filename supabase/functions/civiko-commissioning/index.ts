@@ -24,7 +24,6 @@ import {
   type CivikoCommissioningStatus,
   validateCommissioningBody,
 } from "./caps.ts";
-import { canSpendApify, recordApifySpend } from "../_shared/apifyBudget.ts";
 import { canSpendFirecrawl, recordFirecrawlSpend } from "../_shared/firecrawlBudget.ts";
 import { canSpendAi, recordAiSpend } from "../_shared/aiBudget.ts";
 import { CIVIKO_COMMERCIAL_ZONES } from "../_shared/civikoCommercialZoneContract.ts";
@@ -376,7 +375,7 @@ async function apifyMicroRun(runId: string): Promise<AdapterOutcome> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), APIFY_COLLECT_TIMEOUT_MS);
   try {
-    const res = await fetch(`${SUPABASE_URL}/functions/v1/padova-apify-subito-collect`, {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/${APIFY_MICRORUN_COLLECTOR}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
