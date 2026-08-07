@@ -1071,7 +1071,7 @@ async function runChainStep(step: ChainStep): Promise<Record<string, unknown>> {
 
   if (step.kind === "read") {
     const rows = await realRows(
-      "civiko_pwa_sync_acks?select=run_id,pipeline_run_id,ok,started_at,finished_at,received_at&order=received_at.desc&limit=1",
+      "civiko_pwa_sync_acks?select=run_id,pipeline_run_id,ok,started_at,finished_at,created_at,counts,scope_comune,scope_slugs,municipality,commercial_zone_slugs&order=created_at.desc&limit=1",
     );
     if (rows === null) return fail("FAILED", "pwa_ack_unreadable", 502);
     const ack = rows[0];
@@ -1082,7 +1082,12 @@ async function runChainStep(step: ChainStep): Promise<Record<string, unknown>> {
       http_status: 200,
       error_code: ack.ok === true ? null : "pwa_ack_not_ok",
       pipeline_run_id: ack.pipeline_run_id ?? null,
-      received_at: ack.received_at ?? null,
+      ack_started_at: ack.started_at ?? null,
+      ack_finished_at: ack.finished_at ?? null,
+      ack_created_at: ack.created_at ?? null,
+      counts: ack.counts ?? null,
+      scope_comune: ack.scope_comune ?? ack.municipality ?? null,
+      scope_slugs: ack.scope_slugs ?? ack.commercial_zone_slugs ?? null,
       started_at: startedAt,
       finished_at: new Date().toISOString(),
     };
