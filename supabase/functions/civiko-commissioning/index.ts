@@ -463,14 +463,9 @@ async function apifyMicroRun(runId: string): Promise<AdapterOutcome> {
     created: Number.isFinite(created) ? created : null,
     updated: Number.isFinite(updated) ? updated : null,
     staging_rows_for_job: stagingRows,
-    // Staging persistito ≠ PWA-ready: la promozione a padova_listings richiede
-    // un processor globale non isolabile per questo run, quindi non viene
-    // invocata e l'attivazione non è consentita da questo micro-run.
     staging_persisted: stagingOk,
     pwa_ready: false,
     activation_allowed: false,
-    promotion_note:
-      "righe persistite in padova_collect_v2_items (staging); promozione a padova_listings non eseguita: processor non isolabile per run Civiko",
   };
 
   if (!stagingOk) {
@@ -485,6 +480,111 @@ async function apifyMicroRun(runId: string): Promise<AdapterOutcome> {
     };
   }
 
+  // ── Promozione PWA-ready, isolata Civiko ──────────────────────────────────
+  // RPC service-role-only dedicata al commissioning: riusa la semantica di
+  // promote_padova_collect_v2_to_listings ma limitata a questo job_id, comune
+  // Padova e max 3 righe. Non modifica né sostituisce le RPC esistenti.
+  const promo = await rpc(
+    "civiko_commissioning_promote_apify_job",
+    { p_job_id: jobId, p_run_id: runId },
+    PROMOTE_TIMEOUT_MS,
+  );
+  const promoPayload = (promo.payload && typeof promo.payload === "object" && !Array.isArray(promo.payload))
+    ? promo.payload as Record<string, unknown>
+    : null;
+  const promoWrites = Number(promoPayload?.writes ?? NaN);
+  const promoOutOfScope = Number(promoPayload?.out_of_scope_written ?? NaN);
+  const promoUrls = Array.isArray(promoPayload?.urls)
+    ? (promoPayload!.urls as unknown[]).filter((u): u is string => typeof u === "string" && u.length > 0)
+    : [];
+
+  counters.promotion = promoPayload
+    ? {
+      ok: Boolean(promoPayload.ok),
+      scanned: promoPayload.scanned ?? null,
+      kept: promoPayload.kept ?? null,
+      new: promoPayload.new ?? null,
+      updated: promoPayload.updated ?? null,
+      writes: Number.isFinite(promoWrites) ? promoWrites : null,
+      out_of_scope_rejected: promoPayload.out_of_scope_rejected ?? null,
+      out_of_scope_written: Number.isFinite(promoOutOfScope) ? promoOutOfScope : null,
+      urls: promoUrls,
+    }
+    : { ok: false, http_status: promo.status };
+
+  if (!promo.ok || !promoPayload) {
+    return {
+      ...base,
+      status: "BLOCKED",
+      applied_cap: applied,
+      cap_confirmed: true,
+      actual_cost_usd: actualCostUsd,
+      counters,
+      error_code: "apify_promotion_rpc_failed",
+    };
+  }
+  if (!Number.isFinite(promoWrites) || promoWrites <= 0) {
+    return {
+      ...base,
+      status: "BLOCKED",
+      applied_cap: applied,
+      cap_confirmed: true,
+      actual_cost_usd: actualCostUsd,
+      counters,
+      error_code: "apify_promotion_no_writes",
+    };
+  }
+  if (!Number.isFinite(promoOutOfScope) || promoOutOfScope !== 0) {
+    return {
+      ...base,
+      status: "BLOCKED",
+      applied_cap: applied,
+      cap_confirmed: true,
+      actual_cost_usd: actualCostUsd,
+      counters,
+      error_code: "apify_promotion_out_of_scope_written",
+    };
+  }
+  if (promoUrls.length === 0) {
+    return {
+      ...base,
+      status: "BLOCKED",
+      applied_cap: applied,
+      cap_confirmed: true,
+      actual_cost_usd: actualCostUsd,
+      counters,
+      error_code: "apify_promotion_no_urls",
+    };
+  }
+
+  // Prova attribuibile: per gli URL del job devono esistere righe
+  // padova_listings con last_seen_at >= started_at del micro-run.
+  const inUrls = `in.(${promoUrls.map((u) => `"${u.replace(/"/g, '\\"')}"`).join(",")})`;
+  const listingRows = await realRows(
+    `padova_listings?select=id,url,fonte,comune,quartiere,last_seen_at,imported_at,expired_at` +
+      `&url=${encodeURIComponent(inUrls)}` +
+      `&last_seen_at=gte.${encodeURIComponent(startedAt)}&limit=10`,
+  );
+  const freshUrls = new Set((listingRows ?? []).map((r) => String(r.url ?? "")));
+  const allFresh = promoUrls.every((u) => freshUrls.has(u));
+  counters.pwa_listings_fresh = freshUrls.size;
+  counters.pwa_listings_expected = promoUrls.length;
+
+  if (!listingRows || !allFresh) {
+    return {
+      ...base,
+      status: "BLOCKED",
+      applied_cap: applied,
+      cap_confirmed: true,
+      actual_cost_usd: actualCostUsd,
+      counters,
+      error_code: "apify_pwa_listing_proof_missing",
+    };
+  }
+
+  counters.pwa_ready = true;
+  counters.activation_allowed = false;
+
   return {
     status: "SUCCESS",
     applied_cap: applied,
@@ -492,23 +592,30 @@ async function apifyMicroRun(runId: string): Promise<AdapterOutcome> {
     actual_cost_usd: actualCostUsd,
     counters,
     artifacts: [{
-      table_name: "padova_collect_v2_items",
-      change_kind: created > 0 ? "insert" : "update",
+      table_name: "padova_listings",
+      change_kind: Number(promoPayload.new ?? 0) > 0 ? "insert" : "update",
       row_ref: String(jobId),
       evidence: {
         provider: "apify",
         commissioning_run_id: runId,
         apify_run_id: apifyRunId,
         job_id: jobId,
-        created,
-        updated,
-        rows_for_job: stagingRows,
-        pwa_ready: false,
+        staging_created: created,
+        staging_updated: updated,
+        staging_rows_for_job: stagingRows,
+        promoted_urls: promoUrls,
+        promotion_new: promoPayload.new ?? null,
+        promotion_updated: promoPayload.updated ?? null,
+        out_of_scope_written: promoOutOfScope,
+        micro_run_started_at: startedAt,
+        listings_last_seen_ok: true,
+        pwa_ready: true,
       },
     }],
     error_code: null,
   };
 }
+
 
 
 async function firecrawlMicroRun(runId: string): Promise<AdapterOutcome> {
