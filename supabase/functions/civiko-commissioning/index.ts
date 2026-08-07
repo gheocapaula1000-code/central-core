@@ -163,7 +163,8 @@ async function captureCounters(): Promise<{
     providerRuns,
   ] = await Promise.all([
     q("listings_total", "padova_listings?select=id"),
-    q("listings_active", "padova_listings?select=id&stato=eq.attivo"),
+    // Schema reale: padova_listings NON ha `stato`. Attivo = expired_at IS NULL.
+    q("listings_active", "padova_listings?select=id&expired_at=is.null"),
     q("listings_immobiliare", "padova_listings?select=id&fonte=eq.immobiliare"),
     q("listings_idealista", "padova_listings?select=id&fonte=eq.idealista"),
     q("listings_subito", "padova_listings?select=id&fonte=eq.subito"),
@@ -177,14 +178,19 @@ async function captureCounters(): Promise<{
     q("provider_runs", "padova_apify_runs?select=id"),
   ]);
 
+  // Schema reale: i timestamp di padova_listings sono imported_at/last_seen_at
+  // (nessun created_at/updated_at).
   const lastListing = await realRows(
-    "padova_listings?select=created_at,updated_at,last_seen_at&order=updated_at.desc.nullslast&limit=1",
+    "padova_listings?select=imported_at,last_seen_at,expired_at&order=last_seen_at.desc.nullslast&limit=1",
   );
+  // Schema reale: padova_apify_runs usa started_at/finished_at.
   const lastProviderRun = await realRows(
-    "padova_apify_runs?select=run_id,portal,status,created_at&order=created_at.desc&limit=1",
+    "padova_apify_runs?select=id,run_id,portal,status,started_at,finished_at&order=started_at.desc.nullslast&limit=1",
   );
+  // Schema reale: civiko_pwa_sync_acks usa started_at/finished_at/created_at,
+  // counts, scope_comune/scope_slugs e municipality/commercial_zone_slugs.
   const lastAck = await realRows(
-    "civiko_pwa_sync_acks?select=run_id,pipeline_run_id,ok,received_at&order=received_at.desc&limit=1",
+    "civiko_pwa_sync_acks?select=run_id,pipeline_run_id,ok,started_at,finished_at,created_at,counts,scope_comune,scope_slugs,municipality,commercial_zone_slugs&order=created_at.desc&limit=1",
   );
   if (lastListing === null) failed.push("last_listing");
   if (lastProviderRun === null) failed.push("last_provider_run");
@@ -201,9 +207,9 @@ async function captureCounters(): Promise<{
           subito: listingsSubito,
           casa: listingsCasa,
         },
-        last_created_at: lastListing?.[0]?.created_at ?? null,
-        last_updated_at: lastListing?.[0]?.updated_at ?? null,
+        last_imported_at: lastListing?.[0]?.imported_at ?? null,
         last_seen_at: lastListing?.[0]?.last_seen_at ?? null,
+        last_expired_at: lastListing?.[0]?.expired_at ?? null,
       },
       categories: {
         contendibili,
@@ -597,6 +603,86 @@ const ADAPTERS: Record<CivikoCommissioningProvider, (runId: string) => Promise<A
   perplexity: perplexityMicroRun,
 };
 
+// ────────────── prova persistita Civiko provider-specifica ──────────────────
+//
+// Un artifact di audit NON è una prova: la scansione vale solo se il provider
+// ha davvero scritto in una tabella di dominio Civiko (PWA/listing) una riga
+// correlabile a questo micro-run. Le tabelle di audit del commissioning sono
+// escluse per definizione.
+//
+// `writer_available = false` significa che nel Central Core non esiste oggi
+// alcun writer che leghi l'output di quel provider a una riga di dominio
+// Civiko: in quel caso il micro-run è BLOCKED PRIMA di qualsiasi spesa, senza
+// simulare la prova. Firecrawl (pagina Comune) e Perplexity (query generica)
+// ricadono in questo caso: producono testo, non dati PWA/listing.
+export const CIVIKO_PROVIDER_PERSISTENCE: Record<
+  CivikoCommissioningProvider,
+  { table: string; writer_available: boolean; note: string }
+> = {
+  apify: {
+    table: "padova_apify_runs",
+    writer_available: true,
+    note: "run del portale persistito con run_id/dataset_id e stato reale",
+  },
+  firecrawl: {
+    table: "padova_listings",
+    writer_available: false,
+    note: "nessun writer lega una pagina scrapata a una riga listing Civiko",
+  },
+  perplexity: {
+    table: "civiko_signals_classified",
+    writer_available: false,
+    note: "nessun writer lega una query generica a un segnale Civiko classificato",
+  },
+};
+
+export const CIVIKO_AUDIT_TABLES = [
+  "civiko_commissioning_artifacts",
+  "civiko_commissioning_runs",
+  "civiko_commissioning_baselines",
+  "civiko_commissioning_claims",
+];
+
+export function isCivikoDomainProofTable(table: unknown): boolean {
+  return typeof table === "string" && table.length > 0 &&
+    !CIVIKO_AUDIT_TABLES.includes(table);
+}
+
+/** Cerca la riga di dominio Civiko realmente scritta dal provider. */
+async function domainProof(
+  provider: CivikoCommissioningProvider,
+  outcome: AdapterOutcome,
+): Promise<Artifact | null> {
+  const spec = CIVIKO_PROVIDER_PERSISTENCE[provider];
+  if (!spec.writer_available) return null;
+  if (provider === "apify") {
+    const apifyRunId = outcome.counters.apify_run_id;
+    if (typeof apifyRunId !== "string" || !apifyRunId) return null;
+    const rows = await realRows(
+      `padova_apify_runs?run_id=eq.${encodeURIComponent(apifyRunId)}` +
+        `&select=id,run_id,portal,status,items_count,imported,started_at,finished_at&limit=1`,
+    );
+    const row = rows?.[0];
+    if (!row) return null;
+    return {
+      table_name: "padova_apify_runs",
+      change_kind: "insert",
+      row_ref: String(row.id),
+      evidence: {
+        provider: "apify",
+        run_id: row.run_id,
+        portal: row.portal,
+        status: row.status,
+        items_count: row.items_count ?? null,
+        imported: row.imported ?? null,
+        started_at: row.started_at ?? null,
+        finished_at: row.finished_at ?? null,
+      },
+    };
+  }
+  return null;
+}
+
 async function runMicroRun(
   provider: CivikoCommissioningProvider,
   action: string,
@@ -647,20 +733,58 @@ async function runMicroRun(
       };
     }
 
+    // Nessuna spesa se il provider non può produrre una prova persistita
+    // Civiko: fail-closed PRIMA della chiamata, senza simulare la prova.
+    const persistenceSpec = CIVIKO_PROVIDER_PERSISTENCE[provider];
+    if (!persistenceSpec.writer_available) {
+      await closeRun(runId, {
+        status: "BLOCKED",
+        applied_cap: null,
+        actual_cost_usd: 0,
+        counters: { persistence_target: persistenceSpec.table, note: persistenceSpec.note },
+        error_code: `${provider}_no_civiko_persistence`,
+      });
+      return {
+        status: 409,
+        payload: {
+          ok: false, action, provider, run_id: runId, status: "BLOCKED",
+          baseline_snapshot_id: baseline.snapshotId,
+          requested_cap: requestedCap, applied_cap: null, cap_confirmed: false,
+          actual_cost_usd: 0,
+          persistence_target: persistenceSpec.table,
+          persistence_note: persistenceSpec.note,
+          error_code: `${provider}_no_civiko_persistence`,
+          started_at: startedAt, finished_at: new Date().toISOString(),
+        },
+      };
+    }
+
     const outcome = await ADAPTERS[provider](runId);
-    const artifactsOk = outcome.status === "SUCCESS"
-      ? await persistArtifacts(runId, provider, outcome.artifacts)
+
+    // Prova persistita provider-specifica in una tabella di dominio Civiko:
+    // senza di essa il run resta BLOCKED, anche con HTTP 200 del provider.
+    const proof = outcome.status === "SUCCESS" ? await domainProof(provider, outcome) : null;
+    const allArtifacts = proof ? [proof, ...outcome.artifacts] : outcome.artifacts;
+    const artifactsOk = outcome.status === "SUCCESS" && proof
+      ? await persistArtifacts(runId, provider, allArtifacts)
       : true;
-    const finalStatus: CivikoCommissioningStatus = outcome.status === "SUCCESS" && !artifactsOk
-      ? "PARTIAL"
-      : outcome.status;
+
+    let finalStatus: CivikoCommissioningStatus = outcome.status;
+    let errorCode = outcome.error_code;
+    if (outcome.status === "SUCCESS" && !proof) {
+      finalStatus = "BLOCKED";
+      errorCode = `${provider}_no_civiko_persistence`;
+    } else if (outcome.status === "SUCCESS" && !artifactsOk) {
+      finalStatus = "PARTIAL";
+      errorCode = "artifact_persist_failed";
+    }
 
     await closeRun(runId, {
       status: finalStatus,
       applied_cap: outcome.applied_cap,
       actual_cost_usd: outcome.actual_cost_usd,
       counters: outcome.counters,
-      error_code: outcome.error_code ?? (finalStatus === "PARTIAL" ? "artifact_persist_failed" : null),
+      error_code: errorCode,
     });
 
     const ok = finalStatus === "SUCCESS";
@@ -678,8 +802,12 @@ async function runMicroRun(
         cap_confirmed: outcome.cap_confirmed,
         actual_cost_usd: outcome.actual_cost_usd,
         counters: outcome.counters,
-        artifacts_persisted: ok ? outcome.artifacts.length : 0,
-        error_code: outcome.error_code ?? (finalStatus === "PARTIAL" ? "artifact_persist_failed" : null),
+        persistence_target: persistenceSpec.table,
+        domain_proof: proof
+          ? { table_name: proof.table_name, row_ref: proof.row_ref, change_kind: proof.change_kind }
+          : null,
+        artifacts_persisted: ok ? allArtifacts.length : 0,
+        error_code: errorCode,
         started_at: startedAt,
         finished_at: new Date().toISOString(),
       },
@@ -755,8 +883,13 @@ async function verifyDelta(
     if (d !== null && d > 0) inserts += d;
   }
 
-  const persistedProof = (artifacts ?? []).length > 0;
-  const updateProof = (artifacts ?? []).some((a) => a.change_kind === "update" || a.change_kind === "insert");
+  // Un artifact di audit non basta: serve almeno una riga di dominio Civiko
+  // (fuori dalle tabelle di commissioning) legata a questo run.
+  const domainArtifacts = (artifacts ?? []).filter((a) => isCivikoDomainProofTable(a.table_name));
+  const persistedProof = domainArtifacts.length > 0;
+  const updateProof = domainArtifacts.some(
+    (a) => a.change_kind === "update" || a.change_kind === "insert",
+  );
   const runSucceeded = run.status === "SUCCESS";
   const metricsComplete = failed.length === 0;
 
@@ -790,7 +923,7 @@ async function verifyDelta(
       finished_at: run.finished_at,
       deltas,
       delta_inserts_total: inserts,
-      persisted_proof: (artifacts ?? []).map((a) => ({
+      persisted_proof: domainArtifacts.map((a) => ({
         table_name: a.table_name,
         change_kind: a.change_kind,
         row_ref: a.row_ref,
@@ -860,9 +993,10 @@ async function pwaFeedCounts(): Promise<{ status: number; payload: Record<string
   const summary = (feed?.summary ?? {}) as Record<string, unknown>;
   const diagnostics = (feed?.diagnostics ?? {}) as Record<string, unknown>;
   const classificati = await realCount("civiko_signals_classified?select=id");
-  const cambiAgenzia = await realCount("padova_cambi_agenzia?select=id&stato=eq.attivo");
+  // Schema reale: padova_cambi_agenzia usa is_active (nessun campo `stato`).
+  const cambiAgenzia = await realCount("padova_cambi_agenzia?select=id&is_active=is.true");
   const ackRows = await realRows(
-    "civiko_pwa_sync_acks?select=run_id,pipeline_run_id,ok,started_at,finished_at,received_at,counts&order=received_at.desc&limit=1",
+    "civiko_pwa_sync_acks?select=run_id,pipeline_run_id,ok,started_at,finished_at,created_at,counts,scope_comune,scope_slugs,municipality,commercial_zone_slugs&order=created_at.desc&limit=1",
   );
 
   const counts = {
@@ -937,7 +1071,7 @@ async function runChainStep(step: ChainStep): Promise<Record<string, unknown>> {
 
   if (step.kind === "read") {
     const rows = await realRows(
-      "civiko_pwa_sync_acks?select=run_id,pipeline_run_id,ok,started_at,finished_at,received_at&order=received_at.desc&limit=1",
+      "civiko_pwa_sync_acks?select=run_id,pipeline_run_id,ok,started_at,finished_at,created_at,counts,scope_comune,scope_slugs,municipality,commercial_zone_slugs&order=created_at.desc&limit=1",
     );
     if (rows === null) return fail("FAILED", "pwa_ack_unreadable", 502);
     const ack = rows[0];
@@ -948,7 +1082,12 @@ async function runChainStep(step: ChainStep): Promise<Record<string, unknown>> {
       http_status: 200,
       error_code: ack.ok === true ? null : "pwa_ack_not_ok",
       pipeline_run_id: ack.pipeline_run_id ?? null,
-      received_at: ack.received_at ?? null,
+      ack_started_at: ack.started_at ?? null,
+      ack_finished_at: ack.finished_at ?? null,
+      ack_created_at: ack.created_at ?? null,
+      counts: ack.counts ?? null,
+      scope_comune: ack.scope_comune ?? ack.municipality ?? null,
+      scope_slugs: ack.scope_slugs ?? ack.commercial_zone_slugs ?? null,
       started_at: startedAt,
       finished_at: new Date().toISOString(),
     };
