@@ -4,13 +4,28 @@
 // in testo, limitato dal chiamante e usato soltanto come evidenza documentale.
 
 function normalizedDomain(value: string): string {
-  return value.trim().toLowerCase().replace(/^www\./, "").replace(/\.$/, "");
+  const raw = value.trim().toLowerCase().replace(/^www\./, "").replace(/\.$/, "");
+  try {
+    return new URL(`https://${raw}`).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
+  }
 }
 
 function isBlockedHostname(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host === "::1" || host === "0.0.0.0") return true;
-  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (
+    host === "localhost" ||
+    host === "::" ||
+    host === "::1" ||
+    host === "0.0.0.0" ||
+    host.startsWith("fc") ||
+    host.startsWith("fd") ||
+    /^fe[89ab]/.test(host)
+  ) return true;
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(host);
+  const candidate = mapped?.[1] ?? host;
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(candidate);
   if (!match) return false;
   const octets = match.slice(1).map(Number);
   if (octets.some((part) => part < 0 || part > 255)) return true;
@@ -28,6 +43,7 @@ export function isAllowedOfficialUrl(rawUrl: string, officialDomain: string): bo
     const url = new URL(rawUrl);
     if (url.protocol !== "https:" && url.protocol !== "http:") return false;
     if (url.username || url.password || isBlockedHostname(url.hostname)) return false;
+    if (url.port && url.port !== "80" && url.port !== "443") return false;
     const host = normalizedDomain(url.hostname);
     const allowed = normalizedDomain(officialDomain);
     return !!allowed && (host === allowed || host.endsWith(`.${allowed}`));
