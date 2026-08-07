@@ -347,6 +347,34 @@ function dateIsPresentInEvidence(markdown: string, iso: string | null) {
 }
 
 
+/**
+ * Ridondanza dei provider di ricerca (fail-closed conservativo).
+ * Firecrawl e Perplexity sono fallback reciproci: se almeno uno è OK e ha
+ * restituito almeno una hit ufficiale valida, il guasto dell'altro resta
+ * diagnosticato e produce un warning informativo, ma non è un guasto
+ * operativo. Se entrambi falliscono, oppure il superstite è OK senza hit,
+ * ogni guasto resta operativo e il run degrada come oggi.
+ */
+type SearchRedundancyEntry = {
+  phase: string;
+  code: string;
+  operational: boolean;
+  hits: number;
+};
+
+function searchRedundancyOutcome(
+  entries: SearchRedundancyEntry[],
+): Array<{ phase: string; code: string; operational: boolean; degraded: boolean }> {
+  const covered = entries.some((entry) => !entry.operational && entry.hits > 0);
+  return entries.map((entry) => ({
+    phase: entry.phase,
+    code: entry.code,
+    degraded: entry.operational,
+    operational: entry.operational && !covered,
+  }));
+}
+
+
 function stringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.map(normalizeText).filter(Boolean))].slice(0, 100);
