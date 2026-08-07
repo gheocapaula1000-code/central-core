@@ -1501,14 +1501,12 @@ async function runChain(): Promise<{ status: number; payload: Record<string, unk
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json(405, { ok: false, error: "method_not_allowed" });
-  if (!DISPATCH_SECRET) {
-    console.error("[civiko-commissioning] misconfigured");
-    return json(500, { ok: false, error: "misconfigured" });
-  }
   const auth = req.headers.get("Authorization") ?? "";
   const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (!bearer || !timingSafeEqual(bearer, DISPATCH_SECRET)) {
-    return json(401, { ok: false, error: "unauthorized" });
+  const authz = authorizeBearer(bearer, [DISPATCH_SECRET, CENTRAL_CORE_API_KEY]);
+  if (!authz.ok) {
+    if (authz.status === 500) console.error("[civiko-commissioning] misconfigured");
+    return json(authz.status, { ok: false, error: authz.error });
   }
   const ctype = (req.headers.get("Content-Type") ?? "").toLowerCase();
   if (!ctype.includes("application/json")) {
