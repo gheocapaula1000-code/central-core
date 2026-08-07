@@ -44,9 +44,16 @@ const CHAIN_STEP_TIMEOUT_MS = 30_000;
 const CIVIKO_SCOPE_SLUGS = CIVIKO_COMMERCIAL_ZONES.map((z) => z.slug);
 
 // Target di micro-run: costanti, pubblici e Padova-only.
-const APIFY_MICRORUN_ACTOR = "emastra~subito-it-immobili";
+// Il micro-run Apify NON avvia l'actor direttamente: passa dal collector
+// Civiko esistente `padova-apify-subito-collect` (budget + padova_apify_runs +
+// ingest in padova_collect_v2_items). Singola URL Padova.
+const APIFY_MICRORUN_COLLECTOR = "padova-apify-subito-collect";
 const APIFY_MICRORUN_SEARCH_URL =
   "https://www.subito.it/annunci-veneto/vendita/appartamenti/padova/padova/";
+// Attesa minima controllata del collector (sync), sotto il limite HTTP.
+const APIFY_COLLECT_WAIT_SECONDS = 150;
+const APIFY_COLLECT_TIMEOUT_MS = 170_000;
+
 const FIRECRAWL_MICRORUN_URL = "https://www.comune.padova.it/";
 const PERPLEXITY_MICRORUN_MODEL = "sonar";
 const PERPLEXITY_MICRORUN_QUERY =
