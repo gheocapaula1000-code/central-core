@@ -194,8 +194,10 @@ describe("runtime fail-closed", () => {
 
 describe("isolamento dalle altre PWA", () => {
   it("il commissioning non referenzia UEradar/TrovaBandi, Wyloni, LuxuRadar", () => {
+    // Solo codice eseguibile: i commenti possono nominare le PWA escluse.
+    const code = FN.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
     for (const forbidden of ["trovabandi", "wyloni", "luxuradar", "luxu_assets"]) {
-      expect(FN.toLowerCase()).not.toContain(forbidden);
+      expect(code.toLowerCase()).not.toContain(forbidden);
     }
   });
 
