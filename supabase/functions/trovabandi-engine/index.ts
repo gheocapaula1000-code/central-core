@@ -346,11 +346,45 @@ function dateIsPresentInEvidence(markdown: string, iso: string | null) {
   return dayFirst.test(normalized) || monthFirst.test(normalized);
 }
 
-
 function stringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.map(normalizeText).filter(Boolean))].slice(0, 100);
 }
+
+/**
+ * Ridondanza dei provider di ricerca (fail-closed conservativo).
+ * Firecrawl e Perplexity sono fallback reciproci: se almeno uno è OK e ha
+ * restituito almeno una hit ufficiale valida, il guasto dell'altro resta
+ * diagnosticato e produce un warning informativo, ma non è un guasto
+ * operativo. Se entrambi falliscono, oppure il superstite è OK senza hit,
+ * ogni guasto resta operativo e il run degrada come oggi.
+ */
+type SearchRedundancyEntry = {
+  phase: string;
+  code: string;
+  operational: boolean;
+  hits: number;
+};
+
+type SearchRedundancyResult = {
+  phase: string;
+  code: string;
+  operational: boolean;
+  degraded: boolean;
+};
+
+function searchRedundancyOutcome(
+  entries: SearchRedundancyEntry[],
+): SearchRedundancyResult[] {
+  const covered = entries.some((entry) => !entry.operational && entry.hits > 0);
+  return entries.map((entry) => ({
+    phase: entry.phase,
+    code: entry.code,
+    degraded: entry.operational,
+    operational: entry.operational && !covered,
+  }));
+}
+
 
 function inferCompanySize(profile: CompanyProfile) {
   if (profile.dimensione_impresa)
@@ -1505,18 +1539,28 @@ serve(async (req) => {
     // Diagnostica non sensibile: solo fase + codice, mai URL completi o contenuti.
     const diagnostics: Array<{ phase: string; code: string }> = [];
     // La ricerca non fallisce mai silenziosamente in []: ogni guasto provider
-    // è diagnosticato, genera warning e rende il run PARTIAL.
-    for (const [provider, outcome] of [
+    // è diagnosticato e genera warning. Firecrawl e Perplexity sono però
+    // fallback reciproci: il guasto di uno non degrada il run quando l'altro
+    // ha completato con almeno una hit ufficiale valida (warning informativo).
+    const searchEntries = ([
       ["firecrawl", fc],
       ["perplexity", pp],
-    ] as const) {
+    ] as const).map(([provider, outcome]) => {
       const entry = searchDiagnostics(provider, outcome);
+      return { ...entry, hits: outcome.ok ? outcome.hits.length : 0 };
+    });
+    for (const entry of searchRedundancyOutcome(searchEntries)) {
       diagnostics.push({ phase: entry.phase, code: entry.code });
+      if (!entry.degraded) continue;
+      const base = `${entry.phase}_${entry.code.toLowerCase()}`;
       if (entry.operational) {
-        warnings.push(`${entry.phase}_${entry.code.toLowerCase()}`);
+        warnings.push(base);
         operationalFailures++;
+      } else {
+        warnings.push(`${base}_non_blocking`);
       }
     }
+
     const fcHits = fc.ok ? fc.hits : [];
     const ppHits = pp.ok ? pp.hits : [];
     const byUrl = new Map<string, SearchHit>();
