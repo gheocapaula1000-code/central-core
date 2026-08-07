@@ -40,6 +40,17 @@ import {
   type DueSource,
   type SuccessfulRun,
 } from "./hardening.ts";
+import {
+  CANDIDATE_MAX_POOL,
+  canonicalCandidateUrl,
+  dedupeCandidates,
+  freshCandidates,
+  rotateCandidates,
+  sanitizeProviderQuery,
+  shouldSkipPaidSearch,
+  type CachedCandidate,
+} from "./candidates.ts";
+
 
 type JsonObject = Record<string, unknown>;
 
@@ -539,7 +550,7 @@ async function firecrawlSearch(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        query: source.search_query,
+        query: sanitizeProviderQuery(source.search_query),
         includeDomains: [source.official_domain],
         limit: 8,
       }),
@@ -596,7 +607,7 @@ async function perplexitySearch(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        query: source.search_query,
+        query: sanitizeProviderQuery(source.search_query),
         search_domain_filter: [source.official_domain],
         max_results: 8,
         max_tokens_per_page: 512,
@@ -781,11 +792,109 @@ async function directOfficialScrape(
   }
 }
 
+/**
+ * Cache-first / direct-fetch-first: si tenta sempre prima l'HTTP ufficiale
+ * diretto (costo provider zero) e solo dopo Firecrawl scrape e Apify.
+ */
 async function loadPage(url: string, officialDomain: string) {
   return (
-    (await scrapePage(url)) ??
     (await directOfficialScrape(url, officialDomain)) ??
+    (await scrapePage(url)) ??
     (await apifyScrape(url))
+  );
+}
+
+// Client minimale: evita il mismatch dei generici Supabase nei checker Deno.
+type CandidateClient = {
+  from: (table: string) => any;
+};
+
+async function loadCachedCandidates(
+  sb: CandidateClient,
+  source: Source,
+): Promise<CachedCandidate[]> {
+  const cached = await sb
+    .from("trovabandi_source_candidates")
+    .select(
+      "url,title,snippet,provider,discovered_at,last_seen_at,last_attempted_at,attempt_count,content_hash",
+    )
+    .eq("source_id", source.id)
+    .order("last_attempted_at", { ascending: true, nullsFirst: true })
+    .limit(CANDIDATE_MAX_POOL);
+  const rows = (cached.data ?? []) as CachedCandidate[];
+  const persisted = await sb
+    .from("trovabandi_opportunities")
+    .select("official_url,notice_url,updated_at")
+    .ilike("official_url", `%${source.official_domain}%`)
+    .order("updated_at", { ascending: false })
+    .limit(100);
+  const persistedRows: CachedCandidate[] = [];
+  for (const row of (persisted.data ?? []) as JsonObject[]) {
+    for (const key of ["official_url", "notice_url"]) {
+      const url = canonicalCandidateUrl(row[key]);
+      if (!url || !hostMatches(url, source.official_domain)) continue;
+      persistedRows.push({
+        url,
+        provider: "persisted",
+        discovered_at: normalizeText(row.updated_at) || null,
+        last_seen_at: normalizeText(row.updated_at) || null,
+      });
+    }
+  }
+  return dedupeCandidates([...rows, ...persistedRows]);
+}
+
+async function upsertCandidates(
+  sb: CandidateClient,
+  source: Source,
+  hits: SearchHit[],
+): Promise<void> {
+  if (hits.length === 0) return;
+  const nowIso = new Date().toISOString();
+  const rows = [];
+  for (const hit of hits) {
+    const url = canonicalCandidateUrl(hit.url);
+    if (!url || !hostMatches(url, source.official_domain)) continue;
+    rows.push({
+      source_id: source.id,
+      url,
+      url_hash: await sha256(url.toLowerCase()),
+      title: hit.title?.slice(0, 500) || null,
+      snippet: hit.description?.slice(0, 1000) || null,
+      provider: hit.provider?.slice(0, 120) || null,
+      last_seen_at: nowIso,
+      updated_at: nowIso,
+    });
+  }
+  if (rows.length === 0) return;
+  // Replay-safe: la stessa hit ripetuta aggiorna soltanto last_seen_at.
+  await sb
+    .from("trovabandi_source_candidates")
+    .upsert(rows as never, { onConflict: "source_id,url_hash" });
+}
+
+async function markCandidateAttempt(
+  sb: CandidateClient,
+  source: Source,
+  url: string,
+  previousAttempts: number,
+  contentHash: string | null,
+): Promise<void> {
+  const canonical = canonicalCandidateUrl(url);
+  if (!canonical) return;
+  const nowIso = new Date().toISOString();
+  await sb.from("trovabandi_source_candidates").upsert(
+    {
+      source_id: source.id,
+      url: canonical,
+      url_hash: await sha256(canonical.toLowerCase()),
+      last_seen_at: nowIso,
+      last_attempted_at: nowIso,
+      attempt_count: previousAttempts + 1,
+      content_hash: contentHash,
+      updated_at: nowIso,
+    } as never,
+    { onConflict: "source_id,url_hash" },
   );
 }
 
@@ -1071,11 +1180,18 @@ serve(async (req) => {
     return response(405, { ok: false, code: "METHOD_NOT_ALLOWED" });
   if (req.headers.get("origin"))
     return response(403, { ok: false, code: "SERVER_TO_SERVER_ONLY" });
+  // Auth server-to-server: segreto dedicato TrovaBandi oppure il segreto job
+  // del Central Core (dispatch da pg_cron/DB). Confronto timing-safe.
   const secret = env("AI_CORE_SECRET_TROVABANDI");
+  const jobSecret = env("CENTRAL_CORE_JOB_SECRET");
   const supplied = req.headers.get("x-internal-secret") ?? "";
-  if (!secret) return response(503, { ok: false, code: "AUTH_NOT_CONFIGURED" });
-  if (!(await safeSecretEqual(secret, supplied)))
-    return response(401, { ok: false, code: "UNAUTHORIZED" });
+  if (!secret && !jobSecret)
+    return response(503, { ok: false, code: "AUTH_NOT_CONFIGURED" });
+  const authorized =
+    (!!secret && (await safeSecretEqual(secret, supplied))) ||
+    (!!jobSecret && (await safeSecretEqual(jobSecret, supplied)));
+  if (!authorized) return response(401, { ok: false, code: "UNAUTHORIZED" });
+
 
   let body: JsonObject;
   try {
@@ -1527,10 +1643,21 @@ serve(async (req) => {
   const run = runCreateResult.data;
   const warnings: string[] = [];
   try {
-    const [fc, pp] = await Promise.all([
-      firecrawlSearch(source),
-      perplexitySearch(source),
-    ]);
+    const nowMs = Date.now();
+    // Cache-first: il pool persistito di candidati ufficiali evita ricerche
+    // a pagamento ridondanti e garantisce profondita' reale sulla fonte.
+    const cachedPool = await loadCachedCandidates(sb, source);
+    const freshPool = freshCandidates(cachedPool, nowMs);
+    const searchSkippedByCache = shouldSkipPaidSearch(
+      freshPool.length,
+      maxPages,
+    );
+    const [fc, pp] = searchSkippedByCache
+      ? ([
+          { ok: true, hits: [] },
+          { ok: true, hits: [] },
+        ] as [SearchOutcome<SearchHit>, SearchOutcome<SearchHit>])
+      : await Promise.all([firecrawlSearch(source), perplexitySearch(source)]);
     let processed = 0;
     let verified = 0;
     let pagesScraped = 0;
@@ -1542,13 +1669,18 @@ serve(async (req) => {
     // è diagnosticato e genera warning. Firecrawl e Perplexity sono però
     // fallback reciproci: il guasto di uno non degrada il run quando l'altro
     // ha completato con almeno una hit ufficiale valida (warning informativo).
-    const searchEntries = ([
-      ["firecrawl", fc],
-      ["perplexity", pp],
-    ] as const).map(([provider, outcome]) => {
-      const entry = searchDiagnostics(provider, outcome);
-      return { ...entry, hits: outcome.ok ? outcome.hits.length : 0 };
-    });
+    const searchEntries = searchSkippedByCache
+      ? []
+      : ([
+          ["firecrawl", fc],
+          ["perplexity", pp],
+        ] as const).map(([provider, outcome]) => {
+          const entry = searchDiagnostics(provider, outcome);
+          return { ...entry, hits: outcome.ok ? outcome.hits.length : 0 };
+        });
+    if (searchSkippedByCache) {
+      diagnostics.push({ phase: "search", code: "SKIPPED_CACHE_HIT" });
+    }
     for (const entry of searchRedundancyOutcome(searchEntries)) {
       diagnostics.push({ phase: entry.phase, code: entry.code });
       if (!entry.degraded) continue;
@@ -1563,20 +1695,46 @@ serve(async (req) => {
 
     const fcHits = fc.ok ? fc.hits : [];
     const ppHits = pp.ok ? pp.hits : [];
-    const byUrl = new Map<string, SearchHit>();
-    for (const hit of [...fcHits, ...ppHits]) {
-      const previous = byUrl.get(hit.url);
-      byUrl.set(
-        hit.url,
-        previous
-          ? { ...previous, provider: `${previous.provider}+${hit.provider}` }
-          : hit,
-      );
+    const searchHits = [...fcHits, ...ppHits];
+    if (searchHits.length > 0) {
+      await upsertCandidates(sb, source, searchHits);
     }
-    const hits = [...byUrl.values()].slice(0, maxPages);
+    // Pool unificato: candidati cache + evidenze persistite + hit nuove.
+    const pool = dedupeCandidates([
+      ...cachedPool,
+      ...searchHits.map((hit) => ({
+        url: hit.url,
+        title: hit.title,
+        snippet: hit.description,
+        provider: hit.provider,
+        discovered_at: new Date(nowMs).toISOString(),
+        last_seen_at: new Date(nowMs).toISOString(),
+      })),
+    ]);
+    const byUrl = new Map(pool.map((candidate) => [candidate.url, candidate]));
+    // Rotazione deterministica: mai sempre le prime due hit.
+    const rotated = rotateCandidates(pool, maxPages);
+    const hits: SearchHit[] = rotated.map((candidate) => ({
+      url: candidate.url,
+      title: normalizeText(candidate.title),
+      description: normalizeText(candidate.snippet),
+      provider: normalizeText(candidate.provider) || "cache",
+    }));
+    let directFetchAttempted = 0;
+    let directFetchSucceeded = 0;
 
     for (const hit of hits) {
+      const cachedState = byUrl.get(hit.url);
+      directFetchAttempted++;
       const scraped = await loadPage(hit.url, source.official_domain);
+      if (scraped?.provider === "official-http") directFetchSucceeded++;
+      await markCandidateAttempt(
+        sb,
+        source,
+        hit.url,
+        Number(cachedState?.attempt_count ?? 0) || 0,
+        scraped ? await sha256(scraped.markdown) : null,
+      );
       if (!scraped) {
         diagnostics.push({ phase: "scrape", code: "NO_CONTENT" });
         warnings.push(`scrape_failed:${new URL(hit.url).hostname}`);
@@ -1678,8 +1836,23 @@ serve(async (req) => {
         provider_usage: {
           firecrawl_search: fcHits.length,
           perplexity_search: ppHits.length,
-          firecrawl_search_status: fc.ok ? "OK" : fc.code,
-          perplexity_search_status: pp.ok ? "OK" : pp.code,
+          firecrawl_search_status: searchSkippedByCache
+            ? "SKIPPED_CACHE"
+            : fc.ok
+              ? "OK"
+              : fc.code,
+          perplexity_search_status: searchSkippedByCache
+            ? "SKIPPED_CACHE"
+            : pp.ok
+              ? "OK"
+              : pp.code,
+          paid_search_calls: searchSkippedByCache ? 0 : 2,
+          cache_candidates: cachedPool.length,
+          cache_candidates_fresh: freshPool.length,
+          search_skipped_cache_hit: searchSkippedByCache,
+          rotated_candidates: hits.length,
+          direct_fetch_attempted: directFetchAttempted,
+          direct_fetch_succeeded: directFetchSucceeded,
           pages_attempted: hits.length,
           pages_scraped: pagesScraped,
           diagnostics: diagnosticCounters,
