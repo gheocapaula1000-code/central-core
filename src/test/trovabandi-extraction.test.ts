@@ -168,7 +168,9 @@ describe("diagnostica non sensibile", () => {
 
 describe("fallback controllato e fail-closed", () => {
   it("prevede al massimo due modalità: json_schema poi json_fallback", () => {
-    expect(ENGINE).toContain('const modes: Array<"json_schema" | "json_fallback"> = ["json_schema", "json_fallback"]');
+    expect(ENGINE.replace(/\s+/g, " ")).toMatch(
+      /const modes: Array<"json_schema" \| "json_fallback"> = \[ ?"json_schema", ?"json_fallback",? ?\]/,
+    );
   });
 
   it("non ritenta dopo un rifiuto di validazione", () => {
