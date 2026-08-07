@@ -577,44 +577,80 @@ async function apifyScrape(
   }
 }
 
+async function readLimitedText(response: Response, maxBytes: number): Promise<string | null> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let text = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        return null;
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 async function directOfficialScrape(
   url: string,
   officialDomain: string,
 ): Promise<{ markdown: string; title: string; provider: string } | null> {
   if (!isAllowedOfficialUrl(url, officialDomain)) return null;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15_000);
+  const timer = setTimeout(() => controller.abort(), 12_000);
   try {
-    const res = await fetch(url, {
-      redirect: "follow",
-      headers: {
-        Accept: "text/html,text/plain;q=0.9",
-        "User-Agent": "UEradar/1.0 (+https://ueradar.com; official-grant-indexer)",
-      },
-      signal: controller.signal,
-    });
-    if (!res.ok || !isAllowedOfficialUrl(res.url || url, officialDomain)) {
-      await res.body?.cancel();
-      return null;
+    let currentUrl = url;
+    for (let redirectCount = 0; redirectCount <= 3; redirectCount++) {
+      if (!isAllowedOfficialUrl(currentUrl, officialDomain)) return null;
+      const res = await fetch(currentUrl, {
+        redirect: "manual",
+        headers: {
+          Accept: "text/html,text/plain;q=0.9",
+          "User-Agent": "UEradar/1.0 (+https://ueradar.com; official-grant-indexer)",
+        },
+        signal: controller.signal,
+      });
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get("location");
+        await res.body?.cancel();
+        if (!location || redirectCount === 3) return null;
+        currentUrl = new URL(location, currentUrl).toString();
+        continue;
+      }
+      if (!res.ok) {
+        await res.body?.cancel();
+        return null;
+      }
+      const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
+      if (!contentType.includes("text/html") && !contentType.includes("text/plain")) {
+        await res.body?.cancel();
+        return null;
+      }
+      const declaredLength = Number(res.headers.get("content-length") ?? 0);
+      if (Number.isFinite(declaredLength) && declaredLength > 2_000_000) {
+        await res.body?.cancel();
+        return null;
+      }
+      const raw = await readLimitedText(res, 2_000_000);
+      if (raw == null) return null;
+      const parsed = contentType.includes("text/html")
+        ? htmlToEvidenceText(raw)
+        : { title: "", text: raw.trim() };
+      const markdown = parsed.text.slice(0, 60_000);
+      return markdown.length > 200
+        ? { markdown, title: parsed.title, provider: "official-http" }
+        : null;
     }
-    const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
-    if (!contentType.includes("text/html") && !contentType.includes("text/plain")) {
-      await res.body?.cancel();
-      return null;
-    }
-    const declaredLength = Number(res.headers.get("content-length") ?? 0);
-    if (Number.isFinite(declaredLength) && declaredLength > 2_000_000) {
-      await res.body?.cancel();
-      return null;
-    }
-    const raw = (await res.text()).slice(0, 2_000_000);
-    const parsed = contentType.includes("text/html")
-      ? htmlToEvidenceText(raw)
-      : { title: "", text: raw.trim() };
-    const markdown = parsed.text.slice(0, 60_000);
-    return markdown.length > 200
-      ? { markdown, title: parsed.title, provider: "official-http" }
-      : null;
+    return null;
   } catch {
     return null;
   } finally {
