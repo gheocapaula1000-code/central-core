@@ -143,7 +143,8 @@ export function capExactlyApplied(
 
 // ── Auth Civiko isolata ─────────────────────────────────────────────────────
 // Accetta il secret dedicato dell'orchestrator oppure il già esistente
-// CENTRAL_CORE_API_KEY (stesso canale autorizzato orchestrator → Central Core).
+// CENTRAL_CORE_API_KEY o la credenziale legacy AI_CORE_SECRET dell'ecosystem-gateway
+// (stessi canali già autorizzati orchestrator → Central Core).
 // Confronto timing-safe su OGNI secret non vuoto; nessun valore viene mai
 // loggato, restituito o incluso nell'errore.
 export function timingSafeEqual(a: string, b: string): boolean {

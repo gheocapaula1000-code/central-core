@@ -6,7 +6,7 @@
 // Le azioni normali del Central Core restano invariate: qui non ne viene
 // ridefinita nessuna.
 //
-// Auth: Authorization: Bearer <CIVIKO_ORCHESTRATOR_DISPATCH_SECRET | CENTRAL_CORE_API_KEY>
+// Auth: Authorization: Bearer <CIVIKO_ORCHESTRATOR_DISPATCH_SECRET | CENTRAL_CORE_API_KEY | AI_CORE_SECRET>
 //       (lo stesso secret dell'orchestrator Civiko), confronto timing-safe,
 //       fail-closed. Nessun secret viene mai loggato o restituito.
 //
@@ -1523,7 +1523,7 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json(405, { ok: false, error: "method_not_allowed" });
   const auth = req.headers.get("Authorization") ?? "";
   const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  const authz = authorizeBearer(bearer, [DISPATCH_SECRET, CENTRAL_CORE_API_KEY]);
+  const authz = authorizeBearer(bearer, [DISPATCH_SECRET, CENTRAL_CORE_API_KEY, AI_CORE_SECRET]);
   if (!authz.ok) {
     if (authz.status === 500) console.error("[civiko-commissioning] misconfigured");
     return json(authz.status, { ok: false, error: authz.error });

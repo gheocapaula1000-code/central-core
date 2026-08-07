@@ -157,7 +157,7 @@ describe("schema chiuso e allowlist", () => {
 describe("runtime fail-closed", () => {
   it("auth col secret dell'orchestrator, timing-safe, mai loggato", () => {
     expect(FN).toContain("CIVIKO_ORCHESTRATOR_DISPATCH_SECRET");
-    expect(FN).toContain("authorizeBearer(bearer, [DISPATCH_SECRET, CENTRAL_CORE_API_KEY])");
+    expect(FN).toContain("authorizeBearer(bearer, [DISPATCH_SECRET, CENTRAL_CORE_API_KEY, AI_CORE_SECRET])");
     expect(FN).toContain('json(authz.status, { ok: false, error: authz.error })');
     expect(FN).not.toMatch(/console\.(log|error)\([^)]*SECRET[^)]*\)/);
   });
@@ -476,6 +476,7 @@ describe("RPC SQL civiko_commissioning_promote_apify_job", () => {
 describe("Civiko commissioning — auth Bearer (primary/fallback/missing/wrong)", () => {
   const PRIMARY = "civiko-dispatch-secret-aaaaaaaaaaaaaaaa";
   const FALLBACK = "central-core-api-key-bbbbbbbbbbbbbbbb";
+  const LEGACY = "ai-core-secret-legacy-cccccccccccccccc";
 
   it("accetta il secret primario dell'orchestrator", () => {
     expect(authorizeBearer(PRIMARY, [PRIMARY, FALLBACK])).toEqual({ ok: true, status: 200, error: null });
@@ -497,14 +498,32 @@ describe("Civiko commissioning — auth Bearer (primary/fallback/missing/wrong)"
     expect(authorizeBearer("", [PRIMARY, FALLBACK]).status).toBe(401);
   });
 
-  it("500 se entrambi i secret sono assenti", () => {
+  it("accetta il fallback legacy AI_CORE_SECRET", () => {
+    expect(authorizeBearer(LEGACY, [PRIMARY, FALLBACK, LEGACY])).toEqual({ ok: true, status: 200, error: null });
+  });
+
+  it("accetta AI_CORE_SECRET anche se gli altri due non sono configurati", () => {
+    expect(authorizeBearer(LEGACY, ["", "", LEGACY]).ok).toBe(true);
+  });
+
+  it("401 con bearer errato anche in presenza dei tre candidati", () => {
+    expect(authorizeBearer("wrong-token", [PRIMARY, FALLBACK, LEGACY])).toEqual({ ok: false, status: 401, error: "unauthorized" });
+  });
+
+  it("401 con bearer assente in presenza dei tre candidati", () => {
+    expect(authorizeBearer("", [PRIMARY, FALLBACK, LEGACY]).status).toBe(401);
+  });
+
+  it("500 solo se tutti e tre i secret sono assenti", () => {
     expect(authorizeBearer(PRIMARY, ["", ""])).toEqual({ ok: false, status: 500, error: "misconfigured" });
+    expect(authorizeBearer(LEGACY, ["", "", ""])).toEqual({ ok: false, status: 500, error: "misconfigured" });
   });
 
   it("nessun valore di secret viene loggato o restituito", () => {
     const res = authorizeBearer("wrong-token", [PRIMARY, FALLBACK]);
     expect(JSON.stringify(res)).not.toContain(PRIMARY);
     expect(JSON.stringify(res)).not.toContain(FALLBACK);
+    expect(JSON.stringify(res)).not.toContain(LEGACY);
     const CAPS_SRC = readFileSync(
       resolve(__dirname, "../../supabase/functions/civiko-commissioning/caps.ts"),
       "utf8",
