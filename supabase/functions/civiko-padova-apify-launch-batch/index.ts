@@ -1,5 +1,3 @@
-  serve: (handler: (req: Request) => Response | Promise<Response>) => unknown;
-};
 // Civiko One-only, cost-safe launch batch.
 //
 // All paid launch wrappers are called sequentially so their existing

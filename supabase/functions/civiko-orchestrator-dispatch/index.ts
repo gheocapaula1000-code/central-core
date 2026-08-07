@@ -1,5 +1,3 @@
-  serve: (handler: (req: Request) => Response | Promise<Response>) => unknown;
-};
 import { isAuctionRecord } from "../_shared/auctionExclusion.ts";
 
 // civiko-orchestrator-dispatch
