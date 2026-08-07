@@ -1534,7 +1534,7 @@ function chainOverall(steps: Record<string, unknown>[]): CivikoCommissioningStat
 async function runChain(
   resumeRunId?: string,
 ): Promise<{ status: number; payload: Record<string, unknown> }> {
-  let runId = resumeRunId ?? crypto.randomUUID();
+  const runId = resumeRunId ?? crypto.randomUUID();
   let progress: ChainProgress | null = null;
 
   if (resumeRunId) {
@@ -1752,7 +1752,7 @@ Deno.serve(async (req) => {
     return json(r.status, r.payload);
   }
   if (validated.action === "civiko_commissioning_chain") {
-    const r = await runChain();
+    const r = await runChain(validated.resumeRunId);
     return json(r.status, r.payload);
   }
 
