@@ -157,8 +157,8 @@ describe("schema chiuso e allowlist", () => {
 describe("runtime fail-closed", () => {
   it("auth col secret dell'orchestrator, timing-safe, mai loggato", () => {
     expect(FN).toContain("CIVIKO_ORCHESTRATOR_DISPATCH_SECRET");
-    expect(FN).toContain("timingSafeEqual");
-    expect(FN).toContain('json(401, { ok: false, error: "unauthorized" })');
+    expect(FN).toContain("authorizeBearer(bearer, [DISPATCH_SECRET, CENTRAL_CORE_API_KEY])");
+    expect(FN).toContain('json(authz.status, { ok: false, error: authz.error })');
     expect(FN).not.toMatch(/console\.(log|error)\([^)]*SECRET[^)]*\)/);
   });
 
