@@ -486,8 +486,8 @@ describe("policy di retry sanificata", () => {
   });
 
   it("mantiene al massimo due tentativi di estrazione", () => {
-    expect(ENGINE).toContain(
-      'const modes: Array<"json_schema" | "json_fallback"> = ["json_schema", "json_fallback"]',
+    expect(ENGINE.replace(/\s+/g, " ")).toMatch(
+      /const modes: Array<"json_schema" \| "json_fallback"> = \[ ?"json_schema", ?"json_fallback",? ?\]/,
     );
   });
 });
