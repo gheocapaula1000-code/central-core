@@ -741,29 +741,51 @@ async function domainProof(
   if (!spec.writer_available) return null;
   if (provider === "apify") {
     const apifyRunId = outcome.counters.apify_run_id;
+    const jobId = outcome.counters.job_id;
     if (typeof apifyRunId !== "string" || !apifyRunId) return null;
+    if (typeof jobId !== "string" || !jobId) return null;
     const rows = await realRows(
       `padova_apify_runs?run_id=eq.${encodeURIComponent(apifyRunId)}` +
-        `&select=id,run_id,portal,status,items_count,imported,started_at,finished_at&limit=1`,
+        `&select=id,run_id,portal,status,cost_cap_usd,cost_usd,items_count,imported,started_at,finished_at&limit=1`,
     );
     const row = rows?.[0];
-    if (!row) return null;
+    // Falso positivo da evitare: la sola riga padova_apify_runs non è prova.
+    if (!row || String(row.status ?? "") !== "SUCCEEDED") return null;
+    const stagingRows = await realCount(
+      `padova_collect_v2_items?select=id&job_id=eq.${encodeURIComponent(jobId)}`,
+    );
+    if (!stagingRows || stagingRows <= 0) return null;
+    const created = Number(outcome.counters.created ?? 0);
+    const updated = Number(outcome.counters.updated ?? 0);
+    if (!(created + updated > 0)) return null;
     return {
-      table_name: "padova_apify_runs",
-      change_kind: "insert",
-      row_ref: String(row.id),
+      table_name: "padova_collect_v2_items",
+      change_kind: created > 0 ? "insert" : "update",
+      row_ref: jobId,
       evidence: {
         provider: "apify",
-        run_id: row.run_id,
-        portal: row.portal,
-        status: row.status,
-        items_count: row.items_count ?? null,
-        imported: row.imported ?? null,
-        started_at: row.started_at ?? null,
-        finished_at: row.finished_at ?? null,
+        job_id: jobId,
+        rows_for_job: stagingRows,
+        created,
+        updated,
+        apify_run: {
+          id: row.id,
+          run_id: row.run_id,
+          portal: row.portal,
+          status: row.status,
+          cost_cap_usd: row.cost_cap_usd ?? null,
+          cost_usd: row.cost_usd ?? null,
+          items_count: row.items_count ?? null,
+          imported: row.imported ?? null,
+          started_at: row.started_at ?? null,
+          finished_at: row.finished_at ?? null,
+        },
+        pwa_ready: false,
+        activation_allowed: false,
       },
     };
   }
+
   return null;
 }
 
