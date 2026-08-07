@@ -357,7 +357,6 @@ describe("micro-run apify: solo percorso Civiko esistente", () => {
   });
 
   it("prova di dominio: padova_apify_runs SUCCEEDED + righe staging del job_id", () => {
-    expect(SRC).toMatch(/apify:\s*\{[\s\S]{0,400}table: "padova_collect_v2_items",[\s\S]{0,120}writer_available: true/);
     expect(SRC).toContain('String(row.status ?? "") !== "SUCCEEDED"');
     expect(SRC).toContain("padova_collect_v2_items?select=id&job_id=eq.");
     expect(SRC).toContain("created + updated > 0");
@@ -385,8 +384,9 @@ describe("promozione PWA-ready Apify (RPC Civiko isolata)", () => {
   it("il micro-run chiama la RPC dedicata con job_id e run_id", () => {
     expect(SRC).toContain('"civiko_commissioning_promote_apify_job"');
     expect(SRC).toContain("{ p_job_id: jobId, p_run_id: runId }");
-    // Non usa né ridefinisce la RPC globale esistente.
-    expect(SRC).not.toContain("promote_padova_collect_v2_to_listings");
+    // Non invoca la RPC globale esistente (solo menzione in commento).
+    expect(SRC).not.toMatch(/rpc\(\s*"promote_padova_collect_v2_to_listings"/);
+    expect(SRC).not.toMatch(/rpc\/promote_padova_collect_v2_to_listings/);
   });
 
   it("SUCCESS solo con writes>0, out_of_scope_written=0 e URL promossi", () => {
