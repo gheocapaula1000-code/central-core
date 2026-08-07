@@ -20,7 +20,8 @@ import {
   type ExtractionOutcome,
   type SearchOutcome,
 } from "./extraction.ts";
-import { persistOpportunityFailClosed, type PersistVerification } from "./persist.ts";\nimport { htmlToEvidenceText, isAllowedOfficialUrl } from "./scrape.ts";
+import { persistOpportunityFailClosed, type PersistVerification } from "./persist.ts";
+import { htmlToEvidenceText, isAllowedOfficialUrl } from "./scrape.ts";
 import {
   collectionCompletionOutcome,
   COVERAGE_WINDOW_HOURS,
