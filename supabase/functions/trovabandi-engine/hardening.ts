@@ -141,9 +141,13 @@ export function isRealSuccessfulScan(run: SuccessfulRun): boolean {
   const usage = run.provider_usage as ProviderUsage;
   const attempted = usage.pages_attempted;
   const scraped = usage.pages_scraped;
+  // "SKIPPED_CACHE" è uno scan reale completato senza guasti provider: la
+  // ricerca a pagamento è stata evitata perché il pool cache era sufficiente.
+  const okStatus = (value: unknown) =>
+    value === "OK" || value === "SKIPPED_CACHE";
   return (
-    usage.firecrawl_search_status === "OK" &&
-    usage.perplexity_search_status === "OK" &&
+    okStatus(usage.firecrawl_search_status) &&
+    okStatus(usage.perplexity_search_status) &&
     typeof attempted === "number" &&
     Number.isInteger(attempted) &&
     attempted >= 0 &&

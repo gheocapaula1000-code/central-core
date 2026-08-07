@@ -9034,6 +9034,65 @@ export type Database = {
           },
         ]
       }
+      trovabandi_source_candidates: {
+        Row: {
+          attempt_count: number
+          content_hash: string | null
+          created_at: string
+          discovered_at: string
+          id: string
+          last_attempted_at: string | null
+          last_seen_at: string
+          provider: string | null
+          snippet: string | null
+          source_id: string
+          title: string | null
+          updated_at: string
+          url: string
+          url_hash: string
+        }
+        Insert: {
+          attempt_count?: number
+          content_hash?: string | null
+          created_at?: string
+          discovered_at?: string
+          id?: string
+          last_attempted_at?: string | null
+          last_seen_at?: string
+          provider?: string | null
+          snippet?: string | null
+          source_id: string
+          title?: string | null
+          updated_at?: string
+          url: string
+          url_hash: string
+        }
+        Update: {
+          attempt_count?: number
+          content_hash?: string | null
+          created_at?: string
+          discovered_at?: string
+          id?: string
+          last_attempted_at?: string | null
+          last_seen_at?: string
+          provider?: string | null
+          snippet?: string | null
+          source_id?: string
+          title?: string | null
+          updated_at?: string
+          url?: string
+          url_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trovabandi_source_candidates_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "trovabandi_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trovabandi_sources: {
         Row: {
           authority_level: string
