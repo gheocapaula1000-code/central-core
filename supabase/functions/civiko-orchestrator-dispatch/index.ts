@@ -1191,6 +1191,12 @@ async function releaseGate(
     scope: {},
   };
   const failedQueries: string[] = [];
+  // Civiko-specific: l'assenza di un audit cron prerequisito NON e' un errore
+  // di query. Va distinta da un fallimento PostgREST, altrimenti il gate
+  // ritorna 502 metrics_unavailable in modo permanente quando i cron non sono
+  // ancora stati eseguiti. Il gate resta comunque fail-closed: senza queste
+  // prove i requirement corrispondenti non passano.
+  const missingPrerequisites: string[] = [];
 
   // Batching limitato: il gate resta sotto il budget Replit senza una raffica
   // illimitata di HEAD count verso PostgREST.
@@ -1392,7 +1398,11 @@ async function releaseGate(
     : null;
   metrics.derived.contendibili_exact_recompute = contendibiliExactRecomputeCount;
   if (contendibiliExactRecomputeCount === null) {
-    failedQueries.push("contendibili_exact_recompute");
+    if (Number.isFinite(recomputeActionStartedMs)) {
+      failedQueries.push("contendibili_exact_recompute");
+    } else {
+      missingPrerequisites.push("contendibili_recompute_audit_absent");
+    }
   }
 
   const currentImageQueueComplete = latestRunActionRows("pipeline_0545", "image_certify")
@@ -1472,7 +1482,7 @@ async function releaseGate(
       if (listingsCurrent === null) failedQueries.push(`listings_${portal.key}_exact_run`);
     });
   } else {
-    failedQueries.push("pipeline_0510_exact_run_start");
+    missingPrerequisites.push("pipeline_0510_run_absent");
   }
   // L'ack deve riferirsi esattamente all'ultimo tentativo 07:10. Un ack di un
   // run precedente, anche riuscito e ancora nella finestra, non e' riusabile.
@@ -1668,6 +1678,7 @@ async function releaseGate(
     gate_passed,
     cron_activation_allowed,
     metrics_available: metricsAvailable,
+    missing_prerequisites: missingPrerequisites,
     window_hours: GATE_WINDOW_HOURS,
     mode: initialValidation ? "initial_validation" : "routine",
     since,
@@ -1719,6 +1730,7 @@ async function releaseGate(
   if (!metricsAvailable) {
     payload.error = "metrics_unavailable";
     payload.failed_queries = SERVICE_KEY ? failedQueries : ["service_key_missing"];
+    payload.missing_prerequisites = missingPrerequisites;
     return { status: 502, payload };
   }
 
