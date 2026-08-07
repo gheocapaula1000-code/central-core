@@ -52,6 +52,8 @@ const APIFY_MICRORUN_SEARCH_URL =
 // Attesa minima controllata del collector (sync), sotto il limite HTTP.
 const APIFY_COLLECT_WAIT_SECONDS = 150;
 const APIFY_COLLECT_TIMEOUT_MS = 170_000;
+// Promozione PWA-ready (RPC Civiko dedicata, max 3 righe).
+const PROMOTE_TIMEOUT_MS = 30_000;
 
 const FIRECRAWL_MICRORUN_URL = "https://www.comune.padova.it/";
 const PERPLEXITY_MICRORUN_MODEL = "sonar";
@@ -348,7 +350,7 @@ interface AdapterOutcome {
  * dal suo contratto (search_urls, max_items, wait_seconds), con max_items
  * imposto server-side dal cap Civiko e nessun dry_run.
  */
-async function apifyMicroRun(runId: string): Promise<AdapterOutcome> {
+async function apifyMicroRun(runId: string, startedAt: string): Promise<AdapterOutcome> {
   const requested = {
     max_items: CIVIKO_COMMISSIONING_CAPS.apify.max_items,
     max_total_charge_usd: CIVIKO_COMMISSIONING_CAPS.apify.max_total_charge_usd,
@@ -463,14 +465,9 @@ async function apifyMicroRun(runId: string): Promise<AdapterOutcome> {
     created: Number.isFinite(created) ? created : null,
     updated: Number.isFinite(updated) ? updated : null,
     staging_rows_for_job: stagingRows,
-    // Staging persistito ≠ PWA-ready: la promozione a padova_listings richiede
-    // un processor globale non isolabile per questo run, quindi non viene
-    // invocata e l'attivazione non è consentita da questo micro-run.
     staging_persisted: stagingOk,
     pwa_ready: false,
     activation_allowed: false,
-    promotion_note:
-      "righe persistite in padova_collect_v2_items (staging); promozione a padova_listings non eseguita: processor non isolabile per run Civiko",
   };
 
   if (!stagingOk) {
@@ -485,6 +482,111 @@ async function apifyMicroRun(runId: string): Promise<AdapterOutcome> {
     };
   }
 
+  // ── Promozione PWA-ready, isolata Civiko ──────────────────────────────────
+  // RPC service-role-only dedicata al commissioning: riusa la semantica di
+  // promote_padova_collect_v2_to_listings ma limitata a questo job_id, comune
+  // Padova e max 3 righe. Non modifica né sostituisce le RPC esistenti.
+  const promo = await rpc(
+    "civiko_commissioning_promote_apify_job",
+    { p_job_id: jobId, p_run_id: runId },
+    PROMOTE_TIMEOUT_MS,
+  );
+  const promoPayload = (promo.payload && typeof promo.payload === "object" && !Array.isArray(promo.payload))
+    ? promo.payload as Record<string, unknown>
+    : null;
+  const promoWrites = Number(promoPayload?.writes ?? NaN);
+  const promoOutOfScope = Number(promoPayload?.out_of_scope_written ?? NaN);
+  const promoUrls = Array.isArray(promoPayload?.urls)
+    ? (promoPayload!.urls as unknown[]).filter((u): u is string => typeof u === "string" && u.length > 0)
+    : [];
+
+  counters.promotion = promoPayload
+    ? {
+      ok: Boolean(promoPayload.ok),
+      scanned: promoPayload.scanned ?? null,
+      kept: promoPayload.kept ?? null,
+      new: promoPayload.new ?? null,
+      updated: promoPayload.updated ?? null,
+      writes: Number.isFinite(promoWrites) ? promoWrites : null,
+      out_of_scope_rejected: promoPayload.out_of_scope_rejected ?? null,
+      out_of_scope_written: Number.isFinite(promoOutOfScope) ? promoOutOfScope : null,
+      urls: promoUrls,
+    }
+    : { ok: false, http_status: promo.status };
+
+  if (!promo.ok || !promoPayload) {
+    return {
+      ...base,
+      status: "BLOCKED",
+      applied_cap: applied,
+      cap_confirmed: true,
+      actual_cost_usd: actualCostUsd,
+      counters,
+      error_code: "apify_promotion_rpc_failed",
+    };
+  }
+  if (!Number.isFinite(promoWrites) || promoWrites <= 0) {
+    return {
+      ...base,
+      status: "BLOCKED",
+      applied_cap: applied,
+      cap_confirmed: true,
+      actual_cost_usd: actualCostUsd,
+      counters,
+      error_code: "apify_promotion_no_writes",
+    };
+  }
+  if (!Number.isFinite(promoOutOfScope) || promoOutOfScope !== 0) {
+    return {
+      ...base,
+      status: "BLOCKED",
+      applied_cap: applied,
+      cap_confirmed: true,
+      actual_cost_usd: actualCostUsd,
+      counters,
+      error_code: "apify_promotion_out_of_scope_written",
+    };
+  }
+  if (promoUrls.length === 0) {
+    return {
+      ...base,
+      status: "BLOCKED",
+      applied_cap: applied,
+      cap_confirmed: true,
+      actual_cost_usd: actualCostUsd,
+      counters,
+      error_code: "apify_promotion_no_urls",
+    };
+  }
+
+  // Prova attribuibile: per gli URL del job devono esistere righe
+  // padova_listings con last_seen_at >= started_at del micro-run.
+  const inUrls = `in.(${promoUrls.map((u) => `"${u.replace(/"/g, '\\"')}"`).join(",")})`;
+  const listingRows = await realRows(
+    `padova_listings?select=id,url,fonte,comune,quartiere,last_seen_at,imported_at,expired_at` +
+      `&url=${encodeURIComponent(inUrls)}` +
+      `&last_seen_at=gte.${encodeURIComponent(startedAt)}&limit=10`,
+  );
+  const freshUrls = new Set((listingRows ?? []).map((r) => String(r.url ?? "")));
+  const allFresh = promoUrls.every((u) => freshUrls.has(u));
+  counters.pwa_listings_fresh = freshUrls.size;
+  counters.pwa_listings_expected = promoUrls.length;
+
+  if (!listingRows || !allFresh) {
+    return {
+      ...base,
+      status: "BLOCKED",
+      applied_cap: applied,
+      cap_confirmed: true,
+      actual_cost_usd: actualCostUsd,
+      counters,
+      error_code: "apify_pwa_listing_proof_missing",
+    };
+  }
+
+  counters.pwa_ready = true;
+  counters.activation_allowed = false;
+
   return {
     status: "SUCCESS",
     applied_cap: applied,
@@ -492,23 +594,30 @@ async function apifyMicroRun(runId: string): Promise<AdapterOutcome> {
     actual_cost_usd: actualCostUsd,
     counters,
     artifacts: [{
-      table_name: "padova_collect_v2_items",
-      change_kind: created > 0 ? "insert" : "update",
+      table_name: "padova_listings",
+      change_kind: Number(promoPayload.new ?? 0) > 0 ? "insert" : "update",
       row_ref: String(jobId),
       evidence: {
         provider: "apify",
         commissioning_run_id: runId,
         apify_run_id: apifyRunId,
         job_id: jobId,
-        created,
-        updated,
-        rows_for_job: stagingRows,
-        pwa_ready: false,
+        staging_created: created,
+        staging_updated: updated,
+        staging_rows_for_job: stagingRows,
+        promoted_urls: promoUrls,
+        promotion_new: promoPayload.new ?? null,
+        promotion_updated: promoPayload.updated ?? null,
+        out_of_scope_written: promoOutOfScope,
+        micro_run_started_at: startedAt,
+        listings_last_seen_ok: true,
+        pwa_ready: true,
       },
     }],
     error_code: null,
   };
 }
+
 
 
 async function firecrawlMicroRun(runId: string): Promise<AdapterOutcome> {
@@ -677,7 +786,10 @@ async function perplexityMicroRun(runId: string): Promise<AdapterOutcome> {
   };
 }
 
-const ADAPTERS: Record<CivikoCommissioningProvider, (runId: string) => Promise<AdapterOutcome>> = {
+const ADAPTERS: Record<
+  CivikoCommissioningProvider,
+  (runId: string, startedAt: string) => Promise<AdapterOutcome>
+> = {
   apify: apifyMicroRun,
   firecrawl: firecrawlMicroRun,
   perplexity: perplexityMicroRun,
@@ -700,12 +812,12 @@ export const CIVIKO_PROVIDER_PERSISTENCE: Record<
   { table: string; writer_available: boolean; note: string }
 > = {
   apify: {
-    // La prova NON è la sola riga padova_apify_runs: serve anche lo staging
-    // dati importato dal percorso Civiko (padova_collect_v2_items del job_id).
-    table: "padova_collect_v2_items",
+    // La prova NON è la riga padova_apify_runs né il solo staging: serve la
+    // promozione PWA-ready in padova_listings via RPC Civiko dedicata.
+    table: "padova_listings",
     writer_available: true,
     note:
-      "run SUCCEEDED in padova_apify_runs + righe staging padova_collect_v2_items legate al job_id (created+updated>0)",
+      "run SUCCEEDED + staging padova_collect_v2_items del job_id + promozione civiko_commissioning_promote_apify_job con padova_listings.last_seen_at >= started_at",
   },
 
   firecrawl: {
@@ -736,6 +848,7 @@ export function isCivikoDomainProofTable(table: unknown): boolean {
 async function domainProof(
   provider: CivikoCommissioningProvider,
   outcome: AdapterOutcome,
+  startedAt: string,
 ): Promise<Artifact | null> {
   const spec = CIVIKO_PROVIDER_PERSISTENCE[provider];
   if (!spec.writer_available) return null;
@@ -758,16 +871,39 @@ async function domainProof(
     const created = Number(outcome.counters.created ?? 0);
     const updated = Number(outcome.counters.updated ?? 0);
     if (!(created + updated > 0)) return null;
+
+    // Prova PWA-ready: gli URL promossi devono esistere in padova_listings
+    // con last_seen_at >= started_at del micro-run. Staging da solo non basta.
+    const promo = outcome.counters.promotion as Record<string, unknown> | undefined;
+    const promoUrls = Array.isArray(promo?.urls)
+      ? (promo!.urls as unknown[]).filter((u): u is string => typeof u === "string" && u.length > 0)
+      : [];
+    if (promoUrls.length === 0) return null;
+    if (Number(promo?.out_of_scope_written ?? -1) !== 0) return null;
+    if (!(Number(promo?.writes ?? 0) > 0)) return null;
+
+    const inUrls = `in.(${promoUrls.map((u) => `"${u.replace(/"/g, '\\"')}"`).join(",")})`;
+    const listings = await realRows(
+      `padova_listings?select=id,url,fonte,comune,quartiere,last_seen_at,imported_at,expired_at` +
+        `&url=${encodeURIComponent(inUrls)}` +
+        `&last_seen_at=gte.${encodeURIComponent(startedAt)}&limit=10`,
+    );
+    const freshUrls = new Set((listings ?? []).map((r) => String(r.url ?? "")));
+    if (!listings || !promoUrls.every((u) => freshUrls.has(u))) return null;
+
     return {
-      table_name: "padova_collect_v2_items",
-      change_kind: created > 0 ? "insert" : "update",
+      table_name: "padova_listings",
+      change_kind: Number(promo?.new ?? 0) > 0 ? "insert" : "update",
       row_ref: jobId,
       evidence: {
         provider: "apify",
         job_id: jobId,
-        rows_for_job: stagingRows,
-        created,
-        updated,
+        staging_rows_for_job: stagingRows,
+        staging_created: created,
+        staging_updated: updated,
+        promoted_urls: promoUrls,
+        listing_ids: (listings ?? []).map((r) => String(r.id)),
+        micro_run_started_at: startedAt,
         apify_run: {
           id: row.id,
           run_id: row.run_id,
@@ -780,7 +916,7 @@ async function domainProof(
           started_at: row.started_at ?? null,
           finished_at: row.finished_at ?? null,
         },
-        pwa_ready: false,
+        pwa_ready: true,
         activation_allowed: false,
       },
     };
@@ -865,11 +1001,11 @@ async function runMicroRun(
       };
     }
 
-    const outcome = await ADAPTERS[provider](runId);
+    const outcome = await ADAPTERS[provider](runId, startedAt);
 
     // Prova persistita provider-specifica in una tabella di dominio Civiko:
     // senza di essa il run resta BLOCKED, anche con HTTP 200 del provider.
-    const proof = outcome.status === "SUCCESS" ? await domainProof(provider, outcome) : null;
+    const proof = outcome.status === "SUCCESS" ? await domainProof(provider, outcome, startedAt) : null;
     const allArtifacts = proof ? [proof, ...outcome.artifacts] : outcome.artifacts;
     const artifactsOk = outcome.status === "SUCCESS" && proof
       ? await persistArtifacts(runId, provider, allArtifacts)
@@ -912,7 +1048,8 @@ async function runMicroRun(
         // Staging persistito ≠ dati PWA: l'attivazione non è mai consentita da
         // un micro-run di commissioning.
         staging_persisted: Boolean(outcome.counters.staging_persisted ?? false),
-        pwa_ready: false,
+        pwa_ready: Boolean(outcome.counters.pwa_ready ?? false),
+        // L'attivazione non è mai consentita da un micro-run di commissioning.
         activation_allowed: false,
         domain_proof: proof
           ? { table_name: proof.table_name, row_ref: proof.row_ref, change_kind: proof.change_kind }
