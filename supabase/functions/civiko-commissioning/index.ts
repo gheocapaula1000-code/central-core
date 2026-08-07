@@ -163,7 +163,8 @@ async function captureCounters(): Promise<{
     providerRuns,
   ] = await Promise.all([
     q("listings_total", "padova_listings?select=id"),
-    q("listings_active", "padova_listings?select=id&stato=eq.attivo"),
+    // Schema reale: padova_listings NON ha `stato`. Attivo = expired_at IS NULL.
+    q("listings_active", "padova_listings?select=id&expired_at=is.null"),
     q("listings_immobiliare", "padova_listings?select=id&fonte=eq.immobiliare"),
     q("listings_idealista", "padova_listings?select=id&fonte=eq.idealista"),
     q("listings_subito", "padova_listings?select=id&fonte=eq.subito"),
@@ -177,14 +178,19 @@ async function captureCounters(): Promise<{
     q("provider_runs", "padova_apify_runs?select=id"),
   ]);
 
+  // Schema reale: i timestamp di padova_listings sono imported_at/last_seen_at
+  // (nessun created_at/updated_at).
   const lastListing = await realRows(
-    "padova_listings?select=created_at,updated_at,last_seen_at&order=updated_at.desc.nullslast&limit=1",
+    "padova_listings?select=imported_at,last_seen_at,expired_at&order=last_seen_at.desc.nullslast&limit=1",
   );
+  // Schema reale: padova_apify_runs usa started_at/finished_at.
   const lastProviderRun = await realRows(
-    "padova_apify_runs?select=run_id,portal,status,created_at&order=created_at.desc&limit=1",
+    "padova_apify_runs?select=id,run_id,portal,status,started_at,finished_at&order=started_at.desc.nullslast&limit=1",
   );
+  // Schema reale: civiko_pwa_sync_acks usa started_at/finished_at/created_at,
+  // counts, scope_comune/scope_slugs e municipality/commercial_zone_slugs.
   const lastAck = await realRows(
-    "civiko_pwa_sync_acks?select=run_id,pipeline_run_id,ok,received_at&order=received_at.desc&limit=1",
+    "civiko_pwa_sync_acks?select=run_id,pipeline_run_id,ok,started_at,finished_at,created_at,counts,scope_comune,scope_slugs,municipality,commercial_zone_slugs&order=created_at.desc&limit=1",
   );
   if (lastListing === null) failed.push("last_listing");
   if (lastProviderRun === null) failed.push("last_provider_run");
@@ -201,9 +207,9 @@ async function captureCounters(): Promise<{
           subito: listingsSubito,
           casa: listingsCasa,
         },
-        last_created_at: lastListing?.[0]?.created_at ?? null,
-        last_updated_at: lastListing?.[0]?.updated_at ?? null,
+        last_imported_at: lastListing?.[0]?.imported_at ?? null,
         last_seen_at: lastListing?.[0]?.last_seen_at ?? null,
+        last_expired_at: lastListing?.[0]?.expired_at ?? null,
       },
       categories: {
         contendibili,
