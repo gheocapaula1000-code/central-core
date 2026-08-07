@@ -277,6 +277,39 @@ function isoOrNull(value: unknown): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+const ITALIAN_MONTH_NAMES = [
+  "gennaio",
+  "febbraio",
+  "marzo",
+  "aprile",
+  "maggio",
+  "giugno",
+  "luglio",
+  "agosto",
+  "settembre",
+  "ottobre",
+  "novembre",
+  "dicembre",
+];
+
+// Mesi UE in inglese: nome completo + abbreviazioni ufficiali ammesse.
+// Fail-closed: nessuna abbreviazione ambigua (es. "ma") e nessun match
+// mese/anno senza giorno.
+const ENGLISH_MONTH_FORMS = [
+  ["january", "jan"],
+  ["february", "feb"],
+  ["march", "mar"],
+  ["april", "apr"],
+  ["may"],
+  ["june", "jun"],
+  ["july", "jul"],
+  ["august", "aug"],
+  ["september", "sep", "sept"],
+  ["october", "oct"],
+  ["november", "nov"],
+  ["december", "dec"],
+];
+
 function dateIsPresentInEvidence(markdown: string, iso: string | null) {
   if (!iso) return false;
   const date = new Date(iso);
@@ -286,29 +319,33 @@ function dateIsPresentInEvidence(markdown: string, iso: string | null) {
   const month = date.getUTCMonth() + 1;
   const mm = String(month).padStart(2, "0");
   const year = date.getUTCFullYear();
-  const monthNames = [
-    "gennaio",
-    "febbraio",
-    "marzo",
-    "aprile",
-    "maggio",
-    "giugno",
-    "luglio",
-    "agosto",
-    "settembre",
-    "ottobre",
-    "novembre",
-    "dicembre",
-  ];
   const normalized = markdown.toLowerCase();
-  return [
+
+  const literal = [
     `${year}-${mm}-${dd}`,
     `${dd}/${mm}/${year}`,
     `${day}/${month}/${year}`,
     `${dd}-${mm}-${year}`,
-    `${day} ${monthNames[month - 1]} ${year}`,
-  ].some((candidate) => normalized.includes(candidate));
+    `${day} ${ITALIAN_MONTH_NAMES[month - 1]} ${year}`,
+  ];
+  if (literal.some((candidate) => normalized.includes(candidate))) return true;
+
+  // Date ufficiali UE in inglese: "15 September 2026", "September 15, 2026",
+  // "15th Sept. 2026", con ordinali, virgola e spaziatura variabile.
+  const monthPattern = ENGLISH_MONTH_FORMS[month - 1].join("|");
+  const dayPattern = `0?${day}(?:st|nd|rd|th)?`;
+  const sep = "[\\s\\u00a0]+";
+  const dayFirst = new RegExp(
+    `(?<![0-9])${dayPattern}(?:\\s*,)?${sep}(?:${monthPattern})\\.?(?:\\s*,)?${sep}${year}(?![0-9])`,
+    "i",
+  );
+  const monthFirst = new RegExp(
+    `(?<![a-z])(?:${monthPattern})\\.?${sep}${dayPattern}(?:\\s*,)?${sep}${year}(?![0-9])`,
+    "i",
+  );
+  return dayFirst.test(normalized) || monthFirst.test(normalized);
 }
+
 
 function stringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
