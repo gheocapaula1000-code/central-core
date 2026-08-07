@@ -50,11 +50,6 @@ describe("release_gate — colonne reali dello schema Civiko", () => {
 });
 
 describe("release_gate — prerequisiti assenti vs query fallite", () => {
-  const SRC = readFileSync(
-    resolve(process.cwd(), "supabase/functions/civiko-orchestrator-dispatch/index.ts"),
-    "utf8",
-  );
-
   it("l'assenza dell'audit recompute non viene contata come query fallita", () => {
     expect(SRC).toContain('missingPrerequisites.push("contendibili_recompute_audit_absent")');
     expect(SRC).toMatch(/if \(Number\.isFinite\(recomputeActionStartedMs\)\) \{\s*failedQueries\.push\("contendibili_exact_recompute"\);/);
