@@ -651,10 +651,11 @@ async function persistActionAudit(input: ActionAuditInput, upsert = false): Prom
         ok: input.result.ok,
         http_status: input.result.status,
         status: input.result.status,
-        reason_code: safeCode(input.result.reason),
+        // `reason_code` non esiste nello schema reale: PostgREST rispondeva 400
+        // (PGRST204) facendo fallire l'audit e quindi il release_gate.
         error_code: safeCode(input.result.reason),
-        result: input.result.result,
-        counters: input.result.result,
+        result: input.result.result ?? {},
+        counters: input.result.result ?? {},
         started_at: input.startedAt,
         finished_at: input.finishedAt,
         duration_ms: input.durationMs,
