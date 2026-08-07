@@ -700,10 +700,14 @@ export const CIVIKO_PROVIDER_PERSISTENCE: Record<
   { table: string; writer_available: boolean; note: string }
 > = {
   apify: {
-    table: "padova_apify_runs",
+    // La prova NON è la sola riga padova_apify_runs: serve anche lo staging
+    // dati importato dal percorso Civiko (padova_collect_v2_items del job_id).
+    table: "padova_collect_v2_items",
     writer_available: true,
-    note: "run del portale persistito con run_id/dataset_id e stato reale",
+    note:
+      "run SUCCEEDED in padova_apify_runs + righe staging padova_collect_v2_items legate al job_id (created+updated>0)",
   },
+
   firecrawl: {
     table: "padova_listings",
     writer_available: false,
