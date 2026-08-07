@@ -733,20 +733,58 @@ async function runMicroRun(
       };
     }
 
+    // Nessuna spesa se il provider non può produrre una prova persistita
+    // Civiko: fail-closed PRIMA della chiamata, senza simulare la prova.
+    const persistenceSpec = CIVIKO_PROVIDER_PERSISTENCE[provider];
+    if (!persistenceSpec.writer_available) {
+      await closeRun(runId, {
+        status: "BLOCKED",
+        applied_cap: null,
+        actual_cost_usd: 0,
+        counters: { persistence_target: persistenceSpec.table, note: persistenceSpec.note },
+        error_code: `${provider}_no_civiko_persistence`,
+      });
+      return {
+        status: 409,
+        payload: {
+          ok: false, action, provider, run_id: runId, status: "BLOCKED",
+          baseline_snapshot_id: baseline.snapshotId,
+          requested_cap: requestedCap, applied_cap: null, cap_confirmed: false,
+          actual_cost_usd: 0,
+          persistence_target: persistenceSpec.table,
+          persistence_note: persistenceSpec.note,
+          error_code: `${provider}_no_civiko_persistence`,
+          started_at: startedAt, finished_at: new Date().toISOString(),
+        },
+      };
+    }
+
     const outcome = await ADAPTERS[provider](runId);
-    const artifactsOk = outcome.status === "SUCCESS"
-      ? await persistArtifacts(runId, provider, outcome.artifacts)
+
+    // Prova persistita provider-specifica in una tabella di dominio Civiko:
+    // senza di essa il run resta BLOCKED, anche con HTTP 200 del provider.
+    const proof = outcome.status === "SUCCESS" ? await domainProof(provider, outcome) : null;
+    const allArtifacts = proof ? [proof, ...outcome.artifacts] : outcome.artifacts;
+    const artifactsOk = outcome.status === "SUCCESS" && proof
+      ? await persistArtifacts(runId, provider, allArtifacts)
       : true;
-    const finalStatus: CivikoCommissioningStatus = outcome.status === "SUCCESS" && !artifactsOk
-      ? "PARTIAL"
-      : outcome.status;
+
+    let finalStatus: CivikoCommissioningStatus = outcome.status;
+    let errorCode = outcome.error_code;
+    if (outcome.status === "SUCCESS" && !proof) {
+      finalStatus = "BLOCKED";
+      errorCode = `${provider}_no_civiko_persistence`;
+    } else if (outcome.status === "SUCCESS" && !artifactsOk) {
+      finalStatus = "PARTIAL";
+      errorCode = "artifact_persist_failed";
+    }
 
     await closeRun(runId, {
       status: finalStatus,
       applied_cap: outcome.applied_cap,
       actual_cost_usd: outcome.actual_cost_usd,
       counters: outcome.counters,
-      error_code: outcome.error_code ?? (finalStatus === "PARTIAL" ? "artifact_persist_failed" : null),
+      error_code: errorCode,
     });
 
     const ok = finalStatus === "SUCCESS";
@@ -764,8 +802,12 @@ async function runMicroRun(
         cap_confirmed: outcome.cap_confirmed,
         actual_cost_usd: outcome.actual_cost_usd,
         counters: outcome.counters,
-        artifacts_persisted: ok ? outcome.artifacts.length : 0,
-        error_code: outcome.error_code ?? (finalStatus === "PARTIAL" ? "artifact_persist_failed" : null),
+        persistence_target: persistenceSpec.table,
+        domain_proof: proof
+          ? { table_name: proof.table_name, row_ref: proof.row_ref, change_kind: proof.change_kind }
+          : null,
+        artifacts_persisted: ok ? allArtifacts.length : 0,
+        error_code: errorCode,
         started_at: startedAt,
         finished_at: new Date().toISOString(),
       },
