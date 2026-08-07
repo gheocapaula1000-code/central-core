@@ -848,6 +848,7 @@ export function isCivikoDomainProofTable(table: unknown): boolean {
 async function domainProof(
   provider: CivikoCommissioningProvider,
   outcome: AdapterOutcome,
+  startedAt: string,
 ): Promise<Artifact | null> {
   const spec = CIVIKO_PROVIDER_PERSISTENCE[provider];
   if (!spec.writer_available) return null;
@@ -870,16 +871,39 @@ async function domainProof(
     const created = Number(outcome.counters.created ?? 0);
     const updated = Number(outcome.counters.updated ?? 0);
     if (!(created + updated > 0)) return null;
+
+    // Prova PWA-ready: gli URL promossi devono esistere in padova_listings
+    // con last_seen_at >= started_at del micro-run. Staging da solo non basta.
+    const promo = outcome.counters.promotion as Record<string, unknown> | undefined;
+    const promoUrls = Array.isArray(promo?.urls)
+      ? (promo!.urls as unknown[]).filter((u): u is string => typeof u === "string" && u.length > 0)
+      : [];
+    if (promoUrls.length === 0) return null;
+    if (Number(promo?.out_of_scope_written ?? -1) !== 0) return null;
+    if (!(Number(promo?.writes ?? 0) > 0)) return null;
+
+    const inUrls = `in.(${promoUrls.map((u) => `"${u.replace(/"/g, '\\"')}"`).join(",")})`;
+    const listings = await realRows(
+      `padova_listings?select=id,url,fonte,comune,quartiere,last_seen_at,imported_at,expired_at` +
+        `&url=${encodeURIComponent(inUrls)}` +
+        `&last_seen_at=gte.${encodeURIComponent(startedAt)}&limit=10`,
+    );
+    const freshUrls = new Set((listings ?? []).map((r) => String(r.url ?? "")));
+    if (!listings || !promoUrls.every((u) => freshUrls.has(u))) return null;
+
     return {
-      table_name: "padova_collect_v2_items",
-      change_kind: created > 0 ? "insert" : "update",
+      table_name: "padova_listings",
+      change_kind: Number(promo?.new ?? 0) > 0 ? "insert" : "update",
       row_ref: jobId,
       evidence: {
         provider: "apify",
         job_id: jobId,
-        rows_for_job: stagingRows,
-        created,
-        updated,
+        staging_rows_for_job: stagingRows,
+        staging_created: created,
+        staging_updated: updated,
+        promoted_urls: promoUrls,
+        listing_ids: (listings ?? []).map((r) => String(r.id)),
+        micro_run_started_at: startedAt,
         apify_run: {
           id: row.id,
           run_id: row.run_id,
@@ -892,7 +916,7 @@ async function domainProof(
           started_at: row.started_at ?? null,
           finished_at: row.finished_at ?? null,
         },
-        pwa_ready: false,
+        pwa_ready: true,
         activation_allowed: false,
       },
     };
@@ -981,7 +1005,7 @@ async function runMicroRun(
 
     // Prova persistita provider-specifica in una tabella di dominio Civiko:
     // senza di essa il run resta BLOCKED, anche con HTTP 200 del provider.
-    const proof = outcome.status === "SUCCESS" ? await domainProof(provider, outcome) : null;
+    const proof = outcome.status === "SUCCESS" ? await domainProof(provider, outcome, startedAt) : null;
     const allArtifacts = proof ? [proof, ...outcome.artifacts] : outcome.artifacts;
     const artifactsOk = outcome.status === "SUCCESS" && proof
       ? await persistArtifacts(runId, provider, allArtifacts)
