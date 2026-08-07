@@ -1170,9 +1170,39 @@ async function verifyDelta(
   const runSucceeded = run.status === "SUCCESS";
   const metricsComplete = failed.length === 0;
 
+  // Contratto verificabile: delta e sample_ids derivano ESCLUSIVAMENTE
+  // dall'artifact/domain proof padova_listings di questo run, mai da audit
+  // generico o da contatori aggregati.
+  const listingArtifacts = domainArtifacts.filter((a) => a.table_name === "padova_listings");
+  let deltaNew = 0;
+  let deltaUpdated = 0;
+  const sampleIds: Array<string | number> = [];
+  for (const a of listingArtifacts) {
+    const ev = (a.evidence && typeof a.evidence === "object" && !Array.isArray(a.evidence))
+      ? a.evidence as Record<string, unknown>
+      : {};
+    const n = Number(ev.promotion_new);
+    const u = Number(ev.promotion_updated);
+    if (Number.isFinite(n)) deltaNew += n;
+    if (Number.isFinite(u)) deltaUpdated += u;
+    const ids = Array.isArray(ev.listing_ids) ? ev.listing_ids : [];
+    for (const id of ids) {
+      if (typeof id === "number" && Number.isFinite(id)) sampleIds.push(id);
+      else if (typeof id === "string" && id.length > 0) sampleIds.push(id);
+    }
+  }
+  const writes = deltaNew + deltaUpdated;
+  const pwaReady = listingArtifacts.some((a) => {
+    const ev = (a.evidence && typeof a.evidence === "object" && !Array.isArray(a.evidence))
+      ? a.evidence as Record<string, unknown>
+      : {};
+    return ev.pwa_ready === true;
+  });
+  const listingProof = listingArtifacts.length > 0 && writes > 0 && sampleIds.length > 0 && pwaReady;
+
   // Zero nuove righe è ammesso soltanto con una prova persistita specifica del
   // provider, non ambigua e legata allo stesso run.
-  const ok = runSucceeded && metricsComplete && persistedProof && updateProof;
+  const ok = runSucceeded && metricsComplete && persistedProof && updateProof && listingProof;
   const errorCode = !runSucceeded
     ? "run_not_succeeded"
     : !metricsComplete
@@ -1181,6 +1211,8 @@ async function verifyDelta(
     ? "no_persisted_proof"
     : !updateProof
     ? "ambiguous_delta"
+    : !listingProof
+    ? "no_pwa_listing_proof"
     : null;
 
   return {
@@ -1200,6 +1232,13 @@ async function verifyDelta(
       finished_at: run.finished_at,
       deltas,
       delta_inserts_total: inserts,
+      // Contratto verificabile (solo domain proof padova_listings del run):
+      audit_excluded: true,
+      delta_new: deltaNew,
+      delta_updated: deltaUpdated,
+      writes,
+      sample_ids: sampleIds,
+      pwa_ready: pwaReady,
       persisted_proof: domainArtifacts.map((a) => ({
         table_name: a.table_name,
         change_kind: a.change_kind,
