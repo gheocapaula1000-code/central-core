@@ -94,3 +94,30 @@ export function htmlToEvidenceText(html: string): { title: string; text: string 
     .trim();
   return { title, text };
 }
+
+
+export async function readLimitedText(
+  response: Response,
+  maxBytes: number,
+): Promise<string | null> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let text = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        return null;
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } finally {
+    reader.releaseLock();
+  }
+}
