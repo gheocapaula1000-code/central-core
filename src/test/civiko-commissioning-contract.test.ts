@@ -63,7 +63,7 @@ describe("otto zone Padova — invarianti", () => {
 describe("cap minimi server-side", () => {
   it("valori esatti e non aumentabili dal client", () => {
     expect(CIVIKO_COMMISSIONING_CAPS).toEqual({
-      apify: { max_items: 3, max_total_charge_usd: 0.05 },
+      apify: { max_items: 3, max_total_charge_usd: 0.015 },
       firecrawl: { max_pages: 1, max_credits: 1 },
       perplexity: { max_queries: 1, max_completion_tokens: 128 },
     });
@@ -313,6 +313,63 @@ describe("Civiko commissioning — prova persistita provider-specifica", () => {
 
   it("apify: prova cercata su padova_apify_runs legata al run reale", () => {
     expect(SRC).toMatch(/padova_apify_runs\?run_id=eq\./);
-    expect(SRC).toMatch(/apify:\s*\{\s*\n\s*table: "padova_apify_runs",\s*\n\s*writer_available: true/);
+  });
+});
+
+describe("micro-run apify: solo percorso Civiko esistente", () => {
+  it("non avvia mai l'actor Apify direttamente", () => {
+    expect(SRC).not.toContain("api.apify.com/v2/acts/");
+    expect(SRC).not.toContain("actor-runs/");
+    expect(SRC).not.toContain("emastra~subito-it-immobili");
+    expect(SRC).not.toContain("APIFY_API_TOKEN");
+  });
+
+  it("usa padova-apify-subito-collect con cap server-side e nessun dry_run", () => {
+    expect(SRC).toContain('APIFY_MICRORUN_COLLECTOR = "padova-apify-subito-collect"');
+    expect(SRC).toMatch(/functions\/v1\/\$\{APIFY_MICRORUN_COLLECTOR\}/);
+    expect(SRC).toContain("max_items: requested.max_items");
+    expect(SRC).toContain("wait_seconds: APIFY_COLLECT_WAIT_SECONDS");
+    expect(SRC).not.toContain("dry_run: true");
+    expect(SRC).not.toContain("async_start: true");
+  });
+
+  it("singola URL Padova per il micro-run", () => {
+    expect(SRC).toContain("search_urls: [APIFY_MICRORUN_SEARCH_URL]");
+    expect(SRC).toContain("/vendita/appartamenti/padova/padova/");
+  });
+
+  it("cap monetario allineato alla formula reale max_items*5/1000", () => {
+    expect(CIVIKO_COMMISSIONING_CAPS.apify.max_total_charge_usd).toBe(
+      Number(((CIVIKO_COMMISSIONING_CAPS.apify.max_items * 5) / 1000).toFixed(3)),
+    );
+    expect(CIVIKO_COMMISSIONING_CAPS.apify.max_total_charge_usd).toBe(0.015);
+    expect(SRC).toContain("apify_cap_formula_mismatch");
+    // Cap applicato riletto dalla riga reale, non da un echo provider.
+    expect(SRC).toContain("max_total_charge_usd: Number(runRow.cost_cap_usd ?? NaN)");
+    expect(SRC).not.toContain("maxTotalChargeUsd");
+  });
+
+  it("prova di dominio: padova_apify_runs SUCCEEDED + righe staging del job_id", () => {
+    expect(SRC).toMatch(/apify:\s*\{[\s\S]{0,400}table: "padova_collect_v2_items",[\s\S]{0,120}writer_available: true/);
+    expect(SRC).toContain('String(row.status ?? "") !== "SUCCEEDED"');
+    expect(SRC).toContain("padova_collect_v2_items?select=id&job_id=eq.");
+    expect(SRC).toContain("created + updated > 0");
+    expect(SRC).toContain("apify_staging_rows_missing");
+    expect(SRC).toContain("apify_run_not_succeeded");
+    expect(SRC).toContain("apify_run_row_missing");
+  });
+
+  it("staging non è PWA-ready e non consente attivazione", () => {
+    expect(SRC).toContain("pwa_ready: false");
+    expect(SRC).toContain("activation_allowed: false");
+    expect(SRC).toContain("promozione a padova_listings non eseguita");
+  });
+
+  it("preflight/health/baseline restano a costo zero senza chiamare Apify", () => {
+    const healthIdx = SRC.indexOf("civiko_commissioning_healthcheck");
+    expect(healthIdx).toBeGreaterThan(-1);
+    // La chiamata al collector avviene solo dentro apifyMicroRun.
+    const calls = SRC.match(/APIFY_MICRORUN_COLLECTOR\}/g) ?? [];
+    expect(calls.length).toBe(1);
   });
 });
