@@ -10132,6 +10132,10 @@ export type Database = {
         Args: { p_provider: string; p_run_id: string; p_ttl_seconds?: number }
         Returns: boolean
       }
+      civiko_commissioning_promote_apify_job: {
+        Args: { p_job_id: string; p_run_id: string }
+        Returns: Json
+      }
       civiko_commissioning_release_claim: {
         Args: { p_provider: string; p_run_id: string }
         Returns: boolean
