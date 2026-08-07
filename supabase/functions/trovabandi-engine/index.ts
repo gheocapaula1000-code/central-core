@@ -20,7 +20,7 @@ import {
   type ExtractionOutcome,
   type SearchOutcome,
 } from "./extraction.ts";
-import { persistOpportunityFailClosed, type PersistVerification } from "./persist.ts";
+import { persistOpportunityFailClosed, type PersistVerification } from "./persist.ts";\nimport { htmlToEvidenceText, isAllowedOfficialUrl } from "./scrape.ts";
 import {
   collectionCompletionOutcome,
   COVERAGE_WINDOW_HOURS,
@@ -576,8 +576,57 @@ async function apifyScrape(
   }
 }
 
-async function loadPage(url: string) {
-  return (await scrapePage(url)) ?? (await apifyScrape(url));
+async function directOfficialScrape(
+  url: string,
+  officialDomain: string,
+): Promise<{ markdown: string; title: string; provider: string } | null> {
+  if (!isAllowedOfficialUrl(url, officialDomain)) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const res = await fetch(url, {
+      redirect: "follow",
+      headers: {
+        Accept: "text/html,text/plain;q=0.9",
+        "User-Agent": "UEradar/1.0 (+https://ueradar.com; official-grant-indexer)",
+      },
+      signal: controller.signal,
+    });
+    if (!res.ok || !isAllowedOfficialUrl(res.url || url, officialDomain)) {
+      await res.body?.cancel();
+      return null;
+    }
+    const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
+    if (!contentType.includes("text/html") && !contentType.includes("text/plain")) {
+      await res.body?.cancel();
+      return null;
+    }
+    const declaredLength = Number(res.headers.get("content-length") ?? 0);
+    if (Number.isFinite(declaredLength) && declaredLength > 2_000_000) {
+      await res.body?.cancel();
+      return null;
+    }
+    const raw = (await res.text()).slice(0, 2_000_000);
+    const parsed = contentType.includes("text/html")
+      ? htmlToEvidenceText(raw)
+      : { title: "", text: raw.trim() };
+    const markdown = parsed.text.slice(0, 60_000);
+    return markdown.length > 200
+      ? { markdown, title: parsed.title, provider: "official-http" }
+      : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function loadPage(url: string, officialDomain: string) {
+  return (
+    (await scrapePage(url)) ??
+    (await directOfficialScrape(url, officialDomain)) ??
+    (await apifyScrape(url))
+  );
 }
 
 async function callExtraction(
@@ -1257,7 +1306,7 @@ serve(async (req) => {
     const hits = [...byUrl.values()].slice(0, maxPages);
 
     for (const hit of hits) {
-      const scraped = await loadPage(hit.url);
+      const scraped = await loadPage(hit.url, source.official_domain);
       if (!scraped) {
         diagnostics.push({ phase: "scrape", code: "NO_CONTENT" });
         warnings.push(`scrape_failed:${new URL(hit.url).hostname}`);
