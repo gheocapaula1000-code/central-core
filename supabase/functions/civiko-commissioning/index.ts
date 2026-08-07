@@ -1,10 +1,3 @@
-// Runtime shim: Deno globals sono forniti dal runtime edge; tipizzati qui
-// localmente per il typecheck del repo (comportamento invariato).
-// deno-lint-ignore no-explicit-any
-const DenoRT = (globalThis as any).Deno as {
-  env: { get(key: string): string | undefined };
-  serve: (handler: (req: Request) => Response | Promise<Response>) => unknown;
-};
 // civiko-commissioning
 // ---------------------------------------------------------------------------
 // Endpoint amministrativo ADDITIVO e ISOLATO, dedicato esclusivamente al
@@ -36,11 +29,11 @@ import { canSpendFirecrawl, recordFirecrawlSpend } from "../_shared/firecrawlBud
 import { canSpendAi, recordAiSpend } from "../_shared/aiBudget.ts";
 import { CIVIKO_COMMERCIAL_ZONES } from "../_shared/civikoCommercialZoneContract.ts";
 
-const DISPATCH_SECRET = DenoRT.env.get("CIVIKO_ORCHESTRATOR_DISPATCH_SECRET") ?? "";
-const JOB_SECRET = DenoRT.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
-const CIVIKO_APP_SECRET = DenoRT.env.get("AI_CORE_SECRET_CIVIKO") ?? "";
-const SUPABASE_URL = DenoRT.env.get("SUPABASE_URL") ?? "";
-const SERVICE_KEY = DenoRT.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const DISPATCH_SECRET = Deno.env.get("CIVIKO_ORCHESTRATOR_DISPATCH_SECRET") ?? "";
+const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+const CIVIKO_APP_SECRET = Deno.env.get("AI_CORE_SECRET_CIVIKO") ?? "";
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 const MAX_BODY_BYTES = 1024;
 const HTTP_TIMEOUT_MS = 20_000;
@@ -345,8 +338,8 @@ async function apifyMicroRun(runId: string): Promise<AdapterOutcome> {
     artifacts: [],
     error_code: null,
   };
-  const token = DenoRT.env.get("APIFY_API_TOKEN") ?? DenoRT.env.get("APIFY_TOKEN") ??
-    DenoRT.env.get("APIFY_API_KEY") ?? "";
+  const token = Deno.env.get("APIFY_API_TOKEN") ?? Deno.env.get("APIFY_TOKEN") ??
+    Deno.env.get("APIFY_API_KEY") ?? "";
   if (!token) return { ...base, error_code: "apify_token_missing" };
 
   const budget = await canSpendApify(requested.max_total_charge_usd);
@@ -446,7 +439,7 @@ async function firecrawlMicroRun(runId: string): Promise<AdapterOutcome> {
     artifacts: [],
     error_code: null,
   };
-  const key = DenoRT.env.get("FIRECRAWL_API_KEY") ?? "";
+  const key = Deno.env.get("FIRECRAWL_API_KEY") ?? "";
   if (!key) return { ...base, error_code: "firecrawl_key_missing" };
 
   const budget = await canSpendFirecrawl(requested.max_pages);
@@ -527,7 +520,7 @@ async function perplexityMicroRun(runId: string): Promise<AdapterOutcome> {
     artifacts: [],
     error_code: null,
   };
-  const key = DenoRT.env.get("PERPLEXITY_API_KEY") ?? "";
+  const key = Deno.env.get("PERPLEXITY_API_KEY") ?? "";
   if (!key) return { ...base, error_code: "perplexity_key_missing" };
 
   const budget = await canSpendAi(requested.max_completion_tokens * 4, "perplexity");
@@ -1097,7 +1090,7 @@ async function runChain(): Promise<{ status: number; payload: Record<string, unk
 
 // ───────────────────────── handler ──────────────────────────────────────────
 
-DenoRT.serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method !== "POST") return json(405, { ok: false, error: "method_not_allowed" });
   if (!DISPATCH_SECRET) {
     console.error("[civiko-commissioning] misconfigured");
