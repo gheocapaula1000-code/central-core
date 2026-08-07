@@ -1,8 +1,3 @@
-// Runtime shim: i global Deno sono forniti dal runtime edge; qui sono
-// tipizzati localmente per il typecheck del repo (comportamento invariato).
-// deno-lint-ignore no-explicit-any
-const DenoRT = (globalThis as any).Deno as {
-  env: { get(key: string): string | undefined };
   serve: (handler: (req: Request) => Response | Promise<Response>) => unknown;
 };
 // Civiko One-only, cost-safe launch batch.
@@ -11,8 +6,8 @@ const DenoRT = (globalThis as any).Deno as {
 // daily-budget checks cannot race each other.  The batch itself is one stage
 // of pipeline_0510 and returns only correlated run/dataset identifiers.
 
-const SUPABASE_URL = DenoRT.env.get("SUPABASE_URL") ?? "";
-const JOB_SECRET = DenoRT.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
 const PER_PORTAL_TIMEOUT_MS = 34_000;
 const PORTALS = [
   ["immobiliare", "cron-apify-immobiliare-nightly", {}],
@@ -70,7 +65,7 @@ export function uniqueIdentifierBundles(raw: unknown): IdentifierBundle[] {
   });
 }
 
-DenoRT.serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method !== "POST") return json(405, { ok: false, error: "method_not_allowed" });
   if (!SUPABASE_URL || !JOB_SECRET) return json(500, { ok: false, error: "config_missing" });
   if (!safeEqual(req.headers.get("x-job-secret") ?? "", JOB_SECRET)) {
