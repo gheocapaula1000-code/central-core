@@ -13,6 +13,7 @@ import {
   CIVIKO_COMMISSIONING_CAPS,
   CIVIKO_COMMISSIONING_CLAIM_TTL_SECONDS,
   CIVIKO_COMMISSIONING_PROVIDERS,
+  authorizeBearer,
   capExactlyApplied,
   validateCommissioningBody,
 } from "../../supabase/functions/civiko-commissioning/caps.ts";
@@ -469,5 +470,84 @@ describe("RPC SQL civiko_commissioning_promote_apify_job", () => {
     const slugs = SQL.match(/"(centro|nord|est|sud|ovest)[-a-z']*"/g) ?? [];
     expect(slugs).toEqual([]);
     expect(EXPECTED_ZONES).toHaveLength(8);
+  });
+});
+
+describe("Civiko commissioning — auth Bearer (primary/fallback/missing/wrong)", () => {
+  const PRIMARY = "civiko-dispatch-secret-aaaaaaaaaaaaaaaa";
+  const FALLBACK = "central-core-api-key-bbbbbbbbbbbbbbbb";
+
+  it("accetta il secret primario dell'orchestrator", () => {
+    expect(authorizeBearer(PRIMARY, [PRIMARY, FALLBACK])).toEqual({ ok: true, status: 200, error: null });
+  });
+
+  it("accetta il fallback CENTRAL_CORE_API_KEY già esistente", () => {
+    expect(authorizeBearer(FALLBACK, [PRIMARY, FALLBACK])).toEqual({ ok: true, status: 200, error: null });
+  });
+
+  it("accetta il fallback anche se il primario non è configurato", () => {
+    expect(authorizeBearer(FALLBACK, ["", FALLBACK]).ok).toBe(true);
+  });
+
+  it("401 se il bearer non coincide con nessun secret", () => {
+    expect(authorizeBearer("wrong-token", [PRIMARY, FALLBACK])).toEqual({ ok: false, status: 401, error: "unauthorized" });
+  });
+
+  it("401 se il bearer è assente", () => {
+    expect(authorizeBearer("", [PRIMARY, FALLBACK]).status).toBe(401);
+  });
+
+  it("500 se entrambi i secret sono assenti", () => {
+    expect(authorizeBearer(PRIMARY, ["", ""])).toEqual({ ok: false, status: 500, error: "misconfigured" });
+  });
+
+  it("nessun valore di secret viene loggato o restituito", () => {
+    const res = authorizeBearer("wrong-token", [PRIMARY, FALLBACK]);
+    expect(JSON.stringify(res)).not.toContain(PRIMARY);
+    expect(JSON.stringify(res)).not.toContain(FALLBACK);
+    const CAPS_SRC = readFileSync(
+      resolve(__dirname, "../../supabase/functions/civiko-commissioning/caps.ts"),
+      "utf8",
+    );
+    expect(CAPS_SRC).not.toMatch(/console\.[a-z]+\([^)]*secret/i);
+    expect(SRC).not.toMatch(/console\.[a-z]+\([^)]*(DISPATCH_SECRET|CENTRAL_CORE_API_KEY|bearer)/);
+  });
+
+  it("l'handler usa authorizeBearer con entrambi i secret", () => {
+    expect(SRC).toContain('Deno.env.get("CENTRAL_CORE_API_KEY")');
+    expect(SRC).toContain("authorizeBearer(bearer, [DISPATCH_SECRET, CENTRAL_CORE_API_KEY])");
+  });
+});
+
+describe("Civiko commissioning — contratto verify_delta", () => {
+  it("emette audit_excluded, delta_new/updated, writes, sample_ids, pwa_ready", () => {
+    expect(SRC).toContain("audit_excluded: true");
+    expect(SRC).toContain("delta_new: deltaNew");
+    expect(SRC).toContain("delta_updated: deltaUpdated");
+    expect(SRC).toContain("writes,");
+    expect(SRC).toContain("sample_ids: sampleIds");
+    expect(SRC).toContain("pwa_ready: pwaReady");
+  });
+
+  it("i valori derivano solo dagli artifact padova_listings del run", () => {
+    expect(SRC).toContain('domainArtifacts.filter((a) => a.table_name === "padova_listings")');
+    expect(SRC).toMatch(/listingArtifacts[\s\S]{0,900}ev\.listing_ids/);
+    expect(SRC).toMatch(/listingArtifacts[\s\S]{0,900}ev\.promotion_new/);
+  });
+
+  it("sample_ids accetta solo id numerici o stringa/UUID non vuoti", () => {
+    expect(SRC).toContain('typeof id === "number" && Number.isFinite(id)');
+    expect(SRC).toContain('typeof id === "string" && id.length > 0');
+  });
+
+  it("fail-closed: senza prova padova_listings il verify non è ok", () => {
+    expect(SRC).toContain("const listingProof = listingArtifacts.length > 0 && writes > 0 && sampleIds.length > 0 && pwaReady");
+    expect(SRC).toContain('"no_pwa_listing_proof"');
+    expect(SRC).toContain("persistedProof && updateProof && listingProof");
+  });
+
+  it("il micro-run Apify persiste listing_ids nell'evidence", () => {
+    expect(SRC).toContain("listing_ids: listingIds");
+    expect(SRC).toContain("promotion_writes: promoWrites");
   });
 });
