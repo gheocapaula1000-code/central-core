@@ -256,3 +256,61 @@ describe("migrazione additiva", () => {
     expect(MIGRATION).toContain("'RUNNING','SUCCESS','PARTIAL','BLOCKED','FAILED'");
   });
 });
+
+describe("Civiko commissioning — aderenza allo schema DB reale", () => {
+  it("padova_listings: attivo = expired_at IS NULL, mai stato/created_at/updated_at", () => {
+    expect(SRC).toContain("padova_listings?select=id&expired_at=is.null");
+    expect(SRC).not.toMatch(/padova_listings[^"']*stato=eq/);
+    expect(SRC).not.toMatch(/padova_listings\?select=[^"']*\bcreated_at\b/);
+    expect(SRC).not.toMatch(/padova_listings\?select=[^"']*\bupdated_at\b/);
+    expect(SRC).toMatch(/padova_listings\?select=imported_at,last_seen_at,expired_at/);
+  });
+
+  it("padova_apify_runs: usa started_at/finished_at, mai created_at", () => {
+    expect(SRC).toMatch(/padova_apify_runs\?select=[^"']*started_at/);
+    expect(SRC).not.toMatch(/padova_apify_runs\?select=[^"']*\bcreated_at\b/);
+    expect(SRC).not.toMatch(/padova_apify_runs[^"']*order=created_at/);
+  });
+
+  it("civiko_pwa_sync_acks: colonne reali, nessun received_at", () => {
+    expect(SRC).not.toMatch(/received_at/);
+    for (const col of [
+      "started_at", "finished_at", "created_at", "counts",
+      "scope_comune", "scope_slugs", "municipality", "commercial_zone_slugs",
+    ]) {
+      expect(SRC).toMatch(new RegExp(`civiko_pwa_sync_acks\\?select=[^"']*${col}`));
+    }
+  });
+
+  it("padova_cambi_agenzia: filtro is_active, nessun campo stato", () => {
+    expect(SRC).toContain("padova_cambi_agenzia?select=id&is_active=is.true");
+    expect(SRC).not.toMatch(/padova_cambi_agenzia[^"']*stato=eq/);
+  });
+});
+
+describe("Civiko commissioning — prova persistita provider-specifica", () => {
+  it("firecrawl e perplexity sono BLOCKED: nessun writer di dominio Civiko", () => {
+    expect(SRC).toMatch(/firecrawl:\s*\{\s*\n\s*table: "padova_listings",\s*\n\s*writer_available: false/);
+    expect(SRC).toMatch(/perplexity:\s*\{\s*\n\s*table: "civiko_signals_classified",\s*\n\s*writer_available: false/);
+    expect(SRC).toContain("_no_civiko_persistence");
+    // fail-closed prima di qualsiasi spesa
+    expect(SRC).toMatch(/if \(!persistenceSpec\.writer_available\)[\s\S]{0,400}actual_cost_usd: 0/);
+  });
+
+  it("HTTP 200 del provider senza riga di dominio non diventa mai SUCCESS", () => {
+    expect(SRC).toMatch(/outcome\.status === "SUCCESS" && !proof[\s\S]{0,120}finalStatus = "BLOCKED"/);
+  });
+
+  it("gli artifact di audit non contano come prova nel verify-delta", () => {
+    expect(SRC).toContain("isCivikoDomainProofTable");
+    expect(SRC).toContain("civiko_commissioning_artifacts");
+    expect(SRC).toMatch(/domainArtifacts = \(artifacts \?\? \[\]\)\.filter/);
+    expect(SRC).toContain("no_persisted_proof");
+    expect(SRC).toContain("ambiguous_delta");
+  });
+
+  it("apify: prova cercata su padova_apify_runs legata al run reale", () => {
+    expect(SRC).toMatch(/padova_apify_runs\?run_id=eq\./);
+    expect(SRC).toMatch(/apify:\s*\{\s*\n\s*table: "padova_apify_runs",\s*\n\s*writer_available: true/);
+  });
+});
