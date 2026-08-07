@@ -6,7 +6,7 @@
 // Le azioni normali del Central Core restano invariate: qui non ne viene
 // ridefinita nessuna.
 //
-// Auth: Authorization: Bearer <CIVIKO_ORCHESTRATOR_DISPATCH_SECRET>
+// Auth: Authorization: Bearer <CIVIKO_ORCHESTRATOR_DISPATCH_SECRET | CENTRAL_CORE_API_KEY>
 //       (lo stesso secret dell'orchestrator Civiko), confronto timing-safe,
 //       fail-closed. Nessun secret viene mai loggato o restituito.
 //
@@ -16,6 +16,7 @@
 // Nessun cron viene creato o attivato da questa funzione.
 
 import {
+  authorizeBearer,
   capExactlyApplied,
   CIVIKO_COMMISSIONING_ACTIONS,
   CIVIKO_COMMISSIONING_CAPS,
@@ -29,6 +30,8 @@ import { canSpendAi, recordAiSpend } from "../_shared/aiBudget.ts";
 import { CIVIKO_COMMERCIAL_ZONES } from "../_shared/civikoCommercialZoneContract.ts";
 
 const DISPATCH_SECRET = Deno.env.get("CIVIKO_ORCHESTRATOR_DISPATCH_SECRET") ?? "";
+// Canale già autorizzato orchestrator → Central Core: nessun nuovo Secret manuale.
+const CENTRAL_CORE_API_KEY = Deno.env.get("CENTRAL_CORE_API_KEY") ?? "";
 const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
 const CIVIKO_APP_SECRET = Deno.env.get("AI_CORE_SECRET_CIVIKO") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
@@ -65,16 +68,6 @@ function json(status: number, payload: Record<string, unknown>): Response {
     status,
     headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
-}
-
-function timingSafeEqual(a: string, b: string): boolean {
-  const enc = new TextEncoder();
-  const ab = enc.encode(a);
-  const bb = enc.encode(b);
-  const len = Math.max(ab.length, bb.length);
-  let diff = ab.length ^ bb.length;
-  for (let i = 0; i < len; i++) diff |= (ab[i] ?? 0) ^ (bb[i] ?? 0);
-  return diff === 0;
 }
 
 async function restFetch(
@@ -569,6 +562,10 @@ async function apifyMicroRun(runId: string, startedAt: string): Promise<AdapterO
   );
   const freshUrls = new Set((listingRows ?? []).map((r) => String(r.url ?? "")));
   const allFresh = promoUrls.every((u) => freshUrls.has(u));
+  const listingIds = (listingRows ?? [])
+    .filter((r) => freshUrls.has(String(r.url ?? "")))
+    .map((r) => r.id)
+    .filter((id) => typeof id === "string" || typeof id === "number");
   counters.pwa_listings_fresh = freshUrls.size;
   counters.pwa_listings_expected = promoUrls.length;
 
@@ -586,6 +583,7 @@ async function apifyMicroRun(runId: string, startedAt: string): Promise<AdapterO
 
   counters.pwa_ready = true;
   counters.activation_allowed = false;
+  counters.pwa_listing_ids = listingIds;
 
   return {
     status: "SUCCESS",
@@ -608,6 +606,8 @@ async function apifyMicroRun(runId: string, startedAt: string): Promise<AdapterO
         promoted_urls: promoUrls,
         promotion_new: promoPayload.new ?? null,
         promotion_updated: promoPayload.updated ?? null,
+        promotion_writes: promoWrites,
+        listing_ids: listingIds,
         out_of_scope_written: promoOutOfScope,
         micro_run_started_at: startedAt,
         listings_last_seen_ok: true,
@@ -1142,9 +1142,39 @@ async function verifyDelta(
   const runSucceeded = run.status === "SUCCESS";
   const metricsComplete = failed.length === 0;
 
+  // Contratto verificabile: delta e sample_ids derivano ESCLUSIVAMENTE
+  // dall'artifact/domain proof padova_listings di questo run, mai da audit
+  // generico o da contatori aggregati.
+  const listingArtifacts = domainArtifacts.filter((a) => a.table_name === "padova_listings");
+  let deltaNew = 0;
+  let deltaUpdated = 0;
+  const sampleIds: Array<string | number> = [];
+  for (const a of listingArtifacts) {
+    const ev = (a.evidence && typeof a.evidence === "object" && !Array.isArray(a.evidence))
+      ? a.evidence as Record<string, unknown>
+      : {};
+    const n = Number(ev.promotion_new);
+    const u = Number(ev.promotion_updated);
+    if (Number.isFinite(n)) deltaNew += n;
+    if (Number.isFinite(u)) deltaUpdated += u;
+    const ids = Array.isArray(ev.listing_ids) ? ev.listing_ids : [];
+    for (const id of ids) {
+      if (typeof id === "number" && Number.isFinite(id)) sampleIds.push(id);
+      else if (typeof id === "string" && id.length > 0) sampleIds.push(id);
+    }
+  }
+  const writes = deltaNew + deltaUpdated;
+  const pwaReady = listingArtifacts.some((a) => {
+    const ev = (a.evidence && typeof a.evidence === "object" && !Array.isArray(a.evidence))
+      ? a.evidence as Record<string, unknown>
+      : {};
+    return ev.pwa_ready === true;
+  });
+  const listingProof = listingArtifacts.length > 0 && writes > 0 && sampleIds.length > 0 && pwaReady;
+
   // Zero nuove righe è ammesso soltanto con una prova persistita specifica del
   // provider, non ambigua e legata allo stesso run.
-  const ok = runSucceeded && metricsComplete && persistedProof && updateProof;
+  const ok = runSucceeded && metricsComplete && persistedProof && updateProof && listingProof;
   const errorCode = !runSucceeded
     ? "run_not_succeeded"
     : !metricsComplete
@@ -1153,6 +1183,8 @@ async function verifyDelta(
     ? "no_persisted_proof"
     : !updateProof
     ? "ambiguous_delta"
+    : !listingProof
+    ? "no_pwa_listing_proof"
     : null;
 
   return {
@@ -1172,6 +1204,13 @@ async function verifyDelta(
       finished_at: run.finished_at,
       deltas,
       delta_inserts_total: inserts,
+      // Contratto verificabile (solo domain proof padova_listings del run):
+      audit_excluded: true,
+      delta_new: deltaNew,
+      delta_updated: deltaUpdated,
+      writes,
+      sample_ids: sampleIds,
+      pwa_ready: pwaReady,
       persisted_proof: domainArtifacts.map((a) => ({
         table_name: a.table_name,
         change_kind: a.change_kind,
@@ -1480,14 +1519,12 @@ async function runChain(): Promise<{ status: number; payload: Record<string, unk
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json(405, { ok: false, error: "method_not_allowed" });
-  if (!DISPATCH_SECRET) {
-    console.error("[civiko-commissioning] misconfigured");
-    return json(500, { ok: false, error: "misconfigured" });
-  }
   const auth = req.headers.get("Authorization") ?? "";
   const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (!bearer || !timingSafeEqual(bearer, DISPATCH_SECRET)) {
-    return json(401, { ok: false, error: "unauthorized" });
+  const authz = authorizeBearer(bearer, [DISPATCH_SECRET, CENTRAL_CORE_API_KEY]);
+  if (!authz.ok) {
+    if (authz.status === 500) console.error("[civiko-commissioning] misconfigured");
+    return json(authz.status, { ok: false, error: authz.error });
   }
   const ctype = (req.headers.get("Content-Type") ?? "").toLowerCase();
   if (!ctype.includes("application/json")) {

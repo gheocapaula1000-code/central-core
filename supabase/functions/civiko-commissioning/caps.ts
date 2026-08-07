@@ -140,3 +140,32 @@ export function capExactlyApplied(
     return typeof value === "number" && Number.isFinite(value) && value === requested[key];
   });
 }
+
+// ── Auth Civiko isolata ─────────────────────────────────────────────────────
+// Accetta il secret dedicato dell'orchestrator oppure il già esistente
+// CENTRAL_CORE_API_KEY (stesso canale autorizzato orchestrator → Central Core).
+// Confronto timing-safe su OGNI secret non vuoto; nessun valore viene mai
+// loggato, restituito o incluso nell'errore.
+export function timingSafeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const ab = enc.encode(a);
+  const bb = enc.encode(b);
+  const len = Math.max(ab.length, bb.length);
+  let diff = ab.length ^ bb.length;
+  for (let i = 0; i < len; i++) diff |= (ab[i] ?? 0) ^ (bb[i] ?? 0);
+  return diff === 0;
+}
+
+export function authorizeBearer(
+  bearer: string,
+  secrets: readonly string[],
+): { ok: boolean; status: number; error: string | null } {
+  const configured = secrets.filter((s) => typeof s === "string" && s.length > 0);
+  if (configured.length === 0) return { ok: false, status: 500, error: "misconfigured" };
+  if (!bearer) return { ok: false, status: 401, error: "unauthorized" };
+  let matched = false;
+  for (const secret of configured) {
+    if (timingSafeEqual(bearer, secret)) matched = true;
+  }
+  return matched ? { ok: true, status: 200, error: null } : { ok: false, status: 401, error: "unauthorized" };
+}
