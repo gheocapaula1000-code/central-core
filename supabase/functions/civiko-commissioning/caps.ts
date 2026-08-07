@@ -25,10 +25,15 @@ export type CivikoCommissioningStatus =
  */
 export const CIVIKO_COMMISSIONING_CAPS = {
   apify: {
-    // Pochissimi item e cap monetario minimo.
+    // Pochissimi item. Il micro-run passa dal percorso Civiko esistente
+    // (padova-apify-subito-collect → startApifyRun), che stima e registra il
+    // cap monetario come max_items * 5 / 1000 USD: 3 item ⇒ 0.015 USD.
+    // Nessun valore inventato: il cap applicato viene riletto da
+    // padova_apify_runs.cost_cap_usd.
     max_items: 3,
-    max_total_charge_usd: 0.05,
+    max_total_charge_usd: 0.015,
   },
+
   firecrawl: {
     // Una sola pagina => un solo credito.
     max_pages: 1,
