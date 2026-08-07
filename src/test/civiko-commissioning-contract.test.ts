@@ -23,6 +23,13 @@ const FN = readFileSync(
   resolve(ROOT, "supabase/functions/civiko-commissioning/index.ts"),
   "utf8",
 );
+
+// Migrazione additiva della RPC di promozione PWA-ready (commissioning only).
+const MIGRATION_SQL = readdirSync(resolve(ROOT, "supabase/migrations"))
+  .filter((f) => f.endsWith(".sql"))
+  .map((f) => readFileSync(resolve(ROOT, "supabase/migrations", f), "utf8"))
+  .filter((sql) => sql.includes("civiko_commissioning_promote_apify_job"))
+  .join("\n");
 const MIGRATION = (() => {
   const dir = resolve(ROOT, "supabase/migrations");
   const file = readdirSync(dir)
