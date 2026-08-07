@@ -330,6 +330,18 @@ interface AdapterOutcome {
   error_code: string | null;
 }
 
+/**
+ * Micro-run Apify Civiko.
+ *
+ * NON avvia mai l'actor direttamente: usa esclusivamente il percorso Civiko
+ * esistente `padova-apify-subito-collect` (che internamente chiama
+ * `startApifyRun`), l'unico che applica la budget guard, registra la riga in
+ * `padova_apify_runs` e importa il dataset in `padova_collect_v2_items`.
+ *
+ * Il collector NON viene modificato: riceve soltanto i parametri già previsti
+ * dal suo contratto (search_urls, max_items, wait_seconds), con max_items
+ * imposto server-side dal cap Civiko e nessun dry_run.
+ */
 async function apifyMicroRun(runId: string): Promise<AdapterOutcome> {
   const requested = {
     max_items: CIVIKO_COMMISSIONING_CAPS.apify.max_items,
@@ -344,92 +356,154 @@ async function apifyMicroRun(runId: string): Promise<AdapterOutcome> {
     artifacts: [],
     error_code: null,
   };
-  const token = Deno.env.get("APIFY_API_TOKEN") ?? Deno.env.get("APIFY_TOKEN") ??
-    Deno.env.get("APIFY_API_KEY") ?? "";
-  if (!token) return { ...base, error_code: "apify_token_missing" };
+  if (!JOB_SECRET) return { ...base, error_code: "job_secret_missing" };
+  if (!SUPABASE_URL) return { ...base, error_code: "supabase_url_missing" };
 
-  const budget = await canSpendApify(requested.max_total_charge_usd);
-  if (!budget.ok) {
-    return { ...base, error_code: budget.reason ?? "apify_budget_cap_reached" };
+  // Coerenza cap ↔ costo reale del percorso Civiko: 5 USD / 1000 item.
+  const expectedCapUsd = Number(((requested.max_items * 5) / 1000).toFixed(3));
+  if (expectedCapUsd !== requested.max_total_charge_usd) {
+    return { ...base, error_code: "apify_cap_formula_mismatch" };
   }
 
-  // Il cap viene trasmesso realmente al provider: query params documentati
-  // (maxItems, maxTotalChargeUsd) + limite nell'input dell'actor.
-  const url = `https://api.apify.com/v2/acts/${encodeURIComponent(APIFY_MICRORUN_ACTOR)}/runs` +
-    `?token=${encodeURIComponent(token)}&waitForFinish=0` +
-    `&maxItems=${requested.max_items}&maxTotalChargeUsd=${requested.max_total_charge_usd}`;
-  let run: Record<string, unknown> | null = null;
+  let collect: Record<string, unknown> | null = null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), APIFY_COLLECT_TIMEOUT_MS);
   try {
-    const res = await fetch(url, {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/padova-apify-subito-collect`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-job-secret": JOB_SECRET,
+      },
+      // Attesa minima controllata, nessun dry_run, nessun async_start:
+      // il micro-run reale deve arrivare fino all'ingest.
       body: JSON.stringify({
-        searchUrls: [APIFY_MICRORUN_SEARCH_URL],
-        maxItems: requested.max_items,
+        search_urls: [APIFY_MICRORUN_SEARCH_URL],
+        max_items: requested.max_items,
+        wait_seconds: APIFY_COLLECT_WAIT_SECONDS,
       }),
+      signal: controller.signal,
     });
-    if (!res.ok) return { ...base, status: "FAILED", error_code: `apify_start_http_${res.status}` };
-    const j = await res.json().catch(() => null);
-    run = (j as Record<string, unknown> | null)?.data as Record<string, unknown> ?? null;
+    collect = await res.json().catch(() => null) as Record<string, unknown> | null;
+    if (!res.ok) {
+      return {
+        ...base,
+        status: res.status === 429 || res.status === 409 ? "BLOCKED" : "FAILED",
+        counters: { collector_http_status: res.status, collector_reason: collect?.reason ?? collect?.skipped_reason ?? null },
+        error_code: `apify_collect_http_${res.status}`,
+      };
+    }
   } catch {
-    return { ...base, status: "FAILED", error_code: "apify_start_error" };
-  }
-  if (!run || typeof run.id !== "string") {
-    return { ...base, status: "FAILED", error_code: "apify_start_invalid_response" };
+    return { ...base, status: "FAILED", error_code: "apify_collect_unreachable" };
+  } finally {
+    clearTimeout(timer);
   }
 
-  const options = (run.options ?? {}) as Record<string, unknown>;
-  const applied = {
-    max_items: Number(options.maxItems ?? (run as Record<string, unknown>).maxItems ?? NaN),
-    max_total_charge_usd: Number(
-      options.maxTotalChargeUsd ?? (run as Record<string, unknown>).maxTotalChargeUsd ?? NaN,
-    ),
-  };
-  const confirmed = capExactlyApplied(requested, applied);
-  if (!confirmed) {
-    // Nessuna scansione deve proseguire: abort immediato e fail-closed.
-    try {
-      await fetch(
-        `https://api.apify.com/v2/actor-runs/${run.id}/abort?token=${encodeURIComponent(token)}`,
-        { method: "POST" },
-      );
-    } catch { /* best effort */ }
+  const apifyRunId = typeof collect?.run_id === "string" ? collect.run_id : null;
+  const jobId = typeof collect?.job_id === "string" ? collect.job_id : null;
+  const created = Number(collect?.created ?? NaN);
+  const updated = Number(collect?.updated ?? NaN);
+  if (!apifyRunId) {
+    return { ...base, status: "FAILED", error_code: "apify_collect_no_run_id" };
+  }
+
+  // Cap applicato: riletto dalla riga realmente persistita dal percorso Civiko
+  // (nessun echo provider inventato).
+  const runRows = await realRows(
+    `padova_apify_runs?run_id=eq.${encodeURIComponent(apifyRunId)}` +
+      `&select=id,run_id,portal,status,cost_cap_usd,cost_usd,items_count,imported,started_at,finished_at&limit=1`,
+  );
+  const runRow = runRows?.[0] ?? null;
+  if (!runRow) {
     return {
       ...base,
       status: "BLOCKED",
-      applied_cap: Number.isFinite(applied.max_items) ? applied : null,
+      counters: { apify_run_id: apifyRunId, job_id: jobId },
+      error_code: "apify_run_row_missing",
+    };
+  }
+  const applied = {
+    max_items: requested.max_items,
+    max_total_charge_usd: Number(runRow.cost_cap_usd ?? NaN),
+  };
+  const capConfirmed = capExactlyApplied(requested, applied);
+  if (!capConfirmed) {
+    return {
+      ...base,
+      status: "BLOCKED",
+      applied_cap: Number.isFinite(applied.max_total_charge_usd) ? applied : null,
+      counters: { apify_run_id: apifyRunId, job_id: jobId },
       error_code: "apify_cap_not_confirmed",
     };
   }
 
-  try {
-    await recordApifySpend(requested.max_total_charge_usd, 1, { portal: "civiko_commissioning" } as never);
-  } catch { /* best effort */ }
+  const runSucceeded = String(runRow.status ?? "") === "SUCCEEDED";
+  const stagingRows = jobId
+    ? await realCount(`padova_collect_v2_items?select=id&job_id=eq.${encodeURIComponent(jobId)}`)
+    : null;
+  const writesOk = Number.isFinite(created) && Number.isFinite(updated) && (created + updated) > 0;
+  const stagingOk = runSucceeded && Boolean(jobId) && (stagingRows ?? 0) > 0 && writesOk;
+
+  const actualCostUsd = Number.isFinite(Number(runRow.cost_usd))
+    ? Number(runRow.cost_usd)
+    : Number(applied.max_total_charge_usd);
+
+  const counters: Record<string, unknown> = {
+    apify_run_id: apifyRunId,
+    dataset_id: typeof collect?.dataset_id === "string" ? collect.dataset_id : null,
+    job_id: jobId,
+    run_status: runRow.status ?? null,
+    dataset_size: Number.isFinite(Number(collect?.dataset_size)) ? Number(collect?.dataset_size) : null,
+    created: Number.isFinite(created) ? created : null,
+    updated: Number.isFinite(updated) ? updated : null,
+    staging_rows_for_job: stagingRows,
+    // Staging persistito ≠ PWA-ready: la promozione a padova_listings richiede
+    // un processor globale non isolabile per questo run, quindi non viene
+    // invocata e l'attivazione non è consentita da questo micro-run.
+    staging_persisted: stagingOk,
+    pwa_ready: false,
+    activation_allowed: false,
+    promotion_note:
+      "righe persistite in padova_collect_v2_items (staging); promozione a padova_listings non eseguita: processor non isolabile per run Civiko",
+  };
+
+  if (!stagingOk) {
+    return {
+      ...base,
+      status: runSucceeded ? "PARTIAL" : "PARTIAL",
+      applied_cap: applied,
+      cap_confirmed: true,
+      actual_cost_usd: actualCostUsd,
+      counters,
+      error_code: !runSucceeded ? "apify_run_not_succeeded" : "apify_staging_rows_missing",
+    };
+  }
 
   return {
     status: "SUCCESS",
     applied_cap: applied,
     cap_confirmed: true,
-    actual_cost_usd: requested.max_total_charge_usd,
-    counters: {
-      apify_run_id: run.id,
-      dataset_id: typeof run.defaultDatasetId === "string" ? run.defaultDatasetId : null,
-      run_status: typeof run.status === "string" ? run.status : null,
-    },
+    actual_cost_usd: actualCostUsd,
+    counters,
     artifacts: [{
-      table_name: "civiko_commissioning_artifacts",
-      change_kind: "insert",
-      row_ref: String(run.id),
+      table_name: "padova_collect_v2_items",
+      change_kind: created > 0 ? "insert" : "update",
+      row_ref: String(jobId),
       evidence: {
         provider: "apify",
-        actor: APIFY_MICRORUN_ACTOR,
         commissioning_run_id: runId,
-        dataset_id: typeof run.defaultDatasetId === "string" ? run.defaultDatasetId : null,
+        apify_run_id: apifyRunId,
+        job_id: jobId,
+        created,
+        updated,
+        rows_for_job: stagingRows,
+        pwa_ready: false,
       },
     }],
     error_code: null,
   };
 }
+
 
 async function firecrawlMicroRun(runId: string): Promise<AdapterOutcome> {
   const requested = {
