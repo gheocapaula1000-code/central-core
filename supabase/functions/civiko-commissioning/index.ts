@@ -476,7 +476,7 @@ async function apifyMicroRun(runId: string): Promise<AdapterOutcome> {
   if (!stagingOk) {
     return {
       ...base,
-      status: runSucceeded ? "PARTIAL" : "PARTIAL",
+      status: "PARTIAL",
       applied_cap: applied,
       cap_confirmed: true,
       actual_cost_usd: actualCostUsd,
