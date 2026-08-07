@@ -1870,6 +1870,166 @@ export type Database = {
           },
         ]
       }
+      civiko_commissioning_artifacts: {
+        Row: {
+          change_kind: string
+          created_at: string
+          evidence: Json
+          id: string
+          provider: string
+          row_ref: string
+          run_id: string
+          table_name: string
+        }
+        Insert: {
+          change_kind: string
+          created_at?: string
+          evidence?: Json
+          id?: string
+          provider: string
+          row_ref: string
+          run_id: string
+          table_name: string
+        }
+        Update: {
+          change_kind?: string
+          created_at?: string
+          evidence?: Json
+          id?: string
+          provider?: string
+          row_ref?: string
+          run_id?: string
+          table_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "civiko_commissioning_artifacts_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "civiko_commissioning_runs"
+            referencedColumns: ["run_id"]
+          },
+        ]
+      }
+      civiko_commissioning_baselines: {
+        Row: {
+          captured_at: string
+          complete: boolean
+          counters: Json
+          created_at: string
+          failed_queries: Json
+          snapshot_id: string
+          updated_at: string
+        }
+        Insert: {
+          captured_at?: string
+          complete?: boolean
+          counters?: Json
+          created_at?: string
+          failed_queries?: Json
+          snapshot_id?: string
+          updated_at?: string
+        }
+        Update: {
+          captured_at?: string
+          complete?: boolean
+          counters?: Json
+          created_at?: string
+          failed_queries?: Json
+          snapshot_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      civiko_commissioning_claims: {
+        Row: {
+          claimed_at: string
+          created_at: string
+          expires_at: string
+          provider: string
+          run_id: string
+          updated_at: string
+        }
+        Insert: {
+          claimed_at?: string
+          created_at?: string
+          expires_at: string
+          provider: string
+          run_id: string
+          updated_at?: string
+        }
+        Update: {
+          claimed_at?: string
+          created_at?: string
+          expires_at?: string
+          provider?: string
+          run_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      civiko_commissioning_runs: {
+        Row: {
+          action: string
+          actual_cost_usd: number
+          applied_cap: Json | null
+          baseline_snapshot_id: string | null
+          cap_confirmed: boolean
+          counters: Json
+          created_at: string
+          error_code: string | null
+          finished_at: string | null
+          provider: string
+          requested_cap: Json
+          run_id: string
+          started_at: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          action: string
+          actual_cost_usd?: number
+          applied_cap?: Json | null
+          baseline_snapshot_id?: string | null
+          cap_confirmed?: boolean
+          counters?: Json
+          created_at?: string
+          error_code?: string | null
+          finished_at?: string | null
+          provider: string
+          requested_cap?: Json
+          run_id: string
+          started_at?: string
+          status: string
+          updated_at?: string
+        }
+        Update: {
+          action?: string
+          actual_cost_usd?: number
+          applied_cap?: Json | null
+          baseline_snapshot_id?: string | null
+          cap_confirmed?: boolean
+          counters?: Json
+          created_at?: string
+          error_code?: string | null
+          finished_at?: string | null
+          provider?: string
+          requested_cap?: Json
+          run_id?: string
+          started_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "civiko_commissioning_runs_baseline_snapshot_id_fkey"
+            columns: ["baseline_snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "civiko_commissioning_baselines"
+            referencedColumns: ["snapshot_id"]
+          },
+        ]
+      }
       civiko_contendibili_evidence_attempts: {
         Row: {
           chiave_match: string
@@ -9967,6 +10127,14 @@ export type Database = {
       civiko_classify_tipo_lead: {
         Args: { p_agency: string; p_n_agenzie: number; p_src_tipo_lead: string }
         Returns: string
+      }
+      civiko_commissioning_claim: {
+        Args: { p_provider: string; p_run_id: string; p_ttl_seconds?: number }
+        Returns: boolean
+      }
+      civiko_commissioning_release_claim: {
+        Args: { p_provider: string; p_run_id: string }
+        Returns: boolean
       }
       civiko_is_admin_agency: { Args: { _agency_id: string }; Returns: boolean }
       civiko_is_comune_padova: { Args: { p_value: string }; Returns: boolean }
