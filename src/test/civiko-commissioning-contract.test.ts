@@ -257,6 +257,8 @@ describe("migrazione additiva", () => {
   });
 });
 
+const SRC = FN;
+
 describe("Civiko commissioning — aderenza allo schema DB reale", () => {
   it("padova_listings: attivo = expired_at IS NULL, mai stato/created_at/updated_at", () => {
     expect(SRC).toContain("padova_listings?select=id&expired_at=is.null");
