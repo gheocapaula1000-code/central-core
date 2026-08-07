@@ -993,9 +993,10 @@ async function pwaFeedCounts(): Promise<{ status: number; payload: Record<string
   const summary = (feed?.summary ?? {}) as Record<string, unknown>;
   const diagnostics = (feed?.diagnostics ?? {}) as Record<string, unknown>;
   const classificati = await realCount("civiko_signals_classified?select=id");
-  const cambiAgenzia = await realCount("padova_cambi_agenzia?select=id&stato=eq.attivo");
+  // Schema reale: padova_cambi_agenzia usa is_active (nessun campo `stato`).
+  const cambiAgenzia = await realCount("padova_cambi_agenzia?select=id&is_active=is.true");
   const ackRows = await realRows(
-    "civiko_pwa_sync_acks?select=run_id,pipeline_run_id,ok,started_at,finished_at,received_at,counts&order=received_at.desc&limit=1",
+    "civiko_pwa_sync_acks?select=run_id,pipeline_run_id,ok,started_at,finished_at,created_at,counts,scope_comune,scope_slugs,municipality,commercial_zone_slugs&order=created_at.desc&limit=1",
   );
 
   const counts = {
