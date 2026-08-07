@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   htmlToEvidenceText,
   isAllowedOfficialUrl,
+  readLimitedText,
 } from "../../../supabase/functions/trovabandi-engine/scrape";
 
 describe("UEradar official-source HTTP fallback", () => {
@@ -18,6 +19,18 @@ describe("UEradar official-source HTTP fallback", () => {
   it("blocca host locali e protocolli non HTTP", () => {
     expect(isAllowedOfficialUrl("http://127.0.0.1/admin", "127.0.0.1")).toBe(false);
     expect(isAllowedOfficialUrl("file:///etc/passwd", "example.it")).toBe(false);
+    expect(isAllowedOfficialUrl("https://[::1]/admin", "::1")).toBe(false);
+    expect(isAllowedOfficialUrl("https://example.it:8443/avviso", "example.it")).toBe(false);
+  });
+
+  it("rifiuta il corpo quando supera il limite reale anche senza Content-Length", async () => {
+    const response = new Response("123456789");
+    await expect(readLimitedText(response, 8)).resolves.toBeNull();
+  });
+
+  it("legge il corpo entro il limite", async () => {
+    const response = new Response("bando ufficiale");
+    await expect(readLimitedText(response, 100)).resolves.toBe("bando ufficiale");
   });
 
   it("estrae testo leggibile senza script, stile o markup", () => {
