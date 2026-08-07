@@ -6,7 +6,7 @@
 // Le azioni normali del Central Core restano invariate: qui non ne viene
 // ridefinita nessuna.
 //
-// Auth: Authorization: Bearer <CIVIKO_ORCHESTRATOR_DISPATCH_SECRET>
+// Auth: Authorization: Bearer <CIVIKO_ORCHESTRATOR_DISPATCH_SECRET | CENTRAL_CORE_API_KEY>
 //       (lo stesso secret dell'orchestrator Civiko), confronto timing-safe,
 //       fail-closed. Nessun secret viene mai loggato o restituito.
 //
@@ -16,6 +16,7 @@
 // Nessun cron viene creato o attivato da questa funzione.
 
 import {
+  authorizeBearer,
   capExactlyApplied,
   CIVIKO_COMMISSIONING_ACTIONS,
   CIVIKO_COMMISSIONING_CAPS,
@@ -68,35 +69,6 @@ function json(status: number, payload: Record<string, unknown>): Response {
     headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
 }
-
-function timingSafeEqual(a: string, b: string): boolean {
-  const enc = new TextEncoder();
-  const ab = enc.encode(a);
-  const bb = enc.encode(b);
-  const len = Math.max(ab.length, bb.length);
-  let diff = ab.length ^ bb.length;
-  for (let i = 0; i < len; i++) diff |= (ab[i] ?? 0) ^ (bb[i] ?? 0);
-  return diff === 0;
-}
-
-// Auth Civiko isolata: accetta il secret dedicato dell'orchestrator oppure il
-// già esistente CENTRAL_CORE_API_KEY (stesso canale autorizzato). Confronto
-// timing-safe su OGNI secret non vuoto; nessun valore viene mai loggato.
-export function authorizeBearer(
-  bearer: string,
-  secrets: readonly string[],
-): { ok: boolean; status: number; error: string | null } {
-  const configured = secrets.filter((s) => typeof s === "string" && s.length > 0);
-  if (configured.length === 0) return { ok: false, status: 500, error: "misconfigured" };
-  if (!bearer) return { ok: false, status: 401, error: "unauthorized" };
-  let matched = false;
-  for (const secret of configured) {
-    if (timingSafeEqual(bearer, secret)) matched = true;
-  }
-  return matched ? { ok: true, status: 200, error: null } : { ok: false, status: 401, error: "unauthorized" };
-}
-
-
 
 async function restFetch(
   pathAndQuery: string,
