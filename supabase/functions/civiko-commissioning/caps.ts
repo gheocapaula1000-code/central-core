@@ -85,6 +85,7 @@ export interface BodyValidationOk {
   action: CivikoCommissioningAction;
   runId?: string;
   baselineSnapshotId?: string;
+  resumeRunId?: string;
 }
 export interface BodyValidationErr {
   ok: false;
@@ -120,6 +121,16 @@ export function validateCommissioningBody(
       baselineSnapshotId: isUuid(body.baseline_snapshot_id)
         ? body.baseline_snapshot_id as string
         : undefined,
+    };
+  }
+  if (typed === "civiko_commissioning_chain") {
+    if (body.resume_run_id !== undefined && !isUuid(body.resume_run_id)) {
+      return { ok: false, status: 400, error: "invalid_resume_run_id" };
+    }
+    return {
+      ok: true,
+      action: typed,
+      resumeRunId: isUuid(body.resume_run_id) ? body.resume_run_id as string : undefined,
     };
   }
   return { ok: true, action: typed };
