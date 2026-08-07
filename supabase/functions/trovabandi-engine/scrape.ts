@@ -4,9 +4,15 @@
 // in testo, limitato dal chiamante e usato soltanto come evidenza documentale.
 
 function normalizedDomain(value: string): string {
-  const raw = value.trim().toLowerCase().replace(/^www\./, "").replace(/\.$/, "");
+  const raw = value
+    .trim()
+    .toLowerCase()
+    .replace(/^www\./, "")
+    .replace(/\.$/, "");
   try {
-    return new URL(`https://${raw}`).hostname.toLowerCase().replace(/^www\./, "");
+    return new URL(`https://${raw}`).hostname
+      .toLowerCase()
+      .replace(/^www\./, "");
   } catch {
     return "";
   }
@@ -22,7 +28,8 @@ function isBlockedHostname(hostname: string): boolean {
     host.startsWith("fc") ||
     host.startsWith("fd") ||
     /^fe[89ab]/.test(host)
-  ) return true;
+  )
+    return true;
   const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(host);
   const candidate = mapped?.[1] ?? host;
   const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(candidate);
@@ -38,11 +45,15 @@ function isBlockedHostname(hostname: string): boolean {
   );
 }
 
-export function isAllowedOfficialUrl(rawUrl: string, officialDomain: string): boolean {
+export function isAllowedOfficialUrl(
+  rawUrl: string,
+  officialDomain: string,
+): boolean {
   try {
     const url = new URL(rawUrl);
     if (url.protocol !== "https:" && url.protocol !== "http:") return false;
-    if (url.username || url.password || isBlockedHostname(url.hostname)) return false;
+    if (url.username || url.password || isBlockedHostname(url.hostname))
+      return false;
     if (url.port && url.port !== "80" && url.port !== "443") return false;
     const host = normalizedDomain(url.hostname);
     const allowed = normalizedDomain(officialDomain);
@@ -61,21 +72,27 @@ function decodeEntities(value: string): string {
     nbsp: " ",
     quot: '"',
   };
-  return value.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity, token: string) => {
-    const lower = token.toLowerCase();
-    if (lower.startsWith("#x")) {
-      const code = Number.parseInt(lower.slice(2), 16);
-      return Number.isFinite(code) ? String.fromCodePoint(code) : entity;
-    }
-    if (lower.startsWith("#")) {
-      const code = Number.parseInt(lower.slice(1), 10);
-      return Number.isFinite(code) ? String.fromCodePoint(code) : entity;
-    }
-    return named[lower] ?? entity;
-  });
+  return value.replace(
+    /&(#x[0-9a-f]+|#\d+|[a-z]+);/gi,
+    (entity, token: string) => {
+      const lower = token.toLowerCase();
+      if (lower.startsWith("#x")) {
+        const code = Number.parseInt(lower.slice(2), 16);
+        return Number.isFinite(code) ? String.fromCodePoint(code) : entity;
+      }
+      if (lower.startsWith("#")) {
+        const code = Number.parseInt(lower.slice(1), 10);
+        return Number.isFinite(code) ? String.fromCodePoint(code) : entity;
+      }
+      return named[lower] ?? entity;
+    },
+  );
 }
 
-export function htmlToEvidenceText(html: string): { title: string; text: string } {
+export function htmlToEvidenceText(html: string): {
+  title: string;
+  text: string;
+} {
   const titleMatch = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html);
   const title = decodeEntities((titleMatch?.[1] ?? "").replace(/<[^>]+>/g, " "))
     .replace(/\s+/g, " ")
@@ -84,7 +101,10 @@ export function htmlToEvidenceText(html: string): { title: string; text: string 
   const text = decodeEntities(
     html
       .replace(/<!--[\s\S]*?-->/g, " ")
-      .replace(/<(script|style|noscript|svg|template)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
+      .replace(
+        /<(script|style|noscript|svg|template)\b[^>]*>[\s\S]*?<\/\1>/gi,
+        " ",
+      )
       .replace(/<(br|\/p|\/div|\/li|\/tr|\/h[1-6])\b[^>]*>/gi, "\n")
       .replace(/<[^>]+>/g, " "),
   )
@@ -94,7 +114,6 @@ export function htmlToEvidenceText(html: string): { title: string; text: string 
     .trim();
   return { title, text };
 }
-
 
 export async function readLimitedText(
   response: Response,
