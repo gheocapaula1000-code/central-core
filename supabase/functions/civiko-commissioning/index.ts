@@ -29,6 +29,8 @@ import { canSpendAi, recordAiSpend } from "../_shared/aiBudget.ts";
 import { CIVIKO_COMMERCIAL_ZONES } from "../_shared/civikoCommercialZoneContract.ts";
 
 const DISPATCH_SECRET = Deno.env.get("CIVIKO_ORCHESTRATOR_DISPATCH_SECRET") ?? "";
+// Canale già autorizzato orchestrator → Central Core: nessun nuovo Secret manuale.
+const CENTRAL_CORE_API_KEY = Deno.env.get("CENTRAL_CORE_API_KEY") ?? "";
 const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
 const CIVIKO_APP_SECRET = Deno.env.get("AI_CORE_SECRET_CIVIKO") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
