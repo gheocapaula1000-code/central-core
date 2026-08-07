@@ -79,6 +79,25 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+// Auth Civiko isolata: accetta il secret dedicato dell'orchestrator oppure il
+// già esistente CENTRAL_CORE_API_KEY (stesso canale autorizzato). Confronto
+// timing-safe su OGNI secret non vuoto; nessun valore viene mai loggato.
+export function authorizeBearer(
+  bearer: string,
+  secrets: readonly string[],
+): { ok: boolean; status: number; error: string | null } {
+  const configured = secrets.filter((s) => typeof s === "string" && s.length > 0);
+  if (configured.length === 0) return { ok: false, status: 500, error: "misconfigured" };
+  if (!bearer) return { ok: false, status: 401, error: "unauthorized" };
+  let matched = false;
+  for (const secret of configured) {
+    if (timingSafeEqual(bearer, secret)) matched = true;
+  }
+  return matched ? { ok: true, status: 200, error: null } : { ok: false, status: 401, error: "unauthorized" };
+}
+
+
+
 async function restFetch(
   pathAndQuery: string,
   init: RequestInit = {},
