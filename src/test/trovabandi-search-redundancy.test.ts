@@ -8,14 +8,14 @@ import { readFileSync } from "node:fs";
 const ENGINE = readFileSync("supabase/functions/trovabandi-engine/index.ts", "utf8");
 
 const start = ENGINE.indexOf("function searchRedundancyOutcome");
-const end = ENGINE.indexOf("\nfunction stringArray");
+const end = ENGINE.indexOf("\nfunction inferCompanySize");
 expect(start).toBeGreaterThan(-1);
 expect(end).toBeGreaterThan(start);
 
-const source = ENGINE.slice(start, end).replace(
-  /entries: SearchRedundancyEntry\[\],/,
-  "entries,",
-);
+const source = ENGINE.slice(start, end)
+  .replace(/entries: SearchRedundancyEntry\[\],/, "entries,")
+  .replace(/\):\s*SearchRedundancyResult\[\]\s*\{/, ") {");
+
 
 const searchRedundancyOutcome = new Function(
   `${source}; return searchRedundancyOutcome;`,
