@@ -52,6 +52,8 @@ const APIFY_MICRORUN_SEARCH_URL =
 // Attesa minima controllata del collector (sync), sotto il limite HTTP.
 const APIFY_COLLECT_WAIT_SECONDS = 150;
 const APIFY_COLLECT_TIMEOUT_MS = 170_000;
+// Promozione PWA-ready (RPC Civiko dedicata, max 3 righe).
+const PROMOTE_TIMEOUT_MS = 30_000;
 
 const FIRECRAWL_MICRORUN_URL = "https://www.comune.padova.it/";
 const PERPLEXITY_MICRORUN_MODEL = "sonar";
@@ -348,7 +350,7 @@ interface AdapterOutcome {
  * dal suo contratto (search_urls, max_items, wait_seconds), con max_items
  * imposto server-side dal cap Civiko e nessun dry_run.
  */
-async function apifyMicroRun(runId: string): Promise<AdapterOutcome> {
+async function apifyMicroRun(runId: string, startedAt: string): Promise<AdapterOutcome> {
   const requested = {
     max_items: CIVIKO_COMMISSIONING_CAPS.apify.max_items,
     max_total_charge_usd: CIVIKO_COMMISSIONING_CAPS.apify.max_total_charge_usd,
@@ -784,7 +786,10 @@ async function perplexityMicroRun(runId: string): Promise<AdapterOutcome> {
   };
 }
 
-const ADAPTERS: Record<CivikoCommissioningProvider, (runId: string) => Promise<AdapterOutcome>> = {
+const ADAPTERS: Record<
+  CivikoCommissioningProvider,
+  (runId: string, startedAt: string) => Promise<AdapterOutcome>
+> = {
   apify: apifyMicroRun,
   firecrawl: firecrawlMicroRun,
   perplexity: perplexityMicroRun,
@@ -807,12 +812,12 @@ export const CIVIKO_PROVIDER_PERSISTENCE: Record<
   { table: string; writer_available: boolean; note: string }
 > = {
   apify: {
-    // La prova NON è la sola riga padova_apify_runs: serve anche lo staging
-    // dati importato dal percorso Civiko (padova_collect_v2_items del job_id).
-    table: "padova_collect_v2_items",
+    // La prova NON è la riga padova_apify_runs né il solo staging: serve la
+    // promozione PWA-ready in padova_listings via RPC Civiko dedicata.
+    table: "padova_listings",
     writer_available: true,
     note:
-      "run SUCCEEDED in padova_apify_runs + righe staging padova_collect_v2_items legate al job_id (created+updated>0)",
+      "run SUCCEEDED + staging padova_collect_v2_items del job_id + promozione civiko_commissioning_promote_apify_job con padova_listings.last_seen_at >= started_at",
   },
 
   firecrawl: {
@@ -972,7 +977,7 @@ async function runMicroRun(
       };
     }
 
-    const outcome = await ADAPTERS[provider](runId);
+    const outcome = await ADAPTERS[provider](runId, startedAt);
 
     // Prova persistita provider-specifica in una tabella di dominio Civiko:
     // senza di essa il run resta BLOCKED, anche con HTTP 200 del provider.
@@ -1019,7 +1024,8 @@ async function runMicroRun(
         // Staging persistito ≠ dati PWA: l'attivazione non è mai consentita da
         // un micro-run di commissioning.
         staging_persisted: Boolean(outcome.counters.staging_persisted ?? false),
-        pwa_ready: false,
+        pwa_ready: Boolean(outcome.counters.pwa_ready ?? false),
+        // L'attivazione non è mai consentita da un micro-run di commissioning.
         activation_allowed: false,
         domain_proof: proof
           ? { table_name: proof.table_name, row_ref: proof.row_ref, change_kind: proof.change_kind }
