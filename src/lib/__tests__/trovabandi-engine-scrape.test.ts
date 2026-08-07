@@ -7,20 +7,34 @@ import {
 
 describe("UEradar official-source HTTP fallback", () => {
   it("accetta solo la fonte ufficiale e i suoi sottodomini", () => {
-    expect(isAllowedOfficialUrl("https://bandi.regione.marche.it/avviso", "regione.marche.it")).toBe(
-      true,
-    );
-    expect(isAllowedOfficialUrl("https://evil.example/avviso", "regione.marche.it")).toBe(false);
     expect(
-      isAllowedOfficialUrl("https://regione.marche.it@evil.example/avviso", "regione.marche.it"),
+      isAllowedOfficialUrl(
+        "https://bandi.regione.marche.it/avviso",
+        "regione.marche.it",
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedOfficialUrl("https://evil.example/avviso", "regione.marche.it"),
+    ).toBe(false);
+    expect(
+      isAllowedOfficialUrl(
+        "https://regione.marche.it@evil.example/avviso",
+        "regione.marche.it",
+      ),
     ).toBe(false);
   });
 
   it("blocca host locali e protocolli non HTTP", () => {
-    expect(isAllowedOfficialUrl("http://127.0.0.1/admin", "127.0.0.1")).toBe(false);
-    expect(isAllowedOfficialUrl("file:///etc/passwd", "example.it")).toBe(false);
+    expect(isAllowedOfficialUrl("http://127.0.0.1/admin", "127.0.0.1")).toBe(
+      false,
+    );
+    expect(isAllowedOfficialUrl("file:///etc/passwd", "example.it")).toBe(
+      false,
+    );
     expect(isAllowedOfficialUrl("https://[::1]/admin", "::1")).toBe(false);
-    expect(isAllowedOfficialUrl("https://example.it:8443/avviso", "example.it")).toBe(false);
+    expect(
+      isAllowedOfficialUrl("https://example.it:8443/avviso", "example.it"),
+    ).toBe(false);
   });
 
   it("rifiuta il corpo quando supera il limite reale anche senza Content-Length", async () => {
@@ -30,7 +44,9 @@ describe("UEradar official-source HTTP fallback", () => {
 
   it("legge il corpo entro il limite", async () => {
     const response = new Response("bando ufficiale");
-    await expect(readLimitedText(response, 100)).resolves.toBe("bando ufficiale");
+    await expect(readLimitedText(response, 100)).resolves.toBe(
+      "bando ufficiale",
+    );
   });
 
   it("estrae testo leggibile senza script, stile o markup", () => {
