@@ -774,6 +774,38 @@ async function persistPipelineAudit(
   }, true);
 }
 
+/**
+ * Legge l'evidenza DB canonica del recompute e decide fail-closed.
+ * Nessuna scrittura: solo letture su padova_recompute_last_result e
+ * padova_contendibili (la stessa evidenza usata dal release gate).
+ */
+async function reconcileRecompute(startedAt: string): Promise<ReconcileVerdict> {
+  const lastResultRows = await realRows(
+    `padova_recompute_last_result?select=created_at,result&order=created_at.desc&limit=5`,
+  );
+  const updatedCount = await realCount(
+    `padova_contendibili?select=id&commercial_zone_slug=in.(${CIVIKO_SCOPE_SLUGS.join(",")})&n_agenzie=gte.2&updated_at=gte.${startedAt}`,
+  );
+  const newest = await realRows(
+    `padova_contendibili?select=updated_at&order=updated_at.desc&limit=1`,
+  );
+  return evaluateRecomputeReconciliation({
+    startedAt,
+    lastResultRows: lastResultRows === null
+      ? null
+      : lastResultRows.map((row) => ({
+        created_at: String(row.created_at ?? ""),
+        result: row.result,
+      })),
+    contendibiliUpdatedCount: updatedCount,
+    contendibiliMaxUpdatedAt: newest?.[0]?.updated_at
+      ? String(newest[0].updated_at)
+      : null,
+  });
+}
+
+
+
 async function runAction(
   action: SimpleAction,
   context: ActionContext,
