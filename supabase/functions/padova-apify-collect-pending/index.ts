@@ -459,6 +459,21 @@ Deno.serve(async (req) => {
   const dbEvidenceOnly = body.db_evidence_only === true;
   const evidenceWindowHours = Math.max(1, Math.min(48, Number(body.evidence_window_hours ?? 6)));
 
+  // Perimetro corrente: quando l'orchestratore correla l'esatto 05:10, la
+  // selezione è vincolata a quei run (o almeno alla loro finestra temporale).
+  const scopeStartedAfter = typeof body.scope_started_after === "string" &&
+      !Number.isNaN(Date.parse(body.scope_started_after))
+    ? new Date(body.scope_started_after).toISOString()
+    : null;
+  // Residui storici: classificazione auditabile e non distruttiva. Non dichiara
+  // mai un import riuscito, marca solo l'assenza di evidenza di import.
+  const quarantineStale = body.quarantine_stale === true;
+  const quarantineOlderThanHours = Math.max(
+    1,
+    Math.min(720, Number(body.quarantine_older_than_hours ?? 24)),
+  );
+
+
   const portalFamilyOf = (portalTag: string): string => {
     if (portalTag.startsWith("immobiliare")) return "immobiliare";
     if (portalTag.startsWith("idealista")) return "idealista";
@@ -487,20 +502,62 @@ Deno.serve(async (req) => {
     candidates = data ?? [];
   } else {
     const cutoff = new Date(Date.now() - staleMinutes * 60_000).toISOString();
-    const { data: runningRows } = await sb.from("padova_apify_runs").select("*")
-      .eq("status", "RUNNING").lt("started_at", cutoff)
-      .order("started_at", { ascending: true }).limit(maxRuns);
-    const { data: succeededUnimportedRows } = await sb.from("padova_apify_runs").select("*")
+    // Ordinamento decrescente + eventuale finestra di scope: i run correnti
+    // hanno sempre la precedenza sui residui storici (anti-starvation).
+    let runningQuery = sb.from("padova_apify_runs").select("*")
+      .eq("status", "RUNNING").lt("started_at", cutoff);
+    let succeededQuery = sb.from("padova_apify_runs").select("*")
       .eq("status", "SUCCEEDED")
       .or("imported.is.null,imported.eq.0")
-      .lt("started_at", cutoff)
-      .order("started_at", { ascending: true }).limit(maxRuns);
+      .lt("started_at", cutoff);
+    if (scopeStartedAfter) {
+      runningQuery = runningQuery.gte("started_at", scopeStartedAfter);
+      succeededQuery = succeededQuery.gte("started_at", scopeStartedAfter);
+    }
+    const { data: runningRows } = await runningQuery
+      .order("started_at", { ascending: false }).limit(maxRuns);
+    const { data: succeededUnimportedRows } = await succeededQuery
+      .order("started_at", { ascending: false }).limit(maxRuns);
     const byRunId = new Map<string, any>();
     for (const r of [...(runningRows ?? []), ...(succeededUnimportedRows ?? [])]) {
       if (r?.run_id) byRunId.set(String(r.run_id), r);
     }
     candidates = Array.from(byRunId.values()).slice(0, maxRuns);
   }
+
+  // ============ QUARANTENA RESIDUI STORICI (costo zero) ============
+  // Marca in modo auditabile i run non terminali/non importati più vecchi del
+  // cutoff che NON fanno parte del perimetro corrente. Nessun import dichiarato.
+  let quarantinedRuns = 0;
+  let quarantineError: string | null = null;
+  if (quarantineStale && !dryRun) {
+    try {
+      const qCutoff = new Date(Date.now() - quarantineOlderThanHours * 3600_000).toISOString();
+      const scopeIds = new Set(candidates.map((row: any) => String(row?.run_id ?? "")));
+      const { data: staleSucceeded } = await sb.from("padova_apify_runs")
+        .select("run_id").eq("status", "SUCCEEDED")
+        .or("imported.is.null,imported.eq.0")
+        .lt("started_at", qCutoff).limit(500);
+      const { data: staleRunning } = await sb.from("padova_apify_runs")
+        .select("run_id").eq("status", "RUNNING")
+        .lt("started_at", qCutoff).limit(500);
+      const ids = Array.from(new Set([...(staleSucceeded ?? []), ...(staleRunning ?? [])]
+        .map((row: any) => String(row?.run_id ?? ""))
+        .filter((id) => id.length > 0 && !scopeIds.has(id))));
+      if (ids.length > 0) {
+        const stamp = new Date().toISOString();
+        const { error } = await sb.from("padova_apify_runs").update({
+          status: "QUARANTINED",
+          error: `quarantine:no_import_evidence:${stamp}`,
+        }).in("run_id", ids);
+        if (error) quarantineError = "quarantine_update_failed";
+        else quarantinedRuns = ids.length;
+      }
+    } catch {
+      quarantineError = "quarantine_exception";
+    }
+  }
+
 
   const results: any[] = [];
   for (const row of candidates) {
@@ -864,6 +921,7 @@ Deno.serve(async (req) => {
     return false;
   });
   const auxiliaryFailures = [
+    ...(quarantineError ? [{ error: quarantineError }] : []),
     ...backfillLaunches.filter((entry) => entry?.error),
     ...(recomputeResult?.error ? [recomputeResult] : []),
   ];
@@ -882,7 +940,7 @@ Deno.serve(async (req) => {
     result?.status === "SUCCEEDED" && Number(result?.items ?? 0) > 0
   ));
   const requiredPortalsOk = requiredPortals.every((portal) =>
-    completedPortalFamilies.has(portal)
+    (completedPortalFamilies as Set<string>).has(String(portal))
   );
   const ok = terminalFailures.length === 0 && auxiliaryFailures.length === 0 &&
     candidatesOk && terminalOk && requiredPortalsOk &&
@@ -901,7 +959,12 @@ Deno.serve(async (req) => {
       sum + Number(result?.municipality_missing ?? 0), 0),
     out_of_scope_written: 0,
     errors_count: terminalFailures.length + auxiliaryFailures.length,
-    zombies_marked: zombiesMarked, agency_backfill: backfillLaunches,
+    zombies_marked: zombiesMarked,
+    quarantined_runs: quarantinedRuns,
+    quarantine_error: quarantineError,
+    scope_started_after: scopeStartedAfter,
+    scope_run_ids: Array.isArray(body.run_ids) ? body.run_ids.length : 0,
+    agency_backfill: backfillLaunches,
     recompute: recomputeResult, results,
     error: ok ? undefined : (!candidatesOk
       ? "no_current_provider_candidates"
