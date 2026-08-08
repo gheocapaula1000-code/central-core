@@ -765,7 +765,7 @@ Deno.serve(async (req) => {
   // e avvia un nuovo run detail-by-URL. Serve a completare la recovery agenzie
   // in modo automatico senza intervento manuale.
   const backfillLaunches: any[] = [];
-  if (!dryRun && agencyBackfillEnabled && agencyBackfillMaxLaunches > 0) {
+  if (!dryRun && !dbEvidenceOnly && agencyBackfillEnabled && agencyBackfillMaxLaunches > 0) {
     const immoIngestCompleted = results.some((r) =>
       r &&
       r.actor_id === ACTOR_IMMO_DETAIL &&
@@ -832,7 +832,7 @@ Deno.serve(async (req) => {
   // RUNNING più vecchi di zombieHours ma non più identificabili su Apify
   // (o comunque orfani) → marca TIMED_OUT per non re-processarli in eterno.
   let zombiesMarked = 0;
-  if (!dryRun && zombieHours > 0) {
+  if (!dryRun && !dbEvidenceOnly && zombieHours > 0) {
     const zombieCutoff = new Date(Date.now() - zombieHours * 3600_000).toISOString();
     const { data: zRows } = await sb.from("padova_apify_runs")
       .select("run_id,started_at").eq("status", "RUNNING").lt("started_at", zombieCutoff).limit(100);
