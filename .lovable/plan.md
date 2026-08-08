@@ -1,50 +1,59 @@
-# TrovaBandi — diagnosi sola lettura run 11:24:04Z – 11:25:55Z
+# pipeline_0510_capped — run unico sui 4 portali con tetto di costo rigido
 
-Nessuna modifica a codice, database, deploy; nessuna chiamata a trovabandi-engine, Firecrawl, Perplexity o Apify. Nessun segreto o contenuto mostrato.
+## Cosa dice il codice reale (sola lettura, nessuna modifica fatta)
 
-## Evidenze osservabili
+**Composizione di `pipeline_0510`** (`civiko-orchestrator-dispatch/index.ts`): un solo stage `["apify_batch", "portal_casa"]`.
+- `apify_batch` → `civiko-padova-apify-launch-batch`, che chiama in sequenza 4 wrapper: `cron-apify-immobiliare-nightly`, `cron-apify-idealista-nightly`, `cron-apify-subito-nightly`, `civiko-private-leads-nightly`. Il batch **rifiuta per contratto qualunque override** (body hardcoded `{}`), quindi oggi non esiste alcun modo di ridurre i volumi dall'esterno.
+- `portal_casa` → `enqueue-padova-portal-scrapes` (`max_pages: 5`), coda interna, non Apify.
 
-Otto run `collect` in `trovabandi_runs`, tutti `status = SUCCEEDED`, tutti `error_code = null`, tutti `warnings = []` (array vuoto):
+**Actor e input cap disponibili**
+| Portale | Actor | Input di volume | Default wrapper |
+|---|---|---|---|
+| immobiliare | `azzouzana~immobiliare-it-listing-page-scraper-by-search-url` (discover) + `memo23~immobiliare-scraper` (detail) | `maxItems` per run, 4 search URL | `desired_results: 300`, `max_items: 800` |
+| idealista | actor unico (`Property_urls`, `desiredResults`) | `desired_results`, `max_urls_from_db`, `max_items` | 200 / 200 / 400 |
+| subito | `emastra~subito-it-immobili` | `maxResultItems` (clamp 1..1000) | `max_items: 300` |
 
-| Inizio (UTC) | Fine (UTC) | discovered | processed | verified | provider_usage |
-| --- | --- | --- | --- | --- | --- |
-| 11:24:04 | 11:24:11 | 15 | 0 | 0 | firecrawl_search 8, perplexity_search 7, pages_scraped 1 |
-| 11:24:13 | 11:24:33 | 12 | 0 | 0 | firecrawl_search 8, perplexity_search 8, pages_scraped 1 |
-| 11:24:46 | 11:24:48 | 0 | 0 | 0 | tutti 0 |
-| 11:24:49 | 11:25:02 | 13 | 0 | 0 | firecrawl_search 8, perplexity_search 8, pages_scraped 1 |
-| 11:25:03 | 11:25:12 | 16 | 0 | 0 | firecrawl_search 8, perplexity_search 8, pages_scraped 1 |
-| 11:25:14 | 11:25:29 | 13 | 0 | 0 | firecrawl_search 8, perplexity_search 8, pages_scraped 1 |
-| 11:25:31 | 11:25:41 | 8 | 0 | 0 | firecrawl_search 0, perplexity_search 8, pages_scraped 1 |
-| 11:25:42 | 11:25:54 | 16 | 0 | 0 | firecrawl_search 8, perplexity_search 8, pages_scraped 1 |
+I tre wrapper cron **accettano override dal body** (`{ ...defaults, ...overrides }`): i cap sono quindi già iniettabili, manca solo un chiamante Civiko che li imposti.
 
-Log Edge di `trovabandi-engine` nella finestra: solo righe `booted` / `Listening on http://localhost:9999/` / `shutdown` (11:24:33, 11:24:45, 11:24:48, 11:24:49, 11:25:02 ×2, 11:25:12, 11:25:13, 11:25:29, 11:25:30, 11:25:41 ×2, 11:25:55). Nessuna riga di errore, nessun log applicativo: la funzione non emette `console.log/warn/error` in nessun punto del percorso collect.
+**Stime di costo hardcoded**
+- immobiliare: `estUsd 0.20` per ciascuna delle 4 search URL discover + `0.30` detail → ~1.10 USD a run.
+- idealista: `estUsd 0.50` fisso.
+- subito: `estUsd = max_items * 5 / 1000` (300 item → 1.50 USD), l'unico realmente proporzionale.
+- Totale attuale stimato: **~3.1 USD** per run 0510 (più il costo reale pay-per-result, che i primi due non modellano).
 
-Fatti aggiuntivi verificati nel codice:
+**Guardie esistenti** (`_shared/apifyBudget.ts`): cap giornaliero `APIFY_DAILY_CAP_USD` (default 10) e mensile `APIFY_MONTHLY_CAP_USD` (default 60), più l'hard cap EUR del radar. Sono guardie **cumulative di piattaforma**, non un tetto per singolo run: non impediscono che questo run bruci più del previsto.
 
-- `pages_scraped` è `hits.length`, cioè il numero di candidati effettivamente tentati dopo `slice(0, max_pages)`. Valore 1 in tutti i run: **è stato tentato un solo documento per run**, indipendentemente dai 8–16 candidati scoperti.
-- Il run 11:24:46 → 11:24:48 ha `discovered = 0` e provider a 0: nessun candidato trovato, nessun tentativo. Non è un caso di estrazione.
-- La versione in esecuzione in quella finestra era quella **precedente** al deploy odierno: non registrava né `warnings` per fase né il campo `diagnostics`. Per questo tutti i `warnings` sono vuoti.
+**Abort automatico per spesa: oggi assente.** `startApifyRun` chiama `POST /v2/acts/{id}/runs?token&waitForFinish=0` e non passa nessuna run option. Apify espone `maxTotalChargeUsd`, `timeout` e `memory` come query param di avvio: sono la leva reale per l'abort lato provider e non è mai usata nel codice.
 
-## Conclusione
+**Cap minimo semanticamente valido per il gate** (`release_gate`, blocco `fourPortalCurrentRunEvidence`): il gate richiede, per l'esatto ultimo 0510, un `run_id` per ciascuna delle 3 famiglie Apify, ciascuna con `status SUCCEEDED`, `errors_count 0` e `items >= 0` (accetta `zero_novelty`), più la coda Casa completa e `collect_pending` senza errori. **Non c'è alcuna soglia sul numero di item.** Il cap più piccolo valido è quindi quello che garantisce dataset non vuoti per robustezza, non per contratto: **25 item per portale**.
 
-Con le sole evidenze disponibili **non è possibile distinguere** tra le ipotesi (a) Perplexity non-2xx/timeout/JSON non valido, (b) risposta valida con `is_opportunity = false`, (c) errore di upsert DB.
+## Proposta: azione additiva `pipeline_0510_capped`
 
-Motivo dichiarato esplicitamente: la build attiva durante quei run non produceva alcun segnale osservabile per le fasi scrape → extract → store. Non ci sono log applicativi, `warnings` è vuoto, `error_code` è nullo e non esisteva ancora la diagnostica per fase/codice. Qualsiasi attribuzione a (a), (b) o (c) sarebbe un'invenzione.
+Solo Civiko, fail-closed, additiva. `pipeline_0510` resta byte-identica; UEradar, contratti condivisi, `_shared/*` e i wrapper esistenti non vengono toccati.
 
-Unico elemento discriminante già osservabile: `pages_scraped = 1` prova che la fase di ricerca ha funzionato e che almeno un documento è stato tentato in 7 run su 8 — quindi il punto di caduta è a valle della discovery, ma non è determinabile quale dei tre.
+1. **Nuova Edge Function `civiko-padova-apify-launch-batch-capped`** (copia isolata, il batch attuale resta intatto). Differenze:
+   - budget di run dichiarato e costante: `RUN_COST_CAP_USD = 1.00`;
+   - profilo di cap hardcoded (non accetta override dal client): immobiliare `desired_results 25 / max_items 25` su **1 sola search URL**, idealista `desired_results 25 / max_urls_from_db 25 / max_items 25`, subito `max_items 25`;
+   - stima preventiva per portale, accumulo e **stop prima del lancio** se il totale supererebbe il cap → risposta `402 cost_cap_would_exceed` senza chiamare Apify;
+   - echo obbligatorio nell'envelope: `cost_cap_usd`, `estimated_cost_usd`, `per_portal_estimates[]`, `caps_applied{}`, `run_id`/`dataset_id` per portale;
+   - se un portale non restituisce identificatori o supera il cap, si ferma: nessun lancio parziale silenzioso.
 
-## Passi proposti (nessuno eseguito ora)
+2. **Abort automatico per spesa lato provider**: passaggio di `maxTotalChargeUsd` + `timeout` all'avvio del run, tramite un helper locale alla funzione capped (non modificando `_shared/apify.ts`). Se il token/actor non supporta il parametro, il run **non parte** (fail-closed) invece di partire senza tetto.
 
-1. Eseguire, quando la proprietaria lo ritiene opportuno, **due soli** `collect` diagnostici con `max_pages: 2` sulla build attualmente deployata, che registra `diagnostics` per fase e codice.
-2. Rileggere in sola lettura `trovabandi_runs` per gli stessi run e leggere i contatori:
-   - `scrape:NO_CONTENT` → caduta a monte dell'estrazione;
-   - `extract:HTTP_ERROR` / `extract:TIMEOUT` / `extract:PARSE_FAILED` → ipotesi (a);
-   - `extract:NOT_OPPORTUNITY` → ipotesi (b);
-   - `store:REJECTED` → ipotesi (c).
-3. Solo dopo aver letto codici reali, decidere l'eventuale correzione. Nessuna modifica prima di quella evidenza.
+3. **Nuova azione orchestratore `pipeline_0510_capped`**: stage unico `["apify_batch_capped", "portal_casa"]`, con `portal_casa` invariato ma `max_pages: 2`. Registrata in allowlist accanto alle esistenti, senza rimuovere né rinominare nulla; nessun cron creato o attivato.
 
-## Note tecniche
+4. **Release gate invariato**: l'audit scrive `pipeline_0510_capped` come pipeline propria. Va deciso esplicitamente un punto (vedi sotto) prima di implementare.
 
-- Tabella consultata: `trovabandi_runs` (`status`, `error_code`, `discovered_count`, `processed_count`, `verified_count`, `warnings`, `provider_usage`, `started_at`, `finished_at`).
-- Log consultati: Edge Function logs di `trovabandi-engine`.
-- Nessun URL completo, contenuto scaricato o valore di secret è stato letto o riportato.
+5. **Test** (nessuna esecuzione provider): cap rispettati e echati; superamento cap → 402 senza fetch Apify; portale senza identificatori → fail-closed; profilo cap non sovrascrivibile dal body; `pipeline_0510` originale non modificata.
+
+## Decisione necessaria prima di implementare
+
+Il gate correla l'evidenza a `latestRunActionResult("pipeline_0510", ...)`. Con una pipeline dal nome nuovo il gate **non vedrà** il run capped e resterà BLOCKED. Due strade:
+- **A** — il capped scrive audit con action name `pipeline_0510` (gate chiuso davvero, ma la distinzione resta solo nei counters);
+- **B** — si estende il gate ad accettare `pipeline_0510` *oppure* `pipeline_0510_capped` (più esplicito, ma tocca il gate).
+
+Nessuna delle due è già scelta: serve la tua indicazione.
+
+## Vincoli rispettati
+
+Nessuna modifica, nessun deploy, nessuna migrazione, nessun provider e nessun cron eseguiti in questa fase: questo documento è il risultato della sola ispezione.
