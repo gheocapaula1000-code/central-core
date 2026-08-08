@@ -28,6 +28,7 @@ import {
 import { canSpendFirecrawl, recordFirecrawlSpend } from "../_shared/firecrawlBudget.ts";
 import { canSpendAi, recordAiSpend } from "../_shared/aiBudget.ts";
 import { CIVIKO_COMMERCIAL_ZONES } from "../_shared/civikoCommercialZoneContract.ts";
+import { evaluatePwaAck } from "./pwaAck.ts";
 
 const DISPATCH_SECRET = Deno.env.get("CIVIKO_ORCHESTRATOR_DISPATCH_SECRET") ?? "";
 // Canale già autorizzato orchestrator → Central Core: nessun nuovo Secret manuale.
