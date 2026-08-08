@@ -1614,12 +1614,26 @@ async function releaseGate(
     }
   }
 
-  const currentImageQueueComplete = latestRunActionRows("pipeline_0545", "image_certify")
-    .some((row) => {
-      const result = row.result;
-      return result && typeof result === "object" && !Array.isArray(result) &&
-        (result as Record<string, unknown>).queue_complete === true;
-    });
+  // Perimetro fotografico di routine (24 elementi) separato dal backlog storico:
+  // il gate certifica solo cio' che la routine deve realmente coprire, e riporta
+  // il backlog come stato distinto, mai come falso verde.
+  const imageCertifyRows = latestRunActionRows("pipeline_0545", "image_certify");
+  const imagePerimeter = evaluatePhotoPerimeter(imageCertifyRows.map((row) => {
+    const result = (row.result && typeof row.result === "object" && !Array.isArray(row.result)
+      ? row.result
+      : {}) as Record<string, unknown>;
+    return {
+      ok: row.ok === true,
+      processed: result.processed,
+      attempted: result.attempted,
+      remaining: result.remaining,
+      remaining_exact: result.remaining_exact,
+      queue_complete: result.queue_complete,
+    };
+  }));
+  metrics.derived.photo_routine_processed = imagePerimeter.processed;
+  metrics.derived.photo_backlog_remaining = imagePerimeter.backlog_remaining;
+  const currentImageQueueComplete = imagePerimeter.perimeter_complete;
   const currentImageFingerprintWritten = latestRunActionRows("pipeline_0545", "image_certify")
     .some((row) => {
       const result = row.result;
