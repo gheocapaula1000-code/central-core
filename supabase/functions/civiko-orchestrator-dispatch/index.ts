@@ -1429,7 +1429,7 @@ async function releaseGate(
       collectPendingResult?.zero_novelty === true);
 
   const casaQueueIds = Array.from(new Set(identifierValues(
-    latestRunActionResult("pipeline_0510", "portal_casa"),
+    latestRunActionResult(collectionPipeline, collectionCasaAction),
     "queue_id",
   )));
   const casaQueueById = new Map<string, Record<string, unknown>>();
@@ -1489,7 +1489,7 @@ async function releaseGate(
     });
   const currentImageSnapshotComplete = currentImageQueueComplete && currentImagePairsComplete;
 
-  const pipeline0510 = latestPipelineRow("pipeline_0510");
+  const pipeline0510 = latestPipelineRow(collectionPipeline);
   const pipeline0545 = latestPipelineRow("pipeline_0545");
   const pipeline0710 = latestPipelineRow("pipeline_0710");
   const pipeline0510StartedMs = Date.parse(String(pipeline0510?.started_at ?? ""));
@@ -1498,7 +1498,7 @@ async function releaseGate(
   const pipeline0545FinishedMs = Date.parse(String(pipeline0545?.finished_at ?? ""));
   const pipeline0710StartedMs = Date.parse(String(pipeline0710?.started_at ?? ""));
   const pipeline0710FinishedOwnMs = Date.parse(String(pipeline0710?.finished_at ?? ""));
-  const pipelineSequenceOk = latestPipelineOk("pipeline_0510") &&
+  const pipelineSequenceOk = latestPipelineOk(collectionPipeline) &&
     latestPipelineOk("pipeline_0545") && latestPipelineOk("pipeline_0710") &&
     Number.isFinite(pipeline0510StartedMs) && Number.isFinite(pipeline0510FinishedMs) &&
     Number.isFinite(pipeline0545StartedMs) && Number.isFinite(pipeline0545FinishedMs) &&
@@ -1639,8 +1639,8 @@ async function releaseGate(
       },
       {
         key: "four_portal_runs_succeeded",
-        passed: latestRunActionOk("pipeline_0510", "portal_casa") &&
-          latestRunActionOk("pipeline_0510", "apify_batch") &&
+        passed: latestRunActionOk(collectionPipeline, collectionCasaAction) &&
+          latestRunActionOk(collectionPipeline, collectionApifyAction) &&
           latestRunActionOk("pipeline_0545", "collect_pending") &&
           fourPortalCurrentRunEvidence &&
           g("runs", "apify_immobiliare_succeeded") > 0 &&
@@ -1760,6 +1760,7 @@ async function releaseGate(
       strict_pipeline_sequence: pipelineSequenceOk,
       release_gate_run_id: gateRunId,
       release_gate_started_at: new Date(gateStartedAtMs).toISOString(),
+      collection_pipeline: collectionPipeline,
       pipeline_0510_finished_at: pipeline0510?.finished_at ?? null,
       pipeline_0545_started_at: pipeline0545?.started_at ?? null,
       pipeline_0545_finished_at: pipeline0545?.finished_at ?? null,
