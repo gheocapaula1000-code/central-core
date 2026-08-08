@@ -37,10 +37,12 @@ const GATE_TIMEOUT_MS = 15_000;
 
 type SimpleAction =
   | "apify_batch"
+  | "apify_batch_capped"
   | "apify_immobiliare"
   | "apify_idealista"
   | "apify_subito"
   | "portal_casa"
+  | "portal_casa_capped"
   | "collect_pending"
   | "contendibili_backfill"
   | "contendibili_recompute"
@@ -57,9 +59,14 @@ type SimpleAction =
   | "radar_full"
   | "signals_classify";
 
-type PipelineAction = "pipeline_0510" | "pipeline_0545" | "pipeline_0710";
+type PipelineAction =
+  | "pipeline_0510"
+  | "pipeline_0510_capped"
+  | "pipeline_0545"
+  | "pipeline_0710";
 
 type Action = "healthcheck" | "release_gate" | SimpleAction | PipelineAction;
+
 
 interface Target {
   // Solo nome funzione + query hardcoded: nessun URL o path arbitrario dal client.
