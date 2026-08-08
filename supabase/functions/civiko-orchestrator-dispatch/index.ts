@@ -782,12 +782,18 @@ async function persistPipelineAudit(
   }, true);
 }
 
+/** Attesa massima dell'esito DB dopo il timeout dell'azione (nessun costo). */
+const RECONCILE_MAX_WAIT_MS = 105_000;
+const RECONCILE_POLL_MS = 7_000;
+
 /**
  * Legge l'evidenza DB canonica del recompute e decide fail-closed.
  * Nessuna scrittura: solo letture su padova_recompute_last_result e
  * padova_contendibili (la stessa evidenza usata dal release gate).
+ * Il recompute prosegue nel database dopo l'abort dell'azione: si attende
+ * l'esito reale entro un budget limitato, senza mai inventare un successo.
  */
-async function reconcileRecompute(startedAt: string): Promise<ReconcileVerdict> {
+async function reconcileRecomputeOnce(startedAt: string): Promise<ReconcileVerdict> {
   const lastResultRows = await realRows(
     `padova_recompute_last_result?select=created_at,result&order=created_at.desc&limit=5`,
   );
