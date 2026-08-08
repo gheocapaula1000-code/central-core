@@ -1379,27 +1379,32 @@ async function runChainStep(step: ChainStep): Promise<Record<string, unknown>> {
   });
 
   if (step.kind === "read") {
-    const rows = await realRows(
-      "civiko_pwa_sync_acks?select=run_id,pipeline_run_id,ok,started_at,finished_at,created_at,counts,scope_comune,scope_slugs,municipality,commercial_zone_slugs&order=created_at.desc&limit=1",
-    );
-    if (rows === null) return fail("FAILED", "pwa_ack_unreadable", 502);
-    const ack = rows[0];
-    if (!ack) return fail("PARTIAL", "pwa_ack_missing", 200);
+    // Ack autoritativo read-only: si certifica che i dati siano realmente
+    // leggibili dalla PWA (stesso feed autenticato, scope admin full-city),
+    // con conteggi e freshness attribuibili. L'ack client, se esiste, è
+    // evidenza addizionale ma non è più l'unica prova ammessa. Nessuna
+    // scrittura e nessuna prova inventata: fail-closed su ogni dubbio.
+    const feed = await pwaFeedCounts();
+    const payload = feed.payload as Record<string, unknown>;
+    const evidence = evaluatePwaAck({
+      httpStatus: feed.status,
+      feedOk: payload.ok === true,
+      counts: payload.counts as Record<string, unknown> | null,
+      freshness: payload.data_freshness as Record<string, unknown> | null,
+      clientAck: payload.pwa_sync_ack as Record<string, unknown> | null,
+      chainRunId,
+      now: Date.now(),
+    });
     return {
       step: step.key,
-      status: ack.ok === true ? "SUCCESS" : "PARTIAL",
-      http_status: 200,
-      error_code: ack.ok === true ? null : "pwa_ack_not_ok",
-      pipeline_run_id: ack.pipeline_run_id ?? null,
-      ack_started_at: ack.started_at ?? null,
-      ack_finished_at: ack.finished_at ?? null,
-      ack_created_at: ack.created_at ?? null,
-      counts: ack.counts ?? null,
-      scope_comune: ack.scope_comune ?? ack.municipality ?? null,
-      scope_slugs: ack.scope_slugs ?? ack.commercial_zone_slugs ?? null,
+      status: evidence.status,
+      http_status: feed.status,
+      error_code: evidence.error_code,
+      ack: evidence,
       started_at: startedAt,
       finished_at: new Date().toISOString(),
     };
+
   }
 
   if (step.kind === "gate") {
