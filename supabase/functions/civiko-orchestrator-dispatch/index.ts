@@ -516,12 +516,12 @@ export function semanticFailure(raw: unknown, action?: SimpleAction, depth = 0):
       if (nestedFailure) return nestedFailure;
     }
   }
-  if (depth === 0 && action === "portal_casa" &&
+  if (depth === 0 && (action === "portal_casa" || action === "portal_casa_capped") &&
       (!Array.isArray(src.enqueued) || src.enqueued.length === 0 ||
         !hasNestedIdentifier(src.enqueued, ["queue_id"]))) {
     return "unexpected_zero_enqueued";
   }
-  if (depth === 0 && action === "apify_batch") {
+  if (depth === 0 && (action === "apify_batch" || action === "apify_batch_capped")) {
     const launched = Array.isArray(src.launched) ? src.launched : [];
     const families = new Set(launched.flatMap((row) => {
       if (!row || typeof row !== "object" || Array.isArray(row)) return [];
@@ -538,7 +538,23 @@ export function semanticFailure(raw: unknown, action?: SimpleAction, depth = 0):
         )) {
       return "apify_batch_incomplete";
     }
+    // La variante capped deve provare cap dichiarato, stima e verifica
+    // provider-side: senza echo completo l'esito non è certificabile.
+    if (action === "apify_batch_capped") {
+      const capUsd = Number(src.cost_cap_usd ?? NaN);
+      const estUsd = Number(src.estimated_cost_usd ?? NaN);
+      const observedUsd = Number(src.observed_cost_usd ?? NaN);
+      if (!Number.isFinite(capUsd) || capUsd <= 0 || capUsd > 2 ||
+          !Number.isFinite(estUsd) || estUsd > capUsd ||
+          !Number.isFinite(observedUsd) || observedUsd > capUsd ||
+          src.cost_cap_respected !== true || src.provider_cap_verified !== true ||
+          !src.caps_applied || typeof src.caps_applied !== "object" ||
+          !Array.isArray(src.per_portal_estimates) || src.per_portal_estimates.length < 4) {
+        return "capped_cost_cap_unverified";
+      }
+    }
   }
+
   if (depth === 0 && ["apify_immobiliare", "apify_idealista", "apify_subito"].includes(
       action ?? "",
     ) && (Number(src.started_count ?? 0) <= 0 ||
