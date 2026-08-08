@@ -28,9 +28,9 @@ import { requireSecret, makeDebugId } from "../_shared/http.ts";
 import { isCivikoCommercialZoneSlug } from "../_shared/civikoCommercialZoneContract.ts";
 import { commercialZoneForQuartiere } from "../_shared/civikoCommercialZoneByQuartiere.ts";
 import {
-import { MIN_AGENZIE_CONTESI } from "../_shared/contesi3PlusGate.ts";
   applyCivikoSingleZoneGate,
 } from "../_shared/civikoZoneAccessGate.ts";
+import { MIN_AGENZIE_CONTESI } from "../_shared/contesi3PlusGate.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
