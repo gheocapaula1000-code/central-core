@@ -35,6 +35,14 @@ const IMAGE_BATCH_MAX_INVOCATIONS = 6;
 const IMAGE_BATCH_DOWNSTREAM_RESERVE_MS = 85_000;
 const GATE_TIMEOUT_MS = 15_000;
 
+import {
+  evaluateRecomputeReconciliation,
+  isReconcilableFailure,
+  type ReconcileVerdict,
+} from "./recomputeReconcile.ts";
+
+
+
 type SimpleAction =
   | "apify_batch"
   | "apify_batch_capped"
