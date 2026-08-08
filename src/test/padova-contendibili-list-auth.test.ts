@@ -175,7 +175,7 @@ describe("padova-contendibili-list — DB-side zone filter", () => {
   it("computes hot_3plus with the same zone filter (not global Padova)", () => {
     const idxHot = SRC.indexOf("hot_3plus");
     expect(idxHot).toBeGreaterThan(-1);
-    // The hot query is a head-count on n_agenzie >= 3 built via applyZoneFilter.
+    // The hot query is a head-count on agency_count_distinct >= 3 built via applyZoneFilter.
     expect(SRC).toMatch(/const\s+hotQ\s*=\s*applyZoneFilter\(/);
     const hotBlock = SRC.slice(SRC.indexOf("const hotQ"), SRC.indexOf("Reachability"));
     expect(hotBlock).toContain("applyZoneFilter");
@@ -374,7 +374,16 @@ describe("padova-contendibili-list — reconciliation contract", () => {
   });
 
   it("padova-contendibili-list emits the byte-identical source_id per item", () => {
-    expect(SRC).toMatch(/source_id:\s*`cont:\$\{Number\(r\.id\)\}`/);
+    expect(SRC).toContain("String(r.chiave_match || `id:${r.id}`)");
+    expect(SRC).not.toContain("source_id: `cont:${Number(r.id)}`");
+  });
+
+  it("filters, sorts and counts only agency_count_distinct", () => {
+    expect(SRC).toContain('.gte("agency_count_distinct", min_agenzie)');
+    expect(SRC).toContain("a.agency_count_distinct");
+    expect(SRC).toContain('.gte("agency_count_distinct", MIN_AGENZIE_CONTESI)');
+    expect(SRC).not.toContain('.gte("n_agenzie"');
+    expect(FEED_SRC).not.toContain("agency_count_distinct ?? row.n_agenzie");
   });
 
   it("envelope exposes total, items_count, snapshot_complete, assigned_zone", () => {
