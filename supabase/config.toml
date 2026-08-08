@@ -352,3 +352,7 @@ verify_jwt = false
 # Sequential paid-provider launcher; x-job-secret is mandatory in-function.
 [functions.civiko-padova-apify-launch-batch]
 verify_jwt = false
+
+[functions.civiko-padova-apify-launch-batch-capped]
+verify_jwt = false
+
