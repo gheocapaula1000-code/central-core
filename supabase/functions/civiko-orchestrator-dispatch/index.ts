@@ -37,10 +37,12 @@ const GATE_TIMEOUT_MS = 15_000;
 
 type SimpleAction =
   | "apify_batch"
+  | "apify_batch_capped"
   | "apify_immobiliare"
   | "apify_idealista"
   | "apify_subito"
   | "portal_casa"
+  | "portal_casa_capped"
   | "collect_pending"
   | "contendibili_backfill"
   | "contendibili_recompute"
@@ -57,9 +59,14 @@ type SimpleAction =
   | "radar_full"
   | "signals_classify";
 
-type PipelineAction = "pipeline_0510" | "pipeline_0545" | "pipeline_0710";
+type PipelineAction =
+  | "pipeline_0510"
+  | "pipeline_0510_capped"
+  | "pipeline_0545"
+  | "pipeline_0710";
 
 type Action = "healthcheck" | "release_gate" | SimpleAction | PipelineAction;
+
 
 interface Target {
   // Solo nome funzione + query hardcoded: nessun URL o path arbitrario dal client.
@@ -81,6 +88,14 @@ const ALLOWED: Record<SimpleAction, Target> = {
     body: {},
     timeoutMs: 145_000,
   },
+  // Variante Civiko-only con hard cap 2.00 USD, 25 item per portale e una sola
+  // search URL, verificata lato provider con abort automatico. Additiva:
+  // apify_batch resta invariata.
+  apify_batch_capped: {
+    fn: "civiko-padova-apify-launch-batch-capped",
+    body: {},
+    timeoutMs: 145_000,
+  },
   apify_immobiliare: { fn: "cron-apify-immobiliare-nightly", body: {}, timeoutMs: 45_000 },
   apify_idealista: { fn: "cron-apify-idealista-nightly", body: {}, timeoutMs: 45_000 },
   apify_subito: { fn: "cron-apify-subito-nightly", body: {}, timeoutMs: 45_000 },
@@ -90,6 +105,13 @@ const ALLOWED: Record<SimpleAction, Target> = {
     body: { mode: "full", portals: ["casa.it"], max_pages: 5 },
     timeoutMs: 30_000,
   },
+  // Stessa funzione e stesso contratto, ma limitata a 2 pagine per il run capped.
+  portal_casa_capped: {
+    fn: "enqueue-padova-portal-scrapes",
+    body: { mode: "full", portals: ["casa.it"], max_pages: 2 },
+    timeoutMs: 30_000,
+  },
+
   collect_pending: {
     fn: "padova-apify-collect-pending",
     // Zero novità è valido soltanto quando i run provider sono terminati con
@@ -208,6 +230,13 @@ const PIPELINES: Record<PipelineAction, PipelineSpec> = {
     at: "05:10",
     stages: [["apify_batch", "portal_casa"]],
   },
+  // 05:10 Europe/Rome — variante capped Civiko-only: stessa semantica di
+  // raccolta, ma con hard cap di costo provider e volumi minimi.
+  pipeline_0510_capped: {
+    at: "05:10",
+    stages: [["apify_batch_capped", "portal_casa_capped"]],
+  },
+
   // 05:45 Europe/Rome — import, privati, evidenze e recompute autoritativo.
   pipeline_0545: {
     at: "05:45",
@@ -487,12 +516,12 @@ export function semanticFailure(raw: unknown, action?: SimpleAction, depth = 0):
       if (nestedFailure) return nestedFailure;
     }
   }
-  if (depth === 0 && action === "portal_casa" &&
+  if (depth === 0 && (action === "portal_casa" || action === "portal_casa_capped") &&
       (!Array.isArray(src.enqueued) || src.enqueued.length === 0 ||
         !hasNestedIdentifier(src.enqueued, ["queue_id"]))) {
     return "unexpected_zero_enqueued";
   }
-  if (depth === 0 && action === "apify_batch") {
+  if (depth === 0 && (action === "apify_batch" || action === "apify_batch_capped")) {
     const launched = Array.isArray(src.launched) ? src.launched : [];
     const families = new Set(launched.flatMap((row) => {
       if (!row || typeof row !== "object" || Array.isArray(row)) return [];
@@ -509,7 +538,23 @@ export function semanticFailure(raw: unknown, action?: SimpleAction, depth = 0):
         )) {
       return "apify_batch_incomplete";
     }
+    // La variante capped deve provare cap dichiarato, stima e verifica
+    // provider-side: senza echo completo l'esito non è certificabile.
+    if (action === "apify_batch_capped") {
+      const capUsd = Number(src.cost_cap_usd ?? NaN);
+      const estUsd = Number(src.estimated_cost_usd ?? NaN);
+      const observedUsd = Number(src.observed_cost_usd ?? NaN);
+      if (!Number.isFinite(capUsd) || capUsd <= 0 || capUsd > 2 ||
+          !Number.isFinite(estUsd) || estUsd > capUsd ||
+          !Number.isFinite(observedUsd) || observedUsd > capUsd ||
+          src.cost_cap_respected !== true || src.provider_cap_verified !== true ||
+          !src.caps_applied || typeof src.caps_applied !== "object" ||
+          !Array.isArray(src.per_portal_estimates) || src.per_portal_estimates.length < 4) {
+        return "capped_cost_cap_unverified";
+      }
+    }
   }
+
   if (depth === 0 && ["apify_immobiliare", "apify_idealista", "apify_subito"].includes(
       action ?? "",
     ) && (Number(src.started_count ?? 0) <= 0 ||
@@ -1315,12 +1360,31 @@ async function releaseGate(
     );
   };
 
+  // Il gate accetta esplicitamente la raccolta 05:10 standard oppure la
+  // variante capped, mai entrambe: vince l'ultimo tentativo per started_at.
+  // Tutti i requisiti semantici e di freschezza restano identici.
+  const COLLECTION_PIPELINES: PipelineAction[] = ["pipeline_0510", "pipeline_0510_capped"];
+  const collectionPipeline: PipelineAction = COLLECTION_PIPELINES
+    .map((pipeline) => ({ pipeline, row: latestPipelineRow(pipeline) }))
+    .filter((candidate) => candidate.row !== undefined)
+    .sort((a, b) =>
+      (Date.parse(String(b.row?.started_at ?? "")) || 0) -
+      (Date.parse(String(a.row?.started_at ?? "")) || 0)
+    )[0]?.pipeline ?? "pipeline_0510";
+  const collectionApifyAction: SimpleAction = collectionPipeline === "pipeline_0510_capped"
+    ? "apify_batch_capped"
+    : "apify_batch";
+  const collectionCasaAction: SimpleAction = collectionPipeline === "pipeline_0510_capped"
+    ? "portal_casa_capped"
+    : "portal_casa";
+
   // Identificativi dell'esatto ultimo 05:10, correlati sia alla risposta
   // trusted di collect-pending dell'esatto 05:45 sia alle righe DB provider.
   // In questo modo un vecchio SUCCEEDED entro quattro ore non maschera un
   // lancio corrente non ancora importato. Dataset validi ma senza nuove righe
   // restano ammessi tramite zero_novelty.
-  const launchBatchResult = latestRunActionResult("pipeline_0510", "apify_batch");
+  const launchBatchResult = latestRunActionResult(collectionPipeline, collectionApifyAction);
+
   const launchRecords = recordsWithIdentifier(launchBatchResult, "run_id");
   const launchedRunIds = {
     immobiliare: Array.from(new Set(launchRecords.flatMap((row) =>
@@ -1365,7 +1429,7 @@ async function releaseGate(
       collectPendingResult?.zero_novelty === true);
 
   const casaQueueIds = Array.from(new Set(identifierValues(
-    latestRunActionResult("pipeline_0510", "portal_casa"),
+    latestRunActionResult(collectionPipeline, collectionCasaAction),
     "queue_id",
   )));
   const casaQueueById = new Map<string, Record<string, unknown>>();
@@ -1425,7 +1489,7 @@ async function releaseGate(
     });
   const currentImageSnapshotComplete = currentImageQueueComplete && currentImagePairsComplete;
 
-  const pipeline0510 = latestPipelineRow("pipeline_0510");
+  const pipeline0510 = latestPipelineRow(collectionPipeline);
   const pipeline0545 = latestPipelineRow("pipeline_0545");
   const pipeline0710 = latestPipelineRow("pipeline_0710");
   const pipeline0510StartedMs = Date.parse(String(pipeline0510?.started_at ?? ""));
@@ -1434,7 +1498,7 @@ async function releaseGate(
   const pipeline0545FinishedMs = Date.parse(String(pipeline0545?.finished_at ?? ""));
   const pipeline0710StartedMs = Date.parse(String(pipeline0710?.started_at ?? ""));
   const pipeline0710FinishedOwnMs = Date.parse(String(pipeline0710?.finished_at ?? ""));
-  const pipelineSequenceOk = latestPipelineOk("pipeline_0510") &&
+  const pipelineSequenceOk = latestPipelineOk(collectionPipeline) &&
     latestPipelineOk("pipeline_0545") && latestPipelineOk("pipeline_0710") &&
     Number.isFinite(pipeline0510StartedMs) && Number.isFinite(pipeline0510FinishedMs) &&
     Number.isFinite(pipeline0545StartedMs) && Number.isFinite(pipeline0545FinishedMs) &&
@@ -1575,8 +1639,8 @@ async function releaseGate(
       },
       {
         key: "four_portal_runs_succeeded",
-        passed: latestRunActionOk("pipeline_0510", "portal_casa") &&
-          latestRunActionOk("pipeline_0510", "apify_batch") &&
+        passed: latestRunActionOk(collectionPipeline, collectionCasaAction) &&
+          latestRunActionOk(collectionPipeline, collectionApifyAction) &&
           latestRunActionOk("pipeline_0545", "collect_pending") &&
           fourPortalCurrentRunEvidence &&
           g("runs", "apify_immobiliare_succeeded") > 0 &&
@@ -1696,6 +1760,7 @@ async function releaseGate(
       strict_pipeline_sequence: pipelineSequenceOk,
       release_gate_run_id: gateRunId,
       release_gate_started_at: new Date(gateStartedAtMs).toISOString(),
+      collection_pipeline: collectionPipeline,
       pipeline_0510_finished_at: pipeline0510?.finished_at ?? null,
       pipeline_0545_started_at: pipeline0545?.started_at ?? null,
       pipeline_0545_finished_at: pipeline0545?.finished_at ?? null,
