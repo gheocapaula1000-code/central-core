@@ -9406,12 +9406,18 @@ export type Database = {
     Views: {
       civiko_padova_release_gate_v: {
         Row: {
+          capped_cost_cap_ok: boolean | null
+          capped_semantic_equivalence_ok: boolean | null
+          casa_queue_processed_ok: boolean | null
           categoria_snapshot_corrente: boolean | null
           checked_at: string | null
           classificazione_ultima: string | null
           contendibili_fuori_perimetro: number | null
           contendibili_snapshot_correnti: number | null
           contendibili_totali: number | null
+          downstream_actions_ok: number | null
+          downstream_avvio: string | null
+          downstream_ultimo: string | null
           fingerprint_correnti: number | null
           image_attempts_correnti: number | null
           image_certify_corrente: boolean | null
@@ -9420,6 +9426,7 @@ export type Database = {
           listings_freschi: number | null
           mismatch_professionale: number | null
           pipeline_0510_avvio: string | null
+          pipeline_0510_kind: string | null
           pipeline_0510_ok: boolean | null
           pipeline_0510_run_id: string | null
           pipeline_0510_ultimo: string | null
