@@ -53,8 +53,12 @@ export function resolveZoneByName(
   // Explicit aliases for labels currently left UNRESOLVED by the OMI resolver.
   const aliasKey = withoutPrefix.toLowerCase().replace(/\s+/g, " ").trim();
   const HARDCODED_ALIASES: Record<string, { zone_code: string; display_zone: string }> = {
-    "forcellini / camin": { zone_code: "D8", display_zone: "Forcellini / Camin" },
-    "forcellini/camin":   { zone_code: "D8", display_zone: "Forcellini / Camin" },
+    // Contratto v2: Forcellini è Nord-Est, Camin è Est-Brenta. L'etichetta
+    // composta attraversa due zone e resta volutamente non risolta.
+    "forcellini":         { zone_code: "D8", display_zone: "Forcellini" },
+    "terranegra":         { zone_code: "D8", display_zone: "Terranegra" },
+    "san gregorio":       { zone_code: "D8", display_zone: "San Gregorio" },
+    "camin":              { zone_code: "E1", display_zone: "Camin" },
     "brenta":             { zone_code: "D4", display_zone: "Ponte di Brenta / Camin" },
     "ponte di brenta":    { zone_code: "D4", display_zone: "Ponte di Brenta / Camin" },
   };

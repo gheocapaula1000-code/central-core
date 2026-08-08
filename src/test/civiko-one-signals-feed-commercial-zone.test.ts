@@ -63,7 +63,7 @@ describe("civiko-one-signals-feed — commercial_zone_slug (quartiere-only)", ()
     expect([...VALID_COMMERCIAL_ZONE_SLUGS].sort()).toEqual([
       "centro-storico",
       "est-brenta",
-      "est-forcellini-camin",
+      "nord-est",
       "nord-arcella",
       "ovest-chiesanuova-brentelle",
       "sud-est-sant-osvaldo",

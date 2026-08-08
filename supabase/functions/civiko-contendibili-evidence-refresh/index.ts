@@ -14,7 +14,7 @@ const OFFICIAL_ZONES = new Set([
   "centro-storico",
   "nord-arcella",
   "est-brenta",
-  "est-forcellini-camin",
+  "nord-est",
   "sud-est-sant-osvaldo",
   "sud-voltabarozzo-guizza",
   "sud-ovest-mandria",

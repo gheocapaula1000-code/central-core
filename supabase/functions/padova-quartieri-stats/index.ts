@@ -24,7 +24,7 @@ const OFFICIAL_ZONES = [
   { slug: "centro-storico", nome: "Centro Storico" },
   { slug: "nord-arcella", nome: "Nord - Arcella" },
   { slug: "est-brenta", nome: "Est - Brenta" },
-  { slug: "est-forcellini-camin", nome: "Est - Forcellini / Camin" },
+  { slug: "nord-est", nome: "Nord-Est" },
   { slug: "sud-est-sant-osvaldo", nome: "Sud-Est - Sant'Osvaldo" },
   { slug: "sud-voltabarozzo-guizza", nome: "Sud - Voltabarozzo / Guizza" },
   { slug: "sud-ovest-mandria", nome: "Sud-Ovest - Mandria" },

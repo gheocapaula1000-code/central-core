@@ -37,7 +37,7 @@ describe("civikoCommercialZoneContract — mapping consulta → zona", () => {
     ["1", "centro-storico"],
     ["2", "nord-arcella"],
     ["3A", "est-brenta"],
-    ["3B", "est-forcellini-camin"],
+    ["3B", "nord-est"],
     ["4A", "sud-est-sant-osvaldo"],
     ["4B", "sud-voltabarozzo-guizza"],
     ["5A", "sud-ovest-mandria"],

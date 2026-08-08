@@ -89,27 +89,29 @@ const RAW_QUARTIERI_BY_ZONE: Record<CivikoCommercialZoneSlug, readonly string[]>
     "Est Brenta",
     "Stanga Pio X",
     "Ponte di Brenta San Lazzaro",
+    // Comparto est / Camin: assorbito da Est - Brenta nel contratto v2.
+    "Camin",
+    "Camin San Marco",
+    "Camin Industriale",
+    "Camin Sud",
+    "Granze",
+    "Interporto",
+    "Zona Industriale",
+    "ZIP",
+    "Zona Industriale ZIP",
   ],
-  "est-forcellini-camin": [
+  "nord-est": [
+    // Solo Comune di Padova. Esclusi Noventa Padovana e Saonara.
     "Forcellini",
+    "Forcellini Est",
     "Terranegra",
     "Isola di Terranegra",
     "San Gregorio",
-    "Camin",
-    "Granze",
-    "Zona Industriale",
-    "ZIP",
-    "Interporto",
-    "Est Forcellini Camin",
-    "Camin San Marco",
-    "Camin Industriale",
+    "Nord Est",
     "Forcellini Terranegra",
-    "Camin Sud",
     "S Gregorio Terranegra Forcellini Est",
-    // Alias composto Subito validato: entrambe le parti ("Zona Industriale", "ZIP")
-    // già in mappa e puntano allo stesso slug (est-forcellini-camin).
-    "Zona Industriale ZIP",
   ],
+
   "sud-est-sant-osvaldo": [
     "Città Giardino",
     "Sant'Osvaldo",
@@ -197,11 +199,20 @@ export const PADOVA_QUARTIERE_TO_COMMERCIAL_ZONE: ReadonlyMap<string, CivikoComm
           throw new Error(`Contract violation: quartiere vuoto per "${slug}"`);
         }
         const words = key.split(" ");
-        if (words.includes("stazione") && words.includes("fiera")) {
-          throw new Error(
-            `Contract violation: chiave ambigua Stazione/Fiera "${raw}" non è assegnabile`,
-          );
+        // Coppie che attraversano due zone ufficiali: mai auto-assegnabili.
+        const CROSS_ZONE_PAIRS: ReadonlyArray<readonly [string, string]> = [
+          ["stazione", "fiera"],          // centro-storico / est-brenta
+          ["forcellini", "camin"],        // nord-est / est-brenta
+          ["pontevigodarzere", "torre"],  // nord-arcella / est-brenta
+        ];
+        for (const [a, b] of CROSS_ZONE_PAIRS) {
+          if (words.includes(a) && words.includes(b)) {
+            throw new Error(
+              `Contract violation: chiave ambigua ${a}/${b} "${raw}" non è assegnabile`,
+            );
+          }
         }
+
         const existing = m.get(key);
         if (existing && existing !== slug) {
           throw new Error(
@@ -250,15 +261,17 @@ export const PADOVA_QUARTIERI_LABELS_BY_ZONE: Readonly<
     "Mortise",
     "Torre",
     "Ponte di Brenta",
+    "Camin",
+    "Granze",
+    "Interporto",
+    "Zona Industriale (ZIP)",
   ],
-  "est-forcellini-camin": [
+  "nord-est": [
     "Forcellini",
     "Terranegra",
     "San Gregorio",
-    "Camin",
-    "Granze",
-    "Zona Industriale (ZIP)",
   ],
+
   "sud-est-sant-osvaldo": [
     "Città Giardino",
     "Sant'Osvaldo",

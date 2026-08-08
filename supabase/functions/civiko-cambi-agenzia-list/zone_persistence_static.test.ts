@@ -13,7 +13,7 @@ const endpoint = await Deno.readTextFile(
 const OFFICIAL = [
   "centro-storico",
   "est-brenta",
-  "est-forcellini-camin",
+  "nord-est",
   "nord-arcella",
   "ovest-chiesanuova-brentelle",
   "sud-est-sant-osvaldo",
