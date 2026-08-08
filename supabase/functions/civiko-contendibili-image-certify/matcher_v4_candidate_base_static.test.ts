@@ -39,23 +39,27 @@ Deno.test("candidati: perimetro minimo esatto e letterale", () => {
   assert(/p\.expired_at IS NULL/.test(candidates), "solo annunci attivi");
   assert(/p\.comune = 'Padova'/.test(candidates), "Comune Padova esatto");
   assert(/p\.commercial_zone_slug IN \(/.test(candidates), "slug persistito richiesto");
-  for (
-    const slug of [
-      "centro-storico",
-      "est-brenta",
-      "nord-est",
-      "nord-arcella",
-      "ovest-chiesanuova-brentelle",
-      "sud-est-sant-osvaldo",
-      "sud-ovest-mandria",
-      "sud-voltabarozzo-guizza",
-    ]
-  ) {
-    assert(candidates.includes(`'${slug}'`), `zona ufficiale mancante: ${slug}`);
-  }
   assert(/p\.prezzo IS NOT NULL AND p\.prezzo > 0/.test(candidates), "prezzo obbligatorio");
   assert(/is_asta IS NOT TRUE/.test(candidates) && /is_mls IS NOT TRUE/.test(candidates));
 });
+
+// Il perimetro zone non e' piu' una lista letterale: dal contratto territoriale
+// definitivo (8 zone, nord-est al posto di est-forcellini-camin) vive nella
+// funzione centrale public.civiko_is_official_zone_slug.
+Deno.test("candidati: perimetro zone delegato al contratto centrale 8 zone", async () => {
+  const contract = await Deno.readTextFile(
+    "supabase/migrations/20260808122007_193ef8fb-e75b-476e-97c7-7fdb81d0c7fb.sql",
+  );
+  assert(
+    /civiko_is_official_zone_slug\(p\.commercial_zone_slug\)/.test(contract),
+    "i candidati devono usare il contratto centrale delle zone ufficiali",
+  );
+  assert(
+    !/est-forcellini-camin/.test(contract),
+    "la zona legacy non puo' rientrare nel perimetro",
+  );
+});
+
 
 Deno.test("ramo strutturale: porta interamente i vincoli di metadata", () => {
   const structural = pairs.slice(pairs.indexOf("structural_edges AS ("), pairs.indexOf("unioned AS ("));
