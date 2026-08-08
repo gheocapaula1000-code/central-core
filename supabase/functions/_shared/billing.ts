@@ -42,24 +42,38 @@ export interface StripeEnv {
   webhookSecret: string | null;
   prices: Record<string, string | null>;
   configured: boolean;
+  testMode: boolean;
+  liveModeBlocked: boolean;
+}
+
+export function isStripeTestSecret(value: string | null | undefined): boolean {
+  return typeof value === "string" &&
+    (value.startsWith("sk_test_") || value.startsWith("rk_test_"));
 }
 
 export function readStripeEnv(): StripeEnv {
-  const secretKey = Deno.env.get("STRIPE_SECRET_KEY") ?? null;
-  const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET") ?? null;
+  const candidate = Deno.env.get("STRIPE_SECRET_KEY") ?? null;
+  const testMode = isStripeTestSecret(candidate);
+  const liveModeBlocked = !!candidate && !testMode;
+  const secretKey = testMode ? candidate : null;
+  const webhookSecret = testMode
+    ? (Deno.env.get("STRIPE_WEBHOOK_SECRET") ?? null)
+    : null;
   const prices: Record<string, string | null> = {
-    civiko_studio_monthly: Deno.env.get("CIVIKO_STRIPE_PRICE_STUDIO_MONTHLY") ?? "price_1TSCBeGWMFww3yH4pLiIxCpf",
-    civiko_pro_monthly: Deno.env.get("CIVIKO_STRIPE_PRICE_PRO_MONTHLY") ?? "price_1TSCN0GWMFww3yH4DCdGytEF",
-    civiko_elite_monthly: Deno.env.get("CIVIKO_STRIPE_PRICE_ELITE_MONTHLY") ?? "price_1TSCWjGWMFww3yH4HLoyXrtq",
-    civiko_studio_annual: Deno.env.get("CIVIKO_STRIPE_PRICE_STUDIO_ANNUAL") ?? "price_1TSCGlGWMFww3yH45P9luJ52",
-    civiko_pro_annual: Deno.env.get("CIVIKO_STRIPE_PRICE_PRO_ANNUAL") ?? "price_1TSCTwGWMFww3yH4GRTVU5jX",
-    civiko_elite_annual: Deno.env.get("CIVIKO_STRIPE_PRICE_ELITE_ANNUAL") ?? "price_1TSCZBGWMFww3yH4Uj2Ci5mF",
+    civiko_studio_monthly: Deno.env.get("CIVIKO_STRIPE_PRICE_STUDIO_MONTHLY") ?? null,
+    civiko_pro_monthly: Deno.env.get("CIVIKO_STRIPE_PRICE_PRO_MONTHLY") ?? null,
+    civiko_elite_monthly: Deno.env.get("CIVIKO_STRIPE_PRICE_ELITE_MONTHLY") ?? null,
+    civiko_studio_annual: Deno.env.get("CIVIKO_STRIPE_PRICE_STUDIO_ANNUAL") ?? null,
+    civiko_pro_annual: Deno.env.get("CIVIKO_STRIPE_PRICE_PRO_ANNUAL") ?? null,
+    civiko_elite_annual: Deno.env.get("CIVIKO_STRIPE_PRICE_ELITE_ANNUAL") ?? null,
   };
   return {
     secretKey,
     webhookSecret,
     prices,
-    configured: !!secretKey,
+    configured: testMode,
+    testMode,
+    liveModeBlocked,
   };
 }
 
