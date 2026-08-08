@@ -28,13 +28,23 @@ const ORCHESTRATOR_TIMEOUT_MS = 180_000;
 const PIPELINE_BUDGET_MS = 165_000;
 const PIPELINE_RESERVE_MS = 12_000;
 const AUDIT_TIMEOUT_MS = 2_000;
-const IMAGE_BATCH_MAX_INVOCATIONS = 6;
+const IMAGE_BATCH_MAX_INVOCATIONS = PHOTO_BATCH_MAX_INVOCATIONS;
 // Prima di ogni micro-batch fotografico devono restare almeno 85 secondi per
 // pairs atomico, recompute, extras, audit finale e serializzazione. Il loop
 // può quindi eseguire 1..6 batch, ma non sottrae mai tempo ai downstream.
 const IMAGE_BATCH_DOWNSTREAM_RESERVE_MS = 85_000;
 const GATE_TIMEOUT_MS = 15_000;
 
+import {
+  buildCollectPendingBody,
+  type CollectScope,
+  extractCollectScope,
+} from "../_shared/civikoCollectScope.ts";
+import {
+  evaluatePhotoPerimeter,
+  PHOTO_BATCH_MAX_INVOCATIONS,
+  PHOTO_ROUTINE_PERIMETER,
+} from "../_shared/civikoPhotoPerimeter.ts";
 import {
   evaluateRecomputeReconciliation,
   isReconcilableFailure,
@@ -663,6 +673,9 @@ interface ActionContext {
   pipelineRunId: string;
   pipelineAction: string;
   attemptNo: number;
+  // Corpo dinamico fail-closed: usato solo per correlare collect_pending
+  // all'esatto perimetro provider del 05:10 corrente.
+  dynamicBody?: Record<string, unknown>;
 }
 
 interface ActionAuditInput extends ActionContext {
@@ -912,7 +925,9 @@ async function runAction(
     // Nessun retry interno: gestito dall'orchestratore.
     const requestBody = action === "image_certify"
       ? { ...target.body, pipeline_run_id: context.pipelineRunId }
-      : target.body;
+      : (context.dynamicBody && action === "collect_pending"
+        ? { ...target.body, ...context.dynamicBody }
+        : target.body);
     const res = await fetch(url, {
       method: "POST",
       headers,
