@@ -1006,6 +1006,17 @@ async function runAction(
   }
 }
 
+/**
+ * Normalizza un timestamp in ISO-8601 UTC (suffisso Z) prima di interpolarlo
+ * in una query PostgREST: '+' nella query string viene letto come spazio.
+ */
+function toIsoZ(value: unknown): string | null {
+  if (typeof value !== "string" || value.trim() === "") return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+
+
 // Conteggio reale via PostgREST (count=exact). Ritorna null se non verificabile:
 // il gate resta fail-closed.
 async function realCount(pathAndQuery: string): Promise<number | null> {
