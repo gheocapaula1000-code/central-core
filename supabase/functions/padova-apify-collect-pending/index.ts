@@ -459,6 +459,21 @@ Deno.serve(async (req) => {
   const dbEvidenceOnly = body.db_evidence_only === true;
   const evidenceWindowHours = Math.max(1, Math.min(48, Number(body.evidence_window_hours ?? 6)));
 
+  // Perimetro corrente: quando l'orchestratore correla l'esatto 05:10, la
+  // selezione è vincolata a quei run (o almeno alla loro finestra temporale).
+  const scopeStartedAfter = typeof body.scope_started_after === "string" &&
+      !Number.isNaN(Date.parse(body.scope_started_after))
+    ? new Date(body.scope_started_after).toISOString()
+    : null;
+  // Residui storici: classificazione auditabile e non distruttiva. Non dichiara
+  // mai un import riuscito, marca solo l'assenza di evidenza di import.
+  const quarantineStale = body.quarantine_stale === true;
+  const quarantineOlderThanHours = Math.max(
+    1,
+    Math.min(720, Number(body.quarantine_older_than_hours ?? 24)),
+  );
+
+
   const portalFamilyOf = (portalTag: string): string => {
     if (portalTag.startsWith("immobiliare")) return "immobiliare";
     if (portalTag.startsWith("idealista")) return "idealista";
