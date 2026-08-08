@@ -921,6 +921,7 @@ Deno.serve(async (req) => {
     return false;
   });
   const auxiliaryFailures = [
+    ...(quarantineError ? [{ error: quarantineError }] : []),
     ...backfillLaunches.filter((entry) => entry?.error),
     ...(recomputeResult?.error ? [recomputeResult] : []),
   ];
@@ -958,7 +959,12 @@ Deno.serve(async (req) => {
       sum + Number(result?.municipality_missing ?? 0), 0),
     out_of_scope_written: 0,
     errors_count: terminalFailures.length + auxiliaryFailures.length,
-    zombies_marked: zombiesMarked, agency_backfill: backfillLaunches,
+    zombies_marked: zombiesMarked,
+    quarantined_runs: quarantinedRuns,
+    quarantine_error: quarantineError,
+    scope_started_after: scopeStartedAfter,
+    scope_run_ids: Array.isArray(body.run_ids) ? body.run_ids.length : 0,
+    agency_backfill: backfillLaunches,
     recompute: recomputeResult, results,
     error: ok ? undefined : (!candidatesOk
       ? "no_current_provider_candidates"
