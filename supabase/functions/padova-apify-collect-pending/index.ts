@@ -502,20 +502,62 @@ Deno.serve(async (req) => {
     candidates = data ?? [];
   } else {
     const cutoff = new Date(Date.now() - staleMinutes * 60_000).toISOString();
-    const { data: runningRows } = await sb.from("padova_apify_runs").select("*")
-      .eq("status", "RUNNING").lt("started_at", cutoff)
-      .order("started_at", { ascending: true }).limit(maxRuns);
-    const { data: succeededUnimportedRows } = await sb.from("padova_apify_runs").select("*")
+    // Ordinamento decrescente + eventuale finestra di scope: i run correnti
+    // hanno sempre la precedenza sui residui storici (anti-starvation).
+    let runningQuery = sb.from("padova_apify_runs").select("*")
+      .eq("status", "RUNNING").lt("started_at", cutoff);
+    let succeededQuery = sb.from("padova_apify_runs").select("*")
       .eq("status", "SUCCEEDED")
       .or("imported.is.null,imported.eq.0")
-      .lt("started_at", cutoff)
-      .order("started_at", { ascending: true }).limit(maxRuns);
+      .lt("started_at", cutoff);
+    if (scopeStartedAfter) {
+      runningQuery = runningQuery.gte("started_at", scopeStartedAfter);
+      succeededQuery = succeededQuery.gte("started_at", scopeStartedAfter);
+    }
+    const { data: runningRows } = await runningQuery
+      .order("started_at", { ascending: false }).limit(maxRuns);
+    const { data: succeededUnimportedRows } = await succeededQuery
+      .order("started_at", { ascending: false }).limit(maxRuns);
     const byRunId = new Map<string, any>();
     for (const r of [...(runningRows ?? []), ...(succeededUnimportedRows ?? [])]) {
       if (r?.run_id) byRunId.set(String(r.run_id), r);
     }
     candidates = Array.from(byRunId.values()).slice(0, maxRuns);
   }
+
+  // ============ QUARANTENA RESIDUI STORICI (costo zero) ============
+  // Marca in modo auditabile i run non terminali/non importati più vecchi del
+  // cutoff che NON fanno parte del perimetro corrente. Nessun import dichiarato.
+  let quarantinedRuns = 0;
+  let quarantineError: string | null = null;
+  if (quarantineStale && !dryRun) {
+    try {
+      const qCutoff = new Date(Date.now() - quarantineOlderThanHours * 3600_000).toISOString();
+      const scopeIds = new Set(candidates.map((row: any) => String(row?.run_id ?? "")));
+      const { data: staleSucceeded } = await sb.from("padova_apify_runs")
+        .select("run_id").eq("status", "SUCCEEDED")
+        .or("imported.is.null,imported.eq.0")
+        .lt("started_at", qCutoff).limit(500);
+      const { data: staleRunning } = await sb.from("padova_apify_runs")
+        .select("run_id").eq("status", "RUNNING")
+        .lt("started_at", qCutoff).limit(500);
+      const ids = Array.from(new Set([...(staleSucceeded ?? []), ...(staleRunning ?? [])]
+        .map((row: any) => String(row?.run_id ?? ""))
+        .filter((id) => id.length > 0 && !scopeIds.has(id))));
+      if (ids.length > 0) {
+        const stamp = new Date().toISOString();
+        const { error } = await sb.from("padova_apify_runs").update({
+          status: "QUARANTINED",
+          error: `quarantine:no_import_evidence:${stamp}`,
+        }).in("run_id", ids);
+        if (error) quarantineError = "quarantine_update_failed";
+        else quarantinedRuns = ids.length;
+      }
+    } catch {
+      quarantineError = "quarantine_exception";
+    }
+  }
+
 
   const results: any[] = [];
   for (const row of candidates) {
