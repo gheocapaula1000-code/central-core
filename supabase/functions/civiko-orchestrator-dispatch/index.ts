@@ -969,7 +969,7 @@ async function runAction(
         target: targetName,
         ok: false,
         status,
-        reason: verdict.reason,
+        reason: verdict.reconciled ? null : verdict.reason,
         result: { reconciled_after_timeout: false, original_reason: reason },
       }, startedAt, startedMs);
     }
