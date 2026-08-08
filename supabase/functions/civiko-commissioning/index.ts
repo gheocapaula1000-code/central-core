@@ -1606,7 +1606,7 @@ async function runChain(
   let result: Record<string, unknown> | null = null;
   try {
     if (index < CHAIN_STEPS.length) {
-      result = await runChainStep(CHAIN_STEPS[index]);
+      result = await runChainStep(CHAIN_STEPS[index], runId);
       progress.steps.push(result);
       progress.next_index = index + 1;
     }
