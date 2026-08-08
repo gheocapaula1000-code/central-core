@@ -896,12 +896,49 @@ async function runAction(
     console.error(
       `[civiko-orchestrator-dispatch] action=${action} failure=${aborted ? "timeout" : "network_error"}`,
     );
+    const status = aborted ? 504 : 502;
+    const reason = aborted ? "timeout" : "network_error";
+    // Il recompute v4 dura ~95 s e prosegue nel database anche dopo l'abort
+    // dell'azione: riconcilia SOLO con evidenza DB fresca, coerente e senza
+    // errori. Nessun audit fittizio, nessun allentamento del gate.
+    if (action === "contendibili_recompute" && isReconcilableFailure(status, reason)) {
+      const verdict = await reconcileRecompute(startedAt);
+      if (verdict.reconciled) {
+        console.log(
+          `[civiko-orchestrator-dispatch] action=${action} reconciled_after_timeout source=${verdict.evidence_source}`,
+        );
+        return auditStep(context, {
+          action,
+          target: targetName,
+          ok: true,
+          status: 200,
+          reason: null,
+          result: {
+            ...verdict.result,
+            evidence: verdict.evidence,
+            evidence_source: verdict.evidence_source,
+            evidence_observed_at: verdict.observed_at,
+            reconciled_after_timeout: true,
+            original_status: status,
+            original_reason: reason,
+          },
+        }, startedAt, startedMs);
+      }
+      return auditStep(context, {
+        action,
+        target: targetName,
+        ok: false,
+        status,
+        reason: verdict.reason,
+        result: { reconciled_after_timeout: false, original_reason: reason },
+      }, startedAt, startedMs);
+    }
     return auditStep(context, {
       action,
       target: targetName,
       ok: false,
-      status: aborted ? 504 : 502,
-      reason: aborted ? "timeout" : "network_error",
+      status,
+      reason,
       result: {},
     }, startedAt, startedMs);
   } finally {
