@@ -452,6 +452,20 @@ Deno.serve(async (req) => {
   const agencyBackfillBatch = Math.max(1, Math.min(500, Number(body.agency_backfill_batch ?? 300)));
   const agencyBackfillMaxLaunches = Math.max(0, Number(body.agency_backfill_max_launches ?? 1));
 
+  // Modalità costo-zero: nessuna chiamata al provider. La chiusura semantica
+  // di una raccolta già terminale viene decisa SOLO su evidenza persistita
+  // (righe padova_collect_v2_items toccate nella finestra del run). Assenza di
+  // evidenza NON è zero-novità: è mancanza di prova e resta fallimento.
+  const dbEvidenceOnly = body.db_evidence_only === true;
+  const evidenceWindowHours = Math.max(1, Math.min(48, Number(body.evidence_window_hours ?? 6)));
+
+  const portalFamilyOf = (portalTag: string): string => {
+    if (portalTag.startsWith("immobiliare")) return "immobiliare";
+    if (portalTag.startsWith("idealista")) return "idealista";
+    if (portalTag.startsWith("subito")) return "subito";
+    if (portalTag.startsWith("casa")) return "casa";
+    return "";
+  };
 
   // Seleziona candidati: RUNNING più vecchi di staleMinutes, oppure run_ids espliciti.
   // Include anche SUCCEEDED con imported=0: padova-apify-multi-status può
@@ -461,6 +475,15 @@ Deno.serve(async (req) => {
   let candidates: any[] = [];
   if (Array.isArray(body.run_ids) && body.run_ids.length) {
     const { data } = await sb.from("padova_apify_runs").select("*").in("run_id", body.run_ids);
+    candidates = data ?? [];
+  } else if (dbEvidenceOnly) {
+    // Solo run già terminali positivi e recenti: i residui storici sono stati
+    // riconciliati a stato terminale non-successo e non devono più affiorare.
+    const windowStart = new Date(Date.now() - evidenceWindowHours * 3600_000).toISOString();
+    const { data } = await sb.from("padova_apify_runs").select("*")
+      .eq("status", "SUCCEEDED")
+      .gte("started_at", windowStart)
+      .order("started_at", { ascending: false }).limit(maxRuns);
     candidates = data ?? [];
   } else {
     const cutoff = new Date(Date.now() - staleMinutes * 60_000).toISOString();
@@ -491,7 +514,54 @@ Deno.serve(async (req) => {
     let rejectedOutOfScope = 0, municipalityMissing = 0;
     const errors: string[] = [];
 
+    if (dbEvidenceOnly) {
+      // Nessuna chiamata provider: leggiamo solo cosa è stato realmente
+      // persistito dopo l'avvio del run per la famiglia di portale.
+      const family = portalFamilyOf(portalTag);
+      if (!family) {
+        results.push({ run_id: runId, portal: portalTag, action: "skip_unknown_portal_family" });
+        continue;
+      }
+      const sinceIso = new Date(Date.parse(String(row.started_at))).toISOString();
+      const portalFilter = family === "casa" ? ["casa", "casa.it"] : [family];
+      const { count: createdRows, error: cErr } = await sb.from("padova_collect_v2_items")
+        .select("id", { count: "exact", head: true })
+        .in("portal", portalFilter)
+        .gte("created_at", sinceIso);
+      const { count: touchedRows, error: uErr } = await sb.from("padova_collect_v2_items")
+        .select("id", { count: "exact", head: true })
+        .in("portal", portalFilter)
+        .gte("updated_at", sinceIso);
+      if (cErr || uErr) {
+        results.push({ run_id: runId, portal: portalTag, error: `evidence_query:${cErr?.message ?? uErr?.message}` });
+        continue;
+      }
+      const createdCount = Number(createdRows ?? 0);
+      const touchedCount = Number(touchedRows ?? 0);
+      const updatedCount = Math.max(0, touchedCount - createdCount);
+      if (touchedCount === 0) {
+        // Nessuna riga toccata: non è zero-novità, è assenza di prova.
+        results.push({
+          run_id: runId, dataset_id: dsId, portal: portalTag, status: "SUCCEEDED",
+          items: Number(row.items_count ?? 0), action: "db_evidence",
+          error: "no_import_evidence", evidence: { created_rows: 0, touched_rows: 0, since: sinceIso },
+        });
+        continue;
+      }
+      results.push({
+        run_id: runId, dataset_id: dsId, actor_id: actorId, portal: portalTag,
+        status: "SUCCEEDED", items: Number(row.items_count ?? 0),
+        created: createdCount, updated: updatedCount, skipped: 0, errors: [],
+        action: "db_evidence", provider_queried: false,
+        zero_novelty: createdCount === 0 && updatedCount > 0,
+        evidence: { created_rows: createdCount, touched_rows: touchedCount, since: sinceIso },
+        rejected_out_of_scope: 0, municipality_missing: 0, out_of_scope_written: 0,
+      });
+      continue;
+    }
+
     try {
+
       const apifyData = await apifyRunStatus(runId, token);
       if (!apifyData) {
         results.push({ run_id: runId, action: "skip_no_apify_data" });
