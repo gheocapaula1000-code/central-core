@@ -723,7 +723,11 @@ serve(async (req: Request) => {
           status: "active",
           score: Math.min(100, 50 + Math.round(dropPct)),
           last_seen_at: lastSeen,
-          first_seen_at: typeof row.imported_at === "string" ? row.imported_at : undefined,
+          first_seen_at: typeof row.first_seen_at === "string"
+            ? row.first_seen_at
+            : typeof row.imported_at === "string"
+              ? row.imported_at
+              : undefined,
           raw_ref: `listing_price_snapshots:${row.source_id ?? ""}`,
           lat_raw: row.lat,
           lng_raw: row.lng,
@@ -734,7 +738,6 @@ serve(async (req: Request) => {
           observations_count: typeof row.observations_count === "number" && Number.isFinite(row.observations_count)
             ? row.observations_count
             : undefined,
-          first_seen_at: typeof row.first_seen_at === "string" ? row.first_seen_at : undefined,
           omi_zone_code: omiCode || undefined,
         }));
         itemQuartiereBySourceId.set(
