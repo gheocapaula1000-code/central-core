@@ -1006,6 +1006,17 @@ async function runAction(
   }
 }
 
+/**
+ * Normalizza un timestamp in ISO-8601 UTC (suffisso Z) prima di interpolarlo
+ * in una query PostgREST: '+' nella query string viene letto come spazio.
+ */
+function toIsoZ(value: unknown): string | null {
+  if (typeof value !== "string" || value.trim() === "") return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+
+
 // Conteggio reale via PostgREST (count=exact). Ritorna null se non verificabile:
 // il gate resta fail-closed.
 async function realCount(pathAndQuery: string): Promise<number | null> {
@@ -1612,9 +1623,11 @@ async function releaseGate(
   // Freshness legata all'esatto ultimo 05:10, non semplicemente a una finestra
   // storica. Gli ID provider/queue restano la prova primaria; questi count
   // certificano che eventuali write dichiarate appartengono allo stesso ciclo.
-  const exactRunSince = typeof pipeline0510?.started_at === "string"
-    ? pipeline0510.started_at
-    : null;
+  // PostgREST interpreta '+' nella query string come spazio: un timestamp
+  // "…+00:00" preso grezzo dal DB produce 400 (22007) e azzera le metriche
+  // exact-run, rendendo metrics_available=false in modo permanente.
+  // Normalizziamo sempre in ISO-8601 UTC con suffisso Z.
+  const exactRunSince = toIsoZ(pipeline0510?.started_at);
   const exactPortalSpecs = [
     { key: "immobiliare", collect: "eq.immobiliare", listing: "immobiliare" },
     { key: "idealista", collect: "eq.idealista", listing: "idealista" },
