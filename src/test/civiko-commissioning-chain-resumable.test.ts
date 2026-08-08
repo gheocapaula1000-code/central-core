@@ -22,7 +22,7 @@ describe("civiko-commissioning — chain resumibile fail-closed", () => {
   });
 
   it("esegue un solo step per invocazione", () => {
-    expect(INDEX).toContain("result = await runChainStep(CHAIN_STEPS[index]);");
+    expect(INDEX).toContain("result = await runChainStep(CHAIN_STEPS[index], runId);");
     expect(INDEX).not.toContain("for (const step of CHAIN_STEPS) {");
   });
 
