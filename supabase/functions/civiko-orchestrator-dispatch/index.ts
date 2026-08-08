@@ -1360,12 +1360,31 @@ async function releaseGate(
     );
   };
 
+  // Il gate accetta esplicitamente la raccolta 05:10 standard oppure la
+  // variante capped, mai entrambe: vince l'ultimo tentativo per started_at.
+  // Tutti i requisiti semantici e di freschezza restano identici.
+  const COLLECTION_PIPELINES: PipelineAction[] = ["pipeline_0510", "pipeline_0510_capped"];
+  const collectionPipeline: PipelineAction = COLLECTION_PIPELINES
+    .map((pipeline) => ({ pipeline, row: latestPipelineRow(pipeline) }))
+    .filter((candidate) => candidate.row !== undefined)
+    .sort((a, b) =>
+      (Date.parse(String(b.row?.started_at ?? "")) || 0) -
+      (Date.parse(String(a.row?.started_at ?? "")) || 0)
+    )[0]?.pipeline ?? "pipeline_0510";
+  const collectionApifyAction: SimpleAction = collectionPipeline === "pipeline_0510_capped"
+    ? "apify_batch_capped"
+    : "apify_batch";
+  const collectionCasaAction: SimpleAction = collectionPipeline === "pipeline_0510_capped"
+    ? "portal_casa_capped"
+    : "portal_casa";
+
   // Identificativi dell'esatto ultimo 05:10, correlati sia alla risposta
   // trusted di collect-pending dell'esatto 05:45 sia alle righe DB provider.
   // In questo modo un vecchio SUCCEEDED entro quattro ore non maschera un
   // lancio corrente non ancora importato. Dataset validi ma senza nuove righe
   // restano ammessi tramite zero_novelty.
-  const launchBatchResult = latestRunActionResult("pipeline_0510", "apify_batch");
+  const launchBatchResult = latestRunActionResult(collectionPipeline, collectionApifyAction);
+
   const launchRecords = recordsWithIdentifier(launchBatchResult, "run_id");
   const launchedRunIds = {
     immobiliare: Array.from(new Set(launchRecords.flatMap((row) =>
