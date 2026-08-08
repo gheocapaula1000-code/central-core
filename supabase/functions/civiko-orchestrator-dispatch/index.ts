@@ -230,6 +230,13 @@ const PIPELINES: Record<PipelineAction, PipelineSpec> = {
     at: "05:10",
     stages: [["apify_batch", "portal_casa"]],
   },
+  // 05:10 Europe/Rome — variante capped Civiko-only: stessa semantica di
+  // raccolta, ma con hard cap di costo provider e volumi minimi.
+  pipeline_0510_capped: {
+    at: "05:10",
+    stages: [["apify_batch_capped", "portal_casa_capped"]],
+  },
+
   // 05:45 Europe/Rome — import, privati, evidenze e recompute autoritativo.
   pipeline_0545: {
     at: "05:45",
