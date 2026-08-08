@@ -179,7 +179,9 @@ describe("padova-contendibili-list — DB-side zone filter", () => {
     expect(SRC).toMatch(/const\s+hotQ\s*=\s*applyZoneFilter\(/);
     const hotBlock = SRC.slice(SRC.indexOf("const hotQ"), SRC.indexOf("Reachability"));
     expect(hotBlock).toContain("applyZoneFilter");
-    expect(hotBlock).toMatch(/\.gte\(["']n_agenzie["'],\s*3\)/);
+    expect(hotBlock).toMatch(
+      /\.gte\(["']agency_count_distinct["'],\s*MIN_AGENZIE_CONTESI\)/,
+    );
     expect(hotBlock).toContain("head: true");
   });
 
