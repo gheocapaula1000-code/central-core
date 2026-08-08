@@ -35,6 +35,14 @@ const IMAGE_BATCH_MAX_INVOCATIONS = 6;
 const IMAGE_BATCH_DOWNSTREAM_RESERVE_MS = 85_000;
 const GATE_TIMEOUT_MS = 15_000;
 
+import {
+  evaluateRecomputeReconciliation,
+  isReconcilableFailure,
+  type ReconcileVerdict,
+} from "./recomputeReconcile.ts";
+
+
+
 type SimpleAction =
   | "apify_batch"
   | "apify_batch_capped"
@@ -774,6 +782,57 @@ async function persistPipelineAudit(
   }, true);
 }
 
+/** Attesa massima dell'esito DB dopo il timeout dell'azione (nessun costo). */
+const RECONCILE_MAX_WAIT_MS = 105_000;
+const RECONCILE_POLL_MS = 7_000;
+
+/**
+ * Legge l'evidenza DB canonica del recompute e decide fail-closed.
+ * Nessuna scrittura: solo letture su padova_recompute_last_result e
+ * padova_contendibili (la stessa evidenza usata dal release gate).
+ * Il recompute prosegue nel database dopo l'abort dell'azione: si attende
+ * l'esito reale entro un budget limitato, senza mai inventare un successo.
+ */
+async function reconcileRecomputeOnce(startedAt: string): Promise<ReconcileVerdict> {
+  const lastResultRows = await realRows(
+    `padova_recompute_last_result?select=created_at,result&order=created_at.desc&limit=5`,
+  );
+  const updatedCount = await realCount(
+    `padova_contendibili?select=id&commercial_zone_slug=in.(${CIVIKO_SCOPE_SLUGS.join(",")})&n_agenzie=gte.2&updated_at=gte.${startedAt}`,
+  );
+  const newest = await realRows(
+    `padova_contendibili?select=updated_at&order=updated_at.desc&limit=1`,
+  );
+  return evaluateRecomputeReconciliation({
+    startedAt,
+    lastResultRows: lastResultRows === null
+      ? null
+      : lastResultRows.map((row) => ({
+        created_at: String(row.created_at ?? ""),
+        result: row.result,
+      })),
+    contendibiliUpdatedCount: updatedCount,
+    contendibiliMaxUpdatedAt: newest?.[0]?.updated_at
+      ? String(newest[0].updated_at)
+      : null,
+  });
+}
+
+/** Polling limitato dell'esito reale: nessun provider, sole letture. */
+async function reconcileRecompute(startedAt: string): Promise<ReconcileVerdict> {
+  const deadline = Date.now() + RECONCILE_MAX_WAIT_MS;
+  let verdict = await reconcileRecomputeOnce(startedAt);
+  while (!verdict.reconciled && Date.now() + RECONCILE_POLL_MS < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, RECONCILE_POLL_MS));
+    verdict = await reconcileRecomputeOnce(startedAt);
+  }
+  return verdict;
+}
+
+
+
+
+
 async function runAction(
   action: SimpleAction,
   context: ActionContext,
@@ -896,12 +955,50 @@ async function runAction(
     console.error(
       `[civiko-orchestrator-dispatch] action=${action} failure=${aborted ? "timeout" : "network_error"}`,
     );
+    const status = aborted ? 504 : 502;
+    const reason = aborted ? "timeout" : "network_error";
+    // Il recompute v4 dura ~95 s e prosegue nel database anche dopo l'abort
+    // dell'azione: riconcilia SOLO con evidenza DB fresca, coerente e senza
+    // errori. Nessun audit fittizio, nessun allentamento del gate.
+    if (action === "contendibili_recompute" && isReconcilableFailure(status, reason)) {
+      const verdict = await reconcileRecompute(startedAt);
+      if (verdict.reconciled) {
+        console.log(
+          `[civiko-orchestrator-dispatch] action=${action} reconciled_after_timeout source=${verdict.evidence_source}`,
+        );
+        return auditStep(context, {
+          action,
+          target: targetName,
+          ok: true,
+          status: 200,
+          reason: null,
+          result: {
+            ...verdict.result,
+            evidence: verdict.evidence,
+            evidence_source: verdict.evidence_source,
+            evidence_observed_at: verdict.observed_at,
+            reconciled_after_timeout: true,
+            original_status: status,
+            original_reason: reason,
+          },
+        }, startedAt, startedMs);
+      }
+      const failureReason = (verdict as { reason?: string }).reason ?? "reconcile_failed";
+      return auditStep(context, {
+        action,
+        target: targetName,
+        ok: false,
+        status,
+        reason: failureReason,
+        result: { reconciled_after_timeout: false, original_reason: reason },
+      }, startedAt, startedMs);
+    }
     return auditStep(context, {
       action,
       target: targetName,
       ok: false,
-      status: aborted ? 504 : 502,
-      reason: aborted ? "timeout" : "network_error",
+      status,
+      reason,
       result: {},
     }, startedAt, startedMs);
   } finally {
