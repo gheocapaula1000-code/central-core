@@ -940,7 +940,7 @@ Deno.serve(async (req) => {
     result?.status === "SUCCEEDED" && Number(result?.items ?? 0) > 0
   ));
   const requiredPortalsOk = requiredPortals.every((portal) =>
-    completedPortalFamilies.has(String(portal))
+    (completedPortalFamilies as Set<string>).has(String(portal))
   );
   const ok = terminalFailures.length === 0 && auxiliaryFailures.length === 0 &&
     candidatesOk && terminalOk && requiredPortalsOk &&
