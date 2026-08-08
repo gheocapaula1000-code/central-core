@@ -1034,6 +1034,28 @@ function toIsoZ(value: unknown): string | null {
 
 // Conteggio reale via PostgREST (count=exact). Ritorna null se non verificabile:
 // il gate resta fail-closed.
+
+// Perimetro raccolta corrente: run_id esatti dell'ultimo 05:10 (standard o
+// capped) certificato. Se non esiste alcun 05:10 recente, lo scope resta vuoto
+// e collect_pending lavora sulla sola finestra temporale: mai sui residui
+// storici globali, che vengono invece quarantinati in modo auditabile.
+async function resolveCollectScope(): Promise<CollectScope> {
+  const empty: CollectScope = {
+    run_ids: [],
+    by_portal: { immobiliare: [], idealista: [], subito: [] },
+    since: null,
+    complete: false,
+  };
+  const since = new Date(Date.now() - 24 * 3600_000).toISOString();
+  const rows = await realRows(
+    `civiko_orchestrator_action_runs?select=pipeline_action,action,ok,result,started_at&action=in.(apify_batch,apify_batch_capped)&ok=is.true&started_at=gte.${since}&order=started_at.desc&limit=10`,
+  );
+  const latest = (rows ?? [])[0];
+  if (!latest) return empty;
+  const startedAt = typeof latest.started_at === "string" ? latest.started_at : null;
+  return extractCollectScope(latest.result, startedAt);
+}
+
 async function realCount(pathAndQuery: string): Promise<number | null> {
   if (!SERVICE_KEY) return null;
   const controller = new AbortController();
@@ -2054,6 +2076,7 @@ Deno.serve(async (req) => {
     const pipelineRunId = crypto.randomUUID();
     const startedAt = Date.now();
     const startedAtIso = new Date(startedAt).toISOString();
+    let photoPerimeter: ReturnType<typeof evaluatePhotoPerimeter> | null = null;
     // Write the fail-closed marker before any provider can be reached. The
     // final write upserts this same identity; if the invocation is killed,
     // release_gate sees the unfinished/failed latest run instead of an older
@@ -2077,6 +2100,15 @@ Deno.serve(async (req) => {
         error: "audit_start_failed",
       });
     }
+    // Correlazione fail-closed della raccolta: collect_pending del 05:45 lavora
+    // solo sui run del 05:10 corrente (anti-starvation).
+    const collectScope = pipelineSteps(pipeline).includes("collect_pending")
+      ? await resolveCollectScope()
+      : null;
+    const collectBody = collectScope
+      ? buildCollectPendingBody({}, collectScope)
+      : null;
+
     // Stage sequenziali, azioni indipendenti parallele. Fail-closed al primo
     // stage fallito e budget totale sempre sotto il timeout Replit.
     for (const stage of pipeline.stages) {
@@ -2092,6 +2124,7 @@ Deno.serve(async (req) => {
             pipelineRunId,
             pipelineAction: action as PipelineAction,
             attemptNo: 1,
+            dynamicBody: step === "collect_pending" && collectBody ? collectBody : undefined,
           }, remaining)];
         }
         const batches: StepResult[] = [];
@@ -2117,10 +2150,20 @@ Deno.serve(async (req) => {
         break;
       }
       if (stage.includes("image_certify")) {
+        // Il perimetro di routine è 24 elementi (6 batch x 4). Il residuo non è
+        // un fallimento: è backlog, misurato e riportato separatamente.
         const imageRuns = stageResults.filter((result) => result.action === "image_certify");
-        if (imageRuns.length === 0 ||
-            imageRuns[imageRuns.length - 1].result.queue_complete !== true) {
-          failedAt = "image_queue_remaining_after_limit";
+        const perimeter = evaluatePhotoPerimeter(imageRuns.map((run) => ({
+          ok: run.ok,
+          processed: run.result.processed,
+          attempted: run.result.attempted,
+          remaining: run.result.remaining,
+          remaining_exact: run.result.remaining_exact,
+          queue_complete: run.result.queue_complete,
+        })));
+        photoPerimeter = perimeter;
+        if (!perimeter.perimeter_complete) {
+          failedAt = "image_routine_perimeter_incomplete";
           break;
         }
       }
@@ -2154,6 +2197,16 @@ Deno.serve(async (req) => {
       executed: steps.length,
       planned: pipelineMaxExecutions(pipeline),
       duration_ms: Date.now() - startedAt,
+      collect_scope: collectScope
+        ? {
+          run_ids: collectScope.run_ids.length,
+          complete: collectScope.complete,
+          since: collectScope.since,
+        }
+        : null,
+      photo_routine: photoPerimeter
+        ? { ...photoPerimeter, perimeter_contract: PHOTO_ROUTINE_PERIMETER }
+        : null,
       steps,
     });
   }
