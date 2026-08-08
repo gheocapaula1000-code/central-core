@@ -798,7 +798,7 @@ async function reconcileRecomputeOnce(startedAt: string): Promise<ReconcileVerdi
     `padova_recompute_last_result?select=created_at,result&order=created_at.desc&limit=5`,
   );
   const updatedCount = await realCount(
-    `padova_contendibili?select=id&commercial_zone_slug=in.(${CIVIKO_SCOPE_SLUGS.join(",")})&n_agenzie=gte.2&updated_at=gte.${startedAt}`,
+    `padova_contendibili?select=id&commercial_zone_slug=in.(${CIVIKO_SCOPE_SLUGS.join(",")})&n_agenzie=gte.3&updated_at=gte.${startedAt}`,
   );
   const newest = await realRows(
     `padova_contendibili?select=updated_at&order=updated_at.desc&limit=1`,
@@ -1265,7 +1265,7 @@ function gateSpecs(since: string): GateSpec[] {
       group: "categories",
       metric: "contendibili_scope",
       q:
-        `padova_contendibili?select=id&commercial_zone_slug=in.(${scope})&n_agenzie=gte.2`,
+        `padova_contendibili?select=id&commercial_zone_slug=in.(${scope})&n_agenzie=gte.3`,
     },
     {
       group: "categories",
@@ -1565,7 +1565,7 @@ async function releaseGate(
     });
   const contendibiliExactRecomputeCount = Number.isFinite(recomputeActionStartedMs)
     ? await realCount(
-      `padova_contendibili?select=id&commercial_zone_slug=in.(${CIVIKO_SCOPE_SLUGS.join(",")})&n_agenzie=gte.2&updated_at=gte.${new Date(recomputeActionStartedMs).toISOString()}`,
+      `padova_contendibili?select=id&commercial_zone_slug=in.(${CIVIKO_SCOPE_SLUGS.join(",")})&n_agenzie=gte.3&updated_at=gte.${new Date(recomputeActionStartedMs).toISOString()}`,
     )
     : null;
   metrics.derived.contendibili_exact_recompute = contendibiliExactRecomputeCount;

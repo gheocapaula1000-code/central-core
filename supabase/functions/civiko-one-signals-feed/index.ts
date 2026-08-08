@@ -36,6 +36,7 @@ import {
   applyCivikoSingleZoneGate,
 } from "../_shared/civikoZoneAccessGate.ts";
 import { corsHeaders as buildCorsHeaders, handleOptions, requireSecret, makeDebugId } from "../_shared/http.ts";
+import { MIN_AGENZIE_CONTESI } from "../_shared/contesi3PlusGate.ts";
 
 const SCHEMA_VERSION = "civiko_signals_feed_v1";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -495,7 +496,7 @@ serve(async (req: Request) => {
     if (quartiereFilter) contQ = contQ.eq("quartiere", quartiereFilter);
     // Prefer last_seen_at when available (post-migration), fallback to created_at.
     const { data, error } = await contQ
-      .or("agency_count_distinct.gte.2,and(agency_count_distinct.is.null,n_agenzie.gte.2)")
+      .or(`agency_count_distinct.gte.${MIN_AGENZIE_CONTESI},and(agency_count_distinct.is.null,n_agenzie.gte.${MIN_AGENZIE_CONTESI})`)
       .order("last_seen_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false, nullsFirst: false })
       .order("agency_count_distinct", { ascending: false })

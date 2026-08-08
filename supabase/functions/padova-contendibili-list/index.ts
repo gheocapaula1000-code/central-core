@@ -30,6 +30,7 @@ import { commercialZoneForQuartiere } from "../_shared/civikoCommercialZoneByQua
 import {
   applyCivikoSingleZoneGate,
 } from "../_shared/civikoZoneAccessGate.ts";
+import { MIN_AGENZIE_CONTESI } from "../_shared/contesi3PlusGate.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -91,8 +92,8 @@ serve(async (req) => {
     // Client params — commercial_zone_slug & workspace_id from body/query are IGNORED.
     const quartiereRaw = ((body as Record<string, unknown>).quartiere ?? url.searchParams.get("quartiere") ?? null) as string | null;
     const min_agenzie = Math.max(
-      Number((body as Record<string, unknown>).min_agenzie ?? url.searchParams.get("min_agenzie") ?? 2) || 2,
-      1,
+      Number((body as Record<string, unknown>).min_agenzie ?? url.searchParams.get("min_agenzie") ?? MIN_AGENZIE_CONTESI) || MIN_AGENZIE_CONTESI,
+      MIN_AGENZIE_CONTESI,
     );
     const limit = Math.min(
       Math.max(Number((body as Record<string, unknown>).limit ?? url.searchParams.get("limit") ?? 500) || 500, 1),
@@ -231,7 +232,7 @@ serve(async (req) => {
       supabase
         .from("padova_contendibili_by_zone_v")
         .select("id", { count: "exact", head: true })
-        .gte("n_agenzie", 3),
+        .gte("n_agenzie", MIN_AGENZIE_CONTESI),
     );
     const { count: hotCount, error: hotErr } = await hotQ;
     if (hotErr) {
