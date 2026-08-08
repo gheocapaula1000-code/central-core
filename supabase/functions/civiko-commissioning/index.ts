@@ -1648,6 +1648,16 @@ async function runChain(
 
   const nextStepKey = done ? null : CHAIN_STEPS[progress.next_index].key;
 
+  // Gate rosso: l'envelope 409 deve dichiarare esplicitamente la causa, senza
+  // mai falsificare gate_passed né i missing[] reali dell'orchestratore.
+  const gateStep = progress.steps.find((s) => s.step === "release_gate");
+  const gateBlocked = gateStep !== undefined && gateStep.gate_passed !== true;
+  const rootErrorCode = done
+    ? (finalStatus === "SUCCESS"
+      ? null
+      : (gateBlocked ? "release_gate_not_passed" : "chain_not_fully_successful"))
+    : null;
+
   return {
     status: done ? (finalStatus === "SUCCESS" ? 200 : 409) : 202,
     payload: {
@@ -1657,11 +1667,15 @@ async function runChain(
       // Presente finché restano step: il chiamante reinvoca con resume_run_id.
       resume_run_id: done ? null : runId,
       status: done ? finalStatus : "RUNNING",
+      error_code: rootErrorCode,
+      gate_passed: gateStep ? gateStep.gate_passed === true : null,
+      missing: gateStep && Array.isArray(gateStep.missing) ? gateStep.missing : [],
       chain_complete: done,
       steps: progress.steps,
       steps_planned: CHAIN_STEPS.map((s) => s.key),
       steps_executed: progress.steps.length,
       next_step: nextStepKey,
+
       started_at: startedAt,
       finished_at: done ? new Date().toISOString() : null,
     },
