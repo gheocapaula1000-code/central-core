@@ -818,6 +818,19 @@ async function reconcileRecomputeOnce(startedAt: string): Promise<ReconcileVerdi
   });
 }
 
+/** Polling limitato dell'esito reale: nessun provider, sole letture. */
+async function reconcileRecompute(startedAt: string): Promise<ReconcileVerdict> {
+  const deadline = Date.now() + RECONCILE_MAX_WAIT_MS;
+  let verdict = await reconcileRecomputeOnce(startedAt);
+  while (!verdict.reconciled && Date.now() + RECONCILE_POLL_MS < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, RECONCILE_POLL_MS));
+    verdict = await reconcileRecomputeOnce(startedAt);
+  }
+  return verdict;
+}
+
+
+
 
 
 async function runAction(
