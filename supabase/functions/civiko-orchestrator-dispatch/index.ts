@@ -964,12 +964,13 @@ async function runAction(
           },
         }, startedAt, startedMs);
       }
+      const failureReason = (verdict as { reason?: string }).reason ?? "reconcile_failed";
       return auditStep(context, {
         action,
         target: targetName,
         ok: false,
         status,
-        reason: verdict.reconciled ? null : verdict.reason,
+        reason: failureReason,
         result: { reconciled_after_timeout: false, original_reason: reason },
       }, startedAt, startedMs);
     }
