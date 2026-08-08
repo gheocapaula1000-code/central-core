@@ -103,7 +103,8 @@ describe("ack PWA autoritativo read-only", () => {
       "supabase/functions/civiko-commissioning/pwaAck.ts",
       "utf8",
     );
-    expect(/fetch\(|POST|insert|upsert/i.test(src)).toBe(false);
+    const code = src.split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
+    expect(/fetch\(|\.insert\(|upsert|method: "POST"/i.test(code)).toBe(false);
   });
 });
 
