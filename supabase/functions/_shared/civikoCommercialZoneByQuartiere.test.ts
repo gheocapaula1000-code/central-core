@@ -85,7 +85,9 @@ describe("commercialZoneForQuartiere — match esatto", () => {
     ["Brentelle", "ovest-chiesanuova-brentelle"],
     ["Montà", "ovest-chiesanuova-brentelle"],
     ["Sant'Ignazio", "ovest-chiesanuova-brentelle"],
-    ["Altichiero", "ovest-chiesanuova-brentelle"],
+    ["Altichiero", "nord-arcella"],
+    ["Altichero", "nord-arcella"],
+    ["Sacro Cuore", "nord-arcella"],
   ];
   for (const [name, slug] of cases) {
     it(`${name} → ${slug}`, () => expect(commercialZoneForQuartiere(name)).toBe(slug));
@@ -193,16 +195,13 @@ describe("commercialZoneForQuartiere — alias composti nuovi", () => {
     // ovest-chiesanuova-brentelle
     ["Ovest Chiesanuova Brentelle", "ovest-chiesanuova-brentelle"],
     ["Chiesanuova Brentelle", "ovest-chiesanuova-brentelle"],
-    ["Ovest Sacra Famiglia Chiesanuova Brusegana Altichiero", "ovest-chiesanuova-brentelle"],
     ["Brentelle Chiesanuova Cave", "ovest-chiesanuova-brentelle"],
     ["San Giuseppe San Giovanni", "ovest-chiesanuova-brentelle"],
     ["Palestro Sacra Famiglia San Giuseppe", "ovest-chiesanuova-brentelle"],
     ["Sacra Famiglia Basso Isonzo", "ovest-chiesanuova-brentelle"],
     ["Chiesanuova Brusegana", "ovest-chiesanuova-brentelle"],
     ["Brusegana Aeroporto", "ovest-chiesanuova-brentelle"],
-    ["Altichero", "ovest-chiesanuova-brentelle"],
     ["Monta Sant Ignazio", "ovest-chiesanuova-brentelle"],
-    ["S Ignazio Monta Altichiero", "ovest-chiesanuova-brentelle"],
   ];
   for (const [name, slug] of cases) {
     it(`${name} → ${slug}`, () => expect(commercialZoneForQuartiere(name)).toBe(slug));
@@ -230,6 +229,8 @@ describe("commercialZoneForQuartiere — null obbligatori", () => {
     "san carlo san gregorio",
     "stazione scrovegni c so del popolo fiera cittadella",
     // Etichette Subito cross-zona o generiche/commerciali: DEVONO restare null
+    "ovest sacra famiglia chiesanuova brusegana altichiero",
+    "s ignazio monta altichiero",
     "torre pontevigodarzere sacro cuore",
     "stazione,scrovegni,c.so del popolo,fiera, cittadella",
     // "s. gregorio, terranegra, forcellini est" è già alias esplicito preesistente
