@@ -11,7 +11,7 @@ export const CIVIKO_PADOVA_ZONE_SLUGS = [
   "centro-storico",
   "nord-arcella",
   "est-brenta",
-  "est-forcellini-camin",
+  "nord-est",
   "sud-est-sant-osvaldo",
   "sud-voltabarozzo-guizza",
   "sud-ovest-mandria",

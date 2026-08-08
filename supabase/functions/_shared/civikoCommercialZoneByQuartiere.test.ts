@@ -63,10 +63,10 @@ describe("commercialZoneForQuartiere — match esatto", () => {
     ["Stanga", "est-brenta"],
     ["Mortise", "est-brenta"],
     ["Ponte di Brenta", "est-brenta"],
-    ["Forcellini", "est-forcellini-camin"],
-    ["Camin", "est-forcellini-camin"],
-    ["ZIP", "est-forcellini-camin"],
-    ["Zona Industriale", "est-forcellini-camin"],
+    ["Forcellini", "nord-est"],
+    ["Camin", "est-brenta"],
+    ["ZIP", "est-brenta"],
+    ["Zona Industriale", "est-brenta"],
     ["Sant'Osvaldo", "sud-est-sant-osvaldo"],
     ["S. Osvaldo", "sud-est-sant-osvaldo"],
     ["Città Giardino", "sud-est-sant-osvaldo"],
@@ -110,7 +110,7 @@ describe("commercialZoneForQuartiere — fail-closed", () => {
 describe("commercialZoneForQuartiereParts — composte", () => {
   it("stessa zona → risolve", () => {
     expect(commercialZoneForQuartiereParts(["Mortise", "Torre"])).toBe("est-brenta");
-    expect(commercialZoneForQuartiereParts(["Forcellini", "Camin"])).toBe("est-forcellini-camin");
+    expect(commercialZoneForQuartiereParts(["Terranegra", "San Gregorio"])).toBe("nord-est");
     expect(commercialZoneForQuartiereParts(["Sacra Famiglia", "Chiesanuova"]))
       .toBe("ovest-chiesanuova-brentelle");
     expect(commercialZoneForQuartiereParts(["Mandria", "Paltana"])).toBe("sud-ovest-mandria");
@@ -163,16 +163,15 @@ describe("commercialZoneForQuartiere — alias composti nuovi", () => {
     ["Est Brenta", "est-brenta"],
     ["Stanga Pio X", "est-brenta"],
     ["Ponte di Brenta San Lazzaro", "est-brenta"],
-    // est-forcellini-camin
-    ["Est Forcellini Camin", "est-forcellini-camin"],
-    ["Camin San Marco", "est-forcellini-camin"],
-    ["Camin Industriale", "est-forcellini-camin"],
-    ["Forcellini Terranegra", "est-forcellini-camin"],
-    ["Camin Sud", "est-forcellini-camin"],
-    ["S Gregorio Terranegra Forcellini Est", "est-forcellini-camin"],
+    // nord-est / est-brenta (contratto v2)
+    ["Camin San Marco", "est-brenta"],
+    ["Camin Industriale", "est-brenta"],
+    ["Forcellini Terranegra", "nord-est"],
+    ["Camin Sud", "est-brenta"],
+    ["S Gregorio Terranegra Forcellini Est", "nord-est"],
     // Alias composto Subito validato same-zone
-    ["Zona Industriale ZIP", "est-forcellini-camin"],
-    ["ZONA INDUSTRIALE,ZIP", "est-forcellini-camin"],
+    ["Zona Industriale ZIP", "est-brenta"],
+    ["ZONA INDUSTRIALE,ZIP", "est-brenta"],
     ["BASSANELLO, GUIZZA, VOLTABAROZZO", "sud-voltabarozzo-guizza"],
     // sud-est-sant-osvaldo
     ["Sud Est Sant Osvaldo", "sud-est-sant-osvaldo"],

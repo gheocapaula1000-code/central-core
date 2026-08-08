@@ -341,7 +341,7 @@ serve(async (req: Request) => {
   let assignedSlugs: string[];
   if (isAdmin) {
     assignedSlugs = [
-      "centro-storico", "nord-arcella", "est-brenta", "est-forcellini-camin",
+      "centro-storico", "nord-arcella", "est-brenta", "nord-est",
       "sud-est-sant-osvaldo", "sud-voltabarozzo-guizza", "sud-ovest-mandria",
       "ovest-chiesanuova-brentelle",
     ];

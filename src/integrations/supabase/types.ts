@@ -551,6 +551,30 @@ export type Database = {
         }
         Relationships: []
       }
+      _bkp_20260808_zone_contract_v2: {
+        Row: {
+          captured_at: string
+          old_slug: string | null
+          quartiere: string | null
+          row_id: string
+          src_table: string
+        }
+        Insert: {
+          captured_at?: string
+          old_slug?: string | null
+          quartiere?: string | null
+          row_id: string
+          src_table: string
+        }
+        Update: {
+          captured_at?: string
+          old_slug?: string | null
+          quartiere?: string | null
+          row_id?: string
+          src_table?: string
+        }
+        Relationships: []
+      }
       _casa_scrape_debug_cache: {
         Row: {
           created_at: string

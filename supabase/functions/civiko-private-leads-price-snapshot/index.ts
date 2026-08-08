@@ -14,7 +14,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const RIBASSO_PCT = 5;
 const MIN_AGE_DAYS = 7;
 const CIVIKO_SCOPE_SLUGS = [
-  "centro-storico", "nord-arcella", "est-brenta", "est-forcellini-camin",
+  "centro-storico", "nord-arcella", "est-brenta", "nord-est",
   "sud-est-sant-osvaldo", "sud-voltabarozzo-guizza",
   "sud-ovest-mandria", "ovest-chiesanuova-brentelle",
 ];

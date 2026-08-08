@@ -24,8 +24,8 @@ describe("commercialZoneMapping — determinismo quartiere-only", () => {
     expect([...VALID_COMMERCIAL_ZONE_SLUGS].sort()).toEqual([
       "centro-storico",
       "est-brenta",
-      "est-forcellini-camin",
       "nord-arcella",
+      "nord-est",
       "ovest-chiesanuova-brentelle",
       "sud-est-sant-osvaldo",
       "sud-ovest-mandria",

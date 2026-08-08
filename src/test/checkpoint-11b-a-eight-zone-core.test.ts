@@ -25,7 +25,7 @@ const EIGHT = [
   "centro-storico",
   "nord-arcella",
   "est-brenta",
-  "est-forcellini-camin",
+  "nord-est",
   "sud-est-sant-osvaldo",
   "sud-voltabarozzo-guizza",
   "sud-ovest-mandria",
@@ -194,7 +194,7 @@ describe("11B-A · prenotazione delle 8 zone", () => {
     const db = makeDb();
     const first = await (await handleZonesReserve(req("sud-ovest-mandria"), db.factory)).json();
     expect(first.ok).toBe(true);
-    const second = await handleZonesReserve(req("est-forcellini-camin"), db.factory);
+    const second = await handleZonesReserve(req("nord-est"), db.factory);
     expect(second.status).toBe(409);
     const owned = [...db.zones.entries()].filter(([, v]) => v.agency === WS);
     expect(owned).toHaveLength(1);
