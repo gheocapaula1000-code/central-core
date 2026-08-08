@@ -28,6 +28,7 @@ import {
 import { canSpendFirecrawl, recordFirecrawlSpend } from "../_shared/firecrawlBudget.ts";
 import { canSpendAi, recordAiSpend } from "../_shared/aiBudget.ts";
 import { CIVIKO_COMMERCIAL_ZONES } from "../_shared/civikoCommercialZoneContract.ts";
+import { evaluatePwaAck } from "./pwaAck.ts";
 
 const DISPATCH_SECRET = Deno.env.get("CIVIKO_ORCHESTRATOR_DISPATCH_SECRET") ?? "";
 // Canale già autorizzato orchestrator → Central Core: nessun nuovo Secret manuale.
@@ -1366,7 +1367,10 @@ const CHAIN_STEPS: ChainStep[] = [
   { key: "release_gate", kind: "gate" },
 ];
 
-async function runChainStep(step: ChainStep): Promise<Record<string, unknown>> {
+async function runChainStep(
+  step: ChainStep,
+  chainRunId: string,
+): Promise<Record<string, unknown>> {
   const startedAt = new Date().toISOString();
   const fail = (status: CivikoCommissioningStatus, code: string, httpStatus: number) => ({
     step: step.key,
@@ -1378,27 +1382,32 @@ async function runChainStep(step: ChainStep): Promise<Record<string, unknown>> {
   });
 
   if (step.kind === "read") {
-    const rows = await realRows(
-      "civiko_pwa_sync_acks?select=run_id,pipeline_run_id,ok,started_at,finished_at,created_at,counts,scope_comune,scope_slugs,municipality,commercial_zone_slugs&order=created_at.desc&limit=1",
-    );
-    if (rows === null) return fail("FAILED", "pwa_ack_unreadable", 502);
-    const ack = rows[0];
-    if (!ack) return fail("PARTIAL", "pwa_ack_missing", 200);
+    // Ack autoritativo read-only: si certifica che i dati siano realmente
+    // leggibili dalla PWA (stesso feed autenticato, scope admin full-city),
+    // con conteggi e freshness attribuibili. L'ack client, se esiste, è
+    // evidenza addizionale ma non è più l'unica prova ammessa. Nessuna
+    // scrittura e nessuna prova inventata: fail-closed su ogni dubbio.
+    const feed = await pwaFeedCounts();
+    const payload = feed.payload as Record<string, unknown>;
+    const evidence = evaluatePwaAck({
+      httpStatus: feed.status,
+      feedOk: payload.ok === true,
+      counts: payload.counts as Record<string, unknown> | null,
+      freshness: payload.data_freshness as Record<string, unknown> | null,
+      clientAck: payload.pwa_sync_ack as Record<string, unknown> | null,
+      chainRunId,
+      now: Date.now(),
+    });
     return {
       step: step.key,
-      status: ack.ok === true ? "SUCCESS" : "PARTIAL",
-      http_status: 200,
-      error_code: ack.ok === true ? null : "pwa_ack_not_ok",
-      pipeline_run_id: ack.pipeline_run_id ?? null,
-      ack_started_at: ack.started_at ?? null,
-      ack_finished_at: ack.finished_at ?? null,
-      ack_created_at: ack.created_at ?? null,
-      counts: ack.counts ?? null,
-      scope_comune: ack.scope_comune ?? ack.municipality ?? null,
-      scope_slugs: ack.scope_slugs ?? ack.commercial_zone_slugs ?? null,
+      status: evidence.status,
+      http_status: feed.status,
+      error_code: evidence.error_code,
+      ack: evidence,
       started_at: startedAt,
       finished_at: new Date().toISOString(),
     };
+
   }
 
   if (step.kind === "gate") {
@@ -1597,7 +1606,7 @@ async function runChain(
   let result: Record<string, unknown> | null = null;
   try {
     if (index < CHAIN_STEPS.length) {
-      result = await runChainStep(CHAIN_STEPS[index]);
+      result = await runChainStep(CHAIN_STEPS[index], runId);
       progress.steps.push(result);
       progress.next_index = index + 1;
     }
@@ -1639,6 +1648,16 @@ async function runChain(
 
   const nextStepKey = done ? null : CHAIN_STEPS[progress.next_index].key;
 
+  // Gate rosso: l'envelope 409 deve dichiarare esplicitamente la causa, senza
+  // mai falsificare gate_passed né i missing[] reali dell'orchestratore.
+  const gateStep = progress.steps.find((s) => s.step === "release_gate");
+  const gateBlocked = gateStep !== undefined && gateStep.gate_passed !== true;
+  const rootErrorCode = done
+    ? (finalStatus === "SUCCESS"
+      ? null
+      : (gateBlocked ? "release_gate_not_passed" : "chain_not_fully_successful"))
+    : null;
+
   return {
     status: done ? (finalStatus === "SUCCESS" ? 200 : 409) : 202,
     payload: {
@@ -1648,11 +1667,15 @@ async function runChain(
       // Presente finché restano step: il chiamante reinvoca con resume_run_id.
       resume_run_id: done ? null : runId,
       status: done ? finalStatus : "RUNNING",
+      error_code: rootErrorCode,
+      gate_passed: gateStep ? gateStep.gate_passed === true : null,
+      missing: gateStep && Array.isArray(gateStep.missing) ? gateStep.missing : [],
       chain_complete: done,
       steps: progress.steps,
       steps_planned: CHAIN_STEPS.map((s) => s.key),
       steps_executed: progress.steps.length,
       next_step: nextStepKey,
+
       started_at: startedAt,
       finished_at: done ? new Date().toISOString() : null,
     },
