@@ -1785,6 +1785,45 @@ export type Database = {
         }
         Relationships: []
       }
+      civiko_apify_run_reconciliations: {
+        Row: {
+          created_at: string
+          evidence: Json
+          id: number
+          new_status: string
+          portal: string
+          previous_status: string
+          reason: string
+          reconciled_at: string
+          rule: string
+          run_id: string
+        }
+        Insert: {
+          created_at?: string
+          evidence?: Json
+          id?: number
+          new_status: string
+          portal: string
+          previous_status: string
+          reason: string
+          reconciled_at?: string
+          rule: string
+          run_id: string
+        }
+        Update: {
+          created_at?: string
+          evidence?: Json
+          id?: number
+          new_status?: string
+          portal?: string
+          previous_status?: string
+          reason?: string
+          reconciled_at?: string
+          rule?: string
+          run_id?: string
+        }
+        Relationships: []
+      }
       civiko_commercial_zones: {
         Row: {
           agency_id: string | null
@@ -9444,6 +9483,7 @@ export type Database = {
           portale_subito_lancio_ok: boolean | null
           portali_freschi: number | null
           portali_lancio_corrente_ok: boolean | null
+          private_classify_na_ok: boolean | null
           privati_fuori_perimetro: number | null
           pwa_sync_ack_avvio: string | null
           pwa_sync_ack_corrente: boolean | null
