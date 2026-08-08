@@ -1180,7 +1180,7 @@ async function verifiedPriceDropsCount(): Promise<number | null> {
   }
   return counts.some((count) => count === null)
     ? null
-    : counts.reduce((sum, count) => sum + (count ?? 0), 0);
+    : counts.reduce((sum: number, count) => sum + (count ?? 0), 0);
 }
 
 
