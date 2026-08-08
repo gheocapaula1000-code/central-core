@@ -1367,7 +1367,10 @@ const CHAIN_STEPS: ChainStep[] = [
   { key: "release_gate", kind: "gate" },
 ];
 
-async function runChainStep(step: ChainStep): Promise<Record<string, unknown>> {
+async function runChainStep(
+  step: ChainStep,
+  chainRunId: string,
+): Promise<Record<string, unknown>> {
   const startedAt = new Date().toISOString();
   const fail = (status: CivikoCommissioningStatus, code: string, httpStatus: number) => ({
     step: step.key,
