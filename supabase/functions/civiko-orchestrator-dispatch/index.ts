@@ -88,6 +88,14 @@ const ALLOWED: Record<SimpleAction, Target> = {
     body: {},
     timeoutMs: 145_000,
   },
+  // Variante Civiko-only con hard cap 2.00 USD, 25 item per portale e una sola
+  // search URL, verificata lato provider con abort automatico. Additiva:
+  // apify_batch resta invariata.
+  apify_batch_capped: {
+    fn: "civiko-padova-apify-launch-batch-capped",
+    body: {},
+    timeoutMs: 145_000,
+  },
   apify_immobiliare: { fn: "cron-apify-immobiliare-nightly", body: {}, timeoutMs: 45_000 },
   apify_idealista: { fn: "cron-apify-idealista-nightly", body: {}, timeoutMs: 45_000 },
   apify_subito: { fn: "cron-apify-subito-nightly", body: {}, timeoutMs: 45_000 },
@@ -97,6 +105,13 @@ const ALLOWED: Record<SimpleAction, Target> = {
     body: { mode: "full", portals: ["casa.it"], max_pages: 5 },
     timeoutMs: 30_000,
   },
+  // Stessa funzione e stesso contratto, ma limitata a 2 pagine per il run capped.
+  portal_casa_capped: {
+    fn: "enqueue-padova-portal-scrapes",
+    body: { mode: "full", portals: ["casa.it"], max_pages: 2 },
+    timeoutMs: 30_000,
+  },
+
   collect_pending: {
     fn: "padova-apify-collect-pending",
     // Zero novità è valido soltanto quando i run provider sono terminati con
