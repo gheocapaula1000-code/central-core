@@ -1,7 +1,7 @@
 // Regressione: /agent-radar è read-only e non scrive radar_signals.
 // radar_signals_written deve restare telemetria e non far fallire il run.
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { evaluateRunOutcome } from "./index.ts";
+import { evaluateRunOutcome } from "./outcome.ts";
 
 Deno.test("successo con zero scritture radar_signals", () => {
   const out = evaluateRunOutcome(true, 0);
