@@ -203,6 +203,7 @@ export function officialUrlVariants(rawUrl: string): string[] {
   } catch {
     return [];
   }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return [];
   const variants = [url.toString()];
   const host = url.hostname.toLowerCase();
   if (!host.startsWith("www.") && host.split(".").length >= 2) {
