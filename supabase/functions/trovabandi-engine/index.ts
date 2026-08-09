@@ -907,6 +907,10 @@ async function upsertCandidates(
       snippet: hit.description?.slice(0, 1000) || null,
       provider: hit.provider?.slice(0, 120) || null,
       last_seen_at: nowIso,
+      // Una nuova hit ufficial-domain riabilita esplicitamente l'URL: la sua
+      // salute riparte da zero, mentre un eventuale content_hash valido resta.
+      last_attempted_at: null,
+      attempt_count: 0,
       updated_at: nowIso,
     });
   }
@@ -1743,8 +1747,13 @@ serve(async (req) => {
       await upsertCandidates(sb, source, searchHits);
     }
     // Pool unificato: candidati cache + evidenze persistite + hit nuove.
+    const refreshedUrls = new Set(
+      searchHits
+        .map((hit) => canonicalCandidateUrl(hit.url))
+        .filter((url): url is string => !!url),
+    );
     const pool = dedupeCandidates([
-      ...cachedPool,
+      ...cachedPool.filter((candidate) => !refreshedUrls.has(candidate.url)),
       ...searchHits.map((hit) => ({
         url: hit.url,
         title: hit.title,
@@ -1752,6 +1761,8 @@ serve(async (req) => {
         provider: hit.provider,
         discovered_at: new Date(nowMs).toISOString(),
         last_seen_at: new Date(nowMs).toISOString(),
+        last_attempted_at: null,
+        attempt_count: 0,
       })),
     ]);
     const byUrl = new Map(pool.map((candidate) => [candidate.url, candidate]));

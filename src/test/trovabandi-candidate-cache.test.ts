@@ -130,6 +130,27 @@ describe("trovabandi candidate cache — quarantena NO_CONTENT", () => {
     expect(freshCandidates([refreshed], NOW)).toHaveLength(1);
   });
 
+  it("una nuova hit riparte da zero e richiede due nuovi NO_CONTENT", () => {
+    const refreshed = {
+      url: "https://padovanet.it/albo/ritrovato",
+      last_seen_at: hoursAgo(1),
+      last_attempted_at: null,
+      attempt_count: 0,
+      content_hash: null,
+    };
+    expect(isCandidateQuarantined(refreshed, NOW)).toBe(false);
+    expect(isCandidateQuarantined({
+      ...refreshed,
+      last_attempted_at: hoursAgo(0.5),
+      attempt_count: 1,
+    }, NOW)).toBe(false);
+    expect(isCandidateQuarantined({
+      ...refreshed,
+      last_attempted_at: hoursAgo(0.25),
+      attempt_count: 2,
+    }, NOW)).toBe(true);
+  });
+
   it("riammette dopo il cooldown esplicito senza fingere una nuova hit", () => {
     const cooledDown = {
       url: "https://mimit.gov.it/catalogo",
