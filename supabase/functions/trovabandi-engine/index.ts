@@ -778,12 +778,17 @@ async function fetchOfficialVariant(
       }
       const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
       const pdf = isPdfContentType(contentType);
-      if (!pdf && !isHtmlContentType(contentType)) {
+      const csv = !pdf && isCsvContentType(contentType);
+      if (!pdf && !csv && !isHtmlContentType(contentType)) {
         await res.body?.cancel();
         return null;
       }
       const declaredLength = Number(res.headers.get("content-length") ?? 0);
-      const maxBytes = pdf ? MAX_PDF_BYTES : MAX_HTML_BYTES;
+      const maxBytes = pdf
+        ? MAX_PDF_BYTES
+        : csv
+          ? MAX_CSV_BYTES
+          : MAX_HTML_BYTES;
       if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
         await res.body?.cancel();
         return null;
@@ -795,6 +800,15 @@ async function fetchOfficialVariant(
         const markdown = parsed.text.slice(0, 60_000);
         return markdown.length > 200
           ? { markdown, title: parsed.title, provider: "official-pdf" }
+          : null;
+      }
+      if (csv) {
+        const bytes = await readLimitedBytes(res, maxBytes);
+        if (!bytes || bytes.byteLength === 0) return null;
+        const parsed = csvToEvidenceText(bytes);
+        const markdown = parsed.text.slice(0, 60_000);
+        return markdown.length > 200
+          ? { markdown, title: parsed.title, provider: "official-csv" }
           : null;
       }
       const raw = await readLimitedText(res, maxBytes);
