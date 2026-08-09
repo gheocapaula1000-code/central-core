@@ -1,59 +1,67 @@
-# pipeline_0510_capped — run unico sui 4 portali con tetto di costo rigido
+# Diagnosi read-only — radar_signals vs /agent-radar e cron-radar-padova-nightly
 
-## Cosa dice il codice reale (sola lettura, nessuna modifica fatta)
+Nessun file, database, secret o progetto è stato modificato. Solo letture (codice + query SELECT).
 
-**Composizione di `pipeline_0510`** (`civiko-orchestrator-dispatch/index.ts`): un solo stage `["apify_batch", "portal_casa"]`.
-- `apify_batch` → `civiko-padova-apify-launch-batch`, che chiama in sequenza 4 wrapper: `cron-apify-immobiliare-nightly`, `cron-apify-idealista-nightly`, `cron-apify-subito-nightly`, `civiko-private-leads-nightly`. Il batch **rifiuta per contratto qualunque override** (body hardcoded `{}`), quindi oggi non esiste alcun modo di ridurre i volumi dall'esterno.
-- `portal_casa` → `enqueue-padova-portal-scrapes` (`max_pages: 5`), coda interna, non Apify.
+## 1) /civiko-radar-veneto/agent-radar scrive su radar_signals?
 
-**Actor e input cap disponibili**
-| Portale | Actor | Input di volume | Default wrapper |
-|---|---|---|---|
-| immobiliare | `azzouzana~immobiliare-it-listing-page-scraper-by-search-url` (discover) + `memo23~immobiliare-scraper` (detail) | `maxItems` per run, 4 search URL | `desired_results: 300`, `max_items: 800` |
-| idealista | actor unico (`Property_urls`, `desiredResults`) | `desired_results`, `max_urls_from_db`, `max_items` | 200 / 200 / 400 |
-| subito | `emastra~subito-it-immobili` | `maxResultItems` (clamp 1..1000) | `max_items: 300` |
+No. È un percorso **esclusivamente in lettura**.
 
-I tre wrapper cron **accettano override dal body** (`{ ...defaults, ...overrides }`): i cap sono quindi già iniettabili, manca solo un chiamante Civiko che li imposti.
+- `supabase/functions/civiko-radar-veneto/agentRadar.ts`: tutte le occorrenze di `radar_signals` sono `select` (righe 441-455, 1193, 1291). Nel file non esiste alcun `insert`, `upsert` o `rpc` di scrittura.
+- `supabase/functions/civiko-radar-veneto/index.ts`, ramo `pathname.endsWith("/agent-radar")` (righe ~3138-3646): nel blocco non c'è nessuna scrittura su `radar_signals`. Le uniche RPC nell'intervallo sono `recompute_padova_contendibili`, `recompute_padova_contendibili_extras` e `padova_omi_snapshot_breakdown` (read/recompute su altre tabelle).
 
-**Stime di costo hardcoded**
-- immobiliare: `estUsd 0.20` per ciascuna delle 4 search URL discover + `0.30` detail → ~1.10 USD a run.
-- idealista: `estUsd 0.50` fisso.
-- subito: `estUsd = max_items * 5 / 1000` (300 item → 1.50 USD), l'unico realmente proporzionale.
-- Totale attuale stimato: **~3.1 USD** per run 0510 (più il costo reale pay-per-result, che i primi due non modellano).
+Le scritture reali su `radar_signals` vivono altrove:
+- `civiko-radar-veneto/deriveSignals.ts` → `deriveAllSignals()` insert su `radar_signals` (riga 310), invocata **solo** da `/jobs/activate-veneto` (`index.ts` righe 931 / 1178).
+- `civiko-radar-veneto/advancedOpportunity.ts:721` (upsert `onConflict: fingerprint`) — job `/jobs/build-advanced-veneto-opportunities`.
+- `civiko-radar-veneto/firecrawl/microzoneOpportunityRunner.ts:235` — job firecrawl microzone.
+- `civiko-radar-veneto/offmarket/earlyOffmarketRunner.ts`, `openData/*`, `dataEngine.ts`, `agency/agencyOffmarketBrief.ts`, `civiko-signals-classify`, `sottra/scan.ts`.
 
-**Guardie esistenti** (`_shared/apifyBudget.ts`): cap giornaliero `APIFY_DAILY_CAP_USD` (default 10) e mensile `APIFY_MONTHLY_CAP_USD` (default 60), più l'hard cap EUR del radar. Sono guardie **cumulative di piattaforma**, non un tetto per singolo run: non impediscono che questo run bruci più del previsto.
+Conclusione: `agent-radar` deve **leggere e restituire opportunità/zone**, non produrre `radar_signals`.
 
-**Abort automatico per spesa: oggi assente.** `startApifyRun` chiama `POST /v2/acts/{id}/runs?token&waitForFinish=0` e non passa nessuna run option. Apify espone `maxTotalChargeUsd`, `timeout` e `memory` come query param di avvio: sono la leva reale per l'abort lato provider e non è mai usata nel codice.
+## 2) Query che producono i candidati Padova e filtri che li azzerano
 
-**Cap minimo semanticamente valido per il gate** (`release_gate`, blocco `fourPortalCurrentRunEvidence`): il gate richiede, per l'esatto ultimo 0510, un `run_id` per ciascuna delle 3 famiglie Apify, ciascuna con `status SUCCEEDED`, `errors_count 0` e `items >= 0` (accetta `zero_novelty`), più la coda Casa completa e `collect_pending` senza errori. **Non c'è alcuna soglia sul numero di item.** Il cap più piccolo valido è quindi quello che garantisce dataset non vuoti per robustezza, non per contratto: **25 item per portale**.
+In `agentRadar.ts` (funzione di pull, righe 412-510) le fonti sono:
+- `listing_price_snapshots` — finestra `captured_at >= now()-60d`, filtro `province in (PD, Padova)`
+- `motivated_sellers` — `is_active = true` + provincia
+- `market_anomalies` — `is_active = true` + provincia
+- `radar_signals` — `is_active = true` + provincia + `ilike municipality`
+- `omi_valori` — `regione ilike Veneto`, `compr_max not null`
+- `auction_signals` — `is_active = true`
+- `area_opportunity_scores` — `province = PD`
+- `territorial_signals` — `is_active = true`
 
-## Proposta: azione additiva `pipeline_0510_capped`
+Filtri a valle che possono portare a **zero** (in `index.ts`, ramo agent-radar, righe ~3519-3575):
+- `isPadova(o.comune)`: scarta tutto ciò che non ha `comune === "padova"` (contatore `excluded_out_of_scope`);
+- `requireOmiZoneAR` (attivo con `require_omi_zone` o `scope=padova_omi_zones`): scarta ogni opportunità senza `omi_zone_code` (`excludedNoOmiZoneAR`) e con `omi_zone_confidence < 0.6` (`excludedLowConfidenceAR`), via `resolvePadovaOmiBatch` che richiede `lat`/`lng`.
 
-Solo Civiko, fail-closed, additiva. `pipeline_0510` resta byte-identica; UEradar, contratti condivisi, `_shared/*` e i wrapper esistenti non vengono toccati.
+Quindi un candidato può esistere ma sparire per: comune non normalizzato, coordinate assenti, o confidenza point-in-polygon sotto 0.6. Il wrapper cron **non** passa `require_omi_zone`, ma passa `scope: "global"`: la coppia comune/OMI resta comunque il collo di bottiglia principale.
 
-1. **Nuova Edge Function `civiko-padova-apify-launch-batch-capped`** (copia isolata, il batch attuale resta intatto). Differenze:
-   - budget di run dichiarato e costante: `RUN_COST_CAP_USD = 1.00`;
-   - profilo di cap hardcoded (non accetta override dal client): immobiliare `desired_results 25 / max_items 25` su **1 sola search URL**, idealista `desired_results 25 / max_urls_from_db 25 / max_items 25`, subito `max_items 25`;
-   - stima preventiva per portale, accumulo e **stop prima del lancio** se il totale supererebbe il cap → risposta `402 cost_cap_would_exceed` senza chiamare Apify;
-   - echo obbligatorio nell'envelope: `cost_cap_usd`, `estimated_cost_usd`, `per_portal_estimates[]`, `caps_applied{}`, `run_id`/`dataset_id` per portale;
-   - se un portale non restituisce identificatori o supera il cap, si ferma: nessun lancio parziale silenzioso.
+Stato dati letto in sola lettura: `radar_signals` per Padova ha 31 righe, tutte attive, con `max(detected_at) = 2026-07-18`. Nessuna riga nuova da quella data.
 
-2. **Abort automatico per spesa lato provider**: passaggio di `maxTotalChargeUsd` + `timeout` all'avvio del run, tramite un helper locale alla funzione capped (non modificando `_shared/apify.ts`). Se il token/actor non supporta il parametro, il run **non parte** (fail-closed) invece di partire senza tetto.
+## 3) Esiste un percorso di persistenza delle opportunità restituite?
 
-3. **Nuova azione orchestratore `pipeline_0510_capped`**: stage unico `["apify_batch_capped", "portal_casa"]`, con `portal_casa` invariato ma `max_pages: 2`. Registrata in allowlist accanto alle esistenti, senza rimuovere né rinominare nulla; nessun cron creato o attivato.
+Non da `agent-radar`. La persistenza delle opportunità avviene in job separati:
+- `civiko-radar-veneto/padovaEarlyWarning.ts` → upsert su **`public.normalized_opportunities`** (`onConflict: fingerprint`, righe 259-597) più tracciamento su `ingestion_runs`; esposto da `/jobs/build-padova-early-warning`.
+- Altre tabelle di segnale specializzate: `offmarket_opportunity_scores`, `urgent_opportunity_signals`, `pricing_error_signals`, `listing_velocity_signals`, `legal_property_signals` (tutte in `advancedOpportunity.ts`).
+- Lettura pubblica: `core-offmarket-list-public`, `core-radar-signals-list`.
 
-4. **Release gate invariato**: l'audit scrive `pipeline_0510_capped` come pipeline propria. Va deciso esplicitamente un punto (vedi sotto) prima di implementare.
+Tabella di persistenza canonica delle opportunità: `normalized_opportunities`; `radar_signals` è la tabella dei **segnali derivati**, non delle opportunità restituite dall'agente.
 
-5. **Test** (nessuna esecuzione provider): cap rispettati e echati; superamento cap → 402 senza fetch Apify; portale senza identificatori → fail-closed; profilo cap non sovrascrivibile dal body; `pipeline_0510` originale non modificata.
+## 4) Il check `radar_signals_written` nel wrapper è un requisito reale?
 
-## Decisione necessaria prima di implementare
+No: è un **falso requisito**.
 
-Il gate correla l'evidenza a `latestRunActionResult("pipeline_0510", ...)`. Con una pipeline dal nome nuovo il gate **non vedrà** il run capped e resterà BLOCKED. Due strade:
-- **A** — il capped scrive audit con action name `pipeline_0510` (gate chiuso davvero, ma la distinzione resta solo nei counters);
-- **B** — si estende il gate ad accettare `pipeline_0510` *oppure* `pipeline_0510_capped` (più esplicito, ma tocca il gate).
+`supabase/functions/cron-radar-padova-nightly/index.ts` righe 309-347 conta le righe `radar_signals` con `detected_at >= triggered_at` e `municipality = Padova`; se il conteggio è `0` **oppure `null`** marca il run `failure` / HTTP 502 con `radar_write_verification_failed`. Ma il wrapper chiama esclusivamente `/agent-radar` (riga 65), che per costruzione non scrive su `radar_signals`. Inoltre:
+- il match `municipality=eq.Padova` è case-sensitive, mentre le letture altrove usano `ilike`;
+- `detected_at` è valorizzato dai job di derivazione, non dal path chiamato;
+- un errore/timeout della query di conteggio produce `null` → fallimento anche con run riuscito.
 
-Nessuna delle due è già scelta: serve la tua indicazione.
+Conclusione: il gate misura un contratto downstream inesistente per questo percorso e spiega i `failure` registrati in `cron_executions_log` per `central-core-radar-padova-soft` e `radar-padova-nightly-full`, indipendentemente dal successo effettivo dell'agente.
 
-## Vincoli rispettati
+## Sintesi
 
-Nessuna modifica, nessun deploy, nessuna migrazione, nessun provider e nessun cron eseguiti in questa fase: questo documento è il risultato della sola ispezione.
+1. `agent-radar` = read-only, restituisce opportunità/zone.
+2. Candidati Padova da snapshots/motivated/anomalies/signals/OMI/aste/AOS; azzerabili da `comune !== padova`, mancanza di `omi_zone_code`, confidenza OMI < 0.6.
+3. La persistenza opportunità esiste ma in `normalized_opportunities` via `/jobs/build-padova-early-warning`, non in `agent-radar`.
+4. `radar_signals_written` nel wrapper è un falso requisito: da sostituire (in un intervento futuro, non incluso qui) con una verifica del contratto reale — es. esito HTTP + `total_opportunities`/`diagnostics` dell'agente, oppure spostando il gate sui job che scrivono davvero `radar_signals`.
+
+Nessuna modifica proposta in questa richiesta: l'output è la sola diagnosi.
