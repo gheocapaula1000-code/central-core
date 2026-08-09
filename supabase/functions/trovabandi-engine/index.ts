@@ -25,6 +25,7 @@ import {
   type PersistVerification,
 } from "./persist.ts";
 import {
+  csvToEvidenceText,
   htmlToEvidenceText,
   isAllowedOfficialUrl,
   isHtmlContentType,
