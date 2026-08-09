@@ -42,6 +42,7 @@ import {
   evaluateReleaseGate,
   nonNegativeSafeInteger,
   rankDueSources,
+  sourceScrapeOperationalFailures,
   type DueSource,
   type SuccessfulRun,
 } from "./hardening.ts";
@@ -931,7 +932,6 @@ async function markCandidateAttempt(
       source_id: source.id,
       url: canonical,
       url_hash: await sha256(canonical.toLowerCase()),
-      last_seen_at: nowIso,
       last_attempted_at: nowIso,
       attempt_count: previousAttempts + 1,
       content_hash: contentHash,
@@ -1756,7 +1756,7 @@ serve(async (req) => {
     ]);
     const byUrl = new Map(pool.map((candidate) => [candidate.url, candidate]));
     // Rotazione deterministica: mai sempre le prime due hit.
-    const rotated = rotateCandidates(pool, maxPages);
+    const rotated = rotateCandidates(pool, maxPages, nowMs);
     const hits: SearchHit[] = rotated.map((candidate) => ({
       url: candidate.url,
       title: normalizeText(candidate.title),
@@ -1765,6 +1765,7 @@ serve(async (req) => {
     }));
     let directFetchAttempted = 0;
     let directFetchSucceeded = 0;
+    let scrapeFailures = 0;
 
     for (const hit of hits) {
       const cachedState = byUrl.get(hit.url);
@@ -1781,7 +1782,7 @@ serve(async (req) => {
       if (!scraped) {
         diagnostics.push({ phase: "scrape", code: "NO_CONTENT" });
         warnings.push(`scrape_failed:${new URL(hit.url).hostname}`);
-        operationalFailures++;
+        scrapeFailures++;
         continue;
       }
       // pages_scraped misura gli scrape riusciti, non i tentativi.
@@ -1821,6 +1822,11 @@ serve(async (req) => {
       processed++;
       if (stored.verified) verified++;
     }
+
+    operationalFailures += sourceScrapeOperationalFailures(
+      scrapeFailures,
+      pagesScraped,
+    );
 
     const diagnosticCounters = aggregateDiagnostics(diagnostics);
     const finished = new Date().toISOString();

@@ -16,6 +16,7 @@ import {
   REFRESH_PREFERENCE_MAX_BYPASS_MINUTES,
   boundedMaxPages,
   collectionCompletionOutcome,
+  sourceScrapeOperationalFailures,
   evaluateReleaseGate,
   isRealSuccessfulScan,
   nonNegativeSafeInteger,
@@ -521,6 +522,16 @@ describe("NOT_OPPORTUNITY è l'unico esito negativo valido", () => {
 });
 
 describe("PARTIAL — persistenza diagnostica e risposta scheduler fail-closed", () => {
+  it("Padovanet/VDA mixed success conserva il warning ma non forza PARTIAL", () => {
+    expect(sourceScrapeOperationalFailures(1, 1)).toBe(0);
+    expect(sourceScrapeOperationalFailures(3, 1)).toBe(0);
+  });
+
+  it("tutti i candidati NO_CONTENT restano un guasto operativo fail-closed", () => {
+    expect(sourceScrapeOperationalFailures(2, 0)).toBe(2);
+    expect(sourceScrapeOperationalFailures(0, 0)).toBe(0);
+  });
+
   it("mappa dinamicamente PARTIAL su HTTP 502/ok:false e conserva SUCCEEDED su 200", () => {
     expect(collectionCompletionOutcome(1)).toEqual({
       runStatus: "PARTIAL",

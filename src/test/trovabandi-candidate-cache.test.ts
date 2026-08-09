@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   CANDIDATE_FRESH_HOURS,
+  CANDIDATE_NO_CONTENT_COOLDOWN_HOURS,
   canonicalCandidateUrl,
   containsSensitiveData,
   dedupeCandidates,
   freshCandidates,
+  isCandidateQuarantined,
   rotateCandidates,
   sanitizeProviderQuery,
   shouldSkipPaidSearch,
@@ -98,6 +100,61 @@ describe("trovabandi candidate cache — rotazione deterministica", () => {
     expect(shouldSkipPaidSearch(3, 3)).toBe(true);
     expect(shouldSkipPaidSearch(2, 3)).toBe(false);
     expect(shouldSkipPaidSearch(0, 1)).toBe(false);
+  });
+});
+
+describe("trovabandi candidate cache — quarantena NO_CONTENT", () => {
+  it("esclude dal fresh pool e dalla rotazione un URL avvelenato", () => {
+    const poisoned = {
+      url: "https://padovanet.it/albo/morto",
+      last_seen_at: hoursAgo(4),
+      last_attempted_at: hoursAgo(1),
+      attempt_count: 2,
+      content_hash: null,
+    };
+    expect(isCandidateQuarantined(poisoned, NOW)).toBe(true);
+    expect(freshCandidates([poisoned], NOW)).toEqual([]);
+    expect(rotateCandidates([poisoned], 2, NOW)).toEqual([]);
+    expect(shouldSkipPaidSearch(freshCandidates([poisoned], NOW).length, 1)).toBe(false);
+  });
+
+  it("riabilita il candidato solo con una nuova hit successiva al fallimento", () => {
+    const refreshed = {
+      url: "https://regione.vda.it/catalogo",
+      last_seen_at: hoursAgo(1),
+      last_attempted_at: hoursAgo(2),
+      attempt_count: 4,
+      content_hash: null,
+    };
+    expect(isCandidateQuarantined(refreshed, NOW)).toBe(false);
+    expect(freshCandidates([refreshed], NOW)).toHaveLength(1);
+  });
+
+  it("riammette dopo il cooldown esplicito senza fingere una nuova hit", () => {
+    const cooledDown = {
+      url: "https://mimit.gov.it/catalogo",
+      last_seen_at: hoursAgo(CANDIDATE_NO_CONTENT_COOLDOWN_HOURS + 2),
+      last_attempted_at: hoursAgo(CANDIDATE_NO_CONTENT_COOLDOWN_HOURS + 1),
+      attempt_count: 3,
+      content_hash: null,
+    };
+    expect(isCandidateQuarantined(cooledDown, NOW)).toBe(false);
+    expect(rotateCandidates([cooledDown], 1, NOW)).toHaveLength(1);
+  });
+
+  it("non mette in quarantena contenuto già valido o un singolo NO_CONTENT", () => {
+    expect(isCandidateQuarantined({
+      url: "https://a.it/valido",
+      last_attempted_at: hoursAgo(1),
+      attempt_count: 9,
+      content_hash: "sha256",
+    }, NOW)).toBe(false);
+    expect(isCandidateQuarantined({
+      url: "https://a.it/primo-tentativo",
+      last_attempted_at: hoursAgo(1),
+      attempt_count: 1,
+      content_hash: null,
+    }, NOW)).toBe(false);
   });
 });
 

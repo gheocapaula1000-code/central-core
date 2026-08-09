@@ -86,6 +86,20 @@ export function collectionCompletionOutcome(
       };
 }
 
+/**
+ * Le URL sono ridondanti dentro la stessa fonte: i NO_CONTENT restano warning
+ * puntuali, ma diventano guasto operativo solo quando nessuna pagina della
+ * fonte ha prodotto contenuto valido.
+ */
+export function sourceScrapeOperationalFailures(
+  failedUrls: number,
+  validPages: number,
+): number {
+  const failures = nonNegativeSafeInteger(failedUrls) ?? 0;
+  const valid = nonNegativeSafeInteger(validPages) ?? 0;
+  return failures > 0 && valid === 0 ? failures : 0;
+}
+
 function timestamp(value: string | null): number {
   if (!value) return Number.NEGATIVE_INFINITY;
   const parsed = new Date(value).getTime();
