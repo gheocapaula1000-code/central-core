@@ -141,3 +141,188 @@ export async function readLimitedText(
   }
 }
 
+export async function readLimitedBytes(
+  response: Response,
+  maxBytes: number,
+): Promise<Uint8Array | null> {
+  if (!response.body) return new Uint8Array(0);
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
+/**
+ * Alcune fonti ufficiali (BUR Veneto) dichiarano content-type malformati come
+ * `application/application/pdf`: la verifica resta esplicita e non permissiva.
+ */
+export function isPdfContentType(contentType: string): boolean {
+  const value = contentType.toLowerCase();
+  return value.includes("application/pdf") || value.includes("/x-pdf");
+}
+
+export function isHtmlContentType(contentType: string): boolean {
+  const value = contentType.toLowerCase();
+  return (
+    value.includes("text/html") ||
+    value.includes("application/xhtml+xml") ||
+    value.includes("text/plain")
+  );
+}
+
+/**
+ * Molte fonti ufficiali italiane rispondono soltanto sull'host `www.`
+ * (apex senza DNS o con SNI non riconosciuto). La canonicalizzazione dei
+ * candidati rimuove `www.`, quindi il fetch deve provare entrambe le varianti.
+ * Nessun dominio nuovo viene introdotto: la verifica dominio resta invariata.
+ */
+export function officialUrlVariants(rawUrl: string): string[] {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return [];
+  }
+  const variants = [url.toString()];
+  const host = url.hostname.toLowerCase();
+  if (!host.startsWith("www.") && host.split(".").length >= 2) {
+    const withWww = new URL(url.toString());
+    withWww.hostname = `www.${host}`;
+    variants.push(withWww.toString());
+  }
+  if (url.protocol === "http:") {
+    for (const variant of [...variants]) {
+      const secure = new URL(variant);
+      secure.protocol = "https:";
+      variants.push(secure.toString());
+    }
+  }
+  return [...new Set(variants)];
+}
+
+function inflate(bytes: Uint8Array): Promise<Uint8Array> | null {
+  const formats = ["deflate", "deflate-raw"] as const;
+  const attempt = async (): Promise<Uint8Array> => {
+    let lastError: unknown = null;
+    for (const format of formats) {
+      try {
+        const stream = new Blob([bytes])
+          .stream()
+          .pipeThrough(new DecompressionStream(format));
+        return new Uint8Array(await new Response(stream).arrayBuffer());
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError ?? new Error("inflate_failed");
+  };
+  return attempt();
+}
+
+function decodePdfLiteral(value: string): string {
+  return value
+    .replace(/\\([nrtbf])/g, (_m, code: string) => {
+      const map: Record<string, string> = {
+        b: "\b",
+        f: "\f",
+        n: "\n",
+        r: "\r",
+        t: "\t",
+      };
+      return map[code] ?? "";
+    })
+    .replace(/\\([0-7]{1,3})/g, (_m, oct: string) =>
+      String.fromCharCode(Number.parseInt(oct, 8)),
+    )
+    .replace(/\\(.)/g, "$1");
+}
+
+function extractPdfTextOperators(content: string): string {
+  const out: string[] = [];
+  const regex = /\((?:\\.|[^\\()])*\)|\bTJ\b|\bTj\b|\bTD\b|\bTd\b|\bT\*\b|\bET\b/g;
+  let match: RegExpExecArray | null;
+  let line: string[] = [];
+  while ((match = regex.exec(content)) !== null) {
+    const token = match[0];
+    if (token.startsWith("(")) {
+      line.push(decodePdfLiteral(token.slice(1, -1)));
+      continue;
+    }
+    if (token === "TD" || token === "Td" || token === "T*" || token === "ET") {
+      if (line.length) {
+        out.push(line.join(""));
+        line = [];
+      }
+    }
+  }
+  if (line.length) out.push(line.join(""));
+  return out.join("\n");
+}
+
+/**
+ * Estrazione testuale minimale da PDF ufficiali: nessun rendering, nessuna
+ * esecuzione. Restituisce testo vuoto se il PDF è scansionato o cifrato,
+ * così il chiamante resta fail-closed e passa ai provider configurati.
+ */
+export async function pdfToEvidenceText(
+  bytes: Uint8Array,
+): Promise<{ title: string; text: string }> {
+  const latin = new TextDecoder("latin1").decode(bytes);
+  const pieces: string[] = [];
+  const streamRegex = /stream\r?\n?([\s\S]*?)endstream/g;
+  let match: RegExpExecArray | null;
+  while ((match = streamRegex.exec(latin)) !== null) {
+    const raw = match[1];
+    const header = latin.slice(Math.max(0, match.index - 400), match.index);
+    let decoded = raw;
+    if (/FlateDecode/.test(header)) {
+      const encoded = Uint8Array.from(raw, (char) => char.charCodeAt(0) & 0xff);
+      try {
+        const inflated = await inflate(encoded);
+        decoded = inflated ? new TextDecoder("latin1").decode(inflated) : "";
+      } catch {
+        decoded = "";
+      }
+    } else if (/\/(DCTDecode|JPXDecode|CCITTFaxDecode|Image)/.test(header)) {
+      decoded = "";
+    }
+    if (!decoded) continue;
+    const text = extractPdfTextOperators(decoded);
+    if (text.trim()) pieces.push(text);
+    if (pieces.join("\n").length > 400_000) break;
+  }
+  const titleMatch = /\/Title\s*\(((?:\\.|[^\\()])*)\)/.exec(latin);
+  const title = decodePdfLiteral(titleMatch?.[1] ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500);
+  const text = pieces
+    .join("\n")
+    .replace(/[\t\f\v ]+/g, " ")
+    .replace(/\n\s*/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return { title, text };
+}
+
+
