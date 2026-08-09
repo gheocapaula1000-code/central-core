@@ -28,6 +28,7 @@ import {
   htmlToEvidenceText,
   isAllowedOfficialUrl,
   isHtmlContentType,
+  isCsvContentType,
   isPdfContentType,
   officialUrlVariants,
   pdfToEvidenceText,
