@@ -730,30 +730,38 @@ async function apifyScrape(
   }
 }
 
-async function directOfficialScrape(
+const OFFICIAL_FETCH_HEADERS = {
+  Accept:
+    "text/html,application/xhtml+xml,application/pdf;q=0.9,text/plain;q=0.8,*/*;q=0.5",
+  "Accept-Language": "it-IT,it;q=0.9,en;q=0.8",
+  "User-Agent":
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 UEradar/1.0 (+https://ueradar.com; official-grant-indexer)",
+} as const;
+
+const MAX_HTML_BYTES = 2_000_000;
+const MAX_PDF_BYTES = 12_000_000;
+
+async function fetchOfficialVariant(
   url: string,
   officialDomain: string,
 ): Promise<{ markdown: string; title: string; provider: string } | null> {
   if (!isAllowedOfficialUrl(url, officialDomain)) return null;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12_000);
+  const timer = setTimeout(() => controller.abort(), 20_000);
   try {
     let currentUrl = url;
-    for (let redirectCount = 0; redirectCount <= 3; redirectCount++) {
+    for (let redirectCount = 0; redirectCount <= 4; redirectCount++) {
+      // SSRF guard: ogni hop deve restare nel dominio ufficiale.
       if (!isAllowedOfficialUrl(currentUrl, officialDomain)) return null;
       const res = await fetch(currentUrl, {
         redirect: "manual",
-        headers: {
-          Accept: "text/html,text/plain;q=0.9",
-          "User-Agent":
-            "UEradar/1.0 (+https://ueradar.com; official-grant-indexer)",
-        },
+        headers: OFFICIAL_FETCH_HEADERS,
         signal: controller.signal,
       });
       if (res.status >= 300 && res.status < 400) {
         const location = res.headers.get("location");
         await res.body?.cancel();
-        if (!location || redirectCount === 3) return null;
+        if (!location || redirectCount === 4) return null;
         currentUrl = new URL(location, currentUrl).toString();
         continue;
       }
@@ -762,23 +770,31 @@ async function directOfficialScrape(
         return null;
       }
       const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
-      if (
-        !contentType.includes("text/html") &&
-        !contentType.includes("text/plain")
-      ) {
+      const pdf = isPdfContentType(contentType);
+      if (!pdf && !isHtmlContentType(contentType)) {
         await res.body?.cancel();
         return null;
       }
       const declaredLength = Number(res.headers.get("content-length") ?? 0);
-      if (Number.isFinite(declaredLength) && declaredLength > 2_000_000) {
+      const maxBytes = pdf ? MAX_PDF_BYTES : MAX_HTML_BYTES;
+      if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
         await res.body?.cancel();
         return null;
       }
-      const raw = await readLimitedText(res, 2_000_000);
+      if (pdf) {
+        const bytes = await readLimitedBytes(res, maxBytes);
+        if (!bytes) return null;
+        const parsed = await pdfToEvidenceText(bytes);
+        const markdown = parsed.text.slice(0, 60_000);
+        return markdown.length > 200
+          ? { markdown, title: parsed.title, provider: "official-pdf" }
+          : null;
+      }
+      const raw = await readLimitedText(res, maxBytes);
       if (raw == null) return null;
-      const parsed = contentType.includes("text/html")
-        ? htmlToEvidenceText(raw)
-        : { title: "", text: raw.trim() };
+      const parsed = contentType.includes("text/plain")
+        ? { title: "", text: raw.trim() }
+        : htmlToEvidenceText(raw);
       const markdown = parsed.text.slice(0, 60_000);
       return markdown.length > 200
         ? { markdown, title: parsed.title, provider: "official-http" }
@@ -793,16 +809,35 @@ async function directOfficialScrape(
 }
 
 /**
+ * Le fonti ufficiali italiane rispondono spesso soltanto su `www.`: si prova
+ * ogni variante consentita dallo stesso dominio ufficiale, senza allargare la
+ * whitelist. Nessuna variante fuori dominio viene mai richiesta.
+ */
+async function directOfficialScrape(
+  url: string,
+  officialDomain: string,
+): Promise<{ markdown: string; title: string; provider: string } | null> {
+  for (const variant of officialUrlVariants(url)) {
+    const result = await fetchOfficialVariant(variant, officialDomain);
+    if (result) return result;
+  }
+  return null;
+}
+
+/**
  * Cache-first / direct-fetch-first: si tenta sempre prima l'HTTP ufficiale
  * diretto (costo provider zero) e solo dopo Firecrawl scrape e Apify.
  */
 async function loadPage(url: string, officialDomain: string) {
-  return (
-    (await directOfficialScrape(url, officialDomain)) ??
-    (await scrapePage(url)) ??
-    (await apifyScrape(url))
-  );
+  const direct = await directOfficialScrape(url, officialDomain);
+  if (direct) return direct;
+  for (const variant of officialUrlVariants(url)) {
+    const scraped = (await scrapePage(variant)) ?? (await apifyScrape(variant));
+    if (scraped) return scraped;
+  }
+  return null;
 }
+
 
 // Client minimale: evita il mismatch dei generici Supabase nei checker Deno.
 type CandidateClient = {
