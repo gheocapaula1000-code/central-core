@@ -27,6 +27,11 @@ import {
 import {
   htmlToEvidenceText,
   isAllowedOfficialUrl,
+  isHtmlContentType,
+  isPdfContentType,
+  officialUrlVariants,
+  pdfToEvidenceText,
+  readLimitedBytes,
   readLimitedText,
 } from "./scrape.ts";
 import {
@@ -831,11 +836,14 @@ async function directOfficialScrape(
 async function loadPage(url: string, officialDomain: string) {
   const direct = await directOfficialScrape(url, officialDomain);
   if (direct) return direct;
-  for (const variant of officialUrlVariants(url)) {
-    const scraped = (await scrapePage(variant)) ?? (await apifyScrape(variant));
+  // Budget: al massimo una chiamata Firecrawl per variante (max 2) e una sola
+  // chiamata Apify sulla variante piu' probabile.
+  const variants = officialUrlVariants(url).slice(0, 2);
+  for (const variant of variants) {
+    const scraped = await scrapePage(variant);
     if (scraped) return scraped;
   }
-  return null;
+  return await apifyScrape(variants[variants.length - 1] ?? url);
 }
 
 
