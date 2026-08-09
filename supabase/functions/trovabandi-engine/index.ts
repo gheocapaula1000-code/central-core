@@ -937,7 +937,9 @@ async function markCandidateAttempt(
       url: canonical,
       url_hash: await sha256(canonical.toLowerCase()),
       last_attempted_at: nowIso,
-      attempt_count: previousAttempts + 1,
+      // Il contatore misura i NO_CONTENT consecutivi: una pagina valida
+      // ripristina la salute senza cancellare la sua evidenza/hash.
+      attempt_count: contentHash ? 0 : previousAttempts + 1,
       content_hash: contentHash,
       updated_at: nowIso,
     } as never,
