@@ -327,3 +327,104 @@ export async function pdfToEvidenceText(
 }
 
 
+
+/**
+ * CSV ufficiali (Open Data): accettati solo i content-type dichiarati dai
+ * portali istituzionali. Nessun altro binario viene ammesso.
+ */
+export function isCsvContentType(contentType: string): boolean {
+  const value = contentType.toLowerCase();
+  return (
+    value.includes("text/csv") ||
+    value.includes("application/csv") ||
+    value.includes("application/vnd.ms-excel")
+  );
+}
+
+function splitCsvLine(line: string, delimiter: string): string[] {
+  const cells: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (quoted) {
+      if (char === '"') {
+        if (line[i + 1] === '"') {
+          cell += '"';
+          i++;
+        } else quoted = false;
+      } else cell += char;
+      continue;
+    }
+    if (char === '"') {
+      quoted = true;
+      continue;
+    }
+    if (char === delimiter) {
+      cells.push(cell.trim());
+      cell = "";
+      continue;
+    }
+    cell += char;
+  }
+  cells.push(cell.trim());
+  return cells;
+}
+
+/**
+ * Converte un CSV ufficiale in evidenza testuale: nessuna formula viene
+ * valutata, nessun dato inventato. Fail-closed su CSV vuoti o senza
+ * intestazioni e righe leggibili.
+ */
+export function csvToEvidenceText(
+  bytes: Uint8Array,
+  maxChars = 60_000,
+): { title: string; text: string } {
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  } catch {
+    return { title: "", text: "" };
+  }
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+  // Nessuna esecuzione: i prefissi di formula restano inerti come testo.
+  const lines = text
+    .split(/\r\n|\n|\r/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (lines.length < 2) return { title: "", text: "" };
+  const delimiter = [";", ",", "\t", "|"]
+    .map((candidate) => ({
+      candidate,
+      count: splitCsvLine(lines[0], candidate).length,
+    }))
+    .sort((a, b) => b.count - a.count)[0];
+  if (!delimiter || delimiter.count < 2) return { title: "", text: "" };
+  const header = splitCsvLine(lines[0], delimiter.candidate).map((cell) =>
+    cell.replace(/\s+/g, " ").trim(),
+  );
+  if (header.filter(Boolean).length < 2) return { title: "", text: "" };
+  const rows: string[] = [];
+  let used = 0;
+  for (const line of lines.slice(1)) {
+    const cells = splitCsvLine(line, delimiter.candidate);
+    if (cells.filter((cell) => cell.length > 0).length === 0) continue;
+    const rendered = header
+      .map((name, index) => {
+        const value = (cells[index] ?? "").replace(/\s+/g, " ").trim();
+        return value ? `${name || `col_${index + 1}`}: ${value}` : "";
+      })
+      .filter(Boolean)
+      .join(" | ");
+    if (!rendered) continue;
+    used += rendered.length + 1;
+    if (used > maxChars) break;
+    rows.push(rendered);
+  }
+  if (!rows.length) return { title: "", text: "" };
+  const body = [header.filter(Boolean).join(" | "), ...rows]
+    .join("\n")
+    .slice(0, maxChars)
+    .trim();
+  return { title: header.filter(Boolean).join(" | ").slice(0, 500), text: body };
+}
