@@ -226,7 +226,7 @@ function inflate(bytes: Uint8Array): Promise<Uint8Array> | null {
     let lastError: unknown = null;
     for (const format of formats) {
       try {
-        const stream = new Blob([bytes])
+        const stream = new Blob([bytes.slice().buffer as ArrayBuffer])
           .stream()
           .pipeThrough(new DecompressionStream(format));
         return new Uint8Array(await new Response(stream).arrayBuffer());
