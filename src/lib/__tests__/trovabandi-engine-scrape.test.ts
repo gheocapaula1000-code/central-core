@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  csvToEvidenceText,
   htmlToEvidenceText,
+  isCsvContentType,
   isAllowedOfficialUrl,
   isHtmlContentType,
   isPdfContentType,
@@ -120,5 +122,60 @@ describe("UEradar www fallback e PDF ufficiali", () => {
   it("rifiuta PDF oltre il limite di byte", async () => {
     const big = new Response(new Uint8Array(1024));
     await expect(readLimitedBytes(big, 512)).resolves.toBeNull();
+  });
+});
+
+describe("UEradar CSV Open Data ufficiali", () => {
+  const enc = (value: string) => new TextEncoder().encode(value);
+
+  it("accetta solo i content-type CSV ufficiali", () => {
+    expect(isCsvContentType("text/csv; charset=utf-8")).toBe(true);
+    expect(isCsvContentType("application/csv")).toBe(true);
+    expect(isCsvContentType("application/vnd.ms-excel")).toBe(true);
+    expect(isCsvContentType("application/zip")).toBe(false);
+    expect(isCsvContentType("application/octet-stream")).toBe(false);
+  });
+
+  it("converte un CSV ufficiale valido in evidenza testuale (BOM incluso)", () => {
+    const csv =
+      "\uFEFFtitolo;ente;scadenza\nContributi imprese 2026;Incentivi.gov.it;30/09/2026\nBando digitale;MIMIT;15/10/2026\n";
+    const parsed = csvToEvidenceText(enc(csv));
+    expect(parsed.title).toBe("titolo | ente | scadenza");
+    expect(parsed.text).toContain("titolo: Contributi imprese 2026");
+    expect(parsed.text).toContain("scadenza: 15/10/2026");
+    expect(parsed.text).not.toContain("\uFEFF");
+  });
+
+  it("non esegue formule e non inventa dati", () => {
+    const parsed = csvToEvidenceText(enc("a;b\n=SUM(1,2);\n"));
+    expect(parsed.text).toContain("a: =SUM(1,2)");
+    expect(parsed.text).not.toContain("b:");
+  });
+
+  it("resta fail-closed su CSV vuoto, solo header o malformato", () => {
+    expect(csvToEvidenceText(enc("")).text).toBe("");
+    expect(csvToEvidenceText(enc("titolo;ente;scadenza\n")).text).toBe("");
+    expect(csvToEvidenceText(enc("solo-una-colonna\nvalore\n")).text).toBe("");
+    expect(csvToEvidenceText(enc("a;b\n;\n")).text).toBe("");
+  });
+
+  it("rispetta il limite byte esplicito sul corpo CSV", async () => {
+    const big = new Response(new Uint8Array(2048));
+    await expect(readLimitedBytes(big, 1024)).resolves.toBeNull();
+  });
+
+  it("non accetta CSV serviti da un dominio non ufficiale", () => {
+    expect(
+      isAllowedOfficialUrl(
+        "https://evil.example/open-data/export.csv",
+        "incentivi.gov.it",
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedOfficialUrl(
+        "https://www.incentivi.gov.it/sites/default/files/open-data/2025-4-5_opendata-export.csv",
+        "incentivi.gov.it",
+      ),
+    ).toBe(true);
   });
 });
