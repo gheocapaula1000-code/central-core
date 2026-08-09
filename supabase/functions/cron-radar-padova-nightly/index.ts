@@ -51,7 +51,11 @@ async function logExecution(jobName: string, row: {
   }
 }
 
+import { evaluateRunOutcome } from "./outcome.ts";
+
 type Mode = "soft" | "full";
+
+
 
 async function runOneComune(comune: string, triggeredAt: string, mode: Mode, jobName: string): Promise<{
   comune: string;
@@ -306,13 +310,15 @@ Deno.serve(async (req) => {
 
     const summary = await runAll(triggeredAt, mode, jobName);
 
-    // Verifica se il run ha effettivamente prodotto scritture su radar_signals
-    // dall'inizio dell'invocazione. Best-effort: non fallisce il run se la
-    // query non risponde.
+    // Telemetria: conta le scritture su radar_signals dall'inizio dell'invocazione.
+    // NOTA CONTRATTUALE: /agent-radar è read-only e non scrive mai radar_signals
+    // (le scritture provengono da job separati: activate-veneto, advanced-veneto,
+    // firecrawl microzone, early-offmarket). Quindi 0/null è una misura
+    // informativa e NON può far fallire il run.
     let rowsWritten: number | null = null;
     try {
       const countRes = await fetch(
-        `${SUPABASE_URL}/rest/v1/radar_signals?detected_at=gte.${triggeredAt}&municipality=eq.Padova&select=id`,
+        `${SUPABASE_URL}/rest/v1/radar_signals?detected_at=gte.${triggeredAt}&municipality=ilike.padova&select=id`,
         {
           headers: {
             apikey: SERVICE_KEY,
@@ -329,23 +335,26 @@ Deno.serve(async (req) => {
       }
     } catch { /* best effort */ }
 
-    if (!summary.ok || rowsWritten === 0 || rowsWritten === null) {
+    const outcome = evaluateRunOutcome(summary.ok, rowsWritten);
+
+    if (!outcome.ok) {
       await logExecution(jobName, {
         triggered_at: triggeredAt,
         completed_at: new Date().toISOString(),
         status: "failure",
         http_status: 502,
         response_excerpt: `mode=${mode} radar_signals_written=${rowsWritten ?? "unavailable"} comuni=${COMUNI.length}`,
-        error_message: summary.ok ? "radar_write_verification_failed" : "radar_downstream_failure",
+        error_message: outcome.error,
         duration_ms: Date.now() - t0,
       });
       return new Response(JSON.stringify({
         ok: false,
-        error: summary.ok ? "radar_write_verification_failed" : "radar_downstream_failure",
+        error: outcome.error,
         radar_signals_written: rowsWritten,
         completed_count: summary.ok_count,
       }), { status: 502, headers: { "Content-Type": "application/json" } });
     }
+
 
     return new Response(
       JSON.stringify({
