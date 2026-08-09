@@ -746,6 +746,7 @@ const OFFICIAL_FETCH_HEADERS = {
 
 const MAX_HTML_BYTES = 2_000_000;
 const MAX_PDF_BYTES = 12_000_000;
+const MAX_CSV_BYTES = 8_000_000;
 
 async function fetchOfficialVariant(
   url: string,
