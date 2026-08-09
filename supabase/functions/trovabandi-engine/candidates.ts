@@ -6,6 +6,8 @@
 
 export const CANDIDATE_FRESH_HOURS = 72;
 export const CANDIDATE_MAX_POOL = 200;
+export const CANDIDATE_NO_CONTENT_QUARANTINE_AFTER = 2;
+export const CANDIDATE_NO_CONTENT_COOLDOWN_HOURS = 24;
 
 export type CachedCandidate = {
   url: string;
@@ -73,11 +75,37 @@ function toTime(value: unknown): number | null {
   return Number.isFinite(time) ? time : null;
 }
 
+/**
+ * Un URL senza contenuto dopo tentativi ripetuti non è una hit fresca utile.
+ * Una nuova hit lo riabilita aggiornando last_seen_at dopo last_attempted_at;
+ * in alternativa rientra soltanto allo scadere del cooldown esplicito.
+ */
+export function isCandidateQuarantined(
+  candidate: CachedCandidate,
+  nowMs: number,
+  quarantineAfter = CANDIDATE_NO_CONTENT_QUARANTINE_AFTER,
+  cooldownHours = CANDIDATE_NO_CONTENT_COOLDOWN_HOURS,
+): boolean {
+  const attempts = Math.max(0, Number(candidate.attempt_count ?? 0) || 0);
+  const attemptedAt = toTime(candidate.last_attempted_at);
+  if (
+    candidate.content_hash ||
+    attempts < quarantineAfter ||
+    attemptedAt == null
+  ) {
+    return false;
+  }
+  const seenAt = toTime(candidate.last_seen_at) ?? toTime(candidate.discovered_at);
+  if (seenAt != null && seenAt > attemptedAt) return false;
+  return nowMs - attemptedAt < cooldownHours * 3_600_000;
+}
+
 export function isFreshCandidate(
   candidate: CachedCandidate,
   nowMs: number,
   freshHours = CANDIDATE_FRESH_HOURS,
 ): boolean {
+  if (isCandidateQuarantined(candidate, nowMs)) return false;
   const seen = toTime(candidate.last_seen_at) ?? toTime(candidate.discovered_at);
   if (seen == null) return false;
   return nowMs - seen <= freshHours * 3_600_000;
@@ -133,8 +161,11 @@ export function dedupeCandidates(
 export function rotateCandidates(
   candidates: CachedCandidate[],
   limit: number,
+  nowMs = Date.now(),
 ): RotationCandidate[] {
-  const pool = dedupeCandidates(candidates);
+  const pool = dedupeCandidates(candidates).filter(
+    (candidate) => !isCandidateQuarantined(candidate, nowMs),
+  );
   const sorted = pool.slice().sort((a, b) => {
     const at = toTime(a.last_attempted_at);
     const bt = toTime(b.last_attempted_at);

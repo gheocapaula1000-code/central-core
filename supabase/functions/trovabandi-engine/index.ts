@@ -42,6 +42,7 @@ import {
   evaluateReleaseGate,
   nonNegativeSafeInteger,
   rankDueSources,
+  sourceScrapeOperationalFailures,
   type DueSource,
   type SuccessfulRun,
 } from "./hardening.ts";
@@ -906,6 +907,10 @@ async function upsertCandidates(
       snippet: hit.description?.slice(0, 1000) || null,
       provider: hit.provider?.slice(0, 120) || null,
       last_seen_at: nowIso,
+      // Una nuova hit ufficial-domain riabilita esplicitamente l'URL: la sua
+      // salute riparte da zero, mentre un eventuale content_hash valido resta.
+      last_attempted_at: null,
+      attempt_count: 0,
       updated_at: nowIso,
     });
   }
@@ -931,9 +936,10 @@ async function markCandidateAttempt(
       source_id: source.id,
       url: canonical,
       url_hash: await sha256(canonical.toLowerCase()),
-      last_seen_at: nowIso,
       last_attempted_at: nowIso,
-      attempt_count: previousAttempts + 1,
+      // Il contatore misura i NO_CONTENT consecutivi: una pagina valida
+      // ripristina la salute senza cancellare la sua evidenza/hash.
+      attempt_count: contentHash ? 0 : previousAttempts + 1,
       content_hash: contentHash,
       updated_at: nowIso,
     } as never,
@@ -1743,8 +1749,13 @@ serve(async (req) => {
       await upsertCandidates(sb, source, searchHits);
     }
     // Pool unificato: candidati cache + evidenze persistite + hit nuove.
+    const refreshedUrls = new Set(
+      searchHits
+        .map((hit) => canonicalCandidateUrl(hit.url))
+        .filter((url): url is string => !!url),
+    );
     const pool = dedupeCandidates([
-      ...cachedPool,
+      ...cachedPool.filter((candidate) => !refreshedUrls.has(candidate.url)),
       ...searchHits.map((hit) => ({
         url: hit.url,
         title: hit.title,
@@ -1752,11 +1763,13 @@ serve(async (req) => {
         provider: hit.provider,
         discovered_at: new Date(nowMs).toISOString(),
         last_seen_at: new Date(nowMs).toISOString(),
+        last_attempted_at: null,
+        attempt_count: 0,
       })),
     ]);
     const byUrl = new Map(pool.map((candidate) => [candidate.url, candidate]));
     // Rotazione deterministica: mai sempre le prime due hit.
-    const rotated = rotateCandidates(pool, maxPages);
+    const rotated = rotateCandidates(pool, maxPages, nowMs);
     const hits: SearchHit[] = rotated.map((candidate) => ({
       url: candidate.url,
       title: normalizeText(candidate.title),
@@ -1765,6 +1778,7 @@ serve(async (req) => {
     }));
     let directFetchAttempted = 0;
     let directFetchSucceeded = 0;
+    let scrapeFailures = 0;
 
     for (const hit of hits) {
       const cachedState = byUrl.get(hit.url);
@@ -1781,7 +1795,7 @@ serve(async (req) => {
       if (!scraped) {
         diagnostics.push({ phase: "scrape", code: "NO_CONTENT" });
         warnings.push(`scrape_failed:${new URL(hit.url).hostname}`);
-        operationalFailures++;
+        scrapeFailures++;
         continue;
       }
       // pages_scraped misura gli scrape riusciti, non i tentativi.
@@ -1821,6 +1835,11 @@ serve(async (req) => {
       processed++;
       if (stored.verified) verified++;
     }
+
+    operationalFailures += sourceScrapeOperationalFailures(
+      scrapeFailures,
+      pagesScraped,
+    );
 
     const diagnosticCounters = aggregateDiagnostics(diagnostics);
     const finished = new Date().toISOString();
