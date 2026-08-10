@@ -1,13 +1,15 @@
 import { isAuctionRecord } from "../_shared/auctionExclusion.ts";
+import { ctEqual } from "./auth.ts";
 
 // civiko-orchestrator-dispatch
 // Gateway additivo e isolato per l'orchestratore esterno (Replit / Civiko One).
 // NON modifica alcuna funzione esistente: si limita a inoltrare, con
 // allowlist hardcoded, verso Edge Functions già presenti nel Central Core.
 //
-// Auth: Authorization: Bearer <CIVIKO_ORCHESTRATOR_DISPATCH_SECRET>, fail-closed,
-// confronto timing-safe. Il CENTRAL_CORE_JOB_SECRET è usato solo lato Core per
-// autenticare le chiamate interne e non viene mai restituito né loggato.
+// Auth: Authorization: Bearer <CIVIKO_ORCHESTRATOR_DISPATCH_SECRET> oppure
+// header x-job-secret === CENTRAL_CORE_JOB_SECRET (server-to-server),
+// entrambi fail-closed con confronto timing-safe. Nessun secret viene mai
+// restituito né loggato.
 //
 // Nessun retry interno: la ripetizione è responsabilità dell'orchestratore.
 // Guardie di costo, idempotenza e lock restano quelle delle funzioni destinazione.
