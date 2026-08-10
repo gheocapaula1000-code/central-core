@@ -1,13 +1,15 @@
 import { isAuctionRecord } from "../_shared/auctionExclusion.ts";
+import { ctEqual } from "./auth.ts";
 
 // civiko-orchestrator-dispatch
 // Gateway additivo e isolato per l'orchestratore esterno (Replit / Civiko One).
 // NON modifica alcuna funzione esistente: si limita a inoltrare, con
 // allowlist hardcoded, verso Edge Functions già presenti nel Central Core.
 //
-// Auth: Authorization: Bearer <CIVIKO_ORCHESTRATOR_DISPATCH_SECRET>, fail-closed,
-// confronto timing-safe. Il CENTRAL_CORE_JOB_SECRET è usato solo lato Core per
-// autenticare le chiamate interne e non viene mai restituito né loggato.
+// Auth: Authorization: Bearer <CIVIKO_ORCHESTRATOR_DISPATCH_SECRET> oppure
+// header x-job-secret === CENTRAL_CORE_JOB_SECRET (server-to-server),
+// entrambi fail-closed con confronto timing-safe. Nessun secret viene mai
+// restituito né loggato.
 //
 // Nessun retry interno: la ripetizione è responsabilità dell'orchestratore.
 // Guardie di costo, idempotenza e lock restano quelle delle funzioni destinazione.
@@ -340,17 +342,11 @@ function scheduleContract() {
 }
 
 function timingSafeEqual(a: string, b: string): boolean {
-  const enc = new TextEncoder();
-  const ab = enc.encode(a);
-  const bb = enc.encode(b);
-  // Lunghezze diverse: confronto comunque a costo costante sul buffer più lungo.
-  const len = Math.max(ab.length, bb.length);
-  let diff = ab.length ^ bb.length;
-  for (let i = 0; i < len; i++) {
-    diff |= (ab[i] ?? 0) ^ (bb[i] ?? 0);
-  }
-  return diff === 0;
+  return ctEqual(a, b);
 }
+
+
+
 
 function json(status: number, payload: Record<string, unknown>): Response {
   return new Response(JSON.stringify(payload), {
@@ -1977,9 +1973,15 @@ Deno.serve(async (req) => {
 
   const auth = req.headers.get("Authorization") ?? "";
   const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (!bearer || !timingSafeEqual(bearer, DISPATCH_SECRET)) {
+  const bearerOk = bearer.length > 0 && timingSafeEqual(bearer, DISPATCH_SECRET);
+  // Seconda modalità server-to-server: solo x-job-secret === CENTRAL_CORE_JOB_SECRET.
+  const jobHeader = req.headers.get("x-job-secret") ?? "";
+  const jobOk = JOB_SECRET.length > 0 && jobHeader.length > 0 &&
+    timingSafeEqual(jobHeader, JOB_SECRET);
+  if (!bearerOk && !jobOk) {
     return json(401, { ok: false, error: "unauthorized" });
   }
+
 
   const ctype = req.headers.get("Content-Type") ?? "";
   if (!ctype.toLowerCase().includes("application/json")) {

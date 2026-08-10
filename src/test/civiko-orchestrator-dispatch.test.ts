@@ -24,6 +24,20 @@ describe("civiko-orchestrator-dispatch — release candidate contract", () => {
     expect(SRC).toContain('"action_not_allowed"');
   });
 
+  it("accepts bearer dispatch secret or x-job-secret, never anonymous", () => {
+    expect(SRC).toContain('const bearerOk = bearer.length > 0 && timingSafeEqual(bearer, DISPATCH_SECRET)');
+    expect(SRC).toContain('req.headers.get("x-job-secret")');
+    expect(SRC).toContain("timingSafeEqual(jobHeader, JOB_SECRET)");
+    expect(SRC).toContain("JOB_SECRET.length > 0");
+    expect(SRC).toContain("if (!bearerOk && !jobOk)");
+    expect(SRC).toContain('return json(401, { ok: false, error: "unauthorized" })');
+  });
+
+  it("keeps pipeline_0710 in the allowlist", () => {
+    expect(PIPELINES).toContain("pipeline_0710:");
+  });
+
+
   it("does not accept an arbitrary downstream URL or endpoint", () => {
     expect(SRC).not.toMatch(/body\.(url|target_url|path|endpoint|fn)\b/);
     expect(SRC).toContain("/functions/v1/${target.fn}");
