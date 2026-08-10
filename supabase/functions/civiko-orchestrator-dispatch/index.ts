@@ -341,6 +341,9 @@ function scheduleContract() {
 
 function timingSafeEqual(a: string, b: string): boolean {
   return ctEqual(a, b);
+}
+
+
 
 
 function json(status: number, payload: Record<string, unknown>): Response {
