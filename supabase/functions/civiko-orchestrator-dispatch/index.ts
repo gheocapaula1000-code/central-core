@@ -1977,9 +1977,15 @@ Deno.serve(async (req) => {
 
   const auth = req.headers.get("Authorization") ?? "";
   const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (!bearer || !timingSafeEqual(bearer, DISPATCH_SECRET)) {
+  const bearerOk = bearer.length > 0 && timingSafeEqual(bearer, DISPATCH_SECRET);
+  // Seconda modalità server-to-server: solo x-job-secret === CENTRAL_CORE_JOB_SECRET.
+  const jobHeader = req.headers.get("x-job-secret") ?? "";
+  const jobOk = JOB_SECRET.length > 0 && jobHeader.length > 0 &&
+    timingSafeEqual(jobHeader, JOB_SECRET);
+  if (!bearerOk && !jobOk) {
     return json(401, { ok: false, error: "unauthorized" });
   }
+
 
   const ctype = req.headers.get("Content-Type") ?? "";
   if (!ctype.toLowerCase().includes("application/json")) {
