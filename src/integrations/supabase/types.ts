@@ -7054,12 +7054,18 @@ export type Database = {
           bagni: number | null
           commercial_zone_slug: string | null
           comune: string | null
+          ev_agency_key: string | null
+          ev_canonical_listing_id: string | null
           ev_civico_norm: string | null
           ev_derived_at: string | null
           ev_descr_fp: string | null
+          ev_flags_at: string | null
           ev_image_refs: Json | null
+          ev_is_asta: boolean | null
+          ev_is_mls: boolean | null
           ev_piano_key: string | null
           ev_provenance: Json | null
+          ev_tipologia: string | null
           ev_via_norm: string | null
           expired_at: string | null
           fonte: string
@@ -7089,12 +7095,18 @@ export type Database = {
           bagni?: number | null
           commercial_zone_slug?: string | null
           comune?: string | null
+          ev_agency_key?: string | null
+          ev_canonical_listing_id?: string | null
           ev_civico_norm?: string | null
           ev_derived_at?: string | null
           ev_descr_fp?: string | null
+          ev_flags_at?: string | null
           ev_image_refs?: Json | null
+          ev_is_asta?: boolean | null
+          ev_is_mls?: boolean | null
           ev_piano_key?: string | null
           ev_provenance?: Json | null
+          ev_tipologia?: string | null
           ev_via_norm?: string | null
           expired_at?: string | null
           fonte: string
@@ -7124,12 +7136,18 @@ export type Database = {
           bagni?: number | null
           commercial_zone_slug?: string | null
           comune?: string | null
+          ev_agency_key?: string | null
+          ev_canonical_listing_id?: string | null
           ev_civico_norm?: string | null
           ev_derived_at?: string | null
           ev_descr_fp?: string | null
+          ev_flags_at?: string | null
           ev_image_refs?: Json | null
+          ev_is_asta?: boolean | null
+          ev_is_mls?: boolean | null
           ev_piano_key?: string | null
           ev_provenance?: Json | null
+          ev_tipologia?: string | null
           ev_via_norm?: string | null
           expired_at?: string | null
           fonte?: string
