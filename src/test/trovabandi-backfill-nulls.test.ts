@@ -3,8 +3,7 @@
 // li isoliamo dalla sorgente reale per testarne il comportamento effettivo.
 
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { transformSync } from "esbuild";
+import { readFileSync, writeFileSync, rmSync } from "node:fs";
 
 const ENGINE = readFileSync(
   "supabase/functions/trovabandi-engine/index.ts",
@@ -16,14 +15,17 @@ const end = ENGINE.indexOf("// BACKFILL_HELPERS_END");
 expect(start).toBeGreaterThan(-1);
 expect(end).toBeGreaterThan(start);
 
-const source = transformSync(ENGINE.slice(start, end), {
-  loader: "ts",
-  format: "cjs",
-}).code;
+// Il modulo temporaneo conserva i tipi originali: la sorgente reale viene
+// transpilata da Vitest, senza riscritture manuali che ne altererebbero la logica.
+const TMP = new URL("./.trovabandi-backfill-helpers.generated.ts", import.meta.url);
+writeFileSync(
+  TMP,
+  `${ENGINE.slice(start, end)}\nexport { localExtractDeadline, localExtractAmounts };\n`,
+);
 
-const helpers = new Function(
-  `${source}\nreturn { localExtractDeadline, localExtractAmounts };`,
-)() as {
+const helpers = (await import(
+  /* @vite-ignore */ `${TMP.href}?t=${Date.now()}`
+)) as {
   localExtractDeadline: (markdown: string) => string | null;
   localExtractAmounts: (markdown: string) => {
     min_grant_amount?: number;
@@ -31,6 +33,7 @@ const helpers = new Function(
     total_budget?: number;
   };
 };
+rmSync(TMP, { force: true });
 
 const { localExtractDeadline, localExtractAmounts } = helpers;
 
