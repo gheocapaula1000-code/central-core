@@ -17,14 +17,14 @@ expect(end).toBeGreaterThan(start);
 
 // Il modulo temporaneo conserva i tipi originali: la sorgente reale viene
 // transpilata da Vitest, senza riscritture manuali che ne altererebbero la logica.
-const TMP = new URL("./.trovabandi-backfill-helpers.generated.ts", import.meta.url);
+const TMP = "src/test/.trovabandi-backfill-helpers.generated.ts";
 writeFileSync(
   TMP,
   `${ENGINE.slice(start, end)}\nexport { localExtractDeadline, localExtractAmounts };\n`,
 );
 
 const helpers = (await import(
-  /* @vite-ignore */ `${TMP.href}?t=${Date.now()}`
+  /* @vite-ignore */ `./.trovabandi-backfill-helpers.generated.ts?t=${Date.now()}`
 )) as {
   localExtractDeadline: (markdown: string) => string | null;
   localExtractAmounts: (markdown: string) => {
