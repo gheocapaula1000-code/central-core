@@ -1359,8 +1359,10 @@ async function storeOpportunity(
         fetched_at: now.toISOString(),
         content_hash: contentHash,
       },
+      extraEvidence: extraEvidence as unknown as PersistRow[],
       verification,
       nowIso: now.toISOString(),
+
     },
   );
 }
