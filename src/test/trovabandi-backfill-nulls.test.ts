@@ -56,6 +56,18 @@ describe("localExtractDeadline", () => {
     );
   });
 
+  it("estrae la data dopo 'termine ultimo'", () => {
+    expect(localExtractDeadline("Termine ultimo 30 settembre 2026")).toBe(
+      "2026-09-30T00:00:00.000Z",
+    );
+  });
+
+  it("estrae la data numerica dopo 'scadenza il'", () => {
+    expect(localExtractDeadline("scadenza il 15/09/2026")).toBe(
+      "2026-09-15T00:00:00.000Z",
+    );
+  });
+
   it("restituisce null senza keyword di scadenza", () => {
     expect(
       localExtractDeadline("Il bando è stato pubblicato il 15 settembre 2026"),
@@ -87,6 +99,24 @@ describe("localExtractAmounts", () => {
   it("estrae gli importi espressi in 'mila'", () => {
     expect(localExtractAmounts("Agevolazione fino a 50 mila euro"))
       .toMatchObject({ max_grant_amount: 50000 });
+  });
+
+  it("estrae la dotazione finanziaria con virgola italiana", () => {
+    expect(
+      localExtractAmounts(
+        "La dotazione finanziaria è di 356,4 milioni di euro.",
+      ),
+    ).toMatchObject({ total_budget: 356400000 });
+  });
+
+  it("estrae il massimale espresso in milioni con virgola", () => {
+    expect(localExtractAmounts("Contributo massimo 2,5 milioni di euro"))
+      .toMatchObject({ max_grant_amount: 2500000 });
+  });
+
+  it("estrae 'fino a 500 mila euro'", () => {
+    expect(localExtractAmounts("Agevolazione fino a 500 mila euro"))
+      .toMatchObject({ max_grant_amount: 500000 });
   });
 
   it("non inventa importi su testo senza cifre", () => {

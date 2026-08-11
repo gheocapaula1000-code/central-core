@@ -454,7 +454,7 @@ function localExtractDeadline(markdown: string): string | null {
   // IT: scade/entro + giorno mese anno
   for (
     const m of t.matchAll(
-      /(?:scade(?:nza)?|entro)[:\s]+(?:il\s+)?(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(20\d{2})\b/g,
+      /(?:scade(?:nza)?|entro|termine(?:\s+ultimo)?)[:\s]+(?:il\s+)?(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(20\d{2})\b/g,
     )
   ) {
     const d = +m[1], mo = IT_MONTHS[m[2]], y = +m[3];
@@ -469,7 +469,7 @@ function localExtractDeadline(markdown: string): string | null {
   // IT/EN: DD/MM/YYYY o DD-MM-YYYY vicino a keyword
   for (
     const m of t.matchAll(
-      /(?:scade(?:nza)?|entro|termine|deadline)[:\s]+(?:il\s+)?(\d{1,2})[\/\-](\d{1,2})[\/\-](20\d{2})\b/g,
+      /(?:scade(?:nza)?|entro|termine(?:\s+ultimo)?|deadline)[:\s]+(?:il\s+)?(\d{1,2})[\/\-](\d{1,2})[\/\-](20\d{2})\b/g,
     )
   ) {
     const d = +m[1], mo = +m[2], y = +m[3];
@@ -531,7 +531,7 @@ function localExtractAmounts(
 
   // fino a / massimo + numero
   let m = t.match(
-    /(?:fino a|massimo|max\.?|contributo massimo di|importo massimo di)\s*(?:€\s*)?([\d.]+(?:\s*,\s*\d+)?)\b(?!\s*(?:mila|milion|mld|miliard))\s*(?:€|euro)?/,
+    /(?:fino a|massimo|max\.?|contributo massimo di|importo massimo di)\s*(?:€\s*)?([\d.]+(?:\s*,\s*\d+)?)\b(?![\s,.]*\d)(?!\s*(?:mila|milion|mln|mld|miliard))\s*(?:€|euro)?/,
   );
   if (m) {
     const n = parseItalianNumber(m[1]);
@@ -540,10 +540,10 @@ function localExtractAmounts(
 
   // X milioni di euro
   m = t.match(
-    /(?:fino a|massimo|dotazione|budget|contributo)\s*(?:di\s+)?(\d+(?:[.,]\d+)?)\s*milioni?\s*(?:di\s+)?(?:€|euro)?/,
+    /(?:fino a|massimo|max\.?|dotazione|budget|stanziamento|risorse|contributo)(?:\s+(?:finanziari[ao]|complessiv[oa]|totale|disponibili))?\s*(?:è|ammonta a|pari a)?\s*(?:di\s+)?(?:€\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d+)?|\d+(?:,\d+)?)\s*(?:milioni?|mln)\b\s*(?:di\s+)?(?:€|euro)?/,
   );
   if (m) {
-    const base = parseItalianNumber(m[1].replace(",", "."));
+    const base = parseItalianNumber(m[1]);
     if (base) {
       const val = base * 1_000_000;
       if (/dotazione|budget|fondo/.test(m[0])) out.total_budget = val;
@@ -552,15 +552,24 @@ function localExtractAmounts(
   }
 
   // X mila euro
-  m = t.match(/(?:fino a|massimo)\s*(\d+)\s*mila\s*(?:€|euro)?/);
+  m = t.match(
+    /(?:fino a|massimo|max\.?|dotazione|budget|stanziamento|risorse|contributo)(?:\s+(?:finanziari[ao]|complessiv[oa]|totale|disponibili))?\s*(?:è|ammonta a|pari a)?\s*(?:di\s+)?(?:€\s*)?(\d+(?:,\d+)?)\s*mila\b\s*(?:di\s+)?(?:€|euro)?/,
+  );
   if (m) {
-    const n = +m[1] * 1000;
-    if (n > 0) out.max_grant_amount = out.max_grant_amount ?? n;
+    const base = parseItalianNumber(m[1]);
+    if (base) {
+      const val = base * 1000;
+      if (/dotazione|budget|stanziamento|risorse/.test(m[0])) {
+        out.total_budget = out.total_budget ?? val;
+      } else {
+        out.max_grant_amount = out.max_grant_amount ?? val;
+      }
+    }
   }
 
   // dotazione / budget totale
   m = t.match(
-    /(?:dotazione|budget|stanziamento|risorse)\s*(?:complessiv[oa]|totale)?\s*(?:di\s+)?(?:€\s*)?([\d.]+)\b(?!\s*(?:mila|milion|mld|miliard))\s*(?:€|euro)?/,
+    /(?:dotazione|budget|stanziamento|risorse)(?:\s+(?:finanziari[ao]|complessiv[oa]|totale|disponibili))?\s*(?:è|ammonta a|pari a)?\s*(?:di\s+)?(?:€\s*)?([\d.]+(?:\s*,\s*\d+)?)\b(?![\s,.]*\d)(?!\s*(?:mila|milion|mln|mld|miliard))\s*(?:€|euro)?/,
   );
   if (m) {
     const n = parseItalianNumber(m[1]);
