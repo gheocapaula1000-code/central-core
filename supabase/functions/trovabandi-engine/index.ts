@@ -446,7 +446,7 @@ const EN_MONTH_ALT =
 
 // Contesto che qualifica una data come termine di presentazione.
 const DEADLINE_POSITIVE =
-  /(scadenz\w*|scade\b|scadr\w*|entro\s+(?:e\s+non\s+oltre\s+)?(?:le\s+ore\s+[\d.:]+\s+)?(?:del\s+|il\s+|la\s+)?|termini?\b(?:\s+(?:ultimo|finale|perentorio|di\s+scadenza|di\s+presentazione|per\s+la\s+presentazione))?|chiusura\s+(?:dello\s+)?sportello|sportello\s+chiude|presentazione\s+(?:delle\s+)?domande\s+(?:fino\s+al|entro)?|domande\s+entro|invio\s+entro|deadline|closing\s+date|closes?\b|submission\s+deadline|applications?\s+close|last\s+day)/g;
+  /(scadenz\w*|scade\b|scadr\w*|entro\s+(?:e\s+non\s+oltre\s+)?(?:le\s+ore\s+[\d.:]+\s+)?(?:del\s+|il\s+|la\s+)?|termin[ei]\b(?:\s+(?:ultimo|finale|perentorio|di\s+scadenza|di\s+presentazione|per\s+la\s+presentazione))?|chiusura\s+(?:dello\s+)?sportello|sportello\s+chiude|presentazione\s+(?:delle\s+)?domande\s+(?:fino\s+al|entro)?|domande\s+entro|invio\s+entro|deadline|closing\s+date|closes?\b|submission\s+deadline|applications?\s+close|last\s+day)/g;
 
 // Contesto che squalifica la data (apertura, pubblicazione, protocollo).
 const DEADLINE_NEGATIVE =
