@@ -1965,13 +1965,35 @@ serve(async (req) => {
         phase: "extract",
         code: extracted.mode === "json_fallback" ? "OK_FALLBACK" : "OK_SCHEMA",
       });
+      // Arricchimento di dettaglio: solo se mancano scadenza o importi.
+      const enrichment = await enrichFromDetailPages(
+        source,
+        hit,
+        scraped,
+        extracted.data,
+        detailBudget,
+      );
+      if (enrichment.attempted > 0) {
+        diagnostics.push({
+          phase: "detail",
+          code:
+            enrichment.filled.length > 0
+              ? `OK_${[...new Set(enrichment.filled)].join("+").toUpperCase()}`
+              : "NO_FIELD",
+        });
+      }
+      const enrichedExtraction = {
+        ...extracted.data,
+        ...enrichment.patch,
+      } as JsonObject;
       const stored = await storeOpportunity(
         sb,
         source,
         hit,
-        extracted.data,
+        enrichedExtraction,
         scraped.markdown,
         scraped.provider,
+        enrichment.evidence,
       );
       diagnostics.push({ phase: "store", code: stored.code });
       if (!stored.stored) {
