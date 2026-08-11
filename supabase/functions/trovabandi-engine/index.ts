@@ -22,8 +22,16 @@ import {
 } from "./extraction.ts";
 import {
   persistOpportunityFailClosed,
+  type PersistRow,
   type PersistVerification,
 } from "./persist.ts";
+import {
+  extractDetailLinks,
+  mergeDetailIntoExtraction,
+  needsDetailEnrichment,
+  parseAmounts,
+  parseDeadline,
+} from "./detail.ts";
 import {
   csvToEvidenceText,
   htmlToEvidenceText,
@@ -750,10 +758,23 @@ const MAX_HTML_BYTES = 2_000_000;
 const MAX_PDF_BYTES = 12_000_000;
 const MAX_CSV_BYTES = 8_000_000;
 
+/**
+ * Pagina ufficiale scaricata. `html` è conservato soltanto per le risposte
+ * HTML dirette: serve a individuare i link di dettaglio dello stesso dominio
+ * senza un secondo download della pagina principale.
+ */
+type LoadedPage = {
+  markdown: string;
+  title: string;
+  provider: string;
+  html?: string;
+  finalUrl?: string;
+};
+
 async function fetchOfficialVariant(
   url: string,
   officialDomain: string,
-): Promise<{ markdown: string; title: string; provider: string } | null> {
+): Promise<LoadedPage | null> {
   if (!isAllowedOfficialUrl(url, officialDomain)) return null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20_000);
@@ -815,12 +836,19 @@ async function fetchOfficialVariant(
       }
       const raw = await readLimitedText(res, maxBytes);
       if (raw == null) return null;
-      const parsed = contentType.includes("text/plain")
+      const isPlain = contentType.includes("text/plain");
+      const parsed = isPlain
         ? { title: "", text: raw.trim() }
         : htmlToEvidenceText(raw);
       const markdown = parsed.text.slice(0, 60_000);
       return markdown.length > 200
-        ? { markdown, title: parsed.title, provider: "official-http" }
+        ? {
+            markdown,
+            title: parsed.title,
+            provider: "official-http",
+            html: isPlain ? undefined : raw,
+            finalUrl: currentUrl,
+          }
         : null;
     }
     return null;
@@ -839,7 +867,7 @@ async function fetchOfficialVariant(
 async function directOfficialScrape(
   url: string,
   officialDomain: string,
-): Promise<{ markdown: string; title: string; provider: string } | null> {
+): Promise<LoadedPage | null> {
   for (const variant of officialUrlVariants(url)) {
     const result = await fetchOfficialVariant(variant, officialDomain);
     if (result) return result;
@@ -863,6 +891,97 @@ async function loadPage(url: string, officialDomain: string) {
   }
   return await apifyScrape(variants[variants.length - 1] ?? url);
 }
+
+/** Budget per run: nessuna esplosione del tempo di collect. */
+const DETAIL_MAX_FETCH_PER_RUN = 12;
+const DETAIL_MAX_FETCH_PER_HIT = 2;
+
+export interface DetailEvidenceRow {
+  source_url: string;
+  source_title: string;
+  evidence_type: "NOTICE" | "PDF";
+  excerpt: string;
+  fetched_at: string;
+  content_hash: string;
+}
+
+/**
+ * Arricchimento a costo provider zero: si rileggono al massimo due pagine o
+ * PDF di dettaglio già linkati sullo stesso dominio ufficiale, e si riempiono
+ * soltanto scadenza e importi ancora nulli. Nessuna chiamata a Firecrawl,
+ * Apify o all'estrattore AI. Fail-closed: qualunque dubbio non scrive nulla.
+ */
+async function enrichFromDetailPages(
+  source: Source,
+  hit: SearchHit,
+  page: LoadedPage,
+  extracted: JsonObject,
+  budget: { remaining: number },
+): Promise<{
+  patch: JsonObject;
+  filled: string[];
+  evidence: DetailEvidenceRow[];
+  attempted: number;
+}> {
+  const result = {
+    patch: {} as JsonObject,
+    filled: [] as string[],
+    evidence: [] as DetailEvidenceRow[],
+    attempted: 0,
+  };
+  if (budget.remaining <= 0) return result;
+  if (!needsDetailEnrichment(extracted)) return result;
+
+  const exclude = [hit.url, page.finalUrl ?? hit.url];
+  // I link dichiarati dall'estrazione hanno precedenza sui link della pagina.
+  const declared = ["notice_url", "application_url", "forms_url"]
+    .map((key) => normalizeUrl(extracted[key]))
+    .filter(
+      (url): url is string =>
+        !!url &&
+        isAllowedOfficialUrl(url, source.official_domain) &&
+        !exclude.includes(url),
+    );
+  const discovered = extractDetailLinks(
+    page.html ?? "",
+    page.finalUrl ?? hit.url,
+    source.official_domain,
+    { limit: DETAIL_MAX_FETCH_PER_HIT, exclude },
+  ).map((link) => link.url);
+  const targets = [...new Set([...declared, ...discovered])].slice(
+    0,
+    DETAIL_MAX_FETCH_PER_HIT,
+  );
+
+  const state: JsonObject = { ...extracted };
+  const now = new Date();
+  for (const target of targets) {
+    if (budget.remaining <= 0) break;
+    if (!needsDetailEnrichment(state)) break;
+    budget.remaining--;
+    result.attempted++;
+    const detail = await directOfficialScrape(target, source.official_domain);
+    if (!detail) continue;
+    const merged = mergeDetailIntoExtraction(state, {
+      deadline: parseDeadline(detail.markdown, now),
+      amounts: parseAmounts(detail.markdown),
+    });
+    if (merged.filled.length === 0) continue;
+    Object.assign(state, merged.patch);
+    Object.assign(result.patch, merged.patch);
+    result.filled.push(...merged.filled);
+    result.evidence.push({
+      source_url: target,
+      source_title: `Dettaglio ufficiale — ${(detail.title || hit.title || "documento").slice(0, 400)}`,
+      evidence_type: detail.provider === "official-pdf" ? "PDF" : "NOTICE",
+      excerpt: detail.markdown.slice(0, 3000),
+      fetched_at: now.toISOString(),
+      content_hash: await sha256(detail.markdown),
+    });
+  }
+  return result;
+}
+
 
 
 // Client minimale: evita il mismatch dei generici Supabase nei checker Deno.
@@ -1077,6 +1196,7 @@ async function storeOpportunity(
   extracted: JsonObject,
   markdown: string,
   extractionProvider: string,
+  extraEvidence: DetailEvidenceRow[] = [],
 ): Promise<{ stored: boolean; verified: boolean; code: string }> {
   const officialUrl = normalizeUrl(hit.url);
   if (!officialUrl || !hostMatches(officialUrl, source.official_domain))
@@ -1089,7 +1209,12 @@ async function storeOpportunity(
     : false;
   const hasEvidence =
     markdown.length > 200 && source.official_domain.length > 3;
-  const deadlineProven = dateIsPresentInEvidence(markdown, deadline);
+  // La prova può stare nella pagina principale oppure nel documento di
+  // dettaglio ufficiale letto nello stesso run: entrambi sono evidenza salvata.
+  const proofText = [markdown, ...extraEvidence.map((row) => row.excerpt)].join(
+    "\n",
+  );
+  const deadlineProven = dateIsPresentInEvidence(proofText, deadline);
   const verification: PersistVerification =
     expired && deadlineProven
       ? "SCADUTO"
@@ -1234,8 +1359,10 @@ async function storeOpportunity(
         fetched_at: now.toISOString(),
         content_hash: contentHash,
       },
+      extraEvidence: extraEvidence as unknown as PersistRow[],
       verification,
       nowIso: now.toISOString(),
+
     },
   );
 }
@@ -1796,6 +1923,9 @@ serve(async (req) => {
     let directFetchAttempted = 0;
     let directFetchSucceeded = 0;
     let scrapeFailures = 0;
+    // Budget condiviso dei fetch di dettaglio: costo provider zero, ma il
+    // tempo del run resta limitato.
+    const detailBudget = { remaining: DETAIL_MAX_FETCH_PER_RUN };
 
     for (const hit of hits) {
       const cachedState = byUrl.get(hit.url);
@@ -1835,13 +1965,35 @@ serve(async (req) => {
         phase: "extract",
         code: extracted.mode === "json_fallback" ? "OK_FALLBACK" : "OK_SCHEMA",
       });
+      // Arricchimento di dettaglio: solo se mancano scadenza o importi.
+      const enrichment = await enrichFromDetailPages(
+        source,
+        hit,
+        scraped,
+        extracted.data,
+        detailBudget,
+      );
+      if (enrichment.attempted > 0) {
+        diagnostics.push({
+          phase: "detail",
+          code:
+            enrichment.filled.length > 0
+              ? `OK_${[...new Set(enrichment.filled)].join("+").toUpperCase()}`
+              : "NO_FIELD",
+        });
+      }
+      const enrichedExtraction = {
+        ...extracted.data,
+        ...enrichment.patch,
+      } as JsonObject;
       const stored = await storeOpportunity(
         sb,
         source,
         hit,
-        extracted.data,
+        enrichedExtraction,
         scraped.markdown,
         scraped.provider,
+        enrichment.evidence,
       );
       diagnostics.push({ phase: "store", code: stored.code });
       if (!stored.stored) {

@@ -32,11 +32,13 @@ export async function persistOpportunityFailClosed(
   input: {
     row: PersistRow;
     evidence: PersistRow;
+    /** Prove aggiuntive (pagina o PDF di dettaglio ufficiale) dello stesso run. */
+    extraEvidence?: PersistRow[];
     verification: PersistVerification;
     nowIso: string;
   },
 ): Promise<PersistResult> {
-  const { row, evidence, verification, nowIso } = input;
+  const { row, evidence, extraEvidence = [], verification, nowIso } = input;
 
   // 1) Stato iniziale sempre non verificato: nessun dato "verificato" senza prova.
   const initial = await client.upsertOpportunity({
@@ -65,6 +67,19 @@ export async function persistOpportunityFailClosed(
       code: `EVIDENCE_WRITE_FAILED_${sanitizeDbErrorCode(evidenceResult.error)}`,
     };
   }
+
+  // 2b) Prove di dettaglio: stesse regole fail-closed, nessun best-effort.
+  for (const extra of extraEvidence) {
+    const extraResult = await client.upsertEvidence({ ...extra, opportunity_id: id });
+    if (extraResult.error) {
+      return {
+        stored: false,
+        verified: false,
+        code: `EVIDENCE_WRITE_FAILED_${sanitizeDbErrorCode(extraResult.error)}`,
+      };
+    }
+  }
+
 
   // 3) Promozione allo stato calcolato soltanto dopo la prova persistita.
   if (verification !== "DA_VERIFICARE") {
