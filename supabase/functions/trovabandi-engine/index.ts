@@ -634,11 +634,13 @@ type AmountBucket = "min_grant_amount" | "max_grant_amount" | "total_budget";
 /** Classifica un importo in base alla keyword più vicina che lo precede. */
 function amountBucket(text: string, idx: number): AmountBucket | null {
   const before = text.slice(Math.max(0, idx - 110), idx);
-  const candidates: Array<{ bucket: AmountBucket; at: number }> = [
-    { bucket: "max_grant_amount", at: lastIndexOfPattern(before, MAX_KEYWORDS) },
-    { bucket: "min_grant_amount", at: lastIndexOfPattern(before, MIN_KEYWORDS) },
-    { bucket: "total_budget", at: lastIndexOfPattern(before, BUDGET_KEYWORDS) },
-  ].filter((c) => c.at >= 0);
+  const candidates: Array<{ bucket: AmountBucket; at: number }> = (
+    [
+      { bucket: "max_grant_amount", at: lastIndexOfPattern(before, MAX_KEYWORDS) },
+      { bucket: "min_grant_amount", at: lastIndexOfPattern(before, MIN_KEYWORDS) },
+      { bucket: "total_budget", at: lastIndexOfPattern(before, BUDGET_KEYWORDS) },
+    ] as Array<{ bucket: AmountBucket; at: number }>
+  ).filter((c) => c.at >= 0);
   if (candidates.length === 0) return null;
   candidates.sort((a, b) => b.at - a.at);
   return candidates[0].bucket;
