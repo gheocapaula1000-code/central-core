@@ -141,6 +141,7 @@ const ALLOWED_ACTIONS = new Set([
   "maintenance",
   "release_gate",
   "status",
+  "backfill_nulls",
 ]);
 
 const extractionSchema = {
@@ -377,6 +378,199 @@ function stringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.map(normalizeText).filter(Boolean))].slice(0, 100);
 }
+
+// BACKFILL_HELPERS_START
+// Estrattori locali high-confidence usati SOLO dall'azione "backfill_nulls".
+// Nessun provider a pagamento: lavorano su markdown già scaricato via HTTP
+// ufficiale diretto (costo zero) e restituiscono null quando non sono sicuri.
+const IT_MONTHS: Record<string, number> = {
+  gennaio: 1,
+  febbraio: 2,
+  marzo: 3,
+  aprile: 4,
+  maggio: 5,
+  giugno: 6,
+  luglio: 7,
+  agosto: 8,
+  settembre: 9,
+  ottobre: 10,
+  novembre: 11,
+  dicembre: 12,
+};
+
+const EN_MONTHS: Record<string, number> = {
+  january: 1,
+  february: 2,
+  march: 3,
+  april: 4,
+  may: 5,
+  june: 6,
+  july: 7,
+  august: 8,
+  september: 9,
+  october: 10,
+  november: 11,
+  december: 12,
+  jan: 1,
+  feb: 2,
+  mar: 3,
+  apr: 4,
+  jun: 6,
+  jul: 7,
+  aug: 8,
+  sep: 9,
+  sept: 9,
+  oct: 10,
+  nov: 11,
+  dec: 12,
+};
+
+function nearKeyword(text: string, matchIndex: number, window = 90): number {
+  const start = Math.max(0, matchIndex - window);
+  const slice = text.slice(start, matchIndex + window);
+  if (
+    /(scadenz|scade\b|entro\s+il|termine\s+ultim|deadline|closing\s+date|closes?\b)/
+      .test(slice)
+  ) {
+    return 10;
+  }
+  if (/(pubblicat|apertur|dal\s+\d|from\s+\d)/.test(slice)) return 1;
+  return 3;
+}
+
+function localExtractDeadline(markdown: string): string | null {
+  const t = markdown.toLowerCase().replace(/\u00a0/g, " ");
+  const candidates: { iso: string; score: number }[] = [];
+
+  function add(iso: string | null, score: number) {
+    if (!iso) return;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return;
+    const y = d.getUTCFullYear();
+    if (y < 2025 || y > 2032) return;
+    candidates.push({ iso, score });
+  }
+
+  // IT: scade/entro + giorno mese anno
+  for (
+    const m of t.matchAll(
+      /(?:scade(?:nza)?|entro)[:\s]+(?:il\s+)?(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(20\d{2})\b/g,
+    )
+  ) {
+    const d = +m[1], mo = IT_MONTHS[m[2]], y = +m[3];
+    if (d >= 1 && d <= 31 && mo) {
+      add(
+        new Date(Date.UTC(y, mo - 1, d)).toISOString(),
+        nearKeyword(t, m.index ?? 0) + 5,
+      );
+    }
+  }
+
+  // IT/EN: DD/MM/YYYY o DD-MM-YYYY vicino a keyword
+  for (
+    const m of t.matchAll(
+      /(?:scade(?:nza)?|entro|termine|deadline)[:\s]+(?:il\s+)?(\d{1,2})[\/\-](\d{1,2})[\/\-](20\d{2})\b/g,
+    )
+  ) {
+    const d = +m[1], mo = +m[2], y = +m[3];
+    if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) {
+      add(
+        new Date(Date.UTC(y, mo - 1, d)).toISOString(),
+        nearKeyword(t, m.index ?? 0) + 4,
+      );
+    }
+  }
+
+  // EN: deadline 15th September 2026
+  for (
+    const m of t.matchAll(
+      /(?:deadline|closing\s+date|closes?)[:\s]+(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s+(20\d{2})\b/g,
+    )
+  ) {
+    const d = +m[1], mo = EN_MONTHS[m[2]], y = +m[3];
+    if (d >= 1 && d <= 31 && mo) {
+      add(
+        new Date(Date.UTC(y, mo - 1, d)).toISOString(),
+        nearKeyword(t, m.index ?? 0) + 5,
+      );
+    }
+  }
+
+  // ISO vicino a keyword
+  for (
+    const m of t.matchAll(
+      /(?:scade(?:nza)?|deadline|entro)[:\s]+(20\d{2}-\d{2}-\d{2})\b/g,
+    )
+  ) {
+    const dt = new Date(m[1] + "T00:00:00Z");
+    if (!Number.isNaN(dt.getTime())) {
+      add(dt.toISOString(), nearKeyword(t, m.index ?? 0) + 3);
+    }
+  }
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0].iso;
+}
+
+function parseItalianNumber(raw: string): number | null {
+  const cleaned = raw.replace(/\./g, "").replace(",", ".");
+  const n = Number(cleaned);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function localExtractAmounts(
+  markdown: string,
+): { min_grant_amount?: number; max_grant_amount?: number; total_budget?: number } {
+  const t = markdown.toLowerCase().replace(/\u00a0/g, " ");
+  const out: {
+    min_grant_amount?: number;
+    max_grant_amount?: number;
+    total_budget?: number;
+  } = {};
+
+  // fino a / massimo + numero
+  let m = t.match(
+    /(?:fino a|massimo|max\.?|contributo massimo di|importo massimo di)\s*(?:€\s*)?([\d.]+(?:\s*,\s*\d+)?)\b(?!\s*(?:mila|milion|mld|miliard))\s*(?:€|euro)?/,
+  );
+  if (m) {
+    const n = parseItalianNumber(m[1]);
+    if (n) out.max_grant_amount = n;
+  }
+
+  // X milioni di euro
+  m = t.match(
+    /(?:fino a|massimo|dotazione|budget|contributo)\s*(?:di\s+)?(\d+(?:[.,]\d+)?)\s*milioni?\s*(?:di\s+)?(?:€|euro)?/,
+  );
+  if (m) {
+    const base = parseItalianNumber(m[1].replace(",", "."));
+    if (base) {
+      const val = base * 1_000_000;
+      if (/dotazione|budget|fondo/.test(m[0])) out.total_budget = val;
+      else out.max_grant_amount = out.max_grant_amount ?? val;
+    }
+  }
+
+  // X mila euro
+  m = t.match(/(?:fino a|massimo)\s*(\d+)\s*mila\s*(?:€|euro)?/);
+  if (m) {
+    const n = +m[1] * 1000;
+    if (n > 0) out.max_grant_amount = out.max_grant_amount ?? n;
+  }
+
+  // dotazione / budget totale
+  m = t.match(
+    /(?:dotazione|budget|stanziamento|risorse)\s*(?:complessiv[oa]|totale)?\s*(?:di\s+)?(?:€\s*)?([\d.]+)\b(?!\s*(?:mila|milion|mld|miliard))\s*(?:€|euro)?/,
+  );
+  if (m) {
+    const n = parseItalianNumber(m[1]);
+    if (n) out.total_budget = out.total_budget ?? n;
+  }
+
+  return out;
+}
+// BACKFILL_HELPERS_END
+
 
 /**
  * Ridondanza dei provider di ricerca (fail-closed conservativo).
@@ -1428,7 +1622,160 @@ serve(async (req) => {
     });
   }
 
+  if (action === "backfill_nulls") {
+    const maxBatch = Math.min(20, Math.max(1, Number(body.max_batch) || 12));
+    const dryRun = body.dry_run !== false; // default TRUE per sicurezza
+    const nowIso = new Date().toISOString();
+
+    const { data: rows, error: selErr } = await sb
+      .from("trovabandi_opportunities")
+      .select(
+        "id, official_url, deadline_at, min_grant_amount, max_grant_amount, total_budget, verification_status, raw_excerpt, last_seen_at, authority_level",
+      )
+      .in("verification_status", ["PARZIALE", "DA_VERIFICARE"])
+      .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`)
+      .not("official_url", "ilike", "%.pdf")
+      .or(
+        "deadline_at.is.null,min_grant_amount.is.null,max_grant_amount.is.null,total_budget.is.null",
+      )
+      .order("last_seen_at", { ascending: true, nullsFirst: true })
+      .limit(maxBatch);
+
+    if (selErr || !rows) {
+      return response(500, { ok: false, code: "BACKFILL_SELECT_FAILED" });
+    }
+
+    const results: any[] = [];
+    let updated = 0;
+    let skipped = 0;
+
+    for (const row of rows) {
+      try {
+        let domain = "";
+        try {
+          domain = new URL(row.official_url).hostname
+            .replace(/^www\./i, "")
+            .toLowerCase();
+        } catch {
+          results.push({ id: row.id, status: "BAD_URL" });
+          skipped++;
+          continue;
+        }
+
+        const page = await directOfficialScrape(row.official_url, domain);
+        if (!page || page.markdown.length < 200) {
+          results.push({ id: row.id, status: "SCRAPE_EMPTY" });
+          skipped++;
+          continue;
+        }
+
+        const patch: Record<string, unknown> = {};
+        if (row.deadline_at == null) {
+          const dl = localExtractDeadline(page.markdown);
+          if (dl) patch.deadline_at = dl;
+        }
+
+        const amounts = localExtractAmounts(page.markdown);
+        if (row.min_grant_amount == null && amounts.min_grant_amount != null) {
+          patch.min_grant_amount = amounts.min_grant_amount;
+        }
+        if (row.max_grant_amount == null && amounts.max_grant_amount != null) {
+          patch.max_grant_amount = amounts.max_grant_amount;
+        }
+        if (row.total_budget == null && amounts.total_budget != null) {
+          patch.total_budget = amounts.total_budget;
+        }
+
+        const newDeadline = (patch.deadline_at as string | undefined) ??
+          row.deadline_at;
+        const hasEvidence = page.markdown.length > 200;
+        const deadlineProven = dateIsPresentInEvidence(
+          page.markdown,
+          newDeadline,
+        );
+        const expired = newDeadline
+          ? new Date(newDeadline).getTime() < Date.now()
+          : false;
+
+        let newStatus = row.verification_status as string;
+        if (expired && deadlineProven) newStatus = "SCADUTO";
+        else if (hasEvidence && newDeadline && deadlineProven) {
+          newStatus = "VERIFICATO";
+        } else if (hasEvidence) newStatus = "PARZIALE";
+        else newStatus = "DA_VERIFICARE";
+
+        if (newStatus !== row.verification_status) {
+          patch.verification_status = newStatus;
+          if (newStatus === "VERIFICATO") patch.last_verified_at = nowIso;
+        }
+
+        if (
+          !row.raw_excerpt ||
+          page.markdown.length > String(row.raw_excerpt || "").length
+        ) {
+          patch.raw_excerpt = page.markdown.slice(0, 3000);
+        }
+
+        patch.updated_at = nowIso;
+
+        // Solo updated_at → niente di utile
+        if (Object.keys(patch).length <= 1) {
+          results.push({ id: row.id, status: "NO_NEW_VALUES" });
+          skipped++;
+          continue;
+        }
+
+        if (dryRun) {
+          results.push({ id: row.id, status: "DRY_RUN", would_patch: patch });
+          continue;
+        }
+
+        const { error: upErr } = await sb
+          .from("trovabandi_opportunities")
+          .update(patch)
+          .eq("id", row.id);
+
+        if (upErr) {
+          results.push({ id: row.id, status: "UPDATE_FAILED" });
+          skipped++;
+        } else {
+          updated++;
+          results.push({ id: row.id, status: "UPDATED", patch });
+        }
+      } catch {
+        results.push({ id: row.id, status: "ITEM_ERROR" });
+        skipped++;
+      }
+    }
+
+    await sb.from("trovabandi_runs").insert({
+      action: "backfill_nulls",
+      source_id: null,
+      trigger_source: "manual",
+      status: "SUCCEEDED",
+      processed_count: rows.length,
+      verified_count: results.filter(
+        (r) =>
+          r.patch?.verification_status === "VERIFICATO" ||
+          r.would_patch?.verification_status === "VERIFICATO",
+      ).length,
+      provider_usage: { official_http: rows.length, paid: 0 },
+      warnings: dryRun ? ["dry_run"] : [],
+      finished_at: nowIso,
+    });
+
+    return response(200, {
+      ok: true,
+      dry_run: dryRun,
+      processed: rows.length,
+      updated,
+      skipped,
+      results,
+    });
+  }
+
   if (action === "maintenance") {
+
     const now = new Date().toISOString();
     const staleBefore = new Date(
       Date.now() - RUN_STALE_AFTER_MINUTES * 60_000,
