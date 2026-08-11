@@ -164,3 +164,42 @@ describe("UEradar — merge fail-closed", () => {
     expect(merged.filled).toEqual([]);
   });
 });
+
+describe("UEradar — forme inglesi (fonti UE)", () => {
+  it("accetta 'deadline' con data ISO", () => {
+    const hit = parseDeadline("Submission deadline: 2026-10-09 at 17:00 CET", NOW);
+    expect(hit?.value).toBe("2026-10-09T17:00:00.000Z");
+    expect(hit?.confidence).toBe("alta");
+  });
+
+  it("accetta '9 October 2026' con closing date", () => {
+    const hit = parseDeadline("The closing date for applications is 9 October 2026.", NOW);
+    expect(hit?.value).toBe("2026-10-09T23:59:00.000Z");
+  });
+
+  it("accetta 'October 9, 2026' con no later than", () => {
+    const hit = parseDeadline("Proposals must be submitted no later than October 9, 2026.", NOW);
+    expect(hit?.value).toBe("2026-10-09T23:59:00.000Z");
+  });
+
+  it("rifiuta una data inglese senza contesto di termine", () => {
+    expect(parseDeadline("Published on 30 July 2026 in the Official Journal.", NOW)).toBeNull();
+  });
+
+  it("riconosce maximum grant in formato inglese", () => {
+    const amounts = parseAmounts("The maximum grant per project is EUR 50,000.");
+    expect(amounts.max_grant_amount?.value).toBe(50000);
+    expect(amounts.total_budget).toBeUndefined();
+  });
+
+  it("riconosce total budget e endowment", () => {
+    expect(parseAmounts("The total budget of the call is EUR 2,500,000.00.").total_budget?.value).toBe(2500000);
+    expect(parseAmounts("The endowment amounts to 1,000,000 EUR.").total_budget?.value).toBe(1000000);
+  });
+
+  it("ignora importi inglesi senza contesto qualificante", () => {
+    const amounts = parseAmounts("Applicants with a turnover below EUR 500,000 are eligible.");
+    expect(amounts.max_grant_amount).toBeUndefined();
+    expect(amounts.total_budget).toBeUndefined();
+  });
+});
