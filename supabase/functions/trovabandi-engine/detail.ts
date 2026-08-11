@@ -297,6 +297,43 @@ export function parseDeadline(
 const AMOUNT =
   /(?:€|eur\b|euros?\b)\s*([\d][\d.,\s]{2,20}\d)|([\d][\d.,\s]{4,20}\d)\s*(?:€|eur\b|euros?\b)/gi;
 
+/**
+ * Moltiplicatori per importi scritti a parole. Solo forme non ambigue:
+ * "mln"/"mld"/"bn" sono abbreviazioni standard, "m"/"k" isolate NON sono
+ * accettate perché troppo spesso indicano metri o altre unità.
+ */
+const SCALE_WORDS: Record<string, number> = {
+  mila: 1_000,
+  migliaia: 1_000,
+  thousand: 1_000,
+  thousands: 1_000,
+  milione: 1_000_000,
+  milioni: 1_000_000,
+  mln: 1_000_000,
+  million: 1_000_000,
+  millions: 1_000_000,
+  miliardo: 1_000_000_000,
+  miliardi: 1_000_000_000,
+  mld: 1_000_000_000,
+  billion: 1_000_000_000,
+  billions: 1_000_000_000,
+  bn: 1_000_000_000,
+};
+
+const SCALE_PATTERN =
+  "mila|migliaia|thousands?|milion[ei]|mln|millions?|miliard[oi]|mld|billions?|bn";
+
+/**
+ * Importi a parole: la valuta deve essere esplicita (prima o dopo il numero),
+ * altrimenti la cifra viene scartata.
+ */
+const SCALED_AMOUNT = new RegExp(
+  `(?:(?:€|eur\\b|euros?\\b)\\s*(\\d{1,3}(?:[.,]\\d{1,2})?)\\s*(${SCALE_PATTERN})\\b)` +
+    `|(?:(\\d{1,3}(?:[.,]\\d{1,2})?)\\s*(${SCALE_PATTERN})\\b\\s*(?:di\\s+)?(?:€|eur\\b|euros?\\b))`,
+  "gi",
+);
+
+
 const MAX_GRANT_CTX =
   /(contributo (?:massimo|max)|importo massimo del contributo|agevolazione massima|contributo (?:concedibile|erogabile)|fino a un massimo di contributo|maximum (?:grant|contribution|funding|aid|support|amount of (?:the )?(?:grant|aid))|grant (?:amount )?up to|funding up to|up to a maximum of|maximum amount per (?:project|beneficiary|application)|per project maximum)/i;
 const BUDGET_CTX =
@@ -335,6 +372,20 @@ function parseAmountValue(raw: string): number | null {
   return Math.round(value * 100) / 100;
 }
 
+/**
+ * Valore di un importo scritto a parole ("5 milioni", "1,5 mld").
+ * Il separatore è sempre decimale: la parte intera è limitata a 3 cifre.
+ */
+function parseScaledValue(raw: string, word: string): number | null {
+  const scale = SCALE_WORDS[word.toLowerCase()];
+  if (!scale) return null;
+  const normalized = raw.replace(/\s/g, "").replace(",", ".");
+  if (!/^\d{1,3}(?:\.\d{1,2})?$/.test(normalized)) return null;
+  const value = Number(normalized) * scale;
+  if (!Number.isFinite(value)) return null;
+  if (value < MIN_AMOUNT || value > MAX_AMOUNT) return null;
+  return Math.round(value * 100) / 100;
+}
 
 export interface DetailAmounts {
   max_grant_amount?: DetailFieldHit<number>;
@@ -350,29 +401,45 @@ export interface DetailAmounts {
 export function parseAmounts(text: string): DetailAmounts {
   const out: DetailAmounts = {};
   if (!text) return out;
-  AMOUNT.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = AMOUNT.exec(text)) !== null) {
-    const raw = (match[1] ?? match[2] ?? "").trim();
-    const value = parseAmountValue(raw);
-    if (value == null) continue;
-    const from = Math.max(0, match.index - 160);
-    const window = text.slice(from, match.index + match[0].length + 40);
+
+  const assign = (value: number, start: number, end: number) => {
+    const from = Math.max(0, start - 160);
+    const window = text.slice(from, end + 40);
     const evidence = window.replace(/\s+/g, " ").trim().slice(0, 300);
     if (MAX_GRANT_CTX.test(window)) {
       if (!out.max_grant_amount || out.max_grant_amount.value < value) {
         out.max_grant_amount = { value, evidence, confidence: "alta" };
       }
-      continue;
+      return;
     }
     if (BUDGET_CTX.test(window)) {
       if (!out.total_budget || out.total_budget.value < value) {
         out.total_budget = { value, evidence, confidence: "alta" };
       }
     }
+  };
+
+  AMOUNT.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = AMOUNT.exec(text)) !== null) {
+    const raw = (match[1] ?? match[2] ?? "").trim();
+    const value = parseAmountValue(raw);
+    if (value == null) continue;
+    assign(value, match.index, match.index + match[0].length);
   }
+
+  SCALED_AMOUNT.lastIndex = 0;
+  while ((match = SCALED_AMOUNT.exec(text)) !== null) {
+    const raw = (match[1] ?? match[3] ?? "").trim();
+    const word = (match[2] ?? match[4] ?? "").trim();
+    const value = parseScaledValue(raw, word);
+    if (value == null) continue;
+    assign(value, match.index, match.index + match[0].length);
+  }
+
   return out;
 }
+
 
 function isMissing(value: unknown): boolean {
   if (value === null || value === undefined) return true;

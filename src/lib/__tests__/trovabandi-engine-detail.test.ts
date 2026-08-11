@@ -203,3 +203,31 @@ describe("UEradar — forme inglesi (fonti UE)", () => {
     expect(amounts.total_budget).toBeUndefined();
   });
 });
+
+describe("importi scritti a parole", () => {
+  it("legge la dotazione in milioni (IT)", () => {
+    const out = parseAmounts("Dotazione finanziaria complessiva: 5 milioni di euro.");
+    expect(out.total_budget?.value).toBe(5_000_000);
+  });
+  it("legge il budget in million (EN, valuta prefissa)", () => {
+    const out = parseAmounts("With a total budget of €197 million, the initiative...");
+    expect(out.total_budget?.value).toBe(197_000_000);
+  });
+  it("legge il contributo massimo con decimale", () => {
+    const out = parseAmounts("Il contributo massimo concedibile è pari a 1,5 milioni di euro.");
+    expect(out.max_grant_amount?.value).toBe(1_500_000);
+  });
+  it("legge mld/bn", () => {
+    expect(parseAmounts("dotazione: EUR 2 bn").total_budget?.value).toBe(2_000_000_000);
+    expect(parseAmounts("risorse stanziate pari a 1,2 mld di euro").total_budget?.value).toBe(1_200_000_000);
+  });
+  it("ignora numeri a parole senza valuta", () => {
+    expect(parseAmounts("dotazione di 5 milioni di ore di formazione")).toEqual({});
+  });
+  it("ignora importi a parole senza contesto qualificante", () => {
+    expect(parseAmounts("il fatturato aziendale supera i 10 milioni di euro")).toEqual({});
+  });
+  it("ignora 'mila' sotto la soglia minima", () => {
+    expect(parseAmounts("dotazione di 0,5 mila euro")).toEqual({});
+  });
+});
