@@ -758,10 +758,23 @@ const MAX_HTML_BYTES = 2_000_000;
 const MAX_PDF_BYTES = 12_000_000;
 const MAX_CSV_BYTES = 8_000_000;
 
+/**
+ * Pagina ufficiale scaricata. `html` è conservato soltanto per le risposte
+ * HTML dirette: serve a individuare i link di dettaglio dello stesso dominio
+ * senza un secondo download della pagina principale.
+ */
+type LoadedPage = {
+  markdown: string;
+  title: string;
+  provider: string;
+  html?: string;
+  finalUrl?: string;
+};
+
 async function fetchOfficialVariant(
   url: string,
   officialDomain: string,
-): Promise<{ markdown: string; title: string; provider: string } | null> {
+): Promise<LoadedPage | null> {
   if (!isAllowedOfficialUrl(url, officialDomain)) return null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20_000);
