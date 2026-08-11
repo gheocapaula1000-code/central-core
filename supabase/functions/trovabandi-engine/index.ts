@@ -1622,7 +1622,160 @@ serve(async (req) => {
     });
   }
 
+  if (action === "backfill_nulls") {
+    const maxBatch = Math.min(20, Math.max(1, Number(body.max_batch) || 12));
+    const dryRun = body.dry_run !== false; // default TRUE per sicurezza
+    const nowIso = new Date().toISOString();
+
+    const { data: rows, error: selErr } = await sb
+      .from("trovabandi_opportunities")
+      .select(
+        "id, official_url, deadline_at, min_grant_amount, max_grant_amount, total_budget, verification_status, raw_excerpt, last_seen_at, authority_level",
+      )
+      .in("verification_status", ["PARZIALE", "DA_VERIFICARE"])
+      .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`)
+      .not("official_url", "ilike", "%.pdf")
+      .or(
+        "deadline_at.is.null,min_grant_amount.is.null,max_grant_amount.is.null,total_budget.is.null",
+      )
+      .order("last_seen_at", { ascending: true, nullsFirst: true })
+      .limit(maxBatch);
+
+    if (selErr || !rows) {
+      return response(500, { ok: false, code: "BACKFILL_SELECT_FAILED" });
+    }
+
+    const results: any[] = [];
+    let updated = 0;
+    let skipped = 0;
+
+    for (const row of rows) {
+      try {
+        let domain = "";
+        try {
+          domain = new URL(row.official_url).hostname
+            .replace(/^www\./i, "")
+            .toLowerCase();
+        } catch {
+          results.push({ id: row.id, status: "BAD_URL" });
+          skipped++;
+          continue;
+        }
+
+        const page = await directOfficialScrape(row.official_url, domain);
+        if (!page || page.markdown.length < 200) {
+          results.push({ id: row.id, status: "SCRAPE_EMPTY" });
+          skipped++;
+          continue;
+        }
+
+        const patch: Record<string, unknown> = {};
+        if (row.deadline_at == null) {
+          const dl = localExtractDeadline(page.markdown);
+          if (dl) patch.deadline_at = dl;
+        }
+
+        const amounts = localExtractAmounts(page.markdown);
+        if (row.min_grant_amount == null && amounts.min_grant_amount != null) {
+          patch.min_grant_amount = amounts.min_grant_amount;
+        }
+        if (row.max_grant_amount == null && amounts.max_grant_amount != null) {
+          patch.max_grant_amount = amounts.max_grant_amount;
+        }
+        if (row.total_budget == null && amounts.total_budget != null) {
+          patch.total_budget = amounts.total_budget;
+        }
+
+        const newDeadline = (patch.deadline_at as string | undefined) ??
+          row.deadline_at;
+        const hasEvidence = page.markdown.length > 200;
+        const deadlineProven = dateIsPresentInEvidence(
+          page.markdown,
+          newDeadline,
+        );
+        const expired = newDeadline
+          ? new Date(newDeadline).getTime() < Date.now()
+          : false;
+
+        let newStatus = row.verification_status as string;
+        if (expired && deadlineProven) newStatus = "SCADUTO";
+        else if (hasEvidence && newDeadline && deadlineProven) {
+          newStatus = "VERIFICATO";
+        } else if (hasEvidence) newStatus = "PARZIALE";
+        else newStatus = "DA_VERIFICARE";
+
+        if (newStatus !== row.verification_status) {
+          patch.verification_status = newStatus;
+          if (newStatus === "VERIFICATO") patch.last_verified_at = nowIso;
+        }
+
+        if (
+          !row.raw_excerpt ||
+          page.markdown.length > String(row.raw_excerpt || "").length
+        ) {
+          patch.raw_excerpt = page.markdown.slice(0, 3000);
+        }
+
+        patch.updated_at = nowIso;
+
+        // Solo updated_at → niente di utile
+        if (Object.keys(patch).length <= 1) {
+          results.push({ id: row.id, status: "NO_NEW_VALUES" });
+          skipped++;
+          continue;
+        }
+
+        if (dryRun) {
+          results.push({ id: row.id, status: "DRY_RUN", would_patch: patch });
+          continue;
+        }
+
+        const { error: upErr } = await sb
+          .from("trovabandi_opportunities")
+          .update(patch)
+          .eq("id", row.id);
+
+        if (upErr) {
+          results.push({ id: row.id, status: "UPDATE_FAILED" });
+          skipped++;
+        } else {
+          updated++;
+          results.push({ id: row.id, status: "UPDATED", patch });
+        }
+      } catch {
+        results.push({ id: row.id, status: "ITEM_ERROR" });
+        skipped++;
+      }
+    }
+
+    await sb.from("trovabandi_runs").insert({
+      action: "backfill_nulls",
+      source_id: null,
+      trigger_source: "manual",
+      status: "SUCCEEDED",
+      processed_count: rows.length,
+      verified_count: results.filter(
+        (r) =>
+          r.patch?.verification_status === "VERIFICATO" ||
+          r.would_patch?.verification_status === "VERIFICATO",
+      ).length,
+      provider_usage: { official_http: rows.length, paid: 0 },
+      warnings: dryRun ? ["dry_run"] : [],
+      finished_at: nowIso,
+    });
+
+    return response(200, {
+      ok: true,
+      dry_run: dryRun,
+      processed: rows.length,
+      updated,
+      skipped,
+      results,
+    });
+  }
+
   if (action === "maintenance") {
+
     const now = new Date().toISOString();
     const staleBefore = new Date(
       Date.now() - RUN_STALE_AFTER_MINUTES * 60_000,
