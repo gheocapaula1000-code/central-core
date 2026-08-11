@@ -251,6 +251,16 @@ export function parseDeadline(
       Number(match[1]),
     );
   }
+  ISO_DATE.lastIndex = 0;
+  while ((match = ISO_DATE.exec(text)) !== null) {
+    consider(
+      match.index,
+      match.index + match[0].length,
+      Number(match[1]),
+      Number(match[2]),
+      Number(match[3]),
+    );
+  }
   TEXT_DATE.lastIndex = 0;
   while ((match = TEXT_DATE.exec(text)) !== null) {
     consider(
@@ -261,27 +271,70 @@ export function parseDeadline(
       Number(match[1]),
     );
   }
+  TEXT_DATE_EN_DMY.lastIndex = 0;
+  while ((match = TEXT_DATE_EN_DMY.exec(text)) !== null) {
+    consider(
+      match.index,
+      match.index + match[0].length,
+      Number(match[3]),
+      MONTHS_EN[match[2].toLowerCase()],
+      Number(match[1]),
+    );
+  }
+  TEXT_DATE_EN_MDY.lastIndex = 0;
+  while ((match = TEXT_DATE_EN_MDY.exec(text)) !== null) {
+    consider(
+      match.index,
+      match.index + match[0].length,
+      Number(match[3]),
+      MONTHS_EN[match[1].toLowerCase()],
+      Number(match[2]),
+    );
+  }
   return best;
 }
 
 const AMOUNT =
-  /(?:€|euro|eur)\s*([\d][\d.\s]{2,18}(?:,\d{1,2})?)|([\d][\d.\s]{4,18}(?:,\d{1,2})?)\s*(?:€|euro|eur)\b/gi;
+  /(?:€|eur\b|euros?\b)\s*([\d][\d.,\s]{2,20}\d)|([\d][\d.,\s]{4,20}\d)\s*(?:€|eur\b|euros?\b)/gi;
 
 const MAX_GRANT_CTX =
-  /(contributo (?:massimo|max)|importo massimo del contributo|agevolazione massima|contributo (?:concedibile|erogabile)|fino a un massimo di contributo)/i;
+  /(contributo (?:massimo|max)|importo massimo del contributo|agevolazione massima|contributo (?:concedibile|erogabile)|fino a un massimo di contributo|maximum (?:grant|contribution|funding|aid|support|amount of (?:the )?(?:grant|aid))|grant (?:amount )?up to|funding up to|up to a maximum of|maximum amount per (?:project|beneficiary|application)|per project maximum)/i;
 const BUDGET_CTX =
-  /(dotazione(?: finanziaria| complessiva)?|risorse (?:disponibili|stanziate|complessive)|stanziament\w*|plafond|budget complessivo)/i;
+  /(dotazione(?: finanziaria| complessiva)?|risorse (?:disponibili|stanziate|complessive)|stanziament\w*|plafond|budget complessivo|(?:total|overall|indicative|available|call|programme|program)\s+budget|budget (?:of|for the call|available)|endowment|financial envelope|total funding available|available funds|total allocation)/i;
 
 const MIN_AMOUNT = 1_000;
 const MAX_AMOUNT = 2_000_000_000;
 
+/**
+ * Normalizza il valore numerico gestendo sia il formato italiano
+ * (1.234.567,89) sia quello inglese (1,234,567.89). L'ultimo separatore
+ * è decimale solo se seguito da 1-2 cifre; in ogni altro caso è migliaia.
+ */
 function parseAmountValue(raw: string): number | null {
-  const cleaned = raw.replace(/\s/g, "").replace(/\./g, "").replace(",", ".");
-  const value = Number(cleaned);
+  let s = raw.replace(/\s/g, "").replace(/[.,]$/, "");
+  if (!/^\d[\d.,]*$/.test(s)) return null;
+  const lastDot = s.lastIndexOf(".");
+  const lastComma = s.lastIndexOf(",");
+  const lastSep = Math.max(lastDot, lastComma);
+  if (lastSep >= 0) {
+    const decimals = s.length - lastSep - 1;
+    const isDecimal = decimals === 1 || decimals === 2;
+    const sepChar = s[lastSep];
+    const intPart = s.slice(0, lastSep).replace(/[.,]/g, "");
+    if (isDecimal) {
+      // Ambiguità "1.234" / "1,234": con 3 cifre è migliaia, qui decimals<3.
+      s = `${intPart}.${s.slice(lastSep + 1)}`;
+    } else {
+      if (sepChar && decimals !== 3 && decimals !== 0) return null;
+      s = s.replace(/[.,]/g, "");
+    }
+  }
+  const value = Number(s);
   if (!Number.isFinite(value)) return null;
   if (value < MIN_AMOUNT || value > MAX_AMOUNT) return null;
   return Math.round(value * 100) / 100;
 }
+
 
 export interface DetailAmounts {
   max_grant_amount?: DetailFieldHit<number>;
