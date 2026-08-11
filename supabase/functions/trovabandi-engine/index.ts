@@ -1196,6 +1196,7 @@ async function storeOpportunity(
   extracted: JsonObject,
   markdown: string,
   extractionProvider: string,
+  extraEvidence: DetailEvidenceRow[] = [],
 ): Promise<{ stored: boolean; verified: boolean; code: string }> {
   const officialUrl = normalizeUrl(hit.url);
   if (!officialUrl || !hostMatches(officialUrl, source.official_domain))
@@ -1208,7 +1209,12 @@ async function storeOpportunity(
     : false;
   const hasEvidence =
     markdown.length > 200 && source.official_domain.length > 3;
-  const deadlineProven = dateIsPresentInEvidence(markdown, deadline);
+  // La prova può stare nella pagina principale oppure nel documento di
+  // dettaglio ufficiale letto nello stesso run: entrambi sono evidenza salvata.
+  const proofText = [markdown, ...extraEvidence.map((row) => row.excerpt)].join(
+    "\n",
+  );
+  const deadlineProven = dateIsPresentInEvidence(proofText, deadline);
   const verification: PersistVerification =
     expired && deadlineProven
       ? "SCADUTO"
