@@ -126,15 +126,57 @@ const MESI: Record<string, number> = {
   dicembre: 12,
 };
 
+// Mesi inglesi, forma estesa e abbreviata (fonti UE / CINEA / EISMEA).
+const MONTHS_EN: Record<string, number> = {
+  january: 1,
+  jan: 1,
+  february: 2,
+  feb: 2,
+  march: 3,
+  mar: 3,
+  april: 4,
+  apr: 4,
+  may: 5,
+  june: 6,
+  jun: 6,
+  july: 7,
+  jul: 7,
+  august: 8,
+  aug: 8,
+  september: 9,
+  sept: 9,
+  sep: 9,
+  october: 10,
+  oct: 10,
+  november: 11,
+  nov: 11,
+  december: 12,
+  dec: 12,
+};
+
 const DEADLINE_STRONG =
-  /(scadenz\w*|termine ultimo|termine finale|termine di presentazione|entro (?:e non oltre )?(?:il|le|la)|domande?\s+entro|presentazione\s+entro|chiusura(?: dello)? sportello|data di chiusura)/i;
+  /(scadenz\w*|termine ultimo|termine finale|termine di presentazione|entro (?:e non oltre )?(?:il|le|la)|domande?\s+entro|presentazione\s+entro|chiusura(?: dello)? sportello|data di chiusura|deadline|closing date|close[sd]? on|closure date|cut[- ]?off date|submission date|applications? (?:close|must be submitted|due)|due (?:by|date)|no later than|not later than|expir\w* on|final date|last day|open until|available until)/i;
 
 const NUMERIC_DATE = /(\d{1,2})[/\-.](\d{1,2})[/\-.](20\d{2})/g;
+// Formato ISO usato dai portali UE: 2026-10-09.
+const ISO_DATE = /(20\d{2})-(\d{2})-(\d{2})/g;
 const TEXT_DATE = new RegExp(
   `(\\d{1,2})\\s+(${Object.keys(MESI).join("|")})\\s+(20\\d{2})`,
   "gi",
 );
-const HOUR = /ore\s+(\d{1,2})[:.](\d{2})/i;
+const MONTH_EN_ALT = Object.keys(MONTHS_EN).sort((a, b) => b.length - a.length).join("|");
+// "9 October 2026" / "9th October 2026"
+const TEXT_DATE_EN_DMY = new RegExp(
+  `(\\d{1,2})(?:st|nd|rd|th)?\\s+(${MONTH_EN_ALT})\\.?,?\\s+(20\\d{2})`,
+  "gi",
+);
+// "October 9, 2026"
+const TEXT_DATE_EN_MDY = new RegExp(
+  `(${MONTH_EN_ALT})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+(20\\d{2})`,
+  "gi",
+);
+const HOUR = /(?:ore|at|by|hrs?)\s+(\d{1,2})[:.](\d{2})/i;
+
 
 function isoFromParts(
   year: number,
