@@ -32,11 +32,13 @@ export async function persistOpportunityFailClosed(
   input: {
     row: PersistRow;
     evidence: PersistRow;
+    /** Prove aggiuntive (pagina o PDF di dettaglio ufficiale) dello stesso run. */
+    extraEvidence?: PersistRow[];
     verification: PersistVerification;
     nowIso: string;
   },
 ): Promise<PersistResult> {
-  const { row, evidence, verification, nowIso } = input;
+  const { row, evidence, extraEvidence = [], verification, nowIso } = input;
 
   // 1) Stato iniziale sempre non verificato: nessun dato "verificato" senza prova.
   const initial = await client.upsertOpportunity({
