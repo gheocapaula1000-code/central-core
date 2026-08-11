@@ -20,7 +20,7 @@ import {
 } from "../_shared/http.ts";
 import { sanitizeOutgoing, getServiceSupabase } from "../_shared/civiko.ts";
 import {
-  readStripeEnv, planFromPriceId, recordUsage, evaluateBillingGate,
+  readStripeEnv, isStripeTestSecret, planFromPriceId, recordUsage, evaluateBillingGate,
   getActiveSubscription, getCurrentUsage, getEntitlements,
   CIVIKO_APP_ID, CIVIKO_PLANS, type CivikoPlanKey, type UsageType,
 } from "../_shared/billing.ts";
@@ -411,6 +411,12 @@ async function handleCreatePortalSession(
   if (!secretKey) {
     return withIdentity(fail(req, 503, "BILLING_NOT_CONFIGURED", "Stripe non configurato sul Core.", debugId), route);
   }
+  if (!isStripeTestSecret(secretKey)) {
+    return withIdentity(
+      fail(req, 503, "LIVE_MODE_BLOCKED", "Stripe Live non è consentito.", debugId),
+      route,
+    );
+  }
 
   const supabaseUserId = String(body.supabase_user_id ?? "").trim();
   const returnUrl = String(body.return_url ?? "").trim();
@@ -483,6 +489,9 @@ async function handleCreatePortalSession(
     console.error(`[${FUNCTION_NAME}] billing_portal.sessions.create failed status=${r.status} debug_id=${debugId}`);
     return withIdentity(fail(req, 502, "STRIPE_ERROR", `Portal non disponibile. Riferimento: ${debugId}`, debugId), route);
   }
+  if (r.data.livemode !== false) {
+    return withIdentity(fail(req, 503, "LIVE_MODE_BLOCKED", "Stripe Live non è consentito.", debugId), route);
+  }
 
   return withIdentity(json(req, 200, { ok: true, url: String(r.data.url) }, debugId), route);
 }
@@ -500,6 +509,12 @@ async function handleCreateCheckoutDirect(
   const secretKey = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
   if (!secretKey) {
     return withIdentity(fail(req, 503, "BILLING_NOT_CONFIGURED", "Stripe non configurato sul Core.", debugId), route);
+  }
+  if (!isStripeTestSecret(secretKey)) {
+    return withIdentity(
+      fail(req, 503, "LIVE_MODE_BLOCKED", "Stripe Live non è consentito.", debugId),
+      route,
+    );
   }
 
   const contract = resolveCivikoCheckoutContract(body);
@@ -642,6 +657,9 @@ async function handleCreateCheckoutDirect(
     console.error(`[${FUNCTION_NAME}] checkout.sessions.create failed status=${r.status} debug_id=${debugId} stripe_error=${stripeMsg ?? "(none)"}`);
     const detailSuffix = stripeMsg ? ` Dettaglio: ${stripeMsg}` : "";
     return withIdentity(fail(req, 502, "STRIPE_ERROR", `Checkout non disponibile. Riferimento: ${debugId}.${detailSuffix}`, debugId), route);
+  }
+  if (r.data.livemode !== false) {
+    return withIdentity(fail(req, 503, "LIVE_MODE_BLOCKED", "Stripe Live non è consentito.", debugId), route);
   }
 
   return withIdentity(json(req, 200, {
@@ -877,6 +895,9 @@ async function handleCreateCheckout(
     console.error(`[${FUNCTION_NAME}] checkout.create failed status=${r.status} debug_id=${debugId}`);
     return withIdentity(fail(req, 502, "STRIPE_ERROR", `Checkout non disponibile. Riferimento: ${debugId}`, debugId), "error");
   }
+  if (r.data?.livemode !== false) {
+    return withIdentity(fail(req, 503, "LIVE_MODE_BLOCKED", "Stripe Live non è consentito.", debugId), "error");
+  }
   const url = (r.data?.url as string) ?? null;
   const clientSecret = (r.data?.client_secret as string) ?? null;
   return withIdentity(json(req, 200, sanitizeOutgoing({
@@ -917,6 +938,9 @@ async function handleCustomerPortal(
   if (!r.ok) {
     console.error(`[${FUNCTION_NAME}] portal.create failed status=${r.status} debug_id=${debugId}`);
     return withIdentity(fail(req, 502, "STRIPE_ERROR", `Portale non disponibile. Riferimento: ${debugId}`, debugId), "error");
+  }
+  if (r.data?.livemode !== false) {
+    return withIdentity(fail(req, 503, "LIVE_MODE_BLOCKED", "Stripe Live non è consentito.", debugId), "error");
   }
   const url = (r.data?.url as string) ?? null;
   return withIdentity(json(req, 200, sanitizeOutgoing({
@@ -1111,6 +1135,9 @@ async function handleStripeWebhook(req: Request, rawBody: string, debugId: strin
   let event: Record<string, unknown>;
   try { event = JSON.parse(rawBody); }
   catch { return withIdentity(fail(req, 400, "INVALID_JSON", "Invalid event payload.", debugId), "error"); }
+  if (event.livemode !== false) {
+    return withIdentity(fail(req, 400, "LIVE_MODE_BLOCKED", "Stripe Live events are rejected.", debugId), "error");
+  }
 
   const sb = getServiceSupabase();
   if (!sb) return withIdentity(fail(req, 503, "STORAGE_UNAVAILABLE", "Backend not configured.", debugId), "error");
@@ -1235,6 +1262,8 @@ Deno.serve(async (req) => {
           status: "healthy", function: FUNCTION_NAME, version: CORE_VERSION,
           contract: CORE_CONTRACT, expectedBasePath: EXPECTED_BASE_PATH, time: new Date().toISOString(),
           billingReady: readStripeEnv().configured,
+          billingMode: readStripeEnv().testMode ? "test" : "disabled",
+          liveModeBlocked: readStripeEnv().liveModeBlocked,
         }, debugId), "health");
       }
       if (pathname.endsWith("/manifest")) {

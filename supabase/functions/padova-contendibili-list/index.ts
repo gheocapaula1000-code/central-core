@@ -55,7 +55,7 @@ function sanitize(s: unknown): unknown {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const SELECT_COLS =
-  "id, chiave_match, n_agenzie, agenzie, agencies_normalized, fonti, confidenza, " +
+  "id, chiave_match, n_agenzie, agency_count_distinct, agenzie, agencies_normalized, fonti, confidenza, " +
   "prezzo_min, prezzo_max, mq, locali, bagni, quartiere, lat, lng, urls, " +
   "prezzo_medio_zona_eur_mq, prezzo_immobile_eur_mq, differenza_zona_pct, " +
   "giorni_sul_mercato, data_primo_annuncio, ribasso_pct, n_ribassi, " +
@@ -209,7 +209,7 @@ serve(async (req) => {
     let listQ = supabase
       .from("padova_contendibili_by_zone_v")
       .select(SELECT_COLS, { count: "exact" })
-      .gte("n_agenzie", min_agenzie);
+      .gte("agency_count_distinct", min_agenzie);
     listQ = applyZoneFilter(listQ)
       .order("score_pressione", { ascending: false })
       .range(offset, offset + limit - 1);
@@ -222,7 +222,7 @@ serve(async (req) => {
 
     const rank: Record<string, number> = { ALTA: 0, MEDIA: 1, DA_CONFERMARE: 2 };
     const rows = (data ?? []).slice().sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
-      const na = Number(a.n_agenzie ?? 0), nb = Number(b.n_agenzie ?? 0);
+      const na = Number(a.agency_count_distinct ?? 0), nb = Number(b.agency_count_distinct ?? 0);
       if (nb !== na) return nb - na;
       return (rank[String(a.confidenza)] ?? 9) - (rank[String(b.confidenza)] ?? 9);
     });
@@ -232,7 +232,7 @@ serve(async (req) => {
       supabase
         .from("padova_contendibili_by_zone_v")
         .select("id", { count: "exact", head: true })
-        .gte("n_agenzie", MIN_AGENZIE_CONTESI),
+        .gte("agency_count_distinct", MIN_AGENZIE_CONTESI),
     );
     const { count: hotCount, error: hotErr } = await hotQ;
     if (hotErr) {
@@ -328,7 +328,7 @@ serve(async (req) => {
       });
       return {
         ...r,
-        source_id: `cont:${Number(r.id)}`,
+        source_id: `cont:${String(r.chiave_match || `id:${r.id}`)}`,
         reachability: {
           tier,
           argento_match_count: rr.count,

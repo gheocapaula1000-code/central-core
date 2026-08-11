@@ -78,6 +78,9 @@ const RAW_QUARTIERI_BY_ZONE: Record<CivikoCommercialZoneSlug, readonly string[]>
     "San Bellino San Filippo Neri",
     "Borgomagno Prima Arcella Pescarotto",
     "Arcella Sant Antonino",
+    "Sacro Cuore",
+    "Altichiero",
+    "Altichero",
   ],
   "est-brenta": [
     "Fiera",
@@ -162,21 +165,16 @@ const RAW_QUARTIERI_BY_ZONE: Record<CivikoCommercialZoneSlug, readonly string[]>
     "Brentelle",
     "Sant'Ignazio",
     "Montà",
-    "Sacro Cuore",
-    "Altichiero",
     "Ponterotto",
     "Ovest Chiesanuova Brentelle",
     "Chiesanuova Brentelle",
-    "Ovest Sacra Famiglia Chiesanuova Brusegana Altichiero",
     "Brentelle Chiesanuova Cave",
     "San Giuseppe San Giovanni",
     "Palestro Sacra Famiglia San Giuseppe",
     "Sacra Famiglia Basso Isonzo",
     "Chiesanuova Brusegana",
     "Brusegana Aeroporto",
-    "Altichero",
     "Monta Sant Ignazio",
-    "S Ignazio Monta Altichiero",
   ],
 };
 
@@ -253,6 +251,8 @@ export const PADOVA_QUARTIERI_LABELS_BY_ZONE: Readonly<
     "San Carlo",
     "Pontevigodarzere",
     "Borgomagno",
+    "Sacro Cuore",
+    "Altichiero",
   ],
   "est-brenta": [
     "Fiera",
@@ -302,7 +302,6 @@ export const PADOVA_QUARTIERI_LABELS_BY_ZONE: Readonly<
     "Brentelle",
     "Sant'Ignazio",
     "Montà",
-    "Altichiero",
   ],
 };
 

@@ -496,7 +496,7 @@ serve(async (req: Request) => {
     if (quartiereFilter) contQ = contQ.eq("quartiere", quartiereFilter);
     // Prefer last_seen_at when available (post-migration), fallback to created_at.
     const { data, error } = await contQ
-      .or(`agency_count_distinct.gte.${MIN_AGENZIE_CONTESI},and(agency_count_distinct.is.null,n_agenzie.gte.${MIN_AGENZIE_CONTESI})`)
+      .gte("agency_count_distinct", MIN_AGENZIE_CONTESI)
       .order("last_seen_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false, nullsFirst: false })
       .order("agency_count_distinct", { ascending: false })
@@ -518,7 +518,7 @@ serve(async (req: Request) => {
         const portals = Array.isArray(row.portals_seen) ? (row.portals_seen as string[])
           : (Array.isArray(row.fonti) ? (row.fonti as string[]) : []);
         const agenciesNorm = Array.isArray(row.agencies_normalized) ? (row.agencies_normalized as string[]) : [];
-        const nAg = Number(row.agency_count_distinct ?? row.n_agenzie) || 0;
+        const nAg = Number(row.agency_count_distinct) || 0;
         const conf = String(row.confidenza || "");
         const score = Math.min(100, 50 + Math.min(nAg, 10) * 4 + (rank[conf] || 0));
         const title = String(row.chiave_match || `Contendibile ${row.id}`)
@@ -554,7 +554,7 @@ serve(async (req: Request) => {
   }
 
   // ── MULTI-PORTALE — padova_multi_portale_by_zone_v, filtro DB ────
-  if (includeSet.has("contendibili") || includeSet.has("multi_portale")) {
+  if (includeSet.has("multi_portale")) {
     await probeFreshnessByZone("padova_multi_portale_by_zone_v", { hasUpdated: true, hasLastSeen: true, orderBy: "last_seen_at" });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let mpQ: any = supabase
@@ -564,6 +564,7 @@ serve(async (req: Request) => {
     if (quartiereFilter) mpQ = mpQ.eq("quartiere", quartiereFilter);
     const { data, error } = await mpQ
       .gte("portal_count", 2)
+      .gte("agency_count_distinct", MIN_AGENZIE_CONTESI)
       .order("last_seen_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false, nullsFirst: false })
       .order("portal_count", { ascending: false })
@@ -591,9 +592,8 @@ serve(async (req: Request) => {
         const stableMp = String(row.chiave_match || `id:${row.id}`);
         rawItems.push(buildItem(String(row.commercial_zone_slug || ""), {
           source_id: `mp:${stableMp}`,
-          // PWA-compat: multi-portale mappato come "contendibile"; l'origine
-          // resta tracciabile via evidence_type/label_pubblica/raw_ref.
-          signal_type: "contendibile",
+          // Categoria separata: non può alimentare Contesi 3+.
+          signal_type: "multi_portale",
           title: `${title} — ${nPortals} portali`,
           zone_code: z.code, zone_label: z.label,
 
@@ -723,7 +723,11 @@ serve(async (req: Request) => {
           status: "active",
           score: Math.min(100, 50 + Math.round(dropPct)),
           last_seen_at: lastSeen,
-          first_seen_at: typeof row.imported_at === "string" ? row.imported_at : undefined,
+          first_seen_at: typeof row.first_seen_at === "string"
+            ? row.first_seen_at
+            : typeof row.imported_at === "string"
+              ? row.imported_at
+              : undefined,
           raw_ref: `listing_price_snapshots:${row.source_id ?? ""}`,
           lat_raw: row.lat,
           lng_raw: row.lng,
@@ -734,7 +738,6 @@ serve(async (req: Request) => {
           observations_count: typeof row.observations_count === "number" && Number.isFinite(row.observations_count)
             ? row.observations_count
             : undefined,
-          first_seen_at: typeof row.first_seen_at === "string" ? row.first_seen_at : undefined,
           omi_zone_code: omiCode || undefined,
         }));
         itemQuartiereBySourceId.set(
