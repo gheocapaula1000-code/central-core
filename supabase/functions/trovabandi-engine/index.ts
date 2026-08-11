@@ -1923,6 +1923,9 @@ serve(async (req) => {
     let directFetchAttempted = 0;
     let directFetchSucceeded = 0;
     let scrapeFailures = 0;
+    // Budget condiviso dei fetch di dettaglio: costo provider zero, ma il
+    // tempo del run resta limitato.
+    const detailBudget = { remaining: DETAIL_MAX_FETCH_PER_RUN };
 
     for (const hit of hits) {
       const cachedState = byUrl.get(hit.url);
