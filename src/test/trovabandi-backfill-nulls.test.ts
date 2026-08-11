@@ -1,0 +1,92 @@
+// UEradar — estrattori locali high-confidence dell'azione "backfill_nulls".
+// Vivono in supabase/functions/trovabandi-engine/index.ts (runtime Deno):
+// li isoliamo dalla sorgente reale per testarne il comportamento effettivo.
+
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { transformSync } from "esbuild";
+
+const ENGINE = readFileSync(
+  "supabase/functions/trovabandi-engine/index.ts",
+  "utf8",
+);
+
+const start = ENGINE.indexOf("// BACKFILL_HELPERS_START");
+const end = ENGINE.indexOf("// BACKFILL_HELPERS_END");
+expect(start).toBeGreaterThan(-1);
+expect(end).toBeGreaterThan(start);
+
+const source = transformSync(ENGINE.slice(start, end), {
+  loader: "ts",
+  format: "cjs",
+}).code;
+
+const helpers = new Function(
+  `${source}\nreturn { localExtractDeadline, localExtractAmounts };`,
+)() as {
+  localExtractDeadline: (markdown: string) => string | null;
+  localExtractAmounts: (markdown: string) => {
+    min_grant_amount?: number;
+    max_grant_amount?: number;
+    total_budget?: number;
+  };
+};
+
+const { localExtractDeadline, localExtractAmounts } = helpers;
+
+describe("localExtractDeadline", () => {
+  it("estrae la data italiana in lettere", () => {
+    expect(localExtractDeadline("Scadenza: 15 settembre 2026")).toBe(
+      "2026-09-15T00:00:00.000Z",
+    );
+  });
+
+  it("estrae la data inglese ordinale", () => {
+    expect(localExtractDeadline("Deadline 15th September 2026")).toBe(
+      "2026-09-15T00:00:00.000Z",
+    );
+  });
+
+  it("estrae la data numerica vicino a keyword", () => {
+    expect(localExtractDeadline("Termine: 01/03/2027")).toBe(
+      "2027-03-01T00:00:00.000Z",
+    );
+  });
+
+  it("restituisce null senza keyword di scadenza", () => {
+    expect(
+      localExtractDeadline("Il bando è stato pubblicato il 15 settembre 2026"),
+    ).toBeNull();
+  });
+
+  it("restituisce null su testo cortissimo", () => {
+    expect(localExtractDeadline("bando")).toBeNull();
+  });
+
+  it("restituisce null su anni fuori finestra", () => {
+    expect(localExtractDeadline("Scadenza: 15 settembre 2099")).toBeNull();
+  });
+});
+
+describe("localExtractAmounts", () => {
+  it("estrae l'importo massimo con separatore di migliaia", () => {
+    expect(localExtractAmounts("Contributo fino a 500.000 euro")).toMatchObject(
+      { max_grant_amount: 500000 },
+    );
+  });
+
+  it("estrae la dotazione espressa in milioni", () => {
+    expect(
+      localExtractAmounts("Il bando ha una dotazione di 2 milioni di euro"),
+    ).toMatchObject({ total_budget: 2000000 });
+  });
+
+  it("estrae gli importi espressi in 'mila'", () => {
+    expect(localExtractAmounts("Agevolazione fino a 50 mila euro"))
+      .toMatchObject({ max_grant_amount: 50000 });
+  });
+
+  it("non inventa importi su testo senza cifre", () => {
+    expect(localExtractAmounts("Bando per imprese del territorio")).toEqual({});
+  });
+});
