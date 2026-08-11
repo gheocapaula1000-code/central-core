@@ -836,12 +836,19 @@ async function fetchOfficialVariant(
       }
       const raw = await readLimitedText(res, maxBytes);
       if (raw == null) return null;
-      const parsed = contentType.includes("text/plain")
+      const isPlain = contentType.includes("text/plain");
+      const parsed = isPlain
         ? { title: "", text: raw.trim() }
         : htmlToEvidenceText(raw);
       const markdown = parsed.text.slice(0, 60_000);
       return markdown.length > 200
-        ? { markdown, title: parsed.title, provider: "official-http" }
+        ? {
+            markdown,
+            title: parsed.title,
+            provider: "official-http",
+            html: isPlain ? undefined : raw,
+            finalUrl: currentUrl,
+          }
         : null;
     }
     return null;
