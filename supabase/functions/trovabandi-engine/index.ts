@@ -378,6 +378,199 @@ function stringArray(value: unknown): string[] {
   return [...new Set(value.map(normalizeText).filter(Boolean))].slice(0, 100);
 }
 
+// BACKFILL_HELPERS_START
+// Estrattori locali high-confidence usati SOLO dall'azione "backfill_nulls".
+// Nessun provider a pagamento: lavorano su markdown già scaricato via HTTP
+// ufficiale diretto (costo zero) e restituiscono null quando non sono sicuri.
+const IT_MONTHS: Record<string, number> = {
+  gennaio: 1,
+  febbraio: 2,
+  marzo: 3,
+  aprile: 4,
+  maggio: 5,
+  giugno: 6,
+  luglio: 7,
+  agosto: 8,
+  settembre: 9,
+  ottobre: 10,
+  novembre: 11,
+  dicembre: 12,
+};
+
+const EN_MONTHS: Record<string, number> = {
+  january: 1,
+  february: 2,
+  march: 3,
+  april: 4,
+  may: 5,
+  june: 6,
+  july: 7,
+  august: 8,
+  september: 9,
+  october: 10,
+  november: 11,
+  december: 12,
+  jan: 1,
+  feb: 2,
+  mar: 3,
+  apr: 4,
+  jun: 6,
+  jul: 7,
+  aug: 8,
+  sep: 9,
+  sept: 9,
+  oct: 10,
+  nov: 11,
+  dec: 12,
+};
+
+function nearKeyword(text: string, matchIndex: number, window = 90): number {
+  const start = Math.max(0, matchIndex - window);
+  const slice = text.slice(start, matchIndex + window);
+  if (
+    /(scadenz|scade\b|entro\s+il|termine\s+ultim|deadline|closing\s+date|closes?\b)/
+      .test(slice)
+  ) {
+    return 10;
+  }
+  if (/(pubblicat|apertur|dal\s+\d|from\s+\d)/.test(slice)) return 1;
+  return 3;
+}
+
+function localExtractDeadline(markdown: string): string | null {
+  const t = markdown.toLowerCase().replace(/\u00a0/g, " ");
+  const candidates: { iso: string; score: number }[] = [];
+
+  function add(iso: string | null, score: number) {
+    if (!iso) return;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return;
+    const y = d.getUTCFullYear();
+    if (y < 2025 || y > 2032) return;
+    candidates.push({ iso, score });
+  }
+
+  // IT: scade/entro + giorno mese anno
+  for (
+    const m of t.matchAll(
+      /(?:scade(?:nza)?|entro)\s+(?:il\s+)?(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(20\d{2})\b/g,
+    )
+  ) {
+    const d = +m[1], mo = IT_MONTHS[m[2]], y = +m[3];
+    if (d >= 1 && d <= 31 && mo) {
+      add(
+        new Date(Date.UTC(y, mo - 1, d)).toISOString(),
+        nearKeyword(t, m.index ?? 0) + 5,
+      );
+    }
+  }
+
+  // IT/EN: DD/MM/YYYY o DD-MM-YYYY vicino a keyword
+  for (
+    const m of t.matchAll(
+      /(?:scade(?:nza)?|entro|termine|deadline)[:\s]+(?:il\s+)?(\d{1,2})[\/\-](\d{1,2})[\/\-](20\d{2})\b/g,
+    )
+  ) {
+    const d = +m[1], mo = +m[2], y = +m[3];
+    if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) {
+      add(
+        new Date(Date.UTC(y, mo - 1, d)).toISOString(),
+        nearKeyword(t, m.index ?? 0) + 4,
+      );
+    }
+  }
+
+  // EN: deadline 15th September 2026
+  for (
+    const m of t.matchAll(
+      /(?:deadline|closing\s+date|closes?)[:\s]+(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s+(20\d{2})\b/g,
+    )
+  ) {
+    const d = +m[1], mo = EN_MONTHS[m[2]], y = +m[3];
+    if (d >= 1 && d <= 31 && mo) {
+      add(
+        new Date(Date.UTC(y, mo - 1, d)).toISOString(),
+        nearKeyword(t, m.index ?? 0) + 5,
+      );
+    }
+  }
+
+  // ISO vicino a keyword
+  for (
+    const m of t.matchAll(
+      /(?:scade(?:nza)?|deadline|entro)[:\s]+(20\d{2}-\d{2}-\d{2})\b/g,
+    )
+  ) {
+    const dt = new Date(m[1] + "T00:00:00Z");
+    if (!Number.isNaN(dt.getTime())) {
+      add(dt.toISOString(), nearKeyword(t, m.index ?? 0) + 3);
+    }
+  }
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0].iso;
+}
+
+function parseItalianNumber(raw: string): number | null {
+  const cleaned = raw.replace(/\./g, "").replace(",", ".");
+  const n = Number(cleaned);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function localExtractAmounts(
+  markdown: string,
+): { min_grant_amount?: number; max_grant_amount?: number; total_budget?: number } {
+  const t = markdown.toLowerCase().replace(/\u00a0/g, " ");
+  const out: {
+    min_grant_amount?: number;
+    max_grant_amount?: number;
+    total_budget?: number;
+  } = {};
+
+  // fino a / massimo + numero
+  let m = t.match(
+    /(?:fino a|massimo|max\.?|contributo massimo di|importo massimo di)\s*(?:€\s*)?([\d.]+(?:\s*,\s*\d+)?)\s*(?:€|euro)?/,
+  );
+  if (m) {
+    const n = parseItalianNumber(m[1]);
+    if (n) out.max_grant_amount = n;
+  }
+
+  // X milioni di euro
+  m = t.match(
+    /(?:fino a|massimo|dotazione|budget|contributo)\s*(?:di\s+)?(\d+(?:[.,]\d+)?)\s*milioni?\s*(?:di\s+)?(?:€|euro)?/,
+  );
+  if (m) {
+    const base = parseItalianNumber(m[1].replace(",", "."));
+    if (base) {
+      const val = base * 1_000_000;
+      if (/dotazione|budget|fondo/.test(m[0])) out.total_budget = val;
+      else out.max_grant_amount = out.max_grant_amount ?? val;
+    }
+  }
+
+  // X mila euro
+  m = t.match(/(?:fino a|massimo)\s*(\d+)\s*mila\s*(?:€|euro)?/);
+  if (m) {
+    const n = +m[1] * 1000;
+    if (n > 0) out.max_grant_amount = out.max_grant_amount ?? n;
+  }
+
+  // dotazione / budget totale
+  m = t.match(
+    /(?:dotazione|budget|stanziamento|risorse)\s*(?:complessiv[oa]|totale)?\s*(?:di\s+)?(?:€\s*)?([\d.]+)\s*(?:€|euro)?/,
+  );
+  if (m) {
+    const n = parseItalianNumber(m[1]);
+    if (n) out.total_budget = n;
+  }
+
+  return out;
+}
+// BACKFILL_HELPERS_END
+
+
 /**
  * Ridondanza dei provider di ricerca (fail-closed conservativo).
  * Firecrawl e Perplexity sono fallback reciproci: se almeno uno è OK e ha
