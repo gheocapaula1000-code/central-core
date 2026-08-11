@@ -531,7 +531,7 @@ function localExtractAmounts(
 
   // fino a / massimo + numero
   let m = t.match(
-    /(?:fino a|massimo|max\.?|contributo massimo di|importo massimo di)\s*(?:€\s*)?([\d.]+(?:\s*,\s*\d+)?)(?!\s*(?:mila|milion|mld|miliard))\s*(?:€|euro)?/,
+    /(?:fino a|massimo|max\.?|contributo massimo di|importo massimo di)\s*(?:€\s*)?([\d.]+(?:\s*,\s*\d+)?)\b(?!\s*(?:mila|milion|mld|miliard))\s*(?:€|euro)?/,
   );
   if (m) {
     const n = parseItalianNumber(m[1]);
@@ -560,7 +560,7 @@ function localExtractAmounts(
 
   // dotazione / budget totale
   m = t.match(
-    /(?:dotazione|budget|stanziamento|risorse)\s*(?:complessiv[oa]|totale)?\s*(?:di\s+)?(?:€\s*)?([\d.]+)(?!\s*(?:mila|milion|mld|miliard))\s*(?:€|euro)?/,
+    /(?:dotazione|budget|stanziamento|risorse)\s*(?:complessiv[oa]|totale)?\s*(?:di\s+)?(?:€\s*)?([\d.]+)\b(?!\s*(?:mila|milion|mld|miliard))\s*(?:€|euro)?/,
   );
   if (m) {
     const n = parseItalianNumber(m[1]);
