@@ -22,8 +22,16 @@ import {
 } from "./extraction.ts";
 import {
   persistOpportunityFailClosed,
+  type PersistRow,
   type PersistVerification,
 } from "./persist.ts";
+import {
+  extractDetailLinks,
+  mergeDetailIntoExtraction,
+  needsDetailEnrichment,
+  parseAmounts,
+  parseDeadline,
+} from "./detail.ts";
 import {
   csvToEvidenceText,
   htmlToEvidenceText,
