@@ -68,6 +68,50 @@ describe("localExtractDeadline", () => {
     );
   });
 
+  it("estrae la scadenza discorsiva con 'entro e non oltre le ore'", () => {
+    expect(
+      localExtractDeadline(
+        "Le domande devono essere trasmesse entro e non oltre le ore 12:00 del 30 settembre 2026, pena l'esclusione.",
+      ),
+    ).toBe("2026-09-30T00:00:00.000Z");
+  });
+
+  it("estrae la chiusura sportello con data numerica puntata", () => {
+    expect(
+      localExtractDeadline("Chiusura dello sportello: 15.12.2026 ore 17:00"),
+    ).toBe("2026-12-15T00:00:00.000Z");
+  });
+
+  it("estrae il termine di presentazione delle domande", () => {
+    expect(
+      localExtractDeadline(
+        "Termine di presentazione delle domande: 7 gennaio 2027",
+      ),
+    ).toBe("2027-01-07T00:00:00.000Z");
+  });
+
+  it("preferisce la scadenza all'apertura quando compaiono entrambe", () => {
+    expect(
+      localExtractDeadline(
+        "Lo sportello apre a partire dal 1 marzo 2026. Le domande si presentano entro il 30 aprile 2026.",
+      ),
+    ).toBe("2026-04-30T00:00:00.000Z");
+  });
+
+  it("estrae il formato inglese 'September 15, 2026'", () => {
+    expect(
+      localExtractDeadline("Submission deadline: September 15, 2026"),
+    ).toBe("2026-09-15T00:00:00.000Z");
+  });
+
+  it("ignora una data valida citata come pubblicazione", () => {
+    expect(
+      localExtractDeadline(
+        "Decreto pubblicato il 12/01/2026 sul Bollettino Ufficiale.",
+      ),
+    ).toBeNull();
+  });
+
   it("restituisce null senza keyword di scadenza", () => {
     expect(
       localExtractDeadline("Il bando è stato pubblicato il 15 settembre 2026"),
@@ -117,6 +161,48 @@ describe("localExtractAmounts", () => {
   it("estrae 'fino a 500 mila euro'", () => {
     expect(localExtractAmounts("Agevolazione fino a 500 mila euro"))
       .toMatchObject({ max_grant_amount: 500000 });
+  });
+
+  it("estrae la dotazione finanziaria complessiva discorsiva", () => {
+    expect(
+      localExtractAmounts(
+        "La dotazione finanziaria complessiva è pari a 356,4 milioni di euro a valere sul programma.",
+      ),
+    ).toMatchObject({ total_budget: 356400000 });
+  });
+
+  it("estrae il contributo massimo concedibile con centesimi", () => {
+    expect(
+      localExtractAmounts(
+        "Il contributo massimo concedibile è pari a € 250.000,00 per impresa.",
+      ),
+    ).toMatchObject({ max_grant_amount: 250000 });
+  });
+
+  it("estrae minimo e massimo nella stessa frase", () => {
+    expect(
+      localExtractAmounts(
+        "Investimento non inferiore a 50.000 euro e contributo massimo di 1,5 mln di euro.",
+      ),
+    ).toMatchObject({ min_grant_amount: 50000, max_grant_amount: 1500000 });
+  });
+
+  it("estrae importi scritti a parole", () => {
+    expect(
+      localExtractAmounts("Lo stanziamento è di cinque milioni di euro."),
+    ).toMatchObject({ total_budget: 5000000 });
+  });
+
+  it("estrae 'sino a' con simbolo euro anteposto", () => {
+    expect(localExtractAmounts("Agevolazione sino a € 80.000")).toMatchObject({
+      max_grant_amount: 80000,
+    });
+  });
+
+  it("non attribuisce importi senza keyword qualificante", () => {
+    expect(
+      localExtractAmounts("Il decreto n. 120.000 del 2026 approva il bando."),
+    ).toEqual({});
   });
 
   it("non inventa importi su testo senza cifre", () => {

@@ -381,21 +381,35 @@ function stringArray(value: unknown): string[] {
 
 // BACKFILL_HELPERS_START
 // Estrattori locali high-confidence usati SOLO dall'azione "backfill_nulls".
-// Nessun provider a pagamento: lavorano su markdown già scaricato via HTTP
-// ufficiale diretto (costo zero) e restituiscono null quando non sono sicuri.
+// Nessun provider a pagamento: lavorano sul markdown scaricato via HTTP
+// ufficiale diretto (costo zero) e restano fail-closed: se il contesto non
+// qualifica esplicitamente la data o l'importo, restituiscono null / {}.
 const IT_MONTHS: Record<string, number> = {
   gennaio: 1,
+  gen: 1,
   febbraio: 2,
+  feb: 2,
   marzo: 3,
+  mar: 3,
   aprile: 4,
+  apr: 4,
   maggio: 5,
+  mag: 5,
   giugno: 6,
+  giu: 6,
   luglio: 7,
+  lug: 7,
   agosto: 8,
+  ago: 8,
   settembre: 9,
+  sett: 9,
+  set: 9,
   ottobre: 10,
+  ott: 10,
   novembre: 11,
+  nov: 11,
   dicembre: 12,
+  dic: 12,
 };
 
 const EN_MONTHS: Record<string, number> = {
@@ -425,155 +439,265 @@ const EN_MONTHS: Record<string, number> = {
   dec: 12,
 };
 
-function nearKeyword(text: string, matchIndex: number, window = 90): number {
-  const start = Math.max(0, matchIndex - window);
-  const slice = text.slice(start, matchIndex + window);
-  if (
-    /(scadenz|scade\b|entro\s+il|termine\s+ultim|deadline|closing\s+date|closes?\b)/
-      .test(slice)
-  ) {
-    return 10;
+const IT_MONTH_ALT =
+  "gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre|gen|feb|mar|apr|mag|giu|lug|ago|sett|set|ott|nov|dic";
+const EN_MONTH_ALT =
+  "january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept|sep|oct|nov|dec";
+
+// Contesto che qualifica una data come termine di presentazione.
+const DEADLINE_POSITIVE =
+  /(scadenz\w*|scade\b|scadr\w*|entro\s+(?:e\s+non\s+oltre\s+)?(?:le\s+ore\s+[\d.:]+\s+)?(?:del\s+|il\s+|la\s+)?|termin[ei]\b(?:\s+(?:ultimo|finale|perentorio|di\s+scadenza|di\s+presentazione|per\s+la\s+presentazione))?|chiusura\s+(?:dello\s+)?sportello|sportello\s+chiude|presentazione\s+(?:delle\s+)?domande\s+(?:fino\s+al|entro)?|domande\s+entro|invio\s+entro|deadline|closing\s+date|closes?\b|submission\s+deadline|applications?\s+close|last\s+day)/g;
+
+// Contesto che squalifica la data (apertura, pubblicazione, protocollo).
+const DEADLINE_NEGATIVE =
+  /(pubblicat\w*|pubblicazione|apertur\w*|si\s+apre|a\s+partire\s+dal|a\s+decorrere\s+dal|decorrenz\w*|dal\s+giorno|opens?\s+on|published|approvat\w*|deliberazione\s+del|decreto\s+del|aggiornat\w*)/g;
+
+function lastIndexOfPattern(slice: string, re: RegExp): number {
+  re.lastIndex = 0;
+  let idx = -1;
+  for (const m of slice.matchAll(re)) idx = Math.max(idx, m.index ?? -1);
+  return idx;
+}
+
+/**
+ * Punteggio di contesto per una data trovata a `idx`.
+ * Ritorna null quando il contesto non qualifica la data come scadenza,
+ * oppure quando una keyword di apertura/pubblicazione è più vicina.
+ */
+function deadlineContextScore(text: string, idx: number): number | null {
+  const start = Math.max(0, idx - 140);
+  const before = text.slice(start, idx);
+  const after = text.slice(idx, Math.min(text.length, idx + 40));
+  const pos = lastIndexOfPattern(before, DEADLINE_POSITIVE);
+  const neg = lastIndexOfPattern(before, DEADLINE_NEGATIVE);
+  if (pos < 0) {
+    // Casi tipo "15 settembre 2026 (termine di presentazione)".
+    if (
+      lastIndexOfPattern(after, DEADLINE_POSITIVE) >= 0 &&
+      lastIndexOfPattern(after, DEADLINE_NEGATIVE) < 0
+    ) {
+      return 4;
+    }
+    return null;
   }
-  if (/(pubblicat|apertur|dal\s+\d|from\s+\d)/.test(slice)) return 1;
-  return 3;
+  if (neg > pos) return null;
+  const distance = before.length - pos;
+  if (distance > 120) return null;
+  return distance <= 30 ? 10 : distance <= 70 ? 7 : 4;
+}
+
+function isoFromParts(y: number, mo: number, d: number): string | null {
+  if (!(mo >= 1 && mo <= 12) || !(d >= 1 && d <= 31)) return null;
+  if (y < 2025 || y > 2032) return null;
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null;
+  return dt.toISOString();
+}
+
+function normalizeForExtraction(markdown: string): string {
+  return markdown
+    .toLowerCase()
+    .replace(/\u00a0/g, " ")
+    .replace(/[*_`>#]+/g, " ")
+    .replace(/\s+/g, " ");
 }
 
 function localExtractDeadline(markdown: string): string | null {
-  const t = markdown.toLowerCase().replace(/\u00a0/g, " ");
+  const t = normalizeForExtraction(markdown);
   const candidates: { iso: string; score: number }[] = [];
 
-  function add(iso: string | null, score: number) {
+  function add(iso: string | null, idx: number, bonus: number) {
     if (!iso) return;
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return;
-    const y = d.getUTCFullYear();
-    if (y < 2025 || y > 2032) return;
-    candidates.push({ iso, score });
+    const ctx = deadlineContextScore(t, idx);
+    if (ctx == null) return;
+    candidates.push({ iso, score: ctx + bonus });
   }
 
-  // IT: scade/entro + giorno mese anno
+  // 1) Numeriche: 30/09/2026, 30-09-2026, 30.09.2026
   for (
-    const m of t.matchAll(
-      /(?:scade(?:nza)?|entro|termine(?:\s+ultimo)?)[:\s]+(?:il\s+)?(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(20\d{2})\b/g,
-    )
+    const m of t.matchAll(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](20\d{2})\b/g)
   ) {
-    const d = +m[1], mo = IT_MONTHS[m[2]], y = +m[3];
-    if (d >= 1 && d <= 31 && mo) {
-      add(
-        new Date(Date.UTC(y, mo - 1, d)).toISOString(),
-        nearKeyword(t, m.index ?? 0) + 5,
-      );
-    }
+    add(isoFromParts(+m[3], +m[2], +m[1]), m.index ?? 0, 2);
   }
 
-  // IT/EN: DD/MM/YYYY o DD-MM-YYYY vicino a keyword
-  for (
-    const m of t.matchAll(
-      /(?:scade(?:nza)?|entro|termine(?:\s+ultimo)?|deadline)[:\s]+(?:il\s+)?(\d{1,2})[\/\-](\d{1,2})[\/\-](20\d{2})\b/g,
-    )
-  ) {
-    const d = +m[1], mo = +m[2], y = +m[3];
-    if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) {
-      add(
-        new Date(Date.UTC(y, mo - 1, d)).toISOString(),
-        nearKeyword(t, m.index ?? 0) + 4,
-      );
-    }
+  // 2) ISO: 2026-09-30
+  for (const m of t.matchAll(/\b(20\d{2})-(\d{2})-(\d{2})\b/g)) {
+    add(isoFromParts(+m[1], +m[2], +m[3]), m.index ?? 0, 2);
   }
 
-  // EN: deadline 15th September 2026
+  // 3) Italiane a lettere: 30 settembre 2026 / 30 sett. 2026
   for (
     const m of t.matchAll(
-      /(?:deadline|closing\s+date|closes?)[:\s]+(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s+(20\d{2})\b/g,
+      new RegExp(`\\b(\\d{1,2})\\s*(?:°|º)?\\s+(${IT_MONTH_ALT})\\.?\\s+(20\\d{2})\\b`, "g"),
     )
   ) {
-    const d = +m[1], mo = EN_MONTHS[m[2]], y = +m[3];
-    if (d >= 1 && d <= 31 && mo) {
-      add(
-        new Date(Date.UTC(y, mo - 1, d)).toISOString(),
-        nearKeyword(t, m.index ?? 0) + 5,
-      );
-    }
+    add(isoFromParts(+m[3], IT_MONTHS[m[2]], +m[1]), m.index ?? 0, 3);
   }
 
-  // ISO vicino a keyword
+  // 4) Inglesi: 15th September 2026 e September 15, 2026
   for (
     const m of t.matchAll(
-      /(?:scade(?:nza)?|deadline|entro)[:\s]+(20\d{2}-\d{2}-\d{2})\b/g,
+      new RegExp(
+        `\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(${EN_MONTH_ALT})\\.?,?\\s+(20\\d{2})\\b`,
+        "g",
+      ),
     )
   ) {
-    const dt = new Date(m[1] + "T00:00:00Z");
-    if (!Number.isNaN(dt.getTime())) {
-      add(dt.toISOString(), nearKeyword(t, m.index ?? 0) + 3);
-    }
+    add(isoFromParts(+m[3], EN_MONTHS[m[2]], +m[1]), m.index ?? 0, 3);
+  }
+  for (
+    const m of t.matchAll(
+      new RegExp(
+        `\\b(${EN_MONTH_ALT})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+(20\\d{2})\\b`,
+        "g",
+      ),
+    )
+  ) {
+    add(isoFromParts(+m[3], EN_MONTHS[m[1]], +m[2]), m.index ?? 0, 3);
   }
 
   if (candidates.length === 0) return null;
-  candidates.sort((a, b) => b.score - a.score);
+  // Score più alto; a parità la data più vicina (conservativa).
+  candidates.sort((a, b) =>
+    b.score - a.score || a.iso.localeCompare(b.iso)
+  );
   return candidates[0].iso;
 }
 
+/** Numeri italiani/europei: "250.000,00" → 250000, "356,4" → 356.4. */
 function parseItalianNumber(raw: string): number | null {
-  const cleaned = raw.replace(/\./g, "").replace(",", ".");
+  const s = raw.replace(/\s/g, "");
+  let cleaned: string;
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) {
+    cleaned = s.replace(/\./g, "").replace(",", ".");
+  } else if (/^\d+(,\d+)?$/.test(s)) {
+    cleaned = s.replace(",", ".");
+  } else if (/^\d+(\.\d+)?$/.test(s)) {
+    cleaned = s;
+  } else {
+    cleaned = s.replace(/\./g, "").replace(",", ".");
+  }
   const n = Number(cleaned);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+const WORD_NUMBERS: Record<string, number> = {
+  un: 1,
+  uno: 1,
+  una: 1,
+  due: 2,
+  tre: 3,
+  quattro: 4,
+  cinque: 5,
+  sei: 6,
+  sette: 7,
+  otto: 8,
+  nove: 9,
+  dieci: 10,
+  undici: 11,
+  dodici: 12,
+  quindici: 15,
+  venti: 20,
+  venticinque: 25,
+  trenta: 30,
+  quaranta: 40,
+  cinquanta: 50,
+  sessanta: 60,
+  settanta: 70,
+  ottanta: 80,
+  novanta: 90,
+  cento: 100,
+  duecento: 200,
+  trecento: 300,
+  cinquecento: 500,
+};
+
+const SCALE_FACTORS: Record<string, number> = {
+  mila: 1_000,
+  mln: 1_000_000,
+  milione: 1_000_000,
+  milioni: 1_000_000,
+  mld: 1_000_000_000,
+  miliardo: 1_000_000_000,
+  miliardi: 1_000_000_000,
+};
+
+const MAX_KEYWORDS =
+  /(fino\s+a|sino\s+a|massimo|massima|massimi|max\b|non\s+superiore\s+a|nel\s+limite\s+di|entro\s+il\s+limite\s+di|contributo\s+massimo(?:\s+concedibile)?|importo\s+massimo(?:\s+concedibile|\s+finanziabile)?|agevolazione\s+massima|up\s+to)/g;
+const MIN_KEYWORDS =
+  /(importo\s+minimo|contributo\s+minimo|minimo\s+di|almeno\s+pari\s+a|non\s+inferiore\s+a|soglia\s+minima|at\s+least)/g;
+const BUDGET_KEYWORDS =
+  /(dotazione(?:\s+finanziaria)?(?:\s+complessiva|\s+totale)?|budget(?:\s+complessivo|\s+totale)?|stanziament\w*|risorse(?:\s+disponibili|\s+complessive|\s+stanziate)?|plafond|fondo\s+(?:complessivo|disponibile)|total\s+budget|overall\s+budget)/g;
+
+type AmountBucket = "min_grant_amount" | "max_grant_amount" | "total_budget";
+
+/** Classifica un importo in base alla keyword più vicina che lo precede. */
+function amountBucket(text: string, idx: number): AmountBucket | null {
+  const before = text.slice(Math.max(0, idx - 110), idx);
+  const candidates: Array<{ bucket: AmountBucket; at: number }> = (
+    [
+      { bucket: "max_grant_amount", at: lastIndexOfPattern(before, MAX_KEYWORDS) },
+      { bucket: "min_grant_amount", at: lastIndexOfPattern(before, MIN_KEYWORDS) },
+      { bucket: "total_budget", at: lastIndexOfPattern(before, BUDGET_KEYWORDS) },
+    ] as Array<{ bucket: AmountBucket; at: number }>
+  ).filter((c) => c.at >= 0);
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.at - a.at);
+  return candidates[0].bucket;
+}
+
+function plausibleAmount(n: number): boolean {
+  return n >= 100 && n <= 100_000_000_000;
 }
 
 function localExtractAmounts(
   markdown: string,
 ): { min_grant_amount?: number; max_grant_amount?: number; total_budget?: number } {
-  const t = markdown.toLowerCase().replace(/\u00a0/g, " ");
+  const t = normalizeForExtraction(markdown);
   const out: {
     min_grant_amount?: number;
     max_grant_amount?: number;
     total_budget?: number;
   } = {};
 
-  // fino a / massimo + numero
-  let m = t.match(
-    /(?:fino a|massimo|max\.?|contributo massimo di|importo massimo di)\s*(?:€\s*)?([\d.]+(?:\s*,\s*\d+)?)\b(?![\s,.]*\d)(?!\s*(?:mila|milion|mln|mld|miliard))\s*(?:€|euro)?/,
-  );
-  if (m) {
-    const n = parseItalianNumber(m[1]);
-    if (n) out.max_grant_amount = n;
+  function assign(bucket: AmountBucket | null, value: number) {
+    if (!bucket || !plausibleAmount(value)) return;
+    if (out[bucket] == null) out[bucket] = value;
   }
 
-  // X milioni di euro
-  m = t.match(
-    /(?:fino a|massimo|max\.?|dotazione|budget|stanziamento|risorse|contributo)(?:\s+(?:finanziari[ao]|complessiv[oa]|totale|disponibili))?\s*(?:è|ammonta a|pari a)?\s*(?:di\s+)?(?:€\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d+)?|\d+(?:,\d+)?)\s*(?:milioni?|mln)\b\s*(?:di\s+)?(?:€|euro)?/,
-  );
-  if (m) {
-    const base = parseItalianNumber(m[1]);
-    if (base) {
-      const val = base * 1_000_000;
-      if (/dotazione|budget|fondo/.test(m[0])) out.total_budget = val;
-      else out.max_grant_amount = out.max_grant_amount ?? val;
-    }
+  // A) Cifre con eventuale scala: "€ 250.000,00", "356,4 milioni di euro",
+  //    "1,5 mln", "500 mila euro".
+  const numeric =
+    /(€|eur\b|euro\b)?\s*(\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)\s*(mila|milioni|milione|mln|miliardi|miliardo|mld)?\s*(?:di\s+)?(€|eur\b|euro\b)?/g;
+  for (const m of t.matchAll(numeric)) {
+    const prefixCur = !!m[1];
+    const scale = m[3] ? SCALE_FACTORS[m[3]] : 1;
+    const suffixCur = !!m[4];
+    if (!prefixCur && !suffixCur) continue; // fail-closed: serve la valuta
+    const base = parseItalianNumber(m[2]);
+    if (!base) continue;
+    assign(amountBucket(t, m.index ?? 0), base * scale);
   }
 
-  // X mila euro
-  m = t.match(
-    /(?:fino a|massimo|max\.?|dotazione|budget|stanziamento|risorse|contributo)(?:\s+(?:finanziari[ao]|complessiv[oa]|totale|disponibili))?\s*(?:è|ammonta a|pari a)?\s*(?:di\s+)?(?:€\s*)?(\d+(?:,\d+)?)\s*mila\b\s*(?:di\s+)?(?:€|euro)?/,
+  // B) Importi a parole: "cinque milioni di euro", "un milione di euro".
+  const words = new RegExp(
+    `\\b(${Object.keys(WORD_NUMBERS).join("|")})\\s+(mila|milioni|milione|miliardi|miliardo)\\s*(?:di\\s+)?(?:€|eur|euro)\\b`,
+    "g",
   );
-  if (m) {
-    const base = parseItalianNumber(m[1]);
-    if (base) {
-      const val = base * 1000;
-      if (/dotazione|budget|stanziamento|risorse/.test(m[0])) {
-        out.total_budget = out.total_budget ?? val;
-      } else {
-        out.max_grant_amount = out.max_grant_amount ?? val;
-      }
-    }
+  for (const m of t.matchAll(words)) {
+    const base = WORD_NUMBERS[m[1]];
+    const scale = SCALE_FACTORS[m[2]];
+    if (!base || !scale) continue;
+    assign(amountBucket(t, m.index ?? 0), base * scale);
   }
 
-  // dotazione / budget totale
-  m = t.match(
-    /(?:dotazione|budget|stanziamento|risorse)(?:\s+(?:finanziari[ao]|complessiv[oa]|totale|disponibili))?\s*(?:è|ammonta a|pari a)?\s*(?:di\s+)?(?:€\s*)?([\d.]+(?:\s*,\s*\d+)?)\b(?![\s,.]*\d)(?!\s*(?:mila|milion|mln|mld|miliard))\s*(?:€|euro)?/,
-  );
-  if (m) {
-    const n = parseItalianNumber(m[1]);
-    if (n) out.total_budget = out.total_budget ?? n;
+  // Coerenza minima: un minimo non può superare il massimo.
+  if (
+    out.min_grant_amount != null &&
+    out.max_grant_amount != null &&
+    out.min_grant_amount > out.max_grant_amount
+  ) {
+    delete out.min_grant_amount;
   }
 
   return out;
@@ -1634,6 +1758,12 @@ serve(async (req) => {
   if (action === "backfill_nulls") {
     const maxBatch = Math.min(20, Math.max(1, Number(body.max_batch) || 12));
     const dryRun = body.dry_run !== false; // default TRUE per sicurezza
+    // Opt-in esplicito: usa l'estrattore Perplexity già esistente SOLO come
+    // fallback sui campi ancora NULL. Nessun nuovo provider, nessun nuovo costo
+    // di sottoscrizione; lo scraping resta comunque zero-cost.
+    const allowPaidExtract = body.allow_paid_extract === true &&
+      !!env("PERPLEXITY_API_KEY");
+    let paidCalls = 0;
     const nowIso = new Date().toISOString();
 
     const { data: rows, error: selErr } = await sb
@@ -1695,6 +1825,74 @@ serve(async (req) => {
           patch.total_budget = amounts.total_budget;
         }
 
+        // Fallback opt-in: solo se gli estrattori locali non hanno riempito
+        // NESSUN campo dato e restano campi NULL da coprire.
+        const stillMissing = [
+          row.deadline_at == null && patch.deadline_at == null,
+          row.min_grant_amount == null && patch.min_grant_amount == null,
+          row.max_grant_amount == null && patch.max_grant_amount == null,
+          row.total_budget == null && patch.total_budget == null,
+        ].some(Boolean);
+        const localFoundSomething = patch.deadline_at != null ||
+          patch.min_grant_amount != null ||
+          patch.max_grant_amount != null ||
+          patch.total_budget != null;
+
+        let paidUsed = false;
+        if (allowPaidExtract && stillMissing && !localFoundSomething) {
+          const pseudoSource = {
+            id: row.id,
+            name: "backfill",
+            authority_level: String(row.authority_level ?? "NAZIONALE"),
+            region: null,
+            province: null,
+            official_domain: domain,
+            search_query: "",
+            source_kind: "BACKFILL",
+            rarity_base: 0,
+            fast_lane: false,
+            scan_interval_minutes: 0,
+            priority: 0,
+            last_scanned_at: null,
+            next_scan_at: nowIso,
+          } as Source;
+          const pseudoHit: SearchHit = {
+            url: row.official_url,
+            title: "",
+            description: "",
+            provider: "backfill",
+          };
+          const extracted = await extractOpportunity(
+            pseudoSource,
+            pseudoHit,
+            page.markdown.slice(0, 20000),
+          );
+          paidCalls++;
+          paidUsed = true;
+          if (extracted.ok) {
+            const d = extracted.data as JsonObject;
+            const num = (v: unknown) =>
+              typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
+            if (row.deadline_at == null && patch.deadline_at == null &&
+              typeof d.deadline_at === "string"
+            ) {
+              const iso = new Date(d.deadline_at);
+              if (!Number.isNaN(iso.getTime())) {
+                patch.deadline_at = iso.toISOString();
+              }
+            }
+            if (row.min_grant_amount == null && num(d.min_grant_amount)) {
+              patch.min_grant_amount = d.min_grant_amount;
+            }
+            if (row.max_grant_amount == null && num(d.max_grant_amount)) {
+              patch.max_grant_amount = d.max_grant_amount;
+            }
+            if (row.total_budget == null && num(d.total_budget)) {
+              patch.total_budget = d.total_budget;
+            }
+          }
+        }
+
         const newDeadline = (patch.deadline_at as string | undefined) ??
           row.deadline_at;
         const hasEvidence = page.markdown.length > 200;
@@ -1735,7 +1933,12 @@ serve(async (req) => {
         }
 
         if (dryRun) {
-          results.push({ id: row.id, status: "DRY_RUN", would_patch: patch });
+          results.push({
+            id: row.id,
+            status: "DRY_RUN",
+            paid_extract: paidUsed,
+            would_patch: patch,
+          });
           continue;
         }
 
@@ -1749,7 +1952,12 @@ serve(async (req) => {
           skipped++;
         } else {
           updated++;
-          results.push({ id: row.id, status: "UPDATED", patch });
+          results.push({
+            id: row.id,
+            status: "UPDATED",
+            paid_extract: paidUsed,
+            patch,
+          });
         }
       } catch {
         results.push({ id: row.id, status: "ITEM_ERROR" });
@@ -1768,8 +1976,15 @@ serve(async (req) => {
           r.patch?.verification_status === "VERIFICATO" ||
           r.would_patch?.verification_status === "VERIFICATO",
       ).length,
-      provider_usage: { official_http: rows.length, paid: 0 },
-      warnings: dryRun ? ["dry_run"] : [],
+      provider_usage: {
+        official_http: rows.length,
+        paid: paidCalls,
+        allow_paid_extract: allowPaidExtract,
+      },
+      warnings: [
+        ...(dryRun ? ["dry_run"] : []),
+        ...(paidCalls > 0 ? [`paid_extract_calls=${paidCalls}`] : []),
+      ],
       finished_at: nowIso,
     });
 
@@ -1779,6 +1994,7 @@ serve(async (req) => {
       processed: rows.length,
       updated,
       skipped,
+      paid_extract_calls: paidCalls,
       results,
     });
   }
