@@ -867,7 +867,7 @@ async function fetchOfficialVariant(
 async function directOfficialScrape(
   url: string,
   officialDomain: string,
-): Promise<{ markdown: string; title: string; provider: string } | null> {
+): Promise<LoadedPage | null> {
   for (const variant of officialUrlVariants(url)) {
     const result = await fetchOfficialVariant(variant, officialDomain);
     if (result) return result;
