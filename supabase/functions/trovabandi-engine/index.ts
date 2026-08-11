@@ -892,6 +892,97 @@ async function loadPage(url: string, officialDomain: string) {
   return await apifyScrape(variants[variants.length - 1] ?? url);
 }
 
+/** Budget per run: nessuna esplosione del tempo di collect. */
+const DETAIL_MAX_FETCH_PER_RUN = 12;
+const DETAIL_MAX_FETCH_PER_HIT = 2;
+
+export interface DetailEvidenceRow {
+  source_url: string;
+  source_title: string;
+  evidence_type: "NOTICE" | "PDF";
+  excerpt: string;
+  fetched_at: string;
+  content_hash: string;
+}
+
+/**
+ * Arricchimento a costo provider zero: si rileggono al massimo due pagine o
+ * PDF di dettaglio già linkati sullo stesso dominio ufficiale, e si riempiono
+ * soltanto scadenza e importi ancora nulli. Nessuna chiamata a Firecrawl,
+ * Apify o all'estrattore AI. Fail-closed: qualunque dubbio non scrive nulla.
+ */
+async function enrichFromDetailPages(
+  source: Source,
+  hit: SearchHit,
+  page: LoadedPage,
+  extracted: JsonObject,
+  budget: { remaining: number },
+): Promise<{
+  patch: JsonObject;
+  filled: string[];
+  evidence: DetailEvidenceRow[];
+  attempted: number;
+}> {
+  const result = {
+    patch: {} as JsonObject,
+    filled: [] as string[],
+    evidence: [] as DetailEvidenceRow[],
+    attempted: 0,
+  };
+  if (budget.remaining <= 0) return result;
+  if (!needsDetailEnrichment(extracted)) return result;
+
+  const exclude = [hit.url, page.finalUrl ?? hit.url];
+  // I link dichiarati dall'estrazione hanno precedenza sui link della pagina.
+  const declared = ["notice_url", "application_url", "forms_url"]
+    .map((key) => normalizeUrl(extracted[key]))
+    .filter(
+      (url): url is string =>
+        !!url &&
+        isAllowedOfficialUrl(url, source.official_domain) &&
+        !exclude.includes(url),
+    );
+  const discovered = extractDetailLinks(
+    page.html ?? "",
+    page.finalUrl ?? hit.url,
+    source.official_domain,
+    { limit: DETAIL_MAX_FETCH_PER_HIT, exclude },
+  ).map((link) => link.url);
+  const targets = [...new Set([...declared, ...discovered])].slice(
+    0,
+    DETAIL_MAX_FETCH_PER_HIT,
+  );
+
+  const state: JsonObject = { ...extracted };
+  const now = new Date();
+  for (const target of targets) {
+    if (budget.remaining <= 0) break;
+    if (!needsDetailEnrichment(state)) break;
+    budget.remaining--;
+    result.attempted++;
+    const detail = await directOfficialScrape(target, source.official_domain);
+    if (!detail) continue;
+    const merged = mergeDetailIntoExtraction(state, {
+      deadline: parseDeadline(detail.markdown, now),
+      amounts: parseAmounts(detail.markdown),
+    });
+    if (merged.filled.length === 0) continue;
+    Object.assign(state, merged.patch);
+    Object.assign(result.patch, merged.patch);
+    result.filled.push(...merged.filled);
+    result.evidence.push({
+      source_url: target,
+      source_title: `Dettaglio ufficiale — ${(detail.title || hit.title || "documento").slice(0, 400)}`,
+      evidence_type: detail.provider === "official-pdf" ? "PDF" : "NOTICE",
+      excerpt: detail.markdown.slice(0, 3000),
+      fetched_at: now.toISOString(),
+      content_hash: await sha256(detail.markdown),
+    });
+  }
+  return result;
+}
+
+
 
 // Client minimale: evita il mismatch dei generici Supabase nei checker Deno.
 type CandidateClient = {
