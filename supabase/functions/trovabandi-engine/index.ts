@@ -1756,6 +1756,12 @@ serve(async (req) => {
   if (action === "backfill_nulls") {
     const maxBatch = Math.min(20, Math.max(1, Number(body.max_batch) || 12));
     const dryRun = body.dry_run !== false; // default TRUE per sicurezza
+    // Opt-in esplicito: usa l'estrattore Perplexity già esistente SOLO come
+    // fallback sui campi ancora NULL. Nessun nuovo provider, nessun nuovo costo
+    // di sottoscrizione; lo scraping resta comunque zero-cost.
+    const allowPaidExtract = body.allow_paid_extract === true &&
+      !!env("PERPLEXITY_API_KEY");
+    let paidCalls = 0;
     const nowIso = new Date().toISOString();
 
     const { data: rows, error: selErr } = await sb
@@ -1817,6 +1823,74 @@ serve(async (req) => {
           patch.total_budget = amounts.total_budget;
         }
 
+        // Fallback opt-in: solo se gli estrattori locali non hanno riempito
+        // NESSUN campo dato e restano campi NULL da coprire.
+        const stillMissing = [
+          row.deadline_at == null && patch.deadline_at == null,
+          row.min_grant_amount == null && patch.min_grant_amount == null,
+          row.max_grant_amount == null && patch.max_grant_amount == null,
+          row.total_budget == null && patch.total_budget == null,
+        ].some(Boolean);
+        const localFoundSomething = patch.deadline_at != null ||
+          patch.min_grant_amount != null ||
+          patch.max_grant_amount != null ||
+          patch.total_budget != null;
+
+        let paidUsed = false;
+        if (allowPaidExtract && stillMissing && !localFoundSomething) {
+          const pseudoSource = {
+            id: row.id,
+            name: "backfill",
+            authority_level: String(row.authority_level ?? "NAZIONALE"),
+            region: null,
+            province: null,
+            official_domain: domain,
+            search_query: "",
+            source_kind: "BACKFILL",
+            rarity_base: 0,
+            fast_lane: false,
+            scan_interval_minutes: 0,
+            priority: 0,
+            last_scanned_at: null,
+            next_scan_at: nowIso,
+          } as Source;
+          const pseudoHit: SearchHit = {
+            url: row.official_url,
+            title: "",
+            description: "",
+            provider: "backfill",
+          };
+          const extracted = await extractOpportunity(
+            pseudoSource,
+            pseudoHit,
+            page.markdown.slice(0, 20000),
+          );
+          paidCalls++;
+          paidUsed = true;
+          if (extracted.ok) {
+            const d = extracted.data as JsonObject;
+            const num = (v: unknown) =>
+              typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
+            if (row.deadline_at == null && patch.deadline_at == null &&
+              typeof d.deadline_at === "string"
+            ) {
+              const iso = new Date(d.deadline_at);
+              if (!Number.isNaN(iso.getTime())) {
+                patch.deadline_at = iso.toISOString();
+              }
+            }
+            if (row.min_grant_amount == null && num(d.min_grant_amount)) {
+              patch.min_grant_amount = d.min_grant_amount;
+            }
+            if (row.max_grant_amount == null && num(d.max_grant_amount)) {
+              patch.max_grant_amount = d.max_grant_amount;
+            }
+            if (row.total_budget == null && num(d.total_budget)) {
+              patch.total_budget = d.total_budget;
+            }
+          }
+        }
+
         const newDeadline = (patch.deadline_at as string | undefined) ??
           row.deadline_at;
         const hasEvidence = page.markdown.length > 200;
@@ -1857,7 +1931,12 @@ serve(async (req) => {
         }
 
         if (dryRun) {
-          results.push({ id: row.id, status: "DRY_RUN", would_patch: patch });
+          results.push({
+            id: row.id,
+            status: "DRY_RUN",
+            paid_extract: paidUsed,
+            would_patch: patch,
+          });
           continue;
         }
 
@@ -1871,7 +1950,12 @@ serve(async (req) => {
           skipped++;
         } else {
           updated++;
-          results.push({ id: row.id, status: "UPDATED", patch });
+          results.push({
+            id: row.id,
+            status: "UPDATED",
+            paid_extract: paidUsed,
+            patch,
+          });
         }
       } catch {
         results.push({ id: row.id, status: "ITEM_ERROR" });
@@ -1890,8 +1974,15 @@ serve(async (req) => {
           r.patch?.verification_status === "VERIFICATO" ||
           r.would_patch?.verification_status === "VERIFICATO",
       ).length,
-      provider_usage: { official_http: rows.length, paid: 0 },
-      warnings: dryRun ? ["dry_run"] : [],
+      provider_usage: {
+        official_http: rows.length,
+        paid: paidCalls,
+        allow_paid_extract: allowPaidExtract,
+      },
+      warnings: [
+        ...(dryRun ? ["dry_run"] : []),
+        ...(paidCalls > 0 ? [`paid_extract_calls=${paidCalls}`] : []),
+      ],
       finished_at: nowIso,
     });
 
@@ -1901,6 +1992,7 @@ serve(async (req) => {
       processed: rows.length,
       updated,
       skipped,
+      paid_extract_calls: paidCalls,
       results,
     });
   }
