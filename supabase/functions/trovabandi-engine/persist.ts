@@ -68,6 +68,19 @@ export async function persistOpportunityFailClosed(
     };
   }
 
+  // 2b) Prove di dettaglio: stesse regole fail-closed, nessun best-effort.
+  for (const extra of extraEvidence) {
+    const extraResult = await client.upsertEvidence({ ...extra, opportunity_id: id });
+    if (extraResult.error) {
+      return {
+        stored: false,
+        verified: false,
+        code: `EVIDENCE_WRITE_FAILED_${sanitizeDbErrorCode(extraResult.error)}`,
+      };
+    }
+  }
+
+
   // 3) Promozione allo stato calcolato soltanto dopo la prova persistita.
   if (verification !== "DA_VERIFICARE") {
     const promotion = await client.promote(id, {
