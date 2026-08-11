@@ -454,7 +454,7 @@ function localExtractDeadline(markdown: string): string | null {
   // IT: scade/entro + giorno mese anno
   for (
     const m of t.matchAll(
-      /(?:scade(?:nza)?|entro)\s+(?:il\s+)?(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(20\d{2})\b/g,
+      /(?:scade(?:nza)?|entro)[:\s]+(?:il\s+)?(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(20\d{2})\b/g,
     )
   ) {
     const d = +m[1], mo = IT_MONTHS[m[2]], y = +m[3];
@@ -484,7 +484,7 @@ function localExtractDeadline(markdown: string): string | null {
   // EN: deadline 15th September 2026
   for (
     const m of t.matchAll(
-      /(?:deadline|closing\s+date|closes?)[:\s]+(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s+(20\d{2})\b/g,
+      /(?:deadline|closing\s+date|closes?)[:\s]+(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s+(20\d{2})\b/g,
     )
   ) {
     const d = +m[1], mo = EN_MONTHS[m[2]], y = +m[3];
