@@ -297,6 +297,43 @@ export function parseDeadline(
 const AMOUNT =
   /(?:€|eur\b|euros?\b)\s*([\d][\d.,\s]{2,20}\d)|([\d][\d.,\s]{4,20}\d)\s*(?:€|eur\b|euros?\b)/gi;
 
+/**
+ * Moltiplicatori per importi scritti a parole. Solo forme non ambigue:
+ * "mln"/"mld"/"bn" sono abbreviazioni standard, "m"/"k" isolate NON sono
+ * accettate perché troppo spesso indicano metri o altre unità.
+ */
+const SCALE_WORDS: Record<string, number> = {
+  mila: 1_000,
+  migliaia: 1_000,
+  thousand: 1_000,
+  thousands: 1_000,
+  milione: 1_000_000,
+  milioni: 1_000_000,
+  mln: 1_000_000,
+  million: 1_000_000,
+  millions: 1_000_000,
+  miliardo: 1_000_000_000,
+  miliardi: 1_000_000_000,
+  mld: 1_000_000_000,
+  billion: 1_000_000_000,
+  billions: 1_000_000_000,
+  bn: 1_000_000_000,
+};
+
+const SCALE_PATTERN =
+  "mila|migliaia|thousands?|milion[ei]|mln|millions?|miliard[oi]|mld|billions?|bn";
+
+/**
+ * Importi a parole: la valuta deve essere esplicita (prima o dopo il numero),
+ * altrimenti la cifra viene scartata.
+ */
+const SCALED_AMOUNT = new RegExp(
+  `(?:(?:€|eur\\b|euros?\\b)\\s*(\\d{1,3}(?:[.,]\\d{1,2})?)\\s*(${SCALE_PATTERN})\\b)` +
+    `|(?:(\\d{1,3}(?:[.,]\\d{1,2})?)\\s*(${SCALE_PATTERN})\\b\\s*(?:di\\s+)?(?:€|eur\\b|euros?\\b))`,
+  "gi",
+);
+
+
 const MAX_GRANT_CTX =
   /(contributo (?:massimo|max)|importo massimo del contributo|agevolazione massima|contributo (?:concedibile|erogabile)|fino a un massimo di contributo|maximum (?:grant|contribution|funding|aid|support|amount of (?:the )?(?:grant|aid))|grant (?:amount )?up to|funding up to|up to a maximum of|maximum amount per (?:project|beneficiary|application)|per project maximum)/i;
 const BUDGET_CTX =
