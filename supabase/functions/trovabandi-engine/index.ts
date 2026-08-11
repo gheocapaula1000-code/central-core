@@ -141,6 +141,7 @@ const ALLOWED_ACTIONS = new Set([
   "maintenance",
   "release_gate",
   "status",
+  "backfill_nulls",
 ]);
 
 const extractionSchema = {
