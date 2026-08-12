@@ -9059,6 +9059,24 @@ export type Database = {
         }
         Relationships: []
       }
+      trovabandi_refresh_requests_log_tmp: {
+        Row: {
+          created_at: string
+          id: number
+          request_id: number | null
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          request_id?: number | null
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          request_id?: number | null
+        }
+        Relationships: []
+      }
       trovabandi_runs: {
         Row: {
           action: string
