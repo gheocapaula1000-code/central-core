@@ -1,37 +1,51 @@
-// Regressione — categoria pubblica "Contesi 3+".
-// Un immobile e' contendibile SOLO con almeno 3 agenzie distinte.
+// Regressione — categoria pubblica "Contesi 2+".
+// Un immobile e' contendibile con almeno 2 agenzie distinte.
+// I cluster 3+ restano HOT solo lato UI/display.
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   contesi3PlusGate,
   MIN_AGENZIE_CONTESI,
 } from "../_shared/contesi3PlusGate.ts";
 
-const MIGRATION =
+const MIGRATION_3PLUS =
   "supabase/migrations/20260808122854_26e45871-0374-4bf4-aaca-6a2356def1a3.sql";
+const MIGRATION_2PLUS =
+  "supabase/migrations/20260813190000_contesi_2plus_threshold.sql";
 
 const base = {
-  canonicalIds: ["c1", "c2", "c3"],
+  canonicalIds: ["c1", "c2"],
   prezzoMin: 200000,
   prezzoMax: 200000,
 };
 
-Deno.test("soglia contratto = 3 agenzie distinte", () => {
-  assertEquals(MIN_AGENZIE_CONTESI, 3);
+Deno.test("soglia contratto = 2 agenzie distinte", () => {
+  assertEquals(MIN_AGENZIE_CONTESI, 2);
 });
 
-Deno.test("2 agenzie distinte -> escluso", () => {
+Deno.test("1 agenzia -> escluso", () => {
   const r = contesi3PlusGate({
     ...base,
-    canonicalIds: ["c1", "c2"],
-    agencies: ["Rossi Immobiliare", "Bianchi Case"],
+    canonicalIds: ["c1"],
+    agencies: ["Rossi Immobiliare"],
   });
   assert(!r.ok);
   assert(r.reasons.includes("AGENZIE_INSUFFICIENTI"));
 });
 
+Deno.test("2 agenzie distinte -> incluso", () => {
+  const r = contesi3PlusGate({
+    ...base,
+    agencies: ["Rossi Immobiliare", "Bianchi Case"],
+  });
+  assertEquals(r.reasons, []);
+  assert(r.ok);
+  assertEquals(r.nAgenzie, 2);
+});
+
 Deno.test("3 agenzie distinte -> incluso", () => {
   const r = contesi3PlusGate({
     ...base,
+    canonicalIds: ["c1", "c2", "c3"],
     agencies: ["Rossi Immobiliare", "Bianchi Case", "Verdi Real Estate"],
   });
   assertEquals(r.reasons, []);
@@ -52,10 +66,10 @@ Deno.test("stessa agenzia duplicata -> escluso", () => {
 Deno.test("spread prezzo 15% -> incluso con prova foto certificata", () => {
   const r = contesi3PlusGate({
     ...base,
-    agencies: ["A Casa", "B Case", "C Immobili"],
+    agencies: ["A Casa", "B Case"],
     prezzoMin: 200000,
     prezzoMax: 230000, // esattamente +15%
-    photoCertifiedPairs: 3,
+    photoCertifiedPairs: 2,
   });
   assertEquals(r.reasons, []);
   assert(r.ok);
@@ -64,10 +78,10 @@ Deno.test("spread prezzo 15% -> incluso con prova foto certificata", () => {
 Deno.test("spread oltre 15% -> escluso anche con foto identiche certificate", () => {
   const r = contesi3PlusGate({
     ...base,
-    agencies: ["A Casa", "B Case", "C Immobili"],
+    agencies: ["A Casa", "B Case"],
     prezzoMin: 200000,
     prezzoMax: 240000, // +20%
-    photoCertifiedPairs: 3,
+    photoCertifiedPairs: 2,
   });
   assert(!r.ok);
   assert(r.reasons.includes("PREZZO_OLTRE_15_PCT"));
@@ -76,7 +90,7 @@ Deno.test("spread oltre 15% -> escluso anche con foto identiche certificate", ()
 Deno.test("spread 10-15% senza prova -> escluso", () => {
   const r = contesi3PlusGate({
     ...base,
-    agencies: ["A Casa", "B Case", "C Immobili"],
+    agencies: ["A Casa", "B Case"],
     prezzoMin: 200000,
     prezzoMax: 226000, // +13%
     photoCertifiedPairs: 0,
@@ -88,8 +102,8 @@ Deno.test("spread 10-15% senza prova -> escluso", () => {
 Deno.test("canonical collision -> escluso", () => {
   const r = contesi3PlusGate({
     ...base,
-    agencies: ["A Casa", "B Case", "C Immobili"],
-    canonicalIds: ["c1", "c1", "c1"],
+    agencies: ["A Casa", "B Case"],
+    canonicalIds: ["c1", "c1"],
   });
   assert(!r.ok);
   assert(r.reasons.includes("CANONICAL_COLLISION"));
@@ -98,26 +112,29 @@ Deno.test("canonical collision -> escluso", () => {
 Deno.test("asta o MLS -> escluso", () => {
   const r = contesi3PlusGate({
     ...base,
-    agencies: ["A Casa", "B Case", "C Immobili"],
+    agencies: ["A Casa", "B Case"],
     hasMls: true,
   });
   assert(!r.ok);
   assert(r.reasons.includes("ASTA_O_MLS"));
 });
 
-Deno.test("migrazione: soglia 3+ propagata a gate, staging e QA", async () => {
-  const sql = await Deno.readTextFile(MIGRATION);
-  assert(/p_n_agenzie >= 3/.test(sql), "gate gruppo non a 3 agenzie");
-  assert(/p_n_annunci_canonici >= 3/.test(sql), "gate gruppo non a 3 canonici");
-  assert(/p_n_rows BETWEEN 3 AND 4/.test(sql), "gate gruppo non a >= 3 righe");
-  assert(/WHERE n_agenzie >= 3/.test(sql), "staging unit-certified non a 3 agenzie");
-  assert(/OR n_agenzie < 3/.test(sql), "QA post-scrittura non a 3 agenzie");
+Deno.test("migrazione storica 3+ presente e migrazione 2+ la ripristina", async () => {
+  const sql3 = await Deno.readTextFile(MIGRATION_3PLUS);
+  assert(/p_n_agenzie >= 3/.test(sql3), "migrazione storica 3+ assente");
+
+  const sql2 = await Deno.readTextFile(MIGRATION_2PLUS);
+  assert(/p_n_agenzie >= 2/.test(sql2), "gate gruppo non a 2 agenzie");
+  assert(/p_n_annunci_canonici >= 2/.test(sql2), "gate gruppo non a 2 canonici");
+  assert(/p_n_rows BETWEEN 2 AND 4/.test(sql2), "gate gruppo non a >= 2 righe");
+  assert(/WHERE n_agenzie >= 2/.test(sql2), "staging unit-certified non a 2 agenzie");
+  assert(/n_agenzie < 2/.test(sql2), "QA post-scrittura non a 2 agenzie");
   assert(
-    /p_prezzo_max <= p_prezzo_min \* 1\.15/.test(sql),
+    /p_prezzo_max <= p_prezzo_min \* 1\.15/.test(sql2),
     "tolleranza prezzo 15% non preservata",
   );
   assert(
-    /Verifica post-patch fallita/.test(sql),
+    /Verifica post-patch fallita/.test(sql2),
     "patch non fail-closed",
   );
 });

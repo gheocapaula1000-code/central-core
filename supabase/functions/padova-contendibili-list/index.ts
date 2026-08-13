@@ -32,6 +32,9 @@ import {
 } from "../_shared/civikoZoneAccessGate.ts";
 import { MIN_AGENZIE_CONTESI } from "../_shared/contesi3PlusGate.ts";
 
+/** HOT display threshold (independent from publication MIN). */
+const HOT_AGENZIE_THRESHOLD = 3;
+
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -227,12 +230,12 @@ serve(async (req) => {
       return (rank[String(a.confidenza)] ?? 9) - (rank[String(b.confidenza)] ?? 9);
     });
 
-    // ─── hot_3plus — same zone, DB-side count ────────────────────────
+    // ─── hot_3plus — same zone, DB-side count (always >=3, independent of MIN) ─
     const hotQ = applyZoneFilter(
       supabase
         .from("padova_contendibili_by_zone_v")
         .select("id", { count: "exact", head: true })
-        .gte("n_agenzie", MIN_AGENZIE_CONTESI),
+        .gte("n_agenzie", HOT_AGENZIE_THRESHOLD),
     );
     const { count: hotCount, error: hotErr } = await hotQ;
     if (hotErr) {
