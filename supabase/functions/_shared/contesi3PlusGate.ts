@@ -1,10 +1,11 @@
-// Contratto pubblico Civiko One — categoria "Contesi 3+".
-// Un immobile e' contendibile SOLO con almeno 3 agenzie distinte.
+// Contratto pubblico Civiko One — categoria "Contesi 2+".
+// Un immobile e' contendibile con almeno 2 agenzie distinte.
 // Il matching resta prudente: spread prezzo massimo 15% (10-15% tollerato solo
 // con prova, es. fotografie identiche certificate), canonical ID distinti per
 // evitare falsi positivi (stesso annuncio ripubblicato non fa gruppo).
+// I cluster con 3+ agenzie restano marcati HOT lato PWA.
 
-export const MIN_AGENZIE_CONTESI = 3;
+export const MIN_AGENZIE_CONTESI = 2;
 export const MAX_PREZZO_SPREAD = 1.15;
 export const MAX_PREZZO_SPREAD_SENZA_PROVA = 1.10;
 

@@ -145,6 +145,8 @@ export function isAllowedCivikoReturnUrl(raw: string): boolean {
 // server-side dalla zona commerciale riservata all'agenzia
 // (trial o occupata). Il client non è mai autoritativo su tier,
 // importo, valuta o Price ID.
+//
+// Aggiornamento commerciale (ago 2026): standard 1.490 € · premium 1.990 €
 // ═══════════════════════════════════════════════════════════════
 
 import {
@@ -157,8 +159,8 @@ export type CivikoZoneTier = "premium" | "standard" | "entry";
 
 /** Canone mensile autoritativo in EUR per fascia. */
 export const CIVIKO_TIER_MONTHLY_EUR: Readonly<Record<CivikoZoneTier, number>> = {
-  premium: 2990,
-  standard: 1990,
+  premium: 1990,
+  standard: 1490,
   entry: 990,
 };
 
