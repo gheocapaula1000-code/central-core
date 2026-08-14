@@ -9,6 +9,9 @@ name: Cron Radar Padova
 #
 # Times are UTC. Rome = UTC+1 winter / UTC+2 summer.
 # Soft ~03:00 Rome winter → 02:00 UTC; Full ~04:00 Rome → 03:00 UTC.
+#
+# On soft/full failure (HTTP non-2xx, radar_downstream_failure, or 0 signals):
+# opens a GitHub Issue with label cron-radar-failure (deduped if one is already open).
 
 on:
   schedule:
@@ -33,6 +36,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: cron-radar-${{ github.event.schedule || github.event.inputs.mode || 'manual' }}
@@ -48,6 +52,7 @@ jobs:
       || github.event.schedule == '0 2 * * *'
     steps:
       - name: Trigger cron-radar-padova-nightly (soft)
+        id: trigger
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           JOB_SECRET: ${{ secrets.CENTRAL_CORE_JOB_SECRET }}
@@ -55,6 +60,7 @@ jobs:
           set -euo pipefail
           if [ -z "${SUPABASE_URL:-}" ] || [ -z "${JOB_SECRET:-}" ]; then
             echo "Missing SUPABASE_URL or CENTRAL_CORE_JOB_SECRET"
+            echo "reason=missing_secrets" >> "$GITHUB_OUTPUT"
             exit 1
           fi
           URL="${SUPABASE_URL%/}/functions/v1/cron-radar-padova-nightly?mode=soft"
@@ -64,14 +70,92 @@ jobs:
             -H "Content-Type: application/json" \
             -H "x-job-secret: ${JOB_SECRET}" \
             -H "x-internal-secret: ${JOB_SECRET}" \
-            --max-time 120)
+            --max-time 120 || echo "000")
           echo "HTTP $HTTP"
           head -c 2000 /tmp/cron_soft_body.json || true
           echo
+          echo "http_code=$HTTP" >> "$GITHUB_OUTPUT"
+
+          ERROR=""
+          SIGNALS=""
+          if command -v jq >/dev/null 2>&1 && [ -f /tmp/cron_soft_body.json ]; then
+            ERROR=$(jq -r '.error // empty' /tmp/cron_soft_body.json 2>/dev/null || true)
+            SIGNALS=$(jq -r '.radar_signals_written // empty' /tmp/cron_soft_body.json 2>/dev/null || true)
+            echo "error=$ERROR" >> "$GITHUB_OUTPUT"
+            echo "signals=$SIGNALS" >> "$GITHUB_OUTPUT"
+          fi
+
+          FAILED=0
           case "$HTTP" in
-            200|202) exit 0 ;;
-            *) exit 1 ;;
+            200|202) ;;
+            *) FAILED=1 ;;
           esac
+          if [ "$ERROR" = "radar_downstream_failure" ]; then FAILED=1; fi
+          if [ "$SIGNALS" = "0" ]; then FAILED=1; fi
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo "reason=radar_failure" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "reason=ok" >> "$GITHUB_OUTPUT"
+
+      - name: Open Issue on radar soft failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HTTP_CODE: ${{ steps.trigger.outputs.http_code }}
+          ERROR: ${{ steps.trigger.outputs.error }}
+          SIGNALS: ${{ steps.trigger.outputs.signals }}
+          REASON: ${{ steps.trigger.outputs.reason }}
+        run: |
+          set -euo pipefail
+          gh label create "cron-radar-failure" --color B60205 --description "Radar cron soft/full failed" --force 2>/dev/null || true
+
+          EXISTING=$(gh issue list --repo "${{ github.repository }}" \
+            --label "cron-radar-failure" --state open --limit 5 \
+            --json number,title -q '.[].number' 2>/dev/null || true)
+          if [ -n "${EXISTING:-}" ]; then
+            echo "Open cron-radar-failure issue(s) already exist: $EXISTING — skip create"
+            exit 0
+          fi
+
+          BODY_FILE=/tmp/cron_soft_body.json
+          BODY_SNIPPET="(no body)"
+          if [ -f "$BODY_FILE" ]; then
+            BODY_SNIPPET=$(head -c 3000 "$BODY_FILE")
+          fi
+
+          TITLE="[Radar soft] failure — ${ERROR:-HTTP ${HTTP_CODE:-?}} (signals=${SIGNALS:-?})"
+          TITLE=$(echo "$TITLE" | head -c 200)
+
+          gh issue create --repo "${{ github.repository }}" \
+            --title "$TITLE" \
+            --label "cron-radar-failure" \
+            --body "$(cat <<EOF
+## Radar soft job failed
+
+| Field | Value |
+|-------|-------|
+| Mode | soft |
+| HTTP | \`${HTTP_CODE:-n/a}\` |
+| error | \`${ERROR:-n/a}\` |
+| radar_signals_written | \`${SIGNALS:-n/a}\` |
+| reason | \`${REASON:-n/a}\` |
+| Workflow run | ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} |
+| Time (UTC) | $(date -u +%Y-%m-%dT%H:%M:%SZ) |
+
+### Response body (excerpt)
+\`\`\`json
+${BODY_SNIPPET}
+\`\`\`
+
+### Note
+This issue is auto-created by \`.github/workflows/cron-radar.yml\`.
+Fix the downstream pipeline (Apify/Firecrawl/ingest), then close this issue.
+A new issue will open only if no open \`cron-radar-failure\` issue exists.
+EOF
+)"
+          echo "Issue created."
 
   radar-full:
     name: Radar full
@@ -82,6 +166,7 @@ jobs:
       || github.event.schedule == '0 3 * * *'
     steps:
       - name: Trigger cron-radar-padova-nightly (full)
+        id: trigger
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           JOB_SECRET: ${{ secrets.CENTRAL_CORE_JOB_SECRET }}
@@ -89,6 +174,7 @@ jobs:
           set -euo pipefail
           if [ -z "${SUPABASE_URL:-}" ] || [ -z "${JOB_SECRET:-}" ]; then
             echo "Missing SUPABASE_URL or CENTRAL_CORE_JOB_SECRET"
+            echo "reason=missing_secrets" >> "$GITHUB_OUTPUT"
             exit 1
           fi
           URL="${SUPABASE_URL%/}/functions/v1/cron-radar-padova-nightly?mode=full"
@@ -98,14 +184,92 @@ jobs:
             -H "Content-Type: application/json" \
             -H "x-job-secret: ${JOB_SECRET}" \
             -H "x-internal-secret: ${JOB_SECRET}" \
-            --max-time 120)
+            --max-time 120 || echo "000")
           echo "HTTP $HTTP"
           head -c 2000 /tmp/cron_full_body.json || true
           echo
+          echo "http_code=$HTTP" >> "$GITHUB_OUTPUT"
+
+          ERROR=""
+          SIGNALS=""
+          if command -v jq >/dev/null 2>&1 && [ -f /tmp/cron_full_body.json ]; then
+            ERROR=$(jq -r '.error // empty' /tmp/cron_full_body.json 2>/dev/null || true)
+            SIGNALS=$(jq -r '.radar_signals_written // empty' /tmp/cron_full_body.json 2>/dev/null || true)
+            echo "error=$ERROR" >> "$GITHUB_OUTPUT"
+            echo "signals=$SIGNALS" >> "$GITHUB_OUTPUT"
+          fi
+
+          FAILED=0
           case "$HTTP" in
-            200|202) exit 0 ;;
-            *) exit 1 ;;
+            200|202) ;;
+            *) FAILED=1 ;;
           esac
+          if [ "$ERROR" = "radar_downstream_failure" ]; then FAILED=1; fi
+          if [ "$SIGNALS" = "0" ]; then FAILED=1; fi
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo "reason=radar_failure" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "reason=ok" >> "$GITHUB_OUTPUT"
+
+      - name: Open Issue on radar full failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HTTP_CODE: ${{ steps.trigger.outputs.http_code }}
+          ERROR: ${{ steps.trigger.outputs.error }}
+          SIGNALS: ${{ steps.trigger.outputs.signals }}
+          REASON: ${{ steps.trigger.outputs.reason }}
+        run: |
+          set -euo pipefail
+          gh label create "cron-radar-failure" --color B60205 --description "Radar cron soft/full failed" --force 2>/dev/null || true
+
+          EXISTING=$(gh issue list --repo "${{ github.repository }}" \
+            --label "cron-radar-failure" --state open --limit 5 \
+            --json number,title -q '.[].number' 2>/dev/null || true)
+          if [ -n "${EXISTING:-}" ]; then
+            echo "Open cron-radar-failure issue(s) already exist: $EXISTING — skip create"
+            exit 0
+          fi
+
+          BODY_FILE=/tmp/cron_full_body.json
+          BODY_SNIPPET="(no body)"
+          if [ -f "$BODY_FILE" ]; then
+            BODY_SNIPPET=$(head -c 3000 "$BODY_FILE")
+          fi
+
+          TITLE="[Radar full] failure — ${ERROR:-HTTP ${HTTP_CODE:-?}} (signals=${SIGNALS:-?})"
+          TITLE=$(echo "$TITLE" | head -c 200)
+
+          gh issue create --repo "${{ github.repository }}" \
+            --title "$TITLE" \
+            --label "cron-radar-failure" \
+            --body "$(cat <<EOF
+## Radar full job failed
+
+| Field | Value |
+|-------|-------|
+| Mode | full |
+| HTTP | \`${HTTP_CODE:-n/a}\` |
+| error | \`${ERROR:-n/a}\` |
+| radar_signals_written | \`${SIGNALS:-n/a}\` |
+| reason | \`${REASON:-n/a}\` |
+| Workflow run | ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} |
+| Time (UTC) | $(date -u +%Y-%m-%dT%H:%M:%SZ) |
+
+### Response body (excerpt)
+\`\`\`json
+${BODY_SNIPPET}
+\`\`\`
+
+### Note
+This issue is auto-created by \`.github/workflows/cron-radar.yml\`.
+Fix the downstream pipeline (Apify/Firecrawl/ingest), then close this issue.
+A new issue will open only if no open \`cron-radar-failure\` issue exists.
+EOF
+)"
+          echo "Issue created."
 
   health:
     name: Cron health snapshot
@@ -140,7 +304,6 @@ jobs:
           if [ "$HTTP" != "200" ]; then
             exit 1
           fi
-          # Fail job if any monitored cron is CRITICO or ERRORE
           if command -v jq >/dev/null 2>&1; then
             BAD=$(jq -r '[.jobs[]? | select(.stato=="CRITICO" or .stato=="ERRORE") | .jobname] | join(",")' /tmp/health.json 2>/dev/null || true)
             if [ -n "${BAD:-}" ]; then
