@@ -1,0 +1,150 @@
+name: Cron Radar Padova
+
+# Schedules Central Core radar jobs via HTTP.
+# Required secrets (repo Settings → Secrets and variables → Actions):
+#   SUPABASE_URL              e.g. https://jpunnzgixcghuydstdlt.supabase.co
+#   CENTRAL_CORE_JOB_SECRET   same value as edge function env
+# Optional:
+#   DIAGNOSTIC_SECRET         for health check job
+#
+# Times are UTC. Rome = UTC+1 winter / UTC+2 summer.
+# Soft ~03:00 Rome winter → 02:00 UTC; Full ~04:00 Rome → 03:00 UTC.
+
+on:
+  schedule:
+    # Radar soft — daily 02:00 UTC
+    - cron: "0 2 * * *"
+    # Radar full — daily 03:00 UTC
+    - cron: "0 3 * * *"
+    # Health snapshot — every 6 hours
+    - cron: "15 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Job to run"
+        required: true
+        type: choice
+        options:
+          - soft
+          - full
+          - health
+          - all
+        default: soft
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cron-radar-${{ github.event.schedule || github.event.inputs.mode || 'manual' }}
+  cancel-in-progress: false
+
+jobs:
+  radar-soft:
+    name: Radar soft
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >
+      github.event_name == 'workflow_dispatch' && (github.event.inputs.mode == 'soft' || github.event.inputs.mode == 'all')
+      || github.event.schedule == '0 2 * * *'
+    steps:
+      - name: Trigger cron-radar-padova-nightly (soft)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          JOB_SECRET: ${{ secrets.CENTRAL_CORE_JOB_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${JOB_SECRET:-}" ]; then
+            echo "Missing SUPABASE_URL or CENTRAL_CORE_JOB_SECRET"
+            exit 1
+          fi
+          URL="${SUPABASE_URL%/}/functions/v1/cron-radar-padova-nightly?mode=soft"
+          echo "POST $URL"
+          HTTP=$(curl -sS -o /tmp/cron_soft_body.json -w "%{http_code}" \
+            -X POST "$URL" \
+            -H "Content-Type: application/json" \
+            -H "x-job-secret: ${JOB_SECRET}" \
+            -H "x-internal-secret: ${JOB_SECRET}" \
+            --max-time 120)
+          echo "HTTP $HTTP"
+          head -c 2000 /tmp/cron_soft_body.json || true
+          echo
+          case "$HTTP" in
+            200|202) exit 0 ;;
+            *) exit 1 ;;
+          esac
+
+  radar-full:
+    name: Radar full
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >
+      github.event_name == 'workflow_dispatch' && (github.event.inputs.mode == 'full' || github.event.inputs.mode == 'all')
+      || github.event.schedule == '0 3 * * *'
+    steps:
+      - name: Trigger cron-radar-padova-nightly (full)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          JOB_SECRET: ${{ secrets.CENTRAL_CORE_JOB_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${JOB_SECRET:-}" ]; then
+            echo "Missing SUPABASE_URL or CENTRAL_CORE_JOB_SECRET"
+            exit 1
+          fi
+          URL="${SUPABASE_URL%/}/functions/v1/cron-radar-padova-nightly?mode=full"
+          echo "POST $URL"
+          HTTP=$(curl -sS -o /tmp/cron_full_body.json -w "%{http_code}" \
+            -X POST "$URL" \
+            -H "Content-Type: application/json" \
+            -H "x-job-secret: ${JOB_SECRET}" \
+            -H "x-internal-secret: ${JOB_SECRET}" \
+            --max-time 120)
+          echo "HTTP $HTTP"
+          head -c 2000 /tmp/cron_full_body.json || true
+          echo
+          case "$HTTP" in
+            200|202) exit 0 ;;
+            *) exit 1 ;;
+          esac
+
+  health:
+    name: Cron health snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    if: >
+      github.event_name == 'workflow_dispatch' && (github.event.inputs.mode == 'health' || github.event.inputs.mode == 'all')
+      || github.event.schedule == '15 */6 * * *'
+    steps:
+      - name: Call core-cron-health-public
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          DIAGNOSTIC_SECRET: ${{ secrets.DIAGNOSTIC_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_URL:-}" ]; then
+            echo "Missing SUPABASE_URL"
+            exit 1
+          fi
+          if [ -z "${DIAGNOSTIC_SECRET:-}" ]; then
+            echo "DIAGNOSTIC_SECRET not set — skipping health (not a failure)"
+            exit 0
+          fi
+          URL="${SUPABASE_URL%/}/functions/v1/core-cron-health-public"
+          echo "GET $URL"
+          HTTP=$(curl -sS -o /tmp/health.json -w "%{http_code}" \
+            -H "x-diagnostic-secret: ${DIAGNOSTIC_SECRET}" \
+            --max-time 60 "$URL")
+          echo "HTTP $HTTP"
+          head -c 4000 /tmp/health.json || true
+          echo
+          if [ "$HTTP" != "200" ]; then
+            exit 1
+          fi
+          # Fail job if any monitored cron is CRITICO or ERRORE
+          if command -v jq >/dev/null 2>&1; then
+            BAD=$(jq -r '[.jobs[]? | select(.stato=="CRITICO" or .stato=="ERRORE") | .jobname] | join(",")' /tmp/health.json 2>/dev/null || true)
+            if [ -n "${BAD:-}" ]; then
+              echo "Unhealthy jobs: $BAD"
+              exit 1
+            fi
+          fi
