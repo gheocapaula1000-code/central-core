@@ -657,9 +657,33 @@ Deno.serve(async (req) => {
           created = up.created; updated = up.updated; skipped = up.skipped;
           errors.push(...up.errors);
 
-          // Promote freshly upserted rows into padova_listings (best-effort).
+
+
+          // Arricchimento detail (subito/idealista) PRIMA della promote: best-effort,
+          // bounded e con budget guard interno alla funzione chiamata.
           const importedCount = created + updated;
+          if (importedCount > 0 && (mapper.portal === "subito" || mapper.portal === "idealista")) {
+            try {
+              const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+              if (jobSecret) {
+                const er = await fetch(
+                  `${Deno.env.get("SUPABASE_URL")}/functions/v1/padova-detail-enrich-collect`,
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "x-job-secret": jobSecret },
+                    body: JSON.stringify({ since_hours: 6, limit: 15 }),
+                  },
+                );
+                if (!er.ok) errors.push(`detail_enrich:HTTP ${er.status}`);
+              }
+            } catch (e) {
+              errors.push(`detail_enrich:${String((e as Error)?.message ?? e)}`);
+            }
+          }
+
+          // Promote freshly upserted rows into padova_listings (best-effort).
           if (importedCount > 0) {
+
             try {
               const { data: promoRes, error: promoErr } = await sb.rpc(
                 "promote_padova_collect_v2_to_listings",
