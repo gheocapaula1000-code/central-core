@@ -1,0 +1,1 @@
+GRANT EXECUTE ON FUNCTION public.civiko_admin_invoke_job(text, jsonb) TO postgres;

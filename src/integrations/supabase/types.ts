@@ -10285,6 +10285,10 @@ export type Database = {
         }
         Returns: Json
       }
+      civiko_admin_invoke_job: {
+        Args: { p_body?: Json; p_path: string }
+        Returns: number
+      }
       civiko_ascii_fold: { Args: { p_value: string }; Returns: string }
       civiko_cambi_zone_slug: {
         Args: { _curl: string; _quartiere: string }
