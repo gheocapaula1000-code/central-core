@@ -655,6 +655,9 @@ Deno.serve(async (req) => {
         if (!dryRun) {
           const up = await upsertItems(sb, deduped, mapper.portal, mapper.allowListviewOverwrite);
           created = up.created; updated = up.updated; skipped = up.skipped;
+          errors.push(...up.errors);
+
+
 
           // Arricchimento detail (subito/idealista) PRIMA della promote: best-effort,
           // bounded e con budget guard interno alla funzione chiamata.
