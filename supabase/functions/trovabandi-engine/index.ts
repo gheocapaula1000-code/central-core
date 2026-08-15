@@ -2734,6 +2734,7 @@ serve(async (req) => {
               : pp.code,
           paid_search_calls: searchSkippedByCache ? 0 : 2,
           cache_candidates: cachedPool.length,
+          seed_candidates: seedHits.length,
           cache_candidates_fresh: freshPool.length,
           search_skipped_cache_hit: searchSkippedByCache,
           rotated_candidates: hits.length,
