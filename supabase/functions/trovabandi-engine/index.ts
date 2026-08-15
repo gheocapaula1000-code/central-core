@@ -66,6 +66,11 @@ import {
   shouldSkipPaidSearch,
   type CachedCandidate,
 } from "./candidates.ts";
+import {
+  SEED_PROVIDER,
+  extractSameDomainLinks,
+  seedListingUrls,
+} from "./seed.ts";
 
 
 type JsonObject = Record<string, unknown>;
