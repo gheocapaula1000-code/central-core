@@ -113,10 +113,10 @@ Deno.serve(async (req) => {
   // Allowlist ufficiale dei quartieri: nessun valore fuori mappa.
   const { data: mapRows, error: mapErr } = await sb
     .from("civiko_quartiere_commercial_zone_map")
-    .select("quartiere")
+    .select("quartiere_key")
     .limit(2000);
   if (mapErr) return json({ ok: false, error: mapErr.message }, 500);
-  const quartiereIndex = buildQuartiereIndex((mapRows ?? []).map((r) => r.quartiere as string));
+  const quartiereIndex = buildQuartiereIndex((mapRows ?? []).map((r) => r.quartiere_key as string));
 
   let scraped = 0;
   let updated = 0;
