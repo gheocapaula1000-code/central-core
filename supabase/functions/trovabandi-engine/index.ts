@@ -1389,6 +1389,64 @@ async function upsertCandidates(
     .upsert(rows as never, { onConflict: "source_id,url_hash" });
 }
 
+/**
+ * Pagine di partenza ufficiali: quando il pool candidati è vuoto si parte
+ * dalle sole listing già verificate del dominio ufficiale. HTTP diretto
+ * (costo zero) e, se l'HTML è troppo corto, un solo scrape Firecrawl.
+ * Dai link raccolti restano soltanto URL https dello stesso dominio.
+ * Zero link è un esito onesto: nessuna scheda viene inventata.
+ */
+async function harvestSeedListings(
+  sb: CandidateClient,
+  source: Source,
+): Promise<SearchHit[]> {
+  const seeds = seedListingUrls(source.official_domain);
+  if (seeds.length === 0) return [];
+  const hits: SearchHit[] = [];
+  const seen = new Set<string>();
+  for (const seedUrl of seeds) {
+    if (!hostMatches(seedUrl, source.official_domain)) continue;
+    if (!seen.has(seedUrl)) {
+      seen.add(seedUrl);
+      hits.push({
+        url: seedUrl,
+        title: null,
+        description: null,
+        provider: SEED_PROVIDER,
+      });
+    }
+    let page = await directOfficialScrape(seedUrl, source.official_domain);
+    if (!page || (page.html ?? page.markdown).length < 2_000) {
+      const scraped = await scrapePage(seedUrl);
+      if (scraped && scraped.markdown.length > (page?.markdown.length ?? 0)) {
+        page = scraped;
+      }
+    }
+    if (!page) continue;
+    const links = extractSameDomainLinks(
+      page.html ?? page.markdown,
+      page.finalUrl ?? seedUrl,
+      source.official_domain,
+    );
+    for (const link of links) {
+      const canonical = canonicalCandidateUrl(link);
+      if (!canonical || seen.has(canonical)) continue;
+      if (!hostMatches(canonical, source.official_domain)) continue;
+      seen.add(canonical);
+      hits.push({
+        url: canonical,
+        title: null,
+        description: null,
+        provider: SEED_PROVIDER,
+      });
+    }
+  }
+  if (hits.length > 0) await upsertCandidates(sb, source, hits);
+  return hits;
+}
+
+
+
 async function markCandidateAttempt(
   sb: CandidateClient,
   source: Source,
