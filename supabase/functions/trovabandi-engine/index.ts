@@ -66,6 +66,11 @@ import {
   shouldSkipPaidSearch,
   type CachedCandidate,
 } from "./candidates.ts";
+import {
+  SEED_PROVIDER,
+  extractSameDomainLinks,
+  seedListingUrls,
+} from "./seed.ts";
 
 
 type JsonObject = Record<string, unknown>;
@@ -1384,6 +1389,64 @@ async function upsertCandidates(
     .upsert(rows as never, { onConflict: "source_id,url_hash" });
 }
 
+/**
+ * Pagine di partenza ufficiali: quando il pool candidati è vuoto si parte
+ * dalle sole listing già verificate del dominio ufficiale. HTTP diretto
+ * (costo zero) e, se l'HTML è troppo corto, un solo scrape Firecrawl.
+ * Dai link raccolti restano soltanto URL https dello stesso dominio.
+ * Zero link è un esito onesto: nessuna scheda viene inventata.
+ */
+async function harvestSeedListings(
+  sb: CandidateClient,
+  source: Source,
+): Promise<SearchHit[]> {
+  const seeds = seedListingUrls(source.official_domain);
+  if (seeds.length === 0) return [];
+  const hits: SearchHit[] = [];
+  const seen = new Set<string>();
+  for (const seedUrl of seeds) {
+    if (!hostMatches(seedUrl, source.official_domain)) continue;
+    if (!seen.has(seedUrl)) {
+      seen.add(seedUrl);
+      hits.push({
+        url: seedUrl,
+        title: "",
+        description: "",
+        provider: SEED_PROVIDER,
+      });
+    }
+    let page = await directOfficialScrape(seedUrl, source.official_domain);
+    if (!page || (page.html ?? page.markdown).length < 2_000) {
+      const scraped = await scrapePage(seedUrl);
+      if (scraped && scraped.markdown.length > (page?.markdown.length ?? 0)) {
+        page = scraped;
+      }
+    }
+    if (!page) continue;
+    const links = extractSameDomainLinks(
+      page.html ?? page.markdown,
+      page.finalUrl ?? seedUrl,
+      source.official_domain,
+    );
+    for (const link of links) {
+      const canonical = canonicalCandidateUrl(link);
+      if (!canonical || seen.has(canonical)) continue;
+      if (!hostMatches(canonical, source.official_domain)) continue;
+      seen.add(canonical);
+      hits.push({
+        url: canonical,
+        title: "",
+        description: "",
+        provider: SEED_PROVIDER,
+      });
+    }
+  }
+  if (hits.length > 0) await upsertCandidates(sb, source, hits);
+  return hits;
+}
+
+
+
 async function markCandidateAttempt(
   sb: CandidateClient,
   source: Source,
@@ -2411,7 +2474,27 @@ serve(async (req) => {
     const nowMs = Date.now();
     // Cache-first: il pool persistito di candidati ufficiali evita ricerche
     // a pagamento ridondanti e garantisce profondita' reale sulla fonte.
-    const cachedPool = await loadCachedCandidates(sb, source);
+    let cachedPool = await loadCachedCandidates(sb, source);
+    // Pagine di partenza ufficiali: solo se il pool è vuoto, prima di
+    // qualsiasi ricerca a pagamento. Nessun path inventato.
+    const seedHits =
+      cachedPool.length === 0 ? await harvestSeedListings(sb, source) : [];
+    if (seedHits.length > 0) {
+      const seedIso = new Date(nowMs).toISOString();
+      cachedPool = dedupeCandidates([
+        ...cachedPool,
+        ...seedHits.map((hit) => ({
+          url: hit.url,
+          title: hit.title,
+          snippet: hit.description,
+          provider: hit.provider,
+          discovered_at: seedIso,
+          last_seen_at: seedIso,
+          last_attempted_at: null,
+          attempt_count: 0,
+        })),
+      ]);
+    }
     const freshPool = freshCandidates(cachedPool, nowMs);
     const searchSkippedByCache = shouldSkipPaidSearch(
       freshPool.length,
@@ -2651,6 +2734,7 @@ serve(async (req) => {
               : pp.code,
           paid_search_calls: searchSkippedByCache ? 0 : 2,
           cache_candidates: cachedPool.length,
+          seed_candidates: seedHits.length,
           cache_candidates_fresh: freshPool.length,
           search_skipped_cache_hit: searchSkippedByCache,
           rotated_candidates: hits.length,
