@@ -1410,8 +1410,8 @@ async function harvestSeedListings(
       seen.add(seedUrl);
       hits.push({
         url: seedUrl,
-        title: null,
-        description: null,
+        title: "",
+        description: "",
         provider: SEED_PROVIDER,
       });
     }
@@ -1435,8 +1435,8 @@ async function harvestSeedListings(
       seen.add(canonical);
       hits.push({
         url: canonical,
-        title: null,
-        description: null,
+        title: "",
+        description: "",
         provider: SEED_PROVIDER,
       });
     }
