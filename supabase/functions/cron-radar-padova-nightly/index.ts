@@ -116,9 +116,10 @@ async function runOneComune(comune: string, triggeredAt: string, mode: Mode, job
     } catch (err) {
       clearTimeout(timer);
       lastErr = err;
-      const msg = err instanceof Error ? err.message : String(err);
-      const abort = err instanceof Error && (err.name === "AbortError" || /aborted/i.test(msg));
-      retryReason = abort ? "abort" : `err:${msg.slice(0, 40)}`;
+      const msg = err instanceof Error && (err.name === "AbortError" || /aborted/i.test(err.message)) ? err : err;
+      const msgStr = err instanceof Error ? err.message : String(err);
+      const abort = err instanceof Error && (err.name === "AbortError" || /aborted/i.test(msgStr));
+      retryReason = abort ? "abort" : `err:${msgStr.slice(0, 40)}`;
       if (!abort) break;
     }
   }
@@ -176,7 +177,9 @@ async function runOneComune(comune: string, triggeredAt: string, mode: Mode, job
 
   let resultStatus: "success" | "partial_failure" | "provider_failed";
   if (!res.ok) resultStatus = "provider_failed";
-  else if (noRealIngestion) resultStatus = "partial_failure";
+  // Soft: quiet day (HTTP 200, no new collect writes) is success, not partial_failure.
+  // Full: keep strict partial_failure. Real provider 502 stays provider_failed above.
+  else if (noRealIngestion) resultStatus = mode === "soft" ? "success" : "partial_failure";
   else resultStatus = "success";
 
   const excerpt = resultSummary
@@ -335,7 +338,9 @@ Deno.serve(async (req) => {
       }
     } catch { /* best effort */ }
 
-    const outcome = evaluateRunOutcome(summary.ok, rowsWritten);
+    // Pass mode + provider failure so soft quiet days are green and real 502s stay red.
+    const hasProviderFailure = summary.results.some((r) => r.result_status === "provider_failed");
+    const outcome = evaluateRunOutcome(summary.ok, rowsWritten, mode, hasProviderFailure);
 
     if (!outcome.ok) {
       await logExecution(jobName, {
