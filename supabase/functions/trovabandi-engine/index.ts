@@ -2474,7 +2474,27 @@ serve(async (req) => {
     const nowMs = Date.now();
     // Cache-first: il pool persistito di candidati ufficiali evita ricerche
     // a pagamento ridondanti e garantisce profondita' reale sulla fonte.
-    const cachedPool = await loadCachedCandidates(sb, source);
+    let cachedPool = await loadCachedCandidates(sb, source);
+    // Pagine di partenza ufficiali: solo se il pool è vuoto, prima di
+    // qualsiasi ricerca a pagamento. Nessun path inventato.
+    const seedHits =
+      cachedPool.length === 0 ? await harvestSeedListings(sb, source) : [];
+    if (seedHits.length > 0) {
+      const seedIso = new Date(nowMs).toISOString();
+      cachedPool = dedupeCandidates([
+        ...cachedPool,
+        ...seedHits.map((hit) => ({
+          url: hit.url,
+          title: hit.title,
+          snippet: hit.description,
+          provider: hit.provider,
+          discovered_at: seedIso,
+          last_seen_at: seedIso,
+          last_attempted_at: null,
+          attempt_count: 0,
+        })),
+      ]);
+    }
     const freshPool = freshCandidates(cachedPool, nowMs);
     const searchSkippedByCache = shouldSkipPaidSearch(
       freshPool.length,
