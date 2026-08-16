@@ -802,6 +802,9 @@ function matchOpportunity(opportunity: JsonObject, profile: CompanyProfile) {
     }
   }
 
+  const verified =
+    normalizeCode(opportunity.verification_status) === "VERIFICATO";
+
   const atecos = [profile.codice_ateco, ...(profile.ateco_secondari ?? [])]
     .map(normalizeCode)
     .filter(Boolean);
@@ -821,15 +824,23 @@ function matchOpportunity(opportunity: JsonObject, profile: CompanyProfile) {
     included.some((prefix) => atecos.some((ateco) => ateco.startsWith(prefix)))
   )
     confirmed.push("Codice ATECO ammesso");
-  else blockers.push("Codice ATECO non compreso");
+  else if (verified) blockers.push("Codice ATECO non compreso");
+  else missing.push("ATECO da verificare nel testo ufficiale");
 
   const forms = stringArray(opportunity.eligible_legal_forms).map(
     normalizeCode,
   );
+  const profileForm = normalizeCode(profile.forma_giuridica);
   if (forms.length === 0) missing.push("Forma giuridica da verificare");
-  else if (forms.includes(normalizeCode(profile.forma_giuridica)))
+  else if (forms.includes(profileForm))
     confirmed.push("Forma giuridica ammessa");
-  else blockers.push("Forma giuridica non ammessa");
+  else if (SOLE_PROPRIETOR_FORMS.has(profileForm)) {
+    if (forms.some((form) => SOLE_PROPRIETOR_COMPATIBLE_FORMS.has(form)))
+      confirmed.push("Forma giuridica ammessa (ditta individuale)");
+    else if (forms.every((form) => COMPANY_ONLY_FORMS.has(form)))
+      blockers.push("Forma giuridica non ammessa: solo società");
+    else missing.push("Forma giuridica da verificare");
+  } else blockers.push("Forma giuridica non ammessa");
 
   const sizes = stringArray(opportunity.eligible_company_sizes).map(
     normalizeCode,
@@ -838,6 +849,19 @@ function matchOpportunity(opportunity: JsonObject, profile: CompanyProfile) {
   else if (sizes.includes(inferCompanySize(profile)))
     confirmed.push("Dimensione impresa ammessa");
   else blockers.push("Dimensione impresa non ammessa");
+
+  const category = normalizeCode(opportunity.category);
+  if (
+    profile.imprenditoria_femminile &&
+    (opportunity.female_only === true || category === "IMPRENDITORIAFEMMINILE")
+  )
+    confirmed.push("Requisito imprenditoria femminile soddisfatto");
+  if (
+    category === "DIGITALIZZAZIONE" &&
+    atecos.some((ateco) => ateco.startsWith("62") || ateco.startsWith("63"))
+  )
+    confirmed.push("Attività digitale allineata al bando");
+
 
   if (opportunity.female_only === true && !profile.imprenditoria_femminile)
     blockers.push("Riservato a imprese femminili");
