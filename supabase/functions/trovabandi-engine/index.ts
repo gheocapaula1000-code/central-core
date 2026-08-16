@@ -1326,8 +1326,24 @@ async function enrichFromDetailPages(
     evidence: [] as DetailEvidenceRow[],
     attempted: 0,
   };
-  if (budget.remaining <= 0) return result;
   if (!needsDetailEnrichment(extracted)) return result;
+
+  const state: JsonObject = { ...extracted };
+  const now = new Date();
+
+  // Passo 0 — la pagina ufficiale già scaricata: scadenza e importi si leggono
+  // prima di tutto dal suo testo, senza alcun fetch aggiuntivo.
+  const self = mergeDetailIntoExtraction(state, {
+    deadline: parseDeadline(page.markdown, now),
+    amounts: parseAmounts(page.markdown),
+  });
+  if (self.filled.length > 0) {
+    Object.assign(state, self.patch);
+    Object.assign(result.patch, self.patch);
+    result.filled.push(...self.filled);
+  }
+  if (!needsDetailEnrichment(state)) return result;
+  if (budget.remaining <= 0) return result;
 
   const exclude = [hit.url, page.finalUrl ?? hit.url];
   // I link dichiarati dall'estrazione hanno precedenza sui link della pagina.
@@ -1350,8 +1366,7 @@ async function enrichFromDetailPages(
     DETAIL_MAX_FETCH_PER_HIT,
   );
 
-  const state: JsonObject = { ...extracted };
-  const now = new Date();
+
   for (const target of targets) {
     if (budget.remaining <= 0) break;
     if (!needsDetailEnrichment(state)) break;
