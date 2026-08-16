@@ -1968,6 +1968,63 @@ serve(async (req) => {
           patch.total_budget = amounts.total_budget;
         }
 
+        // Stessa regola del collect: se dopo la pagina ufficiale mancano
+        // ancora scadenza o qualunque importo, si leggono al massimo 2 link
+        // dello stesso dominio. Nessun provider a pagamento, fail-closed.
+        const missingDeadline = row.deadline_at == null &&
+          patch.deadline_at == null;
+        const missingAmounts = row.max_grant_amount == null &&
+          patch.max_grant_amount == null &&
+          row.total_budget == null &&
+          patch.total_budget == null;
+        if (missingDeadline || missingAmounts) {
+          const detailTargets = extractDetailLinks(
+            page.html ?? "",
+            page.finalUrl ?? row.official_url,
+            domain,
+            {
+              limit: DETAIL_MAX_FETCH_PER_HIT,
+              exclude: [row.official_url, page.finalUrl ?? row.official_url],
+            },
+          ).map((link) => link.url);
+          const detailNow = new Date();
+          for (const target of detailTargets.slice(
+            0,
+            DETAIL_MAX_FETCH_PER_HIT,
+          )) {
+            const stillNeeded = (row.deadline_at == null &&
+              patch.deadline_at == null) ||
+              (row.max_grant_amount == null &&
+                patch.max_grant_amount == null &&
+                row.total_budget == null &&
+                patch.total_budget == null);
+            if (!stillNeeded) break;
+            const detail = await directOfficialScrape(target, domain);
+            if (!detail) continue;
+            if (row.deadline_at == null && patch.deadline_at == null) {
+              const hit = parseDeadline(detail.markdown, detailNow);
+              if (hit) patch.deadline_at = hit.value;
+            }
+            const detailAmounts = parseAmounts(detail.markdown);
+            if (
+              row.max_grant_amount == null &&
+              patch.max_grant_amount == null &&
+              detailAmounts.max_grant_amount
+            ) {
+              patch.max_grant_amount = detailAmounts.max_grant_amount.value;
+            }
+            if (
+              row.total_budget == null &&
+              patch.total_budget == null &&
+              detailAmounts.total_budget
+            ) {
+              patch.total_budget = detailAmounts.total_budget.value;
+            }
+          }
+        }
+
+
+
         // Fallback opt-in: solo se gli estrattori locali non hanno riempito
         // NESSUN campo dato e restano campi NULL da coprire.
         const stillMissing = [
