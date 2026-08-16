@@ -1326,8 +1326,24 @@ async function enrichFromDetailPages(
     evidence: [] as DetailEvidenceRow[],
     attempted: 0,
   };
-  if (budget.remaining <= 0) return result;
   if (!needsDetailEnrichment(extracted)) return result;
+
+  const state: JsonObject = { ...extracted };
+  const now = new Date();
+
+  // Passo 0 — la pagina ufficiale già scaricata: scadenza e importi si leggono
+  // prima di tutto dal suo testo, senza alcun fetch aggiuntivo.
+  const self = mergeDetailIntoExtraction(state, {
+    deadline: parseDeadline(page.markdown, now),
+    amounts: parseAmounts(page.markdown),
+  });
+  if (self.filled.length > 0) {
+    Object.assign(state, self.patch);
+    Object.assign(result.patch, self.patch);
+    result.filled.push(...self.filled);
+  }
+  if (!needsDetailEnrichment(state)) return result;
+  if (budget.remaining <= 0) return result;
 
   const exclude = [hit.url, page.finalUrl ?? hit.url];
   // I link dichiarati dall'estrazione hanno precedenza sui link della pagina.
@@ -1350,8 +1366,7 @@ async function enrichFromDetailPages(
     DETAIL_MAX_FETCH_PER_HIT,
   );
 
-  const state: JsonObject = { ...extracted };
-  const now = new Date();
+
   for (const target of targets) {
     if (budget.remaining <= 0) break;
     if (!needsDetailEnrichment(state)) break;
@@ -1952,6 +1967,63 @@ serve(async (req) => {
         if (row.total_budget == null && amounts.total_budget != null) {
           patch.total_budget = amounts.total_budget;
         }
+
+        // Stessa regola del collect: se dopo la pagina ufficiale mancano
+        // ancora scadenza o qualunque importo, si leggono al massimo 2 link
+        // dello stesso dominio. Nessun provider a pagamento, fail-closed.
+        const missingDeadline = row.deadline_at == null &&
+          patch.deadline_at == null;
+        const missingAmounts = row.max_grant_amount == null &&
+          patch.max_grant_amount == null &&
+          row.total_budget == null &&
+          patch.total_budget == null;
+        if (missingDeadline || missingAmounts) {
+          const detailTargets = extractDetailLinks(
+            page.html ?? "",
+            page.finalUrl ?? row.official_url,
+            domain,
+            {
+              limit: DETAIL_MAX_FETCH_PER_HIT,
+              exclude: [row.official_url, page.finalUrl ?? row.official_url],
+            },
+          ).map((link) => link.url);
+          const detailNow = new Date();
+          for (const target of detailTargets.slice(
+            0,
+            DETAIL_MAX_FETCH_PER_HIT,
+          )) {
+            const stillNeeded = (row.deadline_at == null &&
+              patch.deadline_at == null) ||
+              (row.max_grant_amount == null &&
+                patch.max_grant_amount == null &&
+                row.total_budget == null &&
+                patch.total_budget == null);
+            if (!stillNeeded) break;
+            const detail = await directOfficialScrape(target, domain);
+            if (!detail) continue;
+            if (row.deadline_at == null && patch.deadline_at == null) {
+              const hit = parseDeadline(detail.markdown, detailNow);
+              if (hit) patch.deadline_at = hit.value;
+            }
+            const detailAmounts = parseAmounts(detail.markdown);
+            if (
+              row.max_grant_amount == null &&
+              patch.max_grant_amount == null &&
+              detailAmounts.max_grant_amount
+            ) {
+              patch.max_grant_amount = detailAmounts.max_grant_amount.value;
+            }
+            if (
+              row.total_budget == null &&
+              patch.total_budget == null &&
+              detailAmounts.total_budget
+            ) {
+              patch.total_budget = detailAmounts.total_budget.value;
+            }
+          }
+        }
+
+
 
         // Fallback opt-in: solo se gli estrattori locali non hanno riempito
         // NESSUN campo dato e restano campi NULL da coprire.
