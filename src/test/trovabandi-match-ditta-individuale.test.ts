@@ -26,6 +26,20 @@ describe("matchOpportunity — ditta individuale", () => {
     );
   });
 
+  it("include tutte le voci compatibili richieste (MICRO, PICCOLA, PMI, IMPRESE, DI, PERSONA FISICA, LAVORATORE AUTONOMO)", () => {
+    for (const form of [
+      "MICRO",
+      "PICCOLA",
+      "PMI",
+      "IMPRESE",
+      "DI",
+      "PERSONAFISICA",
+      "LAVORATOREAUTONOMO",
+    ]) {
+      expect(ENGINE).toContain(`"${form}"`);
+    }
+  });
+
   it("blocca solo se l'elenco ufficiale è composto esclusivamente da società", () => {
     expect(ENGINE).toContain(
       "forms.every((form) => COMPANY_ONLY_FORMS.has(form))",
