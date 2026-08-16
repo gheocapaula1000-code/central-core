@@ -884,7 +884,6 @@ function matchOpportunity(opportunity: JsonObject, profile: CompanyProfile) {
     missing.push("Verificare esclusione impresa in difficoltà");
 
   const status =
-  const status =
     blockers.length > 0
       ? "NON_COMPATIBILE"
       : missing.length === 0 && verified
