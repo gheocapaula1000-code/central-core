@@ -756,6 +756,49 @@ function inferCompanySize(profile: CompanyProfile) {
   return "GRANDE";
 }
 
+// Forme del profilo trattate come ditta individuale / persona fisica.
+const SOLE_PROPRIETOR_FORMS = new Set([
+  "DITTAINDIVIDUALE",
+  "DI",
+  "IMPRESAINDIVIDUALE",
+  "PERSONAFISICA",
+  "LAVORATOREAUTONOMO",
+  "LIBEROPROFESSIONISTA",
+]);
+
+// Voci ufficiali che, se presenti, ammettono la ditta individuale.
+const SOLE_PROPRIETOR_COMPATIBLE_FORMS = new Set([
+  "MICRO",
+  "MICROIMPRESA",
+  "MICROIMPRESE",
+  "PICCOLA",
+  "PICCOLAIMPRESA",
+  "PICCOLEIMPRESE",
+  "PMI",
+  "IMPRESE",
+  "IMPRESA",
+  "DI",
+  "DITTAINDIVIDUALE",
+  "IMPRESAINDIVIDUALE",
+  "PERSONAFISICA",
+  "LAVORATOREAUTONOMO",
+]);
+
+// Elenchi composti solo da società: blocco legittimo.
+const COMPANY_ONLY_FORMS = new Set([
+  "SRL",
+  "SRLS",
+  "SPA",
+  "SNC",
+  "SAS",
+  "SAPA",
+  "SOCIETA",
+  "SOCIETADICAPITALI",
+  "SOCIETADIPERSONE",
+  "SOCIETACOOPERATIVA",
+  "COOPERATIVA",
+]);
+
 function matchOpportunity(opportunity: JsonObject, profile: CompanyProfile) {
   const confirmed: string[] = [];
   const missing: string[] = [];
