@@ -356,3 +356,6 @@ verify_jwt = false
 [functions.civiko-padova-apify-launch-batch-capped]
 verify_jwt = false
 
+[functions.istat-sdmx-fetch]
+verify_jwt = false
+

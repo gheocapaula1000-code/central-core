@@ -13,7 +13,7 @@ const CORS = {
 };
 
 
-type JobKind = "daily" | "frequent" | "weekly";
+type JobKind = "daily" | "frequent" | "weekly" | "monthly";
 
 type CoreJob = {
   jobname: string;
@@ -42,6 +42,13 @@ const CORE_JOBS: CoreJob[] = [
   // ─── Cron radar Padova Central Core (executions_log) ─────────────────────
   { jobname: "central-core-radar-padova-nightly-full", descrizione_leggibile: "Radar Padova — full notturno (Central Core)", schedule_attesa: "0 3 * * *",   kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
   { jobname: "central-core-radar-padova-soft",         descrizione_leggibile: "Radar Padova — soft (Central Core)",          schedule_attesa: "0 2 * * *",   kind: "daily", warning_ore: 14, critico_ore: 24, source: "executions_log" },
+  { jobname: "istat-sdmx-monthly",                     descrizione_leggibile: "ISTAT SDMX comuni Veneto",                    schedule_attesa: "0 4 1 * *",   kind: "monthly", warning_ore: 24 * 35, critico_ore: 24 * 40, source: "executions_log" },
+  { jobname: "portal-immobiliare-padova",               descrizione_leggibile: "Portale Immobiliare.it Padova",               schedule_attesa: "0 2 * * *",   kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
+  { jobname: "portal-idealista-padova",                 descrizione_leggibile: "Portale Idealista Padova",                    schedule_attesa: "10 2 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
+  { jobname: "portal-subito-padova",                    descrizione_leggibile: "Portale Subito Padova",                       schedule_attesa: "20 2 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
+  { jobname: "portal-casa-padova",                      descrizione_leggibile: "Portale Casa.it Padova",                      schedule_attesa: "30 2 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
+  { jobname: "portal-collect-pending",                  descrizione_leggibile: "Promozione run Apify in padova_listings",     schedule_attesa: "45 2 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
+  { jobname: "padova-listings-contendibili-recompute",  descrizione_leggibile: "Ricalcolo contendibili dopo i portali",     schedule_attesa: "15 3 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
 ];
 
 // decoder per i pattern usati dai cron Core
@@ -72,6 +79,14 @@ function nextRunUtc(schedule: string): string | null {
     const delta = (dow - next.getUTCDay() + 7) % 7;
     next.setUTCDate(next.getUTCDate() + delta);
     if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 7);
+    return next.toISOString();
+  }
+  const monthly = s.match(/^(\d+)\s+(\d+)\s+(\d+)\s+\*\s+\*$/);
+  if (monthly) {
+    const mm = parseInt(monthly[1], 10), hh = parseInt(monthly[2], 10), day = parseInt(monthly[3], 10);
+    const now = new Date();
+    const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), day, hh, mm, 0, 0));
+    if (next.getTime() <= now.getTime()) next.setUTCMonth(next.getUTCMonth() + 1);
     return next.toISOString();
   }
   return null;
@@ -260,6 +275,13 @@ Deno.serve(async (req) => {
           ultimi7gg = { annunci_padova_totali: listingsCount ?? 0 };
           break;
         case "nightly-data-refresh-master":
+        case "istat-sdmx-monthly":
+        case "portal-immobiliare-padova":
+        case "portal-idealista-padova":
+        case "portal-subito-padova":
+        case "portal-casa-padova":
+        case "portal-collect-pending":
+        case "padova-listings-contendibili-recompute":
           ultimi7gg = { esecuzioni: (logs ?? []).filter((l: any) => l.job_name === j.jobname).length };
           break;
         case "padova-agencies-soft-0400":
