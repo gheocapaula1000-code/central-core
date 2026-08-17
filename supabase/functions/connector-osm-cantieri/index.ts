@@ -220,15 +220,14 @@ Deno.serve(async (req) => {
     const { data: userData, error: userErr } = await userClient.auth.getUser();
     if (userErr || !userData?.user) return json(401, { error: { code: "unauthorized" } });
 
-    const adminSvc = createClient(SUPABASE_URL, SERVICE_KEY);
-    const { data: isAdmin, error: roleErr } = await adminSvc.rpc("has_role", {
+    const svc = createClient(SUPABASE_URL, SERVICE_KEY);
+    const { data: isAdmin, error: roleErr } = await svc.rpc("has_role", {
       _user_id: userData.user.id, _role: "admin",
     });
     if (roleErr || !isAdmin) return json(403, { error: { code: "forbidden", message: "admin required" } });
   }
 
   if (!JOB_SECRET) return json(500, { error: { code: "misconfigured", message: "CENTRAL_CORE_JOB_SECRET not set" } });
-  const svc = createClient(SUPABASE_URL, SERVICE_KEY);
 
   const perComune: Record<string, number> = {};
   const perCategory: Record<string, number> = {};
@@ -248,7 +247,7 @@ Deno.serve(async (req) => {
   }
 
   if (all.length === 0) {
-    return json(200, { ok: true, records_processed: 0, data: { read: 0, normalized: 0, records_processed: 0, perComune, perCategory, note: "no elements" } });
+    return json(200, { ok: true, data: { read: 0, normalized: 0, perComune, perCategory, note: "no elements" } });
   }
 
   // POST in batch a ingest-opportunity (limite payload ragionevole: chunk da 200)
@@ -288,5 +287,5 @@ Deno.serve(async (req) => {
     ingest_error: errors.length ? errors.slice(0, 5).join(" | ") : null,
   });
 
-  return json(200, { ok: true, records_processed: normalized, data: { read: all.length, normalized, records_processed: normalized, perComune, perCategory, errors: errors.slice(0, 10) } });
+  return json(200, { ok: true, data: { read: all.length, normalized, perComune, perCategory, errors: errors.slice(0, 10) } });
 });

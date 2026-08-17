@@ -1,27 +1,13 @@
-// padova-civici-ingest — Class A official street numbers for Padova.
-// POST ?action=ingest          -> Open Data Veneto (CC BY 4.0)
-// POST ?action=ingest&url=...  -> override URL (official host only)
-// POST ?action=resolve_omi     -> classify omi_zone/microzona
-// POST ?action=status          -> current counts
-//
-// Auth: x-job-secret === CENTRAL_CORE_JOB_SECRET.
-// Writes public.padova_civici (via+civico anchors for the matcher).
+// padova-civici-ingest
+// POST ?action=ingest          -> ingestione reale civici Padova da dati.veneto.it (CC BY 4.0)
+// POST ?action=ingest&url=...  -> override URL (deve essere fonte ufficiale)
+// POST ?action=resolve_omi     -> classifica omi_zone/microzona via point-in-polygon (in batch)
+// GET  ?action=status          -> stato corrente
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import {
-  constantTimeEqual,
-  handleOptions,
-  ok,
-  fail,
-  makeDebugId,
-} from "../_shared/http.ts";
-import {
-  civicFingerprint,
-  normalizeStreet,
-  parseOfficialCiviciPayload,
-  type Civico,
-} from "../_shared/padovaCivici.ts";
+import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 
+// Fonte ufficiale verificata (Open Data Veneto, Comune di Padova, CC BY 4.0)
 const OFFICIAL_SOURCES = [
   {
     url: "https://dati.veneto.it/export/json/Numeri-Civici-del-Comune-di-Padova-2022.json",
@@ -31,41 +17,117 @@ const OFFICIAL_SOURCES = [
   },
 ];
 
-const ALLOWED_HOSTS = new Set(["dati.veneto.it", "www.dati.veneto.it", "opendata.comune.padova.it"]);
-
 function svc() {
   return createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
     auth: { persistSession: false },
   });
 }
 
-function requireJobSecret(req: Request, debugId: string): Response | null {
-  const expected = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
-  if (!expected) return fail(req, 500, "CONFIG_ERROR", "job secret not configured", debugId);
-  const incoming = req.headers.get("x-job-secret") ?? "";
-  if (!incoming || !constantTimeEqual(incoming, expected)) {
-    return fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId);
-  }
-  return null;
+function ok(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json", "X-Core-Function": "padova-civici-ingest" },
+  });
 }
 
-function hostAllowed(url: string): boolean {
-  try {
-    const u = new URL(url);
-    return (u.protocol === "https:") && ALLOWED_HOSTS.has(u.hostname.toLowerCase());
-  } catch {
-    return false;
+function normalizeStreet(s: string): string {
+  return (s || "")
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function sha1(s: string): Promise<string> {
+  const b = new TextEncoder().encode(s);
+  const h = await crypto.subtle.digest("SHA-1", b);
+  return [...new Uint8Array(h)].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+function cleanIntLike(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  const s = String(v).trim();
+  if (!s) return "";
+  // Esempi: "1.00000000" -> "1", "12A" -> "12A"
+  const m = s.match(/^(-?\d+)\.0+$/);
+  return m ? m[1] : s;
+}
+
+function cleanFloat(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  const n = Number(String(v).trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+interface Civico {
+  street_name: string;
+  civic_number: string;
+  civic_suffix: string | null;
+  cap: string | null;
+  lat: number | null;
+  lng: number | null;
+  raw: Record<string, unknown>;
+}
+
+function parseVenetoFlat(records: any[]): Civico[] {
+  const out: Civico[] = [];
+  for (const r of records) {
+    const street = String(r["Nome Via"] ?? r.NOME_VIA ?? "").trim();
+    const civic = cleanIntLike(r["Civico"] ?? r.CIVICO);
+    if (!street || !civic) continue;
+    const esp = cleanIntLike(r["Esponente"] ?? r.ESPONENTE);
+    const suffix = esp && esp !== "-" ? esp : null;
+    const lat = cleanFloat(r["Latitudine"] ?? r.LAT);
+    const lng = cleanFloat(r["Longitudine"] ?? r.LNG);
+    out.push({
+      street_name: street,
+      civic_number: civic,
+      civic_suffix: suffix,
+      cap: null, // dataset Padova non espone CAP
+      lat, lng,
+      raw: { codice_via: cleanIntLike(r["Codice Via"]) },
+    });
   }
+  return out;
+}
+
+function parseGeoJSON(geojson: any): Civico[] {
+  const features = Array.isArray(geojson?.features) ? geojson.features : [];
+  const out: Civico[] = [];
+  for (const f of features) {
+    const p = f?.properties ?? {};
+    const street = String(p.VIA ?? p.NOMEVIA ?? p["Nome Via"] ?? "").trim();
+    const civic = cleanIntLike(p.CIVICO ?? p.NUMERO ?? p["Civico"]);
+    if (!street || !civic) continue;
+    let lat: number | null = null, lng: number | null = null;
+    if (f.geometry?.type === "Point" && Array.isArray(f.geometry.coordinates)) {
+      lng = cleanFloat(f.geometry.coordinates[0]);
+      lat = cleanFloat(f.geometry.coordinates[1]);
+    }
+    out.push({
+      street_name: street,
+      civic_number: civic,
+      civic_suffix: cleanIntLike(p.ESPONENTE ?? p["Esponente"]) || null,
+      cap: p.CAP ? String(p.CAP).trim() : null,
+      lat, lng,
+      raw: p,
+    });
+  }
+  return out;
 }
 
 async function fetchAndParse(url: string, format: string) {
   const r = await fetch(url, { headers: { "User-Agent": "central-core-v3 padova-civici-ingest" } });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const text = await r.text();
-  let data: unknown;
+  let data: any;
   try { data = JSON.parse(text); }
-  catch { throw new Error(`json_parse_failed (got ${text.length} bytes)`); }
-  return parseOfficialCiviciPayload(data, format);
+  catch { throw new Error(`json_parse_failed (got ${text.length} bytes, first: ${text.slice(0, 80)})`); }
+  if (format === "veneto_flat_json" && Array.isArray(data)) return { records: parseVenetoFlat(data), raw_count: data.length };
+  if (Array.isArray(data?.features)) return { records: parseGeoJSON(data), raw_count: data.features.length };
+  if (Array.isArray(data)) return { records: parseVenetoFlat(data), raw_count: data.length };
+  throw new Error("unknown_payload_shape");
 }
 
 async function actionIngest(supa: ReturnType<typeof svc>, urlOverride?: string) {
@@ -73,31 +135,27 @@ async function actionIngest(supa: ReturnType<typeof svc>, urlOverride?: string) 
   const sources = urlOverride
     ? [{ url: urlOverride, name: "override", license: "unknown", format: "auto" as const }]
     : OFFICIAL_SOURCES;
-  if (urlOverride && !hostAllowed(urlOverride)) {
-    return { ok: false, error: "url_host_not_allowed", records_processed: 0 };
-  }
   let lastErr = "";
-  let chosen: typeof sources[number] | null = null;
+  let chosen: typeof OFFICIAL_SOURCES[number] | null = null;
   let parsed: { records: Civico[]; raw_count: number } | null = null;
   for (const s of sources) {
     try {
       parsed = await fetchAndParse(s.url, s.format);
-      chosen = s;
+      chosen = s as any;
       break;
     } catch (e) {
       lastErr = `${s.url}: ${e instanceof Error ? e.message : String(e)}`;
     }
   }
-  if (!chosen || !parsed) {
-    return { ok: false, error: "fonte_civici_irraggiungibile", detail: lastErr, tried: sources.map((s) => s.url), records_processed: 0 };
-  }
+  if (!chosen || !parsed) return { ok: false, error: "fonte_civici_irraggiungibile", detail: lastErr, tried: sources.map((s) => s.url) };
 
+  // Build rows + dedup by fingerprint
   const seen = new Set<string>();
   const rows: Array<Record<string, unknown>> = [];
-  let dupInBatch = 0;
+  let skipped = 0, dupInBatch = 0;
   for (const c of parsed.records) {
     const norm = normalizeStreet(c.street_name);
-    const fp = civicFingerprint(norm, c.civic_number, c.civic_suffix);
+    const fp = `padova|${norm}|${c.civic_number}|${c.civic_suffix ?? ""}`;
     if (seen.has(fp)) { dupInBatch++; continue; }
     seen.add(fp);
     rows.push({
@@ -116,7 +174,9 @@ async function actionIngest(supa: ReturnType<typeof svc>, urlOverride?: string) 
       fingerprint: fp,
     });
   }
+  if (parsed.records.length === 0) skipped = parsed.raw_count;
 
+  // Bulk upsert
   let inserted = 0;
   const CHUNK = 1000;
   for (let i = 0; i < rows.length; i += CHUNK) {
@@ -124,13 +184,12 @@ async function actionIngest(supa: ReturnType<typeof svc>, urlOverride?: string) 
     const { error, count } = await supa
       .from("padova_civici")
       .upsert(slice, { onConflict: "fingerprint", count: "exact", ignoreDuplicates: false });
-    if (error) {
-      return { ok: false, error: error.message, partial_inserted: inserted, source_url: chosen.url, records_processed: inserted };
-    }
+    if (error) return { ok: false, error: error.message, partial_inserted: inserted, source_url: chosen.url };
     inserted += count ?? slice.length;
   }
 
   const after = (await supa.from("padova_civici").select("*", { count: "exact", head: true })).count ?? 0;
+
   return {
     ok: true,
     source_url: chosen.url,
@@ -139,18 +198,21 @@ async function actionIngest(supa: ReturnType<typeof svc>, urlOverride?: string) 
     records_read: parsed.raw_count,
     records_valid: rows.length,
     records_upserted: inserted,
-    records_processed: inserted,
     duplicates_in_batch: dupInBatch,
+    records_skipped: skipped,
+    skip_reasons: parsed.raw_count > 0 && rows.length < parsed.raw_count
+      ? ["missing_street_or_civic_or_duplicate"] : [],
     table_count_before: before,
     table_count_after: after,
   };
 }
 
 async function actionResolveOmi(supa: ReturnType<typeof svc>) {
-  const { error, data } = await supa.rpc("exec_resolve_padova_civici_omi" as never);
-  if (!error) return { ok: true, via: "rpc", data, records_processed: 0 };
-  let resolved = 0;
-  let scanned = 0;
+  // Risolvi via SQL set-based per evitare 56k roundtrip
+  const { error, data } = await supa.rpc("exec_resolve_padova_civici_omi" as any).select();
+  if (!error) return { ok: true, via: "rpc", data };
+  // Fallback: loop in pagine
+  let resolved = 0, scanned = 0;
   for (let off = 0; off < 60000; off += 500) {
     const { data: pending, error: e2 } = await supa
       .from("padova_civici").select("id,lat,lng").is("omi_zone", null)
@@ -159,14 +221,14 @@ async function actionResolveOmi(supa: ReturnType<typeof svc>) {
     scanned += pending.length;
     for (const r of pending) {
       const { data: zone } = await supa.rpc("omi_zone_by_point", { p_lat: r.lat, p_lng: r.lng });
-      const z = Array.isArray(zone) && zone[0] ? zone[0] as { zona?: string; zona_descr?: string } : null;
+      const z = Array.isArray(zone) && zone[0] ? zone[0] : null;
       if (z?.zona) {
         await supa.from("padova_civici").update({ omi_zone: z.zona, microzona: z.zona_descr }).eq("id", r.id);
         resolved++;
       }
     }
   }
-  return { ok: true, via: "loop", scanned, resolved, records_processed: resolved };
+  return { ok: true, via: "loop", scanned, resolved };
 }
 
 async function actionStatus(supa: ReturnType<typeof svc>) {
@@ -175,32 +237,23 @@ async function actionStatus(supa: ReturnType<typeof svc>) {
     .not("lat", "is", null).not("lng", "is", null);
   const { count: withOmi } = await supa.from("padova_civici").select("*", { count: "exact", head: true })
     .not("omi_zone", "is", null);
-  return {
-    ok: true,
-    total: count ?? 0,
-    with_coordinates: withCoord ?? 0,
-    with_omi_zone: withOmi ?? 0,
-    records_processed: 0,
-  };
+  const { data: sample } = await supa.from("padova_civici")
+    .select("street_name,civic_number,lat,lng,source_url,license,omi_zone,microzona").limit(5);
+  return { ok: true, total: count ?? 0, with_coordinates: withCoord ?? 0, with_omi_zone: withOmi ?? 0, sample };
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return handleOptions(req);
-  const debugId = makeDebugId();
-  const authErr = requireJobSecret(req, debugId);
-  if (authErr) return authErr;
-  if (req.method !== "POST") return fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId);
-
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const url = new URL(req.url);
   const action = url.searchParams.get("action") ?? "status";
   const override = url.searchParams.get("url") ?? undefined;
   const supa = svc();
   try {
-    if (action === "ingest") return ok(req, await actionIngest(supa, override || undefined), [], debugId);
-    if (action === "resolve_omi") return ok(req, await actionResolveOmi(supa), [], debugId);
-    if (action === "status") return ok(req, await actionStatus(supa), [], debugId);
-    return fail(req, 400, "UNKNOWN_ACTION", "unknown action", debugId);
+    if (action === "ingest") return ok(await actionIngest(supa, override || undefined));
+    if (action === "resolve_omi") return ok(await actionResolveOmi(supa));
+    if (action === "status") return ok(await actionStatus(supa));
+    return ok({ error: "unknown action" }, 400);
   } catch (e) {
-    return fail(req, 500, "INGEST_ERROR", String((e as Error).message ?? e).slice(0, 200), debugId);
+    return ok({ error: String((e as Error).message ?? e) }, 500);
   }
 });

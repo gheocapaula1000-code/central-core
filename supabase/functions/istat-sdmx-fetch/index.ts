@@ -295,8 +295,9 @@ Deno.serve(async (req) => {
   const originErr = enforceOriginPolicy(req, debugId);
   if (originErr) return originErr;
 
-  // pg_cron uses x-job-secret (CENTRAL_CORE_JOB_SECRET). Admin/manual
-  // callers keep requireSecret() (x-internal-secret + x-source-app=civiko).
+  // pg_cron (log_cron_http_invocation) sends x-job-secret =
+  // CENTRAL_CORE_JOB_SECRET. Admin/manual callers keep requireSecret()
+  // (x-internal-secret + x-source-app=civiko).
   const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
   const incomingJob = req.headers.get("x-job-secret") ?? "";
   const jobOk = Boolean(jobSecret && incomingJob && constantTimeEqual(incomingJob, jobSecret));
@@ -374,7 +375,6 @@ Deno.serve(async (req) => {
         clear_first: clearFirst,
         provinces: summary,
         totals,
-        records_processed: totals.inserted,
         notes: [
           "Fonte: ISTAT SDMX REST 2.1 — DCIS_POPRES1 (popolazione residente al 1° gennaio).",
           "Percentuali calcolate da popolazione totale per età (sesso=Totale).",

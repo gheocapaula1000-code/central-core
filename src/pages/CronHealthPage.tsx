@@ -20,7 +20,7 @@ import IngestionRunsSection from "@/components/cron-health/IngestionRunsSection"
 import SourceRegistrySection from "@/components/cron-health/SourceRegistrySection";
 import DerivedSignalsSection from "@/components/cron-health/DerivedSignalsSection";
 
-const MAIN_JOB = "portal-immobiliare-padova";
+const MAIN_JOB = "nightly-data-refresh-master";
 
 type CronRow = {
   id: number;
