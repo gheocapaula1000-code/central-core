@@ -9,40 +9,43 @@ this manifest; `connector-status` reports the live state.
 
 | Class | Meaning | Cron | Failure mode |
 |-------|---------|------|--------------|
-| **A official** | OMI, ISTAT, OSM, civici, and other public sources already in this repo | `official-data-refresh` → `civiko-scheduler` (`pipeline_class=A`) | Isolated per source. Portal failures never stop this run. |
-| **C portals** | Immobiliare / Idealista / Subito / Casa.it | Existing Apify / enqueue / orchestrator crons only | Fail-closed. Not rewritten. Not invoked from `civiko-scheduler`. |
+| **C portals** | Immobiliare / Idealista / Subito / Casa.it | Separate `portal-*-padova` jobs → existing `cron-apify-*-nightly` | Fail-closed. Empty source (Casa.it historically 0/120) is logged, not pretended as success. Writes `padova_listings` when the source responds. |
+| **A official** | ISTAT, civici, OSM (and other public sources already in this repo) | Separate `official-*` jobs → existing functions | Isolated per source. Not mixed into the portal runner. |
 | **premium** | Catasto (F14), Conservatoria (F15) | None | On-demand paid. Never cron. |
 
-The mixed `nightly-data-refresh-master` job is unscheduled. Official ingest
-no longer shares a process with portal scrapers.
-
-### Official jobs — schedule and write tables
-
-Cron times are UTC. Europe/Rome is UTC+1 in winter, UTC+2 in summer.
-
-| Cron job | UTC | Function | Sources when due | Writes |
-|----------|-----|----------|------------------|--------|
-| `official-data-refresh` | `0 1 * * *` (01:00) | `civiko-scheduler/run-scheduled` | Class A due sources below | per source |
-| `official-padova-listings-recompute` | `30 1 * * *` (01:30) | SQL `recompute_padova_listings_contendibili()` | existing `padova_listings` + official anchors | `padova_contendibili` |
-
-| Code | Source | Status | Frequency | Edge function | Table |
-|------|--------|--------|-----------|---------------|-------|
-| F1 | OMI AdE | manual_fallback | semiannual | omi-import / omi-import-storage (CSV) | `omi_zone`, `omi_valori` |
-| F2 | ISTAT SDMX | automated | monthly | `istat-sdmx-fetch` | `istat_comuni` |
-| F5 | OSM Overpass | automated | weekly | `connector-osm-cantieri` | `raw_sources_ingest` |
-| CIVICI | Padova street numbers | automated | weekly | `padova-civici-ingest` | `padova_civici` |
-| F6 | ISPRA | semi_automated | quarterly | `istat-ispra-import` | storage / ISPRA import |
-| F7 | ARPAV | automated | weekly | `civiko-radar-veneto/jobs/import-arpav-air-quality` | `civiko_evidence` |
-| F10 | ANAC CKAN | automated | weekly | `civiko-radar-veneto/jobs/anac-ckan` | `civiko_evidence` |
-| F11 | OpenPNRR | automated | weekly | `civiko-pnrr-padova` | PNRR tables |
-| F3 F4 F8 F9 F12 F17 F18 F20 F22 | other official / public | manual_fallback | see catalog | admin CSV import | see catalog |
-
-Matcher rules are unchanged: via+civico, 40 m grid, pHash, auctions out;
-2+ agencies = contendibile; 3+ = caldo/HOT display. Recompute does not
-wait for portal scrape success.
+The mixed `nightly-data-refresh-master` job (→ missing `civiko-scheduler`)
+is unscheduled. `civiko-scheduler` remains an admin/manual Class A runner
+only; it is not a pg_cron target.
 
 Live Core project ref: `jpunnzgixcghuydstdlt`. Do not point these jobs at
 `egjvullvkwpzyyworeml`.
+
+### Portal jobs — schedule and write tables
+
+Cron times are UTC. Europe/Rome is UTC+1 in winter, UTC+2 in summer.
+Auth: `x-job-secret` = vault `CENTRAL_CORE_JOB_SECRET` via
+`public.log_cron_http_invocation`.
+
+| Cron job | UTC | Function | Writes |
+|----------|-----|----------|--------|
+| `portal-immobiliare-padova` | `0 2 * * *` | `cron-apify-immobiliare-nightly` → `padova-apify-immobiliare-collect` | `padova_listings` |
+| `portal-idealista-padova` | `10 2 * * *` | `cron-apify-idealista-nightly` → `padova-apify-idealista-collect` | `padova_listings` |
+| `portal-subito-padova` | `20 2 * * *` | `cron-apify-subito-nightly` → `padova-apify-subito-collect` | `padova_listings` |
+| `portal-casa-padova` | `30 2 * * *` | `cron-apify-casa-nightly` → `padova-apify-casa-collect` | `padova_listings` (empty = fail) |
+| `portal-collect-pending` | `45 2 * * *` | `cron-apify-collect-pending` | promotes Apify runs → `padova_listings` |
+| `padova-listings-contendibili-recompute` | `15 3 * * *` | SQL `recompute_padova_listings_contendibili()` | `padova_contendibili` |
+
+### Official jobs — schedule and write tables
+
+| Cron job | UTC | Function | Writes |
+|----------|-----|----------|--------|
+| `official-istat-sdmx` | `0 4 1 * *` (monthly) | `istat-sdmx-fetch` | `istat_comuni` |
+| `official-civici-ingest` | `0 4 * * 1` (Mon) | `padova-civici-ingest?action=ingest` | `padova_civici` |
+| `official-civici-resolve-omi` | `30 4 * * 1` (Mon) | `padova-civici-ingest?action=resolve_omi` | `padova_civici` |
+| `official-osm-cantieri` | `0 5 * * 1` (Mon) | `connector-osm-cantieri` | `raw_sources_ingest` |
+
+Matcher rules are unchanged: via+civico, 40 m grid, pHash, auctions out;
+2+ agencies = contendibile; 3+ = caldo/HOT display.
 
 ## Automation states
 
@@ -70,7 +73,7 @@ Live Core project ref: `jpunnzgixcghuydstdlt`. Do not point these jobs at
 | F10  | ANAC open-data                      | automated         | weekly       | civiko-radar-veneto/openData/ckanImporter                   |
 | F11  | OpenPNRR                            | automated         | weekly       | civiko-pnrr-padova                                          |
 | F12  | Borsino/FIAIP benchmark             | manual_fallback   | monthly      | civiko-source-registry (CSV)                                |
-| F13  | Immobiliare quotations              | semi_automated    | monthly      | civiko-radar-veneto/portalScrapers (derived)                |
+| F13  | Immobiliare quotations              | semi_automated    | monthly      | listing-derived; labelled separately from F1 OMI            |
 | F14  | Catasto                             | premium_on_demand | on_demand    | civiko-restricted-report                                    |
 | F15  | Conservatoria RR.II.                | premium_on_demand | on_demand    | civiko-restricted-report                                    |
 | F16  | PVP aste giudiziarie                | automated         | daily        | civiko-radar-veneto/asteGiudiziarie + auctionImport         |
@@ -78,7 +81,7 @@ Live Core project ref: `jpunnzgixcghuydstdlt`. Do not point these jobs at
 | F18  | SUE Padova                          | manual_fallback   | monthly      | civiko-source-registry (CSV, compliance_verified=true)      |
 | F19  | Necrologi (aggregato)               | automated         | daily        | civiko-source-registry/import/obituaries-aggregate (k>=3)   |
 | F20  | ISTAT APR4 mobilità                 | manual_fallback   | annual       | civiko-source-registry (CSV)                                |
-| F21  | Portali (Immobiliare/Idealista/…)   | automated         | daily        | civiko-radar-veneto/portalScrapers + ribassiPortali         |
+| F21  | Portali (Immobiliare/Idealista/…)   | automated         | daily        | cron-apify-*-nightly + portal-collect-pending               |
 | F22  | ISTAT separazioni/divorzi           | manual_fallback   | annual       | civiko-source-registry (CSV)                                |
 
 ## Wiring schedules

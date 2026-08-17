@@ -36,9 +36,14 @@
 | **omi-import-storage** | `false` | — | `POST /` | origin-policy, app-secret, input-val, envelope, service-role | Admin/operator only | Storage-based import |
 | **istat-ispra-import** | `false` | — | `POST /` | origin-policy, app-secret, input-val, envelope, service-role | Admin/operator only | Statistical data import |
 | **omi-geometry-import** | `false` | — | `POST /` | origin-policy, app-secret, input-val, envelope, service-role | Admin/operator only | Geometry import (GeoJSON/KML/KMZ) |
-| **civiko-scheduler** | `false` | — | `POST /run-scheduled` | job-secret, envelope | pg_cron official pipeline | Class A only. Refuses Class C portals. |
-| **istat-sdmx-fetch** | `false` | — | `POST /` | origin-policy, app-secret, envelope, service-role | Official scheduler / admin | Writes `istat_comuni` |
-| **padova-civici-ingest** | `false` | — | `POST /?action=ingest` | job-secret, envelope, service-role | Official scheduler / admin | Writes `padova_civici` |
+| **civiko-scheduler** | `false` | — | `POST /run-scheduled` | job-secret, envelope | Admin/manual only | Not a pg_cron target. Class A only. Refuses Class C. |
+| **istat-sdmx-fetch** | `false` | — | `POST /` | origin-policy, job-secret **or** app-secret, envelope, service-role | `official-istat-sdmx` cron / admin | Writes `istat_comuni` |
+| **padova-civici-ingest** | `false` | — | `POST /?action=ingest` | job-secret, envelope, service-role | `official-civici-*` cron / admin | Writes `padova_civici` |
+| **cron-apify-immobiliare-nightly** | `false` | — | `POST /` | job-secret | `portal-immobiliare-padova` | Writes `padova_listings` |
+| **cron-apify-idealista-nightly** | `false` | — | `POST /` | job-secret | `portal-idealista-padova` | Writes `padova_listings` |
+| **cron-apify-subito-nightly** | `false` | — | `POST /` | job-secret | `portal-subito-padova` | Writes `padova_listings` |
+| **cron-apify-casa-nightly** | `false` | — | `POST /` | job-secret | `portal-casa-padova` | Empty/skipped = 502, not fake success |
+| **cron-apify-collect-pending** | `false` | — | `POST /` | job-secret | `portal-collect-pending` | Promotes Apify runs → `padova_listings` |
 
 ---
 
@@ -57,7 +62,7 @@
 | **istat-ispra-import** | `AI_CORE_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` | — |
 | **omi-geometry-import** | `AI_CORE_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` | — |
 | **civiko-scheduler** | `CENTRAL_CORE_JOB_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` | `AI_CORE_SECRET_CIVIKO` |
-| **istat-sdmx-fetch** | `AI_CORE_SECRET_CIVIKO`, `SUPABASE_SERVICE_ROLE_KEY` | — |
+| **istat-sdmx-fetch** | `CENTRAL_CORE_JOB_SECRET` **or** `AI_CORE_SECRET_CIVIKO`, `SUPABASE_SERVICE_ROLE_KEY` | — |
 | **padova-civici-ingest** | `CENTRAL_CORE_JOB_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` | — |
 
 ---

@@ -1,8 +1,10 @@
 // civiko-scheduler
-// Official (Class A) ingest runner. The mixed nightly master used to invoke
-// portal scrapers in the same pass; portal antibot failures must not gate
-// OMI / ISTAT / OSM / civici. Class C portals stay on their existing
-// fail-closed crons and are refused here.
+// Admin/manual Class A catalog runner. Not a pg_cron target.
+// Portal jobs are separate crons that hit cron-apify-*-nightly.
+// Official jobs are separate crons that hit istat-sdmx-fetch,
+// padova-civici-ingest, connector-osm-cantieri.
+// Class C / all are refused here so this function cannot become
+// another mixed master.
 //
 // Auth: x-job-secret === CENTRAL_CORE_JOB_SECRET (constant-time).
 // Live Core: jpunnzgixcghuydstdlt

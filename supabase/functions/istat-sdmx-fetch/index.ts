@@ -30,6 +30,7 @@ import {
   makeDebugId,
   requireSecret,
   enforceOriginPolicy,
+  constantTimeEqual,
 } from "../_shared/http.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -294,8 +295,15 @@ Deno.serve(async (req) => {
   const originErr = enforceOriginPolicy(req, debugId);
   if (originErr) return originErr;
 
-  const authErr = requireSecret(req, debugId);
-  if (authErr) return authErr;
+  // pg_cron uses x-job-secret (CENTRAL_CORE_JOB_SECRET). Admin/manual
+  // callers keep requireSecret() (x-internal-secret + x-source-app=civiko).
+  const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+  const incomingJob = req.headers.get("x-job-secret") ?? "";
+  const jobOk = Boolean(jobSecret && incomingJob && constantTimeEqual(incomingJob, jobSecret));
+  if (!jobOk) {
+    const authErr = requireSecret(req, debugId);
+    if (authErr) return authErr;
+  }
 
   if (req.method !== "POST") {
     return fail(req, 405, "METHOD_NOT_ALLOWED", "Use POST", debugId);

@@ -180,21 +180,53 @@ describe("padova civici official parser", () => {
   });
 });
 
-describe("Official cron migration — isolated from portals", () => {
+describe("Portal-first cron rebuild — real functions, not a missing scheduler", () => {
   const sql = read("supabase/migrations/20260817140000_official_pipeline_separate_from_portals.sql");
   const scheduler = read("supabase/functions/civiko-scheduler/index.ts");
+  const health = read("supabase/functions/core-cron-health-public/index.ts");
+  const casa = read("supabase/functions/cron-apify-casa-nightly/index.ts");
   const allSql = readdirSync(resolve(root, "supabase/migrations"))
     .filter((f) => f.endsWith(".sql"))
     .map((f) => read(`supabase/migrations/${f}`))
     .join("\n");
 
-  it("unschedules the mixed master and schedules official ingest + recompute", () => {
+  it("drops the mixed master and other crons that do not fire a real function", () => {
     expect(sql).toContain("nightly-data-refresh-master");
     expect(sql).toContain("official-data-refresh");
-    expect(sql).toContain("official-padova-listings-recompute");
-    expect(sql).toContain("pipeline_class");
+    expect(sql).toContain("central-core-apify-immobiliare-nightly");
+    expect(sql).toContain("civiko-refresh-portali-notte");
+    expect(sql).toContain("qa-oneshot-");
+    expect(sql).toContain("padova-portal-scrapes-full");
+    expect(sql).toMatch(/PERFORM cron\.unschedule\(j\)/);
+  });
+
+  it("schedules four portal jobs + collect-pending against existing wrappers", () => {
+    expect(sql).toContain("'portal-immobiliare-padova'");
+    expect(sql).toContain("'portal-idealista-padova'");
+    expect(sql).toContain("'portal-subito-padova'");
+    expect(sql).toContain("'portal-casa-padova'");
+    expect(sql).toContain("'portal-collect-pending'");
+    expect(sql).toContain("/functions/v1/cron-apify-immobiliare-nightly");
+    expect(sql).toContain("/functions/v1/cron-apify-idealista-nightly");
+    expect(sql).toContain("/functions/v1/cron-apify-subito-nightly");
+    expect(sql).toContain("/functions/v1/cron-apify-casa-nightly");
+    expect(sql).toContain("/functions/v1/cron-apify-collect-pending");
+    expect(sql).toContain("log_cron_http_invocation");
     expect(sql).toContain("jpunnzgixcghuydstdlt");
     expect(sql).not.toContain("egjvullvkwpzyyworeml");
+    expect(sql).not.toContain("/functions/v1/civiko-scheduler");
+  });
+
+  it("schedules official jobs separately after portals", () => {
+    expect(sql).toContain("'official-istat-sdmx'");
+    expect(sql).toContain("/functions/v1/istat-sdmx-fetch");
+    expect(sql).toContain("'official-civici-ingest'");
+    expect(sql).toContain("/functions/v1/padova-civici-ingest?action=ingest");
+    expect(sql).toContain("'official-civici-resolve-omi'");
+    expect(sql).toContain("/functions/v1/padova-civici-ingest?action=resolve_omi");
+    expect(sql).toContain("'official-osm-cantieri'");
+    expect(sql).toContain("/functions/v1/connector-osm-cantieri");
+    expect(sql).toContain("'padova-listings-contendibili-recompute'");
     expect(sql).toContain("recompute_padova_listings_contendibili");
   });
 
@@ -205,17 +237,34 @@ describe("Official cron migration — isolated from portals", () => {
     expect(sql).not.toContain("F15");
   });
 
-  it("does not rewrite or invoke portal scrapers", () => {
-    expect(sql).not.toContain("cron-apify-immobiliare-nightly");
-    expect(sql).not.toContain("cron-apify-idealista-nightly");
-    expect(sql).not.toContain("cron-apify-subito-nightly");
-    expect(sql).not.toContain("cron-apify-casa-nightly");
-    expect(sql).not.toContain("portalScrapers");
+  it("Casa.it wrapper treats empty/skipped as failure, not fake success", () => {
+    expect(casa).toContain("semanticOk");
+    expect(casa).toContain("skipped");
+    expect(casa).toContain("hasRun");
+    expect(casa).toMatch(/status: semanticOk \? 200 : \(r\.ok \? 502 : r\.status\)/);
   });
 
-  it("scheduler refuses Class C", () => {
+  it("CORE_JOBS lists portal + official jobs so health can see them", () => {
+    for (const name of [
+      "portal-immobiliare-padova",
+      "portal-idealista-padova",
+      "portal-subito-padova",
+      "portal-casa-padova",
+      "portal-collect-pending",
+      "padova-listings-contendibili-recompute",
+      "official-istat-sdmx",
+      "official-civici-ingest",
+      "official-civici-resolve-omi",
+      "official-osm-cantieri",
+    ]) {
+      expect(health).toContain(`jobname: "${name}"`);
+    }
+    expect(health).not.toContain("nightly-data-refresh-master");
+  });
+
+  it("civiko-scheduler is not a cron target and refuses Class C", () => {
     expect(scheduler).toContain("PORTAL_PIPELINE_REFUSED");
-    expect(scheduler).toContain('PipelineClass = "A"');
+    expect(scheduler).toContain("Not a pg_cron target");
     expect(scheduler).toContain("jpunnzgixcghuydstdlt");
   });
 
@@ -225,12 +274,17 @@ describe("Official cron migration — isolated from portals", () => {
   });
 });
 
-describe("config.toml lists official runner functions", () => {
+describe("config.toml lists portal wrappers and official functions", () => {
   const cfg = read("supabase/config.toml");
-  it("registers civiko-scheduler, istat-sdmx-fetch, padova-civici-ingest", () => {
-    expect(cfg).toContain("[functions.civiko-scheduler]");
+  it("registers existing portal + official functions on live Core", () => {
+    expect(cfg).toContain("[functions.cron-apify-immobiliare-nightly]");
+    expect(cfg).toContain("[functions.cron-apify-idealista-nightly]");
+    expect(cfg).toContain("[functions.cron-apify-subito-nightly]");
+    expect(cfg).toContain("[functions.cron-apify-casa-nightly]");
+    expect(cfg).toContain("[functions.cron-apify-collect-pending]");
     expect(cfg).toContain("[functions.istat-sdmx-fetch]");
     expect(cfg).toContain("[functions.padova-civici-ingest]");
+    expect(cfg).toContain("[functions.connector-osm-cantieri]");
     expect(cfg).toContain('project_id = "jpunnzgixcghuydstdlt"');
     expect(cfg).not.toContain("egjvullvkwpzyyworeml");
   });
