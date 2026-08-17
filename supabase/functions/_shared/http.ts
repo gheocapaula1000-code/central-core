@@ -390,6 +390,7 @@ export function corsHeaders(req: Request): Record<string, string> {
     "x-client-info",
     "x-client-device",
     "x-internal-secret",
+    "x-job-secret",
     "x-app-secret",
     "x-core-secret",
     "x-diagnostic-secret",

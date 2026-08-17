@@ -4,7 +4,7 @@
 // so the same logic is unit-testable and can be wired to real edge functions
 // from the civiko-scheduler edge function.
 
-import { SOURCE_PLAN, nextRunAfter, isStale, type SourcePlan } from "./sourceScheduler.ts";
+import { SOURCE_PLAN, nextRunAfter, isStale, type SourcePlan, type PipelineClass } from "./sourceScheduler.ts";
 import { hasEvidenceWriter, runEvidenceWriter } from "./sourceEvidenceWriters.ts";
 
 export type JobOutcome = "skipped" | "success" | "failed";
@@ -26,6 +26,12 @@ export interface RunOptions {
   due_only?: boolean;
   /** If true, do not invoke job endpoints and do not write to the registry. */
   dry_run?: boolean;
+  /**
+   * Pipeline isolation. Official cron defaults to "A".
+   * "all" is the unfiltered catalog (tests / admin). Class C portals are
+   * never the default — they stay on their existing fail-closed crons.
+   */
+  pipeline_class?: PipelineClass | "all";
 }
 
 export interface RunDeps {
@@ -83,12 +89,12 @@ export function buildRequestPlan(
       headers["x-source-app"] = "civiko";
       break;
     case "F5":
-      // connector-osm-cantieri: verify_jwt is disabled at platform level
-      // (see supabase/config.toml). The function still authorizes via
-      // x-job-secret (Path A). We also send Bearer service-role so that
-      // any internal helper that re-checks Authorization keeps working.
+    case "CIVICI":
+      // connector-osm-cantieri / padova-civici-ingest: verify_jwt is disabled
+      // at platform level. The function authorizes via x-job-secret (Path A).
+      // Bearer service-role keeps internal helpers that re-check Authorization.
       if (!serviceKey) {
-        console.warn("[scheduler] F5: SUPABASE_SERVICE_ROLE_KEY is empty");
+        console.warn(`[scheduler] ${plan.code}: SUPABASE_SERVICE_ROLE_KEY is empty`);
         return { skip_reason: "missing_SUPABASE_SERVICE_ROLE_KEY" };
       }
       headers["Authorization"] = `Bearer ${serviceKey}`;
@@ -117,15 +123,38 @@ export function buildRequestPlan(
   return { headers, body };
 }
 
+export interface EligibleFilter {
+  pipeline_class?: PipelineClass | "all";
+}
+
 /** Returns the plan rows that are eligible for scheduled execution. */
-export function eligibleSourcePlans(): SourcePlan[] {
+export function eligibleSourcePlans(filter: EligibleFilter = {}): SourcePlan[] {
   return Object.values(SOURCE_PLAN).filter((p) => {
     if (FORBIDDEN_SCHEDULER_CODES.has(p.code)) return false;
     if (p.automation_status === "premium_on_demand") return false;
     if (p.automation_status === "disabled") return false;
+    if (p.pipeline_class === "premium") return false;
+    if (filter.pipeline_class && filter.pipeline_class !== "all") {
+      if (p.pipeline_class !== filter.pipeline_class) return false;
+    }
     // Only sources with a real ingestion target are runnable.
     return Boolean(p.job) || Boolean(p.ingestion_endpoint);
   });
+}
+
+export function extractRecordsProcessed(parsed: Record<string, unknown>): number {
+  if (typeof parsed.records_processed === "number") return parsed.records_processed;
+  const data = parsed.data && typeof parsed.data === "object"
+    ? parsed.data as Record<string, unknown>
+    : undefined;
+  if (data && typeof data.records_processed === "number") return data.records_processed;
+  if (data && typeof data.normalized === "number") return data.normalized;
+  if (typeof parsed.records_upserted === "number") return parsed.records_upserted;
+  const totals = parsed.totals && typeof parsed.totals === "object"
+    ? parsed.totals as Record<string, unknown>
+    : undefined;
+  if (totals && typeof totals.inserted === "number") return totals.inserted;
+  return 0;
 }
 
 /** Decide if a source row is due now. NULL last_run_at counts as due. */
@@ -200,11 +229,7 @@ export async function runOne(
     const text = await r.text();
     let parsed: Record<string, unknown> = {};
     try { parsed = text ? JSON.parse(text) : {}; } catch { /* non-JSON: keep empty */ }
-    let records =
-      typeof parsed.records_processed === "number" ? parsed.records_processed :
-      typeof (parsed.data as Record<string, unknown> | undefined)?.records_processed === "number"
-        ? Number((parsed.data as Record<string, unknown>).records_processed)
-        : 0;
+    let records = extractRecordsProcessed(parsed);
 
     if (!r.ok) {
       const msg = `HTTP ${r.status}: ${text.slice(0, 200)}`;
@@ -286,7 +311,10 @@ export async function runScheduledSources(deps: RunDeps, opts: RunOptions = {}):
 }> {
   const ran_at = new Date().toISOString();
   const dry_run = Boolean(opts.dry_run);
-  let plans = eligibleSourcePlans();
+  // Official ingest is the default. Mixed master was the reliability bug:
+  // portal antibot failures must not gate OMI/ISTAT/OSM/civici or recompute.
+  const pipeline_class = opts.pipeline_class ?? "A";
+  let plans = eligibleSourcePlans({ pipeline_class });
   if (opts.source_code) {
     plans = plans.filter((p) => p.code === opts.source_code);
   }

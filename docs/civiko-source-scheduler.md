@@ -1,9 +1,48 @@
 # Civiko Source Scheduler Manifest
 
-Authoritative schedule + automation contract for F1–F22. Mirrors
-`supabase/functions/_shared/sourceScheduler.ts`. The source registry
-table (`civiko_source_registry`) is kept in sync with this manifest;
-`connector-status` reports the live state.
+Authoritative schedule + automation contract for F1–F22 plus the official
+`CIVICI` job. Mirrors `supabase/functions/_shared/sourceScheduler.ts`.
+The source registry table (`civiko_source_registry`) is kept in sync with
+this manifest; `connector-status` reports the live state.
+
+## Two pipelines (do not mix)
+
+| Class | Meaning | Cron | Failure mode |
+|-------|---------|------|--------------|
+| **A official** | OMI, ISTAT, OSM, civici, and other public sources already in this repo | `official-data-refresh` → `civiko-scheduler` (`pipeline_class=A`) | Isolated per source. Portal failures never stop this run. |
+| **C portals** | Immobiliare / Idealista / Subito / Casa.it | Existing Apify / enqueue / orchestrator crons only | Fail-closed. Not rewritten. Not invoked from `civiko-scheduler`. |
+| **premium** | Catasto (F14), Conservatoria (F15) | None | On-demand paid. Never cron. |
+
+The mixed `nightly-data-refresh-master` job is unscheduled. Official ingest
+no longer shares a process with portal scrapers.
+
+### Official jobs — schedule and write tables
+
+Cron times are UTC. Europe/Rome is UTC+1 in winter, UTC+2 in summer.
+
+| Cron job | UTC | Function | Sources when due | Writes |
+|----------|-----|----------|------------------|--------|
+| `official-data-refresh` | `0 1 * * *` (01:00) | `civiko-scheduler/run-scheduled` | Class A due sources below | per source |
+| `official-padova-listings-recompute` | `30 1 * * *` (01:30) | SQL `recompute_padova_listings_contendibili()` | existing `padova_listings` + official anchors | `padova_contendibili` |
+
+| Code | Source | Status | Frequency | Edge function | Table |
+|------|--------|--------|-----------|---------------|-------|
+| F1 | OMI AdE | manual_fallback | semiannual | omi-import / omi-import-storage (CSV) | `omi_zone`, `omi_valori` |
+| F2 | ISTAT SDMX | automated | monthly | `istat-sdmx-fetch` | `istat_comuni` |
+| F5 | OSM Overpass | automated | weekly | `connector-osm-cantieri` | `raw_sources_ingest` |
+| CIVICI | Padova street numbers | automated | weekly | `padova-civici-ingest` | `padova_civici` |
+| F6 | ISPRA | semi_automated | quarterly | `istat-ispra-import` | storage / ISPRA import |
+| F7 | ARPAV | automated | weekly | `civiko-radar-veneto/jobs/import-arpav-air-quality` | `civiko_evidence` |
+| F10 | ANAC CKAN | automated | weekly | `civiko-radar-veneto/jobs/anac-ckan` | `civiko_evidence` |
+| F11 | OpenPNRR | automated | weekly | `civiko-pnrr-padova` | PNRR tables |
+| F3 F4 F8 F9 F12 F17 F18 F20 F22 | other official / public | manual_fallback | see catalog | admin CSV import | see catalog |
+
+Matcher rules are unchanged: via+civico, 40 m grid, pHash, auctions out;
+2+ agencies = contendibile; 3+ = caldo/HOT display. Recompute does not
+wait for portal scrape success.
+
+Live Core project ref: `jpunnzgixcghuydstdlt`. Do not point these jobs at
+`egjvullvkwpzyyworeml`.
 
 ## Automation states
 
@@ -35,7 +74,7 @@ table (`civiko_source_registry`) is kept in sync with this manifest;
 | F14  | Catasto                             | premium_on_demand | on_demand    | civiko-restricted-report                                    |
 | F15  | Conservatoria RR.II.                | premium_on_demand | on_demand    | civiko-restricted-report                                    |
 | F16  | PVP aste giudiziarie                | automated         | daily        | civiko-radar-veneto/asteGiudiziarie + auctionImport         |
-| F17  | Veneto APE ufficiale                | manual_fallback   | quarterly    | civiko-source-registry (CSV) — AI estimate stays separate   |
+| F17  | Veneto APE ufficiale                | manual_fallback   | quarterly    | civiko-source-registry (CSV) — official register only       |
 | F18  | SUE Padova                          | manual_fallback   | monthly      | civiko-source-registry (CSV, compliance_verified=true)      |
 | F19  | Necrologi (aggregato)               | automated         | daily        | civiko-source-registry/import/obituaries-aggregate (k>=3)   |
 | F20  | ISTAT APR4 mobilità                 | manual_fallback   | annual       | civiko-source-registry (CSV)                                |

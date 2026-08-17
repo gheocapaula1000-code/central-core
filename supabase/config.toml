@@ -356,3 +356,13 @@ verify_jwt = false
 [functions.civiko-padova-apify-launch-batch-capped]
 verify_jwt = false
 
+# Official Class A ingest runner. Auth: x-job-secret. Never invokes portals.
+[functions.civiko-scheduler]
+verify_jwt = false
+
+[functions.istat-sdmx-fetch]
+verify_jwt = false
+
+[functions.padova-civici-ingest]
+verify_jwt = false
+

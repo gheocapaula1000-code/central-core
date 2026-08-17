@@ -36,6 +36,9 @@
 | **omi-import-storage** | `false` | — | `POST /` | origin-policy, app-secret, input-val, envelope, service-role | Admin/operator only | Storage-based import |
 | **istat-ispra-import** | `false` | — | `POST /` | origin-policy, app-secret, input-val, envelope, service-role | Admin/operator only | Statistical data import |
 | **omi-geometry-import** | `false` | — | `POST /` | origin-policy, app-secret, input-val, envelope, service-role | Admin/operator only | Geometry import (GeoJSON/KML/KMZ) |
+| **civiko-scheduler** | `false` | — | `POST /run-scheduled` | job-secret, envelope | pg_cron official pipeline | Class A only. Refuses Class C portals. |
+| **istat-sdmx-fetch** | `false` | — | `POST /` | origin-policy, app-secret, envelope, service-role | Official scheduler / admin | Writes `istat_comuni` |
+| **padova-civici-ingest** | `false` | — | `POST /?action=ingest` | job-secret, envelope, service-role | Official scheduler / admin | Writes `padova_civici` |
 
 ---
 
@@ -53,6 +56,9 @@
 | **omi-import-storage** | `AI_CORE_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` | — |
 | **istat-ispra-import** | `AI_CORE_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` | — |
 | **omi-geometry-import** | `AI_CORE_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` | — |
+| **civiko-scheduler** | `CENTRAL_CORE_JOB_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` | `AI_CORE_SECRET_CIVIKO` |
+| **istat-sdmx-fetch** | `AI_CORE_SECRET_CIVIKO`, `SUPABASE_SERVICE_ROLE_KEY` | — |
+| **padova-civici-ingest** | `CENTRAL_CORE_JOB_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` | — |
 
 ---
 

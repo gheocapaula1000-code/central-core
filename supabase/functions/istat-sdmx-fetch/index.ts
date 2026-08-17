@@ -366,6 +366,7 @@ Deno.serve(async (req) => {
         clear_first: clearFirst,
         provinces: summary,
         totals,
+        records_processed: totals.inserted,
         notes: [
           "Fonte: ISTAT SDMX REST 2.1 — DCIS_POPRES1 (popolazione residente al 1° gennaio).",
           "Percentuali calcolate da popolazione totale per età (sesso=Totale).",
