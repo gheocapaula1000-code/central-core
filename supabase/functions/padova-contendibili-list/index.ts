@@ -269,7 +269,7 @@ serve(async (req) => {
       const us = Array.isArray((r as Record<string, unknown>).urls) ? ((r as Record<string, unknown>).urls as unknown[]) : [];
       for (const u of us) if (typeof u === "string" && u) allUrls.push(u);
     }
-    const listingByUrl = new Map<string, { agency: string | null; expired_at: string | null }>();
+    const listingByUrl = new Map<string, { id: number | null; agency: string | null; expired_at: string | null }>();
     if (allUrls.length > 0) {
       const uniq = Array.from(new Set(allUrls));
       const CHUNK = 200;
@@ -277,7 +277,7 @@ serve(async (req) => {
         const slice = uniq.slice(i, i + CHUNK);
         const { data: lrows, error: lerr } = await supabase
           .from("padova_listings")
-          .select("url, agency, expired_at")
+          .select("id, url, agency, expired_at")
           .in("url", slice);
         if (lerr) {
           console.error(`[padova-contendibili-list] ${did} listings lookup`, lerr);
@@ -287,12 +287,75 @@ serve(async (req) => {
           const u = String(lr.url ?? "");
           if (!u) continue;
           listingByUrl.set(u, {
+            id: Number.isFinite(Number(lr.id)) ? Number(lr.id) : null,
             agency: typeof lr.agency === "string" && lr.agency ? (lr.agency as string) : null,
             expired_at: typeof lr.expired_at === "string" ? (lr.expired_at as string) : null,
           });
         }
       }
     }
+
+    // ─── Normalizzazione agenzia (dedup su nome, non su portale) ───────
+    // «Affiliato Tecnocasa: Studio Enne» === «Studio Enne».
+    const normAgencyName = (raw: unknown): string => {
+      let s = String(raw ?? "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+      s = s.replace(/^\s*(affiliat[oa]|agenzia\s+affiliata|gruppo|rete)\b[^:]*:\s*/i, "");
+      s = s.replace(/\b(s\.?r\.?l\.?s?|s\.?p\.?a|s\.?n\.?c|s\.?a\.?s|immobiliare|studio immobiliare|agenzia)\b/g, " ");
+      s = s.replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+      return s;
+    };
+
+    // ─── Prova fotografica certificata (obbligatoria) ──────────────────
+    const PHOTO_MATCH_VERSION = "v4-padova-photo-pair";
+    const groupListingIds = new Map<number, number[]>();
+    const allListingIds = new Set<number>();
+    for (const r of rows) {
+      const us = Array.isArray((r as Record<string, unknown>).urls) ? ((r as Record<string, unknown>).urls as unknown[]) : [];
+      const ids2: number[] = [];
+      for (const u of us) {
+        if (typeof u !== "string" || !u) continue;
+        const lid = listingByUrl.get(u)?.id;
+        if (typeof lid === "number") { ids2.push(lid); allListingIds.add(lid); }
+      }
+      groupListingIds.set(Number((r as Record<string, unknown>).id), ids2);
+    }
+    type PairEv = { a: number; b: number; agA: string; agB: string };
+    const pairs: PairEv[] = [];
+    if (allListingIds.size > 0) {
+      const idsArr = Array.from(allListingIds);
+      const CHUNK = 200;
+      for (let i = 0; i < idsArr.length; i += CHUNK) {
+        const slice = idsArr.slice(i, i + CHUNK);
+        const { data: ev, error: evErr } = await supabase
+          .from("civiko_listing_photo_pair_evidence")
+          .select("listing_a, listing_b, agency_a, agency_b, match_version")
+          .eq("match_version", PHOTO_MATCH_VERSION)
+          .in("listing_a", slice);
+        if (evErr) {
+          console.error(`[padova-contendibili-list] ${did} photo evidence`, evErr);
+          continue;
+        }
+        for (const e of (ev ?? []) as Array<Record<string, unknown>>) {
+          pairs.push({
+            a: Number(e.listing_a),
+            b: Number(e.listing_b),
+            agA: normAgencyName(e.agency_a),
+            agB: normAgencyName(e.agency_b),
+          });
+        }
+      }
+    }
+    const hasCertifiedPhotoPair = (rowId: number): boolean => {
+      const ids2 = new Set(groupListingIds.get(rowId) ?? []);
+      if (ids2.size < 2) return false;
+      return pairs.some((p) =>
+        ids2.has(p.a) && ids2.has(p.b) && p.agA !== "" && p.agB !== "" && p.agA !== p.agB
+      );
+    };
+
     const hostnameOf = (u: string): string => {
       try {
         const h = new URL(u).hostname.toLowerCase();
@@ -312,6 +375,9 @@ serve(async (req) => {
       tenantNorm = typeof nn === "string" && nn.trim() ? nn.trim() : null;
     }
 
+    let droppedAgenzie = 0;
+    let droppedNoPhoto = 0;
+
     const enriched = rows.map((r: Record<string, unknown>) => {
       const rr = reachMap.get(Number(r.id)) ?? { argento: false, count: 0, hasPhone: false, bestListingId: null };
       const agNorm = Array.isArray(r.agencies_normalized) ? (r.agencies_normalized as string[]) : [];
@@ -329,8 +395,29 @@ serve(async (req) => {
           attivo: found ? found.expired_at == null : true,
         };
       });
+
+      // Ricalcolo agenzie distinte sul nome normalizzato (stesso nome su due
+      // portali = 1 agenzia; prefisso "Affiliato X:" ignorato).
+      const distinct = new Set<string>();
+      for (const a of (Array.isArray(r.agenzie) ? (r.agenzie as unknown[]) : [])) {
+        const n = normAgencyName(a);
+        if (n) distinct.add(n);
+      }
+      for (const a of agNorm) {
+        const n = normAgencyName(a);
+        if (n) distinct.add(n);
+      }
+      for (const an of annunci) {
+        const n = normAgencyName(an.agenzia);
+        if (n) distinct.add(n);
+      }
+      const nAgenzieNorm = distinct.size;
+
       return {
         ...r,
+        n_agenzie: nAgenzieNorm,
+        agencies_normalized: Array.from(distinct),
+        confidenza: "ALTA",
         source_id: `cont:${Number(r.id)}`,
         reachability: {
           tier,
@@ -339,7 +426,16 @@ serve(async (req) => {
           argento_best_listing_id: rr.bestListingId,
         },
         annunci,
+        _n_agenzie_norm: nAgenzieNorm,
+        _photo_pair_certified: hasCertifiedPhotoPair(Number(r.id)),
       };
+    }).filter((r) => {
+      if ((r._n_agenzie_norm as number) < MIN_AGENZIE_CONTESI) { droppedAgenzie++; return false; }
+      if (r._photo_pair_certified !== true) { droppedNoPhoto++; return false; }
+      return true;
+    }).map((r) => {
+      const { _n_agenzie_norm: _a, _photo_pair_certified: _b, ...rest } = r as Record<string, unknown>;
+      return rest;
     });
 
     // Diagnostics — computed on already-zone-filtered rows only.
@@ -353,8 +449,8 @@ serve(async (req) => {
       quartiereBreakdown[q2] = (quartiereBreakdown[q2] ?? 0) + 1;
     }
 
-    const totalOut = count ?? enriched.length;
-    const hot = hotCount ?? 0;
+    const totalOut = enriched.length;
+    const hot = enriched.filter((r) => Number((r as Record<string, unknown>).n_agenzie ?? 0) >= HOT_AGENZIE_THRESHOLD).length;
 
     const primarySlug = activeSlugs.length === 1 ? activeSlugs[0] : null;
     const diagnostics = {
@@ -365,11 +461,16 @@ serve(async (req) => {
       quartiere_filter: quartiereFilter,
       total_after_filters: totalOut,
       returned: enriched.length,
+      raw_candidates: count ?? rows.length,
+      dropped_agenzie_dedup: droppedAgenzie,
+      dropped_no_photo_pair: droppedNoPhoto,
+      photo_match_version: PHOTO_MATCH_VERSION,
       source_breakdown: sourceBreakdown,
       quartiere_breakdown: quartiereBreakdown,
     };
 
     const filtered = enriched; // Kept name for shape-preservation in tests.
+
 
     const itemsCount = filtered.length;
     const snapshotComplete = itemsCount === totalOut && offset === 0;
