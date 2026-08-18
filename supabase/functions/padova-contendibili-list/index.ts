@@ -375,6 +375,9 @@ serve(async (req) => {
       tenantNorm = typeof nn === "string" && nn.trim() ? nn.trim() : null;
     }
 
+    let droppedAgenzie = 0;
+    let droppedNoPhoto = 0;
+
     const enriched = rows.map((r: Record<string, unknown>) => {
       const rr = reachMap.get(Number(r.id)) ?? { argento: false, count: 0, hasPhone: false, bestListingId: null };
       const agNorm = Array.isArray(r.agencies_normalized) ? (r.agencies_normalized as string[]) : [];
@@ -392,8 +395,29 @@ serve(async (req) => {
           attivo: found ? found.expired_at == null : true,
         };
       });
+
+      // Ricalcolo agenzie distinte sul nome normalizzato (stesso nome su due
+      // portali = 1 agenzia; prefisso "Affiliato X:" ignorato).
+      const distinct = new Set<string>();
+      for (const a of (Array.isArray(r.agenzie) ? (r.agenzie as unknown[]) : [])) {
+        const n = normAgencyName(a);
+        if (n) distinct.add(n);
+      }
+      for (const a of agNorm) {
+        const n = normAgencyName(a);
+        if (n) distinct.add(n);
+      }
+      for (const an of annunci) {
+        const n = normAgencyName(an.agenzia);
+        if (n) distinct.add(n);
+      }
+      const nAgenzieNorm = distinct.size;
+
       return {
         ...r,
+        n_agenzie: nAgenzieNorm,
+        agencies_normalized: Array.from(distinct),
+        confidenza: "ALTA",
         source_id: `cont:${Number(r.id)}`,
         reachability: {
           tier,
@@ -402,7 +426,16 @@ serve(async (req) => {
           argento_best_listing_id: rr.bestListingId,
         },
         annunci,
+        _n_agenzie_norm: nAgenzieNorm,
+        _photo_pair_certified: hasCertifiedPhotoPair(Number(r.id)),
       };
+    }).filter((r) => {
+      if ((r._n_agenzie_norm as number) < MIN_AGENZIE_CONTESI) { droppedAgenzie++; return false; }
+      if (r._photo_pair_certified !== true) { droppedNoPhoto++; return false; }
+      return true;
+    }).map((r) => {
+      const { _n_agenzie_norm: _a, _photo_pair_certified: _b, ...rest } = r as Record<string, unknown>;
+      return rest;
     });
 
     // Diagnostics — computed on already-zone-filtered rows only.
@@ -416,8 +449,8 @@ serve(async (req) => {
       quartiereBreakdown[q2] = (quartiereBreakdown[q2] ?? 0) + 1;
     }
 
-    const totalOut = count ?? enriched.length;
-    const hot = hotCount ?? 0;
+    const totalOut = enriched.length;
+    const hot = enriched.filter((r) => Number((r as Record<string, unknown>).n_agenzie ?? 0) >= HOT_AGENZIE_THRESHOLD).length;
 
     const primarySlug = activeSlugs.length === 1 ? activeSlugs[0] : null;
     const diagnostics = {
@@ -428,11 +461,16 @@ serve(async (req) => {
       quartiere_filter: quartiereFilter,
       total_after_filters: totalOut,
       returned: enriched.length,
+      raw_candidates: count ?? rows.length,
+      dropped_agenzie_dedup: droppedAgenzie,
+      dropped_no_photo_pair: droppedNoPhoto,
+      photo_match_version: PHOTO_MATCH_VERSION,
       source_breakdown: sourceBreakdown,
       quartiere_breakdown: quartiereBreakdown,
     };
 
     const filtered = enriched; // Kept name for shape-preservation in tests.
+
 
     const itemsCount = filtered.length;
     const snapshotComplete = itemsCount === totalOut && offset === 0;
