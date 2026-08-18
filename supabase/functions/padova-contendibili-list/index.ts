@@ -269,7 +269,7 @@ serve(async (req) => {
       const us = Array.isArray((r as Record<string, unknown>).urls) ? ((r as Record<string, unknown>).urls as unknown[]) : [];
       for (const u of us) if (typeof u === "string" && u) allUrls.push(u);
     }
-    const listingByUrl = new Map<string, { agency: string | null; expired_at: string | null }>();
+    const listingByUrl = new Map<string, { id: number | null; agency: string | null; expired_at: string | null }>();
     if (allUrls.length > 0) {
       const uniq = Array.from(new Set(allUrls));
       const CHUNK = 200;
@@ -277,7 +277,7 @@ serve(async (req) => {
         const slice = uniq.slice(i, i + CHUNK);
         const { data: lrows, error: lerr } = await supabase
           .from("padova_listings")
-          .select("url, agency, expired_at")
+          .select("id, url, agency, expired_at")
           .in("url", slice);
         if (lerr) {
           console.error(`[padova-contendibili-list] ${did} listings lookup`, lerr);
@@ -287,12 +287,75 @@ serve(async (req) => {
           const u = String(lr.url ?? "");
           if (!u) continue;
           listingByUrl.set(u, {
+            id: Number.isFinite(Number(lr.id)) ? Number(lr.id) : null,
             agency: typeof lr.agency === "string" && lr.agency ? (lr.agency as string) : null,
             expired_at: typeof lr.expired_at === "string" ? (lr.expired_at as string) : null,
           });
         }
       }
     }
+
+    // ─── Normalizzazione agenzia (dedup su nome, non su portale) ───────
+    // «Affiliato Tecnocasa: Studio Enne» === «Studio Enne».
+    const normAgencyName = (raw: unknown): string => {
+      let s = String(raw ?? "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+      s = s.replace(/^\s*(affiliat[oa]|agenzia\s+affiliata|gruppo|rete)\b[^:]*:\s*/i, "");
+      s = s.replace(/\b(s\.?r\.?l\.?s?|s\.?p\.?a|s\.?n\.?c|s\.?a\.?s|immobiliare|studio immobiliare|agenzia)\b/g, " ");
+      s = s.replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+      return s;
+    };
+
+    // ─── Prova fotografica certificata (obbligatoria) ──────────────────
+    const PHOTO_MATCH_VERSION = "v4-padova-photo-pair";
+    const groupListingIds = new Map<number, number[]>();
+    const allListingIds = new Set<number>();
+    for (const r of rows) {
+      const us = Array.isArray((r as Record<string, unknown>).urls) ? ((r as Record<string, unknown>).urls as unknown[]) : [];
+      const ids2: number[] = [];
+      for (const u of us) {
+        if (typeof u !== "string" || !u) continue;
+        const lid = listingByUrl.get(u)?.id;
+        if (typeof lid === "number") { ids2.push(lid); allListingIds.add(lid); }
+      }
+      groupListingIds.set(Number((r as Record<string, unknown>).id), ids2);
+    }
+    type PairEv = { a: number; b: number; agA: string; agB: string };
+    const pairs: PairEv[] = [];
+    if (allListingIds.size > 0) {
+      const idsArr = Array.from(allListingIds);
+      const CHUNK = 200;
+      for (let i = 0; i < idsArr.length; i += CHUNK) {
+        const slice = idsArr.slice(i, i + CHUNK);
+        const { data: ev, error: evErr } = await supabase
+          .from("civiko_listing_photo_pair_evidence")
+          .select("listing_a, listing_b, agency_a, agency_b, match_version")
+          .eq("match_version", PHOTO_MATCH_VERSION)
+          .in("listing_a", slice);
+        if (evErr) {
+          console.error(`[padova-contendibili-list] ${did} photo evidence`, evErr);
+          continue;
+        }
+        for (const e of (ev ?? []) as Array<Record<string, unknown>>) {
+          pairs.push({
+            a: Number(e.listing_a),
+            b: Number(e.listing_b),
+            agA: normAgencyName(e.agency_a),
+            agB: normAgencyName(e.agency_b),
+          });
+        }
+      }
+    }
+    const hasCertifiedPhotoPair = (rowId: number): boolean => {
+      const ids2 = new Set(groupListingIds.get(rowId) ?? []);
+      if (ids2.size < 2) return false;
+      return pairs.some((p) =>
+        ids2.has(p.a) && ids2.has(p.b) && p.agA !== "" && p.agB !== "" && p.agA !== p.agB
+      );
+    };
+
     const hostnameOf = (u: string): string => {
       try {
         const h = new URL(u).hostname.toLowerCase();
