@@ -376,7 +376,7 @@ Deno.serve(async (req) => {
       if (markErr) {
         return json({ ok: false, error: "attempts_progress_write_failed", detail: markErr.message }, 500);
       }
-      if (ids.length > MAX_ATTEMPTS_PER_LISTING) {
+      if (ids.length > TOTAL_LISTINGS_PER_INVOCATION) {
         return json({ ok: false, error: "hard_limit_violated" }, 500);
       }
     }
