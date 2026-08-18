@@ -3,7 +3,7 @@
 // Collega END-TO-END la prova fotografica al percorso Civiko dei contendibili.
 //
 // Cosa fa (solo Civiko / Padova, additivo):
-//  1. seleziona in modo DETERMINISTICO al massimo 4 listing unici TOTALI
+//  1. seleziona in modo DETERMINISTICO al massimo 20 listing unici TOTALI
 //     (evidence attempts + raw_json), oldest-first, perimetro Padova + 8 zone;
 //  2. li marca ATOMICAMENTE per pipeline_run_id PRIMA di lavorarli (anche se
 //     non hanno foto o non sono decodificabili): la coda avanza sempre e nessun
