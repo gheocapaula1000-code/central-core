@@ -64,7 +64,7 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
 
 /** Hard limit TOTALE di listing unici trattati per invocazione. */
-export const TOTAL_LISTINGS_PER_INVOCATION = 4;
+export const TOTAL_LISTINGS_PER_INVOCATION = 20;
 /** Un listing non viene mai ritentato più di così. */
 export const MAX_ATTEMPTS_PER_LISTING = 4;
 /** Paginazione delle fonti candidate: nessun tetto arbitrario pre-filtro. */
