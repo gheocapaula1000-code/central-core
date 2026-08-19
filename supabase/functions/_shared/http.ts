@@ -333,6 +333,13 @@ export function constantTimeEqual(a: string, b: string): boolean {
   return result === 0;
 }
 
+/** True when x-job-secret matches CENTRAL_CORE_JOB_SECRET (both non-empty). */
+export function isJobSecretAuthorized(req: Request, expected?: string): boolean {
+  const exp = expected ?? Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+  const incoming = req.headers.get("x-job-secret") ?? "";
+  return Boolean(exp && incoming && constantTimeEqual(incoming, exp));
+}
+
 const LOVABLE_SUFFIXES = [".lovable.app", ".lovableproject.com", ".lovable.dev"];
 const TRUSTED_APP_HOSTS = new Set(["keydraft.app", "www.keydraft.app", "wyloni.app", "www.wyloni.app", "wyloni.com", "www.wyloni.com", "sottra.app", "www.sottra.app", "civikoone.com", "www.civikoone.com"]);
 

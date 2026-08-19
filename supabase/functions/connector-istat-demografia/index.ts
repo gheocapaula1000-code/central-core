@@ -6,10 +6,12 @@
 // Nessun dato inventato: ricalcola da righe esistenti.
 // ═══════════════════════════════════════════════════════════════
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { isJobSecretAuthorized } from "../_shared/http.ts";
+import { writeSourceRegistryStatus } from "../_shared/sourceRegistryStatus.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-job-secret",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -51,18 +53,22 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json(405, { error: { code: "method_not_allowed" } });
 
-  const authHeader = req.headers.get("Authorization") ?? "";
-  if (!authHeader.startsWith("Bearer ")) return json(401, { error: { code: "unauthorized" } });
-
-  const userClient = createClient(SUPABASE_URL, ANON_KEY, {
-    global: { headers: { Authorization: authHeader } },
-  });
-  const { data: userData, error: userErr } = await userClient.auth.getUser();
-  if (userErr || !userData?.user) return json(401, { error: { code: "unauthorized" } });
-
   const svc = createClient(SUPABASE_URL, SERVICE_KEY);
-  const { data: isAdmin } = await svc.rpc("has_role", { _user_id: userData.user.id, _role: "admin" });
-  if (!isAdmin) return json(403, { error: { code: "forbidden", message: "admin required" } });
+  const jobSecretOk = isJobSecretAuthorized(req, JOB_SECRET);
+
+  if (!jobSecretOk) {
+    const authHeader = req.headers.get("Authorization") ?? "";
+    if (!authHeader.startsWith("Bearer ")) return json(401, { error: { code: "unauthorized" } });
+
+    const userClient = createClient(SUPABASE_URL, ANON_KEY, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: userData, error: userErr } = await userClient.auth.getUser();
+    if (userErr || !userData?.user) return json(401, { error: { code: "unauthorized" } });
+
+    const { data: isAdmin } = await svc.rpc("has_role", { _user_id: userData.user.id, _role: "admin" });
+    if (!isAdmin) return json(403, { error: { code: "forbidden", message: "admin required" } });
+  }
   if (!JOB_SECRET) return json(500, { error: { code: "misconfigured" } });
 
   const { data: rows, error: qErr } = await svc
@@ -70,7 +76,14 @@ Deno.serve(async (req) => {
     .select("comune,popolazione,percentuale_over65,indice_vecchiaia,codice_istat")
     .in("comune", COMUNI);
 
-  if (qErr) return json(500, { error: { code: "query_failed", message: qErr.message } });
+  if (qErr) {
+    await writeSourceRegistryStatus(svc, "F2", {
+      ok: false,
+      error: `demografia_query:${qErr.message}`.slice(0, 500),
+      writeRecordCount: false,
+    });
+    return json(500, { error: { code: "query_failed", message: qErr.message } });
+  }
 
   const items = (rows ?? [])
     .filter((r: any) => r.indice_vecchiaia != null || r.percentuale_over65 != null)
@@ -105,7 +118,12 @@ Deno.serve(async (req) => {
     });
 
   if (items.length === 0) {
-    return json(200, { ok: true, data: { read: 0, normalized: 0, note: "no istat rows for comuni" } });
+    await writeSourceRegistryStatus(svc, "F2", {
+      ok: true,
+      error: null,
+      writeRecordCount: false,
+    });
+    return json(200, { ok: true, records_processed: 0, data: { read: 0, normalized: 0, records_processed: 0, note: "no istat rows for comuni" } });
   }
 
   const res = await fetch(`${SUPABASE_URL}/functions/v1/ingest-opportunity`, {
@@ -119,7 +137,15 @@ Deno.serve(async (req) => {
     body: JSON.stringify(items),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) return json(502, { error: { code: "ingest_failed", message: body?.error?.message ?? `HTTP ${res.status}` } });
+  if (!res.ok) {
+    const msg = body?.error?.message ?? `HTTP ${res.status}`;
+    await writeSourceRegistryStatus(svc, "F2", {
+      ok: false,
+      error: `demografia_ingest:${msg}`.slice(0, 500),
+      writeRecordCount: false,
+    });
+    return json(502, { error: { code: "ingest_failed", message: msg } });
+  }
 
   let normalized = 0;
   const errors: string[] = [];
@@ -128,5 +154,11 @@ Deno.serve(async (req) => {
     if (r.error) errors.push(r.error);
   }
 
-  return json(200, { ok: true, data: { read: items.length, normalized, errors: errors.slice(0, 5) } });
+  await writeSourceRegistryStatus(svc, "F2", {
+    ok: true,
+    error: null,
+    writeRecordCount: false,
+  });
+
+  return json(200, { ok: true, records_processed: normalized, data: { read: items.length, normalized, records_processed: normalized, errors: errors.slice(0, 5) } });
 });

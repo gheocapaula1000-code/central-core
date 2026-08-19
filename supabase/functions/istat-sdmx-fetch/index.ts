@@ -30,9 +30,10 @@ import {
   makeDebugId,
   requireSecret,
   enforceOriginPolicy,
-  constantTimeEqual,
+  isJobSecretAuthorized,
 } from "../_shared/http.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { writeSourceRegistryStatus } from "../_shared/sourceRegistryStatus.ts";
 
 const SDMX_BASE = "https://esploradati.istat.it/SDMXWS/rest/data";
 const DATAFLOW = "22_289"; // DCIS_POPRES1
@@ -295,13 +296,9 @@ Deno.serve(async (req) => {
   const originErr = enforceOriginPolicy(req, debugId);
   if (originErr) return originErr;
 
-  // pg_cron (log_cron_http_invocation) sends x-job-secret =
-  // CENTRAL_CORE_JOB_SECRET. Admin/manual callers keep requireSecret()
-  // (x-internal-secret + x-source-app=civiko).
-  const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
-  const incomingJob = req.headers.get("x-job-secret") ?? "";
-  const jobOk = Boolean(jobSecret && incomingJob && constantTimeEqual(incomingJob, jobSecret));
-  if (!jobOk) {
+  // pg_cron / GitHub Actions send x-job-secret = CENTRAL_CORE_JOB_SECRET.
+  // Admin/manual callers keep requireSecret() (x-internal-secret + x-source-app).
+  if (!isJobSecretAuthorized(req)) {
     const authErr = requireSecret(req, debugId);
     if (authErr) return authErr;
   }
@@ -343,10 +340,12 @@ Deno.serve(async (req) => {
       let inserted = 0;
       let errors = 0;
 
-      // Upsert deduplicando su codice_istat (clear_first già pulito; in alternativa upsert manuale)
+      // Upsert on codice_istat so monthly re-runs do not fail UNIQUE.
       for (let i = 0; i < rows.length; i += BATCH_INSERT) {
         const batch = rows.slice(i, i + BATCH_INSERT);
-        const { error } = await supabase.from("istat_comuni").insert(batch);
+        const { error } = await supabase
+          .from("istat_comuni")
+          .upsert(batch, { onConflict: "codice_istat" });
         if (error) {
           console.error(`[istat-sdmx] ${sigla} batch ${i}: ${error.message}`);
           errors += batch.length;
@@ -368,6 +367,13 @@ Deno.serve(async (req) => {
       { observations: 0, comuni: 0, inserted: 0, errors: 0 },
     );
 
+    const okRun = totals.inserted > 0 || totals.comuni > 0;
+    await writeSourceRegistryStatus(supabase, "F2", {
+      ok: okRun,
+      records: totals.inserted || totals.comuni,
+      error: okRun ? null : "istat_sdmx_zero_rows",
+    });
+
     return ok(
       req,
       {
@@ -375,17 +381,30 @@ Deno.serve(async (req) => {
         clear_first: clearFirst,
         provinces: summary,
         totals,
+        records_processed: totals.inserted || totals.comuni,
         notes: [
           "Fonte: ISTAT SDMX REST 2.1 — DCIS_POPRES1 (popolazione residente al 1° gennaio).",
           "Percentuali calcolate da popolazione totale per età (sesso=Totale).",
           "Indice di vecchiaia = (over65 / under15) * 100.",
         ],
       },
-      [],
+      okRun ? [] : ["ISTAT SDMX returned 0 rows; last_error written on F2."],
       debugId,
     );
   } catch (e) {
-    console.error(`[istat-sdmx] fatal debug_id=${debugId}: ${e instanceof Error ? e.message : String(e)}`);
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[istat-sdmx] fatal debug_id=${debugId}: ${msg}`);
+    try {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+      if (supabaseUrl && serviceKey) {
+        await writeSourceRegistryStatus(createClient(supabaseUrl, serviceKey), "F2", {
+          ok: false,
+          records: 0,
+          error: msg.slice(0, 500),
+        });
+      }
+    } catch { /* registry write is best-effort */ }
     return fail(req, 500, "FETCH_ERROR", `Import failed. Reference: ${debugId}`, debugId);
   }
 });
