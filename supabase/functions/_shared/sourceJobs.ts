@@ -110,8 +110,16 @@ export function buildRequestPlan(
       body.lng = coords.lng;
       body.radiusMeters = 1500;
       break;
+    case "F7":
+    case "F10":
+    case "F16":
+      // Scheduled territorial collectors must persist (not dry-run).
+      body.dryRun = false;
+      body.import = true;
+      body.province = ["PD"];
+      break;
     default:
-      // F7, F10, F13, F16, F21: default x-job-secret only.
+      // F13, F21: default x-job-secret only.
       break;
   }
   return { headers, body };

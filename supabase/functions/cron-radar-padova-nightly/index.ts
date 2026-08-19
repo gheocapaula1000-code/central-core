@@ -52,6 +52,7 @@ async function logExecution(jobName: string, row: {
 }
 
 import { evaluateRunOutcome } from "./outcome.ts";
+import { collectTerritorialSignals } from "./collectTerritorial.ts";
 
 type Mode = "soft" | "full";
 
@@ -85,7 +86,8 @@ async function runOneComune(comune: string, triggeredAt: string, mode: Mode, job
 
   // Un solo tentativo: l'orchestratore esterno gestisce il retry. Il wrapper
   // deve terminare prima del timeout azione (100 s) del dispatcher.
-  const perComuneTimeout = mode === "full" ? 85_000 : 55_000;
+  // Headroom for territorial collectors that run first in the same invocation.
+  const perComuneTimeout = mode === "full" ? 55_000 : 40_000;
   let res: Response | null = null;
   let text = "";
   let lastErr: unknown = null;
@@ -311,6 +313,33 @@ Deno.serve(async (req) => {
       duration_ms: 0,
     });
 
+    // Territorial collectors (ARPAV / CKAN / aste) persist before the read-only radar view.
+    // Fail-closed only when every collector is rejected as unauthorized (secret wiring).
+    const collectSummary = await collectTerritorialSignals({
+      supabaseUrl: SUPABASE_URL,
+      jobSecret: JOB_SECRET,
+      mode,
+      triggeredBy: `cron-radar-padova-${mode}`,
+    });
+    await logExecution(jobName, {
+      triggered_at: triggeredAt,
+      completed_at: new Date().toISOString(),
+      status: collectSummary.auth_rejected ? "failure" : "started",
+      http_status: collectSummary.auth_rejected ? 401 : 202,
+      response_excerpt: `territorial_collect mode=${mode} ok=${collectSummary.ok} ` +
+        collectSummary.results.map((r) => `${r.slug}:${r.ok ? "ok" : "fail"}`).join(","),
+      error_message: collectSummary.auth_rejected ? "territorial_collect_unauthorized" : null,
+      duration_ms: collectSummary.results.reduce((s, r) => s + r.duration_ms, 0),
+    });
+    if (collectSummary.auth_rejected) {
+      return new Response(JSON.stringify({
+        ok: false,
+        error: "territorial_collect_unauthorized",
+        job: jobName,
+        territorial_collect: collectSummary,
+      }), { status: 401, headers: { "Content-Type": "application/json" } });
+    }
+
     const summary = await runAll(triggeredAt, mode, jobName);
 
     // Telemetria: conta le scritture su radar_signals dall'inizio dell'invocazione.
@@ -370,6 +399,7 @@ Deno.serve(async (req) => {
         triggered_at: triggeredAt,
         comuni: COMUNI,
         radar_signals_written: rowsWritten,
+        territorial_collect: collectSummary,
       }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     );
