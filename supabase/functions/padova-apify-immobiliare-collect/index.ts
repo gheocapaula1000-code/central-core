@@ -17,11 +17,17 @@
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { getApifyToken, startApifyRun } from "../_shared/apify.ts";
+import { getApifyToken, startApifyRun, writeImmobiliareSourceRegistry } from "../_shared/apify.ts";
+import {
+  ACTOR_IMMO_DETAIL,
+  ACTOR_IMMO_LISTVIEW,
+  IMMOBILIARE_PADOVA_SEARCH_URLS,
+} from "../_shared/apifyLaunch.ts";
+import { isJobSecretAuthorized, jobAuthFailure, jobAuthHeaders } from "../_shared/jobAuth.ts";
 
 const APIFY = "https://api.apify.com/v2";
-const ACTOR_DETAIL = "memo23~immobiliare-scraper";
-const ACTOR_DISCOVER = "azzouzana~immobiliare-it-listing-page-scraper-by-search-url";
+const ACTOR_DETAIL = ACTOR_IMMO_DETAIL;
+const ACTOR_DISCOVER = ACTOR_IMMO_LISTVIEW;
 
 // Costi indicativi Apify pay-per-result (aggiornabili)
 const COST_PER_DETAIL_USD = 0.005;
@@ -218,13 +224,16 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
-  if (!jobSecret || req.headers.get("x-job-secret") !== jobSecret) {
-    return new Response(JSON.stringify({ ok: false, error: "unauthorized" }),
-      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  if (!isJobSecretAuthorized(req.headers, jobSecret)) {
+    const auth = jobAuthFailure(Boolean(jobSecret));
+    await writeImmobiliareSourceRegistry({ ok: false, error: auth.error });
+    return new Response(JSON.stringify({ ok: false, error: auth.error }),
+      { status: auth.status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
   const token = getApifyToken();
   if (!token) {
+    await writeImmobiliareSourceRegistry({ ok: false, error: "APIFY_API_TOKEN_missing" });
     return new Response(JSON.stringify({ ok: false, error: "APIFY_API_TOKEN_missing" }),
       { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
@@ -248,6 +257,9 @@ Deno.serve(async (req) => {
     .map(canonUrl).filter(Boolean);
 
   const searchUrls = (body.search_urls ?? []).filter(Boolean);
+  if ((mode === "discovery" || mode === "mixed") && searchUrls.length === 0) {
+    searchUrls.push(...IMMOBILIARE_PADOVA_SEARCH_URLS);
+  }
 
   const nowIso = new Date().toISOString();
   const jobId = `apify-immo-${nowIso.slice(0, 10)}-${crypto.randomUUID().slice(0, 8)}`;
@@ -270,31 +282,41 @@ Deno.serve(async (req) => {
   // padova-apify-collect-pending, che gira ogni 15 minuti.
   if (body.async_start) {
     try {
-      const started: Array<{ role: string; search_url?: string; run_id: string; dataset_id: string }> = [];
+      const started: Array<{
+        role: string; search_url?: string; run_id: string; dataset_id: string; webhook_attached?: boolean;
+      }> = [];
       const skipped: Array<{ role: string; search_url?: string; reason: string }> = [];
 
       if (mode === "discovery" || mode === "mixed") {
-        if (searchUrls.length === 0) {
-          return new Response(JSON.stringify({ ok: false, error: "search_urls_required_for_discovery" }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        }
-        for (const surl of searchUrls) {
-          const portal = `immobiliare_collect_${mode}_discover`;
+        const portal = `immobiliare_collect_${mode}_discover`;
+        const launches = await Promise.all(searchUrls.map(async (surl) => {
           const res = await startApifyRun(
             ACTOR_DISCOVER,
             { startUrl: surl, maxItems: desiredResults },
             { portal, estUsd: 0.20, costCapUsd: 0.20 },
           );
+          return { surl, res };
+        }));
+        for (const { surl, res } of launches) {
           if (!res.started) {
             console.warn(`[apify] lancio saltato: ${res.reason} portal=${portal}`);
             skipped.push({ role: "discover", search_url: surl, reason: res.reason });
-            if (res.reason === "APIFY_DAILY_CAP_REACHED") {
-              return new Response(JSON.stringify({ ok: false, skipped: true, reason: res.reason, started, skipped_runs: skipped }),
-                { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-            }
             continue;
           }
-          started.push({ role: "discover", search_url: surl, run_id: res.run_id, dataset_id: res.dataset_id });
+          started.push({
+            role: "discover", search_url: surl, run_id: res.run_id,
+            dataset_id: res.dataset_id, webhook_attached: res.webhook_attached,
+          });
+        }
+        if (skipped.some((s) => s.reason === "APIFY_DAILY_CAP_REACHED" || s.reason === "monthly_cap_reached")) {
+          const cap = skipped.find((s) =>
+            s.reason === "APIFY_DAILY_CAP_REACHED" || s.reason === "monthly_cap_reached");
+          await writeImmobiliareSourceRegistry({
+            ok: false, error: cap?.reason ?? "APIFY_DAILY_CAP_REACHED",
+          });
+          return new Response(JSON.stringify({
+            ok: false, skipped: true, reason: cap?.reason, started, skipped_runs: skipped,
+          }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
       }
 
@@ -313,22 +335,45 @@ Deno.serve(async (req) => {
         );
         if (!res.started) {
           console.warn(`[apify] lancio saltato: ${res.reason} portal=${portal}`);
+          await writeImmobiliareSourceRegistry({ ok: false, error: res.reason });
           return new Response(JSON.stringify({ ok: false, skipped: true, reason: res.reason, started }),
             { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
-        started.push({ role: "enrich_refresh", run_id: res.run_id, dataset_id: res.dataset_id });
+        started.push({
+          role: "enrich_refresh", run_id: res.run_id, dataset_id: res.dataset_id,
+          webhook_attached: res.webhook_attached,
+        });
       }
 
       if (started.length === 0) {
-        return new Response(JSON.stringify({ ok: false, error: "no_apify_run_started", async_start: true, mode, skipped }),
-          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        const reason = skipped[0]?.reason ?? "no_apify_run_started";
+        await writeImmobiliareSourceRegistry({ ok: false, error: reason, records: 0 });
+        return new Response(JSON.stringify({
+          ok: false, error: "no_apify_run_started", reason, async_start: true, mode, skipped,
+        }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
+
+      // Immediate handoff: collect-pending will no-op while Apify is still
+      // RUNNING, then the attached webhook + 15-min cron finish ingest.
+      const runIds = started.map((s) => s.run_id);
+      const base = (Deno.env.get("SUPABASE_URL") ?? "").replace(/\/+$/, "");
+      if (base && jobSecret) {
+        fetch(`${base}/functions/v1/padova-apify-collect-pending`, {
+          method: "POST",
+          headers: jobAuthHeaders(jobSecret),
+          body: JSON.stringify({ run_ids: runIds, stale_minutes: 0, max_runs: runIds.length }),
+        }).catch((e) => console.warn("[apify] collect-pending handoff", String(e)));
+      }
+
+      await writeImmobiliareSourceRegistry({ ok: true, records: started.length });
       return new Response(JSON.stringify({
         ok: true, async_start: true, mode, job_id: jobId, started, skipped,
-        note: "run avviati in async: collect-pending completerà ingest ed enrichment",
+        note: "run avviati in async: webhook + collect-pending completeranno ingest",
       }, null, 2), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     } catch (e) {
-      return new Response(JSON.stringify({ ok: false, error: String((e as Error)?.message ?? e), async_start: true }),
+      const msg = String((e as Error)?.message ?? e);
+      await writeImmobiliareSourceRegistry({ ok: false, error: msg });
+      return new Response(JSON.stringify({ ok: false, error: msg, async_start: true }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
   }
@@ -433,6 +478,7 @@ Deno.serve(async (req) => {
     for (const u of refreshUrls) if (detailByUrl.has(u) && !discoveredUrls.includes(u)) mapped.push(detailByUrl.get(u));
 
     if (mapped.length === 0) {
+      await writeImmobiliareSourceRegistry({ ok: false, error: "provider_returned_no_mappable_items" });
       return new Response(JSON.stringify({ ok: false, error: "provider_returned_no_mappable_items", job_id: jobId, enrichment }),
         { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -475,13 +521,20 @@ Deno.serve(async (req) => {
     }
 
     const ok = errors.length === 0 && created + updated + skipped_listview_existing > 0;
+    await writeImmobiliareSourceRegistry({
+      ok,
+      records: created + updated,
+      error: ok ? undefined : (errors[0] ?? "upsert_failed"),
+    });
     return new Response(JSON.stringify({
       ok, job_id: jobId,
       mapped: mapped.length, created, updated, skipped_listview_existing, errors,
       enrichment,
     }, null, 2), { status: ok ? 200 : 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
-    return new Response(JSON.stringify({ ok: false, error: String((e as Error)?.message ?? e), enrichment }),
+    const msg = String((e as Error)?.message ?? e);
+    await writeImmobiliareSourceRegistry({ ok: false, error: msg });
+    return new Response(JSON.stringify({ ok: false, error: msg, enrichment }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });

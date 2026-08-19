@@ -47,7 +47,7 @@ const CORE_JOBS: CoreJob[] = [
   { jobname: "portal-idealista-padova",                 descrizione_leggibile: "Portale Idealista Padova",                    schedule_attesa: "10 2 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
   { jobname: "portal-subito-padova",                    descrizione_leggibile: "Portale Subito Padova",                       schedule_attesa: "20 2 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
   { jobname: "portal-casa-padova",                      descrizione_leggibile: "Portale Casa.it Padova",                      schedule_attesa: "30 2 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
-  { jobname: "portal-collect-pending",                  descrizione_leggibile: "Promozione run Apify in padova_listings",     schedule_attesa: "45 2 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
+  { jobname: "portal-collect-pending",                  descrizione_leggibile: "Promozione run Apify in padova_listings",     schedule_attesa: "*/15 * * * *", kind: "frequent", warning_ore: 40 / 60, critico_ore: 2, source: "executions_log" },
   { jobname: "padova-listings-contendibili-recompute",  descrizione_leggibile: "Ricalcolo contendibili dopo i portali",     schedule_attesa: "15 3 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
 ];
 

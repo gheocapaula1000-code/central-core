@@ -16,6 +16,8 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getApifyToken } from "../_shared/apify.ts";
+import { extractCollectRunIds } from "../_shared/apifyLaunch.ts";
+import { isJobSecretAuthorized, jobAuthFailure } from "../_shared/jobAuth.ts";
 import {
   classifyProviderMunicipality,
   isExplicitPadovaMunicipality,
@@ -411,9 +413,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
-  if (!jobSecret || req.headers.get("x-job-secret") !== jobSecret) {
-    return new Response(JSON.stringify({ ok: false, error: "unauthorized" }),
-      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  if (!isJobSecretAuthorized(req.headers, jobSecret)) {
+    const auth = jobAuthFailure(Boolean(jobSecret));
+    return new Response(JSON.stringify({ ok: false, error: auth.error }),
+      { status: auth.status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
   const token = getApifyToken();
@@ -488,8 +491,9 @@ Deno.serve(async (req) => {
   // run NON va considerata completata finché il dataset non è stato promosso
   // in padova_collect_v2_items.
   let candidates: any[] = [];
-  if (Array.isArray(body.run_ids) && body.run_ids.length) {
-    const { data } = await sb.from("padova_apify_runs").select("*").in("run_id", body.run_ids);
+  const webhookRunIds = extractCollectRunIds(body);
+  if (webhookRunIds.length) {
+    const { data } = await sb.from("padova_apify_runs").select("*").in("run_id", webhookRunIds);
     candidates = data ?? [];
   } else if (dbEvidenceOnly) {
     // Solo run già terminali positivi e recenti: i residui storici sono stati
@@ -987,7 +991,7 @@ Deno.serve(async (req) => {
     quarantined_runs: quarantinedRuns,
     quarantine_error: quarantineError,
     scope_started_after: scopeStartedAfter,
-    scope_run_ids: Array.isArray(body.run_ids) ? body.run_ids.length : 0,
+    scope_run_ids: webhookRunIds.length,
     agency_backfill: backfillLaunches,
     recompute: recomputeResult, results,
     error: ok ? undefined : (!candidatesOk
