@@ -368,3 +368,7 @@ verify_jwt = false
 [functions.padova-firecrawl-detail-collect]
 verify_jwt = false
 
+# Scheduler orchestrator: x-job-secret === CENTRAL_CORE_JOB_SECRET (in-function).
+[functions.civiko-scheduler]
+verify_jwt = false
+

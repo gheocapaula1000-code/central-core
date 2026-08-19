@@ -147,6 +147,7 @@ describe("sourceJobs.runOne — outcome contracts", () => {
     expect(r.error).toMatch(/HTTP 500/);
     expect(supabase.patches.F2.last_error).toMatch(/HTTP 500/);
     expect(supabase.patches.F2.last_success_at).toBeUndefined();
+    expect(supabase.patches.F2.next_run_at).toBeTruthy();
   });
 
   it("fetch throw → failed and captured", async () => {

@@ -310,4 +310,15 @@ EOF
               echo "Unhealthy jobs: $BAD"
               exit 1
             fi
+            FONTI=$(jq -r '[.fonti_scheduler.fonti[]? | select(.stato=="ERRORE") | .source_code] | join(",")' /tmp/health.json 2>/dev/null || true)
+            if [ -n "${FONTI:-}" ]; then
+              echo "Unhealthy sources: $FONTI"
+              jq -r '.fonti_scheduler.fonti[]? | select(.stato=="ERRORE") | "\(.source_code): \(.last_error)"' /tmp/health.json || true
+              exit 1
+            fi
+            DIAG=$(jq -r '[.diagnostics_errors[]? | .source] | join(",")' /tmp/health.json 2>/dev/null || true)
+            if [ -n "${DIAG:-}" ]; then
+              echo "Health diagnostic query failures: $DIAG"
+              exit 1
+            fi
           fi

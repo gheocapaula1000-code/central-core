@@ -94,15 +94,11 @@ export function buildRequestPlan(
       headers["Authorization"] = `Bearer ${serviceKey}`;
       break;
     case "F19":
-      // civiko-source-registry/import/obituaries-aggregate: protected by
-      // service-role Bearer + x-job-secret. The scheduler only pings the
-      // endpoint; if no CSV/rows[] payload is available the function
-      // returns a clean no-op (it does NOT fabricate aggregate data).
-      if (!serviceKey) {
-        console.warn("[scheduler] F19: SUPABASE_SERVICE_ROLE_KEY is empty");
-        return { skip_reason: "missing_SUPABASE_SERVICE_ROLE_KEY" };
+      // civiko-obituaries-aggregate accepts x-job-secret (or x-internal-secret).
+      // Bearer service-role is optional extra for helpers that re-check Authorization.
+      if (serviceKey) {
+        headers["Authorization"] = `Bearer ${serviceKey}`;
       }
-      headers["Authorization"] = `Bearer ${serviceKey}`;
       break;
     case "F11":
       if (!coords) return { skip_reason: "MISSING_COORDS" };
@@ -191,6 +187,12 @@ export async function runOne(
 
   const planReq = buildRequestPlan(plan, deps.secrets, deps.jobSecret, coords);
   if ("skip_reason" in planReq) {
+    if (planReq.skip_reason.startsWith("missing_")) {
+      await safeUpdateRegistry(deps.supabase, plan.code, {
+        ok: false,
+        error: planReq.skip_reason,
+      });
+    }
     return {
       ...baseResult,
       status: "skipped",
@@ -267,7 +269,10 @@ async function safeUpdateRegistry(
 ): Promise<void> {
   if (!supabase || typeof supabase.from !== "function") return;
   const now = new Date().toISOString();
+  const plan = SOURCE_PLAN[source_code];
   const patch: Record<string, unknown> = { last_run_at: now };
+  const next = plan ? nextRunAfter(plan.scheduler_frequency) : null;
+  if (next) patch.next_run_at = next.toISOString();
   if (outcome.ok) {
     patch.last_success_at = now;
     patch.last_error = null;
@@ -317,11 +322,13 @@ export async function runScheduledSources(deps: RunDeps, opts: RunOptions = {}):
     try {
       results.push(await runOne(p, deps, { dry_run }));
     } catch (e) {
+      const msg = ((e as Error).message ?? String(e)).slice(0, 300);
+      await safeUpdateRegistry(deps.supabase, p.code, { ok: false, error: msg });
       results.push({
         source_code: p.code,
         status: "failed",
         records_processed: 0,
-        error: ((e as Error).message ?? String(e)).slice(0, 300),
+        error: msg,
         duration_ms: 0,
         next_run_at: nextRunAfter(p.scheduler_frequency)?.toISOString() ?? null,
         reason: "runner_exception_isolated",
