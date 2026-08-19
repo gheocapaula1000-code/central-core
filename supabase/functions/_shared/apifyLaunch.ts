@@ -4,6 +4,7 @@
 export const ACTOR_SUBITO = "emastra~subito-it-immobili";
 export const ACTOR_IMMO_LISTVIEW = "azzouzana~immobiliare-it-listing-page-scraper-by-search-url";
 export const ACTOR_IMMO_DETAIL = "memo23~immobiliare-scraper";
+export const ACTOR_IDEALISTA = "dz_omar~idealista-scraper-api";
 
 export const SUBITO_PADOVA_SEARCH_URLS = [
   "https://www.subito.it/annunci-veneto/vendita/immobili/padova/padova/",
@@ -15,6 +16,16 @@ export const IMMOBILIARE_PADOVA_SEARCH_URLS = [
   "https://www.immobiliare.it/vendita-case/padova/?prezzoMinimo=150000&prezzoMassimo=250000",
   "https://www.immobiliare.it/vendita-case/padova/?prezzoMinimo=250000&prezzoMassimo=400000",
   "https://www.immobiliare.it/vendita-case/padova/?prezzoMinimo=400000",
+] as const;
+
+// Comune di Padova only. Italian path + Italian filters (never Spanish
+// `desde` / `ordenado-por`, which 404 on idealista.it and yield empty runs).
+export const IDEALISTA_PADOVA_DISCOVERY_URLS = [
+  "https://www.idealista.it/vendita-case/padova-padova/con-ultime-2-settimane_1/",
+  "https://www.idealista.it/vendita-case/padova-padova/",
+  "https://www.idealista.it/vendita-case/padova-padova/con-prezzo-max_200000/",
+  "https://www.idealista.it/vendita-case/padova-padova/con-prezzo_200000-400000/",
+  "https://www.idealista.it/vendita-case/padova-padova/con-prezzo-min_400000/",
 ] as const;
 
 export const COLLECT_PENDING_FN = "padova-apify-collect-pending";
@@ -32,6 +43,14 @@ export const IMMOBILIARE_SCHEDULER_JOBS = [
   "central-core-apify-immobiliare-nightly",
 ] as const;
 
+export const IDEALISTA_SOURCE_CODES = ["F21"] as const;
+export const IDEALISTA_SCHEDULER_JOBS = [
+  "portal-idealista-padova",
+  "central-core-apify-idealista-nightly",
+] as const;
+
+const IDEALISTA_URL_RE = /^https:\/\/www\.idealista\.(com|pt|it)\/.+/i;
+
 /** Apify path IDs use ~; callers sometimes pass username/name. */
 export function normalizeApifyActorId(actor: string): string {
   const raw = (actor ?? "").trim();
@@ -48,6 +67,14 @@ export function isKnownSubitoActor(actor: string): boolean {
 export function isKnownImmobiliareActor(actor: string): boolean {
   const id = normalizeApifyActorId(actor);
   return id === ACTOR_IMMO_LISTVIEW || id === ACTOR_IMMO_DETAIL;
+}
+
+export function isKnownIdealistaActor(actor: string): boolean {
+  return normalizeApifyActorId(actor) === ACTOR_IDEALISTA;
+}
+
+export function isValidIdealistaUrl(url: string): boolean {
+  return IDEALISTA_URL_RE.test((url ?? "").trim());
 }
 
 /** azzouzana listing-page actor: startUrl + maxItems. */
@@ -254,4 +281,19 @@ export function collectPendingRunError(
   if (action === "skip_unknown_actor") return "unknown_actor";
   if (action === "marked_failed") return `apify_${String(apifyStatus ?? "FAILED").toLowerCase()}`;
   return action.slice(0, 200);
+}
+
+export function extractStartedRunIds(payload: Record<string, unknown> | null): string[] {
+  if (!payload) return [];
+  const fromStarted = Array.isArray(payload.started)
+    ? payload.started
+      .map((row) => {
+        if (!row || typeof row !== "object") return "";
+        return String((row as Record<string, unknown>).run_id ?? "").trim();
+      })
+      .filter(Boolean)
+    : [];
+  if (fromStarted.length) return Array.from(new Set(fromStarted));
+  const top = typeof payload.run_id === "string" ? payload.run_id.trim() : "";
+  return top ? [top] : [];
 }

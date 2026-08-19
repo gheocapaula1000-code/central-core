@@ -22,6 +22,8 @@ import {
   sourceRegistryPatch,
   syntheticFailedRunId,
   COLLECT_PENDING_FN,
+  IDEALISTA_SCHEDULER_JOBS,
+  IDEALISTA_SOURCE_CODES,
   IMMOBILIARE_SCHEDULER_JOBS,
   IMMOBILIARE_SOURCE_CODES,
   SUBITO_SCHEDULER_JOBS,
@@ -151,6 +153,23 @@ export async function writeImmobiliareSourceRegistry(
       .in("scheduler_job_name", [...IMMOBILIARE_SCHEDULER_JOBS]);
   } catch (e) {
     console.warn("[apify] source registry update failed", String((e as Error)?.message ?? e));
+  }
+}
+
+/** Write last_error / last_success to the Idealista source registry rows. */
+export async function writeIdealistaSourceRegistry(
+  outcome: { ok: boolean; records?: number; error?: string },
+): Promise<void> {
+  const sb = serviceClient();
+  if (!sb) return;
+  const patch = sourceRegistryPatch(outcome, new Date().toISOString(), "[idealista-apify]");
+  try {
+    await sb.from("civiko_source_registry").update(patch)
+      .in("source_code", [...IDEALISTA_SOURCE_CODES]);
+    await sb.from("civiko_source_registry").update(patch)
+      .in("scheduler_job_name", [...IDEALISTA_SCHEDULER_JOBS]);
+  } catch (e) {
+    console.warn("[apify] idealista source registry update failed", String((e as Error)?.message ?? e));
   }
 }
 

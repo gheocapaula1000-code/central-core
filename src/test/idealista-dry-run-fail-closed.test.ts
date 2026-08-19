@@ -39,11 +39,11 @@ describe("idealista collect — DRY_RUN fail-closed", () => {
   });
 
   it("keeps auth and shared modules untouched in behaviour", () => {
-    // job secret gate still precedes any body handling
-    expect(src.indexOf("x-job-secret")).toBeLessThan(dryRunIdx);
-    // still uses the shared launcher for real runs
+    expect(src.indexOf("isJobSecretAuthorized")).toBeGreaterThan(-1);
+    expect(src.indexOf("isJobSecretAuthorized")).toBeLessThan(dryRunIdx);
     expect(src).toContain('from "../_shared/apify.ts"');
     expect(src).toContain('from "../_shared/apifyBudget.ts"');
+    expect(src).toContain('from "../_shared/jobAuth.ts"');
   });
 
   it("simulated dry_run flow issues no fetch and no db mutation", async () => {
