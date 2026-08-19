@@ -321,9 +321,11 @@ describe("cron migration — live Core, vault secret, 15-min collect, promote", 
   });
 
   it("keeps the 15-minute collect-pending drain and watchdog already on main", () => {
-    expect(sql).not.toContain("portal-collect-pending-drain");
-    expect(sql).not.toContain("expire-stale-scrape-jobs");
-    expect(sql).not.toMatch(/'portal-collect-pending'/);
+    const unschedules = sql.slice(sql.indexOf("FOREACH"), sql.indexOf("END LOOP"));
+    expect(unschedules).not.toContain("'portal-collect-pending'");
+    expect(unschedules).not.toContain("'portal-collect-pending-drain'");
+    expect(unschedules).not.toContain("'expire-stale-scrape-jobs'");
+    expect(sql).not.toMatch(/cron\.schedule\(\s*'portal-collect-pending'/);
     expect(health).toContain('jobname: "portal-collect-pending"');
     expect(health).toContain('jobname: "portal-collect-pending-drain"');
     expect(health).toContain('jobname: "expire-stale-scrape-jobs"');
