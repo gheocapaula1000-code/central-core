@@ -1,4 +1,19 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import {
+  buildApifyRunWebhooks,
+  collectPendingWebhookUrl,
+  encodeApifyWebhooksQuery,
+  isApifyPending,
+  isApifySucceeded,
+} from "../_shared/apifyDrain.ts";
+import {
+  APIFY_DATASET_PROCESSOR,
+  apifyPollAvailableAt,
+  safeEqual,
+  shouldClaimAnotherWave,
+  WORKER_DRAIN_WALL_MS,
+  WORKER_LEASE_SECONDS,
+} from "../_shared/scrapingLocks.ts";
 
 type Provider = "firecrawl" | "perplexity" | "apify";
 
@@ -243,10 +258,18 @@ async function apify(job: Job, timeoutMs: number): Promise<Outcome> {
       throw new ProviderError("actor_id_missing", 400, false);
     }
 
+    const webhooks = buildApifyRunWebhooks({
+      requestUrl: collectPendingWebhookUrl(SUPABASE_URL),
+      jobSecret: Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "",
+    });
+    const webhookQuery = webhooks
+      ? `&webhooks=${encodeURIComponent(encodeApifyWebhooksQuery(webhooks))}`
+      : "";
+
     const { response, body } = await fetchJson(
       `https://api.apify.com/v2/acts/${
         encodeURIComponent(actorId)
-      }/runs?token=${encodeURIComponent(token)}&waitForFinish=0`,
+      }/runs?token=${encodeURIComponent(token)}&waitForFinish=0${webhookQuery}`,
       {
         method: "POST",
         headers: {
@@ -287,7 +310,7 @@ async function apify(job: Job, timeoutMs: number): Promise<Outcome> {
 
     const run = runResponse.body.data ?? runResponse.body;
 
-    if (["READY", "RUNNING"].includes(run.status)) {
+    if (isApifyPending(run.status)) {
       throw new ProviderError(
         `apify_${String(run.status).toLowerCase()}`,
         202,
@@ -296,7 +319,7 @@ async function apify(job: Job, timeoutMs: number): Promise<Outcome> {
       );
     }
 
-    if (run.status !== "SUCCEEDED") {
+    if (!isApifySucceeded(run.status)) {
       throw new ProviderError(
         `apify_${String(run.status).toLowerCase()}`,
         502,
@@ -305,24 +328,14 @@ async function apify(job: Job, timeoutMs: number): Promise<Outcome> {
     }
 
     const datasetId = String(run.defaultDatasetId ?? "");
-    const limit = integer(job.payload.limit, 100, 1, 1000);
-
-    const dataset = await fetchJson(
-      `https://api.apify.com/v2/datasets/${
-        encodeURIComponent(datasetId)
-      }/items?token=${encodeURIComponent(token)}&clean=1&limit=${limit}`,
-      {},
-      timeoutMs,
-    );
-
-    assertOk(dataset.response, dataset.body);
 
     return {
       result: {
         run,
-        items: dataset.body,
+        dataset_id: datasetId,
+        items: [],
       },
-      status: dataset.response.status,
+      status: runResponse.response.status,
       resultRef: runId,
     };
   }
@@ -381,21 +394,24 @@ async function processJob(
     ) {
       const pollPayload = {
         run_id: outcome.resultRef,
-        limit: job.payload.limit ?? 100,
+        limit: job.payload.limit ?? 10000,
       };
 
-      const { error: enqueueError } = await sb.rpc("scraping_enqueue", {
+      const { error: enqueueError } = await sb.rpc("scraping_enqueue_processed", {
         p_provider: "apify",
         p_operation: "poll",
         p_payload: pollPayload,
+        p_processor: APIFY_DATASET_PROCESSOR,
+        p_processor_context: { source: "apify_start" },
         p_idempotency_key: `apify-poll:${outcome.resultRef}`,
         p_group_key: null,
         p_priority: 100,
         p_max_attempts: 20,
         p_timeout_seconds: 30,
-        p_available_at: new Date(Date.now() + 30000).toISOString(),
+        p_available_at: apifyPollAvailableAt(),
         p_parent_id: job.id,
         p_depends_on: [job.id],
+        p_processing_max_attempts: 5,
       });
 
       if (enqueueError) {
@@ -449,11 +465,7 @@ Deno.serve(async (request) => {
 
   const suppliedToken = request.headers.get("x-worker-token") ?? "";
 
-  if (
-    !WORKER_TOKEN ||
-    suppliedToken.length !== WORKER_TOKEN.length ||
-    suppliedToken !== WORKER_TOKEN
-  ) {
+  if (!WORKER_TOKEN || !safeEqual(suppliedToken, WORKER_TOKEN)) {
     return new Response("unauthorized", {
       status: 401,
     });
@@ -476,40 +488,69 @@ Deno.serve(async (request) => {
     ? input.provider
     : null;
 
-  const { data: jobs, error } = await sb.rpc("scraping_claim", {
-    p_worker_id: workerId,
-    p_limit: limit,
-    p_provider: provider,
-    p_lease_seconds: 90,
-  });
-
-  if (error) {
-    return Response.json(
-      {
-        ok: false,
-        error: error.message,
-      },
-      {
-        status: 500,
-      },
-    );
+  try {
+    await sb.rpc("scraping_reap_expired");
+  } catch {
+    // Reaper is best-effort; claim still proceeds.
   }
 
-  const results = await Promise.allSettled(
-    (jobs as Job[]).map((job) => processJob(job, workerId)),
-  );
+  const startedAt = Date.now();
+  const allResults: unknown[] = [];
+  let claimedTotal = 0;
+  let lastClaimed = 0;
+
+  do {
+    const { data: jobs, error } = await sb.rpc("scraping_claim", {
+      p_worker_id: workerId,
+      p_limit: limit,
+      p_provider: provider,
+      p_lease_seconds: WORKER_LEASE_SECONDS,
+    });
+
+    if (error) {
+      if (claimedTotal === 0) {
+        return Response.json(
+          {
+            ok: false,
+            error: error.message,
+          },
+          {
+            status: 500,
+          },
+        );
+      }
+      break;
+    }
+
+    const batch = (jobs ?? []) as Job[];
+    lastClaimed = batch.length;
+    claimedTotal += lastClaimed;
+    if (lastClaimed === 0) break;
+
+    const results = await Promise.allSettled(
+      batch.map((job) => processJob(job, workerId)),
+    );
+    allResults.push(
+      ...results.map((result) =>
+        result.status === "fulfilled"
+          ? result.value
+          : {
+            ok: false,
+            error: String(result.reason),
+          }
+      ),
+    );
+  } while (shouldClaimAnotherWave({
+    startedAtMs: startedAt,
+    nowMs: Date.now(),
+    wallMs: WORKER_DRAIN_WALL_MS,
+    lastClaimed,
+  }));
 
   return Response.json({
     ok: true,
     worker_id: workerId,
-    claimed: jobs.length,
-    results: results.map((result) =>
-      result.status === "fulfilled"
-        ? result.value
-        : {
-          ok: false,
-          error: String(result.reason),
-        }
-    ),
+    claimed: claimedTotal,
+    results: allResults,
   });
 });
