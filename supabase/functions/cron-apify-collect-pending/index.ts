@@ -27,6 +27,7 @@ async function callFn(
     headers: {
       "Content-Type": "application/json",
       "x-job-secret": secret,
+      "x-internal-secret": secret,
       "apikey": anon,
       "Authorization": `Bearer ${anon}`,
     },

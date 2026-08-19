@@ -169,6 +169,7 @@ export type ApifyAdhocWebhook = {
   requestUrl: string;
   ignoreSsl: boolean;
   headersTemplate: string;
+  payloadTemplate?: string;
 };
 
 export function buildApifyRunWebhooks(opts: {
@@ -185,6 +186,7 @@ export function buildApifyRunWebhooks(opts: {
     requestUrl: url,
     ignoreSsl: false,
     headersTemplate: JSON.stringify({ "x-job-secret": secret }),
+    payloadTemplate: '{"run_ids":["{{resource.id}}"]}',
   }];
 }
 

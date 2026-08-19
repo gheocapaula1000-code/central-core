@@ -49,6 +49,8 @@ const CORE_JOBS: CoreJob[] = [
   { jobname: "portal-casa-padova",                      descrizione_leggibile: "Portale Casa.it Padova",                      schedule_attesa: "30 2 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
   { jobname: "portal-collect-pending",                  descrizione_leggibile: "Promozione run Apify in padova_listings",     schedule_attesa: "45 2 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
   { jobname: "portal-collect-pending-drain",            descrizione_leggibile: "Drain run Apify pending ogni 15 minuti",      schedule_attesa: "*/15 * * * *",kind: "frequent", warning_ore: 1, critico_ore: 2, source: "executions_log" },
+  { jobname: "portal-subito-promote",                   descrizione_leggibile: "Promote staging Subito → collect v2",         schedule_attesa: "50 2,3 * * *", kind: "frequent", warning_ore: 14, critico_ore: 26, source: "executions_log" },
+  { jobname: "apify-subito-weekly",                     descrizione_leggibile: "Subito Padova weekly Apify launch",           schedule_attesa: "30 3 * * 0",  kind: "weekly", warning_ore: 24 * 8, critico_ore: 24 * 9, source: "executions_log" },
   { jobname: "padova-listings-contendibili-recompute",  descrizione_leggibile: "Ricalcolo contendibili dopo i portali",     schedule_attesa: "15 3 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
   { jobname: "expire-stale-scrape-jobs",                descrizione_leggibile: "Watchdog: timeout job scrape stuck running", schedule_attesa: "*/15 * * * *", kind: "frequent", warning_ore: 40 / 60, critico_ore: 1, source: "executions_log" },
 ];
@@ -284,6 +286,8 @@ Deno.serve(async (req) => {
         case "portal-casa-padova":
         case "portal-collect-pending":
         case "portal-collect-pending-drain":
+        case "portal-subito-promote":
+        case "apify-subito-weekly":
         case "padova-listings-contendibili-recompute":
         case "expire-stale-scrape-jobs":
           ultimi7gg = { esecuzioni: (logs ?? []).filter((l: any) => l.job_name === j.jobname).length };
