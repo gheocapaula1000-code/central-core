@@ -105,6 +105,16 @@ describe("buildRequestPlan", () => {
       expect(plan.body.radiusMeters).toBeGreaterThan(0);
     } else throw new Error("expected body");
   });
+
+  it("F7 / F10 / F16 send persist flags for territorial collection", () => {
+    for (const code of ["F7", "F10", "F16"]) {
+      const plan = buildRequestPlan(SOURCE_PLAN[code], {}, "job", null);
+      if ("body" in plan) {
+        expect(plan.body.dryRun).toBe(false);
+        expect(plan.body.import).toBe(true);
+      } else throw new Error(`expected body for ${code}`);
+    }
+  });
 });
 
 describe("runOne — evidence writer attachment", () => {

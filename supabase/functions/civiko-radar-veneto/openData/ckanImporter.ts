@@ -9,6 +9,9 @@ interface CkanRunOpts {
   dryRun: boolean;
   import: boolean;
   maxPerKeyword?: number;
+  sourceName?: string;
+  requireGeoMatch?: boolean;
+  territorialSignalType?: string;
 }
 
 export interface CkanRunReport {
@@ -18,6 +21,7 @@ export interface CkanRunReport {
   datasets_found: number;
   datasets_relevant: number;
   documents_saved: number;
+  territorial_signals_created: number;
   errors: string[];
   samples: Array<{ name: string; url: string; format?: string; comune?: string; provincia?: string }>;
 }
@@ -46,12 +50,17 @@ async function ckanSearch(baseUrl: string, q: string, rows = 25): Promise<{ resu
 
 const VENETO_PROV_RE = /(venezia|verona|vicenza|padova|treviso|belluno|rovigo|veneto|\bve\b|\bvr\b|\bvi\b|\bpd\b|\btv\b|\bbl\b|\bro\b)/i;
 
+const PADOVA_GEO_RE = /padova|\bpd\b|padovan/i;
+
 export async function runVenetoOpenDataImport(opts: CkanRunOpts): Promise<CkanRunReport> {
   const baseUrl = opts.baseUrl ?? "https://dati.veneto.it";
+  const sourceName = opts.sourceName ?? "open_data_veneto_ckan";
+  const signalType = opts.territorialSignalType ?? "open_data_dataset";
   const supa = getSupa();
   const report: CkanRunReport = {
     ok: false, base_url: baseUrl, keywords_used: opts.keywords,
     datasets_found: 0, datasets_relevant: 0, documents_saved: 0,
+    territorial_signals_created: 0,
     errors: [], samples: [],
   };
   if (!supa) { report.errors.push("supabase service role missing"); return report; }
@@ -72,6 +81,7 @@ export async function runVenetoOpenDataImport(opts: CkanRunOpts): Promise<CkanRu
       const text = `${title}\n${notes}`.toLowerCase();
       const isVeneto = VENETO_PROV_RE.test(text) || true; // dati.veneto.it è già regionale
       if (!isVeneto) continue;
+      if (opts.requireGeoMatch && !PADOVA_GEO_RE.test(text)) continue;
       report.datasets_relevant++;
       const url = `${baseUrl.replace(/\/$/, "")}/dataset/${ds?.name ?? id}`;
       const resources: any[] = Array.isArray(ds?.resources) ? ds.resources : [];
@@ -79,7 +89,7 @@ export async function runVenetoOpenDataImport(opts: CkanRunOpts): Promise<CkanRu
       const provGuess = (text.match(/\b(ve|vr|vi|pd|tv|bl|ro)\b/i)?.[1] ?? "").toUpperCase() || null;
       report.samples.push({ name: title, url, format: primaryFmt, provincia: provGuess ?? undefined });
       toSave.push({
-        source_name: "open_data_veneto_ckan",
+        source_name: sourceName,
         source_type: "open_data",
         source_url: url,
         title: title.slice(0, 500),
@@ -92,7 +102,7 @@ export async function runVenetoOpenDataImport(opts: CkanRunOpts): Promise<CkanRu
         importability: ["csv","geojson","json","shp"].includes(primaryFmt),
         import_reason: "perplexity_open_data",
         quality: "reale",
-        data_basis: "open_data_veneto",
+        data_basis: sourceName === "anac_ckan" ? "anac_ckan" : "open_data_veneto",
       });
     }
   }
@@ -105,12 +115,40 @@ export async function runVenetoOpenDataImport(opts: CkanRunOpts): Promise<CkanRu
       if (error) { report.errors.push(`upsert: ${error.message}`); break; }
       report.documents_saved += chunk.length;
     }
+
+    const sigRows = toSave.map((row) => ({
+      fingerprint: `ckan:${sourceName}:${String(row.source_url ?? "")}`.slice(0, 240),
+      source_name: sourceName,
+      signal_type: signalType,
+      province: (row.provincia as string | null) ?? "PD",
+      municipality: PADOVA_GEO_RE.test(`${row.title ?? ""} ${row.text_excerpt ?? ""}`) ? "Padova" : null,
+      title: String(row.title ?? "").slice(0, 240) || null,
+      description: String(row.text_excerpt ?? "").slice(0, 1000) || null,
+      data_basis: String(row.data_basis ?? sourceName),
+      quality: "parziale",
+      source_url: row.source_url,
+      is_active: true,
+      confidence_score: Number(row.confidence_score ?? 70),
+      impact_direction: "neutral",
+      impact_strength: 0.3,
+      payload: { classification: row.classification, extracted_entities: row.extracted_entities },
+    }));
+    for (let i = 0; i < sigRows.length; i += 100) {
+      const chunk = sigRows.slice(i, i + 100);
+      const { error, count } = await supa.from("territorial_signals").upsert(chunk, {
+        onConflict: "fingerprint",
+        ignoreDuplicates: false,
+        count: "exact",
+      });
+      if (error) { report.errors.push(`territorial_signals:${error.message}`); break; }
+      report.territorial_signals_created += count ?? chunk.length;
+    }
   }
 
   // Register source if missing
   if (!opts.dryRun) {
     await supa.from("data_sources").upsert({
-      source_name: "open_data_veneto_ckan",
+      source_name: sourceName,
       source_type: "open_data",
       base_url: baseUrl,
       coverage_area: "veneto",
