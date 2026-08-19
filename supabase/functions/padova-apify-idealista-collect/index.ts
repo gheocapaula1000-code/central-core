@@ -5,34 +5,30 @@
 // padova-apify-immobiliare-collect.
 //
 // Modes:
-//   - "discovery": usa DEFAULT_DISCOVERY_URLS (o body.discovery_urls),
+//   - "discovery": usa IDEALISTA_PADOVA_DISCOVERY_URLS (o body.discovery_urls),
 //                  ogni URL è una pagina di ricerca → desiredResults per URL.
-//   - "refresh"  : pesca URL detail da padova_listings dove portal='idealista.it'
-//                  e updated_at < now()-7d (o body.refresh_stale_days).
+//   - "refresh"  : pesca URL detail da padova_listings dove fonte='idealista'
+//                  e last_seen_at < now()-7d (o body.refresh_stale_days).
 //   - "mixed"    : concatena discovery + refresh in un unico run (default).
 //
-// Auth: x-job-secret === CENTRAL_CORE_JOB_SECRET.
-// NON collegata a nessun cron: chiamata manuale/test.
+// Auth: CENTRAL_CORE_JOB_SECRET via x-job-secret / x-internal-secret / Bearer.
+// Cron: cron-apify-idealista-nightly (portal-idealista-padova @ 02:10 UTC).
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { getApifyToken, startApifyRun } from "../_shared/apify.ts";
+import { getApifyToken, handoffCollectPending, startApifyRun, writeIdealistaSourceRegistry } from "../_shared/apify.ts";
 import { canSpendApify } from "../_shared/apifyBudget.ts";
 import { expireStaleScrapeJobs } from "../_shared/scrapeJobWatchdog.ts";
+import {
+  ACTOR_IDEALISTA,
+  IDEALISTA_PADOVA_DISCOVERY_URLS,
+  isValidIdealistaUrl,
+} from "../_shared/apifyLaunch.ts";
+import { isJobSecretAuthorized, jobAuthFailure } from "../_shared/jobAuth.ts";
 
 const APIFY = "https://api.apify.com/v2";
-const ACTOR = "dz_omar~idealista-scraper-api";
-
-// URL di ricerca Padova (vendita), ordinati per data pubblicazione desc.
-// Coprono l'intero comune con filtri di prezzo per non superare la paginazione
-// interna dell'actor.
-const DEFAULT_DISCOVERY_URLS = [
-  "https://www.idealista.it/vendita-case/padova-padova/con-pubblicato_ultima-settimana/?ordinato-per=pubblicazione-desc",
-  "https://www.idealista.it/vendita-case/padova-padova/?ordinato-per=pubblicazione-desc",
-  "https://www.idealista.it/vendita-case/padova-padova/con-prezzo-max_200000/?ordinato-per=pubblicazione-desc",
-  "https://www.idealista.it/vendita-case/padova-padova/con-prezzo_200000-400000/?ordinato-per=pubblicazione-desc",
-  "https://www.idealista.it/vendita-case/padova-padova/con-prezzo-desde_400000/?ordinato-per=pubblicazione-desc",
-];
+const ACTOR = ACTOR_IDEALISTA;
+const DEFAULT_DISCOVERY_URLS = [...IDEALISTA_PADOVA_DISCOVERY_URLS];
 
 type Mode = "discovery" | "refresh" | "mixed";
 
@@ -50,26 +46,16 @@ interface Body {
 }
 
 
-async function startRun(input: Record<string, unknown>, token: string) {
-  const r = await fetch(
-    `${APIFY}/acts/${encodeURIComponent(ACTOR)}/runs?token=${encodeURIComponent(token)}&waitForFinish=0`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    },
-  );
-  const j = await r.json();
-  if (!r.ok) {
-    throw new Error(`apify_start_${r.status}: ${JSON.stringify(j).slice(0, 300)}`);
-  }
-  return { run_id: j.data.id as string, dataset_id: j.data.defaultDatasetId as string };
+function sanitizeUrls(urls: string[]): string[] {
+  return urls.filter((u) => typeof u === "string" && isValidIdealistaUrl(u));
 }
 
 async function pollRun(runId: string, token: string, timeoutSec: number) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutSec * 1000) {
-    const r = await fetch(`${APIFY}/actor-runs/${runId}?token=${encodeURIComponent(token)}`);
+    const r = await fetch(`${APIFY}/actor-runs/${runId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
     const j = await r.json();
     const status = j?.data?.status;
     if (["SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"].includes(status)) {
@@ -82,7 +68,8 @@ async function pollRun(runId: string, token: string, timeoutSec: number) {
 
 async function fetchDataset(datasetId: string, token: string, limit: number) {
   const r = await fetch(
-    `${APIFY}/datasets/${datasetId}/items?token=${encodeURIComponent(token)}&clean=1&limit=${limit}`,
+    `${APIFY}/datasets/${datasetId}/items?clean=1&limit=${limit}`,
+    { headers: { Authorization: `Bearer ${token}` } },
   );
   if (!r.ok) throw new Error(`apify_dataset_${r.status}`);
   return (await r.json()) as any[];
@@ -233,15 +220,18 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
-  if (!jobSecret || req.headers.get("x-job-secret") !== jobSecret) {
+  if (!isJobSecretAuthorized(req.headers, jobSecret)) {
+    const auth = jobAuthFailure(Boolean(jobSecret));
+    await writeIdealistaSourceRegistry({ ok: false, error: auth.error });
     return new Response(
-      JSON.stringify({ ok: false, error: "unauthorized" }),
-      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      JSON.stringify({ ok: false, error: auth.error }),
+      { status: auth.status, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 
   const token = getApifyToken();
   if (!token) {
+    await writeIdealistaSourceRegistry({ ok: false, error: "APIFY_API_TOKEN_missing" });
     return new Response(
       JSON.stringify({ ok: false, error: "APIFY_API_TOKEN_missing" }),
       { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -268,13 +258,14 @@ Deno.serve(async (req) => {
   const dbCap = body.max_urls_from_db ?? 100;
 
   // 1) Compone lista URL
-  const discoveryUrls =
-    mode === "refresh" ? [] : (body.discovery_urls ?? DEFAULT_DISCOVERY_URLS);
+  const discoveryUrls = sanitizeUrls(
+    mode === "refresh" ? [] : (body.discovery_urls ?? DEFAULT_DISCOVERY_URLS),
+  );
 
   let refreshUrls: string[] = [];
   if (mode === "refresh" || mode === "mixed") {
     if (body.refresh_urls?.length) {
-      refreshUrls = body.refresh_urls.slice(0, dbCap);
+      refreshUrls = sanitizeUrls(body.refresh_urls).slice(0, dbCap);
     } else {
       const cutoff = new Date(Date.now() - staleDays * 86400_000).toISOString();
       const { data } = await sb
@@ -285,12 +276,13 @@ Deno.serve(async (req) => {
         .not("url", "is", null)
         .order("last_seen_at", { ascending: true })
         .limit(dbCap);
-      refreshUrls = (data ?? []).map((r: any) => r.url).filter(Boolean);
+      refreshUrls = sanitizeUrls((data ?? []).map((r: any) => r.url).filter(Boolean));
     }
   }
 
   const allUrls = [...discoveryUrls, ...refreshUrls];
   if (allUrls.length === 0) {
+    await writeIdealistaSourceRegistry({ ok: false, error: "no_urls_for_mode" });
     return new Response(
       JSON.stringify({ ok: false, error: "no_urls_for_mode", mode }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -353,23 +345,29 @@ Deno.serve(async (req) => {
     );
     if (!launched.started) {
       console.warn(`[apify] lancio saltato: ${launched.reason} portal=${portalTag}`);
+      await writeIdealistaSourceRegistry({ ok: false, error: launched.reason });
       return new Response(
-        JSON.stringify({ ok: false, skipped: true, reason: launched.reason, mode }),
+        JSON.stringify({ ok: false, skipped: true, reason: launched.reason, error: launched.reason, mode, started: [] }),
         { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
-    const { run_id, dataset_id } = launched;
+    const { run_id, dataset_id, webhook_attached } = launched;
 
 
-    // ASYNC MODE: registra il run e ritorna. collect-pending farà polling,
-    // ingest e (per discovery) Pass B enrichment.
+    // ASYNC MODE: registra il run e ritorna. webhook + collect-pending
+    // completano ingest e (per discovery) Pass B enrichment.
     if (body.async_start) {
+      const started = [{
+        role: "collect", run_id, dataset_id, webhook_attached,
+      }];
+      handoffCollectPending([run_id]);
+      await writeIdealistaSourceRegistry({ ok: true, records: 1 });
       return new Response(
         JSON.stringify({
-          ok: true, async_start: true, run_id, dataset_id, mode,
+          ok: true, async_start: true, run_id, dataset_id, started, mode,
           discovery_count: discoveryUrls.length,
           refresh_count: refreshUrls.length,
-          note: "run avviato in async: collect-pending completerà ingest ed enrichment",
+          note: "run avviato in async: webhook + collect-pending completeranno ingest",
         }, null, 2),
         { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
@@ -378,19 +376,21 @@ Deno.serve(async (req) => {
 
     const { status } = await pollRun(run_id, token, timeoutSec);
     if (status !== "SUCCEEDED") {
+      await writeIdealistaSourceRegistry({ ok: false, error: `run_status_${status}` });
       return new Response(
         JSON.stringify({
-          ok: false, run_id, dataset_id, status, mode,
+          ok: false, error: `run_status_${status}`, run_id, dataset_id, status, mode,
           discovery_count: discoveryUrls.length,
           refresh_count: refreshUrls.length,
           note: "run non terminato, alza wait_seconds o pesca dataset a mano",
         }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
     const items = await fetchDataset(dataset_id, token, maxItems);
     if (items.length === 0) {
+      await writeIdealistaSourceRegistry({ ok: false, error: "provider_returned_zero_items" });
       return new Response(JSON.stringify({ ok: false, error: "provider_returned_zero_items", run_id, dataset_id }),
         { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -427,30 +427,31 @@ Deno.serve(async (req) => {
 
       if (newUrls.length > 0) {
         try {
-          const runB = await startRun(
+          const runB = await startApifyRun(
+            ACTOR,
             { Property_urls: newUrls.map((u) => ({ url: u })) },
-            token,
+            { portal: `idealista_collect_${mode}_enrich`, estUsd: 0.30, costCapUsd: 0.30 },
           );
-          secondPassRunId = runB.run_id;
-          await sb.from("padova_apify_runs").insert({
-            portal: `idealista_collect_${mode}_enrich`,
-            actor_id: ACTOR,
-            run_id: runB.run_id,
-            dataset_id: runB.dataset_id,
-            status: "RUNNING",
-            cost_cap_usd: 0.30,
-          });
-          const pollB = await pollRun(runB.run_id, token, timeoutSec);
-          secondPassStatus = pollB.status;
-          if (pollB.status === "SUCCEEDED") {
-            const detailItems = await fetchDataset(runB.dataset_id, token, newUrls.length + 20);
-            const detailMapped = detailItems.map((it) => mapItem(it, jobId, nowIso)).filter(Boolean) as any[];
-            // Merge: rimpiazza le entry listview con le detail (che hanno priceDropInfo)
-            for (const r of detailMapped) byUrl.set(r.url, r);
-            newUrlsEnriched = detailMapped.length;
-            await sb.from("padova_apify_runs").update({ status: "SUCCEEDED" }).eq("run_id", runB.run_id);
+          if (!runB.started) {
+            secondPassStatus = `skipped:${runB.reason}`.slice(0, 200);
           } else {
-            await sb.from("padova_apify_runs").update({ status: pollB.status }).eq("run_id", runB.run_id);
+            secondPassRunId = runB.run_id;
+            const pollB = await pollRun(runB.run_id, token, timeoutSec);
+            secondPassStatus = pollB.status;
+            if (pollB.status === "SUCCEEDED") {
+              const detailItems = await fetchDataset(runB.dataset_id, token, newUrls.length + 20);
+              const detailMapped = detailItems.map((it) => mapItem(it, jobId, nowIso)).filter(Boolean) as any[];
+              // Merge: rimpiazza le entry listview con le detail (che hanno priceDropInfo)
+              for (const r of detailMapped) byUrl.set(r.url, r);
+              newUrlsEnriched = detailMapped.length;
+              await sb.from("padova_apify_runs").update({ status: "SUCCEEDED" }).eq("run_id", runB.run_id);
+            } else {
+              await sb.from("padova_apify_runs").update({
+                status: pollB.status,
+                error: `second_pass_${pollB.status}`.slice(0, 1000),
+                finished_at: new Date().toISOString(),
+              }).eq("run_id", runB.run_id);
+            }
           }
         } catch (e) {
           console.error("[idealista] second_pass_failed", (e as Error).message);
@@ -520,12 +521,23 @@ Deno.serve(async (req) => {
       else created += slice.length;
     }
 
-    await sb.from("padova_apify_runs").update({ status: "SUCCEEDED" }).eq("run_id", run_id);
+    await sb.from("padova_apify_runs").update({
+      status: "SUCCEEDED",
+      items_count: deduped.length,
+      imported: created + updated,
+      finished_at: new Date().toISOString(),
+    }).eq("run_id", run_id);
 
     const ok = errors.length === 0 && deduped.length > 0 && created + updated > 0;
+    await writeIdealistaSourceRegistry({
+      ok,
+      records: created + updated,
+      error: ok ? undefined : (errors[0] ?? "upsert_failed"),
+    });
     return new Response(
       JSON.stringify({
         ok, run_id, dataset_id, job_id: jobId, mode,
+        started: [{ role: "collect", run_id, dataset_id }],
         discovery_count: discoveryUrls.length,
         refresh_count: refreshUrls.length,
         dataset_size: items.length,
@@ -539,8 +551,10 @@ Deno.serve(async (req) => {
     );
 
   } catch (e) {
+    const msg = String((e as Error)?.message ?? e);
+    await writeIdealistaSourceRegistry({ ok: false, error: msg });
     return new Response(
-      JSON.stringify({ ok: false, error: String((e as Error)?.message ?? e) }),
+      JSON.stringify({ ok: false, error: msg }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
