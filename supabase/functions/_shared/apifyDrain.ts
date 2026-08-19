@@ -175,17 +175,21 @@ export type ApifyAdhocWebhook = {
 export function buildApifyRunWebhooks(opts: {
   requestUrl: string;
   jobSecret: string;
+  apikey?: string;
 }): ApifyAdhocWebhook[] | null {
   const url = String(opts.requestUrl ?? "").trim();
   const secret = String(opts.jobSecret ?? "");
   if (!/^https:\/\//i.test(url)) return null;
   if (!url.includes("/functions/v1/padova-apify-collect-pending")) return null;
   if (!secret) return null;
+  const headers: Record<string, string> = { "x-job-secret": secret };
+  const apikey = String(opts.apikey ?? "").trim();
+  if (apikey) headers.apikey = apikey;
   return [{
     eventTypes: [...APIFY_RUN_WEBHOOK_EVENTS],
     requestUrl: url,
     ignoreSsl: false,
-    headersTemplate: JSON.stringify({ "x-job-secret": secret }),
+    headersTemplate: JSON.stringify(headers),
     payloadTemplate: '{"run_ids":["{{resource.id}}"]}',
   }];
 }

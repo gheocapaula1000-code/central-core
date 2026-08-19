@@ -2,10 +2,19 @@
 // Used by startApifyRun() and covered by Node/Vitest tests.
 
 export const ACTOR_SUBITO = "emastra~subito-it-immobili";
+export const ACTOR_IMMO_LISTVIEW = "azzouzana~immobiliare-it-listing-page-scraper-by-search-url";
+export const ACTOR_IMMO_DETAIL = "memo23~immobiliare-scraper";
 
 export const SUBITO_PADOVA_SEARCH_URLS = [
   "https://www.subito.it/annunci-veneto/vendita/immobili/padova/padova/",
   "https://www.subito.it/annunci-veneto/vendita/appartamenti/padova/padova/",
+] as const;
+
+export const IMMOBILIARE_PADOVA_SEARCH_URLS = [
+  "https://www.immobiliare.it/vendita-case/padova/?prezzoMassimo=150000",
+  "https://www.immobiliare.it/vendita-case/padova/?prezzoMinimo=150000&prezzoMassimo=250000",
+  "https://www.immobiliare.it/vendita-case/padova/?prezzoMinimo=250000&prezzoMassimo=400000",
+  "https://www.immobiliare.it/vendita-case/padova/?prezzoMinimo=400000",
 ] as const;
 
 export const COLLECT_PENDING_FN = "padova-apify-collect-pending";
@@ -15,6 +24,12 @@ export const SUBITO_SCHEDULER_JOBS = [
   "apify-subito-weekly",
   "central-core-padova-subito-promote",
   "portal-subito-promote",
+] as const;
+
+export const IMMOBILIARE_SOURCE_CODES = ["F21"] as const;
+export const IMMOBILIARE_SCHEDULER_JOBS = [
+  "portal-immobiliare-padova",
+  "central-core-apify-immobiliare-nightly",
 ] as const;
 
 /** Apify path IDs use ~; callers sometimes pass username/name. */
@@ -28,6 +43,36 @@ export function normalizeApifyActorId(actor: string): string {
 
 export function isKnownSubitoActor(actor: string): boolean {
   return normalizeApifyActorId(actor) === ACTOR_SUBITO;
+}
+
+export function isKnownImmobiliareActor(actor: string): boolean {
+  const id = normalizeApifyActorId(actor);
+  return id === ACTOR_IMMO_LISTVIEW || id === ACTOR_IMMO_DETAIL;
+}
+
+/** azzouzana listing-page actor: startUrl + maxItems. */
+export function buildImmobiliareDiscoverInput(startUrl: string, maxItems: number): {
+  startUrl: string;
+  maxItems: number;
+} {
+  return { startUrl, maxItems };
+}
+
+/**
+ * memo23 detail actor: startUrls as URL strings (schema prefill is string[]).
+ * Do not send a proxy override — the actor already uses its own residential lane
+ * and a caller-supplied RESIDENTIAL group can stall or fail the run.
+ */
+export function buildImmobiliareDetailInput(urls: string[], maxItems: number): {
+  startUrls: string[];
+  maxItems: number;
+  includeAgencyDetails: false;
+} {
+  return {
+    startUrls: urls.slice(0, maxItems),
+    maxItems,
+    includeAgencyDetails: false,
+  };
 }
 
 export const APIFY_TERMINAL_WEBHOOK_EVENTS = [
@@ -48,22 +93,30 @@ export interface CollectPendingWebhook {
  * Webhook that POSTs collect-pending with the finished run_id.
  * payloadTemplate is required: the default Apify body has no `run_ids`,
  * and collect-pending would skip runs younger than stale_minutes.
+ * Optional apikey is added so the Supabase gateway does not 401 the callback.
  */
 export function buildCollectPendingWebhook(
   collectUrl: string,
   jobSecret: string,
+  apikey = "",
 ): CollectPendingWebhook | null {
   const url = (collectUrl ?? "").trim();
   const secret = (jobSecret ?? "").trim();
   if (!url.startsWith("https://") || !secret) return null;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "x-job-secret": secret,
+    "x-internal-secret": secret,
+  };
+  if (apikey) {
+    headers.apikey = apikey;
+    headers.Authorization = `Bearer ${apikey}`;
+  }
   return {
     eventTypes: [...APIFY_TERMINAL_WEBHOOK_EVENTS],
     requestUrl: url,
     payloadTemplate: '{"run_ids":["{{resource.id}}"]}',
-    headersTemplate: JSON.stringify({
-      "Content-Type": "application/json",
-      "x-job-secret": secret,
-    }),
+    headersTemplate: JSON.stringify(headers),
   };
 }
 
@@ -190,4 +243,15 @@ export function extractCollectRunIds(body: unknown): string[] {
     typeof resource?.id === "string" ? resource.id : "",
   ].map((s) => s.trim()).filter(Boolean);
   return Array.from(new Set(singles));
+}
+
+/** Persist a readable error on a RUNNING row instead of leaving last_scrape stuck. */
+export function collectPendingRunError(
+  action: string,
+  apifyStatus?: string | null,
+): string {
+  if (action === "skip_no_apify_data") return "apify_run_unreadable";
+  if (action === "skip_unknown_actor") return "unknown_actor";
+  if (action === "marked_failed") return `apify_${String(apifyStatus ?? "FAILED").toLowerCase()}`;
+  return action.slice(0, 200);
 }

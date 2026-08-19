@@ -47,10 +47,15 @@ export function jobAuthFailure(expectedConfigured: boolean): { status: number; e
   return { status: 401, error: "unauthorized" };
 }
 
-export function jobAuthHeaders(secret: string): Record<string, string> {
-  return {
+export function jobAuthHeaders(secret: string, apikey = ""): Record<string, string> {
+  const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "x-job-secret": secret,
     "x-internal-secret": secret,
   };
+  if (apikey) {
+    headers.apikey = apikey;
+    headers.Authorization = `Bearer ${apikey}`;
+  }
+  return headers;
 }

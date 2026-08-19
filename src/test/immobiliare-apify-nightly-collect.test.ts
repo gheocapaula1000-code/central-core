@@ -1,0 +1,269 @@
+import { describe, it, expect } from "vitest";
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+import {
+  ACTOR_IMMO_DETAIL,
+  ACTOR_IMMO_LISTVIEW,
+  IMMOBILIARE_PADOVA_SEARCH_URLS,
+  buildCollectPendingWebhook,
+  buildImmobiliareDetailInput,
+  buildImmobiliareDiscoverInput,
+  classifyNightlyCollectResult,
+  collectPendingRunError,
+  encodeApifyWebhooksParam,
+  extractCollectRunIds,
+  formatApifyStartError,
+  isKnownImmobiliareActor,
+  normalizeApifyActorId,
+  sourceRegistryPatch,
+} from "../../supabase/functions/_shared/apifyLaunch.ts";
+import {
+  extractJobSecretCandidates,
+  isJobSecretAuthorized,
+  jobAuthFailure,
+  jobAuthHeaders,
+} from "../../supabase/functions/_shared/jobAuth.ts";
+
+const root = resolve(__dirname, "../..");
+const read = (p: string) => readFileSync(resolve(root, p), "utf8");
+
+const SECRET = "test-job-secret-value-32chars-ok";
+const ANON = "sb_anon_test_key_not_a_jwt";
+
+describe("job secret auth — headers actually used by cron / Core", () => {
+  it("accepts x-job-secret (log_cron_http_invocation)", () => {
+    const h = new Headers({ "x-job-secret": SECRET });
+    expect(isJobSecretAuthorized(h, SECRET)).toBe(true);
+  });
+
+  it("accepts x-internal-secret (canonical internal header)", () => {
+    const h = new Headers({ "x-internal-secret": SECRET });
+    expect(isJobSecretAuthorized(h, SECRET)).toBe(true);
+  });
+
+  it("accepts Authorization Bearer when it is the job secret, not a JWT", () => {
+    const h = new Headers({ Authorization: `Bearer ${SECRET}` });
+    expect(isJobSecretAuthorized(h, SECRET)).toBe(true);
+  });
+
+  it("ignores JWT bearers and rejects missing/wrong secrets", () => {
+    const jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.aaa.bbb";
+    expect(isJobSecretAuthorized(new Headers({ Authorization: `Bearer ${jwt}` }), SECRET)).toBe(false);
+    expect(isJobSecretAuthorized(new Headers({ "x-job-secret": "nope" }), SECRET)).toBe(false);
+    expect(isJobSecretAuthorized(new Headers(), SECRET)).toBe(false);
+    expect(isJobSecretAuthorized(new Headers({ "x-job-secret": SECRET }), "")).toBe(false);
+  });
+
+  it("does not treat a JWT as a candidate", () => {
+    const jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.aaa.bbb";
+    expect(extractJobSecretCandidates(new Headers({ Authorization: `Bearer ${jwt}` }))).toEqual([]);
+  });
+
+  it("reports CONFIG vs unauthorized without leaking the secret", () => {
+    expect(jobAuthFailure(false)).toEqual({ status: 500, error: "CENTRAL_CORE_JOB_SECRET missing" });
+    expect(jobAuthFailure(true)).toEqual({ status: 401, error: "unauthorized" });
+    expect(JSON.stringify(jobAuthHeaders(SECRET, ANON))).not.toMatch(/eyJ/);
+    expect(jobAuthHeaders(SECRET, ANON).apikey).toBe(ANON);
+  });
+});
+
+describe("Apify actor ids and start errors", () => {
+  it("normalizes username/name to the Apify path form username~name", () => {
+    expect(normalizeApifyActorId("azzouzana/immobiliare-it-listing-page-scraper-by-search-url"))
+      .toBe(ACTOR_IMMO_LISTVIEW);
+    expect(normalizeApifyActorId(ACTOR_IMMO_DETAIL)).toBe(ACTOR_IMMO_DETAIL);
+    expect(normalizeApifyActorId("")).toBe("");
+  });
+
+  it("knows the two Immobiliare actors used by collect + collect-pending", () => {
+    expect(isKnownImmobiliareActor("memo23/immobiliare-scraper")).toBe(true);
+    expect(isKnownImmobiliareActor(ACTOR_IMMO_LISTVIEW)).toBe(true);
+    expect(isKnownImmobiliareActor("someone~else")).toBe(false);
+  });
+
+  it("builds azzouzana discover input as startUrl + maxItems", () => {
+    const input = buildImmobiliareDiscoverInput(IMMOBILIARE_PADOVA_SEARCH_URLS[0], 40);
+    expect(input).toEqual({ startUrl: IMMOBILIARE_PADOVA_SEARCH_URLS[0], maxItems: 40 });
+  });
+
+  it("builds memo23 detail input as string startUrls without a proxy override", () => {
+    const urls = ["https://www.immobiliare.it/annunci/1", "https://www.immobiliare.it/annunci/2"];
+    const input = buildImmobiliareDetailInput(urls, 1);
+    expect(input.startUrls).toEqual(["https://www.immobiliare.it/annunci/1"]);
+    expect(input.maxItems).toBe(1);
+    expect(input).not.toHaveProperty("proxy");
+    expect(input.startUrls.every((u) => typeof u === "string")).toBe(true);
+  });
+
+  it("redacts token= from Apify error bodies", () => {
+    const msg = formatApifyStartError(404, "not found token=apify_live_secret_value more");
+    expect(msg).toContain("APIFY_START_HTTP_404");
+    expect(msg).not.toContain("apify_live_secret_value");
+    expect(msg).toContain("token=[REDACTED]");
+  });
+});
+
+describe("collect-pending webhook handoff", () => {
+  it("builds a webhook that posts run_ids, job secret, and gateway apikey", () => {
+    const wh = buildCollectPendingWebhook(
+      "https://jpunnzgixcghuydstdlt.supabase.co/functions/v1/padova-apify-collect-pending",
+      SECRET,
+      ANON,
+    );
+    expect(wh).not.toBeNull();
+    expect(wh!.requestUrl).toContain("padova-apify-collect-pending");
+    expect(wh!.payloadTemplate).toBe('{"run_ids":["{{resource.id}}"]}');
+    expect(wh!.eventTypes).toContain("ACTOR.RUN.SUCCEEDED");
+    expect(wh!.eventTypes).toContain("ACTOR.RUN.FAILED");
+    const headers = JSON.parse(wh!.headersTemplate);
+    expect(headers["x-job-secret"]).toBe(SECRET);
+    expect(headers.apikey).toBe(ANON);
+    expect(encodeApifyWebhooksParam([wh!]).length).toBeGreaterThan(20);
+  });
+
+  it("refuses to attach a webhook without https URL or secret (fail-closed)", () => {
+    expect(buildCollectPendingWebhook("http://insecure.example/fn", SECRET)).toBeNull();
+    expect(buildCollectPendingWebhook("https://jpunnzgixcghuydstdlt.supabase.co/functions/v1/x", "")).toBeNull();
+  });
+
+  it("reads run_ids from our template and from raw Apify webhook bodies", () => {
+    expect(extractCollectRunIds({ run_ids: ["abc", "abc", ""] })).toEqual(["abc"]);
+    expect(extractCollectRunIds({ eventData: { actorRunId: "run_1" } })).toEqual(["run_1"]);
+    expect(extractCollectRunIds({ resource: { id: "run_2" } })).toEqual(["run_2"]);
+    expect(extractCollectRunIds({ foo: 1 })).toEqual([]);
+  });
+
+  it("names persistable collect-pending errors", () => {
+    expect(collectPendingRunError("skip_no_apify_data")).toBe("apify_run_unreadable");
+    expect(collectPendingRunError("marked_failed", "FAILED")).toBe("apify_failed");
+  });
+});
+
+describe("nightly semantic classification + registry patch", () => {
+  it("succeeds only when at least one run started", () => {
+    expect(classifyNightlyCollectResult({
+      httpOk: true, ok: true, started: [{ run_id: "r1" }], errors: [],
+    })).toEqual({ ok: true, started_count: 1, errors_count: 0, reason: null });
+  });
+
+  it("fails closed on skip, empty start, or HTTP error", () => {
+    expect(classifyNightlyCollectResult({
+      httpOk: true, ok: false, error: "APIFY_TOKEN_MISSING", started: [],
+    }).reason).toBe("APIFY_TOKEN_MISSING");
+    expect(classifyNightlyCollectResult({
+      httpOk: true, ok: true, started: [], skipped: true,
+    }).reason).toMatch(/^skipped/);
+    expect(classifyNightlyCollectResult({
+      httpOk: false, error: "unauthorized", started: [],
+    }).ok).toBe(false);
+  });
+
+  it("prefixes registry errors so F21 last_error is auditable", () => {
+    const fail = sourceRegistryPatch(
+      { ok: false, error: "APIFY_START_HTTP_404:actor not found" },
+      "2026-08-19T02:00:00Z",
+      "[immobiliare-apify]",
+    );
+    expect(fail.last_error).toMatch(/^\[immobiliare-apify\] APIFY_START_HTTP_404/);
+    expect(fail.last_success_at).toBeUndefined();
+    const ok = sourceRegistryPatch({ ok: true, records: 4 }, "2026-08-19T02:00:00Z");
+    expect(ok.last_error).toBeNull();
+    expect(ok.last_success_at).toBe("2026-08-19T02:00:00Z");
+    expect(ok.record_count).toBe(4);
+  });
+});
+
+describe("Padova search URLs and wiring", () => {
+  const nightly = read("supabase/functions/cron-apify-immobiliare-nightly/index.ts");
+  const collect = read("supabase/functions/padova-apify-immobiliare-collect/index.ts");
+  const shared = read("supabase/functions/_shared/apify.ts");
+  const pending = read("supabase/functions/padova-apify-collect-pending/index.ts");
+
+  it("defaults every nightly search URL to vendita-case/padova", () => {
+    expect(IMMOBILIARE_PADOVA_SEARCH_URLS).toHaveLength(4);
+    for (const url of IMMOBILIARE_PADOVA_SEARCH_URLS) {
+      expect(url).toContain("https://www.immobiliare.it/vendita-case/padova/");
+    }
+    expect(nightly).toContain("IMMOBILIARE_PADOVA_SEARCH_URLS");
+    expect(collect).toContain("IMMOBILIARE_PADOVA_SEARCH_URLS");
+  });
+
+  it("nightly and collect share job-secret auth and write the source registry", () => {
+    expect(nightly).toContain("isJobSecretAuthorized");
+    expect(nightly).toContain("writeImmobiliareSourceRegistry");
+    expect(nightly).toContain("padova-apify-collect-pending");
+    expect(nightly).toContain("jobAuthHeaders(JOB_SECRET, ANON_KEY)");
+    expect(collect).toContain("isJobSecretAuthorized");
+    expect(collect).toContain("writeImmobiliareSourceRegistry");
+    expect(collect).toContain("Promise.all");
+    expect(collect).toContain("buildImmobiliareDiscoverInput");
+    expect(collect).toContain("buildImmobiliareDetailInput");
+    expect(collect).not.toMatch(/apifyProxyGroups/);
+  });
+
+  it("startApifyRun attaches collect-pending webhooks and persists FAILED launches", () => {
+    expect(shared).toContain("buildApifyRunWebhooks");
+    expect(shared).toContain("encodeApifyWebhooksQuery");
+    expect(shared).toContain("webhooks=");
+    expect(shared).toContain("persistFailedLaunch");
+    expect(shared).toContain("Authorization: `Bearer ${token}`");
+    expect(shared).toContain("gatewayApikey");
+    expect(shared).not.toMatch(/token=\$\{encodeURIComponent\(token\)\}/);
+  });
+
+  it("collect-pending accepts Apify webhook bodies and records run errors", () => {
+    expect(pending).toContain("extractCollectRunIds");
+    expect(pending).toContain("webhookRunIds");
+    expect(pending).toContain("isJobSecretAuthorized");
+    expect(pending).toContain("collectPendingRunError");
+    expect(pending).toContain("apify_run_unreadable");
+    expect(pending).not.toMatch(/apifyProxyGroups/);
+  });
+
+  it("does not embed secrets or the empty prod ref", () => {
+    for (const src of [nightly, collect, shared, pending]) {
+      expect(src).not.toMatch(/eyJ[A-Za-z0-9_-]{20,}/);
+      expect(src).not.toContain("egjvullvkwpzyyworeml");
+      expect(src).not.toMatch(/apify_api_[A-Za-z0-9]+/);
+    }
+  });
+});
+
+describe("cron migration — live Core, vault secret, 15-min collect", () => {
+  const sql = read("supabase/migrations/20260819180000_immobiliare_apify_collect_handoff.sql");
+  const health = read("supabase/functions/core-cron-health-public/index.ts");
+
+  it("exists and targets live Core only", () => {
+    expect(existsSync(resolve(root, "supabase/migrations/20260819180000_immobiliare_apify_collect_handoff.sql"))).toBe(true);
+    expect(sql).toContain("jpunnzgixcghuydstdlt");
+    expect(sql).not.toContain("egjvullvkwpzyyworeml");
+  });
+
+  it("unschedules the broken 03:10 job that posted without x-job-secret", () => {
+    expect(sql).toContain("central-core-apify-immobiliare-nightly");
+    expect(sql).toContain("cron.unschedule");
+    expect(sql).not.toMatch(/eyJ[A-Za-z0-9_-]{20,}/);
+    expect(sql).toContain("log_cron_http_invocation");
+  });
+
+  it("sends vault job secret and anon apikey from log_cron_http_invocation", () => {
+    expect(sql).toContain("CENTRAL_CORE_JOB_SECRET");
+    expect(sql).toContain("SUPABASE_ANON_KEY");
+    expect(sql).toContain("'apikey'");
+    expect(sql).toContain("'x-job-secret'");
+  });
+
+  it("keeps the existing 15-minute collect-pending drain on main", () => {
+    expect(sql).not.toContain("portal-collect-pending-drain");
+    expect(sql).not.toMatch(/cron\.schedule\(\s*'portal-collect-pending'/);
+    expect(health).toContain('jobname: "portal-collect-pending"');
+    expect(health).toContain('jobname: "portal-collect-pending-drain"');
+    expect(health).toContain('"*/15 * * * *"');
+    expect(health).toContain('"45 2 * * *"');
+  });
+
+  it("keeps immobiliare nightly on live Core via vault-backed job secret", () => {
+    expect(sql).toContain("/functions/v1/cron-apify-immobiliare-nightly");
+    expect(sql).toContain("'0 2 * * *'");
+  });
+});
