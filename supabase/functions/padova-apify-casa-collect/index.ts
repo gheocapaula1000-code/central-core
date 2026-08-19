@@ -9,7 +9,9 @@
 // NB: il campo searchUrls dell'actor NON va usato (ramo difettoso). Solo locations.
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { getApifyToken, startApifyRun } from "../_shared/apify.ts";
+import { expireStaleScrapeJobs } from "../_shared/scrapeJobWatchdog.ts";
 
 const ACTOR_CASA = "benthepythondev~casa-it-scraper";
 
@@ -36,6 +38,13 @@ Deno.serve(async (req) => {
       { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
+
+  const sb = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    { auth: { persistSession: false } },
+  );
+  await expireStaleScrapeJobs(sb);
 
   let body: Body = {};
   try { body = await req.json(); } catch { /* empty */ }

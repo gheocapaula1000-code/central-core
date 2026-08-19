@@ -49,6 +49,7 @@ const CORE_JOBS: CoreJob[] = [
   { jobname: "portal-casa-padova",                      descrizione_leggibile: "Portale Casa.it Padova",                      schedule_attesa: "30 2 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
   { jobname: "portal-collect-pending",                  descrizione_leggibile: "Promozione run Apify in padova_listings",     schedule_attesa: "45 2 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
   { jobname: "padova-listings-contendibili-recompute",  descrizione_leggibile: "Ricalcolo contendibili dopo i portali",     schedule_attesa: "15 3 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
+  { jobname: "expire-stale-scrape-jobs",                descrizione_leggibile: "Watchdog: timeout job scrape stuck running", schedule_attesa: "*/15 * * * *", kind: "frequent", warning_ore: 40 / 60, critico_ore: 1, source: "executions_log" },
 ];
 
 // decoder per i pattern usati dai cron Core
@@ -282,6 +283,7 @@ Deno.serve(async (req) => {
         case "portal-casa-padova":
         case "portal-collect-pending":
         case "padova-listings-contendibili-recompute":
+        case "expire-stale-scrape-jobs":
           ultimi7gg = { esecuzioni: (logs ?? []).filter((l: any) => l.job_name === j.jobname).length };
           break;
         case "padova-agencies-soft-0400":

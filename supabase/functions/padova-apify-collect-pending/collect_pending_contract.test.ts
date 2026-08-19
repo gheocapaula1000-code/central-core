@@ -36,3 +36,9 @@ Deno.test("zero novità richiede catena completata e zero errori", () => {
     "const zeroNovelty = errorsCount === 0 && completedCount > 0 && importsCount === 0;",
   );
 });
+
+Deno.test("watchdog: i job RUNNING non restano aperti per sempre", () => {
+  assertStringIncludes(SRC, "expireStaleScrapeJobs");
+  assertStringIncludes(SRC, "WATCHDOG_ERROR");
+  assert(!SRC.includes('if (d && d.status === "RUNNING") continue'));
+});
