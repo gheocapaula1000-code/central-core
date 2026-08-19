@@ -1,74 +1,31 @@
-// Cron wrapper: invokes the three off-market Padova jobs on civiko-radar-veneto.
-// Invoked by pg_cron at 03:30 / 03:45 / 04:00 UTC using ?job=<slug>.
+// Cron wrapper: invokes the Padova off-market jobs on civiko-radar-veneto.
+// Invoked by pg_cron at 03:30 / 03:45 / 04:00 / 04:10 UTC using ?job=<slug>.
 // Design mirrors cron-radar-padova-nightly:
 //  - Sync fetch (no waitUntil), so completion is guaranteed and audited.
 //  - Logs real outcome to public.cron_executions_log (never trusts net.http_post 1-row).
-//  - Uses x-job-secret / x-internal-secret / Authorization with CENTRAL_CORE_JOB_SECRET,
-//    identical to the existing radar cron.
-//  - Does NOT modify any runner internals nor the endpoints themselves.
+//  - Auth: x-job-secret / x-internal-secret / Authorization Bearer
+//    == CENTRAL_CORE_JOB_SECRET (JWT bearers ignored).
+
+import {
+  jobSecretAuthorized,
+  missingJobSecretConfigResponse,
+  readIncomingJobSecret,
+  unauthorizedJobResponse,
+} from "../_shared/jobSecretAuth.ts";
+import {
+  JOB_NAMES,
+  buildBody,
+  isJobSlug,
+  radarJobPath,
+  targetTimeoutMs,
+  type JobSlug,
+} from "./jobs.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
 
-function safeEqual(a: string, b: string): boolean {
-  if (!a || a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
-
-type JobSlug =
-  | "offmarket-padova"
-  | "discover-early-offmarket-signals"
-  | "build-offmarket-opportunity-scores"
-  | "build-padova-early-warning";
-
-const JOB_NAMES: Record<JobSlug, string> = {
-  "offmarket-padova": "central-core-offmarket-padova-nightly",
-  "discover-early-offmarket-signals": "central-core-early-offmarket-nightly",
-  "build-offmarket-opportunity-scores": "central-core-offmarket-scores-nightly",
-  "build-padova-early-warning": "central-core-padova-early-warning-nightly",
-};
-
-// Bodies chosen so the writes actually happen (not dry-run).
-// - offmarket-padova: endpoint (index.ts:1465-1480) already forces dryRun:false; body ignored.
-// - discover-early-offmarket-signals: default saveCandidates in runner is false; MUST pass true.
-// - build-offmarket-opportunity-scores: engine upserts unconditionally; pass no-op body.
-function buildBody(slug: JobSlug): Record<string, unknown> {
-  // Perimetro commerciale definitivo: solo Comune di Padova.
-  const COMUNI_PD = ["Padova"];
-  switch (slug) {
-    case "offmarket-padova":
-      return { triggered_by: "cron-nightly" };
-    case "discover-early-offmarket-signals":
-      return {
-        comuni: COMUNI_PD,
-        province: ["PD"],
-        dryRun: false,
-        saveCandidates: true,
-        usePerplexityDiscovery: true,
-        useFirecrawl: true,
-        maxSources: 20,
-        maxPagesPerSource: 5,
-        triggered_by: "cron-nightly",
-      };
-    case "build-offmarket-opportunity-scores":
-      return {
-        comuni: COMUNI_PD,
-        province: ["PD"],
-        dryRun: false,
-        triggered_by: "cron-nightly",
-      };
-    case "build-padova-early-warning":
-      return {
-        comuni: COMUNI_PD,
-        province: ["PD"],
-        dryRun: false,
-        triggered_by: "cron-nightly",
-      };
-  }
-}
+const jsonHeaders = { "Content-Type": "application/json" };
 
 async function logExecution(jobName: string, row: {
   triggered_at: string;
@@ -98,7 +55,7 @@ async function logExecution(jobName: string, row: {
 
 async function runJob(slug: JobSlug, triggeredAt: string) {
   const jobName = JOB_NAMES[slug];
-  const target = `${SUPABASE_URL}/functions/v1/civiko-radar-veneto/jobs/${slug}`;
+  const target = `${SUPABASE_URL}${radarJobPath(slug)}`;
   const body = buildBody(slug);
   const t0 = Date.now();
 
@@ -114,8 +71,8 @@ async function runJob(slug: JobSlug, triggeredAt: string) {
 
   try {
     const ctrl = new AbortController();
-    const targetTimeout = slug === "discover-early-offmarket-signals" ? 80_000 : 35_000;
-    const timer = setTimeout(() => ctrl.abort(), targetTimeout);
+    const timer = setTimeout(() => ctrl.abort(), targetTimeoutMs(slug));
+    const gateway = SERVICE_KEY || JOB_SECRET;
     const res = await fetch(target, {
       method: "POST",
       headers: {
@@ -123,7 +80,8 @@ async function runJob(slug: JobSlug, triggeredAt: string) {
         "x-job-secret": JOB_SECRET,
         "x-internal-secret": JOB_SECRET,
         "x-source-app": "central-core-cron",
-        Authorization: `Bearer ${JOB_SECRET}`,
+        Authorization: `Bearer ${gateway}`,
+        apikey: gateway,
       },
       body: JSON.stringify(body),
       signal: ctrl.signal,
@@ -131,9 +89,9 @@ async function runJob(slug: JobSlug, triggeredAt: string) {
     clearTimeout(timer);
     const text = await res.text().catch(() => "");
     const dur = Date.now() - t0;
-    let parsed: any = null;
+    let parsed: { ok?: boolean; error?: { message?: string } } | null = null;
     try { parsed = text ? JSON.parse(text) : null; } catch { /* raw */ }
-    const okFlag = parsed?.ok !== false; // endpoints return {ok:true|false, ...}
+    const okFlag = parsed?.ok !== false;
     const excerpt = (text || "").slice(0, 1600);
     const status: "success" | "failure" = res.ok && okFlag ? "success" : "failure";
     await logExecution(jobName, {
@@ -166,30 +124,24 @@ Deno.serve(async (req) => {
   const triggeredAt = new Date().toISOString();
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ ok: false, error: "method_not_allowed" }),
-      { status: 405, headers: { "Content-Type": "application/json" } });
+      { status: 405, headers: jsonHeaders });
   }
-  if (!JOB_SECRET) {
-    return new Response(
-      JSON.stringify({ ok: false, error: "CENTRAL_CORE_JOB_SECRET missing" }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
-    );
-  }
-  if (!safeEqual(req.headers.get("x-job-secret") ?? "", JOB_SECRET)) {
-    return new Response(JSON.stringify({ ok: false, error: "unauthorized" }),
-      { status: 401, headers: { "Content-Type": "application/json" } });
+  if (!JOB_SECRET) return missingJobSecretConfigResponse(jsonHeaders);
+  if (!jobSecretAuthorized(JOB_SECRET, readIncomingJobSecret(req.headers))) {
+    return unauthorizedJobResponse(jsonHeaders);
   }
   const url = new URL(req.url);
-  const slug = url.searchParams.get("job") as JobSlug | null;
-  if (!slug || !(slug in JOB_NAMES)) {
+  const slug = url.searchParams.get("job");
+  if (!isJobSlug(slug)) {
     return new Response(
       JSON.stringify({ ok: false, error: "missing_or_invalid_job", allowed: Object.keys(JOB_NAMES) }),
-      { status: 400, headers: { "Content-Type": "application/json" } },
+      { status: 400, headers: jsonHeaders },
     );
   }
   const r = await runJob(slug, triggeredAt);
   return new Response(
     JSON.stringify({ ok: r.ok, job: JOB_NAMES[slug], slug, triggered_at: triggeredAt, ...r }),
     { status: r.ok ? 200 : (r.http_status && r.http_status >= 400 ? r.http_status : 502),
-      headers: { "Content-Type": "application/json" } },
+      headers: jsonHeaders },
   );
 });
