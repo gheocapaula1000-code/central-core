@@ -1,10 +1,16 @@
 // core-cron-health-public
-// Diagnostica operativa interna sui cron Core. Checkpoint 1A: NON più pubblica —
-// protetta fail-closed da DIAGNOSTIC_SECRET (x-diagnostic-secret) prima di
+// Diagnostica operativa interna sui cron Core + fonti scheduler.
+// Checkpoint 1A: NON è anonimamente pubblica — 401 senza x-diagnostic-secret
+// è il comportamento atteso. Fail-closed da DIAGNOSTIC_SECRET prima di
 // qualunque client service-role, lettura DB o scrittura in cron_alerts_pending.
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { requireDiagnosticSecret, makeDebugId } from "../_shared/http.ts";
+import {
+  AUTOMATED_TRIGGERS,
+  SOURCE_PLAN,
+  classifySourceRow,
+} from "../_shared/sourceScheduler.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -49,6 +55,12 @@ const CORE_JOBS: CoreJob[] = [
   { jobname: "portal-casa-padova",                      descrizione_leggibile: "Portale Casa.it Padova",                      schedule_attesa: "30 2 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
   { jobname: "portal-collect-pending",                  descrizione_leggibile: "Promozione run Apify in padova_listings",     schedule_attesa: "45 2 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
   { jobname: "padova-listings-contendibili-recompute",  descrizione_leggibile: "Ricalcolo contendibili dopo i portali",     schedule_attesa: "15 3 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
+  // ─── Source scheduler (civiko-scheduler + dedicated source crons) ────────
+  { jobname: "civiko-scheduler-daily",                 descrizione_leggibile: "Scheduler fonti — pass due-only giornaliero", schedule_attesa: "15 2 * * *",  kind: "daily",    warning_ore: 26,     critico_ore: 36,     source: "executions_log" },
+  { jobname: "civiko-scheduler-weekly",                descrizione_leggibile: "Scheduler fonti — pass settimanale",          schedule_attesa: "30 3 * * 1",  kind: "weekly",   warning_ore: 24 * 8, critico_ore: 24 * 9, source: "executions_log" },
+  { jobname: "connector-osm-cantieri-weekly",          descrizione_leggibile: "OSM cantieri Padova (F5)",                    schedule_attesa: "0 5 * * 1",   kind: "weekly",   warning_ore: 24 * 8, critico_ore: 24 * 9, source: "executions_log" },
+  { jobname: "civiko-pnrr-padova-weekly",              descrizione_leggibile: "OpenPNRR Padova (F11)",                       schedule_attesa: "15 5 * * 1",  kind: "weekly",   warning_ore: 24 * 8, critico_ore: 24 * 9, source: "executions_log" },
+  { jobname: "civiko-obituaries-aggregate-daily",      descrizione_leggibile: "Necrologi aggregati (F19)",                   schedule_attesa: "30 4 * * *",  kind: "daily",    warning_ore: 26,     critico_ore: 36,     source: "executions_log" },
 ];
 
 // decoder per i pattern usati dai cron Core
@@ -282,6 +294,11 @@ Deno.serve(async (req) => {
         case "portal-casa-padova":
         case "portal-collect-pending":
         case "padova-listings-contendibili-recompute":
+        case "civiko-scheduler-daily":
+        case "civiko-scheduler-weekly":
+        case "connector-osm-cantieri-weekly":
+        case "civiko-pnrr-padova-weekly":
+        case "civiko-obituaries-aggregate-daily":
           ultimi7gg = { esecuzioni: (logs ?? []).filter((l: any) => l.job_name === j.jobname).length };
           break;
         case "padova-agencies-soft-0400":
@@ -356,6 +373,52 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Source registry: last_error / stale for every automated source.
+    // Failures here degrade to an empty list — cron jobs still report.
+    let fonti: Array<Record<string, unknown>> = [];
+    const fonti_riepilogo = { sani: 0, errore: 0, stale: 0, mai_eseguiti: 0 };
+    try {
+      const automatedCodes = Object.values(SOURCE_PLAN)
+        .filter((p) => p.automation_status === "automated" || p.automation_status === "semi_automated")
+        .map((p) => p.code);
+      const { data: srcRows } = await sb
+        .from("civiko_source_registry")
+        .select("source_code, last_run_at, last_success_at, last_error, record_count, next_run_at, stale_after_days, automation_status")
+        .in("source_code", automatedCodes);
+      const byCode = new Map((srcRows ?? []).map((r: Record<string, unknown>) => [String(r.source_code), r]));
+      fonti = automatedCodes.map((code) => {
+        const plan = SOURCE_PLAN[code];
+        const row = byCode.get(code) ?? {};
+        const stato = classifySourceRow({
+          last_run_at: (row.last_run_at as string | null) ?? null,
+          last_success_at: (row.last_success_at as string | null) ?? null,
+          last_error: (row.last_error as string | null) ?? null,
+          stale_after_days: plan.stale_after_days,
+        });
+        if (stato === "SANO") fonti_riepilogo.sani++;
+        else if (stato === "ERRORE") fonti_riepilogo.errore++;
+        else if (stato === "STALE") fonti_riepilogo.stale++;
+        else fonti_riepilogo.mai_eseguiti++;
+        const trigger = AUTOMATED_TRIGGERS[code] ?? null;
+        return {
+          source_code: code,
+          automation_status: plan.automation_status,
+          scheduler_frequency: plan.scheduler_frequency,
+          job: plan.job ?? null,
+          ingestion_endpoint: plan.ingestion_endpoint ?? null,
+          trigger,
+          last_run_at: row.last_run_at ?? null,
+          last_success_at: row.last_success_at ?? null,
+          last_error: row.last_error ?? null,
+          record_count: row.record_count ?? null,
+          next_run_at: row.next_run_at ?? null,
+          stato,
+        };
+      });
+    } catch (_e) {
+      fonti = [];
+    }
+
     const summary = {
       sani: jobs.filter((j) => j.stato === "SANO").length,
       warning: jobs.filter((j) => j.stato === "WARNING").length,
@@ -388,6 +451,11 @@ Deno.serve(async (req) => {
         riepilogo: summary,
         alert_emessi_ora: alerts.length,
         jobs,
+        fonti_scheduler: {
+          auth_note: "Questo endpoint richiede x-diagnostic-secret. 401 senza secret è atteso (Checkpoint 1A).",
+          riepilogo: fonti_riepilogo,
+          fonti,
+        },
       }),
       { headers: { ...CORS, "Content-Type": "application/json; charset=utf-8" } },
     );

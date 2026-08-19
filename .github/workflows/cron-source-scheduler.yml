@@ -1,0 +1,81 @@
+name: Cron Source Scheduler
+
+# Fallback trigger when pg_cron / pg_net is delayed or missing.
+# Required secrets (repo Settings → Secrets and variables → Actions):
+#   SUPABASE_URL              e.g. https://jpunnzgixcghuydstdlt.supabase.co
+#   CENTRAL_CORE_JOB_SECRET   same value as the edge function env
+#
+# Never hardcode secrets. Times are UTC.
+
+on:
+  schedule:
+    # Daily due-only pass — 02:20 UTC (after nightly master + pg_cron daily)
+    - cron: "20 2 * * *"
+    # Weekly pass — Monday 03:40 UTC
+    - cron: "40 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Scheduler mode"
+        required: true
+        type: choice
+        options:
+          - daily
+          - weekly
+          - all
+        default: daily
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cron-source-scheduler-${{ github.event.schedule || github.event.inputs.mode || 'manual' }}
+  cancel-in-progress: false
+
+jobs:
+  scheduler:
+    name: Trigger civiko-scheduler
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: POST civiko-scheduler/run-scheduled
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          JOB_SECRET: ${{ secrets.CENTRAL_CORE_JOB_SECRET }}
+          MODE: ${{ github.event.inputs.mode || 'daily' }}
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${JOB_SECRET:-}" ]; then
+            echo "Missing SUPABASE_URL or CENTRAL_CORE_JOB_SECRET"
+            exit 1
+          fi
+          TRIGGERED_BY="github_actions"
+          if [ "${SCHEDULE:-}" = "20 2 * * *" ] || [ "${MODE}" = "daily" ] || [ "${MODE}" = "all" ]; then
+            TRIGGERED_BY="github_actions"
+          fi
+          URL="${SUPABASE_URL%/}/functions/v1/civiko-scheduler/run-scheduled"
+          BODY='{"due_only":true,"triggered_by":"github_actions","job_name":"civiko-scheduler-gha"}'
+          echo "POST $URL"
+          HTTP=$(curl -sS -o /tmp/scheduler_body.json -w "%{http_code}" \
+            -X POST "$URL" \
+            -H "Content-Type: application/json" \
+            -H "x-job-secret: ${JOB_SECRET}" \
+            -H "x-internal-secret: ${JOB_SECRET}" \
+            --data "$BODY" \
+            --max-time 180 || echo "000")
+          echo "HTTP $HTTP"
+          head -c 4000 /tmp/scheduler_body.json || true
+          echo
+          case "$HTTP" in
+            200|202|207) ;;
+            *) exit 1 ;;
+          esac
+          if command -v jq >/dev/null 2>&1 && [ -f /tmp/scheduler_body.json ]; then
+            FAILED=$(jq -r '.summary.failed // 0' /tmp/scheduler_body.json 2>/dev/null || echo 0)
+            echo "failed_sources=$FAILED"
+            if [ "${FAILED}" != "0" ]; then
+              jq -r '.results[]? | select(.status=="failed") | "\(.source_code): \(.error)"' /tmp/scheduler_body.json || true
+              exit 1
+            fi
+          fi

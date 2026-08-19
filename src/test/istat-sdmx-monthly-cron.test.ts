@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const root = resolve(__dirname, "../..");
@@ -41,9 +41,9 @@ describe("ISTAT monthly cron — allowlisted first slice", () => {
     expect(istat).toContain("requireSecret");
   });
 
-  it("does not add civiko-scheduler or civici auth in this slice", () => {
-    expect(existsSync(resolve(root, "supabase/functions/civiko-scheduler/index.ts"))).toBe(false);
-    expect(cfg).not.toContain("[functions.civiko-scheduler]");
+  it("ISTAT slice itself does not stand up civiko-scheduler", () => {
+    expect(sql).not.toContain("/functions/v1/civiko-scheduler");
+    expect(sql).not.toContain("[functions.civiko-scheduler]");
     expect(cfg).toContain("[functions.istat-sdmx-fetch]");
     expect(cfg).toContain('project_id = "jpunnzgixcghuydstdlt"');
   });
