@@ -16,6 +16,8 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getApifyToken } from "../_shared/apify.ts";
+import { isJobSecretAuthorized, jobAuthFailure } from "../_shared/jobAuth.ts";
+import { flattenSubitoForStaging } from "../_shared/subitoMapper.ts";
 import {
   expireStaleScrapeJobs,
   WATCHDOG_ERROR,
@@ -452,9 +454,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
-  if (!jobSecret || req.headers.get("x-job-secret") !== jobSecret) {
-    return new Response(JSON.stringify({ ok: false, error: "unauthorized" }),
-      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  if (!isJobSecretAuthorized(req.headers, jobSecret)) {
+    const auth = jobAuthFailure(Boolean(jobSecret));
+    return new Response(JSON.stringify({ ok: false, error: auth.error }),
+      { status: auth.status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
   const token = getApifyToken();
@@ -731,6 +734,17 @@ Deno.serve(async (req) => {
           const up = await upsertItems(sb, deduped, mapper.portal, mapper.allowListviewOverwrite);
           created = up.created; updated = up.updated; skipped = up.skipped;
           errors.push(...up.errors);
+
+          if (mapper.portal === "subito" && deduped.length > 0) {
+            const stagingRows = deduped.map((row) => ({
+              raw_json: flattenSubitoForStaging(row.raw_json ?? row),
+            }));
+            for (let i = 0; i < stagingRows.length; i += 500) {
+              const slice = stagingRows.slice(i, i + 500);
+              const { error: stErr } = await sb.from("padova_subito_staging").insert(slice);
+              if (stErr) errors.push(`staging:${stErr.message}`);
+            }
+          }
 
 
 

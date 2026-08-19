@@ -56,7 +56,9 @@ const paidEntrypoints = [
 for (const name of paidEntrypoints) {
   const src = read(`supabase/functions/${name}/index.ts`);
   const handler = src.slice(src.indexOf("Deno.serve"));
-  const guard = handler.indexOf('req.headers.get("x-job-secret")');
+  const guardInline = handler.indexOf('req.headers.get("x-job-secret")');
+  const guardShared = handler.indexOf("isJobSecretAuthorized");
+  const guard = guardInline >= 0 ? guardInline : guardShared;
   const provider = handler.search(/fetch\(|startApifyRun\(/);
   assert.ok(guard >= 0, `${name}: x-job-secret guard missing`);
   assert.ok(provider < 0 || guard < provider, `${name}: provider reachable before auth guard`);
@@ -69,8 +71,12 @@ for (const name of [
   "cron-apify-casa-nightly",
 ]) {
   const src = read(`supabase/functions/${name}/index.ts`);
-  assert.match(src, /typeof (?:obj|parsed)\?\.skipped === "string"/);
-  assert.match(src, /!skipped/);
+  const hasInlineSkip = /typeof (?:obj|parsed)\?\.skipped === "string"/.test(src) && /!skipped/.test(src);
+  const hasSharedClassifier = src.includes("classifyNightlyCollectResult") && src.includes("skipped:");
+  assert.ok(
+    hasInlineSkip || hasSharedClassifier,
+    `${name}: skipped semantic check missing`,
+  );
 }
 
 for (const name of [

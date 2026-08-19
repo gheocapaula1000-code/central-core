@@ -1,9 +1,10 @@
 // cron-padova-subito-promote
 // Wrapper cron per la promotion staging Subito → padova_collect_v2_items.
 // Chiama la SQL function public.process_padova_subito_staging(since_hours, max_rows)
-// e logga esito in cron_executions_log.
+// e, se ha scritto righe, promote_padova_collect_v2_to_listings.
+// Logga esito in cron_executions_log.
 //
-// Auth: x-job-secret === CENTRAL_CORE_JOB_SECRET.
+// Auth: CENTRAL_CORE_JOB_SECRET via x-job-secret / x-internal-secret / Bearer.
 // Payload: { since_hours?: number, max_rows?: number }
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
@@ -14,6 +15,9 @@ import {
   normalizeCounters,
   reconcileScopeCounters,
 } from "../_shared/civikoPadovaScopeGuard.ts";
+import { writeSubitoSourceRegistry } from "../_shared/apify.ts";
+import { isJobSecretAuthorized, jobAuthFailure } from "../_shared/jobAuth.ts";
+import { classifyPromoteResult } from "../_shared/subitoMapper.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -23,13 +27,16 @@ Deno.serve(async (req) => {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
   const srk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
-  if (!secret || req.headers.get("x-job-secret") !== secret) {
-    return new Response(JSON.stringify({ ok: false, error: "unauthorized" }), {
-      status: 401,
+  if (!isJobSecretAuthorized(req.headers, secret)) {
+    const auth = jobAuthFailure(Boolean(secret));
+    await writeSubitoSourceRegistry({ ok: false, error: auth.error });
+    return new Response(JSON.stringify({ ok: false, error: auth.error }), {
+      status: auth.status,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
   if (!url || !srk) {
+    await writeSubitoSourceRegistry({ ok: false, error: "config_missing" });
     return new Response(JSON.stringify({ ok: false, error: "config_missing" }), {
       status: 503,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -46,6 +53,7 @@ Deno.serve(async (req) => {
   let result: any = null;
   let status: "success" | "failure" = "success";
   let errMsg: string | null = null;
+  let listingsPromote: unknown = null;
 
   try {
     const { data, error } = await sb.rpc("process_padova_subito_staging", {
@@ -54,12 +62,16 @@ Deno.serve(async (req) => {
     });
     if (error) throw new Error(error.message);
     result = data;
+    const classified = classifyPromoteResult(result);
+    if (!classified.ok) {
+      status = "failure";
+      errMsg = classified.reason;
+    }
   } catch (e) {
     status = "failure";
     errMsg = String((e as Error)?.message ?? e);
   }
 
-  // Contatori bounded del perimetro Civiko per la run corrente.
   const counters = createScopeCounters();
   if (result && typeof result === "object") {
     const r = result as Record<string, number>;
@@ -71,15 +83,38 @@ Deno.serve(async (req) => {
   }
   const scope_counters = normalizeCounters(counters);
   const scope_reconciliation = reconcileScopeCounters(scope_counters);
-  // Fail-closed: nessuna scrittura fuori perimetro ammessa in questa run.
   if (status === "success" && scope_counters.out_of_scope_written > 0) {
     status = "failure";
     errMsg = "OUT_OF_SCOPE_WRITE_DETECTED";
   }
 
+  if (status === "success" && scope_counters.writes > 0) {
+    try {
+      const sinceIso = new Date(Date.now() - since * 3600 * 1000).toISOString();
+      const { data, error } = await sb.rpc("promote_padova_collect_v2_to_listings", {
+        p_since: sinceIso,
+      });
+      if (error) {
+        listingsPromote = { ok: false, error: error.message };
+      } else {
+        listingsPromote = data;
+      }
+    } catch (e) {
+      listingsPromote = { ok: false, error: String((e as Error)?.message ?? e) };
+    }
+  }
+
+  await writeSubitoSourceRegistry({
+    ok: status === "success",
+    records: scope_counters.writes,
+    error: errMsg ?? undefined,
+  });
+
   const finished = new Date();
   const excerpt = JSON.stringify(
-    result ? { ...(result as Record<string, unknown>), scope_counters } : { error: errMsg },
+    result
+      ? { ...(result as Record<string, unknown>), scope_counters, listings_promote: listingsPromote }
+      : { error: errMsg },
   ).slice(0, 900);
   await sb.from("cron_executions_log").insert({
     job_name: "central-core-padova-subito-promote",
@@ -93,7 +128,14 @@ Deno.serve(async (req) => {
   });
 
   return new Response(
-    JSON.stringify({ ok: status === "success", result, error: errMsg, scope_counters, scope_reconciliation }, null, 2),
+    JSON.stringify({
+      ok: status === "success",
+      result,
+      error: errMsg,
+      scope_counters,
+      scope_reconciliation,
+      listings_promote: listingsPromote,
+    }, null, 2),
     { status: status === "success" ? 200 : 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
   );
 });
