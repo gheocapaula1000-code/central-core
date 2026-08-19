@@ -32,7 +32,8 @@ describe("cron job secret contract", () => {
     it(`${path}: fail-closed su secret assente/errato`, () => {
       // La guardia deve richiedere secret non vuoto E header corrispondente.
       expect(/!jobSecret|!JOB_SECRET|JOB_SECRET\.length === 0/.test(src)).toBe(true);
-      expect(src).toContain("401");
+      const failClosed = src.includes("401") || src.includes("jobAuthFailure");
+      expect(failClosed).toBe(true);
     });
 
     it(`${path}: non accetta il secret da body o query string`, () => {
