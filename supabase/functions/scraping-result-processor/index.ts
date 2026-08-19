@@ -24,6 +24,12 @@ import {
 import {
   parseContendibileDetail,
 } from "../_shared/queue-processors/civikoContendibileDetail.ts";
+import {
+  APIFY_DATASET_PROCESSOR,
+  PROCESSOR_DRAIN_WALL_MS,
+  processorClaimLimit,
+  shouldClaimAnotherWave,
+} from "../_shared/scrapingLocks.ts";
 
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -93,6 +99,7 @@ const PROCESSOR_TIMEOUT_MS: Record<string, number> = {
   queue_smoke_test: 5_000,
   padova_portal_collect_v2: 20_000,
   civiko_contendibile_detail_v1: 20_000,
+  [APIFY_DATASET_PROCESSOR]: 45_000,
 };
 
 
@@ -437,6 +444,75 @@ const PROCESSORS: Record<string, ProcessorFn> = {
     });
     return { ok: true };
   },
+
+  [APIFY_DATASET_PROCESSOR]: async (job, signal, _workerId) => {
+    if (signal.aborted) {
+      throw new ProcessorError("processor_aborted", true, "processor_aborted");
+    }
+    if (job.provider !== "apify") {
+      throw new ProcessorError(`invalid_provider:${job.provider}`, false, "invalid_provider");
+    }
+    const ctx = (job.processor_context ?? {}) as Record<string, unknown>;
+    const payload = (job.payload ?? {}) as Record<string, unknown>;
+    const result = (job.result ?? {}) as Record<string, unknown>;
+    const runObj = result.run && typeof result.run === "object"
+      ? result.run as Record<string, unknown>
+      : {};
+    const runId = String(
+      job.result_ref ?? payload.run_id ?? runObj.id ?? ctx.run_id ?? "",
+    ).trim();
+    if (!runId) {
+      throw new ProcessorError("run_id_missing", false, "invalid_context");
+    }
+    const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+    const base = Deno.env.get("SUPABASE_URL") ?? "";
+    if (!jobSecret || !base) {
+      throw new ProcessorError("collect_pending_config_missing", true, "config_missing");
+    }
+    if (signal.aborted) {
+      throw new ProcessorError("processor_aborted", true, "processor_aborted");
+    }
+    const response = await fetch(
+      `${base}/functions/v1/padova-apify-collect-pending`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-job-secret": jobSecret,
+        },
+        body: JSON.stringify({
+          run_ids: [runId],
+          stale_minutes: 0,
+          max_items_per_run: 10000,
+          drain_wait_seconds: 20,
+        }),
+        signal,
+      },
+    );
+    const text = await response.text();
+    let parsed: Record<string, unknown> = {};
+    try {
+      parsed = text ? JSON.parse(text) as Record<string, unknown> : {};
+    } catch {
+      parsed = {};
+    }
+    if (response.status === 202 || Number(parsed.pending_count ?? 0) > 0) {
+      throw new ProcessorError("apify_still_running", true, "apify_still_running");
+    }
+    if (!response.ok || parsed.ok === false) {
+      throw new ProcessorError(
+        `collect_pending_http_${response.status}`,
+        response.status >= 500 || response.status === 429,
+        "collect_pending_failed",
+      );
+    }
+    console.log("[padova_apify_dataset_v1] ok", {
+      queue_id: job.id,
+      run_id: runId,
+      imports_count: parsed.imports_count ?? 0,
+    });
+    return { ok: true };
+  },
 };
 
 
@@ -571,7 +647,7 @@ Deno.serve(async (req) => {
     return json({ error: "unauthorized" }, 401);
   }
 
-  let body: { limit?: number; concurrency?: number } = {};
+  let body: { limit?: number; concurrency?: number; drain?: boolean } = {};
   try {
     if (req.headers.get("content-length") !== "0") {
       body = (await req.json().catch(() => ({}))) ?? {};
@@ -580,40 +656,60 @@ Deno.serve(async (req) => {
 
   const limit = Math.min(20, Math.max(1, Math.trunc(Number(body.limit) || 5)));
   const concurrency = Math.min(5, Math.max(1, Math.trunc(Number(body.concurrency) || 3)));
-  // Non reclamare più job di quanti possano iniziare immediatamente:
-  // evita che job in coda restino in lease-wait senza worker che li lavori.
-  const effectiveLimit = Math.min(limit, concurrency);
+  const drain = body.drain !== false;
+  const effectiveLimit = processorClaimLimit({ limit, concurrency, drain });
   const workerId = crypto.randomUUID();
 
-  let jobs: Job[];
   try {
-    jobs = await claim(workerId, effectiveLimit);
-  } catch (e) {
-    console.error("[scraping-result-processor] claim error", { message: (e as Error).message });
-    return json({ error: "claim_failed", message: (e as Error).message }, 500);
+    await sb.rpc("scraping_processing_reap_expired");
+  } catch {
+    // Reaper is best-effort; claim still proceeds.
   }
 
-  if (jobs.length === 0) return json({ claimed: 0, results: [] });
-
+  const startedAt = Date.now();
   const results: unknown[] = [];
-  let cursor = 0;
-  async function pump() {
-    while (cursor < jobs.length) {
-      const i = cursor++;
-      const outcome = await Promise.allSettled([process(jobs[i], workerId)]);
-      const r = outcome[0];
-      results.push(
-        r.status === "fulfilled"
-          ? r.value
-          : { id: jobs[i].id, ok: false, reason: "pool_error" },
-      );
-    }
-  }
-  const pumps = Array.from(
-    { length: Math.min(concurrency, jobs.length) },
-    () => pump(),
-  );
-  await Promise.allSettled(pumps);
+  let claimedTotal = 0;
+  let lastClaimed = 0;
 
-  return json({ claimed: jobs.length, results });
+  do {
+    let jobs: Job[];
+    try {
+      jobs = await claim(workerId, effectiveLimit);
+    } catch (e) {
+      console.error("[scraping-result-processor] claim error", { message: (e as Error).message });
+      if (claimedTotal === 0) {
+        return json({ error: "claim_failed", message: (e as Error).message }, 500);
+      }
+      break;
+    }
+    lastClaimed = jobs.length;
+    claimedTotal += lastClaimed;
+    if (jobs.length === 0) break;
+
+    let cursor = 0;
+    async function pump() {
+      while (cursor < jobs.length) {
+        const i = cursor++;
+        const outcome = await Promise.allSettled([process(jobs[i], workerId)]);
+        const r = outcome[0];
+        results.push(
+          r.status === "fulfilled"
+            ? r.value
+            : { id: jobs[i].id, ok: false, reason: "pool_error" },
+        );
+      }
+    }
+    const pumps = Array.from(
+      { length: Math.min(concurrency, jobs.length) },
+      () => pump(),
+    );
+    await Promise.allSettled(pumps);
+  } while (drain && shouldClaimAnotherWave({
+    startedAtMs: startedAt,
+    nowMs: Date.now(),
+    wallMs: PROCESSOR_DRAIN_WALL_MS,
+    lastClaimed,
+  }));
+
+  return json({ claimed: claimedTotal, results });
 });

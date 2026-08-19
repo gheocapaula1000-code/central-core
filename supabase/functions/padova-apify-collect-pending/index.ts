@@ -22,6 +22,17 @@ import {
   WATCHDOG_UNRECOVERABLE,
 } from "../_shared/scrapeJobWatchdog.ts";
 import {
+  APIFY_DATASET_PAGE_SIZE,
+  buildApifyRunWebhooks,
+  clampMaxItemsPerRun,
+  collectHttpStatus,
+  collectPendingCount,
+  collectPendingWebhookUrl,
+  encodeApifyWebhooksQuery,
+  extractCollectRunIds,
+  waitForFinishSeconds,
+} from "../_shared/apifyDrain.ts";
+import {
   classifyProviderMunicipality,
   isExplicitPadovaMunicipality,
 } from "./territory.ts";
@@ -34,16 +45,28 @@ const ACTOR_IMMO_LISTVIEW = "azzouzana~immobiliare-it-listing-page-scraper-by-se
 const ACTOR_SUBITO = "emastra~subito-it-immobili";
 const ACTOR_CASA = "benthepythondev~casa-it-scraper";
 
-async function apifyRunStatus(runId: string, token: string) {
-  const r = await fetch(`${APIFY}/actor-runs/${runId}?token=${encodeURIComponent(token)}`);
+async function apifyRunStatus(runId: string, token: string, waitForFinishSec = 0) {
+  const wait = waitForFinishSec > 0 ? `&waitForFinish=${waitForFinishSec}` : "";
+  const timeoutMs = Math.max(15_000, (waitForFinishSec + 10) * 1000);
+  const r = await fetch(
+    `${APIFY}/actor-runs/${runId}?token=${encodeURIComponent(token)}${wait}`,
+    { signal: AbortSignal.timeout(timeoutMs) },
+  );
   if (!r.ok) return null;
   const j = await r.json();
   return j?.data ?? null;
 }
 
 async function startRun(actor: string, input: Record<string, unknown>, token: string) {
+  const webhooks = buildApifyRunWebhooks({
+    requestUrl: collectPendingWebhookUrl(Deno.env.get("SUPABASE_URL") ?? ""),
+    jobSecret: Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "",
+  });
+  const webhookQuery = webhooks
+    ? `&webhooks=${encodeURIComponent(encodeApifyWebhooksQuery(webhooks))}`
+    : "";
   const r = await fetch(
-    `${APIFY}/acts/${encodeURIComponent(actor)}/runs?token=${encodeURIComponent(token)}&waitForFinish=0`,
+    `${APIFY}/acts/${encodeURIComponent(actor)}/runs?token=${encodeURIComponent(token)}&waitForFinish=0${webhookQuery}`,
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) },
   );
   const j = await r.json();
@@ -51,13 +74,26 @@ async function startRun(actor: string, input: Record<string, unknown>, token: st
   return { run_id: j.data.id as string, dataset_id: j.data.defaultDatasetId as string };
 }
 
-
-async function fetchDataset(datasetId: string, token: string, limit: number) {
-  const r = await fetch(
-    `${APIFY}/datasets/${datasetId}/items?token=${encodeURIComponent(token)}&clean=1&limit=${limit}`,
-  );
-  if (!r.ok) throw new Error(`apify_dataset_${r.status}`);
-  return (await r.json()) as any[];
+async function fetchDatasetPaged(datasetId: string, token: string, maxItems: number) {
+  const items: any[] = [];
+  let offset = 0;
+  let lastPageLength = 0;
+  let requestedLimit = APIFY_DATASET_PAGE_SIZE;
+  while (items.length < maxItems) {
+    requestedLimit = Math.min(APIFY_DATASET_PAGE_SIZE, maxItems - items.length);
+    const r = await fetch(
+      `${APIFY}/datasets/${datasetId}/items?token=${encodeURIComponent(token)}&clean=1&offset=${offset}&limit=${requestedLimit}`,
+      { signal: AbortSignal.timeout(45_000) },
+    );
+    if (!r.ok) throw new Error(`apify_dataset_${r.status}`);
+    const page = await r.json();
+    if (!Array.isArray(page) || page.length === 0) break;
+    items.push(...page);
+    lastPageLength = page.length;
+    if (page.length < requestedLimit) break;
+    offset += page.length;
+  }
+  return { items, truncated: items.length >= maxItems && lastPageLength >= requestedLimit };
 }
 
 function canonUrl(u: string): string {
@@ -438,8 +474,9 @@ Deno.serve(async (req) => {
 
   const staleMinutes = Number(body.stale_minutes ?? 5);
   const maxRuns = Number(body.max_runs ?? 20);
-  const maxItemsPerRun = Number(body.max_items_per_run ?? 1500);
+  const maxItemsPerRun = clampMaxItemsPerRun(body.max_items_per_run ?? 10000);
   const dryRun = !!body.dry_run;
+  const drainWaitSeconds = Math.max(0, Math.min(50, Number(body.drain_wait_seconds ?? 0)));
   const requireProgress = body.require_progress === true;
   const requireCandidates = body.require_candidates === true;
   const requireTerminal = body.require_terminal === true;
@@ -493,9 +530,17 @@ Deno.serve(async (req) => {
   // run NON va considerata completata finché il dataset non è stato promosso
   // in padova_collect_v2_items.
   let candidates: any[] = [];
-  if (Array.isArray(body.run_ids) && body.run_ids.length) {
-    const { data } = await sb.from("padova_apify_runs").select("*").in("run_id", body.run_ids);
+  const webhookRunIds = extractCollectRunIds(body);
+  if (webhookRunIds.length) {
+    const { data } = await sb.from("padova_apify_runs").select("*").in("run_id", webhookRunIds);
     candidates = data ?? [];
+    const found = new Set((candidates as any[]).map((row) => String(row?.run_id ?? "")));
+    // Webhook for a run not yet in padova_apify_runs: still drain by run_id.
+    for (const runId of webhookRunIds) {
+      if (!found.has(runId)) {
+        candidates.push({ run_id: runId, actor_id: "", portal: "", dataset_id: "", status: "RUNNING" });
+      }
+    }
   } else if (dbEvidenceOnly) {
     // Solo run già terminali positivi e recenti: i residui storici sono stati
     // riconciliati a stato terminale non-successo e non devono più affiorare.
@@ -577,9 +622,9 @@ Deno.serve(async (req) => {
   const results: any[] = [];
   for (const row of candidates) {
     const runId: string = row.run_id;
-    const actorId: string = row.actor_id ?? "";
+    let actorId: string = row.actor_id ?? "";
     const portalTag: string = row.portal ?? "";
-    const dsId: string = row.dataset_id ?? "";
+    let dsId: string = row.dataset_id ?? "";
     let finalStatus = "UNKNOWN";
     let itemsCount = 0;
     let created = 0, updated = 0, skipped = 0;
@@ -634,7 +679,11 @@ Deno.serve(async (req) => {
 
     try {
 
-      const apifyData = await apifyRunStatus(runId, token);
+      const apifyData = await apifyRunStatus(
+        runId,
+        token,
+        waitForFinishSeconds(drainWaitSeconds * 1000),
+      );
       if (!apifyData) {
         if (row.error === WATCHDOG_ERROR && !dryRun) {
           await sb.from("padova_apify_runs").update({
@@ -646,7 +695,11 @@ Deno.serve(async (req) => {
         continue;
       }
       finalStatus = apifyData.status;
+      if (!actorId && apifyData.actId) {
+        actorId = String(apifyData.actId).replace("/", "~");
+      }
       const datasetId = apifyData.defaultDatasetId ?? dsId;
+      if (!dsId && datasetId) dsId = datasetId;
 
       if (finalStatus === "SUCCEEDED" && datasetId) {
         const mapper = mapperFor(actorId, portalTag);
@@ -654,7 +707,8 @@ Deno.serve(async (req) => {
           results.push({ run_id: runId, action: "skip_unknown_actor", actor_id: actorId, portal: portalTag });
           continue;
         }
-        const items = await fetchDataset(datasetId, token, maxItemsPerRun);
+        const fetched = await fetchDatasetPaged(datasetId, token, maxItemsPerRun);
+        const items = fetched.items;
         itemsCount = items.length;
         for (const item of items) {
           const municipality = classifyProviderMunicipality(
@@ -804,6 +858,7 @@ Deno.serve(async (req) => {
           run_id: runId, dataset_id: datasetId, actor_id: actorId, portal: portalTag,
           status: finalStatus, items: itemsCount, deduped: deduped.length,
           created, updated, skipped, errors, dry_run: dryRun,
+          truncated: fetched.truncated,
           rejected_out_of_scope: rejectedOutOfScope,
           municipality_missing: municipalityMissing,
           out_of_scope_written: 0,
@@ -981,6 +1036,7 @@ Deno.serve(async (req) => {
       return "";
     })
     .filter(Boolean));
+  const pendingCount = collectPendingCount(results);
   const candidatesOk = !requireCandidates || candidates.length > 0;
   const terminalOk = !requireTerminal || (results.length > 0 && results.every((result) =>
     result?.status === "SUCCEEDED" && Number(result?.items ?? 0) > 0
@@ -988,13 +1044,17 @@ Deno.serve(async (req) => {
   const requiredPortalsOk = requiredPortals.every((portal) =>
     (completedPortalFamilies as Set<string>).has(String(portal))
   );
+  const errorsCount = terminalFailures.length + auxiliaryFailures.length + pendingCount;
   const ok = terminalFailures.length === 0 && auxiliaryFailures.length === 0 &&
+    pendingCount === 0 &&
     candidatesOk && terminalOk && requiredPortalsOk &&
     (!requireProgress || importsCount > 0);
+  const httpStatus = collectHttpStatus({ ok, pendingCount, errorsCount });
 
   return new Response(JSON.stringify({
     ok, scanned: candidates.length, imports_count: importsCount,
-    zero_novelty: results.length > 0 && importsCount === 0 && results.every((result) =>
+    pending_count: pendingCount,
+    zero_novelty: results.length > 0 && importsCount === 0 && pendingCount === 0 && results.every((result) =>
       result?.status === "SUCCEEDED" && Number(result?.items ?? 0) > 0
     ),
     required_portals_complete: requiredPortalsOk,
@@ -1004,13 +1064,13 @@ Deno.serve(async (req) => {
     municipality_missing: results.reduce((sum, result) =>
       sum + Number(result?.municipality_missing ?? 0), 0),
     out_of_scope_written: 0,
-    errors_count: terminalFailures.length + auxiliaryFailures.length,
+    errors_count: errorsCount,
     zombies_marked: zombiesMarked,
     watchdog,
     quarantined_runs: quarantinedRuns,
     quarantine_error: quarantineError,
     scope_started_after: scopeStartedAfter,
-    scope_run_ids: Array.isArray(body.run_ids) ? body.run_ids.length : 0,
+    scope_run_ids: webhookRunIds.length,
     agency_backfill: backfillLaunches,
     recompute: recomputeResult, results,
     error: ok ? undefined : (!candidatesOk
@@ -1021,9 +1081,11 @@ Deno.serve(async (req) => {
       ? "required_portals_incomplete"
       : requireProgress && importsCount === 0
       ? "no_import_progress"
+      : pendingCount > 0
+      ? "collect_pending_still_running"
       : "collect_pending_partial_failure"),
   }, null, 2), {
-    status: ok ? 200 : 502,
+    status: httpStatus,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });

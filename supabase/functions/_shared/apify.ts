@@ -10,6 +10,11 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { canSpendApify, recordApifySpend } from "./apifyBudget.ts";
+import {
+  buildApifyRunWebhooks,
+  collectPendingWebhookUrl,
+  encodeApifyWebhooksQuery,
+} from "./apifyDrain.ts";
 
 const CANONICAL = "APIFY_API_TOKEN";
 const LEGACY_FALLBACKS = ["APIFY_TOKEN", "APIFY_API_KEY"] as const;
@@ -96,8 +101,15 @@ export async function startApifyRun(
   let run_id: string;
   let dataset_id: string;
   try {
+    const webhooks = buildApifyRunWebhooks({
+      requestUrl: collectPendingWebhookUrl(Deno.env.get("SUPABASE_URL") ?? ""),
+      jobSecret: Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "",
+    });
+    const webhookQuery = webhooks
+      ? `&webhooks=${encodeURIComponent(encodeApifyWebhooksQuery(webhooks))}`
+      : "";
     const r = await fetch(
-      `${APIFY_BASE}/acts/${encodeURIComponent(actor)}/runs?token=${encodeURIComponent(token)}&waitForFinish=0`,
+      `${APIFY_BASE}/acts/${encodeURIComponent(actor)}/runs?token=${encodeURIComponent(token)}&waitForFinish=0${webhookQuery}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

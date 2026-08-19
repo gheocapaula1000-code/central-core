@@ -12,10 +12,11 @@ Deno.test("accetta i requisiti fail-closed del dispatcher", () => {
 Deno.test("espone i contatori richiesti", () => {
   for (
     const k of [
-      "scanned,",
+      "scanned:",
       "completed_count:",
       "imports_count:",
-      "errors:",
+      "pending_count:",
+      "errors_count:",
       "required_portals_complete:",
       "zero_novelty:",
     ]
@@ -26,15 +27,18 @@ Deno.test("espone i contatori richiesti", () => {
 
 Deno.test("HTTP 200 non è più un successo automatico", () => {
   assert(!SRC.includes("ok: true, scanned: candidates.length"));
-  assertStringIncludes(SRC, "const ok = failures.length === 0;");
-  assertStringIncludes(SRC, "status: ok ? 200 : 422");
+  assertStringIncludes(SRC, "pendingCount === 0");
+  assertStringIncludes(SRC, "collectHttpStatus");
 });
 
-Deno.test("zero novità richiede catena completata e zero errori", () => {
-  assertStringIncludes(
-    SRC,
-    "const zeroNovelty = errorsCount === 0 && completedCount > 0 && importsCount === 0;",
-  );
+Deno.test("zero novità richiede catena completata, zero pending e zero import", () => {
+  assertStringIncludes(SRC, "pendingCount === 0 && results.every");
+});
+
+Deno.test("drena dataset paginati e webhooks Apify", () => {
+  assertStringIncludes(SRC, "fetchDatasetPaged");
+  assertStringIncludes(SRC, "extractCollectRunIds");
+  assertStringIncludes(SRC, "expireStaleScrapeJobs");
 });
 
 Deno.test("watchdog: i job RUNNING non restano aperti per sempre", () => {
