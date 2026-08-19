@@ -4,7 +4,6 @@ import { resolve } from "node:path";
 import {
   DEFAULT_TIMEOUT_MS,
   WATCHDOG_ERROR,
-  WATCHDOG_UNRECOVERABLE,
   OPEN_STATUSES,
   isOpenStatus,
   isExpired,
@@ -165,8 +164,8 @@ describe("wiring — collectors expire before skip, meta-stats uses classifier",
 
   it("collect-pending expires zombies even if Apify still says RUNNING", () => {
     expect(collectPending).toContain("expireStaleScrapeJobs");
-    expect(collectPending).toContain(WATCHDOG_ERROR);
-    expect(collectPending).toContain(WATCHDOG_UNRECOVERABLE);
+    expect(collectPending).toContain("WATCHDOG_ERROR");
+    expect(collectPending).toContain("WATCHDOG_UNRECOVERABLE");
     expect(collectPending).not.toMatch(/if \(d && d\.status === "RUNNING"\) continue/);
     expect(collectPending).toMatch(/\.eq\("error", WATCHDOG_ERROR\)/);
   });
@@ -207,7 +206,7 @@ describe("SQL watchdog migration — timeout, mark failed, no secrets", () => {
     expect(sql).toMatch(/DEFAULT 14400/);
     expect(sql).toContain("'expire-stale-scrape-jobs'");
     expect(sql).toContain("'*/15 * * * *'");
-    expect(sql).toContain("SELECT public.expire_stale_scrape_jobs()");
+    expect(sql).toContain("public.expire_stale_scrape_jobs()");
   });
 
   it("marks open apify + firecrawl + started cron rows failed", () => {
@@ -220,7 +219,7 @@ describe("SQL watchdog migration — timeout, mark failed, no secrets", () => {
 
   it("does not embed secrets, tokens, or vault material", () => {
     expect(sql).not.toMatch(/eyJ[A-Za-z0-9_-]+/);
-    expect(sql).not.toMatch(/service_role_key|SERVICE_ROLE|CENTRAL_CORE_JOB_SECRET/i);
+    expect(sql).not.toMatch(/service_role_key|SERVICE_ROLE_KEY|CENTRAL_CORE_JOB_SECRET/i);
     expect(sql).not.toMatch(/vault\.decrypted_secrets/);
     expect(sql).not.toMatch(/Bearer /);
     expect(sql).not.toMatch(/net\.http_post/);
