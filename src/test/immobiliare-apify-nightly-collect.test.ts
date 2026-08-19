@@ -229,7 +229,7 @@ describe("Padova search URLs and wiring", () => {
   });
 });
 
-describe("cron migration — live Core, vault secret, 15-min collect", () => {
+describe("cron migration — live Core, vault secret, keep drain on main", () => {
   const sql = read("supabase/migrations/20260819180000_immobiliare_apify_collect_handoff.sql");
   const health = read("supabase/functions/core-cron-health-public/index.ts");
 
@@ -254,8 +254,9 @@ describe("cron migration — live Core, vault secret, 15-min collect", () => {
   });
 
   it("keeps the existing 15-minute collect-pending drain on main", () => {
-    expect(sql).not.toContain("portal-collect-pending-drain");
-    expect(sql).not.toMatch(/cron\.schedule\(\s*'portal-collect-pending'/);
+    expect(sql).not.toMatch(/cron\.unschedule\(\s*'portal-collect-pending/);
+    expect(sql).not.toMatch(/cron\.schedule\(\s*'portal-collect-pending/);
+    expect(sql).not.toMatch(/cron\.schedule\(\s*'portal-collect-pending-drain/);
     expect(health).toContain('jobname: "portal-collect-pending"');
     expect(health).toContain('jobname: "portal-collect-pending-drain"');
     expect(health).toContain('"*/15 * * * *"');
