@@ -22,6 +22,8 @@ import {
   sourceRegistryPatch,
   syntheticFailedRunId,
   COLLECT_PENDING_FN,
+  IMMOBILIARE_SCHEDULER_JOBS,
+  IMMOBILIARE_SOURCE_CODES,
   SUBITO_SCHEDULER_JOBS,
 } from "./apifyLaunch.ts";
 import { jobAuthHeaders } from "./jobAuth.ts";
@@ -85,6 +87,10 @@ function jobSecret(): string {
   return Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
 }
 
+function gatewayApikey(): string {
+  return Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+}
+
 async function persistFailedLaunch(
   portal: string,
   actor: string,
@@ -131,6 +137,23 @@ export async function writeSubitoSourceRegistry(
   });
 }
 
+/** Write last_error / last_success to Immobiliare portal source registry rows. */
+export async function writeImmobiliareSourceRegistry(
+  outcome: { ok: boolean; records?: number; error?: string },
+): Promise<void> {
+  const sb = serviceClient();
+  if (!sb) return;
+  const patch = sourceRegistryPatch(outcome, new Date().toISOString(), "[immobiliare-apify]");
+  try {
+    await sb.from("civiko_source_registry").update(patch)
+      .in("source_code", [...IMMOBILIARE_SOURCE_CODES]);
+    await sb.from("civiko_source_registry").update(patch)
+      .in("scheduler_job_name", [...IMMOBILIARE_SCHEDULER_JOBS]);
+  } catch (e) {
+    console.warn("[apify] source registry update failed", String((e as Error)?.message ?? e));
+  }
+}
+
 export function handoffCollectPending(runIds: string[]): void {
   const ids = runIds.map((id) => String(id ?? "").trim()).filter(Boolean);
   const secret = jobSecret();
@@ -138,7 +161,7 @@ export function handoffCollectPending(runIds: string[]): void {
   if (!ids.length || !secret || !url) return;
   fetch(url, {
     method: "POST",
-    headers: jobAuthHeaders(secret),
+    headers: jobAuthHeaders(secret, gatewayApikey()),
     body: JSON.stringify({ run_ids: ids, stale_minutes: 0, max_runs: ids.length }),
   }).catch((e) => console.warn("[apify] collect-pending handoff", String(e)));
 }
@@ -194,16 +217,17 @@ export async function startApifyRun(
   const requestUrl = collectPendingWebhookUrl(Deno.env.get("SUPABASE_URL") ?? "") ||
     collectPendingUrl();
   const secret = jobSecret();
-  // Drain webhook from #39 (eventTypes + headersTemplate) plus Subito payloadTemplate
-  // so collect-pending receives `{ run_ids: [resource.id] }` on terminal events.
-  const drainHooks = buildApifyRunWebhooks({ requestUrl, jobSecret: secret });
-  const subitoHook = buildCollectPendingWebhook(requestUrl, secret);
+  const apikey = gatewayApikey();
+  // Drain webhook from #39 plus collect-pending payloadTemplate / gateway apikey
+  // so finished runs are ingested and the Edge gateway does not 401 the callback.
+  const drainHooks = buildApifyRunWebhooks({ requestUrl, jobSecret: secret, apikey });
+  const collectHook = buildCollectPendingWebhook(requestUrl, secret, apikey);
   const webhooks = drainHooks?.map((hook) => ({
     ...hook,
-    ...(subitoHook
+    ...(collectHook
       ? {
-        payloadTemplate: subitoHook.payloadTemplate,
-        headersTemplate: subitoHook.headersTemplate,
+        payloadTemplate: collectHook.payloadTemplate,
+        headersTemplate: collectHook.headersTemplate,
       }
       : {}),
   })) ?? null;

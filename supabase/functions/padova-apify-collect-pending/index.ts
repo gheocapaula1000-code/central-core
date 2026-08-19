@@ -16,6 +16,7 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getApifyToken } from "../_shared/apify.ts";
+import { collectPendingRunError } from "../_shared/apifyLaunch.ts";
 import { isJobSecretAuthorized, jobAuthFailure } from "../_shared/jobAuth.ts";
 import { flattenSubitoForStaging } from "../_shared/subitoMapper.ts";
 import {
@@ -63,6 +64,7 @@ async function startRun(actor: string, input: Record<string, unknown>, token: st
   const webhooks = buildApifyRunWebhooks({
     requestUrl: collectPendingWebhookUrl(Deno.env.get("SUPABASE_URL") ?? ""),
     jobSecret: Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "",
+    apikey: Deno.env.get("SUPABASE_ANON_KEY") ?? "",
   });
   const webhookQuery = webhooks
     ? `&webhooks=${encodeURIComponent(encodeApifyWebhooksQuery(webhooks))}`
@@ -688,13 +690,23 @@ Deno.serve(async (req) => {
         waitForFinishSeconds(drainWaitSeconds * 1000),
       );
       if (!apifyData) {
-        if (row.error === WATCHDOG_ERROR && !dryRun) {
-          await sb.from("padova_apify_runs").update({
-            error: WATCHDOG_UNRECOVERABLE,
-            finished_at: new Date().toISOString(),
-          }).eq("run_id", runId);
+        if (!dryRun) {
+          if (row.error === WATCHDOG_ERROR) {
+            await sb.from("padova_apify_runs").update({
+              error: WATCHDOG_UNRECOVERABLE,
+              finished_at: new Date().toISOString(),
+            }).eq("run_id", runId);
+          } else {
+            await sb.from("padova_apify_runs").update({
+              error: collectPendingRunError("skip_no_apify_data"),
+            }).eq("run_id", runId);
+          }
         }
-        results.push({ run_id: runId, action: "skip_no_apify_data" });
+        results.push({
+          run_id: runId,
+          action: "skip_no_apify_data",
+          error: row.error === WATCHDOG_ERROR ? WATCHDOG_UNRECOVERABLE : "apify_run_unreadable",
+        });
         continue;
       }
       finalStatus = apifyData.status;
@@ -707,7 +719,12 @@ Deno.serve(async (req) => {
       if (finalStatus === "SUCCEEDED" && datasetId) {
         const mapper = mapperFor(actorId, portalTag);
         if (!mapper) {
-          results.push({ run_id: runId, action: "skip_unknown_actor", actor_id: actorId, portal: portalTag });
+          if (!dryRun) {
+            await sb.from("padova_apify_runs").update({
+              error: collectPendingRunError("skip_unknown_actor"),
+            }).eq("run_id", runId);
+          }
+          results.push({ run_id: runId, action: "skip_unknown_actor", actor_id: actorId, portal: portalTag, error: "unknown_actor" });
           continue;
         }
         const fetched = await fetchDatasetPaged(datasetId, token, maxItemsPerRun);
@@ -801,6 +818,11 @@ Deno.serve(async (req) => {
             finished_at: apifyData.finishedAt ?? nowIso,
             items_count: itemsCount,
             imported: importedCount,
+            error: itemsCount === 0
+              ? "provider_returned_empty_dataset"
+              : (importedCount === 0 && deduped.length === 0
+                ? "provider_returned_no_mappable_items"
+                : null),
           }).eq("run_id", runId);
         }
         // ============ AUTO-TRIGGER PASS B (enrichment) ============
@@ -844,10 +866,9 @@ Deno.serve(async (req) => {
                 const input = portal === "idealista"
                   ? { Property_urls: newUrls.map((u) => ({ url: u })) }
                   : {
-                      startUrls: newUrls.map((u) => ({ url: u })),
+                      startUrls: newUrls,
                       maxItems: newUrls.length,
                       includeAgencyDetails: false,
-                      proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
                     };
                 const { run_id: eRid, dataset_id: eDid } = await startRun(detailActor, input, token);
                 await sb.from("padova_apify_runs").insert({
@@ -885,6 +906,7 @@ Deno.serve(async (req) => {
           await sb.from("padova_apify_runs").update({
             status: finalStatus,
             finished_at: apifyData.finishedAt ?? new Date().toISOString(),
+            error: collectPendingRunError("marked_failed", finalStatus),
           }).eq("run_id", runId);
         }
         results.push({ run_id: runId, status: finalStatus, action: "marked_failed", dry_run: dryRun });
@@ -983,10 +1005,9 @@ Deno.serve(async (req) => {
               break;
             }
             const { run_id: bRid, dataset_id: bDid } = await startRun(ACTOR_IMMO_DETAIL, {
-              startUrls: urls.map((u) => ({ url: u })),
+              startUrls: urls,
               maxItems: urls.length,
               includeAgencyDetails: false,
-              proxy: { useApifyProxy: true, apifyProxyGroups: ["RESIDENTIAL"] },
             }, token);
             await sb.from("padova_apify_runs").insert({
               portal: "immobiliare_agency_backfill",
