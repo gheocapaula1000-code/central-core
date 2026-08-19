@@ -20,6 +20,8 @@ import {
   type AggregatorBucket,
 } from "../_shared/obituariesAggregator.ts";
 import { assertAggregateBucket } from "../_shared/aggregateBucketGuard.ts";
+import { isJobSecretAuthorized, constantTimeEqual } from "../_shared/http.ts";
+import { writeSourceRegistryStatus } from "../_shared/sourceRegistryStatus.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -112,10 +114,12 @@ async function fetchListingMarkdown(url: string, apiKey: string): Promise<string
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  // Auth
-  const secret = req.headers.get("x-internal-secret") ?? req.headers.get("x-job-secret") ?? "";
+  // Auth: x-job-secret (pg_cron / GitHub Actions) or x-internal-secret (legacy).
   const expected = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
-  if (!expected || secret !== expected) {
+  const jobOk = isJobSecretAuthorized(req, expected);
+  const incomingInternal = req.headers.get("x-internal-secret") ?? "";
+  const legacy = Boolean(expected && incomingInternal && constantTimeEqual(incomingInternal, expected));
+  if (!jobOk && !legacy) {
     return new Response(JSON.stringify({ ok: false, error: "unauthorized" }), {
       status: 401,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -131,8 +135,13 @@ Deno.serve(async (req) => {
   const supa = createClient(url, key, { auth: { persistSession: false } });
 
   if (!fcKey) {
-    return new Response(JSON.stringify({ ok: false, error: "firecrawl_key_missing" }), {
-      status: 500,
+    await writeSourceRegistryStatus(supa, "F19", {
+      ok: false,
+      records: 0,
+      error: "firecrawl_key_missing",
+    });
+    return new Response(JSON.stringify({ ok: false, records_processed: 0, error: "firecrawl_key_missing" }), {
+      status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
@@ -142,13 +151,22 @@ Deno.serve(async (req) => {
   const q = supa.from("obituaries_sources").select("id,name,base_url,search_url_template,source_type,reliability_score,is_active").eq("region", "veneto");
   const { data: sources, error: srcErr } = dryRun ? await q : await q.eq("is_active", true);
   if (srcErr) {
-    return new Response(JSON.stringify({ ok: false, error: srcErr.message }), {
-      status: 500,
+    await writeSourceRegistryStatus(supa, "F19", {
+      ok: false,
+      records: 0,
+      error: srcErr.message.slice(0, 500),
+    });
+    return new Response(JSON.stringify({ ok: false, records_processed: 0, error: srcErr.message }), {
+      status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
   if (!sources || sources.length === 0) {
-    return new Response(JSON.stringify({ ok: true, message: "no_active_sources" }), {
+    await writeSourceRegistryStatus(supa, "F19", {
+      ok: true,
+      records: 0,
+    });
+    return new Response(JSON.stringify({ ok: true, records_processed: 0, message: "no_active_sources" }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
@@ -282,7 +300,15 @@ Deno.serve(async (req) => {
     }
   }
 
-  return new Response(JSON.stringify(report), {
+  await writeSourceRegistryStatus(supa, "F19", {
+    ok: report.sources_failed === 0 || report.buckets_written > 0,
+    records: report.buckets_written,
+    error: report.sources_failed > 0 && report.buckets_written === 0
+      ? "obituaries_sources_failed"
+      : null,
+  });
+
+  return new Response(JSON.stringify({ ...report, records_processed: report.buckets_written }), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });

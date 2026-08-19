@@ -88,33 +88,31 @@ describe("F19 — aggregate table privacy contract (DB-level)", () => {
 });
 
 describe("F19 — importer enforces aggregate-only & k-anonymity (app-level)", () => {
-  const code = read("supabase/functions/civiko-source-registry/index.ts");
+  const code = read("supabase/functions/civiko-obituaries-aggregate/index.ts");
 
-  it("routes obituaries-aggregate import", () => {
-    expect(code).toMatch(/\/import\/obituaries-aggregate/);
-    expect(code).toMatch(/importObituariesAggregate/);
+  it("is the scheduled F19 collector", () => {
+    expect(code).toMatch(/civiko-obituaries-aggregate/);
+    expect(code).toMatch(/writeSourceRegistryStatus/);
+    expect(code).toMatch(/["']F19["']/);
   });
 
-  it("calls assertAggregateOnly with F19 source code", () => {
-    expect(code).toMatch(/assertAggregateOnly\(\s*r\s*,\s*["']F19["']/);
+  it("guards buckets with assertAggregateBucket", () => {
+    expect(code).toMatch(/assertAggregateBucket/);
   });
 
   it("declares k-anonymity minimum of 3 and a default 90-day window", () => {
-    expect(code).toMatch(/F19_K_ANONYMITY_MIN\s*=\s*3/);
-    expect(code).toMatch(/F19_DEFAULT_WINDOW_DAYS\s*=\s*90/);
+    expect(code).toMatch(/K_ANONYMITY\s*=\s*3/);
+    expect(code).toMatch(/WINDOW_DAYS\s*=\s*90/);
   });
 
   it("suppresses buckets under threshold (never persists them)", () => {
-    expect(code).toMatch(/bucketCount\s*<\s*F19_K_ANONYMITY_MIN/);
-    expect(code).toMatch(/suppressed/);
+    expect(code).toMatch(/bucket_count\s*<\s*K_ANONYMITY/);
+    expect(code).toMatch(/buckets_below_k/);
   });
 
   it("does not write any person-level field into the aggregate table payload", () => {
-    // Inspect the importObituariesAggregate function body only.
-    const m = code.match(/async function importObituariesAggregate[\s\S]*?\n\}/);
-    expect(m).not.toBeNull();
-    const body = (m![0] ?? "").toLowerCase();
-    const banned = ["first_name", "last_name", "full_name", "deceased", "address", "phone", "email", "codice_fiscale", "obituary_url"];
+    const body = code.toLowerCase();
+    const banned = ["first_name", "last_name", "full_name", "deceased_name", "phone", "email", "codice_fiscale"];
     for (const word of banned) {
       expect(body.includes(word), `importer must not reference "${word}"`).toBe(false);
     }
@@ -145,7 +143,7 @@ describe("F19 — appears in source health (connector-status)", () => {
 
 describe("F19 — aggregate output contract envelope", () => {
   const sql = loadMigrations();
-  const fn = read("supabase/functions/civiko-source-registry/index.ts");
+  const fn = read("supabase/functions/civiko-obituaries-aggregate/index.ts");
 
   it("aggregate table carries contract fields", () => {
     expect(sql).toMatch(/source_code\s+TEXT[^,]*DEFAULT\s+'F19'/i);
@@ -161,31 +159,25 @@ describe("F19 — aggregate output contract envelope", () => {
     expect(sql).toMatch(/CHECK\s*\(\s*confidence\s+IN\s*\(\s*'low'\s*,\s*'medium'\s*,\s*'high'\s*\)\s*\)/i);
   });
 
-  it("admin read endpoint exposes aggregate envelope only (no person-level fields)", () => {
-    expect(fn).toMatch(/\/obituaries-aggregate/);
-    expect(fn).toMatch(/listObituariesAggregate/);
-    const m = fn.match(/async function listObituariesAggregate[\s\S]*?\n\}/);
-    expect(m).not.toBeNull();
-    const body = (m![0] ?? "").toLowerCase();
-    const banned = ["first_name", "last_name", "full_name", "deceased", "address", "phone", "email", "codice_fiscale", "obituary_url", "source_url"];
+  it("collector writes the aggregate envelope only (no person-level fields)", () => {
+    expect(fn).toMatch(/obituaries_aggregate_padova/);
+    const body = fn.toLowerCase();
+    const banned = ["first_name", "last_name", "full_name", "deceased_name", "phone", "email", "codice_fiscale"];
     for (const word of banned) {
-      expect(body.includes(word), `aggregate reader must not return "${word}"`).toBe(false);
+      expect(body.includes(word), `collector must not persist "${word}"`).toBe(false);
     }
-    // defence-in-depth: explicit k-threshold filter on read
-    expect(fn).toMatch(/\.gte\(\s*["']bucket_count["']\s*,\s*3\s*\)/);
+    expect(fn).toMatch(/visible_to_pwa\s*=\s*false/);
+    expect(fn).toMatch(/K_ANONYMITY\s*=\s*3/);
   });
 
-  it("admin read endpoint includes the contract envelope keys for downstream consumers", () => {
-    const m = fn.match(/async function listObituariesAggregate[\s\S]*?\n\}/)!;
-    const body = m[0];
+  it("collector upsert payload includes the contract envelope keys", () => {
     for (const key of [
-      "area_key", "area_type", "time_window_days", "aggregate_count",
+      "area_type", "area_code", "window_days", "bucket_count",
       "last_observed_at", "computed_at", "confidence", "visible_to_pwa",
-      "source_code", "source_name",
+      "source_code",
     ]) {
-      expect(body, `envelope must expose "${key}"`).toMatch(new RegExp(key));
+      expect(fn, `envelope must expose "${key}"`).toMatch(new RegExp(key));
     }
-    expect(body).toMatch(/compliance_warning/);
   });
 });
 

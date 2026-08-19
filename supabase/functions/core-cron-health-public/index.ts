@@ -52,6 +52,10 @@ const CORE_JOBS: CoreJob[] = [
   { jobname: "central-core-radar-ckan-weekly",         descrizione_leggibile: "ANAC/CKAN → territorial_signals (Padova)",   schedule_attesa: "35 4 * * 0",  kind: "weekly", warning_ore: 24 * 8, critico_ore: 24 * 9, source: "executions_log" },
   { jobname: "central-core-radar-aste-daily",          descrizione_leggibile: "Aste giudiziarie Padova (F16)",              schedule_attesa: "10 4 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
   { jobname: "istat-sdmx-monthly",                     descrizione_leggibile: "ISTAT SDMX comuni Veneto",                    schedule_attesa: "0 4 1 * *",   kind: "monthly", warning_ore: 24 * 35, critico_ore: 24 * 40, source: "executions_log" },
+  { jobname: "istat-demografia-monthly",               descrizione_leggibile: "ISTAT demografia segnali Padova",             schedule_attesa: "0 5 1 * *",   kind: "monthly", warning_ore: 24 * 35, critico_ore: 24 * 40, source: "executions_log" },
+  { jobname: "official-osm-cantieri",                  descrizione_leggibile: "OSM cantieri Padova + cintura",               schedule_attesa: "30 4 * * 1",  kind: "weekly",  warning_ore: 24 * 8, critico_ore: 24 * 10, source: "executions_log" },
+  { jobname: "official-pnrr-padova",                   descrizione_leggibile: "OpenPNRR opere Padova",                       schedule_attesa: "0 5 * * 1",   kind: "weekly",  warning_ore: 24 * 8, critico_ore: 24 * 10, source: "executions_log" },
+  { jobname: "official-obituaries-aggregate",          descrizione_leggibile: "Necrologi aggregato F19 (k>=3)",              schedule_attesa: "30 4 * * *",  kind: "daily",   warning_ore: 36, critico_ore: 48, source: "executions_log" },
   { jobname: "portal-immobiliare-padova",               descrizione_leggibile: "Portale Immobiliare.it Padova",               schedule_attesa: "0 2 * * *",   kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
   { jobname: "portal-idealista-padova",                 descrizione_leggibile: "Portale Idealista Padova",                    schedule_attesa: "10 2 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
   { jobname: "portal-subito-padova",                    descrizione_leggibile: "Portale Subito Padova",                       schedule_attesa: "20 2 * * *",  kind: "daily", warning_ore: 26, critico_ore: 36, source: "executions_log" },
@@ -298,6 +302,10 @@ Deno.serve(async (req) => {
           break;
         case "nightly-data-refresh-master":
         case "istat-sdmx-monthly":
+        case "istat-demografia-monthly":
+        case "official-osm-cantieri":
+        case "official-pnrr-padova":
+        case "official-obituaries-aggregate":
         case "portal-immobiliare-padova":
         case "portal-idealista-padova":
         case "portal-subito-padova":

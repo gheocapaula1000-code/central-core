@@ -7,10 +7,12 @@
 // Solo admin autenticati possono triggerare la sync.
 // ═══════════════════════════════════════════════════════════════
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { isJobSecretAuthorized } from "../_shared/http.ts";
+import { writeSourceRegistryStatus } from "../_shared/sourceRegistryStatus.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-job-secret",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -204,10 +206,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json(405, { error: { code: "method_not_allowed" } });
 
-  // Path A: trusted scheduler job-secret (constant-time-ish compare).
-  const providedJobSecret = req.headers.get("x-job-secret") ?? "";
-  const jobSecretOk =
-    !!JOB_SECRET && providedJobSecret.length === JOB_SECRET.length && providedJobSecret === JOB_SECRET;
+  const svc = createClient(SUPABASE_URL, SERVICE_KEY);
+
+  // Path A: trusted scheduler / pg_cron / GitHub Actions (x-job-secret).
+  const jobSecretOk = isJobSecretAuthorized(req, JOB_SECRET);
 
   if (!jobSecretOk) {
     // Path B: admin Bearer JWT.
@@ -220,7 +222,6 @@ Deno.serve(async (req) => {
     const { data: userData, error: userErr } = await userClient.auth.getUser();
     if (userErr || !userData?.user) return json(401, { error: { code: "unauthorized" } });
 
-    const svc = createClient(SUPABASE_URL, SERVICE_KEY);
     const { data: isAdmin, error: roleErr } = await svc.rpc("has_role", {
       _user_id: userData.user.id, _role: "admin",
     });
@@ -229,6 +230,7 @@ Deno.serve(async (req) => {
 
   if (!JOB_SECRET) return json(500, { error: { code: "misconfigured", message: "CENTRAL_CORE_JOB_SECRET not set" } });
 
+  try {
   const perComune: Record<string, number> = {};
   const perCategory: Record<string, number> = {};
   const all: Array<ReturnType<typeof buildRecord>> = [];
@@ -246,8 +248,20 @@ Deno.serve(async (req) => {
     }
   }
 
+  const failedComuni = Object.values(perComune).filter((n) => n < 0).length;
+
   if (all.length === 0) {
-    return json(200, { ok: true, data: { read: 0, normalized: 0, perComune, perCategory, note: "no elements" } });
+    const emptyErr = failedComuni === COMUNI.length ? "overpass_all_comuni_failed" : null;
+    await writeSourceRegistryStatus(svc, "F5", {
+      ok: !emptyErr,
+      records: 0,
+      error: emptyErr,
+    });
+    return json(200, {
+      ok: true,
+      records_processed: 0,
+      data: { read: 0, normalized: 0, records_processed: 0, perComune, perCategory, note: emptyErr ?? "no elements" },
+    });
   }
 
   // POST in batch a ingest-opportunity (limite payload ragionevole: chunk da 200)
@@ -287,5 +301,21 @@ Deno.serve(async (req) => {
     ingest_error: errors.length ? errors.slice(0, 5).join(" | ") : null,
   });
 
-  return json(200, { ok: true, data: { read: all.length, normalized, perComune, perCategory, errors: errors.slice(0, 10) } });
+  const ingestFailed = normalized === 0 && errors.length > 0;
+  await writeSourceRegistryStatus(svc, "F5", {
+    ok: !ingestFailed,
+    records: normalized,
+    error: ingestFailed ? errors.slice(0, 3).join(" | ").slice(0, 500) : null,
+  });
+
+  return json(200, {
+    ok: true,
+    records_processed: normalized,
+    data: { read: all.length, normalized, records_processed: normalized, perComune, perCategory, errors: errors.slice(0, 10) },
+  });
+  } catch (e) {
+    const msg = (e as Error).message ?? String(e);
+    await writeSourceRegistryStatus(svc, "F5", { ok: false, records: 0, error: msg.slice(0, 500) });
+    return json(500, { ok: false, records_processed: 0, error: { code: "osm_sync_failed", message: msg.slice(0, 200) } });
+  }
 });

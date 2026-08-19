@@ -6,6 +6,11 @@
 
 import { SOURCE_PLAN, nextRunAfter, isStale, type SourcePlan } from "./sourceScheduler.ts";
 import { hasEvidenceWriter, runEvidenceWriter } from "./sourceEvidenceWriters.ts";
+import {
+  writeSourceRegistryStatus,
+  PADOVA_CRON_COORDS,
+  PADOVA_CRON_RADIUS_M,
+} from "./sourceRegistryStatus.ts";
 
 export type JobOutcome = "skipped" | "success" | "failed";
 
@@ -101,10 +106,10 @@ export function buildRequestPlan(
       }
       break;
     case "F11":
-      if (!coords) return { skip_reason: "MISSING_COORDS" };
-      body.lat = coords.lat;
-      body.lng = coords.lng;
-      body.radiusMeters = 1500;
+      // Scheduled runs default to Padova centro so F11 is never skipped.
+      body.lat = coords?.lat ?? PADOVA_CRON_COORDS.lat;
+      body.lng = coords?.lng ?? PADOVA_CRON_COORDS.lng;
+      body.radiusMeters = coords ? 1500 : PADOVA_CRON_RADIUS_M;
       break;
     case "F7":
     case "F10":
@@ -210,11 +215,7 @@ export async function runOne(
     const text = await r.text();
     let parsed: Record<string, unknown> = {};
     try { parsed = text ? JSON.parse(text) : {}; } catch { /* non-JSON: keep empty */ }
-    let records =
-      typeof parsed.records_processed === "number" ? parsed.records_processed :
-      typeof (parsed.data as Record<string, unknown> | undefined)?.records_processed === "number"
-        ? Number((parsed.data as Record<string, unknown>).records_processed)
-        : 0;
+    let records = extractRecordsProcessed(parsed);
 
     if (!r.ok) {
       const msg = `HTTP ${r.status}: ${text.slice(0, 200)}`;
@@ -261,30 +262,35 @@ export async function runOne(
   }
 }
 
+function extractRecordsProcessed(parsed: Record<string, unknown>): number {
+  const data = (parsed.data ?? {}) as Record<string, unknown>;
+  const totals = (data.totals ?? parsed.totals ?? {}) as Record<string, unknown>;
+  const candidates = [
+    parsed.records_processed,
+    data.records_processed,
+    parsed.buckets_written,
+    data.normalized,
+    totals.inserted,
+    totals.comuni,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "number" && Number.isFinite(c)) return c;
+  }
+  return 0;
+}
+
 async function safeUpdateRegistry(
   // deno-lint-ignore no-explicit-any
   supabase: any,
   source_code: string,
   outcome: { ok: boolean; records?: number; error?: string },
 ): Promise<void> {
-  if (!supabase || typeof supabase.from !== "function") return;
-  const now = new Date().toISOString();
   const plan = SOURCE_PLAN[source_code];
-  const patch: Record<string, unknown> = { last_run_at: now };
   const next = plan ? nextRunAfter(plan.scheduler_frequency) : null;
-  if (next) patch.next_run_at = next.toISOString();
-  if (outcome.ok) {
-    patch.last_success_at = now;
-    patch.last_error = null;
-    if (typeof outcome.records === "number") patch.record_count = outcome.records;
-  } else {
-    patch.last_error = (outcome.error ?? "unknown").slice(0, 500);
-  }
-  try {
-    await supabase.from("civiko_source_registry").update(patch).eq("source_code", source_code);
-  } catch (e) {
-    console.warn("safeUpdateRegistry failed", source_code, (e as Error).message);
-  }
+  await writeSourceRegistryStatus(supabase, source_code, {
+    ...outcome,
+    next_run_at: next ? next.toISOString() : null,
+  });
 }
 
 /**

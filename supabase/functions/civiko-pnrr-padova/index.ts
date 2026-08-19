@@ -4,11 +4,19 @@
 // Fonte: OpenPNRR API REST + fallback CSV.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   makeDebugId, handleOptions, ok, fail,
   CORE_VERSION, addIdentityHeaders, buildManifest,
+  isJobSecretAuthorized,
 } from "../_shared/http.ts";
 import { sanitizeOutgoing, isPadovaCoord, haversineMeters, PADOVA_COMUNE_ISTAT_SHORT } from "../_shared/civiko.ts";
+import {
+  writeSourceRegistryStatus,
+  PADOVA_CRON_COORDS,
+  PADOVA_CRON_RADIUS_M,
+} from "../_shared/sourceRegistryStatus.ts";
+import { buildEvidenceRow, upsertEvidenceRows } from "../_shared/evidenceLedger.ts";
 
 const FUNCTION_NAME = "civiko-pnrr-padova";
 const BASE_PATH = "/functions/v1/civiko-pnrr-padova";
@@ -94,10 +102,18 @@ serve(async (req) => {
 
   if (req.method !== "POST") return fail(req, 405, "METHOD_NOT_ALLOWED", "Usa POST", debugId);
 
-  let body: { lat?: number; lng?: number; radiusMeters?: number } = {};
-  try { body = await req.json(); } catch { return fail(req, 400, "INVALID_JSON", "Body JSON non valido", debugId); }
+  const jobOk = isJobSecretAuthorized(req);
+  let body: { lat?: number; lng?: number; radiusMeters?: number; triggered_by?: string } = {};
+  try { body = await req.json(); } catch {
+    if (!jobOk) return fail(req, 400, "INVALID_JSON", "Body JSON non valido", debugId);
+    body = {};
+  }
 
-  const { lat, lng, radiusMeters = 1000 } = body;
+  const lat = typeof body.lat === "number" ? body.lat : (jobOk ? PADOVA_CRON_COORDS.lat : undefined);
+  const lng = typeof body.lng === "number" ? body.lng : (jobOk ? PADOVA_CRON_COORDS.lng : undefined);
+  const radiusMeters = typeof body.radiusMeters === "number"
+    ? body.radiusMeters
+    : (jobOk ? PADOVA_CRON_RADIUS_M : 1000);
   if (typeof lat !== "number" || typeof lng !== "number") {
     return fail(req, 400, "MISSING_COORDS", "lat e lng sono obbligatori", debugId);
   }
@@ -106,12 +122,36 @@ serve(async (req) => {
   }
 
   const warnings: string[] = [];
-  const allProjects = await fetchFromOpenPNRR();
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const supabase = supabaseUrl && serviceKey ? createClient(supabaseUrl, serviceKey) : null;
 
-  if (!allProjects) {
+  let allProjects: PnrrProject[] | null = null;
+  try {
+    allProjects = await fetchFromOpenPNRR();
+  } catch (e) {
+    const msg = (e as Error).message ?? String(e);
+    if (supabase) {
+      await writeSourceRegistryStatus(supabase, "F11", { ok: false, records: 0, error: msg.slice(0, 500) });
+    }
     warnings.push("Dati PNRR temporaneamente non disponibili. Il Dossier è comunque completo nelle altre sezioni.");
     return addIdentityHeaders(
-      ok(req, sanitizeOutgoing({ status: "unavailable", opereVicine: [], warnings, sources: [{ name: "OpenPNRR Open Data", url: "https://openpnrr.it/opendata/" }] }), warnings, debugId),
+      ok(req, sanitizeOutgoing({ status: "unavailable", opereVicine: [], records_processed: 0, warnings, sources: [{ name: "OpenPNRR Open Data", url: "https://openpnrr.it/opendata/" }] }), warnings, debugId),
+      { function: FUNCTION_NAME, route: "/" }
+    );
+  }
+
+  if (!allProjects) {
+    if (supabase) {
+      await writeSourceRegistryStatus(supabase, "F11", {
+        ok: false,
+        records: 0,
+        error: "openpnrr_unavailable",
+      });
+    }
+    warnings.push("Dati PNRR temporaneamente non disponibili. Il Dossier è comunque completo nelle altre sezioni.");
+    return addIdentityHeaders(
+      ok(req, sanitizeOutgoing({ status: "unavailable", opereVicine: [], records_processed: 0, warnings, sources: [{ name: "OpenPNRR Open Data", url: "https://openpnrr.it/opendata/" }] }), warnings, debugId),
       { function: FUNCTION_NAME, route: "/" }
     );
   }
@@ -132,11 +172,38 @@ serve(async (req) => {
     warnings.push("Coordinate precise non disponibili per alcune opere. Mostrate le principali opere PNRR del Comune di Padova.");
   }
 
+  if (supabase) {
+    try {
+      const row = buildEvidenceRow({
+        entity_type: "comune",
+        entity_key: "comune:padova",
+        source_code: "F11",
+        evidence_type: "pnrr_projects",
+        evidence_value: {
+          totaleComune: allProjects.length,
+          nearby: opereVicine.length,
+          titles: allProjects.slice(0, 20).map((p) => p.titolo).filter(Boolean),
+        },
+        confidence: allProjects.length >= 3 ? "medium" : "low",
+        freshness_days: 14,
+        explanation: `OpenPNRR: ${allProjects.length} opere nel Comune di Padova.`,
+      });
+      await upsertEvidenceRows(supabase, [row]);
+    } catch (e) {
+      console.warn("[civiko-pnrr-padova] evidence write failed", (e as Error).message);
+    }
+    await writeSourceRegistryStatus(supabase, "F11", {
+      ok: true,
+      records: allProjects.length,
+    });
+  }
+
   return addIdentityHeaders(
     ok(req, sanitizeOutgoing({
       status: "ok",
       opereVicine: risultato,
       totaleComune: allProjects.length,
+      records_processed: allProjects.length,
       warnings,
       sources: [{ name: "OpenPNRR Open Data", url: "https://openpnrr.it/opendata/" }],
     }), warnings, debugId),

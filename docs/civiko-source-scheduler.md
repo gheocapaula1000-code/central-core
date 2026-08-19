@@ -70,6 +70,18 @@ a job fails, the corresponding function MUST update `last_error` and
 | `core-cron-health-public` | `x-diagnostic-secret` (`DIAGNOSTIC_SECRET`) | **401 without the secret is expected** (Checkpoint 1A). Not anonymously public. Returns cron job status plus `fonti_scheduler` (`last_error`, stale, never-run). Query failures appear in `diagnostics_errors`. |
 | `connector-status` | Admin Bearer JWT **or** `x-job-secret` **or** `x-diagnostic-secret` | 401 without one of those is expected. Surfaces `last_error`, `failed_sources`, `sources_read_error`, and trigger coverage. |
 
+Official collectors on live Core (`jpunnzgixcghuydstdlt`):
+
+| Job | Schedule (UTC) | Function |
+|-----|----------------|----------|
+| `istat-sdmx-monthly` | `0 4 1 * *` | `istat-sdmx-fetch` (F2) |
+| `istat-demografia-monthly` | `0 5 1 * *` | `connector-istat-demografia` (F2 signals) |
+| `official-osm-cantieri` | `30 4 * * 1` | `connector-osm-cantieri` (F5) |
+| `official-pnrr-padova` | `0 5 * * 1` | `civiko-pnrr-padova` (F11) |
+| `official-obituaries-aggregate` | `30 4 * * *` | `civiko-obituaries-aggregate` (F19) |
+
+GitHub Actions fallback: `.github/workflows/cron-official-opendata.yml`.
+
 ## Cross-source corroboration
 
 `_shared/scoringOrchestration.ts` enforces:

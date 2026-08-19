@@ -131,7 +131,8 @@ verify_jwt = true
 verify_jwt = false
 
 [functions.connector-istat-demografia]
-verify_jwt = true
+# Job-secret (pg_cron / GitHub Actions) or admin JWT — same as OSM.
+verify_jwt = false
 
 [functions.zone-completeness]
 verify_jwt = true
@@ -357,6 +358,10 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.istat-sdmx-fetch]
+verify_jwt = false
+
+[functions.civiko-pnrr-padova]
+# Interactive dossier keeps public POST+coords; cron uses x-job-secret.
 verify_jwt = false
 
 # Bakeca private-leads scrape + Firecrawl detail collect.

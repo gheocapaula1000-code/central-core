@@ -1,6 +1,6 @@
 // Tests for the scheduler ingestion fixes:
 // - per-source auth headers
-// - F11 MISSING_COORDS graceful skip
+// - F11 defaults to Padova centro when no coords supplied
 // - evidence_writer attaches to successful sources
 // - F14/F15 stay blocked
 // - one failing source does not stop others
@@ -92,9 +92,14 @@ describe("buildRequestPlan", () => {
     }
   });
 
-  it("F11 skips MISSING_COORDS when no coords supplied", () => {
+  it("F11 defaults to Padova centro when no coords supplied", () => {
     const plan = buildRequestPlan(SOURCE_PLAN.F11, {}, "job", null);
-    expect("skip_reason" in plan && plan.skip_reason).toBe("MISSING_COORDS");
+    expect("body" in plan).toBe(true);
+    if ("body" in plan) {
+      expect(plan.body.lat).toBeCloseTo(45.4064);
+      expect(plan.body.lng).toBeCloseTo(11.8768);
+      expect(plan.body.radiusMeters).toBeGreaterThanOrEqual(10000);
+    }
   });
 
   it("F11 includes lat/lng/radius when coords resolved", () => {

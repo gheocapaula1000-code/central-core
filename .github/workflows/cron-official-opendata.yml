@@ -1,0 +1,113 @@
+name: Cron official open-data
+
+# Fallback if pg_cron / pg_net misses a run. Hits live Core functions.
+# Required secrets (repo Settings → Secrets and variables → Actions):
+#   SUPABASE_URL              e.g. https://jpunnzgixcghuydstdlt.supabase.co
+#   CENTRAL_CORE_JOB_SECRET   same value as edge function env
+#
+# Times are UTC. Does not send Catasto / Conservatoria / portal scrapers.
+
+on:
+  schedule:
+    # ISTAT SDMX — 1st of month 04:00 UTC
+    - cron: "0 4 1 * *"
+    # ISTAT demografia signals — 1st of month 05:00 UTC
+    - cron: "0 5 1 * *"
+    # OSM cantieri — Monday 04:30 UTC
+    - cron: "30 4 * * 1"
+    # OpenPNRR — Monday 05:00 UTC
+    - cron: "0 5 * * 1"
+    # Obituaries aggregate — daily 04:30 UTC
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Job to run"
+        required: true
+        type: choice
+        options:
+          - istat-sdmx
+          - istat-demografia
+          - osm-cantieri
+          - pnrr-padova
+          - obituaries
+          - all
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cron-official-opendata-${{ github.event.schedule || github.event.inputs.job || 'manual' }}
+  cancel-in-progress: false
+
+jobs:
+  invoke:
+    name: Official open-data jobs
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: POST collection functions
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          JOB_SECRET: ${{ secrets.CENTRAL_CORE_JOB_SECRET }}
+          SCHEDULE: ${{ github.event.schedule }}
+          MANUAL: ${{ github.event.inputs.job }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${JOB_SECRET:-}" ]; then
+            echo "Missing SUPABASE_URL or CENTRAL_CORE_JOB_SECRET"
+            exit 1
+          fi
+          BASE="${SUPABASE_URL%/}/functions/v1"
+          want() {
+            local key="$1"
+            if [ -n "${MANUAL:-}" ]; then
+              [ "$MANUAL" = "all" ] || [ "$MANUAL" = "$key" ]
+              return
+            fi
+            case "$SCHEDULE|$key" in
+              "0 4 1 * *|istat-sdmx") return 0 ;;
+              "0 5 1 * *|istat-demografia") return 0 ;;
+              "30 4 * * 1|osm-cantieri") return 0 ;;
+              "0 5 * * 1|pnrr-padova") return 0 ;;
+              "30 4 * * *|obituaries") return 0 ;;
+            esac
+            return 1
+          }
+          post() {
+            local name="$1" path="$2" body="$3"
+            local url="${BASE}/${path}"
+            echo "=== ${name} POST ${url}"
+            local http
+            http=$(curl -sS -o "/tmp/${name}.json" -w "%{http_code}" \
+              -X POST "$url" \
+              -H "Content-Type: application/json" \
+              -H "x-job-secret: ${JOB_SECRET}" \
+              --max-time 180 \
+              -d "$body" || echo "000")
+            echo "HTTP ${http}"
+            head -c 1500 "/tmp/${name}.json" || true
+            echo
+            case "$http" in
+              200|202) ;;
+              *) echo "FAIL ${name} HTTP ${http}"; return 1 ;;
+            esac
+          }
+          FAILED=0
+          if want istat-sdmx; then
+            post istat-sdmx "istat-sdmx-fetch" '{"triggered_by":"github_actions"}' || FAILED=1
+          fi
+          if want istat-demografia; then
+            post istat-demografia "connector-istat-demografia" '{"triggered_by":"github_actions"}' || FAILED=1
+          fi
+          if want osm-cantieri; then
+            post osm-cantieri "connector-osm-cantieri" '{"triggered_by":"github_actions"}' || FAILED=1
+          fi
+          if want pnrr-padova; then
+            post pnrr-padova "civiko-pnrr-padova" '{"lat":45.4064,"lng":11.8768,"radiusMeters":15000,"triggered_by":"github_actions"}' || FAILED=1
+          fi
+          if want obituaries; then
+            post obituaries "civiko-obituaries-aggregate" '{"triggered_by":"github_actions"}' || FAILED=1
+          fi
+          exit "$FAILED"
