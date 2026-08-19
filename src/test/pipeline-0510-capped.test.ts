@@ -122,7 +122,8 @@ describe("pipeline_0510_capped — verifica provider-side", () => {
 describe("civiko-padova-apify-launch-batch-capped — edge function", () => {
   it("è fail-closed su secret, metodo e configurazione", () => {
     expect(CAPPED_INDEX).toContain('error: "method_not_allowed"');
-    expect(CAPPED_INDEX).toContain('error: "unauthorized"');
+    expect(CAPPED_INDEX).toContain("isJobSecretAuthorized");
+    expect(CAPPED_INDEX).toContain("jobAuthFailure");
     expect(CAPPED_INDEX).toContain('error: "config_missing"');
   });
 

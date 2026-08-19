@@ -4,10 +4,15 @@
 // selezionato. Le pagine successive vengono accodate dal
 // scraping-result-processor dopo il salvataggio della pagina precedente.
 //
-// Non invocato da alcun cron. Solo POST autenticato via x-job-secret ==
-// CENTRAL_CORE_JOB_SECRET. Nessun CORS.
+// Invocato da pg_cron `padova-portal-scrapes-full` e dall'orchestratore
+// (portal_casa). Auth: x-job-secret / x-internal-secret / Bearer job secret
+// == CENTRAL_CORE_JOB_SECRET. Nessun CORS.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import {
+  isJobSecretAuthorized,
+  jobAuthFailure,
+} from "../_shared/jobAuth.ts";
 import {
   ALL_PORTALS,
   buildPageGroupKey,
@@ -38,13 +43,6 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-function safeEqual(a: string, b: string): boolean {
-  if (typeof a !== "string" || typeof b !== "string") return false;
-  if (a.length !== b.length) return false;
-  let d = 0;
-  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return d === 0;
-}
 
 async function sha1Hex(input: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(input));
@@ -90,9 +88,9 @@ function selectPortalsForMode(mode: Mode, now: Date): { portals: Portal[]; rotat
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
-  const secret = req.headers.get("x-job-secret") ?? "";
-  if (!JOB_SECRET || !safeEqual(secret, JOB_SECRET)) {
-    return json({ error: "unauthorized" }, 401);
+  if (!JOB_SECRET || !isJobSecretAuthorized(req.headers, JOB_SECRET)) {
+    const auth = jobAuthFailure(Boolean(JOB_SECRET));
+    return json({ error: auth.error }, auth.status);
   }
 
   // Body: assente (req.body === null) → default soft.

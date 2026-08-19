@@ -1,11 +1,21 @@
 // padova-apify-multi-launch
-// Lancia in ASYNC fino a 3 actor Apify (idealista full, casa test, subito test).
+// Lancia in ASYNC fino a 3 actor Apify (idealista, casa, subito).
 // NON aspetta la fine: salva run_id + dataset_id in padova_apify_runs e ritorna.
-// Auth: x-job-secret == CENTRAL_CORE_JOB_SECRET.
+// Auth: x-job-secret / x-internal-secret / Bearer job secret.
+// Empty body (cron) uses the default Padova plan. Stale RUNNING locks expire.
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getApifyToken, startApifyRun } from "../_shared/apify.ts";
+import { isJobSecretAuthorized, jobAuthFailure } from "../_shared/jobAuth.ts";
+import {
+  LOCK_LOOKBACK_MS,
+  classifyMultiLaunchOutcome,
+  decideInflightLock,
+  defaultMultiLaunchBody,
+  isEmptyLaunchBody,
+  redactLaunchError,
+} from "../_shared/padovaPortalLaunch.ts";
 
 // APIFY base URL non più necessario: il fetch avviene dentro startApifyRun.
 
@@ -32,9 +42,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
-  if (!jobSecret || req.headers.get("x-job-secret") !== jobSecret) {
-    return new Response(JSON.stringify({ ok: false, error: "unauthorized" }),
-      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  if (!jobSecret || !isJobSecretAuthorized(req.headers, jobSecret)) {
+    const auth = jobAuthFailure(Boolean(jobSecret));
+    return new Response(JSON.stringify({ ok: false, error: auth.error }),
+      { status: auth.status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
   const token = getApifyToken();
@@ -51,6 +62,9 @@ Deno.serve(async (req) => {
 
   let body: LaunchBody = {};
   try { body = await req.json(); } catch { /* allow empty */ }
+  if (isEmptyLaunchBody(body)) {
+    body = defaultMultiLaunchBody() as LaunchBody;
+  }
 
   const specs: Spec[] = [];
 
@@ -176,29 +190,74 @@ Deno.serve(async (req) => {
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
+  const lookbackIso = new Date(Date.now() - LOCK_LOOKBACK_MS).toISOString();
   const results = await Promise.all(specs.map(async (s) => {
+    const { data: inflight, error: inflightErr } = await sb
+      .from("padova_apify_runs")
+      .select("run_id, dataset_id, started_at, status")
+      .eq("portal", s.portal)
+      .in("status", ["RUNNING", "READY"])
+      .gte("started_at", lookbackIso)
+      .order("started_at", { ascending: false })
+      .limit(1);
+    if (inflightErr) {
+      return { portal: s.portal, started: false, skipped: true, reason: "APIFY_DEDUP_CHECK_FAILED" };
+    }
+    const lock = decideInflightLock(inflight?.[0] ?? null, Date.now());
+    if (lock.action === "reuse") {
+      return {
+        portal: s.portal,
+        started: true,
+        skipped: true,
+        reason: "already_running",
+        run_id: lock.run_id,
+        dataset_id: lock.dataset_id || undefined,
+        status: "RUNNING",
+      };
+    }
+    if (lock.action === "expire") {
+      await sb.from("padova_apify_runs").update({
+        status: "STALE_LOCK",
+        error: "stale_running_lock_expired",
+        finished_at: new Date().toISOString(),
+      }).eq("run_id", lock.run_id).in("status", ["RUNNING", "READY"]);
+    }
+
     const res = await startApifyRun(s.actor_id, s.input, {
       portal: s.portal,
       estUsd: s.cost_cap_usd,
       costCapUsd: s.cost_cap_usd,
     });
     if (!res.started) {
-      console.warn(`[apify] lancio saltato: ${res.reason} portal=${s.portal}`);
-      return { portal: s.portal, started: false, skipped: true, reason: res.reason };
+      const reason = redactLaunchError(res.reason);
+      console.warn(`[apify] lancio saltato: ${reason} portal=${s.portal}`);
+      try {
+        await sb.from("padova_apify_runs").insert({
+          portal: s.portal,
+          actor_id: s.actor_id,
+          run_id: `failed-local-${Date.now()}-${s.portal}`,
+          dataset_id: null,
+          status: "FAILED",
+          error: reason,
+          cost_cap_usd: s.cost_cap_usd,
+          finished_at: new Date().toISOString(),
+        });
+      } catch { /* best effort */ }
+      return { portal: s.portal, started: false, skipped: true, reason };
     }
     return { portal: s.portal, started: true, run_id: res.run_id, dataset_id: res.dataset_id, status: "RUNNING" };
   }));
 
-  const startedCount = results.filter((result) => result.started === true).length;
-  const ok = startedCount === specs.length && startedCount > 0;
+  const outcome = classifyMultiLaunchOutcome(results);
   return new Response(JSON.stringify({
-    ok,
+    ok: outcome.ok,
     idealista_urls_from_db: idealistaFromDbCount,
-    started_count: startedCount,
-    errors_count: specs.length - startedCount,
+    started_count: outcome.started_count,
+    reused_count: outcome.reused_count,
+    errors_count: outcome.errors_count,
     launched: results,
   }, null, 2), {
-    status: ok ? 200 : 429,
+    status: outcome.status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
