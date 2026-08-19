@@ -46,8 +46,8 @@ describe("scheduled persist flags", () => {
 describe("source scheduler wiring for territorial collectors", () => {
   it("F7 / F10 / F16 point at real civiko-radar-veneto routes", () => {
     expect(SOURCE_PLAN.F7.ingestion_endpoint).toBe("/civiko-radar-veneto/jobs/import-arpav-air-quality");
-    expect(SOURCE_PLAN.F10.ingestion_endpoint).toBe("/civiko-radar-veneto/jobs/anac-ckan");
-    expect(SOURCE_PLAN.F16.ingestion_endpoint).toBe("/civiko-radar-veneto/asteGiudiziarie");
+    expect(SOURCE_PLAN.F10.ingestion_endpoint).toBe("/civiko-radar-veneto/jobs/import-veneto-open-data");
+    expect(SOURCE_PLAN.F16.ingestion_endpoint).toBe("/civiko-radar-veneto/jobs/refresh-padova-auctions");
   });
 
   it("F7 / F10 / F16 scheduled body persists territorial writes", () => {

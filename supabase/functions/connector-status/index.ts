@@ -2,12 +2,26 @@
 // Lightweight: configuration check + cheap liveness probe where safe.
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { constantTimeEqual } from "../_shared/http.ts";
+import { AUTOMATED_TRIGGERS, SOURCE_PLAN, classifySourceRow } from "../_shared/sourceScheduler.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-job-secret, x-diagnostic-secret",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
 };
+
+function machineAuthorized(req: Request): boolean {
+  const job = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+  const diag = Deno.env.get("DIAGNOSTIC_SECRET") ?? "";
+  const incomingJob = req.headers.get("x-job-secret") ?? "";
+  const incomingDiag = req.headers.get("x-diagnostic-secret") ?? "";
+  let ok = false;
+  if (job && incomingJob) ok = constantTimeEqual(incomingJob, job) || ok;
+  if (diag && incomingDiag) ok = constantTimeEqual(incomingDiag, diag) || ok;
+  return ok;
+}
 
 function getOwnerEmails(): string[] {
   const raw = Deno.env.get("CORE_ADMIN_BOOTSTRAP_EMAILS") ?? "";
@@ -79,31 +93,37 @@ serve(async (req) => {
     new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } });
 
   try {
-    const auth = req.headers.get("Authorization");
-    if (!auth) return json({ error: "Unauthorized" }, 401);
-
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
       { auth: { persistSession: false } },
     );
-    const token = auth.replace("Bearer ", "").trim();
-    const { data: userData, error: uErr } = await supabase.auth.getUser(token);
-    if (uErr || !userData.user) return json({ error: "Unauthorized" }, 401);
 
-    const email = (userData.user.email ?? "").toLowerCase();
-    const isOwner = getOwnerEmails().includes(email);
-    let isAdmin = isOwner;
-    if (!isAdmin) {
-      const { data: role } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", userData.user.id)
-        .eq("role", "admin")
-        .maybeSingle();
-      isAdmin = !!role;
+    // Machine callers (cron / Actions / health) use x-job-secret or
+    // x-diagnostic-secret. Interactive admins keep Bearer JWT.
+    // Unauthenticated requests still 401 — this is not a public probe.
+    if (!machineAuthorized(req)) {
+      const auth = req.headers.get("Authorization");
+      if (!auth) return json({ error: "Unauthorized" }, 401);
+
+      const token = auth.replace("Bearer ", "").trim();
+      const { data: userData, error: uErr } = await supabase.auth.getUser(token);
+      if (uErr || !userData.user) return json({ error: "Unauthorized" }, 401);
+
+      const email = (userData.user.email ?? "").toLowerCase();
+      const isOwner = getOwnerEmails().includes(email);
+      let isAdmin = isOwner;
+      if (!isAdmin) {
+        const { data: role } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", userData.user.id)
+          .eq("role", "admin")
+          .maybeSingle();
+        isAdmin = !!role;
+      }
+      if (!isAdmin) return json({ error: "Forbidden" }, 403);
     }
-    if (!isAdmin) return json({ error: "Forbidden" }, 403);
 
     const url = new URL(req.url);
     const skipLive = url.searchParams.get("live") === "false";
@@ -135,8 +155,10 @@ serve(async (req) => {
       automated: 0, semi_automated: 0, manual_fallback: 0, premium_on_demand: 0, disabled: 0,
     };
     let stale_sources = 0;
+    let failed_sources = 0;
+    let sources_read_error: string | null = null;
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("civiko_source_registry")
         .select(
           "source_code, source_name, access_type, compliance_level, implementation_status, " +
@@ -146,6 +168,10 @@ serve(async (req) => {
           "stale_after_days, record_count, automation_notes, updated_at",
         )
         .order("source_code", { ascending: true });
+      if (error) {
+        sources_read_error = error.message;
+        console.warn("connector-status: source registry read failed", error.message);
+      }
       if (Array.isArray(data)) {
         const now = Date.now();
         sources = data.map((s) => {
@@ -154,7 +180,17 @@ serve(async (req) => {
           const ageDays = lastSuccess ? Math.floor((now - lastSuccess) / 86_400_000) : null;
           const is_stale = stale_days != null && ageDays != null && ageDays > Number(stale_days);
           if (is_stale) stale_sources++;
-          return { ...s, age_days: ageDays, is_stale };
+          const last_error = typeof s.last_error === "string" && s.last_error.trim() ? s.last_error : null;
+          if (last_error) failed_sources++;
+          const plan = SOURCE_PLAN[String(s.source_code)] ?? null;
+          const health = classifySourceRow({
+            last_run_at: s.last_run_at,
+            last_success_at: s.last_success_at,
+            last_error,
+            stale_after_days: stale_days ?? plan?.stale_after_days ?? null,
+          });
+          const trigger = AUTOMATED_TRIGGERS[String(s.source_code)] ?? null;
+          return { ...s, last_error, age_days: ageDays, is_stale, health, trigger };
         });
         for (const s of sources) {
           sources_summary.total++;
@@ -165,6 +201,7 @@ serve(async (req) => {
         }
       }
     } catch (e) {
+      sources_read_error = (e as Error).message;
       console.warn("connector-status: source registry read failed", (e as Error).message);
     }
 
@@ -177,6 +214,8 @@ serve(async (req) => {
       sources_summary,
       automation_summary,
       stale_sources,
+      failed_sources,
+      sources_read_error,
       sources,
     });
   } catch (e) {
