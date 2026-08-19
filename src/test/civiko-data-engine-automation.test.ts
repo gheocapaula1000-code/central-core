@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { SOURCE_PLAN, assertManifestComplete, isStale, nextRunAfter } from "../../supabase/functions/_shared/sourceScheduler.ts";
+import { SOURCE_PLAN, AUTOMATED_TRIGGERS, assertManifestComplete, assertAutomatedHaveTriggers, isStale, nextRunAfter, classifySourceRow } from "../../supabase/functions/_shared/sourceScheduler.ts";
 import { buildEvidenceRow } from "../../supabase/functions/_shared/evidenceLedger.ts";
 import { scoreOpportunity, SOURCE_STRENGTH, FORBIDDEN_SOLO_SOURCES } from "../../supabase/functions/_shared/scoringOrchestration.ts";
 import { propertyKey, microzoneKey, areaKey } from "../../supabase/functions/_shared/entityKey.ts";
@@ -30,6 +30,26 @@ describe("Source scheduler manifest — F1..F22 coverage", () => {
         expect(p.job, `${p.code} marked automated must declare a job`).toBeTruthy();
       }
     }
+  });
+
+  it("every automated source has a real trigger aligned with the plan endpoint", () => {
+    expect(() => assertAutomatedHaveTriggers()).not.toThrow();
+    for (const [code, t] of Object.entries(AUTOMATED_TRIGGERS)) {
+      expect(SOURCE_PLAN[code].ingestion_endpoint).toBe(t.endpoint);
+      expect(t.cron_job).toBeTruthy();
+      expect(t.schedule).toMatch(/^\S+ \S+ \S+ \S+ \S+$/);
+    }
+  });
+
+  it("classifySourceRow surfaces last_error and never-run", () => {
+    expect(classifySourceRow({ last_run_at: null, last_success_at: null, last_error: null, stale_after_days: 7 })).toBe("MAI_ESEGUITO");
+    expect(classifySourceRow({ last_run_at: new Date().toISOString(), last_success_at: null, last_error: "HTTP 500", stale_after_days: 7 })).toBe("ERRORE");
+    expect(classifySourceRow({
+      last_run_at: new Date().toISOString(),
+      last_success_at: new Date().toISOString(),
+      last_error: null,
+      stale_after_days: 7,
+    })).toBe("SANO");
   });
 
   it("manual sources are honestly marked manual_fallback, not automated", () => {
