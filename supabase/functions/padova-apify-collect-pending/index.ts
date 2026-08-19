@@ -17,6 +17,11 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getApifyToken } from "../_shared/apify.ts";
 import {
+  expireStaleScrapeJobs,
+  WATCHDOG_ERROR,
+  WATCHDOG_UNRECOVERABLE,
+} from "../_shared/scrapeJobWatchdog.ts";
+import {
   classifyProviderMunicipality,
   isExplicitPadovaMunicipality,
 } from "./territory.ts";
@@ -518,8 +523,18 @@ Deno.serve(async (req) => {
       .order("started_at", { ascending: false }).limit(maxRuns);
     const { data: succeededUnimportedRows } = await succeededQuery
       .order("started_at", { ascending: false }).limit(maxRuns);
+    // Watchdog-expired rows: one last ingest attempt after the lock is released.
+    let timedOutQuery = sb.from("padova_apify_runs").select("*")
+      .eq("status", "FAILED")
+      .eq("error", WATCHDOG_ERROR)
+      .or("imported.is.null,imported.eq.0");
+    if (scopeStartedAfter) {
+      timedOutQuery = timedOutQuery.gte("started_at", scopeStartedAfter);
+    }
+    const { data: timedOutRows } = await timedOutQuery
+      .order("started_at", { ascending: false }).limit(maxRuns);
     const byRunId = new Map<string, any>();
-    for (const r of [...(runningRows ?? []), ...(succeededUnimportedRows ?? [])]) {
+    for (const r of [...(runningRows ?? []), ...(succeededUnimportedRows ?? []), ...(timedOutRows ?? [])]) {
       if (r?.run_id) byRunId.set(String(r.run_id), r);
     }
     candidates = Array.from(byRunId.values()).slice(0, maxRuns);
@@ -621,6 +636,12 @@ Deno.serve(async (req) => {
 
       const apifyData = await apifyRunStatus(runId, token);
       if (!apifyData) {
+        if (row.error === WATCHDOG_ERROR && !dryRun) {
+          await sb.from("padova_apify_runs").update({
+            error: WATCHDOG_UNRECOVERABLE,
+            finished_at: new Date().toISOString(),
+          }).eq("run_id", runId);
+        }
         results.push({ run_id: runId, action: "skip_no_apify_data" });
         continue;
       }
@@ -799,7 +820,15 @@ Deno.serve(async (req) => {
         }
         results.push({ run_id: runId, status: finalStatus, action: "marked_failed", dry_run: dryRun });
       } else {
-        // Still RUNNING on Apify side → leave the row alone
+        // Still RUNNING on Apify side. A watchdog-expired row cannot stay
+        // open: mark unrecoverable so the next scheduled collect is not skipped.
+        if (row.error === WATCHDOG_ERROR && !dryRun) {
+          await sb.from("padova_apify_runs").update({
+            status: "FAILED",
+            error: WATCHDOG_UNRECOVERABLE,
+            finished_at: new Date().toISOString(),
+          }).eq("run_id", runId);
+        }
         results.push({ run_id: runId, status: finalStatus, action: "still_running" });
       }
     } catch (e) {
@@ -909,25 +938,18 @@ Deno.serve(async (req) => {
     }
   }
 
-  // ============ ZOMBIE CLEANUP ============
-  // RUNNING più vecchi di zombieHours ma non più identificabili su Apify
-  // (o comunque orfani) → marca TIMED_OUT per non re-processarli in eterno.
+  // ============ ZOMBIE / WATCHDOG CLEANUP ============
+  // Open statuses older than zombieHours are FAILED even if Apify still
+  // reports RUNNING. Leaving them open forever made later collects skip.
   let zombiesMarked = 0;
+  let watchdog = { apify: 0, firecrawl: 0, cron_log: 0 };
   if (!dryRun && !dbEvidenceOnly && zombieHours > 0) {
-    const zombieCutoff = new Date(Date.now() - zombieHours * 3600_000).toISOString();
-    const { data: zRows } = await sb.from("padova_apify_runs")
-      .select("run_id,started_at").eq("status", "RUNNING").lt("started_at", zombieCutoff).limit(100);
-    for (const z of zRows ?? []) {
-      // Doppio check su Apify: se ancora RUNNING lato Apify, lascia stare.
-      const d = await apifyRunStatus(z.run_id, token);
-      if (d && d.status === "RUNNING") continue;
-      const finalSt = d?.status ?? "TIMED_OUT";
-      await sb.from("padova_apify_runs").update({
-        status: finalSt,
-        finished_at: d?.finishedAt ?? new Date().toISOString(),
-      }).eq("run_id", z.run_id);
-      zombiesMarked++;
-    }
+    watchdog = await expireStaleScrapeJobs(
+      sb,
+      new Date(),
+      zombieHours * 3600_000,
+    );
+    zombiesMarked = watchdog.apify + watchdog.firecrawl;
   }
 
   const importsCount = results.reduce(
@@ -984,6 +1006,7 @@ Deno.serve(async (req) => {
     out_of_scope_written: 0,
     errors_count: terminalFailures.length + auxiliaryFailures.length,
     zombies_marked: zombiesMarked,
+    watchdog,
     quarantined_runs: quarantinedRuns,
     quarantine_error: quarantineError,
     scope_started_after: scopeStartedAfter,

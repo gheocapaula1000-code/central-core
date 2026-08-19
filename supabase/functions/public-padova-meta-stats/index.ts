@@ -7,6 +7,7 @@ import {
   checkRateLimit,
   rateLimited,
 } from "../_shared/public-stats-utils.ts";
+import { classifyPublicScrapeStatus } from "../_shared/scrapeJobWatchdog.ts";
 
 const VERSION = "v3.4.1";
 const CONTRACT = "central-core-v3";
@@ -70,29 +71,37 @@ Deno.serve(async (req: Request) => {
         .limit(1),
     ]);
 
-    type RunCandidate = { at: string | null; status: string | null };
+    type RunCandidate = { at: string | null; status: string | null; clock: string | null };
     const apifyRow = apifyRes.data?.[0];
     const fcRow = firecrawlRes.data?.[0];
     const candidates: RunCandidate[] = [
       apifyRow
-        ? { at: apifyRow.finished_at ?? apifyRow.started_at ?? null, status: apifyRow.status ?? null }
-        : { at: null, status: null },
+        ? {
+          at: apifyRow.finished_at ?? apifyRow.started_at ?? null,
+          status: apifyRow.status ?? null,
+          clock: apifyRow.started_at ?? null,
+        }
+        : { at: null, status: null, clock: null },
       fcRow
-        ? { at: fcRow.finished_at ?? fcRow.updated_at ?? null, status: fcRow.status ?? null }
-        : { at: null, status: null },
+        ? {
+          at: fcRow.finished_at ?? fcRow.updated_at ?? null,
+          status: fcRow.status ?? null,
+          clock: fcRow.updated_at ?? null,
+        }
+        : { at: null, status: null, clock: null },
     ];
     const newest = candidates
       .filter((c) => c.at != null)
       .sort((a, b) => (b.at! > a.at! ? 1 : -1))[0] ?? null;
 
     const lastRunAt: string | null = newest?.at ?? null;
-    let lastRunStatus: "success" | "failed" | "running" | "unknown" = "unknown";
-    if (newest?.status) {
-      const s = newest.status.toLowerCase();
-      if (["done", "success", "succeeded", "completed", "ok"].includes(s)) lastRunStatus = "success";
-      else if (["failed", "error", "errored", "stopped_spend_cap"].includes(s)) lastRunStatus = "failed";
-      else if (["running", "started", "in_progress", "queued"].includes(s)) lastRunStatus = "running";
-    }
+    // Open statuses older than the watchdog timeout are failed, not "running"
+    // forever. That is what kept last_scrape_status stuck for 14+ hours.
+    const lastRunStatus = classifyPublicScrapeStatus(
+      newest?.status,
+      newest?.clock,
+      new Date(),
+    );
 
     let freshnessHours: number | null = null;
     if (lastRunAt) {

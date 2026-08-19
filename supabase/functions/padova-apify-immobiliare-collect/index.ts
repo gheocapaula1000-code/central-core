@@ -18,6 +18,7 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getApifyToken, startApifyRun } from "../_shared/apify.ts";
+import { expireStaleScrapeJobs } from "../_shared/scrapeJobWatchdog.ts";
 
 const APIFY = "https://api.apify.com/v2";
 const ACTOR_DETAIL = "memo23~immobiliare-scraper";
@@ -263,6 +264,9 @@ Deno.serve(async (req) => {
     second_pass_status: null as string | null,
     estimated_extra_cost_usd: 0,
   };
+
+  // Release skip-locks held by jobs stuck past the watchdog timeout.
+  await expireStaleScrapeJobs(sb);
 
   // ============ ASYNC START MODE ============
   // Avvia i run Apify, registra la riga RUNNING in padova_apify_runs, ritorna.

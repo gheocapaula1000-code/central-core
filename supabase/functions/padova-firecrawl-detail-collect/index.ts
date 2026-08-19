@@ -13,6 +13,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { canSpendApify, recordApifySpend } from "../_shared/apifyBudget.ts";
+import { expireStaleScrapeJobs } from "../_shared/scrapeJobWatchdog.ts";
 
 // inline fcScrape (no cross-function imports)
 async function fcScrape(
@@ -654,6 +655,9 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({}));
   const action = String(body?.action ?? "");
   const c = sb();
+  // Expire jobs whose updated_at heartbeat is older than the watchdog timeout
+  // so a stuck "running" row cannot block the next scheduled collect forever.
+  await expireStaleScrapeJobs(c);
 
   if (action === "start") {
     const { count } = await c

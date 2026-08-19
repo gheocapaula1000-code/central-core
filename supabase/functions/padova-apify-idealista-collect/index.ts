@@ -18,6 +18,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getApifyToken, startApifyRun } from "../_shared/apify.ts";
 import { canSpendApify } from "../_shared/apifyBudget.ts";
+import { expireStaleScrapeJobs } from "../_shared/scrapeJobWatchdog.ts";
 
 const APIFY = "https://api.apify.com/v2";
 const ACTOR = "dz_omar~idealista-scraper-api";
@@ -255,6 +256,9 @@ Deno.serve(async (req) => {
 
   let body: Body = {};
   try { body = await req.json(); } catch { /* empty ok */ }
+
+  // Release skip-locks held by jobs stuck past the watchdog timeout.
+  await expireStaleScrapeJobs(sb);
 
   const mode: Mode = body.mode ?? "mixed";
   const desiredResults = body.desired_results ?? 50;

@@ -15,6 +15,7 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getApifyToken, startApifyRun } from "../_shared/apify.ts";
+import { expireStaleScrapeJobs } from "../_shared/scrapeJobWatchdog.ts";
 
 
 const APIFY = "https://api.apify.com/v2";
@@ -262,6 +263,10 @@ Deno.serve(async (req) => {
       run_id = body.ingest_run_id;
       dataset_id = j.data.defaultDatasetId;
     } else {
+      // Release skip-locks held by jobs stuck in RUNNING past the watchdog timeout
+      // before the 6h dedup check, otherwise a hung run blocks every later collect.
+      await expireStaleScrapeJobs(sb);
+
       // Guard: dedup run in-flight (RUNNING nelle ultime 6h)
       const sixHoursAgo = new Date(Date.now() - 6 * 3600 * 1000).toISOString();
       const { data: inflight, error: inflightErr } = await sb
