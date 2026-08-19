@@ -10,6 +10,8 @@
 //     reported as successful: the batch fails closed.
 
 import { getApifyToken } from "../_shared/apify.ts";
+import { isJobSecretAuthorized, jobAuthFailure, jobAuthHeaders } from "../_shared/jobAuth.ts";
+import { isLockHeldEnvelope } from "../_shared/padovaPortalLaunch.ts";
 import {
   CAPPED_PORTAL_SPECS,
   evaluatePreflight,
@@ -23,6 +25,7 @@ import {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
 const APIFY_BASE = "https://api.apify.com/v2";
 const PER_PORTAL_TIMEOUT_MS = 34_000;
@@ -35,15 +38,6 @@ function json(status: number, body: Record<string, unknown>): Response {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 }
 
-function safeEqual(a: string, b: string): boolean {
-  if (!a || !b) return false;
-  const aa = new TextEncoder().encode(a);
-  const bb = new TextEncoder().encode(b);
-  const len = Math.max(aa.length, bb.length);
-  let mismatch = aa.length ^ bb.length;
-  for (let i = 0; i < len; i++) mismatch |= (aa[i] ?? 0) ^ (bb[i] ?? 0);
-  return mismatch === 0;
-}
 
 type IdentifierBundle = { run_id: string; dataset_id: string };
 
@@ -54,9 +48,9 @@ function identifierBundles(raw: unknown, depth = 0): IdentifierBundle[] {
   }
   if (typeof raw !== "object") return [];
   const row = raw as Record<string, unknown>;
-  const runId = [row.run_id, row.actor_run_id, row.actorRunId, row.id]
+  const runId = [row.run_id, row.actor_run_id, row.actorRunId, row.existing_run_id, row.id]
     .find((value): value is string => typeof value === "string" && SAFE_ID.test(value));
-  const datasetId = [row.dataset_id, row.default_dataset_id, row.defaultDatasetId]
+  const datasetId = [row.dataset_id, row.default_dataset_id, row.defaultDatasetId, row.existing_dataset_id]
     .find((value): value is string => typeof value === "string" && SAFE_ID.test(value));
   const own = runId && datasetId ? [{ run_id: runId, dataset_id: datasetId }] : [];
   return own.concat(Object.values(row).flatMap((value) => identifierBundles(value, depth + 1)));
@@ -70,6 +64,23 @@ export function uniqueIdentifierBundles(raw: unknown): IdentifierBundle[] {
     seen.add(key);
     return true;
   });
+}
+
+async function lookupRunBundle(runId: string): Promise<IdentifierBundle | null> {
+  if (!SUPABASE_URL || !SERVICE_KEY || !SAFE_ID.test(runId)) return null;
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/padova_apify_runs?run_id=eq.${encodeURIComponent(runId)}&select=run_id,dataset_id&limit=1`,
+      { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } },
+    );
+    const rows = await res.json().catch(() => null);
+    const row = Array.isArray(rows) ? rows[0] as Record<string, unknown> | undefined : undefined;
+    const datasetId = typeof row?.dataset_id === "string" ? row.dataset_id : "";
+    if (!datasetId || !SAFE_ID.test(datasetId)) return null;
+    return { run_id: runId, dataset_id: datasetId };
+  } catch {
+    return null;
+  }
 }
 
 async function abortRun(runId: string, token: string): Promise<boolean> {
@@ -107,8 +118,9 @@ async function readRun(
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json(405, { ok: false, error: "method_not_allowed" });
   if (!SUPABASE_URL || !JOB_SECRET) return json(500, { ok: false, error: "config_missing" });
-  if (!safeEqual(req.headers.get("x-job-secret") ?? "", JOB_SECRET)) {
-    return json(401, { ok: false, error: "unauthorized" });
+  if (!isJobSecretAuthorized(req.headers, JOB_SECRET)) {
+    const auth = jobAuthFailure(Boolean(JOB_SECRET));
+    return json(auth.status, { ok: false, error: auth.error });
   }
   // Body is intentionally never read: the caps of this batch are not widenable.
 
@@ -147,8 +159,7 @@ Deno.serve(async (req) => {
     const timer = setTimeout(() => controller.abort(), PER_PORTAL_TIMEOUT_MS);
     try {
       const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        "x-job-secret": JOB_SECRET,
+        ...jobAuthHeaders(JOB_SECRET),
       };
       if (ANON_KEY) headers.apikey = ANON_KEY;
       const response = await fetch(`${SUPABASE_URL}/functions/v1/${spec.fn}`, {
@@ -160,7 +171,7 @@ Deno.serve(async (req) => {
       const text = await response.text();
       let payload: unknown = null;
       try { payload = text ? JSON.parse(text) : null; } catch { /* fail below */ }
-      if (!response.ok || !payload || typeof payload !== "object" || Array.isArray(payload)) {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
         return json(response.ok ? 502 : response.status, {
           ok: false,
           error: `launch_${spec.portal}_http_or_payload_failed`,
@@ -171,7 +182,18 @@ Deno.serve(async (req) => {
         });
       }
       const envelope = payload as Record<string, unknown>;
-      if (envelope.ok !== true || envelope.error || Number(envelope.errors_count ?? 0) !== 0) {
+      const lockHeld = isLockHeldEnvelope(response.status, envelope);
+      if (!response.ok && !lockHeld) {
+        return json(response.status, {
+          ok: false,
+          error: `launch_${spec.portal}_http_or_payload_failed`,
+          started_count: launched.length,
+          errors_count: 1,
+          launched,
+          ...echo,
+        });
+      }
+      if (!lockHeld && (envelope.ok !== true || envelope.error || Number(envelope.errors_count ?? 0) !== 0)) {
         return json(502, {
           ok: false,
           error: `launch_${spec.portal}_semantic_failed`,
@@ -181,7 +203,12 @@ Deno.serve(async (req) => {
           ...echo,
         });
       }
-      const bundles = uniqueIdentifierBundles(envelope);
+      let bundles = uniqueIdentifierBundles(envelope);
+      if (bundles.length === 0 && lockHeld) {
+        const existing = typeof envelope.existing_run_id === "string" ? envelope.existing_run_id : "";
+        const lookedUp = existing ? await lookupRunBundle(existing) : null;
+        if (lookedUp) bundles = [lookedUp];
+      }
       if (bundles.length === 0) {
         return json(502, {
           ok: false,

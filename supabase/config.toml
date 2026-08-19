@@ -317,6 +317,11 @@ verify_jwt = false
 [functions.padova-apify-multi-launch]
 verify_jwt = false
 
+# Cron and admin kickoff: auth is job-secret (Path A) or admin JWT (Path B).
+# Platform JWT would reject pg_cron which only sends x-job-secret.
+[functions.padova-apify-kickoff]
+verify_jwt = false
+
 [functions.civiko-private-leads-classify]
 verify_jwt = false
 

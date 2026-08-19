@@ -4,11 +4,13 @@
 //   - idealista: parse + insert in padova_idealista_staging
 //   - casa/subito: insert raw_json grezzo in padova_casa_test / padova_subito_test
 // Ritorna un report human-readable.
-// Auth: x-job-secret == CENTRAL_CORE_JOB_SECRET.
+// Auth: x-job-secret / x-internal-secret / Bearer job secret.
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getApifyToken } from "../_shared/apify.ts";
+import { isJobSecretAuthorized, jobAuthFailure } from "../_shared/jobAuth.ts";
+import { STALE_LOCK_MS } from "../_shared/padovaPortalLaunch.ts";
 
 const APIFY = "https://api.apify.com/v2";
 
@@ -97,9 +99,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const jobSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
-  if (!jobSecret || req.headers.get("x-job-secret") !== jobSecret) {
-    return new Response(JSON.stringify({ ok: false, error: "unauthorized" }),
-      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  if (!jobSecret || !isJobSecretAuthorized(req.headers, jobSecret)) {
+    const auth = jobAuthFailure(Boolean(jobSecret));
+    return new Response(JSON.stringify({ ok: false, error: auth.error }),
+      { status: auth.status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
   const token = getApifyToken();
@@ -136,7 +139,21 @@ Deno.serve(async (req) => {
     }
 
     const run = await getRun(runId, token);
-    if (!run) { out.push({ portal, run_id: runId, status: "unknown" }); continue; }
+    if (!run) {
+      const startedMs = r.started_at ? Date.parse(String(r.started_at)) : NaN;
+      const stale = Number.isFinite(startedMs) && (Date.now() - startedMs) >= STALE_LOCK_MS;
+      if (stale && (dbStatus === "RUNNING" || dbStatus === "READY")) {
+        await sb.from("padova_apify_runs").update({
+          status: "STALE_LOCK",
+          error: "apify_run_unreadable_stale_lock",
+          finished_at: new Date().toISOString(),
+        }).eq("id", r.id);
+        out.push({ portal, run_id: runId, status: "STALE_LOCK" });
+        continue;
+      }
+      out.push({ portal, run_id: runId, status: "unknown" });
+      continue;
+    }
     const cost = Number(run.usageTotalUsd ?? 0);
     const status = run.status as string;
 
