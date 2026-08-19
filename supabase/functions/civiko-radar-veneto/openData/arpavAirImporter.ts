@@ -223,6 +223,42 @@ export async function runArpavAirImport(params: ArpavAirImportParams) {
     skipped_existing = Math.max(0, rows.length - upserted);
   }
 
+  let territorial_signals_created = 0;
+  if (doImport && rows.length > 0) {
+    const supaUrl = Deno.env.get("SUPABASE_URL")!;
+    const supaKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supa = createClient(supaUrl, supaKey, { auth: { persistSession: false } });
+    const sigs = rows.map((r) => ({
+      fingerprint: `arpav_air_ts|${r.provincia}|${String(r.comune).toLowerCase()}`,
+      source_name: "arpav_air_quality",
+      signal_type: "air_quality_zone",
+      province: r.provincia,
+      municipality: r.comune,
+      title: `Qualità aria ARPAV — ${r.comune}`,
+      description: `Zona ARPAV con score aria ${r.air_quality_score ?? "n/d"} (fonte ufficiale WFS).`,
+      data_basis: "arpav,wfs,air_quality_zone",
+      quality: "parziale",
+      is_active: true,
+      confidence_score: r.confidence_score,
+      impact_direction: "neutral",
+      impact_strength: 0.3,
+      payload: {
+        air_quality_score: r.air_quality_score,
+        environment_score: r.environment_score,
+        sentiment_fingerprint: r.fingerprint,
+      },
+    }));
+    const CHUNK = 200;
+    for (let i = 0; i < sigs.length; i += CHUNK) {
+      const slice = sigs.slice(i, i + CHUNK);
+      const { error, count } = await supa.from("territorial_signals").upsert(slice, {
+        onConflict: "fingerprint", ignoreDuplicates: false, count: "exact",
+      });
+      if (error) { errors.push(`territorial_signals_chunk_${i}: ${error.message}`); continue; }
+      territorial_signals_created += count ?? slice.length;
+    }
+  }
+
   const provincesCovered = Array.from(provincesCoveredSet).sort();
   const sample = rows.slice(0, 10).map((r) => ({
     comune: r.comune, provincia: r.provincia,
@@ -247,6 +283,7 @@ export async function runArpavAirImport(params: ArpavAirImportParams) {
     importable_rows: rows.length,
     provinces_covered: provincesCovered,
     upserted,
+    territorial_signals_created,
     skipped_existing,
     sample_scores: sample,
     sample_zones: sampleZones,

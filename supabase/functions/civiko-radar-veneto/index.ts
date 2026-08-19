@@ -47,6 +47,7 @@ import { runAdvancedVenetoOpportunities } from "./advancedOpportunity.ts";
 import { runPadovaEarlyWarning } from "./padovaEarlyWarning.ts";
 import { buildVenetoIntelligenceFromResearch } from "./intelligence/orchestrator.ts";
 import { runVenetoOpenDataImport } from "./openData/ckanImporter.ts";
+import { resolveScheduledPersist } from "./openData/scheduledPersist.ts";
 import { runOpenDataVenetoDeepImport } from "./openData/openDataVenetoCkanImporter.ts";
 import { enrichRadarFromOpenDataVeneto } from "./openData/openDataEnrichment.ts";
 import { runGeoportaleVenetoDiscovery } from "./openData/geoportaleVenetoCswImporter.ts";
@@ -113,6 +114,9 @@ const ROUTES = [
   "POST /jobs/import-geoportale-veneto-layers",
   "POST /jobs/recover-geoportale-veneto-unassigned",
   "POST /jobs/import-arpav-air-quality",
+  "POST /jobs/anac-ckan",
+  "POST /jobs/asteGiudiziarie",
+  "POST /asteGiudiziarie",
   "POST /jobs/enrich-microzone-sentiment-from-territorial-signals",
  "POST /jobs/enrich-microzone-sentiment-from-ispra-risk",
  "POST /jobs/import-geoportale-green-coverage",
@@ -299,9 +303,10 @@ function withIdentity(res: Response, route: string): Response {
 
 /**
  * Job endpoint authorization.
- * Validates header `x-job-secret` against, in order:
- *   1. CENTRAL_CORE_JOB_SECRET (canonical, preferred)
- *   2. DIAGNOSTIC_SECRET (legacy fallback for retro-compat)
+ * Accepts, in order:
+ *   1. x-job-secret == CENTRAL_CORE_JOB_SECRET (canonical)
+ *   2. x-internal-secret == CENTRAL_CORE_JOB_SECRET (cron wrappers)
+ *   3. x-job-secret == DIAGNOSTIC_SECRET (legacy fallback)
  * Returns null if authorized, otherwise an error Response.
  * Never logs or returns the secret value.
  */
@@ -314,11 +319,12 @@ function authorizeJob(req: Request, debugId: string): Response | null {
       "job-auth",
     );
   }
-  const provided = req.headers.get("x-job-secret") ?? "";
-  if (!provided) {
-    return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
-  }
-  const ok = (primary && provided === primary) || (fallback && provided === fallback);
+  const providedJob = req.headers.get("x-job-secret") ?? "";
+  const providedInternal = req.headers.get("x-internal-secret") ?? "";
+  const ok =
+    (!!primary && !!providedJob && providedJob === primary) ||
+    (!!primary && !!providedInternal && providedInternal === primary) ||
+    (!!fallback && !!providedJob && providedJob === fallback);
   if (!ok) {
     return withIdentity(fail(req, 401, "UNAUTHORIZED", "Missing or invalid x-job-secret", debugId), "job-auth");
   }
@@ -1412,11 +1418,30 @@ Deno.serve(async (req) => {
       const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
       try {
         const body = await req.json().catch(() => ({}));
-        const r = await refreshPadovaAuctions(body);
+        const persist = resolveScheduledPersist(body);
+        const r = await refreshPadovaAuctions({ ...body, dryRun: persist.dryRun });
         return withIdentity(json(req, r.ok ? 200 : 207, r, debugId), "job-refresh-padova-auctions");
       } catch (e) {
         console.error(`[${FUNCTION_NAME}] refresh-padova-auctions error:`, e instanceof Error ? e.message : String(e));
         return withIdentity(fail(req, 500, "JOB_FAILED", "refresh-padova-auctions failed", debugId), "job-error");
+      }
+    }
+
+    // Scheduler F16 path (`/asteGiudiziarie`) + nightly alias → persist via refreshPadovaAuctions
+    if (pathname.endsWith("/jobs/asteGiudiziarie") || pathname.endsWith("/asteGiudiziarie")) {
+      const _jobAuth = authorizeJob(req, debugId); if (_jobAuth) return _jobAuth;
+      try {
+        const body = await req.json().catch(() => ({}));
+        const persist = resolveScheduledPersist(body);
+        const r = await refreshPadovaAuctions({
+          ...body,
+          dryRun: persist.dryRun,
+          maxPagesPerSource: typeof body?.maxPagesPerSource === "number" ? body.maxPagesPerSource : 4,
+        });
+        return withIdentity(json(req, r.ok ? 200 : 207, { job: "asteGiudiziarie", ...r }, debugId), "job-aste-giudiziarie");
+      } catch (e) {
+        console.error(`[${FUNCTION_NAME}] asteGiudiziarie error:`, e instanceof Error ? e.message : String(e));
+        return withIdentity(fail(req, 500, "JOB_FAILED", "asteGiudiziarie failed", debugId), "job-error");
       }
     }
 
@@ -2094,6 +2119,7 @@ Deno.serve(async (req) => {
         "/jobs/import-geoportale-veneto-layers",
         "/jobs/recover-geoportale-veneto-unassigned",
         "/jobs/import-arpav-air-quality",
+        "/jobs/anac-ckan",
         "/jobs/enrich-microzone-sentiment-from-territorial-signals",
         "/jobs/enrich-microzone-sentiment-from-ispra-risk",
         "/jobs/import-geoportale-green-coverage",
@@ -2109,18 +2135,37 @@ Deno.serve(async (req) => {
         try {
           const body = await req.json().catch(() => ({}));
           if (matched === "/jobs/import-veneto-open-data") {
+            const persist = resolveScheduledPersist(body);
             const r = await runVenetoOpenDataImport({
               keywords: Array.isArray(body?.keywords) && body.keywords.length ? body.keywords : ["urbanistica","piano interventi","quartieri","rumore","mobilità","parcheggi","edifici","strade"],
               province: Array.isArray(body?.province) ? body.province : ["PD","VI","VR","TV","VE","BL","RO"],
-              dryRun: body?.dryRun !== false,
-              import: body?.import === true,
+              dryRun: persist.dryRun,
+              import: persist.doImport,
             });
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "import-veneto-open-data", ...r }, debugId), "job-open-data");
           }
+          if (matched === "/jobs/anac-ckan") {
+            const persist = resolveScheduledPersist(body);
+            const r = await runVenetoOpenDataImport({
+              baseUrl: "https://dati.anticorruzione.it",
+              sourceName: "anac_ckan",
+              territorialSignalType: "public_works_dataset",
+              requireGeoMatch: true,
+              keywords: Array.isArray(body?.keywords) && body.keywords.length
+                ? body.keywords
+                : ["Padova", "provincia di Padova", "appalti Padova", "lavori pubblici Padova"],
+              province: Array.isArray(body?.province) ? body.province : ["PD"],
+              dryRun: persist.dryRun,
+              import: persist.doImport,
+              maxPerKeyword: typeof body?.maxPerKeyword === "number" ? body.maxPerKeyword : 15,
+            });
+            return withIdentity(json(req, r.ok ? 200 : 207, { job: "anac-ckan", ...r }, debugId), "job-anac-ckan");
+          }
           if (matched === "/jobs/import-open-data-veneto-deep") {
+            const persist = resolveScheduledPersist(body);
             const r = await runOpenDataVenetoDeepImport({
-              dryRun: body?.dryRun !== false,
-              import: body?.import === true,
+              dryRun: persist.dryRun,
+              import: persist.doImport,
               limitPerKeyword: typeof body?.limitPerKeyword === "number" ? body.limitPerKeyword : 20,
               maxImportRecords: typeof body?.maxImportRecords === "number" ? body.maxImportRecords : undefined,
               keywords: Array.isArray(body?.keywords) ? body.keywords : undefined,
@@ -2167,11 +2212,12 @@ Deno.serve(async (req) => {
             return withIdentity(json(req, r.ok ? 200 : 207, { job: "recover-geoportale-veneto-unassigned", ...r }, debugId), "job-geoportale-recovery");
           }
           if (matched === "/jobs/import-arpav-air-quality") {
+            const persist = resolveScheduledPersist(body);
             const useEnv = body?.includeStations !== undefined || body?.includeZoneAria !== undefined || body?.pageSize !== undefined;
             if (useEnv) {
               const r = await runArpavEnvironmentalImport({
-                dryRun: body?.dryRun !== false,
-                import: body?.import === true,
+                dryRun: persist.dryRun,
+                import: persist.doImport,
                 province: Array.isArray(body?.province) ? body.province : ["VE","VR","VI","PD","TV","BL","RO"],
                 maxFeatures: typeof body?.maxFeatures === "number" ? body.maxFeatures : 2000,
                 pageSize: typeof body?.pageSize === "number" ? body.pageSize : 500,
@@ -2181,8 +2227,8 @@ Deno.serve(async (req) => {
               return withIdentity(json(req, r.ok ? 200 : 207, { job: "import-arpav-air-quality", mode: "environmental", ...r }, debugId), "job-arpav-env");
             }
             const r = await runArpavAirImport({
-              dryRun: body?.dryRun !== false,
-              import: body?.import === true,
+              dryRun: persist.dryRun,
+              import: persist.doImport,
               province: Array.isArray(body?.province) ? body.province : ["VE","VR","VI","PD","TV","BL","RO"],
               maxFeatures: typeof body?.maxFeatures === "number" ? body.maxFeatures : 1000,
             });
