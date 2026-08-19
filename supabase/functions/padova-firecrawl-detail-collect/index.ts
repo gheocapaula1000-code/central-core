@@ -14,6 +14,22 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { canSpendApify, recordApifySpend } from "../_shared/apifyBudget.ts";
 import { expireStaleScrapeJobs } from "../_shared/scrapeJobWatchdog.ts";
+import {
+  jobSecretAuthorized,
+  missingJobSecretConfigResponse,
+  readIncomingJobSecret,
+  unauthorizedJobResponse,
+} from "../_shared/jobSecretAuth.ts";
+import { extractFromContent } from "./extract.ts";
+import {
+  DEFAULT_COLLECT_JOB_ID,
+  SOURCE_JOB_ID,
+  logReason,
+  remainingQueueOrFilter,
+  shouldContinueChaining,
+  storedStatus,
+  type ParseStatus,
+} from "./queue.ts";
 
 // inline fcScrape (no cross-function imports)
 async function fcScrape(
@@ -62,11 +78,10 @@ import { getApifyToken } from "../_shared/apify.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-job-secret, x-internal-secret",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const SOURCE_JOB_ID = "e9709a73-e91f-49c4-bc11-a8bf27829875";
 const BATCH = 60;            // URLs per invocation
 const CONC = 6;              // parallel Firecrawl calls
 const FIRECRAWL_COST_PER_SCRAPE = 0.002; // $/scrape (stima)
@@ -82,227 +97,12 @@ function sb() {
   return createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 }
 
-// ───────────────────────── extraction ──────────────────────────
-function clean(s: string | null | undefined): string {
-  return (s ?? "").replace(/\s+/g, " ").trim();
-}
-function num(s: string | null | undefined): number | null {
-  if (!s) return null;
-  const m = String(s).replace(/\./g, "").replace(",", ".").match(/-?\d+(\.\d+)?/);
-  if (!m) return null;
-  const n = Number(m[0]);
-  return Number.isFinite(n) ? n : null;
-}
-function intOnly(s: string | null | undefined): number | null {
-  const n = num(s);
-  return n == null ? null : Math.round(n);
-}
-
-// Helper: rifiuta valori che NON sono nomi di agenzia reali
-function looksLikeAgencyName(s: string | null | undefined): boolean {
-  if (!s) return false;
-  const v = s.trim();
-  if (v.length < 3 || v.length > 120) return false;
-  if (/[\[\]()]/.test(v)) return false;
-  if (/https?:\/\//i.test(v)) return false;
-  if (/\bwww\./i.test(v)) return false;
-  if (/[<>]/.test(v)) return false;
-  const blacklist = [
-    "agenzie", "agenzia", "trova agenzia", "trova agenzie",
-    "cerca agenzia", "scopri agenzia", "vedi agenzia",
-    "annuncio privato", "privato", "venditore privato",
-    "contatta", "richiedi info", "richiedi informazioni",
-    "scopri di piu", "scopri di più", "leggi di piu", "leggi di più",
-    "agente immobiliare", "immobiliare",
-  ];
-  const norm = v.toLowerCase().replace(/[^\p{L}\s]/gu, " ").replace(/\s+/g, " ").trim();
-  if (blacklist.includes(norm)) return false;
-  if (!/\p{L}/u.test(v)) return false;
-  return true;
-}
-
-// Valida un telefono italiano normalizzato (solo cifre + opzionale +)
-function isValidItalianPhone(tel: string): boolean {
-  if (!tel) return false;
-  const digits = tel.replace(/^\+/, "").replace(/^39/, "");
-  const PIVA_BLACKLIST = [
-    "08435221000", // Immobiliare.it
-    "06647441",    // Casa.it (esempio, verificare)
-  ];
-  if (PIVA_BLACKLIST.includes(digits) || PIVA_BLACKLIST.includes(tel.replace(/[^\d]/g, ""))) return false;
-  if (digits.length < 6 || digits.length > 11) return false;
-  if (/^3\d{8,9}$/.test(digits)) return true;
-  if (/^0\d{5,9}$/.test(digits)) return true;
-  return false;
-}
-
-
-function extractFromContent(markdown: string, html: string): Record<string, unknown> {
-  const rawText = `${markdown}\n${html.replace(/<[^>]+>/g, " ")}`;
-  const text = rawText.toLowerCase();
-  const out: Record<string, unknown> = {};
-
-  // detect 404 / removed (immobiliare)
-  if (/la pagina che stai cercando non è presente|non è più disponibile/i.test(rawText)) {
-    out._gone = true;
-  }
-
-  // JSON-LD blocks (schema.org) — walk @graph recursively
-  try {
-    const ldBlocks = html.match(/<script[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi) ?? [];
-    const walk = (it: Record<string, unknown> | null | undefined) => {
-      if (!it || typeof it !== "object") return;
-      const fs = (it as { floorSize?: { value?: unknown } | unknown }).floorSize as { value?: unknown } | unknown;
-      const fsv = (fs && typeof fs === "object" && "value" in (fs as Record<string, unknown>)) ? (fs as { value?: unknown }).value : fs;
-      if (fsv && !out.mq) out.mq = intOnly(String(fsv));
-      const nr = (it as Record<string, unknown>).numberOfRooms ?? (it as Record<string, unknown>).numberOfRoomsTotal;
-      if (nr && !out.locali) out.locali = intOnly(String(nr));
-      const nb = (it as Record<string, unknown>).numberOfBathroomsTotal ?? (it as Record<string, unknown>).numberOfBathrooms;
-      if (nb && !out.bagni) out.bagni = intOnly(String(nb));
-      const ag = (it as { realEstateAgent?: { name?: string }; provider?: { name?: string }; seller?: { name?: string } });
-      const agName = ag?.realEstateAgent?.name ?? ag?.provider?.name ?? ag?.seller?.name;
-      if (agName && !out.agency) out.agency = clean(String(agName)).slice(0, 120);
-      const agAny = ag as Record<string, { telephone?: unknown } | undefined>;
-      const agPhone = agAny?.realEstateAgent?.telephone ?? agAny?.provider?.telephone ?? agAny?.seller?.telephone;
-      if (agPhone && !out.agency_phone) {
-        const tel = String(agPhone).replace(/[^\d+]/g, "");
-        if (tel.length >= 6 && tel.length <= 20) out.agency_phone = tel;
-      }
-      const geo = (it as { geo?: { latitude?: unknown; longitude?: unknown }; address?: { geo?: { latitude?: unknown; longitude?: unknown } } });
-      const lat = geo?.geo?.latitude ?? geo?.address?.geo?.latitude;
-      const lng = geo?.geo?.longitude ?? geo?.address?.geo?.longitude;
-      if (lat != null && lng != null && !out.lat) {
-        const la = Number(lat), lo = Number(lng);
-        if (Number.isFinite(la) && Number.isFinite(lo)) { out.lat = la; out.lng = lo; }
-      }
-      const graph = (it as { ["@graph"]?: unknown[] })["@graph"];
-      if (Array.isArray(graph)) for (const g of graph) walk(g as Record<string, unknown>);
-    };
-    for (const block of ldBlocks) {
-      const inner = block.replace(/^[\s\S]*?>/, "").replace(/<\/script>\s*$/i, "");
-      try {
-        const obj = JSON.parse(inner);
-        const items = Array.isArray(obj) ? obj : [obj];
-        for (const it of items) walk(it as Record<string, unknown>);
-      } catch { /* skip block */ }
-    }
-  } catch { /* ignore */ }
-
-  // mq — digits BEFORE unit (most common), then keyword-based
-  if (!out.mq) {
-    const patterns = [
-      /(\d{2,4})\s*(?:mq|m²|m2|metri quadr)/i,
-      /\bda\s+(\d{2,4})\s*m[²2 ]/i,
-      /(?:superficie|dimensione)[^0-9]{0,20}(\d{2,4})/i,
-    ];
-    for (const p of patterns) {
-      const m = text.match(p);
-      if (m) { out.mq = intOnly(m[1]); if (out.mq) break; }
-    }
-  }
-
-  if (!out.locali) {
-    const lM = text.match(/(\d{1,2})\s*(?:loca(?:li|le)|stanze|vani|camere)\b/);
-    if (lM) out.locali = intOnly(lM[1]);
-  }
-
-  if (!out.bagni) {
-    const bM = text.match(/(\d{1,2})\s*bagn[io]\b/);
-    if (bM) out.bagni = intOnly(bM[1]);
-  }
-
-  const piM = text.match(/piano[:\s]+([a-z0-9°\-\s]{1,30})/);
-  if (piM) out.piano = clean(piM[1]).slice(0, 60);
-
-  const tipoM = text.match(/\b(appartamento|attico|villa|villetta|bilocale|trilocale|quadrilocale|monolocale|loft|mansarda|rustico|casa indipendente|porzione di casa)\b/);
-  if (tipoM) out.tipologia = tipoM[1];
-
-  const rM = text.match(/riscaldamento[:\s]+([a-z0-9,\s\-]{3,60})/);
-  if (rM) out.riscaldamento = clean(rM[1]).slice(0, 80);
-
-  const sM = text.match(/\bstato[:\s]+([a-z\s]{3,40})/);
-  if (sM) out.stato = clean(sM[1]).slice(0, 60);
-
-  const aM = text.match(/\banno (?:di )?costruzione[:\s]+(\d{4})/);
-  if (aM) out.anno_costruzione = intOnly(aM[1]);
-
-  const cM = text.match(/\b(?:via|viale|piazza|corso|largo|vicolo|strada|borgo|riviera|lungargine|calle|contr[aà]|stradella)\s+[a-zà-ù'.\s]{3,40}[, ]+(\d{1,4}[a-z]?)\b/i);
-  if (cM) out.civico = cM[1];
-
-  if (!out.agency) {
-    const candidates: string[] = [];
-    const m1 = html.match(/class="[^"]*agen[a-z\-_]*name[^"]*"[^>]*>([^<]{3,120})</i);
-    if (m1) candidates.push(m1[1]);
-    const m2 = html.match(/data-agency[a-z\-]*=["']([^"']{3,120})["']/i);
-    if (m2) candidates.push(m2[1]);
-    const m3 = html.match(/itemtype="[^"]*RealEstateAgent[^"]*"[\s\S]{0,500}?itemprop="name"[^>]*>([^<]{3,120})</i);
-    if (m3) candidates.push(m3[1]);
-    const m4 = html.match(/<meta[^>]+name=["'](?:publisher|author)["'][^>]+content=["']([^"']{3,120})["']/i);
-    if (m4) candidates.push(m4[1]);
-    for (const cand of candidates) {
-      const cleaned = clean(cand).slice(0, 120);
-      if (looksLikeAgencyName(cleaned)) { out.agency = cleaned; break; }
-    }
-  }
-
-  // Pattern immobiliare.it: link markdown a /agenzie-immobiliari/<id>/<slug>/
-  // Cattura il nome PRIMA del ]( ancorando sull'URL agenzia
-  if (!out.agency) {
-    const mIm = markdown.match(/([^\[\]\n]{3,120})\]\(https?:\/\/(?:www\.)?immobiliare\.it\/agenzie-immobiliari\/\d+\/[^)]+\)/i);
-    if (mIm) {
-      const cand = clean(
-        mIm[1]
-          .replace(/\\+/g, " ")
-          .replace(/^[\s\W]+|[\s\W]+$/g, "")
-      ).slice(0, 120);
-      if (looksLikeAgencyName(cand)) out.agency = cand;
-    }
-  }
-
-  // Validazione finale agency
-  if (out.agency && !looksLikeAgencyName(String(out.agency))) {
-    out.agency = null;
-  }
-
-  // Fallback telefono agenzia da HTML
-  if (!out.agency_phone) {
-    // Priorità 1: href="tel:..." → quasi sempre affidabile
-    const telLink = html.match(/href="tel:([^"]{6,20})"/i);
-    if (telLink) {
-      const tel = telLink[1].replace(/[^\d+]/g, "");
-      if (isValidItalianPhone(tel)) out.agency_phone = tel;
-    }
-
-    // Priorità 2: regex generica con guardrail anti-P.IVA (richiede separatori)
-    if (!out.agency_phone) {
-      const telM = html.match(/(?:\+?39[\s.\-]+)?(?:0\d{1,3}[\s.\-]+\d{5,8}|3\d{2}[\s.\-]+\d{6,7})/);
-      if (telM) {
-        const tel = telM[0].replace(/[^\d+]/g, "");
-        if (isValidItalianPhone(tel)) out.agency_phone = tel;
-      }
-    }
-  }
-
-  if (!out.lat) {
-    const blob = html + "\n" + markdown;
-    const tries: Array<RegExpMatchArray | null> = [
-      blob.match(/"latitude"\s*:\s*"?(-?\d+\.\d{3,})"?[\s\S]{0,120}?"longitude"\s*:\s*"?(-?\d+\.\d{3,})"?/i),
-      blob.match(/"lat"\s*:\s*"?(-?\d+\.\d{3,})"?[\s\S]{0,120}?"l(?:o?n|ng)g?(?:itude)?"\s*:\s*"?(-?\d+\.\d{3,})"?/i),
-      blob.match(/lat[=:]\s*(-?\d+\.\d{3,})[\s\S]{0,40}?l(?:o?n|ng)g?[=:]\s*(-?\d+\.\d{3,})/i),
-      blob.match(/data-lat(?:itude)?\s*=\s*"(-?\d+\.\d{3,})"[\s\S]{0,200}?data-l(?:o?n|ng)g?(?:itude)?\s*=\s*"(-?\d+\.\d{3,})"/i),
-      blob.match(/@(-?\d+\.\d{4,}),(-?\d+\.\d{4,})/), // google maps style
-    ];
-    for (const m of tries) {
-      if (m) {
-        const la = Number(m[1]), lo = Number(m[2]);
-        if (Number.isFinite(la) && Number.isFinite(lo) && la > 35 && la < 48 && lo > 6 && lo < 19) {
-          out.lat = la; out.lng = lo; break;
-        }
-      }
-    }
-  }
-
-  return out;
+function applyRemainingQueueFilter<T extends { eq: Function; not: Function; lt: Function; or: Function }>(q: T): T {
+  return q
+    .eq("job_id", SOURCE_JOB_ID)
+    .not("url", "is", null)
+    .lt("attempts", 2)
+    .or(remainingQueueOrFilter()) as T;
 }
 
 // ───────────────────────── apify fallback ──────────────────────────
@@ -341,8 +141,6 @@ async function apifyDetailFallback(url: string): Promise<{ md: string; html: str
 }
 
 // ───────────────────────── processing ──────────────────────────
-type ParseStatus = "done_ok" | "dead_404" | "timeout" | "anti_bot" | "empty_parse" | "network_error";
-
 async function processOne(row: { id: number; url: string }): Promise<{
   ok: boolean;
   apifyUsed: boolean;
@@ -441,21 +239,6 @@ type BatchOutcomes = {
   network_error: number;
   error: number;
 };
-
-type StoredParseStatus = "done_ok" | "dead_404" | "empty_parse" | "error" | "dead_unrecoverable";
-
-function storedStatus(status: ParseStatus, nextAttempts: number): StoredParseStatus {
-  if (status === "done_ok" || status === "dead_404" || status === "empty_parse") return status;
-  // error/timeout/anti_bot/network_error: dead_unrecoverable se attempts esauriti
-  if (nextAttempts >= 2) return "dead_unrecoverable";
-  return "error";
-}
-
-function logReason(status: ParseStatus, error?: string): string | null {
-  if (status === "done_ok") return null;
-  if (error) return `${status}:${error}`.slice(0, 500);
-  return status;
-}
 
 async function processBatch(
   jobId: string,
@@ -610,13 +393,9 @@ async function processBatch(
       .eq("job_id", jobId);
   }
 
-  const { count: remainingCount } = await c
-    .from("padova_collect_v2_items")
-    .select("id", { count: "exact", head: true })
-    .eq("job_id", SOURCE_JOB_ID)
-    .not("url", "is", null)
-    .lt("attempts", 2)
-    .or("processed_at.is.null,parse_status.in.(failed_processed_unknown,error)");
+  const { count: remainingCount } = await applyRemainingQueueFilter(
+    c.from("padova_collect_v2_items").select("id", { count: "exact", head: true }),
+  );
 
   return { remaining: remainingCount ?? 0, processed: rows.length, outcomes, latlng: cov.latlng };
 }
@@ -634,6 +413,7 @@ async function selfInvoke(jobId: string, action: "process" | "run_full" = "proce
         "Authorization": `Bearer ${gatewayKey}`,
         "apikey": gatewayKey,
         "x-internal-secret": INTERNAL_TOKEN,
+        "x-job-secret": INTERNAL_TOKEN,
       },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(10_000),
@@ -645,14 +425,28 @@ async function selfInvoke(jobId: string, action: "process" | "run_full" = "proce
   }
 }
 
-const JOB_ID_DEFAULT = "01a1368e-d0b1-4b85-8778-f197891efe1a";
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // ───────────────────────── handler ──────────────────────────
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ ok: false, error: "method_not_allowed" }), {
+      status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 
-  const body = await req.json().catch(() => ({}));
+  const expectedSecret = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
+  if (!expectedSecret) return missingJobSecretConfigResponse(corsHeaders);
+  const incoming = readIncomingJobSecret(req.headers);
+  const bodyPeek = await req.json().catch(() => ({}));
+  const internalToken = String((bodyPeek as { _internal_token?: string })?._internal_token ?? "");
+  const internalOk = Boolean(INTERNAL_TOKEN && internalToken && jobSecretAuthorized(INTERNAL_TOKEN, internalToken));
+  if (!jobSecretAuthorized(expectedSecret, incoming) && !internalOk) {
+    return unauthorizedJobResponse(corsHeaders);
+  }
+
+  const body = bodyPeek as Record<string, unknown>;
   const action = String(body?.action ?? "");
   const c = sb();
   // Expire jobs whose updated_at heartbeat is older than the watchdog timeout
@@ -699,7 +493,7 @@ Deno.serve(async (req) => {
   }
 
   if (action === "status") {
-    const jobId = String(body?.job_id ?? JOB_ID_DEFAULT);
+    const jobId = String(body?.job_id ?? DEFAULT_COLLECT_JOB_ID);
 
     // DB-grounded counters (source of truth)
     const countWhere = async (
@@ -751,7 +545,7 @@ Deno.serve(async (req) => {
   }
 
   if (action === "run_one_batch") {
-    const jobId = String(body?.job_id ?? JOB_ID_DEFAULT);
+    const jobId = String(body?.job_id ?? DEFAULT_COLLECT_JOB_ID);
 
     const { data: existing } = await c.from("padova_firecrawl_jobs").select("*").eq("job_id", jobId).maybeSingle();
     if (!existing) {
@@ -804,7 +598,7 @@ Deno.serve(async (req) => {
 
   // ── run_full: process one 40-row batch sync, then self-chain via SUPABASE_ANON_KEY ──
   if (action === "run_full") {
-    const jobId = String(body?.job_id ?? JOB_ID_DEFAULT);
+    const jobId = String(body?.job_id ?? DEFAULT_COLLECT_JOB_ID);
     const BATCH_SIZE = Math.min(Math.max(Number(body?.batch_size ?? 40), 5), 80);
     const resetFailedUnknown = body?.reset_failed_unknown === true;
     const isChain = body?._chain === true;
@@ -845,10 +639,9 @@ Deno.serve(async (req) => {
     }
 
     // Count remaining BEFORE processing
-    const { count: beforeCount } = await c
-      .from("padova_collect_v2_items")
-      .select("id", { count: "exact", head: true })
-      .eq("job_id", SOURCE_JOB_ID).is("mq", null).is("raw_json", null).not("url", "is", null);
+    const { count: beforeCount } = await applyRemainingQueueFilter(
+      c.from("padova_collect_v2_items").select("id", { count: "exact", head: true }),
+    );
     const daProcessareTotale = beforeCount ?? 0;
     console.log(`[run_full] job=${jobId} chain=${isChain} da_processare_totale=${daProcessareTotale} reset=${resetCount}`);
 
@@ -868,14 +661,13 @@ Deno.serve(async (req) => {
     }
 
     // Count remaining AFTER
-    const { count: afterCount } = await c
-      .from("padova_collect_v2_items")
-      .select("id", { count: "exact", head: true })
-      .eq("job_id", SOURCE_JOB_ID).is("mq", null).is("raw_json", null).not("url", "is", null);
+    const { count: afterCount } = await applyRemainingQueueFilter(
+      c.from("padova_collect_v2_items").select("id", { count: "exact", head: true }),
+    );
     const rimanenti = afterCount ?? 0;
 
     let chaining = false;
-    if (!writeError && rimanenti > 0 && processed > 0) {
+    if (shouldContinueChaining(processed, rimanenti, writeError)) {
       await sleep(800);
       // @ts-ignore EdgeRuntime
       EdgeRuntime.waitUntil(selfInvoke(jobId, "run_full"));
@@ -1020,13 +812,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    const { count: leftCount } = await c
-      .from("padova_collect_v2_items")
-      .select("id", { count: "exact", head: true })
-      .eq("job_id", SOURCE_JOB_ID)
-      .is("mq", null)
-      .is("raw_json", null)
-      .not("url", "is", null);
+    const { count: leftCount } = await applyRemainingQueueFilter(
+      c.from("padova_collect_v2_items").select("id", { count: "exact", head: true }),
+    );
 
     const { data: cur } = await c.from("padova_firecrawl_jobs").select("*").eq("job_id", jobId).maybeSingle();
     const p = cur?.annunci_processati || 1;

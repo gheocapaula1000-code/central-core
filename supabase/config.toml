@@ -359,3 +359,12 @@ verify_jwt = false
 [functions.istat-sdmx-fetch]
 verify_jwt = false
 
+# Bakeca private-leads scrape + Firecrawl detail collect.
+# Auth is CENTRAL_CORE_JOB_SECRET in-function (x-job-secret / x-internal-secret).
+# Platform JWT would reject pg_cron (vault job secret is not a JWT).
+[functions.civiko-bakeca-scrape]
+verify_jwt = false
+
+[functions.padova-firecrawl-detail-collect]
+verify_jwt = false
+
