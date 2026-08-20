@@ -191,17 +191,39 @@ Deno.serve(async (req) => {
   let run_id: string;
   let dataset_id: string;
   try {
-    const r = await fetch(
-      `${APIFY_BASE}/acts/${encodeURIComponent(ACTOR_CASA)}/runs?${qs.toString()}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+    const startRun = (query: string) =>
+      fetch(
+        `${APIFY_BASE}/acts/${encodeURIComponent(ACTOR_CASA)}/runs?${query}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(input),
         },
-        body: JSON.stringify(input),
-      },
-    );
+      );
+
+    let r = await startRun(qs.toString());
+    if (!r.ok && qs.has("webhooks")) {
+      // Apify può rifiutare il parametro `webhooks`: in quel caso si riprova
+      // senza, perché il drain periodico (apify-collect-pending) ingerisce
+      // comunque le run terminate.
+      const text = await r.text().catch(() => "");
+      if (/webhooks/i.test(text)) {
+        console.warn("[apify] webhooks param rifiutato, retry senza webhook");
+        qs.delete("webhooks");
+        r = await startRun(qs.toString());
+      } else {
+        const reason = formatApifyStartError(r.status, text);
+        await persistFailedLaunch(reason, costCap);
+        await writeCasaSourceRegistry({ ok: false, error: reason });
+        return new Response(
+          JSON.stringify({ ok: false, skipped: true, reason }),
+          { status: 502, headers: jsonHeaders },
+        );
+      }
+    }
     if (!r.ok) {
       const text = await r.text().catch(() => "");
       const reason = formatApifyStartError(r.status, text);
