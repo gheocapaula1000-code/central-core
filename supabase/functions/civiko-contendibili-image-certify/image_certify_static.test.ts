@@ -70,6 +70,37 @@ Deno.test("coppie stantie sostituite atomicamente in una sola transazione", () =
   );
 });
 
+Deno.test("coppie identity: zona + mq + prezzo, non via/civico", () => {
+  assertStringIncludes(SRC, '.select("id,url,fonte,agency,commercial_zone_slug,mq,prezzo,ev_image_refs")');
+  assertStringIncludes(SRC, "Via/civico are NOT");
+  assertStringIncludes(SRC, "Math.max(mqLo + 5, mqLo * 1.05)");
+  assertStringIncludes(SRC, "prezzoHi > prezzoLo * 1.15");
+  assert(!SRC.includes("ev_via_norm"), "via non e' un gate delle coppie foto");
+  assert(!SRC.includes("ev_civico_norm"), "civico non e' un gate delle coppie foto");
+});
+
+Deno.test("fonte B legge Casa raw_json.image e ev_image_refs, non solo media.images", () => {
+  assertStringIncludes(SRC, "LISTING_PHOTO_SOURCE_OR");
+  assertStringIncludes(SRC, "listingPhotoSource");
+  assertStringIncludes(SRC, "listingImageSourceInput");
+  assertStringIncludes(SRC, '.select("id,ev_image_refs,raw_json")');
+  assert(
+    !SRC.includes('.not("raw_json->media->images", "is", null)'),
+    "il pool non puo' restare chiuso su solo media.images",
+  );
+});
+
+Deno.test("un publish vuoto di fingerprint/coppie non e' successo", () => {
+  assertStringIncludes(SRC, 'error: "photo_sources_not_fingerprinted"');
+  assertStringIncludes(SRC, 'error: "no_fingerprints"');
+  assertStringIncludes(SRC, "identity_starved: true");
+  assertStringIncludes(SRC, "empty_fingerprint_publish_is_not_success");
+  assert(
+    !/ok:\s*true[\s\S]{0,200}note:\s*"no_reusable_photo_sources"/.test(SRC),
+    "no_reusable_photo_sources non puo' tornare ok:true",
+  );
+});
+
 Deno.test("ogni scrittura critica controlla l'errore", () => {
   for (
     const marker of [

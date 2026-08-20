@@ -13,8 +13,37 @@ import { IMAGE_HOST_ALLOWLIST } from "./imageFetchGuard.ts";
 
 export const MAX_DETAIL_IMAGE_REFS = 5;
 
+/**
+ * Typical portal photo keys. Casa stores a single `raw_json.image` URL.
+ * Immobiliare uses `raw_json.media.images`. Idealista/Subito use `_photos`.
+ * The certifier must read all of these — not only `media.images`.
+ */
+export const LISTING_PHOTO_KEYS = [
+  "image",
+  "images",
+  "photo",
+  "photos",
+  "picture",
+  "pictures",
+  "thumbnail",
+  "mainImage",
+  "main_image",
+  "imageUrl",
+  "image_url",
+  "cover",
+  "coverImage",
+  "gallery",
+  "_photos",
+  "media",
+] as const;
+
 const URL_RE =
   /https?:\/\/[^\s"'()<>\\\]]+?\.(?:jpe?g|png|webp|avif)(?:\?[^\s"'()<>\\\]]*)?/gi;
+
+/** Allowlisted CDN URLs that omit a file extension (still HTTPS). */
+const BARE_HTTPS_RE = /https:\/\/[^\s"'()<>\\\]]+/gi;
+
+const URL_FIELD_KEYS = ["url", "src", "href", "uri", "image"] as const;
 
 /** Percorsi che non possono essere prova fotografica dell'unità. */
 const PATH_DENY =
@@ -66,10 +95,73 @@ function collectStrings(value: unknown, out: string[], depth = 0): void {
     return;
   }
   if (value && typeof value === "object") {
-    for (const v of Object.values(value as Record<string, unknown>)) {
+    const obj = value as Record<string, unknown>;
+    for (const key of URL_FIELD_KEYS) {
+      const field = obj[key];
+      if (typeof field === "string") out.push(field);
+    }
+    for (const v of Object.values(obj)) {
       collectStrings(v, out, depth + 1);
     }
   }
+}
+
+/**
+ * Photo-bearing subset of a listing `raw_json` (or scrape result).
+ * Returns null when none of the typical portal keys are present.
+ */
+export function listingPhotoSource(raw: unknown): unknown {
+  if (raw == null) return null;
+  if (typeof raw === "string" || Array.isArray(raw)) return raw;
+  if (typeof raw !== "object") return null;
+  const obj = raw as Record<string, unknown>;
+  const out: unknown[] = [];
+  for (const key of LISTING_PHOTO_KEYS) {
+    const value = obj[key];
+    if (value == null) continue;
+    if (key === "media") {
+      if (typeof value === "object" && !Array.isArray(value)) {
+        const media = value as Record<string, unknown>;
+        if (media.images != null) out.push(media.images);
+        if (media.photos != null) out.push(media.photos);
+        if (media.image != null) out.push(media.image);
+      } else {
+        out.push(value);
+      }
+      continue;
+    }
+    out.push(value);
+  }
+  return out.length ? out : null;
+}
+
+/** Canonical payload hashed as the image-source fingerprint. */
+export function listingImageSourceInput(
+  rawJson: unknown,
+  evImageRefs: unknown,
+): { photos: unknown; refs: unknown } {
+  return {
+    photos: listingPhotoSource(rawJson),
+    refs: evImageRefs ?? null,
+  };
+}
+
+function urlsFromString(s: string): string[] {
+  const withExt = s.match(URL_RE) ?? [];
+  if (withExt.length) return withExt;
+  return (s.match(BARE_HTTPS_RE) ?? []).filter((raw) => {
+    try {
+      return hostAllowed(new URL(raw.replace(/&amp;/gi, "&")).hostname.toLowerCase());
+    } catch {
+      return false;
+    }
+  });
+}
+
+function keepExtractedUrl(url: string): boolean {
+  if (DECODABLE.test(url)) return true;
+  if (/\.(webp|avif)(?:\?|$)/i.test(url)) return false;
+  return !/\.(jpe?g|png|webp|avif)(?:\?|$)/i.test(url);
 }
 
 /**
@@ -81,11 +173,12 @@ export function extractDetailImageRefs(
   limit: number = MAX_DETAIL_IMAGE_REFS,
 ): string[] {
   const strings: string[] = [];
+  collectStrings(listingPhotoSource(result), strings);
   collectStrings(result, strings);
 
   const byIdentity = new Map<string, string>();
   for (const s of strings) {
-    for (const raw of s.match(URL_RE) ?? []) {
+    for (const raw of urlsFromString(s)) {
       const url = raw.replace(/&amp;/gi, "&").replace(/\\u002f/gi, "/");
       if (url.length > 400) continue;
       let host: string;
@@ -116,6 +209,6 @@ export function extractDetailImageRefs(
   }
 
   return Array.from(byIdentity.values())
-    .filter((u) => DECODABLE.test(u))
+    .filter((u) => keepExtractedUrl(u))
     .slice(0, Math.max(0, Math.min(limit, MAX_DETAIL_IMAGE_REFS)));
 }

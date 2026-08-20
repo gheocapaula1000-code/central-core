@@ -32,6 +32,7 @@ import {
 } from "../../supabase/functions/_shared/imagePhash";
 import {
   evaluateImagePhashV1,
+  MATCH_VERSION,
   type ListingForImageGate,
   type PhotoFp,
 } from "../../supabase/functions/_shared/imagePhashV1Gate";
@@ -155,6 +156,27 @@ describe("estrazione multi-foto dai result detail memorizzati", () => {
     ]);
   });
 
+  it("estrae Casa raw_json.image (singolo URL) e Immobiliare media.images", () => {
+    const casa = extractDetailImageRefs({
+      image: "https://images-1.casa.it/800x600/listing/0/a2/60/3b/759546585.jpg",
+      title: "Trilocale",
+    });
+    expect(casa).toEqual([
+      "https://images-1.casa.it/800x600/listing/0/a2/60/3b/759546585.jpg",
+    ]);
+
+    const immobiliare = extractDetailImageRefs({
+      media: {
+        images: [
+          { url: "https://pwm.im-cdn.it/image/1972339280/xxl.jpg" },
+          { src: "https://s1.immobiliare.it/img/1972339281.jpg" },
+        ],
+      },
+    });
+    expect(immobiliare).toContain("https://pwm.im-cdn.it/image/1972339280/xxl.jpg");
+    expect(immobiliare).toContain("https://s1.immobiliare.it/img/1972339281.jpg");
+  });
+
   it("è deterministico e cappato a 5 foto per annuncio", () => {
     const many = {
       html: Array.from({ length: 20 }, (_, i) =>
@@ -265,23 +287,23 @@ describe("gate IMAGE_PHASH_V1", () => {
   const p2 = "1234567890abcdef";
   const p3 = "fedcba0987654321";
 
-  it("certifica solo con >= 2 foto reali condivise per ogni coppia cross-agenzia", () => {
+  it("certifica con foto condivise + mq + prezzo + stessa zona", () => {
     const res = evaluateImagePhashV1([
       base({ url: "https://a/1", agencyKey: "alfa", photos: [photo(p1), photo(p2)] }),
       base({ url: "https://b/2", agencyKey: "beta", photos: [photo(p1), photo(p2)] }),
     ]);
     expect(res.certificato).toBe(true);
     expect(res.evidence_kind).toBe("IMAGE_PHASH_V1");
-    expect(res.match_version).toBe("v3-unit-certified+image-phash-v1");
+    expect(res.match_version).toBe(MATCH_VERSION);
   });
 
-  it("nega con una sola foto condivisa", () => {
+  it("una sola foto condivisa basta sotto il 10% di prezzo se mq e zona tengono", () => {
     const res = evaluateImagePhashV1([
       base({ url: "https://a/1", agencyKey: "alfa", photos: [photo(p1), photo(p3)] }),
       base({ url: "https://b/2", agencyKey: "beta", photos: [photo(p1), photo(p2)] }),
     ]);
-    expect(res.certificato).toBe(false);
-    expect(res.motivi).toContain("FOTO_CONDIVISE_INSUFFICIENTI");
+    expect(res.certificato).toBe(true);
+    expect(res.n_pairs_photo).toBe(1);
   });
 
   it("nega con una sola agenzia (stessa agenzia su due annunci)", () => {
@@ -300,19 +322,15 @@ describe("gate IMAGE_PHASH_V1", () => {
       base({ url: "https://c/3", agencyKey: "gamma", photos: [photo(p3)] }),
     ]);
     expect(res.certificato).toBe(false);
-    expect(res.motivi).toContain("FOTO_CONDIVISE_INSUFFICIENTI");
+    expect(res.motivi).toContain("CLIQUE_INCOMPLETA");
   });
 
-  it("le foto non superano conflitti strutturali (mq, prezzo, tipologia, piano, civico, zona)", () => {
+  it("le foto non superano conflitti di mq, prezzo, zona, asta o MLS", () => {
     const shared = [photo(p1), photo(p2)];
     const conflicts: Array<[Partial<ListingForImageGate>, string]> = [
       [{ mq: 200 }, "MQ_INCOMPATIBILI"],
-      [{ prezzo: 900000 }, "PREZZO_OLTRE_35_PCT"],
-      [{ tipologia: "villa" }, "TIPOLOGIA_INCOMPATIBILE"],
-      [{ piano: "5" }, "PIANO_DISCORDANTE"],
-      [{ civico: "12" }, "CIVICO_DISCORDANTE"],
+      [{ prezzo: 900000 }, "PREZZO_OLTRE_15_PCT"],
       [{ zone: "nord-arcella" }, "ZONE_DIVERSE"],
-      [{ locali: 5 }, "LOCALI_DISCORDANTI"],
       [{ asta: true }, "ASTA_O_PROCEDURA"],
       [{ mls: true }, "MLS_ESCLUSIVA"],
     ];
@@ -322,7 +340,6 @@ describe("gate IMAGE_PHASH_V1", () => {
           url: "https://a/1",
           agencyKey: "alfa",
           photos: shared,
-          civico: over.civico ? "10" : null,
         }),
         base({ url: "https://b/2", agencyKey: "beta", photos: shared, ...over }),
       ]);
@@ -407,6 +424,13 @@ describe("migrazione: persistenza e consumo nel recompute autoritativo", () => {
 /* ── 7. riprocessamento a costo zero ───────────────────────────────────── */
 
 describe("edge function civiko-contendibili-image-certify", () => {
+  it("legge Casa raw_json.image e ev_image_refs, non solo media.images", () => {
+    expect(EDGE_FN).toContain("LISTING_PHOTO_SOURCE_OR");
+    expect(EDGE_FN).toContain("listingPhotoSource");
+    expect(EDGE_FN).not.toContain('.not("raw_json->media->images", "is", null)');
+    expect(EDGE_FN).toContain("identity_starved: true");
+  });
+
   it("riusa solo i result detail già memorizzati, senza provider a pagamento", () => {
     expect(EDGE_FN).toContain('.from("scraping_queue")');
     expect(EDGE_FN).toContain('.eq("status", "succeeded")');

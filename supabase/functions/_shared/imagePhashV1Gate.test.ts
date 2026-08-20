@@ -46,23 +46,31 @@ Deno.test("versione e algoritmo: contratto v4 esplicito, nessun v3", () => {
   assert(!MATCH_VERSION.includes("v3"));
 });
 
-Deno.test("coppia PHOTO <=10%: 1 foto + 1 segnale, metadata mancanti ammessi", () => {
-  const a = L({ url: "a", agencyKey: "a", mq: null, locali: null, piano: null, tipologia: null, photos: [ph("f1")] });
-  const b = L({ url: "b", agencyKey: "b", mq: null, locali: null, piano: null, tipologia: null, prezzo: 209000, civico: "10", photos: [ph("f1")] });
+Deno.test("coppia PHOTO <=10%: 1 foto + mq + prezzo + zona, via/civico assenti", () => {
+  const a = L({ url: "a", agencyKey: "a", civico: null, via: null, photos: [ph("f1")] });
+  const b = L({ url: "b", agencyKey: "b", prezzo: 209000, civico: null, via: null, photos: [ph("f1")] });
   const p = evaluatePair(a, b);
   assertEquals(p.branch, "PHOTO");
   assertEquals(p.valida, true);
 });
 
+Deno.test("coppia PHOTO senza mq non certifica, anche con civico uguale", () => {
+  const a = L({ url: "a", agencyKey: "a", mq: null, civico: "10", photos: [ph("f1")] });
+  const b = L({ url: "b", agencyKey: "b", mq: null, prezzo: 209000, civico: "10", photos: [ph("f1")] });
+  const p = evaluatePair(a, b);
+  assert(p.motivi.includes("MQ_INCOMPATIBILI"));
+  assertEquals(p.valida, false);
+});
+
 Deno.test("coppia PHOTO 10-15%: servono 2 foto, 1 non basta", () => {
   const one = evaluatePair(
     L({ url: "a", agencyKey: "a", photos: [ph("f1")] }),
-    L({ url: "b", agencyKey: "b", prezzo: 226000, mq: 40, locali: 1, piano: null, tipologia: null, civico: null, photos: [ph("f1")] }),
+    L({ url: "b", agencyKey: "b", prezzo: 226000, civico: null, photos: [ph("f1")] }),
   );
   assertEquals(one.valida, false);
   const two = evaluatePair(
     L({ url: "a", agencyKey: "a", photos: [ph("f1"), ph("f2")] }),
-    L({ url: "b", agencyKey: "b", prezzo: 226000, mq: 40, locali: 1, piano: null, tipologia: null, civico: null, photos: [ph("f1"), ph("f2")] }),
+    L({ url: "b", agencyKey: "b", prezzo: 226000, civico: null, photos: [ph("f1"), ph("f2")] }),
   );
   assertEquals(two.branch, "PHOTO");
   assertEquals(two.valida, true);
@@ -96,27 +104,23 @@ Deno.test("reject comuni su coppia fotografica: agenzia, canonical, asta, MLS, z
   assert(mk({ zone: "nord-arcella" }).motivi.includes("ZONE_DIVERSE"));
 });
 
-Deno.test("gruppo PHOTO: metadata mancanti o divergenti non lo scartano", () => {
+Deno.test("gruppo PHOTO: locali/piano/civico possono mancare o divergere", () => {
   const g = evaluateImagePhashV1([
-    L({ url: "a", agencyKey: "a", mq: null, locali: null, piano: null, tipologia: null, bagni: 1, civico: "10", photos: [ph("f1"), ph("f2")] }),
-    L({ url: "b", agencyKey: "b", mq: 40, locali: 1, piano: "5", tipologia: "attico", bagni: 3, prezzo: 215000, civico: "10", photos: [ph("f1"), ph("f2")] }),
+    L({ url: "a", agencyKey: "a", locali: null, piano: null, tipologia: null, bagni: 1, civico: null, photos: [ph("f1"), ph("f2")] }),
+    L({ url: "b", agencyKey: "b", locali: 1, piano: "5", tipologia: "attico", bagni: 3, prezzo: 215000, civico: "99", photos: [ph("f1"), ph("f2")] }),
   ]);
   assertEquals(g.motivi, []);
   assertEquals(g.certificato, true);
   assertEquals(g.n_pairs_photo, 1);
 });
 
-Deno.test("gruppo interamente strutturale: metadata pienamente obbligatori", () => {
-  const ok = evaluateImagePhashV1([
+Deno.test("gruppo senza foto condivise non certifica (geo-text ritirato)", () => {
+  const g = evaluateImagePhashV1([
     L({ url: "a", agencyKey: "a" }),
     L({ url: "b", agencyKey: "b", prezzo: 210000 }),
   ]);
-  assertEquals(ok.certificato, true);
-  const ko = evaluateImagePhashV1([
-    L({ url: "a", agencyKey: "a" }),
-    L({ url: "b", agencyKey: "b", prezzo: 210000, mq: 40 }),
-  ]);
-  assertEquals(ko.certificato, false);
+  assertEquals(g.certificato, false);
+  assert(g.motivi.includes("PROVA_INSUFFICIENTE"));
 });
 
 Deno.test("complete-link: A-B e B-C senza A-C non certificano", () => {

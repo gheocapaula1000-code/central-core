@@ -46,14 +46,21 @@ function isPlainObject(raw: unknown): raw is Record<string, unknown> {
   return Boolean(raw) && typeof raw === "object" && !Array.isArray(raw);
 }
 
-/** A recompute payload is coherent only with v4 match version and a numeric outcome. */
+/** A recompute payload is coherent with v4/v5 match version and a numeric outcome. */
 export function isCoherentRecomputeResult(raw: unknown): raw is Record<string, unknown> {
   if (!isPlainObject(raw)) return false;
   if (raw.ok !== true) return false;
   if (raw.error !== undefined && raw.error !== null) return false;
   const version = raw.match_version;
-  if (typeof version !== "string" || !version.startsWith("v4-")) return false;
-  return Number.isFinite(Number(raw.contendibili_after));
+  if (typeof version !== "string" || !/^v[45]-/.test(version)) return false;
+  const after = Number(raw.contendibili_after);
+  if (!Number.isFinite(after)) return false;
+  // An empty photo publish is not success. v5 publishes only from
+  // civiko_listing_photo_pair_evidence; 0 cards means the matcher is starved
+  // or wrote nothing public.
+  if (raw.identity_starved === true) return false;
+  if (after === 0) return false;
+  return true;
 }
 
 /**

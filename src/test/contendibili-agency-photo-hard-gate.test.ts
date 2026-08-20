@@ -79,7 +79,8 @@ describe("civiko_padova_matcher_v4_pairs — quoted predicates", () => {
     expect(pairs).not.toMatch(/OR \(\(b\.x\)\.tipologia IS NOT NULL/);
   });
 
-  it("same house: (via_n AND civico_n) OR dist_m <= 40, plus mq band", () => {
+  it("20260817 still required (via+civico) OR dist_m<=40 — superseded by v5", () => {
+    // Historical snapshot of 20260817150000. v5 (20260820120000) drops this gate.
     expect(pairs).toContain("(b.x).via_n = (b.y).via_n");
     expect(pairs).toContain("(b.x).civico_n = (b.y).civico_n");
     expect(pairs).toContain("b.dist_m IS NOT NULL AND b.dist_m <= 40");

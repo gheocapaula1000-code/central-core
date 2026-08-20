@@ -620,14 +620,17 @@ export function semanticFailure(raw: unknown, action?: SimpleAction, depth = 0):
     if (src.fingerprints_only !== true || processed < 0 ||
         Number(src.remaining ?? -1) < 0) return "image_snapshot_incomplete";
   }
-  if (depth === 0 && action === "image_pairs" && src.pairs_snapshot_complete !== true) {
-    return "image_pairs_snapshot_incomplete";
+  if (depth === 0 && action === "image_pairs") {
+    if (src.identity_starved === true) return "identity_starved";
+    if (src.pairs_snapshot_complete !== true) return "image_pairs_snapshot_incomplete";
   }
   if (depth === 0 && action === "contendibili_recompute") {
-    if (typeof src.match_version !== "string" || !src.match_version.startsWith("v4-") ||
+    if (typeof src.match_version !== "string" || !/^v[45]-/.test(src.match_version) ||
         !Number.isFinite(Number(src.contendibili_after))) {
       return "recompute_contract_incomplete";
     }
+    if (src.identity_starved === true) return "identity_starved";
+    if (Number(src.contendibili_after) === 0) return "empty_photo_publish";
   }
   return null;
 }

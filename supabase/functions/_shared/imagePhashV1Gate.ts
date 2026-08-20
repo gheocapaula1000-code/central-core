@@ -1,16 +1,13 @@
 // _shared/imagePhashV1Gate.ts — Civiko One / Padova, certificazione fotografica
-// v4 dei contendibili. Valutatore PER COPPIA, allineato al matcher v4:
+// v5 dei contendibili. Valutatore PER COPPIA, allineato al matcher v5:
 //
-//  * prezzo obbligatorio in OGNI ramo: >15% = reject;
-//  * <=10%: >=1 fotografia certificata + almeno UN segnale di plausibilita';
-//  * 10-15%: >=2 fotografie certificate OPPURE il ramo strutturale
-//    (geo <= 30 m + unita'/piano compatibile + fingerprint testo forte);
-//  * su una coppia PHOTO nessun veto globale di metadata: mq, locali, bagni,
-//    piano, tipologia, via o civico possono mancare o divergere;
-//  * reject comuni sempre validi: stessa canonical listing, stessa agenzia,
-//    asta, MLS/esclusiva, zona fuori dalle 8 ufficiali, cardinalita' 2..4;
-//  * complete-link: ogni coppia del gruppo deve reggere da sola (vietata la
-//    transitivita' A-B + B-C senza A-C).
+//  * identita' = foto (pHash) + mq compatibile + prezzo compatibile + stessa zona;
+//  * via/civico NON sono un gate: le agenzie li nascondono di proposito;
+//  * prezzo: >15% = reject; 10-15% richiede >=2 foto condivise;
+//  * mq: max <= max(min+5, min*1.05); mq assente = reject;
+//  * nessun ramo STRUCTURAL/geo-text: zero foto = non contendibile;
+//  * reject comuni: stessa canonical, stessa agenzia, asta, MLS, zona diversa;
+//  * complete-link: ogni coppia del gruppo deve reggere da sola.
 
 import {
   GENERIC_REUSE_THRESHOLD,
@@ -137,12 +134,20 @@ function mqRatio(a: ListingForImageGate, b: ListingForImageGate): number | null 
   return Math.max(a.mq, b.mq) / Math.min(a.mq, b.mq);
 }
 
+/** Banda mq del matcher v5: +5 mq oppure 5%. Via/civico non contano. */
+export function mqCompatible(a: ListingForImageGate, b: ListingForImageGate): boolean {
+  if (!a.mq || !b.mq || a.mq <= 0 || b.mq <= 0) return false;
+  const lo = Math.min(a.mq, b.mq);
+  return Math.max(a.mq, b.mq) <= Math.max(lo + 5, lo * STRUCTURAL_MQ_TOLERANCE);
+}
+
 /** Almeno UN segnale non fotografico compatibile — mai il set completo. */
 export function plausibilitySignal(
   a: ListingForImageGate,
   b: ListingForImageGate,
   distM: number | null,
 ): boolean {
+  if (mqCompatible(a, b)) return true;
   if (a.locali != null && b.locali != null && a.locali === b.locali) return true;
   const mr = mqRatio(a, b);
   if (mr !== null && mr <= PLAUSIBILITY_MQ_TOLERANCE) return true;
@@ -222,25 +227,20 @@ export function evaluatePair(
     motivi.push("PREZZO_ASSENTE");
   } else if (ratio > PRICE_RATIO_MAX) {
     motivi.push("PREZZO_OLTRE_15_PCT");
+  } else if (!mqCompatible(a, b)) {
+    motivi.push("MQ_INCOMPATIBILI");
   } else if (ratio <= PRICE_RATIO_PHOTO_1) {
-    if (distanze.length >= MIN_SHARED_PHOTOS_BAND_1 && plausibilitySignal(a, b, distM)) {
+    if (distanze.length >= MIN_SHARED_PHOTOS_BAND_1) {
       branch = "PHOTO";
       photoStrong = true;
-    } else if (structuralBranchOk(a, b, distM) || legacyStructuralUnder10(a, b)) {
-      branch = "STRUCTURAL";
     } else {
       motivi.push("PROVA_INSUFFICIENTE");
     }
+  } else if (distanze.length >= MIN_SHARED_PHOTOS_BAND_2) {
+    branch = "PHOTO";
+    photoStrong = true;
   } else {
-    // fascia 10-15%
-    if (distanze.length >= MIN_SHARED_PHOTOS_BAND_2) {
-      branch = "PHOTO";
-      photoStrong = true;
-    } else if (structuralBranchOk(a, b, distM)) {
-      branch = "STRUCTURAL";
-    } else {
-      motivi.push("PROVA_INSUFFICIENTE");
-    }
+    motivi.push("PROVA_INSUFFICIENTE");
   }
 
   return {
@@ -258,18 +258,6 @@ export function evaluatePair(
     valida: motivi.length === 0 && branch !== null,
     motivi,
   };
-}
-
-/** Sotto il 10% il ramo strutturale non richiede geo+testo forte. */
-function legacyStructuralUnder10(a: ListingForImageGate, b: ListingForImageGate): boolean {
-  if (a.locali == null || b.locali == null || a.locali !== b.locali) return false;
-  if (!a.tipologia || !b.tipologia || a.tipologia !== b.tipologia) return false;
-  if (!a.piano || !b.piano || a.piano !== b.piano) return false;
-  if (!a.mq || !b.mq || a.mq <= 0 || b.mq <= 0) return false;
-  const lo = Math.min(a.mq, b.mq);
-  if (Math.max(a.mq, b.mq) > Math.max(lo + 5, lo * STRUCTURAL_MQ_TOLERANCE)) return false;
-  if (a.bagni != null && b.bagni != null && a.bagni !== b.bagni) return false;
-  return true;
 }
 
 export function evaluateImagePhashV1(rows: ListingForImageGate[]): ImageGateResult {
@@ -307,23 +295,10 @@ export function evaluateImagePhashV1(rows: ListingForImageGate[]): ImageGateResu
   }
 
   const nPhoto = coppie.filter((c) => c.valida && c.branch === "PHOTO").length;
-  // I vincoli di metadata valgono SOLO se il gruppo e' interamente strutturale.
-  if (nPhoto === 0 && coppie.length && coppie.every((c) => c.valida)) {
-    const mqs = rows.map((r) => r.mq ?? 0);
-    const mqMin = Math.min(...mqs);
-    const mqMax = Math.max(...mqs);
-    if (!(mqMin > 0) || mqMax > Math.max(mqMin + 5, mqMin * STRUCTURAL_MQ_TOLERANCE)) {
-      motivi.push("MQ_INCOMPATIBILI");
-    }
-    if (new Set(rows.map((r) => r.locali)).size !== 1) motivi.push("LOCALI_DISCORDANTI");
-    if (new Set(rows.map((r) => r.tipologia).filter(Boolean)).size > 1) {
-      motivi.push("TIPOLOGIA_INCOMPATIBILE");
-    }
-    if (new Set(rows.map((r) => r.piano).filter(Boolean)).size > 1) {
-      motivi.push("PIANO_DISCORDANTE");
-    }
-    if (new Set(rows.map((r) => r.bagni).filter((x) => x != null)).size > 1) {
-      motivi.push("BAGNI_DISCORDANTI");
+  if (nPhoto === 0) motivi.push("PROVA_INSUFFICIENTE");
+  for (const extra of ["MQ_INCOMPATIBILI", "PREZZO_OLTRE_15_PCT", "ZONE_DIVERSE"]) {
+    if (coppie.some((c) => c.motivi.includes(extra)) && !motivi.includes(extra)) {
+      motivi.push(extra);
     }
   }
 

@@ -18,7 +18,12 @@
 // Nessuno scraping, nessun provider a pagamento, nessun cron attivato qui.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-import { extractDetailImageRefs, MAX_DETAIL_IMAGE_REFS } from "../_shared/detailImageRefs.ts";
+import {
+  extractDetailImageRefs,
+  listingImageSourceInput,
+  listingPhotoSource,
+  MAX_DETAIL_IMAGE_REFS,
+} from "../_shared/detailImageRefs.ts";
 import {
   fetchImagesBounded,
   isFetched,
@@ -54,6 +59,7 @@ import {
   chunk,
   eligibilityReason,
   isTerminalOutcome,
+  LISTING_PHOTO_SOURCE_OR,
   normalizeOutcome,
   selectEligible,
   sourceFingerprint,
@@ -177,6 +183,8 @@ Deno.serve(async (req) => {
   let remainingEligible = 0;
   let remainingExact = true;
   const exclusions: Record<string, number> = {};
+  // pairs_only, or fingerprinting caught up: write pair evidence from stored fps.
+  let pairFromStored = pairsOnly;
 
   if (!pairsOnly) {
     // Avanzamento: paginazione COMPLETA, nessun cap arbitrario a 5000 righe.
@@ -231,7 +239,8 @@ Deno.serve(async (req) => {
       if (page === CANDIDATE_MAX_PAGES - 1) remainingExact = false;
     }
 
-    // Fonte B — foto già memorizzate in raw_json, perimetro esatto.
+    // Fonte B — foto già memorizzate: media.images (Immobiliare), raw_json.image
+    // (Casa), images/photos/_photos, ev_image_refs. NOT only media.images.
     for (let page = 0; page < CANDIDATE_MAX_PAGES; page++) {
       const from = page * CANDIDATE_PAGE_SIZE;
       const { data, error } = await sb
@@ -240,7 +249,7 @@ Deno.serve(async (req) => {
         .is("expired_at", null)
         .eq("comune", "Padova")
         .in("commercial_zone_slug", zoneScope)
-        .not("raw_json->media->images", "is", null)
+        .or(LISTING_PHOTO_SOURCE_OR)
         .order("id", { ascending: true })
         .range(from, from + CANDIDATE_PAGE_SIZE - 1);
       if (error) {
@@ -298,18 +307,16 @@ Deno.serve(async (req) => {
     for (const part of chunk(terminalIds)) {
       const { data, error } = await sb
         .from("padova_listings")
-        .select("id,ev_image_refs,images:raw_json->media->images")
+        .select("id,ev_image_refs,raw_json")
         .in("id", part);
       if (error) {
         return json({ ok: false, error: "source_fp_read_failed", detail: error.message }, 500);
       }
       for (const r of data ?? []) {
+        const row = r as Record<string, unknown>;
         currentSourceFp.set(
           Number(r.id),
-          await sourceFingerprint({
-            images: (r as Record<string, unknown>).images ?? null,
-            refs: (r as Record<string, unknown>).ev_image_refs ?? null,
-          }),
+          await sourceFingerprint(listingImageSourceInput(row.raw_json, row.ev_image_refs)),
         );
       }
     }
@@ -337,26 +344,51 @@ Deno.serve(async (req) => {
     }
 
     if (!selected.length) {
-      return json({
-        ok: true,
-        dry_run: dryRun,
-        fingerprints_only: fingerprintsOnly,
-        attempted: 0,
-        scanned,
-        remaining: 0,
-        remaining_exact: remainingExact,
-        queue_complete: remainingExact,
-        pairs_snapshot_complete: false,
-        exclusions,
-        progress_marker: await progressMarker(),
-        pipeline_run_id: pipelineRunId,
-        zero_novelty: true,
-        note: "no_reusable_photo_sources",
-      });
-    }
-
+      // Empty fingerprint work is NOT success. If Casa/portal photos exist in
+      // the pool but nothing is fingerprinted yet, fail closed. If fingerprints
+      // already exist, fall through so pairs_only-equivalent can write
+      // civiko_listing_photo_pair_evidence.
+      if (fingerprinted.size === 0) {
+        return json({
+          ok: false,
+          error: scanned === 0 ? "no_photo_sources_in_scope" : "photo_sources_not_fingerprinted",
+          identity_starved: true,
+          dry_run: dryRun,
+          fingerprints_only: fingerprintsOnly,
+          attempted: 0,
+          scanned,
+          remaining: remainingEligible,
+          remaining_exact: remainingExact,
+          queue_complete: remainingExact && remainingEligible === 0,
+          pairs_snapshot_complete: false,
+          exclusions,
+          progress_marker: await progressMarker(),
+          pipeline_run_id: pipelineRunId,
+          zero_novelty: false,
+          note: "empty_fingerprint_publish_is_not_success",
+        }, 409);
+      }
+      if (fingerprintsOnly) {
+        return json({
+          ok: true,
+          dry_run: dryRun,
+          fingerprints_only: true,
+          attempted: 0,
+          scanned,
+          remaining: remainingEligible,
+          remaining_exact: remainingExact,
+          queue_complete: remainingExact && remainingEligible === 0,
+          pairs_snapshot_complete: false,
+          exclusions,
+          progress_marker: await progressMarker(),
+          pipeline_run_id: pipelineRunId,
+          zero_novelty: false,
+          note: "fingerprint_queue_caught_up",
+        });
+      }
+      pairFromStored = true;
+    } else if (!dryRun) {
     // Marcatura ATOMICA prima di lavorare: anche no-photo/undecodable avanzano.
-    if (!dryRun) {
       const ids = selected.map((c) => c.listing_id);
       const { error: markErr } = await sb
         .from("civiko_image_certify_attempts")
@@ -385,7 +417,7 @@ Deno.serve(async (req) => {
   // ── Fingerprint già persistiti (pairs_only: paginazione COMPLETA) ────────
   let listingIds: number[] = selected.map((c) => c.listing_id);
   let storedFingerprints: Fp[] = [];
-  if (pairsOnly) {
+  if (pairFromStored) {
     for (let page = 0; page < FINGERPRINT_MAX_PAGES; page++) {
       const from = page * FINGERPRINT_PAGE_SIZE;
       const { data: fps, error: fErr } = await sb
@@ -419,16 +451,18 @@ Deno.serve(async (req) => {
     listingIds = Array.from(new Set(storedFingerprints.map((f) => f.listing_id)));
     if (!listingIds.length) {
       return json({
-        ok: true,
-        pairs_only: true,
+        ok: false,
+        error: "no_fingerprints",
+        identity_starved: true,
+        pairs_only: pairsOnly,
         fingerprints_only: false,
-        zero_novelty: true,
+        zero_novelty: false,
         remaining: 0,
         remaining_exact: true,
         queue_complete: true,
-        pairs_snapshot_complete: true,
-        note: "no_fingerprints",
-      });
+        pairs_snapshot_complete: false,
+        note: "empty_pair_publish_is_not_success",
+      }, 409);
     }
   }
 
@@ -438,7 +472,7 @@ Deno.serve(async (req) => {
   for (const part of chunk(listingIds)) {
     const { data, error: lErr } = await sb
       .from("padova_listings")
-      .select("id,url,fonte,agency,commercial_zone_slug,ev_via_norm,ev_image_refs")
+      .select("id,url,fonte,agency,commercial_zone_slug,mq,prezzo,ev_image_refs")
       .in("id", part)
       .is("expired_at", null)
       .eq("comune", "Padova")
@@ -447,10 +481,10 @@ Deno.serve(async (req) => {
     for (const r of data ?? []) listingRows.push(r as Record<string, unknown>);
   }
   const listingById = new Map(listingRows.map((l) => [Number(l.id), l]));
-  const outOfScopeFingerprintListings = pairsOnly
+  const outOfScopeFingerprintListings = pairFromStored
     ? listingIds.filter((id) => !listingById.has(id)).length
     : 0;
-  if (pairsOnly) {
+  if (pairFromStored) {
     // I fingerprint fuori perimetro (scaduti/altro comune/altra zona) non
     // possono generare prove: si escludono prima del pairing.
     storedFingerprints = storedFingerprints.filter((f) => listingById.has(f.listing_id));
@@ -466,7 +500,7 @@ Deno.serve(async (req) => {
   let rejectedQuality = 0;
   let rawJsonProcessed = 0;
   let rawJsonRefs = 0;
-  const fingerprints: Fp[] = pairsOnly ? storedFingerprints : [];
+  const fingerprints: Fp[] = pairFromStored ? storedFingerprints : [];
   const outcomeByListing = new Map<number, string>();
   /** Impronta deterministica della fonte immagine osservata in questo giro. */
   const sourceFpByListing = new Map<number, string | null>();
@@ -507,7 +541,7 @@ Deno.serve(async (req) => {
     }
   };
 
-  if (!pairsOnly) {
+  if (!pairFromStored) {
     // Detail memorizzati per i candidati selezionati (una sola lettura).
     const queueIds = selected
       .filter((c) => c.source === "evidence" && c.queue_id)
@@ -545,33 +579,32 @@ Deno.serve(async (req) => {
         continue;
       }
       let refs: string[] = [];
-      const rawImages = (rawJsonById.get(listingId)?.media as Record<string, unknown> | undefined)
-        ?.images ?? null;
+      const raw = rawJsonById.get(listingId) ?? null;
+      const evRefs = (listingById.get(listingId)?.ev_image_refs as unknown) ?? null;
+      const photoSource = listingPhotoSource(raw);
       if (cand.source === "evidence") {
         const result = cand.queue_id ? resultById.get(cand.queue_id) : null;
-        if (result) {
-          refs = extractDetailImageRefs(result, MAX_DETAIL_IMAGE_REFS);
-          reprocessed++;
-        }
+        refs = extractDetailImageRefs({
+          evidence: result ?? null,
+          listing: photoSource,
+          ev_image_refs: evRefs,
+        }, MAX_DETAIL_IMAGE_REFS);
+        if (result) reprocessed++;
       } else {
-        const images = rawImages;
-        if (images) {
-          refs = extractDetailImageRefs(images, MAX_DETAIL_IMAGE_REFS);
-          rawJsonProcessed++;
-          rawJsonRefs += refs.length;
-        }
+        refs = extractDetailImageRefs({
+          listing: photoSource,
+          ev_image_refs: evRefs,
+          raw,
+        }, MAX_DETAIL_IMAGE_REFS);
+        rawJsonProcessed++;
+        rawJsonRefs += refs.length;
       }
       refsTotal += refs.length;
       // Impronta della fonte: stessa forma usata in selezione, così un
       // no_photo terminale si riapre solo se la fonte cambia davvero.
       sourceFpByListing.set(
         listingId,
-        await sourceFingerprint({
-          images: rawImages,
-          refs: refs.length
-            ? refs
-            : ((listingById.get(listingId)?.ev_image_refs as unknown) ?? null),
-        }),
+        await sourceFingerprint(listingImageSourceInput(raw, evRefs)),
       );
       if (!refs.length) {
         outcomeByListing.set(listingId, "no_photo");
@@ -629,7 +662,7 @@ Deno.serve(async (req) => {
   });
 
   // Persistenza idempotente dei fingerprint (errore = fail-closed).
-  if (!dryRun && !pairsOnly && usable.length) {
+  if (!dryRun && !pairFromStored && usable.length) {
     const { error } = await sb
       .from("civiko_listing_image_fingerprints")
       .upsert(
@@ -709,7 +742,18 @@ Deno.serve(async (req) => {
       const agencyA = normAgency(la.agency as string | null);
       const agencyB = normAgency(lb.agency as string | null);
       if (!agencyA || !agencyB || agencyA === agencyB) continue;
+      // Zone is identity. Via/civico are NOT — agencies hide the address.
       if ((la.commercial_zone_slug ?? null) !== (lb.commercial_zone_slug ?? null)) continue;
+      const mqA = Number(la.mq);
+      const mqB = Number(lb.mq);
+      const prezzoA = Number(la.prezzo);
+      const prezzoB = Number(lb.prezzo);
+      if (!(mqA > 0) || !(mqB > 0) || !(prezzoA > 0) || !(prezzoB > 0)) continue;
+      const mqLo = Math.min(mqA, mqB);
+      if (Math.max(mqA, mqB) > Math.max(mqLo + 5, mqLo * 1.05)) continue;
+      const prezzoLo = Math.min(prezzoA, prezzoB);
+      const prezzoHi = Math.max(prezzoA, prezzoB);
+      if (prezzoHi > prezzoLo * 1.15) continue;
 
       const pa = byListing.get(idA)!;
       const pb = byListing.get(idB)!;
@@ -728,6 +772,7 @@ Deno.serve(async (req) => {
         }
       }
       if (!distances.length) continue;
+      if (prezzoHi > prezzoLo * 1.10 && distances.length < 2) continue;
       const [lo, hi] = idA < idB ? [idA, idB] : [idB, idA];
       pairRows.push({
         listing_a: lo,
@@ -747,7 +792,7 @@ Deno.serve(async (req) => {
   }
 
   let stalePairsRemoved = 0;
-  if (!dryRun && pairsOnly) {
+  if (!dryRun && pairFromStored) {
     // Sostituzione ATOMICA in UNA sola transazione DB (upsert + delete stantie):
     // nessuna finestra in cui le prove risultino parziali.
     const { data: replaced, error } = await sb.rpc("civiko_replace_photo_pair_evidence", {
@@ -774,10 +819,10 @@ Deno.serve(async (req) => {
     progress_marker: await progressMarker(),
     attempted: listingIds.length,
     scanned,
-    remaining: pairsOnly ? 0 : remainingEligible,
-    remaining_exact: pairsOnly ? true : remainingExact,
-    queue_complete: pairsOnly ? true : (remainingExact && remainingEligible === 0),
-    pairs_snapshot_complete: pairsOnly,
+    remaining: pairFromStored ? 0 : remainingEligible,
+    remaining_exact: pairFromStored ? true : remainingExact,
+    queue_complete: pairFromStored ? true : (remainingExact && remainingEligible === 0),
+    pairs_snapshot_complete: pairFromStored,
     exclusions,
     fingerprint_fuori_perimetro: outOfScopeFingerprintListings,
     pipeline_run_id: pipelineRunId,

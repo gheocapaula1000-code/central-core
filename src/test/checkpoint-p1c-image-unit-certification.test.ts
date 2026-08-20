@@ -292,20 +292,19 @@ describe("P1-C — regola IMAGE_PHASH_V1", () => {
     expect(r.coppie[0].distanze.every((d) => d <= PHASH_MATCH_MAX_DISTANCE)).toBe(true);
   });
 
-  it("una sola foto coincidente → insufficiente", () => {
+  it("una sola foto coincidente + mq/prezzo/zona compatibili → certificato (v5)", () => {
     const r = evaluateImagePhashV1([
       L(),
       L({ url: "https://x/2", agencyKey: "agenziabeta", photos: [photo(1), photo(8), photo(9)] }),
     ]);
-    expect(r.certificato).toBe(false);
-    expect(r.motivi).toContain("FOTO_CONDIVISE_INSUFFICIENTI");
+    expect(r.certificato).toBe(true);
+    expect(r.n_pairs_photo).toBe(1);
   });
 
   it("stessa agenzia su due portali → non contendibile", () => {
     const r = evaluateImagePhashV1([L(), L({ url: "https://x/2", fonte: "idealista" })]);
     expect(r.certificato).toBe(false);
     expect(r.motivi).toContain("AGENZIE_INSUFFICIENTI");
-    expect(r.motivi).toContain("NESSUNA_COPPIA_CROSS_AGENZIA");
   });
 
   it("logo condiviso fra le due agenzie non certifica", () => {
@@ -328,21 +327,33 @@ describe("P1-C — regola IMAGE_PHASH_V1", () => {
   });
 
   it.each([
-    ["civico discordante", { civico: "10" }, { civico: "12" }, "CIVICO_DISCORDANTE"],
-    ["piano discordante", { piano: "p1" }, { piano: "p6" }, "PIANO_DISCORDANTE"],
     ["mq incompatibili", { mq: 120 }, { mq: 180 }, "MQ_INCOMPATIBILI"],
-    ["prezzo oltre 35%", { prezzo: 200000 }, { prezzo: 400000 }, "PREZZO_OLTRE_35_PCT"],
+    ["prezzo oltre 15%", { prezzo: 200000 }, { prezzo: 400000 }, "PREZZO_OLTRE_15_PCT"],
     ["asta", {}, { asta: true }, "ASTA_O_PROCEDURA"],
     ["MLS/esclusiva", {}, { mls: true }, "MLS_ESCLUSIVA"],
     ["cross-zona", {}, { zone: "centro-storico" }, "ZONE_DIVERSE"],
-    ["tipologia diversa", {}, { tipologia: "villa" }, "TIPOLOGIA_INCOMPATIBILE"],
-  ])("le foto coincidenti non superano un conflitto strutturale: %s", (_n, pa, pb, motivo) => {
+  ])("le foto coincidenti non superano mq/prezzo/zona/asta/MLS: %s", (_n, pa, pb, motivo) => {
     const r = evaluateImagePhashV1([
       L({ ...pa, photos: [photo(1), photo(2)] }),
       L({ url: "https://x/2", agencyKey: "agenziabeta", ...pb, photos: [photo(1), photo(2)] }),
     ]);
     expect(r.certificato).toBe(false);
     expect(r.motivi).toContain(motivo);
+  });
+
+  it("civico/piano/tipologia discordanti non vetoano se foto+mq+prezzo+zona tengono", () => {
+    const r = evaluateImagePhashV1([
+      L({ civico: "10", piano: "p1", tipologia: "appartamento", photos: [photo(1), photo(2)] }),
+      L({
+        url: "https://x/2",
+        agencyKey: "agenziabeta",
+        civico: "12",
+        piano: "p6",
+        tipologia: "villa",
+        photos: [photo(1), photo(2)],
+      }),
+    ]);
+    expect(r.certificato).toBe(true);
   });
 
   it("vietata la transitività A-B-C: se la coppia A-C non regge, il gruppo non è certificato", () => {
@@ -352,7 +363,7 @@ describe("P1-C — regola IMAGE_PHASH_V1", () => {
       L({ url: "https://x/c", agencyKey: "gamma", photos: [photo(3), photo(4)] }),
     ]);
     expect(r.certificato).toBe(false);
-    expect(r.motivi).toContain("FOTO_CONDIVISE_INSUFFICIENTI");
+    expect(r.motivi).toContain("CLIQUE_INCOMPLETA");
   });
 
   it("gruppo a tre agenzie con tutte le coppie provate → certificato", () => {

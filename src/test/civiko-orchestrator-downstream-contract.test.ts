@@ -92,6 +92,26 @@ describe("Civiko orchestrator downstream semantic contract", () => {
       .toBe("collect_pending_no_current_evidence");
   });
 
+  it("rejects empty photo publish and starved pair evidence", () => {
+    expect(semanticFailure({
+      ok: true,
+      match_version: "v5-photo-mq-price-zone",
+      contendibili_after: 0,
+    }, "contendibili_recompute")).toBe("empty_photo_publish");
+    expect(semanticFailure({
+      ok: false,
+      error: "identity_starved",
+      identity_starved: true,
+      match_version: "v5-photo-mq-price-zone",
+      contendibili_after: 0,
+    }, "contendibili_recompute")).toBe("identity_starved");
+    expect(semanticFailure({
+      ok: true,
+      pairs_snapshot_complete: true,
+      identity_starved: true,
+    }, "image_pairs")).toBe("identity_starved");
+  });
+
   it("requires current Casa queue identifiers", () => {
     expect(semanticFailure({ ok: true, enqueued: [{ queue_id: "queue_1" }] }, "portal_casa"))
       .toBeNull();
