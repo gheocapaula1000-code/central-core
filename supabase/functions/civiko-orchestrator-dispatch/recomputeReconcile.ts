@@ -46,13 +46,13 @@ function isPlainObject(raw: unknown): raw is Record<string, unknown> {
   return Boolean(raw) && typeof raw === "object" && !Array.isArray(raw);
 }
 
-/** A recompute payload is coherent only with v4 match version and a numeric outcome. */
+/** A recompute payload is coherent with v4/v5 match version and a numeric outcome. */
 export function isCoherentRecomputeResult(raw: unknown): raw is Record<string, unknown> {
   if (!isPlainObject(raw)) return false;
   if (raw.ok !== true) return false;
   if (raw.error !== undefined && raw.error !== null) return false;
   const version = raw.match_version;
-  if (typeof version !== "string" || !version.startsWith("v4-")) return false;
+  if (typeof version !== "string" || !/^v[45]-/.test(version)) return false;
   return Number.isFinite(Number(raw.contendibili_after));
 }
 

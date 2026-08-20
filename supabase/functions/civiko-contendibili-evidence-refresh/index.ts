@@ -2,6 +2,9 @@
 // Accoda ogni giorno SOLO le schede dettaglio dei candidati già in quarantena
 // per mancanza di evidenza di unità. Non modifica le regole di certificazione,
 // non legge URL dal chiamante e non serve altre PWA.
+//
+// v5 matcher identity is photo + mq + price + zone. CIVICO_ASSENTE here is
+// enrichment-only — via/civico are not a contendibile hard gate.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 

@@ -113,6 +113,10 @@ describe("contendibili_recompute reconciliation (fail-closed)", () => {
 
   it("validates recompute payload coherence", () => {
     expect(isCoherentRecomputeResult(FRESH_OK)).toBe(true);
+    expect(isCoherentRecomputeResult({
+      ...FRESH_OK,
+      match_version: "v5-photo-mq-price-zone",
+    })).toBe(true);
     expect(isCoherentRecomputeResult({ ...FRESH_OK, contendibili_after: "x" })).toBe(false);
     expect(isCoherentRecomputeResult(null)).toBe(false);
   });

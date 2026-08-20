@@ -438,7 +438,7 @@ Deno.serve(async (req) => {
   for (const part of chunk(listingIds)) {
     const { data, error: lErr } = await sb
       .from("padova_listings")
-      .select("id,url,fonte,agency,commercial_zone_slug,ev_via_norm,ev_image_refs")
+      .select("id,url,fonte,agency,commercial_zone_slug,mq,prezzo,ev_image_refs")
       .in("id", part)
       .is("expired_at", null)
       .eq("comune", "Padova")
@@ -709,7 +709,18 @@ Deno.serve(async (req) => {
       const agencyA = normAgency(la.agency as string | null);
       const agencyB = normAgency(lb.agency as string | null);
       if (!agencyA || !agencyB || agencyA === agencyB) continue;
+      // Zone is identity. Via/civico are NOT — agencies hide the address.
       if ((la.commercial_zone_slug ?? null) !== (lb.commercial_zone_slug ?? null)) continue;
+      const mqA = Number(la.mq);
+      const mqB = Number(lb.mq);
+      const prezzoA = Number(la.prezzo);
+      const prezzoB = Number(lb.prezzo);
+      if (!(mqA > 0) || !(mqB > 0) || !(prezzoA > 0) || !(prezzoB > 0)) continue;
+      const mqLo = Math.min(mqA, mqB);
+      if (Math.max(mqA, mqB) > Math.max(mqLo + 5, mqLo * 1.05)) continue;
+      const prezzoLo = Math.min(prezzoA, prezzoB);
+      const prezzoHi = Math.max(prezzoA, prezzoB);
+      if (prezzoHi > prezzoLo * 1.15) continue;
 
       const pa = byListing.get(idA)!;
       const pb = byListing.get(idB)!;
@@ -728,6 +739,7 @@ Deno.serve(async (req) => {
         }
       }
       if (!distances.length) continue;
+      if (prezzoHi > prezzoLo * 1.10 && distances.length < 2) continue;
       const [lo, hi] = idA < idB ? [idA, idB] : [idB, idA];
       pairRows.push({
         listing_a: lo,

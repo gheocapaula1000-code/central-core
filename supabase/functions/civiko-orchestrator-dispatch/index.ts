@@ -624,7 +624,7 @@ export function semanticFailure(raw: unknown, action?: SimpleAction, depth = 0):
     return "image_pairs_snapshot_incomplete";
   }
   if (depth === 0 && action === "contendibili_recompute") {
-    if (typeof src.match_version !== "string" || !src.match_version.startsWith("v4-") ||
+    if (typeof src.match_version !== "string" || !/^v[45]-/.test(src.match_version) ||
         !Number.isFinite(Number(src.contendibili_after))) {
       return "recompute_contract_incomplete";
     }

@@ -70,6 +70,15 @@ Deno.test("coppie stantie sostituite atomicamente in una sola transazione", () =
   );
 });
 
+Deno.test("coppie identity: zona + mq + prezzo, non via/civico", () => {
+  assertStringIncludes(SRC, '.select("id,url,fonte,agency,commercial_zone_slug,mq,prezzo,ev_image_refs")');
+  assertStringIncludes(SRC, "Via/civico are NOT");
+  assertStringIncludes(SRC, "Math.max(mqLo + 5, mqLo * 1.05)");
+  assertStringIncludes(SRC, "prezzoHi > prezzoLo * 1.15");
+  assert(!SRC.includes("ev_via_norm"), "via non e' un gate delle coppie foto");
+  assert(!SRC.includes("ev_civico_norm"), "civico non e' un gate delle coppie foto");
+});
+
 Deno.test("ogni scrittura critica controlla l'errore", () => {
   for (
     const marker of [
