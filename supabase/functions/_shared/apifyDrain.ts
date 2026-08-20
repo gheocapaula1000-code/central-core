@@ -202,7 +202,13 @@ export function utf8ToBase64(value: string): string {
 }
 
 export function encodeApifyWebhooksQuery(webhooks: ApifyAdhocWebhook[]): string {
-  return utf8ToBase64(JSON.stringify(webhooks));
+  // Apify richiede base64 URL-safe (senza padding): il base64 standard con
+  // '+' e '/' viene decodificato come binario e rifiutato con
+  // "Webhooks parameter is not a valid JSON".
+  return utf8ToBase64(JSON.stringify(webhooks))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
 export function collectPendingWebhookUrl(supabaseUrl: string): string {

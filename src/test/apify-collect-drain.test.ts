@@ -79,7 +79,7 @@ describe("Apify webhook / run-id parsing", () => {
     expect(hooks![0].requestUrl).toContain("padova-apify-collect-pending");
     expect(hooks![0].requestUrl).not.toContain("test-job-secret");
     const encoded = encodeApifyWebhooksQuery(hooks!);
-    expect(encoded).toMatch(/^[A-Za-z0-9+/]+=*$/);
+    expect(encoded).toMatch(/^[A-Za-z0-9_-]+$/);
     expect(JSON.parse(hooks![0].headersTemplate)["x-job-secret"]).toBe("test-job-secret");
   });
 
