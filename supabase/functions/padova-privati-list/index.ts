@@ -215,13 +215,23 @@ serve(async (req) => {
 
     const tipoList = tipoLead ? [tipoLead] : ["PRIVATO", "privato", "privato_stanco"];
 
+    // Admin senza slug/quartiere richiesto: vede anche i privati non ancora zonati
+    // (commercial_zone_slug null). I clienti restano fail-closed sulla zona assegnata.
+    const adminUnzoned = isAdmin && !zoneSlugRaw && !quartiereFilter;
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const applyFilters = (q: any): any => {
       q = q.in("tipo_lead", tipoList)
            .eq("comune", "Padova")
-           .in("commercial_zone_slug", activeSlugs);
+           .not("ev_is_asta", "is", true);
+      if (adminUnzoned) {
+        // nessun filtro zona: include zonati + non zonati (mai slug inventati)
+        q = q.not("telefono", "is", null);
+      } else {
+        q = q.in("commercial_zone_slug", activeSlugs);
+        if (soloConTel) q = q.not("telefono", "is", null);
+      }
       if (quartiereFilter) q = q.eq("quartiere", quartiereFilter);
-      if (soloConTel) q = q.not("telefono", "is", null);
       return q;
     };
 
@@ -247,15 +257,17 @@ serve(async (req) => {
     const con_telefono = conTel ?? 0;
     const body = {
       ok: true,
+      items: privati,
       privati,
       total,
       con_telefono,
       offset,
       limit,
-      assigned_zone: activeSlugs.length === 1 ? activeSlugs[0] : null,
+      admin_unzoned: adminUnzoned,
+      assigned_zone: activeSlugs.length === 1 && !adminUnzoned ? activeSlugs[0] : null,
       assigned_zones: assignedSlugs,
-      active_zones: activeSlugs,
-      data: { privati, total, con_telefono },
+      active_zones: adminUnzoned ? [] : activeSlugs,
+      data: { items: privati, privati, total, con_telefono },
     };
     return json(body, 200);
   } catch (e) {
