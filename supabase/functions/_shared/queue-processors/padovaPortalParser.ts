@@ -60,7 +60,8 @@ export type PortalSource =
   | "immobiliare.it"
   | "idealista.it"
   | "casa.it"
-  | "subito.it";
+  | "subito.it"
+  | "bakeca.it";
 
 export interface NormalizedListing {
   source: PortalSource;
@@ -325,6 +326,50 @@ function parseSubito(md: string, cap: number): NormalizedListing[] {
   return out;
 }
 
+// ──────────────── bakeca.it ────────────────
+function parseBakeca(md: string, cap: number): NormalizedListing[] {
+  const out: NormalizedListing[] = [];
+  const seen = new Set<string>();
+  const re =
+    /(?<=^|[^!])\[([^\]\n]+?)\]\(https:\/\/www\.bakeca\.it\/(dettaglio\/[^)\s]*?(\d{6,})[^)\s]*)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(md)) !== null && out.length < cap) {
+    const rawTitle = (m[1] ?? "").trim();
+    const path = (m[2] ?? "").trim();
+    const id = (m[3] ?? "").trim();
+    if (!id || seen.has(id)) continue;
+    if (/Immagine\s+\d+\s+di\s+\d+/i.test(rawTitle)) continue;
+    const winStart = m.index + m[0].length;
+    const win = md.slice(winStart, winStart + 600);
+    const pm = win.match(PRICE_NEAR_RE);
+    const price = pm ? parsePriceEurLocal(pm[1]) : null;
+    if (!rawTitle && price == null) continue;
+    const url = `https://www.bakeca.it/${path}`;
+    if (!isValidHttpsUrl(url, "www.bakeca.it")) continue;
+    const agency = extractAgency(win);
+    const isPrivate = !agency || /\bprivat[oi]\b/i.test(win);
+    seen.add(id);
+    const listing: NormalizedListing = {
+      source: "bakeca.it",
+      listing_id: `bkc-${id}`,
+      url: url.slice(0, 400),
+      title: (rawTitle || "Annuncio").slice(0, 200),
+      address: extractAddress(win),
+      price_eur: price,
+      surface_sqm: extractSurface(win),
+      rooms: extractRooms(win),
+      property_type: normalizePropertyType(`${rawTitle} ${win.slice(0, 200)}`),
+      agency_name: agency && !isPrivate ? agency : null,
+      is_private: isPrivate,
+      lat: null,
+      lng: null,
+    };
+    if (!isInsidePadova(listing)) continue;
+    out.push(listing);
+  }
+  return out;
+}
+
 // ──────────────── Dispatcher ────────────────
 export function parseFirecrawlResult(
   result: unknown,
@@ -343,6 +388,8 @@ export function parseFirecrawlResult(
       listings = parseByProfile(md, IDL_PROFILE, cap); break;
     case "subito.it":
       listings = parseSubito(md, cap); break;
+    case "bakeca.it":
+      listings = parseBakeca(md, cap); break;
     default:
       return [];
   }
@@ -363,4 +410,5 @@ export const ALLOWED_PORTALS: PortalSource[] = [
   "idealista.it",
   "casa.it",
   "subito.it",
+  "bakeca.it",
 ];
