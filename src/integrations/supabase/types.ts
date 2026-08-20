@@ -10898,6 +10898,10 @@ export type Database = {
         Returns: boolean
       }
       tick_padova_firecrawl_collect: { Args: never; Returns: undefined }
+      trovabandi_cron_invoke: {
+        Args: { p_body: Json; p_timeout_ms?: number }
+        Returns: number
+      }
       trovabandi_verified_active_distinct_count: {
         Args: { p_now?: string }
         Returns: number
