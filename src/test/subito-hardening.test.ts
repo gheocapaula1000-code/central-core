@@ -18,9 +18,9 @@ describe("cron-apify-subito-nightly wrapper gate", () => {
     expect(WRAPPER).toMatch(/jobAuthFailure/);
   });
 
-  it("keeps forwarded payload shape unchanged (async_start + max_items 300 default)", () => {
+  it("keeps forwarded payload shape unchanged (async_start + max_items 500 default)", () => {
     expect(WRAPPER).toMatch(/async_start:\s*true/);
-    expect(WRAPPER).toMatch(/max_items:\s*300/);
+    expect(WRAPPER).toMatch(/max_items:\s*500/);
   });
 });
 

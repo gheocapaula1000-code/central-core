@@ -11,7 +11,7 @@ Registry unificato in `public.civiko_source_registry`. Tutte le tabelle dati son
 | F12 | Borsino Immobiliare / FIAIP — Benchmark prezzi | manual_import | public | planned | `market_benchmark_padova` |
 | F15 | Conservatoria / Ipotecarie via OpenAPI.it | paid_gateway | sensitive_restricted | disabled | `restricted_report_audit` |
 | F17 | Veneto APE — Registro ufficiale | public_api | public | partial | — (stima AI etichettata) |
-| F18 | Comune Padova — SUE pratiche edilizie | manual_import | public | planned | `sue_padova_permits` |
+| F18 | Comune Padova — SUE pratiche edilizie | public_api | public | live | `sue_padova_permits` + `local_signals` (OSM) |
 | F20 | ISTAT APR4 — Cancellati residenza | public_file | public | planned | `istat_apr4_mobility` |
 | F22 | ISTAT — Separazioni/divorzi | public_file | sensitive_aggregate | planned | `istat_separations_padova` |
 

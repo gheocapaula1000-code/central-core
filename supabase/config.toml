@@ -382,3 +382,19 @@ verify_jwt = false
 [functions.civiko-scheduler]
 verify_jwt = false
 
+# Padova urban layers: job-secret collectors + public zone-isolated read API.
+[functions.civiko-sue-padova-collect]
+verify_jwt = false
+
+[functions.civiko-piano-regolatore-collect]
+verify_jwt = false
+
+[functions.civiko-sentiment-refresh]
+verify_jwt = false
+
+[functions.civiko-urban-layers]
+verify_jwt = false
+
+[functions.civiko-source-registry]
+verify_jwt = false
+

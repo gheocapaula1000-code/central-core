@@ -19,6 +19,12 @@ on:
     - cron: "0 5 * * 1"
     # Obituaries aggregate — daily 04:30 UTC
     - cron: "30 4 * * *"
+    # SUE / cantieri Padova — 2nd of month 05:00 UTC
+    - cron: "0 5 2 * *"
+    # Piano regolatore PAT/PI — 2nd of month 05:20 UTC
+    - cron: "20 5 2 * *"
+    # Sentiment refresh — daily 05:40 UTC
+    - cron: "40 5 * * *"
   workflow_dispatch:
     inputs:
       job:
@@ -31,6 +37,9 @@ on:
           - osm-cantieri
           - pnrr-padova
           - obituaries
+          - sue-padova
+          - piano-regolatore
+          - sentiment-refresh
           - all
         default: all
 
@@ -72,6 +81,9 @@ jobs:
               "30 4 * * 1|osm-cantieri") return 0 ;;
               "0 5 * * 1|pnrr-padova") return 0 ;;
               "30 4 * * *|obituaries") return 0 ;;
+              "0 5 2 * *|sue-padova") return 0 ;;
+              "20 5 2 * *|piano-regolatore") return 0 ;;
+              "40 5 * * *|sentiment-refresh") return 0 ;;
             esac
             return 1
           }
@@ -109,5 +121,14 @@ jobs:
           fi
           if want obituaries; then
             post obituaries "civiko-obituaries-aggregate" '{"triggered_by":"github_actions"}' || FAILED=1
+          fi
+          if want sue-padova; then
+            post sue-padova "civiko-sue-padova-collect" '{"triggered_by":"github_actions"}' || FAILED=1
+          fi
+          if want piano-regolatore; then
+            post piano-regolatore "civiko-piano-regolatore-collect" '{"triggered_by":"github_actions"}' || FAILED=1
+          fi
+          if want sentiment-refresh; then
+            post sentiment-refresh "civiko-sentiment-refresh" '{"triggered_by":"github_actions"}' || FAILED=1
           fi
           exit "$FAILED"

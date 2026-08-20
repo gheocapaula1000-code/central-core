@@ -79,9 +79,9 @@ Deno.serve(async (req) => {
 
   const body = {
     mode: "mixed",
-    desired_results: 200,
-    max_urls_from_db: 200,
-    max_items: 400,
+    desired_results: 300,
+    max_urls_from_db: 240,
+    max_items: 600,
     wait_seconds: 300,
     dry_run: false,
     async_start: true,
@@ -166,19 +166,20 @@ Deno.serve(async (req) => {
     );
   } catch (err) {
     const dur = Date.now() - t0;
-    const msg = err instanceof Error ? err.message : String(err);
+    const timeout = err instanceof Error && err.name === "AbortError";
+    const msg = timeout ? "timeout" : (err instanceof Error ? err.message : String(err));
     await writeIdealistaSourceRegistry({ ok: false, error: msg });
     await logExecution({
       triggered_at: triggeredAt,
       completed_at: new Date().toISOString(),
       status: "failure",
-      http_status: null,
+      http_status: timeout ? 504 : null,
       error_message: msg,
       duration_ms: dur,
     });
     return new Response(
       JSON.stringify({ ok: false, error: msg, duration_ms: dur, started_count: 0 }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
+      { status: timeout ? 504 : 500, headers: { "Content-Type": "application/json" } },
     );
   }
 });

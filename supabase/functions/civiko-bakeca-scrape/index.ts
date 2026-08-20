@@ -17,8 +17,10 @@ import {
   unauthorizedJobResponse,
 } from "../_shared/jobSecretAuth.ts";
 import {
+  BAKECA_JOB_TIMEOUT_MS,
   BAKECA_LISTING_PAGES,
   BAKECA_MAX_PAGES,
+  BAKECA_PAGE_TIMEOUT_MS,
   bakecaPageUrl,
   parseListingsFromMarkdown,
 } from "./parse.ts";
@@ -77,11 +79,16 @@ Deno.serve(async (req) => {
   try {
     for (const base of BAKECA_LISTING_PAGES) {
       for (let p = 1; p <= BAKECA_MAX_PAGES; p++) {
+        if (Date.now() - started >= BAKECA_JOB_TIMEOUT_MS) {
+          errors.push("job_timeout");
+          throw new Error("timeout");
+        }
         const url = bakecaPageUrl(base, p);
         const fc = await fetch("https://api.firecrawl.dev/v2/scrape", {
           method: "POST",
           headers: { Authorization: `Bearer ${fcKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true, waitFor: 1500 }),
+          signal: AbortSignal.timeout(BAKECA_PAGE_TIMEOUT_MS),
         });
         if (!fc.ok) {
           errors.push(`page_${p}_http_${fc.status}`);
@@ -156,8 +163,9 @@ Deno.serve(async (req) => {
       error_message: msg.slice(0, 500),
       duration_ms: Date.now() - started,
     });
-    return new Response(JSON.stringify({ ok: false, error: msg }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    const timeout = /timeout|AbortError/i.test(msg);
+    return new Response(JSON.stringify({ ok: false, error: timeout ? "timeout" : msg }), {
+      status: timeout ? 504 : 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });
