@@ -1,81 +1,100 @@
-# TrovaBandi — pipeline Replit (Europe/Rome)
+# TrovaBandi — scheduler pg_cron (Europe/Rome)
 
-La Reserved VM Replit è l'unico scheduler. Lovable serve la PWA; Central Core conserva ed espone il catalogo.
+Lo scheduler di produzione è **pg_cron sul live Core** Lovable Cloud
+`jpunnzgixcghuydstdlt` (`https://jpunnzgixcghuydstdlt.supabase.co`).
+La PWA UERADAR è un client sottile. Non usare il progetto org vuoto
+`egjvullvkwpzyyworeml` / `central-core-prod`.
+
+Il roster a 10 agenti descritto in documentazione UERADAR
+(`docs/scraping-agents.md`: Local, Camerale, Regionale, Nazionale, PNRR,
+UE, Femminile, Giovanile, PDF, Dynamic) **non è un set di edge function
+separate**. In questo repo c'è un solo motore (`trovabandi-engine`) e
+le corsie sono `lane` sul `collect` notturno.
 
 ## Azioni consentite
 
-Replit può chiamare soltanto:
-
-- `collect`: seleziona una fonte dovuta, scopre candidati, estrae al massimo `max_pages` documenti e persiste prove e risultato.
-- `maintenance`: marca come scaduti i bandi con termine passato e chiude fail-closed i run `RUNNING` bloccati da oltre 20 minuti.
-- `release_gate`: certifica catalogo attivo, copertura reale di tutte le fonti abilitate nelle ultime 26 ore e assenza di run bloccati.
+- `collect`: seleziona una fonte dovuta (eventualmente filtrata per `lane`),
+  scopre candidati, estrae al massimo `max_pages` documenti e persiste prove.
+  `allow_paid: false` = solo seed listing + HTTP ufficiale + excerpt già
+  persistito. `dry_run: true` = selezione fair senza lease, provider o
+  scritture.
+- `backfill_nulls`: riempie scadenza, importi, ATECO, URL domanda e PEC
+  sulle righe già in catalogo. Preferisce `raw_excerpt` / HTTP ufficiale.
+  Default `dry_run: true`. I cron di produzione passano `dry_run: false`
+  e `allow_paid_extract: false`.
+- `maintenance`: marca SCADUTO i bandi con termine passato e chiude i run
+  `RUNNING` bloccati da oltre 20 minuti.
+- `release_gate`: copertura 26h di tutte le fonti abilitate.
 - `status`: stato sintetico senza segreti.
-
-Per il collaudo, `collect` accetta `"dry_run": true`: esegue soltanto la selezione fair e restituisce la fonte che verrebbe raccolta, senza lease, provider o scritture database.
 
 Endpoint: `POST {CENTRAL_CORE_API_URL}/functions/v1/trovabandi-engine`
 
-Header server-side:
+Header server-to-server (stesso valore, mai loggato):
 
-- `x-internal-secret: {CENTRAL_CORE_API_KEY}`
-- `Authorization: Bearer {CENTRAL_CORE_API_KEY}`
-- `Content-Type: application/json`
+- `x-internal-secret` (canonico, usato dai cron live)
+- `x-job-secret` (alias, stesso `CENTRAL_CORE_JOB_SECRET` del vault;
+  `AI_CORE_SECRET_TROVABANDI` resta accettato se presente)
 
-Il secret non deve apparire nei log o nei risultati salvati.
+## Orari di produzione (Europe/Rome)
 
-## Orari di produzione
+pg_cron è in **UTC**. In ora legale (CEST, UTC+2) gli orari Rome sono
+quelli in tabella. In ora solare (CET, UTC+1) slittano di un'ora prima.
 
-| Job                         | Cron Europe/Rome | Operazione                                                   |
-| --------------------------- | ---------------- | ------------------------------------------------------------ |
-| `trovabandi-night-deep`     | `10 1 * * *`     | 12 chiamate `collect`, `max_pages: 4`, concorrenza massima 1 |
-| `trovabandi-night-wide`     | `20 4 * * *`     | 10 chiamate `collect`, `max_pages: 3`, concorrenza massima 1 |
-| `trovabandi-maintenance`    | `15 6 * * *`     | 1 chiamata `maintenance`                                     |
-| `trovabandi-release-gate`   | `25 6 * * *`     | 1 chiamata `release_gate`; 409 = pipeline non pubblicabile   |
-| `trovabandi-morning-digest` | `40 6 * * *`     | chiama a lotti `trovabandi-digest` finché `has_more=false`   |
-| `trovabandi-day-1030`       | `30 10 * * *`    | 4 chiamate `collect`, `max_pages: 2`                         |
-| `trovabandi-day-1430`       | `30 14 * * *`    | 4 chiamate `collect`, `max_pages: 2`                         |
-| `trovabandi-day-1830`       | `30 18 * * *`    | 4 chiamate `collect`, `max_pages: 2`                         |
-| `trovabandi-fast-lane`      | `*/30 * * * *`   | 2 chiamate `collect`, `max_pages: 2`; fonti effimere         |
-| `trovabandi-urgent-digest`  | `10 * * * *`     | digest a lotti; deduplica gli alert già creati               |
+| Job | Cron UTC | Europe/Rome (CEST) | Azione | Paid? |
+| --- | -------- | ------------------ | ------ | ----- |
+| `trovabandi-night-backfill` | `10 23 * * *` | 01:10 | `backfill_nulls` max 16, no paid extract | **FREE** |
+| `trovabandi-night-locale` | `20 23 * * *` | 01:20 | `collect` lane=locale, max_pages 3 | paid last-resort |
+| `trovabandi-night-camerale` | `30 23 * * *` | 01:30 | `collect` lane=camerale | paid last-resort |
+| `trovabandi-night-regionale` | `40 23 * * *` | 01:40 | `collect` lane=regionale (BUR / FESR) | paid last-resort |
+| `trovabandi-night-nazionale` | `50 23 * * *` | 01:50 | `collect` lane=nazionale (Invitalia/MIMIT) | paid last-resort |
+| `trovabandi-night-pnrr` | `0 0 * * *` | 02:00 | `collect` lane=pnrr (separato da UE) | paid last-resort |
+| `trovabandi-night-ue` | `10 0 * * *` | 02:10 | `collect` lane=ue | paid last-resort |
+| `trovabandi-night-femminile` | `20 0 * * *` | 02:20 | `collect` lane=femminile | paid last-resort |
+| `trovabandi-night-giovanile` | `30 0 * * *` | 02:30 | `collect` lane=giovanile | paid last-resort |
+| `trovabandi-night-wide-due` | `20 2 * * *` | 04:20 | `collect` dovuti residui, max_pages 2 | paid last-resort |
+| `trovabandi-maintenance` | `15 4 * * *` | 06:15 | `maintenance` | **FREE** |
+| `trovabandi-release-gate` | `25 4 * * *` | 06:25 | `release_gate` | **FREE** |
+| `trovabandi-day-backfill` | `30 8 * * *` | 10:30 | `backfill_nulls` max 10 | **FREE** |
+| `trovabandi-day-cheap` | `30 12 * * *` | 14:30 | `collect` allow_paid=false | **FREE** |
 
-La rotazione delle fonti comprende corsie distinte per: PNRR, Funding & Tenders, EIC/EISMEA,
-Digital Europe, Horizon Europe, LIFE/CINEA, FSE+, Interreg, PAC/agricoltura e Creative Europe.
-Il PNRR è nazionale/territoriale; i programmi UE diretti restano in ambito `EU` e il matching
-controlla Paesi ammissibili e requisiti di consorzio quando presenti nella fonte ufficiale.
+Non esiste un full-scan diurno ogni 4 ore né un collect ogni 20 minuti.
+Un job `RUNNING` blocca gli slot paid del collect successivo (cap
+concorrenza = 1). Ogni collect ha al massimo 1 coppia di search paid,
+1 scrape paid, 1 extract paid — e solo se l'HTTP ufficiale fallisce o
+il documento non è leggibile.
+
+## Regole di spesa
+
+- Seed listing + HTTP ufficiale (HTML/PDF/CSV) + `raw_excerpt` già
+  persistito: sempre gratis.
+- Firecrawl / Apify / Perplexity: solo se il fetch ufficiale fallisce o
+  il testo è illeggibile (< 200 caratteri).
+- Nessun recrawl di `SCADUTO`.
+- Nessuna re-estrazione a pagamento di `VERIFICATO` con scadenza+importo.
+- Dedup canonico dei candidati prima dello scrape.
+- Preferire `backfill_nulls` sulle ~righe incomplete prima di scoprire
+  nuovi URL rumorosi.
 
 ## Ricerca guidata dal profilo
 
-Quando il cliente completa o riapre il proprio feed, la PWA accoda una richiesta deduplicata.
-Central Core conserva soltanto segnali non identificativi: regione, provincia, prefisso ATECO,
-dimensione, aree di investimento e flag femminile/giovanile/innovativa. Ragione sociale, P.IVA,
-email, PEC e contatti non entrano nella coda. Il successivo `collect` usa questi segnali per scegliere
-fonti territorialmente pertinenti e ampliare la query; il feed applica poi il matching completo e
-ordina per stato, punteggio motivato e scadenza.
+Quando il cliente completa o riapre il proprio feed, la PWA accoda una
+richiesta deduplicata. Central Core conserva soltanto segnali non
+identificativi. Ragione sociale, P.IVA, email, PEC e contatti non
+entrano nella coda.
 
-## Fonti effimere e persistenza della prova
+## Fonti e matching fail-closed
 
-Le fonti `ALBO_PRETORIO`, `CAMERALE` e `GAL` hanno intervallo obiettivo di 30 minuti; `BUR`,
-`DECRETO` ed `EU_PORTAL` di 60 minuti. La notte resta dedicata a PDF, allegati e recuperi profondi.
-Ogni opportunità salvata conserva estratto, hash, data di acquisizione e URL della prova: se l'ente
-rimuove la pagina, l'utente mantiene la scheda e vede che la fonte va riconfermata. Il job rapido va
-dimensionato sui limiti Replit/API: una sovrapposizione deve essere saltata, mai eseguita in parallelo.
+Le fonti `ALBO_PRETORIO`, `CAMERALE` e `GAL` restano corsia `locale` /
+`camerale`. PNRR è nazionale/territoriale; i programmi UE diretti restano
+`ue`. Il matching non marca mai `COMPATIBILE` se ATECO, forma, dimensione
+o testo ufficiale sono insufficienti (`DA_VERIFICARE` / `PARZIALE`).
 
-Tutti i job devono avere timeout per singola chiamata di 180 secondi, retry massimo 1 soltanto su rete/5xx e backoff di 20 secondi. Nessun retry su 2xx, 4xx o 409.
-
-## Contratto del digest
-
-Endpoint: `POST {TROVABANDI_APP_SUPABASE_URL}/functions/v1/trovabandi-digest`
-
-Header: `x-cron-secret: {TROVABANDI_CRON_SECRET}`.
-
-Body iniziale: `{ "offset": 0, "limit": 10 }`. Usare il `next_offset` restituito finché `has_more` è `true`. Il job è completo soltanto quando `failed=0`.
+Timeout per chiamata 180 secondi. Retry massimo 1 soltanto su rete/5xx.
+`NO_SOURCE_DUE` = `SKIPPED`. Un run `PARTIAL` risponde HTTP 502.
 
 ## Gate operativo
 
-Non considerare la mattina pronta se `release_gate` non restituisce 200. Il gate richiede, nelle ultime 26 ore, almeno una scansione `SUCCEEDED` con telemetria provider valida per ciascuna delle fonti abilitate e quindi per ogni `source_kind` abilitato. Una scansione reale con zero risultati è valida: il gate non richiede novità artificiali né `verified_count > 0`. Il catalogo deve comunque contenere opportunità ufficiali, verificate, corredate da evidenza e non scadute; il minimo è dinamico e pari al numero di corsie `source_kind` abilitate. Qualsiasi errore di query chiude il gate con esito negativo.
-
-La rotazione seleziona prima la fonte con `next_scan_at` più vecchio, poi quelle mai scansionate; la priorità decide soltanto gli ex aequo. Un refresh regionale pendente può preferire una fonte della stessa regione (o nazionale) soltanto entro 30 minuti dalla fonte più arretrata: oltre quel limite prevale sempre l'ordine fair, evitando starvation. Una prenotazione ottimistica di 20 minuti impedisce che due job sovrapposti consumino budget sulla stessa fonte. I limiti `max_pages` restano invariati.
-
-Il conteggio del catalogo usa un RPC TrovaBandi isolato con `count(DISTINCT opportunity.id)` ed `EXISTS` sull'evidenza: più prove della stessa opportunità non possono gonfiare il gate.
-
-Registrare per ogni job: ora inizio/fine, azione, status HTTP, stato persistito (`SUCCEEDED`, `PARTIAL`, `FAILED` o `SKIPPED`), discovered, processed, verified, warnings e tentativo. Un run `PARTIAL` conserva contatori e diagnostica, ma risponde HTTP 502 con `ok: false` e `COLLECTION_PARTIAL`, quindi l'orchestratore deve fallire il job. `NO_SOURCE_DUE` deve risultare `SKIPPED`, non `SUCCEEDED`, e non vale come raccolta riuscita. Non registrare URL completi, payload dei profili o secret.
+Non considerare la mattina pronta se `release_gate` non restituisce 200.
+Una scansione reale con zero risultati è valida, incluso
+`SKIPPED_CACHE` / `SKIPPED_BUDGET` (collect cheap completato senza
+provider a pagamento).

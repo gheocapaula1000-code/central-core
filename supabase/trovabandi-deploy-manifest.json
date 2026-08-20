@@ -10,7 +10,8 @@
     "20260806041500_trovabandi_eu_pnrr_sources.sql",
     "20260806181739_25d516da-f340-4291-b4fd-a66f5910f998.sql",
     "20260806193420_5410c74d-e55c-4823-a6c2-3479e73601e1.sql",
-    "20260806201632_52f5ff47-98e2-42bf-b088-424b41f6fc85.sql"
+    "20260806201632_52f5ff47-98e2-42bf-b088-424b41f6fc85.sql",
+    "20260820120000_trovabandi_depth_cheap_crons.sql"
   ],
   "functions": [
     {
@@ -25,6 +26,7 @@
         "PERPLEXITY_API_KEY"
       ],
       "optional_secrets": [
+        "CENTRAL_CORE_JOB_SECRET",
         "APIFY_TOKEN",
         "TROVABANDI_APIFY_ACTOR_ID",
         "TROVABANDI_PERPLEXITY_MODEL"

@@ -158,7 +158,7 @@ export function isRealSuccessfulScan(run: SuccessfulRun): boolean {
   // "SKIPPED_CACHE" è uno scan reale completato senza guasti provider: la
   // ricerca a pagamento è stata evitata perché il pool cache era sufficiente.
   const okStatus = (value: unknown) =>
-    value === "OK" || value === "SKIPPED_CACHE";
+    value === "OK" || value === "SKIPPED_CACHE" || value === "SKIPPED_BUDGET";
   return (
     okStatus(usage.firecrawl_search_status) &&
     okStatus(usage.perplexity_search_status) &&

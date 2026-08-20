@@ -213,6 +213,20 @@ describe("trovabandi fail-closed con cache", () => {
     ).toBe(true);
   });
 
+  it("uno scan cheap con search saltata per budget resta uno scan reale", () => {
+    expect(
+      isRealSuccessfulScan({
+        source_id: "s1",
+        provider_usage: {
+          firecrawl_search_status: "SKIPPED_BUDGET",
+          perplexity_search_status: "SKIPPED_BUDGET",
+          pages_attempted: 2,
+          pages_scraped: 2,
+        },
+      }),
+    ).toBe(true);
+  });
+
   it("un guasto provider non diventa uno scan reale", () => {
     expect(
       isRealSuccessfulScan({
