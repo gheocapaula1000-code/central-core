@@ -20,6 +20,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import { parseCasaListPage } from "../casaParser.ts";
+import { parseListingsFromMarkdown as parseBakecaMarkdown } from "../../civiko-bakeca-scrape/parse.ts";
 import {
   extractViaFromText,
   isQuartiereLabel,
@@ -60,7 +61,8 @@ export type PortalSource =
   | "immobiliare.it"
   | "idealista.it"
   | "casa.it"
-  | "subito.it";
+  | "subito.it"
+  | "bakeca.it";
 
 export interface NormalizedListing {
   source: PortalSource;
@@ -128,7 +130,10 @@ function parseIntSafe(raw: string, min: number, max: number): number | null {
 function isValidHttpsUrl(u: string, host: string): boolean {
   if (typeof u !== "string") return false;
   const m = u.match(/^https:\/\/([^/]+)/i);
-  return !!m && m[1].toLowerCase() === host;
+  if (!m) return false;
+  const got = m[1].toLowerCase();
+  const want = host.toLowerCase();
+  return got === want || got === `www.${want}` || `www.${got}` === want;
 }
 
 function isInsidePadova(l: NormalizedListing): boolean {
@@ -325,6 +330,43 @@ function parseSubito(md: string, cap: number): NormalizedListing[] {
   return out;
 }
 
+// ──────────────── bakeca.it ────────────────
+function bakecaListingId(url: string): string {
+  const m = url.match(/(\d{5,})(?:\/|$)/);
+  return m ? m[1] : url.slice(-32);
+}
+
+function parseBakeca(md: string, cap: number): NormalizedListing[] {
+  const parsed = parseBakecaMarkdown(md);
+  const out: NormalizedListing[] = [];
+  const seen = new Set<string>();
+  for (const p of parsed) {
+    if (!isValidHttpsUrl(p.url, "www.bakeca.it")) continue;
+    const id = bakecaListingId(p.url);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const listing: NormalizedListing = {
+      source: "bakeca.it",
+      listing_id: `bak-${id}`,
+      url: p.url.slice(0, 400),
+      title: (p.titolo || "Annuncio").slice(0, 200),
+      address: p.indirizzo ? p.indirizzo.slice(0, 200) : null,
+      price_eur: p.prezzo,
+      surface_sqm: p.mq,
+      rooms: p.locali,
+      property_type: normalizePropertyType(p.titolo),
+      agency_name: null,
+      is_private: p.isPrivato,
+      lat: null,
+      lng: null,
+    };
+    if (!isInsidePadova(listing)) continue;
+    out.push(listing);
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
 // ──────────────── Dispatcher ────────────────
 export function parseFirecrawlResult(
   result: unknown,
@@ -343,6 +385,8 @@ export function parseFirecrawlResult(
       listings = parseByProfile(md, IDL_PROFILE, cap); break;
     case "subito.it":
       listings = parseSubito(md, cap); break;
+    case "bakeca.it":
+      listings = parseBakeca(md, cap); break;
     default:
       return [];
   }
@@ -363,4 +407,5 @@ export const ALLOWED_PORTALS: PortalSource[] = [
   "idealista.it",
   "casa.it",
   "subito.it",
+  "bakeca.it",
 ];

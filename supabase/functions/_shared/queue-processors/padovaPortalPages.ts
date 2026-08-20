@@ -16,7 +16,8 @@ export type Portal =
   | "immobiliare.it"
   | "idealista.it"
   | "casa.it"
-  | "subito.it";
+  | "subito.it"
+  | "bakeca.it";
 
 export type Mode = "soft" | "full";
 
@@ -25,7 +26,17 @@ export const ALL_PORTALS: Portal[] = [
   "idealista.it",
   "casa.it",
   "subito.it",
+  "bakeca.it",
 ];
+
+/** Live ingest path on jpunnzgixcghuydstdlt (2026-08-20). Do not pretend stale Apify is fresh. */
+export const PORTAL_LIVE_PATH = {
+  "immobiliare.it": "firecrawl",
+  "idealista.it": "firecrawl",
+  "casa.it": "apify",
+  "subito.it": "firecrawl_soft",
+  "bakeca.it": "firecrawl",
+} as const;
 
 const DEFAULT_MAX: Record<Mode, number> = { soft: 2, full: 30 };
 const ABSOLUTE_MAX: Record<Mode, number> = { soft: 3, full: 60 };
@@ -75,6 +86,11 @@ export function buildPortalPageUrl(portal: Portal, page: number): string {
     case "subito.it": {
       if (p === 1) return "https://www.subito.it/annunci-veneto/vendita/immobili/padova/";
       return `https://www.subito.it/annunci-veneto/vendita/immobili/padova/?o=${p}`;
+    }
+    case "bakeca.it": {
+      const base = "https://www.bakeca.it/annunci/immobili-vendita/padova/";
+      if (p === 1) return base;
+      return `${base}?page=${p}`;
     }
     default: {
       // Difesa in profondità: il TS impedisce già altri valori.

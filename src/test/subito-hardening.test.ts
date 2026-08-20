@@ -18,9 +18,11 @@ describe("cron-apify-subito-nightly wrapper gate", () => {
     expect(WRAPPER).toMatch(/jobAuthFailure/);
   });
 
-  it("keeps forwarded payload shape unchanged (async_start + max_items 500 default)", () => {
+  it("skips Apify full unless force_apify; Firecrawl soft is the live path", () => {
+    expect(WRAPPER).toContain("firecrawl_soft_is_primary");
+    expect(WRAPPER).toContain("force_apify");
     expect(WRAPPER).toMatch(/async_start:\s*true/);
-    expect(WRAPPER).toMatch(/max_items:\s*500/);
+    expect(WRAPPER).toMatch(/max_items:\s*40/);
   });
 });
 
@@ -31,8 +33,11 @@ describe("padova-apify-subito-collect hardening", () => {
     expect(COLLECT).toMatch(/buildSubitoActorInput/);
   });
 
-  it("clamps max_items into 1..1000 via clampSubitoMaxItems", () => {
+  it("clamps max_items and refuses Apify full before start", () => {
     expect(COLLECT).toMatch(/clampSubitoMaxItems/);
+    expect(COLLECT).toContain("refuseSubitoApifyFull");
+    expect(COLLECT).toContain("clampSubitoWaitSeconds");
+    expect(COLLECT).toContain("firecrawl_soft_is_primary");
   });
 
   it("estimates cost as max_items * 5 / 1000 (300 -> 1.50)", () => {

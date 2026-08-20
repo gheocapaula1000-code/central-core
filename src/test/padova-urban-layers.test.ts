@@ -379,6 +379,8 @@ describe("collectors + read API contracts", () => {
     expect(api).toContain("microzone_sentiment_by_zone_v");
     expect(api).toContain("local_signals_by_zone_v");
     expect(api).toContain('empty: true');
+    expect(api).toContain("empty_reason");
+    expect(api).toContain("no_official_sue_rows");
     expect(api).toContain('layer === "cantieri"');
     expect(api).toContain(".eq(\"commercial_zone_slug\", slug)");
     expect(api).toMatch(/method !== "GET"/);
@@ -391,6 +393,8 @@ describe("collectors + read API contracts", () => {
   it("sentiment job does not copy comune-level scores onto the 8 zone slugs", () => {
     expect(sent).toContain("hasZoneScopedSentimentInput");
     expect(sent).toContain("skipped_without_zone_inputs");
+    expect(sent).toContain('count: "exact"');
+    expect(sent).toContain(".eq(\"commercial_zone_slug\", slug)");
     expect(sent).not.toMatch(/cityEnv|cityAir/);
   });
 
@@ -456,9 +460,10 @@ describe("portal throughput + fail-closed timeout", () => {
     expect(bakeca).toContain("504");
   });
 
-  it("Subito / Idealista raise defaults and fail-closed on AbortError", () => {
-    expect(subito).toMatch(/max_items:\s*500/);
+  it("Subito / Idealista fail-closed; Firecrawl is the live portal path", () => {
+    expect(subito).toContain("firecrawl_soft_is_primary");
     expect(subito).toContain("504");
+    expect(idealista).toContain("firecrawl_is_primary");
     expect(idealista).toMatch(/desired_results:\s*300/);
     expect(idealista).toMatch(/max_urls_from_db:\s*240/);
     expect(idealista).toMatch(/max_items:\s*600/);
@@ -539,9 +544,9 @@ describe("dry-run note", () => {
   it("records that live Core SQL is not applied from this agent and collectors persist 0 if unread", () => {
     // Live Core (jpunnzgixcghuydstdlt) is not queryable from this workspace.
     // Supabase MCP only lists central-core-prod, which this PR must not target.
-    // After deploy: apply 20260820080000 on live Core, redeploy the four
-    // urban functions + portal wrappers. Empty sue_padova_permits / piano
-    // rows is success when official sources are up but return 0 Padova rows.
+    // After deploy: apply 20260820080000, 20260820090000, 20260820100000
+    // on live Core, redeploy urban + portal functions. Empty sue_padova_permits
+    // / piano rows is success when official sources are up but return 0 Padova rows.
     expect(LIVE_CORE_REF).toBe("jpunnzgixcghuydstdlt");
     expect(read(SUE_FN)).toContain("empty");
     expect(read(PIANO_FN)).toContain("empty");

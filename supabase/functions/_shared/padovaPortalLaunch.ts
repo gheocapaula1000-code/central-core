@@ -33,6 +33,8 @@ export function defaultMultiLaunchBody(): Record<string, unknown> {
     idealista: { from_db: true, max_urls: 40, cost_cap_usd: 0.20 },
     casa_full: { search_location: "Padova", max_results: 200, cost_cap_usd: 0.40 },
     subito_full: {
+      disabled: true,
+      reason: "firecrawl_soft_is_primary",
       search_url: DEFAULT_SUBITO_SEARCH_URL,
       max_items: 200,
       cost_cap_usd: 0.50,

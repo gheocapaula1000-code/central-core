@@ -23,6 +23,30 @@ function json(status: number, body: unknown) {
 const LAYERS = new Set(["permits", "cantieri", "piano", "sentiment"]);
 
 function emptyPayload(layer: string, slug: string) {
+  const documented =
+    layer === "permits"
+      ? {
+        empty_reason: "no_official_sue_rows",
+        collector: "civiko-sue-padova-collect",
+        note: "Official Comune SUE pages are procedural. CKAN is Padova-only; OSM construction persists only when Overpass returns Padova rows. CSV import is /import/sue-permits + compliance_verified. Never invents permits.",
+      }
+      : layer === "piano"
+      ? {
+        empty_reason: "no_piano_rows_for_zone",
+        collector: "civiko-piano-regolatore-collect",
+        note: "Official PAT/PI MapServers on cartografia.comune.padova.it. sit.padovanet.it does not resolve. Empty until a feature maps to this commercial zone.",
+      }
+      : layer === "sentiment"
+      ? {
+        empty_reason: "no_zone_scoped_sentiment",
+        collector: "civiko-sentiment-refresh",
+        note: "Zone cards are written only from zone-scoped inputs (listings/permits/signals/elderly). Comune-level ARPAV rows are not copied onto the 8 slugs.",
+      }
+      : {
+        empty_reason: "no_zone_rows",
+        collector: "connector-osm-cantieri",
+        note: "Cantieri come from OSM construction → local_signals. Empty until a row maps to this commercial zone.",
+      };
   return {
     ok: true,
     layer,
@@ -30,6 +54,7 @@ function emptyPayload(layer: string, slug: string) {
     count: 0,
     empty: true,
     items: [] as unknown[],
+    ...documented,
   };
 }
 

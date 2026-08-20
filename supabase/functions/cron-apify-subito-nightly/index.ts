@@ -79,8 +79,31 @@ Deno.serve(async (req) => {
     if (raw && typeof raw === "object") overrides = raw as Record<string, unknown>;
   } catch { /* empty ok */ }
 
+  if (overrides.force_apify !== true) {
+    const reason = "firecrawl_soft_is_primary";
+    await writeSubitoSourceRegistry({ ok: false, error: reason });
+    await logExecution({
+      triggered_at: triggeredAt,
+      completed_at: new Date().toISOString(),
+      status: "success",
+      http_status: 200,
+      response_excerpt: "skipped Apify full: Firecrawl soft is the live Subito path",
+      error_message: reason,
+      duration_ms: 0,
+    });
+    return new Response(JSON.stringify({
+      ok: true,
+      skipped: true,
+      reason,
+      live_path: "enqueue-padova-portal-scrapes / scraping_queue / padova_portal_collect_v2",
+      note: "Subito Apify full FAILED 2026-08-19 watchdog_timeout. Soft Firecrawl is live. Pass force_apify=true only for a capped probe.",
+    }), {
+      status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   const body = {
-    max_items: 500,
+    max_items: 40,
     search_urls: [...SUBITO_PADOVA_SEARCH_URLS],
     dry_run: false,
     ...overrides,

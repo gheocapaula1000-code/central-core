@@ -77,6 +77,27 @@ Deno.serve(async (req) => {
   let overrides: Record<string, unknown> = {};
   try { overrides = await req.json(); } catch { /* body vuoto ok */ }
 
+  if (overrides.force_apify !== true) {
+    const reason = "firecrawl_is_primary";
+    await writeIdealistaSourceRegistry({ ok: false, error: reason });
+    await logExecution({
+      triggered_at: triggeredAt,
+      completed_at: new Date().toISOString(),
+      status: "success",
+      http_status: 200,
+      response_excerpt: "skipped Apify: Firecrawl soft is the live Idealista path (Apify mixed 2026-08-05)",
+      error_message: reason,
+      duration_ms: 0,
+    });
+    return new Response(JSON.stringify({
+      ok: true,
+      skipped: true,
+      reason,
+      live_path: "enqueue-padova-portal-scrapes / scraping_queue / padova_portal_collect_v2",
+      note: "Apify Idealista last mixed 2026-08-05. Firecrawl soft p1 succeeded 2026-08-20 07:45Z. Pass force_apify=true to start Apify.",
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+
   const body = {
     mode: "mixed",
     desired_results: 300,

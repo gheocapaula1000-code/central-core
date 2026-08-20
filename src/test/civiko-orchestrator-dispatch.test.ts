@@ -105,6 +105,8 @@ describe("civiko-orchestrator-dispatch — release candidate contract", () => {
     expect(runner).toContain("Promise.all(stage.map");
     expect(runner).toContain("if (failed)");
     expect(runner).toContain("break;");
+    expect(runner).toContain('result.action === "radar_full"');
+    expect(runner).toContain('result.reason === "timeout"');
   });
 
   it("pages image work as max six hard-four micro-batches and reserves downstream", () => {

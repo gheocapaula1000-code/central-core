@@ -51,7 +51,7 @@ async function logExecution(jobName: string, row: {
   }
 }
 
-import { evaluateRunOutcome } from "./outcome.ts";
+import { evaluateRunOutcome, isSameUtcDay } from "./outcome.ts";
 import { collectTerritorialSignals } from "./collectTerritorial.ts";
 
 type Mode = "soft" | "full";
@@ -94,7 +94,7 @@ async function runOneComune(comune: string, triggeredAt: string, mode: Mode, job
   let attempts = 0;
   let retryReason: string | null = null;
 
-  for (attempts = 1; attempts <= 1; attempts++) {
+  for (attempts = 1; attempts <= 2; attempts++) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), perComuneTimeout);
     try {
@@ -270,6 +270,41 @@ Deno.serve(async (req) => {
       );
     }
 
+    let sameDaySuccess = false;
+    try {
+      const dayStart = `${triggeredAt.slice(0, 10)}T00:00:00.000Z`;
+      const priorOk = await fetch(
+        `${SUPABASE_URL}/rest/v1/cron_executions_log?job_name=eq.${jobName}&status=eq.success&triggered_at=gte.${dayStart}&select=id,triggered_at&order=triggered_at.desc&limit=1`,
+        { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } },
+      );
+      if (priorOk.ok) {
+        const arr = await priorOk.json().catch(() => []);
+        const prevAt = Array.isArray(arr) && arr[0]?.triggered_at ? String(arr[0].triggered_at) : "";
+        if (prevAt && isSameUtcDay(prevAt, new Date(triggeredAt)) && url.searchParams.get("force") !== "1") {
+          sameDaySuccess = true;
+          await logExecution(jobName, {
+            triggered_at: triggeredAt,
+            completed_at: new Date().toISOString(),
+            status: "success_no_rows",
+            http_status: 200,
+            response_excerpt: `skipped: same_day_success prev_success_at=${prevAt}`,
+            error_message: null,
+            duration_ms: Date.now() - t0,
+          });
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              skipped: "same_day_success",
+              job: jobName,
+              prev_success_at: prevAt,
+              note: "Retry-safe: a successful radar full already completed today.",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+      }
+    } catch { /* best effort */ }
+
     // Idempotency self-healing: blocca un secondo run solo se esiste una riga "started"
     // scritta DALLA FUNZIONE STESSA (response_excerpt like 'started mode=%') negli ultimi
     // 60 minuti. Oltre 60 min il run precedente è considerato morto e non blocca più.
@@ -369,7 +404,7 @@ Deno.serve(async (req) => {
 
     // Pass mode + provider failure so soft quiet days are green and real 502s stay red.
     const hasProviderFailure = summary.results.some((r) => r.result_status === "provider_failed");
-    const outcome = evaluateRunOutcome(summary.ok, rowsWritten, mode, hasProviderFailure);
+    const outcome = evaluateRunOutcome(summary.ok, rowsWritten, mode, hasProviderFailure, sameDaySuccess);
 
     if (!outcome.ok) {
       await logExecution(jobName, {

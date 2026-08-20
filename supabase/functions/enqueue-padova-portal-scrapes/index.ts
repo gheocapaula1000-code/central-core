@@ -81,7 +81,7 @@ function selectPortalsForMode(mode: Mode, now: Date): { portals: Portal[]; rotat
     return { portals: ALL_PORTALS.slice(), rotationKey: "soft_afternoon" };
   }
   return {
-    portals: ["casa.it", "immobiliare.it", "subito.it"],
+    portals: ["casa.it", "immobiliare.it", "subito.it", "bakeca.it"],
     rotationKey: "soft_night",
   };
 }

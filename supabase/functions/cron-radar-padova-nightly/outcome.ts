@@ -9,12 +9,23 @@
 
 export type RunMode = "soft" | "full";
 
+export function isSameUtcDay(iso: string, now = new Date()): boolean {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return false;
+  return new Date(t).toISOString().slice(0, 10) === now.toISOString().slice(0, 10);
+}
+
 export function evaluateRunOutcome(
   summaryOk: boolean,
   radarSignalsWritten: number | null,
   mode: RunMode = "full",
   hasProviderFailure = false,
+  sameDaySuccess = false,
 ): { ok: boolean; error: string | null; radar_signals_written: number | null } {
+  // Abort/timeout after a successful same-UTC-day run is retry-safe, not a new outage.
+  if (hasProviderFailure && sameDaySuccess) {
+    return { ok: true, error: null, radar_signals_written: radarSignalsWritten };
+  }
   // Provider down / HTTP error → always hard fail
   if (hasProviderFailure) {
     return { ok: false, error: "radar_downstream_failure", radar_signals_written: radarSignalsWritten };

@@ -11,9 +11,41 @@ const MAX_ITEMS_CAP = 1000;
 const DEFAULT_MAX_ITEMS = 300;
 const USD_PER_THOUSAND = 5;
 
+/** Live path is Firecrawl soft. Apify full hung until watchdog_timeout 2026-08-19 — do not start it. */
+export const SUBITO_APIFY_FULL_DISABLED = true;
+export const SUBITO_APIFY_LIVE_MAX_ITEMS = 40;
+export const SUBITO_SYNC_WAIT_CAP_SEC = 45;
+export const SUBITO_FIRECRAWL_PRIMARY_REASON =
+  "firecrawl_soft_is_primary";
+
 export function clampSubitoMaxItems(raw: unknown): number {
   const n = Number(raw ?? DEFAULT_MAX_ITEMS);
   return Math.min(MAX_ITEMS_CAP, Math.max(1, Number.isFinite(n) ? Math.trunc(n) : DEFAULT_MAX_ITEMS));
+}
+
+export function clampSubitoWaitSeconds(raw: unknown): number {
+  const n = Number(raw ?? SUBITO_SYNC_WAIT_CAP_SEC);
+  const t = Number.isFinite(n) ? Math.trunc(n) : SUBITO_SYNC_WAIT_CAP_SEC;
+  return Math.min(SUBITO_SYNC_WAIT_CAP_SEC, Math.max(5, t));
+}
+
+export function refuseSubitoApifyFull(body: {
+  ingest_run_id?: unknown;
+  force_apify?: unknown;
+  mode?: unknown;
+  max_items?: unknown;
+}): { refuse: boolean; reason: string | null } {
+  if (typeof body.ingest_run_id === "string" && body.ingest_run_id.trim()) {
+    return { refuse: false, reason: null };
+  }
+  if (body.force_apify === true) return { refuse: false, reason: null };
+  if (!SUBITO_APIFY_FULL_DISABLED) return { refuse: false, reason: null };
+  const mode = typeof body.mode === "string" ? body.mode.trim() : "";
+  const maxItems = body.max_items == null ? DEFAULT_MAX_ITEMS : Number(body.max_items);
+  if (mode === "full" || (Number.isFinite(maxItems) && maxItems > SUBITO_APIFY_LIVE_MAX_ITEMS)) {
+    return { refuse: true, reason: SUBITO_FIRECRAWL_PRIMARY_REASON };
+  }
+  return { refuse: false, reason: null };
 }
 
 export function estimateSubitoCostUsd(maxItems: number): number {

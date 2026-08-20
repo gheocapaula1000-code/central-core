@@ -25,10 +25,13 @@ import { expireStaleScrapeJobs } from "../_shared/scrapeJobWatchdog.ts";
 import {
   buildSubitoActorInput,
   clampSubitoMaxItems,
+  clampSubitoWaitSeconds,
   estimateSubitoCostUsd,
   flattenSubitoForStaging,
   mapSubito,
   normalizeSubitoStartUrls,
+  refuseSubitoApifyFull,
+  SUBITO_APIFY_LIVE_MAX_ITEMS,
 } from "../_shared/subitoMapper.ts";
 
 const APIFY = "https://api.apify.com/v2";
@@ -40,6 +43,8 @@ interface Body {
   dry_run?: boolean;
   async_start?: boolean;
   ingest_run_id?: string;
+  force_apify?: boolean;
+  mode?: string;
 }
 
 async function pollRun(runId: string, token: string, timeoutSec: number) {
@@ -109,8 +114,29 @@ Deno.serve(async (req) => {
   let body: Body = {};
   try { body = await req.json(); } catch { /* empty */ }
 
-  const maxItems = clampSubitoMaxItems(body.max_items);
-  const timeoutSec = body.wait_seconds ?? 240;
+  const refused = refuseSubitoApifyFull(body);
+  if (refused.refuse) {
+    await writeSubitoSourceRegistry({
+      ok: false,
+      error: refused.reason ?? "firecrawl_soft_is_primary",
+    });
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        skipped: true,
+        reason: refused.reason,
+        error: refused.reason,
+        note: "Subito Apify full is disabled (watchdog_timeout 2026-08-19). Live path is Firecrawl soft via scraping_queue / padova_portal_collect_v2. Pass force_apify=true only for a capped probe; do not start a 17h run.",
+      }),
+      { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
+  const maxItems = Math.min(
+    body.force_apify === true ? 80 : SUBITO_APIFY_LIVE_MAX_ITEMS,
+    clampSubitoMaxItems(body.max_items),
+  );
+  const timeoutSec = clampSubitoWaitSeconds(body.wait_seconds);
   const searchUrls = normalizeSubitoStartUrls(body.search_urls);
   const estCostUsd = estimateSubitoCostUsd(maxItems);
 

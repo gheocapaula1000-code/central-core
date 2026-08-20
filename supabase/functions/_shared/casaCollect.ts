@@ -91,6 +91,7 @@ export interface CasaCollectWebhook {
   requestUrl: string;
   payloadTemplate: string;
   headersTemplate: string;
+  ignoreSsl: boolean;
 }
 
 export function collectPendingUrl(base: string): string {
@@ -111,16 +112,29 @@ export function buildCollectPendingWebhook(
       "ACTOR.RUN.TIMED_OUT",
     ],
     requestUrl,
+    ignoreSsl: false,
     payloadTemplate: '{"run_ids":["{{resource.id}}"]}',
     headersTemplate: JSON.stringify({
       "Content-Type": "application/json",
       "x-job-secret": jobSecret,
+      "x-internal-secret": jobSecret,
     }),
   };
 }
 
+/** UTF-8-safe base64. Apify decodes the `webhooks` query param; raw JSON becomes binary garbage (HTTP 400). */
+export function utf8ToBase64(value: string): string {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(value, "utf8").toString("base64");
+  }
+  const bytes = new TextEncoder().encode(value);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
 export function encodeApifyWebhooksParam(webhooks: CasaCollectWebhook[]): string {
-  return JSON.stringify(webhooks);
+  return utf8ToBase64(JSON.stringify(webhooks));
 }
 
 export function webhookCreateBody(runId: string, webhook: CasaCollectWebhook): Record<string, unknown> {

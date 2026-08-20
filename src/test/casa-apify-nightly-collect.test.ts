@@ -99,7 +99,14 @@ describe("collect-pending webhook handoff", () => {
     expect(wh!.eventTypes).toContain("ACTOR.RUN.SUCCEEDED");
     const headers = JSON.parse(wh!.headersTemplate);
     expect(headers["x-job-secret"]).toBe(SECRET);
-    expect(encodeApifyWebhooksParam([wh!]).length).toBeGreaterThan(20);
+    expect(wh!.ignoreSsl).toBe(false);
+    const encoded = encodeApifyWebhooksParam([wh!]);
+    expect(encoded).not.toMatch(/^[\[{]/);
+    const decoded = Buffer.from(encoded, "base64").toString("utf8");
+    const parsed = JSON.parse(decoded) as Array<{ payloadTemplate: string; ignoreSsl: boolean }>;
+    expect(parsed[0].payloadTemplate).toBe('{"run_ids":["{{resource.id}}"]}');
+    expect(parsed[0].ignoreSsl).toBe(false);
+    expect(decoded).not.toMatch(/\u0000/);
     const body = webhookCreateBody("run-1", wh!);
     expect((body.condition as { actorRunId: string }).actorRunId).toBe("run-1");
   });

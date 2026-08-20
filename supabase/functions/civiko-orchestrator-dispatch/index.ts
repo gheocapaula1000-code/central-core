@@ -2160,7 +2160,13 @@ Deno.serve(async (req) => {
       }));
       const stageResults = groupedResults.flat();
       steps.push(...stageResults);
-      const failed = stageResults.find((result) => !result.ok);
+      // radar_full abort/timeout must not kill later stages: 05:10Z aborted
+      // after a 03:45Z success. Same-stage siblings already ran in parallel.
+      const failed = stageResults.find((result) => {
+        if (result.ok) return false;
+        if (result.action === "radar_full" && result.reason === "timeout") return false;
+        return true;
+      });
       if (failed) {
         failedAt = failed.action;
         break;

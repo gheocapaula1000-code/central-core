@@ -187,6 +187,7 @@ Deno.serve(async (req) => {
   );
   const qs = new URLSearchParams({ waitForFinish: "0" });
   if (webhook) qs.set("webhooks", encodeApifyWebhooksParam([webhook]));
+  // Never log `qs` / webhook JSON: headersTemplate carries the job secret.
 
   let run_id: string;
   let dataset_id: string;

@@ -39,7 +39,7 @@ table (`civiko_source_registry`) is kept in sync with this manifest;
 | F18  | SUE Padova                          | automated         | monthly      | civiko-sue-padova-collect (`official-sue-padova`)           |
 | F19  | Necrologi (aggregato)               | automated         | daily        | civiko-obituaries-aggregate (k>=3)                          |
 | F20  | ISTAT APR4 mobilità                 | manual_fallback   | annual       | civiko-source-registry (CSV)                                |
-| F21  | Portali (Immobiliare/Idealista/…)   | automated         | daily        | civiko-radar-veneto/jobs/deep-scan-padova + portal-* crons  |
+| F21  | Portali (Immobiliare/Idealista/…)   | automated         | daily        | Firecrawl `scraping_queue` / `padova_portal_collect_v2` is live; Casa Apify is live; Immobiliare/Idealista/Subito Apify nightlies are stale |
 | F22  | ISTAT separazioni/divorzi           | manual_fallback   | annual       | civiko-source-registry (CSV)                                |
 
 ## Wiring schedules
@@ -83,6 +83,14 @@ Official collectors on live Core (`jpunnzgixcghuydstdlt`):
 | `official-sue-padova` | `0 5 2 * *` | `civiko-sue-padova-collect` (F18) |
 | `official-piano-regolatore` | `20 5 2 * *` | `civiko-piano-regolatore-collect` |
 | `official-sentiment-refresh` | `40 5 * * *` | `civiko-sentiment-refresh` |
+
+Live listing ingest (verified 2026-08-20 on `jpunnzgixcghuydstdlt`):
+`public.scraping_queue` processor `padova_portal_collect_v2` plus
+`padova_apify_runs` / `padova_firecrawl_jobs`. `padova_scrape_runs` does
+not exist. Firecrawl is primary for Immobiliare, Idealista, Subito-soft,
+and Bakeca. Casa Apify `casa_collect` is the live Casa path. Do not treat
+stale Apify last_success as freshness. SUE empty is success — never invent
+permits. Sentiment zone cards require zone-scoped inputs (not comune ARPAV).
 
 GitHub Actions fallback: `.github/workflows/cron-official-opendata.yml`.
 

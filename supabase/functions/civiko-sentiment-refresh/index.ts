@@ -54,11 +54,31 @@ Deno.serve(async (req) => {
       .limit(2000);
     if (e1) errors.push(`microzone_sentiment:${e1.message}`);
 
-    const { data: listings, error: e2 } = await sb.from("padova_listings")
-      .select("commercial_zone_slug,quartiere")
+    const listingCount = new Map<string, number>();
+    for (const slug of OFFICIAL_ZONE_SLUGS) {
+      const { count, error } = await sb.from("padova_listings")
+        .select("id", { count: "exact", head: true })
+        .eq("commercial_zone_slug", slug)
+        .ilike("comune", "Padova");
+      if (error) {
+        errors.push(`padova_listings:${slug}:${error.message}`);
+        continue;
+      }
+      if ((count ?? 0) > 0) listingCount.set(slug, count!);
+    }
+    // Quartiere fallback only for rows that still lack a slug — real labels, no invented zones.
+    const { data: unzoned, error: e2 } = await sb.from("padova_listings")
+      .select("quartiere")
       .ilike("comune", "Padova")
-      .limit(5000);
-    if (e2) errors.push(`padova_listings:${e2.message}`);
+      .is("commercial_zone_slug", null)
+      .not("quartiere", "is", null)
+      .limit(4000);
+    if (e2) errors.push(`padova_listings_unzoned:${e2.message}`);
+    for (const row of unzoned ?? []) {
+      const slug = commercialZoneForQuartiere(row.quartiere);
+      if (!slug) continue;
+      listingCount.set(slug, (listingCount.get(slug) ?? 0) + 1);
+    }
 
     const { data: permits, error: e3 } = await sb.from("sue_padova_permits")
       .select("commercial_zone_slug,area_name")
@@ -71,17 +91,16 @@ Deno.serve(async (req) => {
       .limit(2000);
     if (e4) errors.push(`territorial_signals:${e4.message}`);
 
+    const { data: localSignals, error: e4b } = await sb.from("local_signals")
+      .select("commercial_zone_slug,neighborhood,title")
+      .ilike("municipality", "Padova")
+      .limit(2000);
+    if (e4b) errors.push(`local_signals:${e4b.message}`);
+
     const { data: elderly, error: e5 } = await sb.from("padova_elderly_population")
       .select("area_name,over_75_rate")
       .limit(500);
     if (e5) errors.push(`padova_elderly_population:${e5.message}`);
-
-    const listingCount = new Map<string, number>();
-    for (const row of listings ?? []) {
-      const slug = row.commercial_zone_slug || commercialZoneForQuartiere(row.quartiere);
-      if (!slug) continue;
-      listingCount.set(slug, (listingCount.get(slug) ?? 0) + 1);
-    }
 
     const permitCount = new Map<string, number>();
     for (const row of permits ?? []) {
@@ -93,6 +112,13 @@ Deno.serve(async (req) => {
     const signalCount = new Map<string, number>();
     for (const row of signals ?? []) {
       const slug = commercialZoneForQuartiere(row.title) || inferZoneFromText(String(row.description ?? ""));
+      if (!slug) continue;
+      signalCount.set(slug, (signalCount.get(slug) ?? 0) + 1);
+    }
+    for (const row of localSignals ?? []) {
+      const slug = row.commercial_zone_slug
+        || commercialZoneForQuartiere(row.neighborhood)
+        || inferZoneFromText(String(row.title ?? ""));
       if (!slug) continue;
       signalCount.set(slug, (signalCount.get(slug) ?? 0) + 1);
     }

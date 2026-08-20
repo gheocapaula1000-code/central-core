@@ -25,7 +25,7 @@ interface LaunchBody {
   casa_full?: { search_location?: string; start_urls?: string[]; cost_cap_usd?: number; max_results?: number };
   subito?: { search_url: string; cost_cap_usd?: number; max_items?: number; only_private?: boolean };
   subito2?: { search_url?: string; cost_cap_usd?: number; max_items?: number };
-  subito_full?: { search_url?: string; cost_cap_usd?: number; max_items?: number };
+  subito_full?: { search_url?: string; cost_cap_usd?: number; max_items?: number; disabled?: boolean; reason?: string };
 }
 
 interface Spec {
@@ -167,7 +167,7 @@ Deno.serve(async (req) => {
     });
   }
 
-  if (body.subito_full) {
+  if (body.subito_full && body.subito_full.disabled !== true) {
     specs.push({
       portal: "subito_full",
       actor_id: "azzouzana/subito-scraper-pro-by-search-url",

@@ -22,7 +22,11 @@ import {
 import {
   buildSubitoActorInput,
   clampSubitoMaxItems,
+  clampSubitoWaitSeconds,
   classifyPromoteResult,
+  refuseSubitoApifyFull,
+  SUBITO_APIFY_LIVE_MAX_ITEMS,
+  SUBITO_FIRECRAWL_PRIMARY_REASON,
   estimateSubitoCostUsd,
   flattenSubitoForStaging,
   mapSubito,
@@ -206,6 +210,16 @@ describe("Subito mapper, actor input, flatten for promote", () => {
     expect(clampSubitoMaxItems(9999)).toBe(1000);
     expect(clampSubitoMaxItems("nope")).toBe(300);
     expect(estimateSubitoCostUsd(300)).toBe(1.5);
+  });
+
+  it("refuses Apify full and caps sync wait so the job cannot hang until watchdog", () => {
+    expect(refuseSubitoApifyFull({ max_items: 500 }).refuse).toBe(true);
+    expect(refuseSubitoApifyFull({ mode: "full" }).reason).toBe(SUBITO_FIRECRAWL_PRIMARY_REASON);
+    expect(refuseSubitoApifyFull({ ingest_run_id: "run_1" }).refuse).toBe(false);
+    expect(refuseSubitoApifyFull({ max_items: SUBITO_APIFY_LIVE_MAX_ITEMS }).refuse).toBe(false);
+    expect(refuseSubitoApifyFull({ force_apify: true, max_items: 500 }).refuse).toBe(false);
+    expect(clampSubitoWaitSeconds(240)).toBe(45);
+    expect(clampSubitoWaitSeconds(0)).toBe(5);
   });
 
   it("normalizes {url} objects and rejects non-subito hosts", () => {
