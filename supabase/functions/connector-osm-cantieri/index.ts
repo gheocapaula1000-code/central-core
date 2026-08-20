@@ -9,6 +9,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { isJobSecretAuthorized } from "../_shared/http.ts";
 import { writeSourceRegistryStatus } from "../_shared/sourceRegistryStatus.ts";
+import { commercialZoneForQuartiere } from "../_shared/civikoCommercialZoneByQuartiere.ts";
+import { OSM_LOCAL_SOURCE_NAME } from "../_shared/padovaUrbanLayers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -264,9 +266,80 @@ Deno.serve(async (req) => {
     });
   }
 
+  const errors: string[] = [];
+
+  // Also persist Padova OSM into sue_padova_permits + local_signals.
+  // F5 previously only called ingest-opportunity, so both tables stayed empty.
+  const padovaOsm = all.filter((r) => r.municipality === "Padova");
+  if (padovaOsm.length > 0) {
+    const fetchedAt = new Date().toISOString();
+    const sueRows = padovaOsm.map((r) => ({
+      area_name: r.microzone,
+      address_public: r.address_text,
+      practice_type: r.category,
+      practice_date: null,
+      status: "open_data_osm",
+      source_url: r.source_url,
+      source_name: r.source_name,
+      external_id: r.external_ref,
+      commercial_zone_slug: commercialZoneForQuartiere(r.microzone),
+      fetched_at: fetchedAt,
+      imported_at: fetchedAt,
+      compliance_verified: false,
+      raw_ref: r.raw_payload,
+    }));
+    for (let i = 0; i < sueRows.length; i += 200) {
+      const { error } = await svc.from("sue_padova_permits").upsert(sueRows.slice(i, i + 200), {
+        onConflict: "source_url,external_id",
+      });
+      if (error) errors.push(`sue_padova_permits:${error.message}`);
+    }
+
+    const { data: srcRow } = await svc.from("local_sources").select("id").eq("name", OSM_LOCAL_SOURCE_NAME).limit(1).maybeSingle();
+    let sourceId = srcRow?.id ?? null;
+    if (!sourceId) {
+      const { data: created } = await svc.from("local_sources").insert({
+        name: OSM_LOCAL_SOURCE_NAME,
+        type: "osm_overpass",
+        level: 2,
+        url: OVERPASS_URL,
+        source_owner: "OpenStreetMap",
+        municipality: "Padova",
+        is_active: true,
+      }).select("id").maybeSingle();
+      sourceId = created?.id ?? null;
+    }
+    const sigRows = padovaOsm.map((r) => ({
+      title: r.title,
+      summary: r.property_type,
+      category: r.category,
+      location_text: r.address_text,
+      lat: r.latitude,
+      lng: r.longitude,
+      municipality: "Padova",
+      neighborhood: r.microzone,
+      commercial_zone_slug: commercialZoneForQuartiere(r.microzone),
+      detected_at: fetchedAt,
+      confidence: "medium",
+      signal_tone: "neutral",
+      commercial_use: "Punto da verificare",
+      evidence_url: r.source_url,
+      source_level: 2,
+      is_active: true,
+      use_in_report: true,
+      external_ref: r.external_ref,
+      source_id: sourceId,
+    }));
+    for (let i = 0; i < sigRows.length; i += 200) {
+      const { error } = await svc.from("local_signals").upsert(sigRows.slice(i, i + 200), {
+        onConflict: "external_ref",
+      });
+      if (error) errors.push(`local_signals:${error.message}`);
+    }
+  }
+
   // POST in batch a ingest-opportunity (limite payload ragionevole: chunk da 200)
   let normalized = 0;
-  const errors: string[] = [];
   for (let i = 0; i < all.length; i += 200) {
     const chunk = all.slice(i, i + 200);
     const res = await fetch(`${SUPABASE_URL}/functions/v1/ingest-opportunity`, {

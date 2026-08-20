@@ -38,8 +38,23 @@ export const PIANO_SOURCE_PAGES = [
 export const PIANO_GEOPORTALE_URL =
   "https://cartografia.comune.padova.it/portal/apps/webappviewer/index.html?id=ab58fd8c40284157bd50938daea87837";
 
+/** Registry code sit_padova_geoportale. Host sit.padovanet.it does not resolve (2026-08-20). */
+export const SIT_PADOVA_LEGACY_HOST = "https://sit.padovanet.it";
+
+/** Official Comune SIT / geoportale — PAT + PI MapServers on cartografia.comune.padova.it */
+export const SIT_PADOVA_PAT_MAPSERVER =
+  "https://cartografia.comune.padova.it/server/rest/services/pat/MapServer";
+export const SIT_PADOVA_PI_MAPSERVER =
+  "https://cartografia.comune.padova.it/server/rest/services/Secondo_Piano_degli_Interventi/MapServer";
+export const SIT_PADOVA_PORTAL_ITEM =
+  "https://cartografia.comune.padova.it/portal/sharing/rest/content/items/ab58fd8c40284157bd50938daea87837?f=json";
+export const SIT_PADOVA_WEBMAP_DATA =
+  "https://cartografia.comune.padova.it/portal/sharing/rest/content/items/e67e2457601d4e39924b1b6d02e13edd/data?f=json";
+
 export const WFS_REGIONE_VENETO =
   "https://idt2-geoserver.regione.veneto.it/geoserver/ows";
+
+export const OSM_LOCAL_SOURCE_NAME = "OpenStreetMap Overpass — cantieri Padova";
 
 export const CKAN_CATALOGS = [
   "https://dati.veneto.it",
@@ -304,6 +319,61 @@ export function mapOsmToPermit(el: OsmElement, fetchedAt: string): SuePermitRow 
   };
 }
 
+export type LocalSignalInsert = {
+  title: string;
+  summary: string | null;
+  category: string;
+  location_text: string | null;
+  lat: number | null;
+  lng: number | null;
+  municipality: string;
+  neighborhood: string | null;
+  commercial_zone_slug: CivikoCommercialZoneSlug | null;
+  detected_at: string;
+  confidence: "high" | "medium" | "low";
+  signal_tone: "positive" | "negative" | "mixed" | "neutral";
+  commercial_use: string;
+  evidence_url: string;
+  source_level: 2;
+  is_active: true;
+  use_in_report: true;
+  external_ref: string;
+};
+
+/** OSM construction → local_signals. Community map, not official SUE. Never invents coords. */
+export function mapOsmToLocalSignal(
+  el: OsmElement,
+  comune: string,
+  fetchedAt: string,
+): LocalSignalInsert {
+  const permit = mapOsmToPermit(el, fetchedAt);
+  const lat = el.lat ?? el.center?.lat ?? null;
+  const lng = el.lon ?? el.center?.lon ?? null;
+  const title = permit.address_public
+    ? `Cantiere OSM · ${permit.address_public}, ${comune}`
+    : `Cantiere OSM a ${comune}`;
+  return {
+    title: title.slice(0, 160),
+    summary: permit.practice_type,
+    category: permit.practice_type ?? "cantiere_edilizio",
+    location_text: permit.address_public,
+    lat,
+    lng,
+    municipality: comune,
+    neighborhood: permit.area_name,
+    commercial_zone_slug: permit.commercial_zone_slug,
+    detected_at: fetchedAt,
+    confidence: "medium",
+    signal_tone: "neutral",
+    commercial_use: "Punto da verificare",
+    evidence_url: permit.source_url,
+    source_level: 2,
+    is_active: true,
+    use_in_report: true,
+    external_ref: permit.external_id,
+  };
+}
+
 export type PianoRecord = {
   commercial_zone_slug: CivikoCommercialZoneSlug | null;
   layer_kind: "PAT" | "PI" | "PRG" | "elaborato" | "wfs";
@@ -395,6 +465,48 @@ export function extractOfficialElaborati(html: string, pageUrl: string, fetchedA
   }
 
   return rows;
+}
+
+export type ArcGisLayer = { id?: number; name?: string };
+
+export function mapArcGisLayersToPiano(
+  serviceUrl: string,
+  serviceTitle: string,
+  kind: PianoRecord["layer_kind"],
+  layers: ArcGisLayer[],
+  fetchedAt: string,
+): PianoRecord[] {
+  const out: PianoRecord[] = [];
+  for (const lyr of layers) {
+    const name = String(lyr.name ?? "").trim();
+    if (!name) continue;
+    const id = lyr.id;
+    const sourceUrl = id == null ? `${serviceUrl}?f=json` : `${serviceUrl}/${id}`;
+    const slug = /centro storico/i.test(name) ? "centro-storico" as const : inferZoneFromText(name);
+    out.push({
+      commercial_zone_slug: slug,
+      layer_kind: kind,
+      zone_code: id == null ? null : String(id),
+      designation: name.slice(0, 200),
+      title: `${serviceTitle} — ${name}`.slice(0, 200),
+      geometry_geojson: null,
+      properties: { sit: "cartografia.comune.padova.it", layer_id: id ?? null, extracted: "arcgis_mapserver" },
+      source_url: sourceUrl,
+      fetched_at: fetchedAt,
+      fingerprint: fingerprintPiano(sourceUrl, name, slug),
+    });
+  }
+  return out;
+}
+
+export function parseArcGisMapServerLayers(text: string): ArcGisLayer[] {
+  try {
+    const data = JSON.parse(text);
+    const layers = data?.layers;
+    return Array.isArray(layers) ? layers : [];
+  } catch {
+    return [];
+  }
 }
 
 export function isUrbanisticaWfsLayer(name: string, title = ""): boolean {
@@ -489,6 +601,24 @@ function num(v: unknown): number | null {
   if (v == null || v === "") return null;
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+/** Zone card is allowed only when at least one zone-scoped input exists. City-level scores alone are not enough. */
+export function hasZoneScopedSentimentInput(input: SentimentAxisInput): boolean {
+  const zoneAxes = [
+    input.environment_score,
+    input.air_quality_score,
+    input.green_score,
+    input.services_score,
+    input.school_access_score,
+    input.urban_decay_risk_score,
+  ];
+  if (zoneAxes.some((v) => v != null && Number.isFinite(Number(v)))) return true;
+  if (input.listing_count != null && input.listing_count > 0) return true;
+  if (input.permit_count != null && input.permit_count > 0) return true;
+  if (input.territorial_signal_count != null && input.territorial_signal_count > 0) return true;
+  if (input.elderly_over75_rate != null && Number.isFinite(input.elderly_over75_rate)) return true;
+  return false;
 }
 
 export function computeZoneSentiment(

@@ -17,11 +17,14 @@ import {
   fetchWithTimeout,
   isPadovaEdiliziaText,
   mapCsvToPermit,
+  mapOsmToLocalSignal,
   mapOsmToPermit,
+  OSM_LOCAL_SOURCE_NAME,
   osmPadovaConstructionQuery,
   parseCsvRows,
   selectPadovaEdiliziaPackages,
   type CkanPackage,
+  type LocalSignalInsert,
   type OsmElement,
   type SuePermitRow,
 } from "../_shared/padovaUrbanLayers.ts";
@@ -69,6 +72,7 @@ Deno.serve(async (req) => {
   const started = Date.now();
   const fetchedAt = new Date().toISOString();
   const permits: SuePermitRow[] = [];
+  const localSignals: LocalSignalInsert[] = [];
   const errors: string[] = [];
   let sourcesRead = 0;
 
@@ -155,7 +159,11 @@ Deno.serve(async (req) => {
         try {
           const data = JSON.parse(osm.text);
           const els = Array.isArray(data?.elements) ? data.elements as OsmElement[] : [];
-          for (const el of els) permits.push(mapOsmToPermit(el, fetchedAt));
+          for (const el of els) {
+            permits.push(mapOsmToPermit(el, fetchedAt));
+            // Hyperlocal table is empty today because F5 only hits ingest-opportunity.
+            localSignals.push(mapOsmToLocalSignal(el, "Padova", fetchedAt));
+          }
         } catch {
           errors.push("osm_parse");
         }
@@ -223,6 +231,46 @@ Deno.serve(async (req) => {
       });
     }
 
+    let localWritten = 0;
+    if (localSignals.length > 0) {
+      const { data: srcRow, error: srcErr } = await sb
+        .from("local_sources")
+        .select("id")
+        .eq("name", OSM_LOCAL_SOURCE_NAME)
+        .limit(1)
+        .maybeSingle();
+      if (srcErr) errors.push(`local_sources:${srcErr.message}`);
+      let sourceId = srcRow?.id ?? null;
+      if (!sourceId) {
+        const { data: created, error: insErr } = await sb.from("local_sources").insert({
+          name: OSM_LOCAL_SOURCE_NAME,
+          type: "osm_overpass",
+          level: 2,
+          url: "https://overpass-api.de/api/interpreter",
+          source_owner: "OpenStreetMap",
+          municipality: "Padova",
+          is_active: true,
+        }).select("id").maybeSingle();
+        if (insErr) errors.push(`local_sources_insert:${insErr.message}`);
+        sourceId = created?.id ?? null;
+      }
+      const sigSeen = new Set<string>();
+      const uniqueSig = localSignals.filter((s) => {
+        if (sigSeen.has(s.external_ref)) return false;
+        sigSeen.add(s.external_ref);
+        return true;
+      }).map((s) => ({ ...s, source_id: sourceId }));
+      for (let i = 0; i < uniqueSig.length; i += 200) {
+        const chunk = uniqueSig.slice(i, i + 200);
+        const { error } = await sb.from("local_signals").upsert(chunk, { onConflict: "external_ref" });
+        if (error) {
+          errors.push(`local_signals:${error.message}`);
+          break;
+        }
+        localWritten += chunk.length;
+      }
+    }
+
     await writeSourceRegistryStatus(sb, "F18", {
       ok: true,
       records: written,
@@ -232,6 +280,7 @@ Deno.serve(async (req) => {
     return json(200, {
       ok: true,
       records_processed: written,
+      local_signals_written: localWritten,
       sources_read: sourcesRead,
       empty: written === 0,
       duration_ms: Date.now() - started,

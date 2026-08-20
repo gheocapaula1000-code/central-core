@@ -8,6 +8,7 @@ import {
   OFFICIAL_ZONE_SLUGS,
   averageNumeric,
   computeZoneSentiment,
+  hasZoneScopedSentimentInput,
   inferZoneFromText,
   type SentimentAxisInput,
 } from "../_shared/padovaUrbanLayers.ts";
@@ -75,13 +76,6 @@ Deno.serve(async (req) => {
       .limit(500);
     if (e5) errors.push(`padova_elderly_population:${e5.message}`);
 
-    const cityMs = (existing ?? []).filter((r) => !r.commercial_zone_slug);
-    const cityEnv = averageNumeric(cityMs.map((r) => r.environment_score));
-    const cityAir = averageNumeric(cityMs.map((r) => r.air_quality_score));
-    const cityGreen = averageNumeric(cityMs.map((r) => r.green_score));
-    const cityServices = averageNumeric(cityMs.map((r) => r.services_score));
-    const citySchool = averageNumeric(cityMs.map((r) => r.school_access_score));
-
     const listingCount = new Map<string, number>();
     for (const row of listings ?? []) {
       const slug = row.commercial_zone_slug || commercialZoneForQuartiere(row.quartiere);
@@ -111,33 +105,39 @@ Deno.serve(async (req) => {
       elderlyByZone.set(slug, rate);
     }
 
-    const rows = OFFICIAL_ZONE_SLUGS.map((slug) => {
+    const rows = OFFICIAL_ZONE_SLUGS.flatMap((slug) => {
       const zoneMs = (existing ?? []).filter((r) => r.commercial_zone_slug === slug);
       const input: SentimentAxisInput = {
-        environment_score: averageNumeric(zoneMs.map((r) => r.environment_score)) ?? cityEnv,
-        air_quality_score: averageNumeric(zoneMs.map((r) => r.air_quality_score)) ?? cityAir,
-        green_score: averageNumeric(zoneMs.map((r) => r.green_score)) ?? cityGreen,
-        services_score: averageNumeric(zoneMs.map((r) => r.services_score)) ?? cityServices,
-        school_access_score: averageNumeric(zoneMs.map((r) => r.school_access_score)) ?? citySchool,
+        // Zone-scoped axes only. Do not copy the comune-level Padova row onto 8 slugs.
+        environment_score: averageNumeric(zoneMs.map((r) => r.environment_score)),
+        air_quality_score: averageNumeric(zoneMs.map((r) => r.air_quality_score)),
+        green_score: averageNumeric(zoneMs.map((r) => r.green_score)),
+        services_score: averageNumeric(zoneMs.map((r) => r.services_score)),
+        school_access_score: averageNumeric(zoneMs.map((r) => r.school_access_score)),
         listing_count: listingCount.has(slug) ? listingCount.get(slug)! : null,
         permit_count: permitCount.has(slug) ? permitCount.get(slug)! : null,
         territorial_signal_count: signalCount.has(slug) ? signalCount.get(slug)! : null,
         elderly_over75_rate: elderlyByZone.get(slug) ?? null,
       };
-      return computeZoneSentiment(slug, input, nowIso);
+      if (!hasZoneScopedSentimentInput(input)) return [];
+      return [computeZoneSentiment(slug, input, nowIso)];
     });
 
     let written = 0;
-    const { error } = await sb.from("microzone_sentiment").upsert(rows, { onConflict: "fingerprint" });
-    if (error) {
-      errors.push(`upsert:${error.message}`);
-      return json(502, { ok: false, error: error.message, records_processed: 0, errors });
+    if (rows.length > 0) {
+      const { error } = await sb.from("microzone_sentiment").upsert(rows, { onConflict: "fingerprint" });
+      if (error) {
+        errors.push(`upsert:${error.message}`);
+        return json(502, { ok: false, error: error.message, records_processed: 0, errors });
+      }
+      written = rows.length;
     }
-    written = rows.length;
 
     return json(200, {
       ok: true,
       records_processed: written,
+      empty: written === 0,
+      skipped_without_zone_inputs: OFFICIAL_ZONE_SLUGS.length - written,
       zones: rows.map((r) => ({
         slug: r.commercial_zone_slug,
         sentiment: r.sentiment_score_total,

@@ -9,14 +9,20 @@ import {
   PIANO_SOURCE_PAGES,
   SUE_SOURCE_PAGES,
   WFS_REGIONE_VENETO,
+  SIT_PADOVA_PAT_MAPSERVER,
+  SIT_PADOVA_PI_MAPSERVER,
   computeZoneSentiment,
   extractOfficialElaborati,
+  hasZoneScopedSentimentInput,
   inferZoneFromText,
   isOfficialZoneSlug,
   isUrbanisticaWfsLayer,
+  mapArcGisLayersToPiano,
   mapCsvToPermit,
+  mapOsmToLocalSignal,
   mapOsmToPermit,
   mapWfsFeatureToPiano,
+  parseArcGisMapServerLayers,
   parseCsvRows,
   parseWfsFeatureTypes,
   requireZoneSlug,
@@ -366,15 +372,34 @@ describe("collectors + read API contracts", () => {
     expect(sent).not.toMatch(/environment_score:\s*[0-9]/);
   });
 
-  it("read API is GET-only, zone-isolated, and does not leak secrets", () => {
+  it("read API is GET-only, zone-isolated, honest-empty, and does not leak secrets", () => {
     expect(api).toContain("requireZoneSlug");
     expect(api).toContain("sue_padova_permits_by_zone_v");
     expect(api).toContain("padova_piano_regolatore_by_zone_v");
     expect(api).toContain("microzone_sentiment_by_zone_v");
+    expect(api).toContain("local_signals_by_zone_v");
+    expect(api).toContain('empty: true');
+    expect(api).toContain('layer === "cantieri"');
     expect(api).toContain(".eq(\"commercial_zone_slug\", slug)");
     expect(api).toMatch(/method !== "GET"/);
     expect(api).not.toContain("CENTRAL_CORE_JOB_SECRET");
     expect(api).not.toMatch(/eyJhbGci|sk_live|C1v1k0C0r3/);
+    expect(api).not.toMatch(/from\(["']trovabandi/);
+    expect(api).not.toMatch(/padova_piano_from_text|padova_piano_key_norm/);
+  });
+
+  it("sentiment job does not copy comune-level scores onto the 8 zone slugs", () => {
+    expect(sent).toContain("hasZoneScopedSentimentInput");
+    expect(sent).toContain("skipped_without_zone_inputs");
+    expect(sent).not.toMatch(/cityEnv|cityAir/);
+  });
+
+  it("piano collector wires official cartografia SIT PAT/PI MapServers", () => {
+    expect(piano).toContain("SIT_PADOVA_PAT_MAPSERVER");
+    expect(piano).toContain("SIT_PADOVA_PI_MAPSERVER");
+    expect(piano).toContain("sit_legacy");
+    expect(SIT_PADOVA_PAT_MAPSERVER).toContain("cartografia.comune.padova.it");
+    expect(SIT_PADOVA_PI_MAPSERVER).toContain("Secondo_Piano_degli_Interventi");
   });
 });
 
@@ -442,6 +467,71 @@ describe("portal throughput + fail-closed timeout", () => {
     expect(collect).toContain('status: "FAILED"');
     expect(collect).toContain("504");
     expect(pending).toMatch(/max_runs:\s*30/);
+  });
+});
+
+describe("live inventory contracts", () => {
+  const osm = read("supabase/functions/connector-osm-cantieri/index.ts");
+  const registry = read("supabase/functions/civiko-source-registry/index.ts");
+  const sql2 = read("supabase/migrations/20260820090000_local_signals_sit_and_honest_reads.sql");
+
+  it("maps OSM to local_signals without inventing a zone", () => {
+    const sig = mapOsmToLocalSignal({
+      type: "way",
+      id: 99,
+      tags: { building: "construction" },
+    }, "Padova", "2026-08-20T00:00:00.000Z");
+    expect(sig.external_ref).toBe("osm:way/99");
+    expect(sig.evidence_url).toBe("https://www.openstreetmap.org/way/99");
+    expect(sig.municipality).toBe("Padova");
+    expect(sig.commercial_zone_slug).toBeNull();
+    expect(sig.lat).toBeNull();
+  });
+
+  it("maps official PAT/PI MapServer layers and tags centro storico", () => {
+    const layers = parseArcGisMapServerLayers(JSON.stringify({
+      layers: [
+        { id: 16, name: "Centro Storico - b0104011_CentroStorico" },
+        { id: 2, name: "Confine comunale" },
+      ],
+    }));
+    const rows = mapArcGisLayersToPiano(SIT_PADOVA_PAT_MAPSERVER, "PAT", "PAT", layers, "2026-08-20T00:00:00.000Z");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].commercial_zone_slug).toBe("centro-storico");
+    expect(rows[0].source_url).toContain("/16");
+    expect(rows[0].fetched_at).toBe("2026-08-20T00:00:00.000Z");
+    expect(rows[1].commercial_zone_slug).toBeNull();
+  });
+
+  it("does not persist a zone sentiment card from comune-level inputs only", () => {
+    expect(hasZoneScopedSentimentInput({})).toBe(false);
+    expect(hasZoneScopedSentimentInput({ listing_count: 0, permit_count: 0 })).toBe(false);
+    expect(hasZoneScopedSentimentInput({ listing_count: 3 })).toBe(true);
+  });
+
+  it("OSM connector and SUE collector write local_signals + sue_padova_permits, not trovabandi", () => {
+    expect(osm).toContain("sue_padova_permits");
+    expect(osm).toContain("local_signals");
+    expect(osm).not.toMatch(/trovabandi/);
+    expect(read(SUE_FN)).toContain("local_signals");
+    expect(read(SUE_FN)).not.toMatch(/trovabandi|padova_piano_from_text/);
+    expect(read(PIANO_FN)).not.toMatch(/padova_piano_from_text|padova_piano_key_norm/);
+  });
+
+  it("documented import/sue-permits exists and requires compliance_verified", () => {
+    expect(registry).toContain("/import/sue-permits");
+    expect(registry).toContain("compliance_verified");
+    expect(registry).toContain("CENTRAL_CORE_JOB_SECRET");
+    expect(registry).not.toMatch(/C1v1k0C0r3|eyJhbGci/);
+  });
+
+  it("follow-up migration adds local_signals identity on live Core only", () => {
+    expect(sql2).toContain("local_signals_by_zone_v");
+    expect(sql2).toContain("external_ref");
+    expect(sql2).toContain("Does not target central-core-prod");
+    expect(sql2).not.toContain("egjvullvkwpzyyworeml");
+    expect(sql2).not.toMatch(/INSERT INTO public\.sue_padova_permits/);
+    expect(sql2).not.toMatch(/INSERT INTO public\.local_signals/);
   });
 });
 

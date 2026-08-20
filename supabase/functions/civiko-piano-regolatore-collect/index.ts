@@ -8,11 +8,17 @@ import {
   COLLECTOR_WALL_MS,
   FETCH_TIMEOUT_MS,
   PIANO_SOURCE_PAGES,
+  SIT_PADOVA_LEGACY_HOST,
+  SIT_PADOVA_PAT_MAPSERVER,
+  SIT_PADOVA_PI_MAPSERVER,
+  SIT_PADOVA_PORTAL_ITEM,
   WFS_REGIONE_VENETO,
   collectorTimedOut,
   extractOfficialElaborati,
   fetchWithTimeout,
+  mapArcGisLayersToPiano,
   mapWfsFeatureToPiano,
+  parseArcGisMapServerLayers,
   parseWfsFeatureTypes,
   type PianoRecord,
 } from "../_shared/padovaUrbanLayers.ts";
@@ -54,6 +60,52 @@ Deno.serve(async (req) => {
   let sourcesRead = 0;
 
   try {
+    // sit.padovanet.it is the registry URL. Probe it; do not invent if down.
+    const sitLegacy = await fetchWithTimeout(SIT_PADOVA_LEGACY_HOST, 8_000);
+    if (sitLegacy.ok) sourcesRead++;
+    else errors.push(`sit_legacy:${sitLegacy.error}`);
+
+    const portal = await fetchWithTimeout(SIT_PADOVA_PORTAL_ITEM, FETCH_TIMEOUT_MS);
+    if (portal.ok) {
+      sourcesRead++;
+      try {
+        const item = JSON.parse(portal.text);
+        const title = String(item?.title ?? "PI Piano Interventi");
+        if (/piano|pat|interventi/i.test(title)) {
+          rows.push({
+            commercial_zone_slug: null,
+            layer_kind: "PI",
+            zone_code: null,
+            designation: title.slice(0, 200),
+            title: `SIT Padova — ${title}`.slice(0, 200),
+            geometry_geojson: null,
+            properties: { sit_item: item?.id ?? null, type: item?.type ?? null },
+            source_url: SIT_PADOVA_PORTAL_ITEM.replace(/\?f=json$/, ""),
+            fetched_at: fetchedAt,
+            fingerprint: `piano:city:sit-portal-item:${item?.id ?? "unknown"}`.slice(0, 240),
+          });
+        }
+      } catch {
+        errors.push("sit_portal_parse");
+      }
+    } else {
+      errors.push(`sit_portal:${portal.error}`);
+    }
+
+    for (const [url, kind, title] of [
+      [SIT_PADOVA_PAT_MAPSERVER, "PAT", "PAT Comune di Padova"],
+      [SIT_PADOVA_PI_MAPSERVER, "PI", "PI Comune di Padova"],
+    ] as const) {
+      if (collectorTimedOut(started, Date.now())) break;
+      const caps = await fetchWithTimeout(`${url}?f=json`, FETCH_TIMEOUT_MS);
+      if (!caps.ok) {
+        errors.push(`sit_${kind}:${caps.error}`);
+        continue;
+      }
+      sourcesRead++;
+      rows.push(...mapArcGisLayersToPiano(url, title, kind, parseArcGisMapServerLayers(caps.text), fetchedAt));
+    }
+
     for (const page of PIANO_SOURCE_PAGES) {
       if (collectorTimedOut(started, Date.now())) break;
       const r = await fetchWithTimeout(page, FETCH_TIMEOUT_MS);

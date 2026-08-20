@@ -1,6 +1,7 @@
 // civiko-urban-layers — read API for PWA.
-// GET ?layer=permits|piano|sentiment&commercial_zone_slug=<official>
-// Zone-isolated. Invalid slug fail-closed. No secrets in responses.
+// GET ?layer=permits|cantieri|piano|sentiment&commercial_zone_slug=<official>
+// Returns real rows or honest empty. Never invents cards.
+// Grants tables and apartment-floor helpers are out of scope.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireZoneSlug } from "../_shared/padovaUrbanLayers.ts";
@@ -19,7 +20,18 @@ function json(status: number, body: unknown) {
   });
 }
 
-const LAYERS = new Set(["permits", "piano", "sentiment"]);
+const LAYERS = new Set(["permits", "cantieri", "piano", "sentiment"]);
+
+function emptyPayload(layer: string, slug: string) {
+  return {
+    ok: true,
+    layer,
+    commercial_zone_slug: slug,
+    count: 0,
+    empty: true,
+    items: [] as unknown[],
+  };
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -52,7 +64,23 @@ Deno.serve(async (req) => {
         .order("fetched_at", { ascending: false })
         .limit(limit);
       if (error) return json(502, { ok: false, error: "query_error", source: "sue_padova_permits_by_zone_v" });
-      return json(200, { ok: true, layer, commercial_zone_slug: slug, count: data?.length ?? 0, items: data ?? [] });
+      const items = data ?? [];
+      if (items.length === 0) return json(200, emptyPayload(layer, slug));
+      return json(200, { ok: true, layer, commercial_zone_slug: slug, count: items.length, empty: false, items });
+    }
+
+    if (layer === "cantieri") {
+      const { data, error } = await sb
+        .from("local_signals_by_zone_v")
+        .select("id,title,summary,category,location_text,lat,lng,neighborhood,commercial_zone_slug,evidence_url,detected_at,confidence,source_level")
+        .eq("commercial_zone_slug", slug)
+        .eq("municipality", "Padova")
+        .order("detected_at", { ascending: false })
+        .limit(limit);
+      if (error) return json(502, { ok: false, error: "query_error", source: "local_signals_by_zone_v" });
+      const items = data ?? [];
+      if (items.length === 0) return json(200, emptyPayload(layer, slug));
+      return json(200, { ok: true, layer, commercial_zone_slug: slug, count: items.length, empty: false, items });
     }
 
     if (layer === "piano") {
@@ -63,7 +91,9 @@ Deno.serve(async (req) => {
         .order("fetched_at", { ascending: false })
         .limit(limit);
       if (error) return json(502, { ok: false, error: "query_error", source: "padova_piano_regolatore_by_zone_v" });
-      return json(200, { ok: true, layer, commercial_zone_slug: slug, count: data?.length ?? 0, items: data ?? [] });
+      const items = data ?? [];
+      if (items.length === 0) return json(200, emptyPayload(layer, slug));
+      return json(200, { ok: true, layer, commercial_zone_slug: slug, count: items.length, empty: false, items });
     }
 
     const { data, error } = await sb
@@ -74,7 +104,9 @@ Deno.serve(async (req) => {
       .order("computed_at", { ascending: false })
       .limit(limit);
     if (error) return json(502, { ok: false, error: "query_error", source: "microzone_sentiment_by_zone_v" });
-    return json(200, { ok: true, layer, commercial_zone_slug: slug, count: data?.length ?? 0, items: data ?? [] });
+    const items = data ?? [];
+    if (items.length === 0) return json(200, emptyPayload(layer, slug));
+    return json(200, { ok: true, layer, commercial_zone_slug: slug, count: items.length, empty: false, items });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return json(500, { ok: false, error: msg.slice(0, 200) });

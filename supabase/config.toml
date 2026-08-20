@@ -395,3 +395,6 @@ verify_jwt = false
 [functions.civiko-urban-layers]
 verify_jwt = false
 
+[functions.civiko-source-registry]
+verify_jwt = false
+
