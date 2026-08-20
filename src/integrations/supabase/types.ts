@@ -10703,6 +10703,7 @@ export type Database = {
       }
       recompute_padova_contendibili: { Args: never; Returns: Json }
       recompute_padova_contendibili_extras: { Args: never; Returns: Json }
+      recompute_padova_contendibili_photo_v5: { Args: never; Returns: Json }
       recompute_padova_listings_contendibili: { Args: never; Returns: Json }
       reserve_commercial_zone: {
         Args: { p_agency_id: string; p_slug: string }
