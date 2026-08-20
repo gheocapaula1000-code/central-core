@@ -17,6 +17,13 @@ describe("isOriginAllowed", () => {
   it("accepts dominio lovable.app", () => {
     expect(isOriginAllowed("https://my-app.lovable.app")).toBe(true);
   });
+  it("accepts https://ueradar.com and www", () => {
+    expect(isOriginAllowed("https://ueradar.com")).toBe(true);
+    expect(isOriginAllowed("https://www.ueradar.com")).toBe(true);
+  });
+  it("accepts https://ueradar.lovable.app via lovable suffix", () => {
+    expect(isOriginAllowed("https://ueradar.lovable.app")).toBe(true);
+  });
   it("returns false for empty string", () => {
     expect(isOriginAllowed("")).toBe(false);
   });

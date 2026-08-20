@@ -60,6 +60,18 @@ describe("P0 — CORS origin policy", () => {
   it("allows configured production PWA domain", () => {
     expect(isOriginAllowed("https://civikoone.com")).toBe(true);
     expect(isOriginAllowed("https://www.civikoone.com")).toBe(true);
+    expect(isOriginAllowed("https://ueradar.com")).toBe(true);
+    expect(isOriginAllowed("https://www.ueradar.com")).toBe(true);
+  });
+
+  it("edge CORS helper hardcodes UERADAR hosts without replacing CORE_ALLOWED_ORIGINS", () => {
+    const http = read("supabase/functions/_shared/http.ts");
+    expect(http).toContain('"ueradar.com"');
+    expect(http).toContain('"www.ueradar.com"');
+    expect(http).toContain('"keydraft.app"');
+    expect(http).toContain('"wyloni.app"');
+    expect(http).toContain('"sottra.app"');
+    expect(http).toMatch(/Deno\.env\.get\("CORE_ALLOWED_ORIGINS"\)/);
   });
 
   it("rejects disallowed origins (would yield 403 in edge functions)", () => {

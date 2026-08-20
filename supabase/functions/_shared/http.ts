@@ -341,7 +341,7 @@ export function isJobSecretAuthorized(req: Request, expected?: string): boolean 
 }
 
 const LOVABLE_SUFFIXES = [".lovable.app", ".lovableproject.com", ".lovable.dev"];
-const TRUSTED_APP_HOSTS = new Set(["keydraft.app", "www.keydraft.app", "wyloni.app", "www.wyloni.app", "wyloni.com", "www.wyloni.com", "sottra.app", "www.sottra.app", "civikoone.com", "www.civikoone.com"]);
+const TRUSTED_APP_HOSTS = new Set(["keydraft.app", "www.keydraft.app", "wyloni.app", "www.wyloni.app", "wyloni.com", "www.wyloni.com", "sottra.app", "www.sottra.app", "civikoone.com", "www.civikoone.com", "ueradar.com", "www.ueradar.com"]);
 
 function normalizeOrigin(value: string): string {
   const raw = value.toLowerCase().trim().replace(/\/+$/, "");
