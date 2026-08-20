@@ -1,0 +1,1 @@
+SELECT public.civiko_admin_invoke_job('civiko-contendibili-image-certify', '{"trigger":"manual","limit":8}'::jsonb);

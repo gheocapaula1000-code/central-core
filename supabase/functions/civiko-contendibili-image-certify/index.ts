@@ -231,7 +231,15 @@ Deno.serve(async (req) => {
       if (page === CANDIDATE_MAX_PAGES - 1) remainingExact = false;
     }
 
-    // Fonte B — foto già memorizzate in raw_json, perimetro esatto.
+    // Fonte B — foto già memorizzate nel listing (raw_json in tutte le forme
+    // realmente osservate sui portali + ev_image_refs), perimetro esatto.
+    const RAW_PHOTO_FIELDS_OR = [
+      "raw_json->media->images.not.is.null",
+      "raw_json->image.not.is.null",
+      "raw_json->images.not.is.null",
+      "raw_json->photos.not.is.null",
+      "ev_image_refs.not.is.null",
+    ].join(",");
     for (let page = 0; page < CANDIDATE_MAX_PAGES; page++) {
       const from = page * CANDIDATE_PAGE_SIZE;
       const { data, error } = await sb
@@ -240,9 +248,10 @@ Deno.serve(async (req) => {
         .is("expired_at", null)
         .eq("comune", "Padova")
         .in("commercial_zone_slug", zoneScope)
-        .not("raw_json->media->images", "is", null)
+        .or(RAW_PHOTO_FIELDS_OR)
         .order("id", { ascending: true })
         .range(from, from + CANDIDATE_PAGE_SIZE - 1);
+
       if (error) {
         return json({ ok: false, error: "raw_json_read_failed", detail: error.message }, 500);
       }
@@ -298,21 +307,28 @@ Deno.serve(async (req) => {
     for (const part of chunk(terminalIds)) {
       const { data, error } = await sb
         .from("padova_listings")
-        .select("id,ev_image_refs,images:raw_json->media->images")
+        .select(
+          "id,ev_image_refs,images:raw_json->media->images,img1:raw_json->image,img2:raw_json->images,img3:raw_json->photos",
+        )
         .in("id", part);
       if (error) {
         return json({ ok: false, error: "source_fp_read_failed", detail: error.message }, 500);
       }
       for (const r of data ?? []) {
+        const row = r as Record<string, unknown>;
+        const imgs = [row.images ?? null, row.img1 ?? null, row.img2 ?? null, row.img3 ?? null]
+          .filter((v) => v !== null && v !== undefined);
         currentSourceFp.set(
           Number(r.id),
           await sourceFingerprint({
-            images: (r as Record<string, unknown>).images ?? null,
-            refs: (r as Record<string, unknown>).ev_image_refs ?? null,
+            images: imgs.length ? imgs : null,
+            refs: row.ev_image_refs ?? null,
           }),
         );
       }
+
     }
+
 
     // Scansione oldest-first fino a `limit` eleggibili oppure EOF: il residuo
     // è autoritativo perché deriva dalla scansione completa del pool.
@@ -538,25 +554,36 @@ Deno.serve(async (req) => {
       }
     }
 
-    for (const cand of selected) {
+    let fatal: { error: string; detail: string } | null = null;
+
+    const processCandidate = async (cand: typeof selected[number]): Promise<void> => {
       const listingId = cand.listing_id;
       if (!listingById.has(listingId)) {
         outcomeByListing.set(listingId, "listing_missing");
-        continue;
+        return;
       }
       let refs: string[] = [];
-      const rawImages = (rawJsonById.get(listingId)?.media as Record<string, unknown> | undefined)
-        ?.images ?? null;
+      const rawJson = rawJsonById.get(listingId) ?? null;
+      // Tutte le forme realmente osservate: immobiliare (media.images),
+      // casa.it (image), subito (images), varianti photos, più ev_image_refs.
+      const rawImages = [
+        (rawJson?.media as Record<string, unknown> | undefined)?.images ?? null,
+        rawJson?.image ?? null,
+        rawJson?.images ?? null,
+        rawJson?.photos ?? null,
+      ].filter((v) => v !== null && v !== undefined);
+      const evRefs = (listingById.get(listingId)?.ev_image_refs as unknown) ?? null;
       if (cand.source === "evidence") {
         const result = cand.queue_id ? resultById.get(cand.queue_id) : null;
         if (result) {
           refs = extractDetailImageRefs(result, MAX_DETAIL_IMAGE_REFS);
           reprocessed++;
         }
-      } else {
-        const images = rawImages;
-        if (images) {
-          refs = extractDetailImageRefs(images, MAX_DETAIL_IMAGE_REFS);
+      }
+      if (!refs.length) {
+        const source = rawImages.length || evRefs ? { rawImages, evRefs } : null;
+        if (source) {
+          refs = extractDetailImageRefs(source, MAX_DETAIL_IMAGE_REFS);
           rawJsonProcessed++;
           rawJsonRefs += refs.length;
         }
@@ -567,15 +594,14 @@ Deno.serve(async (req) => {
       sourceFpByListing.set(
         listingId,
         await sourceFingerprint({
-          images: rawImages,
-          refs: refs.length
-            ? refs
-            : ((listingById.get(listingId)?.ev_image_refs as unknown) ?? null),
+          images: rawImages.length ? rawImages : null,
+          refs: refs.length ? refs : evRefs,
         }),
       );
+
       if (!refs.length) {
         outcomeByListing.set(listingId, "no_photo");
-        continue;
+        return;
       }
 
       if (!dryRun) {
@@ -584,7 +610,8 @@ Deno.serve(async (req) => {
           .update({ ev_image_refs: refs })
           .eq("id", listingId);
         if (refErr) {
-          return json({ ok: false, error: "image_refs_write_failed", detail: refErr.message }, 500);
+          fatal = { error: "image_refs_write_failed", detail: refErr.message };
+          return;
         }
         if (cand.source === "evidence") {
           const { error: attErr } = await sb
@@ -595,18 +622,32 @@ Deno.serve(async (req) => {
             })
             .eq("listing_id", listingId);
           if (attErr) {
-            return json({ ok: false, error: "evidence_write_failed", detail: attErr.message }, 500);
+            fatal = { error: "evidence_write_failed", detail: attErr.message };
+            return;
           }
         }
       }
 
-      const before = fingerprints.length;
       await ingestRefs(listingId, refs);
       outcomeByListing.set(
         listingId,
-        fingerprints.length > before ? "fingerprinted" : "undecodable",
+        fingerprints.some((f) => f.listing_id === listingId) ? "fingerprinted" : "undecodable",
       );
-    }
+    };
+
+    // Lavorazione a concorrenza limitata: l'I/O di rete domina il tempo e i
+    // tetti di budget/immagini restano invariati (guard interni a ingestRefs).
+    const LISTING_CONCURRENCY = 5;
+    let nextIdx = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(LISTING_CONCURRENCY, selected.length) }, async () => {
+        while (nextIdx < selected.length && !fatal) {
+          await processCandidate(selected[nextIdx++]);
+        }
+      }),
+    );
+    if (fatal) return json({ ok: false, ...(fatal as { error: string; detail: string }) }, 500);
+
   }
 
   // materiale generico/ricorrente: stessa immagine in >= 3 annunci scollegati
