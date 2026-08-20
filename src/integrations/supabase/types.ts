@@ -10439,6 +10439,13 @@ export type Database = {
         Args: { p_seen_since: string }
         Returns: Json
       }
+      expire_stale_scrape_jobs: {
+        Args: { p_hours?: number }
+        Returns: {
+          expired_apify: number
+          expired_firecrawl: number
+        }[]
+      }
       generate_predictive_insight: {
         Args: { p_opportunity_id: string }
         Returns: string
@@ -10696,6 +10703,7 @@ export type Database = {
       }
       recompute_padova_contendibili: { Args: never; Returns: Json }
       recompute_padova_contendibili_extras: { Args: never; Returns: Json }
+      recompute_padova_contendibili_photo_v5: { Args: never; Returns: Json }
       recompute_padova_listings_contendibili: { Args: never; Returns: Json }
       reserve_commercial_zone: {
         Args: { p_agency_id: string; p_slug: string }
