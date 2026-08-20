@@ -2,7 +2,7 @@
 // Hits the real civiko-radar-veneto job routes with persist flags + job secret.
 // Pure request shaping is unit-testable; fetch is injected.
 
-import { scheduledCollectBody } from "../civiko-radar-veneto/openData/scheduledPersist.ts";
+import { scheduledCollectBody } from "./scheduledPersist.ts";
 
 export type RadarMode = "soft" | "full";
 
