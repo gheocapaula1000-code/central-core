@@ -16,7 +16,8 @@ export type Portal =
   | "immobiliare.it"
   | "idealista.it"
   | "casa.it"
-  | "subito.it";
+  | "subito.it"
+  | "bakeca.it";
 
 export type Mode = "soft" | "full";
 
@@ -25,6 +26,7 @@ export const ALL_PORTALS: Portal[] = [
   "idealista.it",
   "casa.it",
   "subito.it",
+  "bakeca.it",
 ];
 
 const DEFAULT_MAX: Record<Mode, number> = { soft: 2, full: 30 };
@@ -75,6 +77,11 @@ export function buildPortalPageUrl(portal: Portal, page: number): string {
     case "subito.it": {
       if (p === 1) return "https://www.subito.it/annunci-veneto/vendita/immobili/padova/";
       return `https://www.subito.it/annunci-veneto/vendita/immobili/padova/?o=${p}`;
+    }
+    case "bakeca.it": {
+      // Bakeca: URL canonico immobili in vendita a Padova. Pagina N via ?page=N.
+      if (p === 1) return "https://www.bakeca.it/annunci/immobili-vendita/padova/";
+      return `https://www.bakeca.it/annunci/immobili-vendita/padova/?page=${p}`;
     }
     default: {
       // Difesa in profondità: il TS impedisce già altri valori.
