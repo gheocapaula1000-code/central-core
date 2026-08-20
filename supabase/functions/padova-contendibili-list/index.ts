@@ -153,7 +153,16 @@ serve(async (req) => {
       ];
     } else {
       if (valid.length === 0) {
-        return json({ ok: false, debug_id: did, error: { code: "NO_ZONE_ASSIGNED", message: "No active zone for workspace" } }, 403);
+        // Non-admin senza zona: 200 con lista vuota, cosi' la PWA distingue
+        // "zona non assegnata" da un outage reale.
+        return json({
+          ok: true,
+          debug_id: did,
+          items: [],
+          data: { items: [], total: 0 },
+          diagnostics: { scope: "no_zone_assigned", assigned_zones: [], active_zones: [] },
+          error: { code: "NO_ZONE_ASSIGNED", message: "No active zone for workspace" },
+        }, 200);
       }
       assignedSlugs = valid
         .map((z: Record<string, unknown>) => String(z.slug ?? ""))
@@ -310,6 +319,11 @@ serve(async (req) => {
 
     // ─── Prova fotografica certificata (obbligatoria) ──────────────────
     const PHOTO_MATCH_VERSION = "v4-padova-photo-pair";
+    const PHOTO_MATCH_VERSIONS = [
+      PHOTO_MATCH_VERSION,
+      "v5-photo-mq-price-zone",
+      "IMAGE_PHASH_V1",
+    ];
     const groupListingIds = new Map<number, number[]>();
     const allListingIds = new Set<number>();
     for (const r of rows) {
@@ -332,8 +346,8 @@ serve(async (req) => {
         const { data: ev, error: evErr } = await supabase
           .from("civiko_listing_photo_pair_evidence")
           .select("listing_a, listing_b, agency_a, agency_b, match_version")
-          .eq("match_version", PHOTO_MATCH_VERSION)
-          .in("listing_a", slice);
+          .in("match_version", PHOTO_MATCH_VERSIONS)
+          .or(`listing_a.in.(${slice.join(",")}),listing_b.in.(${slice.join(",")})`);
         if (evErr) {
           console.error(`[padova-contendibili-list] ${did} photo evidence`, evErr);
           continue;
@@ -464,7 +478,7 @@ serve(async (req) => {
       raw_candidates: count ?? rows.length,
       dropped_agenzie_dedup: droppedAgenzie,
       dropped_no_photo_pair: droppedNoPhoto,
-      photo_match_version: PHOTO_MATCH_VERSION,
+      photo_match_versions: PHOTO_MATCH_VERSIONS,
       source_breakdown: sourceBreakdown,
       quartiere_breakdown: quartiereBreakdown,
     };
