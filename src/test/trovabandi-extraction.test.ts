@@ -7,11 +7,7 @@ import { readFileSync } from "node:fs";
 import {
   EXTRACTION_CATEGORIES,
   aggregateDiagnostics,
-  httpFailureCode,
-  isNegativeOutcome,
-  isOperationalFailure,
   parseExtractionContent,
-  shouldTryPlainJsonFallback,
   validateExtraction,
 } from "../../supabase/functions/trovabandi-engine/extraction";
 

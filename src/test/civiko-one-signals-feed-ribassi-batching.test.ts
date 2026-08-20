@@ -62,7 +62,9 @@ describe("civiko-one-signals-feed — ribassi batching", () => {
       return { data: [{ commercial_zone_slug: slug }], error: null };
     });
     const flat = calls.flatMap((r) => (Array.isArray(r.data) ? r.data : []));
-    expect(flat.map((row: any) => row.commercial_zone_slug)).toEqual(ZONES);
+    expect(
+      flat.map((row: { commercial_zone_slug: string }) => row.commercial_zone_slug),
+    ).toEqual(ZONES);
     expect(calls).toHaveLength(ZONES.length);
   });
 
