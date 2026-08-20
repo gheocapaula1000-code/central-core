@@ -26,7 +26,7 @@ const zone = (slug: string, tier: string, canone: number, owner: "trial" | "occ"
 
 describe("9C — matrice prezzi per fascia", () => {
   it("fissa i canoni autoritativi", () => {
-    expect(CIVIKO_TIER_MONTHLY_EUR).toEqual({ premium: 2990, standard: 1990, entry: 990 });
+    expect(CIVIKO_TIER_MONTHLY_EUR).toEqual({ premium: 1990, standard: 1490, entry: 990 });
   });
 
   it("usa tre variabili Stripe dedicate", () => {
@@ -42,19 +42,19 @@ describe("9C — matrice prezzi per fascia", () => {
 });
 
 describe("9C — derivazione server-side del prezzo", () => {
-  it("centro-storico premium 2990 → variabile premium", () => {
-    const r = resolveCivikoZonePricing([zone("centro-storico", "premium", 2990)], WID);
+  it("centro-storico premium 1990 → variabile premium", () => {
+    const r = resolveCivikoZonePricing([zone("centro-storico", "premium", 1990)], WID);
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.value.zoneSlug).toBe("centro-storico");
       expect(r.value.zoneTier).toBe("premium");
-      expect(r.value.canoneMeseEur).toBe(2990);
+      expect(r.value.canoneMeseEur).toBe(1990);
       expect(r.value.priceEnvVar).toBe("STRIPE_PRICE_CIVIKO_PREMIUM_MONTHLY");
     }
   });
 
   it("zona occupata standard → variabile standard (fuori pilot)", () => {
-    const r = resolveCivikoZonePricing([zone("nord-arcella", "standard", 1990, "occ")], WID);
+    const r = resolveCivikoZonePricing([zone("nord-arcella", "standard", 1490, "occ")], WID);
     expect(r.ok && r.value.priceEnvVar).toBe("STRIPE_PRICE_CIVIKO_STANDARD_MONTHLY");
   });
 
@@ -65,12 +65,12 @@ describe("9C — derivazione server-side del prezzo", () => {
 
   it("nessuna zona → respinto", () => {
     expect(resolveCivikoZonePricing([], WID).ok).toBe(false);
-    expect(resolveCivikoZonePricing([zone("centro-storico", "premium", 2990, "trial", OTHER)], WID).ok).toBe(false);
+    expect(resolveCivikoZonePricing([zone("centro-storico", "premium", 1990, "trial", OTHER)], WID).ok).toBe(false);
   });
 
   it("doppia zona → respinto", () => {
     const r = resolveCivikoZonePricing(
-      [zone("centro-storico", "premium", 2990), zone("nord-arcella", "standard", 1990, "occ")],
+      [zone("centro-storico", "premium", 1990), zone("nord-arcella", "standard", 1490, "occ")],
       WID,
     );
     expect(r.ok).toBe(false);
@@ -78,22 +78,22 @@ describe("9C — derivazione server-side del prezzo", () => {
   });
 
   it("slug estraneo al contratto → respinto", () => {
-    const r = resolveCivikoZonePricing([zone("zona-fantasma", "premium", 2990)], WID);
+    const r = resolveCivikoZonePricing([zone("zona-fantasma", "premium", 1990)], WID);
     expect(r.ok).toBe(false);
     expect(errCode(r)).toBe("ZONE_NOT_OFFICIAL");
   });
 
   it("zona ufficiale non pilot → accettata (8 zone aperte, 11B-A)", () => {
-    const r = resolveCivikoZonePricing([zone("nord-arcella", "standard", 1990)], WID);
+    const r = resolveCivikoZonePricing([zone("nord-arcella", "standard", 1490)], WID);
     expect(r.ok).toBe(true);
     expect(r.ok && r.value.zoneSlug).toBe("nord-arcella");
   });
 
   it("tier/canone incoerenti → respinti", () => {
     for (const bad of [
-      zone("centro-storico", "premium", 1990),
-      zone("centro-storico", "standard", 2990),
-      zone("centro-storico", "gold", 2990),
+      zone("centro-storico", "premium", 1490),
+      zone("centro-storico", "standard", 1990),
+      zone("centro-storico", "gold", 1990),
       zone("centro-storico", "premium", NaN as unknown as number),
     ]) {
       const r = resolveCivikoZonePricing([bad], WID);

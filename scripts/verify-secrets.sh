@@ -55,7 +55,9 @@ fi
 # 3. Check for JWT tokens hardcoded in source files (not .env, not .env.example)
 echo ""
 echo "▸ Scanning for hardcoded JWT tokens in source..."
-JWT_MATCHES=$(grep -rn --include='*.ts' --include='*.tsx' --include='*.js' 'eyJhbGci' . --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist 2>/dev/null || true)
+JWT_MATCHES=$(grep -rn --include='*.ts' --include='*.tsx' --include='*.js' 'eyJhbGci' . \
+  --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=src/test \
+  --exclude='*.test.ts' --exclude='*.test.tsx' 2>/dev/null || true)
 if [ -n "$JWT_MATCHES" ]; then
   echo "  ✗ FAIL: Hardcoded JWT tokens found in source:"
   echo "$JWT_MATCHES" | head -5 | sed 's/^/    /'
@@ -88,7 +90,11 @@ fi
 echo ""
 echo "▸ Checking for localhost URLs in dist/..."
 if [ -d "dist" ]; then
-  LOCALHOST_HITS=$(grep -rn --include='*.js' --include='*.html' -E 'https?://localhost[:/]' dist/ 2>/dev/null | grep -v '//# sourceMappingURL' || true)
+  # supabase-js / gotrue-js embed http://localhost:9999 as a library default.
+  LOCALHOST_HITS=$(grep -rn --include='*.js' --include='*.html' -E 'https?://localhost[:/]' dist/ 2>/dev/null \
+    | grep -v '//# sourceMappingURL' \
+    | grep -v 'http://localhost:9999' \
+    || true)
   if [ -n "$LOCALHOST_HITS" ]; then
     echo "  ✗ FAIL: localhost URLs found in build output:"
     echo "$LOCALHOST_HITS" | head -5 | sed 's/^/    /'

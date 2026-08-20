@@ -20,6 +20,13 @@ describe("Origin policy — hardening", () => {
   it("allows trusted app host sottra.app", () => {
     expect(isOriginAllowed("https://sottra.app")).toBe(true);
   });
+  it("allows trusted app host ueradar.com", () => {
+    expect(isOriginAllowed("https://ueradar.com")).toBe(true);
+    expect(isOriginAllowed("https://www.ueradar.com")).toBe(true);
+  });
+  it("allows UERADAR Lovable preview via *.lovable.app", () => {
+    expect(isOriginAllowed("https://ueradar.lovable.app")).toBe(true);
+  });
   it("allows lovable.app subdomain", () => {
     expect(isOriginAllowed("https://my-project.lovable.app")).toBe(true);
   });
@@ -48,6 +55,7 @@ describe("Origin policy — hardening", () => {
   });
   it("rejects subdomain impersonation of trusted host", () => {
     expect(isOriginAllowed("https://sottra.app.attacker.io")).toBe(false);
+    expect(isOriginAllowed("https://ueradar.com.evil.com")).toBe(false);
   });
 
   // Server-to-server (no origin)

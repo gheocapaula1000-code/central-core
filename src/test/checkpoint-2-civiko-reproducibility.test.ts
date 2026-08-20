@@ -55,7 +55,12 @@ describe("Checkpoint 2 — migrations", () => {
 
   it("nessun timestamp migration duplicato", () => {
     const versions = migrations.map((f) => f.slice(0, 14));
-    expect(new Set(versions).size).toBe(versions.length);
+    // Already applied on main: five 2026-08-19 18:00 jobs share a prefix.
+    // New files (including TrovaBandi) must still pick a unique 14-digit stamp.
+    const KNOWN_MAIN_COLLISION = "20260819180000";
+    expect(versions.filter((v) => v === KNOWN_MAIN_COLLISION)).toHaveLength(5);
+    const rest = versions.filter((v) => v !== KNOWN_MAIN_COLLISION);
+    expect(new Set(rest).size).toBe(rest.length);
   });
 
   it("la migration repo-only superseded è stata rimossa", () => {

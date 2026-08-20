@@ -352,31 +352,31 @@ describe("11B-A · matrice prezzi e checkout", () => {
   const row = (slug: string, agency: string) => ({
     slug,
     tier: tierOf(slug),
-    canone_mese_eur: tierOf(slug) === "premium" ? 2990 : 1990,
+    canone_mese_eur: tierOf(slug) === "premium" ? 1990 : 1490,
     trial_agency_id: agency,
     occupied_agency_id: null,
   });
 
-  it("19. Premium €2.990 esattamente su centro-storico e sud-est-sant-osvaldo", () => {
+  it("19. Premium €1.990 esattamente su centro-storico e sud-est-sant-osvaldo", () => {
     for (const slug of PREMIUM) {
       const r = resolveCivikoZonePricing([row(slug, WS)], WS);
       expect(r.ok).toBe(true);
       if (r.ok) {
         expect(r.value.zoneTier).toBe("premium");
-        expect(r.value.canoneMeseEur).toBe(2990);
+        expect(r.value.canoneMeseEur).toBe(1990);
         expect(r.value.priceEnvVar).toBe("STRIPE_PRICE_CIVIKO_PREMIUM_MONTHLY");
       }
     }
   });
 
-  it("20. Standard €1.990 sulle altre 6 zone", () => {
+  it("20. Standard €1.490 sulle altre 6 zone", () => {
     expect(STANDARD).toHaveLength(6);
     for (const slug of STANDARD) {
       const r = resolveCivikoZonePricing([row(slug, WS)], WS);
       expect(r.ok).toBe(true);
       if (r.ok) {
         expect(r.value.zoneTier).toBe("standard");
-        expect(r.value.canoneMeseEur).toBe(1990);
+        expect(r.value.canoneMeseEur).toBe(1490);
         expect(r.value.priceEnvVar).toBe("STRIPE_PRICE_CIVIKO_STANDARD_MONTHLY");
       }
     }

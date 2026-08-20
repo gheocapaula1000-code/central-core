@@ -27,7 +27,12 @@ function fakeSb() {
   const updates: Array<{ table: string; patch: Record<string, unknown>; filters: Record<string, unknown> }> = [];
   const from = (table: string) => {
     const filters: Record<string, unknown> = {};
-    const builder: any = {
+    const builder: {
+      in: (col: string, vals: string[]) => typeof builder;
+      lt: (col: string, val: string) => typeof builder;
+      eq: (col: string, val: string) => typeof builder;
+      select: () => Promise<{ data: Array<{ id: number }>; error: null }>;
+    } = {
       in(col: string, vals: string[]) { filters[col] = vals; return builder; },
       lt(col: string, val: string) { filters[`${col}_lt`] = val; return builder; },
       eq(col: string, val: string) { filters[col] = val; return builder; },

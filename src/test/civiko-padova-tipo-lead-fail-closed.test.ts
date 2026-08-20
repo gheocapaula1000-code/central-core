@@ -155,9 +155,11 @@ describe("Copertura end-to-end dei tre flussi Civiko", () => {
     const marker = `${pipeline}: {`;
     const start = dispatch.indexOf(marker);
     expect(start).toBeGreaterThan(-1);
-    const seg = dispatch.slice(start, dispatch.indexOf("},", dispatch.indexOf("steps:", start)));
-    const stepsPart = seg.slice(seg.indexOf("steps:"));
-    return Array.from(stepsPart.matchAll(/"([a-z_0-9]+)"/g)).map((m) => m[1]);
+    const after = dispatch.slice(start);
+    const end = after.indexOf("\n  },\n");
+    const seg = after.slice(0, end > 0 ? end : 1200);
+    const stagesPart = seg.slice(seg.indexOf("stages:"));
+    return Array.from(stagesPart.matchAll(/"([a-z_0-9]+)"/g)).map((m) => m[1]);
   }
 
   const s0510 = stepsOf("pipeline_0510");
@@ -166,28 +168,24 @@ describe("Copertura end-to-end dei tre flussi Civiko", () => {
   const all = [...s0510, ...s0545, ...s0710];
 
   it("05:10 copre la raccolta portali", () => {
-    for (const s of ["portal_casa", "apify_immobiliare", "apify_idealista", "apify_subito"]) {
+    for (const s of ["portal_casa", "apify_batch"]) {
       expect(s0510).toContain(s);
     }
   });
 
   it("05:45 copre importazione/promozione, classificazione e snapshot prezzi", () => {
-    for (const s of ["collect_pending", "listings_promote", "private_leads_classify", "price_snapshot", "radar_full"]) {
+    for (const s of ["collect_pending", "private_classify", "private_price_snapshot", "image_certify"]) {
       expect(s0545).toContain(s);
     }
-    // la promozione precede classificazione e snapshot
-    expect(s0545.indexOf("listings_promote")).toBeLessThan(s0545.indexOf("private_leads_classify"));
-    expect(s0545.indexOf("private_leads_classify")).toBeLessThan(s0545.indexOf("price_snapshot"));
+    expect(s0545.indexOf("collect_pending")).toBeLessThan(s0545.indexOf("private_classify"));
+    expect(s0545.indexOf("private_classify")).toBeLessThan(s0545.indexOf("private_price_snapshot"));
+    expect(s0545.indexOf("image_certify")).toBeLessThan(s0545.indexOf("contendibili_recompute"));
   });
 
   it("07:10 copre contendibili/evidence, certificazione fotografica ed extra segnali", () => {
     for (
       const s of [
-        "contendibili_backfill",
-        "contendibili_image_certify",
-        "contendibili_recompute",
-        "contendibili_evidence",
-        "contendibili_extras",
+        "radar_full",
         "offmarket_discover",
         "offmarket_scores",
         "early_warning",
@@ -196,15 +194,13 @@ describe("Copertura end-to-end dei tre flussi Civiko", () => {
     ) {
       expect(s0710).toContain(s);
     }
-    // la certificazione fotografica precede il recompute autoritativo
-    expect(s0710.indexOf("contendibili_image_certify")).toBeLessThan(
-      s0710.indexOf("contendibili_recompute"),
-    );
   });
 
   it("la certificazione fotografica è invocabile e non gira in dry-run", () => {
     expect(dispatch).toContain('fn: "civiko-contendibili-image-certify"');
-    expect(dispatch).toContain("body: { limit: 40, dry_run: false }");
+    expect(dispatch).toContain("fingerprints_only: true");
+    expect(dispatch).toContain("pairs_only: true");
+    expect(dispatch).not.toContain("dry_run: true");
   });
 
   it("nessuna fase dei flussi è eseguita in dry-run", () => {
@@ -223,7 +219,7 @@ describe("Copertura end-to-end dei tre flussi Civiko", () => {
 
   it("nessuna action TrovaBandi o di altre PWA nel dispatcher Civiko", () => {
     for (const foreign of ["trovabandi", "wyloni", "sottra", "keydraft", "luxu"]) {
-      expect(dispatch.toLowerCase()).not.toContain(foreign);
+      expect(dispatch.toLowerCase()).not.toMatch(new RegExp(`\\b${foreign}\\b`));
     }
   });
 });

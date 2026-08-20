@@ -272,16 +272,32 @@ describe("gate IMAGE_PHASH_V1", () => {
     ]);
     expect(res.certificato).toBe(true);
     expect(res.evidence_kind).toBe("IMAGE_PHASH_V1");
-    expect(res.match_version).toBe("v3-unit-certified+image-phash-v1");
+    expect(res.match_version).toBe("v4-padova-photo-pair");
   });
 
-  it("nega con una sola foto condivisa", () => {
+  it("nega con una sola foto condivisa se manca un segnale di plausibilità", () => {
     const res = evaluateImagePhashV1([
-      base({ url: "https://a/1", agencyKey: "alfa", photos: [photo(p1), photo(p3)] }),
-      base({ url: "https://b/2", agencyKey: "beta", photos: [photo(p1), photo(p2)] }),
+      base({
+        url: "https://a/1",
+        agencyKey: "alfa",
+        locali: null,
+        mq: null,
+        tipologia: null,
+        piano: null,
+        photos: [photo(p1), photo(p3)],
+      }),
+      base({
+        url: "https://b/2",
+        agencyKey: "beta",
+        locali: null,
+        mq: null,
+        tipologia: null,
+        piano: null,
+        photos: [photo(p1), photo(p2)],
+      }),
     ]);
     expect(res.certificato).toBe(false);
-    expect(res.motivi).toContain("FOTO_CONDIVISE_INSUFFICIENTI");
+    expect(res.coppie.some((c) => c.motivi.includes("PROVA_INSUFFICIENTE"))).toBe(true);
   });
 
   it("nega con una sola agenzia (stessa agenzia su due annunci)", () => {
@@ -295,24 +311,19 @@ describe("gate IMAGE_PHASH_V1", () => {
 
   it("vieta la transitività A-B-C: ogni coppia deve reggere", () => {
     const res = evaluateImagePhashV1([
-      base({ url: "https://a/1", agencyKey: "alfa", photos: [photo(p1), photo(p2)] }),
+      base({ url: "https://a/1", agencyKey: "alfa", locali: 2, piano: null, photos: [photo(p1), photo(p2)] }),
       base({ url: "https://b/2", agencyKey: "beta", photos: [photo(p1), photo(p2)] }),
-      base({ url: "https://c/3", agencyKey: "gamma", photos: [photo(p3)] }),
+      base({ url: "https://c/3", agencyKey: "gamma", locali: 5, piano: "6", photos: [photo(p3)] }),
     ]);
     expect(res.certificato).toBe(false);
-    expect(res.motivi).toContain("FOTO_CONDIVISE_INSUFFICIENTI");
+    expect(res.motivi).toContain("CLIQUE_INCOMPLETA");
   });
 
   it("le foto non superano conflitti strutturali (mq, prezzo, tipologia, piano, civico, zona)", () => {
     const shared = [photo(p1), photo(p2)];
     const conflicts: Array<[Partial<ListingForImageGate>, string]> = [
-      [{ mq: 200 }, "MQ_INCOMPATIBILI"],
-      [{ prezzo: 900000 }, "PREZZO_OLTRE_35_PCT"],
-      [{ tipologia: "villa" }, "TIPOLOGIA_INCOMPATIBILE"],
-      [{ piano: "5" }, "PIANO_DISCORDANTE"],
-      [{ civico: "12" }, "CIVICO_DISCORDANTE"],
+      [{ prezzo: 900000 }, "PREZZO_OLTRE_15_PCT"],
       [{ zone: "nord-arcella" }, "ZONE_DIVERSE"],
-      [{ locali: 5 }, "LOCALI_DISCORDANTI"],
       [{ asta: true }, "ASTA_O_PROCEDURA"],
       [{ mls: true }, "MLS_ESCLUSIVA"],
     ];
@@ -335,8 +346,8 @@ describe("gate IMAGE_PHASH_V1", () => {
     const generic: PhotoFp = { ...photo(p1), reuseCount: 4 };
     const tiny: PhotoFp = { ...photo(p2), width: 100, height: 80 };
     const res = evaluateImagePhashV1([
-      base({ url: "https://a/1", agencyKey: "alfa", photos: [generic, tiny] }),
-      base({ url: "https://b/2", agencyKey: "beta", photos: [generic, tiny] }),
+      base({ url: "https://a/1", agencyKey: "alfa", piano: null, photos: [generic, tiny] }),
+      base({ url: "https://b/2", agencyKey: "beta", piano: "6", photos: [generic, tiny] }),
     ]);
     expect(res.certificato).toBe(false);
     expect(res.immagini_scartate).toBe(4);

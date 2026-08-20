@@ -71,6 +71,30 @@ import {
   extractSameDomainLinks,
   seedListingUrls,
 } from "./seed.ts";
+import {
+  canSpendPaid,
+  createPaidBudget,
+  documentIsReadable,
+  filterSourcesByLane,
+  isCompleteVerified,
+  normalizeLane,
+  parseAllowPaid,
+  readIncomingEngineSecret,
+  shouldSkipExpiredRecrawl,
+  shouldSkipPaidExtract,
+  shouldUsePaidProvider,
+  sourceLane,
+  spendPaid,
+  usableStoredEvidence,
+  type CatalogueRow,
+  type PaidBudget,
+} from "./budget.ts";
+import {
+  localExtractApplicationUrl,
+  localExtractAteco,
+  localExtractProtocolEmail,
+  localOpportunityDraft,
+} from "./local-fields.ts";
 
 
 type JsonObject = Record<string, unknown>;
@@ -1276,11 +1300,17 @@ async function directOfficialScrape(
  * Cache-first / direct-fetch-first: si tenta sempre prima l'HTTP ufficiale
  * diretto (costo provider zero) e solo dopo Firecrawl scrape e Apify.
  */
-async function loadPage(url: string, officialDomain: string) {
+async function loadPage(
+  url: string,
+  officialDomain: string,
+  budget?: PaidBudget,
+) {
   const direct = await directOfficialScrape(url, officialDomain);
   if (direct) return direct;
-  // Budget: al massimo una chiamata Firecrawl per variante (max 2) e una sola
-  // chiamata Apify sulla variante piu' probabile.
+  if (!budget || !canSpendPaid(budget, "scrape")) return null;
+  spendPaid(budget, "scrape");
+  // Un solo slot a pagamento per run: Firecrawl, poi Apify se il primo
+  // non legge il documento. Nessuna seconda coppia di chiamate.
   const variants = officialUrlVariants(url).slice(0, 2);
   for (const variant of variants) {
     const scraped = await scrapePage(variant);
@@ -1416,8 +1446,9 @@ async function loadCachedCandidates(
   const rows = (cached.data ?? []) as CachedCandidate[];
   const persisted = await sb
     .from("trovabandi_opportunities")
-    .select("official_url,notice_url,updated_at")
+    .select("official_url,notice_url,updated_at,verification_status")
     .ilike("official_url", `%${source.official_domain}%`)
+    .neq("verification_status", "SCADUTO")
     .order("updated_at", { ascending: false })
     .limit(100);
   const persistedRows: CachedCandidate[] = [];
@@ -1479,6 +1510,7 @@ async function upsertCandidates(
 async function harvestSeedListings(
   sb: CandidateClient,
   source: Source,
+  budget?: PaidBudget,
 ): Promise<SearchHit[]> {
   const seeds = seedListingUrls(source.official_domain);
   if (seeds.length === 0) return [];
@@ -1496,7 +1528,12 @@ async function harvestSeedListings(
       });
     }
     let page = await directOfficialScrape(seedUrl, source.official_domain);
-    if (!page || (page.html ?? page.markdown).length < 2_000) {
+    if (
+      (!page || (page.html ?? page.markdown).length < 2_000) &&
+      budget &&
+      canSpendPaid(budget, "scrape")
+    ) {
+      spendPaid(budget, "scrape");
       const scraped = await scrapePage(seedUrl);
       if (scraped && scraped.markdown.length > (page?.markdown.length ?? 0)) {
         page = scraped;
@@ -1847,7 +1884,7 @@ serve(async (req) => {
   // del Central Core (dispatch da pg_cron/DB). Confronto timing-safe.
   const secret = env("AI_CORE_SECRET_TROVABANDI");
   const jobSecret = env("CENTRAL_CORE_JOB_SECRET");
-  const supplied = req.headers.get("x-internal-secret") ?? "";
+  const supplied = readIncomingEngineSecret(req.headers);
   if (!secret && !jobSecret)
     return response(503, { ok: false, code: "AUTH_NOT_CONFIGURED" });
   const authorized =
@@ -1912,13 +1949,12 @@ serve(async (req) => {
     const { data: rows, error: selErr } = await sb
       .from("trovabandi_opportunities")
       .select(
-        "id, official_url, deadline_at, min_grant_amount, max_grant_amount, total_budget, verification_status, raw_excerpt, last_seen_at, authority_level",
+        "id, official_url, deadline_at, min_grant_amount, max_grant_amount, total_budget, verification_status, raw_excerpt, last_seen_at, authority_level, application_url, protocol_email, eligible_ateco_prefixes",
       )
-      .in("verification_status", ["PARZIALE", "DA_VERIFICARE"])
+      .in("verification_status", ["PARZIALE", "DA_VERIFICARE", "VERIFICATO"])
       .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`)
-      .not("official_url", "ilike", "%.pdf")
       .or(
-        "deadline_at.is.null,min_grant_amount.is.null,max_grant_amount.is.null,total_budget.is.null",
+        "deadline_at.is.null,min_grant_amount.is.null,max_grant_amount.is.null,total_budget.is.null,application_url.is.null,protocol_email.is.null",
       )
       .order("last_seen_at", { ascending: true, nullsFirst: true })
       .limit(maxBatch);
@@ -1933,6 +1969,11 @@ serve(async (req) => {
 
     for (const row of rows) {
       try {
+        if (shouldSkipExpiredRecrawl(row as CatalogueRow)) {
+          results.push({ id: row.id, status: "SKIPPED_EXPIRED" });
+          skipped++;
+          continue;
+        }
         let domain = "";
         try {
           domain = new URL(row.official_url).hostname
@@ -1944,7 +1985,15 @@ serve(async (req) => {
           continue;
         }
 
-        const page = await directOfficialScrape(row.official_url, domain);
+        const stored = usableStoredEvidence(row.raw_excerpt);
+        let page = await directOfficialScrape(row.official_url, domain);
+        if (!page && stored) {
+          page = {
+            markdown: stored,
+            title: "",
+            provider: "stored-excerpt",
+          };
+        }
         if (!page || page.markdown.length < 200) {
           results.push({ id: row.id, status: "SCRAPE_EMPTY" });
           skipped++;
@@ -1966,6 +2015,21 @@ serve(async (req) => {
         }
         if (row.total_budget == null && amounts.total_budget != null) {
           patch.total_budget = amounts.total_budget;
+        }
+        if (!row.application_url) {
+          const appUrl = localExtractApplicationUrl(page.markdown, domain);
+          if (appUrl) patch.application_url = appUrl;
+        }
+        if (!row.protocol_email) {
+          const pec = localExtractProtocolEmail(page.markdown);
+          if (pec) patch.protocol_email = pec;
+        }
+        const existingAteco = Array.isArray(row.eligible_ateco_prefixes)
+          ? row.eligible_ateco_prefixes
+          : [];
+        if (existingAteco.length === 0) {
+          const ateco = localExtractAteco(page.markdown);
+          if (ateco.length > 0) patch.eligible_ateco_prefixes = ateco;
         }
 
         // Stessa regola del collect: se dopo la pagina ufficiale mancano
@@ -2039,7 +2103,12 @@ serve(async (req) => {
           patch.total_budget != null;
 
         let paidUsed = false;
-        if (allowPaidExtract && stillMissing && !localFoundSomething) {
+        const mayPay = allowPaidExtract &&
+          stillMissing &&
+          !localFoundSomething &&
+          !shouldSkipPaidExtract(row as CatalogueRow) &&
+          !documentIsReadable(page.markdown);
+        if (mayPay) {
           const pseudoSource = {
             id: row.id,
             name: "backfill",
@@ -2423,6 +2492,12 @@ serve(async (req) => {
   const dryRun = body.dry_run === true;
   const triggerSource =
     normalizeText(body.trigger_source).slice(0, 120) || "replit";
+  const requestedLane = normalizeText(body.lane);
+  const lane = requestedLane ? normalizeLane(requestedLane) : null;
+  if (requestedLane && !lane) {
+    return response(400, { ok: false, code: "INVALID_LANE" });
+  }
+  const allowPaid = parseAllowPaid(body.allow_paid, true);
   let refreshSignal: RefreshSignal | null = null;
   if (!sourceId) {
     const refreshResult = await sb
@@ -2461,8 +2536,10 @@ serve(async (req) => {
         would_collect: {
           source_id: sourceData.id,
           source_kind: sourceData.source_kind,
+          lane: sourceLane(sourceData),
           next_scan_at: sourceData.next_scan_at,
           max_pages: maxPages,
+          allow_paid: allowPaid,
         },
       });
     }
@@ -2482,7 +2559,7 @@ serve(async (req) => {
     }
 
     const rankedCandidates = rankDueSources(
-      (dueResult.data ?? []) as Source[],
+      filterSourcesByLane((dueResult.data ?? []) as Source[], lane),
       refreshSignal?.region,
     );
     if (dryRun) {
@@ -2496,8 +2573,10 @@ serve(async (req) => {
               would_collect: {
                 source_id: candidate.id,
                 source_kind: candidate.source_kind,
+                lane: sourceLane(candidate),
                 next_scan_at: candidate.next_scan_at,
                 max_pages: maxPages,
+                allow_paid: allowPaid,
               },
             }
           : {
@@ -2609,13 +2688,32 @@ serve(async (req) => {
   const warnings: string[] = [];
   try {
     const nowMs = Date.now();
+    const runningPaid = await sb
+      .from("trovabandi_runs")
+      .select("id", { count: "exact", head: true })
+      .eq("action", "collect")
+      .eq("status", "RUNNING")
+      .neq("id", run.id)
+      .gt(
+        "started_at",
+        new Date(Date.now() - RUN_STALE_AFTER_MINUTES * 60_000).toISOString(),
+      );
+    const paidBudget = createPaidBudget(
+      allowPaid,
+      (runningPaid.count ?? 0) > 0,
+    );
+    if (!paidBudget.allowPaid && allowPaid) {
+      warnings.push("paid_blocked_concurrent_run");
+    }
     // Cache-first: il pool persistito di candidati ufficiali evita ricerche
     // a pagamento ridondanti e garantisce profondita' reale sulla fonte.
     let cachedPool = await loadCachedCandidates(sb, source);
     // Pagine di partenza ufficiali: solo se il pool è vuoto, prima di
     // qualsiasi ricerca a pagamento. Nessun path inventato.
     const seedHits =
-      cachedPool.length === 0 ? await harvestSeedListings(sb, source) : [];
+      cachedPool.length === 0
+        ? await harvestSeedListings(sb, source, paidBudget)
+        : [];
     if (seedHits.length > 0) {
       const seedIso = new Date(nowMs).toISOString();
       cachedPool = dedupeCandidates([
@@ -2637,7 +2735,12 @@ serve(async (req) => {
       freshPool.length,
       maxPages,
     );
-    const [fc, pp] = searchSkippedByCache
+    const searchSkippedByBudget =
+      !searchSkippedByCache && !canSpendPaid(paidBudget, "search");
+    if (!searchSkippedByCache && !searchSkippedByBudget) {
+      spendPaid(paidBudget, "search");
+    }
+    const [fc, pp] = searchSkippedByCache || searchSkippedByBudget
       ? ([
           { ok: true, hits: [] },
           { ok: true, hits: [] },
@@ -2654,7 +2757,7 @@ serve(async (req) => {
     // è diagnosticato e genera warning. Firecrawl e Perplexity sono però
     // fallback reciproci: il guasto di uno non degrada il run quando l'altro
     // ha completato con almeno una hit ufficiale valida (warning informativo).
-    const searchEntries = searchSkippedByCache
+    const searchEntries = searchSkippedByCache || searchSkippedByBudget
       ? []
       : ([
           ["firecrawl", fc],
@@ -2665,6 +2768,8 @@ serve(async (req) => {
         });
     if (searchSkippedByCache) {
       diagnostics.push({ phase: "search", code: "SKIPPED_CACHE_HIT" });
+    } else if (searchSkippedByBudget) {
+      diagnostics.push({ phase: "search", code: "SKIPPED_BUDGET" });
     }
     for (const entry of searchRedundancyOutcome(searchEntries)) {
       diagnostics.push({ phase: entry.phase, code: entry.code });
@@ -2704,6 +2809,18 @@ serve(async (req) => {
       })),
     ]);
     const byUrl = new Map(pool.map((candidate) => [candidate.url, candidate]));
+    const existingByUrl = new Map<string, CatalogueRow>();
+    const existingResult = await sb
+      .from("trovabandi_opportunities")
+      .select(
+        "official_url,verification_status,deadline_at,min_grant_amount,max_grant_amount,total_budget,application_url,protocol_email,raw_excerpt,eligible_ateco_prefixes",
+      )
+      .ilike("official_url", `%${source.official_domain}%`)
+      .limit(250);
+    for (const row of (existingResult.data ?? []) as CatalogueRow[]) {
+      const key = canonicalCandidateUrl(row.official_url);
+      if (key) existingByUrl.set(key, row);
+    }
     // Rotazione deterministica: mai sempre le prime due hit.
     const rotated = rotateCandidates(pool, maxPages, nowMs);
     const hits: SearchHit[] = rotated.map((candidate) => ({
@@ -2721,9 +2838,33 @@ serve(async (req) => {
 
     for (const hit of hits) {
       const cachedState = byUrl.get(hit.url);
+      const existing = existingByUrl.get(hit.url) ??
+        existingByUrl.get(canonicalCandidateUrl(hit.url) ?? "");
+      if (shouldSkipExpiredRecrawl(existing)) {
+        diagnostics.push({ phase: "scrape", code: "SKIPPED_EXPIRED" });
+        continue;
+      }
+      if (isCompleteVerified(existing)) {
+        diagnostics.push({ phase: "scrape", code: "SKIPPED_COMPLETE" });
+        continue;
+      }
       directFetchAttempted++;
-      const scraped = await loadPage(hit.url, source.official_domain);
-      if (scraped?.provider === "official-http") directFetchSucceeded++;
+      let scraped = await loadPage(hit.url, source.official_domain, paidBudget);
+      const officialOk = !!scraped &&
+        (scraped.provider === "official-http" ||
+          scraped.provider === "official-pdf" ||
+          scraped.provider === "official-csv");
+      if (officialOk) directFetchSucceeded++;
+      if (!scraped) {
+        const stored = usableStoredEvidence(existing?.raw_excerpt);
+        if (stored) {
+          scraped = {
+            markdown: stored,
+            title: hit.title,
+            provider: "stored-excerpt",
+          };
+        }
+      }
       await markCandidateAttempt(
         sb,
         source,
@@ -2743,7 +2884,33 @@ serve(async (req) => {
         phase: "scrape",
         code: `OK_${scraped.provider.toUpperCase()}`,
       });
-      const extracted = await extractOpportunity(source, hit, scraped.markdown);
+      const localAmounts = parseAmounts(scraped.markdown);
+      const localDraft = localOpportunityDraft({
+        markdown: scraped.markdown,
+        officialUrl: hit.url,
+        titleHint: hit.title || scraped.title,
+        officialDomain: source.official_domain,
+        deadline: parseDeadline(scraped.markdown, new Date())?.value ?? null,
+        min_grant_amount: localAmounts.min_grant_amount?.value ?? null,
+        max_grant_amount: localAmounts.max_grant_amount?.value ?? null,
+        total_budget: localAmounts.total_budget?.value ?? null,
+      });
+      const readable = documentIsReadable(scraped.markdown);
+      const needPaidExtract = shouldUsePaidProvider(officialOk, readable) &&
+        !shouldSkipPaidExtract(existing) &&
+        !localDraft;
+      let extracted: ExtractionOutcome = localDraft
+        ? { ok: true, data: localDraft, mode: "json_fallback" }
+        : { ok: false, code: "NOT_OPPORTUNITY" };
+      if (
+        needPaidExtract &&
+        canSpendPaid(paidBudget, "extract")
+      ) {
+        spendPaid(paidBudget, "extract");
+        extracted = await extractOpportunity(source, hit, scraped.markdown);
+      } else if (!localDraft && !needPaidExtract) {
+        extracted = { ok: false, code: "NOT_OPPORTUNITY" };
+      }
       if (!extracted.ok) {
         diagnostics.push({ phase: "extract", code: extracted.code });
         // NOT_OPPORTUNITY e gli altri esiti negativi validi non generano warning.
@@ -2755,7 +2922,11 @@ serve(async (req) => {
       }
       diagnostics.push({
         phase: "extract",
-        code: extracted.mode === "json_fallback" ? "OK_FALLBACK" : "OK_SCHEMA",
+        code: localDraft
+          ? "OK_LOCAL"
+          : extracted.mode === "json_fallback"
+            ? "OK_FALLBACK"
+            : "OK_SCHEMA",
       });
       // Arricchimento di dettaglio: solo se mancano scadenza o importi.
       const enrichment = await enrichFromDetailPages(
@@ -2861,15 +3032,24 @@ serve(async (req) => {
           perplexity_search: ppHits.length,
           firecrawl_search_status: searchSkippedByCache
             ? "SKIPPED_CACHE"
-            : fc.ok
-              ? "OK"
-              : fc.code,
+            : searchSkippedByBudget
+              ? "SKIPPED_BUDGET"
+              : fc.ok
+                ? "OK"
+                : fc.code,
           perplexity_search_status: searchSkippedByCache
             ? "SKIPPED_CACHE"
-            : pp.ok
-              ? "OK"
-              : pp.code,
-          paid_search_calls: searchSkippedByCache ? 0 : 2,
+            : searchSkippedByBudget
+              ? "SKIPPED_BUDGET"
+              : pp.ok
+                ? "OK"
+                : pp.code,
+          paid_search_calls: searchSkippedByCache || searchSkippedByBudget
+            ? 0
+            : 2,
+          paid_scrape_calls: paidBudget.paidScrapes,
+          paid_extract_calls: paidBudget.paidExtracts,
+          allow_paid: paidBudget.allowPaid,
           cache_candidates: cachedPool.length,
           seed_candidates: seedHits.length,
           cache_candidates_fresh: freshPool.length,
