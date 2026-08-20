@@ -120,7 +120,17 @@ export function buildCollectPendingWebhook(
 }
 
 export function encodeApifyWebhooksParam(webhooks: CasaCollectWebhook[]): string {
-  return JSON.stringify(webhooks);
+  // Apify si aspetta il parametro `webhooks` come JSON codificato in base64
+  // URL-safe senza padding. Passando il JSON in chiaro, Apify prova comunque a
+  // base64-decodificarlo e ottiene binario → "Webhooks parameter is not a valid JSON".
+  const json = JSON.stringify(webhooks);
+  const bytes = new TextEncoder().encode(json);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
 export function webhookCreateBody(runId: string, webhook: CasaCollectWebhook): Record<string, unknown> {
