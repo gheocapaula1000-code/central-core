@@ -53,7 +53,14 @@ export function isCoherentRecomputeResult(raw: unknown): raw is Record<string, u
   if (raw.error !== undefined && raw.error !== null) return false;
   const version = raw.match_version;
   if (typeof version !== "string" || !/^v[45]-/.test(version)) return false;
-  return Number.isFinite(Number(raw.contendibili_after));
+  const after = Number(raw.contendibili_after);
+  if (!Number.isFinite(after)) return false;
+  // An empty photo publish is not success. v5 publishes only from
+  // civiko_listing_photo_pair_evidence; 0 cards means the matcher is starved
+  // or wrote nothing public.
+  if (raw.identity_starved === true) return false;
+  if (after === 0) return false;
+  return true;
 }
 
 /**

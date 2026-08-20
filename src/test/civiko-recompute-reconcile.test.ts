@@ -119,5 +119,15 @@ describe("contendibili_recompute reconciliation (fail-closed)", () => {
     })).toBe(true);
     expect(isCoherentRecomputeResult({ ...FRESH_OK, contendibili_after: "x" })).toBe(false);
     expect(isCoherentRecomputeResult(null)).toBe(false);
+    expect(isCoherentRecomputeResult({
+      ...FRESH_OK,
+      match_version: "v5-photo-mq-price-zone",
+      contendibili_after: 0,
+    })).toBe(false);
+    expect(isCoherentRecomputeResult({
+      ...FRESH_OK,
+      match_version: "v5-photo-mq-price-zone",
+      identity_starved: true,
+    })).toBe(false);
   });
 });

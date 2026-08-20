@@ -156,6 +156,27 @@ describe("estrazione multi-foto dai result detail memorizzati", () => {
     ]);
   });
 
+  it("estrae Casa raw_json.image (singolo URL) e Immobiliare media.images", () => {
+    const casa = extractDetailImageRefs({
+      image: "https://images-1.casa.it/800x600/listing/0/a2/60/3b/759546585.jpg",
+      title: "Trilocale",
+    });
+    expect(casa).toEqual([
+      "https://images-1.casa.it/800x600/listing/0/a2/60/3b/759546585.jpg",
+    ]);
+
+    const immobiliare = extractDetailImageRefs({
+      media: {
+        images: [
+          { url: "https://pwm.im-cdn.it/image/1972339280/xxl.jpg" },
+          { src: "https://s1.immobiliare.it/img/1972339281.jpg" },
+        ],
+      },
+    });
+    expect(immobiliare).toContain("https://pwm.im-cdn.it/image/1972339280/xxl.jpg");
+    expect(immobiliare).toContain("https://s1.immobiliare.it/img/1972339281.jpg");
+  });
+
   it("è deterministico e cappato a 5 foto per annuncio", () => {
     const many = {
       html: Array.from({ length: 20 }, (_, i) =>
@@ -403,6 +424,13 @@ describe("migrazione: persistenza e consumo nel recompute autoritativo", () => {
 /* ── 7. riprocessamento a costo zero ───────────────────────────────────── */
 
 describe("edge function civiko-contendibili-image-certify", () => {
+  it("legge Casa raw_json.image e ev_image_refs, non solo media.images", () => {
+    expect(EDGE_FN).toContain("LISTING_PHOTO_SOURCE_OR");
+    expect(EDGE_FN).toContain("listingPhotoSource");
+    expect(EDGE_FN).not.toContain('.not("raw_json->media->images", "is", null)');
+    expect(EDGE_FN).toContain("identity_starved: true");
+  });
+
   it("riusa solo i result detail già memorizzati, senza provider a pagamento", () => {
     expect(EDGE_FN).toContain('.from("scraping_queue")');
     expect(EDGE_FN).toContain('.eq("status", "succeeded")');

@@ -1,8 +1,26 @@
 // Logica pura di selezione dei candidati per la certificazione fotografica.
 // Nessuna rete, nessun DB: testabile in modo deterministico.
 
+import { listingImageSourceInput } from "../_shared/detailImageRefs.ts";
+
 /** Dimensione massima di una clausola .in() verso PostgREST. */
 export const IN_CHUNK_SIZE = 200;
+
+/**
+ * PostgREST OR: any typical photo source, not only `raw_json.media.images`.
+ * Casa listings store a single `raw_json.image` URL.
+ */
+export const LISTING_PHOTO_SOURCE_OR = [
+  "ev_image_refs.not.is.null",
+  "raw_json->media->images.not.is.null",
+  "raw_json->image.not.is.null",
+  "raw_json->images.not.is.null",
+  "raw_json->photos.not.is.null",
+  "raw_json->photo.not.is.null",
+  "raw_json->_photos.not.is.null",
+].join(",");
+
+export { listingImageSourceInput };
 
 export function chunk<T>(items: T[], size = IN_CHUNK_SIZE): T[][] {
   const out: T[][] = [];
