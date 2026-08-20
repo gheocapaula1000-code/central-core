@@ -83,11 +83,12 @@ Deno.serve(async (req) => {
   const srk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   if (!url || !srk) return json({ ok: false, error: "config_missing" }, 503);
 
-  let body: { limit?: number; fonte?: string; dry_run?: boolean } = {};
+  let body: { limit?: number; fonte?: string; dry_run?: boolean; debug?: boolean } = {};
   try { body = await req.json(); } catch { /* empty ok */ }
   const limit = Math.max(1, Math.min(Number(body.limit ?? 8), HARD_CAP));
   const fonte = typeof body.fonte === "string" && body.fonte ? body.fonte : "subito";
   const dryRun = body.dry_run === true;
+  const debug = body.debug === true;
 
   const sb = createClient(url, srk, { auth: { persistSession: false } });
 
@@ -118,6 +119,7 @@ Deno.serve(async (req) => {
 
   let scraped = 0, updated = 0, noEvidence = 0;
   const errors: string[] = [];
+  const diag: Array<Record<string, unknown>> = [];
 
   for (const r of rows ?? []) {
     if (dryRun) { noEvidence++; continue; }
@@ -132,6 +134,17 @@ Deno.serve(async (req) => {
     if (loc.address) patch.indirizzo = loc.address;
     if (loc.quartiere && !(r.quartiere ?? "")) patch.quartiere = loc.quartiere;
     if (geo) { patch.lat = geo.lat; patch.lng = geo.lng; }
+
+    if (debug) {
+      diag.push({
+        id: r.id,
+        md_len: res.markdown.length,
+        html_len: res.html.length,
+        has_latitude_token: /latitude|"lat"/i.test(res.html),
+        md_head: res.markdown.slice(0, 300),
+        loc,
+      });
+    }
 
     if (Object.keys(patch).length === 0) { noEvidence++; continue; }
     const { error: upErr } = await sb.from("padova_listings").update(patch).eq("id", r.id);
@@ -150,5 +163,6 @@ Deno.serve(async (req) => {
     updated,
     no_evidence: noEvidence,
     errors: errors.slice(0, 10),
+    diag: debug ? diag : undefined,
   });
 });
