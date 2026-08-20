@@ -3,13 +3,15 @@
 import { assert, assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
 const SRC = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
+const BUDGET = await Deno.readTextFile(new URL("./invokeBudget.ts", import.meta.url));
 
 Deno.test("nessun cursore after_listing_id: la coda muta e bloccherebbe", () => {
   assert(!SRC.includes("after_listing_id"), "il cursore after_listing_id deve essere rimosso");
 });
 
 Deno.test("tetto TOTALE di 4 listing unici, mai 4+4", () => {
-  assertStringIncludes(SRC, "TOTAL_LISTINGS_PER_INVOCATION = 4");
+  assertStringIncludes(BUDGET, "TOTAL_LISTINGS_PER_INVOCATION = 4");
+  assertStringIncludes(SRC, "TOTAL_LISTINGS_PER_INVOCATION");
   const limitCalls = SRC.match(/\.limit\(limit\)/g) ?? [];
   assertEquals(limitCalls.length, 0, "il limite non va applicato per singola fonte");
   assertStringIncludes(SRC, "selectEligible(");
@@ -22,12 +24,26 @@ Deno.test("hard max 4 tentativi per listing", () => {
   assertStringIncludes(SRC, "attempts ?? 0) < MAX_ATTEMPTS_PER_LISTING");
 });
 
-Deno.test("marcatura atomica prima della lavorazione (no-photo incluso)", () => {
-  const markIdx = SRC.indexOf("attempts_progress_write_failed");
+Deno.test("marcatura per listing prima della lavorazione (no-photo incluso)", () => {
+  const markIdx = SRC.indexOf('last_outcome: "claimed"');
   const ingestIdx = SRC.indexOf("await ingestRefs(");
   assert(markIdx > 0 && ingestIdx > 0 && markIdx < ingestIdx, "il claim deve precedere il lavoro");
   assertStringIncludes(SRC, 'last_outcome: "claimed"');
   assertStringIncludes(SRC, '"no_photo"');
+});
+
+Deno.test("wall-clock 100s: i non lavorati non diventano terminali fasulli", () => {
+  assertStringIncludes(SRC, "wallClockExceeded");
+  assertStringIncludes(SRC, "INVOKE_WALL_MS");
+  assertStringIncludes(SRC, "if (!rawOutcome) continue");
+  assertStringIncludes(SRC, "wall_clock_deferred");
+});
+
+Deno.test("auto-catena limitata: chain true, cooldown 2s, si ferma senza lavoro", () => {
+  assertStringIncludes(SRC, "shouldChainNext");
+  assertStringIncludes(SRC, "CHAIN_COOLDOWN_MS");
+  assertStringIncludes(SRC, "CHAIN_MAX_HOPS");
+  assertStringIncludes(SRC, "enqueueChain");
 });
 
 Deno.test("listing già fingerprintati non bloccano la coda", () => {

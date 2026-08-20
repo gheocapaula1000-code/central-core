@@ -3,11 +3,11 @@
 // Collega END-TO-END la prova fotografica al percorso Civiko dei contendibili.
 //
 // Cosa fa (solo Civiko / Padova, additivo):
-//  1. seleziona in modo DETERMINISTICO al massimo 20 listing unici TOTALI
+//  1. seleziona in modo DETERMINISTICO al massimo 4 listing unici TOTALI
 //     (evidence attempts + raw_json), oldest-first, perimetro Padova + 8 zone;
-//  2. li marca ATOMICAMENTE per pipeline_run_id PRIMA di lavorarli (anche se
-//     non hanno foto o non sono decodificabili): la coda avanza sempre e nessun
-//     listing viene ritentato più di 4 volte;
+//  2. li marca PER LISTING subito prima di lavorarli (anche se non hanno foto
+//     o non sono decodificabili). I non lavorati (wall-clock 100s) NON ricevono
+//     un esito terminale fasullo. chain:true concatena lotti con cooldown 2s;
 //  3. estrae fino a 5 URL di fotografie reali e li persiste in
 //     padova_listings.ev_image_refs + civiko_contendibili_evidence_attempts;
 //  4. scarica i byte con allowlist/SSRF/redirect/timeout/budget e calcola il
@@ -64,13 +64,25 @@ import {
   selectEligible,
   sourceFingerprint,
 } from "./selection.ts";
+import {
+  CHAIN_COOLDOWN_MS,
+  CHAIN_MAX_HOPS,
+  INVOKE_WALL_MS,
+  shouldChainNext,
+  TOTAL_LISTINGS_PER_INVOCATION,
+  wallClockExceeded,
+} from "./invokeBudget.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const JOB_SECRET = Deno.env.get("CENTRAL_CORE_JOB_SECRET") ?? "";
 
-/** Hard limit TOTALE di listing unici trattati per invocazione. */
-export const TOTAL_LISTINGS_PER_INVOCATION = 20;
+export {
+  CHAIN_COOLDOWN_MS,
+  CHAIN_MAX_HOPS,
+  INVOKE_WALL_MS,
+  TOTAL_LISTINGS_PER_INVOCATION,
+} from "./invokeBudget.ts";
 /** Un listing non viene mai ritentato più di così. */
 export const MAX_ATTEMPTS_PER_LISTING = 4;
 /** Paginazione delle fonti candidate: nessun tetto arbitrario pre-filtro. */
@@ -112,6 +124,36 @@ function normAgency(value: string | null | undefined): string {
   return (value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+function enqueueChain(nextBody: Record<string, unknown>): boolean {
+  const url = `${String(SUPABASE_URL).replace(/\/+$/, "")}/functions/v1/civiko-contendibili-image-certify`;
+  const hop = (async () => {
+    await sleep(CHAIN_COOLDOWN_MS);
+    try {
+      await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${SERVICE_KEY}`,
+          apikey: SERVICE_KEY,
+          "x-job-secret": JOB_SECRET,
+        },
+        body: JSON.stringify(nextBody),
+        signal: AbortSignal.timeout(8_000),
+      });
+    } catch {
+      /* kick only: the next invoke keeps running after this abort */
+    }
+  })();
+  const runtime = (globalThis as { EdgeRuntime?: { waitUntil: (p: Promise<unknown>) => void } })
+    .EdgeRuntime;
+  if (runtime && typeof runtime.waitUntil === "function") {
+    runtime.waitUntil(hop);
+  }
+  return true;
+}
+
 type Fp = {
   listing_id: number;
   sha256: string;
@@ -150,11 +192,14 @@ Deno.serve(async (req) => {
   // senza scaricare né decodificare nulla (nessun costo, nessun provider).
   const pairsOnly = body.pairs_only === true;
   const fingerprintsOnly = body.fingerprints_only === true;
+  const chain = body.chain === true;
+  const chainHop = Math.max(0, Math.floor(Number(body.chain_hop ?? 0) || 0));
   if (pairsOnly && fingerprintsOnly) {
     return json({ ok: false, error: "conflicting_modes" }, 400);
   }
 
   const runStartedAt = new Date().toISOString();
+  const startedAtMs = Date.now();
   const diagnostics: Record<string, unknown> = {};
   const budget: FetchBudget = { used: 0, max: MAX_TOTAL_REQUESTS };
   const zoneScope = [...CIVIKO_ZONE_SLUGS];
@@ -183,6 +228,7 @@ Deno.serve(async (req) => {
   let remainingEligible = 0;
   let remainingExact = true;
   const exclusions: Record<string, number> = {};
+  const claimAttempts = new Map<number, number>();
   // pairs_only, or fingerprinting caught up: write pair evidence from stored fps.
   let pairFromStored = pairsOnly;
 
@@ -201,12 +247,14 @@ Deno.serve(async (req) => {
       }
       const rows = data ?? [];
       for (const r of rows) {
+        const attempts = Number(r.attempts) || 0;
         attemptState.set(Number(r.listing_id), {
-          attempts: Number(r.attempts) || 0,
+          attempts,
           last_pipeline_run_id: (r.last_pipeline_run_id as string | null) ?? null,
           terminal: r.terminal === true,
           image_source_fp: (r.image_source_fp as string | null) ?? null,
         });
+        claimAttempts.set(Number(r.listing_id), attempts);
       }
       if (rows.length < ATTEMPTS_PAGE_SIZE) break;
       if (page === ATTEMPTS_MAX_PAGES - 1) {
@@ -387,30 +435,8 @@ Deno.serve(async (req) => {
         });
       }
       pairFromStored = true;
-    } else if (!dryRun) {
-    // Marcatura ATOMICA prima di lavorare: anche no-photo/undecodable avanzano.
-      const ids = selected.map((c) => c.listing_id);
-      const { error: markErr } = await sb
-        .from("civiko_image_certify_attempts")
-        .upsert(
-          selected.map((c) => ({
-            listing_id: c.listing_id,
-            attempts: (attemptState.get(c.listing_id)?.attempts ?? 0) + 1,
-            last_pipeline_run_id: pipelineRunId,
-            last_outcome: "claimed",
-            last_attempt_at: runStartedAt,
-            // Il claim riapre il tentativo: lo stato terminale si ricalcola.
-            terminal: false,
-            terminal_reason: null,
-          })),
-          { onConflict: "listing_id" },
-        );
-      if (markErr) {
-        return json({ ok: false, error: "attempts_progress_write_failed", detail: markErr.message }, 500);
-      }
-      if (ids.length > TOTAL_LISTINGS_PER_INVOCATION) {
-        return json({ ok: false, error: "hard_limit_violated" }, 500);
-      }
+    } else if (selected.length > TOTAL_LISTINGS_PER_INVOCATION) {
+      return json({ ok: false, error: "hard_limit_violated" }, 500);
     }
   }
 
@@ -504,6 +530,7 @@ Deno.serve(async (req) => {
   const outcomeByListing = new Map<number, string>();
   /** Impronta deterministica della fonte immagine osservata in questo giro. */
   const sourceFpByListing = new Map<number, string | null>();
+  let deferredWallClock = 0;
 
   const ingestRefs = async (listingId: number, refs: string[]): Promise<void> => {
     const fetched = await fetchImagesBounded(refs, budget);
@@ -573,7 +600,30 @@ Deno.serve(async (req) => {
     }
 
     for (const cand of selected) {
+      if (wallClockExceeded(startedAtMs)) {
+        deferredWallClock++;
+        continue;
+      }
       const listingId = cand.listing_id;
+      if (!dryRun) {
+        const { error: markErr } = await sb
+          .from("civiko_image_certify_attempts")
+          .upsert(
+            [{
+              listing_id: listingId,
+              attempts: (claimAttempts.get(listingId) ?? 0) + 1,
+              last_pipeline_run_id: pipelineRunId,
+              last_outcome: "claimed",
+              last_attempt_at: runStartedAt,
+              terminal: false,
+              terminal_reason: null,
+            }],
+            { onConflict: "listing_id" },
+          );
+        if (markErr) {
+          return json({ ok: false, error: "attempts_progress_write_failed", detail: markErr.message }, 500);
+        }
+      }
       if (!listingById.has(listingId)) {
         outcomeByListing.set(listingId, "listing_missing");
         continue;
@@ -639,7 +689,22 @@ Deno.serve(async (req) => {
         listingId,
         fingerprints.length > before ? "fingerprinted" : "undecodable",
       );
+      // Persist immediately so a later WORKER_RESOURCE_LIMIT cannot drop
+      // fingerprints already computed in this invoke.
+      if (!dryRun && fingerprints.length > before) {
+        const fresh = fingerprints.slice(before);
+        const { error } = await sb
+          .from("civiko_listing_image_fingerprints")
+          .upsert(
+            fresh.map((f) => ({ ...f, updated_at: new Date().toISOString() })),
+            { onConflict: "listing_id,sha256" },
+          );
+        if (error) {
+          return json({ ok: false, error: "fingerprints_write_failed", detail: error.message }, 500);
+        }
+      }
     }
+    remainingEligible += deferredWallClock;
   }
 
   // materiale generico/ricorrente: stessa immagine in >= 3 annunci scollegati
@@ -674,12 +739,13 @@ Deno.serve(async (req) => {
     }
   }
 
-  // Esito definitivo dell'avanzamento (il claim resta comunque registrato).
-  // no_photo/no_valid_image diventano TERMINALI: non bruciano quattro notti,
-  // ma tornano lavorabili appena l'impronta della fonte immagine cambia.
+  // Esito definitivo solo per i listing DAVVERO lavorati. I candidati
+  // saltati dal wall-clock non ricevono un no_photo terminale fasullo.
   if (!dryRun && !pairsOnly && selected.length) {
     for (const cand of selected) {
-      const outcome = normalizeOutcome(outcomeByListing.get(cand.listing_id) ?? "no_photo");
+      const rawOutcome = outcomeByListing.get(cand.listing_id);
+      if (!rawOutcome) continue;
+      const outcome = normalizeOutcome(rawOutcome);
       const terminal = isTerminalOutcome(outcome);
       const { error } = await sb
         .from("civiko_image_certify_attempts")
@@ -810,16 +876,41 @@ Deno.serve(async (req) => {
     if (error) return json({ ok: false, error: "pairs_write_failed", detail: error.message }, 500);
   }
 
+  const remainingOut = pairFromStored ? 0 : remainingEligible;
+  const chainNext = shouldChainNext({
+    chain,
+    hop: chainHop,
+    remaining: remainingOut,
+    pairsOnly,
+    dryRun,
+  });
+  const chainedNext = chainNext
+    ? enqueueChain({
+      chain: true,
+      chain_hop: chainHop + 1,
+      limit,
+      pipeline_run_id: pipelineRunId,
+      fingerprints_only: fingerprintsOnly,
+      trigger: body.trigger ?? "chain",
+    })
+    : false;
+
   return json({
     ok: true,
     dry_run: dryRun,
     pairs_only: pairsOnly,
     fingerprints_only: fingerprintsOnly,
+    chain,
+    chain_hop: chainHop,
+    chain_max_hops: CHAIN_MAX_HOPS,
+    chained_next: chainedNext,
+    invoke_wall_ms: INVOKE_WALL_MS,
+    wall_clock_deferred: deferredWallClock,
     // Avanzamento monotono indipendente da offset e id di coda.
     progress_marker: await progressMarker(),
     attempted: listingIds.length,
     scanned,
-    remaining: pairFromStored ? 0 : remainingEligible,
+    remaining: remainingOut,
     remaining_exact: pairFromStored ? true : remainingExact,
     queue_complete: pairFromStored ? true : (remainingExact && remainingEligible === 0),
     pairs_snapshot_complete: pairFromStored,
