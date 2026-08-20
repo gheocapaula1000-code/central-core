@@ -80,7 +80,7 @@ Deno.serve(async (req) => {
   } catch { /* empty ok */ }
 
   const body = {
-    max_items: 300,
+    max_items: 500,
     search_urls: [...SUBITO_PADOVA_SEARCH_URLS],
     dry_run: false,
     ...overrides,

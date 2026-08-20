@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
 
   let collectBody: Record<string, unknown> = {
     stale_minutes: 2,
-    max_runs: 20,
+    max_runs: 30,
     max_items_per_run: 10000,
     drain_wait_seconds: 40,
   };

@@ -19,7 +19,9 @@ export const BAKECA_LISTING_PAGES = [
   "https://www.bakeca.it/annunci/vendita-case-appartamenti/padova/",
 ] as const;
 
-export const BAKECA_MAX_PAGES = 5;
+export const BAKECA_MAX_PAGES = 8;
+export const BAKECA_PAGE_TIMEOUT_MS = 20_000;
+export const BAKECA_JOB_TIMEOUT_MS = 90_000;
 
 export function bakecaPageUrl(base: string, page: number): string {
   const root = base.replace(/\?.*$/, "").replace(/\/+$/, "/") ;

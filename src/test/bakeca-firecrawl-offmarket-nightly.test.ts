@@ -170,6 +170,9 @@ describe("static contracts — no secrets, live Core, verify_jwt false", () => {
     expect(bakeca).toContain("readIncomingJobSecret");
     expect(bakeca).toContain("CENTRAL_CORE_JOB_SECRET");
     expect(bakeca).toContain("parseListingsFromMarkdown");
+    expect(bakeca).toContain("BAKECA_PAGE_TIMEOUT_MS");
+    expect(bakeca).toContain("AbortSignal.timeout");
+    expect(bakeca).toContain("job_timeout");
     expect(bakeca).not.toMatch(/body\s*[?.].*job_secret/);
   });
 

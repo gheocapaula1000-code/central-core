@@ -36,7 +36,7 @@ table (`civiko_source_registry`) is kept in sync with this manifest;
 | F15  | Conservatoria RR.II.                | premium_on_demand | on_demand    | civiko-restricted-report                                    |
 | F16  | Aste giudiziarie Padova             | automated         | daily        | civiko-radar-veneto/jobs/refresh-padova-auctions            |
 | F17  | Veneto APE ufficiale                | manual_fallback   | quarterly    | civiko-source-registry (CSV) — AI estimate stays separate   |
-| F18  | SUE Padova                          | manual_fallback   | monthly      | civiko-source-registry (CSV, compliance_verified=true)      |
+| F18  | SUE Padova                          | automated         | monthly      | civiko-sue-padova-collect (`official-sue-padova`)           |
 | F19  | Necrologi (aggregato)               | automated         | daily        | civiko-obituaries-aggregate (k>=3)                          |
 | F20  | ISTAT APR4 mobilità                 | manual_fallback   | annual       | civiko-source-registry (CSV)                                |
 | F21  | Portali (Immobiliare/Idealista/…)   | automated         | daily        | civiko-radar-veneto/jobs/deep-scan-padova + portal-* crons  |
@@ -52,7 +52,8 @@ Every `automated` source has a real HTTP trigger. Owner per environment:
     and `civiko-scheduler-daily` (02:15 UTC) → `civiko-scheduler/run-scheduled`.
   - Weekly due-only: `civiko-scheduler-weekly` (Monday 03:30 UTC).
   - Dedicated: `istat-sdmx-monthly`, `connector-osm-cantieri-weekly`,
-    `civiko-pnrr-padova-weekly`, `civiko-obituaries-aggregate-daily`.
+    `civiko-pnrr-padova-weekly`, `civiko-obituaries-aggregate-daily`,
+    `official-sue-padova`.
 - **GitHub Actions fallback** (`.github/workflows/cron-source-scheduler.yml`)
   curls the same URL with `CENTRAL_CORE_JOB_SECRET` from Actions secrets.
   Never hardcode the secret.
@@ -79,6 +80,9 @@ Official collectors on live Core (`jpunnzgixcghuydstdlt`):
 | `official-osm-cantieri` | `30 4 * * 1` | `connector-osm-cantieri` (F5) |
 | `official-pnrr-padova` | `0 5 * * 1` | `civiko-pnrr-padova` (F11) |
 | `official-obituaries-aggregate` | `30 4 * * *` | `civiko-obituaries-aggregate` (F19) |
+| `official-sue-padova` | `0 5 2 * *` | `civiko-sue-padova-collect` (F18) |
+| `official-piano-regolatore` | `20 5 2 * *` | `civiko-piano-regolatore-collect` |
+| `official-sentiment-refresh` | `40 5 * * *` | `civiko-sentiment-refresh` |
 
 GitHub Actions fallback: `.github/workflows/cron-official-opendata.yml`.
 

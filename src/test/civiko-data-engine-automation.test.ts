@@ -54,9 +54,11 @@ describe("Source scheduler manifest — F1..F22 coverage", () => {
 
   it("manual sources are honestly marked manual_fallback, not automated", () => {
     // Sources that have no real fetch in this repo:
-    for (const code of ["F1", "F3", "F4", "F8", "F9", "F12", "F17", "F18", "F20", "F22"]) {
+    for (const code of ["F1", "F3", "F4", "F8", "F9", "F12", "F17", "F20", "F22"]) {
       expect(SOURCE_PLAN[code].automation_status).toBe("manual_fallback");
     }
+    expect(SOURCE_PLAN.F18.automation_status).toBe("automated");
+    expect(SOURCE_PLAN.F18.job).toBe("civiko-sue-padova-collect");
   });
 
   it("paid F14/F15 are premium_on_demand only", () => {

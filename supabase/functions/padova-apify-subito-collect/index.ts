@@ -197,12 +197,21 @@ Deno.serve(async (req) => {
       const { status } = await pollRun(run_id, token, timeoutSec);
       if (status !== "SUCCEEDED") {
         await writeSubitoSourceRegistry({ ok: false, error: `run_status_${status}` });
+        const timedOut = status === "TIMEOUT_LOCAL" || status === "TIMED-OUT";
+        if (timedOut) {
+          await sb.from("padova_apify_runs").update({
+            status: "FAILED",
+            error: "timeout",
+            finished_at: new Date().toISOString(),
+          }).eq("run_id", run_id);
+        }
         return new Response(
           JSON.stringify({
             ok: false, run_id, dataset_id, status,
-            note: "run non terminato, alza wait_seconds o pesca via ingest_run_id",
+            error: timedOut ? "timeout" : `run_status_${status}`,
+            note: "run non terminato: webhook + collect-pending, oppure fail-closed timeout",
           }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          { status: timedOut ? 504 : 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
     }
