@@ -149,10 +149,11 @@ export function buildCollectPendingWebhook(
 
 export function encodeApifyWebhooksParam(webhooks: CollectPendingWebhook[]): string {
   const json = JSON.stringify(webhooks);
-  if (typeof btoa === "function") {
-    return btoa(json);
-  }
-  return Buffer.from(json, "utf8").toString("base64");
+  const b64 = typeof btoa === "function"
+    ? btoa(json)
+    : Buffer.from(json, "utf8").toString("base64");
+  // Apify richiede base64 URL-safe senza padding.
+  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 export function formatApifyStartError(status: number, bodyText: string): string {
