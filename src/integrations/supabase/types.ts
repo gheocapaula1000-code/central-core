@@ -10439,6 +10439,13 @@ export type Database = {
         Args: { p_seen_since: string }
         Returns: Json
       }
+      expire_stale_scrape_jobs: {
+        Args: { p_hours?: number }
+        Returns: {
+          expired_apify: number
+          expired_firecrawl: number
+        }[]
+      }
       generate_predictive_insight: {
         Args: { p_opportunity_id: string }
         Returns: string
