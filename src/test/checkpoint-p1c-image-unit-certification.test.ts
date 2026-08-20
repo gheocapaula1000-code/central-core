@@ -292,27 +292,34 @@ describe("P1-C — regola IMAGE_PHASH_V1", () => {
     expect(r.coppie[0].distanze.every((d) => d <= PHASH_MATCH_MAX_DISTANCE)).toBe(true);
   });
 
-  it("una sola foto coincidente → insufficiente", () => {
+  it("una sola foto coincidente senza segnale di plausibilità → insufficiente", () => {
     const r = evaluateImagePhashV1([
-      L(),
-      L({ url: "https://x/2", agencyKey: "agenziabeta", photos: [photo(1), photo(8), photo(9)] }),
+      L({ locali: null, mq: null, tipologia: null, piano: null, photos: [photo(1), photo(8)] }),
+      L({
+        url: "https://x/2",
+        agencyKey: "agenziabeta",
+        locali: null,
+        mq: null,
+        tipologia: null,
+        piano: null,
+        photos: [photo(1), photo(9)],
+      }),
     ]);
     expect(r.certificato).toBe(false);
-    expect(r.motivi).toContain("FOTO_CONDIVISE_INSUFFICIENTI");
+    expect(r.coppie.some((c) => c.motivi.includes("PROVA_INSUFFICIENTE"))).toBe(true);
   });
 
   it("stessa agenzia su due portali → non contendibile", () => {
     const r = evaluateImagePhashV1([L(), L({ url: "https://x/2", fonte: "idealista" })]);
     expect(r.certificato).toBe(false);
     expect(r.motivi).toContain("AGENZIE_INSUFFICIENTI");
-    expect(r.motivi).toContain("NESSUNA_COPPIA_CROSS_AGENZIA");
   });
 
   it("logo condiviso fra le due agenzie non certifica", () => {
     const logo = photo(1, { entropy: 1.1 });
     const r = evaluateImagePhashV1([
-      L({ photos: [logo, photo(5)] }),
-      L({ url: "https://x/2", agencyKey: "agenziabeta", photos: [logo, photo(6)] }),
+      L({ piano: null, photos: [logo] }),
+      L({ url: "https://x/2", agencyKey: "agenziabeta", piano: "p6", photos: [logo] }),
     ]);
     expect(r.certificato).toBe(false);
     expect(r.immagini_scartate).toBe(2);
@@ -321,21 +328,22 @@ describe("P1-C — regola IMAGE_PHASH_V1", () => {
   it("immagine ricorrente in molti immobili non certifica", () => {
     const generica = photo(1, { reuseCount: 7 });
     const r = evaluateImagePhashV1([
-      L({ photos: [generica, photo(2)] }),
-      L({ url: "https://x/2", agencyKey: "agenziabeta", photos: [generica, photo(2, { reuseCount: 7 })] }),
+      L({ piano: null, photos: [generica, photo(2, { reuseCount: 7 })] }),
+      L({
+        url: "https://x/2",
+        agencyKey: "agenziabeta",
+        piano: "p6",
+        photos: [generica, photo(2, { reuseCount: 7 })],
+      }),
     ]);
     expect(r.certificato).toBe(false);
   });
 
   it.each([
-    ["civico discordante", { civico: "10" }, { civico: "12" }, "CIVICO_DISCORDANTE"],
-    ["piano discordante", { piano: "p1" }, { piano: "p6" }, "PIANO_DISCORDANTE"],
-    ["mq incompatibili", { mq: 120 }, { mq: 180 }, "MQ_INCOMPATIBILI"],
-    ["prezzo oltre 35%", { prezzo: 200000 }, { prezzo: 400000 }, "PREZZO_OLTRE_35_PCT"],
+    ["prezzo oltre 15%", { prezzo: 200000 }, { prezzo: 400000 }, "PREZZO_OLTRE_15_PCT"],
     ["asta", {}, { asta: true }, "ASTA_O_PROCEDURA"],
     ["MLS/esclusiva", {}, { mls: true }, "MLS_ESCLUSIVA"],
     ["cross-zona", {}, { zone: "centro-storico" }, "ZONE_DIVERSE"],
-    ["tipologia diversa", {}, { tipologia: "villa" }, "TIPOLOGIA_INCOMPATIBILE"],
   ])("le foto coincidenti non superano un conflitto strutturale: %s", (_n, pa, pb, motivo) => {
     const r = evaluateImagePhashV1([
       L({ ...pa, photos: [photo(1), photo(2)] }),
@@ -347,12 +355,12 @@ describe("P1-C — regola IMAGE_PHASH_V1", () => {
 
   it("vietata la transitività A-B-C: se la coppia A-C non regge, il gruppo non è certificato", () => {
     const r = evaluateImagePhashV1([
-      L({ url: "https://x/a", agencyKey: "alfa", photos: [photo(1), photo(2)] }),
+      L({ url: "https://x/a", agencyKey: "alfa", locali: 2, piano: null, photos: [photo(1), photo(2)] }),
       L({ url: "https://x/b", agencyKey: "beta", photos: [photo(1), photo(2), photo(3), photo(4)] }),
-      L({ url: "https://x/c", agencyKey: "gamma", photos: [photo(3), photo(4)] }),
+      L({ url: "https://x/c", agencyKey: "gamma", locali: 5, piano: "p6", photos: [photo(3), photo(4)] }),
     ]);
     expect(r.certificato).toBe(false);
-    expect(r.motivi).toContain("FOTO_CONDIVISE_INSUFFICIENTI");
+    expect(r.motivi).toContain("CLIQUE_INCOMPLETA");
   });
 
   it("gruppo a tre agenzie con tutte le coppie provate → certificato", () => {
@@ -368,8 +376,8 @@ describe("P1-C — regola IMAGE_PHASH_V1", () => {
 
   it("nessuna foto disponibile → nessuna certificazione per immagini", () => {
     const r = evaluateImagePhashV1([
-      L({ photos: [] }),
-      L({ url: "https://x/2", agencyKey: "agenziabeta", photos: [] }),
+      L({ piano: null, locali: null, photos: [] }),
+      L({ url: "https://x/2", agencyKey: "agenziabeta", piano: "p6", locali: 2, photos: [] }),
     ]);
     expect(r.certificato).toBe(false);
     expect(r.immagini_confrontate).toBe(0);

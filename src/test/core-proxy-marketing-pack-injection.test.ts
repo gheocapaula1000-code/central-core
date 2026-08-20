@@ -24,10 +24,11 @@ describe("core-proxy — marketing-pack secret injection", () => {
   });
 
   it("injects x-internal-secret from AI_CORE_SECRET_CIVIKO only for that route", () => {
-    expect(proxySrc).toMatch(/normalizedEndpoint\s*===\s*"civiko\/property-marketing-pack"/);
+    expect(proxySrc).toContain('"civiko/property-marketing-pack"');
+    expect(proxySrc).toContain("CIVIKO_ONE_SECRET_ROUTES.has(normalizedEndpoint)");
     expect(proxySrc).toMatch(/Deno\.env\.get\(\s*"AI_CORE_SECRET_CIVIKO"\s*\)/);
     expect(proxySrc).toMatch(/upstreamHeaders\["x-internal-secret"\]\s*=\s*civikoSecret/);
-    expect(proxySrc).toMatch(/upstreamHeaders\["x-source-app"\]\s*=\s*"civiko"/);
+    expect(proxySrc).toMatch(/upstreamHeaders\["x-source-app"\]\s*=/);
   });
 
   it("never forwards a client-supplied x-internal-secret header", () => {

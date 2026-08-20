@@ -108,10 +108,11 @@ describe("civiko-orchestrator-dispatch — release candidate contract", () => {
   });
 
   it("pages image work as max six hard-four micro-batches and reserves downstream", () => {
-    expect(SRC).toContain("IMAGE_BATCH_MAX_INVOCATIONS = 6");
+    expect(SRC).toContain("IMAGE_BATCH_MAX_INVOCATIONS = PHOTO_BATCH_MAX_INVOCATIONS");
+    expect(SRC).toContain("PHOTO_BATCH_MAX_INVOCATIONS");
     expect(SRC).toContain("IMAGE_BATCH_DOWNSTREAM_RESERVE_MS = 85_000");
     expect(SRC).toContain("attemptNo <= IMAGE_BATCH_MAX_INVOCATIONS");
-    expect(SRC).toContain('failedAt = "image_queue_remaining_after_limit"');
+    expect(SRC).toContain('failedAt = "image_routine_perimeter_incomplete"');
     expect(ALLOW).toContain("limit: 4");
     expect(ALLOW).toContain("fingerprints_only: true");
     expect(ALLOW).toContain("pairs_only: true");
