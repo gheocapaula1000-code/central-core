@@ -15,6 +15,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { canSpendFirecrawl, recordFirecrawlSpend } from "../_shared/firecrawlBudget.ts";
 import { buildQuartiereIndex, parseDetailLocation } from "../_shared/padovaDetailEnrich.ts";
+import { extractViaFromText, isQuartiereLabel } from "../_shared/unitEvidenceExtractor.ts";
 
 const HARD_CAP = 20;
 
@@ -65,6 +66,45 @@ export function extractGeo(html: string): { lat: number; lng: number } | null {
   }
   return null;
 }
+
+function canon(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/**
+ * Fallback locale sul corpo dell'annuncio Subito: cerca un odonimo reale e,
+ * per il quartiere, SOLO etichette dell'allowlist ufficiale trovate in un
+ * contesto di localizzazione ("zona", "quartiere", "Padova ...").
+ */
+export function extractFromSubitoBody(
+  markdown: string,
+  quartiereIndex: Map<string, string>,
+): { quartiere: string | null; address: string | null } {
+  const lines = (markdown ?? "").split(/\n+/).slice(0, 600);
+  let address: string | null = null;
+  for (const line of lines) {
+    if (/^\s*\[/.test(line)) continue; // link di navigazione
+    if (isQuartiereLabel(line)) continue;
+    const via = extractViaFromText(line);
+    if (via) { address = via.slice(0, 200); break; }
+  }
+
+  let quartiere: string | null = null;
+  for (const line of lines) {
+    if (!/zona|quartiere|padova/i.test(line)) continue;
+    const c = ` ${canon(line)} `;
+    for (const [key, label] of quartiereIndex) {
+      if (key.length < 4) continue;
+      if (c.includes(` ${key} `)) { quartiere = label; break; }
+    }
+    if (quartiere) break;
+  }
+
+  return { quartiere, address };
+}
+
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
