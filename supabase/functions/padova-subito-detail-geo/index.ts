@@ -167,7 +167,12 @@ Deno.serve(async (req) => {
     scraped++;
     if (!res.ok) { errors.push(`${r.id}:${res.error ?? "scrape_failed"}`); continue; }
 
-    const loc = parseDetailLocation("subito.it", res.markdown, res.html, quartiereIndex);
+    const base = parseDetailLocation("subito.it", res.markdown, res.html, quartiereIndex);
+    const fb = extractFromSubitoBody(res.markdown, quartiereIndex);
+    const loc = {
+      quartiere: base.quartiere ?? fb.quartiere,
+      address: base.address ?? fb.address,
+    };
     const geo = extractGeo(res.html);
 
     const patch: Record<string, unknown> = {};
