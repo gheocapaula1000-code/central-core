@@ -484,6 +484,8 @@ Deno.serve(async (req) => {
   let rawJsonRefs = 0;
   const fingerprints: Fp[] = pairsOnly ? storedFingerprints : [];
   const outcomeByListing = new Map<number, string>();
+  /** Listing effettivamente lavorati in questo giro (deadline-aware). */
+  const processedIds = new Set<number>();
   /** Impronta deterministica della fonte immagine osservata in questo giro. */
   const sourceFpByListing = new Map<number, string | null>();
 
@@ -638,15 +640,24 @@ Deno.serve(async (req) => {
     // Lavorazione a concorrenza limitata: l'I/O di rete domina il tempo e i
     // tetti di budget/immagini restano invariati (guard interni a ingestRefs).
     const LISTING_CONCURRENCY = 5;
+    // Tetto di wall-clock: oltre questa soglia si smette di prendere nuovi
+    // candidati, così i fingerprint già calcolati vengono SEMPRE persistiti
+    // invece di andare persi in un timeout di funzione.
+    const DEADLINE_MS = 100_000;
+    const runStartMs = Date.now();
     let nextIdx = 0;
     await Promise.all(
       Array.from({ length: Math.min(LISTING_CONCURRENCY, selected.length) }, async () => {
-        while (nextIdx < selected.length && !fatal) {
-          await processCandidate(selected[nextIdx++]);
+        while (nextIdx < selected.length && !fatal && Date.now() - runStartMs < DEADLINE_MS) {
+          const cand = selected[nextIdx++];
+          processedIds.add(cand.listing_id);
+          await processCandidate(cand);
         }
       }),
     );
+    diagnostics.deadline_skipped = selected.length - processedIds.size;
     if (fatal) return json({ ok: false, ...(fatal as { error: string; detail: string }) }, 500);
+
 
   }
 
@@ -687,6 +698,8 @@ Deno.serve(async (req) => {
   // ma tornano lavorabili appena l'impronta della fonte immagine cambia.
   if (!dryRun && !pairsOnly && selected.length) {
     for (const cand of selected) {
+      // I candidati mai lavorati (stop per deadline) non ricevono esito.
+      if (!processedIds.has(cand.listing_id)) continue;
       const outcome = normalizeOutcome(outcomeByListing.get(cand.listing_id) ?? "no_photo");
       const terminal = isTerminalOutcome(outcome);
       const { error } = await sb
@@ -806,6 +819,46 @@ Deno.serve(async (req) => {
     if (error) return json({ ok: false, error: "pairs_write_failed", detail: error.message }, 500);
   }
 
+  // ── Auto-concatenamento limitato ────────────────────────────────────────
+  // Solo su richiesta esplicita (`chain: true`), con budget di salti che si
+  // decrementa, cooldown, e SOLO se resta lavoro reale: nessuna catena infinita.
+  let chainKicked = false;
+  const chainDepth = Math.max(0, Math.min(60, Number(body.chain_depth ?? 0) || 0));
+  if (
+    body.chain === true && !dryRun && !pairsOnly && chainDepth > 0 &&
+    remainingEligible > 0 && listingIds.length > 0
+  ) {
+    const base = Deno.env.get("SUPABASE_URL") ?? "";
+    if (base && JOB_SECRET) {
+      chainKicked = true;
+      const nextHop = (async () => {
+        await new Promise((r) => setTimeout(r, 2_000)); // cooldown
+        try {
+          await fetch(`${base}/functions/v1/civiko-contendibili-image-certify`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-job-secret": JOB_SECRET,
+              apikey: Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+            },
+            body: JSON.stringify({
+              trigger: "chain",
+              limit,
+              chain: true,
+              chain_depth: chainDepth - 1,
+            }),
+          });
+        } catch (_e) { /* la catena si interrompe: il cron riprenderà */ }
+      })();
+      // @ts-ignore EdgeRuntime è disponibile a runtime su Supabase
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+        // @ts-ignore
+        EdgeRuntime.waitUntil(nextHop);
+      }
+    }
+  }
+
+
   return json({
     ok: true,
     dry_run: dryRun,
@@ -846,6 +899,7 @@ Deno.serve(async (req) => {
     coppie_certificanti:
       pairRows.filter((p) => (p.shared_photos as number) >= MIN_SHARED_PHOTOS_PER_PAIR).length,
     budget_richieste_usate: budget.used,
+    chain_kicked: chainKicked,
     diagnostics,
   });
 });
