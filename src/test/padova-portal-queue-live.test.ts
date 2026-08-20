@@ -37,7 +37,7 @@ describe("Firecrawl queue includes Bakeca", () => {
 
   it("parses Bakeca markdown cards without inventing listings", () => {
     const md = [
-      "[Appartamento Padova centro](https://www.bakeca.it/dettaglio/immobile-vendita/padova/1234567) € 250.000 85 mq 3 locali Privato Via Roma 12",
+      "[Appartamento Padova centro](https://www.bakeca.it/dettaglio/immobile-vendita/padova/1234567) € 250.000 85 mq 3 locali Privato Via Altinate 12",
       "[Lista vendita](https://www.bakeca.it/annunci/immobili-vendita/padova/)",
     ].join("\n");
     const rows = parseFirecrawlResult({ markdown: md }, {
