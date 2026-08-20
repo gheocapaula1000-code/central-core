@@ -296,6 +296,11 @@ export function evaluateImagePhashV1(rows: ListingForImageGate[]): ImageGateResu
 
   const nPhoto = coppie.filter((c) => c.valida && c.branch === "PHOTO").length;
   if (nPhoto === 0) motivi.push("PROVA_INSUFFICIENTE");
+  for (const extra of ["MQ_INCOMPATIBILI", "PREZZO_OLTRE_15_PCT", "ZONE_DIVERSE"]) {
+    if (coppie.some((c) => c.motivi.includes(extra)) && !motivi.includes(extra)) {
+      motivi.push(extra);
+    }
+  }
 
   const certificato = motivi.length === 0;
   return {

@@ -176,7 +176,7 @@ describe("migration 20260820120000 — quoted SQL contract", () => {
     expect(gate).toContain("AND coalesce(p_n_pairs_photo, 0) > 0");
     expect(gate).toContain("AND p_prezzo_max <= p_prezzo_min * 1.15");
     expect(gate).toContain("AND p_mq_max <= greatest(p_mq_min + 5, p_mq_min * 1.05)");
-    expect(gate).toContain("AND p_n_zone = 1");
+    expect(gate).toContain("p_n_zone = 1");
     expect(gate).not.toContain("AND p_n_locali = 1");
     expect(gate).not.toMatch(/OR \(\s*coalesce\(p_mq_min/);
   });
@@ -184,9 +184,9 @@ describe("migration 20260820120000 — quoted SQL contract", () => {
   it("recompute no longer requires via/civico and does not publish geo-text", () => {
     expect(sql).toContain("v5: via/civico are not a candidate gate");
     expect(sql).toContain("v5: civico unit-certified does not publish");
-    expect(sql).toContain("THEN 'IMAGE_PHASH_V1' ELSE 'IMAGE_PHASH_V1' END");
-    expect(sql).toContain("OR pc.evidence_kind IN ('UNIT_GEO_TEXT_V4', 'MIXED_V4')");
-    expect(sql).toContain("OR coalesce(pc.match_version, '') LIKE '%geo-unit-text%'");
+    expect(sql).toContain("THEN ''IMAGE_PHASH_V1'' ELSE ''IMAGE_PHASH_V1'' END");
+    expect(sql).toContain("OR pc.evidence_kind IN (''UNIT_GEO_TEXT_V4'', ''MIXED_V4'')");
+    expect(sql).toContain("OR coalesce(pc.match_version, '''') LIKE ''%geo-unit-text%''");
     expect(sql).toContain("v5-photo-mq-price-zone");
   });
 

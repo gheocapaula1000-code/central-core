@@ -32,6 +32,7 @@ import {
 } from "../../supabase/functions/_shared/imagePhash";
 import {
   evaluateImagePhashV1,
+  MATCH_VERSION,
   type ListingForImageGate,
   type PhotoFp,
 } from "../../supabase/functions/_shared/imagePhashV1Gate";
@@ -265,23 +266,23 @@ describe("gate IMAGE_PHASH_V1", () => {
   const p2 = "1234567890abcdef";
   const p3 = "fedcba0987654321";
 
-  it("certifica solo con >= 2 foto reali condivise per ogni coppia cross-agenzia", () => {
+  it("certifica con foto condivise + mq + prezzo + stessa zona", () => {
     const res = evaluateImagePhashV1([
       base({ url: "https://a/1", agencyKey: "alfa", photos: [photo(p1), photo(p2)] }),
       base({ url: "https://b/2", agencyKey: "beta", photos: [photo(p1), photo(p2)] }),
     ]);
     expect(res.certificato).toBe(true);
     expect(res.evidence_kind).toBe("IMAGE_PHASH_V1");
-    expect(res.match_version).toBe("v3-unit-certified+image-phash-v1");
+    expect(res.match_version).toBe(MATCH_VERSION);
   });
 
-  it("nega con una sola foto condivisa", () => {
+  it("una sola foto condivisa basta sotto il 10% di prezzo se mq e zona tengono", () => {
     const res = evaluateImagePhashV1([
       base({ url: "https://a/1", agencyKey: "alfa", photos: [photo(p1), photo(p3)] }),
       base({ url: "https://b/2", agencyKey: "beta", photos: [photo(p1), photo(p2)] }),
     ]);
-    expect(res.certificato).toBe(false);
-    expect(res.motivi).toContain("FOTO_CONDIVISE_INSUFFICIENTI");
+    expect(res.certificato).toBe(true);
+    expect(res.n_pairs_photo).toBe(1);
   });
 
   it("nega con una sola agenzia (stessa agenzia su due annunci)", () => {
@@ -300,19 +301,15 @@ describe("gate IMAGE_PHASH_V1", () => {
       base({ url: "https://c/3", agencyKey: "gamma", photos: [photo(p3)] }),
     ]);
     expect(res.certificato).toBe(false);
-    expect(res.motivi).toContain("FOTO_CONDIVISE_INSUFFICIENTI");
+    expect(res.motivi).toContain("CLIQUE_INCOMPLETA");
   });
 
-  it("le foto non superano conflitti strutturali (mq, prezzo, tipologia, piano, civico, zona)", () => {
+  it("le foto non superano conflitti di mq, prezzo, zona, asta o MLS", () => {
     const shared = [photo(p1), photo(p2)];
     const conflicts: Array<[Partial<ListingForImageGate>, string]> = [
       [{ mq: 200 }, "MQ_INCOMPATIBILI"],
-      [{ prezzo: 900000 }, "PREZZO_OLTRE_35_PCT"],
-      [{ tipologia: "villa" }, "TIPOLOGIA_INCOMPATIBILE"],
-      [{ piano: "5" }, "PIANO_DISCORDANTE"],
-      [{ civico: "12" }, "CIVICO_DISCORDANTE"],
+      [{ prezzo: 900000 }, "PREZZO_OLTRE_15_PCT"],
       [{ zone: "nord-arcella" }, "ZONE_DIVERSE"],
-      [{ locali: 5 }, "LOCALI_DISCORDANTI"],
       [{ asta: true }, "ASTA_O_PROCEDURA"],
       [{ mls: true }, "MLS_ESCLUSIVA"],
     ];
@@ -322,7 +319,6 @@ describe("gate IMAGE_PHASH_V1", () => {
           url: "https://a/1",
           agencyKey: "alfa",
           photos: shared,
-          civico: over.civico ? "10" : null,
         }),
         base({ url: "https://b/2", agencyKey: "beta", photos: shared, ...over }),
       ]);
