@@ -15,6 +15,61 @@ export const SEED_LISTING_URLS: Record<string, string[]> = {
   "vi.camcom.it": ["https://www.vi.camcom.it"],
   "dl.camcom.it": ["https://www.dl.camcom.it"],
   "tb.camcom.gov.it": ["https://www.tb.camcom.gov.it"],
+  "ao.camcom.it": [
+    "https://www.ao.camcom.it/it/far-crescere-l-impresa/bandi-contributi-agevolazioni",
+  ],
+  "aa.camcom.it": ["https://www.aa.camcom.it/bandi"],
+  "cn.camcom.it": ["https://www.cn.camcom.it/focus/finanziamenti-contributi"],
+  "pno.camcom.it": ["https://www.pno.camcom.it/bandi"],
+  "to.camcom.it": ["https://www.to.camcom.it/finanziamenti-bandi-e-contributi"],
+  "ge.camcom.gov.it": [
+    "https://www.ge.camcom.gov.it/it/gestisci/finanziamenti-e-contributi-per-limpresa",
+  ],
+  "rivlig.camcom.gov.it": [
+    "https://www.rivlig.camcom.gov.it/contributi-alle-imprese",
+  ],
+  "bg.camcom.it": ["https://www.bg.camcom.it/bandi"],
+  "bs.camcom.it": ["https://www.bs.camcom.it/bandi-e-contributi"],
+  "comolecco.camcom.it": [
+    "https://www.comolecco.camcom.it/index.php?id_oggetto=27",
+  ],
+  "cmp.camcom.it": [
+    "https://www.cmp.camcom.it/incentivi-alle-imprese/bandi-e-contributi",
+  ],
+  "milomb.camcom.it": [
+    "https://www.milomb.camcom.it/",
+    "https://www.milomb.camcom.it/contributi-e-finanziamenti",
+  ],
+  "so.camcom.it": ["https://www.so.camcom.it/bandi"],
+  "va.camcom.it": ["https://www.va.camcom.it/index.php?id_oggetto=39"],
+  "vr.camcom.it": [
+    "https://www.vr.camcom.it/promuovere-impresa-e-territorio/contributi-e-patrocini",
+  ],
+  "pnud.camcom.it": ["https://www.pnud.camcom.it/contributi-e-rendicontazione"],
+  "vg.camcom.it": ["https://vg.camcom.it/contributi-e-agevolazioni"],
+  "bo.camcom.gov.it": [
+    "https://www.bo.camcom.gov.it/it/promozione-interna/contributi",
+  ],
+  "emilia.camcom.it": [
+    "https://www.emilia.camcom.it/promuovere-limpresa-e-il-territorio/contributi-alle-imprese",
+  ],
+  "fera.camcom.it": ["https://www.fera.camcom.it/bandi"],
+  "mo.camcom.it": ["https://www.mo.camcom.it/promozione/contributi-camerali"],
+  "romagna.camcom.it": [
+    "https://www.romagna.camcom.it/it/opportunita/finanziamenti-1",
+  ],
+  "as.camcom.it": ["https://www.as.camcom.it/bandi"],
+  "fi.camcom.gov.it": ["https://www.fi.camcom.gov.it/bandi"],
+  "lg.camcom.it": ["https://www.lg.camcom.it/bandi-contributi-alle-imprese"],
+  "ptpo.camcom.it": ["https://www.ptpo.camcom.it/servizi/contributi/index"],
+  "tno.camcom.it": ["https://tno.camcom.it/contributi-e-agevolazioni"],
+  "tn.camcom.it": [
+    "https://www.tn.camcom.it/bandi-di-gara-e-concorsi/altri-bandi-e-avvisi/bando-energia-sviluppo-contributi-alle-imprese",
+  ],
+  "camcom.bz.it": [
+    "https://www.camcom.bz.it/it/servizi/agevolazioni-e-servizi-ue",
+    "https://www.camcom.bz.it/it/amministrazione-trasparente/sovvenzioni-contributi-sussidi-vantaggi-economici/voucher-digitalizzazione-2026",
+  ],
   "unioncamereveneto.it": ["https://www.unioncamereveneto.it"],
   "unioncamere.gov.it": ["https://www.unioncamere.gov.it"],
   "galpatavino.it": ["https://www.galpatavino.it"],

@@ -18,6 +18,21 @@ describe("trovabandi seed listing", () => {
     expect(seedListingUrls("bandi.gov.it")).toEqual([]);
   });
 
+  it("espone listing bandi camerali Nord-Toscana sullo stesso dominio ufficiale", () => {
+    const samples: Array<[string, string]> = [
+      ["to.camcom.it", "https://www.to.camcom.it/finanziamenti-bandi-e-contributi"],
+      ["milomb.camcom.it", "https://www.milomb.camcom.it/contributi-e-finanziamenti"],
+      ["bo.camcom.gov.it", "https://www.bo.camcom.gov.it/it/promozione-interna/contributi"],
+      ["fi.camcom.gov.it", "https://www.fi.camcom.gov.it/bandi"],
+      ["vr.camcom.it", "https://www.vr.camcom.it/promuovere-impresa-e-territorio/contributi-e-patrocini"],
+      ["vg.camcom.it", "https://vg.camcom.it/contributi-e-agevolazioni"],
+    ];
+    for (const [domain, listing] of samples) {
+      expect(seedListingUrls(domain)).toContain(listing);
+      expect(isSameDomainHttpsUrl(listing, domain)).toBe(true);
+    }
+  });
+
   it("scarta URL fuori dominio o non https", () => {
     expect(isSameDomainHttpsUrl(SEED, DOMAIN)).toBe(true);
     expect(
