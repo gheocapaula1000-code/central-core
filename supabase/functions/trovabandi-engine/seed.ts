@@ -11,10 +11,23 @@ export const SEED_LISTING_URLS: Record<string, string[]> = {
   ],
   "provincia.padova.it": ["https://www.provincia.padova.it"],
   "padovanet.it": ["https://www.padovanet.it"],
-  "pd.camcom.it": ["https://www.pd.camcom.it"],
-  "vi.camcom.it": ["https://www.vi.camcom.it"],
-  "dl.camcom.it": ["https://www.dl.camcom.it"],
-  "tb.camcom.gov.it": ["https://www.tb.camcom.gov.it"],
+  "pd.camcom.it": [
+    "https://www.pd.camcom.it",
+    "https://www.pd.camcom.it/it/incentivi-imprese",
+    "https://www.pd.camcom.it/it/la-camera/bandi-in-corso",
+  ],
+  "vi.camcom.it": [
+    "https://www.vi.camcom.it",
+    "https://www.vi.camcom.it/it/bandi-contributivi-e-bandi-di-gara/",
+  ],
+  "dl.camcom.it": [
+    "https://www.dl.camcom.it",
+    "https://www.dl.camcom.it/sonoimpresa/cosa-puo-servire-sono/incentivi-ed-agevolazioni",
+  ],
+  "tb.camcom.gov.it": [
+    "https://www.tb.camcom.gov.it",
+    "https://www.tb.camcom.gov.it/bandi.asp",
+  ],
   "ao.camcom.it": [
     "https://www.ao.camcom.it/it/far-crescere-l-impresa/bandi-contributi-agevolazioni",
   ],
@@ -38,6 +51,7 @@ export const SEED_LISTING_URLS: Record<string, string[]> = {
   ],
   "milomb.camcom.it": [
     "https://www.milomb.camcom.it/",
+    "https://www.milomb.camcom.it/home",
     "https://www.milomb.camcom.it/contributi-e-finanziamenti",
   ],
   "so.camcom.it": ["https://www.so.camcom.it/bandi"],

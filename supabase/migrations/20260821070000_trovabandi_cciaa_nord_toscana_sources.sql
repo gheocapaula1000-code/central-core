@@ -1,10 +1,12 @@
 -- TrovaBandi: CCIAA Nord + Toscana (camere e accorpamenti).
 -- Domini presi dall'elenco ufficiale Unioncamere
--- https://www.unioncamere.gov.it/elenco-delle-camere-di-commercio-italiane
--- e verificati live (HTTP 200) sulle pagine bandi/contributi.
+-- https://unioncamere.gov.it/sistema-camerale/elenco-delle-camere-di-commercio-italiane
+-- e verificati live (HTTP 200) sulle pagine bandi/contributi il 21 Aug 2026.
 -- Nessun nuovo cron, nessun secret, nessuna opportunity inventata.
 -- Già presenti e non duplicati: pd.camcom.it, vi.camcom.it,
--- dl.camcom.it, tb.camcom.gov.it, unioncamere.gov.it, unioncamereveneto.it.
+-- tb.camcom.gov.it, unioncamere.gov.it, unioncamereveneto.it.
+-- dl.camcom.it è la Camera Venezia Rovigo Delta Lagunare (Unioncamere);
+-- etichetta corretta nella migration 20260821090000, senza secondo dominio.
 
 INSERT INTO public.trovabandi_sources
   (name, authority_level, region, province, official_domain, search_query, enabled, priority, source_kind, scan_interval_minutes, next_scan_at)
@@ -45,7 +47,8 @@ VALUES
   ('CCIAA Varese — bandi e contributi', 'CAMERALE', 'Lombardia', 'VA', 'va.camcom.it',
    'bandi contributi voucher imprese domande aperte', true, 90, 'CATALOGO', 60, now()),
 
-  -- Veneto restante (VE/RO già coperti da dl.camcom.it)
+  -- Veneto restante (Padova, Vicenza, Treviso-Belluno già in produzione;
+  -- Venezia Rovigo è dl.camcom.it, relabel in 20260821090000)
   ('CCIAA Verona — bandi e contributi', 'CAMERALE', 'Veneto', 'VR', 'vr.camcom.it',
    'bandi contributi voucher imprese domande aperte', true, 90, 'CATALOGO', 60, now()),
 
