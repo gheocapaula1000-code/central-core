@@ -33,6 +33,33 @@ describe("trovabandi seed listing", () => {
     }
   });
 
+  it("espone BUR, provincia/CM e GAL Nord-Toscana sullo stesso dominio ufficiale", () => {
+    const samples: Array<[string, string]> = [
+      [
+        "regione.piemonte.it",
+        "https://www.regione.piemonte.it/governo/bollettino/abbonati/2026/corrente",
+      ],
+      [
+        "regione.lombardia.it",
+        "https://www.regione.lombardia.it/burl-bollettino-ufficiale-regione-lombardia",
+      ],
+      ["burl.it", "https://www.burl.it/"],
+      ["bur.regione.fvg.it", "https://bur.regione.fvg.it/newbur/"],
+      [
+        "cittametropolitana.ve.it",
+        "https://www.cittametropolitana.ve.it/amministrazione-trasparente/sovvenzioni-contributi-sussidi-vantaggi-economici",
+      ],
+      ["galaltobellunese.com", "https://www.galaltobellunese.com/bandi/"],
+      ["galdeltapo.it", "https://galdeltapo.it/bandi/"],
+      ["montagnappennino.it", "https://www.montagnappennino.it/bandi/"],
+      ["sviluppolunigiana.it", "https://www.sviluppolunigiana.it/bandi/"],
+    ];
+    for (const [domain, listing] of samples) {
+      expect(seedListingUrls(domain)).toContain(listing);
+      expect(isSameDomainHttpsUrl(listing, domain)).toBe(true);
+    }
+  });
+
   it("scarta URL fuori dominio o non https", () => {
     expect(isSameDomainHttpsUrl(SEED, DOMAIN)).toBe(true);
     expect(

@@ -73,8 +73,60 @@ export const SEED_LISTING_URLS: Record<string, string[]> = {
   "unioncamereveneto.it": ["https://www.unioncamereveneto.it"],
   "unioncamere.gov.it": ["https://www.unioncamere.gov.it"],
   "galpatavino.it": ["https://www.galpatavino.it"],
+  "galaltobellunese.com": ["https://www.galaltobellunese.com/bandi/"],
+  "galprealpidolomiti.it": ["https://www.galprealpidolomiti.it/bandi/"],
+  "baldolessinia.it": ["https://www.baldolessinia.it/bandi/"],
+  "galaltamarca.tv.it": ["https://galaltamarca.tv.it/cronoprogramma-annuale/"],
+  "montagnavicentina.com": [
+    "https://www.montagnavicentina.com/category/bandi/",
+  ],
+  "galdeltapo.it": [
+    "https://galdeltapo.it/bandi/",
+    "https://galdeltapo.it/bandi-e-opportunita",
+  ],
+  "galadige.it": ["https://www.galadige.it/bandi/"],
+  "vegal.net": ["https://www.vegal.net/attivita/psl-2023-2027/"],
+  "montagnappennino.it": ["https://www.montagnappennino.it/bandi/"],
+  "gal-start.it": ["https://gal-start.it/bandi/"],
+  "galterretrusche.com": [
+    "https://www.galterretrusche.com/avvisi-bandi-e-progetti",
+  ],
+  "farmaremma.it": ["https://www.farmaremma.it/bandi/"],
+  "leadersiena.it": ["https://www.leadersiena.it/?cat=7"],
+  "galaretino.it": ["https://www.galaretino.it/bandi/"],
+  "sviluppolunigiana.it": [
+    "https://www.sviluppolunigiana.it/bandi/",
+    "https://www.sviluppolunigiana.it/bandi/bandi-aperti/",
+  ],
+  "cittametropolitana.ve.it": [
+    "https://www.cittametropolitana.ve.it/amministrazione-trasparente/sovvenzioni-contributi-sussidi-vantaggi-economici",
+  ],
+  "amministrazionetrasparente.provincia.treviso.it": [
+    "https://amministrazionetrasparente.provincia.treviso.it/L190/?idSezione=20&sort=&activePage=&search=&cf4=true&id=273275",
+  ],
+  "provincia.cuneo.it": [
+    "https://www.provincia.cuneo.it/amministrazione-trasparente/sovvenzioni-contributi-sussidi-vantaggi-economici",
+  ],
+  "cittametropolitana.fi.it": [
+    "https://www.cittametropolitana.fi.it/amministrazione-trasparente/sovvenzioni-contributi-sussidi-vantaggi-economici",
+  ],
   "bur.regione.veneto.it": ["https://bur.regione.veneto.it"],
   "regione.veneto.it": ["https://www.regione.veneto.it"],
+  "regione.piemonte.it": [
+    "https://www.regione.piemonte.it/governo/bollettino/abbonati/2026/corrente",
+  ],
+  "regione.lombardia.it": [
+    "https://www.regione.lombardia.it/burl-bollettino-ufficiale-regione-lombardia",
+  ],
+  "burl.it": ["https://www.burl.it/"],
+  "bur.regione.fvg.it": ["https://bur.regione.fvg.it/newbur/"],
+  "bur.regione.emilia-romagna.it": [
+    "https://bur.regione.emilia-romagna.it/ricerca",
+  ],
+  "regione.toscana.it": ["https://www.regione.toscana.it/burt"],
+  "regione.vda.it": [
+    "https://www.regione.vda.it/affari_legislativi/bollettino_ufficiale/default_i.asp",
+  ],
   "invitalia.it": ["https://www.invitalia.it"],
   "mimit.gov.it": ["https://www.mimit.gov.it"],
   "incentivi.gov.it": ["https://www.incentivi.gov.it"],
