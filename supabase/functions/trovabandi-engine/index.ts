@@ -90,7 +90,12 @@ import {
   type PaidBudget,
 } from "./budget.ts";
 import {
-  localExtractApplicationUrl,
+  extractApplyLinks,
+  isFillablePdfUrl,
+  resolveOfficialApplyUrls,
+  shouldSkipApplyFetch,
+} from "./apply-links.ts";
+import {
   localExtractAteco,
   localExtractProtocolEmail,
   localOpportunityDraft,
@@ -171,6 +176,7 @@ const ALLOWED_ACTIONS = new Set([
   "release_gate",
   "status",
   "backfill_nulls",
+  "enrich_apply_urls",
 ]);
 
 const extractionSchema = {
@@ -1704,10 +1710,22 @@ async function storeOpportunity(
   markdown: string,
   extractionProvider: string,
   extraEvidence: DetailEvidenceRow[] = [],
+  page?: LoadedPage | null,
+  existing?: CatalogueRow | null,
 ): Promise<{ stored: boolean; verified: boolean; code: string }> {
   const officialUrl = normalizeUrl(hit.url);
   if (!officialUrl || !hostMatches(officialUrl, source.official_domain))
     return { stored: false, verified: false, code: "OFF_DOMAIN" };
+  const applyUrls = resolveOfficialApplyUrls({
+    html: page?.html,
+    markdown,
+    officialUrl,
+    officialDomain: source.official_domain,
+    extractedForms: extracted.forms_url,
+    extractedApplication: extracted.application_url,
+    existingForms: existing?.forms_url,
+    existingApplication: existing?.application_url,
+  });
 
   const deadline = safeTimestamp(extracted.deadline_at);
   const now = new Date();
@@ -1762,8 +1780,8 @@ async function storeOpportunity(
       "Dettagli nella fonte ufficiale.",
     official_url: officialUrl,
     notice_url: normalizeUrl(extracted.notice_url),
-    application_url: normalizeUrl(extracted.application_url),
-    forms_url: normalizeUrl(extracted.forms_url),
+    application_url: applyUrls.application_url,
+    forms_url: applyUrls.forms_url,
     protocol_email:
       normalizeText(extracted.protocol_email).slice(0, 320) || null,
     region: normalizeText(extracted.region).slice(0, 120) || source.region,
@@ -1949,12 +1967,12 @@ serve(async (req) => {
     const { data: rows, error: selErr } = await sb
       .from("trovabandi_opportunities")
       .select(
-        "id, official_url, deadline_at, min_grant_amount, max_grant_amount, total_budget, verification_status, raw_excerpt, last_seen_at, authority_level, application_url, protocol_email, eligible_ateco_prefixes",
+        "id, official_url, notice_url, deadline_at, min_grant_amount, max_grant_amount, total_budget, verification_status, raw_excerpt, last_seen_at, authority_level, application_url, forms_url, protocol_email, eligible_ateco_prefixes",
       )
       .in("verification_status", ["PARZIALE", "DA_VERIFICARE", "VERIFICATO"])
       .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`)
       .or(
-        "deadline_at.is.null,min_grant_amount.is.null,max_grant_amount.is.null,total_budget.is.null,application_url.is.null,protocol_email.is.null",
+        "deadline_at.is.null,min_grant_amount.is.null,max_grant_amount.is.null,total_budget.is.null,application_url.is.null,forms_url.is.null,protocol_email.is.null",
       )
       .order("last_seen_at", { ascending: true, nullsFirst: true })
       .limit(maxBatch);
@@ -1986,7 +2004,9 @@ serve(async (req) => {
         }
 
         const stored = usableStoredEvidence(row.raw_excerpt);
-        let page = await directOfficialScrape(row.official_url, domain);
+        let page = shouldSkipApplyFetch(row.official_url)
+          ? null
+          : await directOfficialScrape(row.official_url, domain);
         if (!page && stored) {
           page = {
             markdown: stored,
@@ -2016,9 +2036,27 @@ serve(async (req) => {
         if (row.total_budget == null && amounts.total_budget != null) {
           patch.total_budget = amounts.total_budget;
         }
-        if (!row.application_url) {
-          const appUrl = localExtractApplicationUrl(page.markdown, domain);
-          if (appUrl) patch.application_url = appUrl;
+        const applyUrls = resolveOfficialApplyUrls({
+          html: page.html,
+          markdown: page.markdown,
+          officialUrl: row.official_url,
+          officialDomain: domain,
+          existingForms: row.forms_url,
+          existingApplication: row.application_url,
+        });
+        if (applyUrls.application_url) {
+          if (applyUrls.application_url !== row.application_url) {
+            patch.application_url = applyUrls.application_url;
+          }
+        } else if (row.application_url) {
+          patch.application_url = null;
+        }
+        if (applyUrls.forms_url) {
+          if (applyUrls.forms_url !== row.forms_url) {
+            patch.forms_url = applyUrls.forms_url;
+          }
+        } else if (row.forms_url) {
+          patch.forms_url = null;
         }
         if (!row.protocol_email) {
           const pec = localExtractProtocolEmail(page.markdown);
@@ -2268,6 +2306,197 @@ serve(async (req) => {
     });
   }
 
+  if (action === "enrich_apply_urls") {
+    const maxBatch = Math.min(40, Math.max(1, Number(body.max_batch) || 16));
+    const dryRun = body.dry_run !== false;
+    const nowIso = new Date().toISOString();
+    const { data: catalog, error: selErr } = await sb
+      .from("trovabandi_opportunities")
+      .select(
+        "id,title,official_url,notice_url,forms_url,application_url,raw_excerpt,verification_status,official_source,last_seen_at,deadline_at",
+      )
+      .eq("official_source", true)
+      .in("verification_status", ["PARZIALE", "DA_VERIFICARE", "VERIFICATO"])
+      .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`)
+      .order("last_seen_at", { ascending: true, nullsFirst: true })
+      .limit(500);
+    if (selErr || !catalog) {
+      return response(500, { ok: false, code: "ENRICH_SELECT_FAILED" });
+    }
+
+    const pending = catalog.filter((row) => {
+      const forms = typeof row.forms_url === "string" ? row.forms_url : "";
+      const app = typeof row.application_url === "string"
+        ? row.application_url
+        : "";
+      if (!forms || !app) return true;
+      try {
+        const host = new URL(forms).pathname.replace(/\/+$/, "") || "/";
+        return host === "/" || host === "/it" || host === "/en" ||
+          host === "/home";
+      } catch {
+        return true;
+      }
+    });
+
+    const batch = pending.slice(0, maxBatch);
+    const results: Array<Record<string, unknown>> = [];
+    let gained = 0;
+    let stayEmpty = 0;
+    let clearedLanding = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    for (const row of batch) {
+      let domain = "";
+      try {
+        domain = new URL(row.official_url).hostname
+          .replace(/^www\./i, "")
+          .toLowerCase();
+      } catch {
+        results.push({ id: row.id, status: "BAD_URL" });
+        skipped++;
+        stayEmpty++;
+        continue;
+      }
+
+      const stored = usableStoredEvidence(row.raw_excerpt);
+      let html: string | undefined;
+      let markdown = stored ?? "";
+      const skipOfficial = shouldSkipApplyFetch(row.official_url);
+      if (!skipOfficial) {
+        const page = await directOfficialScrape(row.official_url, domain);
+        if (page) {
+          markdown = page.markdown || markdown;
+          html = page.html;
+        }
+      }
+      if (
+        (!html || !extractApplyLinks({
+          html,
+          markdown,
+          officialUrl: row.official_url,
+          officialDomain: domain,
+        }).forms_url) &&
+        typeof row.notice_url === "string" &&
+        !shouldSkipApplyFetch(row.notice_url)
+      ) {
+        let noticeDomain = domain;
+        try {
+          noticeDomain = new URL(row.notice_url).hostname
+            .replace(/^www\./i, "")
+            .toLowerCase();
+        } catch {
+          noticeDomain = domain;
+        }
+        const notice = await directOfficialScrape(row.notice_url, noticeDomain);
+        if (notice) {
+          markdown = `${markdown}\n${notice.markdown}`;
+          html = notice.html ?? html;
+        }
+      }
+
+      const resolved = resolveOfficialApplyUrls({
+        html,
+        markdown,
+        officialUrl: row.official_url,
+        officialDomain: domain,
+        existingForms: row.forms_url,
+        existingApplication: row.application_url,
+      });
+
+      const hadForms = typeof row.forms_url === "string" &&
+        row.forms_url.length > 0;
+      const gainedForms = !!resolved.forms_url &&
+        resolved.forms_url !== row.forms_url;
+      const gainedApp = !!resolved.application_url &&
+        resolved.application_url !== row.application_url;
+      const nowHasApply = !!(resolved.forms_url || resolved.application_url);
+      if (gainedForms || gainedApp) gained++;
+      else if (!nowHasApply) stayEmpty++;
+      if (hadForms && !resolved.forms_url) clearedLanding++;
+
+      const patch: Record<string, unknown> = { updated_at: nowIso };
+      if (resolved.forms_url !== (row.forms_url ?? null)) {
+        patch.forms_url = resolved.forms_url;
+      }
+      if (resolved.application_url !== (row.application_url ?? null)) {
+        patch.application_url = resolved.application_url;
+      }
+
+      const result = {
+        id: row.id,
+        title: row.title,
+        official_url: row.official_url,
+        skipped_fvg_bur: skipOfficial,
+        forms_url: resolved.forms_url,
+        application_url: resolved.application_url,
+        fillable_pdf: isFillablePdfUrl(resolved.forms_url),
+        gained: gainedForms || gainedApp,
+        stay_empty: !nowHasApply,
+        cleared_landing: hadForms && !resolved.forms_url,
+      };
+
+      if (Object.keys(patch).length <= 1) {
+        results.push({ ...result, status: "NO_CHANGE" });
+        skipped++;
+        continue;
+      }
+      if (dryRun) {
+        results.push({ ...result, status: "DRY_RUN", would_patch: patch });
+        continue;
+      }
+      const { error: upErr } = await sb
+        .from("trovabandi_opportunities")
+        .update(patch)
+        .eq("id", row.id)
+        .eq("official_source", true);
+      if (upErr) {
+        results.push({ ...result, status: "UPDATE_FAILED" });
+        skipped++;
+      } else {
+        updated++;
+        results.push({ ...result, status: "UPDATED" });
+      }
+    }
+
+    await sb.from("trovabandi_runs").insert({
+      action: "enrich_apply_urls",
+      source_id: null,
+      trigger_source: "manual",
+      status: "SUCCEEDED",
+      processed_count: batch.length,
+      verified_count: gained,
+      provider_usage: {
+        official_http: batch.filter((row) => !shouldSkipApplyFetch(row.official_url))
+          .length,
+        paid: 0,
+        catalog_official_open: catalog.length,
+        pending_apply_path: pending.length,
+      },
+      warnings: [
+        ...(dryRun ? ["dry_run"] : []),
+        "skip_bur_fvg",
+      ],
+      finished_at: nowIso,
+    });
+
+    return response(200, {
+      ok: true,
+      dry_run: dryRun,
+      catalog_official_open: catalog.length,
+      pending_apply_path: pending.length,
+      processed: batch.length,
+      remaining: Math.max(0, pending.length - batch.length),
+      would_gain_or_gained: gained,
+      stay_empty: stayEmpty,
+      cleared_landing: clearedLanding,
+      updated,
+      skipped,
+      results,
+    });
+  }
+
   if (action === "maintenance") {
 
     const now = new Date().toISOString();
@@ -2455,6 +2684,7 @@ serve(async (req) => {
     if (error) return response(500, { ok: false, code: "FEED_QUERY_FAILED" });
     const matched = (data ?? []).map((item) => ({
       ...item,
+      modulistica_url: (item as JsonObject).forms_url ?? null,
       match: matchOpportunity(item as JsonObject, profile),
     }));
     const statusRank: Record<string, number> = {
@@ -2813,7 +3043,7 @@ serve(async (req) => {
     const existingResult = await sb
       .from("trovabandi_opportunities")
       .select(
-        "official_url,verification_status,deadline_at,min_grant_amount,max_grant_amount,total_budget,application_url,protocol_email,raw_excerpt,eligible_ateco_prefixes",
+        "official_url,verification_status,deadline_at,min_grant_amount,max_grant_amount,total_budget,application_url,forms_url,protocol_email,raw_excerpt,eligible_ateco_prefixes",
       )
       .ilike("official_url", `%${source.official_domain}%`)
       .limit(250);
@@ -2848,8 +3078,21 @@ serve(async (req) => {
         diagnostics.push({ phase: "scrape", code: "SKIPPED_COMPLETE" });
         continue;
       }
-      directFetchAttempted++;
-      let scraped = await loadPage(hit.url, source.official_domain, paidBudget);
+      let scraped: LoadedPage | null = null;
+      if (shouldSkipApplyFetch(hit.url)) {
+        // BUR FVG: known hang. Nessun recrawl HTTP, solo excerpt già persistito.
+        diagnostics.push({ phase: "scrape", code: "SKIPPED_FVG_BUR" });
+        const storedFvg = usableStoredEvidence(existing?.raw_excerpt);
+        if (!storedFvg) continue;
+        scraped = {
+          markdown: storedFvg,
+          title: hit.title,
+          provider: "stored-excerpt",
+        };
+      } else {
+        directFetchAttempted++;
+        scraped = await loadPage(hit.url, source.official_domain, paidBudget);
+      }
       const officialOk = !!scraped &&
         (scraped.provider === "official-http" ||
           scraped.provider === "official-pdf" ||
@@ -2957,6 +3200,8 @@ serve(async (req) => {
         scraped.markdown,
         scraped.provider,
         enrichment.evidence,
+        scraped,
+        existing,
       );
       diagnostics.push({ phase: "store", code: stored.code });
       if (!stored.stored) {

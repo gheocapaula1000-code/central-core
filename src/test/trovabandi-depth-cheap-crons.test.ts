@@ -81,6 +81,15 @@ describe("TrovaBandi engine cheap-first wiring", () => {
     expect(ENGINE).not.toContain('.not("official_url", "ilike", "%.pdf")');
     expect(ENGINE).toContain("localExtractAteco");
     expect(ENGINE).toContain("localExtractProtocolEmail");
+    expect(ENGINE).toContain("resolveOfficialApplyUrls");
+  });
+
+  it("estrae modulistica/domanda in collect e ha enrich_apply_urls fail-closed", () => {
+    expect(ENGINE).toContain("enrich_apply_urls");
+    expect(ENGINE).toContain("modulistica_url");
+    expect(ENGINE).toContain("SKIPPED_FVG_BUR");
+    expect(ENGINE).toContain("shouldSkipApplyFetch");
+    expect(ENGINE).not.toContain("egjvullvkwpzyyworeml");
   });
 
   it("dry-run resta senza lease/provider e include lane", () => {

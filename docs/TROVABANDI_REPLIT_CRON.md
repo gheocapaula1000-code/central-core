@@ -18,10 +18,35 @@ le corsie sono `lane` sul `collect` notturno.
   `allow_paid: false` = solo seed listing + HTTP ufficiale + excerpt già
   persistito. `dry_run: true` = selezione fair senza lease, provider o
   scritture.
-- `backfill_nulls`: riempie scadenza, importi, ATECO, URL domanda e PEC
+- `backfill_nulls`: riempie scadenza, importi, ATECO, URL domanda / modulistica e PEC
   sulle righe già in catalogo. Preferisce `raw_excerpt` / HTTP ufficiale.
   Default `dry_run: true`. I cron di produzione passano `dry_run: false`
-  e `allow_paid_extract: false`.
+  e `allow_paid_extract: false`. Non ricrawla `bur.regione.fvg.it`.
+- `enrich_apply_urls`: one-shot fail-closed sulle righe `official_source`
+  già in catalogo. Legge la pagina ufficiale (e il `notice_url` se serve)
+  e persiste soltanto `forms_url` (modulistica / PDF) e `application_url`
+  (presenta la domanda / piattaforma) se il link è https sullo stesso
+  dominio e ha un'etichetta chiara. Le homepage (Invitalia/GSE) non
+  vengono copiate in `forms_url`. Default `dry_run: true`.
+  Non tocca BUR FVG (`bur.regione.fvg.it`, hang noto). Invocare sul live
+  Core `jpunnzgixcghuydstdlt`, mai su `central-core-prod` vuoto:
+
+```bash
+# dry-run: conta quanti official guadagnerebbero un URL reale
+curl -sS -X POST "$CENTRAL_CORE_API_URL/functions/v1/trovabandi-engine" \
+  -H "Content-Type: application/json" \
+  -H "x-internal-secret: $CENTRAL_CORE_JOB_SECRET" \
+  -d '{"action":"enrich_apply_urls","dry_run":true,"max_batch":40}'
+
+# scrittura: ripetere finché remaining=0
+curl -sS -X POST "$CENTRAL_CORE_API_URL/functions/v1/trovabandi-engine" \
+  -H "Content-Type: application/json" \
+  -H "x-internal-secret: $CENTRAL_CORE_JOB_SECRET" \
+  -d '{"action":"enrich_apply_urls","dry_run":false,"max_batch":16}'
+```
+
+  Il feed PWA espone `forms_url` anche come `modulistica_url`. Nessuna
+  colonna nuova: si usano `forms_url` e `application_url` già in tabella.
 - `maintenance`: marca SCADUTO i bandi con termine passato e chiude i run
   `RUNNING` bloccati da oltre 20 minuti.
 - `release_gate`: copertura 26h di tutte le fonti abilitate.

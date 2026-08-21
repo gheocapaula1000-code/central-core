@@ -4,8 +4,8 @@
 // campo in modo esplicito, si restituisce vuoto/null. Il matching resta
 // DA_VERIFICARE / PARZIALE quando ATECO, PEC o URL domanda mancano.
 
+import { extractApplyLinks } from "./apply-links.ts";
 import { EXTRACTION_CATEGORIES, type ExtractionCategory } from "./extraction.ts";
-import { isAllowedOfficialUrl } from "./scrape.ts";
 
 const ATECO_NEAR =
   /\b(?:codic[ei]\s+ateco|ateco(?:\s+ammess[ioe])?|classificazione\s+ateco)\b/gi;
@@ -14,8 +14,6 @@ const EMAIL =
   /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
 const PEC_HINT =
   /\b(?:pec|posta\s+elettronica\s+certificata|protocollo(?:\s+informatico)?)\b/i;
-const APPLICATION_HINT =
-  /\b(?:presenta(?:zione)?\s+(?:la\s+)?domanda|domanda\s+online|sportello|candidatura|apply|submission|modulo\s+di\s+domanda|piattaforma)\b/i;
 
 const OPPORTUNITY_HINT =
   /\b(?:bando|avviso\s+pubblico|contributo|incentiv[oi]|agevolazion[ei]|fondo\s+perduto|finanziamento\s+agevolato|voucher|call\s+for\s+(?:proposals?|tenders?)|grant|funding\s+opportunit)\b/i;
@@ -81,23 +79,24 @@ export function localExtractApplicationUrl(
   officialDomain: string,
 ): string | null {
   if (typeof markdown !== "string" || !officialDomain) return null;
-  const patterns = [
-    /\[([^\]]{0,80})\]\(\s*(https?:\/\/[^)\s]+)\s*\)/gi,
-    /https?:\/\/[^\s<>"']+/gi,
-  ];
-  for (const pattern of patterns) {
-    for (const match of markdown.matchAll(pattern)) {
-      const label = match[1] ?? "";
-      const raw = (match[2] ?? match[0] ?? "").replace(/[),.;]+$/, "");
-      if (!isAllowedOfficialUrl(raw, officialDomain)) continue;
-      const ctx = `${label} ${nearby(markdown, match.index ?? 0, 70)}`;
-      if (!APPLICATION_HINT.test(ctx) && !/\b(?:domanda|apply|sportello)\b/i.test(raw)) {
-        continue;
-      }
-      return raw;
-    }
-  }
-  return null;
+  return extractApplyLinks({
+    markdown,
+    officialUrl: `https://${officialDomain.replace(/^www\./i, "")}/placeholder`,
+    officialDomain,
+  }).application_url;
+}
+
+/** URL di modulistica / PDF compilabile, solo se etichettato sulla pagina. */
+export function localExtractFormsUrl(
+  markdown: string,
+  officialDomain: string,
+): string | null {
+  if (typeof markdown !== "string" || !officialDomain) return null;
+  return extractApplyLinks({
+    markdown,
+    officialUrl: `https://${officialDomain.replace(/^www\./i, "")}/placeholder`,
+    officialDomain,
+  }).forms_url;
 }
 
 export function looksLikeOpportunity(markdown: string): boolean {
@@ -153,6 +152,7 @@ export function localOpportunityDraft(input: {
       input.markdown,
       input.officialDomain,
     ),
+    forms_url: localExtractFormsUrl(input.markdown, input.officialDomain),
     protocol_email: localExtractProtocolEmail(input.markdown),
     eligible_ateco_prefixes: localExtractAteco(input.markdown),
     excluded_ateco_prefixes: [],
