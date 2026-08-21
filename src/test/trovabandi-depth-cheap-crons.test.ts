@@ -88,6 +88,8 @@ describe("TrovaBandi engine cheap-first wiring", () => {
     expect(ENGINE).toContain("enrich_apply_urls");
     expect(ENGINE).toContain("modulistica_url");
     expect(ENGINE).toContain("SKIPPED_FVG_BUR");
+    expect(ENGINE).toContain("SKIPPED_INDEX_LISTING");
+    expect(ENGINE).toContain("isEligibleOfficialOpportunity");
     expect(ENGINE).toContain("shouldSkipApplyFetch");
     expect(ENGINE).not.toContain("egjvullvkwpzyyworeml");
   });

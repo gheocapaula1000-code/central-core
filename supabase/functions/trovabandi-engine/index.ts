@@ -96,6 +96,11 @@ import {
   shouldSkipApplyFetch,
 } from "./apply-links.ts";
 import {
+  classifyOfficialListingUrl,
+  isEligibleOfficialOpportunity,
+  isIndexOrLandingUrl,
+} from "./opportunity-gate.ts";
+import {
   localExtractAteco,
   localExtractProtocolEmail,
   localOpportunityDraft,
@@ -2324,19 +2329,22 @@ serve(async (req) => {
       return response(500, { ok: false, code: "ENRICH_SELECT_FAILED" });
     }
 
+    const catalogJunk = catalog.filter((row) =>
+      classifyOfficialListingUrl(row.official_url) === "junk_listing"
+    ).length;
+    const catalogCandidates = catalog.length - catalogJunk;
+    const alreadyDistinctForms = catalog.filter((row) => {
+      const forms = typeof row.forms_url === "string" ? row.forms_url : "";
+      return !!forms && forms !== row.official_url &&
+        !isIndexOrLandingUrl(forms);
+    }).length;
     const pending = catalog.filter((row) => {
       const forms = typeof row.forms_url === "string" ? row.forms_url : "";
       const app = typeof row.application_url === "string"
         ? row.application_url
         : "";
       if (!forms || !app) return true;
-      try {
-        const host = new URL(forms).pathname.replace(/\/+$/, "") || "/";
-        return host === "/" || host === "/it" || host === "/en" ||
-          host === "/home";
-      } catch {
-        return true;
-      }
+      return isIndexOrLandingUrl(forms) || forms === row.official_url;
     });
 
     const batch = pending.slice(0, maxBatch);
@@ -2363,7 +2371,8 @@ serve(async (req) => {
       const stored = usableStoredEvidence(row.raw_excerpt);
       let html: string | undefined;
       let markdown = stored ?? "";
-      const skipOfficial = shouldSkipApplyFetch(row.official_url);
+      const junkListing = isIndexOrLandingUrl(row.official_url);
+      const skipOfficial = junkListing || shouldSkipApplyFetch(row.official_url);
       if (!skipOfficial) {
         const page = await directOfficialScrape(row.official_url, domain);
         if (page) {
@@ -2372,6 +2381,7 @@ serve(async (req) => {
         }
       }
       if (
+        !junkListing &&
         (!html || !extractApplyLinks({
           html,
           markdown,
@@ -2428,7 +2438,8 @@ serve(async (req) => {
         id: row.id,
         title: row.title,
         official_url: row.official_url,
-        skipped_fvg_bur: skipOfficial,
+        skipped_fvg_bur: shouldSkipApplyFetch(row.official_url),
+        junk_listing: junkListing,
         forms_url: resolved.forms_url,
         application_url: resolved.application_url,
         fillable_pdf: isFillablePdfUrl(resolved.forms_url),
@@ -2485,6 +2496,9 @@ serve(async (req) => {
       ok: true,
       dry_run: dryRun,
       catalog_official_open: catalog.length,
+      catalog_junk_listing: catalogJunk,
+      catalog_candidates: catalogCandidates,
+      already_distinct_forms: alreadyDistinctForms,
       pending_apply_path: pending.length,
       processed: batch.length,
       remaining: Math.max(0, pending.length - batch.length),
@@ -3078,6 +3092,10 @@ serve(async (req) => {
         diagnostics.push({ phase: "scrape", code: "SKIPPED_COMPLETE" });
         continue;
       }
+      if (isIndexOrLandingUrl(hit.url)) {
+        diagnostics.push({ phase: "scrape", code: "SKIPPED_INDEX_LISTING" });
+        continue;
+      }
       let scraped: LoadedPage | null = null;
       if (shouldSkipApplyFetch(hit.url)) {
         // BUR FVG: known hang. Nessun recrawl HTTP, solo excerpt già persistito.
@@ -3138,6 +3156,15 @@ serve(async (req) => {
         max_grant_amount: localAmounts.max_grant_amount?.value ?? null,
         total_budget: localAmounts.total_budget?.value ?? null,
       });
+      if (
+        !isEligibleOfficialOpportunity({
+          officialUrl: hit.url,
+          markdown: scraped.markdown,
+        })
+      ) {
+        diagnostics.push({ phase: "extract", code: "NOT_OPPORTUNITY" });
+        continue;
+      }
       const readable = documentIsReadable(scraped.markdown);
       const needPaidExtract = shouldUsePaidProvider(officialOk, readable) &&
         !shouldSkipPaidExtract(existing) &&

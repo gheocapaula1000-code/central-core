@@ -47,6 +47,48 @@ curl -sS -X POST "$CENTRAL_CORE_API_URL/functions/v1/trovabandi-engine" \
 
   Il feed PWA espone `forms_url` anche come `modulistica_url`. Nessuna
   colonna nuova: si usano `forms_url` e `application_url` già in tabella.
+
+### Quanti dei 442 official avrebbero un `forms_url` reale
+
+Conteggio live (Paula, 2026-08-21) su `trovabandi_opportunities`:
+
+| Bucket | N |
+| --- | --- |
+| official rows | 442 |
+| `forms_url` non null | 60 |
+| di cui distinti da `official_url` | 31 |
+| `forms_url` = `official_url` (copia landing) | 29 |
+| `forms_url` null | 382 |
+| `application_url` non null | 103 |
+| di cui distinti da official/notice | 40 |
+
+Il parser è fail-closed: **non inventa modulistica**. Quindi:
+
+- **Già un URL distinto (31):** restano solo se non sono a loro volta homepage/FAQ. Altrimenti vengono svuotati.
+- **Copie landing (29):** non restano in `forms_url`. Restano vuoti, salvo un link etichettato *diverso* sulla pagina.
+- **Null (382):** restano vuoti se la pagina è indice/homepage/FAQ/newsletter/video-chrome, oppure se l'avviso non pubblica un form. Solo una scheda candidato con link etichettato guadagna un `forms_url`.
+- **Stima onesta senza fetch delle 442 pagine:** la maggioranza resta vuota. Il feed PWA da 74 matched ha già 5 sole landing HTML come modulistica e molti non-avvisi; quelli restano vuoti di proposito.
+- **Upper bound dei *nuovi* `forms_url`:** le sole schede `candidate` (non junk listing) che pubblicano un PDF/modulo o “presenta la domanda”. Non è un numero inventabile da URL.
+
+Classifica read-only (nessun fetch, nessun write, non `central-core-prod`):
+
+```sql
+SELECT
+  count(*) FILTER (
+    WHERE official_url ~* '(:\/\/[^\/]+\/?$)|\/(index(\.html|\.php)?|home|homepage|faq|faqs|newsletter|bandi|avvisi|incentivi|contributi)\/?$'
+  ) AS junk_or_index_url,
+  count(*) FILTER (
+    WHERE forms_url IS NOT NULL AND forms_url IS DISTINCT FROM official_url
+  ) AS forms_distinct_from_official,
+  count(*) FILTER (
+    WHERE forms_url IS NOT NULL AND forms_url = official_url
+  ) AS forms_copied_official,
+  count(*) FILTER (WHERE forms_url IS NULL) AS forms_null
+FROM public.trovabandi_opportunities
+WHERE official_source;
+```
+
+`enrich_apply_urls` dry-run riporta `catalog_junk_listing`, `catalog_candidates`, `already_distinct_forms`, `would_gain_or_gained`, `stay_empty`. Collect non persiste più homepage/FAQ/newsletter/index come opportunità (`SKIPPED_INDEX_LISTING`).
 - `maintenance`: marca SCADUTO i bandi con termine passato e chiude i run
   `RUNNING` bloccati da oltre 20 minuti.
 - `release_gate`: copertura 26h di tutte le fonti abilitate.

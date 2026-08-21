@@ -8,6 +8,7 @@
 // (piattaforma / presenta la domanda). La PWA espone forms_url anche come
 // modulistica_url.
 
+import { isIndexOrLandingUrl } from "./opportunity-gate.ts";
 import { isAllowedOfficialUrl } from "./scrape.ts";
 
 export const FVG_BUR_HOST = "bur.regione.fvg.it";
@@ -29,25 +30,8 @@ const APPLICATION_PATH =
 const FORMS_PATH =
   /\/(?:modulistica|modulo(?:-di-)?domanda|moduli|facsimile|formulario)(?:\/|$|\.)|modulo[-_](?:domanda|partecipazione)|domanda[-_](?:partecipazione|adesione)|modulistica/i;
 
-const LANDING_PATHS = new Set([
-  "/",
-  "/it",
-  "/en",
-  "/fr",
-  "/de",
-  "/home",
-  "/homepage",
-  "/index",
-  "/index.html",
-  "/index.php",
-  "/it-it",
-  "/en-gb",
-  "/it/home",
-  "/en/home",
-]);
-
 const MARKETING_PATH =
-  /\/(?:chi-siamo|about(?:-us)?|news|comunicati|stampa|contatti|contact|privacy|cookie|login|area-riservata|newsletter|eventi|media|lavora-con-noi)(?:\/|$)/i;
+  /\/(?:chi-siamo|about(?:-us)?|faq|faqs|domande-frequenti|news|comunicati|stampa|contatti|contact|privacy|cookie|login|area-riservata|newsletter|eventi|media|lavora-con-noi)(?:\/|$)/i;
 
 const BLOCKED_HREF = /^(javascript|mailto|tel|data):/i;
 
@@ -129,7 +113,7 @@ export function isLandingPageUrl(
   try {
     const parsed = new URL(url);
     const path = (parsed.pathname.replace(/\/+$/, "") || "/").toLowerCase();
-    if (LANDING_PATHS.has(path)) return true;
+    if (isIndexOrLandingUrl(url)) return true;
     if (officialUrl && canonicalizeApplyUrl(url) === canonicalizeApplyUrl(officialUrl)) {
       return true;
     }

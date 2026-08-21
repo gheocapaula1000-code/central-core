@@ -8,6 +8,8 @@
 //  - fail-closed: qualunque ambiguità restituisce un codice di errore
 //    non sensibile (mai URL completi, contenuti o secret).
 
+import { isIndexOrLandingUrl } from "./opportunity-gate.ts";
+
 export type JsonObject = Record<string, unknown>;
 
 export const EXTRACTION_CATEGORIES = [
@@ -203,6 +205,7 @@ export function validateExtraction(
       code: "SCHEMA_INVALID" | "CATEGORY_INVALID" | "URL_OFF_DOMAIN" | "NOT_OPPORTUNITY";
     } {
   if (parsed.is_opportunity !== true) return { ok: false, code: "NOT_OPPORTUNITY" };
+  if (isIndexOrLandingUrl(evidenceUrl)) return { ok: false, code: "NOT_OPPORTUNITY" };
 
   const title = typeof parsed.title === "string" ? parsed.title.trim() : "";
   const summary = typeof parsed.summary === "string" ? parsed.summary.trim() : "";

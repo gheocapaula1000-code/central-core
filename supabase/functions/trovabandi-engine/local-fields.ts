@@ -6,6 +6,7 @@
 
 import { extractApplyLinks } from "./apply-links.ts";
 import { EXTRACTION_CATEGORIES, type ExtractionCategory } from "./extraction.ts";
+import { isEligibleOfficialOpportunity } from "./opportunity-gate.ts";
 
 const ATECO_NEAR =
   /\b(?:codic[ei]\s+ateco|ateco(?:\s+ammess[ioe])?|classificazione\s+ateco)\b/gi;
@@ -136,7 +137,14 @@ export function localOpportunityDraft(input: {
   max_grant_amount?: number | null;
   total_budget?: number | null;
 }): Record<string, unknown> | null {
-  if (!looksLikeOpportunity(input.markdown)) return null;
+  if (
+    !isEligibleOfficialOpportunity({
+      officialUrl: input.officialUrl,
+      markdown: input.markdown,
+    })
+  ) {
+    return null;
+  }
   const title = localTitle(input.markdown, input.titleHint ?? "");
   if (title.length < 3) return null;
   const summary = input.markdown.replace(/\s+/g, " ").trim().slice(0, 800);
