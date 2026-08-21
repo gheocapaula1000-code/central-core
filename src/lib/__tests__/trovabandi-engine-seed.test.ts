@@ -95,6 +95,26 @@ describe("trovabandi seed listing", () => {
         "cittametropolitana.ve.it",
         "https://www.cittametropolitana.ve.it/amministrazione-trasparente/sovvenzioni-contributi-sussidi-vantaggi-economici",
       ],
+      [
+        "trasparenza.cittametropolitana.torino.it",
+        "https://trasparenza.cittametropolitana.torino.it/sovvenzioni-contributi-sussidi-vantaggi-economici",
+      ],
+      [
+        "cittametropolitana.mi.it",
+        "https://www.cittametropolitana.mi.it/citta-metropolitana/amministrazione-trasparente/sovvenzioni_contributi_sussidi_vantaggi_economici/",
+      ],
+      [
+        "web.provincia.vr.it",
+        "https://web.provincia.vr.it/it/servizi/contributi-e-patrocini",
+      ],
+      [
+        "provincia.como.it",
+        "https://www.provincia.como.it/bandi-di-contributi",
+      ],
+      [
+        "amministrazionetrasparente.provincia.pc.it",
+        "https://amministrazionetrasparente.provincia.pc.it/L190/?idSezione=20&id=&sort=&activePage=&search=",
+      ],
       ["galaltobellunese.com", "https://www.galaltobellunese.com/bandi/"],
       ["galdeltapo.it", "https://galdeltapo.it/bandi/"],
       ["montagnappennino.it", "https://www.montagnappennino.it/bandi/"],
