@@ -66,6 +66,15 @@ describe("validateExtraction — nessun falso positivo", () => {
     if (out.ok) expect(out.data.official_url).toBe(url);
   });
 
+  it("rifiuta evidence su homepage o FAQ", () => {
+    expect(
+      validateExtraction({ ...VALID }, "invitalia.it", "https://www.invitalia.it/"),
+    ).toEqual({ ok: false, code: "NOT_OPPORTUNITY" });
+    expect(
+      validateExtraction({ ...VALID }, "pd.camcom.it", "https://www.pd.camcom.it/faq"),
+    ).toEqual({ ok: false, code: "NOT_OPPORTUNITY" });
+  });
+
   it("rifiuta is_opportunity diverso da true", () => {
     expect(validateExtraction({ ...VALID, is_opportunity: false }, domain, url)).toEqual({
       ok: false,

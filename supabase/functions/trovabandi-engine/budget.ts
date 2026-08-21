@@ -28,6 +28,7 @@ export type CatalogueRow = {
   max_grant_amount?: number | null;
   total_budget?: number | null;
   application_url?: string | null;
+  forms_url?: string | null;
   protocol_email?: string | null;
   raw_excerpt?: string | null;
   eligible_ateco_prefixes?: string[] | null;
