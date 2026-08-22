@@ -151,6 +151,118 @@ export const SEED_LISTING_URLS: Record<string, string[]> = {
   "funding-tenders.ec.europa.eu": ["https://funding-tenders.ec.europa.eu"],
   "eic.ec.europa.eu": ["https://eic.ec.europa.eu"],
   "eismea.ec.europa.eu": ["https://eismea.ec.europa.eu"],
+  "ag.camcom.it": [
+    "https://www.ag.camcom.it/servizio/promozione/",
+    "https://www.ag.camcom.it/servizio/bando-voucher-pid-2026/",
+  ],
+  "ba.camcom.it": ["https://www.ba.camcom.it/info/bandi"],
+  "basilicata.camcom.it": ["https://www.basilicata.camcom.it/avvisi-bandi"],
+  "brta.camcom.it": ["https://www.brta.camcom.it/bandi"],
+  "caor.camcom.it": ["https://www.caor.camcom.it/bandi"],
+  "cameracommercio.cl.it": [
+    "https://www.cameracommercio.cl.it/amministrazione-trasparente-main/bandi-in-corso/bandi-in-corso/",
+  ],
+  "ce.camcom.it": ["https://www.ce.camcom.it/bandi-incentivi"],
+  "czkrvv.camcom.it": ["https://czkrvv.camcom.it/category/bandi/"],
+  "chpe.camcom.it": ["https://www.chpe.camcom.it/pagina189754_bandi.html"],
+  "cs.camcom.gov.it": [
+    "https://www.cs.camcom.gov.it/it/content/service/avvisi-e-bandi-della-camera",
+  ],
+  "fg.camcom.it": [
+    "https://www.fg.camcom.it/bandi-contributi/bandi-sostegno-imprese",
+  ],
+  "frlt.camcom.it": ["https://www.frlt.camcom.it/bandi"],
+  "cameragransasso.camcom.it": [
+    "https://www.cameragransasso.camcom.it/it/la-camera/promozione-economica/bandi/",
+  ],
+  "irpiniasannio.camcom.it": [
+    "https://www.irpiniasannio.camcom.it/bandi-di-contributi",
+  ],
+  "le.camcom.it": [
+    "https://www.le.camcom.it/promozione-e-sviluppo-del-territorio/bandi-e-contributi",
+  ],
+  "marche.camcom.it": [
+    "https://www.marche.camcom.it/strumenti-e-servizi/bandi-e-contributi",
+  ],
+  "me.camcom.it": ["https://www.me.camcom.it/bandi"],
+  "molise.camcom.gov.it": [
+    "https://www.molise.camcom.gov.it/promuovi-la-tua-impresa-e-il-tuo-territorio/bandi-il-sostegno-alle-imprese",
+  ],
+  "na.camcom.gov.it": ["https://www.na.camcom.gov.it/bandi"],
+  "nu.camcom.it": [
+    "https://nu.camcom.it/it/camera/bandi/",
+    "https://nu.camcom.it/it/camera/bandi/contributi-attivita-promozionali/",
+  ],
+  "paen.camcom.gov.it": ["https://www.paen.camcom.gov.it/it/bandi"],
+  "rc.camcom.gov.it": [
+    "https://www.rc.camcom.gov.it/internazionalizzazione/bandi-e-iniziative-linternazionalizzazione",
+    "https://www.rc.camcom.gov.it/bandi-e-avvisi/voucher-linnovazione-digitale-con-il-bando-doppia-transizione-anno-2026",
+  ],
+  "rivt.camcom.it": [
+    "https://www.rivt.camcom.it/it/attivita_34/supporto-alle-imprese_433/",
+  ],
+  "rm.camcom.it": [
+    "https://www.rm.camcom.it/pagina82_avvisi-pubblici-bandi-per-contributi-e-attivit-promozionali-altre-opportunit.html",
+    "https://www.rm.camcom.it/pagina105_contributi.html",
+  ],
+  "sa.camcom.it": ["https://www.sa.camcom.it/bandi"],
+  "ss.camcom.it": ["https://www.ss.camcom.it/bandi"],
+  "ctrgsr.camcom.gov.it": [
+    "https://ctrgsr.camcom.gov.it/it/blog/bando-voucher-doppia-transizione-2026",
+  ],
+  "tp.camcom.it": ["https://www.tp.camcom.it/bandi"],
+  "umbria.camcom.it": [
+    "https://www.umbria.camcom.it/promuovere-limpresa-e-il-territorio/bandi-e-contributi",
+  ],
+  "regione.lazio.it": ["https://www.regione.lazio.it/bur"],
+  "bur.regione.marche.it": ["https://bur.regione.marche.it/"],
+  "bur.regione.umbria.it": ["https://bur.regione.umbria.it/"],
+  "bura.regione.abruzzo.it": ["https://bura.regione.abruzzo.it/"],
+  "burc.regione.campania.it": ["https://burc.regione.campania.it/"],
+  "burp.regione.puglia.it": ["https://burp.regione.puglia.it/"],
+  "regione.basilicata.it": [
+    "https://www.regione.basilicata.it/?servizi-online=bur-bollettino-ufficiale-della-regione-basilicata",
+  ],
+  "buras.regione.sardegna.it": ["https://buras.regione.sardegna.it/"],
+  "provincia.perugia.it": [
+    "https://www.provincia.perugia.it/amministrazione-trasparente/sovvenzioni-contributi-sussidi-vantaggi-economici",
+  ],
+  "provincia.benevento.it": [
+    "https://www.provincia.benevento.it/amministrazione-trasparente/sovvenzioni-contributi-sussidi-vantaggi-economici",
+  ],
+  "provincia.fermo.it": [
+    "https://www.provincia.fermo.it/amministrazione-trasparente/sovvenzioni-contributi-sussidi-vantaggi-economici",
+  ],
+  "casadivetro.provincia.pu.it": [
+    "https://casadivetro.provincia.pu.it/L190/?idSezione=20&id=&sort=&activePage=&search=",
+  ],
+  "cittametropolitanacagliari.it": [
+    "https://cittametropolitanacagliari.it/portale/page/it/bandi_avvisi",
+  ],
+  "galcasacastra.it": ["https://www.galcasacastra.it/bandi/"],
+  "galcilento.it": ["https://www.galcilento.it/category/bandi/"],
+  "sentieridelbuonvivere.it": [
+    "https://www.sentieridelbuonvivere.it/bandi/",
+  ],
+  "galpartenio.it": ["https://galpartenio.it/bandi/"],
+  "galterraevita.eu": ["https://www.galterraevita.eu/bandi-aperti/"],
+  "galvesuvioverde.it": ["https://www.galvesuvioverde.it/bandi/"],
+  "inail.it": [
+    "https://www.inail.it/portale/prevenzione-e-sicurezza/it/prevenzione-e-sicurezza/finanziamenti-per-la-sicurezza/incentivi-alle-imprese.html",
+  ],
+  "ice.it": [
+    "https://www.ice.it/it/finanziamenti-internazionali",
+    "https://www.ice.it/it/promozione-del-made-italy/concessione-contributi-centri-tecnologici",
+  ],
+  "fondimpresa.it": [
+    "https://www.fondimpresa.it/i-canali-di-finanziamento/conto-di-sistema",
+  ],
+  "simest.it": [
+    "https://www.simest.it/per-le-imprese/finanziamenti-agevolati",
+  ],
+  "gse.it": [
+    "https://www.gse.it/servizi-per-te/fonti-rinnovabili/ferx/bandi",
+  ],
 };
 
 export const SEED_PROVIDER = "seed-listing";

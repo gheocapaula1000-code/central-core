@@ -4,6 +4,10 @@ import {
   isSameDomainHttpsUrl,
   seedListingUrls,
 } from "../../../supabase/functions/trovabandi-engine/seed.ts";
+import {
+  TROVABANDI_ITALY_NEW_COUNTS,
+  TROVABANDI_ITALY_NEW_SOURCES,
+} from "./trovabandi-italy-sources.fixture.ts";
 
 const DOMAIN = "provincia.pd.it";
 const SEED =
@@ -146,5 +150,68 @@ describe("trovabandi seed listing", () => {
       [],
     );
     expect(extractSameDomainLinks("", SEED, DOMAIN)).toEqual([]);
+  });
+});
+
+describe("trovabandi Italy Centro-Sud + nazionali fixture", () => {
+  it("dichiara i conteggi esatti per kind", () => {
+    const byKind = Object.fromEntries(
+      (["CCIAA", "BUR", "PROVINCIA", "GAL", "NAZIONALE"] as const).map(
+        (kind) => [
+          kind,
+          TROVABANDI_ITALY_NEW_SOURCES.filter((row) => row.kind === kind)
+            .length,
+        ],
+      ),
+    );
+    expect(byKind).toEqual(TROVABANDI_ITALY_NEW_COUNTS);
+    expect(TROVABANDI_ITALY_NEW_SOURCES).toHaveLength(53);
+  });
+
+  it("espone ogni nuovo official_domain con listing https sullo stesso dominio", () => {
+    for (const row of TROVABANDI_ITALY_NEW_SOURCES) {
+      expect(seedListingUrls(row.official_domain)).toContain(row.listing);
+      expect(isSameDomainHttpsUrl(row.listing, row.official_domain)).toBe(
+        true,
+      );
+    }
+  });
+
+  it("copre ogni Camera Centro-Sud dell'elenco Unioncamere con almeno un listing", () => {
+    const unioncamereCentroSud = [
+      "ag.camcom.it",
+      "ba.camcom.it",
+      "basilicata.camcom.it",
+      "brta.camcom.it",
+      "caor.camcom.it",
+      "cameracommercio.cl.it",
+      "ce.camcom.it",
+      "czkrvv.camcom.it",
+      "chpe.camcom.it",
+      "cs.camcom.gov.it",
+      "fg.camcom.it",
+      "frlt.camcom.it",
+      "cameragransasso.camcom.it",
+      "irpiniasannio.camcom.it",
+      "le.camcom.it",
+      "marche.camcom.it",
+      "me.camcom.it",
+      "molise.camcom.gov.it",
+      "na.camcom.gov.it",
+      "nu.camcom.it",
+      "paen.camcom.gov.it",
+      "rc.camcom.gov.it",
+      "rivt.camcom.it",
+      "rm.camcom.it",
+      "sa.camcom.it",
+      "ss.camcom.it",
+      "ctrgsr.camcom.gov.it",
+      "tp.camcom.it",
+      "umbria.camcom.it",
+    ];
+    expect(unioncamereCentroSud).toHaveLength(29);
+    for (const domain of unioncamereCentroSud) {
+      expect(seedListingUrls(domain).length).toBeGreaterThan(0);
+    }
   });
 });
