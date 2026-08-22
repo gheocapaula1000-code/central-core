@@ -220,8 +220,10 @@ export async function handlePhotoWow(
   const zona = {
     nomeComune: str(pricing.comune) || resolvedComune || null,
     provincia: resolvedProvincia || null,
-    nomeZonaOmi: str(pricing.zona) || null,
+    nomeZonaOmi: str(pricing.zona) || str(pricing.areaName) || null,
     fascia: str(pricing.zonaDescrizione) || null,
+    officialMicrozona: str(pricing.officialMicrozona) || null,
+    areaId: str(pricing.areaId) || null,
     valoreMinOmi: num(pricing.prezzoMqMin),
     valoreMaxOmi: num(pricing.prezzoMqMax),
     tendenzaMercato: null,

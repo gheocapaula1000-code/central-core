@@ -226,6 +226,9 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
           locazioneMqMax: omi.loc_max ?? null,
           zona: omi.zona,
           zonaDescrizione: omi.zona_descr,
+          officialMicrozona: omi.officialMicrozona ?? null,
+          areaId: omi.areaId ?? null,
+          areaName: omi.areaName ?? null,
           comune: omi.comune,
           tipologia: omi.tipologia,
           fonte: omi.fonte,
@@ -255,13 +258,14 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
         console.log("[pricing] omi row:", { compr_min: row.compr_min, compr_max: row.compr_max, media: Math.round((Number(row.compr_min) + Number(row.compr_max)) / 2) });
       }
 
+      const officialCode = omi.officialMicrozona || omi.zona;
       const confidenceLabel = omi.polygonMatch
-        ? `Prezzi ufficiali OMI — zona ${omi.zona} (${omi.zona_descr}), match spaziale poligono, confidence: ${(omi.matchConfidence * 100).toFixed(0)}%`
+        ? `Prezzi ufficiali OMI — ${omi.areaName ? `area ${omi.areaName}, ` : ""}microzona ${officialCode} (${omi.zona_descr}), match spaziale poligono, confidence: ${(omi.matchConfidence * 100).toFixed(0)}%`
         : sourceType === "official"
-          ? `Prezzi ufficiali OMI — zona ${omi.zona} (${omi.zona_descr}), match confidence: ${(omi.matchConfidence * 100).toFixed(0)}%`
+          ? `Prezzi ufficiali OMI — zona ${officialCode} (${omi.zona_descr}), match confidence: ${(omi.matchConfidence * 100).toFixed(0)}%`
           : omi.matchMethod === "comune_aggregate"
-            ? `Prezzi OMI comunali elaborati — ${omi.comune}, ${omi.zona_descr}, confidence ${(omi.matchConfidence * 100).toFixed(0)}% — nessuna microzona scelta`
-            : `Prezzi OMI elaborati — zona ${omi.zona} (${omi.zona_descr}), match ${omi.matchMethod} con confidence ${(omi.matchConfidence * 100).toFixed(0)}% — non verificato spazialmente`;
+            ? `Punto non zonato — nessuna area Padova scelta, nessun min/max comunale da 18 microzone`
+            : `Prezzi OMI elaborati — zona ${officialCode} (${omi.zona_descr}), match ${omi.matchMethod} con confidence ${(omi.matchConfidence * 100).toFixed(0)}% — non verificato spazialmente`;
 
       const matchBasis = omi.polygonMatch
         ? "match spaziale poligono OMI"
@@ -295,6 +299,9 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
         locazioneMqMax: omi.loc_max ?? null,
         zona: omi.zona,
         zonaDescrizione: omi.zona_descr,
+        officialMicrozona: omi.officialMicrozona ?? null,
+        areaId: omi.areaId ?? null,
+        areaName: omi.areaName ?? null,
         comune: omi.comune,
         tipologia: omi.tipologia,
         fonte: omi.fonte,
@@ -324,6 +331,9 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
       locazioneMqMax: null,
       zona: null,
       zonaDescrizione: null,
+      officialMicrozona: null,
+      areaId: null,
+      areaName: null,
       comune: omi.comune ?? null,
       tipologia: null,
       fonte: omi.fonte,
