@@ -6,7 +6,7 @@
 import { ok, fail } from "../_shared/http.ts";
 import { getApifyToken } from "../_shared/apify.ts";
 import { callAIVision, parseJSON, reverseGeocode, classifyOMIPricing, PUBLICATION_POLICY } from "./shared.ts";
-import { lookupOMI, lookupOMIByCoordinates, type OMIResult } from "./omi-lookup.ts";
+import { resolveOMIPricing, type OMIResult } from "./omi-lookup.ts";
 import { resolveGeo } from "./geo-resolution.ts";
 import { collectStreetEvidence, type StreetEvidenceMergeResult } from "./street-evidence.ts";
 import { collectMarketData } from "./market-data.ts";
@@ -202,23 +202,13 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
   if (!address && (lat == null || lng == null)) return fail(req, 400, "MISSING_ADDRESS", "Provide address or lat/lng", debugId);
 
   try {
-    let omi: OMIResult;
-
-    // COORDINATES-FIRST: polygon match is the primary path
-    if (lat != null && lng != null) {
-      console.log(`[scan/pricing] Coordinates-first path: (${lat}, ${lng}), debug_id=${debugId}`);
-      omi = await lookupOMIByCoordinates(lat, lng);
-
-      // If polygon match failed, fallback to address-based (demoted)
-      if (!omi.found && address) {
-        console.log(`[scan/pricing] Polygon miss — fallback to address lookup, debug_id=${debugId}`);
-        omi = await lookupOMI(address);
-      }
-    } else {
-      // No coordinates — address-only fallback
-      console.log(`[scan/pricing] No coordinates — address-only path, debug_id=${debugId}`);
-      omi = await lookupOMI(address);
-    }
+    console.log(`[scan/pricing] resolveOMIPricing lat=${lat ?? "n/a"} lng=${lng ?? "n/a"} debug_id=${debugId}`);
+    const omi: OMIResult = await resolveOMIPricing({
+      lat,
+      lng,
+      address,
+      comune: typeof body.comune === "string" ? body.comune : undefined,
+    });
 
     if (omi.found && omi.compr_min != null && omi.compr_max != null) {
       // Unified publication policy — determines sourceType from match quality
@@ -269,17 +259,30 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
         ? `Prezzi ufficiali OMI — zona ${omi.zona} (${omi.zona_descr}), match spaziale poligono, confidence: ${(omi.matchConfidence * 100).toFixed(0)}%`
         : sourceType === "official"
           ? `Prezzi ufficiali OMI — zona ${omi.zona} (${omi.zona_descr}), match confidence: ${(omi.matchConfidence * 100).toFixed(0)}%`
-          : `Prezzi OMI elaborati — zona ${omi.zona} (${omi.zona_descr}), match ${omi.matchMethod} con confidence ${(omi.matchConfidence * 100).toFixed(0)}% — non verificato spazialmente`;
+          : omi.matchMethod === "comune_aggregate"
+            ? `Prezzi OMI comunali elaborati — ${omi.comune}, ${omi.zona_descr}, confidence ${(omi.matchConfidence * 100).toFixed(0)}% — nessuna microzona scelta`
+            : `Prezzi OMI elaborati — zona ${omi.zona} (${omi.zona_descr}), match ${omi.matchMethod} con confidence ${(omi.matchConfidence * 100).toFixed(0)}% — non verificato spazialmente`;
+
+      const matchBasis = omi.polygonMatch
+        ? "match spaziale poligono OMI"
+        : omi.matchMethod === "single_zone"
+          ? "zona unica nel comune"
+          : omi.matchMethod === "comune_aggregate"
+            ? "range comunale da tabelle OMI ufficiali (senza scelta di zona)"
+            : "identificazione AI dell'indirizzo";
 
       const limitationsBase = [
         ...omi.limitations,
         "Prezzi espressi come range min/max per tipologia e stato conservativo",
-        `Match zona basato su ${omi.polygonMatch ? "match spaziale poligono OMI" : omi.matchMethod === "single_zone" ? "zona unica nel comune" : "identificazione AI dell'indirizzo"}`,
+        `Match zona basato su ${matchBasis}`,
         "Dati riferiti a valori normali di mercato (non valori di realizzo o giudiziari)",
         "mediaZona e trend5Anni non disponibili — nessuna fonte reale per queste metriche",
       ];
-      if (sourceType === "elaborated" && !omi.polygonMatch) {
+      if (sourceType === "elaborated" && omi.matchMethod === "ai_matched") {
         limitationsBase.push("sourceType=elaborated: la zona OMI è stata determinata tramite AI, non con match spaziale");
+      }
+      if (sourceType === "elaborated" && omi.matchMethod === "comune_aggregate") {
+        limitationsBase.push("sourceType=elaborated: prezzi OMI reali a livello comunale — microzona non determinata");
       }
 
       return ok(req, {
@@ -323,7 +326,7 @@ export async function handleScanPricing(req: Request, body: Record<string, unkno
       zonaDescrizione: null,
       comune: omi.comune ?? null,
       tipologia: null,
-      fonte: FONTE,
+      fonte: omi.fonte,
       omiMatchConfidence: 0,
       omiMatchMethod: omi.matchMethod,
       polygonMatch: false,

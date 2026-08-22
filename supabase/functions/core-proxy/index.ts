@@ -55,6 +55,23 @@ const SOTTRA_ROUTES = new Set([
   "civiko/property-owner-report",
 ]);
 
+// Sottra official engines — forwarded to /functions/v1/sottra/{suffix}
+// with x-source-app: sottra. Includes the live PWA photoWow alias
+// `/civiko-property-from-photo` (Sottra-only via this proxy; Civiko One
+// keeps calling civiko-property-from-photo directly).
+const SOTTRA_DIRECT_ROUTES: Record<string, string> = {
+  "sottra/photo-wow": "scan/photo-wow",
+  "sottra/scan/photo-wow": "scan/photo-wow",
+  "photoWow": "scan/photo-wow",
+  "photo-wow": "scan/photo-wow",
+  "civiko-property-from-photo": "scan/photo-wow",
+  "sottra/scan/identify": "scan/identify",
+  "sottra/scan/pricing": "scan/pricing",
+  "sottra/health": "health",
+};
+
+const SOTTRA_DIRECT_GET = new Set(["sottra/health"]);
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return handleOptions(req);
 
@@ -87,7 +104,10 @@ serve(async (req) => {
 
   const normalizedEndpoint = endpoint.replace(/^\//, "");
   const salesProspectsDetailMatch = normalizedEndpoint.match(/^civiko\/billing\/sales-prospects\/[a-f0-9]{40}$/i);
-  const targetFunction = ROUTE_MAP[normalizedEndpoint] ?? (salesProspectsDetailMatch ? "civiko-billing" : undefined);
+  const sottraSuffix = SOTTRA_DIRECT_ROUTES[normalizedEndpoint];
+  const targetFunction = sottraSuffix
+    ? "sottra"
+    : (ROUTE_MAP[normalizedEndpoint] ?? (salesProspectsDetailMatch ? "civiko-billing" : undefined));
 
   if (!targetFunction) {
     console.warn(`[core-proxy] endpoint non autorizzato: ${normalizedEndpoint}`);
@@ -100,12 +120,16 @@ serve(async (req) => {
   try {
     let targetUrl: string;
     let requestBody: unknown;
-    const upstreamMethod = normalizedEndpoint.startsWith("civiko/billing/my-zone") ||
+    const upstreamMethod = SOTTRA_DIRECT_GET.has(normalizedEndpoint) ||
+      normalizedEndpoint.startsWith("civiko/billing/my-zone") ||
       normalizedEndpoint.startsWith("civiko/billing/sales-prospects")
       ? "GET"
       : method;
 
-    if (SOTTRA_ROUTES.has(normalizedEndpoint)) {
+    if (sottraSuffix) {
+      targetUrl = `${SUPABASE_URL}/functions/v1/sottra/${sottraSuffix}`;
+      requestBody = payload ?? {};
+    } else if (SOTTRA_ROUTES.has(normalizedEndpoint)) {
       targetUrl = `${SUPABASE_URL}/functions/v1/sottra`;
       requestBody = { route: normalizedEndpoint, ...(typeof payload === "object" && payload !== null ? payload as Record<string, unknown> : {}) };
     } else {
@@ -148,7 +172,24 @@ serve(async (req) => {
       "civiko/billing/sales-prospects",
     ]);
 
-    if (CIVIKO_ONE_SECRET_ROUTES.has(normalizedEndpoint) || salesProspectsDetailMatch) {
+    if (sottraSuffix) {
+      const sottraSecret = Deno.env.get("AI_CORE_SECRET_SOTTRA") || Deno.env.get("AI_CORE_SECRET") || "";
+      if (!sottraSecret) {
+        clearTimeout(timer);
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            data: null,
+            warnings: [],
+            debug_id: crypto.randomUUID().replace(/-/g, "").slice(0, 12),
+            error: { code: "UPSTREAM_AUTH_NOT_CONFIGURED", message: "Upstream authentication for this route is not configured." },
+          }),
+          { status: 503, headers: { ...cors, "Content-Type": "application/json" } },
+        );
+      }
+      upstreamHeaders["x-internal-secret"] = sottraSecret;
+      upstreamHeaders["x-source-app"] = "sottra";
+    } else if (CIVIKO_ONE_SECRET_ROUTES.has(normalizedEndpoint) || salesProspectsDetailMatch) {
       const civikoSecret = Deno.env.get("AI_CORE_SECRET_CIVIKO") ?? "";
       if (!civikoSecret) {
         clearTimeout(timer);

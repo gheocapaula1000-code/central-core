@@ -23,7 +23,7 @@ export const PUBLICATION_POLICY = {
   /** OMI match methods that can qualify as "official" */
   OFFICIAL_MATCH_METHODS: ["single_zone", "polygon_match"] as string[],
   /** OMI match methods that produce "elaborated" (not official) */
-  ELABORATED_MATCH_METHODS: ["ai_matched"] as string[],
+  ELABORATED_MATCH_METHODS: ["ai_matched", "comune_aggregate"] as string[],
   /** OMI match methods that are never publishable */
   UNPUBLISHABLE_MATCH_METHODS: ["ai_fallback", "first_zone_fallback", "none"] as string[],
 } as const;

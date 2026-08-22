@@ -27,6 +27,11 @@ describe("Origin policy — hardening", () => {
   it("allows UERADAR Lovable preview via *.lovable.app", () => {
     expect(isOriginAllowed("https://ueradar.lovable.app")).toBe(true);
   });
+  it("allows sottra.lovable.app and other lovable previews", () => {
+    expect(isOriginAllowed("https://sottra.lovable.app")).toBe(true);
+    expect(isOriginAllowed("https://sottra-preview.lovable.app")).toBe(true);
+    expect(isOriginAllowed("https://sottra.lovable.dev")).toBe(true);
+  });
   it("allows lovable.app subdomain", () => {
     expect(isOriginAllowed("https://my-project.lovable.app")).toBe(true);
   });

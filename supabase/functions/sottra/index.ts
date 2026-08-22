@@ -32,6 +32,7 @@ import {
   handleScanPoiEnrichment,
   handleScanSave,
 } from "./scan.ts";
+import { handlePhotoWow } from "./photo-wow.ts";
 
 // ── Forecast handlers ──
 import {
@@ -70,6 +71,9 @@ function withIdentity(res: Response, route: string): Response {
 const ROUTES: Record<string, (req: Request, body: Record<string, unknown>, debugId: string) => Promise<Response>> = {
   // Motore Scan (7)
   "scan/identify":             handleScanIdentify,
+  "scan/photo-wow":            handlePhotoWow,
+  "photo-wow":                 handlePhotoWow,
+  "photoWow":                  handlePhotoWow,
   "scan/cadastral":            handleScanCadastral,
   "scan/pricing":              handleScanPricing,
   "scan/listings":             handleScanListings,

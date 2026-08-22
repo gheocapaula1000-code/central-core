@@ -135,7 +135,7 @@ async function callSottra(
         "Authorization": `Bearer ${serviceKey}`,
         "apikey": serviceKey,
         "x-internal-secret": secret,
-        "x-source-app": "civiko",
+        "x-source-app": "sottra",
       },
       body: JSON.stringify(body),
       signal: ctrl.signal,
@@ -203,11 +203,12 @@ function mapOmi(pricing: Record<string, unknown> | null): SottraOmiHint | null {
   if (!pricing) return null;
   // Common Sottra pricing fields. Do NOT invent: only emit if present.
   const zonaOmi = pickStr(pricing, "zonaOmi", "omiZone", "zona");
-  const semestre = pickStr(pricing, "semestre", "period");
+  const semestre = pickStr(pricing, "sourcePeriod", "semestre", "period");
   const tipologia = pickStr(pricing, "tipologia", "propertyType");
   const minRef = pickNum(pricing, "prezzoMqMin", "minRef", "minPriceSqm", "min", "valoreMinimo");
   const maxRef = pickNum(pricing, "prezzoMqMax", "maxRef", "maxPriceSqm", "max", "valoreMassimo");
-  const matchMethod = pickStr(pricing, "matchMethod");
+  const matchMethod = pickStr(pricing, "omiMatchMethod", "matchMethod");
+  const sourceType = pickStr(pricing, "sourceType");
 
   const items: OmiDisplayItem[] = [];
   if (zonaOmi) items.push({ label: "Zona OMI", value: zonaOmi });
@@ -215,14 +216,21 @@ function mapOmi(pricing: Record<string, unknown> | null): SottraOmiHint | null {
   if (tipologia) items.push({ label: "Tipologia", value: tipologia });
   if (minRef != null) items.push({ label: "Riferimento minimo", value: `${Math.round(minRef)} €/m²` });
   if (maxRef != null) items.push({ label: "Riferimento massimo", value: `${Math.round(maxRef)} €/m²` });
+  if (sourceType === "official") items.push({ label: "Qualità fonte", value: "OMI ufficiale" });
+  else if (sourceType === "elaborated") items.push({ label: "Qualità fonte", value: "OMI elaborata" });
+  else if (sourceType === "unavailable") items.push({ label: "Qualità fonte", value: "Non disponibile" });
 
   if (items.length === 0) return null;
 
   let status: SottraOmiHint["status"];
-  if (matchMethod === "polygon_match") status = "collegata";
+  if (sourceType === "unavailable") status = "da_collegare";
+  else if (sourceType === "official" || matchMethod === "polygon_match" || matchMethod === "single_zone") status = "collegata";
   else if (matchMethod && matchMethod !== "none") status = "da_rivedere";
   else status = "da_rivedere";
-  items.push({ label: "Stato Fonte", value: status === "collegata" ? "Riferimento Collegato" : "Da Rivedere" });
+  items.push({
+    label: "Stato Fonte",
+    value: status === "collegata" ? "Riferimento Collegato" : status === "da_collegare" ? "Non Disponibile" : "Da Rivedere",
+  });
 
   return { available: true, status, displayItems: items };
 }

@@ -5,6 +5,21 @@
 
 ---
 
+## [3.4.3] — 2026-08-22
+
+### Sottra photoWow — official OMI path
+- Added `POST /sottra/scan/photo-wow` (aliases: `/photo-wow`, `/photoWow`) — photo+GPS report from Sottra engines (OMI / ISTAT / OSM). Fail-closed. Energy, catasto, listings stay unavailable/estimated, never official. No invented scores, sold comps, or exclusive pitch.
+- Core `core-proxy` now forwards the live Sottra PWA alias `/civiko-property-from-photo` plus `/sottra/scan/identify`, `/sottra/scan/pricing`, `/sottra/health` to the Sottra function with `x-source-app: sottra`. Civiko One keeps calling `civiko-property-from-photo` **directly**.
+- OMI: polygon match when Core has geometry; otherwise real `omi_zone` + `omi_valori` at comune level (`comune_aggregate`, labeled elaborated). Does not invent a microzona. Core `omi_zone_geometry` is a small sample, not the national ~27k set — no unsafe data copy.
+- Internal Civiko→Sottra fan-out now sends `x-source-app: sottra` and maps `omiMatchMethod` / `sourcePeriod` / `sourceType`.
+- CORS: `sottra.lovable.app` and other `*.lovable.app` previews remain allowed via the existing suffix rule.
+
+### No Breaking Changes
+- Civiko One `civiko-property-from-photo` contract and `requireCivikoCostSecret` unchanged
+- Existing Sottra scan/forecast routes unchanged aside from pricing comune fallback
+
+---
+
 ## [3.4.2] — 2026-03-31
 
 ### Hardened
