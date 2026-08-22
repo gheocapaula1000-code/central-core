@@ -86,9 +86,11 @@ describe("Sottra photoWow — official OMI contract", () => {
     expect(photoWow).toContain("poiEnrichment");
     expect(photoWow).toContain("contestoVicinato");
     expect(photoWow).toContain("OpenStreetMap / Overpass");
+    expect(photoWow).toContain("Nominatim search fallback");
     expect(photoWow).toContain("Servizi di vicinato OSM non disponibili — elenco non inventato.");
     expect(photoWow).not.toContain("PERPLEXITY");
     expect(scan).toContain("lookupOsmNeighborhoodPois");
+    expect(scan).toContain("Nominatim search fallback");
     expect(scan).not.toContain("Perplexity — analisi POI zona");
   });
 });

@@ -1,4 +1,4 @@
-export const CORE_VERSION = "3.4.5";
+export const CORE_VERSION = "3.4.6";
 export const CORE_CONTRACT = "central-core-v3";
 
 // ═══════════════════════════════════════════════════════════════

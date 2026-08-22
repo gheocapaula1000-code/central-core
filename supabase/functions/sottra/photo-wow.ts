@@ -195,7 +195,7 @@ export async function handlePhotoWow(
 
   const [istat, poiEnrichment] = await Promise.all([
     lookupIstat(resolvedComune || extractComuneLoose(resolvedAddress)),
-    lookupOsmNeighborhoodPois(input.lat, input.lng),
+    lookupOsmNeighborhoodPois(input.lat, input.lng), // Overpass primary; Nominatim search fallback
   ]);
 
   const osmAvailable = Boolean(resolvedAddress);
@@ -237,7 +237,13 @@ export async function handlePhotoWow(
     fontiUsate.push("Agenzia delle Entrate — OMI");
   }
   if (osmAvailable) fontiUsate.push("OpenStreetMap / Nominatim");
-  if (poiEnrichment.found) fontiUsate.push("OpenStreetMap / Overpass");
+  if (poiEnrichment.found) {
+    fontiUsate.push(
+      poiEnrichment.sourceProvider === "nominatim"
+        ? "OpenStreetMap / Nominatim — servizi di prossimità (fallback)"
+        : "OpenStreetMap / Overpass",
+    );
+  }
   if (istat.found) fontiUsate.push("ISTAT");
 
   const warnings: string[] = [];

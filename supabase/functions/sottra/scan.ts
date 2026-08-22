@@ -721,7 +721,7 @@ export async function handleScanZoneIntelligence(req: Request, body: Record<stri
   }, [], debugId);
 }
 
-/** POST /sottra/scan/poi-enrichment — OSM/Overpass named POIs near GPS (fail-closed) */
+/** POST /sottra/scan/poi-enrichment — OSM Overpass named POIs near GPS; Nominatim search fallback (fail-closed) */
 export async function handleScanPoiEnrichment(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
   const lat = typeof body.lat === "number" ? body.lat : Number(body.lat);
   const lng = typeof body.lng === "number" ? body.lng : Number(body.lng);
