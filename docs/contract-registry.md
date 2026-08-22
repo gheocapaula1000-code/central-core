@@ -14,7 +14,7 @@ Every response from Central Core V3 functions includes these non-sensitive heade
 
 | Header | Value | Purpose |
 |--------|-------|---------|
-| `X-Core-Version` | `3.4.4` | Core version that generated the response |
+| `X-Core-Version` | `3.4.5` | Core version that generated the response |
 | `X-Core-Function` | `ai-core-run` / `sottra` / `health` | Which edge function responded |
 | `X-Core-Route` | `health` / `manifest` / `scan/pricing` / etc. | Canonical route that handled the request |
 | `X-Core-Contract` | `central-core-v3` | Contract identifier |
@@ -30,7 +30,7 @@ Each function exposes `GET /manifest` — a public, non-sensitive self-descripti
 ```json
 {
   "contract": "central-core-v3",
-  "version": "3.4.4",
+  "version": "3.4.5",
   "function": "ai-core-run",
   "serviceKind": "ai-router",
   "expectedBasePath": "/functions/v1/ai-core-run",
@@ -187,7 +187,7 @@ No secrets, allowlists, or infrastructure details are exposed.
 | Route | Method | Description | Status |
 |-------|--------|-------------|--------|
 | `/scan/identify` | POST | Photo + GPS → address + building ID | ✅ Active |
-| `/scan/photo-wow` | POST | Photo + GPS official report (OMI/ISTAT/OSM) | ✅ Active |
+| `/scan/photo-wow` | POST | Photo + GPS official report (OMI/ISTAT/OSM Overpass POIs) | ✅ Active |
 | `/scan/cadastral` | POST | Cadastral data | ⚠️ UNAVAILABLE |
 | `/scan/pricing` | POST | OMI pricing (polygon → official microzona → Padova 7-zone label; `comune_aggregate` only if unplaced) | ✅ Active |
 | `/scan/listings` | POST | Real estate listings | ⚠️ UNAVAILABLE |
@@ -199,7 +199,7 @@ No secrets, allowlists, or infrastructure details are exposed.
 
 **OMI geometry on Core:** `omi_zone` / `omi_valori` are national tables. `omi_zone_geometry` on Core is a small sample (Padova 22 polygons). Synthetic geometry keys (`G224-B1`) are joined to official `link_zona` (`PD00000015`). Padova photoWow/pricing then labels one of Paula's 7 display zones; €/m² stay the official matched microzona (not an area average). Unplaced points stay `comune_aggregate` with no guessed letter and no city-wide min/max dump.
 
-**photoWow / live PWA:** Sottra PWA `getPhotoWow` posts to Core `core-proxy` with `endpoint: /civiko-property-from-photo`. That alias is forwarded to `/sottra/scan/photo-wow` with `x-source-app: sottra`. Civiko One continues to call `civiko-property-from-photo` directly.
+**photoWow / live PWA:** Sottra PWA `getPhotoWow` posts to Core `core-proxy` with `endpoint: /civiko-property-from-photo`. That alias is forwarded to `/sottra/scan/photo-wow` with `x-source-app: sottra`. The report includes official OMI, ISTAT, Nominatim address, and Overpass named POIs (`poiEnrichment` / `elencoServiziRilevati`, radius 800 m). Unnamed OSM nodes are dropped. Overpass failure → `sourceType: unavailable`, no invented names. `core-proxy` also forwards `/sottra/scan/poi-enrichment` and `/sottra/forecast/neighborhood`. Civiko One continues to call `civiko-property-from-photo` directly.
 
 ### Forecast Endpoints (8)
 

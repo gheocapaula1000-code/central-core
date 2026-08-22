@@ -1,13 +1,15 @@
 // Sottra — photoWow / photo+GPS official report
 //
 // Live Sottra PWA calls Core core-proxy with endpoint /civiko-property-from-photo.
-// This handler is the Sottra-specific path: official OMI / ISTAT / OSM where
-// tables exist, otherwise honest unavailable. Never invents civic truth.
+// This handler is the Sottra-specific path: official OMI / ISTAT / OSM
+// (Nominatim address + Overpass named POIs) where sources respond,
+// otherwise honest unavailable. Never invents civic truth, names, or scores.
 // Energy / catasto / listings are not promoted to official.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { json, fail } from "../_shared/http.ts";
 import { handleScanIdentify, handleScanPricing } from "./scan.ts";
+import { lookupOsmNeighborhoodPois, type OsmPoiResult } from "./osm-poi.ts";
 
 const POLYGON_COVERAGE_NOTE =
   "omi_zone_geometry su Central Core è un campione (decine di poligoni), non il set nazionale (~27k). " +
@@ -120,6 +122,29 @@ function unavailableModule(label: string, reason: string): Record<string, unknow
   };
 }
 
+function contestoFromPois(poi: OsmPoiResult): Record<string, unknown> {
+  if (!poi.found || poi.totalPois === 0) {
+    return {
+      sourceType: "unavailable",
+      sourceLabel: poi.sourceLabel,
+      elencoServiziRilevati: [],
+      presenzaServiziRilevati: false,
+      limitations: poi.limitations,
+    };
+  }
+  return {
+    sourceType: "official",
+    sourceLabel: poi.sourceLabel,
+    presenzaServiziRilevati: true,
+    elencoServiziRilevati: poi.elencoServiziRilevati,
+    categorie: poi.categories,
+    byTipo: poi.byTipo,
+    searchRadius: poi.searchRadius,
+    totalPois: poi.totalPois,
+    limitations: poi.limitations,
+  };
+}
+
 function qualitaFromPricing(sourceType: unknown, matchMethod: unknown, polygonMatch: unknown): Qualita {
   if (sourceType === "official" && (polygonMatch === true || matchMethod === "single_zone")) return "ottima";
   if (sourceType === "official" || sourceType === "elaborated") return "buona";
@@ -168,12 +193,15 @@ export async function handlePhotoWow(
     limitations: ["Pricing non disponibile"],
   };
 
-  const istat = await lookupIstat(resolvedComune || extractComuneLoose(resolvedAddress));
+  const [istat, poiEnrichment] = await Promise.all([
+    lookupIstat(resolvedComune || extractComuneLoose(resolvedAddress)),
+    lookupOsmNeighborhoodPois(input.lat, input.lng),
+  ]);
 
   const osmAvailable = Boolean(resolvedAddress);
   const osm = {
-    found: osmAvailable,
-    sourceType: osmAvailable ? "official" : "unavailable",
+    found: osmAvailable || poiEnrichment.found,
+    sourceType: osmAvailable || poiEnrichment.found ? "official" : "unavailable",
     sourceLabel: "OpenStreetMap / Nominatim — reverse geocoding",
     address: resolvedAddress || null,
     comune: resolvedComune || null,
@@ -181,9 +209,13 @@ export async function handlePhotoWow(
     street: str(geo?.resolvedStreet) || null,
     houseNumber: str(geo?.resolvedHouseNumber) || null,
     postalCode: str(geo?.resolvedPostalCode) || null,
-    limitations: osmAvailable
-      ? ["Indirizzo da geocoding OSM — non è un identificativo catastale"]
-      : ["Indirizzo OSM non risolto"],
+    poi: poiEnrichment,
+    limitations: [
+      ...(osmAvailable
+        ? ["Indirizzo da geocoding OSM — non è un identificativo catastale"]
+        : ["Indirizzo OSM non risolto"]),
+      ...poiEnrichment.limitations,
+    ],
   };
 
   const energy = unavailableModule(
@@ -204,7 +236,8 @@ export async function handlePhotoWow(
   if (sourceType === "official" || sourceType === "elaborated") {
     fontiUsate.push("Agenzia delle Entrate — OMI");
   }
-  if (osm.found) fontiUsate.push("OpenStreetMap / Nominatim");
+  if (osmAvailable) fontiUsate.push("OpenStreetMap / Nominatim");
+  if (poiEnrichment.found) fontiUsate.push("OpenStreetMap / Overpass");
   if (istat.found) fontiUsate.push("ISTAT");
 
   const warnings: string[] = [];
@@ -215,7 +248,10 @@ export async function handlePhotoWow(
     warnings.push(POLYGON_COVERAGE_NOTE);
   }
   if (!istat.found) warnings.push("ISTAT comunale non disponibile per questo punto.");
-  if (!osm.found) warnings.push("Indirizzo OSM non risolto.");
+  if (!osmAvailable) warnings.push("Indirizzo OSM non risolto.");
+  if (!poiEnrichment.found) {
+    warnings.push("Servizi di vicinato OSM non disponibili — elenco non inventato.");
+  }
 
   const zona = {
     nomeComune: str(pricing.comune) || resolvedComune || null,
@@ -263,6 +299,9 @@ export async function handlePhotoWow(
     },
     liveSignals: [] as unknown[],
     territorialDocuments: [] as unknown[],
+    poiEnrichment,
+    elencoServiziRilevati: poiEnrichment.elencoServiziRilevati,
+    contestoVicinato: contestoFromPois(poiEnrichment),
     zonaIntelligence: {
       notizieRecenti: [] as unknown[],
       puntiDiForzaNascosti: [] as string[],
@@ -284,6 +323,9 @@ export async function handlePhotoWow(
     pricing,
     istat,
     osm,
+    poi: poiEnrichment,
+    poiEnrichment,
+    elencoServiziRilevati: poiEnrichment.elencoServiziRilevati,
     energy,
     cadastral,
     listings,

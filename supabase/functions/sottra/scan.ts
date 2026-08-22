@@ -10,6 +10,7 @@ import { resolveOMIPricing, type OMIResult } from "./omi-lookup.ts";
 import { resolveGeo } from "./geo-resolution.ts";
 import { collectStreetEvidence, type StreetEvidenceMergeResult } from "./street-evidence.ts";
 import { collectMarketData } from "./market-data.ts";
+import { lookupOsmNeighborhoodPois } from "./osm-poi.ts";
 
 /** POST /sottra/scan/identify — photo + GPS → address + building ID + street evidence */
 export async function handleScanIdentify(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
@@ -720,49 +721,30 @@ export async function handleScanZoneIntelligence(req: Request, body: Record<stri
   }, [], debugId);
 }
 
-/** POST /sottra/scan/poi-enrichment — Perplexity-powered POI discovery for a location */
+/** POST /sottra/scan/poi-enrichment — OSM/Overpass named POIs near GPS (fail-closed) */
 export async function handleScanPoiEnrichment(req: Request, body: Record<string, unknown>, debugId: string): Promise<Response> {
-  const lat = body.lat as number | undefined;
-  const lng = body.lng as number | undefined;
-  const address = ((body.address as string) ?? "").trim();
-  if (lat == null || lng == null) return fail(req, 400, "MISSING_COORDS", "Provide lat and lng", debugId);
-
-  const PERPLEXITY_KEY = Deno.env.get("PERPLEXITY_API_KEY");
-  const comune = address.split(",").slice(-2, -1)[0]?.trim() ?? "zona";
-
-  const poi: Array<{ tipo: string; nome: string; distanza: string }> = [];
-  let accessibilita = "";
-
-  if (PERPLEXITY_KEY) {
-    const pRes = await fetch("https://api.perplexity.ai/chat/completions", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${PERPLEXITY_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "sonar",
-        messages: [{ role: "user", content: `Elenca i principali punti di interesse vicini a ${address}, ${comune}: supermercati, farmacie, scuole, ospedali, stazioni, parchi, uffici postali. Per ognuno indica nome e distanza approssimativa a piedi. Poi dai un giudizio sull'accessibilità generale (ottima/buona/discreta/scarsa). Rispondi SOLO JSON: {"poi":[{"tipo":"supermercato","nome":"Coop","distanza":"5 min a piedi"}],"accessibilita":"buona","note":"breve"}` }],
-        max_tokens: 400,
-        search_recency_filter: "year",
-      }),
-      signal: AbortSignal.timeout(15_000),
-    }).catch(() => null);
-    if (pRes?.ok) {
-      const d = await pRes.json().catch(() => ({}));
-      try {
-        const parsed = JSON.parse(d.choices?.[0]?.message?.content?.match(/\{[\s\S]*\}/)?.[0] ?? "{}");
-        if (Array.isArray(parsed.poi)) poi.push(...parsed.poi);
-        accessibilita = parsed.accessibilita ?? "";
-      } catch { /* ignora */ }
-    }
+  const lat = typeof body.lat === "number" ? body.lat : Number(body.lat);
+  const lng = typeof body.lng === "number" ? body.lng : Number(body.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return fail(req, 400, "MISSING_COORDS", "Provide lat and lng", debugId);
   }
 
+  const poi = await lookupOsmNeighborhoodPois(lat, lng);
+  const warnings = poi.found ? [] : ["POI OSM non disponibili — nomi non inventati"];
+
   return ok(req, {
-    poi,
-    accessibilita: accessibilita || null,
+    ...poi,
+    // Legacy alias used by older clients: named places only, never invented.
+    poi: poi.pois.map((p) => ({
+      tipo: p.tipo,
+      nome: p.name,
+      distanza: `${p.distance} m`,
+      category: p.category,
+      categoryLabel: p.categoryLabel,
+    })),
+    accessibilita: null,
     distanzaCentro: null,
-    sourceLabel: "Perplexity — analisi POI zona",
-    sourceType: poi.length > 0 ? "real" : "unavailable",
-    limitations: poi.length === 0 ? ["Nessun POI trovato per questa zona"] : [],
-  }, [], debugId);
+  }, warnings, debugId);
 }
 
 /** POST /sottra/scan/save — persist a completed scan for the authenticated user */

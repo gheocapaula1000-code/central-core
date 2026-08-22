@@ -57,8 +57,9 @@ const SOTTRA_ROUTES = new Set([
 
 // Sottra official engines — forwarded to /functions/v1/sottra/{suffix}
 // with x-source-app: sottra. Includes the live PWA photoWow alias
-// `/civiko-property-from-photo` (Sottra-only via this proxy; Civiko One
-// keeps calling civiko-property-from-photo directly).
+// `/civiko-property-from-photo` plus poi-enrichment / neighborhood
+// (Sottra-only via this proxy; Civiko One keeps calling
+// civiko-property-from-photo directly).
 const SOTTRA_DIRECT_ROUTES: Record<string, string> = {
   "sottra/photo-wow": "scan/photo-wow",
   "sottra/scan/photo-wow": "scan/photo-wow",
@@ -67,6 +68,8 @@ const SOTTRA_DIRECT_ROUTES: Record<string, string> = {
   "civiko-property-from-photo": "scan/photo-wow",
   "sottra/scan/identify": "scan/identify",
   "sottra/scan/pricing": "scan/pricing",
+  "sottra/scan/poi-enrichment": "scan/poi-enrichment",
+  "sottra/forecast/neighborhood": "forecast/neighborhood",
   "sottra/health": "health",
 };
 

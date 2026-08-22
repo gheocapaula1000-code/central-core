@@ -5,6 +5,22 @@
 
 ---
 
+## [3.4.5] — 2026-08-22
+
+### Sottra photoWow — OSM neighborhood POIs after OMI
+- photoWow / `/civiko-property-from-photo` now includes a real OpenStreetMap / Overpass block after official OMI: named scuole, asili, chiese, farmacie, supermercati, convenience within 800 m of the GPS.
+- Fail-closed: if Overpass fails or a place has no `name`/`name:it`, it is omitted. No invented names, scores, catasto, APE, or listings.
+- `POST /sottra/scan/poi-enrichment` uses the same Overpass lookup (PWA `getPoiEnrichment` / `ContestoVicinatoCard` shape: `totalPois`, `categories`, `pois`, `elencoServiziRilevati`).
+- Core `core-proxy` forwards `/sottra/scan/poi-enrichment` and `/sottra/forecast/neighborhood` with `x-source-app: sottra`, same as photo-wow.
+
+### No Breaking Changes
+- Civiko One `civiko-property-from-photo` unchanged
+- `scan/pricing` stays OMI-only (photoWow is the composed report)
+- Energy / catasto / ANNCSU / listings still unavailable on photoWow
+- No write to empty org project `egjvullvkwpzyyworeml`
+
+---
+
 ## [3.4.4] — 2026-08-22
 
 ### Sottra photoWow / scan/pricing — Padova 7-zone OMI report
