@@ -1817,8 +1817,8 @@ async function storeOpportunity(
     click_day: extracted.click_day === true,
     requirements: safeTextArray(extracted.requirements, 100, 1000),
     eligible_expenses: safeTextArray(extracted.eligible_expenses, 100, 1000),
-    rarity_score:
-      boundedInteger(Math.trunc(Number(source.rarity_base ?? 1)), 1, 5) ?? 1,
+    rarity_score: visibility.rarity_score,
+    is_hidden: visibility.is_hidden,
     source_kind: normalizeText(source.source_kind).slice(0, 60) || "CATALOGO",
     publication_reference:
       normalizeText(extracted.publication_reference).slice(0, 300) || null,
