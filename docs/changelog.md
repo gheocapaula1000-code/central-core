@@ -5,6 +5,23 @@
 
 ---
 
+## [3.4.6] — 2026-08-22
+
+### Sottra photoWow — Nominatim POI fallback when Overpass is down
+- Overpass stays primary for neighborhood POIs (scuole, asili, chiese, farmacie, supermercati, convenience) within 800 m.
+- Fail-closed fallback: if Overpass returns no named elements or the network fails, Nominatim search (`nominatim.openstreetmap.org/search`) is queried for the same six categories around the GPS.
+- Keep only hits with a real `name` (never `display_name`) and a computable distance inside the radius. Unnamed pharmacies/streets are dropped. No invented names.
+- If both Overpass and Nominatim fail → `sourceType: unavailable`, empty lists. No Perplexity.
+- `poiEnrichment.sourceProvider` is `overpass` | `nominatim` | `null`.
+- No write to empty org project `egjvullvkwpzyyworeml`.
+
+### No Breaking Changes
+- Civiko One `civiko-property-from-photo` unchanged
+- `scan/pricing` stays OMI-only
+- Energy / catasto / ANNCSU / listings still unavailable on photoWow
+
+---
+
 ## [3.4.5] — 2026-08-22
 
 ### Sottra photoWow — OSM neighborhood POIs after OMI
