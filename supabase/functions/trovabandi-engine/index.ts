@@ -105,6 +105,9 @@ import {
   localExtractProtocolEmail,
   localOpportunityDraft,
 } from "./local-fields.ts";
+import { computeVisibility } from "./rarity.ts";
+
+
 
 
 type JsonObject = Record<string, unknown>;
@@ -1768,6 +1771,18 @@ async function storeOpportunity(
   const authorityLevel = normalizeAuthorityLevel(source.authority_level);
   if (!authorityLevel)
     return { stored: false, verified: false, code: "AUTHORITY_LEVEL_INVALID" };
+  // Bandi locali/rari: nascosti ai competitor e con rarity alta.
+  const visibility = computeVisibility(
+    {
+      authority_level: authorityLevel,
+      source_kind: source.source_kind,
+      rarity_base: source.rarity_base,
+      name: source.name,
+    },
+    officialUrl,
+  );
+
+
 
   const row = {
     canonical_key: canonicalKey,
@@ -1817,8 +1832,8 @@ async function storeOpportunity(
     click_day: extracted.click_day === true,
     requirements: safeTextArray(extracted.requirements, 100, 1000),
     eligible_expenses: safeTextArray(extracted.eligible_expenses, 100, 1000),
-    rarity_score:
-      boundedInteger(Math.trunc(Number(source.rarity_base ?? 1)), 1, 5) ?? 1,
+    rarity_score: visibility.rarity_score,
+    is_hidden: visibility.is_hidden,
     source_kind: normalizeText(source.source_kind).slice(0, 60) || "CATALOGO",
     publication_reference:
       normalizeText(extracted.publication_reference).slice(0, 300) || null,

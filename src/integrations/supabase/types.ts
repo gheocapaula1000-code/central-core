@@ -8865,6 +8865,7 @@ export type Database = {
           id: string
           implementing_body: string | null
           innovative_only: boolean
+          is_hidden: boolean
           last_seen_at: string
           last_verified_at: string | null
           max_grant_amount: number | null
@@ -8922,6 +8923,7 @@ export type Database = {
           id?: string
           implementing_body?: string | null
           innovative_only?: boolean
+          is_hidden?: boolean
           last_seen_at?: string
           last_verified_at?: string | null
           max_grant_amount?: number | null
@@ -8979,6 +8981,7 @@ export type Database = {
           id?: string
           implementing_body?: string | null
           innovative_only?: boolean
+          is_hidden?: boolean
           last_seen_at?: string
           last_verified_at?: string | null
           max_grant_amount?: number | null

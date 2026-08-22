@@ -6,11 +6,20 @@
 
 /** Pagine di partenza verificate, indicizzate per dominio ufficiale. */
 export const SEED_LISTING_URLS: Record<string, string[]> = {
+  "comune.padova.it": [
+    "https://www.comune.padova.it/servizi/giustizia-e-sicurezza-pubblica/albo-pretorio-online",
+    "https://www.comune.padova.it/sindaco-e-amministrazione/avvisi-pubblici",
+    "https://www.comune.padova.it/amministrazione-trasparente/bandi-di-gara-e-contratti",
+  ],
   "provincia.pd.it": [
     "https://www.provincia.pd.it/sovvenzioni-contributi-sussidi-vantaggi-economici",
+    "https://www.provincia.pd.it/albo-pretorio",
   ],
   "provincia.padova.it": ["https://www.provincia.padova.it"],
-  "padovanet.it": ["https://www.padovanet.it"],
+  "padovanet.it": [
+    "https://www.padovanet.it",
+    "https://www.padovanet.it/informazione/bandi-e-avvisi",
+  ],
   "pd.camcom.it": [
     "https://www.pd.camcom.it",
     "https://www.pd.camcom.it/it/incentivi-imprese",
@@ -131,7 +140,14 @@ export const SEED_LISTING_URLS: Record<string, string[]> = {
     "https://www.cittametropolitana.fi.it/amministrazione-trasparente/sovvenzioni-contributi-sussidi-vantaggi-economici",
   ],
   "bur.regione.veneto.it": ["https://bur.regione.veneto.it"],
-  "regione.veneto.it": ["https://www.regione.veneto.it"],
+  "bandi.regione.veneto.it": [
+    "https://bandi.regione.veneto.it/Public/Elenco",
+    "https://bandi.regione.veneto.it/Public/Ricerca",
+  ],
+  "regione.veneto.it": [
+    "https://www.regione.veneto.it",
+    "https://www.regione.veneto.it/web/agricoltura-e-foreste/bandi-finanziamenti",
+  ],
   "regione.piemonte.it": [
     "https://www.regione.piemonte.it/governo/bollettino/abbonati/2026/corrente",
   ],
