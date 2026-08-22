@@ -2,7 +2,7 @@
 
 > Canonical reference of all PWA→Core dependencies.
 > Breaking any path, envelope, or shape listed here is a potential outage.
-> Last updated: 2026-03-31
+> Last updated: 2026-08-22
 >
 > See also: [API Versioning](./api-versioning.md) | [Client Integration Guide](./client-integration-guide.md) | [Proxy Contract](./proxy-contract.md) | [Operational Checklist](./operational-checklist.md) | [Client Compatibility Matrix](./client-compatibility-matrix.md) | [Secrets & Rotation](./secrets-and-rotation.md) | [Incident Response](./incident-response.md) | [Changelog](./changelog.md) | [Release Pipeline](./release-pipeline.md) | [OpenAPI Summary](./openapi-summary.yaml) | [Edge Function Auth Matrix](./edge-function-auth-matrix.md)
 
@@ -14,7 +14,7 @@ Every response from Central Core V3 functions includes these non-sensitive heade
 
 | Header | Value | Purpose |
 |--------|-------|---------|
-| `X-Core-Version` | `3.4.2` | Core version that generated the response |
+| `X-Core-Version` | `3.4.3` | Core version that generated the response |
 | `X-Core-Function` | `ai-core-run` / `sottra` / `health` | Which edge function responded |
 | `X-Core-Route` | `health` / `manifest` / `scan/pricing` / etc. | Canonical route that handled the request |
 | `X-Core-Contract` | `central-core-v3` | Contract identifier |
@@ -30,7 +30,7 @@ Each function exposes `GET /manifest` — a public, non-sensitive self-descripti
 ```json
 {
   "contract": "central-core-v3",
-  "version": "3.4.2",
+  "version": "3.4.3",
   "function": "ai-core-run",
   "serviceKind": "ai-router",
   "expectedBasePath": "/functions/v1/ai-core-run",
@@ -182,19 +182,24 @@ No secrets, allowlists, or infrastructure details are exposed.
 **Function:** `sottra` (dedicated Edge Function) · **Tier:** stable
 **Test file:** `src/test/sottra-contract.test.ts`
 
-### Scan Endpoints (9)
+### Scan Endpoints (10)
 
 | Route | Method | Description | Status |
 |-------|--------|-------------|--------|
 | `/scan/identify` | POST | Photo + GPS → address + building ID | ✅ Active |
+| `/scan/photo-wow` | POST | Photo + GPS official report (OMI/ISTAT/OSM) | ✅ Active |
 | `/scan/cadastral` | POST | Cadastral data | ⚠️ UNAVAILABLE |
-| `/scan/pricing` | POST | OMI pricing data | ✅ Active |
+| `/scan/pricing` | POST | OMI pricing (polygon, else real comune/zona tables; `comune_aggregate` = elaborated) | ✅ Active |
 | `/scan/listings` | POST | Real estate listings | ⚠️ UNAVAILABLE |
 | `/scan/energy` | POST | Energy class (APE) | ⚠️ UNAVAILABLE |
 | `/scan/condominio` | POST | Condominium data | ⚠️ UNAVAILABLE |
 | `/scan/storico-transazioni` | POST | Transaction history | ⚠️ UNAVAILABLE |
 | `/scan/market` | POST | Market comparables + signals | ✅ Active (env-gated) |
 | `/scan/market-context` | POST | Alias backward-compat → same handler as scan/market | ✅ Active |
+
+**OMI geometry on Core:** `omi_zone` / `omi_valori` are national tables. `omi_zone_geometry` on Core is a small sample (not the ~27k polygons on Sottra's own DB). Do not copy that set here. Polygon match is used only when a point hits imported geometry; otherwise pricing uses real comune/zona rows and labels `elaborated` (`comune_aggregate`) without inventing a microzona.
+
+**photoWow / live PWA:** Sottra PWA `getPhotoWow` posts to Core `core-proxy` with `endpoint: /civiko-property-from-photo`. That alias is forwarded to `/sottra/scan/photo-wow` with `x-source-app: sottra`. Civiko One continues to call `civiko-property-from-photo` directly.
 
 ### Forecast Endpoints (8)
 

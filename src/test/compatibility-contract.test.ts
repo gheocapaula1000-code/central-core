@@ -191,7 +191,7 @@ describe("Compatibility contract — Manifest shape (all functions)", () => {
       name: "sottra",
       manifest: buildTestManifest("sottra", "sottra-service", "/functions/v1/sottra", [
         "GET /health", "GET /manifest",
-        "POST /scan/identify", "POST /scan/cadastral", "POST /scan/pricing",
+        "POST /scan/identify", "POST /scan/photo-wow", "POST /scan/cadastral", "POST /scan/pricing",
         "POST /scan/listings", "POST /scan/energy", "POST /scan/condominio",
         "POST /scan/storico-transazioni", "POST /scan/market",
         "POST /forecast/moodscore", "POST /forecast/timeview",
@@ -323,15 +323,15 @@ describe("Compatibility contract — Domain registry consistency", () => {
 
 describe("Compatibility contract — Sottra route registry", () => {
   const SOTTRA_ROUTES = [
-    "scan/identify", "scan/cadastral", "scan/pricing", "scan/listings",
+    "scan/identify", "scan/photo-wow", "scan/cadastral", "scan/pricing", "scan/listings",
     "scan/energy", "scan/condominio", "scan/storico-transazioni", "scan/market",
     "forecast/moodscore", "forecast/timeview", "forecast/opportunity",
     "forecast/infrastrutture", "forecast/rischio-zona", "forecast/trend-demografico",
     "forecast/sviluppo-area", "forecast/convergenza-territoriale",
   ];
 
-  it("has 16 operational routes (8 scan + 8 forecast)", () => {
-    expect(SOTTRA_ROUTES.length).toBe(16);
+  it("has 17 operational routes (9 scan + 8 forecast)", () => {
+    expect(SOTTRA_ROUTES.length).toBe(17);
   });
 
   it("all routes follow engine/action pattern", () => {

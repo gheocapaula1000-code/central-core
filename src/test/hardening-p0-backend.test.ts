@@ -71,6 +71,7 @@ describe("P0 — CORS origin policy", () => {
     expect(http).toContain('"keydraft.app"');
     expect(http).toContain('"wyloni.app"');
     expect(http).toContain('"sottra.app"');
+    expect(http).toMatch(/\.lovable\.app/);
     expect(http).toMatch(/Deno\.env\.get\("CORE_ALLOWED_ORIGINS"\)/);
   });
 

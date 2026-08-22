@@ -48,6 +48,7 @@ function classifyElaborated(sourcesCount: number): "elaborated" | "unavailable" 
 
 const SOTTRA_SCAN_PATHS = [
   { path: "/scan/identify",             method: "POST", description: "Photo + GPS → address + building ID" },
+  { path: "/scan/photo-wow",            method: "POST", description: "Photo + GPS official report (OMI/ISTAT/OSM)" },
   { path: "/scan/cadastral",            method: "POST", description: "Cadastral data (UNAVAILABLE)" },
   { path: "/scan/pricing",              method: "POST", description: "OMI pricing data" },
   { path: "/scan/listings",             method: "POST", description: "Listings (UNAVAILABLE)" },
@@ -72,16 +73,16 @@ const SOTTRA_FORECAST_PATHS = [
 const ALL_SOTTRA_PATHS = [...SOTTRA_SCAN_PATHS, ...SOTTRA_FORECAST_PATHS];
 
 describe("Sottra contract — path registry", () => {
-  it("has 9 scan endpoints (including market-context alias)", () => {
-    expect(SOTTRA_SCAN_PATHS).toHaveLength(9);
+  it("has 10 scan endpoints (including market-context alias and photo-wow)", () => {
+    expect(SOTTRA_SCAN_PATHS).toHaveLength(10);
   });
 
   it("has 8 forecast endpoints", () => {
     expect(SOTTRA_FORECAST_PATHS).toHaveLength(8);
   });
 
-  it("total 17 endpoints", () => {
-    expect(ALL_SOTTRA_PATHS).toHaveLength(17);
+  it("total 18 endpoints", () => {
+    expect(ALL_SOTTRA_PATHS).toHaveLength(18);
   });
 
   it.each(ALL_SOTTRA_PATHS)("$path ($method) — endsWith matching works", ({ path }) => {
@@ -219,11 +220,11 @@ describe("Sottra contract — scan/pricing (max stability)", () => {
   });
 
   it("valid omiMatchMethod values include polygon_match", () => {
-    const validMethods = ["polygon_match", "single_zone", "ai_matched", "ai_fallback", "first_zone_fallback", "none"];
+    const validMethods = ["polygon_match", "single_zone", "comune_aggregate", "ai_matched", "ai_fallback", "first_zone_fallback", "none"];
     for (const m of validMethods) {
       expect(typeof m).toBe("string");
     }
-    expect(validMethods).toHaveLength(6);
+    expect(validMethods).toHaveLength(7);
   });
 
   it("unavailable shape when OMI not found", () => {
@@ -1652,17 +1653,19 @@ describe("Sottra contract — polygon match hierarchy", () => {
   });
 
   it("hierarchy: polygon_match > single_zone > ai_matched > fallbacks", () => {
-    const methods = ["polygon_match", "single_zone", "ai_matched", "ai_fallback", "first_zone_fallback", "none"];
+    const methods = ["polygon_match", "single_zone", "comune_aggregate", "ai_matched", "ai_fallback", "first_zone_fallback", "none"];
     // polygon_match and single_zone at 95% both official
     expect(classifyOMIPricing(0.95, "polygon_match")).toBe("official");
     expect(classifyOMIPricing(0.95, "single_zone")).toBe("official");
+    // comune_aggregate at 95% is elaborated (real prices, no invented microzona)
+    expect(classifyOMIPricing(0.95, "comune_aggregate")).toBe("elaborated");
     // ai_matched at 95% is elaborated (never official)
     expect(classifyOMIPricing(0.95, "ai_matched")).toBe("elaborated");
     // fallbacks always unavailable
     expect(classifyOMIPricing(0.95, "ai_fallback")).toBe("unavailable");
     expect(classifyOMIPricing(0.95, "first_zone_fallback")).toBe("unavailable");
     expect(classifyOMIPricing(0.95, "none")).toBe("unavailable");
-    expect(methods).toHaveLength(6);
+    expect(methods).toHaveLength(7);
   });
 
   it("ai_matched is NOT equivalent to polygon_match even at high confidence", () => {

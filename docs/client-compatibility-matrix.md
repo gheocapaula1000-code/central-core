@@ -45,6 +45,7 @@
 |----------|--------|----------|-------|
 | `/sottra/health` | GET | ✅ | Health probe |
 | `/sottra/scan/identify` | POST | ✅ | Photo → address |
+| `/sottra/scan/photo-wow` | POST | ✅ | Photo+GPS official report (also via core-proxy `/civiko-property-from-photo`) |
 | `/sottra/scan/pricing` | POST | ✅ | OMI pricing |
 | `/sottra/scan/market` | POST | ✅ | Market comparables |
 | `/sottra/forecast/*` | POST | ✅ | All forecast endpoints |
