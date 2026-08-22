@@ -47,8 +47,9 @@
 | `/sottra/scan/identify` | POST | ✅ | Photo → address |
 | `/sottra/scan/photo-wow` | POST | ✅ | Photo+GPS official report (also via core-proxy `/civiko-property-from-photo`) |
 | `/sottra/scan/pricing` | POST | ✅ | OMI pricing |
+| `/sottra/scan/poi-enrichment` | POST | ✅ | OSM/Overpass named POIs (also via core-proxy) |
 | `/sottra/scan/market` | POST | ✅ | Market comparables |
-| `/sottra/forecast/*` | POST | ✅ | All forecast endpoints |
+| `/sottra/forecast/*` | POST | ✅ | All forecast endpoints (neighborhood via core-proxy) |
 
 ### PRATICA
 | Endpoint | Method | Required | Notes |

@@ -77,7 +77,19 @@ describe("Sottra photoWow — official OMI contract", () => {
   it("includes ISTAT and OSM as official-or-unavailable, never invented", () => {
     expect(photoWow).toContain("istat_comuni");
     expect(photoWow).toContain("OpenStreetMap / Nominatim");
-    expect(photoWow).toContain('sourceType: osmAvailable ? "official" : "unavailable"');
+    expect(photoWow).toContain('sourceType: osmAvailable || poiEnrichment.found ? "official" : "unavailable"');
+  });
+
+  it("attaches Overpass neighborhood POIs after OMI, fail-closed", () => {
+    expect(photoWow).toContain("lookupOsmNeighborhoodPois");
+    expect(photoWow).toContain("elencoServiziRilevati");
+    expect(photoWow).toContain("poiEnrichment");
+    expect(photoWow).toContain("contestoVicinato");
+    expect(photoWow).toContain("OpenStreetMap / Overpass");
+    expect(photoWow).toContain("Servizi di vicinato OSM non disponibili — elenco non inventato.");
+    expect(photoWow).not.toContain("PERPLEXITY");
+    expect(scan).toContain("lookupOsmNeighborhoodPois");
+    expect(scan).not.toContain("Perplexity — analisi POI zona");
   });
 });
 
@@ -137,6 +149,8 @@ describe("core-proxy — Sottra photoWow path", () => {
     expect(proxy).toContain('"sottra/scan/photo-wow": "scan/photo-wow"');
     expect(proxy).toContain('"sottra/scan/identify": "scan/identify"');
     expect(proxy).toContain('"sottra/scan/pricing": "scan/pricing"');
+    expect(proxy).toContain('"sottra/scan/poi-enrichment": "scan/poi-enrichment"');
+    expect(proxy).toContain('"sottra/forecast/neighborhood": "forecast/neighborhood"');
     expect(proxy).toContain('"sottra/health": "health"');
   });
 
