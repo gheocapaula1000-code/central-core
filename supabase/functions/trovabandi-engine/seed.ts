@@ -118,6 +118,12 @@ export const SEED_LISTING_URLS: Record<string, string[]> = {
   "amministrazionetrasparente.provincia.treviso.it": [
     "https://amministrazionetrasparente.provincia.treviso.it/L190/?idSezione=20&sort=&activePage=&search=&cf4=true&id=273275",
   ],
+  "provincia.vicenza.it": [
+    "https://www2.provincia.vicenza.it/ente/amministrazione-trasparente/Sovvenzioni,%20contributi,%20sussidi,%20vantaggi%20economici",
+  ],
+  "web.provincia.vr.it": [
+    "https://web.provincia.vr.it/it/servizi/contributi-e-patrocini",
+  ],
   "provincia.cuneo.it": [
     "https://www.provincia.cuneo.it/amministrazione-trasparente/sovvenzioni-contributi-sussidi-vantaggi-economici",
   ],
