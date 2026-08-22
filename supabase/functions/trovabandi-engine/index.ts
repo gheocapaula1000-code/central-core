@@ -105,6 +105,9 @@ import {
   localExtractProtocolEmail,
   localOpportunityDraft,
 } from "./local-fields.ts";
+import { computeVisibility } from "./rarity.ts";
+
+
 
 
 type JsonObject = Record<string, unknown>;
