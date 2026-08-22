@@ -63,12 +63,15 @@ describe("Sottra photoWow — official OMI contract", () => {
     expect(photoWow).toContain("non sono inventati");
   });
 
-  it("documents the Core polygon sample limitation", () => {
+  it("does not lock comune_aggregate as the product when a zone match exists", () => {
     expect(photoWow).toContain("omi_zone_geometry");
-    expect(photoWow).toContain("~27k");
+    expect(omiLookup).toContain("remapPolygonToOfficialZone");
+    expect(omiLookup).toContain("presentPadovaSellableArea");
+    expect(read("supabase/functions/sottra/padova-omi-areas.ts")).toContain("PADOVA_SELLABLE_AREAS");
     expect(omiLookup).toContain("comune_aggregate");
     expect(omiLookup).toContain("lookupOMIByComune");
     expect(omiLookup).toContain("resolveOMIPricing");
+    expect(omiLookup).toMatch(/Never prefers city min\/max when a real zone match exists/);
   });
 
   it("includes ISTAT and OSM as official-or-unavailable, never invented", () => {

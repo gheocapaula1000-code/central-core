@@ -5,6 +5,22 @@
 
 ---
 
+## [3.4.4] — 2026-08-22
+
+### Sottra photoWow / scan/pricing — Padova 8-area OMI report
+- Polygon match on Core `omi_zone_geometry` now joins official `omi_zone` / `omi_valori` by unique comune+zona. Live Padova geometry uses synthetic keys (`G224-B1`) that do not exist in `omi_valori` (`PD00000015`); that miss previously discarded the real B1/C3 hit and published city-wide 650–4700.
+- Padova reports map the official microzona onto one of **8 sellable areas** (Centro / Riviere, Stazione / Portello, Arcella-nord, Est, Ovest, Sud, Periferia est / ZIP, Hinterland). Each area is 2–3 official OMI letters. The published €/m² is the official NORMALE range of the **matched** microzona, labeled as such — not a city average and not an invented letter.
+- The response does **not** dump all 18/22 Padova microzones. `tutteZone` lists only the 2–3 official members of the chosen area.
+- `comune_aggregate` remains fail-closed only when the point cannot be placed: no guessed area name, no city-wide min/max, no 18-zone list.
+- Conservation-state pick prefers official `NORMALE` when several rows exist for the same zone.
+
+### No Breaking Changes
+- Civiko One, UERADAR, TrovaBandi untouched
+- Energy / catasto / ANNCSU / listings still unavailable on photoWow
+- No write to empty org project `egjvullvkwpzyyworeml`
+
+---
+
 ## [3.4.3] — 2026-08-22
 
 ### Sottra photoWow — official OMI path
