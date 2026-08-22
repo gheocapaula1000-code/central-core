@@ -8,9 +8,31 @@ import { extractApplyLinks } from "./apply-links.ts";
 import { EXTRACTION_CATEGORIES, type ExtractionCategory } from "./extraction.ts";
 import { isEligibleOfficialOpportunity } from "./opportunity-gate.ts";
 
+// Solo linguaggio di classificazione ufficiale. Mai "digitale" / "PMI" /
+// "innovazione": non attestano un codice.
 const ATECO_NEAR =
-  /\b(?:codic[ei]\s+ateco|ateco(?:\s+ammess[ioe])?|classificazione\s+ateco)\b/gi;
-const ATECO_CODE = /\b(\d{2}(?:\.\d{1,2}){1,2}|\d{4,6})\b/g;
+  /\b(?:codic[ei]\s+(?:ateco|nace)|(?:classificazione|settori?|division[ei]|categorie)\s+(?:ateco|nace)|ateco(?:\s+ammess[ioe])?|nace(?:\s+rev(?:ision)?)?)\b/gi;
+// 62 | 62.1 | 62.10 | 62.10.00 — non anni, non numeri di decreto.
+const ATECO_DOTTED = /\b(\d{2})(?:\.\d{1,2}){0,2}(?:\.\d{2})?\b/g;
+const ATECO_COMPACT = /\b(\d{4}|\d{6})\b/g;
+
+function isClassificationYear(raw: string): boolean {
+  if (!/^\d{4}$/.test(raw)) return false;
+  const year = Number(raw);
+  return year >= 1990 && year <= 2100;
+}
+
+function isValidDivision(two: string): boolean {
+  if (!/^\d{2}$/.test(two)) return false;
+  const n = Number(two);
+  return n >= 1 && n <= 99;
+}
+
+function addDivision(found: Set<string>, two: string): boolean {
+  if (!isValidDivision(two)) return false;
+  found.add(two);
+  return found.size >= 12;
+}
 const EMAIL =
   /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
 const PEC_HINT =
@@ -43,18 +65,27 @@ function nearby(text: string, index: number, radius = 80): string {
   return text.slice(Math.max(0, index - radius), Math.min(text.length, index + radius));
 }
 
-/** Prefissi ATECO solo se il testo li qualifica esplicitamente. */
+/**
+ * Prefissi ATECO (divisione a 2 cifre) solo se il testo ufficiale li
+ * attesta accanto a una keyword di classificazione. Fail-closed:
+ * anni di edizione (2007/2025), decreti, "digitalizzazione PMI" → [].
+ */
 export function localExtractAteco(markdown: string): string[] {
-  if (typeof markdown !== "string" || markdown.length < 20) return [];
+  if (typeof markdown !== "string" || markdown.trim().length < 20) return [];
   const found = new Set<string>();
   for (const hint of markdown.matchAll(ATECO_NEAR)) {
-    const start = (hint.index ?? 0) + hint[0].length;
-    const window = markdown.slice(start, start + 100);
-    for (const match of window.matchAll(ATECO_CODE)) {
-      const compact = match[1].replace(/\./g, "");
-      if (compact.length < 2) continue;
-      found.add(compact.slice(0, 2));
-      if (found.size >= 12) return [...found];
+    const idx = hint.index ?? 0;
+    const start = Math.max(0, idx - 48);
+    const end = Math.min(markdown.length, idx + hint[0].length + 240);
+    const window = markdown.slice(start, end);
+    for (const match of window.matchAll(ATECO_DOTTED)) {
+      const full = match[0].replace(/\./g, "");
+      if (isClassificationYear(full) || isClassificationYear(match[0])) continue;
+      if (addDivision(found, match[1])) return [...found];
+    }
+    for (const match of window.matchAll(ATECO_COMPACT)) {
+      if (isClassificationYear(match[1])) continue;
+      if (addDivision(found, match[1].slice(0, 2))) return [...found];
     }
   }
   return [...found];

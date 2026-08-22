@@ -1808,7 +1808,9 @@ async function storeOpportunity(
     province:
       normalizeText(extracted.province).slice(0, 120) || source.province,
     municipality: normalizeText(extracted.municipality).slice(0, 120) || null,
-    eligible_ateco_prefixes: safeTextArray(extracted.eligible_ateco_prefixes),
+    // ATECO solo dal testo ufficiale già in mano: mai i prefix inventati
+    // dal modello (es. 62 da "digitalizzazione"). Fail-closed.
+    eligible_ateco_prefixes: localExtractAteco(proofText),
     excluded_ateco_prefixes: safeTextArray(extracted.excluded_ateco_prefixes),
     eligible_legal_forms: safeTextArray(extracted.eligible_legal_forms),
     eligible_company_sizes: safeTextArray(extracted.eligible_company_sizes),
@@ -1992,7 +1994,7 @@ serve(async (req) => {
       .in("verification_status", ["PARZIALE", "DA_VERIFICARE", "VERIFICATO"])
       .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`)
       .or(
-        "deadline_at.is.null,min_grant_amount.is.null,max_grant_amount.is.null,total_budget.is.null,application_url.is.null,forms_url.is.null,protocol_email.is.null",
+        "deadline_at.is.null,min_grant_amount.is.null,max_grant_amount.is.null,total_budget.is.null,application_url.is.null,forms_url.is.null,protocol_email.is.null,eligible_ateco_prefixes.eq.{}",
       )
       .order("last_seen_at", { ascending: true, nullsFirst: true })
       .limit(maxBatch);
@@ -2083,12 +2085,14 @@ serve(async (req) => {
           if (pec) patch.protocol_email = pec;
         }
         const existingAteco = Array.isArray(row.eligible_ateco_prefixes)
-          ? row.eligible_ateco_prefixes
+          ? row.eligible_ateco_prefixes.map((item) => String(item))
           : [];
-        if (existingAteco.length === 0) {
-          const ateco = localExtractAteco(page.markdown);
-          if (ateco.length > 0) patch.eligible_ateco_prefixes = ateco;
-        }
+        const ateco = localExtractAteco(page.markdown);
+        const sameAteco =
+          existingAteco.length === ateco.length &&
+          existingAteco.every((prefix) => ateco.includes(prefix)) &&
+          ateco.every((prefix) => existingAteco.includes(prefix));
+        if (!sameAteco) patch.eligible_ateco_prefixes = ateco;
 
         // Stessa regola del collect: se dopo la pagina ufficiale mancano
         // ancora scadenza o qualunque importo, si leggono al massimo 2 link
