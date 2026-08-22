@@ -1768,6 +1768,18 @@ async function storeOpportunity(
   const authorityLevel = normalizeAuthorityLevel(source.authority_level);
   if (!authorityLevel)
     return { stored: false, verified: false, code: "AUTHORITY_LEVEL_INVALID" };
+  // Bandi locali/rari: nascosti ai competitor e con rarity alta.
+  const visibility = computeVisibility(
+    {
+      authority_level: authorityLevel,
+      source_kind: source.source_kind,
+      rarity_base: source.rarity_base,
+      name: source.name,
+    },
+    officialUrl,
+  );
+
+
 
   const row = {
     canonical_key: canonicalKey,
