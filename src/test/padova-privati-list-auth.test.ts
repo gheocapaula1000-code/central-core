@@ -151,7 +151,11 @@ describe("padova-privati-list — source guarantees", () => {
     expect(SRC).toMatch(/ok:\s*true/);
     expect(SRC).toMatch(/privati,\s*\n\s*total,/);
     expect(SRC).toMatch(/con_telefono,/);
-    expect(SRC).toMatch(/data:\s*\{\s*privati,\s*total,\s*con_telefono\s*\}/);
+    // Nested data keeps `privati` for existing PWA clients and adds `items`
+    // as an alias so newer callers can use the same list without a rename.
+    expect(SRC).toMatch(
+      /data:\s*\{\s*items:\s*privati,\s*privati,\s*total,\s*con_telefono\s*\}/,
+    );
   });
 });
 

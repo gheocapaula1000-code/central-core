@@ -12,12 +12,17 @@ import {
 const DOMAIN = "provincia.pd.it";
 const SEED =
   "https://www.provincia.pd.it/sovvenzioni-contributi-sussidi-vantaggi-economici";
+const SEED_ALBO = "https://www.provincia.pd.it/albo-pretorio";
+const PADOVANET_HOME = "https://www.padovanet.it";
+const PADOVANET_BANDI =
+  "https://www.padovanet.it/informazione/bandi-e-avvisi";
 
 describe("trovabandi seed listing", () => {
   it("espone solo pagine seed verificate per i domini ufficiali", () => {
-    expect(seedListingUrls(DOMAIN)).toEqual([SEED]);
+    expect(seedListingUrls(DOMAIN)).toEqual([SEED, SEED_ALBO]);
     expect(seedListingUrls("www.padovanet.it")).toEqual([
-      "https://www.padovanet.it",
+      PADOVANET_HOME,
+      PADOVANET_BANDI,
     ]);
     expect(seedListingUrls("bandi.gov.it")).toEqual([]);
   });

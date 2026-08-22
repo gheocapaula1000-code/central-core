@@ -64,6 +64,7 @@ describe("trovabandi Veneto-only province sources", () => {
   it("lascia l'albo di Padova e non introduce BUR FVG", () => {
     expect(seedListingUrls("padovanet.it")).toEqual([
       "https://www.padovanet.it",
+      "https://www.padovanet.it/informazione/bandi-e-avvisi",
     ]);
     expect(
       TROVABANDI_VENETO_ADDED.some(
