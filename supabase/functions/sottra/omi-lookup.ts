@@ -55,7 +55,7 @@ export interface OMIResult {
   limitations: string[];
   /** Official OMI letter (B1, C3, …). Never an invented code. */
   officialMicrozona?: string;
-  /** Sottra sellable area id (Padova 8-area map only). */
+  /** Sottra sellable area id (Padova 7-zone map only). */
   areaId?: string;
   areaName?: string;
   tutteZone?: Array<{

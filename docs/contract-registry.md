@@ -189,7 +189,7 @@ No secrets, allowlists, or infrastructure details are exposed.
 | `/scan/identify` | POST | Photo + GPS → address + building ID | ✅ Active |
 | `/scan/photo-wow` | POST | Photo + GPS official report (OMI/ISTAT/OSM) | ✅ Active |
 | `/scan/cadastral` | POST | Cadastral data | ⚠️ UNAVAILABLE |
-| `/scan/pricing` | POST | OMI pricing (polygon → official microzona → Padova 8-area label; `comune_aggregate` only if unplaced) | ✅ Active |
+| `/scan/pricing` | POST | OMI pricing (polygon → official microzona → Padova 7-zone label; `comune_aggregate` only if unplaced) | ✅ Active |
 | `/scan/listings` | POST | Real estate listings | ⚠️ UNAVAILABLE |
 | `/scan/energy` | POST | Energy class (APE) | ⚠️ UNAVAILABLE |
 | `/scan/condominio` | POST | Condominium data | ⚠️ UNAVAILABLE |
@@ -197,7 +197,7 @@ No secrets, allowlists, or infrastructure details are exposed.
 | `/scan/market` | POST | Market comparables + signals | ✅ Active (env-gated) |
 | `/scan/market-context` | POST | Alias backward-compat → same handler as scan/market | ✅ Active |
 
-**OMI geometry on Core:** `omi_zone` / `omi_valori` are national tables. `omi_zone_geometry` on Core is a small sample (Padova 22 polygons). Synthetic geometry keys (`G224-B1`) are joined to official `link_zona` (`PD00000015`). Padova photoWow/pricing then labels one of 8 sellable areas; €/m² stay the official matched microzona. Unplaced points stay `comune_aggregate` with no guessed letter and no city-wide min/max dump.
+**OMI geometry on Core:** `omi_zone` / `omi_valori` are national tables. `omi_zone_geometry` on Core is a small sample (Padova 22 polygons). Synthetic geometry keys (`G224-B1`) are joined to official `link_zona` (`PD00000015`). Padova photoWow/pricing then labels one of Paula's 7 display zones; €/m² stay the official matched microzona (not an area average). Unplaced points stay `comune_aggregate` with no guessed letter and no city-wide min/max dump.
 
 **photoWow / live PWA:** Sottra PWA `getPhotoWow` posts to Core `core-proxy` with `endpoint: /civiko-property-from-photo`. That alias is forwarded to `/sottra/scan/photo-wow` with `x-source-app: sottra`. Civiko One continues to call `civiko-property-from-photo` directly.
 

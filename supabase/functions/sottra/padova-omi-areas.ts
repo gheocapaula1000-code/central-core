@@ -1,16 +1,16 @@
-// Sottra report overlay: 8 recognizable Padova areas.
-// Each area is a documented group of 2–3 official Agenzia delle Entrate
-// OMI microzones. No invented letters. No city-wide min/max as a zona.
+// Sottra report overlay: Paula's 7 Padova display zones.
+// Each area is a documented group of official Agenzia delle Entrate
+// OMI microzones. No invented letters. Prices stay the matched microzona
+// min/max — never an average of B1+B2 or a city-wide envelope.
 
 export type PadovaSellableAreaId =
-  | "centro_riviere"
+  | "centro"
   | "stazione_portello"
-  | "arcella_nord"
+  | "arcella"
   | "est"
   | "ovest"
   | "sud"
-  | "periferia_est"
-  | "hinterland";
+  | "nord";
 
 export type PadovaSellableArea = {
   id: PadovaSellableAreaId;
@@ -19,55 +19,55 @@ export type PadovaSellableArea = {
   quartieri: string;
 };
 
-/** 8 sellable areas. Union of omiCodes is the 22 official Padova microzones. */
+/**
+ * Official Padova letters that are not in the 7-zone product cut
+ * (C4 PadovaUno, E2 ZIP, R2/R3 rural). Fail-closed: no invented display name.
+ */
+export const PADOVA_UNMAPPED_OMI = ["C4", "E2", "R2", "R3"] as const;
+
+/** Paula's 7 display zones. Codes are official omi_zone.zona only. */
 export const PADOVA_SELLABLE_AREAS: readonly PadovaSellableArea[] = [
   {
-    id: "centro_riviere",
-    name: "Centro / Riviere",
+    id: "centro",
+    name: "Centro",
     omiCodes: ["B1", "B2"],
-    quartieri: "entro Riviere, Carmine, Santo, Santa Giustina",
+    quartieri: "Entro Riviere / Via XX Settembre; Carmine, Savonarola, Riviere ext., Porta San Giovanni, Città Giardino, Santa Giustina, Santo, Santa Sofia",
   },
   {
     id: "stazione_portello",
     name: "Stazione / Portello",
     omiCodes: ["C1", "C2"],
-    quartieri: "Portello, Stazione, Fiera, Scrovegni",
+    quartieri: "Portello; Stazione / Scrovegni / Corso del Popolo / Fiera / Cittadella",
   },
   {
-    id: "arcella_nord",
-    name: "Arcella-nord",
-    omiCodes: ["C3", "D6", "D7"],
-    quartieri: "Prima Arcella, Borgomagno, Arcella Nord, Mortise, Torre",
+    id: "arcella",
+    name: "Arcella",
+    omiCodes: ["C3", "D7"],
+    quartieri: "Borgomagno / Prima Arcella / Pescarotto; Arcella Nord / Mortise",
   },
   {
     id: "est",
     name: "Est",
-    omiCodes: ["C4", "D4", "D8"],
-    quartieri: "San Lazzaro, Forcellini Est, Ponte di Brenta, PadovaUno",
+    omiCodes: ["D8", "D4", "E1"],
+    quartieri: "S.Gregorio / Terranegra / Forcellini Est; Ponte di Brenta / San Lazzaro; Camin",
   },
   {
     id: "ovest",
     name: "Ovest",
-    omiCodes: ["D1", "D2", "D5"],
-    quartieri: "Chiesanuova, Brusegana, Mandria, Altichiero",
+    omiCodes: ["C5", "C6", "D1", "D2"],
+    quartieri: "Madonna Pellegrina / S.Rita / Nazareth / Sant'Osvaldo; Palestro / Sacra Famiglia / San Giuseppe; Chiesanuova / Brusegana; Paltana / Voltabrusegana / Mandria",
   },
   {
     id: "sud",
     name: "Sud",
-    omiCodes: ["C5", "C6", "D3"],
-    quartieri: "Santa Rita, Palestro, Guizza, Voltabarozzo",
+    omiCodes: ["D3", "E3"],
+    quartieri: "Bassanello / Guizza / Voltabarozzo; Salboro",
   },
   {
-    id: "periferia_est",
-    name: "Periferia est / ZIP",
-    omiCodes: ["E1", "E2", "E3"],
-    quartieri: "Camin, zona industriale ZIP, Salboro",
-  },
-  {
-    id: "hinterland",
-    name: "Hinterland",
-    omiCodes: ["R1", "R2", "R3"],
-    quartieri: "zone rurali, Ponterotto",
+    id: "nord",
+    name: "Nord",
+    omiCodes: ["D5", "D6", "R1"],
+    quartieri: "S.Ignazio / Montà / Altichiero; Torre / Pontevigodarzere / Sacro Cuore; Ponterotto",
   },
 ] as const;
 
@@ -83,7 +83,7 @@ export function isPadovaComuneName(value: unknown): boolean {
   return value.trim().toLowerCase().replace(/\s+/g, " ") === "padova";
 }
 
-/** Map an official OMI letter (B1, C3, …) to one sellable area. Fail-closed. */
+/** Map an official OMI letter (B1, C3, …) to one of the 7 display zones. Fail-closed. */
 export function mapPadovaOmiToArea(code: unknown): PadovaSellableArea | null {
   if (typeof code !== "string") return null;
   return CODE_TO_AREA.get(code.trim().toUpperCase()) ?? null;
@@ -97,10 +97,14 @@ export function padovaCoveredOmiCodes(): string[] {
   return PADOVA_SELLABLE_AREAS.flatMap((a) => [...a.omiCodes]);
 }
 
+export function displayAreaName(areaName: string, omiCode: string): string {
+  return `${areaName} (OMI ${omiCode})`;
+}
+
 export function officialPriceLabel(areaName: string, omiCode: string): string {
   return (
     `Area ${areaName} — €/m² ufficiali OMI microzona ${omiCode} ` +
-    `(stato NORMALE). Non è una media comunale e non è un prezzo inventato.`
+    `(stato NORMALE). Non è una media delle microzone dell'area e non è una media comunale.`
   );
 }
 
@@ -133,9 +137,8 @@ export type PadovaPresentableOmi = {
 };
 
 /**
- * Padova report overlay: replace the raw OMI letter with one of 8 sellable
- * area names. Prices stay the official matched microzona range (NORMALE).
- * comune_aggregate stays unlabeled — no guessed area, no 18-zone dump.
+ * Padova report overlay: friendly name + official matched letter.
+ * Prices stay that microzona's official range. Never average siblings.
  */
 export function presentPadovaSellableArea<T extends PadovaPresentableOmi>(result: T): T {
   if (!isPadovaComuneName(result.comune)) return result;
@@ -156,42 +159,55 @@ export function presentPadovaSellableArea<T extends PadovaPresentableOmi>(result
       tutteZone: undefined,
       limitations: [
         ...result.limitations.filter((l) => !/tutteZone/i.test(l)),
-        "Punto non collocato in una delle 8 aree Padova: nessun nome zona e nessun min/max comunale da 18 microzone.",
+        "Punto non collocato in una delle 7 aree Padova: nessun nome zona e nessun min/max comunale da 18 microzone.",
       ],
     };
   }
 
   const officialCode = (result.officialMicrozona || result.zona || "").trim().toUpperCase();
   const area = mapPadovaOmiToArea(officialCode);
-  if (!area) return result;
+  if (!area) {
+    return {
+      ...result,
+      officialMicrozona: officialCode,
+      areaId: undefined,
+      areaName: undefined,
+      limitations: [
+        ...result.limitations,
+        `Microzona ufficiale ${officialCode} non appartiene alle 7 aree display Padova — nessun nome area inventato.`,
+      ],
+    };
+  }
 
   const matched = (result.tutteZone ?? []).filter((z) => (z.zona || "").toUpperCase() === officialCode);
   const areaMembers = area.omiCodes.map((code) => {
     const row = (result.tutteZone ?? []).find((z) => (z.zona || "").toUpperCase() === code);
+    const isMatched = code === officialCode;
     return {
       zona: code,
-      zona_descr: row?.zona_descr ?? (code === officialCode ? (result.zona_descr ?? "") : ""),
-      compr_min: code === officialCode ? (result.compr_min ?? row?.compr_min ?? null) : (row?.compr_min ?? null),
-      compr_max: code === officialCode ? (result.compr_max ?? row?.compr_max ?? null) : (row?.compr_max ?? null),
-      loc_min: code === officialCode ? (result.loc_min ?? row?.loc_min ?? null) : (row?.loc_min ?? null),
-      loc_max: code === officialCode ? (result.loc_max ?? row?.loc_max ?? null) : (row?.loc_max ?? null),
+      zona_descr: row?.zona_descr ?? (isMatched ? (result.zona_descr ?? "") : ""),
+      // Only the matched microzona carries prices. Siblings are listed, not averaged.
+      compr_min: isMatched ? (result.compr_min ?? row?.compr_min ?? null) : null,
+      compr_max: isMatched ? (result.compr_max ?? row?.compr_max ?? null) : null,
+      loc_min: isMatched ? (result.loc_min ?? row?.loc_min ?? null) : null,
+      loc_max: isMatched ? (result.loc_max ?? row?.loc_max ?? null) : null,
       tipologia: row?.tipologia ?? result.tipologia ?? "Abitazioni civili",
     };
   });
 
   return {
     ...result,
-    zona: area.name,
+    zona: displayAreaName(area.name, officialCode),
     officialMicrozona: officialCode,
     areaId: area.id,
     areaName: area.name,
-    zona_descr: `${area.name} (${area.quartieri}). Quotazione ufficiale OMI ${officialCode}${result.zona_descr ? ` — ${result.zona_descr}` : ""}.`,
+    zona_descr: `${area.name} (${area.quartieri}). Quotazione ufficiale OMI ${officialCode}${result.zona_descr ? ` — ${result.zona_descr}` : ""}. Non è la media di ${area.omiCodes.join("+")}.`,
     pricingPrecisionLabel: officialPriceLabel(area.name, officialCode),
     tutteZone: areaMembers.length ? areaMembers : (matched.length ? matched : undefined),
     limitations: [
       ...result.limitations,
       officialPriceLabel(area.name, officialCode),
-      `Area ${area.name} raggruppa le microzone ufficiali ${area.omiCodes.join(", ")} — il range pubblicato è quello della microzona ${officialCode}, non il min/max di Padova.`,
+      `Area ${area.name} raggruppa le microzone ufficiali ${area.omiCodes.join(", ")} — il range pubblicato è solo ${officialCode}, non B1+B2 e non il min/max di Padova.`,
     ],
   };
 }

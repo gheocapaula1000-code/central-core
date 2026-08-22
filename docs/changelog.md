@@ -7,10 +7,11 @@
 
 ## [3.4.4] — 2026-08-22
 
-### Sottra photoWow / scan/pricing — Padova 8-area OMI report
+### Sottra photoWow / scan/pricing — Padova 7-zone OMI report
 - Polygon match on Core `omi_zone_geometry` now joins official `omi_zone` / `omi_valori` by unique comune+zona. Live Padova geometry uses synthetic keys (`G224-B1`) that do not exist in `omi_valori` (`PD00000015`); that miss previously discarded the real B1/C3 hit and published city-wide 650–4700.
-- Padova reports map the official microzona onto one of **8 sellable areas** (Centro / Riviere, Stazione / Portello, Arcella-nord, Est, Ovest, Sud, Periferia est / ZIP, Hinterland). Each area is 2–3 official OMI letters. The published €/m² is the official NORMALE range of the **matched** microzona, labeled as such — not a city average and not an invented letter.
-- The response does **not** dump all 18/22 Padova microzones. `tutteZone` lists only the 2–3 official members of the chosen area.
+- Padova reports use Paula's **7 display zones**: Centro (B1+B2), Stazione / Portello (C1+C2), Arcella (C3+D7), Est (D8+D4+E1), Ovest (C5+C6+D1+D2), Sud (D3+E3), Nord (D5+D6+R1). Display is `Centro (OMI B1)` plus that microzona's official NORMALE min/max — never an average of B1+B2, never city 650–4700.
+- Official letters outside the cut (C4, E2, R2, R3) get no invented friendly name.
+- `tutteZone` lists only the official members of the chosen area; sibling prices are not filled in.
 - `comune_aggregate` remains fail-closed only when the point cannot be placed: no guessed area name, no city-wide min/max, no 18-zone list.
 - Conservation-state pick prefers official `NORMALE` when several rows exist for the same zone.
 
