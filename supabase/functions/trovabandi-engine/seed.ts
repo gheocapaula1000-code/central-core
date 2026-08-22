@@ -140,7 +140,14 @@ export const SEED_LISTING_URLS: Record<string, string[]> = {
     "https://www.cittametropolitana.fi.it/amministrazione-trasparente/sovvenzioni-contributi-sussidi-vantaggi-economici",
   ],
   "bur.regione.veneto.it": ["https://bur.regione.veneto.it"],
-  "regione.veneto.it": ["https://www.regione.veneto.it"],
+  "bandi.regione.veneto.it": [
+    "https://bandi.regione.veneto.it/Public/Elenco",
+    "https://bandi.regione.veneto.it/Public/Ricerca",
+  ],
+  "regione.veneto.it": [
+    "https://www.regione.veneto.it",
+    "https://www.regione.veneto.it/web/agricoltura-e-foreste/bandi-finanziamenti",
+  ],
   "regione.piemonte.it": [
     "https://www.regione.piemonte.it/governo/bollettino/abbonati/2026/corrente",
   ],
