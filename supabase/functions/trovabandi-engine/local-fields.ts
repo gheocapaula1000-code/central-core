@@ -8,9 +8,72 @@ import { extractApplyLinks } from "./apply-links.ts";
 import { EXTRACTION_CATEGORIES, type ExtractionCategory } from "./extraction.ts";
 import { isEligibleOfficialOpportunity } from "./opportunity-gate.ts";
 
+// Solo linguaggio di classificazione ufficiale. Mai "digitale" / "PMI" /
+// "innovazione": non attestano un codice.
 const ATECO_NEAR =
-  /\b(?:codic[ei]\s+ateco|ateco(?:\s+ammess[ioe])?|classificazione\s+ateco)\b/gi;
-const ATECO_CODE = /\b(\d{2}(?:\.\d{1,2}){1,2}|\d{4,6})\b/g;
+  /\b(?:codic[ei]\s+(?:ateco|nace)|(?:classificazione|settori?|division[ei]|categorie)\s+(?:ateco|nace)|ateco(?:\s+ammess[ioe])?|nace(?:\s+rev(?:ision)?)?)\b/gi;
+// Solo con punto: 62.1 / 62.10 / 62.10.00 — mai un giorno ("30 settembre").
+const ATECO_DOTTED_ONLY = /\b(\d{2})(?:\.\d{1,2}){1,2}(?:\.\d{2})?\b/g;
+const ATECO_COMPACT = /\b(\d{4}|\d{6})\b/g;
+const ATECO_LIST_TOKEN =
+  /^(\d{2})(?:\.\d{1,2}){0,2}(?:\.\d{2})?/;
+const MONTH_OR_DATE =
+  /^(?:\s*(?:gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre|january|february|march|april|june|july|august|september|october|november|december)|\s*\/\s*\d)/i;
+const DOC_REF_BEFORE =
+  /(?:allegat[oi]|articol[oi]|art\.|decreto|comma|punto|n\.|n°)\s*$/i;
+
+function isClassificationYear(raw: string): boolean {
+  if (!/^\d{4}$/.test(raw)) return false;
+  const year = Number(raw);
+  return year >= 1990 && year <= 2100;
+}
+
+function isValidDivision(two: string): boolean {
+  if (!/^\d{2}$/.test(two)) return false;
+  const n = Number(two);
+  return n >= 1 && n <= 99;
+}
+
+function addDivision(found: Set<string>, two: string): boolean {
+  if (!isValidDivision(two)) return false;
+  found.add(two);
+  return found.size >= 12;
+}
+
+function precededByDocRef(text: string, index: number): boolean {
+  return DOC_REF_BEFORE.test(text.slice(Math.max(0, index - 24), index));
+}
+
+/** Elenco di codici subito dopo la keyword: "ATECO 62", "62.01 e 63.11", "55-Ricettività, 56". */
+function collectListedCodes(after: string, found: Set<string>): boolean {
+  let s = after.replace(/^\s*(?:ammess[ioe]\s+)?/i, "");
+  while (s.length > 0 && found.size < 12) {
+    s = s.replace(/^[\s,;:\/]+/, "");
+    s = s.replace(/^(?:e|ed|o)\s+/i, "");
+    const year = s.match(/^(?:19|20)\d{2}\b/);
+    if (year) {
+      s = s.slice(year[0].length);
+      s = s.replace(/^\s+[A-U]\b/, "");
+      continue;
+    }
+    const match = s.match(ATECO_LIST_TOKEN);
+    if (!match) break;
+    const full = match[0].replace(/\./g, "");
+    const rest = s.slice(match[0].length);
+    if (!MONTH_OR_DATE.test(rest) && isValidDivision(match[1])) {
+      found.add(match[1]);
+    }
+    s = rest.replace(/^-[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’\s]*/u, "");
+    s = s.replace(/^\s*\([^)]{0,80}\)/, "");
+    if (/^\s*\.\s+[A-Za-z]/.test(s)) break;
+    if (/^[\s,;:\/]/.test(s) || /^(?:e|ed|o)\s+/i.test(s)) continue;
+    const hop = s.match(
+      /^(?:(?![.\n,;\d])[\s\S]){0,80}?(\s+e\s+|\s+ed\s+|\s+o\s+)(?=\d{2})/i,
+    );
+    if (hop) s = s.slice(hop[0].length);
+  }
+  return found.size >= 12;
+}
 const EMAIL =
   /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
 const PEC_HINT =
@@ -43,18 +106,35 @@ function nearby(text: string, index: number, radius = 80): string {
   return text.slice(Math.max(0, index - radius), Math.min(text.length, index + radius));
 }
 
-/** Prefissi ATECO solo se il testo li qualifica esplicitamente. */
+/**
+ * Prefissi ATECO (divisione a 2 cifre) solo se il testo ufficiale li
+ * attesta accanto a una keyword di classificazione. Fail-closed:
+ * anni di edizione (2007/2025), decreti, "digitalizzazione PMI" → [].
+ */
 export function localExtractAteco(markdown: string): string[] {
-  if (typeof markdown !== "string" || markdown.length < 20) return [];
+  if (typeof markdown !== "string" || markdown.trim().length < 20) return [];
   const found = new Set<string>();
   for (const hint of markdown.matchAll(ATECO_NEAR)) {
-    const start = (hint.index ?? 0) + hint[0].length;
-    const window = markdown.slice(start, start + 100);
-    for (const match of window.matchAll(ATECO_CODE)) {
-      const compact = match[1].replace(/\./g, "");
-      if (compact.length < 2) continue;
-      found.add(compact.slice(0, 2));
-      if (found.size >= 12) return [...found];
+    const idx = hint.index ?? 0;
+    const afterStart = idx + hint[0].length;
+    if (collectListedCodes(markdown.slice(afterStart, afterStart + 240), found)) {
+      return [...found];
+    }
+    const start = Math.max(0, idx - 48);
+    const end = Math.min(markdown.length, afterStart + 240);
+    const window = markdown.slice(start, end);
+    for (const match of window.matchAll(ATECO_DOTTED_ONLY)) {
+      const at = start + (match.index ?? 0);
+      if (precededByDocRef(markdown, at)) continue;
+      const full = match[0].replace(/\./g, "");
+      if (isClassificationYear(full)) continue;
+      if (addDivision(found, match[1])) return [...found];
+    }
+    for (const match of window.matchAll(ATECO_COMPACT)) {
+      const at = start + (match.index ?? 0);
+      if (precededByDocRef(markdown, at)) continue;
+      if (isClassificationYear(match[1])) continue;
+      if (addDivision(found, match[1].slice(0, 2))) return [...found];
     }
   }
   return [...found];
