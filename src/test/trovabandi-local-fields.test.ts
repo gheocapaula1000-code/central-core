@@ -117,6 +117,11 @@ describe("local field extractors", () => {
           .repeat(2),
       ),
     ).toEqual(["62"]);
+    expect(
+      localExtractAteco(
+        "Avviso pubblico. ATECO 62. Scadenza 30 settembre 2026. Documentazione ufficiale.",
+      ),
+    ).toEqual(["62"]);
   });
 
   it("non etichetta 62 da digitalizzazione / innovazione / PMI senza codice", () => {
