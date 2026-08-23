@@ -5738,6 +5738,39 @@ export type Database = {
         }
         Relationships: []
       }
+      omi_geom_stage: {
+        Row: {
+          comune_descrizione: string | null
+          comune_istat: string | null
+          geojson: string
+          link_zona: string
+          provincia: string | null
+          semestre: string
+          zona: string | null
+          zona_descr: string | null
+        }
+        Insert: {
+          comune_descrizione?: string | null
+          comune_istat?: string | null
+          geojson: string
+          link_zona: string
+          provincia?: string | null
+          semestre?: string
+          zona?: string | null
+          zona_descr?: string | null
+        }
+        Update: {
+          comune_descrizione?: string | null
+          comune_istat?: string | null
+          geojson?: string
+          link_zona?: string
+          provincia?: string | null
+          semestre?: string
+          zona?: string | null
+          zona_descr?: string | null
+        }
+        Relationships: []
+      }
       omi_import_jobs: {
         Row: {
           batch_size: number
