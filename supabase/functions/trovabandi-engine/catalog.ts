@@ -224,12 +224,24 @@ export function catalogMatch(
   };
 }
 
+function truncateSummary(text: unknown, maxLen = 400): string {
+  const raw = normalizeText(text);
+  if (!raw) return "";
+  if (raw.length <= maxLen) return raw;
+  // Try to break at the last whitespace before the limit.
+  const slice = raw.slice(0, maxLen);
+  const lastSpace = slice.search(/\s+[^\s]*$/);
+  if (lastSpace > 0) return slice.slice(0, lastSpace).trimEnd();
+  return slice;
+}
+
 export function mapCatalogBando(
   row: Record<string, unknown>,
   profile?: CatalogProfile | null,
 ): Record<string, unknown> {
   const mapped: Record<string, unknown> = {
     ...row,
+    summary: truncateSummary(row.summary),
     modulistica_url: row.forms_url ?? null,
   };
   const match = catalogMatch(row, profile);
