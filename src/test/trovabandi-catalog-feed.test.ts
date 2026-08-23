@@ -121,6 +121,21 @@ describe("catalog match — nessuna invenzione", () => {
     expect(mapped).not.toHaveProperty("eligible_ateco_codes");
   });
 
+  it("tronca summary a 400 caratteri senza inventare testo", () => {
+    const longSummary = "A".repeat(500);
+    const mapped = mapCatalogBando({ ...OFFICIAL_OPEN, summary: longSummary });
+    const truncated = String(mapped.summary);
+    expect(truncated.length).toBeLessThanOrEqual(400);
+    expect(truncated).not.toContain("...");
+    expect(truncated).toMatch(/^A+$/);
+  });
+
+  it("non allunga summary sotto 400 caratteri", () => {
+    const short = "Breve descrizione.";
+    const mapped = mapCatalogBando({ ...OFFICIAL_OPEN, summary: short });
+    expect(mapped.summary).toBe(short);
+  });
+
   it("non inventa ATECO 62 su righe senza prefissi ufficiali", () => {
     const match = catalogMatch(OFFICIAL_OPEN, { codice_ateco: "62.01" });
     expect(match?.status).toBe("DA_VERIFICARE");
