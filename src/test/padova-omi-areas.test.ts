@@ -192,9 +192,6 @@ describe("presentPadovaSellableArea", () => {
   it("unplaced Padova point stays comune_aggregate without a guessed letter or city range", () => {
     const out = presentPadovaSellableArea(baseResult({
       matchMethod: "comune_aggregate",
-      omiGeoLevel: "comune",
-      sourceCoverageLevel: "comunale",
-      matchConfidence: 0.72,
       zona: undefined,
       compr_min: 650,
       compr_max: 4700,
