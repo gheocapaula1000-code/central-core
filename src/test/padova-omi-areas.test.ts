@@ -41,10 +41,8 @@ const padovaZones = [
 function baseResult(over: Partial<PadovaPresentableOmi>): PadovaPresentableOmi {
   return {
     found: true,
-    fonte: "Agenzia Entrate — OMI, 1° semestre 2025",
     matchConfidence: 0.98,
     matchMethod: "polygon_match",
-    polygonMatch: true,
     omiGeoLevel: "microzona_omi",
     pricingPrecisionLabel: "micro",
     sourceCoverageLevel: "microzona",
@@ -198,7 +196,6 @@ describe("presentPadovaSellableArea", () => {
   it("unplaced Padova point stays comune_aggregate without a guessed letter or city range", () => {
     const out = presentPadovaSellableArea(baseResult({
       matchMethod: "comune_aggregate",
-      polygonMatch: false,
       omiGeoLevel: "comune",
       sourceCoverageLevel: "comunale",
       matchConfidence: 0.72,
