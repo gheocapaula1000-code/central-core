@@ -41,12 +41,8 @@ const padovaZones = [
 function baseResult(over: Partial<PadovaPresentableOmi>): PadovaPresentableOmi {
   return {
     found: true,
-    matchConfidence: 0.98,
     matchMethod: "polygon_match",
-    omiGeoLevel: "microzona_omi",
     pricingPrecisionLabel: "micro",
-    sourceCoverageLevel: "microzona",
-    confidenceReason: "pip",
     limitations: [],
     comune: "PADOVA",
     ...over,
