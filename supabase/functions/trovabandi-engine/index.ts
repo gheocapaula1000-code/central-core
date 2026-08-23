@@ -106,6 +106,15 @@ import {
   localOpportunityDraft,
 } from "./local-fields.ts";
 import { computeVisibility } from "./rarity.ts";
+import {
+  CATALOG_MAX_LIMIT,
+  CATALOG_SAFE_CAP,
+  CATALOG_SELECT_COLUMNS,
+  isCatalogRequest,
+  isOfficialOpenCatalogRow,
+  mapCatalogBando,
+  parseCatalogPaging,
+} from "./catalog.ts";
 
 
 
@@ -178,6 +187,7 @@ const JSON_HEADERS = {
 };
 const ALLOWED_ACTIONS = new Set([
   "feed",
+  "catalog",
   "request_refresh",
   "collect",
   "maintenance",
@@ -2698,6 +2708,71 @@ serve(async (req) => {
       return response(503, { ok: false, code: "REFRESH_REQUEST_WRITE_FAILED" });
     }
     return response(202, { ok: true, queued: true });
+  }
+
+  if (isCatalogRequest(action, body)) {
+    const paging = parseCatalogPaging(body);
+    const nowIso = new Date().toISOString();
+    const now = new Date(nowIso);
+    const pageSize = paging.fetchAll ? CATALOG_MAX_LIMIT : paging.limit;
+    const catalogRows: JsonObject[] = [];
+    let queryFailed = false;
+    let fetched = 0;
+    let pageHasMore = false;
+    while (fetched < (paging.fetchAll ? CATALOG_SAFE_CAP : pageSize)) {
+      const from = paging.fetchAll ? fetched : paging.offset;
+      const remaining = paging.fetchAll
+        ? Math.min(CATALOG_MAX_LIMIT, CATALOG_SAFE_CAP - fetched)
+        : pageSize + 1;
+      const { data, error } = await sb
+        .from("trovabandi_opportunities")
+        .select(CATALOG_SELECT_COLUMNS)
+        .eq("official_source", true)
+        .in("verification_status", ["VERIFICATO", "PARZIALE", "DA_VERIFICARE"])
+        .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`)
+        .like("official_url", "http%")
+        .order("deadline_at", { ascending: true, nullsFirst: false })
+        .order("id", { ascending: true })
+        .range(from, from + remaining - 1);
+      if (error) {
+        queryFailed = true;
+        break;
+      }
+      const batch = (data ?? []) as JsonObject[];
+      if (paging.fetchAll) {
+        catalogRows.push(...batch);
+        fetched += batch.length;
+        if (batch.length < remaining) break;
+      } else {
+        pageHasMore = batch.length > pageSize;
+        catalogRows.push(...batch.slice(0, pageSize));
+        break;
+      }
+    }
+    if (queryFailed) return response(500, { ok: false, code: "CATALOG_QUERY_FAILED" });
+    const profile = (body.profile ?? null) as CompanyProfile | null;
+    const considered = catalogRows.map((item) =>
+      mapCatalogBando(item, profile),
+    );
+    const visible = considered.filter((item) =>
+      isOfficialOpenCatalogRow(item, now),
+    );
+    const hasMore = paging.fetchAll ? false : pageHasMore;
+    return response(200, {
+      ok: true,
+      mode: "catalog",
+      bandi: visible,
+      total_considered: considered.length,
+      excluded: considered.length - visible.length,
+      fetched_at: nowIso,
+      generated_at: nowIso,
+      source: "central-core",
+      page: paging.page,
+      limit: paging.fetchAll ? visible.length : paging.limit,
+      has_more: hasMore,
+      next_page: hasMore ? paging.page + 1 : null,
+      next_cursor: hasMore ? paging.page + 1 : null,
+    });
   }
 
   if (action === "feed") {
