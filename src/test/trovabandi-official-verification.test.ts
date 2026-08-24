@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
+  EXPIRE_VERIFICATION_STATUSES,
+  OPEN_VERIFICATION_STATUSES,
   isProvenSportelloSenzaScadenza,
   officialVerificationStatus,
 } from "../../supabase/functions/trovabandi-engine/verification.ts";
@@ -216,5 +218,8 @@ describe("extract/backfill wiring", () => {
     expect(ENGINE).not.toMatch(/verification_status:\s*"COMPATIBILE"/);
     expect(MIGRATION).toContain("'SPORTELLO'");
     expect(MIGRATION).toContain("trovabandi_opportunities_verification_status_check");
+    expect(OPEN_VERIFICATION_STATUSES).toContain("SPORTELLO");
+    expect(EXPIRE_VERIFICATION_STATUSES).toContain("SPORTELLO");
+    expect(EXPIRE_VERIFICATION_STATUSES).not.toContain("RITIRATO");
   });
 });

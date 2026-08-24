@@ -332,7 +332,7 @@ describe("maintenance, status e SKIPPED — stato persistito corretto", () => {
 
   it("maintenance non trasforma mai un RITIRATO in SCADUTO", () => {
     expect(MAINTENANCE).toContain("EXPIRE_VERIFICATION_STATUSES");
-    expect(MAINTENANCE).toContain("SPORTELLO");
+    expect(MAINTENANCE).not.toContain("RITIRATO");
     expect(MAINTENANCE).not.toContain('.neq("verification_status", "SCADUTO")');
   });
 
