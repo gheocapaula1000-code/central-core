@@ -687,6 +687,11 @@ const BUDGET_KEYWORDS =
 
 type AmountBucket = "min_grant_amount" | "max_grant_amount" | "total_budget";
 
+// Contesti che NON sono contributo a fondo perduto: prestiti, spese
+// ammissibili, investimenti, fatturato. Squalificano il bucket "massimo".
+const NON_GRANT_CONTEXT =
+  /(finanziament\w*|mutu\w*|prestit\w*|garanzi\w*|spesa\s+ammissibil\w*|spese\s+ammissibil\w*|costo\s+del\s+progetto|investiment\w*|fatturat\w*|ricav\w*|durata|ore\b|giornate)/g;
+
 /** Classifica un importo in base alla keyword più vicina che lo precede. */
 function amountBucket(text: string, idx: number): AmountBucket | null {
   const before = text.slice(Math.max(0, idx - 110), idx);
@@ -699,12 +704,20 @@ function amountBucket(text: string, idx: number): AmountBucket | null {
   ).filter((c) => c.at >= 0);
   if (candidates.length === 0) return null;
   candidates.sort((a, b) => b.at - a.at);
-  return candidates[0].bucket;
+  const winner = candidates[0];
+  if (winner.bucket === "max_grant_amount") {
+    // Se tra la keyword di massimo e la cifra compare un contesto di
+    // prestito/spesa, la cifra non è un contributo massimo: fail-closed.
+    const between = before.slice(winner.at);
+    if (lastIndexOfPattern(between, NON_GRANT_CONTEXT) >= 0) return null;
+  }
+  return winner.bucket;
 }
 
 function plausibleAmount(n: number): boolean {
   return n >= 100 && n <= 100_000_000_000;
 }
+
 
 function localExtractAmounts(
   markdown: string,
