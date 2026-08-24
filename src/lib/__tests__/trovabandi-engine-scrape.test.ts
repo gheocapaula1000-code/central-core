@@ -4,6 +4,7 @@ import {
   htmlToEvidenceText,
   isCsvContentType,
   isAllowedOfficialUrl,
+  isBlockedAggregatorUrl,
   isHtmlContentType,
   isPdfContentType,
   officialUrlVariants,
@@ -42,6 +43,14 @@ describe("UEradar official-source HTTP fallback", () => {
     expect(
       isAllowedOfficialUrl("https://example.it:8443/avviso", "example.it"),
     ).toBe(false);
+    expect(isBlockedAggregatorUrl("https://bandiora.it/bando")).toBe(true);
+    expect(isBlockedAggregatorUrl("https://www.bandiora.it/avviso")).toBe(true);
+    expect(
+      isAllowedOfficialUrl("https://bandiora.it/bando", "bandiora.it"),
+    ).toBe(false);
+    expect(isBlockedAggregatorUrl("https://www.invitalia.it/bando")).toBe(
+      false,
+    );
   });
 
   it("rifiuta il corpo quando supera il limite reale anche senza Content-Length", async () => {

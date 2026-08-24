@@ -45,6 +45,20 @@ function isBlockedHostname(hostname: string): boolean {
   );
 }
 
+/** Aggregatori privati: mai scrapati. Solo URL di PA / portali ufficiali. */
+export function isBlockedAggregatorHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^www\./, "").replace(/^\[|\]$/g, "");
+  return host === "bandiora.it" || host.endsWith(".bandiora.it");
+}
+
+export function isBlockedAggregatorUrl(rawUrl: string): boolean {
+  try {
+    return isBlockedAggregatorHost(new URL(rawUrl).hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function isAllowedOfficialUrl(
   rawUrl: string,
   officialDomain: string,
@@ -52,6 +66,7 @@ export function isAllowedOfficialUrl(
   try {
     const url = new URL(rawUrl);
     if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+    if (isBlockedAggregatorHost(url.hostname)) return false;
     if (url.username || url.password || isBlockedHostname(url.hostname))
       return false;
     if (url.port && url.port !== "80" && url.port !== "443") return false;

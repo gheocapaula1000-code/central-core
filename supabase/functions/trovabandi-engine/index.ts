@@ -36,6 +36,7 @@ import {
   csvToEvidenceText,
   htmlToEvidenceText,
   isAllowedOfficialUrl,
+  isBlockedAggregatorUrl,
   isHtmlContentType,
   isCsvContentType,
   isPdfContentType,
@@ -100,6 +101,12 @@ import {
   isEligibleOfficialOpportunity,
   isIndexOrLandingUrl,
 } from "./opportunity-gate.ts";
+import {
+  extractNoticeLinks,
+  isNoticeLikeUrl,
+  isOfficialListingUrl,
+} from "./notice-resolve.ts";
+import { officialVerificationStatus } from "./verification.ts";
 import {
   localExtractAteco,
   localExtractProtocolEmail,
@@ -722,14 +729,22 @@ function localExtractAmounts(
   }
 
   // A) Cifre con eventuale scala: "€ 250.000,00", "356,4 milioni di euro",
-  //    "1,5 mln", "500 mila euro".
+  //    "1,5 mln", "500 mila euro", "4 milioni" accanto a keyword.
   const numeric =
     /(€|eur\b|euro\b)?\s*(\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)\s*(mila|milioni|milione|mln|miliardi|miliardo|mld)?\s*(?:di\s+)?(€|eur\b|euro\b)?/g;
+  const NON_MONEY_UNIT =
+    /^(?:\s*(?:di\s+)?)?(ore|posti|progett|mesi|giorn|partecip)/i;
   for (const m of t.matchAll(numeric)) {
     const prefixCur = !!m[1];
-    const scale = m[3] ? SCALE_FACTORS[m[3]] : 1;
+    const hasScale = !!m[3];
+    const scale = hasScale ? SCALE_FACTORS[m[3]] : 1;
     const suffixCur = !!m[4];
-    if (!prefixCur && !suffixCur) continue; // fail-closed: serve la valuta
+    // Fail-closed: valuta esplicita, oppure scala (milioni/mln) accanto a keyword.
+    if (!prefixCur && !suffixCur && !hasScale) continue;
+    const after = t.slice((m.index ?? 0) + m[0].length);
+    if (hasScale && !prefixCur && !suffixCur && NON_MONEY_UNIT.test(after)) {
+      continue;
+    }
     const base = parseItalianNumber(m[2]);
     if (!base) continue;
     assign(amountBucket(t, m.index ?? 0), base * scale);
@@ -1349,6 +1364,69 @@ async function loadPage(
 /** Budget per run: nessuna esplosione del tempo di collect. */
 const DETAIL_MAX_FETCH_PER_RUN = 12;
 const DETAIL_MAX_FETCH_PER_HIT = 2;
+const NOTICE_FOLLOW_MAX = 4;
+
+export const BACKFILL_DEFAULT_BATCH = 250;
+export const BACKFILL_MAX_BATCH = 400;
+const BACKFILL_TIME_BUDGET_MS = 150_000;
+
+/**
+ * Se l'URL è un elenco/home/bandi, segue i link stesso-host che sembrano
+ * un avviso e restituisce la prima pagina-avviso reale. Preferisce l'URL
+ * dell'avviso all'elenco. Bandiora e BUR FVG non vengono scaricati.
+ */
+async function resolveOfficialNoticePage(
+  startUrl: string,
+  officialDomain: string,
+  existingExcerpt?: string | null,
+): Promise<{ page: LoadedPage; officialUrl: string } | null> {
+  if (isBlockedAggregatorUrl(startUrl)) return null;
+  const stored = usableStoredEvidence(existingExcerpt);
+  const listingStart = isOfficialListingUrl(startUrl);
+
+  let page: LoadedPage | null = null;
+  if (!shouldSkipApplyFetch(startUrl)) {
+    page = await directOfficialScrape(startUrl, officialDomain);
+  }
+  let officialUrl = page?.finalUrl ?? startUrl;
+  const listing = listingStart || isOfficialListingUrl(officialUrl);
+
+  if (listing) {
+    const links = extractNoticeLinks(
+      page?.html ?? "",
+      page?.markdown ?? stored ?? "",
+      officialUrl,
+      officialDomain,
+      { limit: NOTICE_FOLLOW_MAX, exclude: [startUrl, officialUrl] },
+    );
+    for (const link of links) {
+      if (isBlockedAggregatorUrl(link.url) || shouldSkipApplyFetch(link.url)) {
+        continue;
+      }
+      const notice = await directOfficialScrape(link.url, officialDomain);
+      if (!notice || notice.markdown.length < 200) continue;
+      const noticeUrl = notice.finalUrl ?? link.url;
+      if (isOfficialListingUrl(noticeUrl)) continue;
+      if (
+        isEligibleOfficialOpportunity({
+          officialUrl: noticeUrl,
+          markdown: notice.markdown,
+        }) ||
+        notice.markdown.length >= 400
+      ) {
+        return { page: notice, officialUrl: noticeUrl };
+      }
+    }
+    return null;
+  }
+
+  if (!page && stored) {
+    page = { markdown: stored, title: "", provider: "stored-excerpt" };
+    officialUrl = startUrl;
+  }
+  if (!page || page.markdown.length < 200) return null;
+  return { page, officialUrl };
+}
 
 export interface DetailEvidenceRow {
   source_url: string;
@@ -1682,7 +1760,7 @@ async function extractOpportunity(
   if (!key) return { ok: false, code: "NO_KEY" };
   const model = env("TROVABANDI_PERPLEXITY_MODEL") || "sonar-pro";
   const schemaHint = `Campi ammessi: is_opportunity (boolean), title, authority_name, category (uno tra FONDO_PERDUTO, FINANZIAMENTO_AGEVOLATO, TASSO_ZERO, CREDITO_IMPOSTA, GARANZIA, VOUCHER, IMPRENDITORIA_FEMMINILE, IMPRENDITORIA_GIOVANILE, DIGITALIZZAZIONE, TRANSIZIONE_ENERGETICA, RICERCA_SVILUPPO, INTERNAZIONALIZZAZIONE, STARTUP_INNOVAZIONE, FORMAZIONE_OCCUPAZIONE, AGRICOLTURA_RURALE, TURISMO_CULTURA, ECONOMIA_CIRCOLARE, ALTRO), summary, official_url, notice_url, application_url, forms_url, protocol_email, region, province, municipality, eligible_ateco_prefixes[], excluded_ateco_prefixes[], eligible_legal_forms[], eligible_company_sizes[], female_only, youth_only, startup_only, innovative_only, de_minimis, aid_intensity_percent, min_grant_amount, max_grant_amount, total_budget, opens_at, deadline_at, click_day, requirements[], eligible_expenses[], publication_reference, programme_name, programme_code, pnrr_mission, pnrr_component, implementing_body, eligible_countries[], consortium_required, min_partners, direct_applicant_allowed.`;
-  const prompt = `Estrai esclusivamente dati presenti nel testo ufficiale seguente. Non dedurre requisiti, date o importi mancanti. Se la pagina non descrive un bando, incentivo o finanziamento per imprese aperto, in apertura o con documentazione ancora rilevante, imposta is_opportunity=false. official_url deve essere ${hit.url}. Date ISO 8601. Prefissi ATECO senza punteggiatura superflua. Per opportunità UE estrai programma, codice call/topic, Paesi ammessi e obbligo/minimo partner. Per PNRR estrai Missione, Componente e soggetto attuatore soltanto se espliciti.\n${schemaHint}\n\n${markdown}`;
+  const prompt = `Estrai esclusivamente dati presenti nel testo ufficiale seguente. Non dedurre requisiti, date, importi, percentuali o ATECO mancanti. Non inventare 62 / 62.10.00 da "digitale/software/innovazione". Un prefisso ATECO solo se il testo stampa il codice. Se la pagina non descrive un bando, incentivo o finanziamento per imprese aperto, in apertura o con documentazione ancora rilevante, imposta is_opportunity=false. official_url deve essere ${hit.url}. Date ISO 8601. Prefissi ATECO senza punteggiatura superflua. Per opportunità UE estrai programma, codice call/topic, Paesi ammessi e obbligo/minimo partner. Per PNRR estrai Missione, Componente e soggetto attuatore soltanto se espliciti.\n${schemaHint}\n\n${markdown}`;
 
   // Massimo due tentativi: schema JSON, poi eventuale fallback plain JSON.
   const modes: Array<"json_schema" | "json_fallback"> = [
@@ -1748,11 +1826,7 @@ async function storeOpportunity(
     existingApplication: existing?.application_url,
   });
 
-  const deadline = safeTimestamp(extracted.deadline_at);
   const now = new Date();
-  const expired = deadline
-    ? new Date(deadline).getTime() < now.getTime()
-    : false;
   const hasEvidence =
     markdown.length > 200 && source.official_domain.length > 3;
   // La prova può stare nella pagina principale oppure nel documento di
@@ -1760,15 +1834,43 @@ async function storeOpportunity(
   const proofText = [markdown, ...extraEvidence.map((row) => row.excerpt)].join(
     "\n",
   );
+  // Fail-closed: scadenza e importi solo se il testo ufficiale li stampa
+  // accanto alla keyword. Il modello non inventa date né cifre.
+  const localDeadline =
+    localExtractDeadline(proofText) ??
+    parseDeadline(proofText, now)?.value ??
+    null;
+  const extractedDeadline = safeTimestamp(extracted.deadline_at);
+  const deadline = localDeadline ??
+    (dateIsPresentInEvidence(proofText, extractedDeadline)
+      ? extractedDeadline
+      : null);
+  const localAmounts = localExtractAmounts(proofText);
+  const parsedAmounts = parseAmounts(proofText);
+  const maxGrant = boundedNumeric(
+    localAmounts.max_grant_amount ?? parsedAmounts.max_grant_amount?.value ??
+      null,
+    15,
+    2,
+  );
+  const minGrant = boundedNumeric(
+    localAmounts.min_grant_amount ?? null,
+    15,
+    2,
+  );
+  const totalBudget = boundedNumeric(
+    localAmounts.total_budget ?? parsedAmounts.total_budget?.value ?? null,
+    18,
+    2,
+  );
   const deadlineProven = dateIsPresentInEvidence(proofText, deadline);
-  const verification: PersistVerification =
-    expired && deadlineProven
-      ? "SCADUTO"
-      : hasEvidence && deadline && deadlineProven
-        ? "VERIFICATO"
-        : hasEvidence
-          ? "PARZIALE"
-          : "DA_VERIFICARE";
+  const verification: PersistVerification = officialVerificationStatus({
+    hasEvidence,
+    deadline,
+    deadlineProven,
+    maxGrantAmount: maxGrant,
+    now,
+  });
   const contentHash = await sha256(markdown);
   const canonicalKey = await sha256(officialUrl.toLowerCase());
   const discoveredBy = safeTextArray([
@@ -1839,9 +1941,9 @@ async function storeOpportunity(
       6,
       2,
     ),
-    min_grant_amount: boundedNumeric(extracted.min_grant_amount, 15, 2),
-    max_grant_amount: boundedNumeric(extracted.max_grant_amount, 15, 2),
-    total_budget: boundedNumeric(extracted.total_budget, 18, 2),
+    min_grant_amount: minGrant,
+    max_grant_amount: maxGrant,
+    total_budget: totalBudget,
     opens_at: safeTimestamp(extracted.opens_at),
     deadline_at: deadline,
     click_day: extracted.click_day === true,
@@ -1989,8 +2091,11 @@ serve(async (req) => {
   }
 
   if (action === "backfill_nulls") {
-    const maxBatch = Math.min(20, Math.max(1, Number(body.max_batch) || 12));
-    const dryRun = body.dry_run !== false; // default TRUE per sicurezza
+    const maxBatch = Math.min(
+      BACKFILL_MAX_BATCH,
+      Math.max(1, Number(body.max_batch) || BACKFILL_DEFAULT_BATCH),
+    );
+    const dryRun = body.dry_run === true;
     // Opt-in esplicito: usa l'estrattore Perplexity già esistente SOLO come
     // fallback sui campi ancora NULL. Nessun nuovo provider, nessun nuovo costo
     // di sottoscrizione; lo scraping resta comunque zero-cost.
@@ -2019,11 +2124,23 @@ serve(async (req) => {
     const results: any[] = [];
     let updated = 0;
     let skipped = 0;
+    const startedMs = Date.now();
 
     for (const row of rows) {
       try {
+        if (Date.now() - startedMs > BACKFILL_TIME_BUDGET_MS) {
+          results.push({ id: row.id, status: "TIME_BUDGET" });
+          skipped++;
+          continue;
+        }
         if (shouldSkipExpiredRecrawl(row as CatalogueRow)) {
           results.push({ id: row.id, status: "SKIPPED_EXPIRED" });
+          skipped++;
+          continue;
+        }
+        if (isBlockedAggregatorUrl(row.official_url) ||
+          isBlockedAggregatorUrl(row.notice_url ?? "")) {
+          results.push({ id: row.id, status: "SKIPPED_BANDIORA" });
           skipped++;
           continue;
         }
@@ -2038,22 +2155,22 @@ serve(async (req) => {
           continue;
         }
 
-        const stored = usableStoredEvidence(row.raw_excerpt);
-        let page = shouldSkipApplyFetch(row.official_url)
-          ? null
-          : await directOfficialScrape(row.official_url, domain);
-        if (!page && stored) {
-          page = {
-            markdown: stored,
-            title: "",
-            provider: "stored-excerpt",
-          };
-        }
-        if (!page || page.markdown.length < 200) {
+        const startUrl =
+          typeof row.notice_url === "string" && isNoticeLikeUrl(row.notice_url)
+            ? row.notice_url
+            : row.official_url;
+        const resolved = await resolveOfficialNoticePage(
+          startUrl,
+          domain,
+          isOfficialListingUrl(startUrl) ? null : row.raw_excerpt,
+        );
+        if (!resolved) {
           results.push({ id: row.id, status: "SCRAPE_EMPTY" });
           skipped++;
           continue;
         }
+        const page = resolved.page;
+        const resolvedUrl = resolved.officialUrl;
 
         const patch: Record<string, unknown> = {};
         if (row.deadline_at == null) {
@@ -2062,19 +2179,36 @@ serve(async (req) => {
         }
 
         const amounts = localExtractAmounts(page.markdown);
+        const parsedPage = parseAmounts(page.markdown);
         if (row.min_grant_amount == null && amounts.min_grant_amount != null) {
           patch.min_grant_amount = amounts.min_grant_amount;
         }
-        if (row.max_grant_amount == null && amounts.max_grant_amount != null) {
-          patch.max_grant_amount = amounts.max_grant_amount;
+        if (row.max_grant_amount == null) {
+          const maxGrant = amounts.max_grant_amount ??
+            parsedPage.max_grant_amount?.value ?? null;
+          if (maxGrant != null) patch.max_grant_amount = maxGrant;
         }
-        if (row.total_budget == null && amounts.total_budget != null) {
-          patch.total_budget = amounts.total_budget;
+        if (row.total_budget == null) {
+          const budget = amounts.total_budget ??
+            parsedPage.total_budget?.value ?? null;
+          if (budget != null) patch.total_budget = budget;
         }
+        if (
+          resolvedUrl !== row.official_url &&
+          !isOfficialListingUrl(resolvedUrl) &&
+          !isBlockedAggregatorUrl(resolvedUrl)
+        ) {
+          patch.official_url = resolvedUrl;
+          if (!isNoticeLikeUrl(row.notice_url ?? "") ||
+            row.notice_url !== resolvedUrl) {
+            patch.notice_url = resolvedUrl;
+          }
+        }
+
         const applyUrls = resolveOfficialApplyUrls({
           html: page.html,
           markdown: page.markdown,
-          officialUrl: row.official_url,
+          officialUrl: resolvedUrl,
           officialDomain: domain,
           existingForms: row.forms_url,
           existingApplication: row.application_url,
@@ -2119,11 +2253,11 @@ serve(async (req) => {
         if (missingDeadline || missingAmounts) {
           const detailTargets = extractDetailLinks(
             page.html ?? "",
-            page.finalUrl ?? row.official_url,
+            page.finalUrl ?? resolvedUrl,
             domain,
             {
               limit: DETAIL_MAX_FETCH_PER_HIT,
-              exclude: [row.official_url, page.finalUrl ?? row.official_url],
+              exclude: [row.official_url, resolvedUrl, page.finalUrl ?? resolvedUrl],
             },
           ).map((link) => link.url);
           const detailNow = new Date();
@@ -2214,46 +2348,52 @@ serve(async (req) => {
           paidCalls++;
           paidUsed = true;
           if (extracted.ok) {
-            const d = extracted.data as JsonObject;
-            const num = (v: unknown) =>
-              typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
+            // Fail-closed: il modello non scrive date/importi se gli
+            // estrattori locali non li trovano nel testo ufficiale.
+            const localDl = localExtractDeadline(page.markdown) ??
+              parseDeadline(page.markdown)?.value ?? null;
+            const localAmt = localExtractAmounts(page.markdown);
+            const parsedAmt = parseAmounts(page.markdown);
             if (row.deadline_at == null && patch.deadline_at == null &&
-              typeof d.deadline_at === "string"
+              localDl && dateIsPresentInEvidence(page.markdown, localDl)
             ) {
-              const iso = new Date(d.deadline_at);
-              if (!Number.isNaN(iso.getTime())) {
-                patch.deadline_at = iso.toISOString();
-              }
+              patch.deadline_at = localDl;
             }
-            if (row.min_grant_amount == null && num(d.min_grant_amount)) {
-              patch.min_grant_amount = d.min_grant_amount;
+            if (row.min_grant_amount == null && localAmt.min_grant_amount) {
+              patch.min_grant_amount = localAmt.min_grant_amount;
             }
-            if (row.max_grant_amount == null && num(d.max_grant_amount)) {
-              patch.max_grant_amount = d.max_grant_amount;
+            if (
+              row.max_grant_amount == null &&
+              (localAmt.max_grant_amount ?? parsedAmt.max_grant_amount?.value)
+            ) {
+              patch.max_grant_amount = localAmt.max_grant_amount ??
+                parsedAmt.max_grant_amount?.value;
             }
-            if (row.total_budget == null && num(d.total_budget)) {
-              patch.total_budget = d.total_budget;
+            if (
+              row.total_budget == null &&
+              (localAmt.total_budget ?? parsedAmt.total_budget?.value)
+            ) {
+              patch.total_budget = localAmt.total_budget ??
+                parsedAmt.total_budget?.value;
             }
           }
         }
 
         const newDeadline = (patch.deadline_at as string | undefined) ??
-          row.deadline_at;
+          (typeof row.deadline_at === "string" ? row.deadline_at : null);
+        const newMaxGrant = (patch.max_grant_amount as number | undefined) ??
+          (typeof row.max_grant_amount === "number" ? row.max_grant_amount : null);
         const hasEvidence = page.markdown.length > 200;
         const deadlineProven = dateIsPresentInEvidence(
           page.markdown,
           newDeadline,
         );
-        const expired = newDeadline
-          ? new Date(newDeadline).getTime() < Date.now()
-          : false;
-
-        let newStatus = row.verification_status as string;
-        if (expired && deadlineProven) newStatus = "SCADUTO";
-        else if (hasEvidence && newDeadline && deadlineProven) {
-          newStatus = "VERIFICATO";
-        } else if (hasEvidence) newStatus = "PARZIALE";
-        else newStatus = "DA_VERIFICARE";
+        const newStatus = officialVerificationStatus({
+          hasEvidence,
+          deadline: newDeadline,
+          deadlineProven,
+          maxGrantAmount: newMaxGrant,
+        });
 
         if (newStatus !== row.verification_status) {
           patch.verification_status = newStatus;
@@ -2286,10 +2426,19 @@ serve(async (req) => {
           continue;
         }
 
-        const { error: upErr } = await sb
+        let { error: upErr } = await sb
           .from("trovabandi_opportunities")
           .update(patch)
           .eq("id", row.id);
+
+        if (upErr && patch.official_url) {
+          const { official_url: _ignored, ...withoutUrl } = patch;
+          const retry = await sb
+            .from("trovabandi_opportunities")
+            .update(withoutUrl)
+            .eq("id", row.id);
+          upErr = retry.error;
+        }
 
         if (upErr) {
           results.push({ id: row.id, status: "UPDATE_FAILED" });
@@ -3186,12 +3335,26 @@ serve(async (req) => {
         diagnostics.push({ phase: "scrape", code: "SKIPPED_COMPLETE" });
         continue;
       }
-      if (isIndexOrLandingUrl(hit.url)) {
-        diagnostics.push({ phase: "scrape", code: "SKIPPED_INDEX_LISTING" });
+      if (isBlockedAggregatorUrl(hit.url)) {
+        diagnostics.push({ phase: "scrape", code: "SKIPPED_BANDIORA" });
         continue;
       }
+      let workingHit = hit;
       let scraped: LoadedPage | null = null;
-      if (shouldSkipApplyFetch(hit.url)) {
+      if (isOfficialListingUrl(hit.url)) {
+        const resolved = await resolveOfficialNoticePage(
+          hit.url,
+          source.official_domain,
+          existing?.raw_excerpt,
+        );
+        if (!resolved) {
+          diagnostics.push({ phase: "scrape", code: "SKIPPED_INDEX_LISTING" });
+          continue;
+        }
+        workingHit = { ...hit, url: resolved.officialUrl };
+        scraped = resolved.page;
+      }
+      if (shouldSkipApplyFetch(workingHit.url)) {
         // BUR FVG: known hang. Nessun recrawl HTTP, solo excerpt già persistito.
         diagnostics.push({ phase: "scrape", code: "SKIPPED_FVG_BUR" });
         const storedFvg = usableStoredEvidence(existing?.raw_excerpt);
@@ -3201,9 +3364,9 @@ serve(async (req) => {
           title: hit.title,
           provider: "stored-excerpt",
         };
-      } else {
+      } else if (!scraped) {
         directFetchAttempted++;
-        scraped = await loadPage(hit.url, source.official_domain, paidBudget);
+        scraped = await loadPage(workingHit.url, source.official_domain, paidBudget);
       }
       const officialOk = !!scraped &&
         (scraped.provider === "official-http" ||
@@ -3242,7 +3405,7 @@ serve(async (req) => {
       const localAmounts = parseAmounts(scraped.markdown);
       const localDraft = localOpportunityDraft({
         markdown: scraped.markdown,
-        officialUrl: hit.url,
+        officialUrl: workingHit.url,
         titleHint: hit.title || scraped.title,
         officialDomain: source.official_domain,
         deadline: parseDeadline(scraped.markdown, new Date())?.value ?? null,
@@ -3252,7 +3415,7 @@ serve(async (req) => {
       });
       if (
         !isEligibleOfficialOpportunity({
-          officialUrl: hit.url,
+          officialUrl: workingHit.url,
           markdown: scraped.markdown,
         })
       ) {
@@ -3271,7 +3434,7 @@ serve(async (req) => {
         canSpendPaid(paidBudget, "extract")
       ) {
         spendPaid(paidBudget, "extract");
-        extracted = await extractOpportunity(source, hit, scraped.markdown);
+        extracted = await extractOpportunity(source, workingHit, scraped.markdown);
       } else if (!localDraft && !needPaidExtract) {
         extracted = { ok: false, code: "NOT_OPPORTUNITY" };
       }
@@ -3295,7 +3458,7 @@ serve(async (req) => {
       // Arricchimento di dettaglio: solo se mancano scadenza o importi.
       const enrichment = await enrichFromDetailPages(
         source,
-        hit,
+        workingHit,
         scraped,
         extracted.data,
         detailBudget,
@@ -3316,7 +3479,7 @@ serve(async (req) => {
       const stored = await storeOpportunity(
         sb,
         source,
-        hit,
+        workingHit,
         enrichedExtraction,
         scraped.markdown,
         scraped.provider,

@@ -3,7 +3,10 @@
 // un avviso, non il chrome del sito ("browser does not support video").
 
 const LISTING_LEAF =
-  /^(bandi|avvisi|incentivi|contributi|agevolazioni|opportunita|opportunità|news|novita|novità|faq|faqs|newsletter|home|homepage|index|index\.html|index\.php|video|mediacenter)$/i;
+  /^(bandi|avvisi|incentivi|contributi|agevolazioni|opportunita|opportunità|elenco|elenchi|lista|news|novita|novità|faq|faqs|newsletter|home|homepage|index|index\.html|index\.php|video|mediacenter)$/i;
+
+const LISTING_PREFIX =
+  /^(bandi|avvisi|elenco|elenchi|incentivi|contributi)([-_]|$)/i;
 
 const JUNK_LEAF =
   /^(faq|faqs|domande-frequenti|newsletter|iscrizione-newsletter|subscribe|cookie|privacy|login|area-riservata|video)$/i;
@@ -52,7 +55,7 @@ export function isIndexOrLandingUrl(url: unknown): boolean {
   const segments = pathSegments(url);
   if (segments.length === 0) return true;
   const leaf = segments[segments.length - 1] ?? "";
-  if (segments.length === 1 && LISTING_LEAF.test(leaf)) return true;
+  if (LISTING_LEAF.test(leaf) || LISTING_PREFIX.test(leaf)) return true;
   if (JUNK_LEAF.test(leaf)) return true;
   if (/^index(?:\.html|\.php)?$/i.test(leaf) && !/bando|avviso|contribut/i.test(parsed.search)) {
     return true;
