@@ -125,6 +125,19 @@ describe("localExtractDeadline", () => {
   it("restituisce null su anni fuori finestra", () => {
     expect(localExtractDeadline("Scadenza: 15 settembre 2099")).toBeNull();
   });
+
+  it("non inventa una scadenza su sportello senza chiusura", () => {
+    expect(
+      localExtractDeadline(
+        "Le domande sono valutate a sportello fino a esaurimento delle risorse. Il contributo massimo è pari a 80.000 euro.",
+      ),
+    ).toBeNull();
+    expect(
+      localExtractDeadline(
+        "L'avviso non ha scadenza e resta aperto alle imprese del territorio.",
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("localExtractAmounts", () => {

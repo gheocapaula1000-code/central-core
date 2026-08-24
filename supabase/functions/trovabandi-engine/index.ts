@@ -105,6 +105,12 @@ import {
   localExtractProtocolEmail,
   localOpportunityDraft,
 } from "./local-fields.ts";
+import {
+  EXPIRE_VERIFICATION_STATUSES,
+  OPEN_VERIFICATION_STATUSES,
+  isProvenSportelloSenzaScadenza,
+  officialVerificationStatus,
+} from "./verification.ts";
 import { computeVisibility } from "./rarity.ts";
 import {
   CATALOG_MAX_LIMIT,
@@ -1727,7 +1733,7 @@ async function extractOpportunity(
   if (!key) return { ok: false, code: "NO_KEY" };
   const model = env("TROVABANDI_PERPLEXITY_MODEL") || "sonar-pro";
   const schemaHint = `Campi ammessi: is_opportunity (boolean), title, authority_name, category (uno tra FONDO_PERDUTO, FINANZIAMENTO_AGEVOLATO, TASSO_ZERO, CREDITO_IMPOSTA, GARANZIA, VOUCHER, IMPRENDITORIA_FEMMINILE, IMPRENDITORIA_GIOVANILE, DIGITALIZZAZIONE, TRANSIZIONE_ENERGETICA, RICERCA_SVILUPPO, INTERNAZIONALIZZAZIONE, STARTUP_INNOVAZIONE, FORMAZIONE_OCCUPAZIONE, AGRICOLTURA_RURALE, TURISMO_CULTURA, ECONOMIA_CIRCOLARE, ALTRO), summary, official_url, notice_url, application_url, forms_url, protocol_email, region, province, municipality, eligible_ateco_prefixes[], excluded_ateco_prefixes[], eligible_legal_forms[], eligible_company_sizes[], female_only, youth_only, startup_only, innovative_only, de_minimis, aid_intensity_percent, min_grant_amount, max_grant_amount, total_budget, opens_at, deadline_at, click_day, requirements[], eligible_expenses[], publication_reference, programme_name, programme_code, pnrr_mission, pnrr_component, implementing_body, eligible_countries[], consortium_required, min_partners, direct_applicant_allowed.`;
-  const prompt = `Estrai esclusivamente dati presenti nel testo ufficiale seguente. Non dedurre requisiti, date o importi mancanti. Se la pagina non descrive un bando, incentivo o finanziamento per imprese aperto, in apertura o con documentazione ancora rilevante, imposta is_opportunity=false. official_url deve essere ${hit.url}. Date ISO 8601. Prefissi ATECO senza punteggiatura superflua. Per opportunità UE estrai programma, codice call/topic, Paesi ammessi e obbligo/minimo partner. Per PNRR estrai Missione, Componente e soggetto attuatore soltanto se espliciti.\n${schemaHint}\n\n${markdown}`;
+  const prompt = `Estrai esclusivamente dati presenti nel testo ufficiale seguente. Non dedurre requisiti, date, importi, percentuali o ATECO mancanti. Non inventare 62 / 62.10.00 da "digitale/software/innovazione". Un prefisso ATECO solo se il testo stampa il codice. Se l'avviso è a sportello senza data di chiusura (a sportello, fino a esaurimento, senza scadenza, non ha scadenza), lascia deadline_at null: non inventare una scadenza. Se la pagina non descrive un bando, incentivo o finanziamento per imprese aperto, in apertura o con documentazione ancora rilevante, imposta is_opportunity=false. official_url deve essere ${hit.url}. Date ISO 8601. Prefissi ATECO senza punteggiatura superflua. Per opportunità UE estrai programma, codice call/topic, Paesi ammessi e obbligo/minimo partner. Per PNRR estrai Missione, Componente e soggetto attuatore soltanto se espliciti.\n${schemaHint}\n\n${markdown}`;
 
   // Massimo due tentativi: schema JSON, poi eventuale fallback plain JSON.
   const modes: Array<"json_schema" | "json_fallback"> = [
@@ -1793,11 +1799,7 @@ async function storeOpportunity(
     existingApplication: existing?.application_url,
   });
 
-  const deadline = safeTimestamp(extracted.deadline_at);
   const now = new Date();
-  const expired = deadline
-    ? new Date(deadline).getTime() < now.getTime()
-    : false;
   const hasEvidence =
     markdown.length > 200 && source.official_domain.length > 3;
   // La prova può stare nella pagina principale oppure nel documento di
@@ -1805,15 +1807,28 @@ async function storeOpportunity(
   const proofText = [markdown, ...extraEvidence.map((row) => row.excerpt)].join(
     "\n",
   );
+  // Fail-closed: scadenza solo se il testo ufficiale la stampa. Il modello
+  // non inventa date. Sportello senza chiusura ⇒ deadline_at resta NULL.
+  const localDeadline = localExtractDeadline(proofText);
+  const extractedDeadline = safeTimestamp(extracted.deadline_at);
+  const sportelloSenzaScadenza =
+    isProvenSportelloSenzaScadenza(proofText) && !localDeadline;
+  const deadline = sportelloSenzaScadenza
+    ? null
+    : localDeadline ??
+      (dateIsPresentInEvidence(proofText, extractedDeadline)
+        ? extractedDeadline
+        : null);
   const deadlineProven = dateIsPresentInEvidence(proofText, deadline);
-  const verification: PersistVerification =
-    expired && deadlineProven
-      ? "SCADUTO"
-      : hasEvidence && deadline && deadlineProven
-        ? "VERIFICATO"
-        : hasEvidence
-          ? "PARZIALE"
-          : "DA_VERIFICARE";
+  const maxGrant = boundedNumeric(extracted.max_grant_amount, 15, 2);
+  const verification: PersistVerification = officialVerificationStatus({
+    hasEvidence,
+    deadline,
+    deadlineProven,
+    maxGrantAmount: maxGrant,
+    sportelloSenzaScadenza,
+    now,
+  });
   const contentHash = await sha256(markdown);
   const canonicalKey = await sha256(officialUrl.toLowerCase());
   const discoveredBy = safeTextArray([
@@ -1885,7 +1900,7 @@ async function storeOpportunity(
       2,
     ),
     min_grant_amount: boundedNumeric(extracted.min_grant_amount, 15, 2),
-    max_grant_amount: boundedNumeric(extracted.max_grant_amount, 15, 2),
+    max_grant_amount: maxGrant,
     total_budget: boundedNumeric(extracted.total_budget, 18, 2),
     opens_at: safeTimestamp(extracted.opens_at),
     deadline_at: deadline,
@@ -2009,7 +2024,7 @@ serve(async (req) => {
       sb
         .from("trovabandi_opportunities")
         .select("id", { count: "exact", head: true })
-        .in("verification_status", ["VERIFICATO", "PARZIALE"])
+        .in("verification_status", ["VERIFICATO", "PARZIALE", "SPORTELLO"])
         .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`),
       sb
         .from("trovabandi_runs")
@@ -2051,7 +2066,7 @@ serve(async (req) => {
       .select(
         "id, official_url, notice_url, deadline_at, min_grant_amount, max_grant_amount, total_budget, verification_status, raw_excerpt, last_seen_at, authority_level, application_url, forms_url, protocol_email, eligible_ateco_prefixes",
       )
-      .in("verification_status", ["PARZIALE", "DA_VERIFICARE", "VERIFICATO"])
+      .in("verification_status", [...OPEN_VERIFICATION_STATUSES])
       .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`)
       .or(
         "deadline_at.is.null,min_grant_amount.is.null,max_grant_amount.is.null,total_budget.is.null,application_url.is.null,forms_url.is.null,protocol_email.is.null,eligible_ateco_prefixes.eq.{}",
@@ -2127,10 +2142,14 @@ serve(async (req) => {
         if (noticeUrl && noticeUrl !== row.notice_url) {
           patch.notice_url = noticeUrl;
         }
-        if (row.deadline_at == null) {
-
-          const dl = localExtractDeadline(page.markdown);
-          if (dl) patch.deadline_at = dl;
+        const pageDeadline = localExtractDeadline(page.markdown);
+        const sportelloSenzaScadenza =
+          isProvenSportelloSenzaScadenza(page.markdown) && !pageDeadline;
+        if (sportelloSenzaScadenza) {
+          // Citazione ufficiale: niente chiusura. Non inventare una data.
+          patch.deadline_at = null;
+        } else if (row.deadline_at == null && pageDeadline) {
+          patch.deadline_at = pageDeadline;
         }
 
         const amounts = localExtractAmounts(page.markdown);
@@ -2182,7 +2201,8 @@ serve(async (req) => {
         // Stessa regola del collect: se dopo la pagina ufficiale mancano
         // ancora scadenza o qualunque importo, si leggono al massimo 2 link
         // dello stesso dominio. Nessun provider a pagamento, fail-closed.
-        const missingDeadline = row.deadline_at == null &&
+        const missingDeadline = !sportelloSenzaScadenza &&
+          row.deadline_at == null &&
           patch.deadline_at == null;
         const missingAmounts = row.max_grant_amount == null &&
           patch.max_grant_amount == null &&
@@ -2239,7 +2259,9 @@ serve(async (req) => {
         // Fallback opt-in: solo se gli estrattori locali non hanno riempito
         // NESSUN campo dato e restano campi NULL da coprire.
         const stillMissing = [
-          row.deadline_at == null && patch.deadline_at == null,
+          !sportelloSenzaScadenza &&
+            row.deadline_at == null &&
+            patch.deadline_at == null,
           row.min_grant_amount == null && patch.min_grant_amount == null,
           row.max_grant_amount == null && patch.max_grant_amount == null,
           row.total_budget == null && patch.total_budget == null,
@@ -2289,7 +2311,10 @@ serve(async (req) => {
             const d = extracted.data as JsonObject;
             const num = (v: unknown) =>
               typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
-            if (row.deadline_at == null && patch.deadline_at == null &&
+            if (
+              !sportelloSenzaScadenza &&
+              row.deadline_at == null &&
+              patch.deadline_at == null &&
               typeof d.deadline_at === "string"
             ) {
               const iso = new Date(d.deadline_at);
@@ -2309,29 +2334,24 @@ serve(async (req) => {
           }
         }
 
-        const newDeadline = (patch.deadline_at as string | undefined) ??
-          row.deadline_at;
+        const newDeadline = sportelloSenzaScadenza
+          ? null
+          : (patch.deadline_at as string | undefined) ??
+            (typeof row.deadline_at === "string" ? row.deadline_at : null);
         const newMaxGrant = (patch.max_grant_amount as number | undefined) ??
-          row.max_grant_amount;
+          (typeof row.max_grant_amount === "number" ? row.max_grant_amount : null);
         const hasEvidence = page.markdown.length > 200;
         const deadlineProven = dateIsPresentInEvidence(
           page.markdown,
           newDeadline,
         );
-        const expired = newDeadline
-          ? new Date(newDeadline).getTime() < Date.now()
-          : false;
-
-        let newStatus = row.verification_status as string;
-        if (expired && deadlineProven) newStatus = "SCADUTO";
-        else if (
-          hasEvidence && newDeadline && deadlineProven && newMaxGrant != null
-        ) {
-          // VERIFICATO solo con scadenza E contributo massimo dal testo ufficiale.
-          newStatus = "VERIFICATO";
-        } else if (hasEvidence) newStatus = "PARZIALE";
-        else newStatus = "DA_VERIFICARE";
-
+        const newStatus = officialVerificationStatus({
+          hasEvidence,
+          deadline: newDeadline,
+          deadlineProven,
+          maxGrantAmount: newMaxGrant,
+          sportelloSenzaScadenza,
+        });
 
         if (newStatus !== row.verification_status) {
           patch.verification_status = newStatus;
@@ -2431,7 +2451,7 @@ serve(async (req) => {
         "id,title,official_url,notice_url,forms_url,application_url,raw_excerpt,verification_status,official_source,last_seen_at,deadline_at",
       )
       .eq("official_source", true)
-      .in("verification_status", ["PARZIALE", "DA_VERIFICARE", "VERIFICATO"])
+      .in("verification_status", [...OPEN_VERIFICATION_STATUSES])
       .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`)
       .order("last_seen_at", { ascending: true, nullsFirst: true })
       .limit(500);
@@ -2653,7 +2673,7 @@ serve(async (req) => {
         { count: "exact" },
       )
       .lt("deadline_at", now)
-      .in("verification_status", ["VERIFICATO", "PARZIALE", "DA_VERIFICARE"]);
+      .in("verification_status", [...EXPIRE_VERIFICATION_STATUSES]);
     if (expiryResult.error || expiryResult.count == null) {
       return response(500, { ok: false, code: "OPPORTUNITY_EXPIRY_FAILED" });
     }
@@ -2809,7 +2829,7 @@ serve(async (req) => {
         .from("trovabandi_opportunities")
         .select(CATALOG_SELECT_COLUMNS)
         .eq("official_source", true)
-        .in("verification_status", ["VERIFICATO", "PARZIALE", "DA_VERIFICARE"])
+        .in("verification_status", [...OPEN_VERIFICATION_STATUSES])
         .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`)
         .like("official_url", "http%")
         .order("deadline_at", { ascending: true, nullsFirst: false })
@@ -2863,7 +2883,7 @@ serve(async (req) => {
       .select(
         "*, trovabandi_evidence(source_url,source_title,evidence_type,excerpt,fetched_at)",
       )
-      .in("verification_status", ["VERIFICATO", "PARZIALE", "DA_VERIFICARE"])
+      .in("verification_status", [...OPEN_VERIFICATION_STATUSES])
       .or(`deadline_at.is.null,deadline_at.gte.${new Date().toISOString()}`)
       .order("deadline_at", { ascending: true, nullsFirst: false })
       .limit(limit);

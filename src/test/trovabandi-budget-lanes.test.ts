@@ -118,6 +118,13 @@ describe("TrovaBandi cost skips", () => {
         max_grant_amount: 1,
       }),
     ).toBe(false);
+    expect(
+      shouldSkipPaidExtract({
+        verification_status: "SPORTELLO",
+        deadline_at: null,
+        max_grant_amount: 80000,
+      }),
+    ).toBe(true);
   });
 
   it("usa l'excerpt persistito e paga solo se l'ufficiale fallisce", () => {
