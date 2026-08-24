@@ -773,6 +773,38 @@ function localExtractAmounts(
 }
 // BACKFILL_HELPERS_END
 
+/**
+ * Pagina indice/elenco: non è un avviso, è una lista di avvisi.
+ * Riconoscimento deterministico sul path, nessuna inferenza sul contenuto.
+ */
+const LISTING_PATH =
+  /(^\/?$|\/(index|home|homepage)(\.(html?|php|aspx))?$|\/(bandi|avvisi|bandi-e-avvisi|bandi_e_avvisi|contributi|opportunita|opportunit%c3%a0|finanziamenti|agevolazioni|elenco|elenchi|archivio|news|notizie|albo|amministrazione)(-[a-z0-9-]+)?\/?$)/i;
+
+function isListingUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    const path = parsed.pathname.replace(/\/+$/, "") || "/";
+    if (/\.(pdf|docx?|xlsx?)$/i.test(path)) return false;
+    if (LISTING_PATH.test(path)) return true;
+    // Paginazioni tipiche degli elenchi.
+    return /[?&](page|pagina|start|offset)=/i.test(parsed.search);
+  } catch {
+    return false;
+  }
+}
+
+/** Link che sembra un avviso reale (bando/avviso/decreto/misura/sportello). */
+const NOTICE_LINK_TOKENS =
+  /(bando|bandi\/|avviso|avvisi\/|decreto|determina|misura|sportello|contributo|agevolazione)/i;
+
+function looksLikeNoticeLink(link: { url: string; label: string }): boolean {
+  const haystack = `${link.label} ${link.url}`;
+  if (!NOTICE_LINK_TOKENS.test(haystack)) return false;
+  return !isListingUrl(link.url);
+}
+
+
+
 
 /**
  * Ridondanza dei provider di ricerca (fail-closed conservativo).
