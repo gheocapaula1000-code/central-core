@@ -2,9 +2,9 @@
 // Nessun matching di profilo obbligatorio, nessuna invenzione di COMPATIBILE
 // o di prefissi ATECO. Il feed personale resta invariato in index.ts.
 
-export const CATALOG_DEFAULT_LIMIT = 1000;
-export const CATALOG_MAX_LIMIT = 1000;
-export const CATALOG_SAFE_CAP = 2000;
+export const CATALOG_DEFAULT_LIMIT = 5000;
+export const CATALOG_MAX_LIMIT = 5000;
+export const CATALOG_SAFE_CAP = 5000;
 export const CATALOG_MIN_DEFAULT = 200;
 
 /** Colonne contratto PWA (sanitizeFeedResponse) + campi catalogo. No raw_excerpt. */
