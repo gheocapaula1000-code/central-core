@@ -34,6 +34,7 @@ const FEED_BRANCH = ENGINE.slice(
 const NOW = new Date("2026-08-23T12:00:00.000Z");
 
 const OFFICIAL_OPEN = {
+  id: "bando-123",
   official_source: true,
   title: "Bando digitalizzazione PMI",
   official_url: "https://www.pd.camcom.it/bandi/digitalizzazione-2026",
