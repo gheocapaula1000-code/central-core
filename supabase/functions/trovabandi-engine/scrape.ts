@@ -61,7 +61,7 @@ export function isAllowedOfficialUrl(
   rawUrl: string,
   officialDomain: string,
 ): boolean {
-
+  try {
     const url = new URL(rawUrl);
     if (url.protocol !== "https:" && url.protocol !== "http:") return false;
     if (url.username || url.password || isBlockedHostname(url.hostname))
@@ -69,7 +69,9 @@ export function isAllowedOfficialUrl(
     if (url.port && url.port !== "80" && url.port !== "443") return false;
     const host = normalizedDomain(url.hostname);
     const allowed = normalizedDomain(officialDomain);
+    if (isBlockedAggregator(host) || isBlockedAggregator(allowed)) return false;
     return !!allowed && (host === allowed || host.endsWith(`.${allowed}`));
+
   } catch {
     return false;
   }
