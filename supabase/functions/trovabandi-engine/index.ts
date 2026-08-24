@@ -116,6 +116,9 @@ import {
   parseCatalogPaging,
 } from "./catalog.ts";
 
+/** PostgREST rows-per-request hard ceiling; used for internal chunking. */
+const CATALOG_POSTGREST_CHUNK = 1000;
+
 
 
 
@@ -2714,16 +2717,16 @@ serve(async (req) => {
     const paging = parseCatalogPaging(body);
     const nowIso = new Date().toISOString();
     const now = new Date(nowIso);
-    const pageSize = paging.fetchAll ? CATALOG_MAX_LIMIT : paging.limit;
+    const pageSize = paging.fetchAll ? CATALOG_SAFE_CAP : paging.limit;
+    const targetTotal = pageSize + (paging.fetchAll ? 0 : 1);
     const catalogRows: JsonObject[] = [];
     let queryFailed = false;
     let fetched = 0;
-    let pageHasMore = false;
-    while (fetched < (paging.fetchAll ? CATALOG_SAFE_CAP : pageSize)) {
-      const from = paging.fetchAll ? fetched : paging.offset;
-      const remaining = paging.fetchAll
-        ? Math.min(CATALOG_MAX_LIMIT, CATALOG_SAFE_CAP - fetched)
-        : pageSize + 1;
+    while (fetched < targetTotal) {
+      const chunk = Math.min(CATALOG_POSTGREST_CHUNK, targetTotal - fetched);
+      const from = paging.fetchAll
+        ? fetched
+        : paging.offset + fetched;
       const { data, error } = await sb
         .from("trovabandi_opportunities")
         .select(CATALOG_SELECT_COLUMNS)
@@ -2733,42 +2736,39 @@ serve(async (req) => {
         .like("official_url", "http%")
         .order("deadline_at", { ascending: true, nullsFirst: false })
         .order("id", { ascending: true })
-        .range(from, from + remaining - 1);
+        .range(from, from + chunk - 1);
       if (error) {
         queryFailed = true;
         break;
       }
       const batch = (data ?? []) as JsonObject[];
-      if (paging.fetchAll) {
-        catalogRows.push(...batch);
-        fetched += batch.length;
-        if (batch.length < remaining) break;
-      } else {
-        pageHasMore = batch.length > pageSize;
-        catalogRows.push(...batch.slice(0, pageSize));
-        break;
-      }
+      catalogRows.push(...batch);
+      fetched += batch.length;
+      if (batch.length < chunk) break;
     }
     if (queryFailed) return response(500, { ok: false, code: "CATALOG_QUERY_FAILED" });
     const profile = (body.profile ?? null) as CompanyProfile | null;
-    const considered = catalogRows.map((item) =>
-      mapCatalogBando(item, profile),
-    );
-    const visible = considered.filter((item) =>
-      isOfficialOpenCatalogRow(item, now),
-    );
-    const hasMore = paging.fetchAll ? false : pageHasMore;
+    const considered = catalogRows.map((item) => mapCatalogBando(item, profile));
+    const visible = considered.filter((item) => isOfficialOpenCatalogRow(item, now));
+    let hasMore = false;
+    let returned: JsonObject[];
+    if (paging.fetchAll) {
+      returned = visible.slice(0, CATALOG_SAFE_CAP);
+    } else {
+      hasMore = catalogRows.length > pageSize;
+      returned = visible.slice(0, pageSize);
+    }
     return response(200, {
       ok: true,
       mode: "catalog",
-      bandi: visible,
+      bandi: returned,
       total_considered: considered.length,
-      excluded: considered.length - visible.length,
+      excluded: considered.length - returned.length,
       fetched_at: nowIso,
       generated_at: nowIso,
       source: "central-core",
       page: paging.page,
-      limit: paging.fetchAll ? visible.length : paging.limit,
+      limit: paging.fetchAll ? returned.length : paging.limit,
       has_more: hasMore,
       next_page: hasMore ? paging.page + 1 : null,
       next_cursor: hasMore ? paging.page + 1 : null,

@@ -2,9 +2,9 @@
 // Nessun matching di profilo obbligatorio, nessuna invenzione di COMPATIBILE
 // o di prefissi ATECO. Il feed personale resta invariato in index.ts.
 
-export const CATALOG_DEFAULT_LIMIT = 1000;
-export const CATALOG_MAX_LIMIT = 1000;
-export const CATALOG_SAFE_CAP = 2000;
+export const CATALOG_DEFAULT_LIMIT = 5000;
+export const CATALOG_MAX_LIMIT = 5000;
+export const CATALOG_SAFE_CAP = 5000;
 export const CATALOG_MIN_DEFAULT = 200;
 
 /** Colonne contratto PWA (sanitizeFeedResponse) + campi catalogo. No raw_excerpt. */
@@ -235,15 +235,72 @@ function truncateSummary(text: unknown, maxLen = 400): string {
   return slice;
 }
 
+function isEmptyValue(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string" && value.trim() === "") return true;
+  if (Array.isArray(value) && value.length === 0) return true;
+  return false;
+}
+
+/** Optional fields emitted only when they carry a non-empty value. */
+const CATALOG_OPTIONAL_FIELDS = [
+  "notice_url",
+  "region",
+  "province",
+  "municipality",
+  "protocol_email",
+  "source_kind",
+  "programme_name",
+  "programme_code",
+  "pnrr_mission",
+  "pnrr_component",
+  "implementing_body",
+  "application_url",
+  "opens_at",
+  "last_verified_at",
+  "first_seen_at",
+  "max_grant_amount",
+  "min_grant_amount",
+  "rarity_score",
+  "min_partners",
+  "aid_intensity_percent",
+  "total_budget",
+  "click_day",
+  "consortium_required",
+  "requirements",
+  "eligible_expenses",
+  "eligible_countries",
+  "eligible_ateco_prefixes",
+  "verification_status",
+];
+
 export function mapCatalogBando(
   row: Record<string, unknown>,
   profile?: CatalogProfile | null,
 ): Record<string, unknown> {
   const mapped: Record<string, unknown> = {
-    ...row,
+    id: row.id,
+    title: row.title,
+    authority_name: row.authority_name,
+    authority_level: row.authority_level,
+    category: row.category,
+    official_url: row.official_url,
     summary: truncateSummary(row.summary),
-    modulistica_url: row.forms_url ?? null,
+    deadline_at: row.deadline_at ?? null,
+    official_source: row.official_source,
   };
+
+  for (const key of CATALOG_OPTIONAL_FIELDS) {
+    if (key in row && !isEmptyValue(row[key])) {
+      mapped[key] = row[key];
+    }
+  }
+
+  // Derived field — emitted only when the source forms_url is non-empty.
+  if (!isEmptyValue(row.forms_url)) {
+    mapped.modulistica_url = row.forms_url;
+  }
+
   const match = catalogMatch(row, profile);
   if (match) mapped.match = match;
   return mapped;

@@ -34,6 +34,7 @@ const FEED_BRANCH = ENGINE.slice(
 const NOW = new Date("2026-08-23T12:00:00.000Z");
 
 const OFFICIAL_OPEN = {
+  id: "bando-123",
   official_source: true,
   title: "Bando digitalizzazione PMI",
   official_url: "https://www.pd.camcom.it/bandi/digitalizzazione-2026",
@@ -121,6 +122,13 @@ describe("catalog match — nessuna invenzione", () => {
     expect(mapped).not.toHaveProperty("eligible_ateco_codes");
   });
 
+  it("omette modulistica_url quando forms_url è vuoto", () => {
+    const mapped = mapCatalogBando({ ...OFFICIAL_OPEN, forms_url: null });
+    expect(mapped).not.toHaveProperty("modulistica_url");
+    const mapped2 = mapCatalogBando({ ...OFFICIAL_OPEN, forms_url: "  " });
+    expect(mapped2).not.toHaveProperty("modulistica_url");
+  });
+
   it("tronca summary a 400 caratteri senza inventare testo", () => {
     const longSummary = "A".repeat(500);
     const mapped = mapCatalogBando({ ...OFFICIAL_OPEN, summary: longSummary });
@@ -161,6 +169,43 @@ describe("catalog match — nessuna invenzione", () => {
     expect(catalogMatch(withAteco, { codice_ateco: "62.01" })?.status).not.toBe(
       "COMPATIBILE",
     );
+  });
+});
+
+describe("catalog payload slimming — campi vuoti omessi", () => {
+  it("omette campi opzionali vuoti (stringa vuota, null, array vuoto)", () => {
+    const mapped = mapCatalogBando({
+      ...OFFICIAL_OPEN,
+      region: "",
+      province: null,
+      eligible_ateco_prefixes: [],
+      requirements: "  ",
+      notice_url: "https://bandi.example/notice",
+      municipality: "Padova",
+    });
+    expect(mapped).not.toHaveProperty("region");
+    expect(mapped).not.toHaveProperty("province");
+    expect(mapped).not.toHaveProperty("eligible_ateco_prefixes");
+    expect(mapped).not.toHaveProperty("requirements");
+    expect(mapped.notice_url).toBe("https://bandi.example/notice");
+    expect(mapped.municipality).toBe("Padova");
+  });
+
+  it("mantiene i campi del contratto PWA anche quando null", () => {
+    const mapped = mapCatalogBando({
+      ...OFFICIAL_OPEN,
+      deadline_at: null,
+    });
+    expect(mapped.id).toBe(OFFICIAL_OPEN.id);
+    expect(mapped.title).toBe(OFFICIAL_OPEN.title);
+    expect(mapped.authority_name).toBe(OFFICIAL_OPEN.authority_name);
+    expect(mapped.authority_level).toBe(OFFICIAL_OPEN.authority_level);
+    expect(mapped.category).toBe(OFFICIAL_OPEN.category);
+    expect(mapped.official_url).toBe(OFFICIAL_OPEN.official_url);
+    expect(mapped.summary).toBe(OFFICIAL_OPEN.summary);
+    expect(mapped.deadline_at).toBeNull();
+    expect(mapped.official_source).toBe(true);
+    expect(mapped.modulistica_url).toBe(OFFICIAL_OPEN.forms_url);
   });
 });
 
