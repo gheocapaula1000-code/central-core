@@ -45,11 +45,23 @@ function isBlockedHostname(hostname: string): boolean {
   );
 }
 
+/**
+ * Aggregatori commerciali: non sono fonti ufficiali PA, mai ammessi come
+ * evidenza né come URL ufficiale.
+ */
+const BLOCKED_AGGREGATOR_DOMAINS = ["bandiora.it"];
+
+function isBlockedAggregator(host: string): boolean {
+  return BLOCKED_AGGREGATOR_DOMAINS.some(
+    (domain) => host === domain || host.endsWith(`.${domain}`),
+  );
+}
+
 export function isAllowedOfficialUrl(
   rawUrl: string,
   officialDomain: string,
 ): boolean {
-  try {
+
     const url = new URL(rawUrl);
     if (url.protocol !== "https:" && url.protocol !== "http:") return false;
     if (url.username || url.password || isBlockedHostname(url.hostname))
