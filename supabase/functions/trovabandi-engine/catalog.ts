@@ -288,13 +288,17 @@ export function mapCatalogBando(
     summary: truncateSummary(row.summary),
     deadline_at: row.deadline_at ?? null,
     official_source: row.official_source,
-    modulistica_url: row.forms_url ?? null,
   };
 
   for (const key of CATALOG_OPTIONAL_FIELDS) {
     if (key in row && !isEmptyValue(row[key])) {
       mapped[key] = row[key];
     }
+  }
+
+  // Derived field — emitted only when the source forms_url is non-empty.
+  if (!isEmptyValue(row.forms_url)) {
+    mapped.modulistica_url = row.forms_url;
   }
 
   const match = catalogMatch(row, profile);
