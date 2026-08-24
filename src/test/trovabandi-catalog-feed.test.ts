@@ -188,7 +188,7 @@ describe("catalog payload slimming — campi vuoti omessi", () => {
       ...OFFICIAL_OPEN,
       deadline_at: null,
     });
-    expect(mapped.id).toBe(OFFICIAL_OPEN.title);
+    expect(mapped.id).toBe(OFFICIAL_OPEN.id);
     expect(mapped.title).toBe(OFFICIAL_OPEN.title);
     expect(mapped.authority_name).toBe(OFFICIAL_OPEN.authority_name);
     expect(mapped.authority_level).toBe(OFFICIAL_OPEN.authority_level);
