@@ -4,17 +4,18 @@
 //   1) upsert opportunity in stato DA_VERIFICARE con last_verified_at = null;
 //   2) upsert evidence;
 //   3) solo se la prova è persistita, promozione allo stato calcolato
-//      (VERIFICATO / PARZIALE / SCADUTO) con last_verified_at valorizzato
-//      esclusivamente per VERIFICATO.
+//      (VERIFICATO / PARZIALE / SCADUTO / SPORTELLO) con last_verified_at
+//      valorizzato esclusivamente per VERIFICATO.
 //
 // Nessuna compensazione best-effort, nessun delete: se evidence o promozione
 // falliscono la riga resta DA_VERIFICARE e il risultato è stored=false.
 
 import { sanitizeDbErrorCode } from "./extraction.ts";
+import type { OfficialVerification } from "./verification.ts";
 
 export type PersistRow = Record<string, unknown>;
 
-export type PersistVerification = "VERIFICATO" | "PARZIALE" | "SCADUTO" | "DA_VERIFICARE";
+export type PersistVerification = OfficialVerification;
 
 export interface PersistClient {
   /** Upsert opportunity: deve restituire l'id oppure un errore. */

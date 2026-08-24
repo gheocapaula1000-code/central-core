@@ -247,6 +247,7 @@ describe("motore — catalog vs feed", () => {
     expect(CATALOG_BRANCH).toContain('.like("official_url", "http%")');
     expect(CATALOG_BRANCH).toContain("CATALOG_SELECT_COLUMNS");
     expect(CATALOG_BRANCH).toContain("isOfficialOpenCatalogRow");
+    expect(CATALOG_BRANCH).toContain("OPEN_VERIFICATION_STATUSES");
     expect(CATALOG_BRANCH).not.toContain("PROFILE_INCOMPLETE");
     expect(CATALOG_BRANCH).not.toContain("matchOpportunity");
     expect(CATALOG_BRANCH).not.toContain("NON_COMPATIBILE");
@@ -259,6 +260,7 @@ describe("motore — catalog vs feed", () => {
     expect(FEED_BRANCH).toContain("matchOpportunity");
     expect(FEED_BRANCH).toContain('item.match.status !== "NON_COMPATIBILE"');
     expect(FEED_BRANCH).toContain("Number(body.limit ?? 200)");
+    expect(FEED_BRANCH).toContain("OPEN_VERIFICATION_STATUSES");
     expect(FEED_BRANCH).not.toContain('.eq("official_source", true)');
     expect(FEED_BRANCH).not.toContain("isCatalogRequest");
   });

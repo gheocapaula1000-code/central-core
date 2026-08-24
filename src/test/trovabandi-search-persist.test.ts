@@ -127,7 +127,7 @@ describe("persistenza fail-closed: ordine e stati", () => {
   });
 
   it("last_verified_at resta null per stati non verificati", async () => {
-    for (const state of ["PARZIALE", "SCADUTO"] as const) {
+    for (const state of ["PARZIALE", "SCADUTO", "SPORTELLO"] as const) {
       const client = makeClient({});
       const result = await run(client, state);
       expect(client.calls[2].row.last_verified_at).toBeNull();

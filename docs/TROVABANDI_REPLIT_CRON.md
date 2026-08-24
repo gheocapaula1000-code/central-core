@@ -155,6 +155,11 @@ Le fonti `ALBO_PRETORIO`, `CAMERALE` e `GAL` restano corsia `locale` /
 `camerale`. PNRR è nazionale/territoriale; i programmi UE diretti restano
 `ue`. Il matching non marca mai `COMPATIBILE` se ATECO, forma, dimensione
 o testo ufficiale sono insufficienti (`DA_VERIFICARE` / `PARZIALE`).
+Una misura a sportello senza data di chiusura, se la citazione ufficiale
+è inequivocabile (`a sportello`, `fino a esaurimento`, `senza scadenza`,
+`non ha scadenza`), è `SPORTELLO` con `deadline_at` NULL: non si inventa
+una scadenza e non si degrada a `PARZIALE`. `VERIFICATO` resta solo con
+scadenza e contributo massimo entrambi attestati.
 
 Timeout per chiamata 180 secondi. Retry massimo 1 soltanto su rete/5xx.
 `NO_SOURCE_DUE` = `SKIPPED`. Un run `PARTIAL` risponde HTTP 502.

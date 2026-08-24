@@ -2,7 +2,8 @@
 //
 // Paid providers (Firecrawl / Apify / Perplexity) solo quando il fetch
 // ufficiale fallisce o il documento non è leggibile. Nessun recrawl di
-// SCADUTO. Nessuna re-estrazione a pagamento di VERIFICATO già completi.
+// SCADUTO. Nessuna re-estrazione a pagamento di VERIFICATO già completi
+// o di SPORTELLO (misura ufficiale senza data di chiusura).
 // Dominio esclusivo: trovabandi-engine.
 
 export const SOURCE_LANES = [
@@ -139,11 +140,15 @@ export function shouldSkipExpiredRecrawl(
   return isExpiredStatus(row?.verification_status);
 }
 
-/** Non pagare una re-estrazione su VERIFICATO già completi di scadenza+importo. */
+export function isSportelloStatus(status: unknown): boolean {
+  return String(status ?? "").trim().toUpperCase() === "SPORTELLO";
+}
+
+/** Non pagare una re-estrazione su VERIFICATO già completi o su SPORTELLO. */
 export function shouldSkipPaidExtract(
   row: CatalogueRow | null | undefined,
 ): boolean {
-  return isCompleteVerified(row);
+  return isCompleteVerified(row) || isSportelloStatus(row?.verification_status);
 }
 
 /**

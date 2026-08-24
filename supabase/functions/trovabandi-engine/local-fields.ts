@@ -3,6 +3,7 @@
 // Nessun provider a pagamento. Se il testo ufficiale non dichiara il
 // campo in modo esplicito, si restituisce vuoto/null. Il matching resta
 // DA_VERIFICARE / PARZIALE quando ATECO, PEC o URL domanda mancano.
+// SPORTELLO è deciso dal testo ufficiale (verification.ts), non qui.
 
 import { extractApplyLinks } from "./apply-links.ts";
 import { EXTRACTION_CATEGORIES, type ExtractionCategory } from "./extraction.ts";
