@@ -2034,8 +2034,10 @@ serve(async (req) => {
   }
 
   if (action === "backfill_nulls") {
-    const maxBatch = Math.min(20, Math.max(1, Number(body.max_batch) || 12));
-    const dryRun = body.dry_run !== false; // default TRUE per sicurezza
+    const maxBatch = Math.min(400, Math.max(1, Number(body.max_batch) || 250));
+    // Default: SCRIVE. Il dry-run resta opt-in esplicito (dry_run === true).
+    const dryRun = body.dry_run === true;
+
     // Opt-in esplicito: usa l'estrattore Perplexity già esistente SOLO come
     // fallback sui campi ancora NULL. Nessun nuovo provider, nessun nuovo costo
     // di sottoscrizione; lo scraping resta comunque zero-cost.
