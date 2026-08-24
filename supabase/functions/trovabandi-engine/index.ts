@@ -2102,6 +2102,31 @@ serve(async (req) => {
           continue;
         }
 
+        // 1) Se l'URL ufficiale è un indice/elenco, seguo i link stesso host
+        //    che sembrano un avviso reale e leggo la prima scheda vera.
+        let noticeUrl: string | null = null;
+        const pageUrl = page.finalUrl ?? row.official_url;
+        if (page.html && isListingUrl(pageUrl)) {
+          const noticeCandidates = extractDetailLinks(
+            page.html,
+            pageUrl,
+            domain,
+            { limit: 6, exclude: [row.official_url, pageUrl] },
+          ).filter(looksLikeNoticeLink);
+          for (const candidate of noticeCandidates.slice(0, 3)) {
+            const notice = await directOfficialScrape(candidate.url, domain);
+            if (!notice || notice.markdown.length < 200) continue;
+            page = notice;
+            noticeUrl = notice.finalUrl ?? candidate.url;
+            break;
+          }
+          if (noticeUrl && noticeUrl !== row.notice_url) {
+            // La scheda reale è preferita all'elenco.
+            // (patch valorizzato più sotto, dopo la sua dichiarazione)
+          }
+        }
+
+
         const patch: Record<string, unknown> = {};
         if (row.deadline_at == null) {
           const dl = localExtractDeadline(page.markdown);
