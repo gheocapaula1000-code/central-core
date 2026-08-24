@@ -2311,6 +2311,8 @@ serve(async (req) => {
 
         const newDeadline = (patch.deadline_at as string | undefined) ??
           row.deadline_at;
+        const newMaxGrant = (patch.max_grant_amount as number | undefined) ??
+          row.max_grant_amount;
         const hasEvidence = page.markdown.length > 200;
         const deadlineProven = dateIsPresentInEvidence(
           page.markdown,
@@ -2322,10 +2324,14 @@ serve(async (req) => {
 
         let newStatus = row.verification_status as string;
         if (expired && deadlineProven) newStatus = "SCADUTO";
-        else if (hasEvidence && newDeadline && deadlineProven) {
+        else if (
+          hasEvidence && newDeadline && deadlineProven && newMaxGrant != null
+        ) {
+          // VERIFICATO solo con scadenza E contributo massimo dal testo ufficiale.
           newStatus = "VERIFICATO";
         } else if (hasEvidence) newStatus = "PARZIALE";
         else newStatus = "DA_VERIFICARE";
+
 
         if (newStatus !== row.verification_status) {
           patch.verification_status = newStatus;
