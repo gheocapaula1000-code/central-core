@@ -164,6 +164,43 @@ describe("catalog match — nessuna invenzione", () => {
   });
 });
 
+describe("catalog payload slimming — campi vuoti omessi", () => {
+  it("omette campi opzionali vuoti (stringa vuota, null, array vuoto)", () => {
+    const mapped = mapCatalogBando({
+      ...OFFICIAL_OPEN,
+      region: "",
+      province: null,
+      eligible_ateco_prefixes: [],
+      requirements: "  ",
+      notice_url: "https://bandi.example/notice",
+      municipality: "Padova",
+    });
+    expect(mapped).not.toHaveProperty("region");
+    expect(mapped).not.toHaveProperty("province");
+    expect(mapped).not.toHaveProperty("eligible_ateco_prefixes");
+    expect(mapped).not.toHaveProperty("requirements");
+    expect(mapped.notice_url).toBe("https://bandi.example/notice");
+    expect(mapped.municipality).toBe("Padova");
+  });
+
+  it("mantiene i campi del contratto PWA anche quando null", () => {
+    const mapped = mapCatalogBando({
+      ...OFFICIAL_OPEN,
+      deadline_at: null,
+    });
+    expect(mapped.id).toBe(OFFICIAL_OPEN.title);
+    expect(mapped.title).toBe(OFFICIAL_OPEN.title);
+    expect(mapped.authority_name).toBe(OFFICIAL_OPEN.authority_name);
+    expect(mapped.authority_level).toBe(OFFICIAL_OPEN.authority_level);
+    expect(mapped.category).toBe(OFFICIAL_OPEN.category);
+    expect(mapped.official_url).toBe(OFFICIAL_OPEN.official_url);
+    expect(mapped.summary).toBe(OFFICIAL_OPEN.summary);
+    expect(mapped.deadline_at).toBeNull();
+    expect(mapped.official_source).toBe(true);
+    expect(mapped.modulistica_url).toBe(OFFICIAL_OPEN.forms_url);
+  });
+});
+
 describe("paginazione catalogo", () => {
   it("senza page/limit/cursor preferisce l'intero catalogo entro un cap sicuro", () => {
     const paging = parseCatalogPaging({});
