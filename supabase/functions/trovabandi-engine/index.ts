@@ -31,6 +31,7 @@ import {
   needsDetailEnrichment,
   parseAmounts,
   parseDeadline,
+  hasSportelloEvidence,
 } from "./detail.ts";
 import {
   csvToEvidenceText,
@@ -1806,14 +1807,18 @@ async function storeOpportunity(
     "\n",
   );
   const deadlineProven = dateIsPresentInEvidence(proofText, deadline);
+  const sportello = !deadline && hasSportelloEvidence(proofText);
   const verification: PersistVerification =
     expired && deadlineProven
       ? "SCADUTO"
       : hasEvidence && deadline && deadlineProven
         ? "VERIFICATO"
-        : hasEvidence
-          ? "PARZIALE"
-          : "DA_VERIFICARE";
+        : hasEvidence && sportello
+          ? "SPORTELLO"
+          : hasEvidence
+            ? "PARZIALE"
+            : "DA_VERIFICARE";
+
   const contentHash = await sha256(markdown);
   const canonicalKey = await sha256(officialUrl.toLowerCase());
   const discoveredBy = safeTextArray([
@@ -2329,6 +2334,11 @@ serve(async (req) => {
         ) {
           // VERIFICATO solo con scadenza E contributo massimo dal testo ufficiale.
           newStatus = "VERIFICATO";
+        } else if (
+          hasEvidence && !newDeadline && hasSportelloEvidence(page.markdown)
+        ) {
+          // Sportello provato dal testo ufficiale: nessuna scadenza inventata.
+          newStatus = "SPORTELLO";
         } else if (hasEvidence) newStatus = "PARZIALE";
         else newStatus = "DA_VERIFICARE";
 
@@ -2337,6 +2347,7 @@ serve(async (req) => {
           patch.verification_status = newStatus;
           if (newStatus === "VERIFICATO") patch.last_verified_at = nowIso;
         }
+
 
         if (
           !row.raw_excerpt ||

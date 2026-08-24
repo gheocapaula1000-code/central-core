@@ -14,7 +14,12 @@ import { sanitizeDbErrorCode } from "./extraction.ts";
 
 export type PersistRow = Record<string, unknown>;
 
-export type PersistVerification = "VERIFICATO" | "PARZIALE" | "SCADUTO" | "DA_VERIFICARE";
+export type PersistVerification =
+  | "VERIFICATO"
+  | "PARZIALE"
+  | "SPORTELLO"
+  | "SCADUTO"
+  | "DA_VERIFICARE";
 
 export interface PersistClient {
   /** Upsert opportunity: deve restituire l'id oppure un errore. */
