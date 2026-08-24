@@ -1806,14 +1806,18 @@ async function storeOpportunity(
     "\n",
   );
   const deadlineProven = dateIsPresentInEvidence(proofText, deadline);
+  const sportello = !deadline && hasSportelloEvidence(proofText);
   const verification: PersistVerification =
     expired && deadlineProven
       ? "SCADUTO"
       : hasEvidence && deadline && deadlineProven
         ? "VERIFICATO"
-        : hasEvidence
-          ? "PARZIALE"
-          : "DA_VERIFICARE";
+        : hasEvidence && sportello
+          ? "SPORTELLO"
+          : hasEvidence
+            ? "PARZIALE"
+            : "DA_VERIFICARE";
+
   const contentHash = await sha256(markdown);
   const canonicalKey = await sha256(officialUrl.toLowerCase());
   const discoveredBy = safeTextArray([
