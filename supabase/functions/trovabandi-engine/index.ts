@@ -116,6 +116,9 @@ import {
   parseCatalogPaging,
 } from "./catalog.ts";
 
+/** PostgREST rows-per-request hard ceiling; used for internal chunking. */
+const CATALOG_POSTGREST_CHUNK = 1000;
+
 
 
 
