@@ -31,6 +31,7 @@ import {
   needsDetailEnrichment,
   parseAmounts,
   parseDeadline,
+  hasSportelloEvidence,
 } from "./detail.ts";
 import {
   csvToEvidenceText,
