@@ -488,3 +488,25 @@ export function mergeDetailIntoExtraction(
   }
   return { patch, filled };
 }
+
+/**
+ * Sportello a rubinetto: il testo ufficiale prova esplicitamente che non
+ * esiste una data di chiusura. In questo caso NON si inventa una scadenza e
+ * NON si degrada a PARZIALE: lo stato corretto è SPORTELLO.
+ */
+const SPORTELLO_PATTERNS: RegExp[] = [
+  /\ba\s+sportello\b/i,
+  /\bsportello\s+(?:a\s+rubinetto|aperto|permanente|sempre\s+aperto)\b/i,
+  /\bfino\s+a(?:d)?\s+esaurimento\b/i,
+  /\bsenza\s+(?:termine|scadenza|data\s+di\s+scadenza)\b/i,
+  /\bnon\s+(?:ha|è\s+prevista|e'\s+prevista|prevede)\s+(?:una\s+)?(?:data\s+di\s+)?scadenz\w*/i,
+  /\bnessuna\s+scadenz\w*/i,
+  /\bprocedura\s+a\s+sportello\b/i,
+];
+
+/** Vero solo se l'evidenza ufficiale prova lo sportello senza chiusura. */
+export function hasSportelloEvidence(text: unknown): boolean {
+  const raw = typeof text === "string" ? text : "";
+  if (raw.length < 20) return false;
+  return SPORTELLO_PATTERNS.some((re) => re.test(raw));
+}
