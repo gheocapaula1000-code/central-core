@@ -139,6 +139,62 @@ export const SEED_LISTING_URLS: Record<string, string[]> = {
   "cittametropolitana.fi.it": [
     "https://www.cittametropolitana.fi.it/amministrazione-trasparente/sovvenzioni-contributi-sussidi-vantaggi-economici",
   ],
+  "trasparenza.cittametropolitana.torino.it": [
+    "https://trasparenza.cittametropolitana.torino.it/sovvenzioni-contributi-sussidi-vantaggi-economici",
+  ],
+  "dati.cittametropolitana.genova.it": [
+    "https://dati.cittametropolitana.genova.it/it/amministrazione-trasparente/sovvenzionicontributi-sussidi-vantaggi-economici",
+  ],
+  "provincia.imperia.it": [
+    "https://www.provincia.imperia.it/sovvenzioni-contributi-sussidi-vantaggi-economici",
+  ],
+  "provincia.savona.it": [
+    "https://www.provincia.savona.it/trasparenza/sovvenzioni-contributi",
+  ],
+  "cittametropolitana.mi.it": [
+    "https://www.cittametropolitana.mi.it/citta-metropolitana/amministrazione-trasparente/sovvenzioni_contributi_sussidi_vantaggi_economici/",
+  ],
+  "at.provincia.brescia.it": [
+    "https://at.provincia.brescia.it/page/11/sovvenzioni-contributi-sussidi-vantaggi-economici.html",
+  ],
+  "provincia.como.it": [
+    "https://www.provincia.como.it/sovvenzioni-contributi-sussidi-vantaggi-economici",
+    "https://www.provincia.como.it/bandi-di-contributi",
+  ],
+  "provincia.cremona.it": [
+    "https://www.provincia.cremona.it/gov/?view=Pagina&id=3981",
+  ],
+  "provincia.lecco.it": [
+    "https://www.provincia.lecco.it/amministrazione-trasparente/sovvenzioni-contributi-sussidi-vantaggi-economici/",
+    "https://www.provincia.lecco.it/documenti-e-dati/bandi/bandi-per-contributi/",
+  ],
+  "provincia.mantova.it": [
+    "https://www.provincia.mantova.it/extendedsearch_bandi.jsp?ID_LINK=211&area=6&id_schema=2&COL0001=8",
+  ],
+  "provinciasondrio.it": [
+    "https://www.provinciasondrio.it/amministrazione-trasparente/sovvenzioni-contributi-sussidi-vantaggi-economici",
+  ],
+  "web.provincia.vr.it": [
+    "https://web.provincia.vr.it/it/servizi/contributi-e-patrocini",
+  ],
+  "provincia.ra.it": [
+    "https://www.provincia.ra.it/Amministrazione-Trasparente/Sovvenzioni-contributi-sussidi-vantaggi-economici",
+  ],
+  "amministrazionetrasparente.provincia.pc.it": [
+    "https://amministrazionetrasparente.provincia.pc.it/L190/?idSezione=20&id=&sort=&activePage=&search=",
+  ],
+  "provincia.arezzo.it": [
+    "https://provincia.arezzo.it/amministrazionetrasparente/sovvenzioni-contributi-sussidi-vantaggi-economici/",
+  ],
+  "ammtrasp.provincia.livorno.it": [
+    "https://ammtrasp.provincia.livorno.it/L190/?idSezione=20&id=&sort=&activePage=&search=",
+  ],
+  "provinciams.etrasparenza.it": [
+    "https://provinciams.etrasparenza.it/pagina728_sovvenzioni-contributi-sussidi-vantaggi-economici.html",
+  ],
+  "trasparenza.provincia.pistoia.it": [
+    "https://trasparenza.provincia.pistoia.it/L190/?idSezione=29&id=&sort=&activePage=&search=",
+  ],
   "bur.regione.veneto.it": ["https://bur.regione.veneto.it"],
   "bandi.regione.veneto.it": [
     "https://bandi.regione.veneto.it/Public/Elenco",
