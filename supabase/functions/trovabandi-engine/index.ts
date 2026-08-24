@@ -687,6 +687,11 @@ const BUDGET_KEYWORDS =
 
 type AmountBucket = "min_grant_amount" | "max_grant_amount" | "total_budget";
 
+// Contesti che NON sono contributo a fondo perduto: prestiti, spese
+// ammissibili, investimenti, fatturato. Squalificano il bucket "massimo".
+const NON_GRANT_CONTEXT =
+  /(finanziament\w*|mutu\w*|prestit\w*|garanzi\w*|spesa\s+ammissibil\w*|spese\s+ammissibil\w*|costo\s+del\s+progetto|investiment\w*|fatturat\w*|ricav\w*|durata|ore\b|giornate)/g;
+
 /** Classifica un importo in base alla keyword più vicina che lo precede. */
 function amountBucket(text: string, idx: number): AmountBucket | null {
   const before = text.slice(Math.max(0, idx - 110), idx);
@@ -699,12 +704,20 @@ function amountBucket(text: string, idx: number): AmountBucket | null {
   ).filter((c) => c.at >= 0);
   if (candidates.length === 0) return null;
   candidates.sort((a, b) => b.at - a.at);
-  return candidates[0].bucket;
+  const winner = candidates[0];
+  if (winner.bucket === "max_grant_amount") {
+    // Se tra la keyword di massimo e la cifra compare un contesto di
+    // prestito/spesa, la cifra non è un contributo massimo: fail-closed.
+    const between = before.slice(winner.at);
+    if (lastIndexOfPattern(between, NON_GRANT_CONTEXT) >= 0) return null;
+  }
+  return winner.bucket;
 }
 
 function plausibleAmount(n: number): boolean {
   return n >= 100 && n <= 100_000_000_000;
 }
+
 
 function localExtractAmounts(
   markdown: string,
@@ -759,6 +772,38 @@ function localExtractAmounts(
   return out;
 }
 // BACKFILL_HELPERS_END
+
+/**
+ * Pagina indice/elenco: non è un avviso, è una lista di avvisi.
+ * Riconoscimento deterministico sul path, nessuna inferenza sul contenuto.
+ */
+const LISTING_PATH =
+  /(^\/?$|\/(index|home|homepage)(\.(html?|php|aspx))?$|\/(bandi|avvisi|bandi-e-avvisi|bandi_e_avvisi|contributi|opportunita|opportunit%c3%a0|finanziamenti|agevolazioni|elenco|elenchi|archivio|news|notizie|albo|amministrazione)(-[a-z0-9-]+)?\/?$)/i;
+
+function isListingUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    const path = parsed.pathname.replace(/\/+$/, "") || "/";
+    if (/\.(pdf|docx?|xlsx?)$/i.test(path)) return false;
+    if (LISTING_PATH.test(path)) return true;
+    // Paginazioni tipiche degli elenchi.
+    return /[?&](page|pagina|start|offset)=/i.test(parsed.search);
+  } catch {
+    return false;
+  }
+}
+
+/** Link che sembra un avviso reale (bando/avviso/decreto/misura/sportello). */
+const NOTICE_LINK_TOKENS =
+  /(bando|bandi\/|avviso|avvisi\/|decreto|determina|misura|sportello|contributo|agevolazione)/i;
+
+function looksLikeNoticeLink(link: { url: string; label: string }): boolean {
+  const haystack = `${link.label} ${link.url}`;
+  if (!NOTICE_LINK_TOKENS.test(haystack)) return false;
+  return !isListingUrl(link.url);
+}
+
+
 
 
 /**
@@ -1989,8 +2034,10 @@ serve(async (req) => {
   }
 
   if (action === "backfill_nulls") {
-    const maxBatch = Math.min(20, Math.max(1, Number(body.max_batch) || 12));
-    const dryRun = body.dry_run !== false; // default TRUE per sicurezza
+    const maxBatch = Math.min(400, Math.max(1, Number(body.max_batch) || 250));
+    // Default: SCRIVE. Il dry-run resta opt-in esplicito (dry_run === true).
+    const dryRun = body.dry_run === true;
+
     // Opt-in esplicito: usa l'estrattore Perplexity già esistente SOLO come
     // fallback sui campi ancora NULL. Nessun nuovo provider, nessun nuovo costo
     // di sottoscrizione; lo scraping resta comunque zero-cost.
@@ -2055,8 +2102,33 @@ serve(async (req) => {
           continue;
         }
 
+        // 1) Se l'URL ufficiale è un indice/elenco, seguo i link stesso host
+        //    che sembrano un avviso reale e leggo la prima scheda vera.
+        let noticeUrl: string | null = null;
+        const pageUrl = page.finalUrl ?? row.official_url;
+        if (page.html && isListingUrl(pageUrl)) {
+          const noticeCandidates = extractDetailLinks(
+            page.html,
+            pageUrl,
+            domain,
+            { limit: 6, exclude: [row.official_url, pageUrl] },
+          ).filter(looksLikeNoticeLink);
+          for (const candidate of noticeCandidates.slice(0, 3)) {
+            const notice = await directOfficialScrape(candidate.url, domain);
+            if (!notice || notice.markdown.length < 200) continue;
+            page = notice;
+            noticeUrl = notice.finalUrl ?? candidate.url;
+            break;
+          }
+        }
+
         const patch: Record<string, unknown> = {};
+        // La scheda reale dell'avviso è preferita all'elenco.
+        if (noticeUrl && noticeUrl !== row.notice_url) {
+          patch.notice_url = noticeUrl;
+        }
         if (row.deadline_at == null) {
+
           const dl = localExtractDeadline(page.markdown);
           if (dl) patch.deadline_at = dl;
         }
@@ -2239,6 +2311,8 @@ serve(async (req) => {
 
         const newDeadline = (patch.deadline_at as string | undefined) ??
           row.deadline_at;
+        const newMaxGrant = (patch.max_grant_amount as number | undefined) ??
+          row.max_grant_amount;
         const hasEvidence = page.markdown.length > 200;
         const deadlineProven = dateIsPresentInEvidence(
           page.markdown,
@@ -2250,10 +2324,14 @@ serve(async (req) => {
 
         let newStatus = row.verification_status as string;
         if (expired && deadlineProven) newStatus = "SCADUTO";
-        else if (hasEvidence && newDeadline && deadlineProven) {
+        else if (
+          hasEvidence && newDeadline && deadlineProven && newMaxGrant != null
+        ) {
+          // VERIFICATO solo con scadenza E contributo massimo dal testo ufficiale.
           newStatus = "VERIFICATO";
         } else if (hasEvidence) newStatus = "PARZIALE";
         else newStatus = "DA_VERIFICARE";
+
 
         if (newStatus !== row.verification_status) {
           patch.verification_status = newStatus;
