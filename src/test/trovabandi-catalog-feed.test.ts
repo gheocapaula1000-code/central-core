@@ -122,6 +122,13 @@ describe("catalog match — nessuna invenzione", () => {
     expect(mapped).not.toHaveProperty("eligible_ateco_codes");
   });
 
+  it("omette modulistica_url quando forms_url è vuoto", () => {
+    const mapped = mapCatalogBando({ ...OFFICIAL_OPEN, forms_url: null });
+    expect(mapped).not.toHaveProperty("modulistica_url");
+    const mapped2 = mapCatalogBando({ ...OFFICIAL_OPEN, forms_url: "  " });
+    expect(mapped2).not.toHaveProperty("modulistica_url");
+  });
+
   it("tronca summary a 400 caratteri senza inventare testo", () => {
     const longSummary = "A".repeat(500);
     const mapped = mapCatalogBando({ ...OFFICIAL_OPEN, summary: longSummary });
