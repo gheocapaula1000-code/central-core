@@ -2333,6 +2333,11 @@ serve(async (req) => {
         ) {
           // VERIFICATO solo con scadenza E contributo massimo dal testo ufficiale.
           newStatus = "VERIFICATO";
+        } else if (
+          hasEvidence && !newDeadline && hasSportelloEvidence(page.markdown)
+        ) {
+          // Sportello provato dal testo ufficiale: nessuna scadenza inventata.
+          newStatus = "SPORTELLO";
         } else if (hasEvidence) newStatus = "PARZIALE";
         else newStatus = "DA_VERIFICARE";
 
@@ -2341,6 +2346,7 @@ serve(async (req) => {
           patch.verification_status = newStatus;
           if (newStatus === "VERIFICATO") patch.last_verified_at = nowIso;
         }
+
 
         if (
           !row.raw_excerpt ||
