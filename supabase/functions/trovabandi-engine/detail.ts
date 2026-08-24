@@ -27,6 +27,7 @@ const POSITIVE_TOKENS: Array<[RegExp, number]> = [
   [/termin[ei]/i, 4],
   [/bando\b|avviso\b/i, 4],
   [/decreto|determina|delibera/i, 3],
+  [/misura|sportello/i, 3],
   [/allegat|modulistica|documenti/i, 2],
   [/dotazion|risorse|contribut|agevolazion/i, 3],
   [/dettagli|scheda|leggi tutto|approfondi/i, 2],
@@ -333,6 +334,12 @@ const SCALED_AMOUNT = new RegExp(
   "gi",
 );
 
+/** "4 milioni" / "1,5 mln" accanto a keyword, senza unità non-monetaria. */
+const BARE_SCALED_AMOUNT = new RegExp(
+  `(\\d{1,3}(?:[.,]\\d{1,2})?)\\s*(${SCALE_PATTERN})\\b(?!\\s*(?:di\\s+)?(?:ore|posti|progett|mesi|giorn|partecip))`,
+  "gi",
+);
+
 
 const MAX_GRANT_CTX =
   /(contributo (?:massimo|max)|importo massimo del contributo|agevolazione massima|contributo (?:concedibile|erogabile)|fino a un massimo di contributo|maximum (?:grant|contribution|funding|aid|support|amount of (?:the )?(?:grant|aid))|grant (?:amount )?up to|funding up to|up to a maximum of|maximum amount per (?:project|beneficiary|application)|per project maximum)/i;
@@ -432,6 +439,15 @@ export function parseAmounts(text: string): DetailAmounts {
   while ((match = SCALED_AMOUNT.exec(text)) !== null) {
     const raw = (match[1] ?? match[3] ?? "").trim();
     const word = (match[2] ?? match[4] ?? "").trim();
+    const value = parseScaledValue(raw, word);
+    if (value == null) continue;
+    assign(value, match.index, match.index + match[0].length);
+  }
+
+  BARE_SCALED_AMOUNT.lastIndex = 0;
+  while ((match = BARE_SCALED_AMOUNT.exec(text)) !== null) {
+    const raw = (match[1] ?? "").trim();
+    const word = (match[2] ?? "").trim();
     const value = parseScaledValue(raw, word);
     if (value == null) continue;
     assign(value, match.index, match.index + match[0].length);

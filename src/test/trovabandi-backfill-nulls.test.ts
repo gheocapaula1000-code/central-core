@@ -56,6 +56,15 @@ describe("localExtractDeadline", () => {
     );
   });
 
+  it("estrae 27/05/2026 e 27 maggio 2026", () => {
+    expect(localExtractDeadline("Scadenza: 27/05/2026")).toBe(
+      "2026-05-27T00:00:00.000Z",
+    );
+    expect(localExtractDeadline("Scadenza 27 maggio 2026")).toBe(
+      "2026-05-27T00:00:00.000Z",
+    );
+  });
+
   it("estrae la data dopo 'termine ultimo'", () => {
     expect(localExtractDeadline("Termine ultimo 30 settembre 2026")).toBe(
       "2026-09-30T00:00:00.000Z",
@@ -156,6 +165,20 @@ describe("localExtractAmounts", () => {
   it("estrae il massimale espresso in milioni con virgola", () => {
     expect(localExtractAmounts("Contributo massimo 2,5 milioni di euro"))
       .toMatchObject({ max_grant_amount: 2500000 });
+  });
+
+  it("estrae 4 milioni, 1,5 mln e 500.000 € accanto alla keyword", () => {
+    expect(localExtractAmounts("Contributo massimo 4 milioni"))
+      .toMatchObject({ max_grant_amount: 4000000 });
+    expect(localExtractAmounts("Contributo massimo 1,5 mln"))
+      .toMatchObject({ max_grant_amount: 1500000 });
+    expect(localExtractAmounts("Contributo massimo 500.000 €"))
+      .toMatchObject({ max_grant_amount: 500000 });
+  });
+
+  it("non prende milioni di ore come importo", () => {
+    expect(localExtractAmounts("dotazione di 5 milioni di ore di formazione"))
+      .toEqual({});
   });
 
   it("estrae 'fino a 500 mila euro'", () => {

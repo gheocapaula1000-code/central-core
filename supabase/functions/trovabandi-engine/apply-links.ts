@@ -9,7 +9,7 @@
 // modulistica_url.
 
 import { isIndexOrLandingUrl } from "./opportunity-gate.ts";
-import { isAllowedOfficialUrl } from "./scrape.ts";
+import { isAllowedOfficialUrl, isBlockedAggregatorUrl } from "./scrape.ts";
 
 export const FVG_BUR_HOST = "bur.regione.fvg.it";
 
@@ -73,6 +73,7 @@ function attrValue(attrs: string, name: string): string {
 export function shouldSkipApplyFetch(url: unknown): boolean {
   if (typeof url !== "string" || !url.trim()) return true;
   try {
+    if (isBlockedAggregatorUrl(url)) return true;
     const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
     return host === FVG_BUR_HOST || host.endsWith(`.${FVG_BUR_HOST}`);
   } catch {

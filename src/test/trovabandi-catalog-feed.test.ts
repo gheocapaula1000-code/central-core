@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   CATALOG_DEFAULT_LIMIT,
+  CATALOG_MAX_LIMIT,
   CATALOG_MIN_DEFAULT,
   CATALOG_SAFE_CAP,
   CATALOG_SELECT_COLUMNS,
@@ -216,6 +217,8 @@ describe("paginazione catalogo", () => {
     expect(paging.limit).toBeGreaterThanOrEqual(CATALOG_MIN_DEFAULT);
     expect(paging.limit).toBe(CATALOG_SAFE_CAP);
     expect(CATALOG_DEFAULT_LIMIT).toBeGreaterThanOrEqual(CATALOG_MIN_DEFAULT);
+    expect(CATALOG_SAFE_CAP).toBeGreaterThanOrEqual(5000);
+    expect(CATALOG_MAX_LIMIT).toBeGreaterThanOrEqual(5000);
   });
 
   it("accetta page/limit e cursor numerico", () => {

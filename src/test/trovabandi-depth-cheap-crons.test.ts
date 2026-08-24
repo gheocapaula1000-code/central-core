@@ -5,6 +5,10 @@ const SQL = readFileSync(
   "supabase/migrations/20260820120000_trovabandi_depth_cheap_crons.sql",
   "utf8",
 );
+const BACKFILL_SQL = readFileSync(
+  "supabase/migrations/20260824120000_trovabandi_backfill_larger_batch.sql",
+  "utf8",
+);
 const ENGINE = readFileSync("supabase/functions/trovabandi-engine/index.ts", "utf8");
 const DOCS = readFileSync("docs/TROVABANDI_REPLIT_CRON.md", "utf8");
 
@@ -77,7 +81,10 @@ describe("TrovaBandi engine cheap-first wiring", () => {
   });
 
   it("backfill usa excerpt persistito e non esclude i PDF", () => {
-    expect(ENGINE).toContain("usableStoredEvidence(row.raw_excerpt)");
+    expect(ENGINE).toContain("usableStoredEvidence");
+    expect(ENGINE).toContain("resolveOfficialNoticePage");
+    expect(BACKFILL_SQL).toContain('"max_batch":250');
+    expect(BACKFILL_SQL).toContain('"dry_run":false');
     expect(ENGINE).not.toContain('.not("official_url", "ilike", "%.pdf")');
     expect(ENGINE).toContain("localExtractAteco");
     expect(ENGINE).toContain("localExtractProtocolEmail");

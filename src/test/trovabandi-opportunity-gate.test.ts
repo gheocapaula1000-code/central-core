@@ -34,6 +34,8 @@ describe("isIndexOrLandingUrl", () => {
     expect(isIndexOrLandingUrl("https://www.regione.veneto.it/faq")).toBe(true);
     expect(isIndexOrLandingUrl("https://www.pd.camcom.it/newsletter")).toBe(true);
     expect(isIndexOrLandingUrl("https://www.pd.camcom.it/bandi")).toBe(true);
+    expect(isIndexOrLandingUrl("https://www.pd.camcom.it/it/bandi")).toBe(true);
+    expect(isIndexOrLandingUrl("https://www.regione.veneto.it/web/attivita/elenco")).toBe(true);
     expect(isIndexOrLandingUrl("https://www.pd.camcom.it/index.php")).toBe(true);
     expect(classifyOfficialListingUrl("https://www.invitalia.it/")).toBe(
       "junk_listing",

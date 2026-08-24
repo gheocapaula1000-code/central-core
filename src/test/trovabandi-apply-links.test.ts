@@ -194,4 +194,8 @@ describe("apply URL helpers", () => {
     expect(shouldSkipApplyFetch("https://bur.regione.fvg.it/newbur/")).toBe(true);
     expect(shouldSkipApplyFetch(OFFICIAL)).toBe(false);
   });
+
+  it("does not fetch Bandiora", () => {
+    expect(shouldSkipApplyFetch("https://www.bandiora.it/bando")).toBe(true);
+  });
 });

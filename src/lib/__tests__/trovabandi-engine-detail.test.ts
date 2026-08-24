@@ -224,6 +224,12 @@ describe("importi scritti a parole", () => {
   it("ignora numeri a parole senza valuta", () => {
     expect(parseAmounts("dotazione di 5 milioni di ore di formazione")).toEqual({});
   });
+  it("legge 4 milioni e 1,5 mln accanto a contributo massimo", () => {
+    expect(parseAmounts("Il contributo massimo è pari a 4 milioni.").max_grant_amount?.value)
+      .toBe(4_000_000);
+    expect(parseAmounts("contributo massimo 1,5 mln").max_grant_amount?.value)
+      .toBe(1_500_000);
+  });
   it("ignora importi a parole senza contesto qualificante", () => {
     expect(parseAmounts("il fatturato aziendale supera i 10 milioni di euro")).toEqual({});
   });

@@ -19,9 +19,12 @@ le corsie sono `lane` sul `collect` notturno.
   persistito. `dry_run: true` = selezione fair senza lease, provider o
   scritture.
 - `backfill_nulls`: riempie scadenza, importi, ATECO, URL domanda / modulistica e PEC
-  sulle righe già in catalogo. Preferisce `raw_excerpt` / HTTP ufficiale.
-  Default `dry_run: true`. I cron di produzione passano `dry_run: false`
-  e `allow_paid_extract: false`. Non ricrawla `bur.regione.fvg.it`.
+  sulle righe già in catalogo. Se `official_url` è un elenco/home/bandi segue
+  i link stesso-host che sembrano un avviso e preferisce quell'URL.
+  Default `dry_run: false` (scrive). Batch di default 250 (max 400), con
+  budget tempo 150s. I cron passano `allow_paid_extract: false`.
+  Non ricrawla `bur.regione.fvg.it` né Bandiora. VERIFICATO solo se
+  scadenza e contributo massimo sono stampati nel testo ufficiale.
 - `enrich_apply_urls`: one-shot fail-closed sulle righe `official_source`
   già in catalogo. Legge la pagina ufficiale (e il `notice_url` se serve)
   e persiste soltanto `forms_url` (modulistica / PDF) e `application_url`
@@ -109,7 +112,7 @@ quelli in tabella. In ora solare (CET, UTC+1) slittano di un'ora prima.
 
 | Job | Cron UTC | Europe/Rome (CEST) | Azione | Paid? |
 | --- | -------- | ------------------ | ------ | ----- |
-| `trovabandi-night-backfill` | `10 23 * * *` | 01:10 | `backfill_nulls` max 16, no paid extract | **FREE** |
+| `trovabandi-night-backfill` | `10 23 * * *` | 01:10 | `backfill_nulls` max 250, no paid extract | **FREE** |
 | `trovabandi-night-locale` | `20 23 * * *` | 01:20 | `collect` lane=locale, max_pages 3 | paid last-resort |
 | `trovabandi-night-camerale` | `30 23 * * *` | 01:30 | `collect` lane=camerale | paid last-resort |
 | `trovabandi-night-regionale` | `40 23 * * *` | 01:40 | `collect` lane=regionale (BUR / FESR) | paid last-resort |
@@ -121,7 +124,7 @@ quelli in tabella. In ora solare (CET, UTC+1) slittano di un'ora prima.
 | `trovabandi-night-wide-due` | `20 2 * * *` | 04:20 | `collect` dovuti residui, max_pages 2 | paid last-resort |
 | `trovabandi-maintenance` | `15 4 * * *` | 06:15 | `maintenance` | **FREE** |
 | `trovabandi-release-gate` | `25 4 * * *` | 06:25 | `release_gate` | **FREE** |
-| `trovabandi-day-backfill` | `30 8 * * *` | 10:30 | `backfill_nulls` max 10 | **FREE** |
+| `trovabandi-day-backfill` | `30 8 * * *` | 10:30 | `backfill_nulls` max 250 | **FREE** |
 | `trovabandi-day-cheap` | `30 12 * * *` | 14:30 | `collect` allow_paid=false | **FREE** |
 
 Non esiste un full-scan diurno ogni 4 ore né un collect ogni 20 minuti.
