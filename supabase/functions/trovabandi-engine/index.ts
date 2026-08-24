@@ -2120,15 +2120,15 @@ serve(async (req) => {
             noticeUrl = notice.finalUrl ?? candidate.url;
             break;
           }
-          if (noticeUrl && noticeUrl !== row.notice_url) {
-            // La scheda reale è preferita all'elenco.
-            // (patch valorizzato più sotto, dopo la sua dichiarazione)
-          }
         }
 
-
         const patch: Record<string, unknown> = {};
+        // La scheda reale dell'avviso è preferita all'elenco.
+        if (noticeUrl && noticeUrl !== row.notice_url) {
+          patch.notice_url = noticeUrl;
+        }
         if (row.deadline_at == null) {
+
           const dl = localExtractDeadline(page.markdown);
           if (dl) patch.deadline_at = dl;
         }
