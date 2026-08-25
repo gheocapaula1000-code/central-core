@@ -1,17 +1,17 @@
 // Sottra — OMI Lookup: real price data from Agenzia delle Entrate
-// v3.4: Coordinate-first (polygon match) with address fallback
+// v3.5: Official omi_valori quotes attached per resolved link_zona (SELECT-only)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callAI } from "./shared.ts";
 import {
   pickOfficialValoriRow,
   remapPolygonToOfficialZone,
+  mapValoriRowsToQuotes,
+  pickCivileHeadlineFromQuotes,
   type OfficialZoneRow,
+  type OfficialOmiQuote,
 } from "./omi-zone-join.ts";
 import { presentPadovaSellableArea } from "./padova-omi-areas.ts";
-
-// ── Match Method Hierarchy (strongest → weakest) ──────────────
-// polygon_match > single_zone > ai_matched > ai_fallback > first_zone_fallback > none
 
 export type OMIMatchMethod =
   | "polygon_match"
@@ -37,27 +37,20 @@ export interface OMIResult {
   tipologia?: string;
   stato?: string;
   fonte: string;
-  /** Confidence of the OMI zone match (0-1). Below 0.5 = not publishable. */
   matchConfidence: number;
-  /** How the zone was determined */
   matchMethod: OMIMatchMethod;
-  /** Whether the zone was resolved via spatial polygon containment */
   polygonMatch: boolean;
-  /** Precision level of the OMI geo resolution */
   omiGeoLevel: OMIGeoLevel;
-  /** Human-readable precision label */
   pricingPrecisionLabel: string;
-  /** Coverage level for downstream modules */
   sourceCoverageLevel: "microzona" | "comunale" | "none";
-  /** Why this confidence was assigned */
   confidenceReason: string;
-  /** Limitations for downstream consumers */
   limitations: string[];
-  /** Official OMI letter (B1, C3, …). Never an invented code. */
   officialMicrozona?: string;
-  /** Sottra sellable area id (Padova 7-zone map only). */
   areaId?: string;
   areaName?: string;
+  quotes?: OfficialOmiQuote[];
+  link_zona?: string;
+  semestre?: string;
   tutteZone?: Array<{
     zona: string;
     zona_descr: string;
@@ -77,10 +70,6 @@ function getSupabase() {
   return createClient(url, key);
 }
 
-/**
- * Extract comune name from an Italian address.
- * E.g. "Via Guido Reni 8, 35133 Padova" → "PADOVA"
- */
 export function extractComune(address: string): string {
   const cleaned = address.replace(/\b\d{5}\b/g, "").trim();
   const parts = cleaned.split(",").map((p) => p.trim()).filter(Boolean);
@@ -91,8 +80,6 @@ export function extractComune(address: string): string {
   const withoutProv = last.replace(/\s+[A-Z]{2}$/, "").trim();
   return withoutProv.toUpperCase();
 }
-
-// ── Helper: fetch OMI valori for a set of link_zona ───────────
 
 interface ZoneSummaryItem {
   zona: string;
@@ -110,7 +97,6 @@ async function fetchValoriForZones(
   linkZone: string[],
   codTip: number,
 ): Promise<ZoneSummaryItem[]> {
-  // Try with tipologia filter first
   const { data: valori } = await supabase
     .from("omi_valori")
     .select("*")
@@ -119,13 +105,30 @@ async function fetchValoriForZones(
 
   if (valori && valori.length > 0) return valori as unknown as ZoneSummaryItem[];
 
-  // Fallback: without tipologia
   const { data: allValori } = await supabase
     .from("omi_valori")
     .select("*")
     .in("link_zona", linkZone);
 
   return (allValori ?? []) as unknown as ZoneSummaryItem[];
+}
+
+/** READ-only: every official omi_valori row for one resolved link_zona. Never invents. */
+export async function fetchOfficialQuotesForLink(
+  supabase: ReturnType<typeof getSupabase>,
+  linkZona: string,
+): Promise<OfficialOmiQuote[]> {
+  if (!linkZona) return [];
+  const { data, error } = await supabase
+    .from("omi_valori")
+    .select("descr_tipologia,stato,compr_min,compr_max,loc_min,loc_max,semestre,link_zona")
+    .eq("link_zona", linkZona);
+
+  if (error) {
+    console.warn(`[omi-lookup] fetchOfficialQuotesForLink error for ${linkZona}: ${error.message}`);
+    return [];
+  }
+  return mapValoriRowsToQuotes((data ?? []) as Record<string, unknown>[]);
 }
 
 function buildResult(
@@ -137,12 +140,29 @@ function buildResult(
   allZones: ZoneSummaryItem[] | null,
   confidenceReason: string,
   limitations: string[],
+  quotes?: OfficialOmiQuote[],
 ): OMIResult {
-  const comprMin = zone.compr_min;
-  const comprMax = zone.compr_max;
+  const officialQuotes = matchMethod === "comune_aggregate" ? [] : (quotes ?? []);
+  const headline = officialQuotes.length > 0
+    ? pickCivileHeadlineFromQuotes(officialQuotes)
+    : null;
+  const headlineQuote = headline
+    ? officialQuotes.find((q) =>
+      q.tipologia === headline.tipologia && q.stato === headline.stato
+    )
+    : null;
+
+  const comprMin = headline?.min ?? zone.compr_min;
+  const comprMax = headline?.max ?? zone.compr_max;
   const prezzoMedio = comprMin != null && comprMax != null
     ? Math.round((comprMin + comprMax) / 2)
     : null;
+  const locMin = headlineQuote?.locMin ?? zone.loc_min;
+  const locMax = headlineQuote?.locMax ?? zone.loc_max;
+  const tipologia = headline?.tipologia || zone.tipologia || "Abitazioni civili";
+  const stato = headline?.stato || "NORMALE";
+  const semestre = officialQuotes.find((q) => q.semestre)?.semestre ?? undefined;
+  const linkZona = matchMethod === "comune_aggregate" ? undefined : (zone.link_zona || undefined);
 
   const omiGeoLevel: OMIGeoLevel = polygonMatch ? "microzona_omi" : (matchMethod === "single_zone" ? "microzona_omi" : matchMethod === "none" ? "none" : "comune");
   const sourceCoverageLevel = omiGeoLevel === "microzona_omi" ? "microzona" as const : omiGeoLevel === "none" ? "none" as const : "comunale" as const;
@@ -165,10 +185,10 @@ function buildResult(
     compr_min: comprMin ?? undefined,
     compr_max: comprMax ?? undefined,
     prezzoMedio: prezzoMedio ?? undefined,
-    loc_min: zone.loc_min ?? undefined,
-    loc_max: zone.loc_max ?? undefined,
-    tipologia: zone.tipologia || "Abitazioni civili",
-    stato: "NORMALE",
+    loc_min: locMin ?? undefined,
+    loc_max: locMax ?? undefined,
+    tipologia,
+    stato,
     fonte: FONTE,
     matchConfidence,
     matchMethod,
@@ -179,6 +199,9 @@ function buildResult(
     confidenceReason,
     limitations,
     officialMicrozona: matchMethod === "comune_aggregate" ? undefined : zone.zona,
+    quotes: officialQuotes.length > 0 ? officialQuotes : undefined,
+    link_zona: linkZona,
+    semestre,
     tutteZone: allZones?.map((z) => ({
       zona: z.zona,
       zona_descr: z.zona_descr,
@@ -207,26 +230,15 @@ function notFoundResult(comuneStr?: string, reason?: string): OMIResult {
   };
 }
 
-// ══════════════════════════════════════════════════════════════
-// PRIMARY: Coordinate-first lookup via PostGIS point-in-polygon
-// ══════════════════════════════════════════════════════════════
-
-/**
- * Lookup OMI data using coordinates (lat, lng) via spatial polygon match.
- * This is the PREFERRED method when coordinates are available.
- * Uses PostGIS ST_Contains on omi_zone_geometry table.
- */
 export async function lookupOMIByCoordinates(
   lat: number,
   lng: number,
   codTip = 20,
 ): Promise<OMIResult> {
   const supabase = getSupabase();
-
   console.log(`[omi-lookup:coordinates] Attempting polygon match for (${lat}, ${lng}), codTip=${codTip}`);
 
   try {
-    // Call the RPC for point-in-polygon
     const { data: polygonZones, error: rpcErr } = await supabase
       .rpc("omi_zone_by_point", { p_lat: lat, p_lng: lng });
 
@@ -236,15 +248,11 @@ export async function lookupOMIByCoordinates(
     }
 
     if (!polygonZones || polygonZones.length === 0) {
-      console.log(`[omi-lookup:coordinates] No polygon match for (${lat}, ${lng})`);
       return notFoundResult(undefined, "Coordinate fuori dai poligoni OMI importati");
     }
 
     const comuneStr = (polygonZones[0].comune_descrizione as string).toUpperCase();
 
-    // Geometry rows on Core use synthetic keys (e.g. G224-B1). Official
-    // omi_zone / omi_valori use Agenzia delle Entrate link_zona (PD00000015).
-    // Join by unique comune+zona. Never invent a letter if the join is not unique.
     const { data: officialZones, error: zoneJoinErr } = await supabase
       .from("omi_zone")
       .select("zona,zona_descr,link_zona,comune_descrizione,comune_amm")
@@ -268,7 +276,6 @@ export async function lookupOMIByCoordinates(
 
     const officialMatched = remapped.filter((r): r is { polygon: Record<string, unknown>; official: OfficialZoneRow } => r.official != null);
     if (officialMatched.length === 0) {
-      console.log(`[omi-lookup:coordinates] Polygon hit but no unique official omi_zone join for ${comuneStr} keys=${(polygonZones as Record<string, unknown>[]).map((z) => z.link_zona).join(",")}`);
       return notFoundResult(
         comuneStr,
         "Poligono OMI trovato ma link_zona non allineato a omi_zone — nessuna zona inventata",
@@ -290,7 +297,6 @@ export async function lookupOMIByCoordinates(
     }
 
     if (valori.length === 0) {
-      console.log(`[omi-lookup:coordinates] Official zone joined but no valori for link_zone=${linkZone.join(",")}`);
       return notFoundResult(comuneStr, "Poligono OMI trovato ma nessun valore disponibile per la tipologia richiesta");
     }
 
@@ -311,7 +317,6 @@ export async function lookupOMIByCoordinates(
       };
     });
 
-    // Filter to zones that have actual pricing data
     const zonesWithPricing = zoneSummary.filter(z => z.compr_min != null && z.compr_max != null);
 
     if (zonesWithPricing.length === 0) {
@@ -319,38 +324,30 @@ export async function lookupOMIByCoordinates(
     }
 
     if (zonesWithPricing.length === 1) {
-      // Single polygon match — highest confidence
-      console.log(`[omi-lookup:coordinates] Single polygon match: zona=${zonesWithPricing[0].zona}`);
+      const winner = zonesWithPricing[0];
+      const quotes = await fetchOfficialQuotesForLink(supabase, winner.link_zona);
+      console.log(`[omi-lookup:coordinates] Single polygon match: zona=${winner.zona} quotes=${quotes.length}`);
       return buildResult(
-        zonesWithPricing[0],
-        "polygon_match",
-        0.98,
-        true,
-        comuneStr,
-        zoneSummary,
-        `Match spaziale univoco: il punto (${lat}, ${lng}) cade nel poligono OMI zona ${zonesWithPricing[0].zona}`,
-        [],
+        winner, "polygon_match", 0.98, true, comuneStr, zoneSummary,
+        `Match spaziale univoco: il punto (${lat}, ${lng}) cade nel poligono OMI zona ${winner.zona}`,
+        [], quotes,
       );
     }
 
-    // Multiple polygon matches (point on boundary or overlapping zones)
-    // Pick the zone with the narrowest price range (most specific)
     const sorted = [...zonesWithPricing].sort((a, b) => {
       const rangeA = (a.compr_max ?? 0) - (a.compr_min ?? 0);
       const rangeB = (b.compr_max ?? 0) - (b.compr_min ?? 0);
-      return rangeA - rangeB; // narrower range = more specific
+      return rangeA - rangeB;
     });
 
-    console.log(`[omi-lookup:coordinates] Multiple polygon matches (${zonesWithPricing.length}), picking narrowest range: zona=${sorted[0].zona}`);
+    const winner = sorted[0];
+    const quotes = await fetchOfficialQuotesForLink(supabase, winner.link_zona);
+    console.log(`[omi-lookup:coordinates] Multiple polygon matches (${zonesWithPricing.length}), picking: zona=${winner.zona} quotes=${quotes.length}`);
     return buildResult(
-      sorted[0],
-      "polygon_match",
-      0.90, // slightly lower for ambiguous multi-polygon
-      true,
-      comuneStr,
-      zoneSummary,
-      `Match spaziale: ${zonesWithPricing.length} poligoni candidati, selezionato ${sorted[0].zona} (range più stretto, scelta deterministica)`,
+      winner, "polygon_match", 0.90, true, comuneStr, zoneSummary,
+      `Match spaziale: ${zonesWithPricing.length} poligoni candidati, selezionato ${winner.zona} (range più stretto)`,
       [`${zonesWithPricing.length} poligoni OMI contengono il punto — zona selezionata per range più stretto`],
+      quotes,
     );
   } catch (e) {
     console.error(`[omi-lookup:coordinates] Unexpected error: ${String(e).slice(0, 120)}`);
@@ -358,24 +355,12 @@ export async function lookupOMIByCoordinates(
   }
 }
 
-// ══════════════════════════════════════════════════════════════
-// FALLBACK: Address-based lookup (AI zone matching demoted)
-// ══════════════════════════════════════════════════════════════
-
-/**
- * Lookup OMI data for a given address.
- * AI is used ONLY to identify the correct OMI zone — prices come from the DB.
- * Returns matchConfidence to let callers gate on data quality.
- *
- * NOTE: This is now a FALLBACK. Use lookupOMIByCoordinates when coords are available.
- */
 export async function lookupOMI(address: string, codTip = 20): Promise<OMIResult> {
   const comuneStr = extractComune(address);
   if (!comuneStr) return notFoundResult(undefined, "Impossibile estrarre il comune dall'indirizzo");
 
   const supabase = getSupabase();
 
-  // 1. Find zones for this comune
   const { data: zone, error: zoneErr } = await supabase
     .from("omi_zone")
     .select("*")
@@ -385,7 +370,6 @@ export async function lookupOMI(address: string, codTip = 20): Promise<OMIResult
     return notFoundResult(comuneStr, `Comune "${comuneStr}" non trovato nel dataset OMI`);
   }
 
-  // 2. Get values for all zones of this comune (filtered by tipologia)
   const linkZone = zone.map((z: Record<string, unknown>) => z.link_zona as string);
   const valori = await fetchValoriForZones(supabase, linkZone, codTip);
 
@@ -393,7 +377,6 @@ export async function lookupOMI(address: string, codTip = 20): Promise<OMIResult
     return notFoundResult(comuneStr, `Nessun valore OMI per il comune "${comuneStr}" con tipologia richiesta`);
   }
 
-  // 3. Build zone summary
   const zoneSummary: ZoneSummaryItem[] = zone.map((z: Record<string, unknown>) => {
     const v = valori.find((val: Record<string, unknown>) => val.link_zona === z.link_zona);
     return {
@@ -408,7 +391,6 @@ export async function lookupOMI(address: string, codTip = 20): Promise<OMIResult
     };
   });
 
-  // 4. Determine best zone
   let bestZone = zoneSummary[0];
   let matchConfidence: number;
   let matchMethod: OMIMatchMethod;
@@ -420,16 +402,8 @@ export async function lookupOMI(address: string, codTip = 20): Promise<OMIResult
     matchMethod = "single_zone";
     confidenceReason = `Zona unica nel comune ${comuneStr}: ${bestZone.zona}`;
   } else {
-    // Multiple zones — AI fallback (demoted from primary to secondary)
-    const zoneList = zoneSummary
-      .map((z) => `- ${z.zona}: ${z.zona_descr}`)
-      .join("\n");
-
-    const prompt = `Sei un esperto di zone OMI italiane. Data la lista di zone OMI del comune di ${comuneStr}:
-${zoneList}
-
-Quale zona corrisponde all'indirizzo "${address}"?
-Rispondi SOLO con il codice zona (es. "B1", "C3", "D1"). Nient'altro.`;
+    const zoneList = zoneSummary.map((z) => `- ${z.zona}: ${z.zona_descr}`).join("\n");
+    const prompt = `Sei un esperto di zone OMI italiane. Data la lista di zone OMI del comune di ${comuneStr}:\n${zoneList}\n\nQuale zona corrisponde all'indirizzo "${address}"?\nRispondi SOLO con il codice zona (es. "B1", "C3", "D1"). Nient'altro.`;
 
     try {
       const output = await callAI(prompt, 20, 0.1);
@@ -437,7 +411,7 @@ Rispondi SOLO con il codice zona (es. "B1", "C3", "D1"). Nient'altro.`;
       const match = zoneSummary.find((z) => z.zona.toUpperCase() === zonaCodice);
       if (match) {
         bestZone = match;
-        matchConfidence = 0.60; // Demoted from 0.70 — AI match is less reliable than polygon
+        matchConfidence = 0.60;
         matchMethod = "ai_matched";
         confidenceReason = `Zona ${zonaCodice} identificata tramite AI da indirizzo — NON verificata spazialmente`;
         limitations.push(
@@ -448,48 +422,26 @@ Rispondi SOLO con il codice zona (es. "B1", "C3", "D1"). Nient'altro.`;
         matchConfidence = 0.25;
         matchMethod = "ai_fallback";
         confidenceReason = `AI ha restituito zona non riconosciuta (${zonaCodice}) — fallback sulla prima zona`;
-        limitations.push(
-          "Zona OMI non determinabile con certezza dall'indirizzo",
-          "Match AI fallito — zona selezionata non affidabile",
-        );
+        limitations.push("Zona OMI non determinabile con certezza dall'indirizzo");
       }
     } catch {
       matchConfidence = 0.20;
       matchMethod = "first_zone_fallback";
       confidenceReason = "AI non disponibile — prima zona del comune selezionata come fallback";
-      limitations.push(
-        "Zona OMI selezionata per fallback — nessuna identificazione reale",
-        "Consultare tutteZone per le zone disponibili nel comune",
-      );
+      limitations.push("Zona OMI selezionata per fallback — nessuna identificazione reale");
     }
   }
 
+  const quotes = bestZone.link_zona
+    ? await fetchOfficialQuotesForLink(supabase, bestZone.link_zona)
+    : [];
+
   return buildResult(
-    bestZone,
-    matchMethod,
-    matchConfidence,
-    false, // never polygon match from address lookup
-    comuneStr,
-    zoneSummary,
-    confidenceReason,
-    limitations,
+    bestZone, matchMethod, matchConfidence, false, comuneStr, zoneSummary,
+    confidenceReason, limitations, quotes,
   );
 }
 
-// ══════════════════════════════════════════════════════════════
-// COMUNE-LEVEL: official table values without inventing a zone
-// ══════════════════════════════════════════════════════════════
-
-/**
- * Lookup OMI values for a comune from omi_zone + omi_valori.
- *
- * Core's omi_zone_geometry is a small sample (dozens of polygons, not
- * the national ~27k set). When a point misses the imported polygons we
- * still have real Agenzia delle Entrate rows at comune/zona level.
- *
- * - 1 zone in the comune → official single_zone (microzona by uniqueness)
- * - N zones → reale min/max comunale, no zone pick, labeled elaborated
- */
 export async function lookupOMIByComune(comuneStr: string, codTip = 20): Promise<OMIResult> {
   const comune = comuneStr.trim().toUpperCase();
   if (!comune) return notFoundResult(undefined, "Comune mancante per lookup OMI");
@@ -530,15 +482,11 @@ export async function lookupOMIByComune(comuneStr: string, codTip = 20): Promise
   }
 
   if (zonesWithPricing.length === 1) {
+    const winner = zonesWithPricing[0];
+    const quotes = await fetchOfficialQuotesForLink(supabase, winner.link_zona);
     return buildResult(
-      zonesWithPricing[0],
-      "single_zone",
-      0.95,
-      false,
-      comune,
-      zoneSummary,
-      `Zona unica nel comune ${comune}: ${zonesWithPricing[0].zona}`,
-      [],
+      winner, "single_zone", 0.95, false, comune, zoneSummary,
+      `Zona unica nel comune ${comune}: ${winner.zona}`, [], quotes,
     );
   }
 
@@ -558,13 +506,8 @@ export async function lookupOMIByComune(comuneStr: string, codTip = 20): Promise
   };
 
   return buildResult(
-    aggregate,
-    "comune_aggregate",
-    0.72,
-    false,
-    comune,
-    zoneSummary,
-    `Prezzi OMI ufficiali a livello comunale: ${zonesWithPricing.length} zone in ${comune}. Match spaziale non disponibile (omi_zone_geometry su Core è un campione, non il set nazionale).`,
+    aggregate, "comune_aggregate", 0.72, false, comune, zoneSummary,
+    `Prezzi OMI ufficiali a livello comunale: ${zonesWithPricing.length} zone in ${comune}.`,
     [
       "Nessun poligono OMI disponibile per questo punto su Central Core",
       "Range calcolato come min/max delle zone OMI ufficiali del comune — non è una microzona",
@@ -581,13 +524,6 @@ export interface ResolveOMIInput {
   codTip?: number;
 }
 
-/**
- * Coordinates-first OMI resolution.
- * 1) Point-in-polygon, then official omi_zone/omi_valori join (never invent a letter)
- * 2) Unique zona in the comune → official single_zone
- * 3) Several zones and no polygon join → comune_aggregate (elaborated, no zona pick)
- * Never invents prices. Never prefers city min/max when a real zone match exists.
- */
 export async function resolveOMIPricing(opts: ResolveOMIInput): Promise<OMIResult> {
   const codTip = opts.codTip ?? 20;
 
