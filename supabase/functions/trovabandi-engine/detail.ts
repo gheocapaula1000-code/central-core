@@ -22,15 +22,20 @@ export interface DetailLink {
 
 const LINK_REGEX = /<a\b[^>]*href\s*=\s*("([^"]*)"|'([^']*)'|([^\s">]+))[^>]*>([\s\S]*?)<\/a>/gi;
 
+export const DETAIL_DEFAULT_LIMIT = 8;
+
 const POSITIVE_TOKENS: Array<[RegExp, number]> = [
-  [/scadenz/i, 6],
+  [/allegat\w*.*\.pdf|\.pdf.*allegat/i, 10],
+  [/(?:bando|avviso)\b.*\.pdf|\.pdf.*(?:bando|avviso)/i, 8],
+  [/scadenz/i, 8],
+  [/dotazion/i, 6],
+  [/\.pdf(\?|#|$)/i, 5],
   [/termin[ei]/i, 4],
   [/bando\b|avviso\b/i, 4],
   [/decreto|determina|delibera/i, 3],
-  [/allegat|modulistica|documenti/i, 2],
-  [/dotazion|risorse|contribut|agevolazion/i, 3],
+  [/allegat|modulistica|documenti/i, 3],
+  [/risorse|contribut|agevolazion/i, 3],
   [/dettagli|scheda|leggi tutto|approfondi/i, 2],
-  [/\.pdf(\?|#|$)/i, 3],
 ];
 
 const NEGATIVE_TOKENS =
@@ -53,6 +58,69 @@ function canonical(url: string): string {
   }
 }
 
+/** Punteggio deterministico: solo token espliciti, nessuna inferenza. */
+export function scoreDetailCandidate(haystack: string): number {
+  if (!haystack) return 0;
+  let score = 0;
+  for (const [pattern, weight] of POSITIVE_TOKENS) {
+    if (pattern.test(haystack)) score += weight;
+  }
+  return score;
+}
+
+function excludedSet(
+  exclude: Iterable<string> | undefined,
+  baseUrl: string,
+): Set<string> {
+  const excluded = new Set(
+    [...(exclude ?? [])].map((value) => canonical(value)).filter(Boolean),
+  );
+  const base = canonical(baseUrl);
+  if (base) excluded.add(base);
+  return excluded;
+}
+
+function resolveOfficialHref(
+  rawHref: string,
+  baseUrl: string,
+  officialDomain: string,
+  excluded: Set<string>,
+): string | null {
+  const href = rawHref.trim();
+  if (!href || href.startsWith("#")) return null;
+  if (/^(javascript|mailto|tel|data):/i.test(href)) return null;
+  let absolute: string;
+  try {
+    absolute = canonical(new URL(href, baseUrl).toString());
+  } catch {
+    return null;
+  }
+  if (!absolute || excluded.has(absolute)) return null;
+  if (!isAllowedOfficialUrl(absolute, officialDomain)) return null;
+  return absolute;
+}
+
+function keepBestLink(
+  scored: Map<string, DetailLink>,
+  url: string,
+  score: number,
+  label: string,
+): void {
+  const existing = scored.get(url);
+  if (!existing || existing.score < score) {
+    scored.set(url, { url, score, label: label.slice(0, 200) });
+  }
+}
+
+function rankedLinks(
+  scored: Map<string, DetailLink>,
+  limit: number,
+): DetailLink[] {
+  return [...scored.values()]
+    .sort((a, b) => b.score - a.score || a.url.localeCompare(b.url))
+    .slice(0, limit);
+}
+
 /**
  * Estrae al massimo `limit` link di dettaglio dall'HTML già scaricato.
  * Nessun fetch, nessuna esecuzione: puro parsing testuale.
@@ -63,46 +131,177 @@ export function extractDetailLinks(
   officialDomain: string,
   options?: { limit?: number; exclude?: Iterable<string> },
 ): DetailLink[] {
-  const limit = Math.max(0, options?.limit ?? 2);
+  const limit = Math.max(0, options?.limit ?? DETAIL_DEFAULT_LIMIT);
   if (!html || limit === 0) return [];
-  const excluded = new Set(
-    [...(options?.exclude ?? [])]
-      .map((value) => canonical(value))
-      .filter(Boolean),
-  );
-  const base = canonical(baseUrl);
-  if (base) excluded.add(base);
+  const excluded = excludedSet(options?.exclude, baseUrl);
 
   const scored = new Map<string, DetailLink>();
   let match: RegExpExecArray | null;
+  LINK_REGEX.lastIndex = 0;
   while ((match = LINK_REGEX.exec(html)) !== null) {
     const rawHref = (match[2] ?? match[3] ?? match[4] ?? "").trim();
-    if (!rawHref || rawHref.startsWith("#")) continue;
-    if (/^(javascript|mailto|tel|data):/i.test(rawHref)) continue;
-    let absolute: string;
-    try {
-      absolute = canonical(new URL(rawHref, baseUrl).toString());
-    } catch {
-      continue;
-    }
-    if (!absolute || excluded.has(absolute)) continue;
-    if (!isAllowedOfficialUrl(absolute, officialDomain)) continue;
+    const absolute = resolveOfficialHref(
+      rawHref,
+      baseUrl,
+      officialDomain,
+      excluded,
+    );
+    if (!absolute) continue;
     const label = stripTags(match[5] ?? "").slice(0, 200);
     const haystack = `${label} ${absolute}`;
     if (NEGATIVE_TOKENS.test(haystack)) continue;
-    let score = 0;
-    for (const [pattern, weight] of POSITIVE_TOKENS) {
-      if (pattern.test(haystack)) score += weight;
-    }
+    const score = scoreDetailCandidate(haystack);
     if (score <= 0) continue;
-    const existing = scored.get(absolute);
-    if (!existing || existing.score < score) {
-      scored.set(absolute, { url: absolute, score, label });
+    keepBestLink(scored, absolute, score, label);
+  }
+  return rankedLinks(scored, limit);
+}
+
+const ABSOLUTE_URL = /https?:\/\/[^\s<>"'`\]\)]+/gi;
+const RELATIVE_PDF =
+  /((?:\.\.\/|\.\/|\/)[^\s<>"'`\]]+\.pdf(?:[?#][^\s<>"'`]*)?)/gi;
+const MARKDOWN_LINK = /\[([^\]]{0,200})\]\(([^)\s]+)\)/g;
+
+function trimUrlNoise(raw: string): string {
+  return raw.replace(/[.,;:]+$/g, "");
+}
+
+function contextWindow(text: string, start: number, end: number): string {
+  const from = Math.max(0, start - 80);
+  const to = Math.min(text.length, end + 80);
+  return text.slice(from, to).replace(/\s+/g, " ");
+}
+
+function isInsideAbsoluteUrl(text: string, index: number): boolean {
+  return /https?:\/\/\S*$/i.test(text.slice(Math.max(0, index - 96), index));
+}
+
+/**
+ * Trova URL https e path relativi .pdf nel markdown/testo piano.
+ * Il punteggio usa ±80 caratteri di contesto. Solo stesso dominio ufficiale.
+ */
+export function extractDetailLinksFromMarkdown(
+  markdown: string,
+  baseUrl: string,
+  officialDomain: string,
+  options?: { limit?: number; exclude?: Iterable<string> },
+): DetailLink[] {
+  const limit = Math.max(0, options?.limit ?? DETAIL_DEFAULT_LIMIT);
+  if (!markdown || limit === 0) return [];
+  const excluded = excludedSet(options?.exclude, baseUrl);
+  const scored = new Map<string, DetailLink>();
+
+  const consider = (
+    rawHref: string,
+    start: number,
+    end: number,
+    label: string,
+  ) => {
+    const absolute = resolveOfficialHref(
+      trimUrlNoise(rawHref),
+      baseUrl,
+      officialDomain,
+      excluded,
+    );
+    if (!absolute) return;
+    const context = contextWindow(markdown, start, end);
+    const haystack = `${label} ${absolute} ${context}`;
+    if (NEGATIVE_TOKENS.test(haystack)) return;
+    const score = scoreDetailCandidate(haystack);
+    if (score <= 0) return;
+    keepBestLink(scored, absolute, score, label);
+  };
+
+  MARKDOWN_LINK.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = MARKDOWN_LINK.exec(markdown)) !== null) {
+    consider(
+      match[2] ?? "",
+      match.index,
+      match.index + match[0].length,
+      stripTags(match[1] ?? ""),
+    );
+  }
+
+  ABSOLUTE_URL.lastIndex = 0;
+  while ((match = ABSOLUTE_URL.exec(markdown)) !== null) {
+    consider(match[0], match.index, match.index + match[0].length, "");
+  }
+
+  RELATIVE_PDF.lastIndex = 0;
+  while ((match = RELATIVE_PDF.exec(markdown)) !== null) {
+    if (isInsideAbsoluteUrl(markdown, match.index)) continue;
+    consider(match[1] ?? "", match.index, match.index + match[0].length, "");
+  }
+
+  return rankedLinks(scored, limit);
+}
+
+const DECLARED_SCORE_BONUS = 40;
+const DETAIL_GATHER_LIMIT = 32;
+
+export interface CollectDetailTargetsInput {
+  html: string;
+  markdown?: string;
+  baseUrl: string;
+  officialDomain: string;
+  exclude?: Iterable<string>;
+  declared?: Iterable<string>;
+  limit?: number;
+}
+
+/**
+ * Unisce URL dichiarati, link HTML e URL nel markdown. Deduplica, ordina
+ * per punteggio (i PDF di avviso dichiarati restano in testa) e taglia
+ * a `limit` (default 8). Nessun fetch.
+ */
+export function collectDetailTargets(
+  input: CollectDetailTargetsInput,
+): string[] {
+  const limit = Math.max(0, input.limit ?? DETAIL_DEFAULT_LIMIT);
+  if (limit === 0) return [];
+  const exclude = excludedSet(input.exclude, input.baseUrl);
+  const scored = new Map<string, number>();
+
+  const consider = (url: string, score: number) => {
+    const absolute = canonical(url);
+    if (!absolute || exclude.has(absolute)) return;
+    if (!isAllowedOfficialUrl(absolute, input.officialDomain)) return;
+    if (NEGATIVE_TOKENS.test(absolute)) return;
+    const existing = scored.get(absolute) ?? Number.NEGATIVE_INFINITY;
+    if (score > existing) scored.set(absolute, score);
+  };
+
+  for (const link of extractDetailLinks(
+    input.html,
+    input.baseUrl,
+    input.officialDomain,
+    { limit: DETAIL_GATHER_LIMIT, exclude },
+  )) {
+    consider(link.url, link.score);
+  }
+
+  if (input.markdown) {
+    for (const link of extractDetailLinksFromMarkdown(
+      input.markdown,
+      input.baseUrl,
+      input.officialDomain,
+      { limit: DETAIL_GATHER_LIMIT, exclude },
+    )) {
+      consider(link.url, link.score);
     }
   }
-  return [...scored.values()]
-    .sort((a, b) => b.score - a.score || a.url.localeCompare(b.url))
-    .slice(0, limit);
+
+  for (const raw of input.declared ?? []) {
+    const absolute = canonical(raw);
+    if (!absolute) continue;
+    consider(absolute, scoreDetailCandidate(absolute) + DECLARED_SCORE_BONUS);
+  }
+
+  return [...scored.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([url]) => url);
 }
 
 export interface DetailFieldHit<T> {
