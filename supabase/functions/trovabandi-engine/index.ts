@@ -109,6 +109,10 @@ import {
   localOpportunityDraft,
 } from "./local-fields.ts";
 import {
+  matchTerritorialSource,
+  resolveOpportunityGeo,
+} from "./geo.ts";
+import {
   EXPIRE_VERIFICATION_STATUSES,
   OPEN_VERIFICATION_STATUSES,
   isProvenSportelloSenzaScadenza,
@@ -1960,10 +1964,20 @@ async function storeOpportunity(
     forms_url: applyUrls.forms_url,
     protocol_email:
       normalizeText(extracted.protocol_email).slice(0, 320) || null,
-    region: normalizeText(extracted.region).slice(0, 120) || source.region,
-    province:
-      normalizeText(extracted.province).slice(0, 120) || source.province,
-    municipality: normalizeText(extracted.municipality).slice(0, 120) || null,
+    // Geo fail-closed: testo ufficiale / host territoriale / seed fonte.
+    // Mai ATECO, mai inventare. Non azzera un valore già persistito.
+    ...(() => {
+      const geo = resolveOpportunityGeo({
+        markdown: proofText,
+        officialUrl,
+        source,
+      });
+      return {
+        region: geo.region || existing?.region || null,
+        province: geo.province || existing?.province || null,
+        municipality: geo.municipality || existing?.municipality || null,
+      };
+    })(),
     // ATECO solo dal testo ufficiale già in mano: mai i prefix inventati
     // dal modello (es. 62 da "digitalizzazione"). Fail-closed.
     eligible_ateco_prefixes: localExtractAteco(proofText),
@@ -2153,12 +2167,12 @@ serve(async (req) => {
     const { data: rows, error: selErr } = await sb
       .from("trovabandi_opportunities")
       .select(
-        "id, official_url, notice_url, deadline_at, min_grant_amount, max_grant_amount, total_budget, verification_status, raw_excerpt, last_seen_at, authority_level, application_url, forms_url, protocol_email, eligible_ateco_prefixes",
+        "id, official_url, notice_url, deadline_at, min_grant_amount, max_grant_amount, total_budget, verification_status, raw_excerpt, last_seen_at, authority_level, application_url, forms_url, protocol_email, eligible_ateco_prefixes, region, province, municipality",
       )
       .in("verification_status", [...OPEN_VERIFICATION_STATUSES])
       .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`)
       .or(
-        "deadline_at.is.null,min_grant_amount.is.null,max_grant_amount.is.null,total_budget.is.null,application_url.is.null,forms_url.is.null,protocol_email.is.null,eligible_ateco_prefixes.eq.{}",
+        "deadline_at.is.null,min_grant_amount.is.null,max_grant_amount.is.null,total_budget.is.null,application_url.is.null,forms_url.is.null,protocol_email.is.null,eligible_ateco_prefixes.eq.{},region.is.null,province.is.null,municipality.is.null",
       )
       .order("last_seen_at", { ascending: true, nullsFirst: true })
       .limit(maxBatch);
@@ -2166,6 +2180,12 @@ serve(async (req) => {
     if (selErr || !rows) {
       return response(500, { ok: false, code: "BACKFILL_SELECT_FAILED" });
     }
+
+    const { data: territorialSources } = await sb
+      .from("trovabandi_sources")
+      .select("name, authority_level, region, province, official_domain")
+      .eq("enabled", true)
+      .in("authority_level", ["REGIONALE", "CAMERALE", "COMUNALE"]);
 
     const results: any[] = [];
     let updated = 0;
@@ -2298,6 +2318,39 @@ serve(async (req) => {
           const exp = localExtractEligibleExpenses(page.markdown);
           if (exp.length) patch.eligible_expenses = exp;
         }
+        const needsGeo =
+          !normalizeText(row.region) ||
+          !normalizeText(row.province) ||
+          !normalizeText(row.municipality);
+        if (needsGeo) {
+          const sourceHint = matchTerritorialSource(
+            domain,
+            (territorialSources ?? []) as Array<{
+              name: string | null;
+              authority_level: string | null;
+              region: string | null;
+              province: string | null;
+              official_domain: string | null;
+            }>,
+          );
+          const geo = resolveOpportunityGeo({
+            markdown: page.markdown,
+            officialUrl: row.official_url,
+            source: sourceHint ?? {
+              official_domain: domain,
+              authority_level: String(row.authority_level ?? ""),
+              region: null,
+              province: null,
+            },
+          });
+          if (!normalizeText(row.region) && geo.region) patch.region = geo.region;
+          if (!normalizeText(row.province) && geo.province) {
+            patch.province = geo.province;
+          }
+          if (!normalizeText(row.municipality) && geo.municipality) {
+            patch.municipality = geo.municipality;
+          }
+        }
 
         // Stessa regola del collect: se dopo la pagina ufficiale mancano
         // ancora scadenza o qualunque importo, si segue in BFS fino a
@@ -2350,6 +2403,33 @@ serve(async (req) => {
                 detailAmounts.total_budget
               ) {
                 patch.total_budget = detailAmounts.total_budget.value;
+              }
+              if (
+                (!normalizeText(row.region) && !patch.region) ||
+                (!normalizeText(row.province) && !patch.province) ||
+                (!normalizeText(row.municipality) && !patch.municipality)
+              ) {
+                const geo = resolveOpportunityGeo({
+                  markdown: detail.markdown,
+                  officialUrl: row.official_url,
+                });
+                if (!normalizeText(row.region) && !patch.region && geo.region) {
+                  patch.region = geo.region;
+                }
+                if (
+                  !normalizeText(row.province) &&
+                  !patch.province &&
+                  geo.province
+                ) {
+                  patch.province = geo.province;
+                }
+                if (
+                  !normalizeText(row.municipality) &&
+                  !patch.municipality &&
+                  geo.municipality
+                ) {
+                  patch.municipality = geo.municipality;
+                }
               }
             },
           });
@@ -3350,7 +3430,7 @@ serve(async (req) => {
     const existingResult = await sb
       .from("trovabandi_opportunities")
       .select(
-        "official_url,verification_status,deadline_at,min_grant_amount,max_grant_amount,total_budget,application_url,forms_url,protocol_email,raw_excerpt,eligible_ateco_prefixes",
+        "official_url,verification_status,deadline_at,min_grant_amount,max_grant_amount,total_budget,application_url,forms_url,protocol_email,raw_excerpt,eligible_ateco_prefixes,region,province,municipality",
       )
       .ilike("official_url", `%${source.official_domain}%`)
       .limit(250);

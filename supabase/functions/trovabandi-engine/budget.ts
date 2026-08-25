@@ -33,6 +33,9 @@ export type CatalogueRow = {
   protocol_email?: string | null;
   raw_excerpt?: string | null;
   eligible_ateco_prefixes?: string[] | null;
+  region?: string | null;
+  province?: string | null;
+  municipality?: string | null;
 };
 
 export type LaneSource = {
