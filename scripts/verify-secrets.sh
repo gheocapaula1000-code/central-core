@@ -90,10 +90,10 @@ fi
 echo ""
 echo "▸ Checking for localhost URLs in dist/..."
 if [ -d "dist" ]; then
-  # supabase-js / gotrue-js embed http://localhost:9999 as a library default.
+  # supabase-js embeds :9999; previewAuthStorage allows :3000 for local Lovable editor.
   LOCALHOST_HITS=$(grep -rn --include='*.js' --include='*.html' -E 'https?://localhost[:/]' dist/ 2>/dev/null \
     | grep -v '//# sourceMappingURL' \
-    | grep -v 'http://localhost:9999' \
+    | grep -vE 'https?://localhost:(9999|3000)' \
     || true)
   if [ -n "$LOCALHOST_HITS" ]; then
     echo "  ✗ FAIL: localhost URLs found in build output:"
