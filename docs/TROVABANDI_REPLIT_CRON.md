@@ -18,8 +18,9 @@ le corsie sono `lane` sul `collect` notturno.
   `allow_paid: false` = solo seed listing + HTTP ufficiale + excerpt già
   persistito. `dry_run: true` = selezione fair senza lease, provider o
   scritture.
-- `backfill_nulls`: riempie scadenza, importi, ATECO, URL domanda / modulistica e PEC
-  sulle righe già in catalogo. Preferisce `raw_excerpt` / HTTP ufficiale.
+- `backfill_nulls`: riempie scadenza, importi, ATECO, geo (regione/provincia/comune),
+  URL domanda / modulistica e PEC sulle righe già in catalogo. Preferisce
+  `raw_excerpt` / HTTP ufficiale / seed territoriale. Mai inventa geo.
   Default `dry_run: true`. I cron di produzione passano `dry_run: false`
   e `allow_paid_extract: false`. Non ricrawla `bur.regione.fvg.it`.
 - `enrich_apply_urls`: one-shot fail-closed sulle righe `official_source`

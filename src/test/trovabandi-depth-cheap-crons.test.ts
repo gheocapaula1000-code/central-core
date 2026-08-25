@@ -82,6 +82,8 @@ describe("TrovaBandi engine cheap-first wiring", () => {
     expect(ENGINE).toContain("localExtractAteco");
     expect(ENGINE).toContain("localExtractProtocolEmail");
     expect(ENGINE).toContain("resolveOfficialApplyUrls");
+    expect(ENGINE).toContain("resolveOpportunityGeo");
+    expect(ENGINE).toContain("region.is.null,province.is.null,municipality.is.null");
   });
 
   it("estrae modulistica/domanda in collect e ha enrich_apply_urls fail-closed", () => {

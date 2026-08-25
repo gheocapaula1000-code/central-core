@@ -7,6 +7,7 @@
 
 import { extractApplyLinks } from "./apply-links.ts";
 import { EXTRACTION_CATEGORIES, type ExtractionCategory } from "./extraction.ts";
+import { resolveOpportunityGeo } from "./geo.ts";
 import { isEligibleOfficialOpportunity } from "./opportunity-gate.ts";
 
 // Solo linguaggio di classificazione ufficiale. Mai "digitale" / "PMI" /
@@ -293,6 +294,10 @@ export function localOpportunityDraft(input: {
   if (title.length < 3) return null;
   const summary = input.markdown.replace(/\s+/g, " ").trim().slice(0, 800);
   if (summary.length < 10) return null;
+  const geo = resolveOpportunityGeo({
+    markdown: input.markdown,
+    officialUrl: input.officialUrl,
+  });
   return {
     is_opportunity: true,
     title,
@@ -300,6 +305,9 @@ export function localOpportunityDraft(input: {
     category: localGuessCategory(input.markdown),
     summary,
     official_url: input.officialUrl,
+    region: geo.region,
+    province: geo.province,
+    municipality: geo.municipality,
     application_url: localExtractApplicationUrl(
       input.markdown,
       input.officialDomain,
