@@ -26,6 +26,7 @@ import {
   type PersistVerification,
 } from "./persist.ts";
 import {
+  collectDetailTargets,
   extractDetailLinks,
   mergeDetailIntoExtraction,
   needsDetailEnrichment,
@@ -1400,8 +1401,9 @@ async function loadPage(
 }
 
 /** Budget per run: nessuna esplosione del tempo di collect. */
-const DETAIL_MAX_FETCH_PER_RUN = 12;
-const DETAIL_MAX_FETCH_PER_HIT = 2;
+const DETAIL_MAX_FETCH_PER_RUN = 40;
+const DETAIL_MAX_FETCH_PER_HIT = 8;
+const DETAIL_MAX_HOPS = 3;
 
 export interface DetailEvidenceRow {
   source_url: string;
@@ -1412,11 +1414,97 @@ export interface DetailEvidenceRow {
   content_hash: string;
 }
 
+function canonicalDetailUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return "";
+  }
+}
+
 /**
- * Arricchimento a costo provider zero: si rileggono al massimo due pagine o
- * PDF di dettaglio già linkati sullo stesso dominio ufficiale, e si riempiono
- * soltanto scadenza e importi ancora nulli. Nessuna chiamata a Firecrawl,
- * Apify o all'estrattore AI. Fail-closed: qualunque dubbio non scrive nulla.
+ * BFS fail-closed sulle pagine/PDF di dettaglio dello stesso dominio.
+ * Al massimo DETAIL_MAX_FETCH_PER_HIT fetch per hit e DETAIL_MAX_HOPS hop.
+ * Nessun provider a pagamento. Restituisce il numero di fetch tentati.
+ */
+async function walkDetailTargets(opts: {
+  html: string;
+  markdown?: string;
+  baseUrl: string;
+  officialDomain: string;
+  declared?: string[];
+  exclude: Iterable<string>;
+  budget?: { remaining: number };
+  stillNeeded: () => boolean;
+  onPage: (target: string, detail: LoadedPage) => Promise<void> | void;
+}): Promise<number> {
+  if (!opts.stillNeeded()) return 0;
+  if (opts.budget && opts.budget.remaining <= 0) return 0;
+
+  const seen = new Set(
+    [...opts.exclude].map((value) => canonicalDetailUrl(value)).filter(Boolean),
+  );
+  const queue: Array<{ url: string; hop: number }> = [];
+
+  const enqueue = (urls: string[], hop: number) => {
+    if (hop > DETAIL_MAX_HOPS) return;
+    for (const url of urls) {
+      const canonicalUrl = canonicalDetailUrl(url);
+      if (!canonicalUrl || seen.has(canonicalUrl)) continue;
+      seen.add(canonicalUrl);
+      queue.push({ url: canonicalUrl, hop });
+    }
+  };
+
+  enqueue(
+    collectDetailTargets({
+      html: opts.html,
+      markdown: opts.markdown,
+      baseUrl: opts.baseUrl,
+      officialDomain: opts.officialDomain,
+      exclude: seen,
+      declared: opts.declared,
+      limit: DETAIL_MAX_FETCH_PER_HIT,
+    }),
+    1,
+  );
+
+  let attempted = 0;
+  while (queue.length > 0) {
+    if (opts.budget && opts.budget.remaining <= 0) break;
+    if (attempted >= DETAIL_MAX_FETCH_PER_HIT) break;
+    if (!opts.stillNeeded()) break;
+    const item = queue.shift()!;
+    if (opts.budget) opts.budget.remaining--;
+    attempted++;
+    const detail = await directOfficialScrape(item.url, opts.officialDomain);
+    if (!detail) continue;
+    await opts.onPage(item.url, detail);
+    if (opts.stillNeeded() && item.hop < DETAIL_MAX_HOPS) {
+      enqueue(
+        collectDetailTargets({
+          html: detail.html ?? "",
+          markdown: detail.markdown,
+          baseUrl: detail.finalUrl ?? item.url,
+          officialDomain: opts.officialDomain,
+          exclude: seen,
+          limit: DETAIL_MAX_FETCH_PER_HIT,
+        }),
+        item.hop + 1,
+      );
+    }
+  }
+  return attempted;
+}
+
+/**
+ * Arricchimento a costo provider zero: BFS fino a 8 pagine o PDF di
+ * dettaglio (max 3 hop, 40 fetch per run) già linkati sullo stesso dominio
+ * ufficiale. Si riempiono soltanto scadenza e importi ancora nulli. Nessuna
+ * chiamata a Firecrawl, Apify o all'estrattore AI. Fail-closed: qualunque
+ * dubbio non scrive nulla.
  */
 async function enrichFromDetailPages(
   source: Source,
@@ -1465,42 +1553,35 @@ async function enrichFromDetailPages(
         isAllowedOfficialUrl(url, source.official_domain) &&
         !exclude.includes(url),
     );
-  const discovered = extractDetailLinks(
-    page.html ?? "",
-    page.finalUrl ?? hit.url,
-    source.official_domain,
-    { limit: DETAIL_MAX_FETCH_PER_HIT, exclude },
-  ).map((link) => link.url);
-  const targets = [...new Set([...declared, ...discovered])].slice(
-    0,
-    DETAIL_MAX_FETCH_PER_HIT,
-  );
 
-
-  for (const target of targets) {
-    if (budget.remaining <= 0) break;
-    if (!needsDetailEnrichment(state)) break;
-    budget.remaining--;
-    result.attempted++;
-    const detail = await directOfficialScrape(target, source.official_domain);
-    if (!detail) continue;
-    const merged = mergeDetailIntoExtraction(state, {
-      deadline: parseDeadline(detail.markdown, now),
-      amounts: parseAmounts(detail.markdown),
-    });
-    if (merged.filled.length === 0) continue;
-    Object.assign(state, merged.patch);
-    Object.assign(result.patch, merged.patch);
-    result.filled.push(...merged.filled);
-    result.evidence.push({
-      source_url: target,
-      source_title: `Dettaglio ufficiale — ${(detail.title || hit.title || "documento").slice(0, 400)}`,
-      evidence_type: detail.provider === "official-pdf" ? "PDF" : "NOTICE",
-      excerpt: detail.markdown.slice(0, 3000),
-      fetched_at: now.toISOString(),
-      content_hash: await sha256(detail.markdown),
-    });
-  }
+  result.attempted = await walkDetailTargets({
+    html: page.html ?? "",
+    markdown: page.markdown,
+    baseUrl: page.finalUrl ?? hit.url,
+    officialDomain: source.official_domain,
+    declared,
+    exclude,
+    budget,
+    stillNeeded: () => needsDetailEnrichment(state),
+    onPage: async (target, detail) => {
+      const merged = mergeDetailIntoExtraction(state, {
+        deadline: parseDeadline(detail.markdown, now),
+        amounts: parseAmounts(detail.markdown),
+      });
+      if (merged.filled.length === 0) return;
+      Object.assign(state, merged.patch);
+      Object.assign(result.patch, merged.patch);
+      result.filled.push(...merged.filled);
+      result.evidence.push({
+        source_url: target,
+        source_title: `Dettaglio ufficiale — ${(detail.title || hit.title || "documento").slice(0, 400)}`,
+        evidence_type: detail.provider === "official-pdf" ? "PDF" : "NOTICE",
+        excerpt: detail.markdown.slice(0, 3000),
+        fetched_at: now.toISOString(),
+        content_hash: await sha256(detail.markdown),
+      });
+    },
+  });
   return result;
 }
 
@@ -2219,7 +2300,8 @@ serve(async (req) => {
         }
 
         // Stessa regola del collect: se dopo la pagina ufficiale mancano
-        // ancora scadenza o qualunque importo, si leggono al massimo 2 link
+        // ancora scadenza o qualunque importo, si segue in BFS fino a
+        // DETAIL_MAX_FETCH_PER_HIT link (max DETAIL_MAX_HOPS hop)
         // dello stesso dominio. Nessun provider a pagamento, fail-closed.
         const missingDeadline = !sportelloSenzaScadenza &&
           row.deadline_at == null &&
@@ -2229,49 +2311,48 @@ serve(async (req) => {
           row.total_budget == null &&
           patch.total_budget == null;
         if (missingDeadline || missingAmounts) {
-          const detailTargets = extractDetailLinks(
-            page.html ?? "",
-            page.finalUrl ?? row.official_url,
-            domain,
-            {
-              limit: DETAIL_MAX_FETCH_PER_HIT,
-              exclude: [row.official_url, page.finalUrl ?? row.official_url],
-            },
-          ).map((link) => link.url);
           const detailNow = new Date();
-          for (const target of detailTargets.slice(
-            0,
-            DETAIL_MAX_FETCH_PER_HIT,
-          )) {
-            const stillNeeded = (row.deadline_at == null &&
-              patch.deadline_at == null) ||
+          const declared = [row.notice_url, row.application_url, row.forms_url]
+            .map((value) => normalizeUrl(value))
+            .filter(
+              (url): url is string =>
+                !!url && isAllowedOfficialUrl(url, domain),
+            );
+          await walkDetailTargets({
+            html: page.html ?? "",
+            markdown: page.markdown,
+            baseUrl: page.finalUrl ?? row.official_url,
+            officialDomain: domain,
+            declared,
+            exclude: [row.official_url, page.finalUrl ?? row.official_url],
+            stillNeeded: () =>
+              (row.deadline_at == null && patch.deadline_at == null) ||
               (row.max_grant_amount == null &&
                 patch.max_grant_amount == null &&
                 row.total_budget == null &&
-                patch.total_budget == null);
-            if (!stillNeeded) break;
-            const detail = await directOfficialScrape(target, domain);
-            if (!detail) continue;
-            if (row.deadline_at == null && patch.deadline_at == null) {
-              const hit = parseDeadline(detail.markdown, detailNow);
-              if (hit) patch.deadline_at = hit.value;
-            }
-            const detailAmounts = parseAmounts(detail.markdown);
-            if (
-              row.max_grant_amount == null &&
-              patch.max_grant_amount == null &&
-              detailAmounts.max_grant_amount
-            ) {
-              patch.max_grant_amount = detailAmounts.max_grant_amount.value;
-            }
-            if (
-              row.total_budget == null &&
-              patch.total_budget == null &&
-              detailAmounts.total_budget
-            ) {
-              patch.total_budget = detailAmounts.total_budget.value;
-            }
-          }
+                patch.total_budget == null),
+            onPage: (_target, detail) => {
+              if (row.deadline_at == null && patch.deadline_at == null) {
+                const hit = parseDeadline(detail.markdown, detailNow);
+                if (hit) patch.deadline_at = hit.value;
+              }
+              const detailAmounts = parseAmounts(detail.markdown);
+              if (
+                row.max_grant_amount == null &&
+                patch.max_grant_amount == null &&
+                detailAmounts.max_grant_amount
+              ) {
+                patch.max_grant_amount = detailAmounts.max_grant_amount.value;
+              }
+              if (
+                row.total_budget == null &&
+                patch.total_budget == null &&
+                detailAmounts.total_budget
+              ) {
+                patch.total_budget = detailAmounts.total_budget.value;
+              }
+            },
+          });
         }
 
 
