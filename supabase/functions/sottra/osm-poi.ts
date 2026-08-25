@@ -2,9 +2,11 @@
 //
 // Overpass is primary. When Overpass returns no named elements or the
 // network fails, Nominatim search is the fail-closed fallback for the
-// same six categories. Named places only (name / name:it). Never invent
+// same categories. Named places only (name / name:it). Never invent
 // names, scores, or distances. Never use display_name as the place name.
 // If both sources fail → unavailable.
+// Categories: scuole, asili, chiese, farmacie, supermercati, convenience,
+// parchi, ospedali. (Sinagoghe intentionally omitted per product decision.)
 
 export const OSM_POI_RADIUS_M = 800;
 export const OSM_POI_SOURCE_LABEL = "OpenStreetMap / Overpass — servizi di prossimità";
@@ -20,7 +22,9 @@ export type OsmPoiTipo =
   | "chiese"
   | "farmacie"
   | "supermercati"
-  | "convenience";
+  | "convenience"
+  | "parchi"
+  | "ospedali";
 
 export type OsmPoiProvider = "overpass" | "nominatim";
 export type OsmPoiSourceType = "official" | "unavailable";
@@ -150,6 +154,34 @@ const TAG_RULES: OsmTagRule[] = [
     key: "shop",
     value: "convenience",
   },
+  {
+    tipo: "parchi",
+    category: "leisure",
+    categoryLabel: "Parchi / verde",
+    key: "leisure",
+    value: "park",
+  },
+  {
+    tipo: "parchi",
+    category: "leisure",
+    categoryLabel: "Parchi / verde",
+    key: "leisure",
+    value: "garden",
+  },
+  {
+    tipo: "ospedali",
+    category: "health",
+    categoryLabel: "Salute",
+    key: "amenity",
+    value: "hospital",
+  },
+  {
+    tipo: "ospedali",
+    category: "health",
+    categoryLabel: "Salute",
+    key: "amenity",
+    value: "clinic",
+  },
 ];
 
 const RULE_BY_TIPO: Record<OsmPoiTipo, OsmTagRule> = {
@@ -159,6 +191,8 @@ const RULE_BY_TIPO: Record<OsmPoiTipo, OsmTagRule> = {
   farmacie: TAG_RULES.find((r) => r.tipo === "farmacie")!,
   supermercati: TAG_RULES.find((r) => r.tipo === "supermercati")!,
   convenience: TAG_RULES.find((r) => r.tipo === "convenience")!,
+  parchi: TAG_RULES.find((r) => r.tipo === "parchi")!,
+  ospedali: TAG_RULES.find((r) => r.tipo === "ospedali")!,
 };
 
 /** Extra Nominatim class/type values accepted per category (verified read API). */
@@ -169,6 +203,8 @@ const NOMINATIM_TYPE_ACCEPT: Record<OsmPoiTipo, ReadonlySet<string>> = {
   farmacie: new Set(["pharmacy", "chemist"]),
   supermercati: new Set(["supermarket"]),
   convenience: new Set(["convenience"]),
+  parchi: new Set(["park", "garden"]),
+  ospedali: new Set(["hospital", "clinic"]),
 };
 
 const NOMINATIM_QUERIES: { tipo: OsmPoiTipo; q: string }[] = [
@@ -178,6 +214,8 @@ const NOMINATIM_QUERIES: { tipo: OsmPoiTipo; q: string }[] = [
   { tipo: "asili", q: "asilo" },
   { tipo: "supermercati", q: "supermercato" },
   { tipo: "convenience", q: "alimentari" },
+  { tipo: "parchi", q: "parco" },
+  { tipo: "ospedali", q: "ospedale" },
 ];
 
 const EMPTY_BY_TIPO = (): Record<OsmPoiTipo, NearbyOsmPoi[]> => ({
@@ -187,6 +225,8 @@ const EMPTY_BY_TIPO = (): Record<OsmPoiTipo, NearbyOsmPoi[]> => ({
   farmacie: [],
   supermercati: [],
   convenience: [],
+  parchi: [],
+  ospedali: [],
 });
 
 const OVERPASS_ENDPOINTS = [
@@ -202,6 +242,8 @@ const TIPO_LABEL: Record<OsmPoiTipo, string> = {
   farmacie: "Farmacia",
   supermercati: "Supermercato",
   convenience: "Alimentari",
+  parchi: "Parco",
+  ospedali: "Ospedale",
 };
 
 const BOTH_UNAVAILABLE =
@@ -547,7 +589,7 @@ function finalizeNamedPois(
     limitations: [
       ...extraLimitations,
       `Luoghi con nome in OpenStreetMap entro ${radius} m — non è un elenco ufficiale comunale`,
-      "Categorie: scuole, asili, chiese, farmacie, supermercati, alimentari/convenience",
+      "Categorie: scuole, asili, chiese, farmacie, supermercati, alimentari/convenience, parchi, ospedali",
     ],
   };
 }
