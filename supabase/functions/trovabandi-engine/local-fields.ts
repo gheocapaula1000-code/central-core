@@ -203,6 +203,69 @@ export function localTitle(markdown: string, fallback: string): string {
   return title.slice(0, 500);
 }
 
+
+const LIST_ITEM =
+  /^(?:[-*•–]|\d{1,2}[.)]|[a-d][.)])\s+(.{12,400})$/;
+
+function cleanListItem(raw: string): string | null {
+  const t = raw.replace(/\s+/g, " ").replace(/[.;]+$/, "").trim();
+  if (t.length < 12 || t.length > 400) return null;
+  return t;
+}
+
+/**
+ * Elenchi puntati dopo un'intestazione ufficiale. Fail-closed: senza
+ * heading o senza bullet non si inventa nulla.
+ */
+function extractListedSection(markdown: string, heading: RegExp): string[] {
+  if (typeof markdown !== "string" || markdown.length < 40) return [];
+  const text = markdown.replace(/\r\n/g, "\n");
+  const rx = new RegExp(heading.source, heading.flags.includes("g") ? heading.flags : `${heading.flags}g`);
+  let best: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = rx.exec(text))) {
+    const start = match.index + match[0].length;
+    const window = text.slice(start, start + 2200);
+    const items: string[] = [];
+    for (const line of window.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        if (items.length) break;
+        continue;
+      }
+      if (/\b(?:non\s+ammissibili|esclusioni|soggetti\s+esclusi)\b/i.test(trimmed) && items.length) {
+        break;
+      }
+      const bullet = trimmed.match(LIST_ITEM);
+      if (!bullet) {
+        if (items.length) break;
+        continue;
+      }
+      const item = cleanListItem(bullet[1]);
+      if (item) items.push(item);
+      if (items.length >= 12) break;
+    }
+    if (items.length > best.length) best = items;
+  }
+  return best;
+}
+
+const REQUIREMENTS_HEAD =
+  /(?:^|\n)\s*(?:#{1,3}\s*)?(?:requisiti(?:\s+di\s+ammiss(?:ione|ibilit[aà]))?|soggetti\s+(?:beneficiari|ammess[ie]|proponenti)|chi\s+pu[oò]\s+(?:presentare|partecipare)|beneficiari)\b[^\n]{0,80}\n/gi;
+
+const EXPENSES_HEAD =
+  /(?:^|\n)\s*(?:#{1,3}\s*)?(?:spese\s+ammissibili|costi\s+ammissibili|interventi\s+ammess[ie]|spese\s+ammesse|eligible\s+costs?)\b[^\n]{0,80}\n/gi;
+
+/** Requisiti solo da elenco sotto intestazione ufficiale. */
+export function localExtractRequirements(markdown: string): string[] {
+  return extractListedSection(markdown, REQUIREMENTS_HEAD);
+}
+
+/** Spese ammissibili solo da elenco sotto intestazione ufficiale. */
+export function localExtractEligibleExpenses(markdown: string): string[] {
+  return extractListedSection(markdown, EXPENSES_HEAD);
+}
+
 /**
  * Bozza locale di opportunità: solo campi dichiarati nel testo.
  * Non marca mai COMPATIBILE: ATECO/forme/dimensioni restano vuoti se
@@ -259,8 +322,8 @@ export function localOpportunityDraft(input: {
     min_grant_amount: input.min_grant_amount ?? null,
     max_grant_amount: input.max_grant_amount ?? null,
     total_budget: input.total_budget ?? null,
-    requirements: [],
-    eligible_expenses: [],
+    requirements: localExtractRequirements(input.markdown),
+    eligible_expenses: localExtractEligibleExpenses(input.markdown),
     eligible_countries: [],
   };
 }
