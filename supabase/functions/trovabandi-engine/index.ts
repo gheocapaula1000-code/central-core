@@ -102,7 +102,9 @@ import {
 } from "./opportunity-gate.ts";
 import {
   localExtractAteco,
+  localExtractEligibleExpenses,
   localExtractProtocolEmail,
+  localExtractRequirements,
   localOpportunityDraft,
 } from "./local-fields.ts";
 import {
@@ -1905,8 +1907,14 @@ async function storeOpportunity(
     opens_at: safeTimestamp(extracted.opens_at),
     deadline_at: deadline,
     click_day: extracted.click_day === true,
-    requirements: safeTextArray(extracted.requirements, 100, 1000),
-    eligible_expenses: safeTextArray(extracted.eligible_expenses, 100, 1000),
+    requirements: (() => {
+      const local = localExtractRequirements(proofText);
+      return local.length ? local : safeTextArray(extracted.requirements, 100, 1000);
+    })(),
+    eligible_expenses: (() => {
+      const local = localExtractEligibleExpenses(proofText);
+      return local.length ? local : safeTextArray(extracted.eligible_expenses, 100, 1000);
+    })(),
     rarity_score: visibility.rarity_score,
     is_hidden: visibility.is_hidden,
     source_kind: normalizeText(source.source_kind).slice(0, 60) || "CATALOGO",
@@ -2197,6 +2205,18 @@ serve(async (req) => {
           existingAteco.every((prefix) => ateco.includes(prefix)) &&
           ateco.every((prefix) => existingAteco.includes(prefix));
         if (!sameAteco) patch.eligible_ateco_prefixes = ateco;
+        const existingReq = Array.isArray(row.requirements) ? row.requirements : [];
+        if (existingReq.length === 0) {
+          const req = localExtractRequirements(page.markdown);
+          if (req.length) patch.requirements = req;
+        }
+        const existingExp = Array.isArray(row.eligible_expenses)
+          ? row.eligible_expenses
+          : [];
+        if (existingExp.length === 0) {
+          const exp = localExtractEligibleExpenses(page.markdown);
+          if (exp.length) patch.eligible_expenses = exp;
+        }
 
         // Stessa regola del collect: se dopo la pagina ufficiale mancano
         // ancora scadenza o qualunque importo, si leggono al massimo 2 link

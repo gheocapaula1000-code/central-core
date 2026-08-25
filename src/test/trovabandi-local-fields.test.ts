@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import {
   localExtractApplicationUrl,
   localExtractAteco,
+  localExtractEligibleExpenses,
   localExtractProtocolEmail,
+  localExtractRequirements,
   localGuessCategory,
   localOpportunityDraft,
   looksLikeOpportunity,
@@ -231,5 +233,71 @@ describe("collect/backfill ATECO wiring", () => {
     expect(ENGINE).not.toContain(
       "eligible_ateco_prefixes: safeTextArray(extracted.eligible_ateco_prefixes)",
     );
+  });
+});
+
+
+const DEPTH = `
+Avviso pubblico — bando contributi a fondo perduto.
+
+Requisiti di ammissione:
+- PMI con sede operativa in Veneto da almeno 12 mesi
+- Iscrizione al Registro Imprese e DURC regolare
+- Non essere impresa in difficoltà ai sensi della normativa UE
+
+Spese ammissibili:
+- Acquisto di macchinari e attrezzature nuove
+- Software gestionale e servizi di digitalizzazione
+- Consulenze specialistiche strettamente connesse al progetto
+
+Spese non ammissibili:
+- Costi di personale interno
+`.repeat(2);
+
+describe("UEradar — requisiti e spese dal testo ufficiale", () => {
+  it("estrae elenchi sotto intestazione e ignora le spese non ammissibili", () => {
+    expect(localExtractRequirements(DEPTH)).toEqual([
+      "PMI con sede operativa in Veneto da almeno 12 mesi",
+      "Iscrizione al Registro Imprese e DURC regolare",
+      "Non essere impresa in difficoltà ai sensi della normativa UE",
+    ]);
+    expect(localExtractEligibleExpenses(DEPTH)).toEqual([
+      "Acquisto di macchinari e attrezzature nuove",
+      "Software gestionale e servizi di digitalizzazione",
+      "Consulenze specialistiche strettamente connesse al progetto",
+    ]);
+    expect(localExtractEligibleExpenses(DEPTH).join(" ")).not.toMatch(/personale interno/);
+  });
+
+  it("resta vuoto se manca l'elenco ufficiale", () => {
+    expect(localExtractRequirements(BANDO)).toEqual([]);
+    expect(localExtractEligibleExpenses(BANDO)).toEqual([]);
+    expect(localExtractRequirements("Homepage. Cookie. Privacy.")).toEqual([]);
+  });
+
+  it("la bozza locale porta i campi solo se dichiarati a elenco", () => {
+    const withLists = localOpportunityDraft({
+      markdown: DEPTH,
+      officialUrl: "https://www.regione.veneto.it/bando-profondita",
+      officialDomain: "regione.veneto.it",
+    });
+    expect(withLists?.requirements).toHaveLength(3);
+    expect(withLists?.eligible_expenses).toHaveLength(3);
+    const without = localOpportunityDraft({
+      markdown: BANDO,
+      officialUrl: "https://www.regione.veneto.it/bando",
+      officialDomain: "regione.veneto.it",
+    });
+    expect(without?.requirements).toEqual([]);
+    expect(without?.eligible_expenses).toEqual([]);
+  });
+});
+
+describe("collect/backfill requirements wiring", () => {
+  it("persist e backfill usano gli estrattori locali fail-closed", () => {
+    expect(ENGINE).toContain("localExtractRequirements(proofText)");
+    expect(ENGINE).toContain("localExtractEligibleExpenses(proofText)");
+    expect(ENGINE).toContain("const req = localExtractRequirements(page.markdown)");
+    expect(ENGINE).toContain("const exp = localExtractEligibleExpenses(page.markdown)");
   });
 });

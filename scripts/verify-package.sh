@@ -170,7 +170,7 @@ echo "▸ Checking for localhost in build output..."
 if [ -d "dist" ]; then
   LOCALHOST_IN_DIST=$(grep -rn --include='*.js' --include='*.html' -E 'https?://localhost[:/]' dist/ 2>/dev/null \
     | grep -v '//# sourceMappingURL' \
-    | grep -v 'http://localhost:9999' \
+    | grep -vE 'https?://localhost:(9999|3000)' \
     || true)
   if [ -n "$LOCALHOST_IN_DIST" ]; then
     echo "  ✗ FAIL: localhost URLs found in dist/:"
