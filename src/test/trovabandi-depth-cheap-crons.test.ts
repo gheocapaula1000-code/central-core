@@ -134,4 +134,13 @@ describe("GitHub Actions TrovaBandi backfill fallback", () => {
     expect(yml).toContain("jpunnzgixcghuydstdlt");
     expect(yml).not.toContain("egjvullvkwpzyyworeml");
   });
+
+  it("runs weekday hourly plus overnight backup in rounds of 8", () => {
+    expect(yml).toContain('default: "8"');
+    expect(yml).toContain("rounds");
+    expect(yml).toContain("50 6-16 * * 1-5");
+    expect(yml).toContain("20 23 * * 0-4");
+    expect(yml).toContain("Capping max_batch");
+    expect(yml).toContain("OK_ROUNDS");
+  });
 });

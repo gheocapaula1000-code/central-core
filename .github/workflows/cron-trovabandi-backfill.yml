@@ -1,21 +1,32 @@
 name: Cron TrovaBandi backfill
 
-# Manual fallback if pg_cron / pg_net on Lovable Cloud jpunn is not reachable
-# from GitHub-org Supabase. Hits live Core trovabandi-engine only.
+# Fallback if pg_cron / pg_net on Lovable Cloud jpunn misses a run.
+# Hits live Core trovabandi-engine only.
 # Required secrets (repo Settings → Secrets and variables → Actions):
 #   SUPABASE_URL              e.g. https://jpunnzgixcghuydstdlt.supabase.co
 #   CENTRAL_CORE_JOB_SECRET   same value as edge function env
 #
-# workflow_dispatch only (first ship). Never echo CENTRAL_CORE_JOB_SECRET.
+# Live engine idle timeout is 150s: one round of 8 succeeds (~24s), 40 504s.
+# Hourly weekday rounds of 8. Never echo CENTRAL_CORE_JOB_SECRET.
 
 on:
+  schedule:
+    # Weekdays 08:50–18:50 Europe/Rome (CEST = UTC+2)
+    - cron: "50 6-16 * * 1-5"
+    # 01:20 Europe/Rome weekdays — backup if jpunn pg_cron 01:10 missed
+    - cron: "20 23 * * 0-4"
   workflow_dispatch:
     inputs:
       max_batch:
-        description: "Max opportunities to backfill (free extract, no paid)"
+        description: "Opportunities per round (live timeout: use 8)"
         required: false
         type: string
-        default: "40"
+        default: "8"
+      rounds:
+        description: "How many rounds of max_batch in this job"
+        required: false
+        type: string
+        default: "15"
 
 permissions:
   contents: read
@@ -28,13 +39,14 @@ jobs:
   backfill:
     name: TrovaBandi backfill
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
-      - name: POST trovabandi-engine status then backfill_nulls
+      - name: POST trovabandi-engine status then backfill_nulls rounds
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           JOB_SECRET: ${{ secrets.CENTRAL_CORE_JOB_SECRET }}
-          MAX_BATCH: ${{ github.event.inputs.max_batch || '40' }}
+          MAX_BATCH: ${{ github.event.inputs.max_batch || '8' }}
+          ROUNDS: ${{ github.event.inputs.rounds || '15' }}
         run: |
           set -euo pipefail
           if [ -z "${SUPABASE_URL:-}" ] || [ -z "${JOB_SECRET:-}" ]; then
@@ -54,10 +66,24 @@ jobs:
           HOST="${HOST%%/*}"
           echo "SUPABASE_URL host: ${HOST}"
 
-          N="${MAX_BATCH:-40}"
+          N="${MAX_BATCH:-8}"
           if ! [[ "${N}" =~ ^[0-9]+$ ]] || [ "${N}" -lt 1 ]; then
-            echo "Invalid max_batch '${N}', using 40"
-            N=40
+            echo "Invalid max_batch '${N}', using 8"
+            N=8
+          fi
+          # Live jpunn idle-timeout 150s: 40 504s, 8 succeeds. Cap until engine budget is published.
+          if [ "${N}" -gt 8 ]; then
+            echo "Capping max_batch ${N} -> 8 (live 150s idle timeout)"
+            N=8
+          fi
+          R="${ROUNDS:-15}"
+          if ! [[ "${R}" =~ ^[0-9]+$ ]] || [ "${R}" -lt 1 ]; then
+            echo "Invalid rounds '${R}', using 15"
+            R=15
+          fi
+          if [ "${R}" -gt 20 ]; then
+            echo "Capping rounds ${R} -> 20"
+            R=20
           fi
 
           URL="${SUPABASE_URL%/}/functions/v1/trovabandi-engine"
@@ -75,20 +101,36 @@ jobs:
           head -c 4000 /tmp/tb_status.json || true
           echo
 
-          BODY=$(printf '{"action":"backfill_nulls","max_batch":%s,"dry_run":false,"allow_paid_extract":false,"trigger_source":"github_actions"}' "${N}")
-          echo "=== backfill_nulls max_batch=${N}"
-          HTTP=$(curl -sS -o /tmp/tb_backfill.json -w "%{http_code}" \
-            -X POST "$URL" \
-            -H "Content-Type: application/json" \
-            -H "x-job-secret: ${JOB_SECRET}" \
-            -H "x-internal-secret: ${JOB_SECRET}" \
-            --max-time 180 \
-            -d "${BODY}" || echo "000")
-          echo "HTTP ${HTTP}"
-          head -c 4000 /tmp/tb_backfill.json || true
-          echo
-          case "$HTTP" in
-            200|202) ;;
-            *) echo "FAIL backfill_nulls HTTP ${HTTP}"; exit 1 ;;
-          esac
-
+          OK_ROUNDS=0
+          i=1
+          while [ "${i}" -le "${R}" ]; do
+            BODY=$(printf '{"action":"backfill_nulls","max_batch":%s,"dry_run":false,"allow_paid_extract":false,"trigger_source":"github_actions"}' "${N}")
+            echo "=== backfill_nulls round ${i}/${R} max_batch=${N}"
+            HTTP=$(curl -sS -o /tmp/tb_backfill.json -w "%{http_code}" \
+              -X POST "$URL" \
+              -H "Content-Type: application/json" \
+              -H "x-job-secret: ${JOB_SECRET}" \
+              -H "x-internal-secret: ${JOB_SECRET}" \
+              --max-time 180 \
+              -d "${BODY}" || echo "000")
+            echo "HTTP ${HTTP}"
+            head -c 4000 /tmp/tb_backfill.json || true
+            echo
+            case "$HTTP" in
+              200|202) OK_ROUNDS=$((OK_ROUNDS + 1)) ;;
+              *) echo "STOP round ${i} HTTP ${HTTP}"; break ;;
+            esac
+            UPDATED=$(python3 -c "import json; d=json.load(open('/tmp/tb_backfill.json')); print(int(d.get('updated') or 0))" 2>/dev/null || echo 0)
+            PROCESSED=$(python3 -c "import json; d=json.load(open('/tmp/tb_backfill.json')); print(int(d.get('processed') or 0))" 2>/dev/null || echo 0)
+            echo "round ${i} processed=${PROCESSED} updated=${UPDATED}"
+            if [ "${PROCESSED}" = "0" ] || [ "${UPDATED}" = "0" ]; then
+              echo "No more null rows to fill, stopping"
+              break
+            fi
+            i=$((i + 1))
+          done
+          echo "OK_ROUNDS=${OK_ROUNDS}"
+          if [ "${OK_ROUNDS}" -lt 1 ]; then
+            echo "FAIL no successful backfill_nulls round"
+            exit 1
+          fi
