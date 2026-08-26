@@ -20,7 +20,7 @@ expect(end).toBeGreaterThan(start);
 const TMP = "src/test/.trovabandi-backfill-helpers.generated.ts";
 writeFileSync(
   TMP,
-  `${ENGINE.slice(start, end)}\nexport { localExtractDeadline, localExtractAmounts };\n`,
+  `${ENGINE.slice(start, end)}\nexport { localExtractDeadline, localExtractAmounts, isCookieConsentShell };\n`,
 );
 
 const helpers = (await import(
@@ -32,10 +32,11 @@ const helpers = (await import(
     max_grant_amount?: number;
     total_budget?: number;
   };
+  isCookieConsentShell: (markdown: string) => boolean;
 };
 rmSync(TMP, { force: true });
 
-const { localExtractDeadline, localExtractAmounts } = helpers;
+const { localExtractDeadline, localExtractAmounts, isCookieConsentShell } = helpers;
 
 describe("localExtractDeadline", () => {
   it("estrae la data italiana in lettere", () => {
@@ -238,5 +239,70 @@ describe("backfill_nulls idle budget (source contract)", () => {
     expect(src).toContain("remaining: truncated ? rows.length - attempted : 0");
     expect(src).toContain("trigger_source: triggerSource");
     expect(110_000).toBeLessThan(150_000);
+  });
+});
+
+const COOKIE_BANNER = `
+Resto al Sud 2.0 | Invitalia
+Questo sito utilizza cookie. Accetta tutti i cookie oppure Rifiuta.
+Utilizziamo cookie tecnici e, previo consenso, cookie di profilazione.
+Banner cookie: per proseguire scegli Accetta o Rifiuta.
+Informativa cookie. Gestisci le preferenze. Cookie policy.
+Scadenza: 15 settembre 2026. Contributo fino a 500.000 euro.
+`.repeat(3);
+
+describe("cookie consent shells are not official evidence", () => {
+  it("riconosce banner Accetta/Rifiuta/cookie tecnici", () => {
+    expect(isCookieConsentShell(COOKIE_BANNER)).toBe(true);
+    expect(
+      isCookieConsentShell(
+        "Le domande devono essere trasmesse entro e non oltre le ore 12:00 del 30 settembre 2026. Contributo massimo 80.000 euro.",
+      ),
+    ).toBe(false);
+    expect(
+      isCookieConsentShell(
+        "Avviso pubblico per la concessione di contributi a fondo perduto. " +
+          "Le domande si presentano entro il 30 settembre 2026. Il contributo massimo e pari a 80.000 euro. " +
+          "Dotazione finanziaria complessiva di 2 milioni di euro. Requisiti PMI e sede in Italia. ".repeat(8) +
+          " Questo sito utilizza cookie. Accetta. Rifiuta.",
+      ),
+    ).toBe(false);
+  });
+
+  it("non estrae date o importi dal markdown del cookie banner", () => {
+    expect(localExtractDeadline(COOKIE_BANNER)).toBeNull();
+    expect(localExtractAmounts(COOKIE_BANNER)).toEqual({});
+  });
+});
+
+describe("backfill_nulls rotates empty scrapes (source contract)", () => {
+  it("bumps last_seen_at on empty/cookie/BAD_URL/NO_NEW_VALUES without inventing fields", () => {
+    const start = ENGINE.indexOf('if (action === "backfill_nulls")');
+    const end = ENGINE.indexOf('if (action === "enrich_apply_urls")');
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const body = ENGINE.slice(start, end);
+    expect(body).toContain("rotateQueueCursor");
+    expect(body).toContain("isCookieConsentShell");
+    expect(body).toContain("last_seen_at: nowIso");
+    expect(body).toContain("updated_at: nowIso");
+    expect(body).toContain('await rotateQueueCursor(row.id, "SCRAPE_EMPTY")');
+    expect(body).toContain('await rotateQueueCursor(row.id, "BAD_URL")');
+    expect(body).toContain('await rotateQueueCursor(row.id, "NO_NEW_VALUES")');
+    expect(ENGINE).toMatch(/\\baccetta\\b/);
+    expect(ENGINE).toMatch(/\\brifiuta\\b/);
+    expect(ENGINE).toContain("cookie tecnici");
+    expect(ENGINE).toMatch(/\\bbanner\\b/);
+    const touchStart = body.indexOf("const touch =");
+    const touchEnd = body.indexOf("if (dryRun)");
+    expect(touchStart).toBeGreaterThan(-1);
+    expect(touchEnd).toBeGreaterThan(touchStart);
+    const touch = body.slice(touchStart, touchEnd);
+    expect(touch).toContain("last_seen_at");
+    expect(touch).toContain("updated_at");
+    expect(touch).not.toContain("deadline_at");
+    expect(touch).not.toContain("min_grant_amount");
+    expect(touch).not.toContain("max_grant_amount");
+    expect(touch).not.toContain("region");
   });
 });
