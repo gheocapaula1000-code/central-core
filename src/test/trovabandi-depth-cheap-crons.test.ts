@@ -124,3 +124,14 @@ describe("TrovaBandi cron docs Europe/Rome", () => {
     expect(DOCS).not.toContain("Reserved VM Replit è l'unico scheduler");
   });
 });
+
+describe("GitHub Actions TrovaBandi backfill fallback", () => {
+  const yml = readFileSync(".github/workflows/cron-trovabandi-backfill.yml", "utf8");
+
+  it("invokes trovabandi-engine backfill_nulls only on live Core jpunn", () => {
+    expect(yml).toContain("trovabandi-engine");
+    expect(yml).toContain("backfill_nulls");
+    expect(yml).toContain("jpunnzgixcghuydstdlt");
+    expect(yml).not.toContain("egjvullvkwpzyyworeml");
+  });
+});

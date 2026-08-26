@@ -1,0 +1,94 @@
+name: Cron TrovaBandi backfill
+
+# Manual fallback if pg_cron / pg_net on Lovable Cloud jpunn is not reachable
+# from GitHub-org Supabase. Hits live Core trovabandi-engine only.
+# Required secrets (repo Settings → Secrets and variables → Actions):
+#   SUPABASE_URL              e.g. https://jpunnzgixcghuydstdlt.supabase.co
+#   CENTRAL_CORE_JOB_SECRET   same value as edge function env
+#
+# workflow_dispatch only (first ship). Never echo CENTRAL_CORE_JOB_SECRET.
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_batch:
+        description: "Max opportunities to backfill (free extract, no paid)"
+        required: false
+        type: string
+        default: "40"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cron-trovabandi-backfill
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    name: TrovaBandi backfill
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: POST trovabandi-engine status then backfill_nulls
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          JOB_SECRET: ${{ secrets.CENTRAL_CORE_JOB_SECRET }}
+          MAX_BATCH: ${{ github.event.inputs.max_batch || '40' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${JOB_SECRET:-}" ]; then
+            echo "Missing SUPABASE_URL or CENTRAL_CORE_JOB_SECRET"
+            exit 1
+          fi
+          if [[ "${SUPABASE_URL}" != *jpunnzgixcghuydstdlt* ]]; then
+            echo "REFUSE: SUPABASE_URL is not live Core jpunnzgixcghuydstdlt"
+            HOST="${SUPABASE_URL#https://}"
+            HOST="${HOST#http://}"
+            HOST="${HOST%%/*}"
+            echo "SUPABASE_URL host: ${HOST}"
+            exit 1
+          fi
+          HOST="${SUPABASE_URL#https://}"
+          HOST="${HOST#http://}"
+          HOST="${HOST%%/*}"
+          echo "SUPABASE_URL host: ${HOST}"
+
+          N="${MAX_BATCH:-40}"
+          if ! [[ "${N}" =~ ^[0-9]+$ ]] || [ "${N}" -lt 1 ]; then
+            echo "Invalid max_batch '${N}', using 40"
+            N=40
+          fi
+
+          URL="${SUPABASE_URL%/}/functions/v1/trovabandi-engine"
+          echo "POST ${URL}"
+
+          echo "=== status"
+          STATUS_HTTP=$(curl -sS -o /tmp/tb_status.json -w "%{http_code}" \
+            -X POST "$URL" \
+            -H "Content-Type: application/json" \
+            -H "x-job-secret: ${JOB_SECRET}" \
+            -H "x-internal-secret: ${JOB_SECRET}" \
+            --max-time 60 \
+            -d '{"action":"status"}' || echo "000")
+          echo "HTTP ${STATUS_HTTP}"
+          head -c 4000 /tmp/tb_status.json || true
+          echo
+
+          BODY=$(printf '{"action":"backfill_nulls","max_batch":%s,"dry_run":false,"allow_paid_extract":false,"trigger_source":"github_actions"}' "${N}")
+          echo "=== backfill_nulls max_batch=${N}"
+          HTTP=$(curl -sS -o /tmp/tb_backfill.json -w "%{http_code}" \
+            -X POST "$URL" \
+            -H "Content-Type: application/json" \
+            -H "x-job-secret: ${JOB_SECRET}" \
+            -H "x-internal-secret: ${JOB_SECRET}" \
+            --max-time 180 \
+            -d "${BODY}" || echo "000")
+          echo "HTTP ${HTTP}"
+          head -c 4000 /tmp/tb_backfill.json || true
+          echo
+          case "$HTTP" in
+            200|202) ;;
+            *) echo "FAIL backfill_nulls HTTP ${HTTP}"; exit 1 ;;
+          esac
+
