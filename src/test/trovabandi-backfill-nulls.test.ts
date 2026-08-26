@@ -222,3 +222,21 @@ describe("localExtractAmounts", () => {
     expect(localExtractAmounts("Bando per imprese del territorio")).toEqual({});
   });
 });
+
+describe("backfill_nulls idle budget (source contract)", () => {
+  it("caps the loop under the 150s Lovable idle timeout and breaks truncated", () => {
+    const start = ENGINE.indexOf('if (action === "backfill_nulls")');
+    const end = ENGINE.indexOf('if (action === "enrich_apply_urls")');
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const src = ENGINE.slice(start, end);
+    expect(ENGINE).toContain("BACKFILL_BUDGET_MS = 110_000");
+    expect(src).toContain("BACKFILL_BUDGET_MS");
+    expect(src).toMatch(/Date\.now\(\)\s*>=\s*deadline/);
+    expect(src).toContain("truncated = true");
+    expect(src).toContain("break");
+    expect(src).toContain("remaining: truncated ? rows.length - attempted : 0");
+    expect(src).toContain("trigger_source: triggerSource");
+    expect(110_000).toBeLessThan(150_000);
+  });
+});

@@ -213,6 +213,9 @@ const ALLOWED_ACTIONS = new Set([
   "enrich_apply_urls",
 ]);
 
+// Lovable edge idle timeout is 150s. Stop starting scrapes before that.
+const BACKFILL_BUDGET_MS = 110_000;
+
 const extractionSchema = {
   type: "json_schema",
   json_schema: {
@@ -2190,8 +2193,18 @@ serve(async (req) => {
     const results: any[] = [];
     let updated = 0;
     let skipped = 0;
+    let truncated = false;
+    let attempted = 0;
+    const deadline = Date.now() + BACKFILL_BUDGET_MS;
+    const triggerSource =
+      normalizeText(body.trigger_source).slice(0, 64) || "manual";
 
     for (const row of rows) {
+      if (Date.now() >= deadline) {
+        truncated = true;
+        break;
+      }
+      attempted++;
       try {
         if (shouldSkipExpiredRecrawl(row as CatalogueRow)) {
           results.push({ id: row.id, status: "SKIPPED_EXPIRED" });
@@ -2591,22 +2604,23 @@ serve(async (req) => {
     await sb.from("trovabandi_runs").insert({
       action: "backfill_nulls",
       source_id: null,
-      trigger_source: "manual",
+      trigger_source: triggerSource,
       status: "SUCCEEDED",
-      processed_count: rows.length,
+      processed_count: attempted,
       verified_count: results.filter(
         (r) =>
           r.patch?.verification_status === "VERIFICATO" ||
           r.would_patch?.verification_status === "VERIFICATO",
       ).length,
       provider_usage: {
-        official_http: rows.length,
+        official_http: attempted,
         paid: paidCalls,
         allow_paid_extract: allowPaidExtract,
       },
       warnings: [
         ...(dryRun ? ["dry_run"] : []),
         ...(paidCalls > 0 ? [`paid_extract_calls=${paidCalls}`] : []),
+        ...(truncated ? ["truncated"] : []),
       ],
       finished_at: nowIso,
     });
@@ -2614,9 +2628,11 @@ serve(async (req) => {
     return response(200, {
       ok: true,
       dry_run: dryRun,
-      processed: rows.length,
+      processed: attempted,
       updated,
       skipped,
+      truncated,
+      remaining: truncated ? rows.length - attempted : 0,
       paid_extract_calls: paidCalls,
       results,
     });
