@@ -574,7 +574,32 @@ function normalizeForExtraction(markdown: string): string {
     .replace(/\s+/g, " ");
 }
 
+/**
+ * Cookie/consent CMP shells are not official evidence. Typical Italian
+ * banners: Accetta, Rifiuta, cookie tecnici, banner. Fail-closed: never
+ * treat that markdown as a source of deadline / importo / geo.
+ */
+function isCookieConsentShell(markdown: string): boolean {
+  const t = normalizeForExtraction(markdown);
+  if (!t) return false;
+  const signals = [
+    /\bbanner\b/.test(t),
+    /\baccetta\b/.test(t),
+    /\brifiuta\b/.test(t),
+    /\bcookie\s+tecnici\b/.test(t),
+  ].filter(Boolean).length;
+  if (signals < 2 || !/\bcookie/.test(t)) return false;
+  const words = t.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return false;
+  const cookieWords = (t.match(
+    /\b(?:cookie(?:s)?|accetta|rifiuta|banner|consenso|preferenze)\b/g,
+  ) || []).length;
+  // Shell vs footer: a real avviso is long and cookie tokens are sparse.
+  return cookieWords / words.length >= 0.12;
+}
+
 function localExtractDeadline(markdown: string): string | null {
+  if (isCookieConsentShell(markdown)) return null;
   const t = normalizeForExtraction(markdown);
   const candidates: { iso: string; score: number }[] = [];
 
@@ -738,6 +763,7 @@ function plausibleAmount(n: number): boolean {
 function localExtractAmounts(
   markdown: string,
 ): { min_grant_amount?: number; max_grant_amount?: number; total_budget?: number } {
+  if (isCookieConsentShell(markdown)) return {};
   const t = normalizeForExtraction(markdown);
   const out: {
     min_grant_amount?: number;
@@ -2199,6 +2225,28 @@ serve(async (req) => {
     const triggerSource =
       normalizeText(body.trigger_source).slice(0, 64) || "manual";
 
+    // Empty / cookie-shell / unusable rows must leave the oldest-nulls
+    // queue: bump last_seen_at + updated_at only. Never invent fields.
+    const rotateQueueCursor = async (id: string, status: string) => {
+      const touch = { last_seen_at: nowIso, updated_at: nowIso };
+      if (dryRun) {
+        results.push({ id, status, would_patch: touch });
+        skipped++;
+        return;
+      }
+      const { error: rotErr } = await sb
+        .from("trovabandi_opportunities")
+        .update(touch)
+        .eq("id", id);
+      if (rotErr) {
+        results.push({ id, status: "UPDATE_FAILED" });
+        skipped++;
+        return;
+      }
+      results.push({ id, status, patch: touch });
+      skipped++;
+    };
+
     for (const row of rows) {
       if (Date.now() >= deadline) {
         truncated = true;
@@ -2207,8 +2255,7 @@ serve(async (req) => {
       attempted++;
       try {
         if (shouldSkipExpiredRecrawl(row as CatalogueRow)) {
-          results.push({ id: row.id, status: "SKIPPED_EXPIRED" });
-          skipped++;
+          await rotateQueueCursor(row.id, "SKIPPED_EXPIRED");
           continue;
         }
         let domain = "";
@@ -2217,12 +2264,14 @@ serve(async (req) => {
             .replace(/^www\./i, "")
             .toLowerCase();
         } catch {
-          results.push({ id: row.id, status: "BAD_URL" });
-          skipped++;
+          await rotateQueueCursor(row.id, "BAD_URL");
           continue;
         }
 
-        const stored = usableStoredEvidence(row.raw_excerpt);
+        const storedRaw = usableStoredEvidence(row.raw_excerpt);
+        const stored = storedRaw && !isCookieConsentShell(storedRaw)
+          ? storedRaw
+          : null;
         let page = shouldSkipApplyFetch(row.official_url)
           ? null
           : await directOfficialScrape(row.official_url, domain);
@@ -2233,9 +2282,12 @@ serve(async (req) => {
             provider: "stored-excerpt",
           };
         }
-        if (!page || page.markdown.length < 200) {
-          results.push({ id: row.id, status: "SCRAPE_EMPTY" });
-          skipped++;
+        if (
+          !page ||
+          page.markdown.length < 200 ||
+          isCookieConsentShell(page.markdown)
+        ) {
+          await rotateQueueCursor(row.id, "SCRAPE_EMPTY");
           continue;
         }
 
@@ -2252,7 +2304,7 @@ serve(async (req) => {
           ).filter(looksLikeNoticeLink);
           for (const candidate of noticeCandidates.slice(0, 3)) {
             const notice = await directOfficialScrape(candidate.url, domain);
-            if (!notice || notice.markdown.length < 200) continue;
+            if (!notice || notice.markdown.length < 200 || isCookieConsentShell(notice.markdown)) continue;
             page = notice;
             noticeUrl = notice.finalUrl ?? candidate.url;
             break;
@@ -2553,18 +2605,22 @@ serve(async (req) => {
         }
 
         if (
-          !row.raw_excerpt ||
-          page.markdown.length > String(row.raw_excerpt || "").length
+          !isCookieConsentShell(page.markdown) &&
+          (!row.raw_excerpt ||
+            page.markdown.length > String(row.raw_excerpt || "").length)
         ) {
           patch.raw_excerpt = page.markdown.slice(0, 3000);
         }
 
+        patch.last_seen_at = nowIso;
         patch.updated_at = nowIso;
 
-        // Solo updated_at → niente di utile
-        if (Object.keys(patch).length <= 1) {
-          results.push({ id: row.id, status: "NO_NEW_VALUES" });
-          skipped++;
+        // Solo last_seen_at + updated_at → ruota la coda, non inventare campi.
+        const fieldKeys = Object.keys(patch).filter(
+          (key) => key !== "last_seen_at" && key !== "updated_at",
+        );
+        if (fieldKeys.length === 0) {
+          await rotateQueueCursor(row.id, "NO_NEW_VALUES");
           continue;
         }
 
