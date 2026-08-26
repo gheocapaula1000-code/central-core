@@ -24,9 +24,9 @@ describe("official omi_valori quotes — Padova D8", () => {
       "Abitazioni civili|OTTIMO",
       "Abitazioni di tipo economico|NORMALE",
       "Box|NORMALE",
-      "Negozi|OTTIMO",
       "Uffici|NORMALE",
       "Ville e Villini|NORMALE",
+      "Negozi|OTTIMO",
     ]);
     const headline = pickCivileHeadlineFromQuotes(quotes);
     expect(headline).toEqual({

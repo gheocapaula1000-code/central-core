@@ -524,6 +524,7 @@ export interface ResolveOMIInput {
   codTip?: number;
 }
 
+// Never prefers city min/max when a real zone match exists.
 export async function resolveOMIPricing(opts: ResolveOMIInput): Promise<OMIResult> {
   const codTip = opts.codTip ?? 20;
 
