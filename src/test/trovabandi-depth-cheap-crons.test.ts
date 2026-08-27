@@ -143,4 +143,17 @@ describe("GitHub Actions TrovaBandi backfill fallback", () => {
     expect(yml).toContain("Capping max_batch");
     expect(yml).toContain("OK_ROUNDS");
   });
+
+  it("stops only on processed=0 so cookie rotates continue, sleeps 20s, defaults 6 rounds", () => {
+    expect(yml).toContain('default: "6"');
+    expect(yml).toContain("sleep 20");
+    expect(yml).toContain('[ "${PROCESSED}" = "0" ]');
+    expect(yml).not.toContain('[ "${UPDATED}" = "0" ]');
+    expect(yml).toContain("skipped");
+    expect(yml).toContain("Continue if skipped>0 even when updated=0");
+    expect(yml).toContain("jpunnzgixcghuydstdlt");
+    expect(yml).not.toContain("egjvullvkwpzyyworeml");
+    expect(yml).toContain("max_batch is a packet size, not official-PDF BFS depth");
+    expect(yml).toContain("WORKER_RESOURCE_LIMIT");
+  });
 });
