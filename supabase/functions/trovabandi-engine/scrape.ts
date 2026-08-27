@@ -300,12 +300,13 @@ function extractPdfTextOperators(content: string): string {
  * così il chiamante resta fail-closed e passa ai provider configurati.
  *
  * Cap CPU sul worker Lovable (HTTP 546 CPU Time exceeded): non decodificare
- * PDF enormi interi e non inflatare ogni stream FlateDecode. La profondità
+ * PDF enormi interi e non inflatare ogni stream FlateDecode. Superato
+ * PDF_MAX_FLATE_INFLATES si interrompe il loop sugli stream. La profondità
  * BFS (DETAIL_MAX_FETCH_PER_HIT) resta invariata.
  */
-const PDF_PARSE_MAX_BYTES = 1_500_000;
-const PDF_MAX_FLATE_INFLATES = 12;
-const PDF_EXTRACT_MAX_CHARS = 80_000;
+const PDF_PARSE_MAX_BYTES = 400_000;
+const PDF_MAX_FLATE_INFLATES = 4;
+const PDF_EXTRACT_MAX_CHARS = 20_000;
 
 export async function pdfToEvidenceText(
   bytes: Uint8Array,
@@ -326,7 +327,7 @@ export async function pdfToEvidenceText(
     const header = latin.slice(Math.max(0, match.index - 400), match.index);
     let decoded = raw;
     if (/FlateDecode/.test(header)) {
-      if (flateInflates >= PDF_MAX_FLATE_INFLATES) continue;
+      if (flateInflates >= PDF_MAX_FLATE_INFLATES) break;
       const encoded = Uint8Array.from(raw, (char) => char.charCodeAt(0) & 0xff);
       try {
         const inflated = await inflate(encoded);
