@@ -22,10 +22,10 @@ on:
   workflow_dispatch:
     inputs:
       max_batch:
-        description: "Opportunities per round (live timeout: use 8)"
+        description: "Opportunities per round (live jpunn CPU: use 1; packet size not PDF depth)"
         required: false
         type: string
-        default: "8"
+        default: "1"
       rounds:
         description: "How many rounds of max_batch in this job (default 6; safer for one Lovable worker)"
         required: false
@@ -49,7 +49,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           JOB_SECRET: ${{ secrets.CENTRAL_CORE_JOB_SECRET }}
-          MAX_BATCH: ${{ github.event.inputs.max_batch || '8' }}
+          MAX_BATCH: ${{ github.event.inputs.max_batch || '1' }}
           ROUNDS: ${{ github.event.inputs.rounds || '6' }}
         run: |
           set -euo pipefail
@@ -70,11 +70,13 @@ jobs:
           HOST="${HOST%%/*}"
           echo "SUPABASE_URL host: ${HOST}"
 
-          N="${MAX_BATCH:-8}"
+          N="${MAX_BATCH:-1}"
           if ! [[ "${N}" =~ ^[0-9]+$ ]] || [ "${N}" -lt 1 ]; then
-            echo "Invalid max_batch '${N}', using 8"
-            N=8
+            echo "Invalid max_batch '${N}', using 1"
+            N=1
           fi
+          # Live jpunn returns HTTP 546 CPU Time exceeded unless the packet is 1.
+          # DETAIL_MAX_FETCH_PER_HIT stays 8 (PDF depth is unchanged; only packet size drops).
           # Live jpunn idle-timeout 150s: 40 504s, 8 succeeds. Cap until engine budget is published.
           if [ "${N}" -gt 8 ]; then
             echo "Capping max_batch ${N} -> 8 (live 150s idle timeout)"
@@ -94,16 +96,32 @@ jobs:
           echo "POST ${URL}"
 
           echo "=== status"
-          STATUS_HTTP=$(curl -sS -o /tmp/tb_status.json -w "%{http_code}" \
-            -X POST "$URL" \
-            -H "Content-Type: application/json" \
-            -H "x-job-secret: ${JOB_SECRET}" \
-            -H "x-internal-secret: ${JOB_SECRET}" \
-            --max-time 60 \
-            -d '{"action":"status"}' || echo "000")
-          echo "HTTP ${STATUS_HTTP}"
-          head -c 4000 /tmp/tb_status.json || true
-          echo
+          STATUS_HTTP="000"
+          s=1
+          while [ "${s}" -le 3 ]; do
+            STATUS_HTTP=$(curl -sS -o /tmp/tb_status.json -w "%{http_code}" \
+              -X POST "$URL" \
+              -H "Content-Type: application/json" \
+              -H "x-job-secret: ${JOB_SECRET}" \
+              -H "x-internal-secret: ${JOB_SECRET}" \
+              --max-time 60 \
+              -d '{"action":"status"}' || echo "000")
+            echo "status attempt ${s}/3 HTTP ${STATUS_HTTP}"
+            head -c 4000 /tmp/tb_status.json || true
+            echo
+            if [ "${STATUS_HTTP}" = "200" ]; then
+              break
+            fi
+            if [ "${s}" -lt 3 ]; then
+              echo "status not 200, sleep 20s and retry"
+              sleep 20
+            fi
+            s=$((s + 1))
+          done
+          if [ "${STATUS_HTTP}" != "200" ]; then
+            echo "status still not 200 after 3 attempts (HTTP ${STATUS_HTTP}); SKIPPING backfill_nulls to avoid POSTing into a dead worker"
+            exit 1
+          fi
 
           OK_ROUNDS=0
           i=1
