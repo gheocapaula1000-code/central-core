@@ -298,23 +298,40 @@ function extractPdfTextOperators(content: string): string {
  * Estrazione testuale minimale da PDF ufficiali: nessun rendering, nessuna
  * esecuzione. Restituisce testo vuoto se il PDF è scansionato o cifrato,
  * così il chiamante resta fail-closed e passa ai provider configurati.
+ *
+ * Cap CPU sul worker Lovable (HTTP 546 CPU Time exceeded): non decodificare
+ * PDF enormi interi e non inflatare ogni stream FlateDecode. La profondità
+ * BFS (DETAIL_MAX_FETCH_PER_HIT) resta invariata.
  */
+const PDF_PARSE_MAX_BYTES = 1_500_000;
+const PDF_MAX_FLATE_INFLATES = 12;
+const PDF_EXTRACT_MAX_CHARS = 80_000;
+
 export async function pdfToEvidenceText(
   bytes: Uint8Array,
 ): Promise<{ title: string; text: string }> {
-  const latin = new TextDecoder("latin1").decode(bytes);
+  const slice =
+    bytes.byteLength > PDF_PARSE_MAX_BYTES
+      ? bytes.subarray(0, PDF_PARSE_MAX_BYTES)
+      : bytes;
+  const latin = new TextDecoder("latin1").decode(slice);
   const pieces: string[] = [];
+  let extractedLen = 0;
+  let flateInflates = 0;
   const streamRegex = /stream\r?\n?([\s\S]*?)endstream/g;
   let match: RegExpExecArray | null;
   while ((match = streamRegex.exec(latin)) !== null) {
+    if (extractedLen > PDF_EXTRACT_MAX_CHARS) break;
     const raw = match[1];
     const header = latin.slice(Math.max(0, match.index - 400), match.index);
     let decoded = raw;
     if (/FlateDecode/.test(header)) {
+      if (flateInflates >= PDF_MAX_FLATE_INFLATES) continue;
       const encoded = Uint8Array.from(raw, (char) => char.charCodeAt(0) & 0xff);
       try {
         const inflated = await inflate(encoded);
         decoded = inflated ? new TextDecoder("latin1").decode(inflated) : "";
+        flateInflates += 1;
       } catch {
         decoded = "";
       }
@@ -323,8 +340,11 @@ export async function pdfToEvidenceText(
     }
     if (!decoded) continue;
     const text = extractPdfTextOperators(decoded);
-    if (text.trim()) pieces.push(text);
-    if (pieces.join("\n").length > 400_000) break;
+    if (text.trim()) {
+      pieces.push(text);
+      extractedLen += (pieces.length > 1 ? 1 : 0) + text.length;
+    }
+    if (extractedLen > PDF_EXTRACT_MAX_CHARS) break;
   }
   const titleMatch = /\/Title\s*\(((?:\\.|[^\\()])*)\)/.exec(latin);
   const title = decodePdfLiteral(titleMatch?.[1] ?? "")
