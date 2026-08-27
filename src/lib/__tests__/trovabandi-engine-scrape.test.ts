@@ -133,7 +133,7 @@ describe("UEradar www fallback e PDF ufficiali", () => {
     expect(parsed.text).toContain("Scadenza 15/10/2026");
   });
 
-  it("su buffer >1.5MB non lancia e termina in tempo ragionevole, parse solo i primi byte", async () => {
+  it("su buffer >400kB non lancia e termina in tempo ragionevole, parse solo i primi 400k", async () => {
     const body = "BT (Avviso pubblico contributi 2026) Tj T* (Domande entro il 30/09/2026) Tj ET";
     const head = `%PDF-1.4\n1 0 obj<</Length ${body.length}>>stream\n${body}\nendstream\nendobj\n/Title (Bando ufficiale)\n%%EOF`;
     const headBytes = new TextEncoder().encode(head);
