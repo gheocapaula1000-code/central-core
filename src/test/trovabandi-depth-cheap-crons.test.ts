@@ -135,8 +135,9 @@ describe("GitHub Actions TrovaBandi backfill fallback", () => {
     expect(yml).not.toContain("egjvullvkwpzyyworeml");
   });
 
-  it("runs weekday hourly plus overnight backup in rounds of 8", () => {
-    expect(yml).toContain('default: "8"');
+  it("runs weekday hourly plus overnight backup; live default packet is 1", () => {
+    expect(yml).toContain('default: "1"');
+    expect(yml).toContain("packet size not PDF depth");
     expect(yml).toContain("rounds");
     expect(yml).toContain("50 6-16 * * 1-5");
     expect(yml).toContain("20 23 * * 0-4");
@@ -155,5 +156,7 @@ describe("GitHub Actions TrovaBandi backfill fallback", () => {
     expect(yml).not.toContain("egjvullvkwpzyyworeml");
     expect(yml).toContain("max_batch is a packet size, not official-PDF BFS depth");
     expect(yml).toContain("WORKER_RESOURCE_LIMIT");
+    expect(yml).toContain("SKIPPING backfill_nulls");
+    expect(yml).toContain("status still not 200 after 3 attempts");
   });
 });
