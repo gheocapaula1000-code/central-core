@@ -124,6 +124,38 @@ describe("UEradar www fallback e PDF ufficiali", () => {
     const big = new Response(new Uint8Array(1024));
     await expect(readLimitedBytes(big, 512)).resolves.toBeNull();
   });
+
+  it("estrae testo da un PDF sintetico piccolo se ci sono operatori", async () => {
+    const body = "BT (Contributo fino a 50.000 euro) Tj T* (Scadenza 15/10/2026) Tj ET";
+    const pdf = `%PDF-1.4\n1 0 obj<</Length ${body.length}>>stream\n${body}\nendstream\nendobj\n%%EOF`;
+    const parsed = await pdfToEvidenceText(new TextEncoder().encode(pdf));
+    expect(parsed.text).toContain("Contributo fino a 50.000 euro");
+    expect(parsed.text).toContain("Scadenza 15/10/2026");
+  });
+
+  it("su buffer >1.5MB non lancia e termina in tempo ragionevole, parse solo i primi byte", async () => {
+    const body = "BT (Avviso pubblico contributi 2026) Tj T* (Domande entro il 30/09/2026) Tj ET";
+    const head = `%PDF-1.4\n1 0 obj<</Length ${body.length}>>stream\n${body}\nendstream\nendobj\n/Title (Bando ufficiale)\n%%EOF`;
+    const headBytes = new TextEncoder().encode(head);
+    const huge = new Uint8Array(2_000_000);
+    huge.set(headBytes, 0);
+    const started = Date.now();
+    const parsed = await pdfToEvidenceText(huge);
+    const elapsed = Date.now() - started;
+    expect(parsed.text).toContain("Avviso pubblico contributi 2026");
+    expect(parsed.text).toContain("Domande entro il 30/09/2026");
+    expect(elapsed).toBeLessThan(8_000);
+  });
+
+  it("resta fail-closed vuoto su payload PDF spazzatura", async () => {
+    const garbage = await pdfToEvidenceText(
+      new TextEncoder().encode("%%% not a pdf %%% random garbage without operators"),
+    );
+    expect(garbage.text).toBe("");
+    expect(garbage.title).toBe("");
+    const binary = await pdfToEvidenceText(new Uint8Array(4096).fill(0xff));
+    expect(binary.text).toBe("");
+  });
 });
 
 describe("UEradar CSV Open Data ufficiali", () => {
