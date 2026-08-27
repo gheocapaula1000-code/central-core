@@ -44,6 +44,7 @@ import {
   pdfToEvidenceText,
   readLimitedBytes,
   readLimitedText,
+  releaseLoadedPageBodies,
 } from "./scrape.ts";
 import {
   collectionCompletionOutcome,
@@ -1528,6 +1529,8 @@ async function walkDetailTargets(opts: {
         item.hop + 1,
       );
     }
+    // Drop 2MB HTML / 60k markdown so the next hop does not retain this page.
+    releaseLoadedPageBodies(detail, { markdown: true });
   }
   return attempted;
 }
@@ -2253,6 +2256,7 @@ serve(async (req) => {
         break;
       }
       attempted++;
+      let page: LoadedPage | null = null;
       try {
         if (shouldSkipExpiredRecrawl(row as CatalogueRow)) {
           await rotateQueueCursor(row.id, "SKIPPED_EXPIRED");
@@ -2272,7 +2276,7 @@ serve(async (req) => {
         const stored = storedRaw && !isCookieConsentShell(storedRaw)
           ? storedRaw
           : null;
-        let page = shouldSkipApplyFetch(row.official_url)
+        page = shouldSkipApplyFetch(row.official_url)
           ? null
           : await directOfficialScrape(row.official_url, domain);
         if (!page && stored) {
@@ -2644,16 +2648,22 @@ serve(async (req) => {
           skipped++;
         } else {
           updated++;
+          const logged = { ...patch };
+          delete logged.raw_excerpt;
           results.push({
             id: row.id,
             status: "UPDATED",
             paid_extract: paidUsed,
-            patch,
+            patch: logged,
           });
         }
       } catch {
         results.push({ id: row.id, status: "ITEM_ERROR" });
         skipped++;
+      } finally {
+        // One row at a time: forget page/PDF bodies after the patch.
+        releaseLoadedPageBodies(page, { markdown: true });
+        page = null;
       }
     }
 

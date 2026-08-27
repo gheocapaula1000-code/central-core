@@ -442,3 +442,17 @@ export function csvToEvidenceText(
     .trim();
   return { title: header.filter(Boolean).join(" | ").slice(0, 500), text: body };
 }
+
+/**
+ * Drop retained HTML (and optionally markdown) after a row/hop is done.
+ * Sequential backfill must not keep all 8 official pages/PDFs in RAM.
+ * Does not invent fields; only forgets fetch bodies.
+ */
+export function releaseLoadedPageBodies(
+  page: { html?: string; markdown?: string } | null | undefined,
+  opts?: { markdown?: boolean },
+): void {
+  if (!page) return;
+  page.html = undefined;
+  if (opts?.markdown) page.markdown = "";
+}
