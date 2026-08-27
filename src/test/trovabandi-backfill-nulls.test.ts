@@ -306,3 +306,42 @@ describe("backfill_nulls rotates empty scrapes (source contract)", () => {
     expect(touch).not.toContain("region");
   });
 });
+
+describe("backfill_nulls 546 memory (source contract)", () => {
+  it("keeps BACKFILL_BUDGET_MS and sequential per-row, releases page bodies", () => {
+    expect(ENGINE).toContain("BACKFILL_BUDGET_MS = 110_000");
+    const start = ENGINE.indexOf('if (action === "backfill_nulls")');
+    const end = ENGINE.indexOf('if (action === "enrich_apply_urls")');
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const body = ENGINE.slice(start, end);
+    expect(body).toContain("for (const row of rows)");
+    expect(body).not.toContain("Promise.all");
+    expect(body).toContain("releaseLoadedPageBodies(page, { markdown: true })");
+    expect(body).toContain("delete logged.raw_excerpt");
+    expect(ENGINE).toContain("releaseLoadedPageBodies(detail, { markdown: true })");
+    expect(ENGINE).toContain("DETAIL_MAX_FETCH_PER_HIT = 8");
+    expect(ENGINE).toContain("DETAIL_MAX_HOPS = 3");
+    expect(body).not.toContain("scrapePage(");
+    expect(body).not.toContain("apifyScrape(");
+    expect(body).toContain("directOfficialScrape");
+    expect(body).toContain("allow_paid_extract");
+  });
+
+  it("still fail-closed: rotate only last_seen_at/updated_at, never invent deadline/importo/geo", () => {
+    const start = ENGINE.indexOf('if (action === "backfill_nulls")');
+    const end = ENGINE.indexOf('if (action === "enrich_apply_urls")');
+    const body = ENGINE.slice(start, end);
+    const touchStart = body.indexOf("const touch =");
+    const touchEnd = body.indexOf("if (dryRun)");
+    const touch = body.slice(touchStart, touchEnd);
+    expect(touch).toContain("last_seen_at");
+    expect(touch).toContain("updated_at");
+    expect(touch).not.toContain("deadline_at");
+    expect(touch).not.toContain("min_grant_amount");
+    expect(touch).not.toContain("max_grant_amount");
+    expect(touch).not.toContain("region");
+    expect(body).toContain("isCookieConsentShell");
+    expect(body).toContain('await rotateQueueCursor(row.id, "SCRAPE_EMPTY")');
+  });
+});

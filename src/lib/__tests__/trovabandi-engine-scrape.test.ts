@@ -10,6 +10,7 @@ import {
   pdfToEvidenceText,
   readLimitedBytes,
   readLimitedText,
+  releaseLoadedPageBodies,
 } from "../../../supabase/functions/trovabandi-engine/scrape";
 
 describe("UEradar official-source HTTP fallback", () => {
@@ -179,3 +180,23 @@ describe("UEradar CSV Open Data ufficiali", () => {
     ).toBe(true);
   });
 });
+
+describe("releaseLoadedPageBodies", () => {
+  it("drops html and optionally markdown without inventing fields", () => {
+    const page: { html?: string; markdown?: string; title?: string } = {
+      html: "<html>" + "x".repeat(2000) + "</html>",
+      markdown: "Scadenza: 15 settembre 2026. Contributo fino a 500.000 euro.",
+      title: "Avviso",
+    };
+    releaseLoadedPageBodies(page);
+    expect(page.html).toBeUndefined();
+    expect(page.markdown).toContain("Scadenza");
+    expect(page.title).toBe("Avviso");
+    releaseLoadedPageBodies(page, { markdown: true });
+    expect(page.markdown).toBe("");
+    expect(page.title).toBe("Avviso");
+    expect(() => releaseLoadedPageBodies(null)).not.toThrow();
+    expect(() => releaseLoadedPageBodies(undefined)).not.toThrow();
+  });
+});
+
