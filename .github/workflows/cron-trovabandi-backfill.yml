@@ -8,6 +8,10 @@ name: Cron TrovaBandi backfill
 #
 # Live engine idle timeout is 150s: one round of 8 succeeds (~24s), 40 504s.
 # Hourly weekday rounds of 8. Never echo CENTRAL_CORE_JOB_SECRET.
+# max_batch is a packet size, not official-PDF BFS depth (engine DETAIL_MAX_FETCH_PER_HIT=8).
+# After PR 71 cookie/empty rotates increment skipped, not updated — stop only when processed=0.
+# Sleep ~20s between rounds so the Lovable worker can reclaim memory (HTTP 546 WORKER_RESOURCE_LIMIT).
+# Default 6 rounds: 15 stacked on one worker OOM'd. Input still overridable.
 
 on:
   schedule:
@@ -23,10 +27,10 @@ on:
         type: string
         default: "8"
       rounds:
-        description: "How many rounds of max_batch in this job"
+        description: "How many rounds of max_batch in this job (default 6; safer for one Lovable worker)"
         required: false
         type: string
-        default: "15"
+        default: "6"
 
 permissions:
   contents: read
@@ -39,14 +43,14 @@ jobs:
   backfill:
     name: TrovaBandi backfill
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 16
     steps:
       - name: POST trovabandi-engine status then backfill_nulls rounds
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           JOB_SECRET: ${{ secrets.CENTRAL_CORE_JOB_SECRET }}
           MAX_BATCH: ${{ github.event.inputs.max_batch || '8' }}
-          ROUNDS: ${{ github.event.inputs.rounds || '15' }}
+          ROUNDS: ${{ github.event.inputs.rounds || '6' }}
         run: |
           set -euo pipefail
           if [ -z "${SUPABASE_URL:-}" ] || [ -z "${JOB_SECRET:-}" ]; then
@@ -76,10 +80,10 @@ jobs:
             echo "Capping max_batch ${N} -> 8 (live 150s idle timeout)"
             N=8
           fi
-          R="${ROUNDS:-15}"
+          R="${ROUNDS:-6}"
           if ! [[ "${R}" =~ ^[0-9]+$ ]] || [ "${R}" -lt 1 ]; then
-            echo "Invalid rounds '${R}', using 15"
-            R=15
+            echo "Invalid rounds '${R}', using 6"
+            R=6
           fi
           if [ "${R}" -gt 20 ]; then
             echo "Capping rounds ${R} -> 20"
@@ -122,10 +126,18 @@ jobs:
             esac
             UPDATED=$(python3 -c "import json; d=json.load(open('/tmp/tb_backfill.json')); print(int(d.get('updated') or 0))" 2>/dev/null || echo 0)
             PROCESSED=$(python3 -c "import json; d=json.load(open('/tmp/tb_backfill.json')); print(int(d.get('processed') or 0))" 2>/dev/null || echo 0)
-            echo "round ${i} processed=${PROCESSED} updated=${UPDATED}"
-            if [ "${PROCESSED}" = "0" ] || [ "${UPDATED}" = "0" ]; then
-              echo "No more null rows to fill, stopping"
+            SKIPPED=$(python3 -c "import json; d=json.load(open('/tmp/tb_backfill.json')); print(int(d.get('skipped') or 0))" 2>/dev/null || echo 0)
+            echo "round ${i} processed=${PROCESSED} updated=${UPDATED} skipped=${SKIPPED}"
+            # Cookie/empty rotates (PR 71) increment skipped, not updated.
+            # Stop only when the engine processed nobody this round.
+            # Continue if skipped>0 even when updated=0.
+            if [ "${PROCESSED}" = "0" ]; then
+              echo "No more rows processed, stopping"
               break
+            fi
+            if [ "${i}" -lt "${R}" ]; then
+              echo "sleep 20s to let jpunn worker reclaim memory"
+              sleep 20
             fi
             i=$((i + 1))
           done
