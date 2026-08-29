@@ -303,10 +303,40 @@ function extractPdfTextOperators(content: string): string {
  * PDF enormi interi e non inflatare ogni stream FlateDecode. Superato
  * PDF_MAX_FLATE_INFLATES si interrompe il loop sugli stream. La profondità
  * BFS (DETAIL_MAX_FETCH_PER_HIT) resta invariata.
+ *
+ * Allegati ufficiali ~700KB (Veneto disposizioni): si legge fino a 800KB,
+ * si saltano font/immagini/stream <400B, si inflatano al massimo 12 stream
+ * di contenuto, e si preferisce la finestra intorno a ATECO/NACE invece
+ * dei primi 20k caratteri (la tabella sezioni sta oltre).
  */
-const PDF_PARSE_MAX_BYTES = 400_000;
-const PDF_MAX_FLATE_INFLATES = 4;
-const PDF_EXTRACT_MAX_CHARS = 20_000;
+const PDF_PARSE_MAX_BYTES = 800_000;
+const PDF_MAX_FLATE_INFLATES = 12;
+const PDF_EXTRACT_MAX_CHARS = 80_000;
+const PDF_ATECO_WINDOW_CHARS = 40_000;
+const PDF_SKIP_TINY_FLATE = 400;
+const ATECO_HINT = /\b(?:ATECO|Ateco|NACE)\b/;
+
+function skipPdfStream(header: string, rawLen: number): boolean {
+  if (/\/Type\s*\/Font\b|\/Length1\b|\/Subtype\s*\/Image\b/.test(header)) {
+    return true;
+  }
+  if (/\/(DCTDecode|JPXDecode|CCITTFaxDecode)\b/.test(header)) return true;
+  if (/FlateDecode/.test(header) && rawLen < PDF_SKIP_TINY_FLATE) return true;
+  return false;
+}
+
+/** Prefer the official ATECO table over the first 20k chars of a PDF. */
+export function atecoEvidenceWindow(text: string): string {
+  if (!text) return text;
+  const table = /settori\s+economici\s+ammess|codice\s+ateco\s+2007/i.exec(
+    text,
+  );
+  const ateco = ATECO_HINT.exec(text);
+  const match = table ?? ateco;
+  if (!match || match.index == null) return text.slice(0, 20_000);
+  const start = Math.max(0, match.index - 500);
+  return text.slice(start, start + PDF_ATECO_WINDOW_CHARS).trim();
+}
 
 export async function pdfToEvidenceText(
   bytes: Uint8Array,
@@ -325,6 +355,7 @@ export async function pdfToEvidenceText(
     if (extractedLen > PDF_EXTRACT_MAX_CHARS) break;
     const raw = match[1];
     const header = latin.slice(Math.max(0, match.index - 400), match.index);
+    if (skipPdfStream(header, raw.length)) continue;
     let decoded = raw;
     if (/FlateDecode/.test(header)) {
       if (flateInflates >= PDF_MAX_FLATE_INFLATES) break;
@@ -352,13 +383,13 @@ export async function pdfToEvidenceText(
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 500);
-  const text = pieces
+  const joined = pieces
     .join("\n")
     .replace(/[\t\f\v ]+/g, " ")
     .replace(/\n\s*/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return { title, text };
+  return { title, text: atecoEvidenceWindow(joined) };
 }
 
 

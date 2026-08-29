@@ -10,6 +10,7 @@ import {
   fallbackPaidWhenAtecoEmpty,
   mergeBackfillPriorityPages,
   officialPageNeedsPaidScrape,
+  shouldPatchEligibleAteco,
 } from "../../supabase/functions/trovabandi-engine/budget.ts";
 import { localExtractAteco } from "../../supabase/functions/trovabandi-engine/local-fields.ts";
 
@@ -294,10 +295,27 @@ describe("engine wiring (no live APIs)", () => {
   });
 
   it("does not raise PDF parse caps or packet default", () => {
-    expect(scrape).toContain("const PDF_PARSE_MAX_BYTES = 400_000;");
-    expect(scrape).toContain("const PDF_MAX_FLATE_INFLATES = 4;");
-    expect(scrape).toContain("const PDF_EXTRACT_MAX_CHARS = 20_000;");
+    expect(scrape).toContain("const PDF_PARSE_MAX_BYTES = 800_000;");
+    expect(scrape).toContain("const PDF_MAX_FLATE_INFLATES = 12;");
+    expect(scrape).toContain("const PDF_EXTRACT_MAX_CHARS = 80_000;");
     expect(engine).toContain("Number(body.max_batch) || 250");
     expect(engine).toContain("DETAIL_MAX_FETCH_PER_HIT = 20");
+  });
+});
+
+describe("shouldPatchEligibleAteco", () => {
+  it("never replace a filled array with []", () => {
+    expect(shouldPatchEligibleAteco(["58", "59"], [])).toBe(false);
+    expect(shouldPatchEligibleAteco(["62"], ["", "  "])).toBe(false);
+  });
+
+  it("fills empty existing when extract found prefixes", () => {
+    expect(shouldPatchEligibleAteco([], ["58", "59"])).toBe(true);
+    expect(shouldPatchEligibleAteco([], [])).toBe(false);
+  });
+
+  it("skips a no-op identical set", () => {
+    expect(shouldPatchEligibleAteco(["58", "62"], ["62", "58"])).toBe(false);
+    expect(shouldPatchEligibleAteco(["58"], ["58", "59"])).toBe(true);
   });
 });

@@ -271,6 +271,27 @@ export function atecoPrefixesEmpty(value: unknown): boolean {
 }
 
 /**
+ * Never replace a filled eligible_ateco_prefixes array with [].
+ * Empty extract is not a patch. Same set is not a patch.
+ */
+export function shouldPatchEligibleAteco(
+  existing: string[],
+  extracted: string[],
+): boolean {
+  const next = extracted.map((item) => String(item).trim()).filter(Boolean);
+  if (next.length === 0) return false;
+  const prev = existing.map((item) => String(item).trim()).filter(Boolean);
+  if (
+    prev.length === next.length &&
+    prev.every((prefix) => next.includes(prefix)) &&
+    next.every((prefix) => prev.includes(prefix))
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Queue rank for backfill_nulls: Veneto (region ilike) first, then
  * NAZIONALE/EU, then the rest. Does not invent geo.
  */

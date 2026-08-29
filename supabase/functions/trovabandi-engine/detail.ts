@@ -25,6 +25,8 @@ const LINK_REGEX = /<a\b[^>]*href\s*=\s*("([^"]*)"|'([^']*)'|([^\s">]+))[^>]*>([
 export const DETAIL_DEFAULT_LIMIT = 8;
 
 const POSITIVE_TOKENS: Array<[RegExp, number]> = [
+  [/disposizion/i, 12],
+  [/Download\?idAllegato=/i, 8],
   [/allegat\w*.*\.pdf|\.pdf.*allegat/i, 10],
   [/(?:bando|avviso)\b.*\.pdf|\.pdf.*(?:bando|avviso)/i, 8],
   [/scadenz/i, 8],
@@ -64,6 +66,13 @@ export function scoreDetailCandidate(haystack: string): number {
   let score = 0;
   for (const [pattern, weight] of POSITIVE_TOKENS) {
     if (pattern.test(haystack)) score += weight;
+  }
+  // Modulistica / schede sintetiche after disposizioni / avviso / bando.
+  if (
+    /modul[oi]|modulistica|facsimile|scheda\s+sintetic/i.test(haystack) &&
+    !/disposizion|(?:bando|avviso)\b/i.test(haystack)
+  ) {
+    score = Math.max(0, score - 6);
   }
   return score;
 }
