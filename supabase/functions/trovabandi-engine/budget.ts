@@ -226,3 +226,39 @@ export function parseAllowPaid(value: unknown, fallback = true): boolean {
   if (value === true || value === "true") return true;
   return fallback;
 }
+
+/** Cookie shell, missing page, or under 200 chars: not official evidence. */
+export function officialPageNeedsPaidScrape(
+  page: { markdown?: string } | null | undefined,
+  isCookieShell: (markdown: string) => boolean,
+): boolean {
+  if (!page || typeof page.markdown !== "string") return true;
+  if (page.markdown.length < 200) return true;
+  return isCookieShell(page.markdown);
+}
+
+/** allow_paid_scrape defaults on; needs Firecrawl or Apify. */
+export function allowBackfillPaidScrape(
+  flag: unknown,
+  hasFirecrawl: boolean,
+  hasApify: boolean,
+): boolean {
+  return parseAllowPaid(flag, true) && (hasFirecrawl || hasApify);
+}
+
+/** After a failed/empty/cookie direct fetch, try loadPage (Firecrawl then Apify). */
+export async function fallbackPaidOfficialPage<
+  T extends { markdown: string },
+>(
+  page: T | null,
+  opts: {
+    isCookieShell: (markdown: string) => boolean;
+    loadPage: () => Promise<T | null>;
+  },
+): Promise<T | null> {
+  if (!officialPageNeedsPaidScrape(page, opts.isCookieShell)) return page;
+  const paid = await opts.loadPage();
+  if (!officialPageNeedsPaidScrape(paid, opts.isCookieShell)) return paid;
+  return page;
+}
+

@@ -326,6 +326,10 @@ describe("backfill_nulls 546 memory (source contract)", () => {
     expect(body).not.toContain("apifyScrape(");
     expect(body).toContain("directOfficialScrape");
     expect(body).toContain("allow_paid_extract");
+    expect(body).toContain("allow_paid_scrape");
+    expect(body).toContain("loadPage(");
+    expect(body).toContain("createPaidBudget(allowPaidScrape)");
+    expect(body).toContain("fallbackPaidOfficialPage");
   });
 
   it("still fail-closed: rotate only last_seen_at/updated_at, never invent deadline/importo/geo", () => {
@@ -343,5 +347,36 @@ describe("backfill_nulls 546 memory (source contract)", () => {
     expect(touch).not.toContain("region");
     expect(body).toContain("isCookieConsentShell");
     expect(body).toContain('await rotateQueueCursor(row.id, "SCRAPE_EMPTY")');
+  });
+});
+
+describe("backfill_nulls cookie/empty falls back to paid scrape (source contract)", () => {
+  const start = ENGINE.indexOf('if (action === "backfill_nulls")');
+  const end = ENGINE.indexOf('if (action === "enrich_apply_urls")');
+  const body = ENGINE.slice(start, end);
+
+  it("calls loadPage after empty/cookie official fetch, one PaidBudget per row", () => {
+    expect(body).toContain("officialPageNeedsPaidScrape(page, isCookieConsentShell)");
+    expect(body).toContain("const paidBudget = createPaidBudget(allowPaidScrape)");
+    expect(body).toContain("loadPage(row.official_url, domain, paidBudget)");
+    expect(body).toContain("allowBackfillPaidScrape");
+    expect(body).toContain("body.allow_paid_scrape");
+    expect(body).toContain("FIRECRAWL_API_KEY");
+    expect(body).toContain("APIFY_TOKEN");
+    expect(body).toContain('await rotateQueueCursor(row.id, "SCRAPE_EMPTY")');
+    const paidIdx = body.indexOf("fallbackPaidOfficialPage");
+    const emptyIdx = body.indexOf('await rotateQueueCursor(row.id, "SCRAPE_EMPTY")');
+    expect(paidIdx).toBeGreaterThan(-1);
+    expect(emptyIdx).toBeGreaterThan(paidIdx);
+  });
+
+  it("does not raise PDF CPU caps or change packet size", () => {
+    const scrape = readFileSync("supabase/functions/trovabandi-engine/scrape.ts", "utf8");
+    expect(scrape).toContain("PDF_PARSE_MAX_BYTES = 400_000");
+    expect(scrape).toContain("PDF_MAX_FLATE_INFLATES = 4");
+    expect(scrape).toContain("PDF_EXTRACT_MAX_CHARS = 20_000");
+    expect(body).toContain("Math.min(400, Math.max(1, Number(body.max_batch) || 250))");
+    expect(ENGINE).toContain("DETAIL_MAX_FETCH_PER_HIT = 20");
+    expect(ENGINE).toContain("DETAIL_MAX_HOPS = 6");
   });
 });
