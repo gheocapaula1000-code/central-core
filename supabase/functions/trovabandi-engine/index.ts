@@ -1435,9 +1435,9 @@ async function loadPage(
 }
 
 /** Budget per run: nessuna esplosione del tempo di collect. */
-const DETAIL_MAX_FETCH_PER_RUN = 40;
-const DETAIL_MAX_FETCH_PER_HIT = 8;
-const DETAIL_MAX_HOPS = 3;
+const DETAIL_MAX_FETCH_PER_RUN = 60;
+const DETAIL_MAX_FETCH_PER_HIT = 20;
+const DETAIL_MAX_HOPS = 6;
 
 export interface DetailEvidenceRow {
   source_url: string;
@@ -1536,8 +1536,8 @@ async function walkDetailTargets(opts: {
 }
 
 /**
- * Arricchimento a costo provider zero: BFS fino a 8 pagine o PDF di
- * dettaglio (max 3 hop, 40 fetch per run) già linkati sullo stesso dominio
+ * Arricchimento a costo provider zero: BFS fino a 20 pagine o PDF di
+ * dettaglio (max 6 hop, 60 fetch per run) già linkati sullo stesso dominio
  * ufficiale. Si riempiono soltanto scadenza e importi ancora nulli. Nessuna
  * chiamata a Firecrawl, Apify o all'estrattore AI. Fail-closed: qualunque
  * dubbio non scrive nulla.

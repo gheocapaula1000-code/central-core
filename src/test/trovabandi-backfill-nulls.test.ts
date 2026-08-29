@@ -320,8 +320,8 @@ describe("backfill_nulls 546 memory (source contract)", () => {
     expect(body).toContain("releaseLoadedPageBodies(page, { markdown: true })");
     expect(body).toContain("delete logged.raw_excerpt");
     expect(ENGINE).toContain("releaseLoadedPageBodies(detail, { markdown: true })");
-    expect(ENGINE).toContain("DETAIL_MAX_FETCH_PER_HIT = 8");
-    expect(ENGINE).toContain("DETAIL_MAX_HOPS = 3");
+    expect(ENGINE).toContain("DETAIL_MAX_FETCH_PER_HIT = 20");
+    expect(ENGINE).toContain("DETAIL_MAX_HOPS = 6");
     expect(body).not.toContain("scrapePage(");
     expect(body).not.toContain("apifyScrape(");
     expect(body).toContain("directOfficialScrape");
