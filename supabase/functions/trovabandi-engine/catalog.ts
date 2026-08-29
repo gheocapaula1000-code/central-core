@@ -55,7 +55,7 @@ export type CatalogProfile = {
 };
 
 export type CatalogMatch = {
-  status: "COMPATIBILE" | "DA_VERIFICARE";
+  status: "COMPATIBILE" | "DA_VERIFICARE" | "NON_COMPATIBILE";
   score: number;
   confirmed: string[];
   missing: string[];
@@ -185,7 +185,9 @@ function officialAtecoPrefixes(row: {
 /**
  * Match opzionale del catalogo. Senza profilo: omesso.
  * COMPATIBILE solo se i prefissi ATECO già presenti sulla riga matchano
- * il profilo fornito. Non inventa prefissi (niente ATECO 62 fittizio).
+ * il profilo fornito. Prefissi ufficiali non vuoti che non matchano:
+ * NON_COMPATIBILE (blocker), non DA_VERIFICARE. Prefissi vuoti:
+ * DA_VERIFICARE (unknown until dug). Non inventa prefissi.
  */
 export function catalogMatch(
   row: { eligible_ateco_prefixes?: unknown },
@@ -216,11 +218,11 @@ export function catalogMatch(
     };
   }
   return {
-    status: "DA_VERIFICARE",
-    score: 40,
+    status: "NON_COMPATIBILE",
+    score: 0,
     confirmed: [],
-    missing: ["ATECO da verificare nel testo ufficiale"],
-    blockers: [],
+    missing: [],
+    blockers: ["ATECO non ammesso"],
   };
 }
 

@@ -163,12 +163,11 @@ describe("catalog match — nessuna invenzione", () => {
     expect(catalogMatch(withAteco, { codice_ateco: "59.11.00" })?.status).toBe(
       "COMPATIBILE",
     );
-    expect(catalogMatch(withAteco, { codice_ateco: "62.01" })?.status).toBe(
-      "DA_VERIFICARE",
-    );
-    expect(catalogMatch(withAteco, { codice_ateco: "62.01" })?.status).not.toBe(
-      "COMPATIBILE",
-    );
+    const mismatch = catalogMatch(withAteco, { codice_ateco: "62.01" });
+    expect(mismatch?.status).toBe("NON_COMPATIBILE");
+    expect(mismatch?.blockers).toContain("ATECO non ammesso");
+    expect(mismatch?.status).not.toBe("DA_VERIFICARE");
+    expect(mismatch?.status).not.toBe("COMPATIBILE");
   });
 });
 

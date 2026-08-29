@@ -88,6 +88,9 @@ import {
   sourceLane,
   spendPaid,
   usableStoredEvidence,
+  officialPageNeedsPaidScrape,
+  allowBackfillPaidScrape,
+  fallbackPaidOfficialPage,
   type CatalogueRow,
   type PaidBudget,
 } from "./budget.ts";
@@ -1421,7 +1424,9 @@ async function loadPage(
   budget?: PaidBudget,
 ) {
   const direct = await directOfficialScrape(url, officialDomain);
-  if (direct) return direct;
+  if (!officialPageNeedsPaidScrape(direct, isCookieConsentShell)) {
+    return direct;
+  }
   if (!budget || !canSpendPaid(budget, "scrape")) return null;
   spendPaid(budget, "scrape");
   // Un solo slot a pagamento per run: Firecrawl, poi Apify se il primo
@@ -1429,9 +1434,13 @@ async function loadPage(
   const variants = officialUrlVariants(url).slice(0, 2);
   for (const variant of variants) {
     const scraped = await scrapePage(variant);
-    if (scraped) return scraped;
+    if (!officialPageNeedsPaidScrape(scraped, isCookieConsentShell)) {
+      return scraped;
+    }
   }
-  return await apifyScrape(variants[variants.length - 1] ?? url);
+  const apify = await apifyScrape(variants[variants.length - 1] ?? url);
+  if (!officialPageNeedsPaidScrape(apify, isCookieConsentShell)) return apify;
+  return null;
 }
 
 /** Budget per run: nessuna esplosione del tempo di collect. */
@@ -2189,10 +2198,15 @@ serve(async (req) => {
     const dryRun = body.dry_run === true;
 
     // Opt-in esplicito: usa l'estrattore Perplexity già esistente SOLO come
-    // fallback sui campi ancora NULL. Nessun nuovo provider, nessun nuovo costo
-    // di sottoscrizione; lo scraping resta comunque zero-cost.
+    // fallback sui campi ancora NULL. Lo scrape a pagamento (Firecrawl/Apify)
+    // parte solo se il fetch ufficiale è vuoto o un cookie shell.
     const allowPaidExtract = body.allow_paid_extract === true &&
       !!env("PERPLEXITY_API_KEY");
+    const allowPaidScrape = allowBackfillPaidScrape(
+      body.allow_paid_scrape,
+      !!env("FIRECRAWL_API_KEY"),
+      !!env("APIFY_TOKEN"),
+    );
     let paidCalls = 0;
     const nowIso = new Date().toISOString();
 
@@ -2279,12 +2293,22 @@ serve(async (req) => {
         page = shouldSkipApplyFetch(row.official_url)
           ? null
           : await directOfficialScrape(row.official_url, domain);
-        if (!page && stored) {
+        if (officialPageNeedsPaidScrape(page, isCookieConsentShell) && stored) {
           page = {
             markdown: stored,
             title: "",
             provider: "stored-excerpt",
           };
+        }
+        if (
+          officialPageNeedsPaidScrape(page, isCookieConsentShell) &&
+          !shouldSkipApplyFetch(row.official_url)
+        ) {
+          const paidBudget = createPaidBudget(allowPaidScrape);
+          page = await fallbackPaidOfficialPage(page, {
+            isCookieShell: isCookieConsentShell,
+            loadPage: () => loadPage(row.official_url, domain, paidBudget),
+          });
         }
         if (
           !page ||
@@ -2682,6 +2706,7 @@ serve(async (req) => {
         official_http: attempted,
         paid: paidCalls,
         allow_paid_extract: allowPaidExtract,
+        allow_paid_scrape: allowPaidScrape,
       },
       warnings: [
         ...(dryRun ? ["dry_run"] : []),
