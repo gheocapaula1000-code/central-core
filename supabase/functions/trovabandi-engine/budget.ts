@@ -1,7 +1,8 @@
 // UEradar.com — regole di spesa TrovaBandi (modulo puro).
 //
-// Paid providers (Firecrawl / Apify / Perplexity) solo quando il fetch
-// ufficiale fallisce o il documento non è leggibile. Nessun recrawl di
+// Paid providers (Firecrawl / Apify / Perplexity) quando il fetch ufficiale
+// fallisce, il documento non è leggibile, o (backfill_nulls) l'HTML è
+// leggibile ma eligible_ateco_prefixes resta vuoto. Nessun recrawl di
 // SCADUTO. Nessuna re-estrazione a pagamento di VERIFICATO già completi
 // o di SPORTELLO (misura ufficiale senza data di chiusura).
 // Dominio esclusivo: trovabandi-engine.
@@ -262,3 +263,91 @@ export async function fallbackPaidOfficialPage<
   return page;
 }
 
+
+/** Official ATECO prefixes still missing after local extract. Never invent. */
+export function atecoPrefixesEmpty(value: unknown): boolean {
+  if (!Array.isArray(value)) return true;
+  return value.map((item) => String(item).trim()).filter(Boolean).length === 0;
+}
+
+/**
+ * Queue rank for backfill_nulls: Veneto (region ilike) first, then
+ * NAZIONALE/EU, then the rest. Does not invent geo.
+ */
+export function backfillQueueRank(row: {
+  region?: string | null;
+  authority_level?: string | null;
+}): number {
+  const region = String(row.region ?? "").toLowerCase();
+  if (region.includes("veneto")) return 0;
+  const level = String(row.authority_level ?? "").trim().toUpperCase();
+  if (level === "NAZIONALE" || level === "EU") return 1;
+  return 2;
+}
+
+/** Stable merge of already last_seen-sorted pages, Veneto then national/EU then rest. */
+export function mergeBackfillPriorityPages<T extends { id?: unknown }>(
+  pages: T[][],
+  maxBatch: number,
+): T[] {
+  const cap = Number.isFinite(maxBatch) ? Math.max(1, Math.floor(maxBatch)) : 1;
+  const out: T[] = [];
+  const have = new Set<string>();
+  for (const page of pages) {
+    for (const row of page) {
+      const id = typeof row.id === "string" ? row.id : "";
+      if (id && have.has(id)) continue;
+      if (id) have.add(id);
+      out.push(row);
+      if (out.length >= cap) return out;
+    }
+  }
+  return out;
+}
+
+/** official_url first, then notice_url if distinct. Empty strings dropped. */
+export function backfillPaidAtecoUrls(
+  officialUrl: unknown,
+  noticeUrl?: unknown,
+): string[] {
+  const urls: string[] = [];
+  for (const value of [officialUrl, noticeUrl]) {
+    if (typeof value !== "string") continue;
+    const url = value.trim();
+    if (!url || urls.includes(url)) continue;
+    urls.push(url);
+  }
+  return urls;
+}
+
+/**
+ * After local extract left ATECO empty: spend loadPage on official_url
+ * and, if present, notice_url — even when HTTP HTML was already readable.
+ * Fail-closed: never invent prefixes. Caller enforces maxPaidScrapes=1.
+ */
+export async function fallbackPaidWhenAtecoEmpty<
+  T extends { markdown: string },
+>(
+  localAteco: string[],
+  opts: {
+    officialUrl: string;
+    noticeUrl?: string | null;
+    loadPage: (url: string) => Promise<T | null>;
+    extractAteco: (markdown: string) => string[];
+    isCookieShell?: (markdown: string) => boolean;
+  },
+): Promise<{ ateco: string[]; page: T | null }> {
+  if (!atecoPrefixesEmpty(localAteco)) {
+    return { ateco: [...localAteco], page: null };
+  }
+  let page: T | null = null;
+  for (const url of backfillPaidAtecoUrls(opts.officialUrl, opts.noticeUrl)) {
+    const next = await opts.loadPage(url);
+    if (!next || typeof next.markdown !== "string") continue;
+    if (opts.isCookieShell?.(next.markdown)) continue;
+    page = next;
+    const ateco = opts.extractAteco(next.markdown);
+    if (!atecoPrefixesEmpty(ateco)) return { ateco, page };
+  }
+  return { ateco: [], page };
+}
