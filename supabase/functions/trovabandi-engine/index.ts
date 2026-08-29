@@ -91,6 +91,9 @@ import {
   officialPageNeedsPaidScrape,
   allowBackfillPaidScrape,
   fallbackPaidOfficialPage,
+  atecoPrefixesEmpty,
+  fallbackPaidWhenAtecoEmpty,
+  mergeBackfillPriorityPages,
   type CatalogueRow,
   type PaidBudget,
 } from "./budget.ts";
@@ -1418,17 +1421,7 @@ async function directOfficialScrape(
  * Cache-first / direct-fetch-first: si tenta sempre prima l'HTTP ufficiale
  * diretto (costo provider zero) e solo dopo Firecrawl scrape e Apify.
  */
-async function loadPage(
-  url: string,
-  officialDomain: string,
-  budget?: PaidBudget,
-) {
-  const direct = await directOfficialScrape(url, officialDomain);
-  if (!officialPageNeedsPaidScrape(direct, isCookieConsentShell)) {
-    return direct;
-  }
-  if (!budget || !canSpendPaid(budget, "scrape")) return null;
-  spendPaid(budget, "scrape");
+async function paidProviderScrape(url: string): Promise<LoadedPage | null> {
   // Un solo slot a pagamento per run: Firecrawl, poi Apify se il primo
   // non legge il documento. Nessuna seconda coppia di chiamate.
   const variants = officialUrlVariants(url).slice(0, 2);
@@ -1441,6 +1434,20 @@ async function loadPage(
   const apify = await apifyScrape(variants[variants.length - 1] ?? url);
   if (!officialPageNeedsPaidScrape(apify, isCookieConsentShell)) return apify;
   return null;
+}
+
+async function loadPage(
+  url: string,
+  officialDomain: string,
+  budget?: PaidBudget,
+) {
+  const direct = await directOfficialScrape(url, officialDomain);
+  if (!officialPageNeedsPaidScrape(direct, isCookieConsentShell)) {
+    return direct;
+  }
+  if (!budget || !canSpendPaid(budget, "scrape")) return null;
+  spendPaid(budget, "scrape");
+  return paidProviderScrape(url);
 }
 
 /** Budget per run: nessuna esplosione del tempo di collect. */
@@ -2199,7 +2206,8 @@ serve(async (req) => {
 
     // Opt-in esplicito: usa l'estrattore Perplexity già esistente SOLO come
     // fallback sui campi ancora NULL. Lo scrape a pagamento (Firecrawl/Apify)
-    // parte solo se il fetch ufficiale è vuoto o un cookie shell.
+    // parte se il fetch ufficiale è vuoto/cookie shell, oppure se dopo
+    // l'estrazione locale eligible_ateco_prefixes è ancora vuoto.
     const allowPaidExtract = body.allow_paid_extract === true &&
       !!env("PERPLEXITY_API_KEY");
     const allowPaidScrape = allowBackfillPaidScrape(
@@ -2210,21 +2218,47 @@ serve(async (req) => {
     let paidCalls = 0;
     const nowIso = new Date().toISOString();
 
-    const { data: rows, error: selErr } = await sb
-      .from("trovabandi_opportunities")
-      .select(
-        "id, official_url, notice_url, deadline_at, min_grant_amount, max_grant_amount, total_budget, verification_status, raw_excerpt, last_seen_at, authority_level, application_url, forms_url, protocol_email, eligible_ateco_prefixes, region, province, municipality",
-      )
-      .in("verification_status", [...OPEN_VERIFICATION_STATUSES])
-      .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`)
-      .or(
-        "deadline_at.is.null,min_grant_amount.is.null,max_grant_amount.is.null,total_budget.is.null,application_url.is.null,forms_url.is.null,protocol_email.is.null,eligible_ateco_prefixes.eq.{},region.is.null,province.is.null,municipality.is.null",
-      )
-      .order("last_seen_at", { ascending: true, nullsFirst: true })
-      .limit(maxBatch);
+    const backfillSelect = () =>
+      sb
+        .from("trovabandi_opportunities")
+        .select(
+          "id, official_url, notice_url, deadline_at, min_grant_amount, max_grant_amount, total_budget, verification_status, raw_excerpt, last_seen_at, authority_level, application_url, forms_url, protocol_email, eligible_ateco_prefixes, region, province, municipality",
+        )
+        .in("verification_status", [...OPEN_VERIFICATION_STATUSES])
+        .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`)
+        .or(
+          "deadline_at.is.null,min_grant_amount.is.null,max_grant_amount.is.null,total_budget.is.null,application_url.is.null,forms_url.is.null,protocol_email.is.null,eligible_ateco_prefixes.eq.{},region.is.null,province.is.null,municipality.is.null",
+        )
+        .order("last_seen_at", { ascending: true, nullsFirst: true })
+        .limit(maxBatch);
 
-    if (selErr || !rows) {
+    // PostgREST cannot CASE-order Veneto then NAZIONALE/EU. Two-step select;
+    // merge in JS. max_batch stays the packet size (GHA default 1 for jpunn).
+    const { data: venetoRows, error: venetoErr } = await backfillSelect().ilike(
+      "region",
+      "%Veneto%",
+    );
+    if (venetoErr) {
       return response(500, { ok: false, code: "BACKFILL_SELECT_FAILED" });
+    }
+    let rows = mergeBackfillPriorityPages([venetoRows ?? []], maxBatch);
+    if (rows.length < maxBatch) {
+      const { data: nationalRows, error: nationalErr } = await backfillSelect()
+        .in("authority_level", ["NAZIONALE", "EU"]);
+      if (nationalErr) {
+        return response(500, { ok: false, code: "BACKFILL_SELECT_FAILED" });
+      }
+      rows = mergeBackfillPriorityPages(
+        [rows, nationalRows ?? []],
+        maxBatch,
+      );
+    }
+    if (rows.length < maxBatch) {
+      const { data: restRows, error: restErr } = await backfillSelect();
+      if (restErr || !restRows) {
+        return response(500, { ok: false, code: "BACKFILL_SELECT_FAILED" });
+      }
+      rows = mergeBackfillPriorityPages([rows, restRows], maxBatch);
     }
 
     const { data: territorialSources } = await sb
@@ -2300,11 +2334,11 @@ serve(async (req) => {
             provider: "stored-excerpt",
           };
         }
+        const paidBudget = createPaidBudget(allowPaidScrape);
         if (
           officialPageNeedsPaidScrape(page, isCookieConsentShell) &&
           !shouldSkipApplyFetch(row.official_url)
         ) {
-          const paidBudget = createPaidBudget(allowPaidScrape);
           page = await fallbackPaidOfficialPage(page, {
             isCookieShell: isCookieConsentShell,
             loadPage: () => loadPage(row.official_url, domain, paidBudget),
@@ -2393,7 +2427,34 @@ serve(async (req) => {
         const existingAteco = Array.isArray(row.eligible_ateco_prefixes)
           ? row.eligible_ateco_prefixes.map((item) => String(item))
           : [];
-        const ateco = localExtractAteco(page.markdown);
+        let ateco = localExtractAteco(page.markdown);
+        // Readable INDEX HTML without ATECO still spends one paid scrape
+        // (Firecrawl then Apify) on official_url and notice_url.
+        if (
+          atecoPrefixesEmpty(existingAteco) &&
+          atecoPrefixesEmpty(ateco) &&
+          canSpendPaid(paidBudget, "scrape")
+        ) {
+          const noticeCandidate =
+            (typeof patch.notice_url === "string" ? patch.notice_url : null) ||
+            noticeUrl ||
+            (typeof row.notice_url === "string" ? row.notice_url : null);
+          spendPaid(paidBudget, "scrape");
+          const paidAteco = await fallbackPaidWhenAtecoEmpty(ateco, {
+            officialUrl: row.official_url,
+            noticeUrl: noticeCandidate,
+            extractAteco: localExtractAteco,
+            isCookieShell: isCookieConsentShell,
+            loadPage: async (url) => {
+              if (shouldSkipApplyFetch(url)) return null;
+              // HTTP already readable: skip direct fetch, Firecrawl then Apify.
+              return paidProviderScrape(url);
+            },
+          });
+          if (!atecoPrefixesEmpty(paidAteco.ateco)) {
+            ateco = paidAteco.ateco;
+          }
+        }
         const sameAteco =
           existingAteco.length === ateco.length &&
           existingAteco.every((prefix) => ateco.includes(prefix)) &&

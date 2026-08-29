@@ -229,7 +229,8 @@ describe("collect/backfill ATECO wiring", () => {
   it("persist e backfill usano solo l'estrattore locale fail-closed", () => {
     expect(ENGINE).toContain("eligible_ateco_prefixes: localExtractAteco(proofText)");
     expect(ENGINE).toContain("eligible_ateco_prefixes.eq.{}");
-    expect(ENGINE).toContain("const ateco = localExtractAteco(page.markdown)");
+    expect(ENGINE).toContain("let ateco = localExtractAteco(page.markdown)");
+    expect(ENGINE).toContain("extractAteco: localExtractAteco");
     expect(ENGINE).not.toContain(
       "eligible_ateco_prefixes: safeTextArray(extracted.eligible_ateco_prefixes)",
     );
