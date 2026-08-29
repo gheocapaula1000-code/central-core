@@ -7,6 +7,7 @@ import {
   isHtmlContentType,
   isPdfContentType,
   officialUrlVariants,
+  atecoEvidenceWindow,
   pdfToEvidenceText,
   readLimitedBytes,
   readLimitedText,
@@ -155,6 +156,27 @@ describe("UEradar www fallback e PDF ufficiali", () => {
     expect(garbage.title).toBe("");
     const binary = await pdfToEvidenceText(new Uint8Array(4096).fill(0xff));
     expect(binary.text).toBe("");
+  });
+});
+
+describe("PDF evidence window around ATECO", () => {
+  it("preferisce la finestra ATECO ai primi 20k caratteri", () => {
+    const filler = "x".repeat(25_000);
+    const text = `${filler} Codice Ateco 2007 Sezione J Servizi di informazione e comunicazione`;
+    const window = atecoEvidenceWindow(text);
+    expect(window).toContain("Codice Ateco 2007");
+    expect(window).toContain("Sezione J");
+    expect(window.indexOf("Codice Ateco 2007")).toBeLessThan(600);
+  });
+
+  it("su PDF non compresso tiene il blocco ATECO anche dopo 20k di filler", async () => {
+    const filler = "n".repeat(22_000);
+    const body =
+      `BT (${filler}) Tj T* (Codice Ateco 2007 Sezione J Servizi di informazione e comunicazione) Tj ET`;
+    const pdf = `%PDF-1.4\n1 0 obj<</Length ${body.length}>>stream\n${body}\nendstream\nendobj\n%%EOF`;
+    const parsed = await pdfToEvidenceText(new TextEncoder().encode(pdf));
+    expect(parsed.text).toContain("Codice Ateco 2007");
+    expect(parsed.text).toContain("Sezione J");
   });
 });
 

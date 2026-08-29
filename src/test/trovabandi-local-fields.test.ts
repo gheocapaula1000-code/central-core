@@ -302,3 +302,50 @@ describe("collect/backfill requirements wiring", () => {
     expect(ENGINE).toContain("const exp = localExtractEligibleExpenses(page.markdown)");
   });
 });
+
+const VENETO_STARTUP_SEZIONI = `
+5. Settori economici ammessi
+5.1 Possono richiedere l'intervento del Fondo le Imprese che esercitano un'attivita
+economica classificata con codice ISTAT ATECO 2007 (aggiornamento 2022) primario
+rientrante nelle categorie di cui alla tabella di seguito riportata.
+Codice Ateco 2007
+Sezione Descrizione
+B            Estrazione di minerali da cave e miniere
+C             Attivita manifatturiere
+J            Servizi di informazione e comunicazione
+M             Attivita professionali, scientifiche e tecniche
+`.repeat(2);
+
+describe("localExtractAteco — tabella sezioni ISTAT 2007", () => {
+  it("mappa solo le lettere elencate: J→58-63, C→10-33, mai 04, mai L", () => {
+    const got = localExtractAteco(VENETO_STARTUP_SEZIONI);
+    expect(got).toContain("58");
+    expect(got).toContain("63");
+    expect(got).toContain("10");
+    expect(got).toContain("33");
+    expect(got).toContain("05");
+    expect(got).toContain("69");
+    expect(got).not.toContain("04");
+    expect(got).not.toContain("68");
+    expect(got).not.toContain("01");
+    expect(got.length).toBeGreaterThan(12);
+  });
+
+  it("non inventa sezioni da un elenco lettere senza tabella Codice Ateco/Sezione", () => {
+    expect(
+      localExtractAteco(
+        "sede operativa nel territorio regionale e con codice principale di attività ATECO 2007 riferito ai settori di seguito specificati: C ATTIVITA’ MANIFATTURIERE F COSTRUZIONI G COMMERCIO ALL’INGROSSO.",
+      ),
+    ).toEqual([]);
+  });
+
+  it("ignora la divisione 04 anche accanto a una keyword ATECO", () => {
+    expect(
+      localExtractAteco(
+        "Avviso pubblico. Codici ATECO 04.00 e 62.10 ammissibili per le imprese. ".repeat(
+          2,
+        ),
+      ),
+    ).toEqual(["62"]);
+  });
+});

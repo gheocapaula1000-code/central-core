@@ -93,6 +93,7 @@ import {
   fallbackPaidOfficialPage,
   atecoPrefixesEmpty,
   fallbackPaidWhenAtecoEmpty,
+  shouldPatchEligibleAteco,
   mergeBackfillPriorityPages,
   type CatalogueRow,
   type PaidBudget,
@@ -1487,11 +1488,16 @@ async function walkDetailTargets(opts: {
   declared?: string[];
   exclude: Iterable<string>;
   budget?: { remaining: number };
+  maxFetch?: number;
   stillNeeded: () => boolean;
   onPage: (target: string, detail: LoadedPage) => Promise<void> | void;
 }): Promise<number> {
   if (!opts.stillNeeded()) return 0;
   if (opts.budget && opts.budget.remaining <= 0) return 0;
+  const maxFetch = Math.max(
+    1,
+    Math.min(DETAIL_MAX_FETCH_PER_HIT, opts.maxFetch ?? DETAIL_MAX_FETCH_PER_HIT),
+  );
 
   const seen = new Set(
     [...opts.exclude].map((value) => canonicalDetailUrl(value)).filter(Boolean),
@@ -1516,7 +1522,7 @@ async function walkDetailTargets(opts: {
       officialDomain: opts.officialDomain,
       exclude: seen,
       declared: opts.declared,
-      limit: DETAIL_MAX_FETCH_PER_HIT,
+      limit: maxFetch,
     }),
     1,
   );
@@ -1524,7 +1530,7 @@ async function walkDetailTargets(opts: {
   let attempted = 0;
   while (queue.length > 0) {
     if (opts.budget && opts.budget.remaining <= 0) break;
-    if (attempted >= DETAIL_MAX_FETCH_PER_HIT) break;
+    if (attempted >= maxFetch) break;
     if (!opts.stillNeeded()) break;
     const item = queue.shift()!;
     if (opts.budget) opts.budget.remaining--;
@@ -1540,7 +1546,7 @@ async function walkDetailTargets(opts: {
           baseUrl: detail.finalUrl ?? item.url,
           officialDomain: opts.officialDomain,
           exclude: seen,
-          limit: DETAIL_MAX_FETCH_PER_HIT,
+          limit: maxFetch,
         }),
         item.hop + 1,
       );
@@ -2455,11 +2461,6 @@ serve(async (req) => {
             ateco = paidAteco.ateco;
           }
         }
-        const sameAteco =
-          existingAteco.length === ateco.length &&
-          existingAteco.every((prefix) => ateco.includes(prefix)) &&
-          ateco.every((prefix) => existingAteco.includes(prefix));
-        if (!sameAteco) patch.eligible_ateco_prefixes = ateco;
         const existingReq = Array.isArray(row.requirements) ? row.requirements : [];
         if (existingReq.length === 0) {
           const req = localExtractRequirements(page.markdown);
@@ -2506,10 +2507,9 @@ serve(async (req) => {
           }
         }
 
-        // Stessa regola del collect: se dopo la pagina ufficiale mancano
-        // ancora scadenza o qualunque importo, si segue in BFS fino a
-        // DETAIL_MAX_FETCH_PER_HIT link (max DETAIL_MAX_HOPS hop)
-        // dello stesso dominio. Nessun provider a pagamento, fail-closed.
+        // Scadenza/importi mancanti, oppure ATECO ancora vuoto: BFS sugli
+        // allegati ufficiale (Download?idAllegato= disposizioni/avviso/bando
+        // prima dei moduli). Nessun provider a pagamento, fail-closed.
         const missingDeadline = !sportelloSenzaScadenza &&
           row.deadline_at == null &&
           patch.deadline_at == null;
@@ -2517,9 +2517,16 @@ serve(async (req) => {
           patch.max_grant_amount == null &&
           row.total_budget == null &&
           patch.total_budget == null;
-        if (missingDeadline || missingAmounts) {
+        const missingAteco = atecoPrefixesEmpty(existingAteco) &&
+          atecoPrefixesEmpty(ateco);
+        if (missingDeadline || missingAmounts || missingAteco) {
           const detailNow = new Date();
-          const declared = [row.notice_url, row.application_url, row.forms_url]
+          const atecoOnly = missingAteco && !missingDeadline && !missingAmounts;
+          const declared = (
+            atecoOnly
+              ? [row.notice_url]
+              : [row.notice_url, row.application_url, row.forms_url]
+          )
             .map((value) => normalizeUrl(value))
             .filter(
               (url): url is string =>
@@ -2532,12 +2539,14 @@ serve(async (req) => {
             officialDomain: domain,
             declared,
             exclude: [row.official_url, page.finalUrl ?? row.official_url],
+            maxFetch: atecoOnly ? 4 : DETAIL_MAX_FETCH_PER_HIT,
             stillNeeded: () =>
               (row.deadline_at == null && patch.deadline_at == null) ||
               (row.max_grant_amount == null &&
                 patch.max_grant_amount == null &&
                 row.total_budget == null &&
-                patch.total_budget == null),
+                patch.total_budget == null) ||
+              (missingAteco && atecoPrefixesEmpty(ateco)),
             onPage: (_target, detail) => {
               if (row.deadline_at == null && patch.deadline_at == null) {
                 const hit = parseDeadline(detail.markdown, detailNow);
@@ -2557,6 +2566,10 @@ serve(async (req) => {
                 detailAmounts.total_budget
               ) {
                 patch.total_budget = detailAmounts.total_budget.value;
+              }
+              if (atecoPrefixesEmpty(ateco)) {
+                const fromDetail = localExtractAteco(detail.markdown);
+                if (!atecoPrefixesEmpty(fromDetail)) ateco = fromDetail;
               }
               if (
                 (!normalizeText(row.region) && !patch.region) ||
@@ -2587,6 +2600,9 @@ serve(async (req) => {
               }
             },
           });
+        }
+        if (shouldPatchEligibleAteco(existingAteco, ateco)) {
+          patch.eligible_ateco_prefixes = ateco;
         }
 
 

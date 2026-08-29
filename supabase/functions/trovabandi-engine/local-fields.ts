@@ -33,7 +33,8 @@ function isClassificationYear(raw: string): boolean {
 function isValidDivision(two: string): boolean {
   if (!/^\d{2}$/.test(two)) return false;
   const n = Number(two);
-  return n >= 1 && n <= 99;
+  // ISTAT ATECO 2007/2025: 01-03, 05-99. Division 04 does not exist.
+  return n >= 1 && n <= 99 && n !== 4;
 }
 
 function addDivision(found: Set<string>, two: string): boolean {
@@ -109,12 +110,112 @@ function nearby(text: string, index: number, radius = 80): string {
 }
 
 /**
+ * ISTAT ATECO 2007 section → division range. 04 does not exist.
+ * Used only when an official "Codice Ateco / Sezione" table lists letters.
+ */
+const ATECO_2007_SECTIONS: Record<string, [number, number]> = {
+  A: [1, 3],
+  B: [5, 9],
+  C: [10, 33],
+  D: [35, 35],
+  E: [36, 39],
+  F: [41, 43],
+  G: [45, 47],
+  H: [49, 53],
+  I: [55, 56],
+  J: [58, 63],
+  K: [64, 66],
+  L: [68, 68],
+  M: [69, 75],
+  N: [77, 82],
+  O: [84, 84],
+  P: [85, 85],
+  Q: [86, 88],
+  R: [90, 93],
+  S: [94, 96],
+  T: [97, 98],
+  U: [99, 99],
+};
+
+const SECTION_DESC: Record<string, RegExp> = {
+  A: /agricoltura,\s+silvicoltura|silvicoltura\s+e\s+pesca/i,
+  B: /estrazione\s+di\s+minerali|cave\s+e\s+miniere/i,
+  C: /manifatturier/i,
+  D: /energia\s+elettrica|gas,\s+vapore|aria\s+condizionata/i,
+  E: /fornitura\s+di\s+acqua|reti\s+fognarie|gestione\s+dei\s+rifiuti/i,
+  F: /costruzion/i,
+  G: /commercio\s+all['']ingrosso|riparazione\s+di\s+autoveicoli/i,
+  H: /trasporto\s+e\s+magazzinaggio/i,
+  I: /alloggio\s+e\s+di\s+ristorazione|servizi\s+di\s+alloggio/i,
+  J: /informazione\s+e\s+comunicazione/i,
+  K: /finanziarie\s+e\s+assicurative/i,
+  L: /attivit[aà]\s+immobiliari/i,
+  M: /professionali,\s+scientifiche|scientifiche\s+e\s+tecniche/i,
+  N: /noleggio|agenzie\s+di\s+viaggio|supporto\s+alle\s+imprese/i,
+  O: /amministrazione\s+pubblica/i,
+  P: /istruzione/i,
+  Q: /sanit[aà]\s+e\s+assistenza/i,
+  R: /artistiche,\s+sportive|intrattenimento\s+e\s+divertimento/i,
+  S: /altre\s+attivit[aà]\s+di\s+servizi/i,
+  T: /famiglie\s+e\s+convivenze|lavoratori\s+domestici/i,
+  U: /extraterritorial/i,
+};
+
+function divisionsForSection(letter: string): string[] {
+  const range = ATECO_2007_SECTIONS[letter];
+  if (!range) return [];
+  const out: string[] = [];
+  for (let n = range[0]; n <= range[1]; n++) {
+    if (n === 4) continue;
+    out.push(String(n).padStart(2, "0"));
+  }
+  return out;
+}
+
+function looksLikeAtecoSectionTable(markdown: string): boolean {
+  if (/settori\s+economici\s+ammess/i.test(markdown)) return true;
+  return (
+    /codice\s+ateco\s+2007/i.test(markdown) && /\bsezione(?:i)?\b/i.test(markdown)
+  );
+}
+
+/**
+ * Map listed ISTAT sezione letters to divisions. Fail-closed: only letters
+ * whose official description appears. Never invent unlisted letters. Cap
+ * is the union of listed sections (may exceed 12).
+ */
+function extractAtecoSectionTable(markdown: string): string[] {
+  if (!looksLikeAtecoSectionTable(markdown)) return [];
+  const codice = /codice\s+ateco\s+2007/i.exec(markdown);
+  const settori = /settori\s+economici\s+ammess/i.exec(markdown);
+  const origin = codice?.index ?? settori?.index ?? 0;
+  const table = markdown.slice(origin, origin + 5_000);
+  const found = new Set<string>();
+  // Standalone uppercase A-U only (not the A in ATECO / Alla / ALLEGATO A).
+  const cell = /(?<![A-Za-z])([A-U])(?![A-Za-z])/g;
+  let match: RegExpExecArray | null;
+  while ((match = cell.exec(table)) !== null) {
+    const letter = match[1];
+    const desc = SECTION_DESC[letter];
+    if (!desc) continue;
+    const from = Math.max(0, match.index - 160);
+    const rest = table.slice(from, match.index + 1 + 160);
+    if (!desc.test(rest)) continue;
+    for (const division of divisionsForSection(letter)) found.add(division);
+  }
+  return [...found].sort();
+}
+
+/**
  * Prefissi ATECO (divisione a 2 cifre) solo se il testo ufficiale li
  * attesta accanto a una keyword di classificazione. Fail-closed:
  * anni di edizione (2007/2025), decreti, "digitalizzazione PMI" → [].
+ * Tabella sezioni ISTAT (Codice Ateco 2007 / Sezione J …) → divisioni.
  */
 export function localExtractAteco(markdown: string): string[] {
   if (typeof markdown !== "string" || markdown.trim().length < 20) return [];
+  const fromTable = extractAtecoSectionTable(markdown);
+  if (fromTable.length) return fromTable;
   const found = new Set<string>();
   for (const hint of markdown.matchAll(ATECO_NEAR)) {
     const idx = hint.index ?? 0;

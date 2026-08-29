@@ -5,6 +5,7 @@ import {
   extractDetailLinksFromMarkdown,
   parseAmounts,
   parseDeadline,
+  scoreDetailCandidate,
 } from "../../supabase/functions/trovabandi-engine/detail.ts";
 
 const BASE = "https://bandi.regione.veneto.it/elenco";
@@ -110,5 +111,24 @@ describe("TrovaBandi — parseAmounts distingue contributo e dotazione", () => {
     );
     expect(amounts.total_budget?.value).toBe(2500000);
     expect(amounts.max_grant_amount).toBeUndefined();
+  });
+});
+
+describe("TrovaBandi — allegati Veneto Download?idAllegato=", () => {
+  it("mette disposizioni operative prima di moduli e schede sintetiche", () => {
+    const html = `
+      <a href="/Public/Download?idAllegato=33549">Scheda sintetica Sezione Start Up</a>
+      <a href="/Public/Download?idAllegato=31590">Modulo di domanda</a>
+      <a href="/Public/Download?idAllegato=31582">Disposizioni operative Start up</a>
+    `;
+    const links = extractDetailLinks(html, BASE, DOMAIN);
+    expect(links[0]?.url).toContain("idAllegato=31582");
+    const disp = scoreDetailCandidate(
+      "Disposizioni operative Start up https://bandi.regione.veneto.it/Public/Download?idAllegato=31582",
+    );
+    const modulo = scoreDetailCandidate(
+      "Modulo di domanda https://bandi.regione.veneto.it/Public/Download?idAllegato=31590",
+    );
+    expect(disp).toBeGreaterThan(modulo);
   });
 });

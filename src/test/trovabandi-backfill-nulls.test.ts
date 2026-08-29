@@ -372,11 +372,23 @@ describe("backfill_nulls cookie/empty falls back to paid scrape (source contract
 
   it("does not raise PDF CPU caps or change packet size", () => {
     const scrape = readFileSync("supabase/functions/trovabandi-engine/scrape.ts", "utf8");
-    expect(scrape).toContain("PDF_PARSE_MAX_BYTES = 400_000");
-    expect(scrape).toContain("PDF_MAX_FLATE_INFLATES = 4");
-    expect(scrape).toContain("PDF_EXTRACT_MAX_CHARS = 20_000");
+    expect(scrape).toContain("PDF_PARSE_MAX_BYTES = 800_000");
+    expect(scrape).toContain("PDF_MAX_FLATE_INFLATES = 12");
+    expect(scrape).toContain("PDF_EXTRACT_MAX_CHARS = 80_000");
     expect(body).toContain("Math.min(400, Math.max(1, Number(body.max_batch) || 250))");
     expect(ENGINE).toContain("DETAIL_MAX_FETCH_PER_HIT = 20");
     expect(ENGINE).toContain("DETAIL_MAX_HOPS = 6");
+  });
+});
+
+describe("backfill_nulls never overwrites filled ATECO with empty", () => {
+  it("uses shouldPatchEligibleAteco after allegati walk", () => {
+    const start = ENGINE.indexOf('if (action === "backfill_nulls")');
+    const end = ENGINE.indexOf('if (action === "enrich_apply_urls")');
+    const body = ENGINE.slice(start, end);
+    expect(body).toContain("shouldPatchEligibleAteco(existingAteco, ateco)");
+    expect(body).toContain("missingAteco");
+    expect(body).toContain("Download?idAllegato=");
+    expect(body).not.toContain("if (!sameAteco) patch.eligible_ateco_prefixes = ateco");
   });
 });
