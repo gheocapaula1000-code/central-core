@@ -140,13 +140,15 @@ describe("GitHub Actions TrovaBandi backfill fallback", () => {
     expect(yml).toContain("packet size not PDF depth");
     expect(yml).toContain("rounds");
     expect(yml).toContain("50 6-16 * * 1-5");
+    expect(yml).toContain("20 6-16 * * 1-5");
     expect(yml).toContain("20 23 * * 0-4");
     expect(yml).toContain("Capping max_batch");
     expect(yml).toContain("OK_ROUNDS");
+    expect(yml).toContain("timeout-minutes: 22");
   });
 
-  it("stops only on processed=0 so cookie rotates continue, sleeps 20s, defaults 6 rounds", () => {
-    expect(yml).toContain('default: "6"');
+  it("stops only on processed=0 so cookie rotates continue, sleeps 20s, defaults 12 rounds", () => {
+    expect(yml).toContain('default: "12"');
     expect(yml).toContain("sleep 20");
     expect(yml).toContain('[ "${PROCESSED}" = "0" ]');
     expect(yml).not.toContain('[ "${UPDATED}" = "0" ]');
