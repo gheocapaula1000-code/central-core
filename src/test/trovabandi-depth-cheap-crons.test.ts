@@ -106,10 +106,10 @@ describe("TrovaBandi engine cheap-first wiring", () => {
     expect(selection).not.toContain("perplexitySearch(");
   });
 
-  it("scava in BFS fino a 8 fetch per hit e usa collectDetailTargets", () => {
-    expect(ENGINE).toContain("DETAIL_MAX_FETCH_PER_HIT = 8");
-    expect(ENGINE).toContain("DETAIL_MAX_FETCH_PER_RUN = 40");
-    expect(ENGINE).toContain("DETAIL_MAX_HOPS = 3");
+  it("scava in BFS fino a 20 fetch per hit e usa collectDetailTargets", () => {
+    expect(ENGINE).toContain("DETAIL_MAX_FETCH_PER_HIT = 20");
+    expect(ENGINE).toContain("DETAIL_MAX_FETCH_PER_RUN = 60");
+    expect(ENGINE).toContain("DETAIL_MAX_HOPS = 6");
     expect(ENGINE).toContain("collectDetailTargets");
     expect(ENGINE).toContain("walkDetailTargets");
   });
