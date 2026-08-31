@@ -1479,7 +1479,8 @@ function canonicalDetailUrl(url: string): string {
 /**
  * BFS fail-closed sulle pagine/PDF di dettaglio dello stesso dominio.
  * Al massimo DETAIL_MAX_FETCH_PER_HIT fetch per hit e DETAIL_MAX_HOPS hop.
- * Nessun provider a pagamento. Restituisce il numero di fetch tentati.
+ * HTTP first; if paidBudget is passed, loadPage may Firecrawl a cookie/empty
+ * allegato. Restituisce il numero di fetch tentati.
  */
 async function walkDetailTargets(opts: {
   html: string;
@@ -1489,6 +1490,7 @@ async function walkDetailTargets(opts: {
   declared?: string[];
   exclude: Iterable<string>;
   budget?: { remaining: number };
+  paidBudget?: PaidBudget;
   maxFetch?: number;
   stillNeeded: () => boolean;
   onPage: (target: string, detail: LoadedPage) => Promise<void> | void;
@@ -1536,7 +1538,9 @@ async function walkDetailTargets(opts: {
     const item = queue.shift()!;
     if (opts.budget) opts.budget.remaining--;
     attempted++;
-    const detail = await directOfficialScrape(item.url, opts.officialDomain);
+    const detail = opts.paidBudget
+      ? await loadPage(item.url, opts.officialDomain, opts.paidBudget)
+      : await directOfficialScrape(item.url, opts.officialDomain);
     if (!detail) continue;
     await opts.onPage(item.url, detail);
     if (opts.stillNeeded() && item.hop < DETAIL_MAX_HOPS) {
@@ -2525,7 +2529,8 @@ serve(async (req) => {
 
         // Scadenza/importi mancanti, oppure ATECO ancora vuoto: BFS sugli
         // allegati ufficiale (Download?idAllegato= disposizioni/avviso/bando
-        // prima dei moduli). Nessun provider a pagamento, fail-closed.
+        // prima dei moduli). HTTP first; Firecrawl/Apify only if the allegato
+        // is a cookie/empty shell and paidBudget still has scrape room.
         const missingDeadline = !sportelloSenzaScadenza &&
           row.deadline_at == null &&
           patch.deadline_at == null;
@@ -2549,6 +2554,9 @@ serve(async (req) => {
               (url): url is string =>
                 !!url && isAllowedOfficialUrl(url, domain),
             );
+          if (missingAmounts && paidBudget.allowPaid) {
+            paidBudget.maxPaidScrapes = Math.max(paidBudget.maxPaidScrapes, 2);
+          }
           await walkDetailTargets({
             html: page.html ?? "",
             markdown: page.markdown,
@@ -2556,6 +2564,7 @@ serve(async (req) => {
             officialDomain: domain,
             declared,
             exclude: [row.official_url, page.finalUrl ?? row.official_url],
+            paidBudget: missingAmounts || missingDeadline ? paidBudget : undefined,
             maxFetch: atecoOnly ? 4 : DETAIL_MAX_FETCH_PER_HIT,
             stillNeeded: () =>
               (row.deadline_at == null && patch.deadline_at == null) ||
