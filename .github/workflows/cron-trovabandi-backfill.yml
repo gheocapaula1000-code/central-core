@@ -8,15 +8,17 @@ name: Cron TrovaBandi backfill
 #
 # Live engine idle timeout is 150s: one round of 8 succeeds (~24s), 40 504s.
 # Hourly weekday rounds of 8. Never echo CENTRAL_CORE_JOB_SECRET.
-# max_batch is a packet size, not official-PDF BFS depth (engine DETAIL_MAX_FETCH_PER_HIT=8).
+# max_batch is a packet size, not official-PDF BFS depth (engine DETAIL_MAX_FETCH_PER_HIT=20).
 # After PR 71 cookie/empty rotates increment skipped, not updated — stop only when processed=0.
 # Sleep ~20s between rounds so the Lovable worker can reclaim memory (HTTP 546 WORKER_RESOURCE_LIMIT).
-# Default 6 rounds: 15 stacked on one worker OOM'd. Input still overridable.
+# Default 12 rounds of packet size 1: 15 stacked on one worker OOM'd. Input still overridable.
 
 on:
   schedule:
     # Weekdays 08:50–18:50 Europe/Rome (CEST = UTC+2)
     - cron: "50 6-16 * * 1-5"
+    # Weekdays 08:20–18:20 Europe/Rome — second wave, same packet size 1
+    - cron: "20 6-16 * * 1-5"
     # 01:20 Europe/Rome weekdays — backup if jpunn pg_cron 01:10 missed
     - cron: "20 23 * * 0-4"
   workflow_dispatch:
@@ -27,10 +29,10 @@ on:
         type: string
         default: "1"
       rounds:
-        description: "How many rounds of max_batch in this job (default 6; safer for one Lovable worker)"
+        description: "How many rounds of max_batch in this job (default 12; packet stays 1)"
         required: false
         type: string
-        default: "6"
+        default: "12"
 
 permissions:
   contents: read
@@ -43,14 +45,14 @@ jobs:
   backfill:
     name: TrovaBandi backfill
     runs-on: ubuntu-latest
-    timeout-minutes: 16
+    timeout-minutes: 22
     steps:
       - name: POST trovabandi-engine status then backfill_nulls rounds
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           JOB_SECRET: ${{ secrets.CENTRAL_CORE_JOB_SECRET }}
           MAX_BATCH: ${{ github.event.inputs.max_batch || '1' }}
-          ROUNDS: ${{ github.event.inputs.rounds || '6' }}
+          ROUNDS: ${{ github.event.inputs.rounds || '12' }}
         run: |
           set -euo pipefail
           if [ -z "${SUPABASE_URL:-}" ] || [ -z "${JOB_SECRET:-}" ]; then
@@ -76,16 +78,16 @@ jobs:
             N=1
           fi
           # Live jpunn returns HTTP 546 CPU Time exceeded unless the packet is 1.
-          # DETAIL_MAX_FETCH_PER_HIT stays 8 (PDF depth is unchanged; only packet size drops).
+          # DETAIL_MAX_FETCH_PER_HIT stays 20 (PDF depth is unchanged; only packet size drops).
           # Live jpunn idle-timeout 150s: 40 504s, 8 succeeds. Cap until engine budget is published.
           if [ "${N}" -gt 8 ]; then
             echo "Capping max_batch ${N} -> 8 (live 150s idle timeout)"
             N=8
           fi
-          R="${ROUNDS:-6}"
+          R="${ROUNDS:-12}"
           if ! [[ "${R}" =~ ^[0-9]+$ ]] || [ "${R}" -lt 1 ]; then
-            echo "Invalid rounds '${R}', using 6"
-            R=6
+            echo "Invalid rounds '${R}', using 12"
+            R=12
           fi
           if [ "${R}" -gt 20 ]; then
             echo "Capping rounds ${R} -> 20"
