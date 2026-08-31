@@ -95,6 +95,7 @@ import {
   fallbackPaidWhenAtecoEmpty,
   shouldPatchEligibleAteco,
   mergeBackfillPriorityPages,
+  assembleBackfillPacket,
   type CatalogueRow,
   type PaidBudget,
 } from "./budget.ts";
@@ -2238,33 +2239,48 @@ serve(async (req) => {
         .order("last_seen_at", { ascending: true, nullsFirst: true })
         .limit(maxBatch);
 
-    // PostgREST cannot CASE-order Veneto then NAZIONALE/EU. Two-step select;
-    // merge in JS. max_batch stays the packet size (GHA default 1 for jpunn).
-    const { data: venetoRows, error: venetoErr } = await backfillSelect().ilike(
-      "region",
-      "%Veneto%",
-    );
-    if (venetoErr) {
-      return response(500, { ok: false, code: "BACKFILL_SELECT_FAILED" });
-    }
-    let rows = mergeBackfillPriorityPages([venetoRows ?? []], maxBatch);
-    if (rows.length < maxBatch) {
-      const { data: nationalRows, error: nationalErr } = await backfillSelect()
+    // PostgREST cannot CASE-order. Two-step select; merge in JS.
+    // Packet 1: missing max_grant_amount (PWA importo), Veneto then
+    // NAZIONALE/EU then rest. Packet 2: other nulls (email/forms/geo).
+    // max_batch stays the packet size (GHA default 1 for jpunn).
+    const fetchBackfillPages = async (importoOnly: boolean) => {
+      const q = () =>
+        importoOnly
+          ? backfillSelect().is("max_grant_amount", null)
+          : backfillSelect();
+      const { data: venetoRows, error: venetoErr } = await q().ilike(
+        "region",
+        "%Veneto%",
+      );
+      if (venetoErr) return { error: venetoErr, pages: [] as any[][] };
+      const { data: nationalRows, error: nationalErr } = await q()
         .in("authority_level", ["NAZIONALE", "EU"]);
       if (nationalErr) {
+        return { error: nationalErr, pages: [] as any[][] };
+      }
+      const { data: restRows, error: restErr } = await q();
+      if (restErr) return { error: restErr, pages: [] as any[][] };
+      return {
+        error: null,
+        pages: [venetoRows ?? [], nationalRows ?? [], restRows ?? []],
+      };
+    };
+
+    const missingImporto = await fetchBackfillPages(true);
+    if (missingImporto.error) {
+      return response(500, { ok: false, code: "BACKFILL_SELECT_FAILED" });
+    }
+    let rows = mergeBackfillPriorityPages(missingImporto.pages, maxBatch);
+    if (rows.length < maxBatch) {
+      const otherNulls = await fetchBackfillPages(false);
+      if (otherNulls.error) {
         return response(500, { ok: false, code: "BACKFILL_SELECT_FAILED" });
       }
-      rows = mergeBackfillPriorityPages(
-        [rows, nationalRows ?? []],
+      rows = assembleBackfillPacket(
+        missingImporto.pages,
+        otherNulls.pages,
         maxBatch,
       );
-    }
-    if (rows.length < maxBatch) {
-      const { data: restRows, error: restErr } = await backfillSelect();
-      if (restErr || !restRows) {
-        return response(500, { ok: false, code: "BACKFILL_SELECT_FAILED" });
-      }
-      rows = mergeBackfillPriorityPages([rows, restRows], maxBatch);
     }
 
     const { data: territorialSources } = await sb

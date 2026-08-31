@@ -326,6 +326,23 @@ export function mergeBackfillPriorityPages<T extends { id?: unknown }>(
   return out;
 }
 
+
+/**
+ * Packet for backfill_nulls: rows missing max_grant_amount (PWA importo)
+ * first, then other nulls. Pages inside each group are already
+ * Veneto → NAZIONALE/EU → rest. Dedupes ids. Does not invent amounts.
+ */
+export function assembleBackfillPacket<T extends { id?: unknown }>(
+  missingImportoPages: T[][],
+  otherNullPages: T[][],
+  maxBatch: number,
+): T[] {
+  const first = mergeBackfillPriorityPages(missingImportoPages, maxBatch);
+  const cap = Number.isFinite(maxBatch) ? Math.max(1, Math.floor(maxBatch)) : 1;
+  if (first.length >= cap) return first;
+  return mergeBackfillPriorityPages([first, ...otherNullPages], maxBatch);
+}
+
 /** official_url first, then notice_url if distinct. Empty strings dropped. */
 export function backfillPaidAtecoUrls(
   officialUrl: unknown,

@@ -9,6 +9,7 @@ import {
   fallbackPaidOfficialPage,
   fallbackPaidWhenAtecoEmpty,
   mergeBackfillPriorityPages,
+  assembleBackfillPacket,
   officialPageNeedsPaidScrape,
   shouldPatchEligibleAteco,
 } from "../../supabase/functions/trovabandi-engine/budget.ts";
@@ -194,6 +195,21 @@ describe("backfill queue: Veneto then NAZIONALE/EU then rest", () => {
       "n1",
     ]);
   });
+
+  it("picks a Veneto row missing importo before a Veneto row missing only email", () => {
+    const missingImporto = [
+      [{ id: "importo-veneto", region: "Veneto", max_grant_amount: null }],
+    ];
+    const otherNulls = [
+      [{ id: "email-veneto", region: "Veneto", max_grant_amount: 150000 }],
+    ];
+    expect(
+      assembleBackfillPacket(missingImporto, otherNulls, 1).map((r) => r.id),
+    ).toEqual(["importo-veneto"]);
+    expect(
+      assembleBackfillPacket(missingImporto, otherNulls, 2).map((r) => r.id),
+    ).toEqual(["importo-veneto", "email-veneto"]);
+  });
 });
 
 describe("readable HTML without ATECO still triggers paid scrape", () => {
@@ -291,7 +307,10 @@ describe("engine wiring (no live APIs)", () => {
     expect(localAt).toBeGreaterThan(-1);
     expect(paidAt).toBeGreaterThan(localAt);
     expect(engine).toContain("paidProviderScrape(url)");
-    expect(engine).toContain('ilike(\n      "region",\n      "%Veneto%",\n    )');
+    expect(engine).toContain("fetchBackfillPages");
+    expect(engine).toContain(".is(\"max_grant_amount\", null)");
+    expect(engine).toContain("%Veneto%");
+    expect(engine).toContain("assembleBackfillPacket");
   });
 
   it("does not raise PDF parse caps or packet default", () => {
