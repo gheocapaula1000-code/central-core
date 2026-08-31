@@ -320,6 +320,19 @@ describe("engine wiring (no live APIs)", () => {
     expect(engine).toContain("Number(body.max_batch) || 250");
     expect(engine).toContain("DETAIL_MAX_FETCH_PER_HIT = 20");
   });
+
+  it("walkDetailTargets Firecrawls cookie allegati when importo/scadenza missing", () => {
+    expect(engine).toContain("paidBudget?: PaidBudget");
+    expect(engine).toContain(
+      "await loadPage(item.url, opts.officialDomain, opts.paidBudget)",
+    );
+    expect(engine).toContain(
+      "paidBudget.maxPaidScrapes = Math.max(paidBudget.maxPaidScrapes, 2)",
+    );
+    expect(engine).toContain(
+      "paidBudget: missingAmounts || missingDeadline ? paidBudget : undefined",
+    );
+  });
 });
 
 describe("shouldPatchEligibleAteco", () => {
