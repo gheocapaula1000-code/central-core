@@ -392,3 +392,17 @@ describe("backfill_nulls never overwrites filled ATECO with empty", () => {
     expect(body).not.toContain("if (!sameAteco) patch.eligible_ateco_prefixes = ateco");
   });
 });
+
+describe("backfill_nulls missing importo still opens allegati", () => {
+  it("walks Download?idAllegato when max_grant is null even if total_budget is set", () => {
+    const start = ENGINE.indexOf('if (action === "backfill_nulls")');
+    const end = ENGINE.indexOf('if (action === "enrich_apply_urls")');
+    const body = ENGINE.slice(start, end);
+    expect(body).toContain("const missingAmounts = row.max_grant_amount == null &&");
+    expect(body).toContain("patch.max_grant_amount == null;");
+    expect(body).not.toContain(
+      "const missingAmounts = row.max_grant_amount == null &&\n          patch.max_grant_amount == null &&\n          row.total_budget == null &&\n          patch.total_budget == null;",
+    );
+    expect(body).toContain("Download?idAllegato=");
+  });
+});

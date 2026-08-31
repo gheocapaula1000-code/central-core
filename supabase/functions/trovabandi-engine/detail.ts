@@ -656,14 +656,14 @@ function isMissing(value: unknown): boolean {
   return false;
 }
 
-/** Serve un fetch di dettaglio solo se manca la scadenza o ogni importo. */
+/** Serve un fetch di dettaglio se manca la scadenza o l'importo (max_grant).
+ * total_budget da solo non chiude la scheda PWA: manca importo_max. */
 export function needsDetailEnrichment(
   extracted: Record<string, unknown>,
 ): boolean {
   const noDeadline = isMissing(extracted.deadline_at);
-  const noAmount =
-    isMissing(extracted.max_grant_amount) && isMissing(extracted.total_budget);
-  return noDeadline || noAmount;
+  const noImporto = isMissing(extracted.max_grant_amount);
+  return noDeadline || noImporto;
 }
 
 export interface DetailMergeResult {

@@ -131,13 +131,16 @@ describe("UEradar — importi da testo ufficiale", () => {
 });
 
 describe("UEradar — merge fail-closed", () => {
-  it("richiede il dettaglio solo se manca scadenza o ogni importo", () => {
+  it("richiede il dettaglio se manca scadenza o importo (max_grant), anche con total_budget", () => {
     expect(needsDetailEnrichment({ deadline_at: null, max_grant_amount: 1 })).toBe(true);
     expect(
       needsDetailEnrichment({ deadline_at: "2026-10-01T00:00:00Z", max_grant_amount: null, total_budget: null }),
     ).toBe(true);
     expect(
       needsDetailEnrichment({ deadline_at: "2026-10-01T00:00:00Z", total_budget: 1000 }),
+    ).toBe(true);
+    expect(
+      needsDetailEnrichment({ deadline_at: "2026-10-01T00:00:00Z", max_grant_amount: 50_000, total_budget: 1000 }),
     ).toBe(false);
   });
 

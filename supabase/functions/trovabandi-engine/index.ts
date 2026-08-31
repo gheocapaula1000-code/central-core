@@ -2513,10 +2513,11 @@ serve(async (req) => {
         const missingDeadline = !sportelloSenzaScadenza &&
           row.deadline_at == null &&
           patch.deadline_at == null;
+        // Importo = max_grant_amount (PWA importo_max). total_budget da solo
+        // non deve saltare gli allegati PDF: molte schede Veneto hanno la
+        // dotazione ma manca il massimale per operazione.
         const missingAmounts = row.max_grant_amount == null &&
-          patch.max_grant_amount == null &&
-          row.total_budget == null &&
-          patch.total_budget == null;
+          patch.max_grant_amount == null;
         const missingAteco = atecoPrefixesEmpty(existingAteco) &&
           atecoPrefixesEmpty(ateco);
         if (missingDeadline || missingAmounts || missingAteco) {
@@ -2543,9 +2544,7 @@ serve(async (req) => {
             stillNeeded: () =>
               (row.deadline_at == null && patch.deadline_at == null) ||
               (row.max_grant_amount == null &&
-                patch.max_grant_amount == null &&
-                row.total_budget == null &&
-                patch.total_budget == null) ||
+                patch.max_grant_amount == null) ||
               (missingAteco && atecoPrefixesEmpty(ateco)),
             onPage: (_target, detail) => {
               if (row.deadline_at == null && patch.deadline_at == null) {
