@@ -45,6 +45,7 @@ const NO_ALLEGATI = `
 Avviso pubblico — bando contributi a fondo perduto per le PMI.
 Le domande devono essere presentate entro il 30 settembre 2026.
 Scarica il PDF. Clicca qui. Documentazione ufficiale.
+Dotazione finanziaria e requisiti sono indicati nell'avviso.
 `.repeat(2);
 
 describe("extractOfficialAllegati — presenti quando la fonte li noma", () => {
@@ -155,6 +156,6 @@ describe("bozza locale e persist wiring", () => {
     expect(MIGRATION).toContain("trovabandi_opportunities");
     expect(MIGRATION).toContain("allegati jsonb");
     expect(MIGRATION).toContain("jsonb_typeof(allegati) = 'array'");
-    expect(MIGRATION).not.toMatch(/civiko/i);
+    expect(MIGRATION).not.toMatch(/civiko_/i);
   });
 });

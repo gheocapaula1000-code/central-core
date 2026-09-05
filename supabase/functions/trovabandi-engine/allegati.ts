@@ -34,7 +34,7 @@ const ALLEGATO_LABEL =
   /\ballegato\s+(?:[a-z]|\d{1,2}|[ivxlcdm]{1,6})\b|\bmodulistica\b|\bmodulo\s+di\s+(?:domanda|partecipazione|adesione|candidatura|richiesta)\b|\bfac(?:-| )?simile\b|\bformulario(?:\s+di\s+domanda)?\b/i;
 
 const OBBLIGATORIO =
-  /\b(?:obbligator[ioae]|a\s+pena\s+di\s+esclusione|pena\s+di\s+inammissibilit|must\s+be\s+(?:attached|submitted)|required)\b/i;
+  /\b(?:obbligator\w*|a\s+pena\s+di\s+esclusione|pena\s+di\s+inammissibilit|must\s+be\s+(?:attached|submitted)|required)\b/i;
 const FACOLTATIVO =
   /\b(?:facoltativ[oaie]|eventuale|optional|non\s+obbligator)\b/i;
 
@@ -62,12 +62,17 @@ function nearby(text: string, index: number, radius = 80): string {
   return text.slice(Math.max(0, index - radius), Math.min(text.length, index + radius));
 }
 
+const STATUS_WORD =
+  /obbligator\w*|facoltativ\w*|eventuale|optional|required/;
+
 function cleanNome(raw: string): string | null {
   let nome = stripTags(raw)
     .replace(/\s+/g, " ")
     .replace(/[.;,]+$/, "")
-    .replace(/\((?:obbligator[ioae]|facoltativ[oaie]|eventuale|optional|required)\)/gi, "")
-    .replace(/\b(?:obbligator[ioae]|facoltativ[oaie]|eventuale)\b/gi, "")
+    .replace(new RegExp(`\\(\\s*(?:${STATUS_WORD.source})\\s*\\)`, "gi"), "")
+    .replace(new RegExp(`\\b(?:${STATUS_WORD.source})\\b`, "gi"), "")
+    .replace(/\(\s*\)/g, "")
+    .replace(/\s+[).]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
   if (nome.length < 4 || nome.length > MAX_NOME) return null;
@@ -219,7 +224,18 @@ function extractLabeledLinks(
       const rawHref = (match[3] ?? match[4] ?? match[5] ?? "").trim();
       const label = stripTags(match[7] ?? "").slice(0, 240);
       const context = nearby(html, match.index ?? 0, 90);
-      considerLink(bucket, rawHref, label, context, officialDomain, officialUrlValue);
+      const after = html.slice(
+        (match.index ?? 0) + match[0].length,
+        (match.index ?? 0) + match[0].length + 80,
+      );
+      considerLink(
+        bucket,
+        rawHref,
+        label,
+        `${context} ${stripTags(after)}`,
+        officialDomain,
+        officialUrlValue,
+      );
       if (bucket.size >= MAX_ALLEGATI) return;
     }
   }
