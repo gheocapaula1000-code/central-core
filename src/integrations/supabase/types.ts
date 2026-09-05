@@ -8873,6 +8873,7 @@ export type Database = {
       trovabandi_opportunities: {
         Row: {
           aid_intensity_percent: number | null
+          allegati: Json
           application_url: string | null
           authority_level: string
           authority_name: string
@@ -8931,6 +8932,7 @@ export type Database = {
         }
         Insert: {
           aid_intensity_percent?: number | null
+          allegati?: Json
           application_url?: string | null
           authority_level: string
           authority_name: string
@@ -8989,6 +8991,7 @@ export type Database = {
         }
         Update: {
           aid_intensity_percent?: number | null
+          allegati?: Json
           application_url?: string | null
           authority_level?: string
           authority_name?: string

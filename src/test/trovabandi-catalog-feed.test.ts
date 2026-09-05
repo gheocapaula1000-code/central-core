@@ -122,6 +122,22 @@ describe("catalog match — nessuna invenzione", () => {
     expect(mapped).not.toHaveProperty("eligible_ateco_codes");
   });
 
+  it("emette allegati solo se l'array ufficiale non è vuoto", () => {
+    const withAllegati = mapCatalogBando({
+      ...OFFICIAL_OPEN,
+      allegati: [
+        { nome: "Allegato A — Modulo di domanda", obbligatorio: true },
+      ],
+    });
+    expect(withAllegati.allegati).toEqual([
+      { nome: "Allegato A — Modulo di domanda", obbligatorio: true },
+    ]);
+    expect(mapCatalogBando({ ...OFFICIAL_OPEN, allegati: [] })).not.toHaveProperty(
+      "allegati",
+    );
+    expect(CATALOG_SELECT_COLUMNS).toContain("allegati");
+  });
+
   it("omette modulistica_url quando forms_url è vuoto", () => {
     const mapped = mapCatalogBando({ ...OFFICIAL_OPEN, forms_url: null });
     expect(mapped).not.toHaveProperty("modulistica_url");

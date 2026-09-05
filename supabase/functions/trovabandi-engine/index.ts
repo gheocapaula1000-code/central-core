@@ -99,6 +99,7 @@ import {
   type CatalogueRow,
   type PaidBudget,
 } from "./budget.ts";
+import { extractOfficialAllegati } from "./allegati.ts";
 import {
   extractApplyLinks,
   isFillablePdfUrl,
@@ -305,6 +306,19 @@ const extractionSchema = {
         consortium_required: { type: ["boolean", "null"] },
         min_partners: { type: ["integer", "null"] },
         direct_applicant_allowed: { type: ["boolean", "null"] },
+        allegati: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["nome", "obbligatorio"],
+            properties: {
+              nome: { type: "string" },
+              url: { type: ["string", "null"] },
+              obbligatorio: { type: "boolean" },
+            },
+          },
+        },
       },
     },
   },
@@ -1878,8 +1892,8 @@ async function extractOpportunity(
   const key = env("PERPLEXITY_API_KEY");
   if (!key) return { ok: false, code: "NO_KEY" };
   const model = env("TROVABANDI_PERPLEXITY_MODEL") || "sonar-pro";
-  const schemaHint = `Campi ammessi: is_opportunity (boolean), title, authority_name, category (uno tra FONDO_PERDUTO, FINANZIAMENTO_AGEVOLATO, TASSO_ZERO, CREDITO_IMPOSTA, GARANZIA, VOUCHER, IMPRENDITORIA_FEMMINILE, IMPRENDITORIA_GIOVANILE, DIGITALIZZAZIONE, TRANSIZIONE_ENERGETICA, RICERCA_SVILUPPO, INTERNAZIONALIZZAZIONE, STARTUP_INNOVAZIONE, FORMAZIONE_OCCUPAZIONE, AGRICOLTURA_RURALE, TURISMO_CULTURA, ECONOMIA_CIRCOLARE, ALTRO), summary, official_url, notice_url, application_url, forms_url, protocol_email, region, province, municipality, eligible_ateco_prefixes[], excluded_ateco_prefixes[], eligible_legal_forms[], eligible_company_sizes[], female_only, youth_only, startup_only, innovative_only, de_minimis, aid_intensity_percent, min_grant_amount, max_grant_amount, total_budget, opens_at, deadline_at, click_day, requirements[], eligible_expenses[], publication_reference, programme_name, programme_code, pnrr_mission, pnrr_component, implementing_body, eligible_countries[], consortium_required, min_partners, direct_applicant_allowed.`;
-  const prompt = `Estrai esclusivamente dati presenti nel testo ufficiale seguente. Non dedurre requisiti, date, importi, percentuali o ATECO mancanti. Non inventare 62 / 62.10.00 da "digitale/software/innovazione". Un prefisso ATECO solo se il testo stampa il codice. Se l'avviso è a sportello senza data di chiusura (a sportello, fino a esaurimento, senza scadenza, non ha scadenza), lascia deadline_at null: non inventare una scadenza. Se la pagina non descrive un bando, incentivo o finanziamento per imprese aperto, in apertura o con documentazione ancora rilevante, imposta is_opportunity=false. official_url deve essere ${hit.url}. Date ISO 8601. Prefissi ATECO senza punteggiatura superflua. Per opportunità UE estrai programma, codice call/topic, Paesi ammessi e obbligo/minimo partner. Per PNRR estrai Missione, Componente e soggetto attuatore soltanto se espliciti.\n${schemaHint}\n\n${markdown}`;
+  const schemaHint = `Campi ammessi: is_opportunity (boolean), title, authority_name, category (uno tra FONDO_PERDUTO, FINANZIAMENTO_AGEVOLATO, TASSO_ZERO, CREDITO_IMPOSTA, GARANZIA, VOUCHER, IMPRENDITORIA_FEMMINILE, IMPRENDITORIA_GIOVANILE, DIGITALIZZAZIONE, TRANSIZIONE_ENERGETICA, RICERCA_SVILUPPO, INTERNAZIONALIZZAZIONE, STARTUP_INNOVAZIONE, FORMAZIONE_OCCUPAZIONE, AGRICOLTURA_RURALE, TURISMO_CULTURA, ECONOMIA_CIRCOLARE, ALTRO), summary, official_url, notice_url, application_url, forms_url, protocol_email, region, province, municipality, eligible_ateco_prefixes[], excluded_ateco_prefixes[], eligible_legal_forms[], eligible_company_sizes[], female_only, youth_only, startup_only, innovative_only, de_minimis, aid_intensity_percent, min_grant_amount, max_grant_amount, total_budget, opens_at, deadline_at, click_day, requirements[], eligible_expenses[], allegati[{nome, url?, obbligatorio}], publication_reference, programme_name, programme_code, pnrr_mission, pnrr_component, implementing_body, eligible_countries[], consortium_required, min_partners, direct_applicant_allowed. allegati solo se il testo ufficiale noma l'allegato: mai inventare nomi file.`;
+  const prompt = `Estrai esclusivamente dati presenti nel testo ufficiale seguente. Non dedurre requisiti, date, importi, percentuali, ATECO o allegati mancanti. Non inventare 62 / 62.10.00 da "digitale/software/innovazione". Un prefisso ATECO solo se il testo stampa il codice. allegati solo con nome stampato dalla fonte (es. Allegato A — Modulo di domanda); mai inventare filename. Se l'avviso è a sportello senza data di chiusura (a sportello, fino a esaurimento, senza scadenza, non ha scadenza), lascia deadline_at null: non inventare una scadenza. Se la pagina non descrive un bando, incentivo o finanziamento per imprese aperto, in apertura o con documentazione ancora rilevante, imposta is_opportunity=false. official_url deve essere ${hit.url}. Date ISO 8601. Prefissi ATECO senza punteggiatura superflua. Per opportunità UE estrai programma, codice call/topic, Paesi ammessi e obbligo/minimo partner. Per PNRR estrai Missione, Componente e soggetto attuatore soltanto se espliciti.\n${schemaHint}\n\n${markdown}`;
 
   // Massimo due tentativi: schema JSON, poi eventuale fallback plain JSON.
   const modes: Array<"json_schema" | "json_fallback"> = [
@@ -1967,6 +1981,10 @@ async function storeOpportunity(
         : null);
   const deadlineProven = dateIsPresentInEvidence(proofText, deadline);
   const maxGrant = boundedNumeric(extracted.max_grant_amount, 15, 2);
+  const protocolEmail =
+    normalizeText(extracted.protocol_email).slice(0, 320) ||
+    localExtractProtocolEmail(proofText) ||
+    null;
   const verification: PersistVerification = officialVerificationStatus({
     hasEvidence,
     deadline,
@@ -1974,6 +1992,9 @@ async function storeOpportunity(
     maxGrantAmount: maxGrant,
     sportelloSenzaScadenza,
     now,
+    application_url: applyUrls.application_url,
+    forms_url: applyUrls.forms_url,
+    protocol_email: protocolEmail,
   });
   const contentHash = await sha256(markdown);
   const canonicalKey = await sha256(officialUrl.toLowerCase());
@@ -2021,8 +2042,7 @@ async function storeOpportunity(
     notice_url: normalizeUrl(extracted.notice_url),
     application_url: applyUrls.application_url,
     forms_url: applyUrls.forms_url,
-    protocol_email:
-      normalizeText(extracted.protocol_email).slice(0, 320) || null,
+    protocol_email: protocolEmail,
     // Geo fail-closed: testo ufficiale / host territoriale / seed fonte.
     // Mai ATECO, mai inventare. Non azzera un valore già persistito.
     ...(() => {
@@ -2069,6 +2089,13 @@ async function storeOpportunity(
       const local = localExtractEligibleExpenses(proofText);
       return local.length ? local : safeTextArray(extracted.eligible_expenses, 100, 1000);
     })(),
+    allegati: extractOfficialAllegati({
+      html: page?.html,
+      markdown: proofText,
+      officialUrl,
+      officialDomain: source.official_domain,
+      extracted: extracted.allegati,
+    }),
     rarity_score: visibility.rarity_score,
     is_hidden: visibility.is_hidden,
     source_kind: normalizeText(source.source_kind).slice(0, 60) || "CATALOGO",
@@ -2233,12 +2260,12 @@ serve(async (req) => {
       sb
         .from("trovabandi_opportunities")
         .select(
-          "id, official_url, notice_url, deadline_at, min_grant_amount, max_grant_amount, total_budget, verification_status, raw_excerpt, last_seen_at, authority_level, application_url, forms_url, protocol_email, eligible_ateco_prefixes, region, province, municipality",
+          "id, official_url, notice_url, deadline_at, min_grant_amount, max_grant_amount, total_budget, verification_status, raw_excerpt, last_seen_at, authority_level, application_url, forms_url, protocol_email, eligible_ateco_prefixes, region, province, municipality, allegati",
         )
         .in("verification_status", [...OPEN_VERIFICATION_STATUSES])
         .or(`deadline_at.is.null,deadline_at.gte.${nowIso}`)
         .or(
-          "deadline_at.is.null,min_grant_amount.is.null,max_grant_amount.is.null,total_budget.is.null,application_url.is.null,forms_url.is.null,protocol_email.is.null,eligible_ateco_prefixes.eq.{},region.is.null,province.is.null,municipality.is.null",
+          "deadline_at.is.null,min_grant_amount.is.null,max_grant_amount.is.null,total_budget.is.null,application_url.is.null,forms_url.is.null,protocol_email.is.null,eligible_ateco_prefixes.eq.{},region.is.null,province.is.null,municipality.is.null,allegati.eq.[]",
         )
         .order("last_seen_at", { ascending: true, nullsFirst: true })
         .limit(maxBatch);
@@ -2493,6 +2520,16 @@ serve(async (req) => {
           const exp = localExtractEligibleExpenses(page.markdown);
           if (exp.length) patch.eligible_expenses = exp;
         }
+        const existingAllegati = Array.isArray(row.allegati) ? row.allegati : [];
+        if (existingAllegati.length === 0) {
+          const allegati = extractOfficialAllegati({
+            html: page.html,
+            markdown: page.markdown,
+            officialUrl: row.official_url,
+            officialDomain: domain,
+          });
+          if (allegati.length) patch.allegati = allegati;
+        }
         const needsGeo =
           !normalizeText(row.region) ||
           !normalizeText(row.province) ||
@@ -2726,6 +2763,13 @@ serve(async (req) => {
           deadlineProven,
           maxGrantAmount: newMaxGrant,
           sportelloSenzaScadenza,
+          application_url: applyUrls.application_url,
+          forms_url: applyUrls.forms_url,
+          protocol_email:
+            (typeof patch.protocol_email === "string"
+              ? patch.protocol_email
+              : null) ??
+            (typeof row.protocol_email === "string" ? row.protocol_email : null),
         });
 
         if (newStatus !== row.verification_status) {
