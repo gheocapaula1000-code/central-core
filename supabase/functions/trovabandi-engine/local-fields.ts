@@ -5,6 +5,7 @@
 // DA_VERIFICARE / PARZIALE quando ATECO, PEC o URL domanda mancano.
 // SPORTELLO è deciso dal testo ufficiale (verification.ts), non qui.
 
+import { extractOfficialAllegati } from "./allegati.ts";
 import { extractApplyLinks } from "./apply-links.ts";
 import { EXTRACTION_CATEGORIES, type ExtractionCategory } from "./extraction.ts";
 import { resolveOpportunityGeo } from "./geo.ts";
@@ -433,6 +434,11 @@ export function localOpportunityDraft(input: {
     total_budget: input.total_budget ?? null,
     requirements: localExtractRequirements(input.markdown),
     eligible_expenses: localExtractEligibleExpenses(input.markdown),
+    allegati: extractOfficialAllegati({
+      markdown: input.markdown,
+      officialUrl: input.officialUrl,
+      officialDomain: input.officialDomain,
+    }),
     eligible_countries: [],
   };
 }

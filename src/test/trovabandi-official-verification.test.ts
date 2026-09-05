@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 import {
   EXPIRE_VERIFICATION_STATUSES,
   OPEN_VERIFICATION_STATUSES,
+  hasAttestedAmount,
+  hasAttestedTiming,
+  hasSubmissionChannel,
+  isFeedComplete,
   isProvenSportelloSenzaScadenza,
   officialVerificationStatus,
 } from "../../supabase/functions/trovabandi-engine/verification.ts";
@@ -17,6 +21,9 @@ const MIGRATION = readFileSync(
 );
 
 const NOW = new Date("2026-08-24T12:00:00.000Z");
+const CHANNEL = {
+  application_url: "https://www.regione.veneto.it/sportello-domanda",
+} as const;
 
 describe("isProvenSportelloSenzaScadenza — citazione ufficiale inequivocabile", () => {
   it("riconosce a sportello, fino a esaurimento, senza scadenza, non ha scadenza", () => {
@@ -89,7 +96,7 @@ describe("isProvenSportelloSenzaScadenza — citazione ufficiale inequivocabile"
 });
 
 describe("officialVerificationStatus", () => {
-  it("promuove VERIFICATO solo con scadenza attestata e contributo massimo", () => {
+  it("promuove VERIFICATO solo con scadenza attestata, contributo massimo e canale", () => {
     expect(
       officialVerificationStatus({
         hasEvidence: true,
@@ -97,6 +104,54 @@ describe("officialVerificationStatus", () => {
         deadlineProven: true,
         maxGrantAmount: 50000,
         now: NOW,
+        ...CHANNEL,
+      }),
+    ).toBe("VERIFICATO");
+  });
+
+  it("resta PARZIALE se manca il canale di presentazione", () => {
+    expect(
+      officialVerificationStatus({
+        hasEvidence: true,
+        deadline: "2026-12-31T00:00:00.000Z",
+        deadlineProven: true,
+        maxGrantAmount: 50000,
+        now: NOW,
+      }),
+    ).toBe("PARZIALE");
+    expect(
+      officialVerificationStatus({
+        hasEvidence: true,
+        deadline: "2026-12-31T00:00:00.000Z",
+        deadlineProven: true,
+        maxGrantAmount: 50000,
+        now: NOW,
+        application_url: "  ",
+        forms_url: null,
+        protocol_email: "",
+      }),
+    ).toBe("PARZIALE");
+  });
+
+  it("accetta forms_url o PEC come canale per VERIFICATO", () => {
+    expect(
+      officialVerificationStatus({
+        hasEvidence: true,
+        deadline: "2026-12-31T00:00:00.000Z",
+        deadlineProven: true,
+        maxGrantAmount: 50000,
+        now: NOW,
+        forms_url: "https://www.pd.camcom.it/bandi/modulo.pdf",
+      }),
+    ).toBe("VERIFICATO");
+    expect(
+      officialVerificationStatus({
+        hasEvidence: true,
+        deadline: "2026-12-31T00:00:00.000Z",
+        deadlineProven: true,
+        maxGrantAmount: 50000,
+        now: NOW,
+        protocol_email: "protocollo@regione.veneto.it",
       }),
     ).toBe("VERIFICATO");
   });
@@ -176,6 +231,7 @@ describe("officialVerificationStatus", () => {
         maxGrantAmount: 50000,
         sportelloSenzaScadenza: true,
         now: NOW,
+        ...CHANNEL,
       }),
     ).toBe("VERIFICATO");
   });
@@ -205,9 +261,76 @@ describe("officialVerificationStatus", () => {
   });
 });
 
+describe("gate scheda completa / feed-complete", () => {
+  it("importo = min/max grant, intensità o budget; mai un valore assente", () => {
+    expect(hasAttestedAmount({ max_grant_amount: 50000 })).toBe(true);
+    expect(hasAttestedAmount({ min_grant_amount: 1000 })).toBe(true);
+    expect(hasAttestedAmount({ aid_intensity_percent: 40 })).toBe(true);
+    expect(hasAttestedAmount({ total_budget: 2_000_000 })).toBe(true);
+    expect(hasAttestedAmount({})).toBe(false);
+    expect(hasAttestedAmount({ max_grant_amount: 0 })).toBe(false);
+  });
+
+  it("timing = scadenza attestata, apertura o sportello", () => {
+    expect(
+      hasAttestedTiming({
+        deadline: "2026-12-31T00:00:00.000Z",
+        deadlineProven: true,
+      }),
+    ).toBe(true);
+    expect(hasAttestedTiming({ opens_at: "2026-03-01T00:00:00.000Z" })).toBe(
+      true,
+    );
+    expect(hasAttestedTiming({ sportelloSenzaScadenza: true })).toBe(true);
+    expect(
+      hasAttestedTiming({
+        deadline: "2026-12-31T00:00:00.000Z",
+        deadlineProven: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("canale = application_url, forms_url o PEC", () => {
+    expect(hasSubmissionChannel(CHANNEL)).toBe(true);
+    expect(
+      hasSubmissionChannel({ protocol_email: "protocollo@regione.veneto.it" }),
+    ).toBe(true);
+    expect(hasSubmissionChannel({})).toBe(false);
+  });
+
+  it("isFeedComplete richiede le tre assi; non promuove VERIFICATO da sola", () => {
+    expect(
+      isFeedComplete({
+        total_budget: 1_000_000,
+        opens_at: "2026-03-01T00:00:00.000Z",
+        ...CHANNEL,
+      }),
+    ).toBe(true);
+    expect(
+      isFeedComplete({
+        max_grant_amount: 50000,
+        deadline: "2026-12-31T00:00:00.000Z",
+        deadlineProven: true,
+      }),
+    ).toBe(false);
+    expect(
+      officialVerificationStatus({
+        hasEvidence: true,
+        deadline: null,
+        deadlineProven: false,
+        maxGrantAmount: null,
+        now: NOW,
+        ...CHANNEL,
+      }),
+    ).not.toBe("VERIFICATO");
+  });
+});
+
 describe("extract/backfill wiring", () => {
   it("usa officialVerificationStatus e non inventa COMPATIBILE né ATECO 62", () => {
     expect(ENGINE).toContain("officialVerificationStatus");
+    expect(ENGINE).toContain("application_url: applyUrls.application_url");
+    expect(ENGINE).toContain("forms_url: applyUrls.forms_url");
     expect(ENGINE).toContain("isProvenSportelloSenzaScadenza");
     expect(ENGINE).toContain("sportelloSenzaScadenza");
     expect(ENGINE).toContain("OPEN_VERIFICATION_STATUSES");

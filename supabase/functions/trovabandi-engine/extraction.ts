@@ -261,6 +261,7 @@ export function validateExtraction(
     "requirements",
     "eligible_expenses",
     "eligible_countries",
+    "allegati",
   ];
   for (const field of arrayFields) {
     const value = parsed[field];

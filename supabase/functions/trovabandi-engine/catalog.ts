@@ -47,6 +47,7 @@ export const CATALOG_SELECT_COLUMNS = [
   "eligible_countries",
   "eligible_ateco_prefixes",
   "verification_status",
+  "allegati",
 ].join(",");
 
 export type CatalogProfile = {
@@ -274,6 +275,7 @@ const CATALOG_OPTIONAL_FIELDS = [
   "eligible_countries",
   "eligible_ateco_prefixes",
   "verification_status",
+  "allegati",
 ];
 
 export function mapCatalogBando(

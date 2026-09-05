@@ -19,7 +19,8 @@ le corsie sono `lane` sul `collect` notturno.
   persistito. `dry_run: true` = selezione fair senza lease, provider o
   scritture.
 - `backfill_nulls`: riempie scadenza, importi, ATECO, geo (regione/provincia/comune),
-  URL domanda / modulistica e PEC sulle righe già in catalogo. Preferisce
+  URL domanda / modulistica, PEC e `allegati` (solo se la fonte li noma) sulle
+  righe già in catalogo. Preferisce
   `raw_excerpt` / HTTP ufficiale / seed territoriale. Mai inventa geo.
   Default `dry_run: true`. I cron di produzione passano `dry_run: false`
   e `allow_paid_extract: false`. Non ricrawla `bur.regione.fvg.it`.
@@ -160,7 +161,17 @@ Una misura a sportello senza data di chiusura, se la citazione ufficiale
 è inequivocabile (`a sportello`, `fino a esaurimento`, `senza scadenza`,
 `non ha scadenza`), è `SPORTELLO` con `deadline_at` NULL: non si inventa
 una scadenza e non si degrada a `PARZIALE`. `VERIFICATO` resta solo con
-scadenza e contributo massimo entrambi attestati.
+evidenza, scadenza attestata, contributo massimo **e** un canale di
+presentazione (`application_url` o `forms_url` o `protocol_email`).
+Intensità, budget o sola data di apertura non bastano per `VERIFICATO`
+(sono la soglia `isFeedComplete` per una scheda firmabile).
+
+`allegati` è `[{nome, url?, obbligatorio}]` su `trovabandi_opportunities`
+e sul catalogo. Si popola soltanto se la fonte ufficiale noma l'allegato
+(Allegato A — …, elenco sotto *Allegati*/*Modulistica*, link etichettato).
+Niente filename inventati: assente ⇒ `[]`, omesso dal catalogo. La PWA
+UERADAR può consumare il campo in un follow-up; questo contratto è
+Core-first.
 
 Timeout per chiamata 180 secondi. Retry massimo 1 soltanto su rete/5xx.
 `NO_SOURCE_DUE` = `SKIPPED`. Un run `PARTIAL` risponde HTTP 502.
